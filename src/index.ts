@@ -296,10 +296,18 @@ async function runIngestion(env: Env) {
           is_stealthed,
           is_raid,
           is_ranked_war,
+
+          m_fair_fight,
+          m_war,
+          m_retaliation,
+          m_group,
+          m_overseas,
+          m_chain,
+          m_warlord,
         
           fetched_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                   ON CONFLICT(id) DO UPDATE SET
           war_id = COALESCE(attacks.war_id, excluded.war_id),
           code = excluded.code,
@@ -327,6 +335,14 @@ async function runIngestion(env: Env) {
           is_stealthed = excluded.is_stealthed,
           is_raid = excluded.is_raid,
           is_ranked_war = excluded.is_ranked_war,
+
+          m_fair_fight = excluded.m_fair_fight,
+          m_war = excluded.m_war,
+          m_retaliation = excluded.m_retaliation,
+          m_group = excluded.m_group,
+          m_overseas = excluded.m_overseas,
+          m_chain = excluded.m_chain,
+          m_warlord = excluded.m_warlord,
         
           fetched_at = CURRENT_TIMESTAMP
         `
@@ -356,7 +372,14 @@ async function runIngestion(env: Env) {
           boolToInt(attack.is_interrupted),
           boolToInt(attack.is_stealthed),
           boolToInt(attack.is_raid),
-          boolToInt(attack.is_ranked_war)
+          boolToInt(attack.is_ranked_war),
+          attack.modifiers?.fair_fight ?? 1,
+          attack.modifiers?.war ?? 1,
+          attack.modifiers?.retaliation ?? 1,
+          attack.modifiers?.group ?? 1,
+          attack.modifiers?.overseas ?? 1,
+          attack.modifiers?.chain ?? 1,
+          attack.modifiers?.warlord ?? 1
         )
       );
     }
