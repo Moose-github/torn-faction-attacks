@@ -61,7 +61,7 @@ export default {
       console.error("Cron ingestion failed:", err);
     })
   );
-};
+}
 
 async function runIngestion(env: Env) {
   await ensureState(env);
