@@ -55,13 +55,16 @@ export default {
     return json({ error: "Not found" }, 404);
   },
 
-  async scheduled(
-    event: ScheduledController,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<void> {
-    ctx.waitUntil(runIngestion(env));
-  },
+
+  async scheduled(event: any, env: Env, ctx: any): 
+    Promise<void> {
+  ctx.waitUntil(
+    runIngestion(env).catch((err) => {
+      console.error("Cron ingestion failed:", err?.message || err);
+      console.error(err);
+    })
+  );
+},
 };
 
 async function runIngestion(env: Env) {
