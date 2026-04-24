@@ -36,20 +36,33 @@ export default {
 
     if (url.pathname.startsWith("/api/wars/new/")) {
       try {
-        const name = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+        const name = decodeURIComponent(url.pathname.split("/").pop() ?? "").trim();
     
         if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
-          return json({ error: "Invalid war name" }, 400);
+          return json({
+            ok: false,
+            error: "Invalid war name",
+            code: "INVALID_NAME"
+          }, 400);
         }
     
-        // 🔍 Check for duplicate first (friendly error)
-        const existing = await env.DB.prepare(`
-          SELECT id FROM wars WHERE name = ?
-        `).bind(name).first();
+        // Enforce only one active war at a time
+        const activeWar = await env.DB.prepare(`
+          SELECT id, name
+          FROM wars
+          WHERE status = 'active'
+          LIMIT 1
+        `).first() as { id: number; name: string } | null;
     
-        if (existing) {
+        if (activeWar) {
           return json({
-            error: "War with this name already exists"
+            ok: false,
+            error: "Another war is already active",
+            code: "ACTIVE_WAR_EXISTS",
+            active_war: {
+              id: activeWar.id,
+              name: activeWar.name
+            }
           }, 400);
         }
     
@@ -76,15 +89,20 @@ export default {
         });
     
       } catch (err: any) {
-        // fallback if DB unique constraint triggers
-        if (err?.message?.includes("UNIQUE")) {
+        const message = err?.message || String(err);
+    
+        if (message.includes("UNIQUE constraint failed: wars.name")) {
           return json({
-            error: "War name must be unique"
+            ok: false,
+            error: "War name already exists",
+            code: "WAR_NAME_EXISTS"
           }, 400);
         }
     
         return json({
-          error: err?.message || String(err)
+          ok: false,
+          error: message,
+          code: "INTERNAL_ERROR"
         }, 500);
       }
     }
