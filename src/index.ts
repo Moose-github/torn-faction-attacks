@@ -35,32 +35,58 @@ export default {
     }
 
     if (url.pathname.startsWith("/api/wars/new/")) {
-      const name = decodeURIComponent(url.pathname.split("/").pop() ?? "");
-
-      if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
-        return json({ error: "Invalid war name" }, 400);
+      try {
+        const name = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+    
+        if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
+          return json({ error: "Invalid war name" }, 400);
+        }
+    
+        // 🔍 Check for duplicate first (friendly error)
+        const existing = await env.DB.prepare(`
+          SELECT id FROM wars WHERE name = ?
+        `).bind(name).first();
+    
+        if (existing) {
+          return json({
+            error: "War with this name already exists"
+          }, 400);
+        }
+    
+        const now = Math.floor(Date.now() / 1000);
+    
+        const war = await env.DB.prepare(`
+          INSERT INTO wars (name, status, started_at)
+          VALUES (?, 'active', ?)
+          RETURNING id
+        `).bind(name, now).first() as { id: number } | null;
+    
+        await env.DB.prepare(`
+          INSERT INTO sync_state (name, last_started, active_war_id, updated_at)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(name) DO UPDATE SET
+            active_war_id = excluded.active_war_id,
+            updated_at = CURRENT_TIMESTAMP
+        `).bind(SOURCE_NAME, now, war?.id).run();
+    
+        return json({
+          ok: true,
+          war_id: war?.id,
+          name
+        });
+    
+      } catch (err: any) {
+        // fallback if DB unique constraint triggers
+        if (err?.message?.includes("UNIQUE")) {
+          return json({
+            error: "War name must be unique"
+          }, 400);
+        }
+    
+        return json({
+          error: err?.message || String(err)
+        }, 500);
       }
-
-      const now = Math.floor(Date.now() / 1000);
-
-      const war = (await env.DB.prepare(`INSERT INTO wars (name, status, started_at) VALUES (?, 'active', ?) RETURNING id`)
-        .bind(name, now)
-        .first()) as { id: number } | null;
-
-      await env.DB.prepare(
-        `INSERT INTO sync_state (name, last_started, active_war_id, updated_at)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(name) DO UPDATE SET
-        active_war_id = excluded.active_war_id,
-        updated_at = CURRENT_TIMESTAMP`)
-        .bind(SOURCE_NAME, now, war?.id)
-        .run();
-
-      return json({
-        ok: true,
-        war_id: war?.id,
-        name,
-      });
     }
 
     if (url.pathname === "/api/wars/end") {
