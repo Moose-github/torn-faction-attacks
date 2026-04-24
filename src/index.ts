@@ -92,32 +92,64 @@ async function runIngestion(env: Env) {
       statements.push(
         env.DB.prepare(`
           INSERT INTO attacks (
-            id,
-            code,
-            started,
-            ended,
-            attacker_id,
-            attacker_faction_id,
-            defender_id,
-            defender_faction_id,
-            result,
-            respect_gain,
-            respect_loss,
-            fetched_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  id,
+  code,
+  started,
+  ended,
+
+  attacker_id,
+  attacker_name,
+  attacker_level,
+  attacker_faction_id,
+  attacker_faction_name,
+
+  defender_id,
+  defender_name,
+  defender_level,
+  defender_faction_id,
+  defender_faction_name,
+
+  result,
+  respect_gain,
+  respect_loss,
+  chain,
+
+  is_interrupted,
+  is_stealthed,
+  is_raid,
+  is_ranked_war,
+
+  fetched_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           ON CONFLICT(id) DO UPDATE SET
-            code = excluded.code,
-            started = excluded.started,
-            ended = excluded.ended,
-            attacker_id = excluded.attacker_id,
-            attacker_faction_id = excluded.attacker_faction_id,
-            defender_id = excluded.defender_id,
-            defender_faction_id = excluded.defender_faction_id,
-            result = excluded.result,
-            respect_gain = excluded.respect_gain,
-            respect_loss = excluded.respect_loss,
-            fetched_at = CURRENT_TIMESTAMP
+  code = excluded.code,
+  started = excluded.started,
+  ended = excluded.ended,
+
+  attacker_id = excluded.attacker_id,
+  attacker_name = excluded.attacker_name,
+  attacker_level = excluded.attacker_level,
+  attacker_faction_id = excluded.attacker_faction_id,
+  attacker_faction_name = excluded.attacker_faction_name,
+
+  defender_id = excluded.defender_id,
+  defender_name = excluded.defender_name,
+  defender_level = excluded.defender_level,
+  defender_faction_id = excluded.defender_faction_id,
+  defender_faction_name = excluded.defender_faction_name,
+
+  result = excluded.result,
+  respect_gain = excluded.respect_gain,
+  respect_loss = excluded.respect_loss,
+  chain = excluded.chain,
+
+  is_interrupted = excluded.is_interrupted,
+  is_stealthed = excluded.is_stealthed,
+  is_raid = excluded.is_raid,
+  is_ranked_war = excluded.is_ranked_war,
+
+  fetched_at = CURRENT_TIMESTAMP
         `).bind(
             attack.id,
             attack.code ?? null,
