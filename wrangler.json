@@ -4,7 +4,7 @@
   "name": "torn-faction-attacks",
   "upload_source_maps": true,
   "triggers": {
-    "crons": ["*/5 * * * *"]
+    "crons": []
   },
   "d1_databases": [
     {
