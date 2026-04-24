@@ -255,116 +255,81 @@ async function runIngestion(env: Env) {
   while (true) {
     const data = await fetchAttacks(env, from);
     const attacks = data.attacks ?? [];
-
+  
     if (attacks.length === 0) {
       break;
     }
-
+  
     const statements: D1PreparedStatement[] = [];
-
+    let pageNewestStarted = newestStarted;
+  
     for (const attack of attacks) {
-      newestStarted = Math.max(newestStarted, attack.started ?? 0);
-
+      pageNewestStarted = Math.max(pageNewestStarted, attack.started ?? 0);
+  
       statements.push(
         env.DB.prepare(
           `
           INSERT INTO attacks (
-          id,
-          war_id,
-          code,
-          started,
-          ended,
-        
-          attacker_id,
-          attacker_name,
-          attacker_level,
-          attacker_faction_id,
-          attacker_faction_name,
-        
-          defender_id,
-          defender_name,
-          defender_level,
-          defender_faction_id,
-          defender_faction_name,
-        
-          result,
-          respect_gain,
-          respect_loss,
-          chain,
-        
-          is_interrupted,
-          is_stealthed,
-          is_raid,
-          is_ranked_war,
-
-          m_fair_fight,
-          m_war,
-          m_retaliation,
-          m_group,
-          m_overseas,
-          m_chain,
-          m_warlord,
-        
-          fetched_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                  ON CONFLICT(id) DO UPDATE SET
-          war_id = COALESCE(attacks.war_id, excluded.war_id),
-          code = excluded.code,
-          started = excluded.started,
-          ended = excluded.ended,
-        
-          attacker_id = excluded.attacker_id,
-          attacker_name = excluded.attacker_name,
-          attacker_level = excluded.attacker_level,
-          attacker_faction_id = excluded.attacker_faction_id,
-          attacker_faction_name = excluded.attacker_faction_name,
-        
-          defender_id = excluded.defender_id,
-          defender_name = excluded.defender_name,
-          defender_level = excluded.defender_level,
-          defender_faction_id = excluded.defender_faction_id,
-          defender_faction_name = excluded.defender_faction_name,
-        
-          result = excluded.result,
-          respect_gain = excluded.respect_gain,
-          respect_loss = excluded.respect_loss,
-          chain = excluded.chain,
-        
-          is_interrupted = excluded.is_interrupted,
-          is_stealthed = excluded.is_stealthed,
-          is_raid = excluded.is_raid,
-          is_ranked_war = excluded.is_ranked_war,
-
-          m_fair_fight = excluded.m_fair_fight,
-          m_war = excluded.m_war,
-          m_retaliation = excluded.m_retaliation,
-          m_group = excluded.m_group,
-          m_overseas = excluded.m_overseas,
-          m_chain = excluded.m_chain,
-          m_warlord = excluded.m_warlord,
-        
-          fetched_at = CURRENT_TIMESTAMP
-        `
+            id,
+            war_id,
+            code,
+            started,
+            ended,
+  
+            attacker_id,
+            attacker_name,
+            attacker_level,
+            attacker_faction_id,
+            attacker_faction_name,
+  
+            defender_id,
+            defender_name,
+            defender_level,
+            defender_faction_id,
+            defender_faction_name,
+  
+            result,
+            respect_gain,
+            respect_loss,
+            chain,
+  
+            is_interrupted,
+            is_stealthed,
+            is_raid,
+            is_ranked_war,
+  
+            m_fair_fight,
+            m_war,
+            m_retaliation,
+            m_group,
+            m_overseas,
+            m_chain,
+            m_warlord,
+  
+            fetched_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(id) DO NOTHING
+          `
         ).bind(
           attack.id,
           activeWarId,
           attack.code ?? null,
           attack.started ?? null,
           attack.ended ?? null,
-
+  
           attack.attacker?.id ?? null,
           attack.attacker?.name ?? null,
           attack.attacker?.level ?? null,
           attack.attacker?.faction?.id ?? null,
           attack.attacker?.faction?.name ?? null,
-
+  
           attack.defender?.id ?? null,
           attack.defender?.name ?? null,
           attack.defender?.level ?? null,
           attack.defender?.faction?.id ?? null,
           attack.defender?.faction?.name ?? null,
-
+  
           attack.result ?? null,
           attack.respect_gain ?? 0,
           attack.respect_loss ?? 0,
@@ -383,11 +348,13 @@ async function runIngestion(env: Env) {
         )
       );
     }
-
+  
     if (statements.length > 0) {
       await env.DB.batch(statements);
     }
-
+  
+    newestStarted = pageNewestStarted;
+  
     await env.DB.prepare(
       `
       INSERT INTO sync_state (name, last_started, updated_at)
@@ -395,17 +362,18 @@ async function runIngestion(env: Env) {
       ON CONFLICT(name) DO UPDATE SET
         last_started = excluded.last_started,
         updated_at = CURRENT_TIMESTAMP
-    `
+      `
     )
       .bind(SOURCE_NAME, newestStarted)
       .run();
-
+  
     if (attacks.length < LIMIT) {
       break;
     }
-
+  
     from = newestStarted;
   }
+
 }
 
 async function fetchAttacks(
