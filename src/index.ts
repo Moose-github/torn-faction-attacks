@@ -17,6 +17,11 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === "/api/run") {
+      await runIngestion(env);
+      return json({ ok: true });
+  }
+    
     if (url.pathname === "/api/health") {
       return json({ ok: true });
     }
