@@ -129,6 +129,38 @@ export default {
       return json({ ok: true });
     }
 
+    if (url.pathname === "/api/wars") {
+      try {
+        const rows = await env.DB.prepare(`
+          SELECT
+            w.id,
+            w.name,
+            w.status,
+            w.started_at,
+            w.ended_at,
+    
+            COUNT(a.id) AS attack_count
+    
+          FROM wars w
+          LEFT JOIN attacks a ON a.war_id = w.id
+          GROUP BY w.id
+          ORDER BY w.started_at DESC
+        `).all();
+    
+        return json({
+          ok: true,
+          wars: rows.results ?? []
+        });
+    
+      } catch (err: any) {
+        return json({
+          ok: false,
+          error: err?.message || String(err),
+          code: "INTERNAL_ERROR"
+        }, 500);
+      }
+    }
+
     if (url.pathname.startsWith("/api/wars/") && url.pathname.endsWith("/attacks")) {
       try {
         const name = decodeURIComponent(url.pathname.split("/")[3]).trim();
