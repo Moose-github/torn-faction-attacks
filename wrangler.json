@@ -1,0 +1,16 @@
+{
+	"compatibility_date": "2025-10-08",
+	"main": "src/index.ts",
+	"name": "torn-faction-attacks",
+	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_id": "954da4c5-24ab-40d1-83d0-6dcc782d3668",
+			"database_name": "torn_attacks_db"
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}
