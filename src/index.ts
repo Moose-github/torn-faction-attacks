@@ -119,18 +119,32 @@ async function runIngestion(env: Env) {
             respect_loss = excluded.respect_loss,
             fetched_at = CURRENT_TIMESTAMP
         `).bind(
-          attack.id,
-          attack.code ?? null,
-          attack.started ?? null,
-          attack.ended ?? null,
-          attack.attacker?.id ?? null,
-          attack.attacker?.faction_id ?? null,
-          attack.defender?.id ?? null,
-          attack.defender?.faction_id ?? null,
-          attack.result ?? null,
-          attack.respect_gain ?? 0,
-          attack.respect_loss ?? 0
-        )
+            attack.id,
+            attack.code ?? null,
+            attack.started ?? null,
+            attack.ended ?? null,
+          
+            attack.attacker?.id ?? null,
+            attack.attacker?.name ?? null,
+            attack.attacker?.level ?? null,
+            attack.attacker?.faction?.id ?? null,
+            attack.attacker?.faction?.name ?? null,
+          
+            attack.defender?.id ?? null,
+            attack.defender?.name ?? null,
+            attack.defender?.level ?? null,
+            attack.defender?.faction?.id ?? null,
+            attack.defender?.faction?.name ?? null,
+          
+            attack.result ?? null,
+            attack.respect_gain ?? 0,
+            attack.respect_loss ?? 0,
+            attack.chain ?? null,
+            boolToInt(attack.is_interrupted),
+            boolToInt(attack.is_stealthed),
+            boolToInt(attack.is_raid),
+            boolToInt(attack.is_ranked_war)
+          )
       );
     }
 
@@ -194,6 +208,11 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+function boolToInt(value: boolean | undefined): number | null {
+  if (value === undefined) return null;
+  return value ? 1 : 0;
+}
+
 type TornAttackResponse = {
   attacks?: TornAttack[];
 };
@@ -203,15 +222,39 @@ type TornAttack = {
   code?: string;
   started?: number;
   ended?: number;
-  attacker?: {
-    id?: number;
-    faction_id?: number;
-  };
-  defender?: {
-    id?: number;
-    faction_id?: number;
-  };
+
+  attacker?: TornAttackUser | null;
+  defender?: TornAttackUser | null;
+
   result?: string;
   respect_gain?: number;
   respect_loss?: number;
+
+  chain?: number;
+  is_interrupted?: boolean;
+  is_stealthed?: boolean;
+  is_raid?: boolean;
+  is_ranked_war?: boolean;
+
+  modifiers?: {
+    fair_fight?: number;
+    war?: number;
+    retaliation?: number;
+    group?: number;
+    overseas?: number;
+    chain?: number;
+    warlord?: number;
+  };
+
+  finishing_hit_effects?: unknown[];
+};
+
+type TornAttackUser = {
+  id?: number;
+  name?: string;
+  level?: number;
+  faction?: {
+    id?: number;
+    name?: string;
+  } | null;
 };
