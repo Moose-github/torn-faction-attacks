@@ -129,17 +129,58 @@ export default {
       return json({ ok: true });
     }
 
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/attacks")
-    ) {
-      const warId = Number(url.pathname.split("/")[3]);
-
-      const rows = await env.DB.prepare(`SELECT * FROM attacks WHERE war_id = ? ORDER BY started DESC LIMIT 100`)
-        .bind(warId)
-        .all();
-
-      return json(rows.results ?? []);
+    if (url.pathname.startsWith("/api/wars/") && url.pathname.endsWith("/attacks")) {
+      try {
+        const warId = Number(url.pathname.split("/")[3]);
+    
+        if (!warId || isNaN(warId)) {
+          return json({
+            ok: false,
+            error: "Invalid war id",
+            code: "INVALID_WAR_ID"
+          }, 400);
+        }
+    
+        // 🔍 Check war exists
+        const war = await env.DB.prepare(`
+          SELECT id, name
+          FROM wars
+          WHERE id = ?
+        `).bind(warId).first() as { id: number; name: string } | null;
+    
+        if (!war) {
+          return json({
+            ok: false,
+            error: "War not found",
+            code: "WAR_NOT_FOUND"
+          }, 404);
+        }
+    
+        // Fetch attacks for war
+        const rows = await env.DB.prepare(`
+          SELECT *
+          FROM attacks
+          WHERE war_id = ?
+          ORDER BY started DESC
+          LIMIT 100
+        `).bind(warId).all();
+    
+        return json({
+          ok: true,
+          war: {
+            id: war.id,
+            name: war.name
+          },
+          attacks: rows.results ?? []
+        });
+    
+      } catch (err: any) {
+        return json({
+          ok: false,
+          error: err?.message || String(err),
+          code: "INTERNAL_ERROR"
+        }, 500);
+      }
     }
 
     if (url.pathname === "/api/stats") {
