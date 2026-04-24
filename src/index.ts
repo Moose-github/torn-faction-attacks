@@ -55,13 +55,12 @@ export default {
     return json({ error: "Not found" }, 404);
   },
 
-  async scheduled(
-    event: ScheduledController,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<void> {
-    ctx.waitUntil(runIngestion(env));
-  },
+  async scheduled(event: any, env: Env, ctx: any): Promise<void> {
+  ctx.waitUntil(
+    runIngestion(env).catch((err) => {
+      console.error("Cron ingestion failed:", err);
+    })
+  );
 };
 
 async function runIngestion(env: Env) {
@@ -175,11 +174,13 @@ async function fetchAttacks(env: Env, from: number): Promise<TornAttackResponse>
 }
 
 async function ensureState(env: Env) {
+  const now = Math.floor(Date.now() / 1000);
+
   await env.DB.prepare(`
     INSERT INTO sync_state (name, last_started, updated_at)
-    VALUES (?, 0, CURRENT_TIMESTAMP)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(name) DO NOTHING
-  `).bind(SOURCE_NAME).run();
+  `).bind(SOURCE_NAME, now).run();
 }
 
 function json(data: unknown, status = 200): Response {
