@@ -131,22 +131,19 @@ export default {
 
     if (url.pathname.startsWith("/api/wars/") && url.pathname.endsWith("/attacks")) {
       try {
-        const warId = Number(url.pathname.split("/")[3]);
+        const name = decodeURIComponent(url.pathname.split("/")[3]).trim();
     
-        if (!warId || isNaN(warId)) {
+        if (!name) {
           return json({
             ok: false,
-            error: "Invalid war id",
-            code: "INVALID_WAR_ID"
+            error: "Invalid war name",
+            code: "INVALID_WAR_NAME"
           }, 400);
         }
     
-        // 🔍 Check war exists
-        const war = await env.DB.prepare(`
-          SELECT id, name
-          FROM wars
-          WHERE id = ?
-        `).bind(warId).first() as { id: number; name: string } | null;
+        // 🔍 Find war by name
+        const war = await env.DB.prepare(`SELECT id, name FROM wars WHERE LOWER(name) = LOWER(?) LIMIT 1 `)
+          .bind(name).first() as { id: number; name: string } | null;
     
         if (!war) {
           return json({
@@ -163,14 +160,11 @@ export default {
           WHERE war_id = ?
           ORDER BY started DESC
           LIMIT 100
-        `).bind(warId).all();
+        `).bind(war.id).all();
     
         return json({
           ok: true,
-          war: {
-            id: war.id,
-            name: war.name
-          },
+          war,
           attacks: rows.results ?? []
         });
     
