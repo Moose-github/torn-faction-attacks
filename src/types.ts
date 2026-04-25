@@ -56,8 +56,10 @@ export type WarRow = {
   id: number;
   name: string;
   status: string;
-  started_at: number;
-  ended_at: number | null;
+  start_time: number;
+  finish_time: number | null;
+  faction_id: number | null;
+  war_type: string | null;
   finalized_at: number | null;
 };
 
@@ -65,13 +67,14 @@ export type WarSummaryRow = {
   war_id: number;
   war_name: string;
   status: string;
-  started_at: number;
-  ended_at: number | null;
-  total_attacks: number;
+  start_time: number;
+  finish_time: number | null;
+  faction_attacks: number;
+  enemy_attacks: number;
+  outside_hits_outgoing: number;
   total_respect_gain: number;
   total_respect_lost: number;
   unique_attackers: number;
-  unique_members_lost_defends: number;
   first_attack_at: number | null;
   last_attack_at: number | null;
   updated_at: number;
