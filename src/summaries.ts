@@ -154,125 +154,8 @@ export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Pro
     .bind(warId)
     .run();
 
-  await env.DB.prepare(
-    `
-    INSERT INTO war_member_stats (
-      war_id,
-      member_id,
-      member_name,
-      attacks_made,
-      attacks_succeeded,
-      attack_assist,
-      outside_attacks,
-      hospitalized_friendly,
-      hospitalized_enemy,
-      respect_gain,
-      first_attack_at,
-      last_attack_at
-    )
-    SELECT
-      a.war_id,
-      a.attacker_id,
-      MAX(a.attacker_name),
-      SUM(CASE
-        WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id THEN 1
-        ELSE 0
-      END) AS attacks_made,
-      SUM(CASE
-        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
-         AND a.result IN (${POSITIVE_RESULTS_SQL})
-        THEN 1
-        ELSE 0
-      END) AS attacks_succeeded,
-      SUM(CASE
-        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
-         AND a.result = 'Assist'
-        THEN 1
-        ELSE 0
-      END) AS attack_assist,
-      SUM(CASE
-        WHEN w.faction_id IS NOT NULL
-         AND (
-           a.defender_faction_id IS NULL
-           OR a.defender_faction_id != w.faction_id
-         )
-        THEN 1
-        ELSE 0
-      END) AS outside_attacks,
-      SUM(CASE
-        WHEN a.result = 'Hospitalized'
-         AND a.defender_faction_id = ${HOME_FACTION_ID}
-        THEN 1
-        ELSE 0
-      END) AS hospitalized_friendly,
-      SUM(CASE
-        WHEN w.faction_id IS NOT NULL
-         AND a.result = 'Hospitalized'
-         AND a.defender_faction_id = w.faction_id
-        THEN 1
-        ELSE 0
-      END) AS hospitalized_enemy,
-      COALESCE(SUM(CASE
-        WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id
-        THEN a.respect_gain
-        ELSE 0
-      END), 0) AS respect_gain,
-      MIN(a.started) AS first_attack_at,
-      MAX(a.started) AS last_attack_at
-    FROM attacks a
-    JOIN wars w ON w.id = a.war_id
-    WHERE a.war_id = ?
-      AND a.attacker_faction_id = ?
-      AND a.attacker_id IS NOT NULL
-    GROUP BY a.war_id, a.attacker_id
-    `,
-  )
-    .bind(warId, HOME_FACTION_ID)
-    .run();
-
-  await env.DB.prepare(
-    `
-    INSERT INTO war_member_stats (
-      war_id,
-      member_id,
-      member_name,
-      defends_lost,
-      respect_lost,
-      first_attack_at,
-      last_attack_at
-    )
-    SELECT
-      a.war_id,
-      a.defender_id,
-      MAX(a.defender_name),
-      COUNT(*) AS defends_lost,
-      COALESCE(SUM(a.respect_gain), 0) AS respect_lost,
-      MIN(a.started) AS first_attack_at,
-      MAX(a.started) AS last_attack_at
-    FROM attacks a
-    WHERE a.war_id = ?
-      AND a.defender_faction_id = ?
-      AND a.defender_id IS NOT NULL
-      AND a.result IN (${POSITIVE_RESULTS_SQL})
-    GROUP BY a.war_id, a.defender_id
-    ON CONFLICT(war_id, member_id) DO UPDATE SET
-      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      defends_lost = excluded.defends_lost,
-      respect_lost = excluded.respect_lost,
-      first_attack_at = CASE
-        WHEN war_member_stats.first_attack_at IS NULL THEN excluded.first_attack_at
-        WHEN excluded.first_attack_at IS NULL THEN war_member_stats.first_attack_at
-        ELSE MIN(war_member_stats.first_attack_at, excluded.first_attack_at)
-      END,
-      last_attack_at = CASE
-        WHEN war_member_stats.last_attack_at IS NULL THEN excluded.last_attack_at
-        WHEN excluded.last_attack_at IS NULL THEN war_member_stats.last_attack_at
-        ELSE MAX(war_member_stats.last_attack_at, excluded.last_attack_at)
-      END
-    `,
-  )
-    .bind(warId, HOME_FACTION_ID)
-    .run();
+  await upsertWarMemberAttackStats(env, warId);
+  await upsertWarMemberDefendStats(env, warId);
 }
 
 async function ensureWarSummaryRow(env: Env, warId: number): Promise<void> {
@@ -307,21 +190,36 @@ async function incrementWarMemberStatsFromRun(
   warId: number,
   ingestRunId: string,
 ): Promise<void> {
+  await upsertWarMemberAttackStats(env, warId, ingestRunId);
+  await upsertWarMemberDefendStats(env, warId, ingestRunId);
+}
+
+async function upsertWarMemberAttackStats(
+  env: Env,
+  warId: number,
+  ingestRunId?: string,
+): Promise<void> {
+  const ingestFilter = ingestRunId ? "AND a.ingest_run_id = ?" : "";
+  const bindValues = ingestRunId
+    ? [warId, ingestRunId, HOME_FACTION_ID]
+    : [warId, HOME_FACTION_ID];
+
   await env.DB.prepare(
     `
     INSERT INTO war_member_stats (
       war_id,
       member_id,
       member_name,
-      attacks_made,
-      attacks_succeeded,
-      attack_assist,
+      enemy_attacks_total,
+      enemy_attacks_successful,
+      enemy_respect_gained,
+      enemy_assists,
+      enemy_hospitalizations,
+      enemy_mugs,
       outside_attacks,
-      hospitalized_friendly,
-      hospitalized_enemy,
-      respect_gain,
-      first_attack_at,
-      last_attack_at
+      friendly_hospitals,
+      first_action_at,
+      last_action_at
     )
     SELECT
       a.war_id,
@@ -330,24 +228,45 @@ async function incrementWarMemberStatsFromRun(
       SUM(CASE
         WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id THEN 1
         ELSE 0
-      END) AS attacks_made,
+      END) AS enemy_attacks_total,
       SUM(CASE
         WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
          AND a.result IN (${POSITIVE_RESULTS_SQL})
         THEN 1
         ELSE 0
-      END) AS attacks_succeeded,
+      END) AS enemy_attacks_successful,
+      COALESCE(SUM(CASE
+        WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id
+        THEN a.respect_gain
+        ELSE 0
+      END), 0) AS enemy_respect_gained,
       SUM(CASE
         WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
          AND a.result = 'Assist'
         THEN 1
         ELSE 0
-      END) AS attack_assist,
+      END) AS enemy_assists,
+      SUM(CASE
+        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+         AND a.result = 'Hospitalized'
+        THEN 1
+        ELSE 0
+      END) AS enemy_hospitalizations,
+      SUM(CASE
+        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+         AND a.result = 'Mugged'
+        THEN 1
+        ELSE 0
+      END) AS enemy_mugs,
       SUM(CASE
         WHEN w.faction_id IS NOT NULL
          AND (
            a.defender_faction_id IS NULL
            OR a.defender_faction_id != w.faction_id
+         )
+         AND NOT (
+           a.defender_faction_id = ${HOME_FACTION_ID}
+           AND a.result = 'Hospitalized'
          )
         THEN 1
         ELSE 0
@@ -357,51 +276,51 @@ async function incrementWarMemberStatsFromRun(
          AND a.defender_faction_id = ${HOME_FACTION_ID}
         THEN 1
         ELSE 0
-      END) AS hospitalized_friendly,
-      SUM(CASE
-        WHEN w.faction_id IS NOT NULL
-         AND a.result = 'Hospitalized'
-         AND a.defender_faction_id = w.faction_id
-        THEN 1
-        ELSE 0
-      END) AS hospitalized_enemy,
-      COALESCE(SUM(CASE
-        WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id
-        THEN a.respect_gain
-        ELSE 0
-      END), 0) AS respect_gain,
-      MIN(a.started) AS first_attack_at,
-      MAX(a.started) AS last_attack_at
+      END) AS friendly_hospitals,
+      MIN(a.started) AS first_action_at,
+      MAX(a.started) AS last_action_at
     FROM attacks a
     JOIN wars w ON w.id = a.war_id
     WHERE a.war_id = ?
-      AND a.ingest_run_id = ?
+      ${ingestFilter}
       AND a.attacker_faction_id = ?
       AND a.attacker_id IS NOT NULL
     GROUP BY a.war_id, a.attacker_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      attacks_made = war_member_stats.attacks_made + excluded.attacks_made,
-      attacks_succeeded = war_member_stats.attacks_succeeded + excluded.attacks_succeeded,
-      attack_assist = war_member_stats.attack_assist + excluded.attack_assist,
+      enemy_attacks_total = war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total,
+      enemy_attacks_successful = war_member_stats.enemy_attacks_successful + excluded.enemy_attacks_successful,
+      enemy_respect_gained = war_member_stats.enemy_respect_gained + excluded.enemy_respect_gained,
+      enemy_assists = war_member_stats.enemy_assists + excluded.enemy_assists,
+      enemy_hospitalizations = war_member_stats.enemy_hospitalizations + excluded.enemy_hospitalizations,
+      enemy_mugs = war_member_stats.enemy_mugs + excluded.enemy_mugs,
       outside_attacks = war_member_stats.outside_attacks + excluded.outside_attacks,
-      hospitalized_friendly = war_member_stats.hospitalized_friendly + excluded.hospitalized_friendly,
-      hospitalized_enemy = war_member_stats.hospitalized_enemy + excluded.hospitalized_enemy,
-      respect_gain = war_member_stats.respect_gain + excluded.respect_gain,
-      first_attack_at = CASE
-        WHEN war_member_stats.first_attack_at IS NULL THEN excluded.first_attack_at
-        WHEN excluded.first_attack_at IS NULL THEN war_member_stats.first_attack_at
-        ELSE MIN(war_member_stats.first_attack_at, excluded.first_attack_at)
+      friendly_hospitals = war_member_stats.friendly_hospitals + excluded.friendly_hospitals,
+      first_action_at = CASE
+        WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
+        WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
+        ELSE MIN(war_member_stats.first_action_at, excluded.first_action_at)
       END,
-      last_attack_at = CASE
-        WHEN war_member_stats.last_attack_at IS NULL THEN excluded.last_attack_at
-        WHEN excluded.last_attack_at IS NULL THEN war_member_stats.last_attack_at
-        ELSE MAX(war_member_stats.last_attack_at, excluded.last_attack_at)
+      last_action_at = CASE
+        WHEN war_member_stats.last_action_at IS NULL THEN excluded.last_action_at
+        WHEN excluded.last_action_at IS NULL THEN war_member_stats.last_action_at
+        ELSE MAX(war_member_stats.last_action_at, excluded.last_action_at)
       END
     `,
   )
-    .bind(warId, ingestRunId, HOME_FACTION_ID)
+    .bind(...bindValues)
     .run();
+}
+
+async function upsertWarMemberDefendStats(
+  env: Env,
+  warId: number,
+  ingestRunId?: string,
+): Promise<void> {
+  const ingestFilter = ingestRunId ? "AND a.ingest_run_id = ?" : "";
+  const bindValues = ingestRunId
+    ? [warId, ingestRunId, HOME_FACTION_ID]
+    : [warId, HOME_FACTION_ID];
 
   await env.DB.prepare(
     `
@@ -409,43 +328,55 @@ async function incrementWarMemberStatsFromRun(
       war_id,
       member_id,
       member_name,
-      defends_lost,
+      defends_total,
+      defends_won,
       respect_lost,
-      first_attack_at,
-      last_attack_at
+      first_action_at,
+      last_action_at
     )
     SELECT
       a.war_id,
       a.defender_id,
       MAX(a.defender_name),
-      COUNT(*) AS defends_lost,
-      COALESCE(SUM(a.respect_gain), 0) AS respect_lost,
-      MIN(a.started) AS first_attack_at,
-      MAX(a.started) AS last_attack_at
+      COUNT(*) AS defends_total,
+      SUM(CASE
+        WHEN a.result NOT IN (${POSITIVE_RESULTS_SQL}) OR a.result IS NULL THEN 1
+        ELSE 0
+      END) AS defends_won,
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+        THEN a.respect_gain
+        ELSE 0
+      END), 0) AS respect_lost,
+      MIN(a.started) AS first_action_at,
+      MAX(a.started) AS last_action_at
     FROM attacks a
+    JOIN wars w ON w.id = a.war_id
     WHERE a.war_id = ?
-      AND a.ingest_run_id = ?
+      ${ingestFilter}
       AND a.defender_faction_id = ?
       AND a.defender_id IS NOT NULL
-      AND a.result IN (${POSITIVE_RESULTS_SQL})
+      AND w.faction_id IS NOT NULL
+      AND a.attacker_faction_id = w.faction_id
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      defends_lost = war_member_stats.defends_lost + excluded.defends_lost,
+      defends_total = war_member_stats.defends_total + excluded.defends_total,
+      defends_won = war_member_stats.defends_won + excluded.defends_won,
       respect_lost = war_member_stats.respect_lost + excluded.respect_lost,
-      first_attack_at = CASE
-        WHEN war_member_stats.first_attack_at IS NULL THEN excluded.first_attack_at
-        WHEN excluded.first_attack_at IS NULL THEN war_member_stats.first_attack_at
-        ELSE MIN(war_member_stats.first_attack_at, excluded.first_attack_at)
+      first_action_at = CASE
+        WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
+        WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
+        ELSE MIN(war_member_stats.first_action_at, excluded.first_action_at)
       END,
-      last_attack_at = CASE
-        WHEN war_member_stats.last_attack_at IS NULL THEN excluded.last_attack_at
-        WHEN excluded.last_attack_at IS NULL THEN war_member_stats.last_attack_at
-        ELSE MAX(war_member_stats.last_attack_at, excluded.last_attack_at)
+      last_action_at = CASE
+        WHEN war_member_stats.last_action_at IS NULL THEN excluded.last_action_at
+        WHEN excluded.last_action_at IS NULL THEN war_member_stats.last_action_at
+        ELSE MAX(war_member_stats.last_action_at, excluded.last_action_at)
       END
     `,
   )
-    .bind(warId, ingestRunId, HOME_FACTION_ID)
+    .bind(...bindValues)
     .run();
 }
 
@@ -553,7 +484,7 @@ async function incrementWarSummaryFromRun(
         SELECT COUNT(*)
         FROM war_member_stats
         WHERE war_id = ?
-          AND attacks_made > 0
+          AND enemy_attacks_total > 0
       ),
       updated_at = unixepoch(),
       status = (SELECT status FROM wars WHERE id = ?),
@@ -588,14 +519,16 @@ async function rollWarIntoCareerStats(env: Env, warId: number): Promise<void> {
       member_id,
       member_name,
       wars_participated,
-      attacks_made,
-      attacks_succeeded,
-      attack_assist,
+      enemy_attacks_total,
+      enemy_attacks_successful,
+      enemy_respect_gained,
+      enemy_assists,
+      enemy_hospitalizations,
+      enemy_mugs,
       outside_attacks,
-      hospitalized_friendly,
-      hospitalized_enemy,
-      respect_gain,
-      defends_lost,
+      friendly_hospitals,
+      defends_total,
+      defends_won,
       respect_lost,
       first_seen_at,
       last_seen_at,
@@ -605,17 +538,19 @@ async function rollWarIntoCareerStats(env: Env, warId: number): Promise<void> {
       member_id,
       MAX(member_name),
       1,
-      attacks_made,
-      attacks_succeeded,
-      attack_assist,
+      enemy_attacks_total,
+      enemy_attacks_successful,
+      enemy_respect_gained,
+      enemy_assists,
+      enemy_hospitalizations,
+      enemy_mugs,
       outside_attacks,
-      hospitalized_friendly,
-      hospitalized_enemy,
-      respect_gain,
-      defends_lost,
+      friendly_hospitals,
+      defends_total,
+      defends_won,
       respect_lost,
-      first_attack_at,
-      last_attack_at,
+      first_action_at,
+      last_action_at,
       unixepoch()
     FROM war_member_stats
     WHERE war_id = ?
@@ -623,14 +558,16 @@ async function rollWarIntoCareerStats(env: Env, warId: number): Promise<void> {
     ON CONFLICT(member_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, member_career_stats.member_name),
       wars_participated = member_career_stats.wars_participated + excluded.wars_participated,
-      attacks_made = member_career_stats.attacks_made + excluded.attacks_made,
-      attacks_succeeded = member_career_stats.attacks_succeeded + excluded.attacks_succeeded,
-      attack_assist = member_career_stats.attack_assist + excluded.attack_assist,
+      enemy_attacks_total = member_career_stats.enemy_attacks_total + excluded.enemy_attacks_total,
+      enemy_attacks_successful = member_career_stats.enemy_attacks_successful + excluded.enemy_attacks_successful,
+      enemy_respect_gained = member_career_stats.enemy_respect_gained + excluded.enemy_respect_gained,
+      enemy_assists = member_career_stats.enemy_assists + excluded.enemy_assists,
+      enemy_hospitalizations = member_career_stats.enemy_hospitalizations + excluded.enemy_hospitalizations,
+      enemy_mugs = member_career_stats.enemy_mugs + excluded.enemy_mugs,
       outside_attacks = member_career_stats.outside_attacks + excluded.outside_attacks,
-      hospitalized_friendly = member_career_stats.hospitalized_friendly + excluded.hospitalized_friendly,
-      hospitalized_enemy = member_career_stats.hospitalized_enemy + excluded.hospitalized_enemy,
-      respect_gain = member_career_stats.respect_gain + excluded.respect_gain,
-      defends_lost = member_career_stats.defends_lost + excluded.defends_lost,
+      friendly_hospitals = member_career_stats.friendly_hospitals + excluded.friendly_hospitals,
+      defends_total = member_career_stats.defends_total + excluded.defends_total,
+      defends_won = member_career_stats.defends_won + excluded.defends_won,
       respect_lost = member_career_stats.respect_lost + excluded.respect_lost,
       first_seen_at = CASE
         WHEN member_career_stats.first_seen_at IS NULL THEN excluded.first_seen_at

@@ -321,7 +321,7 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
       SELECT *
       FROM war_member_stats
       WHERE war_id = ?
-      ORDER BY respect_gain DESC, attacks_made DESC
+      ORDER BY enemy_respect_gained DESC, enemy_attacks_successful DESC, enemy_attacks_total DESC
       `,
     )
       .bind(war.id)
@@ -408,7 +408,7 @@ export async function getOverallStats(env: Env): Promise<Response> {
     `
     SELECT *
     FROM member_career_stats
-    ORDER BY respect_gain DESC, attacks_made DESC
+    ORDER BY enemy_respect_gained DESC, enemy_attacks_successful DESC, enemy_attacks_total DESC
     LIMIT 25
     `,
   ).all();

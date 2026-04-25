@@ -39,9 +39,10 @@ src/
 migrations/
   0001_create_comments_table.sql
   0002_create_torn_attack_tables.sql
+  0003_rebuild_member_performance_tables.sql
 ```
 
-`0001_create_comments_table.sql` is from the original Cloudflare D1 template. The app schema lives in `0002_create_torn_attack_tables.sql`.
+`0001_create_comments_table.sql` is from the original Cloudflare D1 template. The app schema starts in `0002_create_torn_attack_tables.sql`, and member performance summaries are reshaped in `0003_rebuild_member_performance_tables.sql`.
 
 ## Configuration
 
