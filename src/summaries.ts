@@ -97,7 +97,10 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       COALESCE(SUM(CASE
         WHEN w.faction_id IS NOT NULL
          AND a.attacker_faction_id = ${HOME_FACTION_ID}
-         AND a.defender_faction_id != w.faction_id
+         AND (
+           a.defender_faction_id IS NULL
+           OR a.defender_faction_id != w.faction_id
+         )
         THEN 1
         ELSE 0
       END), 0) AS outside_hits_outgoing,
@@ -189,7 +192,10 @@ export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Pro
       END) AS attack_assist,
       SUM(CASE
         WHEN w.faction_id IS NOT NULL
-         AND a.defender_faction_id != w.faction_id
+         AND (
+           a.defender_faction_id IS NULL
+           OR a.defender_faction_id != w.faction_id
+         )
         THEN 1
         ELSE 0
       END) AS outside_attacks,
@@ -339,7 +345,10 @@ async function incrementWarMemberStatsFromRun(
       END) AS attack_assist,
       SUM(CASE
         WHEN w.faction_id IS NOT NULL
-         AND a.defender_faction_id != w.faction_id
+         AND (
+           a.defender_faction_id IS NULL
+           OR a.defender_faction_id != w.faction_id
+         )
         THEN 1
         ELSE 0
       END) AS outside_attacks,
@@ -467,7 +476,10 @@ async function incrementWarSummaryFromRun(
       COALESCE(SUM(CASE
         WHEN w.faction_id IS NOT NULL
          AND attacker_faction_id = ${HOME_FACTION_ID}
-         AND defender_faction_id != w.faction_id
+         AND (
+           defender_faction_id IS NULL
+           OR defender_faction_id != w.faction_id
+         )
         THEN 1
         ELSE 0
       END), 0) AS outside_hits_outgoing,
