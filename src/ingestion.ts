@@ -29,14 +29,14 @@ export async function runIngestion(env: Env): Promise<void> {
   const activeWar = state?.active_war_id
     ? ((await env.DB.prepare(
         `
-        SELECT id, started_at, status
+        SELECT id, start_time, status
         FROM wars
         WHERE id = ? AND status = 'active'
         LIMIT 1
         `,
       )
         .bind(state.active_war_id)
-        .first()) as { id: number; started_at: number; status: string } | null)
+        .first()) as { id: number; start_time: number; status: string } | null)
     : null;
 
   let from = Math.max(0, (state?.last_started ?? 0) - OVERLAP_SECONDS);
@@ -60,7 +60,7 @@ export async function runIngestion(env: Env): Promise<void> {
       pageNewestStarted = Math.max(pageNewestStarted, attack.started ?? 0);
 
       const warId =
-        activeWar && attack.started != null && attack.started >= activeWar.started_at
+        activeWar && attack.started != null && attack.started >= activeWar.start_time
           ? activeWar.id
           : null;
 
@@ -168,16 +168,16 @@ export async function activateScheduledWarIfDue(env: Env): Promise<void> {
 
   const scheduledWar = (await env.DB.prepare(
     `
-    SELECT id, started_at
+    SELECT id, start_time
     FROM wars
     WHERE status = 'scheduled'
-      AND started_at <= ?
-    ORDER BY started_at ASC
+      AND start_time <= ?
+    ORDER BY start_time ASC
     LIMIT 1
     `,
   )
     .bind(now)
-    .first()) as { id: number; started_at: number } | null;
+    .first()) as { id: number; start_time: number } | null;
 
   if (!scheduledWar) {
     return;
@@ -193,8 +193,8 @@ export async function activateScheduledWarIfDue(env: Env): Promise<void> {
     .bind(scheduledWar.id)
     .run();
 
-  await setActiveWarState(env, scheduledWar.id, scheduledWar.started_at);
-  await backfillWarAssignments(env, scheduledWar.id, scheduledWar.started_at);
+  await setActiveWarState(env, scheduledWar.id, scheduledWar.start_time);
+  await backfillWarAssignments(env, scheduledWar.id, scheduledWar.start_time);
   await rebuildWarSummaryFromRaw(env, scheduledWar.id);
   await rebuildWarMemberStatsFromRaw(env, scheduledWar.id);
 }
