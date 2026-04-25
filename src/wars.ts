@@ -323,3 +323,113 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
       WHERE war_id = ?
       ORDER BY respect_gain DESC, attacks_made DESC
       `,
+    )
+      .bind(war.id)
+      .all();
+
+    return json({
+      ok: true,
+      war,
+      summary,
+      members: memberStats.results ?? [],
+    });
+  } catch (err: any) {
+    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
+  }
+}
+
+export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
+  try {
+    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+
+    if (!name) {
+      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
+    }
+
+    const limit = parseLimit(url.searchParams.get("limit"), 100, 250);
+
+    const war = (await env.DB.prepare(
+      `
+      SELECT id, name, status, start_time, finish_time, faction_id, war_type, finalized_at
+      FROM wars
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+      .bind(name)
+      .first()) as WarRow | null;
+
+    if (!war) {
+      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+    }
+
+    const attacks = await env.DB.prepare(
+      `
+      SELECT *
+      FROM attacks
+      WHERE war_id = ?
+      ORDER BY started DESC
+      LIMIT ?
+      `,
+    )
+      .bind(war.id, limit)
+      .all();
+
+    return json({
+      ok: true,
+      war,
+      paging: {
+        limit,
+        returned: (attacks.results ?? []).length,
+      },
+      attacks: attacks.results ?? [],
+    });
+  } catch (err: any) {
+    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
+  }
+}
+
+export async function getOverallStats(env: Env): Promise<Response> {
+  const overall = await env.DB.prepare(
+    `
+    SELECT
+      COUNT(*) AS total_wars,
+      COALESCE(SUM(faction_attacks), 0) AS faction_attacks,
+      COALESCE(SUM(enemy_attacks), 0) AS enemy_attacks,
+      COALESCE(SUM(outside_hits_outgoing), 0) AS outside_hits_outgoing,
+      COALESCE(SUM(total_respect_gain), 0) AS total_respect_gain,
+      COALESCE(SUM(total_respect_lost), 0) AS total_respect_lost,
+      MAX(last_attack_at) AS latest_attack_started
+    FROM war_summary
+    `,
+  ).first();
+
+  const topMembers = await env.DB.prepare(
+    `
+    SELECT *
+    FROM member_career_stats
+    ORDER BY respect_gain DESC, attacks_made DESC
+    LIMIT 25
+    `,
+  ).all();
+
+  return json({
+    ok: true,
+    overall,
+    top_members: topMembers.results ?? [],
+  });
+}
+
+function handleMutationError(err: any): Response {
+  const message = err?.message || String(err);
+
+  if (message.includes("Unexpected token")) {
+    return json({ ok: false, error: "Invalid JSON body", code: "INVALID_JSON" }, 400);
+  }
+
+  if (message.includes("UNIQUE constraint failed: wars.name")) {
+    return json({ ok: false, error: "War name already exists", code: "WAR_NAME_EXISTS" }, 400);
+  }
+
+  return json({ ok: false, error: message, code: "INTERNAL_ERROR" }, 500);
+}
