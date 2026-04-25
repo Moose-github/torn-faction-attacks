@@ -1,4 +1,5 @@
 import { runIngestion } from "./ingestion";
+import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { ExecutionContext, Env, ScheduledController } from "./types";
 import { json, parseLimit } from "./utils";
 import {
@@ -18,6 +19,11 @@ export default {
     if (url.pathname === "/api/run" && request.method === "POST") {
       await runIngestion(env);
       return json({ ok: true });
+    }
+
+    if (url.pathname === "/api/rebuild" && request.method === "POST") {
+      const result = await rebuildDerivedStatsFromRaw(env);
+      return json({ ok: true, ...result });
     }
 
     if (url.pathname === "/api/health") {

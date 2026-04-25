@@ -123,7 +123,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       MIN(a.started) AS first_attack_at,
       MAX(a.started) AS last_attack_at,
       unixepoch() AS updated_at,
-      (SELECT finalized_at FROM war_summary WHERE war_id = w.id) AS finalized_at
+      w.finalized_at
     FROM wars w
     LEFT JOIN attacks a ON a.war_id = w.id
     WHERE w.id = ?
@@ -142,11 +142,45 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       first_attack_at = excluded.first_attack_at,
       last_attack_at = excluded.last_attack_at,
       updated_at = excluded.updated_at,
-      finalized_at = COALESCE(excluded.finalized_at, war_summary.finalized_at)
+      finalized_at = excluded.finalized_at
     `,
   )
     .bind(warId)
     .run();
+}
+
+export async function rebuildDerivedStatsFromRaw(env: Env): Promise<{
+  wars_rebuilt: number;
+  ended_wars_rolled_up: number;
+}> {
+  await env.DB.prepare(`DELETE FROM member_career_stats`).run();
+  await env.DB.prepare(`DELETE FROM war_member_stats`).run();
+
+  const rows = await env.DB.prepare(
+    `
+    SELECT id, status
+    FROM wars
+    ORDER BY start_time ASC, id ASC
+    `,
+  ).all();
+
+  const wars = (rows.results ?? []) as { id: number; status: string }[];
+  let endedWarsRolledUp = 0;
+
+  for (const war of wars) {
+    await rebuildWarMemberStatsFromRaw(env, war.id);
+    await rebuildWarSummaryFromRaw(env, war.id);
+
+    if (war.status === "ended") {
+      await rollWarIntoCareerStats(env, war.id);
+      endedWarsRolledUp += 1;
+    }
+  }
+
+  return {
+    wars_rebuilt: wars.length,
+    ended_wars_rolled_up: endedWarsRolledUp,
+  };
 }
 
 export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Promise<void> {

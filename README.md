@@ -100,6 +100,12 @@ Manually run ingestion:
 POST /api/run
 ```
 
+Rebuild derived stats from raw attacks:
+
+```http
+POST /api/rebuild
+```
+
 List recent attacks:
 
 ```http
