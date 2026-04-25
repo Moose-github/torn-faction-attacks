@@ -59,13 +59,14 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       war_id,
       war_name,
       status,
-      started_at,
-      ended_at,
-      total_attacks,
+      start_time,
+      finish_time,
+      faction_attacks,
+      enemy_attacks,
+      outside_hits_outgoing,
       total_respect_gain,
       total_respect_lost,
       unique_attackers,
-      unique_members_lost_defends,
       first_attack_at,
       last_attack_at,
       updated_at,
@@ -75,10 +76,40 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       w.id,
       w.name,
       w.status,
-      w.started_at,
-      w.ended_at,
-      COUNT(a.id) AS total_attacks,
-      COALESCE(SUM(CASE WHEN a.attacker_faction_id = ${HOME_FACTION_ID} THEN a.respect_gain ELSE 0 END), 0) AS total_respect_gain,
+      w.start_time,
+      w.finish_time,
+      COALESCE(SUM(CASE
+        WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+         AND (
+           w.faction_id IS NULL
+           OR a.defender_faction_id = w.faction_id
+         )
+        THEN 1
+        ELSE 0
+      END), 0) AS faction_attacks,
+      COALESCE(SUM(CASE
+        WHEN w.faction_id IS NOT NULL
+         AND a.attacker_faction_id = w.faction_id
+         AND a.defender_faction_id = ${HOME_FACTION_ID}
+        THEN 1
+        ELSE 0
+      END), 0) AS enemy_attacks,
+      COALESCE(SUM(CASE
+        WHEN w.faction_id IS NOT NULL
+         AND a.attacker_faction_id = ${HOME_FACTION_ID}
+         AND a.defender_faction_id != w.faction_id
+        THEN 1
+        ELSE 0
+      END), 0) AS outside_hits_outgoing,
+      COALESCE(SUM(CASE
+        WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+         AND (
+           w.faction_id IS NULL
+           OR a.defender_faction_id = w.faction_id
+         )
+        THEN a.respect_gain
+        ELSE 0
+      END), 0) AS total_respect_gain,
       COALESCE(SUM(CASE
         WHEN a.defender_faction_id = ${HOME_FACTION_ID}
          AND a.result IN (${POSITIVE_RESULTS_SQL})
@@ -86,11 +117,6 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
         ELSE 0
       END), 0) AS total_respect_lost,
       COUNT(DISTINCT CASE WHEN a.attacker_faction_id = ${HOME_FACTION_ID} THEN a.attacker_id END) AS unique_attackers,
-      COUNT(DISTINCT CASE
-        WHEN a.defender_faction_id = ${HOME_FACTION_ID}
-         AND a.result IN (${POSITIVE_RESULTS_SQL})
-        THEN a.defender_id
-      END) AS unique_members_lost_defends,
       MIN(a.started) AS first_attack_at,
       MAX(a.started) AS last_attack_at,
       unixepoch() AS updated_at,
@@ -102,13 +128,14 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
     ON CONFLICT(war_id) DO UPDATE SET
       war_name = excluded.war_name,
       status = excluded.status,
-      started_at = excluded.started_at,
-      ended_at = excluded.ended_at,
-      total_attacks = excluded.total_attacks,
+      start_time = excluded.start_time,
+      finish_time = excluded.finish_time,
+      faction_attacks = excluded.faction_attacks,
+      enemy_attacks = excluded.enemy_attacks,
+      outside_hits_outgoing = excluded.outside_hits_outgoing,
       total_respect_gain = excluded.total_respect_gain,
       total_respect_lost = excluded.total_respect_lost,
       unique_attackers = excluded.unique_attackers,
-      unique_members_lost_defends = excluded.unique_members_lost_defends,
       first_attack_at = excluded.first_attack_at,
       last_attack_at = excluded.last_attack_at,
       updated_at = excluded.updated_at,
@@ -131,11 +158,11 @@ export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Pro
       member_id,
       member_name,
       attacks_made,
-      wins,
-      losses,
-      draws,
-      escapes,
-      stalemates,
+      attacks_succeeded,
+      attack_assist,
+      outside_attacks,
+      hospitalized_friendly,
+      hospitalized_enemy,
       respect_gain,
       first_attack_at,
       last_attack_at
@@ -144,16 +171,50 @@ export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Pro
       a.war_id,
       a.attacker_id,
       MAX(a.attacker_name),
-      COUNT(*) AS attacks_made,
-      SUM(CASE WHEN a.result IN (${POSITIVE_RESULTS_SQL}) THEN 1 ELSE 0 END) AS wins,
-      SUM(CASE WHEN a.result = 'Lost' THEN 1 ELSE 0 END) AS losses,
-      SUM(CASE WHEN a.result = 'Draw' THEN 1 ELSE 0 END) AS draws,
-      SUM(CASE WHEN a.result = 'Escaped' THEN 1 ELSE 0 END) AS escapes,
-      SUM(CASE WHEN a.result = 'Stalemate' THEN 1 ELSE 0 END) AS stalemates,
-      COALESCE(SUM(a.respect_gain), 0) AS respect_gain,
+      SUM(CASE
+        WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id THEN 1
+        ELSE 0
+      END) AS attacks_made,
+      SUM(CASE
+        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+        THEN 1
+        ELSE 0
+      END) AS attacks_succeeded,
+      SUM(CASE
+        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+         AND a.result = 'Assist'
+        THEN 1
+        ELSE 0
+      END) AS attack_assist,
+      SUM(CASE
+        WHEN w.faction_id IS NOT NULL
+         AND a.defender_faction_id != w.faction_id
+        THEN 1
+        ELSE 0
+      END) AS outside_attacks,
+      SUM(CASE
+        WHEN a.result = 'Hospitalized'
+         AND a.defender_faction_id = ${HOME_FACTION_ID}
+        THEN 1
+        ELSE 0
+      END) AS hospitalized_friendly,
+      SUM(CASE
+        WHEN w.faction_id IS NOT NULL
+         AND a.result = 'Hospitalized'
+         AND a.defender_faction_id = w.faction_id
+        THEN 1
+        ELSE 0
+      END) AS hospitalized_enemy,
+      COALESCE(SUM(CASE
+        WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id
+        THEN a.respect_gain
+        ELSE 0
+      END), 0) AS respect_gain,
       MIN(a.started) AS first_attack_at,
       MAX(a.started) AS last_attack_at
     FROM attacks a
+    JOIN wars w ON w.id = a.war_id
     WHERE a.war_id = ?
       AND a.attacker_faction_id = ?
       AND a.attacker_id IS NOT NULL
@@ -215,16 +276,16 @@ async function ensureWarSummaryRow(env: Env, warId: number): Promise<void> {
       war_id,
       war_name,
       status,
-      started_at,
-      ended_at,
+      start_time,
+      finish_time,
       updated_at
     )
     SELECT
       id,
       name,
       status,
-      started_at,
-      ended_at,
+      start_time,
+      finish_time,
       unixepoch()
     FROM wars
     WHERE id = ?
@@ -247,11 +308,11 @@ async function incrementWarMemberStatsFromRun(
       member_id,
       member_name,
       attacks_made,
-      wins,
-      losses,
-      draws,
-      escapes,
-      stalemates,
+      attacks_succeeded,
+      attack_assist,
+      outside_attacks,
+      hospitalized_friendly,
+      hospitalized_enemy,
       respect_gain,
       first_attack_at,
       last_attack_at
@@ -260,16 +321,50 @@ async function incrementWarMemberStatsFromRun(
       a.war_id,
       a.attacker_id,
       MAX(a.attacker_name),
-      COUNT(*) AS attacks_made,
-      SUM(CASE WHEN a.result IN (${POSITIVE_RESULTS_SQL}) THEN 1 ELSE 0 END) AS wins,
-      SUM(CASE WHEN a.result = 'Lost' THEN 1 ELSE 0 END) AS losses,
-      SUM(CASE WHEN a.result = 'Draw' THEN 1 ELSE 0 END) AS draws,
-      SUM(CASE WHEN a.result = 'Escaped' THEN 1 ELSE 0 END) AS escapes,
-      SUM(CASE WHEN a.result = 'Stalemate' THEN 1 ELSE 0 END) AS stalemates,
-      COALESCE(SUM(a.respect_gain), 0) AS respect_gain,
+      SUM(CASE
+        WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id THEN 1
+        ELSE 0
+      END) AS attacks_made,
+      SUM(CASE
+        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+        THEN 1
+        ELSE 0
+      END) AS attacks_succeeded,
+      SUM(CASE
+        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+         AND a.result = 'Assist'
+        THEN 1
+        ELSE 0
+      END) AS attack_assist,
+      SUM(CASE
+        WHEN w.faction_id IS NOT NULL
+         AND a.defender_faction_id != w.faction_id
+        THEN 1
+        ELSE 0
+      END) AS outside_attacks,
+      SUM(CASE
+        WHEN a.result = 'Hospitalized'
+         AND a.defender_faction_id = ${HOME_FACTION_ID}
+        THEN 1
+        ELSE 0
+      END) AS hospitalized_friendly,
+      SUM(CASE
+        WHEN w.faction_id IS NOT NULL
+         AND a.result = 'Hospitalized'
+         AND a.defender_faction_id = w.faction_id
+        THEN 1
+        ELSE 0
+      END) AS hospitalized_enemy,
+      COALESCE(SUM(CASE
+        WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id
+        THEN a.respect_gain
+        ELSE 0
+      END), 0) AS respect_gain,
       MIN(a.started) AS first_attack_at,
       MAX(a.started) AS last_attack_at
     FROM attacks a
+    JOIN wars w ON w.id = a.war_id
     WHERE a.war_id = ?
       AND a.ingest_run_id = ?
       AND a.attacker_faction_id = ?
@@ -278,11 +373,11 @@ async function incrementWarMemberStatsFromRun(
     ON CONFLICT(war_id, member_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
       attacks_made = war_member_stats.attacks_made + excluded.attacks_made,
-      wins = war_member_stats.wins + excluded.wins,
-      losses = war_member_stats.losses + excluded.losses,
-      draws = war_member_stats.draws + excluded.draws,
-      escapes = war_member_stats.escapes + excluded.escapes,
-      stalemates = war_member_stats.stalemates + excluded.stalemates,
+      attacks_succeeded = war_member_stats.attacks_succeeded + excluded.attacks_succeeded,
+      attack_assist = war_member_stats.attack_assist + excluded.attack_assist,
+      outside_attacks = war_member_stats.outside_attacks + excluded.outside_attacks,
+      hospitalized_friendly = war_member_stats.hospitalized_friendly + excluded.hospitalized_friendly,
+      hospitalized_enemy = war_member_stats.hospitalized_enemy + excluded.hospitalized_enemy,
       respect_gain = war_member_stats.respect_gain + excluded.respect_gain,
       first_attack_at = CASE
         WHEN war_member_stats.first_attack_at IS NULL THEN excluded.first_attack_at
@@ -353,8 +448,38 @@ async function incrementWarSummaryFromRun(
   const delta = (await env.DB.prepare(
     `
     SELECT
-      COUNT(*) AS total_attacks,
-      COALESCE(SUM(CASE WHEN attacker_faction_id = ${HOME_FACTION_ID} THEN respect_gain ELSE 0 END), 0) AS total_respect_gain,
+      COALESCE(SUM(CASE
+        WHEN attacker_faction_id = ${HOME_FACTION_ID}
+         AND (
+           w.faction_id IS NULL
+           OR defender_faction_id = w.faction_id
+         )
+        THEN 1
+        ELSE 0
+      END), 0) AS faction_attacks,
+      COALESCE(SUM(CASE
+        WHEN w.faction_id IS NOT NULL
+         AND attacker_faction_id = w.faction_id
+         AND defender_faction_id = ${HOME_FACTION_ID}
+        THEN 1
+        ELSE 0
+      END), 0) AS enemy_attacks,
+      COALESCE(SUM(CASE
+        WHEN w.faction_id IS NOT NULL
+         AND attacker_faction_id = ${HOME_FACTION_ID}
+         AND defender_faction_id != w.faction_id
+        THEN 1
+        ELSE 0
+      END), 0) AS outside_hits_outgoing,
+      COALESCE(SUM(CASE
+        WHEN attacker_faction_id = ${HOME_FACTION_ID}
+         AND (
+           w.faction_id IS NULL
+           OR defender_faction_id = w.faction_id
+         )
+        THEN respect_gain
+        ELSE 0
+      END), 0) AS total_respect_gain,
       COALESCE(SUM(CASE
         WHEN defender_faction_id = ${HOME_FACTION_ID}
          AND result IN (${POSITIVE_RESULTS_SQL})
@@ -364,20 +489,32 @@ async function incrementWarSummaryFromRun(
       MIN(started) AS first_attack_at,
       MAX(started) AS last_attack_at
     FROM attacks
+    JOIN wars w ON w.id = war_id
     WHERE war_id = ?
       AND ingest_run_id = ?
     `,
   )
     .bind(warId, ingestRunId)
     .first()) as {
-    total_attacks: number | null;
+    faction_attacks: number | null;
+    enemy_attacks: number | null;
+    outside_hits_outgoing: number | null;
     total_respect_gain: number | null;
     total_respect_lost: number | null;
     first_attack_at: number | null;
     last_attack_at: number | null;
   } | null;
 
-  if (!delta || Number(delta.total_attacks ?? 0) === 0) {
+  if (
+    !delta ||
+    (
+      Number(delta.faction_attacks ?? 0) === 0 &&
+      Number(delta.enemy_attacks ?? 0) === 0 &&
+      Number(delta.outside_hits_outgoing ?? 0) === 0 &&
+      Number(delta.total_respect_gain ?? 0) === 0 &&
+      Number(delta.total_respect_lost ?? 0) === 0
+    )
+  ) {
     return;
   }
 
@@ -385,7 +522,9 @@ async function incrementWarSummaryFromRun(
     `
     UPDATE war_summary
     SET
-      total_attacks = total_attacks + ?,
+      faction_attacks = faction_attacks + ?,
+      enemy_attacks = enemy_attacks + ?,
+      outside_hits_outgoing = outside_hits_outgoing + ?,
       total_respect_gain = total_respect_gain + ?,
       total_respect_lost = total_respect_lost + ?,
       first_attack_at = CASE
@@ -404,20 +543,16 @@ async function incrementWarSummaryFromRun(
         WHERE war_id = ?
           AND attacks_made > 0
       ),
-      unique_members_lost_defends = (
-        SELECT COUNT(*)
-        FROM war_member_stats
-        WHERE war_id = ?
-          AND defends_lost > 0
-      ),
       updated_at = unixepoch(),
       status = (SELECT status FROM wars WHERE id = ?),
-      ended_at = (SELECT ended_at FROM wars WHERE id = ?)
+      finish_time = (SELECT finish_time FROM wars WHERE id = ?)
     WHERE war_id = ?
     `,
   )
     .bind(
-      Number(delta.total_attacks ?? 0),
+      Number(delta.faction_attacks ?? 0),
+      Number(delta.enemy_attacks ?? 0),
+      Number(delta.outside_hits_outgoing ?? 0),
       Number(delta.total_respect_gain ?? 0),
       Number(delta.total_respect_lost ?? 0),
       delta.first_attack_at,
@@ -426,7 +561,6 @@ async function incrementWarSummaryFromRun(
       delta.last_attack_at,
       delta.last_attack_at,
       delta.last_attack_at,
-      warId,
       warId,
       warId,
       warId,
@@ -443,11 +577,11 @@ async function rollWarIntoCareerStats(env: Env, warId: number): Promise<void> {
       member_name,
       wars_participated,
       attacks_made,
-      wins,
-      losses,
-      draws,
-      escapes,
-      stalemates,
+      attacks_succeeded,
+      attack_assist,
+      outside_attacks,
+      hospitalized_friendly,
+      hospitalized_enemy,
       respect_gain,
       defends_lost,
       respect_lost,
@@ -460,11 +594,11 @@ async function rollWarIntoCareerStats(env: Env, warId: number): Promise<void> {
       MAX(member_name),
       1,
       attacks_made,
-      wins,
-      losses,
-      draws,
-      escapes,
-      stalemates,
+      attacks_succeeded,
+      attack_assist,
+      outside_attacks,
+      hospitalized_friendly,
+      hospitalized_enemy,
       respect_gain,
       defends_lost,
       respect_lost,
@@ -478,11 +612,11 @@ async function rollWarIntoCareerStats(env: Env, warId: number): Promise<void> {
       member_name = COALESCE(excluded.member_name, member_career_stats.member_name),
       wars_participated = member_career_stats.wars_participated + excluded.wars_participated,
       attacks_made = member_career_stats.attacks_made + excluded.attacks_made,
-      wins = member_career_stats.wins + excluded.wins,
-      losses = member_career_stats.losses + excluded.losses,
-      draws = member_career_stats.draws + excluded.draws,
-      escapes = member_career_stats.escapes + excluded.escapes,
-      stalemates = member_career_stats.stalemates + excluded.stalemates,
+      attacks_succeeded = member_career_stats.attacks_succeeded + excluded.attacks_succeeded,
+      attack_assist = member_career_stats.attack_assist + excluded.attack_assist,
+      outside_attacks = member_career_stats.outside_attacks + excluded.outside_attacks,
+      hospitalized_friendly = member_career_stats.hospitalized_friendly + excluded.hospitalized_friendly,
+      hospitalized_enemy = member_career_stats.hospitalized_enemy + excluded.hospitalized_enemy,
       respect_gain = member_career_stats.respect_gain + excluded.respect_gain,
       defends_lost = member_career_stats.defends_lost + excluded.defends_lost,
       respect_lost = member_career_stats.respect_lost + excluded.respect_lost,
