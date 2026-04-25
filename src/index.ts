@@ -34,9 +34,14 @@ export default {
       return json(rows.results ?? []);
     }
 
-    if (url.pathname.startsWith("/api/wars/new/")) {
+    if (url.pathname === "/api/wars" && request.method === "POST") {
       try {
-        const name = decodeURIComponent(url.pathname.split("/").pop() ?? "").trim();
+        const body = await request.json() as {
+          name?: unknown;
+          started_at?: unknown;
+        };
+    
+        const name = typeof body.name === "string" ? body.name.trim() : "";
     
         if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
           return json({
@@ -46,50 +51,101 @@ export default {
           }, 400);
         }
     
-        // Enforce only one active war at a time
-        const activeWar = await env.DB.prepare(`
+        const now = Math.floor(Date.now() / 1000);
+        let startedAt = now;
+    
+        if (body.started_at !== undefined) {
+          const parsed = Number(body.started_at);
+    
+          if (!Number.isInteger(parsed) || parsed < 0) {
+            return json({
+              ok: false,
+              error: "Invalid started_at",
+              code: "INVALID_STARTED_AT"
+            }, 400);
+          }
+    
+          startedAt = parsed;
+        }
+    
+        const status = startedAt > now ? "scheduled" : "active";
+    
+        const existingActiveWar = await env.DB.prepare(`
           SELECT id, name
           FROM wars
           WHERE status = 'active'
           LIMIT 1
         `).first() as { id: number; name: string } | null;
     
-        if (activeWar) {
+        if (status === "active" && existingActiveWar) {
           return json({
             ok: false,
             error: "Another war is already active",
             code: "ACTIVE_WAR_EXISTS",
             active_war: {
-              id: activeWar.id,
-              name: activeWar.name
+              id: existingActiveWar.id,
+              name: existingActiveWar.name
             }
           }, 400);
         }
     
-        const now = Math.floor(Date.now() / 1000);
+        const existingScheduledWar = await env.DB.prepare(`
+          SELECT id, name, started_at
+          FROM wars
+          WHERE status = 'scheduled'
+          LIMIT 1
+        `).first() as { id: number; name: string; started_at: number } | null;
+    
+        if (status === "scheduled" && existingScheduledWar) {
+          return json({
+            ok: false,
+            error: "Another war is already scheduled",
+            code: "SCHEDULED_WAR_EXISTS",
+            scheduled_war: {
+              id: existingScheduledWar.id,
+              name: existingScheduledWar.name,
+              started_at: existingScheduledWar.started_at
+            }
+          }, 400);
+        }
     
         const war = await env.DB.prepare(`
           INSERT INTO wars (name, status, started_at)
-          VALUES (?, 'active', ?)
-          RETURNING id
-        `).bind(name, now).first() as { id: number } | null;
+          VALUES (?, ?, ?)
+          RETURNING id, name, status, started_at
+        `).bind(name, status, startedAt).first() as {
+          id: number;
+          name: string;
+          status: string;
+          started_at: number;
+        } | null;
     
-        await env.DB.prepare(`
-          INSERT INTO sync_state (name, last_started, active_war_id, updated_at)
-          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-          ON CONFLICT(name) DO UPDATE SET
-            active_war_id = excluded.active_war_id,
-            updated_at = CURRENT_TIMESTAMP
-        `).bind(SOURCE_NAME, now, war?.id).run();
+        if (status === "active" && war) {
+          await env.DB.prepare(`
+            INSERT INTO sync_state (name, last_started, active_war_id, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(name) DO UPDATE SET
+              last_started = excluded.last_started,
+              active_war_id = excluded.active_war_id,
+              updated_at = CURRENT_TIMESTAMP
+          `).bind(SOURCE_NAME, startedAt, war.id).run();
+        }
     
         return json({
           ok: true,
-          war_id: war?.id,
-          name
-        });
+          war
+        }, 201);
     
       } catch (err: any) {
         const message = err?.message || String(err);
+    
+        if (message.includes("Unexpected token")) {
+          return json({
+            ok: false,
+            error: "Invalid JSON body",
+            code: "INVALID_JSON"
+          }, 400);
+        }
     
         if (message.includes("UNIQUE constraint failed: wars.name")) {
           return json({
@@ -106,6 +162,7 @@ export default {
         }, 500);
       }
     }
+
 
     if (url.pathname === "/api/wars/end") {
       const state = (await env.DB.prepare(`SELECT active_war_id FROM sync_state WHERE name = ?`)
@@ -239,6 +296,7 @@ export default {
 
 async function runIngestion(env: Env) {
   await ensureState(env);
+  await activateScheduledWarIfDue(env);
 
   const state = (await env.DB.prepare(`SELECT last_started, active_war_id FROM sync_state WHERE name = ?`)
     .bind(SOURCE_NAME)
@@ -398,6 +456,54 @@ async function fetchAttacks(
 
   return response.json();
 }
+
+
+async function activateScheduledWarIfDue(env: Env): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const activeWar = await env.DB.prepare(`
+    SELECT id
+    FROM wars
+    WHERE status = 'active'
+    LIMIT 1
+  `).first() as { id: number } | null;
+
+  if (activeWar) {
+    return;
+  }
+
+  const scheduledWar = await env.DB.prepare(`
+    SELECT id, started_at
+    FROM wars
+    WHERE status = 'scheduled'
+      AND started_at <= ?
+    ORDER BY started_at ASC
+    LIMIT 1
+  `).bind(now).first() as {
+    id: number;
+    started_at: number;
+  } | null;
+
+  if (!scheduledWar) {
+    return;
+  }
+
+  await env.DB.prepare(`
+    UPDATE wars
+    SET status = 'active'
+    WHERE id = ?
+  `).bind(scheduledWar.id).run();
+
+  await env.DB.prepare(`
+    INSERT INTO sync_state (name, last_started, active_war_id, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = excluded.last_started,
+      active_war_id = excluded.active_war_id,
+      updated_at = CURRENT_TIMESTAMP
+  `).bind(SOURCE_NAME, scheduledWar.started_at, scheduledWar.id).run();
+}
+
 
 async function ensureState(env: Env) {
   const now = Math.floor(Date.now() / 1000);
