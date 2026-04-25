@@ -40,9 +40,10 @@ migrations/
   0001_create_comments_table.sql
   0002_create_torn_attack_tables.sql
   0003_rebuild_member_performance_tables.sql
+  0004_add_war_event_fields.sql
 ```
 
-`0001_create_comments_table.sql` is from the original Cloudflare D1 template. The app schema starts in `0002_create_torn_attack_tables.sql`, and member performance summaries are reshaped in `0003_rebuild_member_performance_tables.sql`.
+`0001_create_comments_table.sql` is from the original Cloudflare D1 template. The app schema starts in `0002_create_torn_attack_tables.sql`, member performance summaries are reshaped in `0003_rebuild_member_performance_tables.sql`, and event/termed-war fields are added in `0004_add_war_event_fields.sql`.
 
 ## Configuration
 
@@ -125,7 +126,21 @@ Example body:
   "name": "example-war",
   "start_time": 1760000000,
   "faction_id": 12345,
-  "war_type": "ranked"
+  "war_type": "real"
+}
+```
+
+Termed war example:
+
+```json
+{
+  "name": "example-termed-war",
+  "start_time": 1760000000,
+  "faction_id": 12345,
+  "war_type": "termed",
+  "auto_end_enabled": true,
+  "faction_respect_limit": 5000,
+  "member_respect_limit": 250
 }
 ```
 
@@ -143,7 +158,7 @@ Example body:
   "start_time": 1759000000,
   "finish_time": 1759086400,
   "faction_id": 12345,
-  "war_type": "ranked"
+  "war_type": "real"
 }
 ```
 
@@ -157,6 +172,12 @@ List wars:
 
 ```http
 GET /api/wars
+```
+
+Filter wars by event type:
+
+```http
+GET /api/wars?war_type=termed
 ```
 
 Get a war summary:
@@ -177,6 +198,14 @@ Get overall stats:
 GET /api/stats
 ```
 
+Filter stats by event type:
+
+```http
+GET /api/stats?war_type=real
+GET /api/stats?war_type=termed
+GET /api/stats?war_type=other
+```
+
 ## Scheduled Ingestion
 
 The Worker is configured to run every 5 minutes:
@@ -190,10 +219,16 @@ The Worker is configured to run every 5 minutes:
 During each run, the Worker:
 
 1. Ensures sync state exists.
-2. Activates any scheduled war that is due.
-3. Fetches new Torn attacks with a small overlap window.
-4. Inserts unseen attacks into D1.
-5. Updates active war summaries when relevant attacks are imported.
+2. Checks Torn's latest ranked war and creates a scheduled war if the faction is enlisted in a future war.
+3. Activates any scheduled war that is due.
+4. Fetches new Torn attacks with a small overlap window.
+5. Inserts unseen attacks into D1.
+6. Updates active war summaries when relevant attacks are imported.
+7. Checks active termed wars with auto-end enabled against the latest Torn ranked war score.
+
+For termed wars, `last_observed_respect` and `last_respect_check_at` are updated from Torn's ranked war API. If `last_observed_respect` reaches `faction_respect_limit`, the Worker ends and finalizes the active war automatically.
+
+If the latest Torn ranked war has a future `start` time, the Worker creates a scheduled `real` war using Torn's war ID and enemy faction ID. If a different scheduled war already exists, the sync skips creating another one.
 
 ## Development
 

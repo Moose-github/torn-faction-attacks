@@ -3,14 +3,28 @@ import {
   HOME_FACTION_ID,
   LIMIT,
   OVERLAP_SECONDS,
+  RANKED_WARS_API_URL,
   SOURCE_NAME,
 } from "./constants";
 import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromRaw, applyIncrementalWarSummaries } from "./summaries";
-import { D1PreparedStatement, Env, TornAttack, TornAttackResponse } from "./types";
+import {
+  D1PreparedStatement,
+  Env,
+  TornAttack,
+  TornAttackResponse,
+  TornRankedWar,
+  TornRankedWarFaction,
+  TornRankedWarResponse,
+} from "./types";
 import { boolToInt, normalizeAttacks, nowSeconds } from "./utils";
 
 export async function runIngestion(env: Env): Promise<void> {
   await ensureState(env);
+  const latestRankedWar = await fetchLatestRankedWar(env).catch((err) => {
+    console.error("Torn ranked wars sync failed:", err?.message || err);
+    return null;
+  });
+  await syncUpcomingRankedWar(env, latestRankedWar);
   await activateScheduledWarIfDue(env);
 
   const state = (await env.DB.prepare(
@@ -29,14 +43,21 @@ export async function runIngestion(env: Env): Promise<void> {
   const activeWar = state?.active_war_id
     ? ((await env.DB.prepare(
         `
-        SELECT id, start_time, status
+        SELECT
+          id,
+          start_time,
+          status,
+          war_type,
+          torn_war_id,
+          auto_end_enabled,
+          faction_respect_limit
         FROM wars
         WHERE id = ? AND status = 'active'
         LIMIT 1
         `,
       )
         .bind(state.active_war_id)
-        .first()) as { id: number; start_time: number; status: string } | null)
+        .first()) as ActiveWarForIngestion | null)
     : null;
 
   let from = Math.max(0, (state?.last_started ?? 0) - OVERLAP_SECONDS);
@@ -95,7 +116,21 @@ export async function runIngestion(env: Env): Promise<void> {
   if (sawAnyRows && activeWar) {
     await applyIncrementalWarSummaries(env, activeWar.id, ingestRunId);
   }
+
+  if (activeWar) {
+    await autoEndTermedWarIfLimitReached(env, activeWar, latestRankedWar);
+  }
 }
+
+type ActiveWarForIngestion = {
+  id: number;
+  start_time: number;
+  status: string;
+  war_type: string | null;
+  torn_war_id: number | null;
+  auto_end_enabled: number;
+  faction_respect_limit: number | null;
+};
 
 export async function ingestHistoricalWarWindow(
   env: Env,
@@ -271,6 +306,201 @@ async function fetchAttacks(env: Env, from: number): Promise<TornAttackResponse>
   }
 
   return response.json();
+}
+
+async function autoEndTermedWarIfLimitReached(
+  env: Env,
+  activeWar: ActiveWarForIngestion,
+  latestRankedWar: TornRankedWar | null,
+): Promise<void> {
+  if (
+    activeWar.war_type !== "termed" ||
+    activeWar.auto_end_enabled !== 1 ||
+    activeWar.faction_respect_limit === null
+  ) {
+    return;
+  }
+
+  const rankedWar = latestRankedWar ?? (await fetchLatestRankedWar(env));
+  if (!rankedWar) {
+    return;
+  }
+
+  if (activeWar.torn_war_id !== null && rankedWar.id !== activeWar.torn_war_id) {
+    console.warn(
+      `Skipping termed auto-end check: latest Torn ranked war ${rankedWar.id} does not match active war ${activeWar.torn_war_id}`,
+    );
+    return;
+  }
+
+  const homeFaction = rankedWar.factions?.find(
+    (faction: TornRankedWarFaction) => faction.id === HOME_FACTION_ID,
+  );
+  if (!homeFaction || !Number.isFinite(homeFaction.score)) {
+    console.warn("Skipping termed auto-end check: home faction score missing from Torn response");
+    return;
+  }
+
+  const checkedAt = nowSeconds();
+
+  await env.DB.prepare(
+    `
+    UPDATE wars
+    SET last_respect_check_at = ?,
+        last_observed_respect = ?,
+        torn_war_id = COALESCE(torn_war_id, ?)
+    WHERE id = ?
+    `,
+  )
+    .bind(checkedAt, homeFaction.score, rankedWar.id, activeWar.id)
+    .run();
+
+  if (homeFaction.score < activeWar.faction_respect_limit) {
+    return;
+  }
+
+  await env.DB.prepare(
+    `
+    UPDATE wars
+    SET status = 'ended',
+        finish_time = ?,
+        last_respect_check_at = ?,
+        last_observed_respect = ?,
+        torn_war_id = COALESCE(torn_war_id, ?)
+    WHERE id = ?
+      AND status = 'active'
+    `,
+  )
+    .bind(checkedAt, checkedAt, homeFaction.score, rankedWar.id, activeWar.id)
+    .run();
+
+  await env.DB.prepare(
+    `
+    UPDATE sync_state
+    SET active_war_id = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE name = ?
+    `,
+  )
+    .bind(SOURCE_NAME)
+    .run();
+
+  await finalizeWar(env, activeWar.id);
+}
+
+async function syncUpcomingRankedWar(
+  env: Env,
+  rankedWar: TornRankedWar | null,
+): Promise<void> {
+  const now = nowSeconds();
+  if (!rankedWar || rankedWar.start <= now || rankedWar.end !== 0) {
+    return;
+  }
+
+  const homeFaction = rankedWar.factions?.find(
+    (faction: TornRankedWarFaction) => faction.id === HOME_FACTION_ID,
+  );
+  const enemyFaction = rankedWar.factions?.find(
+    (faction: TornRankedWarFaction) => faction.id !== HOME_FACTION_ID,
+  );
+
+  if (!homeFaction || !enemyFaction) {
+    console.warn("Skipping ranked war schedule sync: expected factions missing from Torn response");
+    return;
+  }
+
+  const existingByTornId = (await env.DB.prepare(
+    `
+    SELECT id
+    FROM wars
+    WHERE torn_war_id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(rankedWar.id)
+    .first()) as { id: number } | null;
+
+  if (existingByTornId) {
+    await env.DB.prepare(
+      `
+      UPDATE wars
+      SET start_time = ?,
+          faction_id = ?,
+          last_respect_check_at = ?,
+          last_observed_respect = ?
+      WHERE id = ?
+      `,
+    )
+      .bind(rankedWar.start, enemyFaction.id, now, homeFaction.score, existingByTornId.id)
+      .run();
+    return;
+  }
+
+  const existingScheduledWar = (await env.DB.prepare(
+    `
+    SELECT id
+    FROM wars
+    WHERE status = 'scheduled'
+    LIMIT 1
+    `,
+  ).first()) as { id: number } | null;
+
+  if (existingScheduledWar) {
+    console.warn(
+      `Skipping ranked war schedule sync: scheduled war already exists and Torn war ${rankedWar.id} is not linked`,
+    );
+    return;
+  }
+
+  const name = buildScheduledRankedWarName(enemyFaction.name, rankedWar.id);
+
+  await env.DB.prepare(
+    `
+    INSERT INTO wars (
+      name,
+      status,
+      start_time,
+      faction_id,
+      war_type,
+      torn_war_id,
+      last_respect_check_at,
+      last_observed_respect
+    )
+    VALUES (?, 'scheduled', ?, ?, 'real', ?, ?, ?)
+    `,
+  )
+    .bind(name, rankedWar.start, enemyFaction.id, rankedWar.id, now, homeFaction.score)
+    .run();
+}
+
+function buildScheduledRankedWarName(enemyFactionName: string, tornWarId: number): string {
+  const baseName = `rw-${enemyFactionName}-${tornWarId}`
+    .replace(/[^a-zA-Z0-9 _-]/g, "")
+    .trim()
+    .slice(0, 50);
+
+  return baseName || `ranked-war-${tornWarId}`;
+}
+
+async function fetchLatestRankedWar(env: Env): Promise<TornRankedWar | null> {
+  const url = new URL(RANKED_WARS_API_URL);
+  url.searchParams.set("offset", "0");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("sort", "DESC");
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Accept: "application/json",
+      Authorization: `ApiKey ${env.TORN_API_KEY}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Torn ranked wars API error: ${response.status}`);
+  }
+
+  const data = (await response.json()) as TornRankedWarResponse;
+  return data.rankedwars?.[0] ?? null;
 }
 
 function buildLiveInsertStatement(

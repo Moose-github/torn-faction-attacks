@@ -12,6 +12,26 @@ export type TornAttackResponse = {
   attacks?: TornAttack[] | Record<string, TornAttack>;
 };
 
+export type TornRankedWarResponse = {
+  rankedwars?: TornRankedWar[];
+};
+
+export type TornRankedWar = {
+  id: number;
+  start: number;
+  end: number;
+  target: number;
+  winner: number | null;
+  factions?: TornRankedWarFaction[];
+};
+
+export type TornRankedWarFaction = {
+  id: number;
+  name: string;
+  score: number;
+  chain: number;
+};
+
 export type TornAttack = {
   id: number;
   code?: string;
@@ -60,6 +80,12 @@ export type WarRow = {
   finish_time: number | null;
   faction_id: number | null;
   war_type: string | null;
+  torn_war_id: number | null;
+  auto_end_enabled: number;
+  faction_respect_limit: number | null;
+  member_respect_limit: number | null;
+  last_respect_check_at: number | null;
+  last_observed_respect: number | null;
   finalized_at: number | null;
 };
 

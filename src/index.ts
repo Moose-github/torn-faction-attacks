@@ -52,7 +52,7 @@ export default {
     }
 
     if (url.pathname === "/api/wars" && request.method === "GET") {
-      return listWars(env);
+      return listWars(url, env);
     }
 
     if (
@@ -72,7 +72,7 @@ export default {
     }
 
     if (url.pathname === "/api/stats" && request.method === "GET") {
-      return getOverallStats(env);
+      return getOverallStats(url, env);
     }
 
     return json({ error: "Not found" }, 404);

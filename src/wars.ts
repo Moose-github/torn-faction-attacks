@@ -1,4 +1,4 @@
-import { SOURCE_NAME } from "./constants";
+import { SOURCE_NAME, WAR_TYPES } from "./constants";
 import { backfillWarAssignments, ingestHistoricalWarWindow, setActiveWarState } from "./ingestion";
 import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromRaw } from "./summaries";
 import { Env, WarRow, WarSummaryRow } from "./types";
@@ -11,6 +11,10 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
       start_time?: unknown;
       faction_id?: unknown;
       war_type?: unknown;
+      torn_war_id?: unknown;
+      auto_end_enabled?: unknown;
+      faction_respect_limit?: unknown;
+      member_respect_limit?: unknown;
     };
 
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -24,10 +28,17 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
       body.faction_id === undefined || body.faction_id === null
         ? null
         : Number(body.faction_id);
-    const warType =
-      body.war_type === undefined || body.war_type === null
-        ? null
-        : String(body.war_type).trim() || null;
+    const warType = parseWarType(body.war_type, "real");
+    const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
+    const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
+    const factionRespectLimit = parseOptionalNonNegativeNumber(
+      body.faction_respect_limit,
+      "faction_respect_limit",
+    );
+    const memberRespectLimit = parseOptionalNonNegativeNumber(
+      body.member_respect_limit,
+      "member_respect_limit",
+    );
 
     if (body.start_time !== undefined) {
       const parsed = Number(body.start_time);
@@ -39,6 +50,16 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
 
     if (factionId !== null && (!Number.isInteger(factionId) || factionId < 0)) {
       return json({ ok: false, error: "Invalid faction_id", code: "INVALID_FACTION_ID" }, 400);
+    }
+
+    const validationError = validateTermedWarFields(
+      warType,
+      autoEndEnabled,
+      factionRespectLimit,
+      memberRespectLimit,
+    );
+    if (validationError) {
+      return validationError;
     }
 
     const status = startTime > now ? "scheduled" : "active";
@@ -77,12 +98,46 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
 
     const war = (await env.DB.prepare(
       `
-      INSERT INTO wars (name, status, start_time, faction_id, war_type)
-      VALUES (?, ?, ?, ?, ?)
-      RETURNING id, name, status, start_time, finish_time, faction_id, war_type, finalized_at
+      INSERT INTO wars (
+        name,
+        status,
+        start_time,
+        faction_id,
+        war_type,
+        torn_war_id,
+        auto_end_enabled,
+        faction_respect_limit,
+        member_respect_limit
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      RETURNING
+        id,
+        name,
+        status,
+        start_time,
+        finish_time,
+        faction_id,
+        war_type,
+        torn_war_id,
+        auto_end_enabled,
+        faction_respect_limit,
+        member_respect_limit,
+        last_respect_check_at,
+        last_observed_respect,
+        finalized_at
       `,
     )
-      .bind(name, status, startTime, factionId, warType)
+      .bind(
+        name,
+        status,
+        startTime,
+        factionId,
+        warType,
+        tornWarId,
+        autoEndEnabled,
+        factionRespectLimit,
+        memberRespectLimit,
+      )
       .first()) as WarRow | null;
 
     if (status === "active" && war) {
@@ -106,6 +161,10 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       finish_time?: unknown;
       faction_id?: unknown;
       war_type?: unknown;
+      torn_war_id?: unknown;
+      auto_end_enabled?: unknown;
+      faction_respect_limit?: unknown;
+      member_respect_limit?: unknown;
     };
 
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -119,10 +178,17 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       body.faction_id === undefined || body.faction_id === null
         ? null
         : Number(body.faction_id);
-    const warType =
-      body.war_type === undefined || body.war_type === null
-        ? null
-        : String(body.war_type).trim() || null;
+    const warType = parseWarType(body.war_type, "real");
+    const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
+    const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
+    const factionRespectLimit = parseOptionalNonNegativeNumber(
+      body.faction_respect_limit,
+      "faction_respect_limit",
+    );
+    const memberRespectLimit = parseOptionalNonNegativeNumber(
+      body.member_respect_limit,
+      "member_respect_limit",
+    );
     const now = nowSeconds();
 
     if (!Number.isInteger(startTime) || startTime < 0) {
@@ -135,6 +201,16 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
 
     if (factionId !== null && (!Number.isInteger(factionId) || factionId < 0)) {
       return json({ ok: false, error: "Invalid faction_id", code: "INVALID_FACTION_ID" }, 400);
+    }
+
+    const validationError = validateTermedWarFields(
+      warType,
+      autoEndEnabled,
+      factionRespectLimit,
+      memberRespectLimit,
+    );
+    if (validationError) {
+      return validationError;
     }
 
     if (finishTime < startTime) {
@@ -177,12 +253,47 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
 
     const war = (await env.DB.prepare(
       `
-      INSERT INTO wars (name, status, start_time, finish_time, faction_id, war_type)
-      VALUES (?, 'ended', ?, ?, ?, ?)
-      RETURNING id, name, status, start_time, finish_time, faction_id, war_type, finalized_at
+      INSERT INTO wars (
+        name,
+        status,
+        start_time,
+        finish_time,
+        faction_id,
+        war_type,
+        torn_war_id,
+        auto_end_enabled,
+        faction_respect_limit,
+        member_respect_limit
+      )
+      VALUES (?, 'ended', ?, ?, ?, ?, ?, ?, ?, ?)
+      RETURNING
+        id,
+        name,
+        status,
+        start_time,
+        finish_time,
+        faction_id,
+        war_type,
+        torn_war_id,
+        auto_end_enabled,
+        faction_respect_limit,
+        member_respect_limit,
+        last_respect_check_at,
+        last_observed_respect,
+        finalized_at
       `,
     )
-      .bind(name, startTime, finishTime, factionId, warType)
+      .bind(
+        name,
+        startTime,
+        finishTime,
+        factionId,
+        warType,
+        tornWarId,
+        autoEndEnabled,
+        factionRespectLimit,
+        memberRespectLimit,
+      )
       .first()) as WarRow | null;
 
     if (!war) {
@@ -248,8 +359,13 @@ export async function endActiveWar(env: Env): Promise<Response> {
   return json({ ok: true, war_id: activeWarId, finish_time: endedAt });
 }
 
-export async function listWars(env: Env): Promise<Response> {
+export async function listWars(url: URL, env: Env): Promise<Response> {
   try {
+    const warType = parseWarTypeQuery(url);
+    if (warType instanceof Response) {
+      return warType;
+    }
+
     const rows = await env.DB.prepare(
       `
       SELECT
@@ -260,6 +376,12 @@ export async function listWars(env: Env): Promise<Response> {
         w.finish_time,
         w.faction_id,
         w.war_type,
+        w.torn_war_id,
+        w.auto_end_enabled,
+        w.faction_respect_limit,
+        w.member_respect_limit,
+        w.last_respect_check_at,
+        w.last_observed_respect,
         w.finalized_at,
         COALESCE(ws.faction_attacks, 0) AS faction_attacks,
         COALESCE(ws.enemy_attacks, 0) AS enemy_attacks,
@@ -272,9 +394,12 @@ export async function listWars(env: Env): Promise<Response> {
         ws.updated_at AS summary_updated_at
       FROM wars w
       LEFT JOIN war_summary ws ON ws.war_id = w.id
+      WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
       ORDER BY w.start_time DESC
       `,
-    ).all();
+    )
+      .bind(warType, warType)
+      .all();
 
     return json({ ok: true, wars: rows.results ?? [] });
   } catch (err: any) {
@@ -292,7 +417,21 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
 
     const war = (await env.DB.prepare(
       `
-      SELECT id, name, status, start_time, finish_time, faction_id, war_type, finalized_at
+      SELECT
+        id,
+        name,
+        status,
+        start_time,
+        finish_time,
+        faction_id,
+        war_type,
+        torn_war_id,
+        auto_end_enabled,
+        faction_respect_limit,
+        member_respect_limit,
+        last_respect_check_at,
+        last_observed_respect,
+        finalized_at
       FROM wars
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
@@ -350,7 +489,21 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
 
     const war = (await env.DB.prepare(
       `
-      SELECT id, name, status, start_time, finish_time, faction_id, war_type, finalized_at
+      SELECT
+        id,
+        name,
+        status,
+        start_time,
+        finish_time,
+        faction_id,
+        war_type,
+        torn_war_id,
+        auto_end_enabled,
+        faction_respect_limit,
+        member_respect_limit,
+        last_respect_check_at,
+        last_observed_respect,
+        finalized_at
       FROM wars
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
@@ -389,38 +542,73 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
   }
 }
 
-export async function getOverallStats(env: Env): Promise<Response> {
+export async function getOverallStats(url: URL, env: Env): Promise<Response> {
+  const warType = parseWarTypeQuery(url);
+  if (warType instanceof Response) {
+    return warType;
+  }
+
   const overall = await env.DB.prepare(
     `
     SELECT
       COUNT(*) AS total_wars,
-      COALESCE(SUM(faction_attacks), 0) AS faction_attacks,
-      COALESCE(SUM(enemy_attacks), 0) AS enemy_attacks,
-      COALESCE(SUM(outside_hits_outgoing), 0) AS outside_hits_outgoing,
-      COALESCE(SUM(total_respect_gain), 0) AS total_respect_gain,
-      COALESCE(SUM(total_respect_lost), 0) AS total_respect_lost,
-      MAX(last_attack_at) AS latest_attack_started
-    FROM war_summary
+      COALESCE(SUM(ws.faction_attacks), 0) AS faction_attacks,
+      COALESCE(SUM(ws.enemy_attacks), 0) AS enemy_attacks,
+      COALESCE(SUM(ws.outside_hits_outgoing), 0) AS outside_hits_outgoing,
+      COALESCE(SUM(ws.total_respect_gain), 0) AS total_respect_gain,
+      COALESCE(SUM(ws.total_respect_lost), 0) AS total_respect_lost,
+      MAX(ws.last_attack_at) AS latest_attack_started
+    FROM war_summary ws
+    JOIN wars w ON w.id = ws.war_id
+    WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
     `,
-  ).first();
+  )
+    .bind(warType, warType)
+    .first();
 
   const topMembers = await env.DB.prepare(
     `
-    SELECT *
-    FROM member_career_stats
+    SELECT
+      wms.member_id,
+      MAX(wms.member_name) AS member_name,
+      COUNT(DISTINCT wms.war_id) AS wars_participated,
+      COALESCE(SUM(wms.enemy_attacks_total), 0) AS enemy_attacks_total,
+      COALESCE(SUM(wms.enemy_attacks_successful), 0) AS enemy_attacks_successful,
+      COALESCE(SUM(wms.enemy_respect_gained), 0) AS enemy_respect_gained,
+      COALESCE(SUM(wms.enemy_assists), 0) AS enemy_assists,
+      COALESCE(SUM(wms.enemy_hospitalizations), 0) AS enemy_hospitalizations,
+      COALESCE(SUM(wms.enemy_mugs), 0) AS enemy_mugs,
+      COALESCE(SUM(wms.outside_attacks), 0) AS outside_attacks,
+      COALESCE(SUM(wms.friendly_hospitals), 0) AS friendly_hospitals,
+      COALESCE(SUM(wms.defends_total), 0) AS defends_total,
+      COALESCE(SUM(wms.defends_won), 0) AS defends_won,
+      COALESCE(SUM(wms.respect_lost), 0) AS respect_lost,
+      MIN(wms.first_action_at) AS first_seen_at,
+      MAX(wms.last_action_at) AS last_seen_at
+    FROM war_member_stats wms
+    JOIN wars w ON w.id = wms.war_id
+    WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
+    GROUP BY wms.member_id
     ORDER BY enemy_respect_gained DESC, enemy_attacks_successful DESC, enemy_attacks_total DESC
     LIMIT 25
     `,
-  ).all();
+  )
+    .bind(warType, warType)
+    .all();
 
   return json({
     ok: true,
+    war_type: warType,
     overall,
     top_members: topMembers.results ?? [],
   });
 }
 
 function handleMutationError(err: any): Response {
+  if (err instanceof ValidationError) {
+    return json({ ok: false, error: err.message, code: err.code }, 400);
+  }
+
   const message = err?.message || String(err);
 
   if (message.includes("Unexpected token")) {
@@ -432,4 +620,119 @@ function handleMutationError(err: any): Response {
   }
 
   return json({ ok: false, error: message, code: "INTERNAL_ERROR" }, 500);
+}
+
+class ValidationError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+  ) {
+    super(message);
+  }
+}
+
+function parseWarType(value: unknown, fallback: string): string {
+  const warType =
+    value === undefined || value === null ? fallback : String(value).trim().toLowerCase();
+
+  if (!WAR_TYPES.includes(warType as (typeof WAR_TYPES)[number])) {
+    throw new ValidationError("Invalid war_type", "INVALID_WAR_TYPE");
+  }
+
+  return warType;
+}
+
+function parseWarTypeQuery(url: URL): string | null | Response {
+  const value = url.searchParams.get("war_type");
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+
+  const warType = value.trim().toLowerCase();
+  if (!WAR_TYPES.includes(warType as (typeof WAR_TYPES)[number])) {
+    return json({ ok: false, error: "Invalid war_type", code: "INVALID_WAR_TYPE" }, 400);
+  }
+
+  return warType;
+}
+
+function parseOptionalBoolean(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return false;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (value === 1 || value === "1" || value === "true") {
+    return true;
+  }
+
+  if (value === 0 || value === "0" || value === "false") {
+    return false;
+  }
+
+  throw new ValidationError("Invalid auto_end_enabled", "INVALID_AUTO_END_ENABLED");
+}
+
+function parseOptionalInteger(value: unknown, field: string): number | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new ValidationError(`Invalid ${field}`, `INVALID_${field.toUpperCase()}`);
+  }
+
+  return parsed;
+}
+
+function parseOptionalNonNegativeNumber(value: unknown, field: string): number | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new ValidationError(`Invalid ${field}`, `INVALID_${field.toUpperCase()}`);
+  }
+
+  return parsed;
+}
+
+function validateTermedWarFields(
+  warType: string,
+  autoEndEnabled: number,
+  factionRespectLimit: number | null,
+  memberRespectLimit: number | null,
+): Response | null {
+  if (warType !== "termed") {
+    if (autoEndEnabled === 1 || factionRespectLimit !== null || memberRespectLimit !== null) {
+      return json(
+        {
+          ok: false,
+          error: "Termed war fields can only be set when war_type is termed",
+          code: "TERM_FIELDS_REQUIRE_TERMED_WAR",
+        },
+        400,
+      );
+    }
+
+    return null;
+  }
+
+  if (autoEndEnabled === 1 && factionRespectLimit === null) {
+    return json(
+      {
+        ok: false,
+        error: "faction_respect_limit is required when auto_end_enabled is true",
+        code: "MISSING_FACTION_RESPECT_LIMIT",
+      },
+      400,
+    );
+  }
+
+  return null;
 }
