@@ -8,7 +8,9 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as {
       name?: unknown;
-      started_at?: unknown;
+      start_time?: unknown;
+      faction_id?: unknown;
+      war_type?: unknown;
     };
 
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -17,17 +19,29 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
     }
 
     const now = nowSeconds();
-    let startedAt = now;
+    let startTime = now;
+    const factionId =
+      body.faction_id === undefined || body.faction_id === null
+        ? null
+        : Number(body.faction_id);
+    const warType =
+      body.war_type === undefined || body.war_type === null
+        ? null
+        : String(body.war_type).trim() || null;
 
-    if (body.started_at !== undefined) {
-      const parsed = Number(body.started_at);
+    if (body.start_time !== undefined) {
+      const parsed = Number(body.start_time);
       if (!Number.isInteger(parsed) || parsed < 0) {
-        return json({ ok: false, error: "Invalid started_at", code: "INVALID_STARTED_AT" }, 400);
+        return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
       }
-      startedAt = parsed;
+      startTime = parsed;
     }
 
-    const status = startedAt > now ? "scheduled" : "active";
+    if (factionId !== null && (!Number.isInteger(factionId) || factionId < 0)) {
+      return json({ ok: false, error: "Invalid faction_id", code: "INVALID_FACTION_ID" }, 400);
+    }
+
+    const status = startTime > now ? "scheduled" : "active";
 
     const existingActiveWar = (await env.DB.prepare(
       `SELECT id, name FROM wars WHERE status = 'active' LIMIT 1`,
@@ -46,8 +60,8 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
     }
 
     const existingScheduledWar = (await env.DB.prepare(
-      `SELECT id, name, started_at FROM wars WHERE status = 'scheduled' LIMIT 1`,
-    ).first()) as { id: number; name: string; started_at: number } | null;
+      `SELECT id, name, start_time FROM wars WHERE status = 'scheduled' LIMIT 1`,
+    ).first()) as { id: number; name: string; start_time: number } | null;
 
     if (status === "scheduled" && existingScheduledWar) {
       return json(
@@ -63,17 +77,17 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
 
     const war = (await env.DB.prepare(
       `
-      INSERT INTO wars (name, status, started_at)
-      VALUES (?, ?, ?)
-      RETURNING id, name, status, started_at, ended_at, finalized_at
+      INSERT INTO wars (name, status, start_time, faction_id, war_type)
+      VALUES (?, ?, ?, ?, ?)
+      RETURNING id, name, status, start_time, finish_time, faction_id, war_type, finalized_at
       `,
     )
-      .bind(name, status, startedAt)
+      .bind(name, status, startTime, factionId, warType)
       .first()) as WarRow | null;
 
     if (status === "active" && war) {
-      await setActiveWarState(env, war.id, startedAt);
-      await backfillWarAssignments(env, war.id, startedAt);
+      await setActiveWarState(env, war.id, startTime);
+      await backfillWarAssignments(env, war.id, startTime);
       await rebuildWarSummaryFromRaw(env, war.id);
       await rebuildWarMemberStatsFromRaw(env, war.id);
     }
@@ -88,8 +102,10 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
   try {
     const body = (await request.json()) as {
       name?: unknown;
-      started_at?: unknown;
-      ended_at?: unknown;
+      start_time?: unknown;
+      finish_time?: unknown;
+      faction_id?: unknown;
+      war_type?: unknown;
     };
 
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -97,35 +113,47 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       return json({ ok: false, error: "Invalid war name", code: "INVALID_NAME" }, 400);
     }
 
-    const startedAt = Number(body.started_at);
-    const endedAt = Number(body.ended_at);
+    const startTime = Number(body.start_time);
+    const finishTime = Number(body.finish_time);
+    const factionId =
+      body.faction_id === undefined || body.faction_id === null
+        ? null
+        : Number(body.faction_id);
+    const warType =
+      body.war_type === undefined || body.war_type === null
+        ? null
+        : String(body.war_type).trim() || null;
     const now = nowSeconds();
 
-    if (!Number.isInteger(startedAt) || startedAt < 0) {
-      return json({ ok: false, error: "Invalid started_at", code: "INVALID_STARTED_AT" }, 400);
+    if (!Number.isInteger(startTime) || startTime < 0) {
+      return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
     }
 
-    if (!Number.isInteger(endedAt) || endedAt < 0) {
-      return json({ ok: false, error: "Invalid ended_at", code: "INVALID_ENDED_AT" }, 400);
+    if (!Number.isInteger(finishTime) || finishTime < 0) {
+      return json({ ok: false, error: "Invalid finish_time", code: "INVALID_FINISH_TIME" }, 400);
     }
 
-    if (endedAt < startedAt) {
+    if (factionId !== null && (!Number.isInteger(factionId) || factionId < 0)) {
+      return json({ ok: false, error: "Invalid faction_id", code: "INVALID_FACTION_ID" }, 400);
+    }
+
+    if (finishTime < startTime) {
       return json(
         {
           ok: false,
-          error: "ended_at must be greater than or equal to started_at",
+          error: "finish_time must be greater than or equal to start_time",
           code: "INVALID_TIME_RANGE",
         },
         400,
       );
     }
 
-    if (endedAt > now) {
+    if (finishTime > now) {
       return json(
         {
           ok: false,
-          error: "ended_at cannot be in the future for historical import",
-          code: "ENDED_AT_IN_FUTURE",
+          error: "finish_time cannot be in the future for historical import",
+          code: "FINISH_TIME_IN_FUTURE",
         },
         400,
       );
@@ -149,19 +177,19 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
 
     const war = (await env.DB.prepare(
       `
-      INSERT INTO wars (name, status, started_at, ended_at)
-      VALUES (?, 'ended', ?, ?)
-      RETURNING id, name, status, started_at, ended_at, finalized_at
+      INSERT INTO wars (name, status, start_time, finish_time, faction_id, war_type)
+      VALUES (?, 'ended', ?, ?, ?, ?)
+      RETURNING id, name, status, start_time, finish_time, faction_id, war_type, finalized_at
       `,
     )
-      .bind(name, startedAt, endedAt)
+      .bind(name, startTime, finishTime, factionId, warType)
       .first()) as WarRow | null;
 
     if (!war) {
       throw new Error("Failed to create war");
     }
 
-    const importedAttackCount = await ingestHistoricalWarWindow(env, war.id, startedAt, endedAt);
+    const importedAttackCount = await ingestHistoricalWarWindow(env, war.id, startTime, finishTime);
     await finalizeWar(env, war.id);
 
     return json(
@@ -169,8 +197,8 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         ok: true,
         war_id: war.id,
         name: war.name,
-        started_at: startedAt,
-        ended_at: endedAt,
+        start_time: startTime,
+        finish_time: finishTime,
         imported_attack_count: importedAttackCount,
       },
       201,
@@ -197,7 +225,7 @@ export async function endActiveWar(env: Env): Promise<Response> {
   await env.DB.prepare(
     `
     UPDATE wars
-    SET status = 'ended', ended_at = ?
+    SET status = 'ended', finish_time = ?
     WHERE id = ?
     `,
   )
@@ -217,7 +245,7 @@ export async function endActiveWar(env: Env): Promise<Response> {
 
   await finalizeWar(env, activeWarId);
 
-  return json({ ok: true, war_id: activeWarId, ended_at: endedAt });
+  return json({ ok: true, war_id: activeWarId, finish_time: endedAt });
 }
 
 export async function listWars(env: Env): Promise<Response> {
@@ -228,20 +256,23 @@ export async function listWars(env: Env): Promise<Response> {
         w.id,
         w.name,
         w.status,
-        w.started_at,
-        w.ended_at,
+        w.start_time,
+        w.finish_time,
+        w.faction_id,
+        w.war_type,
         w.finalized_at,
-        COALESCE(ws.total_attacks, 0) AS total_attacks,
+        COALESCE(ws.faction_attacks, 0) AS faction_attacks,
+        COALESCE(ws.enemy_attacks, 0) AS enemy_attacks,
+        COALESCE(ws.outside_hits_outgoing, 0) AS outside_hits_outgoing,
         COALESCE(ws.total_respect_gain, 0) AS total_respect_gain,
         COALESCE(ws.total_respect_lost, 0) AS total_respect_lost,
         COALESCE(ws.unique_attackers, 0) AS unique_attackers,
-        COALESCE(ws.unique_members_lost_defends, 0) AS unique_members_lost_defends,
         ws.first_attack_at,
         ws.last_attack_at,
         ws.updated_at AS summary_updated_at
       FROM wars w
       LEFT JOIN war_summary ws ON ws.war_id = w.id
-      ORDER BY w.started_at DESC
+      ORDER BY w.start_time DESC
       `,
     ).all();
 
@@ -262,7 +293,7 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
 
     const war = (await env.DB.prepare(
       `
-      SELECT id, name, status, started_at, ended_at, finalized_at
+      SELECT id, name, status, start_time, finish_time, faction_id, war_type, finalized_at
       FROM wars
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
@@ -326,7 +357,9 @@ export async function getOverallStats(env: Env): Promise<Response> {
     `
     SELECT
       COUNT(*) AS total_wars,
-      COALESCE(SUM(total_attacks), 0) AS total_attacks,
+      COALESCE(SUM(faction_attacks), 0) AS faction_attacks,
+      COALESCE(SUM(enemy_attacks), 0) AS enemy_attacks,
+      COALESCE(SUM(outside_hits_outgoing), 0) AS outside_hits_outgoing,
       COALESCE(SUM(total_respect_gain), 0) AS total_respect_gain,
       COALESCE(SUM(total_respect_lost), 0) AS total_respect_lost,
       MAX(last_attack_at) AS latest_attack_started
