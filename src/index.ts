@@ -5,6 +5,7 @@ import {
   createWar,
   endActiveWar,
   getOverallStats,
+  getWar,
   getWarAttacks,
   importHistoricalWar,
   listWars,
@@ -46,6 +47,14 @@ export default {
 
     if (url.pathname === "/api/wars" && request.method === "GET") {
       return listWars(env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      !url.pathname.endsWith("/attacks") &&
+      request.method === "GET"
+    ) {
+      return getWar(url, env);
     }
 
     if (
