@@ -1,0 +1,24 @@
+{
+  "name": "torn-faction-attacks-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-react": "^0.475.0",
+    "recharts": "^2.15.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.14",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3"
+  }
+}

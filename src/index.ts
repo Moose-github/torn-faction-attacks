@@ -1,7 +1,7 @@
 import { runIngestion } from "./ingestion";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { ExecutionContext, Env, ScheduledController } from "./types";
-import { json, parseLimit } from "./utils";
+import { corsHeaders, json, parseLimit } from "./utils";
 import {
   createWar,
   endActiveWar,
@@ -15,6 +15,13 @@ import {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders,
+      });
+    }
 
     if (url.pathname === "/api/run" && request.method === "POST") {
       await runIngestion(env);

@@ -256,6 +256,43 @@ Deploy:
 npm run deploy
 ```
 
+## Dashboard
+
+The React dashboard lives in `dashboard/` and is intended to be deployed with Cloudflare Pages.
+
+Install dashboard dependencies:
+
+```bash
+cd dashboard
+npm install
+```
+
+Run dashboard locally:
+
+```bash
+npm run dev
+```
+
+Build dashboard:
+
+```bash
+npm run build
+```
+
+Cloudflare Pages settings:
+
+```text
+Root directory: dashboard
+Build command: npm run build
+Build output directory: dist
+```
+
+Set this Pages environment variable so the dashboard knows where the Worker API is:
+
+```text
+VITE_API_BASE_URL=https://torn-faction-attacks.moose-3065754.workers.dev
+```
+
 ## Dashboard Roadmap
 
 The next planned piece is a dashboard that can sit on top of the existing API. Likely first views:

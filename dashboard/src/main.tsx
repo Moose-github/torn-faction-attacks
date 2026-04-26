@@ -1,0 +1,698 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { ArrowDown, ArrowUp, BarChart3, CalendarClock, Swords, Target } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { getStats, getWar, getWars, MemberStats, WarDetailResponse, WarSummary, WarType } from "./api";
+import "./styles.css";
+
+const numberFormatter = new Intl.NumberFormat("en-GB", {
+  maximumFractionDigits: 1,
+});
+
+function App() {
+  const [warType, setWarType] = React.useState<WarType>("all");
+  const [view, setView] = React.useState<"war" | "members">("war");
+  const [wars, setWars] = React.useState<WarSummary[]>([]);
+  const [selectedWarName, setSelectedWarName] = React.useState<string | null>(null);
+  const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
+  const [overallWars, setOverallWars] = React.useState(0);
+  const [memberSort, setMemberSort] = React.useState<MemberSort>({
+    key: "enemy_attacks_successful",
+    direction: "desc",
+  });
+  const [error, setError] = React.useState<string | null>(null);
+  const [isLoadingWars, setIsLoadingWars] = React.useState(true);
+  const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadWars() {
+      setIsLoadingWars(true);
+      setError(null);
+
+      try {
+        const [warsResponse, statsResponse] = await Promise.all([
+          getWars(warType),
+          getStats(warType),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setWars(warsResponse.wars);
+        setOverallWars(statsResponse.overall.total_wars);
+
+        const selectedStillVisible = warsResponse.wars.some((war) => war.name === selectedWarName);
+        if (!selectedStillVisible) {
+          setSelectedWarName(warsResponse.wars[0]?.name ?? null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingWars(false);
+        }
+      }
+    }
+
+    loadWars();
+    return () => {
+      cancelled = true;
+    };
+  }, [warType, selectedWarName]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadWarDetail() {
+      if (!selectedWarName) {
+        setWarDetail(null);
+        return;
+      }
+
+      setIsLoadingDetail(true);
+      setError(null);
+
+      try {
+        const detail = await getWar(selectedWarName);
+        if (!cancelled) {
+          setWarDetail(detail);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingDetail(false);
+        }
+      }
+    }
+
+    loadWarDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWarName]);
+
+  const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
+  const members = sortMembers(warDetail?.members ?? [], memberSort);
+
+  return (
+    <main className="app-shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">Buttgrass Inc</p>
+          <h1>Torn faction attacks</h1>
+        </div>
+      </header>
+
+      {error ? <div className="error-panel">{error}</div> : null}
+
+      <div className="dashboard-layout">
+        <aside className="sidebar panel">
+          <PanelHeader
+            title="Recorded wars"
+            aside={isLoadingWars ? "Loading" : `${wars.length}`}
+            control={<WarTypeSelect value={warType} onChange={setWarType} />}
+          />
+          <SidebarLink active={view === "members"} onClick={() => setView("members")} />
+          <WarNav
+            wars={wars}
+            selectedWarName={selectedWarName}
+            onSelect={(name) => {
+              setSelectedWarName(name);
+              setView("war");
+            }}
+          />
+        </aside>
+
+        <section className="main-content">
+          {view === "members" ? (
+            <MembersOverview warType={warType} />
+          ) : selectedWar ? (
+            <>
+              <section className="hero-panel">
+                <div>
+                  <p className="eyebrow">{selectedWar.status}</p>
+                  <h2>{selectedWar.name}</h2>
+                  <p>
+                    {(selectedWar.war_type ?? "real").toUpperCase()} · {formatDate(selectedWar.start_time)}
+                  </p>
+                </div>
+                {selectedWar.war_type === "termed" ? <TermProgress war={selectedWar} /> : null}
+              </section>
+
+              <section className="status-grid war-status-grid">
+                <MetricCard
+                  label="Respect gained"
+                  value={formatNumber(detailNumber(warDetail?.summary?.total_respect_gain, selectedWar.total_respect_gain))}
+                  icon={<Target size={18} />}
+                />
+                <MetricCard
+                  label="Successful attacks"
+                  value={formatNumber(sumMembers(members, "enemy_attacks_successful"))}
+                  icon={<Swords size={18} />}
+                />
+                <MetricCard
+                  label="Victory / loss"
+                  value={warOutcome(selectedWar, detailNumber(warDetail?.summary?.total_respect_gain, selectedWar.total_respect_gain), detailNumber(warDetail?.summary?.total_respect_lost, selectedWar.total_respect_lost))}
+                  icon={<CalendarClock size={18} />}
+                />
+              </section>
+
+              <section className="content-grid">
+                <section className="panel chart-panel">
+                  <PanelHeader
+                    title="Attacks"
+                    aside={isLoadingDetail ? "Loading" : `${members.length} members`}
+                  />
+                  <AttackChart members={members.slice(0, 10)} />
+                </section>
+
+                <section className="panel">
+                  <PanelHeader title="War totals" />
+                  <div className="metric-list">
+                    <InlineMetric label="Respect gained" value={detailNumber(warDetail?.summary?.total_respect_gain, selectedWar.total_respect_gain)} />
+                    <InlineMetric label="Successful attacks" value={sumMembers(members, "enemy_attacks_successful")} />
+                    <InlineMetric label="Assists" value={sumMembers(members, "enemy_assists")} />
+                  </div>
+                </section>
+              </section>
+
+              <section className="panel table-panel">
+                <PanelHeader title="Member leaderboard" />
+                <MemberTable
+                  members={members}
+                  sort={memberSort}
+                  onSortChange={setMemberSort}
+                />
+              </section>
+            </>
+          ) : (
+            <section className="panel">
+              <EmptyState text="No wars to show" />
+            </section>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function WarTypeSelect({
+  value,
+  onChange,
+}: {
+  value: WarType;
+  onChange: (value: WarType) => void;
+}) {
+  return (
+    <select
+      className="war-type-select"
+      value={value}
+      aria-label="Filter recorded wars"
+      onChange={(event) => onChange(event.target.value as WarType)}
+    >
+      <option value="all">All</option>
+      <option value="real">Real</option>
+      <option value="termed">Termed</option>
+      <option value="other">Other</option>
+    </select>
+  );
+}
+
+function SidebarLink({
+  active,
+  onClick,
+}: {
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className={active ? "sidebar-link active" : "sidebar-link"} onClick={onClick}>
+      <BarChart3 size={18} />
+      <span>Member performance</span>
+    </button>
+  );
+}
+
+function WarNav({
+  wars,
+  selectedWarName,
+  onSelect,
+}: {
+  wars: WarSummary[];
+  selectedWarName: string | null;
+  onSelect: (name: string) => void;
+}) {
+  if (wars.length === 0) {
+    return <EmptyState text="No wars recorded" />;
+  }
+
+  return (
+    <nav className="war-nav">
+      {wars.map((war) => (
+        <button
+          key={war.id}
+          type="button"
+          className={war.name === selectedWarName ? "selected" : ""}
+          onClick={() => onSelect(war.name)}
+        >
+          <span className="war-nav-main">
+            <strong>{war.name}</strong>
+            <small>
+              {war.status} · {formatDate(war.start_time)}
+            </small>
+          </span>
+          <span className="war-nav-type">{war.war_type ?? "real"}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function TermProgress({ war }: { war: WarSummary }) {
+  if (!war.faction_respect_limit) {
+    return null;
+  }
+
+  const observed = war.last_observed_respect ?? war.total_respect_gain ?? 0;
+  const progress = Math.min(100, (observed / war.faction_respect_limit) * 100);
+
+  return (
+    <div className="progress-block hero-progress">
+      <div className="progress-track">
+        <span style={{ width: `${progress}%` }} />
+      </div>
+      <small>
+        {formatNumber(observed)} / {formatNumber(war.faction_respect_limit)} respect
+      </small>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <article className="metric-card">
+      <div className="panel-kicker">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <strong>{value}</strong>
+    </article>
+  );
+}
+
+function PanelHeader({
+  icon,
+  title,
+  aside,
+  control,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  aside?: string;
+  control?: React.ReactNode;
+}) {
+  return (
+    <div className="panel-header">
+      <h2>
+        {icon}
+        {title}
+      </h2>
+      {control ?? (aside ? <span>{aside}</span> : null)}
+    </div>
+  );
+}
+
+function AttackChart({ members }: { members: MemberStats[] }) {
+  if (members.length === 0) {
+    return <EmptyState text="No member data yet" />;
+  }
+
+  const data = members.map((member) => ({
+    name: displayMember(member),
+    successful: Number(member.enemy_attacks_successful ?? 0),
+  }));
+
+  return (
+    <div className="chart-wrap">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="name" tick={false} tickLine={false} axisLine={false} height={8} />
+          <YAxis tickLine={false} axisLine={false} width={44} />
+          <Tooltip formatter={(value) => formatNumber(Number(value))} />
+          <Bar dataKey="successful" name="Attacks" radius={[4, 4, 0, 0]}>
+            {data.map((_, index) => (
+              <Cell key={`successful-${index}`} fill="#2563eb" />
+            ))}
+            <LabelList
+              dataKey="name"
+              angle={-90}
+              position="insideBottom"
+              offset={22}
+              fill="#ffffff"
+              fontSize={13}
+              fontWeight={800}
+            />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+type MemberSortKey =
+  | "member_name"
+  | "enemy_attacks_successful"
+  | "defends_total"
+  | "enemy_respect_gained"
+  | "enemy_assists";
+
+type MemberSort = {
+  key: MemberSortKey;
+  direction: "asc" | "desc";
+};
+
+function MemberTable({
+  members,
+  sort,
+  onSortChange,
+}: {
+  members: MemberStats[];
+  sort: MemberSort;
+  onSortChange: (sort: MemberSort) => void;
+}) {
+  if (members.length === 0) {
+    return <EmptyState text="No members to show" />;
+  }
+
+  return (
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <SortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Attacks" sortKey="enemy_attacks_successful" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Respect gained" sortKey="enemy_respect_gained" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Assists" sortKey="enemy_assists" sort={sort} onSortChange={onSortChange} />
+          </tr>
+        </thead>
+        <tbody>
+          {members.map((member) => (
+            <tr key={member.member_id}>
+              <td>{displayMember(member)}</td>
+              <td>
+                <AttackBreakdown member={member} />
+              </td>
+              <td>
+                <DefendBreakdown member={member} />
+              </td>
+              <td>{formatNumber(member.enemy_respect_gained)}</td>
+              <td>{formatNumber(member.enemy_assists)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AttackBreakdown({ member }: { member: MemberStats }) {
+  const leaves = Math.max(
+    0,
+    member.enemy_attacks_successful -
+      member.enemy_hospitalizations -
+      member.enemy_mugs,
+  );
+  const hasBreakdown =
+    member.enemy_hospitalizations > 0 ||
+    member.enemy_mugs > 0 ||
+    (leaves > 0 && leaves !== member.enemy_attacks_successful);
+
+  if (!hasBreakdown) {
+    return <>{formatNumber(member.enemy_attacks_successful)}</>;
+  }
+
+  return (
+    <span
+      className="tooltip-value"
+      title={`Hospitalizations: ${formatNumber(member.enemy_hospitalizations)} | Mugs: ${formatNumber(member.enemy_mugs)} | Leaves: ${formatNumber(leaves)}`}
+    >
+      {formatNumber(member.enemy_attacks_successful)}
+    </span>
+  );
+}
+
+function DefendBreakdown({ member }: { member: MemberStats }) {
+  const defendsLost = Math.max(0, member.defends_total - member.defends_won);
+
+  if (member.defends_total === 0) {
+    return <>0</>;
+  }
+
+  return (
+    <span
+      className="tooltip-value"
+      title={`Won: ${formatNumber(member.defends_won)} | Lost: ${formatNumber(defendsLost)}`}
+    >
+      {formatNumber(member.defends_total)}
+    </span>
+  );
+}
+
+function MembersOverview({ warType }: { warType: WarType }) {
+  const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getStats>> | null>(null);
+  const [sort, setSort] = React.useState<MemberSort>({
+    key: "enemy_attacks_successful",
+    direction: "desc",
+  });
+  const [error, setError] = React.useState<string | null>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const response = await getStats(warType);
+        if (!cancelled) {
+          setStats(response);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [warType]);
+
+  const members = sortMembers(stats?.top_members ?? [], sort);
+
+  return (
+    <>
+      {error ? <div className="error-panel">{error}</div> : null}
+      <section className="hero-panel">
+        <div>
+          <p className="eyebrow">{warType === "all" ? "All events" : warType}</p>
+          <h2>Member performance</h2>
+          <p>Combined member results across the selected event type.</p>
+        </div>
+      </section>
+
+      <section className="status-grid war-status-grid">
+        <MetricCard
+          label="Respect gained"
+          value={formatNumber(stats?.overall.total_respect_gain ?? 0)}
+          icon={<Target size={18} />}
+        />
+        <MetricCard
+          label="Successful attacks"
+          value={formatNumber(sumMembers(members, "enemy_attacks_successful"))}
+          icon={<Swords size={18} />}
+        />
+        <MetricCard
+          label="Wars"
+          value={formatNumber(stats?.overall.total_wars ?? 0)}
+          icon={<CalendarClock size={18} />}
+        />
+      </section>
+
+      <section className="panel table-panel">
+        <PanelHeader title="Member leaderboard" aside={isLoading ? "Loading" : `${members.length} members`} />
+        <MemberTable members={members} sort={sort} onSortChange={setSort} />
+      </section>
+    </>
+  );
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  sort,
+  onSortChange,
+}: {
+  label: string;
+  sortKey: MemberSortKey;
+  sort: MemberSort;
+  onSortChange: (sort: MemberSort) => void;
+}) {
+  const isActive = sort.key === sortKey;
+  const nextDirection = isActive && sort.direction === "desc" ? "asc" : "desc";
+
+  return (
+    <th>
+      <button
+        type="button"
+        className={isActive ? "sort-button active" : "sort-button"}
+        onClick={() => onSortChange({ key: sortKey, direction: nextDirection })}
+      >
+        {label}
+        {isActive ? (
+          sort.direction === "desc" ? <ArrowDown size={14} /> : <ArrowUp size={14} />
+        ) : null}
+      </button>
+    </th>
+  );
+}
+
+function InlineMetric({
+  label,
+  value,
+  muted = false,
+}: {
+  label: string;
+  value: number;
+  muted?: boolean;
+}) {
+  return (
+    <div className={muted ? "inline-metric muted" : "inline-metric"}>
+      <span>{label}</span>
+      <strong>{formatNumber(value)}</strong>
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <div className="empty-state">{text}</div>;
+}
+
+function displayMember(member: MemberStats): string {
+  return member.member_name ?? `#${member.member_id}`;
+}
+
+function sortMembers(members: MemberStats[], sort: MemberSort): MemberStats[] {
+  return [...members].sort((a, b) => {
+    const direction = sort.direction === "desc" ? -1 : 1;
+    const aValue = sortValue(a, sort.key);
+    const bValue = sortValue(b, sort.key);
+
+    if (typeof aValue === "string" && typeof bValue === "string") {
+      return aValue.localeCompare(bValue) * direction;
+    }
+
+    if (aValue < bValue) {
+      return -1 * direction;
+    }
+
+    if (aValue > bValue) {
+      return 1 * direction;
+    }
+
+    return (
+      b.enemy_attacks_successful - a.enemy_attacks_successful ||
+      b.enemy_respect_gained - a.enemy_respect_gained
+    );
+  });
+}
+
+function sortValue(member: MemberStats, key: MemberSortKey): string | number {
+  if (key === "member_name") {
+    return displayMember(member).toLowerCase();
+  }
+
+  return Number(member[key] ?? 0);
+}
+
+function warOutcome(war: WarSummary, gained: number, lost: number): string {
+  if (war.status !== "ended") {
+    return "In progress";
+  }
+
+  if (gained === lost) {
+    return "Draw";
+  }
+
+  return gained > lost ? "Victory" : "Loss";
+}
+
+function sumMembers(members: MemberStats[], key: keyof MemberStats): number {
+  return members.reduce((total, member) => {
+    const value = member[key];
+    return total + (typeof value === "number" ? value : 0);
+  }, 0);
+}
+
+function detailNumber(value: number | null | undefined, fallback: number | null | undefined): number {
+  return Number(value ?? fallback ?? 0);
+}
+
+function formatNumber(value: number): string {
+  return numberFormatter.format(value);
+}
+
+function formatDate(timestamp: number | null): string {
+  if (!timestamp) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp * 1000));
+}
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);

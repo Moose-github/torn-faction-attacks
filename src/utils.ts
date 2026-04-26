@@ -1,5 +1,11 @@
 import { TornAttack } from "./types";
 
+export const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
 export function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
@@ -8,6 +14,7 @@ export function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
     status,
     headers: {
+      ...corsHeaders,
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
     },
