@@ -420,7 +420,7 @@ h2 {
   min-height: auto;
 }
 
-.admin-form .primary {
+.admin-form .admin-form-wide {
   grid-column: 1 / -1;
 }
 

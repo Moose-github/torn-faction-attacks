@@ -137,6 +137,17 @@ export async function importWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars/import", payload);
 }
 
+export async function previewImportWar(payload: AdminWarPayload): Promise<unknown> {
+  return postJson("/api/wars/import/preview", {
+    start_time: payload.start_time,
+    finish_time: payload.finish_time,
+  });
+}
+
+export async function deleteWar(payload: { id?: number; name?: string }): Promise<unknown> {
+  return postJson("/api/wars/delete", payload);
+}
+
 export async function endActiveWar(): Promise<unknown> {
   return postJson("/api/wars/end");
 }

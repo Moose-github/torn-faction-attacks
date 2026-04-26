@@ -16,12 +16,14 @@ import {
   AdminWarPayload,
   checkHealth,
   createWar,
+  deleteWar,
   endActiveWar,
   getStats,
   getWar,
   getWars,
   importWar,
   MemberStats,
+  previewImportWar,
   rebuildStats,
   runIngestion,
   WarDetailResponse,
@@ -548,7 +550,9 @@ function AdminControls() {
   const [importForm, setImportForm] = React.useState<AdminWarFormState>(() => ({
     ...defaultWarForm(),
     finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
+    finishEpoch: String(Math.floor(Date.now() / 1000)),
   }));
+  const [deleteForm, setDeleteForm] = React.useState({ id: "", name: "" });
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -621,8 +625,47 @@ function AdminControls() {
           isBusy={isBusy !== null}
           requireFinishTime
           showAutoEnd={false}
+          secondaryActionLabel="Preview import window"
+          onSecondaryAction={(payload) =>
+            runAdminAction("Preview import window", () => previewImportWar(payload))
+          }
           onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
         />
+
+        <section className="panel">
+          <PanelHeader title="Delete war" />
+          <form
+            className="admin-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Delete war", () =>
+                deleteWar({
+                  id: deleteForm.id.trim() ? Number(deleteForm.id) : undefined,
+                  name: deleteForm.name.trim() || undefined,
+                }),
+              );
+            }}
+          >
+            <label>
+              <span>War ID</span>
+              <input
+                inputMode="numeric"
+                value={deleteForm.id}
+                onChange={(event) => setDeleteForm({ ...deleteForm, id: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>War name</span>
+              <input
+                value={deleteForm.name}
+                onChange={(event) => setDeleteForm({ ...deleteForm, name: event.target.value })}
+              />
+            </label>
+            <button type="submit" className="admin-button danger admin-form-wide" disabled={isBusy !== null}>
+              Delete war
+            </button>
+          </form>
+        </section>
 
         <section className="panel admin-result-panel">
           <PanelHeader title="Latest API response" />
@@ -635,8 +678,11 @@ function AdminControls() {
 
 type AdminWarFormState = {
   name: string;
+  timeMode: "datetime" | "epoch";
   startTime: string;
+  startEpoch: string;
   finishTime: string;
+  finishEpoch: string;
   factionId: string;
   warType: Exclude<WarType, "all">;
   tornWarId: string;
@@ -653,6 +699,8 @@ function WarForm({
   isBusy,
   requireFinishTime = false,
   showAutoEnd = true,
+  secondaryActionLabel,
+  onSecondaryAction,
 }: {
   title: string;
   form: AdminWarFormState;
@@ -661,6 +709,8 @@ function WarForm({
   isBusy: boolean;
   requireFinishTime?: boolean;
   showAutoEnd?: boolean;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: (payload: AdminWarPayload) => void;
 }) {
   const canUseTermFields = form.warType === "termed";
 
@@ -690,13 +740,28 @@ function WarForm({
           </select>
         </label>
         <label>
+          <span>Time input</span>
+          <select value={form.timeMode} onChange={(event) => updateTimeMode(form, onChange, event.target.value as AdminWarFormState["timeMode"])}>
+            <option value="datetime">Date and time</option>
+            <option value="epoch">Epoch seconds</option>
+          </select>
+        </label>
+        <label>
           <span>Start time</span>
-          <input type="datetime-local" value={form.startTime} onChange={(event) => update("startTime", event.target.value)} required />
+          {form.timeMode === "epoch" ? (
+            <input inputMode="numeric" value={form.startEpoch} onChange={(event) => update("startEpoch", event.target.value)} required />
+          ) : (
+            <input type="datetime-local" value={form.startTime} onChange={(event) => updateDateTime(form, onChange, "start", event.target.value)} required />
+          )}
         </label>
         {requireFinishTime ? (
           <label>
             <span>Finish time</span>
-            <input type="datetime-local" value={form.finishTime} onChange={(event) => update("finishTime", event.target.value)} required />
+            {form.timeMode === "epoch" ? (
+              <input inputMode="numeric" value={form.finishEpoch} onChange={(event) => update("finishEpoch", event.target.value)} required />
+            ) : (
+              <input type="datetime-local" value={form.finishTime} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} required />
+            )}
           </label>
         ) : null}
         <label>
@@ -736,7 +801,17 @@ function WarForm({
             onChange={(event) => update("memberRespectLimit", event.target.value)}
           />
         </label>
-        <button type="submit" className="admin-button primary" disabled={isBusy}>
+        {secondaryActionLabel && onSecondaryAction ? (
+          <button
+            type="button"
+            className="admin-button admin-form-wide"
+            disabled={isBusy}
+            onClick={() => onSecondaryAction(toWarPayload(form, requireFinishTime))}
+          >
+            {secondaryActionLabel}
+          </button>
+        ) : null}
+        <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy}>
           {title}
         </button>
       </form>
@@ -768,8 +843,11 @@ function ProjectTodoPanel() {
 function defaultWarForm(): AdminWarFormState {
   return {
     name: "",
+    timeMode: "datetime",
     startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
+    startEpoch: String(Math.floor(Date.now() / 1000)),
     finishTime: "",
+    finishEpoch: "",
     factionId: "",
     warType: "real",
     tornWarId: "",
@@ -782,12 +860,12 @@ function defaultWarForm(): AdminWarFormState {
 function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): AdminWarPayload {
   const payload: AdminWarPayload = {
     name: form.name.trim(),
-    start_time: secondsFromDateTimeLocal(form.startTime),
+    start_time: secondsFromFormTime(form, "start"),
     war_type: form.warType,
   };
 
   if (includeFinishTime) {
-    payload.finish_time = secondsFromDateTimeLocal(form.finishTime);
+    payload.finish_time = secondsFromFormTime(form, "finish");
   }
 
   setOptionalNumber(payload, "faction_id", form.factionId);
@@ -800,6 +878,55 @@ function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): Admi
   }
 
   return payload;
+}
+
+function updateTimeMode(
+  form: AdminWarFormState,
+  onChange: (form: AdminWarFormState) => void,
+  timeMode: AdminWarFormState["timeMode"],
+) {
+  if (timeMode === form.timeMode) {
+    return;
+  }
+
+  if (timeMode === "epoch") {
+    onChange({
+      ...form,
+      timeMode,
+      startEpoch: String(secondsFromDateTimeLocal(form.startTime)),
+      finishEpoch: form.finishTime ? String(secondsFromDateTimeLocal(form.finishTime)) : "",
+    });
+    return;
+  }
+
+  onChange({
+    ...form,
+    timeMode,
+    startTime: dateTimeLocalFromSeconds(Number(form.startEpoch || 0)),
+    finishTime: form.finishEpoch ? dateTimeLocalFromSeconds(Number(form.finishEpoch)) : "",
+  });
+}
+
+function updateDateTime(
+  form: AdminWarFormState,
+  onChange: (form: AdminWarFormState) => void,
+  field: "start" | "finish",
+  value: string,
+) {
+  if (field === "start") {
+    onChange({ ...form, startTime: value, startEpoch: String(secondsFromDateTimeLocal(value)) });
+    return;
+  }
+
+  onChange({ ...form, finishTime: value, finishEpoch: String(secondsFromDateTimeLocal(value)) });
+}
+
+function secondsFromFormTime(form: AdminWarFormState, field: "start" | "finish"): number {
+  if (form.timeMode === "epoch") {
+    return Number(field === "start" ? form.startEpoch : form.finishEpoch);
+  }
+
+  return secondsFromDateTimeLocal(field === "start" ? form.startTime : form.finishTime);
 }
 
 function setOptionalNumber<T extends keyof AdminWarPayload>(

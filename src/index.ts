@@ -4,12 +4,14 @@ import { ExecutionContext, Env, ScheduledController } from "./types";
 import { corsHeaders, json, parseLimit } from "./utils";
 import {
   createWar,
+  deleteWar,
   endActiveWar,
   getOverallStats,
   getWar,
   getWarAttacks,
   importHistoricalWar,
   listWars,
+  previewHistoricalWarImport,
 } from "./wars";
 
 export default {
@@ -52,6 +54,14 @@ export default {
 
     if (url.pathname === "/api/wars/import" && request.method === "POST") {
       return importHistoricalWar(request, env);
+    }
+
+    if (url.pathname === "/api/wars/import/preview" && request.method === "POST") {
+      return previewHistoricalWarImport(request, env);
+    }
+
+    if (url.pathname === "/api/wars/delete" && request.method === "POST") {
+      return deleteWar(request, env);
     }
 
     if (url.pathname === "/api/wars/end" && request.method === "POST") {

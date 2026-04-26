@@ -1,5 +1,10 @@
 import { SOURCE_NAME, WAR_TYPES } from "./constants";
-import { backfillWarAssignments, ingestHistoricalWarWindow, setActiveWarState } from "./ingestion";
+import {
+  backfillWarAssignments,
+  ingestHistoricalWarWindow,
+  previewHistoricalWarWindow,
+  setActiveWarState,
+} from "./ingestion";
 import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromRaw } from "./summaries";
 import { Env, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
@@ -314,6 +319,104 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       },
       201,
     );
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
+}
+
+export async function previewHistoricalWarImport(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as {
+      start_time?: unknown;
+      finish_time?: unknown;
+    };
+
+    const startTime = Number(body.start_time);
+    const finishTime = Number(body.finish_time);
+
+    if (!Number.isInteger(startTime) || startTime < 0) {
+      return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
+    }
+
+    if (!Number.isInteger(finishTime) || finishTime < 0) {
+      return json({ ok: false, error: "Invalid finish_time", code: "INVALID_FINISH_TIME" }, 400);
+    }
+
+    if (finishTime < startTime) {
+      return json(
+        {
+          ok: false,
+          error: "finish_time must be greater than or equal to start_time",
+          code: "INVALID_TIME_RANGE",
+        },
+        400,
+      );
+    }
+
+    const preview = await previewHistoricalWarWindow(env, startTime, finishTime);
+
+    return json({
+      ok: true,
+      start_time: startTime,
+      finish_time: finishTime,
+      duration_seconds: finishTime - startTime,
+      ...preview,
+    });
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
+}
+
+export async function deleteWar(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as {
+      id?: unknown;
+      name?: unknown;
+    };
+    const warId = parseOptionalInteger(body.id, "id");
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+
+    if (warId === null && !name) {
+      return json({ ok: false, error: "War id or name is required", code: "MISSING_WAR" }, 400);
+    }
+
+    const war = (await env.DB.prepare(
+      `
+      SELECT id, name, status
+      FROM wars
+      WHERE (? IS NOT NULL AND id = ?)
+         OR (? != '' AND LOWER(name) = LOWER(?))
+      LIMIT 1
+      `,
+    )
+      .bind(warId, warId, name, name)
+      .first()) as { id: number; name: string; status: string } | null;
+
+    if (!war) {
+      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+    }
+
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE attacks SET war_id = NULL WHERE war_id = ?`).bind(war.id),
+      env.DB.prepare(`DELETE FROM war_member_stats WHERE war_id = ?`).bind(war.id),
+      env.DB.prepare(`DELETE FROM war_summary WHERE war_id = ?`).bind(war.id),
+      env.DB.prepare(`DELETE FROM wars WHERE id = ?`).bind(war.id),
+    ]);
+
+    if (war.status === "active") {
+      await env.DB.prepare(
+        `
+        UPDATE sync_state
+        SET active_war_id = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE name = ?
+        `,
+      )
+        .bind(SOURCE_NAME)
+        .run();
+    }
+
+    return json({ ok: true, deleted_war: war });
   } catch (err: any) {
     return handleMutationError(err);
   }

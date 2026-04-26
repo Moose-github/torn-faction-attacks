@@ -143,7 +143,7 @@ export async function ingestHistoricalWarWindow(
   let importedCount = 0;
 
   while (true) {
-    const data = await fetchAttacks(env, from);
+    const data = await fetchAttacks(env, from, endedAt);
     const attacks = normalizeAttacks(data.attacks);
 
     if (attacks.length === 0) {
@@ -183,6 +183,99 @@ export async function ingestHistoricalWarWindow(
   }
 
   return importedCount;
+}
+
+export async function previewHistoricalWarWindow(
+  env: Env,
+  startedAt: number,
+  endedAt: number,
+): Promise<{
+  matching_attack_count: number;
+  first_attack_started: number | null;
+  last_attack_started: number | null;
+  sampled_attacks: Array<{
+    id: number;
+    started: number | null;
+    attacker_name: string | null;
+    attacker_faction_id: number | null;
+    defender_name: string | null;
+    defender_faction_id: number | null;
+    result: string | null;
+    respect_gain: number;
+  }>;
+}> {
+  let from = startedAt;
+  let matchingAttackCount = 0;
+  let firstAttackStarted: number | null = null;
+  let lastAttackStarted: number | null = null;
+  const sampledAttacks: Array<{
+    id: number;
+    started: number | null;
+    attacker_name: string | null;
+    attacker_faction_id: number | null;
+    defender_name: string | null;
+    defender_faction_id: number | null;
+    result: string | null;
+    respect_gain: number;
+  }> = [];
+
+  while (true) {
+    const data = await fetchAttacks(env, from, endedAt);
+    const attacks = normalizeAttacks(data.attacks);
+
+    if (attacks.length === 0) {
+      break;
+    }
+
+    let pageNewestStarted = from;
+    let pageReachedBeyondWindow = false;
+
+    for (const attack of attacks) {
+      const attackStarted = attack.started ?? 0;
+      pageNewestStarted = Math.max(pageNewestStarted, attackStarted);
+
+      if (attackStarted < startedAt) {
+        continue;
+      }
+
+      if (attackStarted > endedAt) {
+        pageReachedBeyondWindow = true;
+        continue;
+      }
+
+      matchingAttackCount += 1;
+      firstAttackStarted =
+        firstAttackStarted === null ? attackStarted : Math.min(firstAttackStarted, attackStarted);
+      lastAttackStarted =
+        lastAttackStarted === null ? attackStarted : Math.max(lastAttackStarted, attackStarted);
+
+      if (sampledAttacks.length < 10) {
+        sampledAttacks.push({
+          id: attack.id,
+          started: attack.started ?? null,
+          attacker_name: attack.attacker?.name ?? null,
+          attacker_faction_id: attack.attacker?.faction?.id ?? null,
+          defender_name: attack.defender?.name ?? null,
+          defender_faction_id: attack.defender?.faction?.id ?? null,
+          result: attack.result ?? null,
+          respect_gain: attack.respect_gain ?? 0,
+        });
+      }
+    }
+
+    if (pageReachedBeyondWindow || attacks.length < LIMIT) {
+      break;
+    }
+
+    from = pageNewestStarted + 1;
+  }
+
+  return {
+    matching_attack_count: matchingAttackCount,
+    first_attack_started: firstAttackStarted,
+    last_attack_started: lastAttackStarted,
+    sampled_attacks: sampledAttacks,
+  };
 }
 
 export async function activateScheduledWarIfDue(env: Env): Promise<void> {
@@ -288,10 +381,13 @@ async function ensureState(env: Env): Promise<void> {
     .run();
 }
 
-async function fetchAttacks(env: Env, from: number): Promise<TornAttackResponse> {
+async function fetchAttacks(env: Env, from: number, to?: number): Promise<TornAttackResponse> {
   const url = new URL(API_URL);
   url.searchParams.set("sort", "ASC");
   url.searchParams.set("from", String(from));
+  if (to !== undefined) {
+    url.searchParams.set("to", String(to));
+  }
   url.searchParams.set("limit", String(LIMIT));
 
   const response = await fetch(url.toString(), {
