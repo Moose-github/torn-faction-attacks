@@ -35,79 +35,85 @@ function App() {
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
 
   React.useEffect(() => {
-    let cancelled = false;
+  let cancelled = false;
 
-    async function loadWars() {
-      setIsLoadingWars(true);
-      setError(null);
+  async function loadWars() {
+    setIsLoadingWars(true);
+    setError(null);
 
-      try {
-        const [warsResponse, statsResponse] = await Promise.all([
-          getWars(warType),
-          getStats(warType),
-        ]);
+    try {
+      const [warsResponse, statsResponse] = await Promise.all([
+        getWars(warType),
+        getStats(warType),
+      ]);
 
-        if (cancelled) {
-          return;
-        }
+      if (cancelled) return;
 
-        setWars(warsResponse.wars);
-        setOverallWars(statsResponse.overall.total_wars);
+      setWars(warsResponse.wars);
+      setOverallWars(statsResponse.overall.total_wars);
 
-        const selectedStillVisible = warsResponse.wars.some((war) => war.name === selectedWarName);
-        if (!selectedStillVisible) {
-          setSelectedWarName(warsResponse.wars[0]?.name ?? null);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingWars(false);
-        }
+      setSelectedWarName((currentSelectedWarName) => {
+        const selectedStillVisible = warsResponse.wars.some(
+          (war) => war.name === currentSelectedWarName,
+        );
+
+        return selectedStillVisible
+          ? currentSelectedWarName
+          : warsResponse.wars[0]?.name ?? null;
+      });
+    } catch (err) {
+      if (!cancelled) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (!cancelled) {
+        setIsLoadingWars(false);
       }
     }
+  }
 
-    loadWars();
-    return () => {
-      cancelled = true;
-    };
-  }, [warType, selectedWarName]);
+  loadWars();
+
+  return () => {
+    cancelled = true;
+  };
+}, [warType]);
 
   React.useEffect(() => {
-    let cancelled = false;
+  let cancelled = false;
 
-    async function loadWarDetail() {
-      if (!selectedWarName) {
-        setWarDetail(null);
-        return;
-      }
-
-      setIsLoadingDetail(true);
-      setError(null);
-
-      try {
-        const detail = await getWar(selectedWarName);
-        if (!cancelled) {
-          setWarDetail(detail);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingDetail(false);
-        }
-      }
+  async function loadWarDetail() {
+    if (!selectedWarName) {
+      setWarDetail(null);
+      return;
     }
 
-    loadWarDetail();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedWarName]);
+    setWarDetail(null);
+    setIsLoadingDetail(true);
+    setError(null);
+
+    try {
+      const detail = await getWar(selectedWarName);
+      if (!cancelled) {
+        setWarDetail(detail);
+      }
+    } catch (err) {
+      if (!cancelled) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (!cancelled) {
+        setIsLoadingDetail(false);
+      }
+    }
+  }
+
+  loadWarDetail();
+
+  return () => {
+    cancelled = true;
+  };
+}, [selectedWarName]);
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const members = sortMembers(warDetail?.members ?? [], memberSort);
@@ -361,7 +367,7 @@ function AttackChart({ members }: { members: MemberStats[] }) {
   return (
     <div className="chart-wrap">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+        <BarChart data={data} margin={{ top: 10, right: 8, left: 0, bottom: 40 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="name" tick={false} tickLine={false} axisLine={false} height={8} />
           <YAxis tickLine={false} axisLine={false} width={44} />
@@ -374,7 +380,7 @@ function AttackChart({ members }: { members: MemberStats[] }) {
               dataKey="name"
               angle={-90}
               position="insideBottom"
-              offset={22}
+              offset={8}
               fill="#ffffff"
               fontSize={13}
               fontWeight={800}
