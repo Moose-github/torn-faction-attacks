@@ -6,6 +6,7 @@ import {
   createWar,
   deleteWar,
   endActiveWar,
+  fetchTornWarReport,
   importWar,
   previewImportWar,
   rebuildStats,
@@ -28,6 +29,7 @@ export function AdminControls() {
     finishEpoch: String(Math.floor(Date.now() / 1000)),
   }));
   const [deleteForm, setDeleteForm] = React.useState({ id: "", name: "" });
+  const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -138,6 +140,32 @@ export function AdminControls() {
             </label>
             <button type="submit" className="admin-button danger admin-form-wide" disabled={isBusy !== null}>
               Delete war
+            </button>
+          </form>
+        </section>
+
+        <section className="panel">
+          <PanelHeader title="Fetch Torn report" />
+          <form
+            className="admin-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Fetch Torn report", () =>
+                fetchTornWarReport(Number(reportForm.tornWarId)),
+              );
+            }}
+          >
+            <label>
+              <span>Torn war ID</span>
+              <input
+                inputMode="numeric"
+                value={reportForm.tornWarId}
+                onChange={(event) => setReportForm({ tornWarId: event.target.value })}
+                required
+              />
+            </label>
+            <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
+              Fetch Torn report
             </button>
           </form>
         </section>

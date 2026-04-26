@@ -6,6 +6,7 @@ import {
   createWar,
   deleteWar,
   endActiveWar,
+  fetchRankedWarReport,
   getOverallStats,
   getWar,
   getWarActivity,
@@ -68,6 +69,14 @@ export default {
 
     if (url.pathname === "/api/wars/end" && request.method === "POST") {
       return endActiveWar(env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/torn-wars/") &&
+      url.pathname.endsWith("/report/fetch") &&
+      request.method === "POST"
+    ) {
+      return fetchRankedWarReport(url, env);
     }
 
     if (url.pathname === "/api/wars" && request.method === "GET") {

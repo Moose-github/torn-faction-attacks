@@ -2,6 +2,7 @@ import {
   HOME_FACTION_ID,
   POSITIVE_ATTACK_RESULTS,
   POSITIVE_RESULTS_SQL,
+  RANKED_WAR_REPORT_API_BASE_URL,
   SOURCE_NAME,
   WAR_TYPES,
 } from "./constants";
@@ -12,7 +13,7 @@ import {
   setActiveWarState,
 } from "./ingestion";
 import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromRaw } from "./summaries";
-import { Env, WarRow, WarSummaryRow } from "./types";
+import { Env, TornRankedWarReportResponse, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 
 export async function createWar(request: Request, env: Env): Promise<Response> {
@@ -135,6 +136,14 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
         member_respect_limit,
         last_respect_check_at,
         last_observed_respect,
+        winner_faction_id,
+        torn_report_fetched_at,
+        torn_report_start,
+        torn_report_end,
+        home_report_score,
+        home_report_attacks,
+        enemy_report_score,
+        enemy_report_attacks,
         finalized_at
       `,
     )
@@ -291,6 +300,14 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         member_respect_limit,
         last_respect_check_at,
         last_observed_respect,
+        winner_faction_id,
+        torn_report_fetched_at,
+        torn_report_start,
+        torn_report_end,
+        home_report_score,
+        home_report_attacks,
+        enemy_report_score,
+        enemy_report_attacks,
         finalized_at
       `,
     )
@@ -428,6 +445,148 @@ export async function deleteWar(request: Request, env: Env): Promise<Response> {
   }
 }
 
+export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response> {
+  try {
+    const tornWarId = Number(url.pathname.split("/")[3]);
+
+    if (!Number.isInteger(tornWarId) || tornWarId <= 0) {
+      return json({ ok: false, error: "Invalid torn_war_id", code: "INVALID_TORN_WAR_ID" }, 400);
+    }
+
+    const war = (await env.DB.prepare(
+      `
+      SELECT id, name, faction_id, torn_war_id
+      FROM wars
+      WHERE torn_war_id = ?
+      LIMIT 1
+      `,
+    )
+      .bind(tornWarId)
+      .first()) as { id: number; name: string; faction_id: number | null; torn_war_id: number } | null;
+
+    if (!war) {
+      return json(
+        {
+          ok: false,
+          error: "No local war found with that Torn war ID",
+          code: "WAR_NOT_FOUND",
+        },
+        404,
+      );
+    }
+
+    const report = await fetchTornRankedWarReport(tornWarId, env);
+    if (!report) {
+      return json(
+        {
+          ok: false,
+          error: "Torn did not return a ranked war report",
+          code: "REPORT_NOT_FOUND",
+        },
+        404,
+      );
+    }
+
+    const factions = report.factions ?? [];
+    const homeFaction = factions.find((faction) => faction.id === HOME_FACTION_ID) ?? null;
+    const enemyFaction =
+      factions.find((faction) => war.faction_id !== null && faction.id === war.faction_id) ??
+      factions.find((faction) => faction.id !== HOME_FACTION_ID) ??
+      null;
+
+    await env.DB.prepare(
+      `
+      UPDATE wars
+      SET winner_faction_id = ?,
+          torn_report_fetched_at = ?,
+          torn_report_start = ?,
+          torn_report_end = ?,
+          home_report_score = ?,
+          home_report_attacks = ?,
+          enemy_report_score = ?,
+          enemy_report_attacks = ?
+      WHERE id = ?
+      `,
+    )
+      .bind(
+        report.winner ?? null,
+        nowSeconds(),
+        report.start ?? null,
+        report.end ?? null,
+        homeFaction?.score ?? null,
+        homeFaction?.attacks ?? null,
+        enemyFaction?.score ?? null,
+        enemyFaction?.attacks ?? null,
+        war.id,
+      )
+      .run();
+
+    const existingMemberRows = await env.DB.prepare(
+      `
+      SELECT member_id
+      FROM war_member_stats
+      WHERE war_id = ?
+      `,
+    )
+      .bind(war.id)
+      .all();
+
+    const existingMemberIds = new Set(
+      (existingMemberRows.results ?? []).map((row: any) => Number(row.member_id)),
+    );
+    const missingMembers = (homeFaction?.members ?? []).filter(
+      (member) => !existingMemberIds.has(member.id),
+    );
+
+    if (missingMembers.length > 0) {
+      await env.DB.batch(
+        missingMembers.map((member) =>
+          env.DB.prepare(
+            `
+            INSERT INTO war_member_stats (
+              war_id,
+              member_id,
+              member_name,
+              enemy_attacks_total,
+              enemy_attacks_successful,
+              enemy_respect_gained,
+              enemy_assists,
+              enemy_hospitalizations,
+              enemy_mugs,
+              outside_attacks,
+              friendly_hospitals,
+              defends_total,
+              defends_won,
+              respect_lost,
+              report_added
+            )
+            VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+            `,
+          ).bind(war.id, member.id, member.name ?? null),
+        ),
+      );
+    }
+
+    return json({
+      ok: true,
+      war_id: war.id,
+      war_name: war.name,
+      torn_war_id: tornWarId,
+      winner_faction_id: report.winner ?? null,
+      torn_report_start: report.start ?? null,
+      torn_report_end: report.end ?? null,
+      home_report_score: homeFaction?.score ?? null,
+      home_report_attacks: homeFaction?.attacks ?? null,
+      enemy_report_score: enemyFaction?.score ?? null,
+      enemy_report_attacks: enemyFaction?.attacks ?? null,
+      home_report_members: homeFaction?.members?.length ?? 0,
+      report_added_members: missingMembers.length,
+    });
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
+}
+
 export async function endActiveWar(env: Env): Promise<Response> {
   const state = (await env.DB.prepare(
     `SELECT active_war_id FROM sync_state WHERE name = ?`,
@@ -491,6 +650,14 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
         w.member_respect_limit,
         w.last_respect_check_at,
         w.last_observed_respect,
+        w.winner_faction_id,
+        w.torn_report_fetched_at,
+        w.torn_report_start,
+        w.torn_report_end,
+        w.home_report_score,
+        w.home_report_attacks,
+        w.enemy_report_score,
+        w.enemy_report_attacks,
         w.finalized_at,
         COALESCE(ws.faction_attacks, 0) AS faction_attacks,
         COALESCE(ws.enemy_attacks, 0) AS enemy_attacks,
@@ -540,6 +707,14 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
         member_respect_limit,
         last_respect_check_at,
         last_observed_respect,
+        winner_faction_id,
+        torn_report_fetched_at,
+        torn_report_start,
+        torn_report_end,
+        home_report_score,
+        home_report_attacks,
+        enemy_report_score,
+        enemy_report_attacks,
         finalized_at
       FROM wars
       WHERE LOWER(name) = LOWER(?)
@@ -612,6 +787,14 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
         member_respect_limit,
         last_respect_check_at,
         last_observed_respect,
+        winner_faction_id,
+        torn_report_fetched_at,
+        torn_report_start,
+        torn_report_end,
+        home_report_score,
+        home_report_attacks,
+        enemy_report_score,
+        enemy_report_attacks,
         finalized_at
       FROM wars
       WHERE LOWER(name) = LOWER(?)
@@ -912,6 +1095,23 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     overall,
     top_members: topMembers.results ?? [],
   });
+}
+
+async function fetchTornRankedWarReport(tornWarId: number, env: Env) {
+  const url = new URL(`${RANKED_WAR_REPORT_API_BASE_URL}/${tornWarId}/rankedwarreport`);
+  const response = await fetch(url.toString(), {
+    headers: {
+      Accept: "application/json",
+      Authorization: `ApiKey ${env.TORN_API_KEY}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Torn ranked war report API error: ${response.status}`);
+  }
+
+  const data = (await response.json()) as TornRankedWarReportResponse;
+  return data.rankedwarreport ?? null;
 }
 
 function parseBucketMinutes(value: string | null): number {

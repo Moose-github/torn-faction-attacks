@@ -30,6 +30,7 @@ export type MemberStats = {
   respect_lost: number;
   first_seen_at: number | null;
   last_seen_at: number | null;
+  report_added?: number;
 };
 
 export type StatsResponse = {
@@ -53,6 +54,14 @@ export type WarSummary = {
   member_respect_limit: number | null;
   last_respect_check_at: number | null;
   last_observed_respect: number | null;
+  winner_faction_id: number | null;
+  torn_report_fetched_at: number | null;
+  torn_report_start: number | null;
+  torn_report_end: number | null;
+  home_report_score: number | null;
+  home_report_attacks: number | null;
+  enemy_report_score: number | null;
+  enemy_report_attacks: number | null;
   finalized_at: number | null;
   faction_attacks: number;
   enemy_attacks: number;
@@ -217,6 +226,10 @@ export async function deleteWar(payload: { id?: number; name?: string }): Promis
 
 export async function endActiveWar(): Promise<unknown> {
   return postJson("/api/wars/end");
+}
+
+export async function fetchTornWarReport(tornWarId: number): Promise<unknown> {
+  return postJson(`/api/torn-wars/${encodeURIComponent(tornWarId)}/report/fetch`);
 }
 
 async function getJson<T>(path: string): Promise<T> {

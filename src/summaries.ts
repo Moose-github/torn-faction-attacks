@@ -154,7 +154,7 @@ export async function rebuildDerivedStatsFromRaw(env: Env): Promise<{
   ended_wars_rolled_up: number;
 }> {
   await env.DB.prepare(`DELETE FROM member_career_stats`).run();
-  await env.DB.prepare(`DELETE FROM war_member_stats`).run();
+  await resetDerivedWarMemberStats(env);
 
   const rows = await env.DB.prepare(
     `
@@ -184,12 +184,54 @@ export async function rebuildDerivedStatsFromRaw(env: Env): Promise<{
 }
 
 export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Promise<void> {
-  await env.DB.prepare(`DELETE FROM war_member_stats WHERE war_id = ?`)
-    .bind(warId)
-    .run();
+  await resetDerivedWarMemberStats(env, warId);
 
   await upsertWarMemberAttackStats(env, warId);
   await upsertWarMemberDefendStats(env, warId);
+}
+
+async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<void> {
+  const whereClause = warId === undefined ? "" : "WHERE war_id = ?";
+  const bindValue = warId === undefined ? [] : [warId];
+
+  const resetStatement = env.DB.prepare(
+    `
+    UPDATE war_member_stats
+    SET enemy_attacks_total = 0,
+        enemy_attacks_successful = 0,
+        enemy_respect_gained = 0,
+        enemy_assists = 0,
+        enemy_hospitalizations = 0,
+        enemy_mugs = 0,
+        outside_attacks = 0,
+        friendly_hospitals = 0,
+        defends_total = 0,
+        defends_won = 0,
+        respect_lost = 0,
+        first_action_at = NULL,
+        last_action_at = NULL
+    ${whereClause}
+      ${whereClause ? "AND" : "WHERE"} report_added = 1
+    `,
+  );
+  if (bindValue.length > 0) {
+    await resetStatement.bind(...bindValue).run();
+  } else {
+    await resetStatement.run();
+  }
+
+  const deleteStatement = env.DB.prepare(
+    `
+    DELETE FROM war_member_stats
+    ${whereClause}
+      ${whereClause ? "AND" : "WHERE"} report_added = 0
+    `,
+  );
+  if (bindValue.length > 0) {
+    await deleteStatement.bind(...bindValue).run();
+  } else {
+    await deleteStatement.run();
+  }
 }
 
 async function ensureWarSummaryRow(env: Env, warId: number): Promise<void> {

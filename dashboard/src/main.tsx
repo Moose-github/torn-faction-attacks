@@ -35,6 +35,8 @@ import {
 } from "./utils/members";
 import "./styles.css";
 
+const HOME_FACTION_ID = 8803;
+
 function App() {
   const [warType, setWarType] = React.useState<WarType>("all");
   const [view, setView] = React.useState<"war" | "members" | "admin">("war");
@@ -224,6 +226,16 @@ function App() {
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const members = sortMembers(warDetail?.members ?? [], memberSort);
+  const derivedRespectGained = detailNumber(
+    warDetail?.summary?.total_respect_gain,
+    selectedWar?.total_respect_gain,
+  );
+  const derivedRespectLost = detailNumber(
+    warDetail?.summary?.total_respect_lost,
+    selectedWar?.total_respect_lost,
+  );
+  const derivedSuccessfulAttacks = sumMembers(members, "enemy_attacks_successful");
+  const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -274,14 +286,19 @@ function App() {
                   <p>
                     {(selectedWar.war_type ?? "real").toUpperCase()} - {formatWarDateRange(selectedWar.start_time, selectedWar.finish_time)}
                   </p>
+                  {selectedWar.torn_report_start ? (
+                    <p className="muted-line">
+                      Torn official: {formatWarDateRange(selectedWar.torn_report_start, selectedWar.torn_report_end)}
+                    </p>
+                  ) : null}
+                  {selectedWar.winner_faction_id ? (
+                    <p className="muted-line">Winner: {winnerLabel(selectedWar)}</p>
+                  ) : null}
                 </div>
                 {selectedWar.war_type === "termed" ? (
                   <TermProgress
                     war={selectedWar}
-                    observedRespect={detailNumber(
-                      warDetail?.summary?.total_respect_gain,
-                      selectedWar.total_respect_gain,
-                    )}
+                    observedRespect={derivedRespectGained}
                   />
                 ) : null}
               </section>
@@ -289,17 +306,17 @@ function App() {
               <section className="status-grid war-status-grid">
                 <MetricCard
                   label="Respect gained"
-                  value={formatNumber(detailNumber(warDetail?.summary?.total_respect_gain, selectedWar.total_respect_gain))}
+                  value={formatNumber(derivedRespectGained)}
                   icon={<Target size={18} />}
                 />
                 <MetricCard
                   label="Successful attacks"
-                  value={formatNumber(sumMembers(members, "enemy_attacks_successful"))}
+                  value={formatNumber(derivedSuccessfulAttacks)}
                   icon={<Swords size={18} />}
                 />
                 <MetricCard
                   label="Victory / loss"
-                  value={warOutcome(selectedWar, detailNumber(warDetail?.summary?.total_respect_gain, selectedWar.total_respect_gain), detailNumber(warDetail?.summary?.total_respect_lost, selectedWar.total_respect_lost))}
+                  value={warOutcome(selectedWar, derivedRespectGained, derivedRespectLost)}
                   icon={<CalendarClock size={18} />}
                 />
               </section>
@@ -316,12 +333,39 @@ function App() {
                 <section className="panel">
                   <PanelHeader title="War totals" />
                   <div className="metric-list">
-                    <InlineMetric label="Respect gained" value={detailNumber(warDetail?.summary?.total_respect_gain, selectedWar.total_respect_gain)} />
-                    <InlineMetric label="Successful attacks" value={sumMembers(members, "enemy_attacks_successful")} />
+                    <InlineMetric label="Respect gained" value={derivedRespectGained} />
+                    <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
                     <InlineMetric label="Assists" value={sumMembers(members, "enemy_assists")} />
                   </div>
                 </section>
               </section>
+
+              {hasTornReport ? (
+                <CollapsiblePanel
+                  title="Torn report validation"
+                  aside="Official report"
+                  collapsed={collapsedPanels.reportValidation ?? true}
+                  onToggle={() => togglePanel("reportValidation")}
+                  className="table-panel"
+                >
+                  <div className="metric-list report-validation-grid">
+                    <InlineMetric label="Derived attacks" value={derivedSuccessfulAttacks} />
+                    <InlineMetric label="Report attacks" value={selectedWar.home_report_attacks ?? 0} />
+                    <InlineMetric
+                      label="Attack difference"
+                      value={derivedSuccessfulAttacks - (selectedWar.home_report_attacks ?? 0)}
+                    />
+                    <InlineMetric label="Derived respect" value={derivedRespectGained} />
+                    <InlineMetric label="Report score" value={selectedWar.home_report_score ?? 0} />
+                    <InlineMetric
+                      label="Respect difference"
+                      value={derivedRespectGained - (selectedWar.home_report_score ?? 0)}
+                    />
+                    <InlineMetric label="Enemy report attacks" value={selectedWar.enemy_report_attacks ?? 0} />
+                    <InlineMetric label="Enemy report score" value={selectedWar.enemy_report_score ?? 0} />
+                  </div>
+                </CollapsiblePanel>
+              ) : null}
 
               <CollapsiblePanel
                 title="Faction attacks over time"
@@ -377,6 +421,18 @@ function App() {
       </div>
     </main>
   );
+}
+
+function winnerLabel(war: WarSummary): string {
+  if (war.winner_faction_id === HOME_FACTION_ID) {
+    return "Buttgrass Inc";
+  }
+
+  if (war.faction_id !== null && war.winner_faction_id === war.faction_id) {
+    return war.name;
+  }
+
+  return `Faction #${war.winner_faction_id}`;
 }
 
 function TermProgress({
