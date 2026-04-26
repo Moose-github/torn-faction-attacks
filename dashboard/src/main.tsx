@@ -122,7 +122,7 @@ function App() {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Buttgrass Inc</p>
+          <p className="eyebrow">Buttgrass Inc - test01</p>
           <h1>Torn faction attacks</h1>
         </div>
       </header>
