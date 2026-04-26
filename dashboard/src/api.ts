@@ -93,6 +93,43 @@ export type WarDetailResponse = {
   members: MemberStats[];
 };
 
+export type MemberAttackClassification =
+  | "enemy_success"
+  | "enemy_assist"
+  | "enemy_attempt"
+  | "outside"
+  | "defend_lost"
+  | "defend_won"
+  | "other";
+
+export type MemberAttack = {
+  id: number;
+  started: number | null;
+  ended: number | null;
+  attacker_id: number | null;
+  attacker_name: string | null;
+  attacker_faction_id: number | null;
+  attacker_faction_name: string | null;
+  defender_id: number | null;
+  defender_name: string | null;
+  defender_faction_id: number | null;
+  defender_faction_name: string | null;
+  result: string | null;
+  respect_gain: number;
+  respect_loss: number;
+  classification: MemberAttackClassification;
+};
+
+export type MemberAttacksResponse = {
+  ok: boolean;
+  member_id: number;
+  paging: {
+    limit: number;
+    returned: number;
+  };
+  attacks: MemberAttack[];
+};
+
 export type AdminWarPayload = {
   name: string;
   start_time?: number;
@@ -115,6 +152,15 @@ export async function getWars(warType: WarType): Promise<WarsResponse> {
 
 export async function getWar(name: string): Promise<WarDetailResponse> {
   return getJson<WarDetailResponse>(`/api/wars/${encodeURIComponent(name)}`);
+}
+
+export async function getWarMemberAttacks(
+  warName: string,
+  memberId: number,
+): Promise<MemberAttacksResponse> {
+  return getJson<MemberAttacksResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/members/${memberId}/attacks`,
+  );
 }
 
 export async function checkHealth(): Promise<unknown> {

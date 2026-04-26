@@ -537,6 +537,75 @@ td {
   color: #1d4ed8;
 }
 
+.member-link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+}
+
+.member-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.selected-member-row td {
+  background: #eff6ff;
+}
+
+.attack-log-table .attack-row td {
+  border-left: 0;
+}
+
+.attack-log-table .attack-row td:first-child {
+  border-left: 5px solid transparent;
+}
+
+.attack-row.enemy_success td {
+  background: #f0fdf4;
+}
+
+.attack-row.enemy_success td:first-child {
+  border-left-color: #22c55e;
+}
+
+.attack-row.enemy_assist td {
+  background: #fefce8;
+}
+
+.attack-row.enemy_assist td:first-child {
+  border-left-color: #eab308;
+}
+
+.attack-row.outside td {
+  background: #faf5ff;
+}
+
+.attack-row.outside td:first-child {
+  border-left-color: #a855f7;
+}
+
+.attack-row.defend_lost td {
+  background: #fef2f2;
+}
+
+.attack-row.defend_lost td:first-child {
+  border-left-color: #ef4444;
+}
+
+.attack-row.defend_won td {
+  background: #fff7ed;
+}
+
+.attack-row.defend_won td:first-child {
+  border-left-color: #f97316;
+}
+
 .tooltip-value {
   cursor: help;
   text-decoration: underline;

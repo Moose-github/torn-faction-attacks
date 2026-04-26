@@ -20,8 +20,10 @@ import {
   endActiveWar,
   getStats,
   getWar,
+  getWarMemberAttacks,
   getWars,
   importWar,
+  MemberAttack,
   MemberStats,
   previewImportWar,
   rebuildStats,
@@ -50,6 +52,9 @@ function App() {
   const [error, setError] = React.useState<string | null>(null);
   const [isLoadingWars, setIsLoadingWars] = React.useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
+  const [selectedMember, setSelectedMember] = React.useState<MemberStats | null>(null);
+  const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
+  const [isLoadingMemberAttacks, setIsLoadingMemberAttacks] = React.useState(false);
 
   React.useEffect(() => {
   let cancelled = false;
@@ -131,6 +136,45 @@ function App() {
     cancelled = true;
   };
 }, [selectedWarName]);
+
+  React.useEffect(() => {
+    setSelectedMember(null);
+    setMemberAttacks([]);
+  }, [selectedWarName]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadMemberAttacks() {
+      if (!selectedWarName || !selectedMember) {
+        setMemberAttacks([]);
+        return;
+      }
+
+      setIsLoadingMemberAttacks(true);
+      setError(null);
+
+      try {
+        const response = await getWarMemberAttacks(selectedWarName, selectedMember.member_id);
+        if (!cancelled) {
+          setMemberAttacks(response.attacks);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingMemberAttacks(false);
+        }
+      }
+    }
+
+    loadMemberAttacks();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWarName, selectedMember]);
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const members = sortMembers(warDetail?.members ?? [], memberSort);
@@ -244,8 +288,20 @@ function App() {
                   members={members}
                   sort={memberSort}
                   onSortChange={setMemberSort}
+                  selectedMemberId={selectedMember?.member_id ?? null}
+                  onMemberSelect={setSelectedMember}
                 />
               </section>
+
+              {selectedMember ? (
+                <section className="panel table-panel">
+                  <PanelHeader
+                    title={`${displayMember(selectedMember)} attacks`}
+                    aside={isLoadingMemberAttacks ? "Loading" : `${memberAttacks.length} rows`}
+                  />
+                  <MemberAttackList attacks={memberAttacks} />
+                </section>
+              ) : null}
             </>
           ) : (
             <section className="panel">
@@ -455,10 +511,14 @@ function MemberTable({
   members,
   sort,
   onSortChange,
+  selectedMemberId,
+  onMemberSelect,
 }: {
   members: MemberStats[];
   sort: MemberSort;
   onSortChange: (sort: MemberSort) => void;
+  selectedMemberId?: number | null;
+  onMemberSelect?: (member: MemberStats) => void;
 }) {
   if (members.length === 0) {
     return <EmptyState text="No members to show" />;
@@ -478,8 +538,20 @@ function MemberTable({
         </thead>
         <tbody>
           {members.map((member) => (
-            <tr key={member.member_id}>
-              <td>{displayMember(member)}</td>
+            <tr key={member.member_id} className={member.member_id === selectedMemberId ? "selected-member-row" : ""}>
+              <td>
+                {onMemberSelect ? (
+                  <button
+                    type="button"
+                    className="member-link"
+                    onClick={() => onMemberSelect(member)}
+                  >
+                    {displayMember(member)}
+                  </button>
+                ) : (
+                  displayMember(member)
+                )}
+              </td>
               <td>
                 <AttackBreakdown member={member} />
               </td>
@@ -488,6 +560,41 @@ function MemberTable({
               </td>
               <td>{formatNumber(member.enemy_respect_gained)}</td>
               <td>{formatNumber(member.enemy_assists)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MemberAttackList({ attacks }: { attacks: MemberAttack[] }) {
+  if (attacks.length === 0) {
+    return <EmptyState text="No attacks for this member" />;
+  }
+
+  return (
+    <div className="table-scroll">
+      <table className="attack-log-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Type</th>
+            <th>Attacker</th>
+            <th>Defender</th>
+            <th>Result</th>
+            <th>Respect</th>
+          </tr>
+        </thead>
+        <tbody>
+          {attacks.map((attack) => (
+            <tr key={attack.id} className={`attack-row ${attack.classification}`}>
+              <td>{formatDate(attack.started)}</td>
+              <td>{classificationLabel(attack.classification)}</td>
+              <td>{attack.attacker_name ?? `#${attack.attacker_id ?? "-"}`}</td>
+              <td>{attack.defender_name ?? `#${attack.defender_id ?? "-"}`}</td>
+              <td>{attack.result ?? "-"}</td>
+              <td>{formatNumber(attack.respect_gain ?? 0)}</td>
             </tr>
           ))}
         </tbody>
@@ -1124,6 +1231,25 @@ function warOutcome(war: WarSummary, gained: number, lost: number): string {
   }
 
   return gained > lost ? "Victory" : "Loss";
+}
+
+function classificationLabel(classification: MemberAttack["classification"]): string {
+  switch (classification) {
+    case "enemy_success":
+      return "Enemy hit";
+    case "enemy_assist":
+      return "Assist";
+    case "outside":
+      return "Outside";
+    case "defend_lost":
+      return "Defend lost";
+    case "defend_won":
+      return "Defend won";
+    case "enemy_attempt":
+      return "Attempt";
+    default:
+      return "Other";
+  }
 }
 
 function sumMembers(members: MemberStats[], key: keyof MemberStats): number {

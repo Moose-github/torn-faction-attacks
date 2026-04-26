@@ -1,4 +1,4 @@
-import { SOURCE_NAME, WAR_TYPES } from "./constants";
+import { HOME_FACTION_ID, POSITIVE_ATTACK_RESULTS, SOURCE_NAME, WAR_TYPES } from "./constants";
 import {
   backfillWarAssignments,
   ingestHistoricalWarWindow,
@@ -645,6 +645,88 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
   }
 }
 
+export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response> {
+  try {
+    const parts = url.pathname.split("/");
+    const name = decodeURIComponent(parts[3] ?? "").trim();
+    const memberId = Number(parts[5]);
+
+    if (!name) {
+      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
+    }
+
+    if (!Number.isInteger(memberId) || memberId <= 0) {
+      return json({ ok: false, error: "Invalid member id", code: "INVALID_MEMBER_ID" }, 400);
+    }
+
+    const limit = parseLimit(url.searchParams.get("limit"), 100, 250);
+
+    const war = (await env.DB.prepare(
+      `
+      SELECT id, name, faction_id
+      FROM wars
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+      .bind(name)
+      .first()) as { id: number; name: string; faction_id: number | null } | null;
+
+    if (!war) {
+      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+    }
+
+    const rows = await env.DB.prepare(
+      `
+      SELECT
+        id,
+        started,
+        ended,
+        attacker_id,
+        attacker_name,
+        attacker_faction_id,
+        attacker_faction_name,
+        defender_id,
+        defender_name,
+        defender_faction_id,
+        defender_faction_name,
+        result,
+        respect_gain,
+        respect_loss
+      FROM attacks
+      WHERE war_id = ?
+        AND (attacker_id = ? OR defender_id = ?)
+      ORDER BY started DESC
+      LIMIT ?
+      `,
+    )
+      .bind(war.id, memberId, memberId, limit)
+      .all();
+
+    const attacks = (rows.results ?? []).map((attack: any) => ({
+      ...attack,
+      classification: classifyMemberAttack(attack, memberId, war.faction_id),
+    }));
+
+    return json({
+      ok: true,
+      war: {
+        id: war.id,
+        name: war.name,
+        faction_id: war.faction_id,
+      },
+      member_id: memberId,
+      paging: {
+        limit,
+        returned: attacks.length,
+      },
+      attacks,
+    });
+  } catch (err: any) {
+    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
+  }
+}
+
 export async function getOverallStats(url: URL, env: Env): Promise<Response> {
   const warType = parseWarTypeQuery(url);
   if (warType instanceof Response) {
@@ -705,6 +787,48 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     overall,
     top_members: topMembers.results ?? [],
   });
+}
+
+function classifyMemberAttack(
+  attack: {
+    attacker_id: number | null;
+    attacker_faction_id: number | null;
+    defender_id: number | null;
+    defender_faction_id: number | null;
+    result: string | null;
+  },
+  memberId: number,
+  enemyFactionId: number | null,
+): string {
+  const positiveResult = POSITIVE_ATTACK_RESULTS.includes(
+    attack.result as (typeof POSITIVE_ATTACK_RESULTS)[number],
+  );
+
+  if (attack.attacker_id === memberId) {
+    const againstEnemy =
+      enemyFactionId === null || attack.defender_faction_id === enemyFactionId;
+
+    if (!againstEnemy) {
+      return "outside";
+    }
+
+    if (attack.result === "Assist") {
+      return "enemy_assist";
+    }
+
+    return positiveResult ? "enemy_success" : "enemy_attempt";
+  }
+
+  if (
+    attack.defender_id === memberId &&
+    enemyFactionId !== null &&
+    attack.attacker_faction_id === enemyFactionId &&
+    attack.defender_faction_id === HOME_FACTION_ID
+  ) {
+    return positiveResult ? "defend_lost" : "defend_won";
+  }
+
+  return "other";
 }
 
 function handleMutationError(err: any): Response {

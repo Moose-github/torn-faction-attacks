@@ -9,6 +9,7 @@ import {
   getOverallStats,
   getWar,
   getWarAttacks,
+  getWarMemberAttacks,
   importHistoricalWar,
   listWars,
   previewHistoricalWarImport,
@@ -78,6 +79,15 @@ export default {
       request.method === "GET"
     ) {
       return getWar(url, env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      url.pathname.includes("/members/") &&
+      url.pathname.endsWith("/attacks") &&
+      request.method === "GET"
+    ) {
+      return getWarMemberAttacks(url, env);
     }
 
     if (
