@@ -367,24 +367,23 @@ function AttackChart({ members }: { members: MemberStats[] }) {
   return (
     <div className="chart-wrap">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 10, right: 8, left: 0, bottom: 40 }}>
+        <BarChart data={data} margin={{ top: 10, right: 8, left: 0, bottom: 20 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="name" tick={false} tickLine={false} axisLine={false} height={8} />
+          <XAxis
+            dataKey="name"
+            angle={-45}
+            textAnchor="end"
+            interval={0}
+            height={80}
+            tickLine={false}
+            axisLine={false}
+          />
           <YAxis tickLine={false} axisLine={false} width={44} />
           <Tooltip formatter={(value) => formatNumber(Number(value))} />
           <Bar dataKey="successful" name="Attacks" radius={[4, 4, 0, 0]}>
             {data.map((_, index) => (
               <Cell key={`successful-${index}`} fill="#2563eb" />
             ))}
-            <LabelList
-              dataKey="name"
-              angle={-90}
-              position="insideBottom"
-              offset={8}
-              fill="#ffffff"
-              fontSize={13}
-              fontWeight={800}
-            />
           </Bar>
         </BarChart>
       </ResponsiveContainer>
