@@ -76,14 +76,6 @@ export default {
 
     if (
       url.pathname.startsWith("/api/wars/") &&
-      !url.pathname.endsWith("/attacks") &&
-      request.method === "GET"
-    ) {
-      return getWar(url, env);
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
       url.pathname.includes("/members/") &&
       url.pathname.endsWith("/attacks") &&
       request.method === "GET"
@@ -105,6 +97,14 @@ export default {
       request.method === "GET"
     ) {
       return getWarAttacks(url, env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      !url.pathname.endsWith("/attacks") &&
+      request.method === "GET"
+    ) {
+      return getWar(url, env);
     }
 
     if (url.pathname === "/api/stats" && request.method === "GET") {

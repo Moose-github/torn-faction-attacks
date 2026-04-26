@@ -158,7 +158,7 @@ function App() {
       try {
         const response = await getWarActivity(selectedWarName);
         if (!cancelled) {
-          setActivityBuckets(response.buckets);
+          setActivityBuckets(Array.isArray(response.buckets) ? response.buckets : []);
         }
       } catch (err) {
         if (!cancelled) {
@@ -555,7 +555,7 @@ function AttackChart({ members }: { members: MemberStats[] }) {
 }
 
 function ActivityChart({ buckets }: { buckets: WarActivityBucket[] }) {
-  if (buckets.length === 0) {
+  if (!Array.isArray(buckets) || buckets.length === 0) {
     return <EmptyState text="No activity data yet" />;
   }
 
