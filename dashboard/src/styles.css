@@ -547,15 +547,44 @@ td {
   font: inherit;
   font-weight: 800;
   text-align: left;
+  text-decoration: underline;
+  text-decoration-color: #93c5fd;
+  text-underline-offset: 4px;
 }
 
 .member-link:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
+  color: #1e40af;
+  text-decoration-color: #1d4ed8;
+}
+
+.clickable-member-row {
+  cursor: pointer;
+}
+
+.clickable-member-row:hover td {
+  background: #f8fbff;
 }
 
 .selected-member-row td {
   background: #eff6ff;
+}
+
+.log-button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.log-button:hover {
+  border-color: #2563eb;
+  background: #dbeafe;
 }
 
 .attack-log-table .attack-row td {

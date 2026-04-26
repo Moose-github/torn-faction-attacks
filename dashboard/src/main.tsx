@@ -534,17 +534,31 @@ function MemberTable({
             <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Respect gained" sortKey="enemy_respect_gained" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Assists" sortKey="enemy_assists" sort={sort} onSortChange={onSortChange} />
+            {onMemberSelect ? <th>Log</th> : null}
           </tr>
         </thead>
         <tbody>
           {members.map((member) => (
-            <tr key={member.member_id} className={member.member_id === selectedMemberId ? "selected-member-row" : ""}>
+            <tr
+              key={member.member_id}
+              className={[
+                onMemberSelect ? "clickable-member-row" : "",
+                member.member_id === selectedMemberId ? "selected-member-row" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={onMemberSelect ? () => onMemberSelect(member) : undefined}
+            >
               <td>
                 {onMemberSelect ? (
                   <button
                     type="button"
                     className="member-link"
-                    onClick={() => onMemberSelect(member)}
+                    title={`View ${displayMember(member)} attacks`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMemberSelect(member);
+                    }}
                   >
                     {displayMember(member)}
                   </button>
@@ -560,6 +574,20 @@ function MemberTable({
               </td>
               <td>{formatNumber(member.enemy_respect_gained)}</td>
               <td>{formatNumber(member.enemy_assists)}</td>
+              {onMemberSelect ? (
+                <td>
+                  <button
+                    type="button"
+                    className="log-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMemberSelect(member);
+                    }}
+                  >
+                    View attacks
+                  </button>
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>
