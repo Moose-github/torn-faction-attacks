@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { ArrowDown, ArrowUp, BarChart3, CalendarClock, Swords, Target } from "lucide-react";
+import { ArrowDown, ArrowUp, BarChart3, CalendarClock, ShieldCheck, Swords, Target, Wrench } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -12,7 +12,22 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { getStats, getWar, getWars, MemberStats, WarDetailResponse, WarSummary, WarType } from "./api";
+import {
+  AdminWarPayload,
+  checkHealth,
+  createWar,
+  endActiveWar,
+  getStats,
+  getWar,
+  getWars,
+  importWar,
+  MemberStats,
+  rebuildStats,
+  runIngestion,
+  WarDetailResponse,
+  WarSummary,
+  WarType,
+} from "./api";
 import "./styles.css";
 
 const numberFormatter = new Intl.NumberFormat("en-GB", {
@@ -21,7 +36,7 @@ const numberFormatter = new Intl.NumberFormat("en-GB", {
 
 function App() {
   const [warType, setWarType] = React.useState<WarType>("all");
-  const [view, setView] = React.useState<"war" | "members">("war");
+  const [view, setView] = React.useState<"war" | "members" | "admin">("war");
   const [wars, setWars] = React.useState<WarSummary[]>([]);
   const [selectedWarName, setSelectedWarName] = React.useState<string | null>(null);
   const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
@@ -136,7 +151,18 @@ function App() {
             aside={isLoadingWars ? "Loading" : `${wars.length}`}
             control={<WarTypeSelect value={warType} onChange={setWarType} />}
           />
-          <SidebarLink active={view === "members"} onClick={() => setView("members")} />
+          <SidebarLink
+            active={view === "members"}
+            icon={<BarChart3 size={18} />}
+            label="Member performance"
+            onClick={() => setView("members")}
+          />
+          <SidebarLink
+            active={view === "admin"}
+            icon={<Wrench size={18} />}
+            label="Admin controls"
+            onClick={() => setView("admin")}
+          />
           <WarNav
             wars={wars}
             selectedWarName={selectedWarName}
@@ -148,7 +174,9 @@ function App() {
         </aside>
 
         <section className="main-content">
-          {view === "members" ? (
+          {view === "admin" ? (
+            <AdminControls />
+          ) : view === "members" ? (
             <MembersOverview warType={warType} />
           ) : selectedWar ? (
             <>
@@ -244,15 +272,19 @@ function WarTypeSelect({
 
 function SidebarLink({
   active,
+  icon,
+  label,
   onClick,
 }: {
   active: boolean;
+  icon: React.ReactNode;
+  label: string;
   onClick: () => void;
 }) {
   return (
     <button type="button" className={active ? "sidebar-link active" : "sidebar-link"} onClick={onClick}>
-      <BarChart3 size={18} />
-      <span>Member performance</span>
+      {icon}
+      <span>{label}</span>
     </button>
   );
 }
@@ -489,6 +521,263 @@ function DefendBreakdown({ member }: { member: MemberStats }) {
       {formatNumber(member.defends_total)}
     </span>
   );
+}
+
+type AdminAction = {
+  label: string;
+  run: () => Promise<unknown>;
+  tone?: "danger";
+};
+
+function AdminControls() {
+  const [createForm, setCreateForm] = React.useState<AdminWarFormState>(() => defaultWarForm());
+  const [importForm, setImportForm] = React.useState<AdminWarFormState>(() => ({
+    ...defaultWarForm(),
+    finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
+  }));
+  const [isBusy, setIsBusy] = React.useState<string | null>(null);
+  const [result, setResult] = React.useState<unknown>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function runAdminAction(label: string, action: () => Promise<unknown>) {
+    setIsBusy(label);
+    setError(null);
+
+    try {
+      setResult(await action());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsBusy(null);
+    }
+  }
+
+  const actions: AdminAction[] = [
+    { label: "Health check", run: checkHealth },
+    { label: "Run ingestion", run: runIngestion },
+    { label: "Rebuild stats", run: rebuildStats },
+    { label: "End active war", run: endActiveWar, tone: "danger" },
+  ];
+
+  return (
+    <>
+      {error ? <div className="error-panel">{error}</div> : null}
+
+      <section className="hero-panel admin-hero">
+        <div>
+          <p className="eyebrow">Testing tools</p>
+          <h2>Admin controls</h2>
+          <p>Trigger ingestion, rebuild derived stats, and manage war records from one place.</p>
+        </div>
+        <ShieldCheck size={42} />
+      </section>
+
+      <section className="admin-grid">
+        <section className="panel">
+          <PanelHeader title="API actions" />
+          <div className="admin-action-grid">
+            {actions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                className={action.tone === "danger" ? "admin-button danger" : "admin-button"}
+                disabled={isBusy !== null}
+                onClick={() => runAdminAction(action.label, action.run)}
+              >
+                {isBusy === action.label ? "Working" : action.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <WarForm
+          title="Create active or scheduled war"
+          form={createForm}
+          onChange={setCreateForm}
+          isBusy={isBusy !== null}
+          onSubmit={(payload) => runAdminAction("Create war", () => createWar(payload))}
+        />
+
+        <WarForm
+          title="Import historical war"
+          form={importForm}
+          onChange={setImportForm}
+          isBusy={isBusy !== null}
+          requireFinishTime
+          onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
+        />
+
+        <section className="panel admin-result-panel">
+          <PanelHeader title="Latest API response" />
+          <pre>{result ? JSON.stringify(result, null, 2) : "No action run yet."}</pre>
+        </section>
+      </section>
+    </>
+  );
+}
+
+type AdminWarFormState = {
+  name: string;
+  startTime: string;
+  finishTime: string;
+  factionId: string;
+  warType: Exclude<WarType, "all">;
+  tornWarId: string;
+  autoEndEnabled: boolean;
+  factionRespectLimit: string;
+  memberRespectLimit: string;
+};
+
+function WarForm({
+  title,
+  form,
+  onChange,
+  onSubmit,
+  isBusy,
+  requireFinishTime = false,
+}: {
+  title: string;
+  form: AdminWarFormState;
+  onChange: (form: AdminWarFormState) => void;
+  onSubmit: (payload: AdminWarPayload) => void;
+  isBusy: boolean;
+  requireFinishTime?: boolean;
+}) {
+  const canUseTermFields = form.warType === "termed";
+
+  function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
+    onChange({ ...form, [key]: value });
+  }
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit(toWarPayload(form, requireFinishTime));
+  }
+
+  return (
+    <section className="panel">
+      <PanelHeader title={title} />
+      <form className="admin-form" onSubmit={submit}>
+        <label>
+          <span>Name</span>
+          <input value={form.name} onChange={(event) => update("name", event.target.value)} required />
+        </label>
+        <label>
+          <span>War type</span>
+          <select value={form.warType} onChange={(event) => update("warType", event.target.value as Exclude<WarType, "all">)}>
+            <option value="real">Real</option>
+            <option value="termed">Termed</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label>
+          <span>Start time</span>
+          <input type="datetime-local" value={form.startTime} onChange={(event) => update("startTime", event.target.value)} required />
+        </label>
+        {requireFinishTime ? (
+          <label>
+            <span>Finish time</span>
+            <input type="datetime-local" value={form.finishTime} onChange={(event) => update("finishTime", event.target.value)} required />
+          </label>
+        ) : null}
+        <label>
+          <span>Enemy faction ID</span>
+          <input inputMode="numeric" value={form.factionId} onChange={(event) => update("factionId", event.target.value)} />
+        </label>
+        <label>
+          <span>Torn war ID</span>
+          <input inputMode="numeric" value={form.tornWarId} onChange={(event) => update("tornWarId", event.target.value)} />
+        </label>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={form.autoEndEnabled}
+            disabled={!canUseTermFields}
+            onChange={(event) => update("autoEndEnabled", event.target.checked)}
+          />
+          <span>Auto-end termed war</span>
+        </label>
+        <label>
+          <span>Faction respect limit</span>
+          <input
+            inputMode="decimal"
+            value={form.factionRespectLimit}
+            disabled={!canUseTermFields}
+            onChange={(event) => update("factionRespectLimit", event.target.value)}
+          />
+        </label>
+        <label>
+          <span>Member respect limit</span>
+          <input
+            inputMode="decimal"
+            value={form.memberRespectLimit}
+            disabled={!canUseTermFields}
+            onChange={(event) => update("memberRespectLimit", event.target.value)}
+          />
+        </label>
+        <button type="submit" className="admin-button primary" disabled={isBusy}>
+          {title}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function defaultWarForm(): AdminWarFormState {
+  return {
+    name: "",
+    startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
+    finishTime: "",
+    factionId: "",
+    warType: "real",
+    tornWarId: "",
+    autoEndEnabled: false,
+    factionRespectLimit: "",
+    memberRespectLimit: "",
+  };
+}
+
+function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): AdminWarPayload {
+  const payload: AdminWarPayload = {
+    name: form.name.trim(),
+    start_time: secondsFromDateTimeLocal(form.startTime),
+    war_type: form.warType,
+  };
+
+  if (includeFinishTime) {
+    payload.finish_time = secondsFromDateTimeLocal(form.finishTime);
+  }
+
+  setOptionalNumber(payload, "faction_id", form.factionId);
+  setOptionalNumber(payload, "torn_war_id", form.tornWarId);
+
+  if (form.warType === "termed") {
+    payload.auto_end_enabled = form.autoEndEnabled;
+    setOptionalNumber(payload, "faction_respect_limit", form.factionRespectLimit);
+    setOptionalNumber(payload, "member_respect_limit", form.memberRespectLimit);
+  }
+
+  return payload;
+}
+
+function setOptionalNumber<T extends keyof AdminWarPayload>(
+  payload: AdminWarPayload,
+  key: T,
+  value: string,
+) {
+  if (value.trim() !== "") {
+    payload[key] = Number(value) as AdminWarPayload[T];
+  }
+}
+
+function secondsFromDateTimeLocal(value: string): number {
+  return Math.floor(new Date(value).getTime() / 1000);
+}
+
+function dateTimeLocalFromSeconds(timestamp: number): string {
+  const date = new Date(timestamp * 1000);
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return offsetDate.toISOString().slice(0, 16);
 }
 
 function MembersOverview({ warType }: { warType: WarType }) {

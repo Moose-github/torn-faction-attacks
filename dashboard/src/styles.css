@@ -29,6 +29,22 @@ select {
   font: inherit;
 }
 
+input,
+select {
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #172033;
+}
+
+input:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
 .app-shell {
   width: min(1440px, 100%);
   margin: 0 auto;
@@ -123,7 +139,7 @@ h2 {
   gap: 10px;
   width: 100%;
   min-height: 44px;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
   padding: 10px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -132,6 +148,10 @@ h2 {
   cursor: pointer;
   font-weight: 800;
   text-align: left;
+}
+
+.sidebar-link:last-of-type {
+  margin-bottom: 14px;
 }
 
 .sidebar-link.active {
@@ -326,6 +346,100 @@ h2 {
   gap: 10px;
 }
 
+.admin-hero svg {
+  flex: 0 0 auto;
+  color: #2563eb;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-button {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.admin-button:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.admin-button.primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.admin-button.danger {
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.admin-button:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
+.admin-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-form label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.admin-form .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+}
+
+.checkbox-row input {
+  min-height: auto;
+}
+
+.admin-form .primary {
+  grid-column: 1 / -1;
+}
+
+.admin-result-panel {
+  grid-column: 1 / -1;
+}
+
+.admin-result-panel pre {
+  max-height: 360px;
+  margin: 0;
+  overflow: auto;
+  padding: 14px;
+  border-radius: 7px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .inline-metric {
   display: flex;
   align-items: center;
@@ -499,6 +613,7 @@ td {
   }
 
   .status-grid,
+  .admin-grid,
   .content-grid,
   .dashboard-layout {
     grid-template-columns: 1fr;
@@ -526,5 +641,10 @@ td {
 
   .war-type-select {
     width: 100%;
+  }
+
+  .admin-action-grid,
+  .admin-form {
+    grid-template-columns: 1fr;
   }
 }

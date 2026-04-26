@@ -93,6 +93,18 @@ export type WarDetailResponse = {
   members: MemberStats[];
 };
 
+export type AdminWarPayload = {
+  name: string;
+  start_time?: number;
+  finish_time?: number;
+  faction_id?: number;
+  war_type: Exclude<WarType, "all">;
+  torn_war_id?: number;
+  auto_end_enabled?: boolean;
+  faction_respect_limit?: number;
+  member_respect_limit?: number;
+};
+
 export async function getStats(warType: WarType): Promise<StatsResponse> {
   return getJson<StatsResponse>(`/api/stats${queryForWarType(warType)}`);
 }
@@ -105,8 +117,47 @@ export async function getWar(name: string): Promise<WarDetailResponse> {
   return getJson<WarDetailResponse>(`/api/wars/${encodeURIComponent(name)}`);
 }
 
+export async function checkHealth(): Promise<unknown> {
+  return getJson("/api/health");
+}
+
+export async function runIngestion(): Promise<unknown> {
+  return postJson("/api/run");
+}
+
+export async function rebuildStats(): Promise<unknown> {
+  return postJson("/api/rebuild");
+}
+
+export async function createWar(payload: AdminWarPayload): Promise<unknown> {
+  return postJson("/api/wars", payload);
+}
+
+export async function importWar(payload: AdminWarPayload): Promise<unknown> {
+  return postJson("/api/wars/import", payload);
+}
+
+export async function endActiveWar(): Promise<unknown> {
+  return postJson("/api/wars/end");
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`);
+  const data = await response.json();
+
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error ?? `Request failed: ${response.status}`);
+  }
+
+  return data as T;
+}
+
+async function postJson<T = unknown>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   const data = await response.json();
 
   if (!response.ok || data.ok === false) {
