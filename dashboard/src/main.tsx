@@ -57,6 +57,7 @@ function App() {
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
   const [activityBuckets, setActivityBuckets] = React.useState<WarActivityBucket[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
+  const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({});
   const [selectedMember, setSelectedMember] = React.useState<MemberStats | null>(null);
   const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
   const [isLoadingMemberAttacks, setIsLoadingMemberAttacks] = React.useState(false);
@@ -230,6 +231,13 @@ function App() {
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const members = sortMembers(warDetail?.members ?? [], memberSort);
 
+  function togglePanel(panel: string) {
+    setCollapsedPanels((current) => ({
+      ...current,
+      [panel]: !current[panel],
+    }));
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -333,16 +341,32 @@ function App() {
                 </section>
               </section>
 
-              <section className="panel activity-panel">
-                <PanelHeader
-                  title="Attack activity over time"
-                  aside={isLoadingActivity ? "Loading" : `${activityBuckets.length} buckets`}
-                />
-                <ActivityChart buckets={activityBuckets} />
-              </section>
+              <CollapsiblePanel
+                title="Faction attacks over time"
+                aside={isLoadingActivity ? "Loading" : `${activityBuckets.length} buckets`}
+                collapsed={collapsedPanels.factionActivity ?? false}
+                onToggle={() => togglePanel("factionActivity")}
+                className="activity-panel"
+              >
+                <ActivityChart buckets={activityBuckets} keys={["enemy_success", "enemy_assist", "outside"]} />
+              </CollapsiblePanel>
 
-              <section className="panel table-panel">
-                <PanelHeader title="Faction members breakdown" />
+              <CollapsiblePanel
+                title="Enemy attacks over time"
+                aside={isLoadingActivity ? "Loading" : `${activityBuckets.length} buckets`}
+                collapsed={collapsedPanels.enemyActivity ?? false}
+                onToggle={() => togglePanel("enemyActivity")}
+                className="activity-panel"
+              >
+                <ActivityChart buckets={activityBuckets} keys={["defend_lost", "defend_won"]} />
+              </CollapsiblePanel>
+
+              <CollapsiblePanel
+                title="Faction members breakdown"
+                collapsed={collapsedPanels.memberBreakdown ?? false}
+                onToggle={() => togglePanel("memberBreakdown")}
+                className="table-panel"
+              >
                 <MemberTable
                   members={members}
                   sort={memberSort}
@@ -350,7 +374,7 @@ function App() {
                   selectedMemberId={selectedMember?.member_id ?? null}
                   onMemberSelect={setSelectedMember}
                 />
-              </section>
+              </CollapsiblePanel>
 
               {selectedMember ? (
                 <section className="panel table-panel" ref={memberAttackPanelRef}>
@@ -517,6 +541,35 @@ function PanelHeader({
   );
 }
 
+function CollapsiblePanel({
+  title,
+  aside,
+  collapsed,
+  onToggle,
+  className = "",
+  children,
+}: {
+  title: string;
+  aside?: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={`panel collapsible-panel ${className}`.trim()}>
+      <div className="panel-header collapsible-header">
+        <button type="button" className="collapse-button" onClick={onToggle}>
+          <span>{collapsed ? "+" : "-"}</span>
+          <strong>{title}</strong>
+        </button>
+        {aside ? <span>{aside}</span> : null}
+      </div>
+      {collapsed ? null : children}
+    </section>
+  );
+}
+
 function AttackChart({ members }: { members: MemberStats[] }) {
   if (members.length === 0) {
     return <EmptyState text="No member data yet" />;
@@ -554,7 +607,26 @@ function AttackChart({ members }: { members: MemberStats[] }) {
   );
 }
 
-function ActivityChart({ buckets }: { buckets: WarActivityBucket[] }) {
+type ActivityKey = keyof Pick<
+  WarActivityBucket,
+  "enemy_success" | "enemy_assist" | "outside" | "defend_lost" | "defend_won"
+>;
+
+const activityColors: Record<ActivityKey, string> = {
+  enemy_success: "#22c55e",
+  enemy_assist: "#eab308",
+  outside: "#a855f7",
+  defend_lost: "#ef4444",
+  defend_won: "#f97316",
+};
+
+function ActivityChart({
+  buckets,
+  keys,
+}: {
+  buckets: WarActivityBucket[];
+  keys: ActivityKey[];
+}) {
   if (!Array.isArray(buckets) || buckets.length === 0) {
     return <EmptyState text="No activity data yet" />;
   }
@@ -579,11 +651,9 @@ function ActivityChart({ buckets }: { buckets: WarActivityBucket[] }) {
             labelFormatter={(label) => `Bucket ${label}`}
           />
           <Legend formatter={(value) => activityLabel(String(value))} />
-          <Bar dataKey="enemy_success" stackId="activity" fill="#22c55e" />
-          <Bar dataKey="enemy_assist" stackId="activity" fill="#eab308" />
-          <Bar dataKey="outside" stackId="activity" fill="#a855f7" />
-          <Bar dataKey="defend_lost" stackId="activity" fill="#ef4444" />
-          <Bar dataKey="defend_won" stackId="activity" fill="#f97316" />
+          {keys.map((key) => (
+            <Bar key={key} dataKey={key} stackId="activity" fill={activityColors[key]} />
+          ))}
         </BarChart>
       </ResponsiveContainer>
     </div>
