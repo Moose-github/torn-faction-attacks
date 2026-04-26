@@ -188,7 +188,15 @@ function App() {
                     {(selectedWar.war_type ?? "real").toUpperCase()} · {formatDate(selectedWar.start_time)}
                   </p>
                 </div>
-                {selectedWar.war_type === "termed" ? <TermProgress war={selectedWar} /> : null}
+                {selectedWar.war_type === "termed" ? (
+                  <TermProgress
+                    war={selectedWar}
+                    observedRespect={detailNumber(
+                      warDetail?.summary?.total_respect_gain,
+                      selectedWar.total_respect_gain,
+                    )}
+                  />
+                ) : null}
               </section>
 
               <section className="status-grid war-status-grid">
@@ -324,12 +332,18 @@ function WarNav({
   );
 }
 
-function TermProgress({ war }: { war: WarSummary }) {
+function TermProgress({
+  war,
+  observedRespect,
+}: {
+  war: WarSummary;
+  observedRespect: number;
+}) {
   if (!war.faction_respect_limit) {
     return null;
   }
 
-  const observed = war.last_observed_respect ?? war.total_respect_gain ?? 0;
+  const observed = Math.max(observedRespect, war.last_observed_respect ?? 0);
   const progress = Math.min(100, (observed / war.faction_respect_limit) * 100);
 
   return (
@@ -590,6 +604,8 @@ function AdminControls() {
           </div>
         </section>
 
+        <ProjectTodoPanel />
+
         <WarForm
           title="Create active or scheduled war"
           form={createForm}
@@ -604,6 +620,7 @@ function AdminControls() {
           onChange={setImportForm}
           isBusy={isBusy !== null}
           requireFinishTime
+          showAutoEnd={false}
           onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
         />
 
@@ -635,6 +652,7 @@ function WarForm({
   onSubmit,
   isBusy,
   requireFinishTime = false,
+  showAutoEnd = true,
 }: {
   title: string;
   form: AdminWarFormState;
@@ -642,6 +660,7 @@ function WarForm({
   onSubmit: (payload: AdminWarPayload) => void;
   isBusy: boolean;
   requireFinishTime?: boolean;
+  showAutoEnd?: boolean;
 }) {
   const canUseTermFields = form.warType === "termed";
 
@@ -688,15 +707,17 @@ function WarForm({
           <span>Torn war ID</span>
           <input inputMode="numeric" value={form.tornWarId} onChange={(event) => update("tornWarId", event.target.value)} />
         </label>
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={form.autoEndEnabled}
-            disabled={!canUseTermFields}
-            onChange={(event) => update("autoEndEnabled", event.target.checked)}
-          />
-          <span>Auto-end termed war</span>
-        </label>
+        {showAutoEnd ? (
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.autoEndEnabled}
+              disabled={!canUseTermFields}
+              onChange={(event) => update("autoEndEnabled", event.target.checked)}
+            />
+            <span>Auto-end termed war</span>
+          </label>
+        ) : null}
         <label>
           <span>Faction respect limit</span>
           <input
@@ -719,6 +740,27 @@ function WarForm({
           {title}
         </button>
       </form>
+    </section>
+  );
+}
+
+function ProjectTodoPanel() {
+  const items = [
+    "Add admin security for mutation endpoints and dashboard controls",
+    "Add confirmation prompts for destructive admin actions",
+    "Improve import feedback with imported attack counts and refreshed war stats",
+    "Add dashboard deployment notes for Pages environment variables",
+    "Add regression tests for termed progress and war form payloads",
+  ];
+
+  return (
+    <section className="panel todo-panel">
+      <PanelHeader title="To-do" />
+      <ol>
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ol>
     </section>
   );
 }
