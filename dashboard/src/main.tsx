@@ -7,6 +7,7 @@ import {
   CartesianGrid,
   Cell,
   LabelList,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -20,6 +21,7 @@ import {
   endActiveWar,
   getStats,
   getWar,
+  getWarActivity,
   getWarMemberAttacks,
   getWars,
   importWar,
@@ -29,6 +31,7 @@ import {
   rebuildStats,
   runIngestion,
   WarDetailResponse,
+  WarActivityBucket,
   WarSummary,
   WarType,
 } from "./api";
@@ -52,9 +55,12 @@ function App() {
   const [error, setError] = React.useState<string | null>(null);
   const [isLoadingWars, setIsLoadingWars] = React.useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
+  const [activityBuckets, setActivityBuckets] = React.useState<WarActivityBucket[]>([]);
+  const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
   const [selectedMember, setSelectedMember] = React.useState<MemberStats | null>(null);
   const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
   const [isLoadingMemberAttacks, setIsLoadingMemberAttacks] = React.useState(false);
+  const memberAttackPanelRef = React.useRef<HTMLElement | null>(null);
 
   React.useEffect(() => {
   let cancelled = false;
@@ -138,6 +144,40 @@ function App() {
 }, [selectedWarName]);
 
   React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadActivity() {
+      if (!selectedWarName) {
+        setActivityBuckets([]);
+        return;
+      }
+
+      setIsLoadingActivity(true);
+      setError(null);
+
+      try {
+        const response = await getWarActivity(selectedWarName);
+        if (!cancelled) {
+          setActivityBuckets(response.buckets);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingActivity(false);
+        }
+      }
+    }
+
+    loadActivity();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWarName]);
+
+  React.useEffect(() => {
     setSelectedMember(null);
     setMemberAttacks([]);
   }, [selectedWarName]);
@@ -175,6 +215,17 @@ function App() {
       cancelled = true;
     };
   }, [selectedWarName, selectedMember]);
+
+  React.useEffect(() => {
+    if (!selectedMember || memberAttacks.length === 0 || isLoadingMemberAttacks) {
+      return;
+    }
+
+    memberAttackPanelRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, [isLoadingMemberAttacks, memberAttacks.length, selectedMember]);
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const members = sortMembers(warDetail?.members ?? [], memberSort);
@@ -282,8 +333,16 @@ function App() {
                 </section>
               </section>
 
+              <section className="panel activity-panel">
+                <PanelHeader
+                  title="Attack activity over time"
+                  aside={isLoadingActivity ? "Loading" : `${activityBuckets.length} buckets`}
+                />
+                <ActivityChart buckets={activityBuckets} />
+              </section>
+
               <section className="panel table-panel">
-                <PanelHeader title="Member leaderboard" />
+                <PanelHeader title="Faction members breakdown" />
                 <MemberTable
                   members={members}
                   sort={memberSort}
@@ -294,7 +353,7 @@ function App() {
               </section>
 
               {selectedMember ? (
-                <section className="panel table-panel">
+                <section className="panel table-panel" ref={memberAttackPanelRef}>
                   <PanelHeader
                     title={`${displayMember(selectedMember)} attacks`}
                     aside={isLoadingMemberAttacks ? "Loading" : `${memberAttacks.length} rows`}
@@ -495,6 +554,42 @@ function AttackChart({ members }: { members: MemberStats[] }) {
   );
 }
 
+function ActivityChart({ buckets }: { buckets: WarActivityBucket[] }) {
+  if (buckets.length === 0) {
+    return <EmptyState text="No activity data yet" />;
+  }
+
+  const data = buckets.map((bucket) => ({
+    ...bucket,
+    label: formatTime(bucket.bucket_start),
+  }));
+
+  return (
+    <div className="activity-chart-wrap">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={18} />
+          <YAxis tickLine={false} axisLine={false} width={44} />
+          <Tooltip
+            formatter={(value, name) => [
+              formatNumber(Number(value)),
+              activityLabel(String(name)),
+            ]}
+            labelFormatter={(label) => `Bucket ${label}`}
+          />
+          <Legend formatter={(value) => activityLabel(String(value))} />
+          <Bar dataKey="enemy_success" stackId="activity" fill="#22c55e" />
+          <Bar dataKey="enemy_assist" stackId="activity" fill="#eab308" />
+          <Bar dataKey="outside" stackId="activity" fill="#a855f7" />
+          <Bar dataKey="defend_lost" stackId="activity" fill="#ef4444" />
+          <Bar dataKey="defend_won" stackId="activity" fill="#f97316" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 type MemberSortKey =
   | "member_name"
   | "enemy_attacks_successful"
@@ -534,7 +629,6 @@ function MemberTable({
             <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Respect gained" sortKey="enemy_respect_gained" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Assists" sortKey="enemy_assists" sort={sort} onSortChange={onSortChange} />
-            {onMemberSelect ? <th>Log</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -574,20 +668,6 @@ function MemberTable({
               </td>
               <td>{formatNumber(member.enemy_respect_gained)}</td>
               <td>{formatNumber(member.enemy_assists)}</td>
-              {onMemberSelect ? (
-                <td>
-                  <button
-                    type="button"
-                    className="log-button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onMemberSelect(member);
-                    }}
-                  >
-                    View attacks
-                  </button>
-                </td>
-              ) : null}
             </tr>
           ))}
         </tbody>
@@ -1154,7 +1234,7 @@ function MembersOverview({ warType }: { warType: WarType }) {
       </section>
 
       <section className="panel table-panel">
-        <PanelHeader title="Member leaderboard" aside={isLoading ? "Loading" : `${members.length} members`} />
+        <PanelHeader title="Faction members breakdown" aside={isLoading ? "Loading" : `${members.length} members`} />
         <MemberTable members={members} sort={sort} onSortChange={setSort} />
       </section>
     </>
@@ -1280,6 +1360,23 @@ function classificationLabel(classification: MemberAttack["classification"]): st
   }
 }
 
+function activityLabel(key: string): string {
+  switch (key) {
+    case "enemy_success":
+      return "Enemy hits";
+    case "enemy_assist":
+      return "Assists";
+    case "outside":
+      return "Outside hits";
+    case "defend_lost":
+      return "Defends lost";
+    case "defend_won":
+      return "Defends won";
+    default:
+      return key;
+  }
+}
+
 function sumMembers(members: MemberStats[], key: keyof MemberStats): number {
   return members.reduce((total, member) => {
     const value = member[key];
@@ -1303,6 +1400,17 @@ function formatDate(timestamp: number | null): string {
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp * 1000));
+}
+
+function formatTime(timestamp: number | null): string {
+  if (!timestamp) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(timestamp * 1000));

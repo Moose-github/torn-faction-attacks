@@ -130,6 +130,21 @@ export type MemberAttacksResponse = {
   attacks: MemberAttack[];
 };
 
+export type WarActivityBucket = {
+  bucket_start: number;
+  enemy_success: number;
+  enemy_assist: number;
+  outside: number;
+  defend_lost: number;
+  defend_won: number;
+};
+
+export type WarActivityResponse = {
+  ok: boolean;
+  bucket_minutes: number;
+  buckets: WarActivityBucket[];
+};
+
 export type AdminWarPayload = {
   name: string;
   start_time?: number;
@@ -160,6 +175,12 @@ export async function getWarMemberAttacks(
 ): Promise<MemberAttacksResponse> {
   return getJson<MemberAttacksResponse>(
     `/api/wars/${encodeURIComponent(warName)}/members/${memberId}/attacks`,
+  );
+}
+
+export async function getWarActivity(warName: string): Promise<WarActivityResponse> {
+  return getJson<WarActivityResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/activity?bucket_minutes=15`,
   );
 }
 

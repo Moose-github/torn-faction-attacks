@@ -1,4 +1,10 @@
-import { HOME_FACTION_ID, POSITIVE_ATTACK_RESULTS, SOURCE_NAME, WAR_TYPES } from "./constants";
+import {
+  HOME_FACTION_ID,
+  POSITIVE_ATTACK_RESULTS,
+  POSITIVE_RESULTS_SQL,
+  SOURCE_NAME,
+  WAR_TYPES,
+} from "./constants";
 import {
   backfillWarAssignments,
   ingestHistoricalWarWindow,
@@ -727,6 +733,125 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
   }
 }
 
+export async function getWarActivity(url: URL, env: Env): Promise<Response> {
+  try {
+    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+
+    if (!name) {
+      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
+    }
+
+    const bucketMinutes = parseBucketMinutes(url.searchParams.get("bucket_minutes"));
+    const bucketSeconds = bucketMinutes * 60;
+
+    const war = (await env.DB.prepare(
+      `
+      SELECT id, name, faction_id
+      FROM wars
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+      .bind(name)
+      .first()) as { id: number; name: string; faction_id: number | null } | null;
+
+    if (!war) {
+      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+    }
+
+    const rows = await env.DB.prepare(
+      `
+      SELECT
+        CAST((started / ?) AS INTEGER) * ? AS bucket_start,
+        SUM(CASE
+          WHEN attacker_faction_id = ${HOME_FACTION_ID}
+           AND (? IS NULL OR defender_faction_id = ?)
+           AND result IN (${POSITIVE_RESULTS_SQL})
+          THEN 1
+          ELSE 0
+        END) AS enemy_success,
+        SUM(CASE
+          WHEN attacker_faction_id = ${HOME_FACTION_ID}
+           AND (? IS NULL OR defender_faction_id = ?)
+           AND result = 'Assist'
+          THEN 1
+          ELSE 0
+        END) AS enemy_assist,
+        SUM(CASE
+          WHEN ? IS NOT NULL
+           AND attacker_faction_id = ${HOME_FACTION_ID}
+           AND (defender_faction_id IS NULL OR defender_faction_id != ?)
+           AND NOT (
+             defender_faction_id = ${HOME_FACTION_ID}
+             AND result = 'Hospitalized'
+           )
+          THEN 1
+          ELSE 0
+        END) AS outside,
+        SUM(CASE
+          WHEN ? IS NOT NULL
+           AND attacker_faction_id = ?
+           AND defender_faction_id = ${HOME_FACTION_ID}
+           AND result IN (${POSITIVE_RESULTS_SQL})
+          THEN 1
+          ELSE 0
+        END) AS defend_lost,
+        SUM(CASE
+          WHEN ? IS NOT NULL
+           AND attacker_faction_id = ?
+           AND defender_faction_id = ${HOME_FACTION_ID}
+           AND (result NOT IN (${POSITIVE_RESULTS_SQL}) OR result IS NULL)
+          THEN 1
+          ELSE 0
+        END) AS defend_won
+      FROM attacks
+      WHERE war_id = ?
+        AND started IS NOT NULL
+      GROUP BY bucket_start
+      ORDER BY bucket_start ASC
+      `,
+    )
+      .bind(
+        bucketSeconds,
+        bucketSeconds,
+        war.faction_id,
+        war.faction_id,
+        war.faction_id,
+        war.faction_id,
+        war.faction_id,
+        war.faction_id,
+        war.faction_id,
+        war.faction_id,
+        war.faction_id,
+        war.faction_id,
+        war.id,
+      )
+      .all();
+
+    const buckets = (rows.results ?? []).map((row: any) => ({
+      bucket_start: row.bucket_start,
+      enemy_success: Number(row.enemy_success ?? 0),
+      enemy_assist: Number(row.enemy_assist ?? 0),
+      outside: Number(row.outside ?? 0),
+      defend_lost: Number(row.defend_lost ?? 0),
+      defend_won: Number(row.defend_won ?? 0),
+    }));
+
+    return json({
+      ok: true,
+      war: {
+        id: war.id,
+        name: war.name,
+        faction_id: war.faction_id,
+      },
+      bucket_minutes: bucketMinutes,
+      buckets,
+    });
+  } catch (err: any) {
+    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
+  }
+}
+
 export async function getOverallStats(url: URL, env: Env): Promise<Response> {
   const warType = parseWarTypeQuery(url);
   if (warType instanceof Response) {
@@ -787,6 +912,16 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     overall,
     top_members: topMembers.results ?? [],
   });
+}
+
+function parseBucketMinutes(value: string | null): number {
+  const parsed = Number(value ?? 15);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return 15;
+  }
+
+  return Math.min(parsed, 120);
 }
 
 function classifyMemberAttack(

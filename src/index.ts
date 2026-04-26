@@ -8,6 +8,7 @@ import {
   endActiveWar,
   getOverallStats,
   getWar,
+  getWarActivity,
   getWarAttacks,
   getWarMemberAttacks,
   importHistoricalWar,
@@ -88,6 +89,14 @@ export default {
       request.method === "GET"
     ) {
       return getWarMemberAttacks(url, env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      url.pathname.endsWith("/activity") &&
+      request.method === "GET"
+    ) {
+      return getWarActivity(url, env);
     }
 
     if (
