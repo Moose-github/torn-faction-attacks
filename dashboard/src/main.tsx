@@ -825,6 +825,7 @@ function ProjectTodoPanel() {
     "Filter out chain bonuses",
     "Confirmation prompts",
     "per member attack breakdown",
+    "early start for real wars to include hosps",
   ];
 
   return (
