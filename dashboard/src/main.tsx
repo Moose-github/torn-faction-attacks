@@ -821,11 +821,10 @@ function WarForm({
 
 function ProjectTodoPanel() {
   const items = [
-    "Add admin security for mutation endpoints and dashboard controls",
-    "Add confirmation prompts for destructive admin actions",
-    "Improve import feedback with imported attack counts and refreshed war stats",
-    "Add dashboard deployment notes for Pages environment variables",
-    "Add regression tests for termed progress and war form payloads",
+    "Add security",
+    "Filter out chain bonuses",
+    "Confirmation prompts",
+    "per member attack breakdown",
   ];
 
   return (
