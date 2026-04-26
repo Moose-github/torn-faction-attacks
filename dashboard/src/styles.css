@@ -233,6 +233,11 @@ h2 {
   box-shadow: 0 16px 50px rgba(15, 23, 42, 0.1);
 }
 
+.war-hero-panel {
+  min-height: 0;
+  padding: 18px 22px;
+}
+
 .hero-panel h2 {
   margin: 0;
   color: #111827;

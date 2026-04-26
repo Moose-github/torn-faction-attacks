@@ -1,0 +1,192 @@
+import { ArrowDown, ArrowUp } from "lucide-react";
+import { MemberAttack, MemberStats } from "../api";
+import { EmptyState } from "./Common";
+import { formatDate, formatNumber } from "../utils/format";
+import {
+  classificationLabel,
+  displayMember,
+  MemberSort,
+  MemberSortKey,
+} from "../utils/members";
+
+export function MemberTable({
+  members,
+  sort,
+  onSortChange,
+  selectedMemberId,
+  onMemberSelect,
+}: {
+  members: MemberStats[];
+  sort: MemberSort;
+  onSortChange: (sort: MemberSort) => void;
+  selectedMemberId?: number | null;
+  onMemberSelect?: (member: MemberStats) => void;
+}) {
+  if (members.length === 0) {
+    return <EmptyState text="No members to show" />;
+  }
+
+  return (
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <SortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Attacks" sortKey="enemy_attacks_successful" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Respect gained" sortKey="enemy_respect_gained" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Assists" sortKey="enemy_assists" sort={sort} onSortChange={onSortChange} />
+          </tr>
+        </thead>
+        <tbody>
+          {members.map((member) => (
+            <tr
+              key={member.member_id}
+              className={[
+                onMemberSelect ? "clickable-member-row" : "",
+                member.member_id === selectedMemberId ? "selected-member-row" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={onMemberSelect ? () => onMemberSelect(member) : undefined}
+            >
+              <td>
+                {onMemberSelect ? (
+                  <button
+                    type="button"
+                    className="member-link"
+                    title={`View ${displayMember(member)} attacks`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMemberSelect(member);
+                    }}
+                  >
+                    {displayMember(member)}
+                  </button>
+                ) : (
+                  displayMember(member)
+                )}
+              </td>
+              <td>
+                <AttackBreakdown member={member} />
+              </td>
+              <td>
+                <DefendBreakdown member={member} />
+              </td>
+              <td>{formatNumber(member.enemy_respect_gained)}</td>
+              <td>{formatNumber(member.enemy_assists)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function MemberAttackList({ attacks }: { attacks: MemberAttack[] }) {
+  if (attacks.length === 0) {
+    return <EmptyState text="No attacks for this member" />;
+  }
+
+  return (
+    <div className="table-scroll">
+      <table className="attack-log-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Type</th>
+            <th>Attacker</th>
+            <th>Defender</th>
+            <th>Result</th>
+            <th>Respect</th>
+          </tr>
+        </thead>
+        <tbody>
+          {attacks.map((attack) => (
+            <tr key={attack.id} className={`attack-row ${attack.classification}`}>
+              <td>{formatDate(attack.started)}</td>
+              <td>{classificationLabel(attack.classification)}</td>
+              <td>{attack.attacker_name ?? `#${attack.attacker_id ?? "-"}`}</td>
+              <td>{attack.defender_name ?? `#${attack.defender_id ?? "-"}`}</td>
+              <td>{attack.result ?? "-"}</td>
+              <td>{formatNumber(attack.respect_gain ?? 0)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  sort,
+  onSortChange,
+}: {
+  label: string;
+  sortKey: MemberSortKey;
+  sort: MemberSort;
+  onSortChange: (sort: MemberSort) => void;
+}) {
+  const isActive = sort.key === sortKey;
+  const nextDirection = isActive && sort.direction === "desc" ? "asc" : "desc";
+
+  return (
+    <th>
+      <button
+        type="button"
+        className={isActive ? "sort-button active" : "sort-button"}
+        onClick={() => onSortChange({ key: sortKey, direction: nextDirection })}
+      >
+        {label}
+        {isActive ? (
+          sort.direction === "desc" ? <ArrowDown size={14} /> : <ArrowUp size={14} />
+        ) : null}
+      </button>
+    </th>
+  );
+}
+
+function AttackBreakdown({ member }: { member: MemberStats }) {
+  const leaves = Math.max(
+    0,
+    member.enemy_attacks_successful -
+      member.enemy_hospitalizations -
+      member.enemy_mugs,
+  );
+  const hasBreakdown =
+    member.enemy_hospitalizations > 0 ||
+    member.enemy_mugs > 0 ||
+    (leaves > 0 && leaves !== member.enemy_attacks_successful);
+
+  if (!hasBreakdown) {
+    return <>{formatNumber(member.enemy_attacks_successful)}</>;
+  }
+
+  return (
+    <span
+      className="tooltip-value"
+      title={`Hospitalizations: ${formatNumber(member.enemy_hospitalizations)} | Mugs: ${formatNumber(member.enemy_mugs)} | Leaves: ${formatNumber(leaves)}`}
+    >
+      {formatNumber(member.enemy_attacks_successful)}
+    </span>
+  );
+}
+
+function DefendBreakdown({ member }: { member: MemberStats }) {
+  const defendsLost = Math.max(0, member.defends_total - member.defends_won);
+
+  if (member.defends_total === 0) {
+    return <>0</>;
+  }
+
+  return (
+    <span
+      className="tooltip-value"
+      title={`Won: ${formatNumber(member.defends_won)} | Lost: ${formatNumber(defendsLost)}`}
+    >
+      {formatNumber(member.defends_total)}
+    </span>
+  );
+}
