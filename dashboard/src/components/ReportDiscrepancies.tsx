@@ -104,11 +104,23 @@ export function discrepancyAside(response: ReportDiscrepanciesResponse | null): 
     return "No data";
   }
 
-  const total = visibleGroupDefinitions(response).reduce(
-    (sum, definition) => sum + (response.groups[definition.key]?.count ?? 0),
-    0,
+  const { attacks, respectRemoved } = visibleGroupDefinitions(response).reduce(
+    (totals, definition) => {
+      const group = response.groups[definition.key];
+      totals.attacks += group?.count ?? 0;
+
+      if (
+        definition.key === "chain_bonus_adjustments" ||
+        definition.key === "after_practical_finish"
+      ) {
+        totals.respectRemoved += group?.respect_gain ?? 0;
+      }
+
+      return totals;
+    },
+    { attacks: 0, respectRemoved: 0 },
   );
-  return `${formatNumber(total)} attacks`;
+  return `${formatNumber(attacks)} attacks / ${formatNumber(respectRemoved)} removed`;
 }
 
 function visibleGroupDefinitions(response: ReportDiscrepanciesResponse) {

@@ -62,7 +62,6 @@ export async function finalizeWar(env: Env, warId: number): Promise<void> {
 
   await rebuildWarMemberStatsFromRaw(env, warId);
   await rebuildWarSummaryFromRaw(env, warId);
-  await rollWarIntoCareerStats(env, warId);
 
   await env.DB.prepare(
     `
@@ -233,9 +232,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
 
 export async function rebuildDerivedStatsFromRaw(env: Env): Promise<{
   wars_rebuilt: number;
-  ended_wars_rolled_up: number;
 }> {
-  await env.DB.prepare(`DELETE FROM member_career_stats`).run();
   await resetDerivedWarMemberStats(env);
 
   const rows = await env.DB.prepare(
@@ -247,21 +244,14 @@ export async function rebuildDerivedStatsFromRaw(env: Env): Promise<{
   ).all();
 
   const wars = (rows.results ?? []) as { id: number; status: string }[];
-  let endedWarsRolledUp = 0;
 
   for (const war of wars) {
     await rebuildWarMemberStatsFromRaw(env, war.id);
     await rebuildWarSummaryFromRaw(env, war.id);
-
-    if (war.status === "ended") {
-      await rollWarIntoCareerStats(env, war.id);
-      endedWarsRolledUp += 1;
-    }
   }
 
   return {
     wars_rebuilt: wars.length,
-    ended_wars_rolled_up: endedWarsRolledUp,
   };
 }
 
@@ -521,79 +511,5 @@ async function upsertWarMemberDefendStats(
     `,
   )
     .bind(warId, HOME_FACTION_ID)
-    .run();
-}
-
-async function rollWarIntoCareerStats(env: Env, warId: number): Promise<void> {
-  await env.DB.prepare(
-    `
-    INSERT INTO member_career_stats (
-      member_id,
-      member_name,
-      wars_participated,
-      enemy_attacks_total,
-      enemy_attacks_successful,
-      enemy_respect_gained,
-      enemy_assists,
-      enemy_hospitalizations,
-      enemy_mugs,
-      outside_attacks,
-      friendly_hospitals,
-      defends_total,
-      defends_won,
-      respect_lost,
-      first_seen_at,
-      last_seen_at,
-      updated_at
-    )
-    SELECT
-      member_id,
-      MAX(member_name),
-      1,
-      enemy_attacks_total,
-      enemy_attacks_successful,
-      enemy_respect_gained,
-      enemy_assists,
-      enemy_hospitalizations,
-      enemy_mugs,
-      outside_attacks,
-      friendly_hospitals,
-      defends_total,
-      defends_won,
-      respect_lost,
-      first_action_at,
-      last_action_at,
-      unixepoch()
-    FROM war_member_stats
-    WHERE war_id = ?
-    GROUP BY member_id
-    ON CONFLICT(member_id) DO UPDATE SET
-      member_name = COALESCE(excluded.member_name, member_career_stats.member_name),
-      wars_participated = member_career_stats.wars_participated + excluded.wars_participated,
-      enemy_attacks_total = member_career_stats.enemy_attacks_total + excluded.enemy_attacks_total,
-      enemy_attacks_successful = member_career_stats.enemy_attacks_successful + excluded.enemy_attacks_successful,
-      enemy_respect_gained = member_career_stats.enemy_respect_gained + excluded.enemy_respect_gained,
-      enemy_assists = member_career_stats.enemy_assists + excluded.enemy_assists,
-      enemy_hospitalizations = member_career_stats.enemy_hospitalizations + excluded.enemy_hospitalizations,
-      enemy_mugs = member_career_stats.enemy_mugs + excluded.enemy_mugs,
-      outside_attacks = member_career_stats.outside_attacks + excluded.outside_attacks,
-      friendly_hospitals = member_career_stats.friendly_hospitals + excluded.friendly_hospitals,
-      defends_total = member_career_stats.defends_total + excluded.defends_total,
-      defends_won = member_career_stats.defends_won + excluded.defends_won,
-      respect_lost = member_career_stats.respect_lost + excluded.respect_lost,
-      first_seen_at = CASE
-        WHEN member_career_stats.first_seen_at IS NULL THEN excluded.first_seen_at
-        WHEN excluded.first_seen_at IS NULL THEN member_career_stats.first_seen_at
-        ELSE MIN(member_career_stats.first_seen_at, excluded.first_seen_at)
-      END,
-      last_seen_at = CASE
-        WHEN member_career_stats.last_seen_at IS NULL THEN excluded.last_seen_at
-        WHEN excluded.last_seen_at IS NULL THEN member_career_stats.last_seen_at
-        ELSE MAX(member_career_stats.last_seen_at, excluded.last_seen_at)
-      END,
-      updated_at = excluded.updated_at
-    `,
-  )
-    .bind(warId)
     .run();
 }

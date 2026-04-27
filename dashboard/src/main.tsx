@@ -466,7 +466,6 @@ function App() {
 
               <CollapsiblePanel
                 title="Buttgrass attacks over time"
-                aside={isLoadingActivity ? "Loading" : `${activityBuckets.length} buckets`}
                 collapsed={collapsedPanels.factionActivity ?? true}
                 onToggle={() => togglePanel("factionActivity")}
                 className="activity-panel"
@@ -476,7 +475,6 @@ function App() {
 
               <CollapsiblePanel
                 title={`${selectedWar.name} attacks over time`}
-                aside={isLoadingActivity ? "Loading" : `${activityBuckets.length} buckets`}
                 collapsed={collapsedPanels.enemyActivity ?? true}
                 onToggle={() => togglePanel("enemyActivity")}
                 className="activity-panel"
