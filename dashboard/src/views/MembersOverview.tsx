@@ -44,7 +44,7 @@ export function MembersOverview({ warType }: { warType: WarType }) {
     };
   }, [warType]);
 
-  const members = sortMembers(stats?.members ?? stats?.top_members ?? [], sort);
+  const members = sortMembers(stats?.members ?? [], sort);
 
   return (
     <>

@@ -1,39 +1,6 @@
 import { CHAIN_BONUS_HITS_SQL, HOME_FACTION_ID, POSITIVE_RESULTS_SQL } from "./constants";
+import { DEFENSE_ACTION_WINDOW_SQL, OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { Env } from "./types";
-
-const OUTGOING_ACTION_WINDOW_SQL = `
-  (
-    a.started IS NULL
-    OR (
-      a.started >= w.start_time
-      AND (w.finish_time IS NULL OR a.started <= w.finish_time)
-    )
-  )
-`;
-
-const DEFENSE_ACTION_WINDOW_SQL = `
-  (
-    a.started IS NULL
-    OR (
-      a.started >= COALESCE(w.official_start_time, w.start_time)
-      AND (
-        w.official_end_time IS NOT NULL
-        AND a.started <= w.official_end_time
-      )
-    )
-    OR (
-      w.official_end_time IS NULL
-      AND w.status = 'active'
-      AND a.started >= COALESCE(w.official_start_time, w.start_time)
-    )
-    OR (
-      w.official_end_time IS NULL
-      AND w.status != 'active'
-      AND a.started >= COALESCE(w.official_start_time, w.start_time)
-      AND (w.finish_time IS NULL OR a.started <= w.finish_time)
-    )
-  )
-`;
 
 export async function applyIncrementalWarSummaries(
   env: Env,

@@ -165,15 +165,22 @@ type ActiveWarForIngestion = {
   faction_respect_limit: number | null;
 };
 
-export async function ingestHistoricalWarWindow(
+type AttackWindowStats = {
+  matching_attack_count: number;
+  first_attack_started: number | null;
+  last_attack_started: number | null;
+};
+
+async function scanAttackWindow(
   env: Env,
-  warId: number,
   startedAt: number,
   endedAt: number,
-): Promise<number> {
-  const ingestRunId = `import:${warId}:${crypto.randomUUID()}`;
+  onPage: (attacks: TornAttack[]) => Promise<void> | void,
+): Promise<AttackWindowStats> {
   let from = startedAt;
-  let importedCount = 0;
+  let matchingAttackCount = 0;
+  let firstAttackStarted: number | null = null;
+  let lastAttackStarted: number | null = null;
 
   while (true) {
     const data = await fetchAttacks(env, from, endedAt);
@@ -183,9 +190,9 @@ export async function ingestHistoricalWarWindow(
       break;
     }
 
-    const statements: D1PreparedStatement[] = [];
     let pageNewestStarted = from;
     let pageReachedBeyondWindow = false;
+    const windowAttacks: TornAttack[] = [];
 
     for (const attack of attacks) {
       const attackStarted = attack.started ?? 0;
@@ -200,12 +207,16 @@ export async function ingestHistoricalWarWindow(
         continue;
       }
 
-      importedCount += 1;
-      statements.push(buildHistoricalImportStatement(env, warId, ingestRunId, attack));
+      matchingAttackCount += 1;
+      firstAttackStarted =
+        firstAttackStarted === null ? attackStarted : Math.min(firstAttackStarted, attackStarted);
+      lastAttackStarted =
+        lastAttackStarted === null ? attackStarted : Math.max(lastAttackStarted, attackStarted);
+      windowAttacks.push(attack);
     }
 
-    if (statements.length > 0) {
-      await env.DB.batch(statements);
+    if (windowAttacks.length > 0) {
+      await onPage(windowAttacks);
     }
 
     if (pageReachedBeyondWindow || attacks.length < LIMIT) {
@@ -215,7 +226,30 @@ export async function ingestHistoricalWarWindow(
     from = pageNewestStarted + 1;
   }
 
-  return importedCount;
+  return {
+    matching_attack_count: matchingAttackCount,
+    first_attack_started: firstAttackStarted,
+    last_attack_started: lastAttackStarted,
+  };
+}
+
+export async function ingestHistoricalWarWindow(
+  env: Env,
+  warId: number,
+  startedAt: number,
+  endedAt: number,
+): Promise<number> {
+  const ingestRunId = `import:${warId}:${crypto.randomUUID()}`;
+  const stats = await scanAttackWindow(env, startedAt, endedAt, async (attacks) => {
+    const statements = attacks.map((attack) =>
+      buildHistoricalImportStatement(env, warId, ingestRunId, attack),
+    );
+    if (statements.length > 0) {
+      await env.DB.batch(statements);
+    }
+  });
+
+  return stats.matching_attack_count;
 }
 
 export async function previewHistoricalWarWindow(
@@ -237,10 +271,6 @@ export async function previewHistoricalWarWindow(
     respect_gain: number;
   }>;
 }> {
-  let from = startedAt;
-  let matchingAttackCount = 0;
-  let firstAttackStarted: number | null = null;
-  let lastAttackStarted: number | null = null;
   const sampledAttacks: Array<{
     id: number;
     started: number | null;
@@ -252,36 +282,8 @@ export async function previewHistoricalWarWindow(
     respect_gain: number;
   }> = [];
 
-  while (true) {
-    const data = await fetchAttacks(env, from, endedAt);
-    const attacks = normalizeAttacks(data.attacks);
-
-    if (attacks.length === 0) {
-      break;
-    }
-
-    let pageNewestStarted = from;
-    let pageReachedBeyondWindow = false;
-
+  const stats = await scanAttackWindow(env, startedAt, endedAt, (attacks) => {
     for (const attack of attacks) {
-      const attackStarted = attack.started ?? 0;
-      pageNewestStarted = Math.max(pageNewestStarted, attackStarted);
-
-      if (attackStarted < startedAt) {
-        continue;
-      }
-
-      if (attackStarted > endedAt) {
-        pageReachedBeyondWindow = true;
-        continue;
-      }
-
-      matchingAttackCount += 1;
-      firstAttackStarted =
-        firstAttackStarted === null ? attackStarted : Math.min(firstAttackStarted, attackStarted);
-      lastAttackStarted =
-        lastAttackStarted === null ? attackStarted : Math.max(lastAttackStarted, attackStarted);
-
       if (sampledAttacks.length < 10) {
         sampledAttacks.push({
           id: attack.id,
@@ -295,18 +297,10 @@ export async function previewHistoricalWarWindow(
         });
       }
     }
-
-    if (pageReachedBeyondWindow || attacks.length < LIMIT) {
-      break;
-    }
-
-    from = pageNewestStarted + 1;
-  }
+  });
 
   return {
-    matching_attack_count: matchingAttackCount,
-    first_attack_started: firstAttackStarted,
-    last_attack_started: lastAttackStarted,
+    ...stats,
     sampled_attacks: sampledAttacks,
   };
 }
@@ -338,10 +332,6 @@ export async function pullAttackWindow(
     respect_loss: number;
   }>;
 }> {
-  let from = startedAt;
-  let matchingAttackCount = 0;
-  let firstAttackStarted: number | null = null;
-  let lastAttackStarted: number | null = null;
   const returnedLimit = Math.max(1, Math.min(maxReturned, 250));
   const attacksInWindow: Array<{
     id: number;
@@ -360,36 +350,8 @@ export async function pullAttackWindow(
     respect_loss: number;
   }> = [];
 
-  while (true) {
-    const data = await fetchAttacks(env, from, endedAt);
-    const attacks = normalizeAttacks(data.attacks);
-
-    if (attacks.length === 0) {
-      break;
-    }
-
-    let pageNewestStarted = from;
-    let pageReachedBeyondWindow = false;
-
+  const stats = await scanAttackWindow(env, startedAt, endedAt, (attacks) => {
     for (const attack of attacks) {
-      const attackStarted = attack.started ?? 0;
-      pageNewestStarted = Math.max(pageNewestStarted, attackStarted);
-
-      if (attackStarted < startedAt) {
-        continue;
-      }
-
-      if (attackStarted > endedAt) {
-        pageReachedBeyondWindow = true;
-        continue;
-      }
-
-      matchingAttackCount += 1;
-      firstAttackStarted =
-        firstAttackStarted === null ? attackStarted : Math.min(firstAttackStarted, attackStarted);
-      lastAttackStarted =
-        lastAttackStarted === null ? attackStarted : Math.max(lastAttackStarted, attackStarted);
-
       if (attacksInWindow.length < returnedLimit) {
         attacksInWindow.push({
           id: attack.id,
@@ -409,18 +371,10 @@ export async function pullAttackWindow(
         });
       }
     }
-
-    if (pageReachedBeyondWindow || attacks.length < LIMIT) {
-      break;
-    }
-
-    from = pageNewestStarted + 1;
-  }
+  });
 
   return {
-    matching_attack_count: matchingAttackCount,
-    first_attack_started: firstAttackStarted,
-    last_attack_started: lastAttackStarted,
+    ...stats,
     returned_attack_count: attacksInWindow.length,
     attacks: attacksInWindow,
   };

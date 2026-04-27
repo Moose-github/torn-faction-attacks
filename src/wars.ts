@@ -18,6 +18,13 @@ import {
   fetchTornRankedWarReport,
   getWarChainBonuses,
 } from "./reports";
+import {
+  DEFENSE_ACTION_WINDOW_SQL,
+  OUTGOING_ACTION_WINDOW_SQL,
+  WAR_RETURNING_COLUMNS,
+  WAR_SELECT_COLUMNS,
+  WAR_SELECT_COLUMNS_WITH_ALIAS,
+} from "./sql";
 import { Env, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 
@@ -128,26 +135,7 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING
-        id,
-        name,
-        status,
-        start_time,
-        finish_time,
-        official_start_time,
-        official_end_time,
-        faction_id,
-        war_type,
-        torn_war_id,
-        auto_end_enabled,
-        faction_respect_limit,
-        member_respect_limit,
-        winner_faction_id,
-        torn_report_fetched_at,
-        home_report_score,
-        home_report_attacks,
-        enemy_report_score,
-        enemy_report_attacks,
-        finalized_at
+        ${WAR_RETURNING_COLUMNS}
       `,
     )
       .bind(
@@ -391,26 +379,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       )
       VALUES (?, 'ended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING
-        id,
-        name,
-        status,
-        start_time,
-        finish_time,
-        official_start_time,
-        official_end_time,
-        faction_id,
-        war_type,
-        torn_war_id,
-        auto_end_enabled,
-        faction_respect_limit,
-        member_respect_limit,
-        winner_faction_id,
-        torn_report_fetched_at,
-        home_report_score,
-        home_report_attacks,
-        enemy_report_score,
-        enemy_report_attacks,
-        finalized_at
+        ${WAR_RETURNING_COLUMNS}
       `,
     )
       .bind(
@@ -763,26 +732,7 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
     const rows = await env.DB.prepare(
       `
       SELECT
-        w.id,
-        w.name,
-        w.status,
-        w.start_time,
-        w.finish_time,
-        w.official_start_time,
-        w.official_end_time,
-        w.faction_id,
-        w.war_type,
-        w.torn_war_id,
-        w.auto_end_enabled,
-        w.faction_respect_limit,
-        w.member_respect_limit,
-        w.winner_faction_id,
-        w.torn_report_fetched_at,
-        w.home_report_score,
-        w.home_report_attacks,
-        w.enemy_report_score,
-        w.enemy_report_attacks,
-        w.finalized_at,
+        ${WAR_SELECT_COLUMNS_WITH_ALIAS},
         COALESCE(ws.faction_attacks, 0) AS faction_attacks,
         COALESCE(ws.enemy_attacks, 0) AS enemy_attacks,
         COALESCE(ws.outside_hits_outgoing, 0) AS outside_hits_outgoing,
@@ -818,26 +768,7 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
     const war = (await env.DB.prepare(
       `
       SELECT
-        id,
-        name,
-        status,
-        start_time,
-        finish_time,
-        official_start_time,
-        official_end_time,
-        faction_id,
-        war_type,
-        torn_war_id,
-        auto_end_enabled,
-        faction_respect_limit,
-        member_respect_limit,
-        winner_faction_id,
-        torn_report_fetched_at,
-        home_report_score,
-        home_report_attacks,
-        enemy_report_score,
-        enemy_report_attacks,
-        finalized_at
+        ${WAR_SELECT_COLUMNS}
       FROM wars
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
@@ -898,26 +829,7 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
     const war = (await env.DB.prepare(
       `
       SELECT
-        id,
-        name,
-        status,
-        start_time,
-        finish_time,
-        official_start_time,
-        official_end_time,
-        faction_id,
-        war_type,
-        torn_war_id,
-        auto_end_enabled,
-        faction_respect_limit,
-        member_respect_limit,
-        winner_faction_id,
-        torn_report_fetched_at,
-        home_report_score,
-        home_report_attacks,
-        enemy_report_score,
-        enemy_report_attacks,
-        finalized_at
+        ${WAR_SELECT_COLUMNS}
       FROM wars
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
@@ -1019,21 +931,11 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
         AND (
           (
             a.attacker_id = ?
-            AND a.started >= w.start_time
-            AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+            AND ${OUTGOING_ACTION_WINDOW_SQL}
           )
           OR (
             a.defender_id = ?
-            AND a.started >= COALESCE(w.official_start_time, w.start_time)
-            AND (
-              (w.official_end_time IS NOT NULL AND a.started <= w.official_end_time)
-              OR (w.official_end_time IS NULL AND w.status = 'active')
-              OR (
-                w.official_end_time IS NULL
-                AND w.status != 'active'
-                AND (w.finish_time IS NULL OR a.started <= w.finish_time)
-              )
-            )
+            AND ${DEFENSE_ACTION_WINDOW_SQL}
           )
         )
       ORDER BY a.started DESC
@@ -1101,8 +1003,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
           WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
            AND (? IS NULL OR a.defender_faction_id = ?)
            AND a.result IN (${POSITIVE_RESULTS_SQL})
-           AND a.started >= w.start_time
-           AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+           AND ${OUTGOING_ACTION_WINDOW_SQL}
           THEN 1
           ELSE 0
         END) AS enemy_success,
@@ -1110,16 +1011,14 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
           WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
            AND (? IS NULL OR a.defender_faction_id = ?)
            AND a.result = 'Assist'
-           AND a.started >= w.start_time
-           AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+           AND ${OUTGOING_ACTION_WINDOW_SQL}
           THEN 1
           ELSE 0
         END) AS enemy_assist,
         SUM(CASE
           WHEN ? IS NOT NULL
            AND a.attacker_faction_id = ${HOME_FACTION_ID}
-           AND a.started >= w.start_time
-           AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+           AND ${OUTGOING_ACTION_WINDOW_SQL}
            AND (a.defender_faction_id IS NULL OR a.defender_faction_id != ?)
            AND NOT (
              a.defender_faction_id = ${HOME_FACTION_ID}
@@ -1133,16 +1032,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
            AND a.attacker_faction_id = ?
            AND a.defender_faction_id = ${HOME_FACTION_ID}
            AND a.result IN (${POSITIVE_RESULTS_SQL})
-           AND a.started >= COALESCE(w.official_start_time, w.start_time)
-           AND (
-             (w.official_end_time IS NOT NULL AND a.started <= w.official_end_time)
-             OR (w.official_end_time IS NULL AND w.status = 'active')
-             OR (
-               w.official_end_time IS NULL
-               AND w.status != 'active'
-               AND (w.finish_time IS NULL OR a.started <= w.finish_time)
-             )
-           )
+           AND ${DEFENSE_ACTION_WINDOW_SQL}
           THEN 1
           ELSE 0
         END) AS defend_lost,
@@ -1151,16 +1041,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
            AND a.attacker_faction_id = ?
            AND a.defender_faction_id = ${HOME_FACTION_ID}
            AND (a.result NOT IN (${POSITIVE_RESULTS_SQL}) OR a.result IS NULL)
-           AND a.started >= COALESCE(w.official_start_time, w.start_time)
-           AND (
-             (w.official_end_time IS NOT NULL AND a.started <= w.official_end_time)
-             OR (w.official_end_time IS NULL AND w.status = 'active')
-             OR (
-               w.official_end_time IS NULL
-               AND w.status != 'active'
-               AND (w.finish_time IS NULL OR a.started <= w.finish_time)
-             )
-           )
+           AND ${DEFENSE_ACTION_WINDOW_SQL}
           THEN 1
           ELSE 0
         END) AS defend_won
@@ -1273,7 +1154,6 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     war_type: warType,
     overall,
     members: memberRows,
-    top_members: memberRows,
   });
 }
 

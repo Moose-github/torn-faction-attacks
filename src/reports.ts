@@ -5,6 +5,7 @@ import {
   POSITIVE_RESULTS_SQL,
   RANKED_WAR_REPORT_API_BASE_URL,
 } from "./constants";
+import { OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { Env, TornRankedWarReport, TornRankedWarReportResponse } from "./types";
 import { json, nowSeconds } from "./utils";
 
@@ -455,13 +456,7 @@ function chainBonusAdjustmentSelectSql(): string {
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND a.attacker_id IS NOT NULL
-        AND (
-          a.started IS NULL
-          OR (
-            a.started >= w.start_time
-            AND (w.finish_time IS NULL OR a.started <= w.finish_time)
-          )
-        )
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
         AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
@@ -473,13 +468,7 @@ function chainBonusAdjustmentSelectSql(): string {
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
-        AND (
-          a.started IS NULL
-          OR (
-            a.started >= w.start_time
-            AND (w.finish_time IS NULL OR a.started <= w.finish_time)
-          )
-        )
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
         AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
@@ -507,13 +496,7 @@ function chainBonusAdjustmentSelectSql(): string {
     LEFT JOIN war_average wa ON 1 = 1
     WHERE a.war_id = ?
       AND a.attacker_faction_id = ${HOME_FACTION_ID}
-      AND (
-        a.started IS NULL
-        OR (
-          a.started >= w.start_time
-          AND (w.finish_time IS NULL OR a.started <= w.finish_time)
-        )
-      )
+      AND ${OUTGOING_ACTION_WINDOW_SQL}
       AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
       AND a.result IN (${POSITIVE_RESULTS_SQL})
       AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
