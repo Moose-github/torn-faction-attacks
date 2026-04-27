@@ -246,6 +246,27 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.war-title-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.war-title-row span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .hero-panel p {
   margin: 10px 0 0;
   color: #64748b;
@@ -402,8 +423,12 @@ h2 {
   gap: 10px;
 }
 
-.report-validation-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.report-validation-table {
+  min-width: 560px;
+}
+
+.report-validation-table td:first-child {
+  font-weight: 800;
 }
 
 .admin-hero svg {

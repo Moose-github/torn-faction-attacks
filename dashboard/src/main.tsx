@@ -35,8 +35,6 @@ import {
 } from "./utils/members";
 import "./styles.css";
 
-const HOME_FACTION_ID = 8803;
-
 function App() {
   const [warType, setWarType] = React.useState<WarType>("all");
   const [view, setView] = React.useState<"war" | "members" | "admin">("war");
@@ -282,17 +280,19 @@ function App() {
               <section className="hero-panel war-hero-panel">
                 <div>
                   <p className="eyebrow">{selectedWar.status}</p>
-                  <h2>{selectedWar.name}</h2>
-                  <p>
-                    {(selectedWar.war_type ?? "real").toUpperCase()} - {formatWarDateRange(selectedWar.start_time, selectedWar.finish_time)}
-                  </p>
-                  {selectedWar.torn_report_start ? (
+                  <div className="war-title-row">
+                    <h2>{selectedWar.name}</h2>
+                    <span>{formatWarType(selectedWar)}</span>
+                  </div>
+                  <p>Buttgrass times: {formatWarDateRange(selectedWar.start_time, selectedWar.finish_time)}</p>
+                  {selectedWar.torn_report_start || selectedWar.official_end_time ? (
                     <p className="muted-line">
-                      Torn official: {formatWarDateRange(selectedWar.torn_report_start, selectedWar.torn_report_end)}
+                      Torn official times:{" "}
+                      {formatWarDateRange(
+                        selectedWar.torn_report_start ?? selectedWar.start_time,
+                        selectedWar.torn_report_end ?? selectedWar.official_end_time,
+                      )}
                     </p>
-                  ) : null}
-                  {selectedWar.winner_faction_id ? (
-                    <p className="muted-line">Winner: {winnerLabel(selectedWar)}</p>
                   ) : null}
                 </div>
                 {selectedWar.war_type === "termed" ? (
@@ -348,21 +348,38 @@ function App() {
                   onToggle={() => togglePanel("reportValidation")}
                   className="table-panel"
                 >
-                  <div className="metric-list report-validation-grid">
-                    <InlineMetric label="Derived attacks" value={derivedSuccessfulAttacks} />
-                    <InlineMetric label="Report attacks" value={selectedWar.home_report_attacks ?? 0} />
-                    <InlineMetric
-                      label="Attack difference"
-                      value={derivedSuccessfulAttacks - (selectedWar.home_report_attacks ?? 0)}
-                    />
-                    <InlineMetric label="Derived respect" value={derivedRespectGained} />
-                    <InlineMetric label="Report score" value={selectedWar.home_report_score ?? 0} />
-                    <InlineMetric
-                      label="Respect difference"
-                      value={derivedRespectGained - (selectedWar.home_report_score ?? 0)}
-                    />
-                    <InlineMetric label="Enemy report attacks" value={selectedWar.enemy_report_attacks ?? 0} />
-                    <InlineMetric label="Enemy report score" value={selectedWar.enemy_report_score ?? 0} />
+                  <div className="table-scroll">
+                    <table className="report-validation-table">
+                      <thead>
+                        <tr>
+                          <th>Measure</th>
+                          <th>Dashboard derived</th>
+                          <th>Torn report</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>Faction attacks</td>
+                          <td>{formatNumber(derivedSuccessfulAttacks)}</td>
+                          <td>{formatReportComparison(selectedWar.home_report_attacks, derivedSuccessfulAttacks)}</td>
+                        </tr>
+                        <tr>
+                          <td>Faction respect</td>
+                          <td>{formatNumber(derivedRespectGained)}</td>
+                          <td>{formatReportComparison(selectedWar.home_report_score, derivedRespectGained)}</td>
+                        </tr>
+                        <tr>
+                          <td>Enemy attacks</td>
+                          <td>-</td>
+                          <td>{formatNumber(selectedWar.enemy_report_attacks ?? 0)}</td>
+                        </tr>
+                        <tr>
+                          <td>Enemy score</td>
+                          <td>-</td>
+                          <td>{formatNumber(selectedWar.enemy_report_score ?? 0)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 </CollapsiblePanel>
               ) : null}
@@ -423,16 +440,26 @@ function App() {
   );
 }
 
-function winnerLabel(war: WarSummary): string {
-  if (war.winner_faction_id === HOME_FACTION_ID) {
-    return "Buttgrass Inc";
+function formatWarType(war: WarSummary): string {
+  switch (war.war_type) {
+    case "termed":
+      return "Termed war";
+    case "other":
+      return "Other event";
+    default:
+      return "Real war";
+  }
+}
+
+function formatReportComparison(reportValue: number | null, derivedValue: number): string {
+  const report = Number(reportValue ?? 0);
+  const difference = derivedValue - report;
+
+  if (difference === 0) {
+    return `${formatNumber(report)} (match)`;
   }
 
-  if (war.faction_id !== null && war.winner_faction_id === war.faction_id) {
-    return war.name;
-  }
-
-  return `Faction #${war.winner_faction_id}`;
+  return `${formatNumber(report)} (${formatNumber(difference)} diff)`;
 }
 
 function TermProgress({

@@ -128,6 +128,7 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
         status,
         start_time,
         finish_time,
+        official_end_time,
         faction_id,
         war_type,
         torn_war_id,
@@ -278,6 +279,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         status,
         start_time,
         finish_time,
+        official_end_time,
         faction_id,
         war_type,
         torn_war_id,
@@ -292,6 +294,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         status,
         start_time,
         finish_time,
+        official_end_time,
         faction_id,
         war_type,
         torn_war_id,
@@ -501,6 +504,7 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
           torn_report_fetched_at = ?,
           torn_report_start = ?,
           torn_report_end = ?,
+          official_end_time = COALESCE(official_end_time, ?),
           home_report_score = ?,
           home_report_attacks = ?,
           enemy_report_score = ?,
@@ -513,6 +517,7 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
         nowSeconds(),
         report.start ?? null,
         report.end ?? null,
+        report.end && report.end > 0 ? report.end : null,
         homeFaction?.score ?? null,
         homeFaction?.attacks ?? null,
         enemyFaction?.score ?? null,
@@ -642,6 +647,7 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
         w.status,
         w.start_time,
         w.finish_time,
+        w.official_end_time,
         w.faction_id,
         w.war_type,
         w.torn_war_id,
@@ -699,6 +705,7 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
         status,
         start_time,
         finish_time,
+        official_end_time,
         faction_id,
         war_type,
         torn_war_id,
@@ -779,6 +786,7 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
         status,
         start_time,
         finish_time,
+        official_end_time,
         faction_id,
         war_type,
         torn_war_id,
@@ -945,51 +953,73 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
     const rows = await env.DB.prepare(
       `
       SELECT
-        CAST((started / ?) AS INTEGER) * ? AS bucket_start,
+        CAST((a.started / ?) AS INTEGER) * ? AS bucket_start,
         SUM(CASE
-          WHEN attacker_faction_id = ${HOME_FACTION_ID}
-           AND (? IS NULL OR defender_faction_id = ?)
-           AND result IN (${POSITIVE_RESULTS_SQL})
+          WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+           AND (? IS NULL OR a.defender_faction_id = ?)
+           AND a.result IN (${POSITIVE_RESULTS_SQL})
+           AND (w.finish_time IS NULL OR a.started <= w.finish_time)
           THEN 1
           ELSE 0
         END) AS enemy_success,
         SUM(CASE
-          WHEN attacker_faction_id = ${HOME_FACTION_ID}
-           AND (? IS NULL OR defender_faction_id = ?)
-           AND result = 'Assist'
+          WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+           AND (? IS NULL OR a.defender_faction_id = ?)
+           AND a.result = 'Assist'
+           AND (w.finish_time IS NULL OR a.started <= w.finish_time)
           THEN 1
           ELSE 0
         END) AS enemy_assist,
         SUM(CASE
           WHEN ? IS NOT NULL
-           AND attacker_faction_id = ${HOME_FACTION_ID}
-           AND (defender_faction_id IS NULL OR defender_faction_id != ?)
+           AND a.attacker_faction_id = ${HOME_FACTION_ID}
+           AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+           AND (a.defender_faction_id IS NULL OR a.defender_faction_id != ?)
            AND NOT (
-             defender_faction_id = ${HOME_FACTION_ID}
-             AND result = 'Hospitalized'
+             a.defender_faction_id = ${HOME_FACTION_ID}
+             AND a.result = 'Hospitalized'
            )
           THEN 1
           ELSE 0
         END) AS outside,
         SUM(CASE
           WHEN ? IS NOT NULL
-           AND attacker_faction_id = ?
-           AND defender_faction_id = ${HOME_FACTION_ID}
-           AND result IN (${POSITIVE_RESULTS_SQL})
+           AND a.attacker_faction_id = ?
+           AND a.defender_faction_id = ${HOME_FACTION_ID}
+           AND a.result IN (${POSITIVE_RESULTS_SQL})
+           AND (
+             (w.official_end_time IS NOT NULL AND a.started <= w.official_end_time)
+             OR (w.official_end_time IS NULL AND w.status = 'active')
+             OR (
+               w.official_end_time IS NULL
+               AND w.status != 'active'
+               AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+             )
+           )
           THEN 1
           ELSE 0
         END) AS defend_lost,
         SUM(CASE
           WHEN ? IS NOT NULL
-           AND attacker_faction_id = ?
-           AND defender_faction_id = ${HOME_FACTION_ID}
-           AND (result NOT IN (${POSITIVE_RESULTS_SQL}) OR result IS NULL)
+           AND a.attacker_faction_id = ?
+           AND a.defender_faction_id = ${HOME_FACTION_ID}
+           AND (a.result NOT IN (${POSITIVE_RESULTS_SQL}) OR a.result IS NULL)
+           AND (
+             (w.official_end_time IS NOT NULL AND a.started <= w.official_end_time)
+             OR (w.official_end_time IS NULL AND w.status = 'active')
+             OR (
+               w.official_end_time IS NULL
+               AND w.status != 'active'
+               AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+             )
+           )
           THEN 1
           ELSE 0
         END) AS defend_won
-      FROM attacks
-      WHERE war_id = ?
-        AND started IS NOT NULL
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.started IS NOT NULL
       GROUP BY bucket_start
       ORDER BY bucket_start ASC
       `,

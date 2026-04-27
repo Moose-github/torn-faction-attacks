@@ -1,6 +1,29 @@
 import { HOME_FACTION_ID, POSITIVE_RESULTS_SQL } from "./constants";
 import { Env } from "./types";
 
+const OUTGOING_ACTION_WINDOW_SQL = `
+  (w.finish_time IS NULL OR a.started IS NULL OR a.started <= w.finish_time)
+`;
+
+const DEFENSE_ACTION_WINDOW_SQL = `
+  (
+    a.started IS NULL
+    OR (
+      w.official_end_time IS NOT NULL
+      AND a.started <= w.official_end_time
+    )
+    OR (
+      w.official_end_time IS NULL
+      AND w.status = 'active'
+    )
+    OR (
+      w.official_end_time IS NULL
+      AND w.status != 'active'
+      AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+    )
+  )
+`;
+
 export async function applyIncrementalWarSummaries(
   env: Env,
   warId: number,
@@ -61,6 +84,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       status,
       start_time,
       finish_time,
+      official_end_time,
       faction_attacks,
       enemy_attacks,
       outside_hits_outgoing,
@@ -78,8 +102,10 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       w.status,
       w.start_time,
       w.finish_time,
+      w.official_end_time,
       COALESCE(SUM(CASE
         WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+         AND ${OUTGOING_ACTION_WINDOW_SQL}
          AND (
            w.faction_id IS NULL
            OR a.defender_faction_id = w.faction_id
@@ -91,12 +117,14 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
         WHEN w.faction_id IS NOT NULL
          AND a.attacker_faction_id = w.faction_id
          AND a.defender_faction_id = ${HOME_FACTION_ID}
+         AND ${DEFENSE_ACTION_WINDOW_SQL}
         THEN 1
         ELSE 0
       END), 0) AS enemy_attacks,
       COALESCE(SUM(CASE
         WHEN w.faction_id IS NOT NULL
          AND a.attacker_faction_id = ${HOME_FACTION_ID}
+         AND ${OUTGOING_ACTION_WINDOW_SQL}
          AND (
            a.defender_faction_id IS NULL
            OR a.defender_faction_id != w.faction_id
@@ -106,6 +134,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       END), 0) AS outside_hits_outgoing,
       COALESCE(SUM(CASE
         WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+         AND ${OUTGOING_ACTION_WINDOW_SQL}
          AND (
            w.faction_id IS NULL
            OR a.defender_faction_id = w.faction_id
@@ -116,10 +145,15 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       COALESCE(SUM(CASE
         WHEN a.defender_faction_id = ${HOME_FACTION_ID}
          AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND ${DEFENSE_ACTION_WINDOW_SQL}
         THEN a.respect_gain
         ELSE 0
       END), 0) AS total_respect_lost,
-      COUNT(DISTINCT CASE WHEN a.attacker_faction_id = ${HOME_FACTION_ID} THEN a.attacker_id END) AS unique_attackers,
+      COUNT(DISTINCT CASE
+        WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+         AND ${OUTGOING_ACTION_WINDOW_SQL}
+        THEN a.attacker_id
+      END) AS unique_attackers,
       MIN(a.started) AS first_attack_at,
       MAX(a.started) AS last_attack_at,
       unixepoch() AS updated_at,
@@ -133,6 +167,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       status = excluded.status,
       start_time = excluded.start_time,
       finish_time = excluded.finish_time,
+      official_end_time = excluded.official_end_time,
       faction_attacks = excluded.faction_attacks,
       enemy_attacks = excluded.enemy_attacks,
       outside_hits_outgoing = excluded.outside_hits_outgoing,
@@ -243,6 +278,7 @@ async function ensureWarSummaryRow(env: Env, warId: number): Promise<void> {
       status,
       start_time,
       finish_time,
+      official_end_time,
       updated_at
     )
     SELECT
@@ -251,6 +287,7 @@ async function ensureWarSummaryRow(env: Env, warId: number): Promise<void> {
       status,
       start_time,
       finish_time,
+      official_end_time,
       unixepoch()
     FROM wars
     WHERE id = ?
@@ -361,6 +398,7 @@ async function upsertWarMemberAttackStats(
       ${ingestFilter}
       AND a.attacker_faction_id = ?
       AND a.attacker_id IS NOT NULL
+      AND ${OUTGOING_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.attacker_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
@@ -434,6 +472,7 @@ async function upsertWarMemberDefendStats(
       AND a.defender_id IS NOT NULL
       AND w.faction_id IS NOT NULL
       AND a.attacker_faction_id = w.faction_id
+      AND ${DEFENSE_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
@@ -465,52 +504,57 @@ async function incrementWarSummaryFromRun(
     `
     SELECT
       COALESCE(SUM(CASE
-        WHEN attacker_faction_id = ${HOME_FACTION_ID}
+        WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+         AND ${OUTGOING_ACTION_WINDOW_SQL}
          AND (
            w.faction_id IS NULL
-           OR defender_faction_id = w.faction_id
+           OR a.defender_faction_id = w.faction_id
          )
         THEN 1
         ELSE 0
       END), 0) AS faction_attacks,
       COALESCE(SUM(CASE
         WHEN w.faction_id IS NOT NULL
-         AND attacker_faction_id = w.faction_id
-         AND defender_faction_id = ${HOME_FACTION_ID}
+         AND a.attacker_faction_id = w.faction_id
+         AND a.defender_faction_id = ${HOME_FACTION_ID}
+         AND ${DEFENSE_ACTION_WINDOW_SQL}
         THEN 1
         ELSE 0
       END), 0) AS enemy_attacks,
       COALESCE(SUM(CASE
         WHEN w.faction_id IS NOT NULL
-         AND attacker_faction_id = ${HOME_FACTION_ID}
+         AND a.attacker_faction_id = ${HOME_FACTION_ID}
+         AND ${OUTGOING_ACTION_WINDOW_SQL}
          AND (
-           defender_faction_id IS NULL
-           OR defender_faction_id != w.faction_id
+           a.defender_faction_id IS NULL
+           OR a.defender_faction_id != w.faction_id
          )
         THEN 1
         ELSE 0
       END), 0) AS outside_hits_outgoing,
       COALESCE(SUM(CASE
-        WHEN attacker_faction_id = ${HOME_FACTION_ID}
+        WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+         AND ${OUTGOING_ACTION_WINDOW_SQL}
          AND (
            w.faction_id IS NULL
-           OR defender_faction_id = w.faction_id
+           OR a.defender_faction_id = w.faction_id
          )
-        THEN respect_gain
+        THEN a.respect_gain
         ELSE 0
       END), 0) AS total_respect_gain,
       COALESCE(SUM(CASE
-        WHEN defender_faction_id = ${HOME_FACTION_ID}
-         AND result IN (${POSITIVE_RESULTS_SQL})
-        THEN respect_gain
+        WHEN a.defender_faction_id = ${HOME_FACTION_ID}
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND ${DEFENSE_ACTION_WINDOW_SQL}
+        THEN a.respect_gain
         ELSE 0
       END), 0) AS total_respect_lost,
-      MIN(started) AS first_attack_at,
-      MAX(started) AS last_attack_at
-    FROM attacks
-    JOIN wars w ON w.id = war_id
-    WHERE war_id = ?
-      AND ingest_run_id = ?
+      MIN(a.started) AS first_attack_at,
+      MAX(a.started) AS last_attack_at
+    FROM attacks a
+    JOIN wars w ON w.id = a.war_id
+    WHERE a.war_id = ?
+      AND a.ingest_run_id = ?
     `,
   )
     .bind(warId, ingestRunId)

@@ -6,7 +6,12 @@ import {
   RANKED_WARS_API_URL,
   SOURCE_NAME,
 } from "./constants";
-import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromRaw, applyIncrementalWarSummaries } from "./summaries";
+import {
+  applyIncrementalWarSummaries,
+  finalizeWar,
+  rebuildWarMemberStatsFromRaw,
+  rebuildWarSummaryFromRaw,
+} from "./summaries";
 import {
   D1PreparedStatement,
   Env,
@@ -49,6 +54,8 @@ export async function runIngestion(env: Env): Promise<void> {
           status,
           war_type,
           torn_war_id,
+          finish_time,
+          official_end_time,
           auto_end_enabled,
           faction_respect_limit
         FROM wars
@@ -58,6 +65,14 @@ export async function runIngestion(env: Env): Promise<void> {
       )
         .bind(state.active_war_id)
         .first()) as ActiveWarForIngestion | null)
+    : null;
+  const officialEndTime =
+    activeWar && latestRankedWar ? await syncActiveWarOfficialEnd(env, activeWar, latestRankedWar) : null;
+  const ingestionWar = activeWar
+    ? {
+        ...activeWar,
+        official_end_time: officialEndTime ?? activeWar.official_end_time,
+      }
     : null;
 
   let from = Math.max(0, (state?.last_started ?? 0) - OVERLAP_SECONDS);
@@ -81,8 +96,11 @@ export async function runIngestion(env: Env): Promise<void> {
       pageNewestStarted = Math.max(pageNewestStarted, attack.started ?? 0);
 
       const warId =
-        activeWar && attack.started != null && attack.started >= activeWar.start_time
-          ? activeWar.id
+        ingestionWar &&
+        attack.started != null &&
+        attack.started >= ingestionWar.start_time &&
+        (ingestionWar.official_end_time === null || attack.started <= ingestionWar.official_end_time)
+          ? ingestionWar.id
           : null;
 
       statements.push(buildLiveInsertStatement(env, ingestRunId, warId, attack));
@@ -113,12 +131,17 @@ export async function runIngestion(env: Env): Promise<void> {
     from = newestStarted;
   }
 
-  if (sawAnyRows && activeWar) {
-    await applyIncrementalWarSummaries(env, activeWar.id, ingestRunId);
+  if (sawAnyRows && ingestionWar) {
+    await applyIncrementalWarSummaries(env, ingestionWar.id, ingestRunId);
   }
 
-  if (activeWar) {
-    await autoEndTermedWarIfLimitReached(env, activeWar, latestRankedWar);
+  if (ingestionWar && officialEndTime !== null) {
+    await finalizeWar(env, ingestionWar.id);
+    return;
+  }
+
+  if (ingestionWar) {
+    await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
   }
 }
 
@@ -128,6 +151,8 @@ type ActiveWarForIngestion = {
   status: string;
   war_type: string | null;
   torn_war_id: number | null;
+  finish_time: number | null;
+  official_end_time: number | null;
   auto_end_enabled: number;
   faction_respect_limit: number | null;
 };
@@ -458,16 +483,54 @@ async function autoEndTermedWarIfLimitReached(
   await env.DB.prepare(
     `
     UPDATE wars
-    SET status = 'ended',
-        finish_time = ?,
+    SET finish_time = COALESCE(finish_time, ?),
         last_respect_check_at = ?,
         last_observed_respect = ?,
         torn_war_id = COALESCE(torn_war_id, ?)
     WHERE id = ?
-      AND status = 'active'
     `,
   )
     .bind(checkedAt, checkedAt, homeFaction.score, rankedWar.id, activeWar.id)
+    .run();
+
+  await rebuildWarSummaryFromRaw(env, activeWar.id);
+  await rebuildWarMemberStatsFromRaw(env, activeWar.id);
+}
+
+async function syncActiveWarOfficialEnd(
+  env: Env,
+  activeWar: ActiveWarForIngestion,
+  latestRankedWar: TornRankedWar,
+): Promise<number | null> {
+  if (latestRankedWar.end <= 0) {
+    return null;
+  }
+
+  if (activeWar.war_type === "other") {
+    return null;
+  }
+
+  if (activeWar.torn_war_id !== null && latestRankedWar.id !== activeWar.torn_war_id) {
+    return null;
+  }
+
+  if (latestRankedWar.start < activeWar.start_time) {
+    return null;
+  }
+
+  const officialEndTime = latestRankedWar.end;
+
+  await env.DB.prepare(
+    `
+    UPDATE wars
+    SET status = 'ended',
+        official_end_time = ?,
+        finish_time = COALESCE(finish_time, ?),
+        torn_war_id = COALESCE(torn_war_id, ?)
+    WHERE id = ?
+    `,
+  )
+    .bind(officialEndTime, officialEndTime, latestRankedWar.id, activeWar.id)
     .run();
 
   await env.DB.prepare(
@@ -481,7 +544,7 @@ async function autoEndTermedWarIfLimitReached(
     .bind(SOURCE_NAME)
     .run();
 
-  await finalizeWar(env, activeWar.id);
+  return officialEndTime;
 }
 
 async function syncUpcomingRankedWar(

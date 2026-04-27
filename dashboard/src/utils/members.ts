@@ -49,8 +49,24 @@ export function sumMembers(members: MemberStats[], key: keyof MemberStats): numb
 }
 
 export function warOutcome(war: WarSummary, gained: number, lost: number): string {
+  if (war.status === "scheduled") {
+    return "Upcoming";
+  }
+
   if (war.status !== "ended") {
-    return "In progress";
+    return "Ongoing";
+  }
+
+  if (war.winner_faction_id === 8803) {
+    return "Buttgrass won";
+  }
+
+  if (war.faction_id !== null && war.winner_faction_id === war.faction_id) {
+    return `${war.name} won`;
+  }
+
+  if (war.winner_faction_id !== null) {
+    return `Faction #${war.winner_faction_id} won`;
   }
 
   if (gained === lost) {

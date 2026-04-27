@@ -46,6 +46,7 @@ export type WarSummary = {
   status: string;
   start_time: number;
   finish_time: number | null;
+  official_end_time: number | null;
   faction_id: number | null;
   war_type: Exclude<WarType, "all"> | null;
   torn_war_id: number | null;
@@ -88,6 +89,7 @@ export type WarDetailResponse = {
     status: string;
     start_time: number;
     finish_time: number | null;
+    official_end_time: number | null;
     faction_attacks: number;
     enemy_attacks: number;
     outside_hits_outgoing: number;
