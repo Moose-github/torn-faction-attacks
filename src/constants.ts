@@ -43,6 +43,7 @@ export const KNOWN_UNSUCCESSFUL_ATTACK_RESULTS = [
   "Assist",
   "Interrupted",
   "Timeout",
+  "Escape",
 ] as const;
 
-export const KNOWN_UNSUCCESSFUL_RESULTS_SQL = `'Lost','Stalemate','Assist','Interrupted','Timeout'`;
+export const KNOWN_UNSUCCESSFUL_RESULTS_SQL = `'Lost','Stalemate','Assist','Interrupted','Timeout','Escape'`;

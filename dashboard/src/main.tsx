@@ -282,8 +282,7 @@ function App() {
     selectedWar?.total_respect_lost,
   );
   const derivedSuccessfulAttacks = sumMembers(members, "enemy_attacks_successful");
-  const officialRespectGained =
-    selectedWar?.home_report_score ?? Math.max(derivedRespectGained, selectedWar?.last_observed_respect ?? 0);
+  const officialRespectGained = selectedWar?.home_report_score ?? derivedRespectGained;
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -405,11 +404,13 @@ function App() {
                 <>
                   <CollapsiblePanel
                     title="Torn report validation"
-                    aside="Official report"
                     collapsed={collapsedPanels.reportValidation ?? true}
                     onToggle={() => togglePanel("reportValidation")}
                     className="table-panel"
                   >
+                    <p className="panel-description">
+                      Compares dashboard-derived attacks and adjusted respect against Torn's official ranked war report.
+                    </p>
                     <div className="table-scroll">
                       <table className="report-validation-table">
                         <thead>

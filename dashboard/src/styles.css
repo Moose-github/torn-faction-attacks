@@ -451,6 +451,13 @@ h2 {
   min-width: 560px;
 }
 
+.panel-description {
+  margin: 0 0 12px;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .report-validation-table td:first-child {
   font-weight: 800;
 }

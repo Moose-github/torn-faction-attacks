@@ -57,8 +57,9 @@ export function ReportDiscrepancyPanel({
                 {count > 0 ? <p>{definition.detail}</p> : null}
               </div>
               <strong>
-                {formatNumber(count)} rows
-                {definition.key === "chain_bonus_adjustments"
+                {formatNumber(count)} attacks
+                {definition.key === "chain_bonus_adjustments" ||
+                definition.key === "after_practical_finish"
                   ? ` / ${formatNumber(group?.respect_gain ?? 0)} removed`
                   : ""}
               </strong>
@@ -107,7 +108,7 @@ export function discrepancyAside(response: ReportDiscrepanciesResponse | null): 
     (sum, definition) => sum + (response.groups[definition.key]?.count ?? 0),
     0,
   );
-  return `${formatNumber(total)} rows`;
+  return `${formatNumber(total)} attacks`;
 }
 
 function visibleGroupDefinitions(response: ReportDiscrepanciesResponse) {

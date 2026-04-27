@@ -114,8 +114,6 @@ export type WarRow = {
   auto_end_enabled: number;
   faction_respect_limit: number | null;
   member_respect_limit: number | null;
-  last_respect_check_at: number | null;
-  last_observed_respect: number | null;
   winner_faction_id: number | null;
   torn_report_fetched_at: number | null;
   home_report_score: number | null;

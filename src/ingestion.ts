@@ -72,6 +72,9 @@ export async function runIngestion(env: Env): Promise<void> {
   if (activeWar && latestRankedWar && officialEndTime === null) {
     await syncRankedWarScores(env, activeWar, latestRankedWar);
   }
+  if (!activeWar && latestRankedWar) {
+    await syncUnfinishedRankedWar(env, latestRankedWar);
+  }
   const ingestionWar = activeWar
     ? {
         ...activeWar,
@@ -582,24 +585,22 @@ async function autoEndTermedWarIfLimitReached(
     return;
   }
 
-  const checkedAt = nowSeconds();
   await updateWarRankedWarScores(env, activeWar.id, activeWar.faction_id, rankedWar);
 
   if (homeFaction.score < activeWar.faction_respect_limit) {
     return;
   }
 
+  const checkedAt = nowSeconds();
   await env.DB.prepare(
     `
     UPDATE wars
     SET finish_time = COALESCE(finish_time, ?),
-        last_respect_check_at = ?,
-        last_observed_respect = ?,
         torn_war_id = COALESCE(torn_war_id, ?)
     WHERE id = ?
     `,
   )
-    .bind(checkedAt, checkedAt, homeFaction.score, rankedWar.id, activeWar.id)
+    .bind(checkedAt, rankedWar.id, activeWar.id)
     .run();
 
   await rebuildWarSummaryFromRaw(env, activeWar.id);
@@ -650,8 +651,6 @@ async function syncActiveWarOfficialEnd(
         finish_time = COALESCE(finish_time, ?),
         torn_war_id = COALESCE(torn_war_id, ?),
         faction_id = COALESCE(?, faction_id),
-        last_respect_check_at = ?,
-        last_observed_respect = ?,
         home_report_score = ?,
         enemy_report_score = ?,
         winner_faction_id = COALESCE(?, winner_faction_id)
@@ -663,8 +662,6 @@ async function syncActiveWarOfficialEnd(
       officialEndTime,
       latestRankedWar.id,
       scores.enemyFaction?.id ?? null,
-      nowSeconds(),
-      scores.homeFaction?.score ?? null,
       scores.homeFaction?.score ?? null,
       scores.enemyFaction?.score ?? null,
       latestRankedWar.winner ?? null,
@@ -684,6 +681,43 @@ async function syncActiveWarOfficialEnd(
     .run();
 
   return officialEndTime;
+}
+
+async function syncUnfinishedRankedWar(env: Env, rankedWar: TornRankedWar): Promise<void> {
+  const war = (await env.DB.prepare(
+    `
+    SELECT
+      id,
+      start_time,
+      status,
+      war_type,
+      faction_id,
+      torn_war_id,
+      finish_time,
+      official_end_time,
+      auto_end_enabled,
+      faction_respect_limit
+    FROM wars
+    WHERE torn_war_id = ?
+      AND official_end_time IS NULL
+      AND COALESCE(war_type, 'real') != 'other'
+    ORDER BY start_time DESC
+    LIMIT 1
+    `,
+  )
+    .bind(rankedWar.id)
+    .first()) as ActiveWarForIngestion | null;
+
+  if (!war) {
+    return;
+  }
+
+  if (rankedWar.end > 0) {
+    await syncActiveWarOfficialEnd(env, war, rankedWar);
+    return;
+  }
+
+  await updateWarRankedWarScores(env, war.id, war.faction_id, rankedWar);
 }
 
 async function syncUpcomingRankedWar(
@@ -750,12 +784,10 @@ async function syncUpcomingRankedWar(
       faction_id,
       war_type,
       torn_war_id,
-      last_respect_check_at,
-      last_observed_respect,
       home_report_score,
       enemy_report_score
     )
-    VALUES (?, 'scheduled', ?, ?, 'real', ?, ?, ?, ?, ?)
+    VALUES (?, 'scheduled', ?, ?, 'real', ?, ?, ?)
     `,
   )
     .bind(
@@ -763,8 +795,6 @@ async function syncUpcomingRankedWar(
       rankedWar.start,
       enemyFaction.id,
       rankedWar.id,
-      now,
-      homeFaction.score,
       homeFaction.score,
       enemyFaction.score,
     )
@@ -816,8 +846,6 @@ async function updateWarRankedWarScores(
     SET start_time = COALESCE(?, start_time),
         faction_id = COALESCE(?, faction_id),
         torn_war_id = COALESCE(torn_war_id, ?),
-        last_respect_check_at = ?,
-        last_observed_respect = ?,
         home_report_score = ?,
         enemy_report_score = ?
     WHERE id = ?
@@ -827,8 +855,6 @@ async function updateWarRankedWarScores(
       startTime ?? null,
       enemyFaction?.id ?? null,
       rankedWar.id,
-      nowSeconds(),
-      homeFaction.score,
       homeFaction.score,
       enemyFaction?.score ?? null,
       warId,
