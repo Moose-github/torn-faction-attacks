@@ -18,3 +18,12 @@ export const POSITIVE_ATTACK_RESULTS = [
 ] as const;
 
 export const POSITIVE_RESULTS_SQL = `'Hospitalized','Mugged','Attacked','Arrested'`;
+
+export const KNOWN_UNSUCCESSFUL_ATTACK_RESULTS = [
+  "Lost",
+  "Stalemate",
+  "Assist",
+  "Interrupted",
+] as const;
+
+export const KNOWN_UNSUCCESSFUL_RESULTS_SQL = `'Lost','Stalemate','Assist','Interrupted'`;

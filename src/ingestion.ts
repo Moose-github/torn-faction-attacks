@@ -303,6 +303,121 @@ export async function previewHistoricalWarWindow(
   };
 }
 
+export async function pullAttackWindow(
+  env: Env,
+  startedAt: number,
+  endedAt: number,
+  maxReturned = 100,
+): Promise<{
+  matching_attack_count: number;
+  first_attack_started: number | null;
+  last_attack_started: number | null;
+  returned_attack_count: number;
+  attacks: Array<{
+    id: number;
+    started: number | null;
+    ended: number | null;
+    attacker_id: number | null;
+    attacker_name: string | null;
+    attacker_faction_id: number | null;
+    attacker_faction_name: string | null;
+    defender_id: number | null;
+    defender_name: string | null;
+    defender_faction_id: number | null;
+    defender_faction_name: string | null;
+    result: string | null;
+    respect_gain: number;
+    respect_loss: number;
+  }>;
+}> {
+  let from = startedAt;
+  let matchingAttackCount = 0;
+  let firstAttackStarted: number | null = null;
+  let lastAttackStarted: number | null = null;
+  const returnedLimit = Math.max(1, Math.min(maxReturned, 250));
+  const attacksInWindow: Array<{
+    id: number;
+    started: number | null;
+    ended: number | null;
+    attacker_id: number | null;
+    attacker_name: string | null;
+    attacker_faction_id: number | null;
+    attacker_faction_name: string | null;
+    defender_id: number | null;
+    defender_name: string | null;
+    defender_faction_id: number | null;
+    defender_faction_name: string | null;
+    result: string | null;
+    respect_gain: number;
+    respect_loss: number;
+  }> = [];
+
+  while (true) {
+    const data = await fetchAttacks(env, from, endedAt);
+    const attacks = normalizeAttacks(data.attacks);
+
+    if (attacks.length === 0) {
+      break;
+    }
+
+    let pageNewestStarted = from;
+    let pageReachedBeyondWindow = false;
+
+    for (const attack of attacks) {
+      const attackStarted = attack.started ?? 0;
+      pageNewestStarted = Math.max(pageNewestStarted, attackStarted);
+
+      if (attackStarted < startedAt) {
+        continue;
+      }
+
+      if (attackStarted > endedAt) {
+        pageReachedBeyondWindow = true;
+        continue;
+      }
+
+      matchingAttackCount += 1;
+      firstAttackStarted =
+        firstAttackStarted === null ? attackStarted : Math.min(firstAttackStarted, attackStarted);
+      lastAttackStarted =
+        lastAttackStarted === null ? attackStarted : Math.max(lastAttackStarted, attackStarted);
+
+      if (attacksInWindow.length < returnedLimit) {
+        attacksInWindow.push({
+          id: attack.id,
+          started: attack.started ?? null,
+          ended: attack.ended ?? null,
+          attacker_id: attack.attacker?.id ?? null,
+          attacker_name: attack.attacker?.name ?? null,
+          attacker_faction_id: attack.attacker?.faction?.id ?? null,
+          attacker_faction_name: attack.attacker?.faction?.name ?? null,
+          defender_id: attack.defender?.id ?? null,
+          defender_name: attack.defender?.name ?? null,
+          defender_faction_id: attack.defender?.faction?.id ?? null,
+          defender_faction_name: attack.defender?.faction?.name ?? null,
+          result: attack.result ?? null,
+          respect_gain: attack.respect_gain ?? 0,
+          respect_loss: attack.respect_loss ?? 0,
+        });
+      }
+    }
+
+    if (pageReachedBeyondWindow || attacks.length < LIMIT) {
+      break;
+    }
+
+    from = pageNewestStarted + 1;
+  }
+
+  return {
+    matching_attack_count: matchingAttackCount,
+    first_attack_started: firstAttackStarted,
+    last_attack_started: lastAttackStarted,
+    returned_attack_count: attacksInWindow.length,
+    attacks: attacksInWindow,
+  };
+}
+
 export async function activateScheduledWarIfDue(env: Env): Promise<void> {
   const now = nowSeconds();
 

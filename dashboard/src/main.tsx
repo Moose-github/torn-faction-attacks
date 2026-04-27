@@ -564,7 +564,7 @@ function ReportDiscrepancyPanel({
     {
       key: "uncounted_enemy_results",
       title: "Enemy attacks not counted successful",
-      detail: "These are Buttgrass attacks on the enemy faction with results outside the success allowlist.",
+      detail: "These are Buttgrass attacks on the enemy faction with results outside the known successful and unsuccessful lists.",
     },
     {
       key: "faction_mismatches",

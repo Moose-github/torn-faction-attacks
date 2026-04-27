@@ -2,23 +2,34 @@ import { HOME_FACTION_ID, POSITIVE_RESULTS_SQL } from "./constants";
 import { Env } from "./types";
 
 const OUTGOING_ACTION_WINDOW_SQL = `
-  (w.finish_time IS NULL OR a.started IS NULL OR a.started <= w.finish_time)
+  (
+    a.started IS NULL
+    OR (
+      a.started >= w.start_time
+      AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+    )
+  )
 `;
 
 const DEFENSE_ACTION_WINDOW_SQL = `
   (
     a.started IS NULL
     OR (
-      w.official_end_time IS NOT NULL
-      AND a.started <= w.official_end_time
+      a.started >= COALESCE(w.official_start_time, w.start_time)
+      AND (
+        w.official_end_time IS NOT NULL
+        AND a.started <= w.official_end_time
+      )
     )
     OR (
       w.official_end_time IS NULL
       AND w.status = 'active'
+      AND a.started >= COALESCE(w.official_start_time, w.start_time)
     )
     OR (
       w.official_end_time IS NULL
       AND w.status != 'active'
+      AND a.started >= COALESCE(w.official_start_time, w.start_time)
       AND (w.finish_time IS NULL OR a.started <= w.finish_time)
     )
   )
@@ -84,6 +95,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       status,
       start_time,
       finish_time,
+      official_start_time,
       official_end_time,
       faction_attacks,
       enemy_attacks,
@@ -102,6 +114,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       w.status,
       w.start_time,
       w.finish_time,
+      w.official_start_time,
       w.official_end_time,
       COALESCE(SUM(CASE
         WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
@@ -167,6 +180,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       status = excluded.status,
       start_time = excluded.start_time,
       finish_time = excluded.finish_time,
+      official_start_time = excluded.official_start_time,
       official_end_time = excluded.official_end_time,
       faction_attacks = excluded.faction_attacks,
       enemy_attacks = excluded.enemy_attacks,
@@ -278,6 +292,7 @@ async function ensureWarSummaryRow(env: Env, warId: number): Promise<void> {
       status,
       start_time,
       finish_time,
+      official_start_time,
       official_end_time,
       updated_at
     )
@@ -287,6 +302,7 @@ async function ensureWarSummaryRow(env: Env, warId: number): Promise<void> {
       status,
       start_time,
       finish_time,
+      official_start_time,
       official_end_time,
       unixepoch()
     FROM wars
@@ -608,7 +624,9 @@ async function incrementWarSummaryFromRun(
       ),
       updated_at = unixepoch(),
       status = (SELECT status FROM wars WHERE id = ?),
-      finish_time = (SELECT finish_time FROM wars WHERE id = ?)
+      finish_time = (SELECT finish_time FROM wars WHERE id = ?),
+      official_start_time = (SELECT official_start_time FROM wars WHERE id = ?),
+      official_end_time = (SELECT official_end_time FROM wars WHERE id = ?)
     WHERE war_id = ?
     `,
   )
@@ -624,6 +642,8 @@ async function incrementWarSummaryFromRun(
       delta.last_attack_at,
       delta.last_attack_at,
       delta.last_attack_at,
+      warId,
+      warId,
       warId,
       warId,
       warId,

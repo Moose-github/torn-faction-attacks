@@ -7,6 +7,7 @@ import {
   deleteWar,
   endActiveWar,
   fetchRankedWarReport,
+  getAttackWindow,
   getOverallStats,
   getWar,
   getWarActivity,
@@ -50,6 +51,10 @@ export default {
         .all();
 
       return json(rows.results ?? []);
+    }
+
+    if (url.pathname === "/api/attacks/window" && request.method === "POST") {
+      return getAttackWindow(request, env);
     }
 
     if (url.pathname === "/api/wars" && request.method === "POST") {

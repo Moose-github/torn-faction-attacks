@@ -9,6 +9,7 @@ import {
   fetchTornWarReport,
   importWar,
   previewImportWar,
+  pullAttackWindow,
   rebuildStats,
   runIngestion,
   WarType,
@@ -30,6 +31,11 @@ export function AdminControls() {
   }));
   const [deleteForm, setDeleteForm] = React.useState({ id: "", name: "" });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
+  const [attackWindowForm, setAttackWindowForm] = React.useState({
+    startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
+    finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
+    limit: "100",
+  });
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -170,6 +176,59 @@ export function AdminControls() {
           </form>
         </section>
 
+        <section className="panel">
+          <PanelHeader title="Pull attack window" />
+          <form
+            className="admin-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Pull attack window", () =>
+                pullAttackWindow({
+                  start_time: secondsFromDateTimeLocal(attackWindowForm.startTime),
+                  finish_time: secondsFromDateTimeLocal(attackWindowForm.finishTime),
+                  limit: attackWindowForm.limit.trim() ? Number(attackWindowForm.limit) : undefined,
+                }),
+              );
+            }}
+          >
+            <label>
+              <span>Start time</span>
+              <input
+                type="datetime-local"
+                value={attackWindowForm.startTime}
+                onChange={(event) =>
+                  setAttackWindowForm({ ...attackWindowForm, startTime: event.target.value })
+                }
+                required
+              />
+            </label>
+            <label>
+              <span>Finish time</span>
+              <input
+                type="datetime-local"
+                value={attackWindowForm.finishTime}
+                onChange={(event) =>
+                  setAttackWindowForm({ ...attackWindowForm, finishTime: event.target.value })
+                }
+                required
+              />
+            </label>
+            <label>
+              <span>Returned attacks</span>
+              <input
+                inputMode="numeric"
+                value={attackWindowForm.limit}
+                onChange={(event) =>
+                  setAttackWindowForm({ ...attackWindowForm, limit: event.target.value })
+                }
+              />
+            </label>
+            <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
+              Pull attack window
+            </button>
+          </form>
+        </section>
+
         <section className="panel admin-result-panel">
           <PanelHeader title="Latest API response" />
           <pre>{result ? JSON.stringify(result, null, 2) : "No action run yet."}</pre>
@@ -186,6 +245,10 @@ type AdminWarFormState = {
   startEpoch: string;
   finishTime: string;
   finishEpoch: string;
+  officialStartTime: string;
+  officialStartEpoch: string;
+  officialFinishTime: string;
+  officialFinishEpoch: string;
   factionId: string;
   warType: Exclude<WarType, "all">;
   tornWarId: string;
@@ -258,14 +321,32 @@ function WarForm({
           )}
         </label>
         {requireFinishTime ? (
-          <label>
-            <span>Finish time</span>
-            {form.timeMode === "epoch" ? (
-              <input inputMode="numeric" value={form.finishEpoch} onChange={(event) => update("finishEpoch", event.target.value)} required />
-            ) : (
-              <input type="datetime-local" value={form.finishTime} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} required />
-            )}
-          </label>
+          <>
+            <label>
+              <span>Finish time</span>
+              {form.timeMode === "epoch" ? (
+                <input inputMode="numeric" value={form.finishEpoch} onChange={(event) => update("finishEpoch", event.target.value)} required />
+              ) : (
+                <input type="datetime-local" value={form.finishTime} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} required />
+              )}
+            </label>
+            <label>
+              <span>Official start time</span>
+              {form.timeMode === "epoch" ? (
+                <input inputMode="numeric" value={form.officialStartEpoch} onChange={(event) => update("officialStartEpoch", event.target.value)} />
+              ) : (
+                <input type="datetime-local" value={form.officialStartTime} onChange={(event) => updateDateTime(form, onChange, "officialStart", event.target.value)} />
+              )}
+            </label>
+            <label>
+              <span>Official finish time</span>
+              {form.timeMode === "epoch" ? (
+                <input inputMode="numeric" value={form.officialFinishEpoch} onChange={(event) => update("officialFinishEpoch", event.target.value)} />
+              ) : (
+                <input type="datetime-local" value={form.officialFinishTime} onChange={(event) => updateDateTime(form, onChange, "officialFinish", event.target.value)} />
+              )}
+            </label>
+          </>
         ) : null}
         <label>
           <span>Enemy faction ID</span>
@@ -351,6 +432,10 @@ function defaultWarForm(): AdminWarFormState {
     startEpoch: String(Math.floor(Date.now() / 1000)),
     finishTime: "",
     finishEpoch: "",
+    officialStartTime: "",
+    officialStartEpoch: "",
+    officialFinishTime: "",
+    officialFinishEpoch: "",
     factionId: "",
     warType: "real",
     tornWarId: "",
@@ -369,6 +454,8 @@ function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): Admi
 
   if (includeFinishTime) {
     payload.finish_time = secondsFromFormTime(form, "finish");
+    setOptionalTime(payload, "official_start_time", form, "officialStart");
+    setOptionalTime(payload, "official_finish_time", form, "officialFinish");
   }
 
   setOptionalNumber(payload, "faction_id", form.factionId);
@@ -398,6 +485,12 @@ function updateTimeMode(
       timeMode,
       startEpoch: String(secondsFromDateTimeLocal(form.startTime)),
       finishEpoch: form.finishTime ? String(secondsFromDateTimeLocal(form.finishTime)) : "",
+      officialStartEpoch: form.officialStartTime
+        ? String(secondsFromDateTimeLocal(form.officialStartTime))
+        : "",
+      officialFinishEpoch: form.officialFinishTime
+        ? String(secondsFromDateTimeLocal(form.officialFinishTime))
+        : "",
     });
     return;
   }
@@ -407,13 +500,19 @@ function updateTimeMode(
     timeMode,
     startTime: dateTimeLocalFromSeconds(Number(form.startEpoch || 0)),
     finishTime: form.finishEpoch ? dateTimeLocalFromSeconds(Number(form.finishEpoch)) : "",
+    officialStartTime: form.officialStartEpoch
+      ? dateTimeLocalFromSeconds(Number(form.officialStartEpoch))
+      : "",
+    officialFinishTime: form.officialFinishEpoch
+      ? dateTimeLocalFromSeconds(Number(form.officialFinishEpoch))
+      : "",
   });
 }
 
 function updateDateTime(
   form: AdminWarFormState,
   onChange: (form: AdminWarFormState) => void,
-  field: "start" | "finish",
+  field: "start" | "finish" | "officialStart" | "officialFinish",
   value: string,
 ) {
   if (field === "start") {
@@ -421,15 +520,74 @@ function updateDateTime(
     return;
   }
 
-  onChange({ ...form, finishTime: value, finishEpoch: String(secondsFromDateTimeLocal(value)) });
-}
-
-function secondsFromFormTime(form: AdminWarFormState, field: "start" | "finish"): number {
-  if (form.timeMode === "epoch") {
-    return Number(field === "start" ? form.startEpoch : form.finishEpoch);
+  if (field === "finish") {
+    onChange({ ...form, finishTime: value, finishEpoch: String(secondsFromDateTimeLocal(value)) });
+    return;
   }
 
-  return secondsFromDateTimeLocal(field === "start" ? form.startTime : form.finishTime);
+  if (field === "officialStart") {
+    onChange({
+      ...form,
+      officialStartTime: value,
+      officialStartEpoch: value ? String(secondsFromDateTimeLocal(value)) : "",
+    });
+    return;
+  }
+
+  onChange({
+    ...form,
+    officialFinishTime: value,
+    officialFinishEpoch: value ? String(secondsFromDateTimeLocal(value)) : "",
+  });
+}
+
+function secondsFromFormTime(
+  form: AdminWarFormState,
+  field: "start" | "finish" | "officialStart" | "officialFinish",
+): number {
+  if (form.timeMode === "epoch") {
+    if (field === "start") {
+      return Number(form.startEpoch);
+    }
+    if (field === "finish") {
+      return Number(form.finishEpoch);
+    }
+    if (field === "officialStart") {
+      return Number(form.officialStartEpoch);
+    }
+    return Number(form.officialFinishEpoch);
+  }
+
+  if (field === "start") {
+    return secondsFromDateTimeLocal(form.startTime);
+  }
+  if (field === "finish") {
+    return secondsFromDateTimeLocal(form.finishTime);
+  }
+  if (field === "officialStart") {
+    return secondsFromDateTimeLocal(form.officialStartTime);
+  }
+  return secondsFromDateTimeLocal(form.officialFinishTime);
+}
+
+function setOptionalTime<T extends "official_start_time" | "official_finish_time">(
+  payload: AdminWarPayload,
+  key: T,
+  form: AdminWarFormState,
+  field: "officialStart" | "officialFinish",
+) {
+  const raw =
+    form.timeMode === "epoch"
+      ? field === "officialStart"
+        ? form.officialStartEpoch
+        : form.officialFinishEpoch
+      : field === "officialStart"
+        ? form.officialStartTime
+        : form.officialFinishTime;
+
+  if (raw.trim() !== "") {
+    payload[key] = secondsFromFormTime(form, field) as AdminWarPayload[T];
+  }
 }
 
 function setOptionalNumber<T extends keyof AdminWarPayload>(

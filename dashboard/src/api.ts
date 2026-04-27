@@ -47,6 +47,7 @@ export type WarSummary = {
   status: string;
   start_time: number;
   finish_time: number | null;
+  official_start_time: number | null;
   official_end_time: number | null;
   faction_id: number | null;
   war_type: Exclude<WarType, "all"> | null;
@@ -90,6 +91,7 @@ export type WarDetailResponse = {
     status: string;
     start_time: number;
     finish_time: number | null;
+    official_start_time: number | null;
     official_end_time: number | null;
     faction_attacks: number;
     enemy_attacks: number;
@@ -187,12 +189,20 @@ export type AdminWarPayload = {
   name: string;
   start_time?: number;
   finish_time?: number;
+  official_start_time?: number;
+  official_finish_time?: number;
   faction_id?: number;
   war_type: Exclude<WarType, "all">;
   torn_war_id?: number;
   auto_end_enabled?: boolean;
   faction_respect_limit?: number;
   member_respect_limit?: number;
+};
+
+export type AttackWindowPayload = {
+  start_time: number;
+  finish_time: number;
+  limit?: number;
 };
 
 export async function getStats(warType: WarType): Promise<StatsResponse> {
@@ -254,7 +264,13 @@ export async function previewImportWar(payload: AdminWarPayload): Promise<unknow
   return postJson("/api/wars/import/preview", {
     start_time: payload.start_time,
     finish_time: payload.finish_time,
+    official_start_time: payload.official_start_time,
+    official_finish_time: payload.official_finish_time,
   });
+}
+
+export async function pullAttackWindow(payload: AttackWindowPayload): Promise<unknown> {
+  return postJson("/api/attacks/window", payload);
 }
 
 export async function deleteWar(payload: { id?: number; name?: string }): Promise<unknown> {

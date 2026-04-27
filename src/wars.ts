@@ -1,4 +1,5 @@
 import {
+  KNOWN_UNSUCCESSFUL_RESULTS_SQL,
   HOME_FACTION_ID,
   POSITIVE_ATTACK_RESULTS,
   POSITIVE_RESULTS_SQL,
@@ -10,6 +11,7 @@ import {
   backfillWarAssignments,
   ingestHistoricalWarWindow,
   previewHistoricalWarWindow,
+  pullAttackWindow,
   setActiveWarState,
 } from "./ingestion";
 import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromRaw } from "./summaries";
@@ -128,6 +130,7 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
         status,
         start_time,
         finish_time,
+        official_start_time,
         official_end_time,
         faction_id,
         war_type,
@@ -180,6 +183,8 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       name?: unknown;
       start_time?: unknown;
       finish_time?: unknown;
+      official_start_time?: unknown;
+      official_finish_time?: unknown;
       faction_id?: unknown;
       war_type?: unknown;
       torn_war_id?: unknown;
@@ -210,6 +215,8 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       body.member_respect_limit,
       "member_respect_limit",
     );
+    const officialStartTime = optionalTimestampOrDefault(body.official_start_time, startTime);
+    const officialFinishTime = optionalTimestampOrDefault(body.official_finish_time, finishTime);
     const now = nowSeconds();
 
     if (!Number.isInteger(startTime) || startTime < 0) {
@@ -218,6 +225,20 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
 
     if (!Number.isInteger(finishTime) || finishTime < 0) {
       return json({ ok: false, error: "Invalid finish_time", code: "INVALID_FINISH_TIME" }, 400);
+    }
+
+    if (!Number.isInteger(officialStartTime) || officialStartTime < 0) {
+      return json(
+        { ok: false, error: "Invalid official_start_time", code: "INVALID_OFFICIAL_START_TIME" },
+        400,
+      );
+    }
+
+    if (!Number.isInteger(officialFinishTime) || officialFinishTime < 0) {
+      return json(
+        { ok: false, error: "Invalid official_finish_time", code: "INVALID_OFFICIAL_FINISH_TIME" },
+        400,
+      );
     }
 
     if (factionId !== null && (!Number.isInteger(factionId) || factionId < 0)) {
@@ -245,12 +266,34 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       );
     }
 
-    if (finishTime > now) {
+    if (officialFinishTime < officialStartTime) {
       return json(
         {
           ok: false,
-          error: "finish_time cannot be in the future for historical import",
-          code: "FINISH_TIME_IN_FUTURE",
+          error: "official_finish_time must be greater than or equal to official_start_time",
+          code: "INVALID_OFFICIAL_TIME_RANGE",
+        },
+        400,
+      );
+    }
+
+    if (startTime < officialStartTime || finishTime > officialFinishTime) {
+      return json(
+        {
+          ok: false,
+          error: "Practical start/finish must sit inside the official start/finish window",
+          code: "PRACTICAL_WINDOW_OUTSIDE_OFFICIAL_WINDOW",
+        },
+        400,
+      );
+    }
+
+    if (officialFinishTime > now) {
+      return json(
+        {
+          ok: false,
+          error: "official_finish_time cannot be in the future for historical import",
+          code: "OFFICIAL_FINISH_TIME_IN_FUTURE",
         },
         400,
       );
@@ -279,6 +322,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         status,
         start_time,
         finish_time,
+        official_start_time,
         official_end_time,
         faction_id,
         war_type,
@@ -287,13 +331,14 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         faction_respect_limit,
         member_respect_limit
       )
-      VALUES (?, 'ended', ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, 'ended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING
         id,
         name,
         status,
         start_time,
         finish_time,
+        official_start_time,
         official_end_time,
         faction_id,
         war_type,
@@ -318,6 +363,8 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         name,
         startTime,
         finishTime,
+        officialStartTime,
+        officialFinishTime,
         factionId,
         warType,
         tornWarId,
@@ -331,7 +378,12 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       throw new Error("Failed to create war");
     }
 
-    const importedAttackCount = await ingestHistoricalWarWindow(env, war.id, startTime, finishTime);
+    const importedAttackCount = await ingestHistoricalWarWindow(
+      env,
+      war.id,
+      officialStartTime,
+      officialFinishTime,
+    );
     await finalizeWar(env, war.id);
 
     return json(
@@ -341,6 +393,8 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         name: war.name,
         start_time: startTime,
         finish_time: finishTime,
+        official_start_time: officialStartTime,
+        official_finish_time: officialFinishTime,
         imported_attack_count: importedAttackCount,
       },
       201,
@@ -355,10 +409,101 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
     const body = (await request.json()) as {
       start_time?: unknown;
       finish_time?: unknown;
+      official_start_time?: unknown;
+      official_finish_time?: unknown;
     };
 
     const startTime = Number(body.start_time);
     const finishTime = Number(body.finish_time);
+    const officialStartTime = optionalTimestampOrDefault(body.official_start_time, startTime);
+    const officialFinishTime = optionalTimestampOrDefault(body.official_finish_time, finishTime);
+
+    if (!Number.isInteger(startTime) || startTime < 0) {
+      return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
+    }
+
+    if (!Number.isInteger(finishTime) || finishTime < 0) {
+      return json({ ok: false, error: "Invalid finish_time", code: "INVALID_FINISH_TIME" }, 400);
+    }
+
+    if (!Number.isInteger(officialStartTime) || officialStartTime < 0) {
+      return json(
+        { ok: false, error: "Invalid official_start_time", code: "INVALID_OFFICIAL_START_TIME" },
+        400,
+      );
+    }
+
+    if (!Number.isInteger(officialFinishTime) || officialFinishTime < 0) {
+      return json(
+        { ok: false, error: "Invalid official_finish_time", code: "INVALID_OFFICIAL_FINISH_TIME" },
+        400,
+      );
+    }
+
+    if (finishTime < startTime) {
+      return json(
+        {
+          ok: false,
+          error: "finish_time must be greater than or equal to start_time",
+          code: "INVALID_TIME_RANGE",
+        },
+        400,
+      );
+    }
+
+    if (officialFinishTime < officialStartTime) {
+      return json(
+        {
+          ok: false,
+          error: "official_finish_time must be greater than or equal to official_start_time",
+          code: "INVALID_OFFICIAL_TIME_RANGE",
+        },
+        400,
+      );
+    }
+
+    if (startTime < officialStartTime || finishTime > officialFinishTime) {
+      return json(
+        {
+          ok: false,
+          error: "Practical start/finish must sit inside the official start/finish window",
+          code: "PRACTICAL_WINDOW_OUTSIDE_OFFICIAL_WINDOW",
+        },
+        400,
+      );
+    }
+
+    const preview = await previewHistoricalWarWindow(env, officialStartTime, officialFinishTime);
+
+    return json({
+      ok: true,
+      start_time: startTime,
+      finish_time: finishTime,
+      official_start_time: officialStartTime,
+      official_finish_time: officialFinishTime,
+      duration_seconds: finishTime - startTime,
+      official_duration_seconds: officialFinishTime - officialStartTime,
+      ...preview,
+    });
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
+}
+
+export async function getAttackWindow(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as {
+      start_time?: unknown;
+      finish_time?: unknown;
+      limit?: unknown;
+    };
+
+    const startTime = Number(body.start_time);
+    const finishTime = Number(body.finish_time);
+    const limit =
+      body.limit === undefined || body.limit === null || body.limit === ""
+        ? 100
+        : Number(body.limit);
 
     if (!Number.isInteger(startTime) || startTime < 0) {
       return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
@@ -379,14 +524,18 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
       );
     }
 
-    const preview = await previewHistoricalWarWindow(env, startTime, finishTime);
+    if (!Number.isInteger(limit) || limit <= 0) {
+      return json({ ok: false, error: "Invalid limit", code: "INVALID_LIMIT" }, 400);
+    }
+
+    const window = await pullAttackWindow(env, startTime, finishTime, limit);
 
     return json({
       ok: true,
       start_time: startTime,
       finish_time: finishTime,
       duration_seconds: finishTime - startTime,
-      ...preview,
+      ...window,
     });
   } catch (err: any) {
     return handleMutationError(err);
@@ -504,6 +653,7 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
           torn_report_fetched_at = ?,
           torn_report_start = ?,
           torn_report_end = ?,
+          official_start_time = COALESCE(official_start_time, ?),
           official_end_time = COALESCE(official_end_time, ?),
           home_report_score = ?,
           home_report_attacks = ?,
@@ -517,6 +667,7 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
         nowSeconds(),
         report.start ?? null,
         report.end ?? null,
+        report.start ?? null,
         report.end && report.end > 0 ? report.end : null,
         homeFaction?.score ?? null,
         homeFaction?.attacks ?? null,
@@ -647,6 +798,7 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
         w.status,
         w.start_time,
         w.finish_time,
+        w.official_start_time,
         w.official_end_time,
         w.faction_id,
         w.war_type,
@@ -705,6 +857,7 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
         status,
         start_time,
         finish_time,
+        official_start_time,
         official_end_time,
         faction_id,
         war_type,
@@ -786,6 +939,7 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
         status,
         start_time,
         finish_time,
+        official_start_time,
         official_end_time,
         faction_id,
         war_type,
@@ -857,6 +1011,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         name,
         start_time,
         finish_time,
+        official_start_time,
         official_end_time,
         torn_report_end,
         faction_id
@@ -871,6 +1026,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       name: string;
       start_time: number;
       finish_time: number | null;
+      official_start_time: number | null;
       official_end_time: number | null;
       torn_report_end: number | null;
       faction_id: number | null;
@@ -880,6 +1036,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
     }
 
+    const officialStartTime = war.official_start_time ?? war.start_time;
     const officialEndTime = war.official_end_time ?? war.torn_report_end;
 
     const groups = {
@@ -908,7 +1065,13 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         `
         a.attacker_faction_id = ${HOME_FACTION_ID}
         AND (? IS NULL OR a.defender_faction_id = ?)
-        AND (a.result NOT IN (${POSITIVE_RESULTS_SQL}) OR a.result IS NULL)
+        AND (
+          a.result IS NULL
+          OR (
+            a.result NOT IN (${POSITIVE_RESULTS_SQL})
+            AND a.result NOT IN (${KNOWN_UNSUCCESSFUL_RESULTS_SQL})
+          )
+        )
         AND (? IS NULL OR a.started >= ?)
         AND (? IS NULL OR a.started <= ?)
         `,
@@ -948,7 +1111,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
           OR (? IS NOT NULL AND a.started > ?)
         )
         `,
-        [war.start_time, officialEndTime, officialEndTime],
+        [officialStartTime, officialEndTime, officialEndTime],
       ),
     };
 
@@ -959,6 +1122,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         name: war.name,
         start_time: war.start_time,
         finish_time: war.finish_time,
+        official_start_time: officialStartTime,
         official_end_time: officialEndTime,
         faction_id: war.faction_id,
       },
@@ -987,14 +1151,23 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
 
     const war = (await env.DB.prepare(
       `
-      SELECT id, name, faction_id
+      SELECT id, name, start_time, finish_time, official_start_time, official_end_time, status, faction_id
       FROM wars
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
       `,
     )
       .bind(name)
-      .first()) as { id: number; name: string; faction_id: number | null } | null;
+      .first()) as {
+      id: number;
+      name: string;
+      start_time: number;
+      finish_time: number | null;
+      official_start_time: number | null;
+      official_end_time: number | null;
+      status: string;
+      faction_id: number | null;
+    } | null;
 
     if (!war) {
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
@@ -1003,24 +1176,44 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
     const rows = await env.DB.prepare(
       `
       SELECT
-        id,
-        started,
-        ended,
-        attacker_id,
-        attacker_name,
-        attacker_faction_id,
-        attacker_faction_name,
-        defender_id,
-        defender_name,
-        defender_faction_id,
-        defender_faction_name,
-        result,
-        respect_gain,
-        respect_loss
-      FROM attacks
-      WHERE war_id = ?
-        AND (attacker_id = ? OR defender_id = ?)
-      ORDER BY started DESC
+        a.id,
+        a.started,
+        a.ended,
+        a.attacker_id,
+        a.attacker_name,
+        a.attacker_faction_id,
+        a.attacker_faction_name,
+        a.defender_id,
+        a.defender_name,
+        a.defender_faction_id,
+        a.defender_faction_name,
+        a.result,
+        a.respect_gain,
+        a.respect_loss
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND (
+          (
+            a.attacker_id = ?
+            AND a.started >= w.start_time
+            AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+          )
+          OR (
+            a.defender_id = ?
+            AND a.started >= COALESCE(w.official_start_time, w.start_time)
+            AND (
+              (w.official_end_time IS NOT NULL AND a.started <= w.official_end_time)
+              OR (w.official_end_time IS NULL AND w.status = 'active')
+              OR (
+                w.official_end_time IS NULL
+                AND w.status != 'active'
+                AND (w.finish_time IS NULL OR a.started <= w.finish_time)
+              )
+            )
+          )
+        )
+      ORDER BY a.started DESC
       LIMIT ?
       `,
     )
@@ -1085,6 +1278,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
           WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
            AND (? IS NULL OR a.defender_faction_id = ?)
            AND a.result IN (${POSITIVE_RESULTS_SQL})
+           AND a.started >= w.start_time
            AND (w.finish_time IS NULL OR a.started <= w.finish_time)
           THEN 1
           ELSE 0
@@ -1093,6 +1287,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
           WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
            AND (? IS NULL OR a.defender_faction_id = ?)
            AND a.result = 'Assist'
+           AND a.started >= w.start_time
            AND (w.finish_time IS NULL OR a.started <= w.finish_time)
           THEN 1
           ELSE 0
@@ -1100,6 +1295,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
         SUM(CASE
           WHEN ? IS NOT NULL
            AND a.attacker_faction_id = ${HOME_FACTION_ID}
+           AND a.started >= w.start_time
            AND (w.finish_time IS NULL OR a.started <= w.finish_time)
            AND (a.defender_faction_id IS NULL OR a.defender_faction_id != ?)
            AND NOT (
@@ -1114,6 +1310,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
            AND a.attacker_faction_id = ?
            AND a.defender_faction_id = ${HOME_FACTION_ID}
            AND a.result IN (${POSITIVE_RESULTS_SQL})
+           AND a.started >= COALESCE(w.official_start_time, w.start_time)
            AND (
              (w.official_end_time IS NOT NULL AND a.started <= w.official_end_time)
              OR (w.official_end_time IS NULL AND w.status = 'active')
@@ -1131,6 +1328,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
            AND a.attacker_faction_id = ?
            AND a.defender_faction_id = ${HOME_FACTION_ID}
            AND (a.result NOT IN (${POSITIVE_RESULTS_SQL}) OR a.result IS NULL)
+           AND a.started >= COALESCE(w.official_start_time, w.start_time)
            AND (
              (w.official_end_time IS NOT NULL AND a.started <= w.official_end_time)
              OR (w.official_end_time IS NULL AND w.status = 'active')
@@ -1461,6 +1659,19 @@ function parseOptionalInteger(value: unknown, field: string): number | null {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) {
     throw new ValidationError(`Invalid ${field}`, `INVALID_${field.toUpperCase()}`);
+  }
+
+  return parsed;
+}
+
+function optionalTimestampOrDefault(value: unknown, fallback: number): number {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return Number.NaN;
   }
 
   return parsed;
