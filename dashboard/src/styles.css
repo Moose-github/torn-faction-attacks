@@ -266,10 +266,29 @@ h2 {
   font-weight: 700;
 }
 
-.hero-panel .muted-line {
-  margin-top: 6px;
-  font-size: 0.86rem;
-  font-weight: 600;
+.war-time-lines {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.hero-panel .war-time-line {
+  display: grid;
+  grid-template-columns: minmax(150px, max-content) minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.war-time-line span {
+  color: #475569;
+}
+
+.war-time-line strong {
+  color: #64748b;
+  font-weight: 700;
 }
 
 .hero-progress {

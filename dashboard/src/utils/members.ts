@@ -54,7 +54,7 @@ export function warOutcome(war: WarSummary, gained: number, lost: number): strin
     return "Upcoming";
   }
 
-  if (war.status !== "ended") {
+  if (!hasOfficialEnd(war)) {
     return "Ongoing";
   }
 
@@ -75,6 +75,10 @@ export function warOutcome(war: WarSummary, gained: number, lost: number): strin
   }
 
   return gained > lost ? "Victory" : "Loss";
+}
+
+export function hasOfficialEnd(war: WarSummary): boolean {
+  return Boolean(war.official_end_time || war.torn_report_end);
 }
 
 export function classificationLabel(classification: MemberAttack["classification"]): string {

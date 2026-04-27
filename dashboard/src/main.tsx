@@ -29,6 +29,7 @@ import { detailNumber, formatNumber, formatWarDateRange } from "./utils/format";
 import {
   displayMember,
   MemberSort,
+  hasOfficialEnd,
   sortMembers,
   sumMembers,
   warOutcome,
@@ -284,14 +285,19 @@ function App() {
                     <h2>{selectedWar.name}</h2>
                     <span>{formatWarType(selectedWar)}</span>
                   </div>
-                  <p>Buttgrass times: {formatWarDateRange(selectedWar.start_time, selectedWar.finish_time)}</p>
-                  <p className="muted-line">
-                    Torn official times:{" "}
-                    {formatWarDateRange(
-                      selectedWar.torn_report_start ?? selectedWar.start_time,
-                      selectedWar.torn_report_end ?? selectedWar.official_end_time,
-                    )}
-                  </p>
+                  <div className="war-time-lines">
+                    <WarTimeLine
+                      label="Buttgrass times"
+                      value={formatWarDateRange(selectedWar.start_time, selectedWar.finish_time)}
+                    />
+                    <WarTimeLine
+                      label="Torn official times"
+                      value={formatWarDateRange(
+                        selectedWar.torn_report_start ?? selectedWar.start_time,
+                        selectedWar.torn_report_end ?? selectedWar.official_end_time,
+                      )}
+                    />
+                  </div>
                 </div>
                 {selectedWar.war_type === "termed" ? (
                   <TermProgress
@@ -449,12 +455,21 @@ function formatWarType(war: WarSummary): string {
   }
 }
 
+function WarTimeLine({ label, value }: { label: string; value: string }) {
+  return (
+    <p className="war-time-line">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </p>
+  );
+}
+
 function displayWarStatus(war: WarSummary): string {
   if (war.status === "scheduled") {
     return "upcoming";
   }
 
-  if (war.status !== "ended") {
+  if (!hasOfficialEnd(war)) {
     return "ongoing";
   }
 
