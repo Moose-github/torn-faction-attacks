@@ -204,6 +204,16 @@ export type ReportDiscrepancyGroup = {
 
 export type ReportDiscrepanciesResponse = {
   ok: boolean;
+  war: {
+    id: number;
+    name: string;
+    start_time: number;
+    finish_time: number | null;
+    official_start_time: number | null;
+    official_end_time: number | null;
+    faction_id: number | null;
+    war_type: Exclude<WarType, "all">;
+  };
   groups: Record<string, ReportDiscrepancyGroup>;
 };
 

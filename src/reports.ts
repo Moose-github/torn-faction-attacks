@@ -83,7 +83,8 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         official_start_time,
         official_end_time,
         torn_report_end,
-        faction_id
+        faction_id,
+        war_type
       FROM wars
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
@@ -99,6 +100,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       official_end_time: number | null;
       torn_report_end: number | null;
       faction_id: number | null;
+      war_type: string | null;
     } | null;
 
     if (!war) {
@@ -183,6 +185,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         official_start_time: officialStartTime,
         official_end_time: officialEndTime,
         faction_id: war.faction_id,
+        war_type: war.war_type ?? "real",
       },
       groups,
     });
@@ -507,7 +510,7 @@ function chainBonusAdjustmentSelectSql(): string {
       a.respect_gain,
       a.respect_loss,
       COALESCE(ma.avg_respect, wa.avg_respect, 0) AS adjusted_respect_gain,
-      MAX(a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0), 0) AS respect_removed
+      a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0) AS respect_removed
     FROM attacks a
     JOIN wars w ON w.id = a.war_id
     LEFT JOIN member_averages ma ON ma.war_id = a.war_id AND ma.attacker_id = a.attacker_id

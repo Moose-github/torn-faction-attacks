@@ -3,6 +3,33 @@ import { EmptyState } from "./Common";
 import { ChainBonusList } from "./ChainBonuses";
 import { formatDate, formatNumber } from "../utils/format";
 
+const GROUP_DEFINITIONS = [
+  {
+    key: "after_practical_finish",
+    title: "Buttgrass hits after practical finish",
+    detail: "These can appear in Torn's official totals but not member performance stats.",
+    termedOnly: true,
+  },
+  {
+    key: "uncounted_enemy_results",
+    title: "Unknown attack results",
+    detail:
+      "These are Buttgrass attacks on the enemy faction with result values outside the known successful and unsuccessful lists.",
+  },
+  {
+    key: "chain_bonus_adjustments",
+    title: "Chain bonus respect adjusted",
+    detail:
+      "These chain bonus hits count as the member's normal average respect instead of the raw bonus-inflated respect.",
+  },
+  {
+    key: "outside_official_window",
+    title: "Buttgrass hits outside official window",
+    detail: "These linked Buttgrass attacks are before the start time or after Torn's official end.",
+    termedOnly: true,
+  },
+];
+
 export function ReportDiscrepancyPanel({
   response,
 }: {
@@ -12,30 +39,7 @@ export function ReportDiscrepancyPanel({
     return <EmptyState text="No discrepancy data loaded" />;
   }
 
-  const groups = [
-    {
-      key: "after_practical_finish",
-      title: "Buttgrass hits after practical finish",
-      detail: "These can appear in Torn's official totals but not member performance stats.",
-    },
-    {
-      key: "uncounted_enemy_results",
-      title: "Unknown attack results",
-      detail:
-        "These are Buttgrass attacks on the enemy faction with result values outside the known successful and unsuccessful lists.",
-    },
-    {
-      key: "chain_bonus_adjustments",
-      title: "Chain bonus respect adjusted",
-      detail:
-        "These chain bonus hits count as the member's normal average respect instead of the raw bonus-inflated respect.",
-    },
-    {
-      key: "outside_official_window",
-      title: "Outside official window",
-      detail: "These linked attacks are before the start time or after Torn's official end.",
-    },
-  ];
+  const groups = visibleGroupDefinitions(response);
 
   return (
     <div className="discrepancy-groups">
@@ -52,7 +56,12 @@ export function ReportDiscrepancyPanel({
                 <h3>{definition.title}</h3>
                 {count > 0 ? <p>{definition.detail}</p> : null}
               </div>
-              <strong>{formatNumber(count)} rows</strong>
+              <strong>
+                {formatNumber(count)} rows
+                {definition.key === "chain_bonus_adjustments"
+                  ? ` / ${formatNumber(group?.respect_gain ?? 0)} removed`
+                  : ""}
+              </strong>
             </div>
             {count > 0 && group && group.attacks.length > 0 && definition.key === "chain_bonus_adjustments" ? (
               <ChainBonusList attacks={group.attacks as ChainBonusAttack[]} />
@@ -94,8 +103,17 @@ export function discrepancyAside(response: ReportDiscrepanciesResponse | null): 
     return "No data";
   }
 
-  const total = Object.values(response.groups).reduce((sum, group) => sum + group.count, 0);
+  const total = visibleGroupDefinitions(response).reduce(
+    (sum, definition) => sum + (response.groups[definition.key]?.count ?? 0),
+    0,
+  );
   return `${formatNumber(total)} rows`;
+}
+
+function visibleGroupDefinitions(response: ReportDiscrepanciesResponse) {
+  return GROUP_DEFINITIONS.filter(
+    (definition) => !definition.termedOnly || response.war.war_type === "termed",
+  );
 }
 
 export function formatReportComparison(reportValue: number | null, derivedValue: number): string {

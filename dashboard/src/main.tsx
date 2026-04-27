@@ -282,7 +282,7 @@ function App() {
     selectedWar?.total_respect_lost,
   );
   const derivedSuccessfulAttacks = sumMembers(members, "enemy_attacks_successful");
-  const titleRespectGained =
+  const officialRespectGained =
     selectedWar?.home_report_score ?? Math.max(derivedRespectGained, selectedWar?.last_observed_respect ?? 0);
 
   function togglePanel(panel: string) {
@@ -354,7 +354,7 @@ function App() {
                 {selectedWar.war_type === "termed" ? (
                   <TermProgress
                     war={selectedWar}
-                    observedRespect={titleRespectGained}
+                    observedRespect={officialRespectGained}
                   />
                 ) : null}
               </section>
@@ -362,7 +362,7 @@ function App() {
               <section className="status-grid war-status-grid">
                 <MetricCard
                   label="Respect gained"
-                  value={formatNumber(derivedRespectGained)}
+                  value={formatNumber(officialRespectGained)}
                   icon={<Target size={18} />}
                 />
                 <MetricCard
@@ -389,7 +389,7 @@ function App() {
                 <section className="panel">
                   <PanelHeader title="War totals" />
                   <div className="metric-list">
-                    <InlineMetric label="Respect gained" value={derivedRespectGained} />
+                    <InlineMetric label="Respect gained" value={officialRespectGained} />
                     <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
                     <InlineMetric label="Assists" value={sumMembers(members, "enemy_assists")} />
                   </div>
