@@ -615,11 +615,7 @@ async function syncRankedWarScores(
     return;
   }
 
-  if (activeWar.torn_war_id !== null && rankedWar.id !== activeWar.torn_war_id) {
-    return;
-  }
-
-  if (rankedWar.start < activeWar.start_time) {
+  if (!rankedWarMatchesActiveWar(activeWar, rankedWar)) {
     return;
   }
 
@@ -639,11 +635,7 @@ async function syncActiveWarOfficialEnd(
     return null;
   }
 
-  if (activeWar.torn_war_id !== null && latestRankedWar.id !== activeWar.torn_war_id) {
-    return null;
-  }
-
-  if (latestRankedWar.start < activeWar.start_time) {
+  if (!rankedWarMatchesActiveWar(activeWar, latestRankedWar)) {
     return null;
   }
 
@@ -791,6 +783,17 @@ function getRankedWarScores(factionId: number | null, rankedWar: TornRankedWar):
     null;
 
   return { homeFaction, enemyFaction };
+}
+
+function rankedWarMatchesActiveWar(
+  activeWar: ActiveWarForIngestion,
+  rankedWar: TornRankedWar,
+): boolean {
+  if (activeWar.torn_war_id !== null) {
+    return rankedWar.id === activeWar.torn_war_id;
+  }
+
+  return rankedWar.start >= activeWar.start_time;
 }
 
 async function updateWarRankedWarScores(
