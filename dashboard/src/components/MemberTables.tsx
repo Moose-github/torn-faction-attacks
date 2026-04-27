@@ -36,7 +36,7 @@ export function MemberTable({
             <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Respect gained" sortKey="enemy_respect_gained" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Assists" sortKey="enemy_assists" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Friendly hospitalizations" sortKey="friendly_hospitals" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label={<>Friendly<br />hosps</>} sortKey="friendly_hospitals" sort={sort} onSortChange={onSortChange} />
           </tr>
         </thead>
         <tbody>
@@ -126,7 +126,7 @@ function SortableHeader({
   sort,
   onSortChange,
 }: {
-  label: string;
+  label: React.ReactNode;
   sortKey: MemberSortKey;
   sort: MemberSort;
   onSortChange: (sort: MemberSort) => void;
