@@ -54,7 +54,7 @@ export function warOutcome(war: WarSummary, gained: number, lost: number): strin
     return "Upcoming";
   }
 
-  if (!war.official_end_time) {
+  if (war.status !== "ended") {
     return "Ongoing";
   }
 

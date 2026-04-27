@@ -454,7 +454,7 @@ function displayWarStatus(war: WarSummary): string {
     return "upcoming";
   }
 
-  if (!war.official_end_time) {
+  if (war.status !== "ended") {
     return "ongoing";
   }
 
