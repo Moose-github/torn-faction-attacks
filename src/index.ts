@@ -1,4 +1,5 @@
 import { runIngestion } from "./ingestion";
+import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { ExecutionContext, Env, ScheduledController } from "./types";
 import { corsHeaders, json, parseLimit } from "./utils";
@@ -6,14 +7,12 @@ import {
   createWar,
   deleteWar,
   endActiveWar,
-  fetchRankedWarReport,
   getAttackWindow,
   getOverallStats,
   getWar,
   getWarActivity,
   getWarAttacks,
   getWarMemberAttacks,
-  getWarReportDiscrepancies,
   importHistoricalWar,
   listWars,
   previewHistoricalWarImport,

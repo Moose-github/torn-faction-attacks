@@ -19,6 +19,24 @@ export const POSITIVE_ATTACK_RESULTS = [
 
 export const POSITIVE_RESULTS_SQL = `'Hospitalized','Mugged','Attacked','Arrested'`;
 
+export const CHAIN_BONUS_HITS = [
+  10,
+  25,
+  50,
+  100,
+  250,
+  500,
+  1000,
+  2500,
+  5000,
+  10000,
+  25000,
+  50000,
+  100000,
+] as const;
+
+export const CHAIN_BONUS_HITS_SQL = CHAIN_BONUS_HITS.join(",");
+
 export const KNOWN_UNSUCCESSFUL_ATTACK_RESULTS = [
   "Lost",
   "Stalemate",

@@ -1,4 +1,4 @@
-import { HOME_FACTION_ID, POSITIVE_RESULTS_SQL } from "./constants";
+import { CHAIN_BONUS_HITS_SQL, HOME_FACTION_ID, POSITIVE_RESULTS_SQL } from "./constants";
 import { Env } from "./types";
 
 const OUTGOING_ACTION_WINDOW_SQL = `
@@ -38,11 +38,10 @@ const DEFENSE_ACTION_WINDOW_SQL = `
 export async function applyIncrementalWarSummaries(
   env: Env,
   warId: number,
-  ingestRunId: string,
+  _ingestRunId: string,
 ): Promise<void> {
-  await ensureWarSummaryRow(env, warId);
-  await incrementWarMemberStatsFromRun(env, warId, ingestRunId);
-  await incrementWarSummaryFromRun(env, warId, ingestRunId);
+  await rebuildWarMemberStatsFromRaw(env, warId);
+  await rebuildWarSummaryFromRaw(env, warId);
 }
 
 export async function finalizeWar(env: Env, warId: number): Promise<void> {
@@ -89,6 +88,33 @@ export async function finalizeWar(env: Env, warId: number): Promise<void> {
 export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise<void> {
   await env.DB.prepare(
     `
+    WITH member_averages AS (
+      SELECT
+        a.war_id,
+        a.attacker_id,
+        AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND a.attacker_id IS NOT NULL
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+      GROUP BY a.war_id, a.attacker_id
+    ),
+    war_average AS (
+      SELECT AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+    )
     INSERT INTO war_summary (
       war_id,
       war_name,
@@ -152,7 +178,12 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
            w.faction_id IS NULL
            OR a.defender_faction_id = w.faction_id
          )
-        THEN a.respect_gain
+        THEN CASE
+          WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+           AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
+          ELSE a.respect_gain
+        END
         ELSE 0
       END), 0) AS total_respect_gain,
       COALESCE(SUM(CASE
@@ -173,6 +204,8 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       w.finalized_at
     FROM wars w
     LEFT JOIN attacks a ON a.war_id = w.id
+    LEFT JOIN member_averages ma ON ma.war_id = a.war_id AND ma.attacker_id = a.attacker_id
+    LEFT JOIN war_average wa ON 1 = 1
     WHERE w.id = ?
     GROUP BY w.id
     ON CONFLICT(war_id) DO UPDATE SET
@@ -194,7 +227,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       finalized_at = excluded.finalized_at
     `,
   )
-    .bind(warId)
+    .bind(warId, warId, warId)
     .run();
 }
 
@@ -283,58 +316,39 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
   }
 }
 
-async function ensureWarSummaryRow(env: Env, warId: number): Promise<void> {
-  await env.DB.prepare(
-    `
-    INSERT INTO war_summary (
-      war_id,
-      war_name,
-      status,
-      start_time,
-      finish_time,
-      official_start_time,
-      official_end_time,
-      updated_at
-    )
-    SELECT
-      id,
-      name,
-      status,
-      start_time,
-      finish_time,
-      official_start_time,
-      official_end_time,
-      unixepoch()
-    FROM wars
-    WHERE id = ?
-    ON CONFLICT(war_id) DO NOTHING
-    `,
-  )
-    .bind(warId)
-    .run();
-}
-
-async function incrementWarMemberStatsFromRun(
-  env: Env,
-  warId: number,
-  ingestRunId: string,
-): Promise<void> {
-  await upsertWarMemberAttackStats(env, warId, ingestRunId);
-  await upsertWarMemberDefendStats(env, warId, ingestRunId);
-}
-
 async function upsertWarMemberAttackStats(
   env: Env,
   warId: number,
-  ingestRunId?: string,
 ): Promise<void> {
-  const ingestFilter = ingestRunId ? "AND a.ingest_run_id = ?" : "";
-  const bindValues = ingestRunId
-    ? [warId, ingestRunId, HOME_FACTION_ID]
-    : [warId, HOME_FACTION_ID];
-
   await env.DB.prepare(
     `
+    WITH member_averages AS (
+      SELECT
+        a.war_id,
+        a.attacker_id,
+        AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND a.attacker_id IS NOT NULL
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+      GROUP BY a.war_id, a.attacker_id
+    ),
+    war_average AS (
+      SELECT AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+    )
     INSERT INTO war_member_stats (
       war_id,
       member_id,
@@ -366,7 +380,12 @@ async function upsertWarMemberAttackStats(
       END) AS enemy_attacks_successful,
       COALESCE(SUM(CASE
         WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id
-        THEN a.respect_gain
+        THEN CASE
+          WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+           AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
+          ELSE a.respect_gain
+        END
         ELSE 0
       END), 0) AS enemy_respect_gained,
       SUM(CASE
@@ -410,8 +429,9 @@ async function upsertWarMemberAttackStats(
       MAX(a.started) AS last_action_at
     FROM attacks a
     JOIN wars w ON w.id = a.war_id
+    LEFT JOIN member_averages ma ON ma.war_id = a.war_id AND ma.attacker_id = a.attacker_id
+    LEFT JOIN war_average wa ON 1 = 1
     WHERE a.war_id = ?
-      ${ingestFilter}
       AND a.attacker_faction_id = ?
       AND a.attacker_id IS NOT NULL
       AND ${OUTGOING_ACTION_WINDOW_SQL}
@@ -438,20 +458,14 @@ async function upsertWarMemberAttackStats(
       END
     `,
   )
-    .bind(...bindValues)
+    .bind(warId, warId, warId, HOME_FACTION_ID)
     .run();
 }
 
 async function upsertWarMemberDefendStats(
   env: Env,
   warId: number,
-  ingestRunId?: string,
 ): Promise<void> {
-  const ingestFilter = ingestRunId ? "AND a.ingest_run_id = ?" : "";
-  const bindValues = ingestRunId
-    ? [warId, ingestRunId, HOME_FACTION_ID]
-    : [warId, HOME_FACTION_ID];
-
   await env.DB.prepare(
     `
     INSERT INTO war_member_stats (
@@ -483,7 +497,6 @@ async function upsertWarMemberDefendStats(
     FROM attacks a
     JOIN wars w ON w.id = a.war_id
     WHERE a.war_id = ?
-      ${ingestFilter}
       AND a.defender_faction_id = ?
       AND a.defender_id IS NOT NULL
       AND w.faction_id IS NOT NULL
@@ -507,148 +520,7 @@ async function upsertWarMemberDefendStats(
       END
     `,
   )
-    .bind(...bindValues)
-    .run();
-}
-
-async function incrementWarSummaryFromRun(
-  env: Env,
-  warId: number,
-  ingestRunId: string,
-): Promise<void> {
-  const delta = (await env.DB.prepare(
-    `
-    SELECT
-      COALESCE(SUM(CASE
-        WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
-         AND ${OUTGOING_ACTION_WINDOW_SQL}
-         AND (
-           w.faction_id IS NULL
-           OR a.defender_faction_id = w.faction_id
-         )
-        THEN 1
-        ELSE 0
-      END), 0) AS faction_attacks,
-      COALESCE(SUM(CASE
-        WHEN w.faction_id IS NOT NULL
-         AND a.attacker_faction_id = w.faction_id
-         AND a.defender_faction_id = ${HOME_FACTION_ID}
-         AND ${DEFENSE_ACTION_WINDOW_SQL}
-        THEN 1
-        ELSE 0
-      END), 0) AS enemy_attacks,
-      COALESCE(SUM(CASE
-        WHEN w.faction_id IS NOT NULL
-         AND a.attacker_faction_id = ${HOME_FACTION_ID}
-         AND ${OUTGOING_ACTION_WINDOW_SQL}
-         AND (
-           a.defender_faction_id IS NULL
-           OR a.defender_faction_id != w.faction_id
-         )
-        THEN 1
-        ELSE 0
-      END), 0) AS outside_hits_outgoing,
-      COALESCE(SUM(CASE
-        WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
-         AND ${OUTGOING_ACTION_WINDOW_SQL}
-         AND (
-           w.faction_id IS NULL
-           OR a.defender_faction_id = w.faction_id
-         )
-        THEN a.respect_gain
-        ELSE 0
-      END), 0) AS total_respect_gain,
-      COALESCE(SUM(CASE
-        WHEN a.defender_faction_id = ${HOME_FACTION_ID}
-         AND a.result IN (${POSITIVE_RESULTS_SQL})
-         AND ${DEFENSE_ACTION_WINDOW_SQL}
-        THEN a.respect_gain
-        ELSE 0
-      END), 0) AS total_respect_lost,
-      MIN(a.started) AS first_attack_at,
-      MAX(a.started) AS last_attack_at
-    FROM attacks a
-    JOIN wars w ON w.id = a.war_id
-    WHERE a.war_id = ?
-      AND a.ingest_run_id = ?
-    `,
-  )
-    .bind(warId, ingestRunId)
-    .first()) as {
-    faction_attacks: number | null;
-    enemy_attacks: number | null;
-    outside_hits_outgoing: number | null;
-    total_respect_gain: number | null;
-    total_respect_lost: number | null;
-    first_attack_at: number | null;
-    last_attack_at: number | null;
-  } | null;
-
-  if (
-    !delta ||
-    (
-      Number(delta.faction_attacks ?? 0) === 0 &&
-      Number(delta.enemy_attacks ?? 0) === 0 &&
-      Number(delta.outside_hits_outgoing ?? 0) === 0 &&
-      Number(delta.total_respect_gain ?? 0) === 0 &&
-      Number(delta.total_respect_lost ?? 0) === 0
-    )
-  ) {
-    return;
-  }
-
-  await env.DB.prepare(
-    `
-    UPDATE war_summary
-    SET
-      faction_attacks = faction_attacks + ?,
-      enemy_attacks = enemy_attacks + ?,
-      outside_hits_outgoing = outside_hits_outgoing + ?,
-      total_respect_gain = total_respect_gain + ?,
-      total_respect_lost = total_respect_lost + ?,
-      first_attack_at = CASE
-        WHEN first_attack_at IS NULL THEN ?
-        WHEN ? IS NULL THEN first_attack_at
-        ELSE MIN(first_attack_at, ?)
-      END,
-      last_attack_at = CASE
-        WHEN last_attack_at IS NULL THEN ?
-        WHEN ? IS NULL THEN last_attack_at
-        ELSE MAX(last_attack_at, ?)
-      END,
-      unique_attackers = (
-        SELECT COUNT(*)
-        FROM war_member_stats
-        WHERE war_id = ?
-          AND enemy_attacks_total > 0
-      ),
-      updated_at = unixepoch(),
-      status = (SELECT status FROM wars WHERE id = ?),
-      finish_time = (SELECT finish_time FROM wars WHERE id = ?),
-      official_start_time = (SELECT official_start_time FROM wars WHERE id = ?),
-      official_end_time = (SELECT official_end_time FROM wars WHERE id = ?)
-    WHERE war_id = ?
-    `,
-  )
-    .bind(
-      Number(delta.faction_attacks ?? 0),
-      Number(delta.enemy_attacks ?? 0),
-      Number(delta.outside_hits_outgoing ?? 0),
-      Number(delta.total_respect_gain ?? 0),
-      Number(delta.total_respect_lost ?? 0),
-      delta.first_attack_at,
-      delta.first_attack_at,
-      delta.first_attack_at,
-      delta.last_attack_at,
-      delta.last_attack_at,
-      delta.last_attack_at,
-      warId,
-      warId,
-      warId,
-      warId,
-      warId,
-      warId,
-    )
+    .bind(warId, HOME_FACTION_ID)
     .run();
 }
 

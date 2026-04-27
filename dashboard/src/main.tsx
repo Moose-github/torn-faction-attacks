@@ -17,6 +17,7 @@ import {
   WarType,
 } from "./api";
 import { ActivityChart, AttackChart } from "./components/Charts";
+import { ChainBonusList } from "./components/ChainBonuses";
 import {
   CollapsiblePanel,
   EmptyState,
@@ -25,9 +26,15 @@ import {
   PanelHeader,
 } from "./components/Common";
 import { MemberAttackList, MemberTable } from "./components/MemberTables";
+import {
+  discrepancyAside,
+  formatReportComparison,
+  ReportDiscrepancyPanel,
+} from "./components/ReportDiscrepancies";
 import { Sidebar } from "./components/Sidebar";
 import { AdminControls } from "./views/AdminControls";
-import { detailNumber, formatDate, formatNumber, formatWarDateRange } from "./utils/format";
+import { MembersOverview } from "./views/MembersOverview";
+import { detailNumber, formatNumber, formatWarDateRange } from "./utils/format";
 import {
   displayMember,
   MemberSort,
@@ -265,6 +272,7 @@ function App() {
   }, [isLoadingMemberAttacks, memberAttacks.length, selectedMember]);
 
   const members = sortMembers(warDetail?.members ?? [], memberSort);
+  const chainBonuses = warDetail?.chain_bonuses ?? [];
   const derivedRespectGained = detailNumber(
     warDetail?.summary?.total_respect_gain,
     selectedWar?.total_respect_gain,
@@ -380,6 +388,11 @@ function App() {
                     <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
                     <InlineMetric label="Assists" value={sumMembers(members, "enemy_assists")} />
                   </div>
+                </section>
+
+                <section className="panel">
+                  <PanelHeader title="Chain bonuses" aside="Top 5" />
+                  <ChainBonusList attacks={chainBonuses} compact />
                 </section>
               </section>
 
@@ -526,112 +539,6 @@ function displayWarStatus(war: WarSummary): string {
   return war.status;
 }
 
-function formatReportComparison(reportValue: number | null, derivedValue: number): string {
-  const report = Number(reportValue ?? 0);
-  const difference = derivedValue - report;
-
-  if (difference === 0) {
-    return `${formatNumber(report)} (match)`;
-  }
-
-  return `${formatNumber(report)} (${formatNumber(difference)} diff)`;
-}
-
-function discrepancyAside(response: ReportDiscrepanciesResponse | null): string {
-  if (!response) {
-    return "No data";
-  }
-
-  const total = Object.values(response.groups).reduce((sum, group) => sum + group.count, 0);
-  return `${formatNumber(total)} rows`;
-}
-
-function ReportDiscrepancyPanel({
-  response,
-}: {
-  response: ReportDiscrepanciesResponse | null;
-}) {
-  if (!response) {
-    return <EmptyState text="No discrepancy data loaded" />;
-  }
-
-  const groups = [
-    {
-      key: "after_practical_finish",
-      title: "Buttgrass hits after practical finish",
-      detail: "These can appear in Torn's official totals but not member performance stats.",
-    },
-    {
-      key: "uncounted_enemy_results",
-      title: "Unknown attack results",
-      detail: "These are Buttgrass attacks on the enemy faction with result values outside the known successful and unsuccessful lists.",
-    },
-    {
-      key: "faction_mismatches",
-      title: "Faction mismatches",
-      detail: "These linked attacks have unexpected faction IDs for the stored war matchup.",
-    },
-    {
-      key: "outside_official_window",
-      title: "Outside official window",
-      detail: "These linked attacks are before the start time or after Torn's official end.",
-    },
-  ];
-
-  return (
-    <div className="discrepancy-groups">
-      {groups.map((definition) => {
-        const group = response.groups[definition.key];
-        const count = group?.count ?? 0;
-        const respectGain = group?.respect_gain ?? 0;
-
-        return (
-          <section
-            className={count === 0 ? "discrepancy-group discrepancy-group-empty" : "discrepancy-group"}
-            key={definition.key}
-          >
-            <div className="discrepancy-group-header">
-              <div>
-                <h3>{definition.title}</h3>
-                {count > 0 ? <p>{definition.detail}</p> : null}
-              </div>
-              <strong>
-                {formatNumber(count)} rows / {formatNumber(respectGain)} respect
-              </strong>
-            </div>
-            {count > 0 && group && group.attacks.length > 0 ? (
-              <div className="table-scroll">
-                <table className="discrepancy-table">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Attacker</th>
-                      <th>Defender</th>
-                      <th>Result</th>
-                      <th>Respect</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.attacks.map((attack) => (
-                      <tr key={`${definition.key}-${attack.id}`}>
-                        <td>{formatDate(attack.started)}</td>
-                        <td>{attack.attacker_name ?? `#${attack.attacker_id ?? "-"}`}</td>
-                        <td>{attack.defender_name ?? `#${attack.defender_id ?? "-"}`}</td>
-                        <td>{attack.result ?? "-"}</td>
-                        <td>{formatNumber(attack.respect_gain ?? 0)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
 function TermProgress({
   war,
   observedRespect,
@@ -655,84 +562,6 @@ function TermProgress({
         {formatNumber(observed)} / {formatNumber(war.faction_respect_limit)} respect
       </small>
     </div>
-  );
-}
-
-
-function MembersOverview({ warType }: { warType: WarType }) {
-  const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getStats>> | null>(null);
-  const [sort, setSort] = React.useState<MemberSort>({
-    key: "enemy_attacks_successful",
-    direction: "desc",
-  });
-  const [error, setError] = React.useState<string | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const response = await getStats(warType);
-        if (!cancelled) {
-          setStats(response);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [warType]);
-
-  const members = sortMembers(stats?.members ?? stats?.top_members ?? [], sort);
-
-  return (
-    <>
-      {error ? <div className="error-panel">{error}</div> : null}
-      <section className="hero-panel">
-        <div>
-          <p className="eyebrow">{warType === "all" ? "All events" : warType}</p>
-          <h2>Member performance</h2>
-          <p>Combined member results across the selected event type.</p>
-        </div>
-      </section>
-
-      <section className="status-grid war-status-grid">
-        <MetricCard
-          label="Respect gained"
-          value={formatNumber(stats?.overall.total_respect_gain ?? 0)}
-          icon={<Target size={18} />}
-        />
-        <MetricCard
-          label="Successful attacks"
-          value={formatNumber(sumMembers(members, "enemy_attacks_successful"))}
-          icon={<Swords size={18} />}
-        />
-        <MetricCard
-          label="Wars"
-          value={formatNumber(stats?.overall.total_wars ?? 0)}
-          icon={<CalendarClock size={18} />}
-        />
-      </section>
-
-      <section className="panel table-panel">
-        <PanelHeader title="Faction members breakdown" aside={isLoading ? "Loading" : `${members.length} members`} />
-        <MemberTable members={members} sort={sort} onSortChange={setSort} />
-      </section>
-    </>
   );
 }
 

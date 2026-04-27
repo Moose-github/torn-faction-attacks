@@ -105,6 +105,7 @@ export type WarDetailResponse = {
     finalized_at: number | null;
   } | null;
   members: MemberStats[];
+  chain_bonuses: ChainBonusAttack[];
 };
 
 export type MemberAttackClassification =
@@ -132,6 +133,27 @@ export type MemberAttack = {
   respect_gain: number;
   respect_loss: number;
   classification: MemberAttackClassification;
+};
+
+export type ChainBonusAttack = Pick<
+  MemberAttack,
+  | "id"
+  | "started"
+  | "attacker_id"
+  | "attacker_name"
+  | "attacker_faction_id"
+  | "attacker_faction_name"
+  | "defender_id"
+  | "defender_name"
+  | "defender_faction_id"
+  | "defender_faction_name"
+  | "result"
+  | "respect_gain"
+  | "respect_loss"
+> & {
+  chain: number | null;
+  adjusted_respect_gain: number;
+  respect_removed: number;
 };
 
 export type MemberAttacksResponse = {
@@ -177,7 +199,7 @@ export type ReportDiscrepancyGroup = {
     | "result"
     | "respect_gain"
     | "respect_loss"
-  >>;
+  > & Partial<Pick<ChainBonusAttack, "chain" | "adjusted_respect_gain" | "respect_removed">>>;
 };
 
 export type ReportDiscrepanciesResponse = {

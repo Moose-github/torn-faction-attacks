@@ -297,7 +297,7 @@ h2 {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.75fr) minmax(260px, 0.75fr);
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -492,6 +492,14 @@ h2 {
 
 .discrepancy-table {
   min-width: 680px;
+}
+
+.chain-bonus-table {
+  min-width: 760px;
+}
+
+.compact-table {
+  min-width: 420px;
 }
 
 .admin-hero svg {
