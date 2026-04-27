@@ -82,7 +82,6 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         finish_time,
         official_start_time,
         official_end_time,
-        torn_report_end,
         faction_id,
         war_type
       FROM wars
@@ -98,7 +97,6 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       finish_time: number | null;
       official_start_time: number | null;
       official_end_time: number | null;
-      torn_report_end: number | null;
       faction_id: number | null;
       war_type: string | null;
     } | null;
@@ -108,7 +106,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
     }
 
     const officialStartTime = war.official_start_time ?? war.start_time;
-    const officialEndTime = war.official_end_time ?? war.torn_report_end;
+    const officialEndTime = war.official_end_time;
 
     const groups = {
       after_practical_finish: await getDiscrepancyGroup(
@@ -223,8 +221,6 @@ export async function applyRankedWarReport(
   war_name: string;
   torn_war_id: number;
   winner_faction_id: number | null;
-  torn_report_start: number | null;
-  torn_report_end: number | null;
   home_report_score: number | null;
   home_report_attacks: number | null;
   enemy_report_score: number | null;
@@ -244,8 +240,6 @@ export async function applyRankedWarReport(
     UPDATE wars
     SET winner_faction_id = ?,
         torn_report_fetched_at = ?,
-        torn_report_start = ?,
-        torn_report_end = ?,
         official_start_time = COALESCE(official_start_time, ?),
         official_end_time = COALESCE(official_end_time, ?),
         home_report_score = ?,
@@ -258,8 +252,6 @@ export async function applyRankedWarReport(
     .bind(
       report.winner ?? null,
       nowSeconds(),
-      report.start ?? null,
-      report.end ?? null,
       report.start ?? null,
       report.end && report.end > 0 ? report.end : null,
       homeFaction?.score ?? null,
@@ -321,8 +313,6 @@ export async function applyRankedWarReport(
     war_name: warName,
     torn_war_id: tornWarId,
     winner_faction_id: report.winner ?? null,
-    torn_report_start: report.start ?? null,
-    torn_report_end: report.end ?? null,
     home_report_score: homeFaction?.score ?? null,
     home_report_attacks: homeFaction?.attacks ?? null,
     enemy_report_score: enemyFaction?.score ?? null,

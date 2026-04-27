@@ -345,8 +345,8 @@ function App() {
                     <WarTimeLine
                       label="Torn official times"
                       value={formatWarDateRange(
-                        selectedWar.torn_report_start ?? selectedWar.start_time,
-                        selectedWar.torn_report_end ?? selectedWar.official_end_time,
+                        selectedWar.official_start_time ?? selectedWar.start_time,
+                        selectedWar.official_end_time,
                       )}
                     />
                   </div>

@@ -59,8 +59,6 @@ export type WarSummary = {
   last_observed_respect: number | null;
   winner_faction_id: number | null;
   torn_report_fetched_at: number | null;
-  torn_report_start: number | null;
-  torn_report_end: number | null;
   home_report_score: number | null;
   home_report_attacks: number | null;
   enemy_report_score: number | null;

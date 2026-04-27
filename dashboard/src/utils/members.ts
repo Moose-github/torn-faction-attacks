@@ -91,7 +91,7 @@ export function displayWarStatus(war: WarSummary): string {
 }
 
 export function hasOfficialEnd(war: WarSummary): boolean {
-  return Boolean(war.official_end_time || war.torn_report_end);
+  return Boolean(war.official_end_time);
 }
 
 export function classificationLabel(classification: MemberAttack["classification"]): string {
