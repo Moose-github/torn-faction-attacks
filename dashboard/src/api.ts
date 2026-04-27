@@ -157,6 +157,32 @@ export type WarActivityResponse = {
   buckets: WarActivityBucket[];
 };
 
+export type ReportDiscrepancyGroup = {
+  count: number;
+  respect_gain: number;
+  attacks: Array<Pick<
+    MemberAttack,
+    | "id"
+    | "started"
+    | "attacker_id"
+    | "attacker_name"
+    | "attacker_faction_id"
+    | "attacker_faction_name"
+    | "defender_id"
+    | "defender_name"
+    | "defender_faction_id"
+    | "defender_faction_name"
+    | "result"
+    | "respect_gain"
+    | "respect_loss"
+  >>;
+};
+
+export type ReportDiscrepanciesResponse = {
+  ok: boolean;
+  groups: Record<string, ReportDiscrepancyGroup>;
+};
+
 export type AdminWarPayload = {
   name: string;
   start_time?: number;
@@ -193,6 +219,14 @@ export async function getWarMemberAttacks(
 export async function getWarActivity(warName: string): Promise<WarActivityResponse> {
   return getJson<WarActivityResponse>(
     `/api/wars/${encodeURIComponent(warName)}/activity?bucket_minutes=15`,
+  );
+}
+
+export async function getWarReportDiscrepancies(
+  warName: string,
+): Promise<ReportDiscrepanciesResponse> {
+  return getJson<ReportDiscrepanciesResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/report-discrepancies`,
   );
 }
 

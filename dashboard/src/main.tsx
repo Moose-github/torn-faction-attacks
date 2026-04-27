@@ -6,9 +6,11 @@ import {
   getWar,
   getWarActivity,
   getWarMemberAttacks,
+  getWarReportDiscrepancies,
   getWars,
   MemberAttack,
   MemberStats,
+  ReportDiscrepanciesResponse,
   WarDetailResponse,
   WarActivityBucket,
   WarSummary,
@@ -25,7 +27,7 @@ import {
 import { MemberAttackList, MemberTable } from "./components/MemberTables";
 import { Sidebar } from "./components/Sidebar";
 import { AdminControls } from "./views/AdminControls";
-import { detailNumber, formatNumber, formatWarDateRange } from "./utils/format";
+import { detailNumber, formatDate, formatNumber, formatWarDateRange } from "./utils/format";
 import {
   displayMember,
   MemberSort,
@@ -52,6 +54,8 @@ function App() {
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
   const [activityBuckets, setActivityBuckets] = React.useState<WarActivityBucket[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
+  const [reportDiscrepancies, setReportDiscrepancies] = React.useState<ReportDiscrepanciesResponse | null>(null);
+  const [isLoadingReportDiscrepancies, setIsLoadingReportDiscrepancies] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({});
   const [selectedMember, setSelectedMember] = React.useState<MemberStats | null>(null);
   const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
@@ -178,6 +182,43 @@ function App() {
     setMemberAttacks([]);
   }, [selectedWarName]);
 
+  const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
+  const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadReportDiscrepancies() {
+      if (!selectedWarName || !hasTornReport) {
+        setReportDiscrepancies(null);
+        return;
+      }
+
+      setIsLoadingReportDiscrepancies(true);
+      setError(null);
+
+      try {
+        const response = await getWarReportDiscrepancies(selectedWarName);
+        if (!cancelled) {
+          setReportDiscrepancies(response);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingReportDiscrepancies(false);
+        }
+      }
+    }
+
+    loadReportDiscrepancies();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasTornReport, selectedWarName]);
+
   React.useEffect(() => {
     let cancelled = false;
 
@@ -223,7 +264,6 @@ function App() {
     });
   }, [isLoadingMemberAttacks, memberAttacks.length, selectedMember]);
 
-  const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const members = sortMembers(warDetail?.members ?? [], memberSort);
   const derivedRespectGained = detailNumber(
     warDetail?.summary?.total_respect_gain,
@@ -234,7 +274,6 @@ function App() {
     selectedWar?.total_respect_lost,
   );
   const derivedSuccessfulAttacks = sumMembers(members, "enemy_attacks_successful");
-  const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -345,47 +384,58 @@ function App() {
               </section>
 
               {hasTornReport ? (
-                <CollapsiblePanel
-                  title="Torn report validation"
-                  aside="Official report"
-                  collapsed={collapsedPanels.reportValidation ?? true}
-                  onToggle={() => togglePanel("reportValidation")}
-                  className="table-panel"
-                >
-                  <div className="table-scroll">
-                    <table className="report-validation-table">
-                      <thead>
-                        <tr>
-                          <th>Measure</th>
-                          <th>Dashboard derived</th>
-                          <th>Torn report</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td>Faction attacks</td>
-                          <td>{formatNumber(derivedSuccessfulAttacks)}</td>
-                          <td>{formatReportComparison(selectedWar.home_report_attacks, derivedSuccessfulAttacks)}</td>
-                        </tr>
-                        <tr>
-                          <td>Faction respect</td>
-                          <td>{formatNumber(derivedRespectGained)}</td>
-                          <td>{formatReportComparison(selectedWar.home_report_score, derivedRespectGained)}</td>
-                        </tr>
-                        <tr>
-                          <td>Enemy attacks</td>
-                          <td>-</td>
-                          <td>{formatNumber(selectedWar.enemy_report_attacks ?? 0)}</td>
-                        </tr>
-                        <tr>
-                          <td>Enemy score</td>
-                          <td>-</td>
-                          <td>{formatNumber(selectedWar.enemy_report_score ?? 0)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CollapsiblePanel>
+                <>
+                  <CollapsiblePanel
+                    title="Torn report validation"
+                    aside="Official report"
+                    collapsed={collapsedPanels.reportValidation ?? true}
+                    onToggle={() => togglePanel("reportValidation")}
+                    className="table-panel"
+                  >
+                    <div className="table-scroll">
+                      <table className="report-validation-table">
+                        <thead>
+                          <tr>
+                            <th>Measure</th>
+                            <th>Dashboard derived</th>
+                            <th>Torn report</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td>Faction attacks</td>
+                            <td>{formatNumber(derivedSuccessfulAttacks)}</td>
+                            <td>{formatReportComparison(selectedWar.home_report_attacks, derivedSuccessfulAttacks)}</td>
+                          </tr>
+                          <tr>
+                            <td>Faction respect</td>
+                            <td>{formatNumber(derivedRespectGained)}</td>
+                            <td>{formatReportComparison(selectedWar.home_report_score, derivedRespectGained)}</td>
+                          </tr>
+                          <tr>
+                            <td>Enemy attacks</td>
+                            <td>-</td>
+                            <td>{formatNumber(selectedWar.enemy_report_attacks ?? 0)}</td>
+                          </tr>
+                          <tr>
+                            <td>Enemy score</td>
+                            <td>-</td>
+                            <td>{formatNumber(selectedWar.enemy_report_score ?? 0)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </CollapsiblePanel>
+                  <CollapsiblePanel
+                    title="Report discrepancy drilldown"
+                    aside={isLoadingReportDiscrepancies ? "Loading" : discrepancyAside(reportDiscrepancies)}
+                    collapsed={collapsedPanels.reportDiscrepancies ?? true}
+                    onToggle={() => togglePanel("reportDiscrepancies")}
+                    className="table-panel"
+                  >
+                    <ReportDiscrepancyPanel response={reportDiscrepancies} />
+                  </CollapsiblePanel>
+                </>
               ) : null}
 
               <CollapsiblePanel
@@ -485,6 +535,98 @@ function formatReportComparison(reportValue: number | null, derivedValue: number
   }
 
   return `${formatNumber(report)} (${formatNumber(difference)} diff)`;
+}
+
+function discrepancyAside(response: ReportDiscrepanciesResponse | null): string {
+  if (!response) {
+    return "No data";
+  }
+
+  const total = Object.values(response.groups).reduce((sum, group) => sum + group.count, 0);
+  return `${formatNumber(total)} rows`;
+}
+
+function ReportDiscrepancyPanel({
+  response,
+}: {
+  response: ReportDiscrepanciesResponse | null;
+}) {
+  if (!response) {
+    return <EmptyState text="No discrepancy data loaded" />;
+  }
+
+  const groups = [
+    {
+      key: "after_practical_finish",
+      title: "Buttgrass hits after practical finish",
+      detail: "These can appear in Torn's official totals but not member performance stats.",
+    },
+    {
+      key: "uncounted_enemy_results",
+      title: "Enemy attacks not counted successful",
+      detail: "These are Buttgrass attacks on the enemy faction with results outside the success allowlist.",
+    },
+    {
+      key: "faction_mismatches",
+      title: "Faction mismatches",
+      detail: "These linked attacks have unexpected faction IDs for the stored war matchup.",
+    },
+    {
+      key: "outside_official_window",
+      title: "Outside official window",
+      detail: "These linked attacks are before the start time or after Torn's official end.",
+    },
+  ];
+
+  return (
+    <div className="discrepancy-groups">
+      {groups.map((definition) => {
+        const group = response.groups[definition.key];
+
+        return (
+          <section className="discrepancy-group" key={definition.key}>
+            <div className="discrepancy-group-header">
+              <div>
+                <h3>{definition.title}</h3>
+                <p>{definition.detail}</p>
+              </div>
+              <strong>
+                {formatNumber(group?.count ?? 0)} rows / {formatNumber(group?.respect_gain ?? 0)} respect
+              </strong>
+            </div>
+            {group && group.attacks.length > 0 ? (
+              <div className="table-scroll">
+                <table className="discrepancy-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Attacker</th>
+                      <th>Defender</th>
+                      <th>Result</th>
+                      <th>Respect</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.attacks.map((attack) => (
+                      <tr key={`${definition.key}-${attack.id}`}>
+                        <td>{formatDate(attack.started)}</td>
+                        <td>{attack.attacker_name ?? `#${attack.attacker_id ?? "-"}`}</td>
+                        <td>{attack.defender_name ?? `#${attack.defender_id ?? "-"}`}</td>
+                        <td>{attack.result ?? "-"}</td>
+                        <td>{formatNumber(attack.respect_gain ?? 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState text="No matching attacks" />
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
 }
 
 function TermProgress({

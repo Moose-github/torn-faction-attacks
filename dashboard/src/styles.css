@@ -443,6 +443,52 @@ h2 {
   font-weight: 800;
 }
 
+.discrepancy-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.discrepancy-group {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.discrepancy-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.discrepancy-group-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.discrepancy-group-header h3 {
+  margin: 0;
+  color: #162033;
+  font-size: 0.98rem;
+}
+
+.discrepancy-group-header p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.86rem;
+}
+
+.discrepancy-group-header strong {
+  flex: 0 0 auto;
+  color: #1d4ed8;
+  font-size: 0.9rem;
+}
+
+.discrepancy-table {
+  min-width: 680px;
+}
+
 .admin-hero svg {
   flex: 0 0 auto;
   color: #2563eb;

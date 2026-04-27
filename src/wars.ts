@@ -842,6 +842,133 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
   }
 }
 
+export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Response> {
+  try {
+    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+
+    if (!name) {
+      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
+    }
+
+    const war = (await env.DB.prepare(
+      `
+      SELECT
+        id,
+        name,
+        start_time,
+        finish_time,
+        official_end_time,
+        torn_report_end,
+        faction_id
+      FROM wars
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+      .bind(name)
+      .first()) as {
+      id: number;
+      name: string;
+      start_time: number;
+      finish_time: number | null;
+      official_end_time: number | null;
+      torn_report_end: number | null;
+      faction_id: number | null;
+    } | null;
+
+    if (!war) {
+      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+    }
+
+    const officialEndTime = war.official_end_time ?? war.torn_report_end;
+
+    const groups = {
+      after_practical_finish: await getDiscrepancyGroup(
+        env,
+        war.id,
+        `
+        a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (? IS NOT NULL AND a.started > ?)
+        AND (? IS NULL OR a.started <= ?)
+        AND (? IS NULL OR a.defender_faction_id = ?)
+        `,
+        [
+          war.finish_time,
+          war.finish_time,
+          officialEndTime,
+          officialEndTime,
+          war.faction_id,
+          war.faction_id,
+        ],
+      ),
+      uncounted_enemy_results: await getDiscrepancyGroup(
+        env,
+        war.id,
+        `
+        a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND (? IS NULL OR a.defender_faction_id = ?)
+        AND (a.result NOT IN (${POSITIVE_RESULTS_SQL}) OR a.result IS NULL)
+        AND (? IS NULL OR a.started >= ?)
+        AND (? IS NULL OR a.started <= ?)
+        `,
+        [war.faction_id, war.faction_id, war.start_time, war.start_time, war.finish_time, war.finish_time],
+      ),
+      faction_mismatches: await getDiscrepancyGroup(
+        env,
+        war.id,
+        `
+        ? IS NOT NULL
+        AND (
+          (
+            a.attacker_faction_id = ${HOME_FACTION_ID}
+            AND (
+              a.defender_faction_id IS NULL
+              OR a.defender_faction_id NOT IN (?, ${HOME_FACTION_ID})
+            )
+          )
+          OR (
+            a.defender_faction_id = ${HOME_FACTION_ID}
+            AND (
+              a.attacker_faction_id IS NULL
+              OR a.attacker_faction_id != ?
+            )
+          )
+        )
+        `,
+        [war.faction_id, war.faction_id, war.faction_id],
+      ),
+      outside_official_window: await getDiscrepancyGroup(
+        env,
+        war.id,
+        `
+        a.started IS NOT NULL
+        AND (
+          a.started < ?
+          OR (? IS NOT NULL AND a.started > ?)
+        )
+        `,
+        [war.start_time, officialEndTime, officialEndTime],
+      ),
+    };
+
+    return json({
+      ok: true,
+      war: {
+        id: war.id,
+        name: war.name,
+        start_time: war.start_time,
+        finish_time: war.finish_time,
+        official_end_time: officialEndTime,
+        faction_id: war.faction_id,
+      },
+      groups,
+    });
+  } catch (err: any) {
+    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
+  }
+}
+
 export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response> {
   try {
     const parts = url.pathname.split("/");
@@ -1144,6 +1271,62 @@ async function fetchTornRankedWarReport(tornWarId: number, env: Env) {
 
   const data = (await response.json()) as TornRankedWarReportResponse;
   return data.rankedwarreport ?? null;
+}
+
+async function getDiscrepancyGroup(
+  env: Env,
+  warId: number,
+  conditionSql: string,
+  conditionBinds: unknown[],
+): Promise<{
+  count: number;
+  respect_gain: number;
+  attacks: unknown[];
+}> {
+  const countRow = (await env.DB.prepare(
+    `
+    SELECT
+      COUNT(*) AS count,
+      COALESCE(SUM(a.respect_gain), 0) AS respect_gain
+    FROM attacks a
+    WHERE a.war_id = ?
+      AND ${conditionSql}
+    `,
+  )
+    .bind(warId, ...conditionBinds)
+    .first()) as { count: number | null; respect_gain: number | null } | null;
+
+  const sampleRows = await env.DB.prepare(
+    `
+    SELECT
+      a.id,
+      a.started,
+      a.attacker_id,
+      a.attacker_name,
+      a.attacker_faction_id,
+      a.attacker_faction_name,
+      a.defender_id,
+      a.defender_name,
+      a.defender_faction_id,
+      a.defender_faction_name,
+      a.result,
+      a.respect_gain,
+      a.respect_loss
+    FROM attacks a
+    WHERE a.war_id = ?
+      AND ${conditionSql}
+    ORDER BY a.started ASC
+    LIMIT 20
+    `,
+  )
+    .bind(warId, ...conditionBinds)
+    .all();
+
+  return {
+    count: Number(countRow?.count ?? 0),
+    respect_gain: Number(countRow?.respect_gain ?? 0),
+    attacks: sampleRows.results ?? [],
+  };
 }
 
 function parseBucketMinutes(value: string | null): number {

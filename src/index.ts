@@ -12,6 +12,7 @@ import {
   getWarActivity,
   getWarAttacks,
   getWarMemberAttacks,
+  getWarReportDiscrepancies,
   importHistoricalWar,
   listWars,
   previewHistoricalWarImport,
@@ -81,6 +82,14 @@ export default {
 
     if (url.pathname === "/api/wars" && request.method === "GET") {
       return listWars(url, env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      url.pathname.endsWith("/report-discrepancies") &&
+      request.method === "GET"
+    ) {
+      return getWarReportDiscrepancies(url, env);
     }
 
     if (
