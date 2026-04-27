@@ -186,7 +186,7 @@ export type ReportDiscrepanciesResponse = {
 };
 
 export type AdminWarPayload = {
-  name: string;
+  name?: string;
   start_time?: number;
   finish_time?: number;
   official_start_time?: number;
@@ -266,6 +266,8 @@ export async function previewImportWar(payload: AdminWarPayload): Promise<unknow
     finish_time: payload.finish_time,
     official_start_time: payload.official_start_time,
     official_finish_time: payload.official_finish_time,
+    war_type: payload.war_type,
+    torn_war_id: payload.torn_war_id,
   });
 }
 
@@ -273,7 +275,10 @@ export async function pullAttackWindow(payload: AttackWindowPayload): Promise<un
   return postJson("/api/attacks/window", payload);
 }
 
-export async function deleteWar(payload: { id?: number; name?: string }): Promise<unknown> {
+export async function deleteWar(payload: {
+  torn_war_id?: number;
+  name?: string;
+}): Promise<unknown> {
   return postJson("/api/wars/delete", payload);
 }
 

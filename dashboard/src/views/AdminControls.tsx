@@ -29,7 +29,7 @@ export function AdminControls() {
     finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
     finishEpoch: String(Math.floor(Date.now() / 1000)),
   }));
-  const [deleteForm, setDeleteForm] = React.useState({ id: "", name: "" });
+  const [deleteForm, setDeleteForm] = React.useState({ tornWarId: "", name: "" });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [attackWindowForm, setAttackWindowForm] = React.useState({
     startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
@@ -107,6 +107,7 @@ export function AdminControls() {
           onChange={setImportForm}
           isBusy={isBusy !== null}
           requireFinishTime
+          hideName
           showAutoEnd={false}
           secondaryActionLabel="Preview import window"
           onSecondaryAction={(payload) =>
@@ -123,18 +124,22 @@ export function AdminControls() {
               event.preventDefault();
               runAdminAction("Delete war", () =>
                 deleteWar({
-                  id: deleteForm.id.trim() ? Number(deleteForm.id) : undefined,
+                  torn_war_id: deleteForm.tornWarId.trim()
+                    ? Number(deleteForm.tornWarId)
+                    : undefined,
                   name: deleteForm.name.trim() || undefined,
                 }),
               );
             }}
           >
             <label>
-              <span>War ID</span>
+              <span>Torn war ID</span>
               <input
                 inputMode="numeric"
-                value={deleteForm.id}
-                onChange={(event) => setDeleteForm({ ...deleteForm, id: event.target.value })}
+                value={deleteForm.tornWarId}
+                onChange={(event) =>
+                  setDeleteForm({ ...deleteForm, tornWarId: event.target.value })
+                }
               />
             </label>
             <label>
@@ -264,6 +269,7 @@ function WarForm({
   onSubmit,
   isBusy,
   requireFinishTime = false,
+  hideName = false,
   showAutoEnd = true,
   secondaryActionLabel,
   onSecondaryAction,
@@ -274,11 +280,13 @@ function WarForm({
   onSubmit: (payload: AdminWarPayload) => void;
   isBusy: boolean;
   requireFinishTime?: boolean;
+  hideName?: boolean;
   showAutoEnd?: boolean;
   secondaryActionLabel?: string;
   onSecondaryAction?: (payload: AdminWarPayload) => void;
 }) {
   const canUseTermFields = form.warType === "termed";
+  const practicalTimesDisabled = requireFinishTime && form.warType === "real";
 
   function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
     onChange({ ...form, [key]: value });
@@ -293,10 +301,12 @@ function WarForm({
     <section className="panel">
       <PanelHeader title={title} />
       <form className="admin-form" onSubmit={submit}>
-        <label>
-          <span>Name</span>
-          <input value={form.name} onChange={(event) => update("name", event.target.value)} required />
-        </label>
+        {hideName ? null : (
+          <label>
+            <span>Name</span>
+            <input value={form.name} onChange={(event) => update("name", event.target.value)} required />
+          </label>
+        )}
         <label>
           <span>War type</span>
           <select value={form.warType} onChange={(event) => update("warType", event.target.value as Exclude<WarType, "all">)}>
@@ -313,37 +323,37 @@ function WarForm({
           </select>
         </label>
         <label>
-          <span>Start time</span>
+          <span>{requireFinishTime ? "Practical start time" : "Start time"}</span>
           {form.timeMode === "epoch" ? (
-            <input inputMode="numeric" value={form.startEpoch} onChange={(event) => update("startEpoch", event.target.value)} required />
+            <input inputMode="numeric" value={form.startEpoch} disabled={practicalTimesDisabled} onChange={(event) => update("startEpoch", event.target.value)} required={!practicalTimesDisabled} />
           ) : (
-            <input type="datetime-local" value={form.startTime} onChange={(event) => updateDateTime(form, onChange, "start", event.target.value)} required />
+            <input type="datetime-local" value={form.startTime} disabled={practicalTimesDisabled} onChange={(event) => updateDateTime(form, onChange, "start", event.target.value)} required={!practicalTimesDisabled} />
           )}
         </label>
         {requireFinishTime ? (
           <>
             <label>
-              <span>Finish time</span>
+              <span>Practical finish time</span>
               {form.timeMode === "epoch" ? (
-                <input inputMode="numeric" value={form.finishEpoch} onChange={(event) => update("finishEpoch", event.target.value)} required />
+                <input inputMode="numeric" value={form.finishEpoch} disabled={practicalTimesDisabled} onChange={(event) => update("finishEpoch", event.target.value)} required={!practicalTimesDisabled} />
               ) : (
-                <input type="datetime-local" value={form.finishTime} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} required />
+                <input type="datetime-local" value={form.finishTime} disabled={practicalTimesDisabled} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} required={!practicalTimesDisabled} />
               )}
             </label>
             <label>
               <span>Official start time</span>
               {form.timeMode === "epoch" ? (
-                <input inputMode="numeric" value={form.officialStartEpoch} onChange={(event) => update("officialStartEpoch", event.target.value)} />
+                <input inputMode="numeric" value={form.officialStartEpoch} disabled={practicalTimesDisabled} onChange={(event) => update("officialStartEpoch", event.target.value)} />
               ) : (
-                <input type="datetime-local" value={form.officialStartTime} onChange={(event) => updateDateTime(form, onChange, "officialStart", event.target.value)} />
+                <input type="datetime-local" value={form.officialStartTime} disabled={practicalTimesDisabled} onChange={(event) => updateDateTime(form, onChange, "officialStart", event.target.value)} />
               )}
             </label>
             <label>
               <span>Official finish time</span>
               {form.timeMode === "epoch" ? (
-                <input inputMode="numeric" value={form.officialFinishEpoch} onChange={(event) => update("officialFinishEpoch", event.target.value)} />
+                <input inputMode="numeric" value={form.officialFinishEpoch} disabled={practicalTimesDisabled} onChange={(event) => update("officialFinishEpoch", event.target.value)} />
               ) : (
-                <input type="datetime-local" value={form.officialFinishTime} onChange={(event) => updateDateTime(form, onChange, "officialFinish", event.target.value)} />
+                <input type="datetime-local" value={form.officialFinishTime} disabled={practicalTimesDisabled} onChange={(event) => updateDateTime(form, onChange, "officialFinish", event.target.value)} />
               )}
             </label>
           </>
@@ -447,12 +457,18 @@ function defaultWarForm(): AdminWarFormState {
 
 function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): AdminWarPayload {
   const payload: AdminWarPayload = {
-    name: form.name.trim(),
-    start_time: secondsFromFormTime(form, "start"),
     war_type: form.warType,
   };
 
-  if (includeFinishTime) {
+  if (form.name.trim() !== "") {
+    payload.name = form.name.trim();
+  }
+
+  if (!includeFinishTime || form.warType !== "real") {
+    payload.start_time = secondsFromFormTime(form, "start");
+  }
+
+  if (includeFinishTime && form.warType !== "real") {
     payload.finish_time = secondsFromFormTime(form, "finish");
     setOptionalTime(payload, "official_start_time", form, "officialStart");
     setOptionalTime(payload, "official_finish_time", form, "officialFinish");

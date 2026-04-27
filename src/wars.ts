@@ -15,7 +15,7 @@ import {
   setActiveWarState,
 } from "./ingestion";
 import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromRaw } from "./summaries";
-import { Env, TornRankedWarReportResponse, WarRow, WarSummaryRow } from "./types";
+import { Env, TornRankedWarReport, TornRankedWarReportResponse, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 
 export async function createWar(request: Request, env: Env): Promise<Response> {
@@ -193,19 +193,35 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       member_respect_limit?: unknown;
     };
 
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_NAME" }, 400);
-    }
-
-    const startTime = Number(body.start_time);
-    const finishTime = Number(body.finish_time);
-    const factionId =
-      body.faction_id === undefined || body.faction_id === null
-        ? null
-        : Number(body.faction_id);
     const warType = parseWarType(body.war_type, "real");
     const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
+    const report = tornWarId !== null ? await fetchTornRankedWarReport(tornWarId, env) : null;
+    const reportFactions = report?.factions ?? [];
+    const reportEnemyFaction =
+      reportFactions.find((faction) => faction.id !== HOME_FACTION_ID) ?? null;
+    const bodyFactionId =
+      body.faction_id === undefined || body.faction_id === null || body.faction_id === ""
+        ? null
+        : Number(body.faction_id);
+    const factionId = reportEnemyFaction?.id ?? bodyFactionId;
+    const name = await uniqueWarName(
+      env,
+      sanitizeWarName(
+      reportEnemyFaction?.name ??
+        (typeof body.name === "string" && body.name.trim()
+          ? body.name.trim()
+          : `historical-${tornWarId ?? Number(body.start_time)}`),
+      ),
+      tornWarId,
+    );
+    const reportStartTime = report?.start ?? null;
+    const reportFinishTime = report?.end && report.end > 0 ? report.end : null;
+    const startTime =
+      warType === "real" && reportStartTime !== null ? reportStartTime : Number(body.start_time);
+    const finishTime =
+      warType === "real" && reportFinishTime !== null
+        ? reportFinishTime
+        : Number(body.finish_time);
     const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
     const factionRespectLimit = parseOptionalNonNegativeNumber(
       body.faction_respect_limit,
@@ -215,9 +231,52 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       body.member_respect_limit,
       "member_respect_limit",
     );
-    const officialStartTime = optionalTimestampOrDefault(body.official_start_time, startTime);
-    const officialFinishTime = optionalTimestampOrDefault(body.official_finish_time, finishTime);
+    const officialStartTime = optionalTimestampOrDefault(
+      body.official_start_time,
+      reportStartTime ?? startTime,
+    );
+    const officialFinishTime = optionalTimestampOrDefault(
+      body.official_finish_time,
+      reportFinishTime ?? finishTime,
+    );
     const now = nowSeconds();
+
+    if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
+      return json({ ok: false, error: "Invalid war name", code: "INVALID_NAME" }, 400);
+    }
+
+    if (warType === "real" && tornWarId === null) {
+      return json(
+        {
+          ok: false,
+          error: "torn_war_id is required for real historical war import",
+          code: "MISSING_TORN_WAR_ID",
+        },
+        400,
+      );
+    }
+
+    if (tornWarId !== null && !report) {
+      return json(
+        {
+          ok: false,
+          error: "Torn did not return a ranked war report",
+          code: "REPORT_NOT_FOUND",
+        },
+        404,
+      );
+    }
+
+    if (warType === "real" && (reportStartTime === null || reportFinishTime === null)) {
+      return json(
+        {
+          ok: false,
+          error: "Torn report start and end are required for real historical war import",
+          code: "MISSING_REPORT_TIME_RANGE",
+        },
+        400,
+      );
+    }
 
     if (!Number.isInteger(startTime) || startTime < 0) {
       return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
@@ -384,6 +443,10 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       officialStartTime,
       officialFinishTime,
     );
+    const reportResult =
+      report && tornWarId !== null
+        ? await applyRankedWarReport(env, war.id, war.name, factionId, tornWarId, report)
+        : null;
     await finalizeWar(env, war.id);
 
     return json(
@@ -396,6 +459,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         official_start_time: officialStartTime,
         official_finish_time: officialFinishTime,
         imported_attack_count: importedAttackCount,
+        torn_report: reportResult,
       },
       201,
     );
@@ -411,12 +475,62 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
       finish_time?: unknown;
       official_start_time?: unknown;
       official_finish_time?: unknown;
+      war_type?: unknown;
+      torn_war_id?: unknown;
     };
 
-    const startTime = Number(body.start_time);
-    const finishTime = Number(body.finish_time);
-    const officialStartTime = optionalTimestampOrDefault(body.official_start_time, startTime);
-    const officialFinishTime = optionalTimestampOrDefault(body.official_finish_time, finishTime);
+    const warType = parseWarType(body.war_type, "real");
+    const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
+    const report = tornWarId !== null ? await fetchTornRankedWarReport(tornWarId, env) : null;
+    const reportStartTime = report?.start ?? null;
+    const reportFinishTime = report?.end && report.end > 0 ? report.end : null;
+    const startTime =
+      warType === "real" && reportStartTime !== null ? reportStartTime : Number(body.start_time);
+    const finishTime =
+      warType === "real" && reportFinishTime !== null
+        ? reportFinishTime
+        : Number(body.finish_time);
+    const officialStartTime = optionalTimestampOrDefault(
+      body.official_start_time,
+      reportStartTime ?? startTime,
+    );
+    const officialFinishTime = optionalTimestampOrDefault(
+      body.official_finish_time,
+      reportFinishTime ?? finishTime,
+    );
+
+    if (warType === "real" && tornWarId === null) {
+      return json(
+        {
+          ok: false,
+          error: "torn_war_id is required for real historical war preview",
+          code: "MISSING_TORN_WAR_ID",
+        },
+        400,
+      );
+    }
+
+    if (tornWarId !== null && !report) {
+      return json(
+        {
+          ok: false,
+          error: "Torn did not return a ranked war report",
+          code: "REPORT_NOT_FOUND",
+        },
+        404,
+      );
+    }
+
+    if (warType === "real" && (reportStartTime === null || reportFinishTime === null)) {
+      return json(
+        {
+          ok: false,
+          error: "Torn report start and end are required for real historical war preview",
+          code: "MISSING_REPORT_TIME_RANGE",
+        },
+        400,
+      );
+    }
 
     if (!Number.isInteger(startTime) || startTime < 0) {
       return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
@@ -545,26 +659,33 @@ export async function getAttackWindow(request: Request, env: Env): Promise<Respo
 export async function deleteWar(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as {
-      id?: unknown;
+      torn_war_id?: unknown;
       name?: unknown;
     };
-    const warId = parseOptionalInteger(body.id, "id");
+    const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
     const name = typeof body.name === "string" ? body.name.trim() : "";
 
-    if (warId === null && !name) {
-      return json({ ok: false, error: "War id or name is required", code: "MISSING_WAR" }, 400);
+    if (tornWarId === null && !name) {
+      return json(
+        {
+          ok: false,
+          error: "Torn war id or name is required",
+          code: "MISSING_WAR",
+        },
+        400,
+      );
     }
 
     const war = (await env.DB.prepare(
       `
       SELECT id, name, status
       FROM wars
-      WHERE (? IS NOT NULL AND id = ?)
+      WHERE (? IS NOT NULL AND torn_war_id = ?)
          OR (? != '' AND LOWER(name) = LOWER(?))
       LIMIT 1
       `,
     )
-      .bind(warId, warId, name, name)
+      .bind(tornWarId, tornWarId, name, name)
       .first()) as { id: number; name: string; status: string } | null;
 
     if (!war) {
@@ -639,105 +760,16 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
       );
     }
 
-    const factions = report.factions ?? [];
-    const homeFaction = factions.find((faction) => faction.id === HOME_FACTION_ID) ?? null;
-    const enemyFaction =
-      factions.find((faction) => war.faction_id !== null && faction.id === war.faction_id) ??
-      factions.find((faction) => faction.id !== HOME_FACTION_ID) ??
-      null;
-
-    await env.DB.prepare(
-      `
-      UPDATE wars
-      SET winner_faction_id = ?,
-          torn_report_fetched_at = ?,
-          torn_report_start = ?,
-          torn_report_end = ?,
-          official_start_time = COALESCE(official_start_time, ?),
-          official_end_time = COALESCE(official_end_time, ?),
-          home_report_score = ?,
-          home_report_attacks = ?,
-          enemy_report_score = ?,
-          enemy_report_attacks = ?
-      WHERE id = ?
-      `,
-    )
-      .bind(
-        report.winner ?? null,
-        nowSeconds(),
-        report.start ?? null,
-        report.end ?? null,
-        report.start ?? null,
-        report.end && report.end > 0 ? report.end : null,
-        homeFaction?.score ?? null,
-        homeFaction?.attacks ?? null,
-        enemyFaction?.score ?? null,
-        enemyFaction?.attacks ?? null,
-        war.id,
-      )
-      .run();
-
-    const existingMemberRows = await env.DB.prepare(
-      `
-      SELECT member_id
-      FROM war_member_stats
-      WHERE war_id = ?
-      `,
-    )
-      .bind(war.id)
-      .all();
-
-    const existingMemberIds = new Set(
-      (existingMemberRows.results ?? []).map((row: any) => Number(row.member_id)),
-    );
-    const missingMembers = (homeFaction?.members ?? []).filter(
-      (member) => !existingMemberIds.has(member.id),
+    const result = await applyRankedWarReport(
+      env,
+      war.id,
+      war.name,
+      war.faction_id,
+      tornWarId,
+      report,
     );
 
-    if (missingMembers.length > 0) {
-      await env.DB.batch(
-        missingMembers.map((member) =>
-          env.DB.prepare(
-            `
-            INSERT INTO war_member_stats (
-              war_id,
-              member_id,
-              member_name,
-              enemy_attacks_total,
-              enemy_attacks_successful,
-              enemy_respect_gained,
-              enemy_assists,
-              enemy_hospitalizations,
-              enemy_mugs,
-              outside_attacks,
-              friendly_hospitals,
-              defends_total,
-              defends_won,
-              respect_lost,
-              report_added
-            )
-            VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
-            `,
-          ).bind(war.id, member.id, member.name ?? null),
-        ),
-      );
-    }
-
-    return json({
-      ok: true,
-      war_id: war.id,
-      war_name: war.name,
-      torn_war_id: tornWarId,
-      winner_faction_id: report.winner ?? null,
-      torn_report_start: report.start ?? null,
-      torn_report_end: report.end ?? null,
-      home_report_score: homeFaction?.score ?? null,
-      home_report_attacks: homeFaction?.attacks ?? null,
-      enemy_report_score: enemyFaction?.score ?? null,
-      enemy_report_attacks: enemyFaction?.attacks ?? null,
-      home_report_members: homeFaction?.members?.length ?? 0,
-      report_added_members: missingMembers.length,
-    });
+    return json({ ok: true, ...result });
   } catch (err: any) {
     return handleMutationError(err);
   }
@@ -1486,6 +1518,127 @@ async function fetchTornRankedWarReport(tornWarId: number, env: Env) {
   return data.rankedwarreport ?? null;
 }
 
+async function applyRankedWarReport(
+  env: Env,
+  warId: number,
+  warName: string,
+  factionId: number | null,
+  tornWarId: number,
+  report: TornRankedWarReport,
+): Promise<{
+  war_id: number;
+  war_name: string;
+  torn_war_id: number;
+  winner_faction_id: number | null;
+  torn_report_start: number | null;
+  torn_report_end: number | null;
+  home_report_score: number | null;
+  home_report_attacks: number | null;
+  enemy_report_score: number | null;
+  enemy_report_attacks: number | null;
+  home_report_members: number;
+  report_added_members: number;
+}> {
+  const factions = report.factions ?? [];
+  const homeFaction = factions.find((faction) => faction.id === HOME_FACTION_ID) ?? null;
+  const enemyFaction =
+    factions.find((faction) => factionId !== null && faction.id === factionId) ??
+    factions.find((faction) => faction.id !== HOME_FACTION_ID) ??
+    null;
+
+  await env.DB.prepare(
+    `
+    UPDATE wars
+    SET winner_faction_id = ?,
+        torn_report_fetched_at = ?,
+        torn_report_start = ?,
+        torn_report_end = ?,
+        official_start_time = COALESCE(official_start_time, ?),
+        official_end_time = COALESCE(official_end_time, ?),
+        home_report_score = ?,
+        home_report_attacks = ?,
+        enemy_report_score = ?,
+        enemy_report_attacks = ?
+    WHERE id = ?
+    `,
+  )
+    .bind(
+      report.winner ?? null,
+      nowSeconds(),
+      report.start ?? null,
+      report.end ?? null,
+      report.start ?? null,
+      report.end && report.end > 0 ? report.end : null,
+      homeFaction?.score ?? null,
+      homeFaction?.attacks ?? null,
+      enemyFaction?.score ?? null,
+      enemyFaction?.attacks ?? null,
+      warId,
+    )
+    .run();
+
+  const existingMemberRows = await env.DB.prepare(
+    `
+    SELECT member_id
+    FROM war_member_stats
+    WHERE war_id = ?
+    `,
+  )
+    .bind(warId)
+    .all();
+
+  const existingMemberIds = new Set(
+    (existingMemberRows.results ?? []).map((row: any) => Number(row.member_id)),
+  );
+  const missingMembers = (homeFaction?.members ?? []).filter(
+    (member) => !existingMemberIds.has(member.id),
+  );
+
+  if (missingMembers.length > 0) {
+    await env.DB.batch(
+      missingMembers.map((member) =>
+        env.DB.prepare(
+          `
+          INSERT INTO war_member_stats (
+            war_id,
+            member_id,
+            member_name,
+            enemy_attacks_total,
+            enemy_attacks_successful,
+            enemy_respect_gained,
+            enemy_assists,
+            enemy_hospitalizations,
+            enemy_mugs,
+            outside_attacks,
+            friendly_hospitals,
+            defends_total,
+            defends_won,
+            respect_lost,
+            report_added
+          )
+          VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+          `,
+        ).bind(warId, member.id, member.name ?? null),
+      ),
+    );
+  }
+
+  return {
+    war_id: warId,
+    war_name: warName,
+    torn_war_id: tornWarId,
+    winner_faction_id: report.winner ?? null,
+    torn_report_start: report.start ?? null,
+    torn_report_end: report.end ?? null,
+    home_report_score: homeFaction?.score ?? null,
+    home_report_attacks: homeFaction?.attacks ?? null,
+    enemy_report_score: enemyFaction?.score ?? null,
+    enemy_report_attacks: enemyFaction?.attacks ?? null,
+    home_report_members: homeFaction?.members?.length ?? 0,
+    report_added_members: missingMembers.length,
+  };
+}
+
 async function getDiscrepancyGroup(
   env: Env,
   warId: number,
@@ -1644,6 +1797,35 @@ function parseWarTypeQuery(url: URL): string | null | Response {
   }
 
   return warType;
+}
+
+function sanitizeWarName(value: string): string {
+  const name = value.replace(/[^a-zA-Z0-9 _-]/g, "").trim().slice(0, 50);
+  return name || "historical-war";
+}
+
+async function uniqueWarName(
+  env: Env,
+  baseName: string,
+  tornWarId: number | null,
+): Promise<string> {
+  const existing = await env.DB.prepare(
+    `
+    SELECT id
+    FROM wars
+    WHERE LOWER(name) = LOWER(?)
+    LIMIT 1
+    `,
+  )
+    .bind(baseName)
+    .first();
+
+  if (!existing) {
+    return baseName;
+  }
+
+  const suffix = tornWarId !== null ? ` ${tornWarId}` : ` ${nowSeconds()}`;
+  return `${baseName.slice(0, 50 - suffix.length)}${suffix}`;
 }
 
 function parseOptionalBoolean(value: unknown): boolean {
