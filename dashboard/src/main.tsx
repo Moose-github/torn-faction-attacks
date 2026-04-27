@@ -279,21 +279,19 @@ function App() {
             <>
               <section className="hero-panel war-hero-panel">
                 <div>
-                  <p className="eyebrow">{selectedWar.status}</p>
+                  <p className="eyebrow">{displayWarStatus(selectedWar)}</p>
                   <div className="war-title-row">
                     <h2>{selectedWar.name}</h2>
                     <span>{formatWarType(selectedWar)}</span>
                   </div>
                   <p>Buttgrass times: {formatWarDateRange(selectedWar.start_time, selectedWar.finish_time)}</p>
-                  {selectedWar.torn_report_start || selectedWar.official_end_time ? (
-                    <p className="muted-line">
-                      Torn official times:{" "}
-                      {formatWarDateRange(
-                        selectedWar.torn_report_start ?? selectedWar.start_time,
-                        selectedWar.torn_report_end ?? selectedWar.official_end_time,
-                      )}
-                    </p>
-                  ) : null}
+                  <p className="muted-line">
+                    Torn official times:{" "}
+                    {formatWarDateRange(
+                      selectedWar.torn_report_start ?? selectedWar.start_time,
+                      selectedWar.torn_report_end ?? selectedWar.official_end_time,
+                    )}
+                  </p>
                 </div>
                 {selectedWar.war_type === "termed" ? (
                   <TermProgress
@@ -385,9 +383,9 @@ function App() {
               ) : null}
 
               <CollapsiblePanel
-                title="Faction attacks over time"
+                title="Buttgrass attacks over time"
                 aside={isLoadingActivity ? "Loading" : `${activityBuckets.length} buckets`}
-                collapsed={collapsedPanels.factionActivity ?? false}
+                collapsed={collapsedPanels.factionActivity ?? true}
                 onToggle={() => togglePanel("factionActivity")}
                 className="activity-panel"
               >
@@ -395,9 +393,9 @@ function App() {
               </CollapsiblePanel>
 
               <CollapsiblePanel
-                title="Enemy attacks over time"
+                title={`${selectedWar.name} attacks over time`}
                 aside={isLoadingActivity ? "Loading" : `${activityBuckets.length} buckets`}
-                collapsed={collapsedPanels.enemyActivity ?? false}
+                collapsed={collapsedPanels.enemyActivity ?? true}
                 onToggle={() => togglePanel("enemyActivity")}
                 className="activity-panel"
               >
@@ -449,6 +447,18 @@ function formatWarType(war: WarSummary): string {
     default:
       return "Real war";
   }
+}
+
+function displayWarStatus(war: WarSummary): string {
+  if (war.status === "scheduled") {
+    return "upcoming";
+  }
+
+  if (!war.official_end_time) {
+    return "ongoing";
+  }
+
+  return war.status;
 }
 
 function formatReportComparison(reportValue: number | null, derivedValue: number): string {

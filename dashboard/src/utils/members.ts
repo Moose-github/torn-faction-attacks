@@ -5,7 +5,8 @@ export type MemberSortKey =
   | "enemy_attacks_successful"
   | "defends_total"
   | "enemy_respect_gained"
-  | "enemy_assists";
+  | "enemy_assists"
+  | "friendly_hospitals";
 
 export type MemberSort = {
   key: MemberSortKey;
@@ -53,7 +54,7 @@ export function warOutcome(war: WarSummary, gained: number, lost: number): strin
     return "Upcoming";
   }
 
-  if (war.status !== "ended") {
+  if (!war.official_end_time) {
     return "Ongoing";
   }
 

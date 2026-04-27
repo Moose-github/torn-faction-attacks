@@ -37,9 +37,13 @@ export function formatLongDateTime(timestamp: number | null): string {
   return `${day}${ordinalSuffix(day)} ${month} ${year}, ${time}`;
 }
 
-export function formatWarDateRange(start: number | null, finish: number | null): string {
+export function formatWarDateRange(
+  start: number | null,
+  finish: number | null,
+  openLabel = "Ongoing",
+): string {
   if (!finish) {
-    return formatLongDateTime(start);
+    return `${formatLongDateTime(start)} - ${openLabel}`;
   }
 
   return `${formatLongDateTime(start)} - ${formatLongDateTime(finish)}`;
