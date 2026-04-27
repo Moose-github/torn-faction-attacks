@@ -5,6 +5,8 @@ import { formatDate, formatNumber } from "../utils/format";
 import {
   classificationLabel,
   displayMember,
+  MemberAttackSort,
+  MemberAttackSortKey,
   MemberSort,
   MemberSortKey,
 } from "../utils/members";
@@ -87,7 +89,15 @@ export function MemberTable({
   );
 }
 
-export function MemberAttackList({ attacks }: { attacks: MemberAttack[] }) {
+export function MemberAttackList({
+  attacks,
+  sort,
+  onSortChange,
+}: {
+  attacks: MemberAttack[];
+  sort: MemberAttackSort;
+  onSortChange: (sort: MemberAttackSort) => void;
+}) {
   if (attacks.length === 0) {
     return <EmptyState text="No attacks for this member" />;
   }
@@ -97,12 +107,12 @@ export function MemberAttackList({ attacks }: { attacks: MemberAttack[] }) {
       <table className="attack-log-table">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Type</th>
-            <th>Attacker</th>
-            <th>Defender</th>
-            <th>Result</th>
-            <th>Respect</th>
+            <SortableHeader label="Time" sortKey="started" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Type" sortKey="classification" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Attacker" sortKey="attacker_name" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Defender" sortKey="defender_name" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Result" sortKey="result" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Respect" sortKey="respect_gain" sort={sort} onSortChange={onSortChange} />
           </tr>
         </thead>
         <tbody>
@@ -122,16 +132,16 @@ export function MemberAttackList({ attacks }: { attacks: MemberAttack[] }) {
   );
 }
 
-function SortableHeader({
+function SortableHeader<TSortKey extends string>({
   label,
   sortKey,
   sort,
   onSortChange,
 }: {
   label: React.ReactNode;
-  sortKey: MemberSortKey;
-  sort: MemberSort;
-  onSortChange: (sort: MemberSort) => void;
+  sortKey: TSortKey;
+  sort: { key: TSortKey; direction: "asc" | "desc" };
+  onSortChange: (sort: { key: TSortKey; direction: "asc" | "desc" }) => void;
 }) {
   const isActive = sort.key === sortKey;
   const nextDirection = isActive && sort.direction === "desc" ? "asc" : "desc";

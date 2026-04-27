@@ -38,8 +38,10 @@ import { detailNumber, formatNumber, formatWarDateRange } from "./utils/format";
 import {
   displayMember,
   displayWarStatus,
+  MemberAttackSort,
   MemberSort,
   sortMembers,
+  sortMemberAttacks,
   sumMembers,
   warOutcome,
 } from "./utils/members";
@@ -54,6 +56,10 @@ function App() {
   const [overallWars, setOverallWars] = React.useState(0);
   const [memberSort, setMemberSort] = React.useState<MemberSort>({
     key: "enemy_attacks_successful",
+    direction: "desc",
+  });
+  const [memberAttackSort, setMemberAttackSort] = React.useState<MemberAttackSort>({
+    key: "started",
     direction: "desc",
   });
   const [error, setError] = React.useState<string | null>(null);
@@ -272,6 +278,7 @@ function App() {
   }, [isLoadingMemberAttacks, memberAttacks.length, selectedMember]);
 
   const members = sortMembers(warDetail?.members ?? [], memberSort);
+  const sortedMemberAttacks = sortMemberAttacks(memberAttacks, memberAttackSort);
   const chainBonuses = warDetail?.chain_bonuses ?? [];
   const derivedRespectGained = detailNumber(
     warDetail?.summary?.total_respect_gain,
@@ -498,7 +505,11 @@ function App() {
                     title={`${displayMember(selectedMember)} attacks`}
                     aside={isLoadingMemberAttacks ? "Loading" : `${memberAttacks.length} rows`}
                   />
-                  <MemberAttackList attacks={memberAttacks} />
+                  <MemberAttackList
+                    attacks={sortedMemberAttacks}
+                    sort={memberAttackSort}
+                    onSortChange={setMemberAttackSort}
+                  />
                 </section>
               ) : null}
             </>

@@ -14,6 +14,21 @@ export type MemberSort = {
   direction: "asc" | "desc";
 };
 
+export type SortDirection = "asc" | "desc";
+
+export type MemberAttackSortKey =
+  | "started"
+  | "classification"
+  | "attacker_name"
+  | "defender_name"
+  | "result"
+  | "respect_gain";
+
+export type MemberAttackSort = {
+  key: MemberAttackSortKey;
+  direction: SortDirection;
+};
+
 export function displayMember(member: MemberStats): string {
   return member.member_name ?? `#${member.member_id}`;
 }
@@ -48,6 +63,31 @@ export function sumMembers(members: MemberStats[], key: keyof MemberStats): numb
     const value = member[key];
     return total + (typeof value === "number" ? value : 0);
   }, 0);
+}
+
+export function sortMemberAttacks(
+  attacks: MemberAttack[],
+  sort: MemberAttackSort,
+): MemberAttack[] {
+  return [...attacks].sort((a, b) => {
+    const direction = sort.direction === "desc" ? -1 : 1;
+    const aValue = attackSortValue(a, sort.key);
+    const bValue = attackSortValue(b, sort.key);
+
+    if (typeof aValue === "string" && typeof bValue === "string") {
+      return aValue.localeCompare(bValue) * direction;
+    }
+
+    if (aValue < bValue) {
+      return -1 * direction;
+    }
+
+    if (aValue > bValue) {
+      return 1 * direction;
+    }
+
+    return (Number(b.started ?? 0) - Number(a.started ?? 0)) || b.id - a.id;
+  });
 }
 
 export function warOutcome(war: WarSummary, gained: number, lost: number): string {
@@ -136,4 +176,26 @@ function sortValue(member: MemberStats, key: MemberSortKey): string | number {
   }
 
   return Number(member[key] ?? 0);
+}
+
+function attackSortValue(
+  attack: MemberAttack,
+  key: MemberAttackSortKey,
+): string | number {
+  switch (key) {
+    case "started":
+      return Number(attack.started ?? 0);
+    case "classification":
+      return classificationLabel(attack.classification).toLowerCase();
+    case "attacker_name":
+      return (attack.attacker_name ?? `#${attack.attacker_id ?? ""}`).toLowerCase();
+    case "defender_name":
+      return (attack.defender_name ?? `#${attack.defender_id ?? ""}`).toLowerCase();
+    case "result":
+      return (attack.result ?? "").toLowerCase();
+    case "respect_gain":
+      return Number(attack.respect_gain ?? 0);
+    default:
+      return 0;
+  }
 }
