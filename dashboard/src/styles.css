@@ -499,7 +499,12 @@ h2 {
 }
 
 .compact-table {
-  min-width: 420px;
+  min-width: 0;
+  width: 100%;
+}
+
+.chain-bonus-compact {
+  overflow: visible;
 }
 
 .admin-hero svg {

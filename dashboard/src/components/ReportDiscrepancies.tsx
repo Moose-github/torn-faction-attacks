@@ -42,8 +42,6 @@ export function ReportDiscrepancyPanel({
       {groups.map((definition) => {
         const group = response.groups[definition.key];
         const count = group?.count ?? 0;
-        const respectGain = group?.respect_gain ?? 0;
-
         return (
           <section
             className={count === 0 ? "discrepancy-group discrepancy-group-empty" : "discrepancy-group"}
@@ -54,9 +52,7 @@ export function ReportDiscrepancyPanel({
                 <h3>{definition.title}</h3>
                 {count > 0 ? <p>{definition.detail}</p> : null}
               </div>
-              <strong>
-                {formatNumber(count)} rows / {formatNumber(respectGain)} respect
-              </strong>
+              <strong>{formatNumber(count)} rows</strong>
             </div>
             {count > 0 && group && group.attacks.length > 0 && definition.key === "chain_bonus_adjustments" ? (
               <ChainBonusList attacks={group.attacks as ChainBonusAttack[]} />
