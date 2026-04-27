@@ -1077,6 +1077,10 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         war.id,
         `
         a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND (
+          a.defender_faction_id IS NULL
+          OR a.defender_faction_id != ${HOME_FACTION_ID}
+        )
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (? IS NOT NULL AND a.started > ?)
         AND (? IS NULL OR a.started <= ?)
@@ -1096,6 +1100,10 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         war.id,
         `
         a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND (
+          a.defender_faction_id IS NULL
+          OR a.defender_faction_id != ${HOME_FACTION_ID}
+        )
         AND (? IS NULL OR a.defender_faction_id = ?)
         AND (
           a.result IS NULL
@@ -1109,18 +1117,6 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         `,
         [war.faction_id, war.faction_id, war.start_time, war.start_time, war.finish_time, war.finish_time],
       ),
-      friendly_hospitalizations: await getDiscrepancyGroup(
-        env,
-        war.id,
-        `
-        a.attacker_faction_id = ${HOME_FACTION_ID}
-        AND a.defender_faction_id = ${HOME_FACTION_ID}
-        AND a.result = 'Hospitalized'
-        AND (? IS NULL OR a.started >= ?)
-        AND (? IS NULL OR a.started <= ?)
-        `,
-        [war.start_time, war.start_time, war.finish_time, war.finish_time],
-      ),
       faction_mismatches: await getDiscrepancyGroup(
         env,
         war.id,
@@ -1131,28 +1127,26 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
             a.attacker_faction_id = ${HOME_FACTION_ID}
             AND (
               a.defender_faction_id IS NULL
-              OR a.defender_faction_id NOT IN (?, ${HOME_FACTION_ID})
+              OR a.defender_faction_id != ${HOME_FACTION_ID}
             )
-          )
-          OR (
-            a.defender_faction_id = ${HOME_FACTION_ID}
             AND (
-              a.attacker_faction_id IS NULL
-              OR (
-                a.attacker_faction_id != ?
-                AND a.attacker_faction_id != ${HOME_FACTION_ID}
-              )
+              a.defender_faction_id IS NULL
+              OR a.defender_faction_id != ?
             )
           )
         )
         `,
-        [war.faction_id, war.faction_id, war.faction_id],
+        [war.faction_id, war.faction_id],
       ),
       outside_official_window: await getDiscrepancyGroup(
         env,
         war.id,
         `
         a.started IS NOT NULL
+        AND (
+          a.defender_faction_id IS NULL
+          OR a.defender_faction_id != ${HOME_FACTION_ID}
+        )
         AND (
           a.started < ?
           OR (? IS NOT NULL AND a.started > ?)

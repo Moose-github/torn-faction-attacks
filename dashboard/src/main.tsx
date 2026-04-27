@@ -563,13 +563,8 @@ function ReportDiscrepancyPanel({
     },
     {
       key: "uncounted_enemy_results",
-      title: "Enemy attacks not counted successful",
-      detail: "These are Buttgrass attacks on the enemy faction with results outside the known successful and unsuccessful lists.",
-    },
-    {
-      key: "friendly_hospitalizations",
-      title: "Friendly hospitalizations",
-      detail: "These are Buttgrass hospitalizations against Buttgrass members, counted separately from Torn enemy totals.",
+      title: "Unknown attack results",
+      detail: "These are Buttgrass attacks on the enemy faction with result values outside the known successful and unsuccessful lists.",
     },
     {
       key: "faction_mismatches",

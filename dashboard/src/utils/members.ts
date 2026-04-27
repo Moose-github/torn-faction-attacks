@@ -4,6 +4,7 @@ export type MemberSortKey =
   | "member_name"
   | "enemy_attacks_successful"
   | "defends_total"
+  | "outside_attacks"
   | "enemy_respect_gained"
   | "enemy_assists"
   | "friendly_hospitals";
