@@ -37,7 +37,8 @@ export type StatsResponse = {
   ok: boolean;
   war_type: Exclude<WarType, "all"> | null;
   overall: OverallStats;
-  top_members: MemberStats[];
+  members: MemberStats[];
+  top_members?: MemberStats[];
 };
 
 export type WarSummary = {

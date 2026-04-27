@@ -1089,7 +1089,7 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     .bind(warType, warType)
     .first();
 
-  const topMembers = await env.DB.prepare(
+  const members = await env.DB.prepare(
     `
     SELECT
       wms.member_id,
@@ -1113,17 +1113,19 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
     GROUP BY wms.member_id
     ORDER BY enemy_respect_gained DESC, enemy_attacks_successful DESC, enemy_attacks_total DESC
-    LIMIT 25
     `,
   )
     .bind(warType, warType)
     .all();
 
+  const memberRows = members.results ?? [];
+
   return json({
     ok: true,
     war_type: warType,
     overall,
-    top_members: topMembers.results ?? [],
+    members: memberRows,
+    top_members: memberRows,
   });
 }
 
