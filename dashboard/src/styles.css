@@ -455,6 +455,11 @@ h2 {
   border-top: 1px solid #e2e8f0;
 }
 
+.discrepancy-group-empty {
+  gap: 0;
+  padding-top: 10px;
+}
+
 .discrepancy-group:first-child {
   padding-top: 0;
   border-top: 0;

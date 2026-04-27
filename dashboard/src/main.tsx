@@ -567,6 +567,11 @@ function ReportDiscrepancyPanel({
       detail: "These are Buttgrass attacks on the enemy faction with results outside the known successful and unsuccessful lists.",
     },
     {
+      key: "friendly_hospitalizations",
+      title: "Friendly hospitalizations",
+      detail: "These are Buttgrass hospitalizations against Buttgrass members, counted separately from Torn enemy totals.",
+    },
+    {
       key: "faction_mismatches",
       title: "Faction mismatches",
       detail: "These linked attacks have unexpected faction IDs for the stored war matchup.",
@@ -582,19 +587,24 @@ function ReportDiscrepancyPanel({
     <div className="discrepancy-groups">
       {groups.map((definition) => {
         const group = response.groups[definition.key];
+        const count = group?.count ?? 0;
+        const respectGain = group?.respect_gain ?? 0;
 
         return (
-          <section className="discrepancy-group" key={definition.key}>
+          <section
+            className={count === 0 ? "discrepancy-group discrepancy-group-empty" : "discrepancy-group"}
+            key={definition.key}
+          >
             <div className="discrepancy-group-header">
               <div>
                 <h3>{definition.title}</h3>
-                <p>{definition.detail}</p>
+                {count > 0 ? <p>{definition.detail}</p> : null}
               </div>
               <strong>
-                {formatNumber(group?.count ?? 0)} rows / {formatNumber(group?.respect_gain ?? 0)} respect
+                {formatNumber(count)} rows / {formatNumber(respectGain)} respect
               </strong>
             </div>
-            {group && group.attacks.length > 0 ? (
+            {count > 0 && group && group.attacks.length > 0 ? (
               <div className="table-scroll">
                 <table className="discrepancy-table">
                   <thead>
@@ -619,9 +629,7 @@ function ReportDiscrepancyPanel({
                   </tbody>
                 </table>
               </div>
-            ) : (
-              <EmptyState text="No matching attacks" />
-            )}
+            ) : null}
           </section>
         );
       })}

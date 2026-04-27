@@ -1077,6 +1077,18 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         `,
         [war.faction_id, war.faction_id, war.start_time, war.start_time, war.finish_time, war.finish_time],
       ),
+      friendly_hospitalizations: await getDiscrepancyGroup(
+        env,
+        war.id,
+        `
+        a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.result = 'Hospitalized'
+        AND (? IS NULL OR a.started >= ?)
+        AND (? IS NULL OR a.started <= ?)
+        `,
+        [war.start_time, war.start_time, war.finish_time, war.finish_time],
+      ),
       faction_mismatches: await getDiscrepancyGroup(
         env,
         war.id,
