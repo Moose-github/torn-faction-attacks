@@ -2,6 +2,7 @@ import React from "react";
 import { WarSummary, WarType } from "../api";
 import { EmptyState, PanelHeader } from "./Common";
 import { formatDate } from "../utils/format";
+import { displayWarStatus } from "../utils/members";
 
 export function Sidebar({
   warType,
@@ -116,7 +117,7 @@ function WarNav({
           <span className="war-nav-main">
             <strong>{war.name}</strong>
             <small>
-              {war.status} - {formatDate(war.start_time)}
+              {displayWarStatus(war)} - {formatDate(war.start_time)}
             </small>
           </span>
           <span className="war-nav-type">{war.war_type ?? "real"}</span>

@@ -78,6 +78,18 @@ export function warOutcome(war: WarSummary, gained: number, lost: number): strin
   return gained > lost ? "Victory" : "Loss";
 }
 
+export function displayWarStatus(war: WarSummary): string {
+  if (war.status === "scheduled") {
+    return "upcoming";
+  }
+
+  if (!hasOfficialEnd(war)) {
+    return "ongoing";
+  }
+
+  return war.status;
+}
+
 export function hasOfficialEnd(war: WarSummary): boolean {
   return Boolean(war.official_end_time || war.torn_report_end);
 }

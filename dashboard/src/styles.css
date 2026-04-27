@@ -68,6 +68,18 @@ input:disabled {
   text-transform: uppercase;
 }
 
+.war-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.war-meta-line span + span::before {
+  content: "·";
+  margin-right: 10px;
+  color: #94a3b8;
+}
+
 h1 {
   margin: 0;
   color: #111827;

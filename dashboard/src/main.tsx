@@ -37,8 +37,8 @@ import { MembersOverview } from "./views/MembersOverview";
 import { detailNumber, formatNumber, formatWarDateRange } from "./utils/format";
 import {
   displayMember,
+  displayWarStatus,
   MemberSort,
-  hasOfficialEnd,
   sortMembers,
   sumMembers,
   warOutcome,
@@ -282,6 +282,8 @@ function App() {
     selectedWar?.total_respect_lost,
   );
   const derivedSuccessfulAttacks = sumMembers(members, "enemy_attacks_successful");
+  const titleRespectGained =
+    selectedWar?.home_report_score ?? Math.max(derivedRespectGained, selectedWar?.last_observed_respect ?? 0);
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -327,7 +329,10 @@ function App() {
             <>
               <section className="hero-panel war-hero-panel">
                 <div>
-                  <p className="eyebrow">{displayWarStatus(selectedWar)}</p>
+                  <p className="eyebrow war-meta-line">
+                    <span>{displayWarStatus(selectedWar)}</span>
+                    {selectedWar.torn_war_id ? <span>Torn #{selectedWar.torn_war_id}</span> : null}
+                  </p>
                   <div className="war-title-row">
                     <h2>{selectedWar.name}</h2>
                     <span>{formatWarType(selectedWar)}</span>
@@ -349,7 +354,7 @@ function App() {
                 {selectedWar.war_type === "termed" ? (
                   <TermProgress
                     war={selectedWar}
-                    observedRespect={derivedRespectGained}
+                    observedRespect={titleRespectGained}
                   />
                 ) : null}
               </section>
@@ -527,18 +532,6 @@ function WarTimeLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function displayWarStatus(war: WarSummary): string {
-  if (war.status === "scheduled") {
-    return "upcoming";
-  }
-
-  if (!hasOfficialEnd(war)) {
-    return "ongoing";
-  }
-
-  return war.status;
-}
-
 function TermProgress({
   war,
   observedRespect,
@@ -550,7 +543,7 @@ function TermProgress({
     return null;
   }
 
-  const observed = Math.max(observedRespect, war.last_observed_respect ?? 0);
+  const observed = observedRespect;
   const progress = Math.min(100, (observed / war.faction_respect_limit) * 100);
 
   return (

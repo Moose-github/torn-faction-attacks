@@ -53,6 +53,7 @@ export async function runIngestion(env: Env): Promise<void> {
           start_time,
           status,
           war_type,
+          faction_id,
           torn_war_id,
           finish_time,
           official_end_time,
@@ -68,6 +69,9 @@ export async function runIngestion(env: Env): Promise<void> {
     : null;
   const officialEndTime =
     activeWar && latestRankedWar ? await syncActiveWarOfficialEnd(env, activeWar, latestRankedWar) : null;
+  if (activeWar && latestRankedWar && officialEndTime === null) {
+    await syncRankedWarScores(env, activeWar, latestRankedWar);
+  }
   const ingestionWar = activeWar
     ? {
         ...activeWar,
@@ -150,6 +154,7 @@ type ActiveWarForIngestion = {
   start_time: number;
   status: string;
   war_type: string | null;
+  faction_id: number | null;
   torn_war_id: number | null;
   finish_time: number | null;
   official_end_time: number | null;
@@ -578,18 +583,7 @@ async function autoEndTermedWarIfLimitReached(
   }
 
   const checkedAt = nowSeconds();
-
-  await env.DB.prepare(
-    `
-    UPDATE wars
-    SET last_respect_check_at = ?,
-        last_observed_respect = ?,
-        torn_war_id = COALESCE(torn_war_id, ?)
-    WHERE id = ?
-    `,
-  )
-    .bind(checkedAt, homeFaction.score, rankedWar.id, activeWar.id)
-    .run();
+  await updateWarRankedWarScores(env, activeWar.id, activeWar.faction_id, rankedWar);
 
   if (homeFaction.score < activeWar.faction_respect_limit) {
     return;
@@ -610,6 +604,26 @@ async function autoEndTermedWarIfLimitReached(
 
   await rebuildWarSummaryFromRaw(env, activeWar.id);
   await rebuildWarMemberStatsFromRaw(env, activeWar.id);
+}
+
+async function syncRankedWarScores(
+  env: Env,
+  activeWar: ActiveWarForIngestion,
+  rankedWar: TornRankedWar,
+): Promise<void> {
+  if (activeWar.war_type === "other") {
+    return;
+  }
+
+  if (activeWar.torn_war_id !== null && rankedWar.id !== activeWar.torn_war_id) {
+    return;
+  }
+
+  if (rankedWar.start < activeWar.start_time) {
+    return;
+  }
+
+  await updateWarRankedWarScores(env, activeWar.id, activeWar.faction_id ?? null, rankedWar);
 }
 
 async function syncActiveWarOfficialEnd(
@@ -634,6 +648,7 @@ async function syncActiveWarOfficialEnd(
   }
 
   const officialEndTime = latestRankedWar.end;
+  const scores = getRankedWarScores(activeWar.faction_id ?? null, latestRankedWar);
 
   await env.DB.prepare(
     `
@@ -641,11 +656,28 @@ async function syncActiveWarOfficialEnd(
     SET status = 'ended',
         official_end_time = ?,
         finish_time = COALESCE(finish_time, ?),
-        torn_war_id = COALESCE(torn_war_id, ?)
+        torn_war_id = COALESCE(torn_war_id, ?),
+        faction_id = COALESCE(?, faction_id),
+        last_respect_check_at = ?,
+        last_observed_respect = ?,
+        home_report_score = ?,
+        enemy_report_score = ?,
+        winner_faction_id = COALESCE(?, winner_faction_id)
     WHERE id = ?
     `,
   )
-    .bind(officialEndTime, officialEndTime, latestRankedWar.id, activeWar.id)
+    .bind(
+      officialEndTime,
+      officialEndTime,
+      latestRankedWar.id,
+      scores.enemyFaction?.id ?? null,
+      nowSeconds(),
+      scores.homeFaction?.score ?? null,
+      scores.homeFaction?.score ?? null,
+      scores.enemyFaction?.score ?? null,
+      latestRankedWar.winner ?? null,
+      activeWar.id,
+    )
     .run();
 
   await env.DB.prepare(
@@ -695,18 +727,7 @@ async function syncUpcomingRankedWar(
     .first()) as { id: number } | null;
 
   if (existingByTornId) {
-    await env.DB.prepare(
-      `
-      UPDATE wars
-      SET start_time = ?,
-          faction_id = ?,
-          last_respect_check_at = ?,
-          last_observed_respect = ?
-      WHERE id = ?
-      `,
-    )
-      .bind(rankedWar.start, enemyFaction.id, now, homeFaction.score, existingByTornId.id)
-      .run();
+    await updateWarRankedWarScores(env, existingByTornId.id, enemyFaction.id, rankedWar, rankedWar.start);
     return;
   }
 
@@ -738,12 +759,77 @@ async function syncUpcomingRankedWar(
       war_type,
       torn_war_id,
       last_respect_check_at,
-      last_observed_respect
+      last_observed_respect,
+      home_report_score,
+      enemy_report_score
     )
-    VALUES (?, 'scheduled', ?, ?, 'real', ?, ?, ?)
+    VALUES (?, 'scheduled', ?, ?, 'real', ?, ?, ?, ?, ?)
     `,
   )
-    .bind(name, rankedWar.start, enemyFaction.id, rankedWar.id, now, homeFaction.score)
+    .bind(
+      name,
+      rankedWar.start,
+      enemyFaction.id,
+      rankedWar.id,
+      now,
+      homeFaction.score,
+      homeFaction.score,
+      enemyFaction.score,
+    )
+    .run();
+}
+
+function getRankedWarScores(factionId: number | null, rankedWar: TornRankedWar): {
+  homeFaction: TornRankedWarFaction | null;
+  enemyFaction: TornRankedWarFaction | null;
+} {
+  const factions = rankedWar.factions ?? [];
+  const homeFaction = factions.find((faction) => faction.id === HOME_FACTION_ID) ?? null;
+  const enemyFaction =
+    factions.find((faction) => factionId !== null && faction.id === factionId) ??
+    factions.find((faction) => faction.id !== HOME_FACTION_ID) ??
+    null;
+
+  return { homeFaction, enemyFaction };
+}
+
+async function updateWarRankedWarScores(
+  env: Env,
+  warId: number,
+  factionId: number | null,
+  rankedWar: TornRankedWar,
+  startTime?: number,
+): Promise<void> {
+  const { homeFaction, enemyFaction } = getRankedWarScores(factionId, rankedWar);
+
+  if (!homeFaction) {
+    console.warn("Skipping ranked war score sync: home faction score missing from Torn response");
+    return;
+  }
+
+  await env.DB.prepare(
+    `
+    UPDATE wars
+    SET start_time = COALESCE(?, start_time),
+        faction_id = COALESCE(?, faction_id),
+        torn_war_id = COALESCE(torn_war_id, ?),
+        last_respect_check_at = ?,
+        last_observed_respect = ?,
+        home_report_score = ?,
+        enemy_report_score = ?
+    WHERE id = ?
+    `,
+  )
+    .bind(
+      startTime ?? null,
+      enemyFaction?.id ?? null,
+      rankedWar.id,
+      nowSeconds(),
+      homeFaction.score,
+      homeFaction.score,
+      enemyFaction?.score ?? null,
+      warId,
+    )
     .run();
 }
 
