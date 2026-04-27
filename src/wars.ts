@@ -1106,7 +1106,10 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
             a.defender_faction_id = ${HOME_FACTION_ID}
             AND (
               a.attacker_faction_id IS NULL
-              OR a.attacker_faction_id != ?
+              OR (
+                a.attacker_faction_id != ?
+                AND a.attacker_faction_id != ${HOME_FACTION_ID}
+              )
             )
           )
         )
