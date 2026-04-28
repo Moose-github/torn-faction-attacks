@@ -2,7 +2,7 @@ import React from "react";
 import { WarSummary, WarType } from "../api";
 import { EmptyState, PanelHeader } from "./Common";
 import { formatDate } from "../utils/format";
-import { displayWarStatus } from "../utils/members";
+import { displayWarStatus, splitGeneratedWarTitle } from "../utils/members";
 
 export function Sidebar({
   warType,
@@ -108,21 +108,41 @@ function WarNav({
   return (
     <nav className="war-nav">
       {wars.map((war) => (
-        <button
+        <WarNavButton
           key={war.id}
-          type="button"
-          className={war.name === selectedWarName ? "selected" : ""}
-          onClick={() => onSelect(war.name)}
-        >
-          <span className="war-nav-main">
-            <strong>{war.name}</strong>
-            <small>
-              {displayWarStatus(war)} - {formatDate(war.practical_start_time)}
-            </small>
-          </span>
-          <span className="war-nav-type">{war.war_type ?? "real"}</span>
-        </button>
+          war={war}
+          selected={war.name === selectedWarName}
+          onSelect={onSelect}
+        />
       ))}
     </nav>
+  );
+}
+
+function WarNavButton({
+  war,
+  selected,
+  onSelect,
+}: {
+  war: WarSummary;
+  selected: boolean;
+  onSelect: (name: string) => void;
+}) {
+  const title = splitGeneratedWarTitle(war.name);
+
+  return (
+    <button
+      type="button"
+      className={selected ? "selected" : ""}
+      onClick={() => onSelect(war.name)}
+    >
+      <span className="war-nav-main">
+        <strong>{title.name}</strong>
+        <small>
+          {displayWarStatus(war)} - {formatDate(war.practical_start_time)}
+        </small>
+      </span>
+      <span className="war-nav-type">{war.war_type ?? "real"}</span>
+    </button>
   );
 }

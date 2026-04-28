@@ -41,6 +41,7 @@ import {
   MemberAttackSort,
   MemberSort,
   memberSortLabel,
+  splitGeneratedWarTitle,
   sortMembers,
   sortMemberAttacks,
   sumMembers,
@@ -560,19 +561,6 @@ function formatWarType(war: WarSummary): string {
     default:
       return "Real war";
   }
-}
-
-function splitGeneratedWarTitle(name: string): { name: string; tornWarId: string | null } {
-  const match = /^(.*) (\d{5})$/.exec(name.trim());
-
-  if (!match) {
-    return { name, tornWarId: null };
-  }
-
-  return {
-    name: match[1],
-    tornWarId: match[2],
-  };
 }
 
 function WarTimeLine({ label, value }: { label: string; value: string }) {
