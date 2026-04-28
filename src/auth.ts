@@ -1,8 +1,7 @@
 import {
   AUTH_SESSION_TTL_SECONDS,
   HOME_FACTION_ID,
-  TORN_USER_BASIC_API_URL,
-  TORN_USER_FACTION_API_URL,
+  TORN_KEY_INFO_API_URL,
 } from "./constants";
 import { Env } from "./types";
 import { json, nowSeconds } from "./utils";
@@ -12,6 +11,8 @@ type AccessLevel = "member" | "admin";
 type TornAuthUser = {
   id: number;
   name: string | null;
+  key_access_level: number | null;
+  key_access_type: string | null;
 };
 
 type AuthSession = TornAuthUser & {
@@ -28,12 +29,10 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
       return json({ ok: false, error: "Torn API key is required", code: "MISSING_TORN_KEY" }, 400);
     }
 
-    const [user, factionId] = await Promise.all([
-      fetchTornUserBasic(tornKey),
-      fetchTornUserFactionId(tornKey),
-    ]);
+    const keyInfo = await fetchTornKeyInfo(tornKey);
+    const user = keyInfo.user;
 
-    if (factionId !== HOME_FACTION_ID) {
+    if (keyInfo.factionId !== HOME_FACTION_ID) {
       return json(
         {
           ok: false,
@@ -93,6 +92,8 @@ export async function getCurrentAuthSession(request: Request, env: Env): Promise
     user: {
       id: session.id,
       name: session.name,
+      key_access_level: null,
+      key_access_type: null,
     },
   });
 }
@@ -141,6 +142,8 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
   return {
     id: session.torn_user_id,
     name: session.name,
+    key_access_level: null,
+    key_access_type: null,
     access_level: session.access_level,
     expires_at: session.expires_at,
   };
@@ -152,29 +155,30 @@ function bearerToken(request: Request): string | null {
   return match?.[1]?.trim() || null;
 }
 
-async function fetchTornUserBasic(tornKey: string): Promise<TornAuthUser> {
-  const data = await fetchTornJson(TORN_USER_BASIC_API_URL, tornKey, { striptags: "true" });
-  const source = data.basic ?? data.profile ?? data.user ?? data;
-  const id = Number(source.id ?? source.player_id ?? source.user_id);
-  const name =
-    typeof source.name === "string"
-      ? source.name
-      : typeof source.username === "string"
-        ? source.username
-        : null;
+async function fetchTornKeyInfo(tornKey: string): Promise<{
+  user: TornAuthUser;
+  factionId: number | null;
+}> {
+  const data = await fetchTornJson(TORN_KEY_INFO_API_URL, tornKey);
+  const info = data.info ?? data;
+  const userInfo = info.user ?? {};
+  const accessInfo = info.access ?? {};
+  const id = Number(userInfo.id ?? userInfo.player_id ?? userInfo.user_id);
+  const factionId = Number(userInfo.faction_id);
 
   if (!Number.isInteger(id) || id <= 0) {
-    throw new Error("Torn basic response did not include a valid user ID");
+    throw new Error("Torn key info response did not include a valid user ID");
   }
 
-  return { id, name };
-}
-
-async function fetchTornUserFactionId(tornKey: string): Promise<number | null> {
-  const data = await fetchTornJson(TORN_USER_FACTION_API_URL, tornKey);
-  const faction = data.faction ?? data;
-  const id = Number(faction.id ?? faction.faction_id);
-  return Number.isInteger(id) && id > 0 ? id : null;
+  return {
+    user: {
+      id,
+      name: null,
+      key_access_level: Number.isFinite(Number(accessInfo.level)) ? Number(accessInfo.level) : null,
+      key_access_type: typeof accessInfo.type === "string" ? accessInfo.type : null,
+    },
+    factionId: Number.isInteger(factionId) && factionId > 0 ? factionId : null,
+  };
 }
 
 async function fetchTornJson(

@@ -235,6 +235,8 @@ export type AttackWindowPayload = {
 export type AuthUser = {
   id: number;
   name: string | null;
+  key_access_level?: number | null;
+  key_access_type?: string | null;
 };
 
 export type AuthSession = {

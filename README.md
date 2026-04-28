@@ -102,7 +102,7 @@ Create a session by entering a Torn key on the dashboard admin page, or by calli
 POST /api/auth/torn
 ```
 
-Admin access is granted when the Torn user belongs to faction `8803` and their user ID exists in `admin_users`.
+The Worker checks the key with Torn's `/v2/key/info` endpoint. Admin access is granted when the key belongs to faction `8803` and its Torn user ID exists in `admin_users`.
 
 Add or remove admins with D1 SQL:
 
