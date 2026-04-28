@@ -102,6 +102,13 @@ Create a session by entering a Torn key on the dashboard admin page, or by calli
 POST /api/auth/torn
 ```
 
+Refresh an existing browser session with:
+
+```http
+GET /api/auth/me
+Authorization: Bearer <session-token>
+```
+
 The Worker checks the key with Torn's `/v2/key/info` endpoint. Admin access is granted when the key belongs to faction `8803` and either:
 
 - its Torn user ID exists in `admin_users`

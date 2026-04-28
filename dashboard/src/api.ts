@@ -386,7 +386,7 @@ export async function fetchTornWarReport(tornWarId: number): Promise<unknown> {
 
 async function getJson<T>(path: string, includeAuth = false): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: authHeaders(false),
+    headers: authHeaders(includeAuth),
   });
   const data = await response.json();
 
