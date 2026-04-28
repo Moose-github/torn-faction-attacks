@@ -40,13 +40,7 @@ export async function finalizeWar(env: Env, warId: number): Promise<void> {
     .bind(warId)
     .run();
 
-  await env.DB.prepare(
-    `
-    UPDATE war_summary
-    SET finalized_at = unixepoch(), updated_at = unixepoch()
-    WHERE war_id = ?
-    `,
-  )
+  await env.DB.prepare(`UPDATE war_summary SET updated_at = unixepoch() WHERE war_id = ?`)
     .bind(warId)
     .run();
 }
@@ -65,7 +59,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND a.attacker_id IS NOT NULL
         AND ${OUTGOING_ACTION_WINDOW_SQL}
-        AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
       GROUP BY a.war_id, a.attacker_id
@@ -77,18 +71,12 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND ${OUTGOING_ACTION_WINDOW_SQL}
-        AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
     )
     INSERT INTO war_summary (
       war_id,
-      war_name,
-      status,
-      start_time,
-      finish_time,
-      official_start_time,
-      official_end_time,
       faction_attacks,
       enemy_attacks,
       outside_hits_outgoing,
@@ -97,42 +85,35 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       unique_attackers,
       first_attack_at,
       last_attack_at,
-      updated_at,
-      finalized_at
+      updated_at
     )
     SELECT
       w.id,
-      w.name,
-      w.status,
-      w.start_time,
-      w.finish_time,
-      w.official_start_time,
-      w.official_end_time,
       COALESCE(SUM(CASE
         WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
          AND ${OUTGOING_ACTION_WINDOW_SQL}
          AND (
-           w.faction_id IS NULL
-           OR a.defender_faction_id = w.faction_id
+           w.enemy_faction_id IS NULL
+           OR a.defender_faction_id = w.enemy_faction_id
          )
         THEN 1
         ELSE 0
       END), 0) AS faction_attacks,
       COALESCE(SUM(CASE
-        WHEN w.faction_id IS NOT NULL
-         AND a.attacker_faction_id = w.faction_id
+        WHEN w.enemy_faction_id IS NOT NULL
+         AND a.attacker_faction_id = w.enemy_faction_id
          AND a.defender_faction_id = ${HOME_FACTION_ID}
          AND ${DEFENSE_ACTION_WINDOW_SQL}
         THEN 1
         ELSE 0
       END), 0) AS enemy_attacks,
       COALESCE(SUM(CASE
-        WHEN w.faction_id IS NOT NULL
+        WHEN w.enemy_faction_id IS NOT NULL
          AND a.attacker_faction_id = ${HOME_FACTION_ID}
          AND ${OUTGOING_ACTION_WINDOW_SQL}
          AND (
            a.defender_faction_id IS NULL
-           OR a.defender_faction_id != w.faction_id
+           OR a.defender_faction_id != w.enemy_faction_id
          )
         THEN 1
         ELSE 0
@@ -141,8 +122,8 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
         WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
          AND ${OUTGOING_ACTION_WINDOW_SQL}
          AND (
-           w.faction_id IS NULL
-           OR a.defender_faction_id = w.faction_id
+           w.enemy_faction_id IS NULL
+           OR a.defender_faction_id = w.enemy_faction_id
          )
         THEN CASE
           WHEN a.result IN (${POSITIVE_RESULTS_SQL})
@@ -166,8 +147,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       END) AS unique_attackers,
       MIN(a.started) AS first_attack_at,
       MAX(a.started) AS last_attack_at,
-      unixepoch() AS updated_at,
-      w.finalized_at
+      unixepoch() AS updated_at
     FROM wars w
     LEFT JOIN attacks a ON a.war_id = w.id
     LEFT JOIN member_averages ma ON ma.war_id = a.war_id AND ma.attacker_id = a.attacker_id
@@ -175,12 +155,6 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
     WHERE w.id = ?
     GROUP BY w.id
     ON CONFLICT(war_id) DO UPDATE SET
-      war_name = excluded.war_name,
-      status = excluded.status,
-      start_time = excluded.start_time,
-      finish_time = excluded.finish_time,
-      official_start_time = excluded.official_start_time,
-      official_end_time = excluded.official_end_time,
       faction_attacks = excluded.faction_attacks,
       enemy_attacks = excluded.enemy_attacks,
       outside_hits_outgoing = excluded.outside_hits_outgoing,
@@ -189,8 +163,7 @@ export async function rebuildWarSummaryFromRaw(env: Env, warId: number): Promise
       unique_attackers = excluded.unique_attackers,
       first_attack_at = excluded.first_attack_at,
       last_attack_at = excluded.last_attack_at,
-      updated_at = excluded.updated_at,
-      finalized_at = excluded.finalized_at
+      updated_at = excluded.updated_at
     `,
   )
     .bind(warId, warId, warId)
@@ -206,7 +179,7 @@ export async function rebuildDerivedStatsFromRaw(env: Env): Promise<{
     `
     SELECT id, status
     FROM wars
-    ORDER BY start_time ASC, id ASC
+    ORDER BY practical_start_time ASC, id ASC
     `,
   ).all();
 
@@ -250,7 +223,7 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
         first_action_at = NULL,
         last_action_at = NULL
     ${whereClause}
-      ${whereClause ? "AND" : "WHERE"} report_added = 1
+      ${whereClause ? "AND" : "WHERE"} added_from_report = 1
     `,
   );
   if (bindValue.length > 0) {
@@ -263,7 +236,7 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
     `
     DELETE FROM war_member_stats
     ${whereClause}
-      ${whereClause ? "AND" : "WHERE"} report_added = 0
+      ${whereClause ? "AND" : "WHERE"} added_from_report = 0
     `,
   );
   if (bindValue.length > 0) {
@@ -290,7 +263,7 @@ async function upsertWarMemberAttackStats(
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND a.attacker_id IS NOT NULL
         AND ${OUTGOING_ACTION_WINDOW_SQL}
-        AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
       GROUP BY a.war_id, a.attacker_id
@@ -302,7 +275,7 @@ async function upsertWarMemberAttackStats(
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND ${OUTGOING_ACTION_WINDOW_SQL}
-        AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
     )
@@ -326,17 +299,17 @@ async function upsertWarMemberAttackStats(
       a.attacker_id,
       MAX(a.attacker_name),
       SUM(CASE
-        WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id THEN 1
+        WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id THEN 1
         ELSE 0
       END) AS enemy_attacks_total,
       SUM(CASE
-        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result IN (${POSITIVE_RESULTS_SQL})
         THEN 1
         ELSE 0
       END) AS enemy_attacks_successful,
       COALESCE(SUM(CASE
-        WHEN w.faction_id IS NULL OR a.defender_faction_id = w.faction_id
+        WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id
         THEN CASE
           WHEN a.result IN (${POSITIVE_RESULTS_SQL})
            AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
@@ -346,28 +319,28 @@ async function upsertWarMemberAttackStats(
         ELSE 0
       END), 0) AS enemy_respect_gained,
       SUM(CASE
-        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Assist'
         THEN 1
         ELSE 0
       END) AS enemy_assists,
       SUM(CASE
-        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Hospitalized'
         THEN 1
         ELSE 0
       END) AS enemy_hospitalizations,
       SUM(CASE
-        WHEN (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Mugged'
         THEN 1
         ELSE 0
       END) AS enemy_mugs,
       SUM(CASE
-        WHEN w.faction_id IS NOT NULL
+        WHEN w.enemy_faction_id IS NOT NULL
          AND (
            a.defender_faction_id IS NULL
-           OR a.defender_faction_id != w.faction_id
+           OR a.defender_faction_id != w.enemy_faction_id
          )
          AND NOT (
            a.defender_faction_id = ${HOME_FACTION_ID}
@@ -456,8 +429,8 @@ async function upsertWarMemberDefendStats(
     WHERE a.war_id = ?
       AND a.defender_faction_id = ?
       AND a.defender_id IS NOT NULL
-      AND w.faction_id IS NOT NULL
-      AND a.attacker_faction_id = w.faction_id
+      AND w.enemy_faction_id IS NOT NULL
+      AND a.attacker_faction_id = w.enemy_faction_id
       AND ${DEFENSE_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET

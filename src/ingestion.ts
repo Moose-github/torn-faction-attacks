@@ -52,12 +52,12 @@ export async function runIngestion(env: Env): Promise<void> {
         SELECT
           id,
           name,
-          start_time,
+          practical_start_time,
           status,
           war_type,
-          faction_id,
+          enemy_faction_id,
           torn_war_id,
-          finish_time,
+          practical_finish_time,
           official_end_time,
           auto_end_enabled,
           faction_respect_limit
@@ -110,7 +110,7 @@ export async function runIngestion(env: Env): Promise<void> {
       const warId =
         ingestionWar &&
         attack.started != null &&
-        attack.started >= ingestionWar.start_time &&
+        attack.started >= ingestionWar.practical_start_time &&
         (ingestionWar.official_end_time === null || attack.started <= ingestionWar.official_end_time)
           ? ingestionWar.id
           : null;
@@ -161,12 +161,12 @@ export async function runIngestion(env: Env): Promise<void> {
 type ActiveWarForIngestion = {
   id: number;
   name: string;
-  start_time: number;
+  practical_start_time: number;
   status: string;
   war_type: string | null;
-  faction_id: number | null;
+  enemy_faction_id: number | null;
   torn_war_id: number | null;
-  finish_time: number | null;
+  practical_finish_time: number | null;
   official_end_time: number | null;
   auto_end_enabled: number;
   faction_respect_limit: number | null;
@@ -405,16 +405,16 @@ export async function activateScheduledWarIfDue(env: Env): Promise<void> {
 
   const scheduledWar = (await env.DB.prepare(
     `
-    SELECT id, start_time
+    SELECT id, practical_start_time
     FROM wars
     WHERE status = 'scheduled'
-      AND start_time <= ?
-    ORDER BY start_time ASC
+      AND practical_start_time <= ?
+    ORDER BY practical_start_time ASC
     LIMIT 1
     `,
   )
     .bind(now)
-    .first()) as { id: number; start_time: number } | null;
+    .first()) as { id: number; practical_start_time: number } | null;
 
   if (!scheduledWar) {
     return;
@@ -430,8 +430,8 @@ export async function activateScheduledWarIfDue(env: Env): Promise<void> {
     .bind(scheduledWar.id)
     .run();
 
-  await setActiveWarState(env, scheduledWar.id, scheduledWar.start_time);
-  await backfillWarAssignments(env, scheduledWar.id, scheduledWar.start_time);
+  await setActiveWarState(env, scheduledWar.id, scheduledWar.practical_start_time);
+  await backfillWarAssignments(env, scheduledWar.id, scheduledWar.practical_start_time);
   await rebuildWarSummaryFromRaw(env, scheduledWar.id);
   await rebuildWarMemberStatsFromRaw(env, scheduledWar.id);
 }
@@ -546,7 +546,7 @@ async function autoEndTermedWarIfLimitReached(
     return;
   }
 
-  await updateWarRankedWarScores(env, activeWar.id, activeWar.faction_id, rankedWar);
+  await updateWarRankedWarScores(env, activeWar.id, activeWar.enemy_faction_id, rankedWar);
 
   if (homeFaction.score < activeWar.faction_respect_limit) {
     return;
@@ -556,7 +556,7 @@ async function autoEndTermedWarIfLimitReached(
   await env.DB.prepare(
     `
     UPDATE wars
-    SET finish_time = COALESCE(finish_time, ?),
+    SET practical_finish_time = COALESCE(practical_finish_time, ?),
         torn_war_id = COALESCE(torn_war_id, ?)
     WHERE id = ?
     `,
@@ -581,7 +581,7 @@ async function syncRankedWarScores(
     return;
   }
 
-  await updateWarRankedWarScores(env, activeWar.id, activeWar.faction_id ?? null, rankedWar);
+  await updateWarRankedWarScores(env, activeWar.id, activeWar.enemy_faction_id ?? null, rankedWar);
 }
 
 async function syncActiveWarOfficialEnd(
@@ -602,18 +602,18 @@ async function syncActiveWarOfficialEnd(
   }
 
   const officialEndTime = latestRankedWar.end;
-  const scores = getRankedWarScores(activeWar.faction_id ?? null, latestRankedWar);
+  const scores = getRankedWarScores(activeWar.enemy_faction_id ?? null, latestRankedWar);
 
   await env.DB.prepare(
     `
     UPDATE wars
     SET status = 'ended',
         official_end_time = ?,
-        finish_time = COALESCE(finish_time, ?),
+        practical_finish_time = COALESCE(practical_finish_time, ?),
         torn_war_id = COALESCE(torn_war_id, ?),
-        faction_id = COALESCE(?, faction_id),
-        home_report_score = ?,
-        enemy_report_score = ?,
+        enemy_faction_id = COALESCE(?, enemy_faction_id),
+        official_home_score = ?,
+        official_enemy_score = ?,
         winner_faction_id = COALESCE(?, winner_faction_id)
     WHERE id = ?
     `,
@@ -650,12 +650,12 @@ async function syncUnfinishedRankedWar(env: Env, rankedWar: TornRankedWar): Prom
     SELECT
       id,
       name,
-      start_time,
+      practical_start_time,
       status,
       war_type,
-      faction_id,
+      enemy_faction_id,
       torn_war_id,
-      finish_time,
+      practical_finish_time,
       official_end_time,
       auto_end_enabled,
       faction_respect_limit
@@ -663,7 +663,7 @@ async function syncUnfinishedRankedWar(env: Env, rankedWar: TornRankedWar): Prom
     WHERE torn_war_id = ?
       AND official_end_time IS NULL
       AND COALESCE(war_type, 'real') != 'other'
-    ORDER BY start_time DESC
+    ORDER BY practical_start_time DESC
     LIMIT 1
     `,
   )
@@ -679,7 +679,7 @@ async function syncUnfinishedRankedWar(env: Env, rankedWar: TornRankedWar): Prom
     return;
   }
 
-  await updateWarRankedWarScores(env, war.id, war.faction_id, rankedWar);
+  await updateWarRankedWarScores(env, war.id, war.enemy_faction_id, rankedWar);
 }
 
 async function syncMissingRankedWarReports(env: Env): Promise<void> {
@@ -688,12 +688,12 @@ async function syncMissingRankedWarReports(env: Env): Promise<void> {
     SELECT
       id,
       name,
-      start_time,
+      practical_start_time,
       status,
       war_type,
-      faction_id,
+      enemy_faction_id,
       torn_war_id,
-      finish_time,
+      practical_finish_time,
       official_end_time,
       auto_end_enabled,
       faction_respect_limit
@@ -703,7 +703,7 @@ async function syncMissingRankedWarReports(env: Env): Promise<void> {
       AND official_end_time IS NOT NULL
       AND torn_report_fetched_at IS NULL
       AND COALESCE(war_type, 'real') != 'other'
-    ORDER BY official_end_time DESC, start_time DESC
+    ORDER BY official_end_time DESC, practical_start_time DESC
     LIMIT 3
     `,
   )
@@ -730,7 +730,7 @@ async function fetchAndApplyRankedWarReport(
       return;
     }
 
-    await applyRankedWarReport(env, war.id, war.name, war.faction_id, rankedWarId, report);
+    await applyRankedWarReport(env, war.id, war.name, war.enemy_faction_id, rankedWarId, report);
   } catch (err: any) {
     console.error(`Torn ranked war report ${rankedWarId} fetch failed:`, err?.message || err);
   }
@@ -796,12 +796,12 @@ async function syncUpcomingRankedWar(
     INSERT INTO wars (
       name,
       status,
-      start_time,
-      faction_id,
+      practical_start_time,
+      enemy_faction_id,
       war_type,
       torn_war_id,
-      home_report_score,
-      enemy_report_score
+      official_home_score,
+      official_enemy_score
     )
     VALUES (?, 'scheduled', ?, ?, 'real', ?, ?, ?)
     `,
@@ -839,7 +839,7 @@ function rankedWarMatchesActiveWar(
     return rankedWar.id === activeWar.torn_war_id;
   }
 
-  return rankedWar.start >= activeWar.start_time;
+  return rankedWar.start >= activeWar.practical_start_time;
 }
 
 async function updateWarRankedWarScores(
@@ -859,11 +859,11 @@ async function updateWarRankedWarScores(
   await env.DB.prepare(
     `
     UPDATE wars
-    SET start_time = COALESCE(?, start_time),
-        faction_id = COALESCE(?, faction_id),
+    SET practical_start_time = COALESCE(?, practical_start_time),
+        enemy_faction_id = COALESCE(?, enemy_faction_id),
         torn_war_id = COALESCE(torn_war_id, ?),
-        home_report_score = ?,
-        enemy_report_score = ?
+        official_home_score = ?,
+        official_enemy_score = ?
     WHERE id = ?
     `,
   )

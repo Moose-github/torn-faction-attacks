@@ -104,11 +104,11 @@ export type WarRow = {
   id: number;
   name: string;
   status: string;
-  start_time: number;
-  finish_time: number | null;
+  practical_start_time: number;
+  practical_finish_time: number | null;
   official_start_time: number | null;
   official_end_time: number | null;
-  faction_id: number | null;
+  enemy_faction_id: number | null;
   war_type: string | null;
   torn_war_id: number | null;
   auto_end_enabled: number;
@@ -116,21 +116,15 @@ export type WarRow = {
   member_respect_limit: number | null;
   winner_faction_id: number | null;
   torn_report_fetched_at: number | null;
-  home_report_score: number | null;
-  home_report_attacks: number | null;
-  enemy_report_score: number | null;
-  enemy_report_attacks: number | null;
+  official_home_score: number | null;
+  official_home_attacks: number | null;
+  official_enemy_score: number | null;
+  official_enemy_attacks: number | null;
   finalized_at: number | null;
 };
 
 export type WarSummaryRow = {
   war_id: number;
-  war_name: string;
-  status: string;
-  start_time: number;
-  finish_time: number | null;
-  official_start_time: number | null;
-  official_end_time: number | null;
   faction_attacks: number;
   enemy_attacks: number;
   outside_hits_outgoing: number;
@@ -140,5 +134,4 @@ export type WarSummaryRow = {
   first_attack_at: number | null;
   last_attack_at: number | null;
   updated_at: number;
-  finalized_at: number | null;
 };

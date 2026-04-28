@@ -30,7 +30,7 @@ export type MemberStats = {
   respect_lost: number;
   first_seen_at: number | null;
   last_seen_at: number | null;
-  report_added?: number;
+  added_from_report?: number;
 };
 
 export type StatsResponse = {
@@ -44,11 +44,11 @@ export type WarSummary = {
   id: number;
   name: string;
   status: string;
-  start_time: number;
-  finish_time: number | null;
+  practical_start_time: number;
+  practical_finish_time: number | null;
   official_start_time: number | null;
   official_end_time: number | null;
-  faction_id: number | null;
+  enemy_faction_id: number | null;
   war_type: Exclude<WarType, "all"> | null;
   torn_war_id: number | null;
   auto_end_enabled: number;
@@ -56,10 +56,10 @@ export type WarSummary = {
   member_respect_limit: number | null;
   winner_faction_id: number | null;
   torn_report_fetched_at: number | null;
-  home_report_score: number | null;
-  home_report_attacks: number | null;
-  enemy_report_score: number | null;
-  enemy_report_attacks: number | null;
+  official_home_score: number | null;
+  official_home_attacks: number | null;
+  official_enemy_score: number | null;
+  official_enemy_attacks: number | null;
   finalized_at: number | null;
   faction_attacks: number;
   enemy_attacks: number;
@@ -82,12 +82,6 @@ export type WarDetailResponse = {
   war: WarSummary;
   summary: {
     war_id: number;
-    war_name: string;
-    status: string;
-    start_time: number;
-    finish_time: number | null;
-    official_start_time: number | null;
-    official_end_time: number | null;
     faction_attacks: number;
     enemy_attacks: number;
     outside_hits_outgoing: number;
@@ -97,7 +91,6 @@ export type WarDetailResponse = {
     first_attack_at: number | null;
     last_attack_at: number | null;
     updated_at: number;
-    finalized_at: number | null;
   } | null;
   members: MemberStats[];
   chain_bonuses: ChainBonusAttack[];
@@ -202,11 +195,11 @@ export type ReportDiscrepanciesResponse = {
   war: {
     id: number;
     name: string;
-    start_time: number;
-    finish_time: number | null;
+    practical_start_time: number;
+    practical_finish_time: number | null;
     official_start_time: number | null;
     official_end_time: number | null;
-    faction_id: number | null;
+    enemy_faction_id: number | null;
     war_type: Exclude<WarType, "all">;
   };
   groups: Record<string, ReportDiscrepancyGroup>;
@@ -214,11 +207,11 @@ export type ReportDiscrepanciesResponse = {
 
 export type AdminWarPayload = {
   name?: string;
-  start_time?: number;
-  finish_time?: number;
+  practical_start_time?: number;
+  practical_finish_time?: number;
   official_start_time?: number;
   official_finish_time?: number;
-  faction_id?: number;
+  enemy_faction_id?: number;
   war_type: Exclude<WarType, "all">;
   torn_war_id?: number;
   auto_end_enabled?: boolean;
@@ -227,8 +220,8 @@ export type AdminWarPayload = {
 };
 
 export type AttackWindowPayload = {
-  start_time: number;
-  finish_time: number;
+  practical_start_time: number;
+  practical_finish_time: number;
   limit?: number;
 };
 
@@ -356,8 +349,8 @@ export async function importWar(payload: AdminWarPayload): Promise<unknown> {
 
 export async function previewImportWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars/import/preview", {
-    start_time: payload.start_time,
-    finish_time: payload.finish_time,
+    practical_start_time: payload.practical_start_time,
+    practical_finish_time: payload.practical_finish_time,
     official_start_time: payload.official_start_time,
     official_finish_time: payload.official_finish_time,
     war_type: payload.war_type,

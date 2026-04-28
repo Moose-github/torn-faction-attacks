@@ -287,8 +287,8 @@ export function AdminControls() {
               event.preventDefault();
               runAdminAction("Pull attack window", () =>
                 pullAttackWindow({
-                  start_time: secondsFromDateTimeLocal(attackWindowForm.startTime),
-                  finish_time: secondsFromDateTimeLocal(attackWindowForm.finishTime),
+                  practical_start_time: secondsFromDateTimeLocal(attackWindowForm.startTime),
+                  practical_finish_time: secondsFromDateTimeLocal(attackWindowForm.finishTime),
                   limit: attackWindowForm.limit.trim() ? Number(attackWindowForm.limit) : undefined,
                 }),
               );
@@ -564,16 +564,16 @@ function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): Admi
   }
 
   if (!includeFinishTime || form.warType !== "real") {
-    payload.start_time = secondsFromFormTime(form, "start");
+    payload.practical_start_time = secondsFromFormTime(form, "start");
   }
 
   if (includeFinishTime && form.warType !== "real") {
-    payload.finish_time = secondsFromFormTime(form, "finish");
+    payload.practical_finish_time = secondsFromFormTime(form, "finish");
     setOptionalTime(payload, "official_start_time", form, "officialStart");
     setOptionalTime(payload, "official_finish_time", form, "officialFinish");
   }
 
-  setOptionalNumber(payload, "faction_id", form.factionId);
+  setOptionalNumber(payload, "enemy_faction_id", form.factionId);
   setOptionalNumber(payload, "torn_war_id", form.tornWarId);
 
   if (form.warType === "termed") {

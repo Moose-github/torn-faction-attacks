@@ -32,7 +32,9 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as {
       name?: unknown;
+      practical_start_time?: unknown;
       start_time?: unknown;
+      enemy_faction_id?: unknown;
       faction_id?: unknown;
       war_type?: unknown;
       torn_war_id?: unknown;
@@ -48,10 +50,11 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
 
     const now = nowSeconds();
     let startTime = now;
-    const factionId =
-      body.faction_id === undefined || body.faction_id === null
+    const enemyFactionValue = body.enemy_faction_id ?? body.faction_id;
+    const enemyFactionId =
+      enemyFactionValue === undefined || enemyFactionValue === null
         ? null
-        : Number(body.faction_id);
+        : Number(enemyFactionValue);
     const warType = parseWarType(body.war_type, "real");
     const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
     const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
@@ -64,16 +67,17 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
       "member_respect_limit",
     );
 
-    if (body.start_time !== undefined) {
-      const parsed = Number(body.start_time);
+    const practicalStartValue = body.practical_start_time ?? body.start_time;
+    if (practicalStartValue !== undefined) {
+      const parsed = Number(practicalStartValue);
       if (!Number.isInteger(parsed) || parsed < 0) {
-        return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
+        return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
       }
       startTime = parsed;
     }
 
-    if (factionId !== null && (!Number.isInteger(factionId) || factionId < 0)) {
-      return json({ ok: false, error: "Invalid faction_id", code: "INVALID_FACTION_ID" }, 400);
+    if (enemyFactionId !== null && (!Number.isInteger(enemyFactionId) || enemyFactionId < 0)) {
+      return json({ ok: false, error: "Invalid enemy_faction_id", code: "INVALID_FACTION_ID" }, 400);
     }
 
     const validationError = validateTermedWarFields(
@@ -105,8 +109,8 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
     }
 
     const existingScheduledWar = (await env.DB.prepare(
-      `SELECT id, name, start_time FROM wars WHERE status = 'scheduled' LIMIT 1`,
-    ).first()) as { id: number; name: string; start_time: number } | null;
+      `SELECT id, name, practical_start_time FROM wars WHERE status = 'scheduled' LIMIT 1`,
+    ).first()) as { id: number; name: string; practical_start_time: number } | null;
 
     if (status === "scheduled" && existingScheduledWar) {
       return json(
@@ -125,8 +129,8 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
       INSERT INTO wars (
         name,
         status,
-        start_time,
-        faction_id,
+        practical_start_time,
+        enemy_faction_id,
         war_type,
         torn_war_id,
         auto_end_enabled,
@@ -142,7 +146,7 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
         name,
         status,
         startTime,
-        factionId,
+        enemyFactionId,
         warType,
         tornWarId,
         autoEndEnabled,
@@ -168,10 +172,13 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
   try {
     const body = (await request.json()) as {
       name?: unknown;
+      practical_start_time?: unknown;
       start_time?: unknown;
+      practical_finish_time?: unknown;
       finish_time?: unknown;
       official_start_time?: unknown;
       official_finish_time?: unknown;
+      enemy_faction_id?: unknown;
       faction_id?: unknown;
       war_type?: unknown;
       torn_war_id?: unknown;
@@ -186,29 +193,32 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
     const reportFactions = report?.factions ?? [];
     const reportEnemyFaction =
       reportFactions.find((faction) => faction.id !== HOME_FACTION_ID) ?? null;
-    const bodyFactionId =
-      body.faction_id === undefined || body.faction_id === null || body.faction_id === ""
+    const enemyFactionValue = body.enemy_faction_id ?? body.faction_id;
+    const bodyEnemyFactionId =
+      enemyFactionValue === undefined || enemyFactionValue === null || enemyFactionValue === ""
         ? null
-        : Number(body.faction_id);
-    const factionId = reportEnemyFaction?.id ?? bodyFactionId;
+        : Number(enemyFactionValue);
+    const enemyFactionId = reportEnemyFaction?.id ?? bodyEnemyFactionId;
     const name = await uniqueWarName(
       env,
       sanitizeWarName(
       reportEnemyFaction?.name ??
         (typeof body.name === "string" && body.name.trim()
           ? body.name.trim()
-          : `historical-${tornWarId ?? Number(body.start_time)}`),
+          : `historical-${tornWarId ?? Number(body.practical_start_time ?? body.start_time)}`),
       ),
       tornWarId,
     );
     const reportStartTime = report?.start ?? null;
     const reportFinishTime = report?.end && report.end > 0 ? report.end : null;
     const startTime =
-      warType === "real" && reportStartTime !== null ? reportStartTime : Number(body.start_time);
+      warType === "real" && reportStartTime !== null
+        ? reportStartTime
+        : Number(body.practical_start_time ?? body.start_time);
     const finishTime =
       warType === "real" && reportFinishTime !== null
         ? reportFinishTime
-        : Number(body.finish_time);
+        : Number(body.practical_finish_time ?? body.finish_time);
     const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
     const factionRespectLimit = parseOptionalNonNegativeNumber(
       body.faction_respect_limit,
@@ -266,11 +276,11 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
     }
 
     if (!Number.isInteger(startTime) || startTime < 0) {
-      return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
+      return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
     }
 
     if (!Number.isInteger(finishTime) || finishTime < 0) {
-      return json({ ok: false, error: "Invalid finish_time", code: "INVALID_FINISH_TIME" }, 400);
+      return json({ ok: false, error: "Invalid practical_finish_time", code: "INVALID_FINISH_TIME" }, 400);
     }
 
     if (!Number.isInteger(officialStartTime) || officialStartTime < 0) {
@@ -287,8 +297,8 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       );
     }
 
-    if (factionId !== null && (!Number.isInteger(factionId) || factionId < 0)) {
-      return json({ ok: false, error: "Invalid faction_id", code: "INVALID_FACTION_ID" }, 400);
+    if (enemyFactionId !== null && (!Number.isInteger(enemyFactionId) || enemyFactionId < 0)) {
+      return json({ ok: false, error: "Invalid enemy_faction_id", code: "INVALID_FACTION_ID" }, 400);
     }
 
     const validationError = validateTermedWarFields(
@@ -305,7 +315,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       return json(
         {
           ok: false,
-          error: "finish_time must be greater than or equal to start_time",
+          error: "practical_finish_time must be greater than or equal to practical_start_time",
           code: "INVALID_TIME_RANGE",
         },
         400,
@@ -366,11 +376,11 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       INSERT INTO wars (
         name,
         status,
-        start_time,
-        finish_time,
+        practical_start_time,
+        practical_finish_time,
         official_start_time,
         official_end_time,
-        faction_id,
+        enemy_faction_id,
         war_type,
         torn_war_id,
         auto_end_enabled,
@@ -388,7 +398,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         finishTime,
         officialStartTime,
         officialFinishTime,
-        factionId,
+        enemyFactionId,
         warType,
         tornWarId,
         autoEndEnabled,
@@ -409,7 +419,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
     );
     const reportResult =
       report && tornWarId !== null
-        ? await applyRankedWarReport(env, war.id, war.name, factionId, tornWarId, report)
+        ? await applyRankedWarReport(env, war.id, war.name, enemyFactionId, tornWarId, report)
         : null;
     await finalizeWar(env, war.id);
 
@@ -418,8 +428,8 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         ok: true,
         war_id: war.id,
         name: war.name,
-        start_time: startTime,
-        finish_time: finishTime,
+        practical_start_time: startTime,
+        practical_finish_time: finishTime,
         official_start_time: officialStartTime,
         official_finish_time: officialFinishTime,
         imported_attack_count: importedAttackCount,
@@ -435,7 +445,9 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
 export async function previewHistoricalWarImport(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as {
+      practical_start_time?: unknown;
       start_time?: unknown;
+      practical_finish_time?: unknown;
       finish_time?: unknown;
       official_start_time?: unknown;
       official_finish_time?: unknown;
@@ -449,11 +461,13 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
     const reportStartTime = report?.start ?? null;
     const reportFinishTime = report?.end && report.end > 0 ? report.end : null;
     const startTime =
-      warType === "real" && reportStartTime !== null ? reportStartTime : Number(body.start_time);
+      warType === "real" && reportStartTime !== null
+        ? reportStartTime
+        : Number(body.practical_start_time ?? body.start_time);
     const finishTime =
       warType === "real" && reportFinishTime !== null
         ? reportFinishTime
-        : Number(body.finish_time);
+        : Number(body.practical_finish_time ?? body.finish_time);
     const officialStartTime = optionalTimestampOrDefault(
       body.official_start_time,
       reportStartTime ?? startTime,
@@ -497,11 +511,11 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
     }
 
     if (!Number.isInteger(startTime) || startTime < 0) {
-      return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
+      return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
     }
 
     if (!Number.isInteger(finishTime) || finishTime < 0) {
-      return json({ ok: false, error: "Invalid finish_time", code: "INVALID_FINISH_TIME" }, 400);
+      return json({ ok: false, error: "Invalid practical_finish_time", code: "INVALID_FINISH_TIME" }, 400);
     }
 
     if (!Number.isInteger(officialStartTime) || officialStartTime < 0) {
@@ -522,7 +536,7 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
       return json(
         {
           ok: false,
-          error: "finish_time must be greater than or equal to start_time",
+          error: "practical_finish_time must be greater than or equal to practical_start_time",
           code: "INVALID_TIME_RANGE",
         },
         400,
@@ -555,8 +569,8 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
 
     return json({
       ok: true,
-      start_time: startTime,
-      finish_time: finishTime,
+      practical_start_time: startTime,
+      practical_finish_time: finishTime,
       official_start_time: officialStartTime,
       official_finish_time: officialFinishTime,
       duration_seconds: finishTime - startTime,
@@ -571,31 +585,33 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
 export async function getAttackWindow(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as {
+      practical_start_time?: unknown;
       start_time?: unknown;
+      practical_finish_time?: unknown;
       finish_time?: unknown;
       limit?: unknown;
     };
 
-    const startTime = Number(body.start_time);
-    const finishTime = Number(body.finish_time);
+    const startTime = Number(body.practical_start_time ?? body.start_time);
+    const finishTime = Number(body.practical_finish_time ?? body.finish_time);
     const limit =
       body.limit === undefined || body.limit === null || body.limit === ""
         ? 100
         : Number(body.limit);
 
     if (!Number.isInteger(startTime) || startTime < 0) {
-      return json({ ok: false, error: "Invalid start_time", code: "INVALID_START_TIME" }, 400);
+      return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
     }
 
     if (!Number.isInteger(finishTime) || finishTime < 0) {
-      return json({ ok: false, error: "Invalid finish_time", code: "INVALID_FINISH_TIME" }, 400);
+      return json({ ok: false, error: "Invalid practical_finish_time", code: "INVALID_FINISH_TIME" }, 400);
     }
 
     if (finishTime < startTime) {
       return json(
         {
           ok: false,
-          error: "finish_time must be greater than or equal to start_time",
+          error: "practical_finish_time must be greater than or equal to practical_start_time",
           code: "INVALID_TIME_RANGE",
         },
         400,
@@ -610,8 +626,8 @@ export async function getAttackWindow(request: Request, env: Env): Promise<Respo
 
     return json({
       ok: true,
-      start_time: startTime,
-      finish_time: finishTime,
+      practical_start_time: startTime,
+      practical_finish_time: finishTime,
       duration_seconds: finishTime - startTime,
       ...window,
     });
@@ -699,7 +715,7 @@ export async function endActiveWar(env: Env): Promise<Response> {
   await env.DB.prepare(
     `
     UPDATE wars
-    SET status = 'ended', finish_time = ?
+    SET status = 'ended', practical_finish_time = ?
     WHERE id = ?
     `,
   )
@@ -719,7 +735,7 @@ export async function endActiveWar(env: Env): Promise<Response> {
 
   await finalizeWar(env, activeWarId);
 
-  return json({ ok: true, war_id: activeWarId, finish_time: endedAt });
+  return json({ ok: true, war_id: activeWarId, practical_finish_time: endedAt });
 }
 
 export async function listWars(url: URL, env: Env): Promise<Response> {
@@ -745,7 +761,7 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
       FROM wars w
       LEFT JOIN war_summary ws ON ws.war_id = w.id
       WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
-      ORDER BY w.start_time DESC
+      ORDER BY w.practical_start_time DESC
       `,
     )
       .bind(warType, warType)
@@ -886,7 +902,7 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
 
     const war = (await env.DB.prepare(
       `
-      SELECT id, name, start_time, finish_time, official_start_time, official_end_time, status, faction_id
+      SELECT id, name, practical_start_time, practical_finish_time, official_start_time, official_end_time, status, enemy_faction_id
       FROM wars
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
@@ -896,12 +912,12 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
       .first()) as {
       id: number;
       name: string;
-      start_time: number;
-      finish_time: number | null;
+      practical_start_time: number;
+      practical_finish_time: number | null;
       official_start_time: number | null;
       official_end_time: number | null;
       status: string;
-      faction_id: number | null;
+      enemy_faction_id: number | null;
     } | null;
 
     if (!war) {
@@ -947,7 +963,7 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
 
     const attacks = (rows.results ?? []).map((attack: any) => ({
       ...attack,
-      classification: classifyMemberAttack(attack, memberId, war.faction_id),
+      classification: classifyMemberAttack(attack, memberId, war.enemy_faction_id),
     }));
 
     return json({
@@ -955,7 +971,7 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
       war: {
         id: war.id,
         name: war.name,
-        faction_id: war.faction_id,
+        enemy_faction_id: war.enemy_faction_id,
       },
       member_id: memberId,
       paging: {
@@ -982,14 +998,14 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
 
     const war = (await env.DB.prepare(
       `
-      SELECT id, name, faction_id
+      SELECT id, name, enemy_faction_id
       FROM wars
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
       `,
     )
       .bind(name)
-      .first()) as { id: number; name: string; faction_id: number | null } | null;
+      .first()) as { id: number; name: string; enemy_faction_id: number | null } | null;
 
     if (!war) {
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
@@ -1056,16 +1072,16 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
       .bind(
         bucketSeconds,
         bucketSeconds,
-        war.faction_id,
-        war.faction_id,
-        war.faction_id,
-        war.faction_id,
-        war.faction_id,
-        war.faction_id,
-        war.faction_id,
-        war.faction_id,
-        war.faction_id,
-        war.faction_id,
+        war.enemy_faction_id,
+        war.enemy_faction_id,
+        war.enemy_faction_id,
+        war.enemy_faction_id,
+        war.enemy_faction_id,
+        war.enemy_faction_id,
+        war.enemy_faction_id,
+        war.enemy_faction_id,
+        war.enemy_faction_id,
+        war.enemy_faction_id,
         war.id,
       )
       .all();
@@ -1084,7 +1100,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
       war: {
         id: war.id,
         name: war.name,
-        faction_id: war.faction_id,
+        enemy_faction_id: war.enemy_faction_id,
       },
       bucket_minutes: bucketMinutes,
       buckets,

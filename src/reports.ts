@@ -19,14 +19,14 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
 
     const war = (await env.DB.prepare(
       `
-      SELECT id, name, faction_id, torn_war_id
+      SELECT id, name, enemy_faction_id, torn_war_id
       FROM wars
       WHERE torn_war_id = ?
       LIMIT 1
       `,
     )
       .bind(tornWarId)
-      .first()) as { id: number; name: string; faction_id: number | null; torn_war_id: number } | null;
+      .first()) as { id: number; name: string; enemy_faction_id: number | null; torn_war_id: number } | null;
 
     if (!war) {
       return json(
@@ -55,7 +55,7 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
       env,
       war.id,
       war.name,
-      war.faction_id,
+      war.enemy_faction_id,
       tornWarId,
       report,
     );
@@ -79,11 +79,11 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       SELECT
         id,
         name,
-        start_time,
-        finish_time,
+        practical_start_time,
+        practical_finish_time,
         official_start_time,
         official_end_time,
-        faction_id,
+        enemy_faction_id,
         war_type
       FROM wars
       WHERE LOWER(name) = LOWER(?)
@@ -94,11 +94,11 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       .first()) as {
       id: number;
       name: string;
-      start_time: number;
-      finish_time: number | null;
+      practical_start_time: number;
+      practical_finish_time: number | null;
       official_start_time: number | null;
       official_end_time: number | null;
-      faction_id: number | null;
+      enemy_faction_id: number | null;
       war_type: string | null;
     } | null;
 
@@ -106,7 +106,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
     }
 
-    const officialStartTime = war.official_start_time ?? war.start_time;
+    const officialStartTime = war.official_start_time ?? war.practical_start_time;
     const officialEndTime = war.official_end_time;
 
     const groups = {
@@ -125,12 +125,12 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         AND (? IS NULL OR a.defender_faction_id = ?)
         `,
         [
-          war.finish_time,
-          war.finish_time,
+          war.practical_finish_time,
+          war.practical_finish_time,
           officialEndTime,
           officialEndTime,
-          war.faction_id,
-          war.faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
         ],
       ),
       uncounted_enemy_results: await getDiscrepancyGroup(
@@ -153,7 +153,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         AND (? IS NULL OR a.started >= ?)
         AND (? IS NULL OR a.started <= ?)
         `,
-        [war.faction_id, war.faction_id, war.start_time, war.start_time, war.finish_time, war.finish_time],
+        [war.enemy_faction_id, war.enemy_faction_id, war.practical_start_time, war.practical_start_time, war.practical_finish_time, war.practical_finish_time],
       ),
       chain_bonus_adjustments: await getChainBonusAdjustmentGroup(env, war.id),
       outside_official_window: await getDiscrepancyGroup(
@@ -179,11 +179,11 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       war: {
         id: war.id,
         name: war.name,
-        start_time: war.start_time,
-        finish_time: war.finish_time,
+        practical_start_time: war.practical_start_time,
+        practical_finish_time: war.practical_finish_time,
         official_start_time: officialStartTime,
         official_end_time: officialEndTime,
-        faction_id: war.faction_id,
+        enemy_faction_id: war.enemy_faction_id,
         war_type: war.war_type ?? "real",
       },
       groups,
@@ -222,12 +222,12 @@ export async function applyRankedWarReport(
   war_name: string;
   torn_war_id: number;
   winner_faction_id: number | null;
-  home_report_score: number | null;
-  home_report_attacks: number | null;
-  enemy_report_score: number | null;
-  enemy_report_attacks: number | null;
+  official_home_score: number | null;
+  official_home_attacks: number | null;
+  official_enemy_score: number | null;
+  official_enemy_attacks: number | null;
   home_report_members: number;
-  report_added_members: number;
+  added_from_report_members: number;
 }> {
   const factions = report.factions ?? [];
   const homeFaction = factions.find((faction) => faction.id === HOME_FACTION_ID) ?? null;
@@ -243,10 +243,10 @@ export async function applyRankedWarReport(
         torn_report_fetched_at = ?,
         official_start_time = COALESCE(official_start_time, ?),
         official_end_time = COALESCE(official_end_time, ?),
-        home_report_score = ?,
-        home_report_attacks = ?,
-        enemy_report_score = ?,
-        enemy_report_attacks = ?
+        official_home_score = ?,
+        official_home_attacks = ?,
+        official_enemy_score = ?,
+        official_enemy_attacks = ?
     WHERE id = ?
     `,
   )
@@ -300,7 +300,7 @@ export async function applyRankedWarReport(
             defends_total,
             defends_won,
             respect_lost,
-            report_added
+            added_from_report
           )
           VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
           `,
@@ -314,12 +314,12 @@ export async function applyRankedWarReport(
     war_name: warName,
     torn_war_id: tornWarId,
     winner_faction_id: report.winner ?? null,
-    home_report_score: homeFaction?.score ?? null,
-    home_report_attacks: homeFaction?.attacks ?? null,
-    enemy_report_score: enemyFaction?.score ?? null,
-    enemy_report_attacks: enemyFaction?.attacks ?? null,
+    official_home_score: homeFaction?.score ?? null,
+    official_home_attacks: homeFaction?.attacks ?? null,
+    official_enemy_score: enemyFaction?.score ?? null,
+    official_enemy_attacks: enemyFaction?.attacks ?? null,
     home_report_members: homeFaction?.members?.length ?? 0,
-    report_added_members: missingMembers.length,
+    added_from_report_members: missingMembers.length,
   };
 }
 
@@ -457,7 +457,7 @@ function chainBonusAdjustmentSelectSql(): string {
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND a.attacker_id IS NOT NULL
         AND ${OUTGOING_ACTION_WINDOW_SQL}
-        AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
       GROUP BY a.war_id, a.attacker_id
@@ -469,7 +469,7 @@ function chainBonusAdjustmentSelectSql(): string {
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND ${OUTGOING_ACTION_WINDOW_SQL}
-        AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
     )
@@ -497,7 +497,7 @@ function chainBonusAdjustmentSelectSql(): string {
     WHERE a.war_id = ?
       AND a.attacker_faction_id = ${HOME_FACTION_ID}
       AND ${OUTGOING_ACTION_WINDOW_SQL}
-      AND (w.faction_id IS NULL OR a.defender_faction_id = w.faction_id)
+      AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
       AND a.result IN (${POSITIVE_RESULTS_SQL})
       AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
   `;

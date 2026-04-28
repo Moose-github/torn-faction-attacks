@@ -103,7 +103,7 @@ export function warOutcome(war: WarSummary, gained: number, lost: number): strin
     return "Buttgrass won";
   }
 
-  if (war.faction_id !== null && war.winner_faction_id === war.faction_id) {
+  if (war.enemy_faction_id !== null && war.winner_faction_id === war.enemy_faction_id) {
     return `${war.name} won`;
   }
 

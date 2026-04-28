@@ -117,7 +117,7 @@ function WarNav({
           <span className="war-nav-main">
             <strong>{war.name}</strong>
             <small>
-              {displayWarStatus(war)} - {formatDate(war.start_time)}
+              {displayWarStatus(war)} - {formatDate(war.practical_start_time)}
             </small>
           </span>
           <span className="war-nav-type">{war.war_type ?? "real"}</span>

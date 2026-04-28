@@ -1,8 +1,6 @@
 # Torn Faction Attacks
 
-A Cloudflare Worker that imports Torn faction attack data into D1 and tracks war-level summaries for faction performance.
-
-The current project is API-first. The next planned step is to add a dashboard on top of these endpoints for viewing wars, attack activity, member stats, and long-term career totals.
+A Cloudflare Worker and React dashboard that import Torn faction attack data into D1 and track war-level and member-level faction performance.
 
 ## What It Does
 
@@ -13,8 +11,7 @@ The current project is API-first. The next planned step is to add a dashboard on
 - Builds summary tables for:
   - war totals
   - member war stats
-  - member career stats
-- Exposes JSON API endpoints for testing and future dashboard use.
+- Exposes JSON API endpoints for the dashboard and admin controls.
 
 ## Stack
 
@@ -31,19 +28,22 @@ src/
   index.ts        Worker routes and scheduled handler
   ingestion.ts    Torn API import and war assignment
   wars.ts         War creation, import, listing, and lookup APIs
-  summaries.ts    War/member/career summary rebuilds and increments
+  reports.ts      Torn ranked war report fetch and validation helpers
+  summaries.ts    War and member summary rebuilds
+  auth.ts         Torn-key session authentication and admin lookup
+  sql.ts          Shared SQL column lists and action windows
   constants.ts    API constants and faction settings
   types.ts        Worker, D1, and Torn API types
   utils.ts        Shared helpers
 
 migrations/
-  0001_create_comments_table.sql
   0002_create_torn_attack_tables.sql
   0003_rebuild_member_performance_tables.sql
   0004_add_war_event_fields.sql
+  ...
 ```
 
-`0001_create_comments_table.sql` is from the original Cloudflare D1 template. The app schema starts in `0002_create_torn_attack_tables.sql`, member performance summaries are reshaped in `0003_rebuild_member_performance_tables.sql`, and event/termed-war fields are added in `0004_add_war_event_fields.sql`.
+The app schema starts in `0002_create_torn_attack_tables.sql`; later migrations reshape member performance, add event/termed-war fields, ranked war report fields, auth tables, and schema cleanup.
 
 ## Configuration
 
@@ -156,8 +156,8 @@ Example body:
 ```json
 {
   "name": "example-war",
-  "start_time": 1760000000,
-  "faction_id": 12345,
+  "practical_start_time": 1760000000,
+  "enemy_faction_id": 12345,
   "war_type": "real"
 }
 ```
@@ -167,8 +167,8 @@ Termed war example:
 ```json
 {
   "name": "example-termed-war",
-  "start_time": 1760000000,
-  "faction_id": 12345,
+  "practical_start_time": 1760000000,
+  "enemy_faction_id": 12345,
   "war_type": "termed",
   "auto_end_enabled": true,
   "faction_respect_limit": 5000,
@@ -187,9 +187,9 @@ Example body:
 ```json
 {
   "name": "old-war",
-  "start_time": 1759000000,
-  "finish_time": 1759086400,
-  "faction_id": 12345,
+  "practical_start_time": 1759000000,
+  "practical_finish_time": 1759086400,
+  "enemy_faction_id": 12345,
   "war_type": "real"
 }
 ```
@@ -257,8 +257,9 @@ During each run, the Worker:
 5. Inserts unseen attacks into D1.
 6. Updates active war summaries when relevant attacks are imported.
 7. Checks active termed wars with auto-end enabled against the latest Torn ranked war score.
+8. Updates live official Torn scores and fetches missing ranked war reports for ended wars.
 
-For termed wars, `last_observed_respect` and `last_respect_check_at` are updated from Torn's ranked war API. If `last_observed_respect` reaches `faction_respect_limit`, the Worker ends and finalizes the active war automatically.
+For termed wars, the latest Torn ranked war score is stored in `wars.official_home_score` and `wars.official_enemy_score`. If `official_home_score` reaches `faction_respect_limit`, the Worker records a `practical_finish_time` and rebuilds derived stats using that practical window for Buttgrass attacks.
 
 If the latest Torn ranked war has a future `start` time, the Worker creates a scheduled `real` war using Torn's war ID and enemy faction ID. If a different scheduled war already exists, the sync skips creating another one.
 
@@ -325,18 +326,10 @@ Set this Pages environment variable so the dashboard knows where the Worker API 
 VITE_API_BASE_URL=https://torn-faction-attacks.moose-3065754.workers.dev
 ```
 
-## Dashboard Roadmap
+## Dashboard
 
-The next planned piece is a dashboard that can sit on top of the existing API. Likely first views:
-
-- Current active war status
-- Recent attacks feed
-- War list and historical imports
-- Per-war member leaderboard
-- Respect gained/lost summaries
-- Outside hits and enemy attacks
-- Career stats across ended wars
+The dashboard shows recorded wars, member breakdowns, attack activity charts, ranked war report validation, discrepancy drilldowns, member attack lists, and admin controls for the testing workflow.
 
 ## Notes
 
-The mutation endpoints are currently intended for testing. Before sharing the deployed Worker URL more widely, add authentication for endpoints that can trigger ingestion or mutate war state.
+Admin and mutation endpoints require a dashboard auth session. The current admin model is intentionally lightweight while the project is still changing.

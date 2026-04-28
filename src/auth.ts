@@ -76,10 +76,10 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
       env.DB.prepare(`DELETE FROM auth_sessions WHERE expires_at <= ?`).bind(nowSeconds()),
       env.DB.prepare(
         `
-        INSERT INTO auth_sessions (token, torn_user_id, name, access_level, expires_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO auth_sessions (token, torn_user_id, access_level, expires_at)
+        VALUES (?, ?, ?, ?)
         `,
-      ).bind(token, user.id, user.name, accessLevel, expiresAt),
+      ).bind(token, user.id, accessLevel, expiresAt),
     ]);
 
     return json({
@@ -136,7 +136,7 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
 
   const session = (await env.DB.prepare(
     `
-    SELECT torn_user_id, name, access_level, expires_at
+    SELECT torn_user_id, access_level, expires_at
     FROM auth_sessions
     WHERE token = ?
       AND expires_at > ?
@@ -146,7 +146,6 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
     .bind(token, nowSeconds())
     .first()) as {
     torn_user_id: number;
-    name: string | null;
     access_level: AccessLevel;
     expires_at: number;
   } | null;
@@ -157,7 +156,7 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
 
   return {
     id: session.torn_user_id,
-    name: session.name,
+    name: null,
     key_access_level: null,
     key_access_type: null,
     key_faction_access: false,

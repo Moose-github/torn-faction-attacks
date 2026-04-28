@@ -289,7 +289,7 @@ function App() {
     selectedWar?.total_respect_lost,
   );
   const derivedSuccessfulAttacks = sumMembers(members, "enemy_attacks_successful");
-  const officialRespectGained = selectedWar?.home_report_score ?? derivedRespectGained;
+  const officialRespectGained = selectedWar?.official_home_score ?? derivedRespectGained;
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -346,12 +346,12 @@ function App() {
                   <div className="war-time-lines">
                     <WarTimeLine
                       label="Buttgrass times"
-                      value={formatWarDateRange(selectedWar.start_time, selectedWar.finish_time)}
+                      value={formatWarDateRange(selectedWar.practical_start_time, selectedWar.practical_finish_time)}
                     />
                     <WarTimeLine
                       label="Torn official times"
                       value={formatWarDateRange(
-                        selectedWar.official_start_time ?? selectedWar.start_time,
+                        selectedWar.official_start_time ?? selectedWar.practical_start_time,
                         selectedWar.official_end_time,
                       )}
                     />
@@ -431,22 +431,22 @@ function App() {
                           <tr>
                             <td>Faction attacks</td>
                             <td>{formatNumber(derivedSuccessfulAttacks)}</td>
-                            <td>{formatReportComparison(selectedWar.home_report_attacks, derivedSuccessfulAttacks)}</td>
+                            <td>{formatReportComparison(selectedWar.official_home_attacks, derivedSuccessfulAttacks)}</td>
                           </tr>
                           <tr>
                             <td>Faction respect</td>
                             <td>{formatNumber(derivedRespectGained)}</td>
-                            <td>{formatReportComparison(selectedWar.home_report_score, derivedRespectGained)}</td>
+                            <td>{formatReportComparison(selectedWar.official_home_score, derivedRespectGained)}</td>
                           </tr>
                           <tr>
                             <td>Enemy attacks</td>
                             <td>-</td>
-                            <td>{formatNumber(selectedWar.enemy_report_attacks ?? 0)}</td>
+                            <td>{formatNumber(selectedWar.official_enemy_attacks ?? 0)}</td>
                           </tr>
                           <tr>
                             <td>Enemy score</td>
                             <td>-</td>
-                            <td>{formatNumber(selectedWar.enemy_report_score ?? 0)}</td>
+                            <td>{formatNumber(selectedWar.official_enemy_score ?? 0)}</td>
                           </tr>
                         </tbody>
                       </table>
