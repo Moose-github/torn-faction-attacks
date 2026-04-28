@@ -169,6 +169,38 @@ export type WarActivityResponse = {
   buckets: WarActivityBucket[];
 };
 
+export type EnemyFactionMember = {
+  member_id: number;
+  faction_id: number;
+  faction_name: string | null;
+  name: string;
+  level: number | null;
+  position: string | null;
+  days_in_faction: number | null;
+  is_revivable: number | null;
+  estimated_stats: number | null;
+  estimated_stats_updated_at: number | null;
+  updated_at: number;
+};
+
+export type EnemyScoutingResponse = {
+  ok: boolean;
+  refreshed: boolean;
+  war: {
+    id: number;
+    name: string;
+    enemy_faction_id: number | null;
+  };
+  summary: {
+    members_loaded: number;
+    average_level: number;
+    average_estimated_stats: number | null;
+    missing_estimated_stats: number;
+    stats_available: number;
+  };
+  members: EnemyFactionMember[];
+};
+
 export type ReportDiscrepancyGroup = {
   count: number;
   respect_gain: number;
@@ -327,6 +359,12 @@ export async function getWarReportDiscrepancies(
   );
 }
 
+export async function getEnemyScouting(warName: string): Promise<EnemyScoutingResponse> {
+  return getJson<EnemyScoutingResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/enemy-scouting`,
+  );
+}
+
 export async function checkHealth(): Promise<unknown> {
   return getJson("/api/health");
 }
@@ -375,6 +413,12 @@ export async function endActiveWar(): Promise<unknown> {
 
 export async function fetchTornWarReport(tornWarId: number): Promise<unknown> {
   return postJson(`/api/torn-wars/${encodeURIComponent(tornWarId)}/report/fetch`);
+}
+
+export async function refreshEnemyScouting(warName: string): Promise<EnemyScoutingResponse> {
+  return postJson<EnemyScoutingResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/enemy-scouting`,
+  );
 }
 
 async function getJson<T>(path: string, includeAuth = false): Promise<T> {

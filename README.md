@@ -51,11 +51,18 @@ The Worker expects:
 
 - A D1 binding named `DB`
 - A secret named `TORN_API_KEY`
+- Optional: a secret named `FFSCOUTER_API_KEY` for enemy stat estimates
 
 Set the Torn API key with:
 
 ```bash
 npx wrangler secret put TORN_API_KEY
+```
+
+Set the FFScouter key with:
+
+```bash
+npx wrangler secret put FFSCOUTER_API_KEY
 ```
 
 The home faction is currently configured in `src/constants.ts`:
@@ -85,6 +92,7 @@ The main app tables are:
 - `sync_state`
 - `war_summary`
 - `war_member_stats`
+- `enemy_faction_members`
 - `admin_users`
 - `auth_sessions`
 
@@ -216,6 +224,18 @@ Get a war summary:
 
 ```http
 GET /api/wars/:name
+```
+
+Get cached enemy scouting for a war:
+
+```http
+GET /api/wars/:name/enemy-scouting
+```
+
+Refresh enemy scouting for a war:
+
+```http
+POST /api/wars/:name/enemy-scouting
 ```
 
 Get attacks for a war:

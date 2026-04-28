@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
   TORN_API_KEY: string;
+  FFSCOUTER_API_KEY?: string;
 }
 
 export type D1Database = any;
@@ -18,6 +19,19 @@ export type TornRankedWarResponse = {
 
 export type TornRankedWarReportResponse = {
   rankedwarreport?: TornRankedWarReport;
+};
+
+export type TornFactionMembersResponse = {
+  members?: TornFactionMember[] | Record<string, TornFactionMember>;
+};
+
+export type TornFactionMember = {
+  id: number;
+  name: string;
+  level: number;
+  days_in_faction?: number;
+  position?: string;
+  is_revivable?: boolean;
 };
 
 export type TornRankedWar = {

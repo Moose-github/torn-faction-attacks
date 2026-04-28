@@ -583,6 +583,30 @@ h2 {
   opacity: 0.65;
 }
 
+.icon-text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.icon-text-button:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.icon-text-button:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
 .admin-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

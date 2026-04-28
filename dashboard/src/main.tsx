@@ -5,9 +5,12 @@ import {
   getStats,
   getWar,
   getWarActivity,
+  getEnemyScouting,
   getWarMemberAttacks,
   getWarReportDiscrepancies,
   getWars,
+  refreshEnemyScouting,
+  EnemyScoutingResponse,
   MemberAttack,
   MemberStats,
   ReportDiscrepanciesResponse,
@@ -18,6 +21,7 @@ import {
 } from "./api";
 import { ActivityChart, AttackChart } from "./components/Charts";
 import { ChainBonusList } from "./components/ChainBonuses";
+import { EnemyScoutingPanel } from "./components/EnemyScouting";
 import {
   CollapsiblePanel,
   EmptyState,
@@ -71,6 +75,9 @@ function App() {
   const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
   const [reportDiscrepancies, setReportDiscrepancies] = React.useState<ReportDiscrepanciesResponse | null>(null);
   const [isLoadingReportDiscrepancies, setIsLoadingReportDiscrepancies] = React.useState(false);
+  const [enemyScouting, setEnemyScouting] = React.useState<EnemyScoutingResponse | null>(null);
+  const [isLoadingEnemyScouting, setIsLoadingEnemyScouting] = React.useState(false);
+  const [isRefreshingEnemyScouting, setIsRefreshingEnemyScouting] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({});
   const [selectedMember, setSelectedMember] = React.useState<MemberStats | null>(null);
   const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
@@ -238,6 +245,39 @@ function App() {
   React.useEffect(() => {
     let cancelled = false;
 
+    async function loadEnemyScouting() {
+      if (!selectedWarName) {
+        setEnemyScouting(null);
+        return;
+      }
+
+      setIsLoadingEnemyScouting(true);
+
+      try {
+        const response = await getEnemyScouting(selectedWarName);
+        if (!cancelled) {
+          setEnemyScouting(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setEnemyScouting(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingEnemyScouting(false);
+        }
+      }
+    }
+
+    loadEnemyScouting();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWarName]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
     async function loadMemberAttacks() {
       if (!selectedWarName || !selectedMember) {
         setMemberAttacks([]);
@@ -299,6 +339,23 @@ function App() {
       ...current,
       [panel]: !current[panel],
     }));
+  }
+
+  async function refreshSelectedEnemyScouting() {
+    if (!selectedWarName) {
+      return;
+    }
+
+    setIsRefreshingEnemyScouting(true);
+    setError(null);
+
+    try {
+      setEnemyScouting(await refreshEnemyScouting(selectedWarName));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsRefreshingEnemyScouting(false);
+    }
   }
 
   return (
@@ -391,6 +448,13 @@ function App() {
               </section>
 
               <section className="content-grid">
+                <EnemyScoutingPanel
+                  scouting={enemyScouting}
+                  isLoading={isLoadingEnemyScouting}
+                  isRefreshing={isRefreshingEnemyScouting}
+                  onRefresh={refreshSelectedEnemyScouting}
+                />
+
                 <section className="panel chart-panel">
                   <PanelHeader
                     title={memberSortLabel(memberSort.key)}

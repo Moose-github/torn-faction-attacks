@@ -1,4 +1,5 @@
 import { authenticateWithTornKey, getCurrentAuthSession, requireAdmin } from "./auth";
+import { getEnemyScoutingForWar, refreshEnemyScoutingForWar } from "./enemyScouting";
 import { runIngestion } from "./ingestion";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
@@ -123,6 +124,24 @@ export default {
       request.method === "GET"
     ) {
       return getWarReportDiscrepancies(url, env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      url.pathname.endsWith("/enemy-scouting") &&
+      request.method === "GET"
+    ) {
+      return getEnemyScoutingForWar(url, env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      url.pathname.endsWith("/enemy-scouting") &&
+      request.method === "POST"
+    ) {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
+      return refreshEnemyScoutingForWar(url, env);
     }
 
     if (
