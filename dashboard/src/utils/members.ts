@@ -170,6 +170,27 @@ export function activityLabel(key: string): string {
   }
 }
 
+export function memberSortLabel(key: MemberSortKey): string {
+  switch (key) {
+    case "member_name":
+      return "Attacks";
+    case "enemy_attacks_successful":
+      return "Attacks";
+    case "defends_total":
+      return "Defends";
+    case "outside_attacks":
+      return "Outside hits";
+    case "enemy_respect_gained":
+      return "Respect gained";
+    case "enemy_assists":
+      return "Assists";
+    case "friendly_hospitals":
+      return "Friendly hosps";
+    default:
+      return "Value";
+  }
+}
+
 function sortValue(member: MemberStats, key: MemberSortKey): string | number {
   if (key === "member_name") {
     return displayMember(member).toLowerCase();

@@ -40,6 +40,7 @@ import {
   displayWarStatus,
   MemberAttackSort,
   MemberSort,
+  memberSortLabel,
   sortMembers,
   sortMemberAttacks,
   sumMembers,
@@ -386,10 +387,14 @@ function App() {
               <section className="content-grid">
                 <section className="panel chart-panel">
                   <PanelHeader
-                    title="Attacks"
-                    aside={isLoadingDetail ? "Loading" : `${members.length} members`}
+                    title={memberSortLabel(memberSort.key)}
+                    aside={isLoadingDetail ? "Loading" : "Top 10 members"}
                   />
-                  <AttackChart members={members.slice(0, 10)} />
+                  <AttackChart
+                    members={members.slice(0, 10)}
+                    metricKey={memberSort.key}
+                    metricLabel={memberSortLabel(memberSort.key)}
+                  />
                 </section>
 
                 <section className="panel">

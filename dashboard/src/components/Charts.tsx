@@ -12,16 +12,24 @@ import {
 import { MemberStats, WarActivityBucket } from "../api";
 import { EmptyState } from "./Common";
 import { formatNumber, formatTime } from "../utils/format";
-import { activityLabel, displayMember } from "../utils/members";
+import { activityLabel, displayMember, MemberSortKey } from "../utils/members";
 
-export function AttackChart({ members }: { members: MemberStats[] }) {
+export function AttackChart({
+  members,
+  metricKey = "enemy_attacks_successful",
+  metricLabel = "Attacks",
+}: {
+  members: MemberStats[];
+  metricKey?: MemberSortKey;
+  metricLabel?: string;
+}) {
   if (members.length === 0) {
     return <EmptyState text="No member data yet" />;
   }
 
   const data = members.map((member) => ({
     name: displayMember(member),
-    successful: Number(member.enemy_attacks_successful ?? 0),
+    value: chartMetricValue(member, metricKey),
   }));
 
   return (
@@ -40,15 +48,23 @@ export function AttackChart({ members }: { members: MemberStats[] }) {
           />
           <YAxis tickLine={false} axisLine={false} width={44} />
           <Tooltip formatter={(value) => formatNumber(Number(value))} />
-          <Bar dataKey="successful" name="Attacks" radius={[4, 4, 0, 0]}>
+          <Bar dataKey="value" name={metricLabel} radius={[4, 4, 0, 0]}>
             {data.map((_, index) => (
-              <Cell key={`successful-${index}`} fill="#2563eb" />
+              <Cell key={`chart-value-${index}`} fill="#2563eb" />
             ))}
           </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>
   );
+}
+
+function chartMetricValue(member: MemberStats, metricKey: MemberSortKey): number {
+  if (metricKey === "member_name") {
+    return Number(member.enemy_attacks_successful ?? 0);
+  }
+
+  return Number(member[metricKey] ?? 0);
 }
 
 export type ActivityKey = keyof Pick<
