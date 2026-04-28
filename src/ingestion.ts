@@ -6,6 +6,7 @@ import {
   RANKED_WARS_API_URL,
   SOURCE_NAME,
 } from "./constants";
+import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   applyIncrementalWarSummaries,
   finalizeWar,
@@ -50,6 +51,7 @@ export async function runIngestion(env: Env): Promise<void> {
         `
         SELECT
           id,
+          name,
           start_time,
           status,
           war_type,
@@ -74,6 +76,9 @@ export async function runIngestion(env: Env): Promise<void> {
   }
   if (!activeWar && latestRankedWar) {
     await syncUnfinishedRankedWar(env, latestRankedWar);
+  }
+  if (!activeWar) {
+    await syncMissingRankedWarReports(env);
   }
   const ingestionWar = activeWar
     ? {
@@ -143,6 +148,7 @@ export async function runIngestion(env: Env): Promise<void> {
   }
 
   if (ingestionWar && officialEndTime !== null) {
+    await fetchAndApplyRankedWarReport(env, ingestionWar, latestRankedWar?.id ?? ingestionWar.torn_war_id);
     await finalizeWar(env, ingestionWar.id);
     return;
   }
@@ -154,6 +160,7 @@ export async function runIngestion(env: Env): Promise<void> {
 
 type ActiveWarForIngestion = {
   id: number;
+  name: string;
   start_time: number;
   status: string;
   war_type: string | null;
@@ -642,6 +649,7 @@ async function syncUnfinishedRankedWar(env: Env, rankedWar: TornRankedWar): Prom
     `
     SELECT
       id,
+      name,
       start_time,
       status,
       war_type,
@@ -672,6 +680,60 @@ async function syncUnfinishedRankedWar(env: Env, rankedWar: TornRankedWar): Prom
   }
 
   await updateWarRankedWarScores(env, war.id, war.faction_id, rankedWar);
+}
+
+async function syncMissingRankedWarReports(env: Env): Promise<void> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT
+      id,
+      name,
+      start_time,
+      status,
+      war_type,
+      faction_id,
+      torn_war_id,
+      finish_time,
+      official_end_time,
+      auto_end_enabled,
+      faction_respect_limit
+    FROM wars
+    WHERE torn_war_id IS NOT NULL
+      AND status = 'ended'
+      AND official_end_time IS NOT NULL
+      AND torn_report_fetched_at IS NULL
+      AND COALESCE(war_type, 'real') != 'other'
+    ORDER BY official_end_time DESC, start_time DESC
+    LIMIT 3
+    `,
+  )
+    .all();
+
+  for (const war of (rows.results ?? []) as ActiveWarForIngestion[]) {
+    await fetchAndApplyRankedWarReport(env, war, war.torn_war_id);
+  }
+}
+
+async function fetchAndApplyRankedWarReport(
+  env: Env,
+  war: ActiveWarForIngestion,
+  rankedWarId: number | null,
+): Promise<void> {
+  if (rankedWarId === null) {
+    return;
+  }
+
+  try {
+    const report = await fetchTornRankedWarReport(rankedWarId, env);
+    if (!report) {
+      console.warn(`Torn ranked war report ${rankedWarId} was not available yet`);
+      return;
+    }
+
+    await applyRankedWarReport(env, war.id, war.name, war.faction_id, rankedWarId, report);
+  } catch (err: any) {
+    console.error(`Torn ranked war report ${rankedWarId} fetch failed:`, err?.message || err);
+  }
 }
 
 async function syncUpcomingRankedWar(

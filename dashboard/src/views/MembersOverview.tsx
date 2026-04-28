@@ -80,6 +80,9 @@ export function MembersOverview({ warType }: { warType: WarType }) {
           title="Faction members breakdown"
           aside={isLoading ? "Loading" : `${members.length} members`}
         />
+        <p className="panel-description">
+          Combines member performance across the selected event type so longer-term activity can be compared.
+        </p>
         <MemberTable members={members} sort={sort} onSortChange={setSort} />
       </section>
     </>

@@ -125,7 +125,10 @@ export function discrepancyAside(response: ReportDiscrepanciesResponse | null): 
 
 function visibleGroupDefinitions(response: ReportDiscrepanciesResponse) {
   return GROUP_DEFINITIONS.filter(
-    (definition) => !definition.termedOnly || response.war.war_type === "termed",
+    (definition) =>
+      (!definition.termedOnly || response.war.war_type === "termed") &&
+      (definition.key !== "uncounted_enemy_results" ||
+        (response.groups[definition.key]?.count ?? 0) > 0),
   );
 }
 

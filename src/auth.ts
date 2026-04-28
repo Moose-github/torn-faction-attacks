@@ -55,7 +55,7 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
       .bind(user.id)
       .first();
 
-    if (!admin && user.key_access_level === 3 && user.key_faction_access) {
+    if (!admin && user.key_faction_access) {
       await env.DB.prepare(
         `
         INSERT INTO admin_users (torn_user_id)

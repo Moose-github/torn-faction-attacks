@@ -459,6 +459,10 @@ function App() {
                     onToggle={() => togglePanel("reportDiscrepancies")}
                     className="table-panel"
                   >
+                    <p className="panel-description">
+                      Breaks down the specific attacks that explain differences between member-performance
+                      rules and Torn's official ranked war report.
+                    </p>
                     <ReportDiscrepancyPanel response={reportDiscrepancies} />
                   </CollapsiblePanel>
                 </>
@@ -470,6 +474,10 @@ function App() {
                 onToggle={() => togglePanel("factionActivity")}
                 className="activity-panel"
               >
+                <p className="panel-description">
+                  Shows Buttgrass attack activity across the war window, grouped into successful attacks,
+                  assists, and outside hits.
+                </p>
                 <ActivityChart buckets={activityBuckets} keys={["enemy_success", "enemy_assist", "outside"]} />
               </CollapsiblePanel>
 
@@ -479,6 +487,9 @@ function App() {
                 onToggle={() => togglePanel("enemyActivity")}
                 className="activity-panel"
               >
+                <p className="panel-description">
+                  Shows enemy attacks against Buttgrass over time, split by whether the defend was won or lost.
+                </p>
                 <ActivityChart buckets={activityBuckets} keys={["defend_lost", "defend_won"]} />
               </CollapsiblePanel>
 
@@ -488,6 +499,10 @@ function App() {
                 onToggle={() => togglePanel("memberBreakdown")}
                 className="table-panel"
               >
+                <p className="panel-description">
+                  Summarises each faction member's war performance, including enemy attacks, outside hits,
+                  friendly hosps, defends, and adjusted respect.
+                </p>
                 <MemberTable
                   members={members}
                   sort={memberSort}
@@ -503,6 +518,10 @@ function App() {
                     title={`${displayMember(selectedMember)} attacks`}
                     aside={isLoadingMemberAttacks ? "Loading" : `${memberAttacks.length} rows`}
                   />
+                  <p className="panel-description">
+                    Lists this member's individual attacks and defends during the counted war period, with row
+                    colour showing how each action was classified.
+                  </p>
                   <MemberAttackList
                     attacks={sortedMemberAttacks}
                     sort={memberAttackSort}
