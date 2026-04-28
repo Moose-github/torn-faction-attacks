@@ -198,6 +198,7 @@ function App() {
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
+  const selectedWarTitle = splitGeneratedWarTitle(selectedWar?.name ?? "");
 
   React.useEffect(() => {
     let cancelled = false;
@@ -338,10 +339,14 @@ function App() {
                 <div>
                   <p className="eyebrow war-meta-line">
                     <span>{displayWarStatus(selectedWar)}</span>
-                    {selectedWar.torn_war_id ? <span>Torn #{selectedWar.torn_war_id}</span> : null}
                   </p>
                   <div className="war-title-row">
-                    <h2>{selectedWar.name}</h2>
+                    <h2>
+                      {selectedWarTitle.name}
+                      {selectedWarTitle.tornWarId ? (
+                        <span className="war-title-id">{selectedWarTitle.tornWarId}</span>
+                      ) : null}
+                    </h2>
                     <span>{formatWarType(selectedWar)}</span>
                   </div>
                   <div className="war-time-lines">
@@ -555,6 +560,19 @@ function formatWarType(war: WarSummary): string {
     default:
       return "Real war";
   }
+}
+
+function splitGeneratedWarTitle(name: string): { name: string; tornWarId: string | null } {
+  const match = /^(.*) (\d{5})$/.exec(name.trim());
+
+  if (!match) {
+    return { name, tornWarId: null };
+  }
+
+  return {
+    name: match[1],
+    tornWarId: match[2],
+  };
 }
 
 function WarTimeLine({ label, value }: { label: string; value: string }) {

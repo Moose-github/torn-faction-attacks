@@ -879,12 +879,12 @@ async function updateWarRankedWarScores(
 }
 
 function buildScheduledRankedWarName(enemyFactionName: string, tornWarId: number): string {
-  const baseName = `rw-${enemyFactionName}-${tornWarId}`
+  const baseName = `${enemyFactionName} ${tornWarId}`
     .replace(/[^a-zA-Z0-9 _-]/g, "")
     .trim()
     .slice(0, 50);
 
-  return baseName || `ranked-war-${tornWarId}`;
+  return baseName || `War ${tornWarId}`;
 }
 
 async function fetchLatestRankedWar(env: Env): Promise<TornRankedWar | null> {

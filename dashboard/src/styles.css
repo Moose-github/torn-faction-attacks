@@ -258,6 +258,14 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.hero-panel h2 .war-title-id {
+  margin-left: 9px;
+  color: #64748b;
+  font-size: 1rem;
+  font-weight: 800;
+  vertical-align: baseline;
+}
+
 .war-title-row {
   display: flex;
   align-items: baseline;

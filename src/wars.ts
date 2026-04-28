@@ -199,14 +199,16 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         ? null
         : Number(enemyFactionValue);
     const enemyFactionId = reportEnemyFaction?.id ?? bodyEnemyFactionId;
+    const generatedName =
+      reportEnemyFaction && tornWarId !== null
+        ? `${reportEnemyFaction.name} ${tornWarId}`
+        : reportEnemyFaction?.name ??
+          (typeof body.name === "string" && body.name.trim()
+            ? body.name.trim()
+            : `historical-${tornWarId ?? Number(body.practical_start_time ?? body.start_time)}`);
     const name = await uniqueWarName(
       env,
-      sanitizeWarName(
-      reportEnemyFaction?.name ??
-        (typeof body.name === "string" && body.name.trim()
-          ? body.name.trim()
-          : `historical-${tornWarId ?? Number(body.practical_start_time ?? body.start_time)}`),
-      ),
+      sanitizeWarName(generatedName),
       tornWarId,
     );
     const reportStartTime = report?.start ?? null;
