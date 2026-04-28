@@ -8,7 +8,6 @@ const GROUP_DEFINITIONS = [
     key: "after_practical_finish",
     title: "Buttgrass hits after practical finish",
     detail: "These can appear in Torn's official totals but not member performance stats.",
-    termedOnly: true,
   },
   {
     key: "uncounted_enemy_results",
@@ -26,7 +25,6 @@ const GROUP_DEFINITIONS = [
     key: "outside_official_window",
     title: "Buttgrass hits outside official window",
     detail: "These linked Buttgrass attacks are before the start time or after Torn's official end.",
-    termedOnly: true,
   },
 ];
 
@@ -124,12 +122,7 @@ export function discrepancyAside(response: ReportDiscrepanciesResponse | null): 
 }
 
 function visibleGroupDefinitions(response: ReportDiscrepanciesResponse) {
-  return GROUP_DEFINITIONS.filter(
-    (definition) =>
-      (!definition.termedOnly || response.war.war_type === "termed") &&
-      (definition.key !== "uncounted_enemy_results" ||
-        (response.groups[definition.key]?.count ?? 0) > 0),
-  );
+  return GROUP_DEFINITIONS.filter((definition) => (response.groups[definition.key]?.count ?? 0) > 0);
 }
 
 export function formatReportComparison(reportValue: number | null, derivedValue: number): string {
