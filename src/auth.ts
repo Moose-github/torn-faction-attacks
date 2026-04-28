@@ -13,6 +13,7 @@ type TornAuthUser = {
   name: string | null;
   key_access_level: number | null;
   key_access_type: string | null;
+  key_faction_access: boolean;
 };
 
 type AuthSession = TornAuthUser & {
@@ -43,7 +44,7 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
       );
     }
 
-    const admin = await env.DB.prepare(
+    let admin = await env.DB.prepare(
       `
       SELECT torn_user_id
       FROM admin_users
@@ -53,6 +54,20 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
     )
       .bind(user.id)
       .first();
+
+    if (!admin && user.key_access_level === 3 && user.key_faction_access) {
+      await env.DB.prepare(
+        `
+        INSERT INTO admin_users (torn_user_id)
+        VALUES (?)
+        ON CONFLICT(torn_user_id) DO NOTHING
+        `,
+      )
+        .bind(user.id)
+        .run();
+      admin = { torn_user_id: user.id };
+    }
+
     const accessLevel: AccessLevel = admin ? "admin" : "member";
     const token = createSessionToken();
     const expiresAt = nowSeconds() + AUTH_SESSION_TTL_SECONDS;
@@ -94,6 +109,7 @@ export async function getCurrentAuthSession(request: Request, env: Env): Promise
       name: session.name,
       key_access_level: null,
       key_access_type: null,
+      key_faction_access: false,
     },
   });
 }
@@ -144,6 +160,7 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
     name: session.name,
     key_access_level: null,
     key_access_type: null,
+    key_faction_access: false,
     access_level: session.access_level,
     expires_at: session.expires_at,
   };
@@ -176,6 +193,7 @@ async function fetchTornKeyInfo(tornKey: string): Promise<{
       name: null,
       key_access_level: Number.isFinite(Number(accessInfo.level)) ? Number(accessInfo.level) : null,
       key_access_type: typeof accessInfo.type === "string" ? accessInfo.type : null,
+      key_faction_access: accessInfo.faction === true,
     },
     factionId: Number.isInteger(factionId) && factionId > 0 ? factionId : null,
   };

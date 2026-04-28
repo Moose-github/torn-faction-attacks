@@ -237,6 +237,7 @@ export type AuthUser = {
   name: string | null;
   key_access_level?: number | null;
   key_access_type?: string | null;
+  key_faction_access?: boolean;
 };
 
 export type AuthSession = {
