@@ -1,3 +1,4 @@
+import { authenticateWithTornKey, getCurrentAuthSession, requireAdmin } from "./auth";
 import { runIngestion } from "./ingestion";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
@@ -29,12 +30,24 @@ export default {
       });
     }
 
+    if (url.pathname === "/api/auth/torn" && request.method === "POST") {
+      return authenticateWithTornKey(request, env);
+    }
+
+    if (url.pathname === "/api/auth/me" && request.method === "GET") {
+      return getCurrentAuthSession(request, env);
+    }
+
     if (url.pathname === "/api/run" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       await runIngestion(env);
       return json({ ok: true });
     }
 
     if (url.pathname === "/api/rebuild" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       const result = await rebuildDerivedStatsFromRaw(env);
       return json({ ok: true, ...result });
     }
@@ -44,6 +57,8 @@ export default {
     }
 
     if (url.pathname === "/api/attacks") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       const limit = parseLimit(url.searchParams.get("limit"), 50, 100);
       const rows = await env.DB.prepare(`SELECT * FROM attacks ORDER BY started DESC LIMIT ?`)
         .bind(limit)
@@ -53,26 +68,38 @@ export default {
     }
 
     if (url.pathname === "/api/attacks/window" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       return getAttackWindow(request, env);
     }
 
     if (url.pathname === "/api/wars" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       return createWar(request, env);
     }
 
     if (url.pathname === "/api/wars/import" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       return importHistoricalWar(request, env);
     }
 
     if (url.pathname === "/api/wars/import/preview" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       return previewHistoricalWarImport(request, env);
     }
 
     if (url.pathname === "/api/wars/delete" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       return deleteWar(request, env);
     }
 
     if (url.pathname === "/api/wars/end" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       return endActiveWar(env);
     }
 
@@ -81,6 +108,8 @@ export default {
       url.pathname.endsWith("/report/fetch") &&
       request.method === "POST"
     ) {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       return fetchRankedWarReport(url, env);
     }
 
@@ -118,6 +147,8 @@ export default {
       url.pathname.endsWith("/attacks") &&
       request.method === "GET"
     ) {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
       return getWarAttacks(url, env);
     }
 

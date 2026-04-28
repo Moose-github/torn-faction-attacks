@@ -85,9 +85,31 @@ The main app tables are:
 - `sync_state`
 - `war_summary`
 - `war_member_stats`
-- `member_career_stats`
+- `admin_users`
+- `auth_sessions`
 
 ## API Endpoints
+
+Admin and debug endpoints require an app session token:
+
+```http
+Authorization: Bearer <session-token>
+```
+
+Create a session by entering a Torn key on the dashboard admin page, or by calling:
+
+```http
+POST /api/auth/torn
+```
+
+Admin access is granted when the Torn user belongs to faction `8803` and their user ID exists in `admin_users`.
+
+Add or remove admins with D1 SQL:
+
+```sql
+INSERT INTO admin_users (torn_user_id) VALUES (123456);
+DELETE FROM admin_users WHERE torn_user_id = 123456;
+```
 
 Health check:
 

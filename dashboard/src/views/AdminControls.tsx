@@ -2,15 +2,20 @@ import React from "react";
 import { ShieldCheck } from "lucide-react";
 import {
   AdminWarPayload,
+  AuthSession,
+  authenticateTornKey,
   checkHealth,
+  clearStoredAuthSession,
   createWar,
   deleteWar,
   endActiveWar,
   fetchTornWarReport,
+  getStoredAuthSession,
   importWar,
   previewImportWar,
   pullAttackWindow,
   rebuildStats,
+  refreshAuthSession,
   runIngestion,
   WarType,
 } from "../api";
@@ -23,6 +28,11 @@ type AdminAction = {
 };
 
 export function AdminControls() {
+  const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
+    getStoredAuthSession(),
+  );
+  const [tornKey, setTornKey] = React.useState("");
+  const [isAuthenticating, setIsAuthenticating] = React.useState(false);
   const [createForm, setCreateForm] = React.useState<AdminWarFormState>(() => defaultWarForm());
   const [importForm, setImportForm] = React.useState<AdminWarFormState>(() => ({
     ...defaultWarForm(),
@@ -39,6 +49,47 @@ export function AdminControls() {
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function refresh() {
+      const session = await refreshAuthSession();
+      if (!cancelled) {
+        setAuthSession(session ?? getStoredAuthSession());
+      }
+    }
+
+    if (authSession) {
+      refresh();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function login(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsAuthenticating(true);
+    setError(null);
+
+    try {
+      const session = await authenticateTornKey(tornKey);
+      setAuthSession(session);
+      setTornKey("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsAuthenticating(false);
+    }
+  }
+
+  function logout() {
+    clearStoredAuthSession();
+    setAuthSession(null);
+    setResult(null);
+  }
 
   async function runAdminAction(label: string, action: () => Promise<unknown>) {
     setIsBusy(label);
@@ -73,6 +124,53 @@ export function AdminControls() {
         <ShieldCheck size={42} />
       </section>
 
+      {!authSession ? (
+        <section className="panel admin-auth-panel">
+          <PanelHeader title="Admin sign in" />
+          <form className="admin-form" onSubmit={login}>
+            <label className="admin-form-wide">
+              <span>Torn API key</span>
+              <input
+                type="password"
+                value={tornKey}
+                onChange={(event) => setTornKey(event.target.value)}
+                autoComplete="off"
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              className="admin-button primary admin-form-wide"
+              disabled={isAuthenticating}
+            >
+              {isAuthenticating ? "Checking" : "Sign in"}
+            </button>
+          </form>
+        </section>
+      ) : authSession.access_level !== "admin" ? (
+        <section className="panel admin-auth-panel">
+          <PanelHeader title="Admin access required" />
+          <p>
+            Signed in as {authSession.user.name ?? `Torn user ${authSession.user.id}`}, but this
+            Torn user ID is not in the D1 admin allowlist.
+          </p>
+          <button type="button" className="admin-button" onClick={logout}>
+            Sign out
+          </button>
+        </section>
+      ) : (
+        <section className="panel admin-auth-panel">
+          <PanelHeader
+            title="Admin session"
+            aside={authSession.user.name ?? `Torn user ${authSession.user.id}`}
+          />
+          <button type="button" className="admin-button" onClick={logout}>
+            Sign out
+          </button>
+        </section>
+      )}
+
+      {authSession?.access_level === "admin" ? (
       <section className="admin-grid">
         <section className="panel">
           <PanelHeader title="API actions" />
@@ -239,6 +337,7 @@ export function AdminControls() {
           <pre>{result ? JSON.stringify(result, null, 2) : "No action run yet."}</pre>
         </section>
       </section>
+      ) : null}
     </>
   );
 }
@@ -415,7 +514,7 @@ function WarForm({
 
 function ProjectTodoPanel() {
   const items = [
-    "Add security",
+    "Review auth session expiry",
     "Filter out chain bonuses",
     "Confirmation prompts",
     "per member attack breakdown",

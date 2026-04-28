@@ -232,6 +232,70 @@ export type AttackWindowPayload = {
   limit?: number;
 };
 
+export type AuthUser = {
+  id: number;
+  name: string | null;
+};
+
+export type AuthSession = {
+  ok: boolean;
+  token?: string;
+  access_level: "member" | "admin";
+  expires_at: number;
+  user: AuthUser;
+};
+
+const AUTH_TOKEN_STORAGE_KEY = "tornFactionAuthToken";
+const AUTH_SESSION_STORAGE_KEY = "tornFactionAuthSession";
+
+export function getStoredAuthSession(): AuthSession | null {
+  const raw = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const session = JSON.parse(raw) as AuthSession;
+    if (session.expires_at <= Math.floor(Date.now() / 1000)) {
+      clearStoredAuthSession();
+      return null;
+    }
+    return session;
+  } catch {
+    clearStoredAuthSession();
+    return null;
+  }
+}
+
+export function clearStoredAuthSession() {
+  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+}
+
+export async function authenticateTornKey(key: string): Promise<AuthSession> {
+  const session = await postJson<AuthSession>("/api/auth/torn", { key }, false);
+  if (session.token) {
+    window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, session.token);
+    window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
+  }
+  return session;
+}
+
+export async function refreshAuthSession(): Promise<AuthSession | null> {
+  if (!getAuthToken()) {
+    return null;
+  }
+
+  try {
+    const session = await getJson<AuthSession>("/api/auth/me", true);
+    window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
+    return session;
+  } catch {
+    clearStoredAuthSession();
+    return null;
+  }
+}
+
 export async function getStats(warType: WarType): Promise<StatsResponse> {
   return getJson<StatsResponse>(`/api/stats${queryForWarType(warType)}`);
 }
@@ -317,8 +381,10 @@ export async function fetchTornWarReport(tornWarId: number): Promise<unknown> {
   return postJson(`/api/torn-wars/${encodeURIComponent(tornWarId)}/report/fetch`);
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+async function getJson<T>(path: string, includeAuth = false): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: authHeaders(false),
+  });
   const data = await response.json();
 
   if (!response.ok || data.ok === false) {
@@ -328,10 +394,17 @@ async function getJson<T>(path: string): Promise<T> {
   return data as T;
 }
 
-async function postJson<T = unknown>(path: string, body?: unknown): Promise<T> {
+async function postJson<T = unknown>(
+  path: string,
+  body?: unknown,
+  includeAuth = true,
+): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers:
+      body === undefined
+        ? authHeaders(includeAuth)
+        : { "Content-Type": "application/json", ...authHeaders(includeAuth) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await response.json();
@@ -345,4 +418,17 @@ async function postJson<T = unknown>(path: string, body?: unknown): Promise<T> {
 
 function queryForWarType(warType: WarType): string {
   return warType === "all" ? "" : `?war_type=${encodeURIComponent(warType)}`;
+}
+
+function getAuthToken(): string | null {
+  return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+}
+
+function authHeaders(includeAuth: boolean): Record<string, string> | undefined {
+  if (!includeAuth) {
+    return undefined;
+  }
+
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : undefined;
 }

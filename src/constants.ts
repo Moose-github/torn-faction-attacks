@@ -2,8 +2,11 @@ export const SOURCE_NAME = "attacks";
 export const API_URL = "https://api.torn.com/v2/faction/attacks";
 export const RANKED_WARS_API_URL = "https://api.torn.com/v2/faction/rankedwars";
 export const RANKED_WAR_REPORT_API_BASE_URL = "https://api.torn.com/v2/faction";
+export const TORN_USER_BASIC_API_URL = "https://api.torn.com/v2/user/basic";
+export const TORN_USER_FACTION_API_URL = "https://api.torn.com/v2/user/faction";
 export const LIMIT = 100;
 export const OVERLAP_SECONDS = 60;
+export const AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60;
 export const WAR_TYPES = ["real", "termed", "other"] as const;
 
 // Hardcoded for now to keep the reporting model focused on your faction.
