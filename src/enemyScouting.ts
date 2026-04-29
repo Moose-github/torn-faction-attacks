@@ -40,6 +40,36 @@ export async function getEnemyScoutingForWar(url: URL, env: Env): Promise<Respon
   return jsonEnemyScouting(war, scouting, false);
 }
 
+export async function getScoutingComparisonForWar(url: URL, env: Env): Promise<Response> {
+  const war = await readWarFromScoutingUrl(url, env);
+  if (war instanceof Response) {
+    return war;
+  }
+
+  const enemyFactionId = war.enemy_faction_id as number;
+  const [homeMembers, enemyMembers] = await Promise.all([
+    readHomeScouting(env),
+    readEnemyScouting(env, enemyFactionId),
+  ]);
+
+  return json({
+    ok: true,
+    war: {
+      id: war.id,
+      name: war.name,
+      enemy_faction_id: war.enemy_faction_id,
+    },
+    home: {
+      faction_id: HOME_FACTION_ID,
+      members: homeMembers,
+    },
+    enemy: {
+      faction_id: enemyFactionId,
+      members: enemyMembers,
+    },
+  });
+}
+
 export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Response> {
   const war = await readWarFromScoutingUrl(url, env);
   if (war instanceof Response) {
@@ -149,6 +179,21 @@ async function readEnemyScouting(
     `,
   )
     .bind(factionId)
+    .all();
+
+  return (rows.results ?? []) as EnemyFactionMemberRow[];
+}
+
+async function readHomeScouting(env: Env): Promise<EnemyFactionMemberRow[]> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT *
+    FROM home_faction_members
+    WHERE faction_id = ?
+    ORDER BY estimated_stats DESC NULLS LAST, level DESC, name ASC
+    `,
+  )
+    .bind(HOME_FACTION_ID)
     .all();
 
   return (rows.results ?? []) as EnemyFactionMemberRow[];

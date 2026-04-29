@@ -1,5 +1,9 @@
 import { authenticateWithTornKey, getCurrentAuthSession, requireAdmin } from "./auth";
-import { getEnemyScoutingForWar, refreshEnemyScoutingForWar } from "./enemyScouting";
+import {
+  getEnemyScoutingForWar,
+  getScoutingComparisonForWar,
+  refreshEnemyScoutingForWar,
+} from "./enemyScouting";
 import { runIngestion } from "./ingestion";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
@@ -132,6 +136,14 @@ export default {
       request.method === "GET"
     ) {
       return getEnemyScoutingForWar(url, env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      url.pathname.endsWith("/scouting-comparison") &&
+      request.method === "GET"
+    ) {
+      return getScoutingComparisonForWar(url, env);
     }
 
     if (

@@ -201,6 +201,23 @@ export type EnemyScoutingResponse = {
   members: EnemyFactionMember[];
 };
 
+export type ScoutingComparisonResponse = {
+  ok: boolean;
+  war: {
+    id: number;
+    name: string;
+    enemy_faction_id: number | null;
+  };
+  home: {
+    faction_id: number;
+    members: EnemyFactionMember[];
+  };
+  enemy: {
+    faction_id: number;
+    members: EnemyFactionMember[];
+  };
+};
+
 export type ReportDiscrepancyGroup = {
   count: number;
   respect_gain: number;
@@ -362,6 +379,14 @@ export async function getWarReportDiscrepancies(
 export async function getEnemyScouting(warName: string): Promise<EnemyScoutingResponse> {
   return getJson<EnemyScoutingResponse>(
     `/api/wars/${encodeURIComponent(warName)}/enemy-scouting`,
+  );
+}
+
+export async function getScoutingComparison(
+  warName: string,
+): Promise<ScoutingComparisonResponse> {
+  return getJson<ScoutingComparisonResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/scouting-comparison`,
   );
 }
 

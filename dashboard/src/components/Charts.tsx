@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { MemberStats, WarActivityBucket } from "../api";
+import { EnemyFactionMember, MemberStats, WarActivityBucket } from "../api";
 import { EmptyState } from "./Common";
 import { formatNumber, formatTime } from "../utils/format";
 import { activityLabel, displayMember, MemberSortKey } from "../utils/members";
@@ -118,4 +118,67 @@ export function ActivityChart({
       </ResponsiveContainer>
     </div>
   );
+}
+
+const scoutingBuckets = [
+  { label: "<1m", min: 0, max: 1_000_000 },
+  { label: "1m-10m", min: 1_000_000, max: 10_000_000 },
+  { label: "10m-100m", min: 10_000_000, max: 100_000_000 },
+  { label: "100m-1b", min: 100_000_000, max: 1_000_000_000 },
+  { label: "1b-10b", min: 1_000_000_000, max: 10_000_000_000 },
+  { label: "10b+", min: 10_000_000_000, max: Number.POSITIVE_INFINITY },
+] as const;
+
+export function ScoutingComparisonChart({
+  homeMembers,
+  enemyMembers,
+  enemyName,
+}: {
+  homeMembers: EnemyFactionMember[];
+  enemyMembers: EnemyFactionMember[];
+  enemyName: string;
+}) {
+  const homeEstimated = homeMembers.filter(hasEstimate);
+  const enemyEstimated = enemyMembers.filter(hasEstimate);
+
+  if (homeEstimated.length === 0 && enemyEstimated.length === 0) {
+    return <EmptyState text="No estimated stats loaded yet" />;
+  }
+
+  const data = scoutingBuckets.map((bucket) => ({
+    bucket: bucket.label,
+    Buttgrass: countBucket(homeEstimated, bucket.min, bucket.max),
+    [enemyName]: countBucket(enemyEstimated, bucket.min, bucket.max),
+  }));
+
+  return (
+    <div className="scouting-chart-wrap">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="bucket" tickLine={false} axisLine={false} />
+          <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={44} />
+          <Tooltip formatter={(value) => [formatNumber(Number(value)), "Members"]} />
+          <Legend />
+          <Bar dataKey="Buttgrass" fill="#2563eb" radius={[4, 4, 0, 0]} />
+          <Bar dataKey={enemyName} fill="#f97316" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function hasEstimate(member: EnemyFactionMember): boolean {
+  return Number.isFinite(Number(member.estimated_stats)) && Number(member.estimated_stats) > 0;
+}
+
+function countBucket(
+  members: EnemyFactionMember[],
+  min: number,
+  max: number,
+): number {
+  return members.filter((member) => {
+    const stats = Number(member.estimated_stats ?? 0);
+    return stats >= min && stats < max;
+  }).length;
 }

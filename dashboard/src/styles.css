@@ -326,6 +326,10 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.scouting-comparison-panel {
+  grid-column: 1 / -1;
+}
+
 .panel,
 .status-panel,
 .metric-card {
@@ -452,6 +456,11 @@ h2 {
 .activity-chart-wrap {
   width: 100%;
   height: 300px;
+}
+
+.scouting-chart-wrap {
+  width: 100%;
+  height: 320px;
 }
 
 .metric-list {

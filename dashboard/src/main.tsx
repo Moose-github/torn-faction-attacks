@@ -6,6 +6,7 @@ import {
   getWar,
   getWarActivity,
   getEnemyScouting,
+  getScoutingComparison,
   getWarMemberAttacks,
   getWarReportDiscrepancies,
   getWars,
@@ -14,12 +15,13 @@ import {
   MemberAttack,
   MemberStats,
   ReportDiscrepanciesResponse,
+  ScoutingComparisonResponse,
   WarDetailResponse,
   WarActivityBucket,
   WarSummary,
   WarType,
 } from "./api";
-import { ActivityChart, AttackChart } from "./components/Charts";
+import { ActivityChart, AttackChart, ScoutingComparisonChart } from "./components/Charts";
 import { ChainBonusList } from "./components/ChainBonuses";
 import { EnemyScoutingPanel } from "./components/EnemyScouting";
 import {
@@ -77,6 +79,8 @@ function App() {
   const [enemyScouting, setEnemyScouting] = React.useState<EnemyScoutingResponse | null>(null);
   const [isLoadingEnemyScouting, setIsLoadingEnemyScouting] = React.useState(false);
   const [isRefreshingEnemyScouting, setIsRefreshingEnemyScouting] = React.useState(false);
+  const [scoutingComparison, setScoutingComparison] = React.useState<ScoutingComparisonResponse | null>(null);
+  const [isLoadingScoutingComparison, setIsLoadingScoutingComparison] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({});
   const [selectedMember, setSelectedMember] = React.useState<MemberStats | null>(null);
   const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
@@ -205,6 +209,9 @@ function App() {
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
+  const isLatestWar = selectedWar !== null && selectedWar.name === wars[0]?.name;
+  const showScoutingPanels =
+    isLatestWar && selectedWar?.enemy_faction_id !== null && selectedWar.official_end_time === null;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -244,7 +251,7 @@ function App() {
     let cancelled = false;
 
     async function loadEnemyScouting() {
-      if (!selectedWarName) {
+      if (!selectedWarName || !showScoutingPanels) {
         setEnemyScouting(null);
         return;
       }
@@ -271,7 +278,40 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedWarName]);
+  }, [selectedWarName, showScoutingPanels]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadScoutingComparison() {
+      if (!selectedWarName || !showScoutingPanels) {
+        setScoutingComparison(null);
+        return;
+      }
+
+      setIsLoadingScoutingComparison(true);
+
+      try {
+        const response = await getScoutingComparison(selectedWarName);
+        if (!cancelled) {
+          setScoutingComparison(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setScoutingComparison(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingScoutingComparison(false);
+        }
+      }
+    }
+
+    loadScoutingComparison();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWarName, showScoutingPanels]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -347,9 +387,7 @@ function App() {
       chainBonuses.length > 0 ||
       activityTotal(activityBuckets) > 0 ||
       hasTornReport);
-  const isLatestWar = selectedWar !== null && selectedWar.name === wars[0]?.name;
-  const showEnemyScouting = isLatestWar && selectedWar?.enemy_faction_id !== null;
-  const showContentGrid = showEnemyScouting || hasWarData;
+  const showContentGrid = showScoutingPanels || hasWarData;
   const showFactionActivity = hasWarData && activityTotal(activityBuckets, ["enemy_success", "enemy_assist", "outside"]) > 0;
   const showEnemyActivity = hasWarData && activityTotal(activityBuckets, ["defend_lost", "defend_won"]) > 0;
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
@@ -371,6 +409,7 @@ function App() {
 
     try {
       setEnemyScouting(await refreshEnemyScouting(selectedWarName));
+      setScoutingComparison(await getScoutingComparison(selectedWarName));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -471,13 +510,30 @@ function App() {
 
               {showContentGrid ? (
                 <section className="content-grid">
-                  {showEnemyScouting ? (
+                  {showScoutingPanels ? (
                     <EnemyScoutingPanel
                       scouting={enemyScouting}
                       isLoading={isLoadingEnemyScouting}
                       isRefreshing={isRefreshingEnemyScouting}
                       onRefresh={refreshSelectedEnemyScouting}
                     />
+                  ) : null}
+
+                  {showScoutingPanels ? (
+                    <section className="panel chart-panel scouting-comparison-panel">
+                      <PanelHeader
+                        title="Faction stats comparison"
+                        aside={isLoadingScoutingComparison ? "Loading" : "Estimated stats"}
+                      />
+                      <p className="panel-description">
+                        Compares cached estimated battle stats for Buttgrass and the enemy faction by member count in each range.
+                      </p>
+                      <ScoutingComparisonChart
+                        homeMembers={scoutingComparison?.home.members ?? []}
+                        enemyMembers={scoutingComparison?.enemy.members ?? []}
+                        enemyName={selectedWar.name}
+                      />
+                    </section>
                   ) : null}
 
                   {hasWarData ? (
