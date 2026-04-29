@@ -111,6 +111,7 @@ export function MemberAttackList({
             <SortableHeader label="Type" sortKey="classification" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Attacker" sortKey="attacker_name" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Defender" sortKey="defender_name" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Defender faction" sortKey="defender_faction_id" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Result" sortKey="result" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Respect" sortKey="respect_gain" sort={sort} onSortChange={onSortChange} />
           </tr>
@@ -122,6 +123,7 @@ export function MemberAttackList({
               <td>{classificationLabel(attack.classification)}</td>
               <td>{attack.attacker_name ?? `#${attack.attacker_id ?? "-"}`}</td>
               <td>{attack.defender_name ?? `#${attack.defender_id ?? "-"}`}</td>
+              <td>{attack.defender_faction_id ?? "-"}</td>
               <td>{attack.result ?? "-"}</td>
               <td>{formatNumber(attack.respect_gain ?? 0)}</td>
             </tr>

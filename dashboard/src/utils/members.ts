@@ -21,6 +21,7 @@ export type MemberAttackSortKey =
   | "classification"
   | "attacker_name"
   | "defender_name"
+  | "defender_faction_id"
   | "result"
   | "respect_gain";
 
@@ -212,6 +213,8 @@ function attackSortValue(
       return (attack.attacker_name ?? `#${attack.attacker_id ?? ""}`).toLowerCase();
     case "defender_name":
       return (attack.defender_name ?? `#${attack.defender_id ?? ""}`).toLowerCase();
+    case "defender_faction_id":
+      return Number(attack.defender_faction_id ?? 0);
     case "result":
       return (attack.result ?? "").toLowerCase();
     case "respect_gain":
