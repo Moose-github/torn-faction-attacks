@@ -1582,6 +1582,7 @@ const STANDARD_EXPORT_COLUMNS = [
   "respect_gain",
   "respect_loss",
   "chain",
+  "m_retaliation",
 ] as const;
 
 const DEBUG_EXPORT_COLUMNS = [
