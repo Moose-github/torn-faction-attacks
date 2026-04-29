@@ -105,7 +105,7 @@ function MemberReportComparison({
 }) {
   const comparison = response.member_report_comparison;
 
-  if (!comparison?.available) {
+  if (!comparison?.available || comparison.mismatches.length === 0) {
     return null;
   }
 
