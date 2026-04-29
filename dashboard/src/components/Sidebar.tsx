@@ -12,17 +12,19 @@ export function Sidebar({
   wars,
   selectedWarName,
   isLoadingWars,
+  warRoomIcon,
   memberIcon,
   adminIcon,
   onWarSelect,
 }: {
   warType: WarType;
   onWarTypeChange: (value: WarType) => void;
-  view: "war" | "members" | "admin";
-  onViewChange: (view: "war" | "members" | "admin") => void;
+  view: "war" | "warRoom" | "members" | "admin";
+  onViewChange: (view: "war" | "warRoom" | "members" | "admin") => void;
   wars: WarSummary[];
   selectedWarName: string | null;
   isLoadingWars: boolean;
+  warRoomIcon: React.ReactNode;
   memberIcon: React.ReactNode;
   adminIcon: React.ReactNode;
   onWarSelect: (name: string) => void;
@@ -33,6 +35,12 @@ export function Sidebar({
         title="Recorded wars"
         aside={isLoadingWars ? "Loading" : `${wars.length}`}
         control={<WarTypeSelect value={warType} onChange={onWarTypeChange} />}
+      />
+      <SidebarLink
+        active={view === "warRoom"}
+        icon={warRoomIcon}
+        label="War room"
+        onClick={() => onViewChange("warRoom")}
       />
       <SidebarLink
         active={view === "members"}

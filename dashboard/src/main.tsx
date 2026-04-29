@@ -1,36 +1,23 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BarChart3, CalendarClock, Swords, Target, Wrench } from "lucide-react";
+import { BarChart3, CalendarClock, Radar, Swords, Target, Wrench } from "lucide-react";
 import {
   getStats,
   getWar,
   getWarActivity,
-  getWarActivityHeatmap,
-  getEnemyScouting,
-  getScoutingComparison,
   getWarMemberAttacks,
   getWarReportDiscrepancies,
   getWars,
-  refreshEnemyScouting,
-  EnemyScoutingResponse,
-  FactionActivityHeatmapResponse,
   MemberAttack,
   MemberStats,
   ReportDiscrepanciesResponse,
-  ScoutingComparisonResponse,
   WarDetailResponse,
   WarActivityBucket,
   WarSummary,
   WarType,
 } from "./api";
-import {
-  ActivityChart,
-  AttackChart,
-  FactionActivityHeatmap,
-  ScoutingComparisonChart,
-} from "./components/Charts";
+import { ActivityChart, AttackChart } from "./components/Charts";
 import { ChainBonusList } from "./components/ChainBonuses";
-import { EnemyScoutingPanel } from "./components/EnemyScouting";
 import {
   CollapsiblePanel,
   EmptyState,
@@ -47,6 +34,7 @@ import {
 import { Sidebar } from "./components/Sidebar";
 import { AdminControls } from "./views/AdminControls";
 import { MembersOverview } from "./views/MembersOverview";
+import { WarRoom } from "./views/WarRoom";
 import { detailNumber, formatNumber, formatWarDateRange } from "./utils/format";
 import {
   displayMember,
@@ -63,7 +51,7 @@ import "./styles.css";
 
 function App() {
   const [warType, setWarType] = React.useState<WarType>("all");
-  const [view, setView] = React.useState<"war" | "members" | "admin">("war");
+  const [view, setView] = React.useState<"war" | "warRoom" | "members" | "admin">("war");
   const [wars, setWars] = React.useState<WarSummary[]>([]);
   const [selectedWarName, setSelectedWarName] = React.useState<string | null>(null);
   const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
@@ -81,15 +69,8 @@ function App() {
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
   const [activityBuckets, setActivityBuckets] = React.useState<WarActivityBucket[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
-  const [activityHeatmap, setActivityHeatmap] = React.useState<FactionActivityHeatmapResponse | null>(null);
-  const [isLoadingActivityHeatmap, setIsLoadingActivityHeatmap] = React.useState(false);
   const [reportDiscrepancies, setReportDiscrepancies] = React.useState<ReportDiscrepanciesResponse | null>(null);
   const [isLoadingReportDiscrepancies, setIsLoadingReportDiscrepancies] = React.useState(false);
-  const [enemyScouting, setEnemyScouting] = React.useState<EnemyScoutingResponse | null>(null);
-  const [isLoadingEnemyScouting, setIsLoadingEnemyScouting] = React.useState(false);
-  const [isRefreshingEnemyScouting, setIsRefreshingEnemyScouting] = React.useState(false);
-  const [scoutingComparison, setScoutingComparison] = React.useState<ScoutingComparisonResponse | null>(null);
-  const [isLoadingScoutingComparison, setIsLoadingScoutingComparison] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({});
   const [selectedMember, setSelectedMember] = React.useState<MemberStats | null>(null);
   const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
@@ -218,42 +199,6 @@ function App() {
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
-  const isLatestWar = selectedWar !== null && selectedWar.name === wars[0]?.name;
-  const showScoutingPanels =
-    isLatestWar && selectedWar?.enemy_faction_id !== null && selectedWar.official_end_time === null;
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadActivityHeatmap() {
-      if (!selectedWarName || !showScoutingPanels) {
-        setActivityHeatmap(null);
-        return;
-      }
-
-      setIsLoadingActivityHeatmap(true);
-
-      try {
-        const response = await getWarActivityHeatmap(selectedWarName);
-        if (!cancelled) {
-          setActivityHeatmap(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setActivityHeatmap(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingActivityHeatmap(false);
-        }
-      }
-    }
-
-    loadActivityHeatmap();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedWarName, showScoutingPanels]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -288,72 +233,6 @@ function App() {
       cancelled = true;
     };
   }, [hasTornReport, selectedWarName]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadEnemyScouting() {
-      if (!selectedWarName || !showScoutingPanels) {
-        setEnemyScouting(null);
-        return;
-      }
-
-      setIsLoadingEnemyScouting(true);
-
-      try {
-        const response = await getEnemyScouting(selectedWarName);
-        if (!cancelled) {
-          setEnemyScouting(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setEnemyScouting(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingEnemyScouting(false);
-        }
-      }
-    }
-
-    loadEnemyScouting();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedWarName, showScoutingPanels]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadScoutingComparison() {
-      if (!selectedWarName || !showScoutingPanels) {
-        setScoutingComparison(null);
-        return;
-      }
-
-      setIsLoadingScoutingComparison(true);
-
-      try {
-        const response = await getScoutingComparison(selectedWarName);
-        if (!cancelled) {
-          setScoutingComparison(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setScoutingComparison(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingScoutingComparison(false);
-        }
-      }
-    }
-
-    loadScoutingComparison();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedWarName, showScoutingPanels]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -429,7 +308,6 @@ function App() {
       chainBonuses.length > 0 ||
       activityTotal(activityBuckets) > 0 ||
       hasTornReport);
-  const showContentGrid = showScoutingPanels || hasWarData;
   const showFactionActivity = hasWarData && activityTotal(activityBuckets, ["enemy_success", "enemy_assist", "outside"]) > 0;
   const showEnemyActivity = hasWarData && activityTotal(activityBuckets, ["defend_lost", "defend_won"]) > 0;
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
@@ -441,22 +319,12 @@ function App() {
     }));
   }
 
-  async function refreshSelectedEnemyScouting() {
-    if (!selectedWarName) {
-      return;
+  function changeView(nextView: "war" | "warRoom" | "members" | "admin") {
+    if (nextView === "warRoom" && wars[0]) {
+      setSelectedWarName(wars[0].name);
     }
 
-    setIsRefreshingEnemyScouting(true);
-    setError(null);
-
-    try {
-      setEnemyScouting(await refreshEnemyScouting(selectedWarName));
-      setScoutingComparison(await getScoutingComparison(selectedWarName));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsRefreshingEnemyScouting(false);
-    }
+    setView(nextView);
   }
 
   return (
@@ -476,10 +344,11 @@ function App() {
           warType={warType}
           onWarTypeChange={setWarType}
           view={view}
-          onViewChange={setView}
+          onViewChange={changeView}
           wars={wars}
           selectedWarName={selectedWarName}
           isLoadingWars={isLoadingWars}
+          warRoomIcon={<Radar size={18} />}
           memberIcon={<BarChart3 size={18} />}
           adminIcon={<Wrench size={18} />}
           onWarSelect={(name) => {
@@ -493,6 +362,8 @@ function App() {
             <AdminControls />
           ) : view === "members" ? (
             <MembersOverview warType={warType} />
+          ) : view === "warRoom" ? (
+            <WarRoom selectedWar={selectedWar} selectedWarName={selectedWarName} onError={setError} />
           ) : selectedWar ? (
             <>
               <section className="hero-panel war-hero-panel">
@@ -551,84 +422,28 @@ function App() {
                 </section>
               ) : null}
 
-              {showContentGrid ? (
+              {hasWarData ? (
                 <section className="content-grid">
-                  {showScoutingPanels ? (
-                    <EnemyScoutingPanel
-                      scouting={enemyScouting}
-                      isLoading={isLoadingEnemyScouting}
-                      isRefreshing={isRefreshingEnemyScouting}
-                      onRefresh={refreshSelectedEnemyScouting}
+                  <section className="panel chart-panel">
+                    <PanelHeader
+                      title={memberSortLabel(memberSort.key)}
+                      aside={isLoadingDetail ? "Loading" : "Top 10 members"}
                     />
-                  ) : null}
+                    <AttackChart
+                      members={members.slice(0, 10)}
+                      metricKey={memberSort.key}
+                      metricLabel={memberSortLabel(memberSort.key)}
+                    />
+                  </section>
 
-                  {showScoutingPanels ? (
-                    <section className="panel chart-panel scouting-comparison-panel">
-                      <PanelHeader
-                        title="Faction stats comparison"
-                        aside={isLoadingScoutingComparison ? "Loading" : "Estimated stats"}
-                      />
-                      <p className="panel-description">
-                        Compares cached estimated battle stats for Buttgrass and the enemy faction by member count in each range.
-                      </p>
-                      <ScoutingComparisonChart
-                        homeMembers={scoutingComparison?.home.members ?? []}
-                        enemyMembers={scoutingComparison?.enemy.members ?? []}
-                        enemyName={selectedWar.name}
-                      />
-                    </section>
-                  ) : null}
-
-                  {showScoutingPanels ? (
-                    <section className="panel heatmap-panel">
-                      <PanelHeader
-                        title="Faction activity heatmaps"
-                        aside={isLoadingActivityHeatmap ? "Loading" : "15 minute samples"}
-                      />
-                      <p className="panel-description">
-                        Tracks how many members were recently active in each 15 minute window, based on Torn member last action timestamps.
-                      </p>
-                      <div className="heatmap-stack">
-                        <FactionActivityHeatmap
-                          rows={activityHeatmap?.rows ?? []}
-                          factionId={activityHeatmap?.home_faction_id ?? null}
-                          label="Buttgrass"
-                          color="blue"
-                        />
-                        <FactionActivityHeatmap
-                          rows={activityHeatmap?.rows ?? []}
-                          factionId={selectedWar.enemy_faction_id}
-                          label={selectedWar.name}
-                          color="red"
-                        />
-                      </div>
-                    </section>
-                  ) : null}
-
-                  {hasWarData ? (
-                    <section className="panel chart-panel">
-                      <PanelHeader
-                        title={memberSortLabel(memberSort.key)}
-                        aside={isLoadingDetail ? "Loading" : "Top 10 members"}
-                      />
-                      <AttackChart
-                        members={members.slice(0, 10)}
-                        metricKey={memberSort.key}
-                        metricLabel={memberSortLabel(memberSort.key)}
-                      />
-                    </section>
-                  ) : null}
-
-                  {hasWarData ? (
-                    <section className="panel">
-                      <PanelHeader title="War totals" />
-                      <div className="metric-list">
-                        <InlineMetric label="Respect gained" value={officialRespectGained} />
-                        <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
-                        <InlineMetric label="Assists" value={sumMembers(members, "enemy_assists")} />
-                      </div>
-                    </section>
-                  ) : null}
+                  <section className="panel">
+                    <PanelHeader title="War totals" />
+                    <div className="metric-list">
+                      <InlineMetric label="Respect gained" value={officialRespectGained} />
+                      <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
+                      <InlineMetric label="Assists" value={sumMembers(members, "enemy_assists")} />
+                    </div>
+                  </section>
 
                   {chainBonuses.length > 0 ? (
                     <section className="panel">
