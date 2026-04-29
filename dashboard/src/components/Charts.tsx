@@ -1,4 +1,6 @@
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -163,15 +165,41 @@ export function ScoutingComparisonChart({
   return (
     <div className="scouting-chart-wrap">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+        <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id="buttgrass-stats-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#2563eb" stopOpacity={0.34} />
+              <stop offset="95%" stopColor="#2563eb" stopOpacity={0.05} />
+            </linearGradient>
+            <linearGradient id="enemy-stats-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#ef4444" stopOpacity={0.34} />
+              <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
+            </linearGradient>
+          </defs>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="bucket" tickLine={false} axisLine={false} />
           <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={44} />
           <Tooltip formatter={(value) => [formatNumber(Number(value)), "Members"]} />
           <Legend />
-          <Bar dataKey="Buttgrass" fill="#2563eb" radius={[4, 4, 0, 0]} />
-          <Bar dataKey={enemyName} fill="#ef4444" radius={[4, 4, 0, 0]} />
-        </BarChart>
+          <Area
+            type="monotone"
+            dataKey="Buttgrass"
+            stroke="#2563eb"
+            strokeWidth={2}
+            fill="url(#buttgrass-stats-fill)"
+            dot={{ r: 3 }}
+            activeDot={{ r: 5 }}
+          />
+          <Area
+            type="monotone"
+            dataKey={enemyName}
+            stroke="#ef4444"
+            strokeWidth={2}
+            fill="url(#enemy-stats-fill)"
+            dot={{ r: 3 }}
+            activeDot={{ r: 5 }}
+          />
+        </AreaChart>
       </ResponsiveContainer>
     </div>
   );

@@ -62,11 +62,13 @@ export async function getWarActivityHeatmap(url: URL, env: Env): Promise<Respons
     return war;
   }
 
-  const from = Math.max(
-    0,
-    (war.official_start_time ?? war.practical_start_time) - ACTIVITY_WINDOW_SECONDS,
-  );
-  const to = war.official_end_time ?? nowSeconds();
+  const now = nowSeconds();
+  const warStart = war.official_start_time ?? war.practical_start_time;
+  const from =
+    warStart > now
+      ? Math.max(0, now - HOME_RETENTION_SECONDS)
+      : Math.max(0, warStart - ACTIVITY_WINDOW_SECONDS);
+  const to = war.official_end_time ?? now;
   const factionIds = [HOME_FACTION_ID];
   if (war.enemy_faction_id !== null) {
     factionIds.push(war.enemy_faction_id);
