@@ -508,11 +508,10 @@ function WarForm({
 
 function ProjectTodoPanel() {
   const items = [
-    "Review auth session expiry",
-    "Filter out chain bonuses",
-    "Confirmation prompts",
-    "per member attack breakdown",
-    "early start for real wars to include hosps",
+    "Add better admin controls",
+    "Add better security-fix endpoints",
+    "Add Caching",
+    "UI stuff",
   ];
 
   return (
