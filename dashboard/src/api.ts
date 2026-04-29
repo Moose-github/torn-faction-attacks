@@ -463,6 +463,7 @@ export async function deleteWar(payload: {
 export async function previewRelinkAttacks(payload: {
   torn_war_id?: number;
   name?: string;
+  fetch_missing?: boolean;
 }): Promise<unknown> {
   return postJson("/api/wars/relink-attacks", { ...payload, dry_run: true });
 }
@@ -470,6 +471,7 @@ export async function previewRelinkAttacks(payload: {
 export async function relinkAttacks(payload: {
   torn_war_id?: number;
   name?: string;
+  fetch_missing?: boolean;
 }): Promise<unknown> {
   return postJson("/api/wars/relink-attacks", { ...payload, dry_run: false });
 }

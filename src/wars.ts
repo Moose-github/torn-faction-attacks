@@ -714,6 +714,8 @@ type RelinkWarResult = {
   war_id: number;
   name: string;
   torn_war_id: number | null;
+  fetched_missing_attacks: boolean;
+  fetched_attack_count: number;
   existing_linked_attacks: number;
   matching_attacks: number;
   unassigned_matching_attacks: number;
@@ -726,10 +728,12 @@ export async function relinkWarAttacks(request: Request, env: Env): Promise<Resp
       torn_war_id?: unknown;
       name?: unknown;
       dry_run?: unknown;
+      fetch_missing?: unknown;
     };
     const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const dryRun = body.dry_run !== false;
+    const fetchMissing = parseOptionalBoolean(body.fetch_missing);
     const wars = await readRelinkWars(env, tornWarId, name);
 
     if (wars.length === 0) {
@@ -739,7 +743,7 @@ export async function relinkWarAttacks(request: Request, env: Env): Promise<Resp
     const results: RelinkWarResult[] = [];
 
     for (const war of wars) {
-      const result = await relinkAttacksForWar(env, war, dryRun);
+      const result = await relinkAttacksForWar(env, war, dryRun, fetchMissing);
       results.push(result);
 
       if (!dryRun) {
@@ -751,8 +755,10 @@ export async function relinkWarAttacks(request: Request, env: Env): Promise<Resp
     return json({
       ok: true,
       dry_run: dryRun,
+      fetch_missing: fetchMissing,
       scope: tornWarId !== null || name ? "single_war" : "all_wars",
       wars_processed: results.length,
+      total_fetched_attack_count: sumRelinkResults(results, "fetched_attack_count"),
       total_existing_linked_attacks: sumRelinkResults(results, "existing_linked_attacks"),
       total_matching_attacks: sumRelinkResults(results, "matching_attacks"),
       total_unassigned_matching_attacks: sumRelinkResults(results, "unassigned_matching_attacks"),
@@ -1284,7 +1290,24 @@ async function relinkAttacksForWar(
   env: Env,
   war: RelinkWarRow,
   dryRun: boolean,
+  fetchMissing: boolean,
 ): Promise<RelinkWarResult> {
+  let fetchedMissingAttacks = false;
+  let fetchedAttackCount = 0;
+
+  if (fetchMissing && !dryRun) {
+    const fetchWindow = relinkFetchWindow(war);
+    if (fetchWindow !== null) {
+      fetchedAttackCount = await ingestHistoricalWarWindow(
+        env,
+        war.id,
+        fetchWindow.start,
+        fetchWindow.finish,
+      );
+      fetchedMissingAttacks = true;
+    }
+  }
+
   const [existingLinked, matching, unassignedMatching] = await Promise.all([
     countLinkedAttacks(env, war.id),
     countMatchingRelinkAttacks(env, war.id, false),
@@ -1315,11 +1338,24 @@ async function relinkAttacksForWar(
     war_id: war.id,
     name: war.name,
     torn_war_id: war.torn_war_id,
+    fetched_missing_attacks: fetchedMissingAttacks,
+    fetched_attack_count: fetchedAttackCount,
     existing_linked_attacks: existingLinked,
     matching_attacks: matching,
     unassigned_matching_attacks: unassignedMatching,
     newly_linked_attacks: newlyLinkedAttacks,
   };
+}
+
+function relinkFetchWindow(war: RelinkWarRow): { start: number; finish: number } | null {
+  const start = war.official_start_time ?? war.practical_start_time;
+  const finish = war.official_end_time ?? war.practical_finish_time;
+
+  if (finish === null || finish < start) {
+    return null;
+  }
+
+  return { start, finish };
 }
 
 async function countLinkedAttacks(env: Env, warId: number): Promise<number> {

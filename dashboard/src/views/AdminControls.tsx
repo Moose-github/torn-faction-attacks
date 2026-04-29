@@ -41,7 +41,11 @@ export function AdminControls() {
     finishEpoch: String(Math.floor(Date.now() / 1000)),
   }));
   const [deleteForm, setDeleteForm] = React.useState({ tornWarId: "", name: "" });
-  const [relinkForm, setRelinkForm] = React.useState({ tornWarId: "", name: "" });
+  const [relinkForm, setRelinkForm] = React.useState({
+    tornWarId: "",
+    name: "",
+    fetchMissing: false,
+  });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [attackWindowForm, setAttackWindowForm] = React.useState({
     startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
@@ -269,6 +273,16 @@ export function AdminControls() {
                 value={relinkForm.name}
                 onChange={(event) => setRelinkForm({ ...relinkForm, name: event.target.value })}
               />
+            </label>
+            <label className="checkbox-row admin-form-wide">
+              <input
+                type="checkbox"
+                checked={relinkForm.fetchMissing}
+                onChange={(event) =>
+                  setRelinkForm({ ...relinkForm, fetchMissing: event.target.checked })
+                }
+              />
+              <span>Fetch missing attacks first</span>
             </label>
             <button
               type="button"
@@ -626,13 +640,15 @@ function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): Admi
   return payload;
 }
 
-function toRelinkPayload(form: { tornWarId: string; name: string }): {
+function toRelinkPayload(form: { tornWarId: string; name: string; fetchMissing: boolean }): {
   torn_war_id?: number;
   name?: string;
+  fetch_missing?: boolean;
 } {
   return {
     torn_war_id: form.tornWarId.trim() ? Number(form.tornWarId) : undefined,
     name: form.name.trim() || undefined,
+    fetch_missing: form.fetchMissing,
   };
 }
 
