@@ -13,7 +13,7 @@ import {
   WarSummary,
 } from "../api";
 import { FactionActivityHeatmap, ScoutingComparisonChart } from "../components/Charts";
-import { EmptyState, PanelHeader } from "../components/Common";
+import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { EnemyScoutingPanel } from "../components/EnemyScouting";
 import { formatLongDateTime } from "../utils/format";
 
@@ -38,7 +38,17 @@ export function WarRoom({
   const [activityHeatmap, setActivityHeatmap] =
     React.useState<FactionActivityHeatmapResponse | null>(null);
   const [isLoadingActivityHeatmap, setIsLoadingActivityHeatmap] = React.useState(false);
+  const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({
+    revivableMembers: true,
+  });
   const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
+
+  function togglePanel(panel: string) {
+    setCollapsedPanels((current) => ({
+      ...current,
+      [panel]: !current[panel],
+    }));
+  }
 
   React.useEffect(() => {
     let cancelled = false;
@@ -213,11 +223,13 @@ export function WarRoom({
       </section>
 
       <section className="content-grid">
-        <section className="panel chart-panel scouting-comparison-panel">
-          <PanelHeader
-            title="Faction stats comparison"
-            aside={isLoadingScoutingComparison ? "Loading" : "Estimated stats"}
-          />
+        <CollapsiblePanel
+          title="Faction stats comparison"
+          aside={isLoadingScoutingComparison ? "Loading" : "Estimated stats"}
+          collapsed={collapsedPanels.scoutingComparison ?? false}
+          onToggle={() => togglePanel("scoutingComparison")}
+          className="scouting-comparison-panel"
+        >
           <p className="panel-description">
             Compares cached estimated battle stats for Buttgrass and the enemy faction by member count in each range.
           </p>
@@ -226,13 +238,15 @@ export function WarRoom({
             enemyMembers={scoutingComparison?.enemy.members ?? []}
             enemyName={selectedWar.name}
           />
-        </section>
+        </CollapsiblePanel>
 
-        <section className="panel heatmap-panel">
-          <PanelHeader
-            title="Faction activity heatmaps"
-            aside={isLoadingActivityHeatmap ? "Loading" : "15 minute samples"}
-          />
+        <CollapsiblePanel
+          title="Faction activity heatmaps"
+          aside={isLoadingActivityHeatmap ? "Loading" : "15 minute samples"}
+          collapsed={collapsedPanels.activityHeatmaps ?? false}
+          onToggle={() => togglePanel("activityHeatmaps")}
+          className="heatmap-panel"
+        >
           <p className="panel-description">
             Tracks how many members were recently active in each 15 minute window, based on Torn member last action timestamps.
           </p>
@@ -250,12 +264,14 @@ export function WarRoom({
               color="red"
             />
           </div>
-        </section>
+        </CollapsiblePanel>
 
         <RevivableMembersPanel
           homeMembers={scoutingComparison?.home.members ?? []}
           enemyMembers={scoutingComparison?.enemy.members ?? []}
           enemyName={selectedWar.name}
+          collapsed={collapsedPanels.revivableMembers ?? true}
+          onToggle={() => togglePanel("revivableMembers")}
         />
 
         <EnemyScoutingPanel
@@ -274,14 +290,26 @@ function RevivableMembersPanel({
   homeMembers,
   enemyMembers,
   enemyName,
+  collapsed,
+  onToggle,
 }: {
   homeMembers: EnemyFactionMember[];
   enemyMembers: EnemyFactionMember[];
   enemyName: string;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
+  const revivableCount =
+    countRevivableMembers(homeMembers) + countRevivableMembers(enemyMembers);
+
   return (
-    <section className="panel revivable-panel">
-      <PanelHeader title="Revivable members" />
+    <CollapsiblePanel
+      title="Revivable members"
+      aside={`${revivableCount} revivable`}
+      collapsed={collapsed}
+      onToggle={onToggle}
+      className="revivable-panel"
+    >
       <p className="panel-description">
         Lists cached faction members currently marked revivable by Torn, refreshed from the 15 minute activity samples.
       </p>
@@ -289,8 +317,12 @@ function RevivableMembersPanel({
         <RevivableMemberList factionName="Buttgrass" members={homeMembers} />
         <RevivableMemberList factionName={enemyName} members={enemyMembers} />
       </div>
-    </section>
+    </CollapsiblePanel>
   );
+}
+
+function countRevivableMembers(members: EnemyFactionMember[]): number {
+  return members.filter((member) => Boolean(member.is_revivable)).length;
 }
 
 function RevivableMemberList({
