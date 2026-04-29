@@ -54,7 +54,12 @@ export function Sidebar({
         label="Admin controls"
         onClick={() => onViewChange("admin")}
       />
-      <WarNav wars={wars} selectedWarName={selectedWarName} onSelect={onWarSelect} />
+      <WarNav
+        view={view}
+        wars={wars}
+        selectedWarName={selectedWarName}
+        onSelect={onWarSelect}
+      />
     </aside>
   );
 }
@@ -101,10 +106,12 @@ function SidebarLink({
 }
 
 function WarNav({
+  view,
   wars,
   selectedWarName,
   onSelect,
 }: {
+  view: "war" | "warRoom" | "members" | "admin";
   wars: WarSummary[];
   selectedWarName: string | null;
   onSelect: (name: string) => void;
@@ -119,7 +126,7 @@ function WarNav({
         <WarNavButton
           key={war.id}
           war={war}
-          selected={war.name === selectedWarName}
+          selected={view === "war" && war.name === selectedWarName}
           onSelect={onSelect}
         />
       ))}

@@ -115,7 +115,7 @@ export function ActivityChart({
               formatNumber(Number(value)),
               activityLabel(String(name)),
             ]}
-            labelFormatter={(label) => `Bucket ${label}`}
+            labelFormatter={(label) => `Time ${label}`}
           />
           <Legend formatter={(value) => activityLabel(String(value))} />
           {keys.map((key) => (

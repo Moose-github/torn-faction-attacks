@@ -590,7 +590,7 @@ function App() {
                 <section className="panel table-panel" ref={memberAttackPanelRef}>
                   <PanelHeader
                     title={`${displayMember(selectedMember)} attacks`}
-                    aside={isLoadingMemberAttacks ? "Loading" : `${memberAttacks.length} rows`}
+                    aside={isLoadingMemberAttacks ? "Loading" : `${memberAttacks.length} attacks`}
                   />
                   <p className="panel-description">
                     Lists this member's individual attacks and defends during the counted war period, with row
