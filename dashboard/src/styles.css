@@ -798,6 +798,15 @@ h2 {
   min-width: 680px;
 }
 
+.member-report-comparison-table {
+  min-width: 860px;
+}
+
+.member-report-comparison-table .summary-row td {
+  background: #f8fafc;
+  font-weight: 800;
+}
+
 .chain-bonus-table {
   min-width: 760px;
 }

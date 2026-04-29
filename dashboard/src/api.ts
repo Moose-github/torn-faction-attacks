@@ -272,6 +272,25 @@ export type ReportDiscrepanciesResponse = {
     war_type: Exclude<WarType, "all">;
   };
   groups: Record<string, ReportDiscrepancyGroup>;
+  member_report_comparison?: {
+    available: boolean;
+    totals: MemberReportComparisonTotals;
+    mismatches: MemberReportComparisonRow[];
+  };
+};
+
+export type MemberReportComparisonTotals = {
+  local_attacks: number;
+  report_attacks: number;
+  attack_diff: number;
+  local_raw_respect: number;
+  report_score: number;
+  respect_diff: number;
+};
+
+export type MemberReportComparisonRow = MemberReportComparisonTotals & {
+  member_id: number;
+  member_name: string | null;
 };
 
 export type AdminWarPayload = {

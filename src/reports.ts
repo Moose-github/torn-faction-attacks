@@ -80,6 +80,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       SELECT
         id,
         name,
+        torn_war_id,
         practical_start_time,
         practical_finish_time,
         official_start_time,
@@ -95,6 +96,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       .first()) as {
       id: number;
       name: string;
+      torn_war_id: number | null;
       practical_start_time: number;
       practical_finish_time: number | null;
       official_start_time: number | null;
@@ -188,6 +190,14 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         war_type: war.war_type ?? "real",
       },
       groups,
+      member_report_comparison: await getMemberReportComparison(
+        env,
+        war.id,
+        war.torn_war_id,
+        war.enemy_faction_id,
+        officialStartTime,
+        officialEndTime,
+      ),
     });
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
@@ -401,6 +411,150 @@ async function getDiscrepancyGroup(
     count: Number(countRow?.count ?? 0),
     respect_gain: Number(countRow?.respect_gain ?? 0),
     attacks: sampleRows.results ?? [],
+  };
+}
+
+async function getMemberReportComparison(
+  env: Env,
+  warId: number,
+  tornWarId: number | null,
+  enemyFactionId: number | null,
+  officialStartTime: number | null,
+  officialEndTime: number | null,
+): Promise<{
+  available: boolean;
+  totals: {
+    local_attacks: number;
+    report_attacks: number;
+    attack_diff: number;
+    local_raw_respect: number;
+    report_score: number;
+    respect_diff: number;
+  };
+  mismatches: Array<{
+    member_id: number;
+    member_name: string | null;
+    local_attacks: number;
+    report_attacks: number;
+    attack_diff: number;
+    local_raw_respect: number;
+    report_score: number;
+    respect_diff: number;
+  }>;
+}> {
+  const emptyComparison = {
+    available: false,
+    totals: {
+      local_attacks: 0,
+      report_attacks: 0,
+      attack_diff: 0,
+      local_raw_respect: 0,
+      report_score: 0,
+      respect_diff: 0,
+    },
+    mismatches: [],
+  };
+
+  if (tornWarId === null || officialStartTime === null || officialEndTime === null) {
+    return emptyComparison;
+  }
+
+  const report = await fetchTornRankedWarReport(tornWarId, env);
+  const homeFaction = report?.factions?.find((faction) => faction.id === HOME_FACTION_ID) ?? null;
+
+  if (!homeFaction) {
+    return emptyComparison;
+  }
+
+  const localRows = await env.DB.prepare(
+    `
+    SELECT
+      a.attacker_id AS member_id,
+      MAX(a.attacker_name) AS member_name,
+      COUNT(*) AS local_attacks,
+      COALESCE(SUM(a.respect_gain), 0) AS local_raw_respect
+    FROM attacks a
+    WHERE a.war_id = ?
+      AND a.attacker_faction_id = ${HOME_FACTION_ID}
+      AND (? IS NULL OR a.defender_faction_id = ?)
+      AND a.result IN (${POSITIVE_RESULTS_SQL})
+      AND a.started >= ?
+      AND a.started <= ?
+      AND a.attacker_id IS NOT NULL
+    GROUP BY a.attacker_id
+    `,
+  )
+    .bind(warId, enemyFactionId, enemyFactionId, officialStartTime, officialEndTime)
+    .all();
+
+  const localByMember = new Map<
+    number,
+    {
+      member_id: number;
+      member_name: string | null;
+      local_attacks: number;
+      local_raw_respect: number;
+    }
+  >();
+
+  for (const row of localRows.results ?? []) {
+    const memberId = Number((row as any).member_id);
+    localByMember.set(memberId, {
+      member_id: memberId,
+      member_name: (row as any).member_name ?? null,
+      local_attacks: Number((row as any).local_attacks ?? 0),
+      local_raw_respect: Number((row as any).local_raw_respect ?? 0),
+    });
+  }
+
+  const reportByMember = new Map((homeFaction.members ?? []).map((member) => [member.id, member]));
+  const memberIds = new Set([...localByMember.keys(), ...reportByMember.keys()]);
+  const rows = [...memberIds].map((memberId) => {
+    const local = localByMember.get(memberId);
+    const reportMember = reportByMember.get(memberId);
+    const localAttacks = local?.local_attacks ?? 0;
+    const reportAttacks = reportMember?.attacks ?? 0;
+    const localRawRespect = local?.local_raw_respect ?? 0;
+    const reportScore = reportMember?.score ?? 0;
+
+    return {
+      member_id: memberId,
+      member_name: reportMember?.name ?? local?.member_name ?? null,
+      local_attacks: localAttacks,
+      report_attacks: reportAttacks,
+      attack_diff: localAttacks - reportAttacks,
+      local_raw_respect: localRawRespect,
+      report_score: reportScore,
+      respect_diff: localRawRespect - reportScore,
+    };
+  });
+
+  const totals = rows.reduce(
+    (summary, row) => {
+      summary.local_attacks += row.local_attacks;
+      summary.report_attacks += row.report_attacks;
+      summary.local_raw_respect += row.local_raw_respect;
+      summary.report_score += row.report_score;
+      return summary;
+    },
+    {
+      local_attacks: 0,
+      report_attacks: 0,
+      attack_diff: 0,
+      local_raw_respect: 0,
+      report_score: 0,
+      respect_diff: 0,
+    },
+  );
+  totals.attack_diff = totals.local_attacks - totals.report_attacks;
+  totals.respect_diff = totals.local_raw_respect - totals.report_score;
+
+  return {
+    available: true,
+    totals,
+    mismatches: rows
+      .filter((row) => row.attack_diff !== 0 || Math.abs(row.respect_diff) >= 0.01)
+      .sort((a, b) => Math.abs(b.attack_diff) - Math.abs(a.attack_diff) || Math.abs(b.respect_diff) - Math.abs(a.respect_diff)),
   };
 }
 
