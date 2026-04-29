@@ -251,34 +251,37 @@ export function FactionActivityHeatmap({
         <strong>{label}</strong>
         <span>{formatNumber(factionRows.length)} samples</span>
       </div>
-      <div className="heatmap-scroll">
-        <div className="heatmap-time-axis">
-          <span />
-          {[0, 24, 48, 72, 95].map((interval) => (
-            <span key={interval} style={{ gridColumn: interval + 2 }}>
-              {intervalLabel(interval)}
-            </span>
-          ))}
-        </div>
+      <div className="heatmap-day-stack">
         {dates.map((date) => (
-          <div className="heatmap-row" key={date}>
-            <span className="heatmap-date">{formatHeatmapDate(date)}</span>
-            {Array.from({ length: 96 }, (_, intervalIndex) => {
-              const row = rowMap.get(`${date}:${intervalIndex}`);
-              const percent = row && row.total_count > 0 ? row.active_count / row.total_count : 0;
-              return (
-                <span
-                  key={intervalIndex}
-                  className="heatmap-cell"
-                  style={{ backgroundColor: heatmapColor(color, percent, Boolean(row)) }}
-                  title={
-                    row
-                      ? `${formatHeatmapDate(date)} ${intervalLabel(intervalIndex)}: ${row.active_count}/${row.total_count} active`
-                      : `${formatHeatmapDate(date)} ${intervalLabel(intervalIndex)}: no sample`
-                  }
-                />
-              );
-            })}
+          <div className="heatmap-day" key={date}>
+            <div className="heatmap-day-header">
+              <strong>{formatHeatmapDate(date)}</strong>
+              <span>15 min slots</span>
+            </div>
+            <div className="heatmap-square-grid">
+              {Array.from({ length: 96 }, (_, intervalIndex) => {
+                const row = rowMap.get(`${date}:${intervalIndex}`);
+                const percent = row && row.total_count > 0 ? row.active_count / row.total_count : 0;
+                return (
+                  <span
+                    key={intervalIndex}
+                    className="heatmap-cell"
+                    style={{ backgroundColor: heatmapColor(color, percent, Boolean(row)) }}
+                    title={
+                      row
+                        ? `${formatHeatmapDate(date)} ${intervalLabel(intervalIndex)}: ${row.active_count}/${row.total_count} active`
+                        : `${formatHeatmapDate(date)} ${intervalLabel(intervalIndex)}: no sample`
+                    }
+                  />
+                );
+              })}
+            </div>
+            <div className="heatmap-square-axis">
+              <span>00:00</span>
+              <span>06:00</span>
+              <span>12:00</span>
+              <span>18:00</span>
+            </div>
           </div>
         ))}
       </div>

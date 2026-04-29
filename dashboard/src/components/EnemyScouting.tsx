@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowDown, ArrowUp, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowUp, RefreshCw, Sword } from "lucide-react";
 import { EnemyFactionMember, EnemyScoutingResponse } from "../api";
 import { formatNumber } from "../utils/format";
 import { EmptyState, PanelHeader } from "./Common";
@@ -75,7 +75,28 @@ export function EnemyScoutingPanel({
               <tbody>
                 {members.map((member) => (
                   <tr key={member.member_id}>
-                    <td>{member.name}</td>
+                    <td>
+                      <span className="enemy-member-actions">
+                        <a
+                          href={`https://www.torn.com/profiles.php?XID=${member.member_id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open Torn profile"
+                        >
+                          {member.name}
+                        </a>
+                        <a
+                          className="enemy-attack-link"
+                          href={`https://www.torn.com/page.php?sid=attack&user2ID=${member.member_id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Attack on Torn"
+                          aria-label={`Attack ${member.name} on Torn`}
+                        >
+                          <Sword size={14} />
+                        </a>
+                      </span>
+                    </td>
                     <td>{formatNumber(member.level ?? 0)}</td>
                     <td>{member.position ?? "-"}</td>
                     <td>{formatNumber(member.days_in_faction ?? 0)}</td>
