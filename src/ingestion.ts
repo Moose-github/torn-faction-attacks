@@ -6,6 +6,7 @@ import {
   RANKED_WARS_API_URL,
   SOURCE_NAME,
 } from "./constants";
+import { fetchEnemyScoutingOnceForWar } from "./enemyScouting";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   applyIncrementalWarSummaries,
@@ -791,7 +792,7 @@ async function syncUpcomingRankedWar(
 
   const name = await buildScheduledRankedWarName(env, enemyFaction.name);
 
-  await env.DB.prepare(
+  const inserted = (await env.DB.prepare(
     `
     INSERT INTO wars (
       name,
@@ -804,6 +805,7 @@ async function syncUpcomingRankedWar(
       official_enemy_score
     )
     VALUES (?, 'scheduled', ?, ?, 'real', ?, ?, ?)
+    RETURNING id
     `,
   )
     .bind(
@@ -814,7 +816,11 @@ async function syncUpcomingRankedWar(
       homeFaction.score,
       enemyFaction.score,
     )
-    .run();
+    .first()) as { id: number } | null;
+
+  if (inserted) {
+    await fetchEnemyScoutingOnceForWar(env, inserted.id);
+  }
 }
 
 function getRankedWarScores(factionId: number | null, rankedWar: TornRankedWar): {

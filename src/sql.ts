@@ -18,6 +18,7 @@ export const WAR_COLUMN_NAMES = [
   "official_home_attacks",
   "official_enemy_score",
   "official_enemy_attacks",
+  "enemy_scouting_auto_attempted_at",
   "finalized_at",
 ];
 

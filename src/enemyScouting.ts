@@ -3,6 +3,7 @@ import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./ty
 import { boolToInt, json } from "./utils";
 
 const FFSCOUTER_BATCH_SIZE = 100;
+const SCOUTING_FETCH_TIMEOUT_MS = 15000;
 
 type EnemyFactionMemberRow = {
   member_id: number;
@@ -21,6 +22,12 @@ type EnemyFactionMemberRow = {
 type StatEstimate = {
   stats: number;
   updatedAt: number | null;
+};
+
+type EnemyScoutingWar = {
+  id: number;
+  enemy_faction_id: number | null;
+  enemy_scouting_auto_attempted_at: number | null;
 };
 
 export async function getEnemyScoutingForWar(url: URL, env: Env): Promise<Response> {
@@ -50,6 +57,39 @@ export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Re
 
   const scouting = await readEnemyScouting(env, enemyFactionId);
   return jsonEnemyScouting(war, scouting, true);
+}
+
+export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Promise<void> {
+  const war = (await env.DB.prepare(
+    `
+    SELECT id, enemy_faction_id, enemy_scouting_auto_attempted_at
+    FROM wars
+    WHERE id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first()) as EnemyScoutingWar | null;
+
+  if (!war || war.enemy_faction_id === null || war.enemy_scouting_auto_attempted_at !== null) {
+    return;
+  }
+
+  try {
+    await replaceEnemyFactionMembers(env, war.enemy_faction_id);
+  } catch (err: any) {
+    console.warn(`Enemy scouting fetch failed for war ${warId}:`, err?.message || err);
+  } finally {
+    await env.DB.prepare(
+      `
+      UPDATE wars
+      SET enemy_scouting_auto_attempted_at = COALESCE(enemy_scouting_auto_attempted_at, unixepoch())
+      WHERE id = ?
+      `,
+    )
+      .bind(warId)
+      .run();
+  }
 }
 
 async function readWarFromScoutingUrl(url: URL, env: Env): Promise<WarRow | Response> {
@@ -210,7 +250,7 @@ async function fetchTornFactionMembers(env: Env, factionId: number): Promise<Tor
   const url = new URL(`${TORN_FACTION_API_BASE_URL}/${factionId}/members`);
   url.searchParams.set("striptags", "false");
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
@@ -237,7 +277,7 @@ async function fetchFfscouterStats(
   url.searchParams.set("key", env.FFSCOUTER_API_KEY);
   url.searchParams.set("targets", memberIds.join(","));
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     headers: { Accept: "application/json" },
   });
 
@@ -366,4 +406,21 @@ function chunks<T>(values: T[], size: number): T[][] {
     result.push(values.slice(index, index + size));
   }
   return result;
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SCOUTING_FETCH_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }

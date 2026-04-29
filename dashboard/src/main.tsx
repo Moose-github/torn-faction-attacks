@@ -82,7 +82,6 @@ function App() {
   const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
   const [isLoadingMemberAttacks, setIsLoadingMemberAttacks] = React.useState(false);
   const memberAttackPanelRef = React.useRef<HTMLElement | null>(null);
-  const autoScoutingAttemptsRef = React.useRef<Set<string>>(new Set());
 
   React.useEffect(() => {
   let cancelled = false;
@@ -354,50 +353,6 @@ function App() {
   const showFactionActivity = hasWarData && activityTotal(activityBuckets, ["enemy_success", "enemy_assist", "outside"]) > 0;
   const showEnemyActivity = hasWarData && activityTotal(activityBuckets, ["defend_lost", "defend_won"]) > 0;
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function autoRefreshEnemyScouting() {
-      if (
-        !selectedWarName ||
-        !showEnemyScouting ||
-        isLoadingEnemyScouting ||
-        isRefreshingEnemyScouting ||
-        (enemyScouting?.members.length ?? 0) > 0 ||
-        autoScoutingAttemptsRef.current.has(selectedWarName)
-      ) {
-        return;
-      }
-
-      autoScoutingAttemptsRef.current.add(selectedWarName);
-      setIsRefreshingEnemyScouting(true);
-
-      try {
-        const response = await refreshEnemyScouting(selectedWarName);
-        if (!cancelled) {
-          setEnemyScouting(response);
-        }
-      } catch {
-        // Automatic scouting is best-effort; the manual refresh button remains available.
-      } finally {
-        if (!cancelled) {
-          setIsRefreshingEnemyScouting(false);
-        }
-      }
-    }
-
-    autoRefreshEnemyScouting();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    enemyScouting,
-    isLoadingEnemyScouting,
-    isRefreshingEnemyScouting,
-    selectedWarName,
-    showEnemyScouting,
-  ]);
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({

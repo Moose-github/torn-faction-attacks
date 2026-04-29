@@ -60,6 +60,7 @@ export type WarSummary = {
   official_home_attacks: number | null;
   official_enemy_score: number | null;
   official_enemy_attacks: number | null;
+  enemy_scouting_auto_attempted_at: number | null;
   finalized_at: number | null;
   faction_attacks: number;
   enemy_attacks: number;
