@@ -1,5 +1,4 @@
 import React from "react";
-import { ShieldCheck } from "lucide-react";
 import {
   AdminWarPayload,
   AuthSession,
@@ -115,13 +114,8 @@ export function AdminControls() {
     <>
       {error ? <div className="error-panel">{error}</div> : null}
 
-      <section className="hero-panel admin-hero">
-        <div>
-          <p className="eyebrow">Testing tools</p>
-          <h2>Admin controls</h2>
-          <p>Trigger ingestion, rebuild derived stats, and manage war records from one place.</p>
-        </div>
-        <ShieldCheck size={42} />
+      <section className="hero-panel compact-hero-panel">
+        <h2>Admin controls</h2>
       </section>
 
       {!authSession ? (

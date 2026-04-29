@@ -49,7 +49,7 @@ export function MembersOverview({ warType }: { warType: WarType }) {
   return (
     <>
       {error ? <div className="error-panel">{error}</div> : null}
-      <section className="hero-panel">
+      <section className="hero-panel compact-hero-panel">
         <div>
           <p className="eyebrow">{warType === "all" ? "All events" : warType}</p>
           <h2>Member performance</h2>

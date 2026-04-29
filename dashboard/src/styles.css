@@ -317,6 +317,11 @@ h2 {
   padding: 18px 22px;
 }
 
+.compact-hero-panel {
+  min-height: 0;
+  padding: 18px 22px;
+}
+
 .war-room-countdown {
   display: grid;
   gap: 6px;
