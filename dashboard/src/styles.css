@@ -1142,6 +1142,14 @@ tbody tr:not(.attack-row):hover td {
   border-left-color: #eab308;
 }
 
+.attack-row.retaliation td {
+  background: #ecfeff;
+}
+
+.attack-row.retaliation td:first-child {
+  border-left-color: #0891b2;
+}
+
 .attack-row.outside td {
   background: #faf5ff;
 }

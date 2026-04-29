@@ -8,7 +8,9 @@ import {
   createWar,
   deleteWar,
   endActiveWar,
+  exportWarAttacksCsv,
   fetchTornWarReport,
+  getWars,
   getStoredAuthSession,
   importWar,
   previewImportWar,
@@ -18,6 +20,7 @@ import {
   refreshAuthSession,
   relinkAttacks,
   runIngestion,
+  WarSummary,
   WarType,
 } from "../api";
 import { PanelHeader } from "../components/Common";
@@ -45,6 +48,16 @@ export function AdminControls() {
     tornWarId: "",
     name: "",
     fetchMissing: false,
+  });
+  const [wars, setWars] = React.useState<WarSummary[]>([]);
+  const [exportForm, setExportForm] = React.useState({
+    warName: "",
+    scope: "war_relevant" as "all" | "outgoing" | "war_relevant",
+    window: "official" as "official" | "practical" | "custom",
+    linkedStatus: "linked" as "linked" | "matching" | "unlinked",
+    columns: "standard" as "standard" | "debug",
+    customStartTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
+    customFinishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
   });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [attackWindowForm, setAttackWindowForm] = React.useState({
@@ -74,6 +87,39 @@ export function AdminControls() {
       cancelled = true;
     };
   }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadWars() {
+      if (authSession?.access_level !== "admin") {
+        return;
+      }
+
+      try {
+        const response = await getWars("all");
+        if (cancelled) {
+          return;
+        }
+
+        setWars(response.wars);
+        setExportForm((current) => ({
+          ...current,
+          warName: current.warName || response.wars[0]?.name || "",
+        }));
+      } catch {
+        if (!cancelled) {
+          setWars([]);
+        }
+      }
+    }
+
+    loadWars();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authSession?.access_level]);
 
   async function login(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -191,6 +237,151 @@ export function AdminControls() {
         </section>
 
         <ProjectTodoPanel />
+
+        <section className="panel">
+          <PanelHeader title="Export attacks CSV" />
+          <form
+            className="admin-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Export attacks CSV", async () => {
+                await exportWarAttacksCsv({
+                  warName: exportForm.warName,
+                  scope: exportForm.scope,
+                  window: exportForm.window,
+                  linkedStatus: exportForm.linkedStatus,
+                  columns: exportForm.columns,
+                  customStart:
+                    exportForm.window === "custom"
+                      ? secondsFromDateTimeLocal(exportForm.customStartTime)
+                      : undefined,
+                  customFinish:
+                    exportForm.window === "custom"
+                      ? secondsFromDateTimeLocal(exportForm.customFinishTime)
+                      : undefined,
+                });
+                return { ok: true, exported: exportForm.warName };
+              });
+            }}
+          >
+            <label className="admin-form-wide">
+              <span>War</span>
+              <select
+                value={exportForm.warName}
+                onChange={(event) =>
+                  setExportForm({ ...exportForm, warName: event.target.value })
+                }
+                required
+              >
+                <option value="" disabled>
+                  Select war
+                </option>
+                {wars.map((war) => (
+                  <option value={war.name} key={war.id}>
+                    {war.name}
+                    {war.torn_war_id ? ` / Torn #${war.torn_war_id}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Attack scope</span>
+              <select
+                value={exportForm.scope}
+                onChange={(event) =>
+                  setExportForm({
+                    ...exportForm,
+                    scope: event.target.value as typeof exportForm.scope,
+                  })
+                }
+              >
+                <option value="all">All attacks in time period</option>
+                <option value="outgoing">Outgoing only</option>
+                <option value="war_relevant">Outgoing + incoming from enemy</option>
+              </select>
+            </label>
+            <label>
+              <span>Time window</span>
+              <select
+                value={exportForm.window}
+                onChange={(event) =>
+                  setExportForm({
+                    ...exportForm,
+                    window: event.target.value as typeof exportForm.window,
+                  })
+                }
+              >
+                <option value="official">Official Torn window</option>
+                <option value="practical">Buttgrass practical window</option>
+                <option value="custom">Custom window</option>
+              </select>
+            </label>
+            {exportForm.window === "custom" ? (
+              <>
+                <label>
+                  <span>Custom start</span>
+                  <input
+                    type="datetime-local"
+                    value={exportForm.customStartTime}
+                    onChange={(event) =>
+                      setExportForm({ ...exportForm, customStartTime: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Custom finish</span>
+                  <input
+                    type="datetime-local"
+                    value={exportForm.customFinishTime}
+                    onChange={(event) =>
+                      setExportForm({ ...exportForm, customFinishTime: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+              </>
+            ) : null}
+            <label>
+              <span>Linked status</span>
+              <select
+                value={exportForm.linkedStatus}
+                onChange={(event) =>
+                  setExportForm({
+                    ...exportForm,
+                    linkedStatus: event.target.value as typeof exportForm.linkedStatus,
+                  })
+                }
+              >
+                <option value="linked">Linked to selected war</option>
+                <option value="matching">Matching rules, even if not linked</option>
+                <option value="unlinked">Unlinked only</option>
+              </select>
+            </label>
+            <label>
+              <span>Columns</span>
+              <select
+                value={exportForm.columns}
+                onChange={(event) =>
+                  setExportForm({
+                    ...exportForm,
+                    columns: event.target.value as typeof exportForm.columns,
+                  })
+                }
+              >
+                <option value="standard">Standard export</option>
+                <option value="debug">Debug export</option>
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="admin-button primary admin-form-wide"
+              disabled={isBusy !== null || !exportForm.warName}
+            >
+              Export CSV
+            </button>
+          </form>
+        </section>
 
         <WarForm
           title="Create active or scheduled war"

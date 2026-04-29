@@ -23,6 +23,7 @@ export type MemberStats = {
   enemy_assists: number;
   enemy_hospitalizations: number;
   enemy_mugs: number;
+  enemy_retaliations: number;
   outside_attacks: number;
   friendly_hospitals: number;
   defends_total: number;
@@ -100,6 +101,7 @@ export type WarDetailResponse = {
 export type MemberAttackClassification =
   | "enemy_success"
   | "enemy_assist"
+  | "retaliation"
   | "enemy_attempt"
   | "outside"
   | "defend_lost"
@@ -313,6 +315,16 @@ export type AttackWindowPayload = {
   limit?: number;
 };
 
+export type AttackExportOptions = {
+  warName: string;
+  scope: "all" | "outgoing" | "war_relevant";
+  window: "official" | "practical" | "custom";
+  linkedStatus: "linked" | "matching" | "unlinked";
+  columns: "standard" | "debug";
+  customStart?: number;
+  customFinish?: number;
+};
+
 export type AuthUser = {
   id: number;
   name: string | null;
@@ -509,6 +521,56 @@ export async function refreshEnemyScouting(warName: string): Promise<EnemyScouti
   );
 }
 
+export async function exportWarAttacksCsv(options: AttackExportOptions): Promise<void> {
+  const params = new URLSearchParams({
+    format: "csv",
+    scope: options.scope,
+    window: options.window,
+    linked_status: options.linkedStatus,
+    columns: options.columns,
+  });
+
+  if (options.window === "custom") {
+    if (options.customStart !== undefined) {
+      params.set("custom_start", String(options.customStart));
+    }
+    if (options.customFinish !== undefined) {
+      params.set("custom_finish", String(options.customFinish));
+    }
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/wars/${encodeURIComponent(options.warName)}/attacks?${params.toString()}`,
+    { headers: authHeaders(true) },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    let message = `Request failed: ${response.status}`;
+    try {
+      const data = JSON.parse(text);
+      message = data.error ?? message;
+    } catch {
+      if (text.trim()) {
+        message = text;
+      }
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filename = filenameFromContentDisposition(disposition) ?? `${options.warName}-attacks.csv`;
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = downloadUrl;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
 async function getJson<T>(path: string, includeAuth = false): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: authHeaders(includeAuth),
@@ -559,4 +621,9 @@ function authHeaders(includeAuth: boolean): Record<string, string> | undefined {
 
   const token = getAuthToken();
   return token ? { Authorization: `Bearer ${token}` } : undefined;
+}
+
+function filenameFromContentDisposition(value: string): string | null {
+  const match = value.match(/filename="([^"]+)"/);
+  return match?.[1] ?? null;
 }

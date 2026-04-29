@@ -308,6 +308,7 @@ export async function applyRankedWarReport(
             enemy_assists,
             enemy_hospitalizations,
             enemy_mugs,
+            enemy_retaliations,
             outside_attacks,
             friendly_hospitals,
             defends_total,
@@ -315,7 +316,7 @@ export async function applyRankedWarReport(
             respect_lost,
             added_from_report
           )
-          VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+          VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
           `,
         ).bind(warId, member.id, member.name ?? null),
       ),

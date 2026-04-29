@@ -40,6 +40,7 @@ export function MemberTable({
             <SortableHeader label="Respect gained" sortKey="enemy_respect_gained" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Assists" sortKey="enemy_assists" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label={<>Friendly<br />hosps</>} sortKey="friendly_hospitals" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Retaliations" sortKey="enemy_retaliations" sort={sort} onSortChange={onSortChange} />
           </tr>
         </thead>
         <tbody>
@@ -81,6 +82,7 @@ export function MemberTable({
               <td>{formatNumber(member.enemy_respect_gained)}</td>
               <td>{formatNumber(member.enemy_assists)}</td>
               <td>{formatNumber(member.friendly_hospitals)}</td>
+              <td>{formatNumber(member.enemy_retaliations)}</td>
             </tr>
           ))}
         </tbody>

@@ -26,7 +26,7 @@ import {
   WAR_SELECT_COLUMNS_WITH_ALIAS,
 } from "./sql";
 import { Env, WarRow, WarSummaryRow } from "./types";
-import { json, nowSeconds, parseLimit } from "./utils";
+import { corsHeaders, json, nowSeconds, parseLimit } from "./utils";
 
 export async function createWar(request: Request, env: Env): Promise<Response> {
   try {
@@ -956,6 +956,108 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
   }
 }
 
+export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response> {
+  try {
+    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+
+    if (!name) {
+      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
+    }
+
+    const war = (await env.DB.prepare(
+      `
+      SELECT
+        ${WAR_SELECT_COLUMNS}
+      FROM wars
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+      .bind(name)
+      .first()) as WarRow | null;
+
+    if (!war) {
+      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+    }
+
+    const scope = parseExportOption(url.searchParams.get("scope"), [
+      "all",
+      "outgoing",
+      "war_relevant",
+    ] as const, "war_relevant");
+    const windowMode = parseExportOption(url.searchParams.get("window"), [
+      "official",
+      "practical",
+      "custom",
+    ] as const, "official");
+    const linkedStatus = parseExportOption(url.searchParams.get("linked_status"), [
+      "linked",
+      "matching",
+      "unlinked",
+    ] as const, "linked");
+    const columns = parseExportOption(url.searchParams.get("columns"), [
+      "standard",
+      "debug",
+    ] as const, "standard");
+    const windowRange = exportWindowForWar(war, windowMode, url);
+
+    if (windowRange instanceof Response) {
+      return windowRange;
+    }
+
+    const conditions = ["a.started >= ?", "a.started <= ?"];
+    const binds: unknown[] = [windowRange.start, windowRange.finish];
+
+    if (linkedStatus === "linked") {
+      conditions.push("a.war_id = ?");
+      binds.push(war.id);
+    } else if (linkedStatus === "unlinked") {
+      conditions.push("a.war_id IS NULL");
+    }
+
+    if (scope === "outgoing") {
+      conditions.push(`a.attacker_faction_id = ${HOME_FACTION_ID}`);
+    } else if (scope === "war_relevant") {
+      conditions.push(`
+        (
+          a.attacker_faction_id = ${HOME_FACTION_ID}
+          OR (
+            ? IS NOT NULL
+            AND a.attacker_faction_id = ?
+            AND a.defender_faction_id = ${HOME_FACTION_ID}
+          )
+        )
+      `);
+      binds.push(war.enemy_faction_id, war.enemy_faction_id);
+    }
+
+    const rows = await env.DB.prepare(
+      `
+      SELECT *
+      FROM attacks a
+      WHERE ${conditions.join("\n        AND ")}
+      ORDER BY a.started ASC, a.id ASC
+      `,
+    )
+      .bind(...binds)
+      .all();
+
+    const csv = attacksToCsv((rows.results ?? []) as Record<string, unknown>[], columns);
+    const filename = `${sanitizeFilename(war.name)}-${windowMode}-${scope}-${linkedStatus}.csv`;
+
+    return new Response(csv, {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (err: any) {
+    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
+  }
+}
+
 export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response> {
   try {
     const parts = url.pathname.split("/");
@@ -1214,6 +1316,7 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       COALESCE(SUM(wms.enemy_assists), 0) AS enemy_assists,
       COALESCE(SUM(wms.enemy_hospitalizations), 0) AS enemy_hospitalizations,
       COALESCE(SUM(wms.enemy_mugs), 0) AS enemy_mugs,
+      COALESCE(SUM(wms.enemy_retaliations), 0) AS enemy_retaliations,
       COALESCE(SUM(wms.outside_attacks), 0) AS outside_attacks,
       COALESCE(SUM(wms.friendly_hospitals), 0) AS friendly_hospitals,
       COALESCE(SUM(wms.defends_total), 0) AS defends_total,
@@ -1411,6 +1514,126 @@ const RELINK_ATTACK_MATCH_SQL = `
   )
 `;
 
+function parseExportOption<T extends readonly string[]>(
+  value: string | null,
+  allowed: T,
+  fallback: T[number],
+): T[number] {
+  if (!value) {
+    return fallback;
+  }
+
+  return allowed.includes(value) ? value : fallback;
+}
+
+function exportWindowForWar(
+  war: WarRow,
+  windowMode: "official" | "practical" | "custom",
+  url: URL,
+): { start: number; finish: number } | Response {
+  if (windowMode === "custom") {
+    const start = Number(url.searchParams.get("custom_start"));
+    const finish = Number(url.searchParams.get("custom_finish"));
+
+    if (!Number.isInteger(start) || !Number.isInteger(finish) || start < 0 || finish < start) {
+      return json(
+        { ok: false, error: "Invalid custom export window", code: "INVALID_EXPORT_WINDOW" },
+        400,
+      );
+    }
+
+    return { start, finish };
+  }
+
+  const start =
+    windowMode === "official"
+      ? (war.official_start_time ?? war.practical_start_time)
+      : war.practical_start_time;
+  const finish =
+    windowMode === "official"
+      ? (war.official_end_time ?? war.practical_finish_time ?? nowSeconds())
+      : (war.practical_finish_time ?? nowSeconds());
+
+  if (!Number.isInteger(start) || !Number.isInteger(finish) || finish < start) {
+    return json(
+      { ok: false, error: "Selected export window is not available", code: "EXPORT_WINDOW_UNAVAILABLE" },
+      400,
+    );
+  }
+
+  return { start, finish };
+}
+
+const STANDARD_EXPORT_COLUMNS = [
+  "id",
+  "war_id",
+  "started",
+  "ended",
+  "attacker_id",
+  "attacker_name",
+  "attacker_faction_id",
+  "attacker_faction_name",
+  "defender_id",
+  "defender_name",
+  "defender_faction_id",
+  "defender_faction_name",
+  "result",
+  "respect_gain",
+  "respect_loss",
+  "chain",
+] as const;
+
+const DEBUG_EXPORT_COLUMNS = [
+  ...STANDARD_EXPORT_COLUMNS,
+  "code",
+  "attacker_level",
+  "defender_level",
+  "is_interrupted",
+  "is_stealthed",
+  "is_raid",
+  "is_ranked_war",
+  "m_fair_fight",
+  "m_war",
+  "m_retaliation",
+  "m_group",
+  "m_overseas",
+  "m_chain",
+  "m_warlord",
+  "fetched_at",
+  "ingest_run_id",
+] as const;
+
+function attacksToCsv(
+  rows: Record<string, unknown>[],
+  columns: "standard" | "debug",
+): string {
+  const columnNames = columns === "debug" ? DEBUG_EXPORT_COLUMNS : STANDARD_EXPORT_COLUMNS;
+  const lines = [
+    columnNames.join(","),
+    ...rows.map((row) => columnNames.map((column) => csvCell(row[column])).join(",")),
+  ];
+
+  return `${lines.join("\r\n")}\r\n`;
+}
+
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  const text = String(value);
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+
+  return text;
+}
+
+function sanitizeFilename(value: string): string {
+  const sanitized = value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return sanitized || "war-attacks";
+}
+
 function classifyMemberAttack(
   attack: {
     attacker_id: number | null;
@@ -1418,6 +1641,7 @@ function classifyMemberAttack(
     defender_id: number | null;
     defender_faction_id: number | null;
     result: string | null;
+    m_retaliation?: number | null;
   },
   memberId: number,
   enemyFactionId: number | null,
@@ -1432,6 +1656,10 @@ function classifyMemberAttack(
 
     if (!againstEnemy) {
       return "outside";
+    }
+
+    if (attack.result === "Hospitalized" && Number(attack.m_retaliation ?? 1) > 1) {
+      return "retaliation";
     }
 
     if (attack.result === "Assist") {

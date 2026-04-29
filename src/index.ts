@@ -19,6 +19,7 @@ import {
   getWar,
   getWarActivity,
   getWarAttacks,
+  exportWarAttacksCsv,
   getWarMemberAttacks,
   importHistoricalWar,
   listWars,
@@ -196,6 +197,9 @@ export default {
     ) {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
+      if (url.searchParams.get("format") === "csv") {
+        return exportWarAttacksCsv(url, env);
+      }
       return getWarAttacks(url, env);
     }
 

@@ -215,6 +215,7 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
         enemy_assists = 0,
         enemy_hospitalizations = 0,
         enemy_mugs = 0,
+        enemy_retaliations = 0,
         outside_attacks = 0,
         friendly_hospitals = 0,
         defends_total = 0,
@@ -289,6 +290,7 @@ async function upsertWarMemberAttackStats(
       enemy_assists,
       enemy_hospitalizations,
       enemy_mugs,
+      enemy_retaliations,
       outside_attacks,
       friendly_hospitals,
       first_action_at,
@@ -337,6 +339,13 @@ async function upsertWarMemberAttackStats(
         ELSE 0
       END) AS enemy_mugs,
       SUM(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result = 'Hospitalized'
+         AND COALESCE(a.m_retaliation, 1) > 1
+        THEN 1
+        ELSE 0
+      END) AS enemy_retaliations,
+      SUM(CASE
         WHEN w.enemy_faction_id IS NOT NULL
          AND (
            a.defender_faction_id IS NULL
@@ -374,6 +383,7 @@ async function upsertWarMemberAttackStats(
       enemy_assists = war_member_stats.enemy_assists + excluded.enemy_assists,
       enemy_hospitalizations = war_member_stats.enemy_hospitalizations + excluded.enemy_hospitalizations,
       enemy_mugs = war_member_stats.enemy_mugs + excluded.enemy_mugs,
+      enemy_retaliations = war_member_stats.enemy_retaliations + excluded.enemy_retaliations,
       outside_attacks = war_member_stats.outside_attacks + excluded.outside_attacks,
       friendly_hospitals = war_member_stats.friendly_hospitals + excluded.friendly_hospitals,
       first_action_at = CASE

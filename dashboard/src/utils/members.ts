@@ -7,6 +7,7 @@ export type MemberSortKey =
   | "outside_attacks"
   | "enemy_respect_gained"
   | "enemy_assists"
+  | "enemy_retaliations"
   | "friendly_hospitals";
 
 export type MemberSort = {
@@ -141,6 +142,8 @@ export function classificationLabel(classification: MemberAttack["classification
       return "Enemy hit";
     case "enemy_assist":
       return "Assist";
+    case "retaliation":
+      return "Retaliation";
     case "outside":
       return "Outside";
     case "defend_lost":
@@ -187,6 +190,8 @@ export function memberSortLabel(key: MemberSortKey): string {
       return "Assists";
     case "friendly_hospitals":
       return "Friendly hosps";
+    case "enemy_retaliations":
+      return "Retaliations";
     default:
       return "Value";
   }
