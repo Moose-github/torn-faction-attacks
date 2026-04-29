@@ -897,8 +897,6 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
       return json({ ok: false, error: "Invalid member id", code: "INVALID_MEMBER_ID" }, 400);
     }
 
-    const limit = parseLimit(url.searchParams.get("limit"), 100, 250);
-
     const war = (await env.DB.prepare(
       `
       SELECT id, name, practical_start_time, practical_finish_time, official_start_time, official_end_time, status, enemy_faction_id
@@ -952,12 +950,11 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
             a.defender_id = ?
             AND ${DEFENSE_ACTION_WINDOW_SQL}
           )
-        )
+      )
       ORDER BY a.started DESC
-      LIMIT ?
       `,
     )
-      .bind(war.id, memberId, memberId, limit)
+      .bind(war.id, memberId, memberId)
       .all();
 
     const attacks = (rows.results ?? []).map((attack: any) => ({
@@ -974,7 +971,6 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
       },
       member_id: memberId,
       paging: {
-        limit,
         returned: attacks.length,
       },
       attacks,

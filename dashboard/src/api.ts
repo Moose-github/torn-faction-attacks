@@ -149,7 +149,6 @@ export type MemberAttacksResponse = {
   ok: boolean;
   member_id: number;
   paging: {
-    limit: number;
     returned: number;
   };
   attacks: MemberAttack[];
