@@ -460,6 +460,20 @@ export async function deleteWar(payload: {
   return postJson("/api/wars/delete", payload);
 }
 
+export async function previewRelinkAttacks(payload: {
+  torn_war_id?: number;
+  name?: string;
+}): Promise<unknown> {
+  return postJson("/api/wars/relink-attacks", { ...payload, dry_run: true });
+}
+
+export async function relinkAttacks(payload: {
+  torn_war_id?: number;
+  name?: string;
+}): Promise<unknown> {
+  return postJson("/api/wars/relink-attacks", { ...payload, dry_run: false });
+}
+
 export async function endActiveWar(): Promise<unknown> {
   return postJson("/api/wars/end");
 }

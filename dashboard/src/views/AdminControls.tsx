@@ -12,9 +12,11 @@ import {
   getStoredAuthSession,
   importWar,
   previewImportWar,
+  previewRelinkAttacks,
   pullAttackWindow,
   rebuildStats,
   refreshAuthSession,
+  relinkAttacks,
   runIngestion,
   WarType,
 } from "../api";
@@ -39,6 +41,7 @@ export function AdminControls() {
     finishEpoch: String(Math.floor(Date.now() / 1000)),
   }));
   const [deleteForm, setDeleteForm] = React.useState({ tornWarId: "", name: "" });
+  const [relinkForm, setRelinkForm] = React.useState({ tornWarId: "", name: "" });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [attackWindowForm, setAttackWindowForm] = React.useState({
     startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
@@ -243,6 +246,51 @@ export function AdminControls() {
             </label>
             <button type="submit" className="admin-button danger admin-form-wide" disabled={isBusy !== null}>
               Delete war
+            </button>
+          </form>
+        </section>
+
+        <section className="panel">
+          <PanelHeader title="Relink attacks" />
+          <form className="admin-form">
+            <label>
+              <span>Torn war ID</span>
+              <input
+                inputMode="numeric"
+                value={relinkForm.tornWarId}
+                onChange={(event) =>
+                  setRelinkForm({ ...relinkForm, tornWarId: event.target.value })
+                }
+              />
+            </label>
+            <label>
+              <span>War name</span>
+              <input
+                value={relinkForm.name}
+                onChange={(event) => setRelinkForm({ ...relinkForm, name: event.target.value })}
+              />
+            </label>
+            <button
+              type="button"
+              className="admin-button admin-form-wide"
+              disabled={isBusy !== null}
+              onClick={() =>
+                runAdminAction("Preview relink attacks", () =>
+                  previewRelinkAttacks(toRelinkPayload(relinkForm)),
+                )
+              }
+            >
+              Preview relink attacks
+            </button>
+            <button
+              type="button"
+              className="admin-button primary admin-form-wide"
+              disabled={isBusy !== null}
+              onClick={() =>
+                runAdminAction("Relink attacks", () => relinkAttacks(toRelinkPayload(relinkForm)))
+              }
+            >
+              Relink attacks
             </button>
           </form>
         </section>
@@ -576,6 +624,16 @@ function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): Admi
   }
 
   return payload;
+}
+
+function toRelinkPayload(form: { tornWarId: string; name: string }): {
+  torn_war_id?: number;
+  name?: string;
+} {
+  return {
+    torn_war_id: form.tornWarId.trim() ? Number(form.tornWarId) : undefined,
+    name: form.name.trim() || undefined,
+  };
 }
 
 function updateTimeMode(
