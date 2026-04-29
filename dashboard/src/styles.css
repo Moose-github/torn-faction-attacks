@@ -322,6 +322,10 @@ h2 {
   margin-bottom: 16px;
 }
 
+.enemy-scouting-panel {
+  grid-column: 1 / -1;
+}
+
 .panel,
 .status-panel,
 .metric-card {

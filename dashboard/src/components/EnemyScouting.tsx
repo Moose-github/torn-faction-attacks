@@ -35,7 +35,7 @@ export function EnemyScoutingPanel({
   const members = sortEnemyScoutingMembers(scouting?.members ?? [], sort);
 
   return (
-    <section className="panel table-panel">
+    <section className="panel table-panel enemy-scouting-panel">
       <PanelHeader
         title="Enemy faction scouting"
         aside={isLoading ? "Loading" : `${formatNumber(members.length)} members`}
