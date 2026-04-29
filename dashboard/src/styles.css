@@ -567,6 +567,72 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.revivable-panel {
+  grid-column: 1 / -1;
+}
+
+.revivable-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.revivable-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.64);
+}
+
+.revivable-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #334155;
+  font-size: 0.88rem;
+}
+
+.revivable-list-header span {
+  color: #64748b;
+  font-weight: 800;
+}
+
+.revivable-list p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.revivable-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.revivable-members a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.revivable-members a:hover {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+
 .heatmap-stack {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -972,19 +1038,19 @@ td {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #1d4ed8;
+  color: #172033;
   cursor: pointer;
   font: inherit;
-  font-weight: 800;
+  font-weight: 600;
   text-align: left;
-  text-decoration: underline;
-  text-decoration-color: #93c5fd;
-  text-underline-offset: 4px;
+  text-decoration: none;
 }
 
 .member-link:hover {
-  color: #1e40af;
-  text-decoration-color: #1d4ed8;
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-decoration-color: #bfdbfe;
+  text-underline-offset: 4px;
 }
 
 .enemy-member-actions {
@@ -994,16 +1060,16 @@ td {
 }
 
 .enemy-member-actions a:first-child {
-  color: #1d4ed8;
-  font-weight: 800;
-  text-decoration: underline;
-  text-decoration-color: #93c5fd;
-  text-underline-offset: 4px;
+  color: #172033;
+  font-weight: 600;
+  text-decoration: none;
 }
 
 .enemy-member-actions a:first-child:hover {
-  color: #1e40af;
-  text-decoration-color: #1d4ed8;
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-decoration-color: #bfdbfe;
+  text-underline-offset: 4px;
 }
 
 .enemy-attack-link {
@@ -1188,6 +1254,7 @@ tbody tr:not(.attack-row):hover td {
   .status-grid,
   .admin-grid,
   .heatmap-stack,
+  .revivable-grid,
   .content-grid,
   .dashboard-layout {
     grid-template-columns: 1fr;

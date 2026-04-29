@@ -1,10 +1,13 @@
 import React from "react";
 import {
+  EnemyFactionMember,
   EnemyScoutingResponse,
   FactionActivityHeatmapResponse,
+  getStoredAuthSession,
   getEnemyScouting,
   getScoutingComparison,
   getWarActivityHeatmap,
+  refreshAuthSession,
   refreshEnemyScouting,
   ScoutingComparisonResponse,
   WarSummary,
@@ -24,6 +27,9 @@ export function WarRoom({
   onError: (message: string | null) => void;
 }) {
   const [enemyScouting, setEnemyScouting] = React.useState<EnemyScoutingResponse | null>(null);
+  const [canRefreshEnemyScouting, setCanRefreshEnemyScouting] = React.useState(
+    () => getStoredAuthSession()?.access_level === "admin",
+  );
   const [isLoadingEnemyScouting, setIsLoadingEnemyScouting] = React.useState(false);
   const [isRefreshingEnemyScouting, setIsRefreshingEnemyScouting] = React.useState(false);
   const [scoutingComparison, setScoutingComparison] =
@@ -33,6 +39,22 @@ export function WarRoom({
     React.useState<FactionActivityHeatmapResponse | null>(null);
   const [isLoadingActivityHeatmap, setIsLoadingActivityHeatmap] = React.useState(false);
   const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function refreshAuth() {
+      const session = await refreshAuthSession();
+      if (!cancelled) {
+        setCanRefreshEnemyScouting(session?.access_level === "admin");
+      }
+    }
+
+    refreshAuth();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -230,14 +252,82 @@ export function WarRoom({
           </div>
         </section>
 
+        <RevivableMembersPanel
+          homeMembers={scoutingComparison?.home.members ?? []}
+          enemyMembers={scoutingComparison?.enemy.members ?? []}
+          enemyName={selectedWar.name}
+        />
+
         <EnemyScoutingPanel
           scouting={enemyScouting}
           isLoading={isLoadingEnemyScouting}
           isRefreshing={isRefreshingEnemyScouting}
+          canRefresh={canRefreshEnemyScouting}
           onRefresh={refreshSelectedEnemyScouting}
         />
       </section>
     </>
+  );
+}
+
+function RevivableMembersPanel({
+  homeMembers,
+  enemyMembers,
+  enemyName,
+}: {
+  homeMembers: EnemyFactionMember[];
+  enemyMembers: EnemyFactionMember[];
+  enemyName: string;
+}) {
+  return (
+    <section className="panel revivable-panel">
+      <PanelHeader title="Revivable members" />
+      <p className="panel-description">
+        Lists cached faction members currently marked revivable by Torn, refreshed from the 15 minute activity samples.
+      </p>
+      <div className="revivable-grid">
+        <RevivableMemberList factionName="Buttgrass" members={homeMembers} />
+        <RevivableMemberList factionName={enemyName} members={enemyMembers} />
+      </div>
+    </section>
+  );
+}
+
+function RevivableMemberList({
+  factionName,
+  members,
+}: {
+  factionName: string;
+  members: EnemyFactionMember[];
+}) {
+  const revivableMembers = members
+    .filter((member) => Boolean(member.is_revivable))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return (
+    <div className="revivable-list">
+      <div className="revivable-list-header">
+        <strong>{factionName}</strong>
+        <span>{revivableMembers.length}</span>
+      </div>
+      {revivableMembers.length === 0 ? (
+        <p>No revivable members cached</p>
+      ) : (
+        <div className="revivable-members">
+          {revivableMembers.map((member) => (
+            <a
+              key={member.member_id}
+              href={`https://www.torn.com/profiles.php?XID=${member.member_id}`}
+              target="_blank"
+              rel="noreferrer"
+              title={`Open ${member.name} on Torn`}
+            >
+              {member.name}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

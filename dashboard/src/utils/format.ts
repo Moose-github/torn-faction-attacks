@@ -60,6 +60,31 @@ export function formatTime(timestamp: number | null): string {
   }).format(new Date(timestamp * 1000));
 }
 
+export function formatRelativeTime(timestamp: number | null): string {
+  if (!timestamp) {
+    return "-";
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (minutes < 1) {
+    return "Just now";
+  }
+
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  if (hours < 48) {
+    return `${hours}h ago`;
+  }
+
+  return `${days}d ago`;
+}
+
 function ordinalSuffix(day: number): string {
   if (day >= 11 && day <= 13) {
     return "th";

@@ -1,7 +1,7 @@
 import React from "react";
 import { ArrowDown, ArrowUp, RefreshCw, Sword } from "lucide-react";
 import { EnemyFactionMember, EnemyScoutingResponse } from "../api";
-import { formatNumber } from "../utils/format";
+import { formatNumber, formatRelativeTime } from "../utils/format";
 import { EmptyState, PanelHeader } from "./Common";
 
 type EnemyScoutingSortKey =
@@ -10,7 +10,7 @@ type EnemyScoutingSortKey =
   | "position"
   | "days_in_faction"
   | "estimated_stats"
-  | "is_revivable";
+  | "estimated_stats_updated_at";
 
 type EnemyScoutingSort = {
   key: EnemyScoutingSortKey;
@@ -21,11 +21,13 @@ export function EnemyScoutingPanel({
   scouting,
   isLoading,
   isRefreshing,
+  canRefresh,
   onRefresh,
 }: {
   scouting: EnemyScoutingResponse | null;
   isLoading: boolean;
   isRefreshing: boolean;
+  canRefresh: boolean;
   onRefresh: () => void;
 }) {
   const [sort, setSort] = React.useState<EnemyScoutingSort>({
@@ -44,11 +46,15 @@ export function EnemyScoutingPanel({
             type="button"
             className="icon-text-button"
             onClick={onRefresh}
-            disabled={isRefreshing}
-            title="Load or update enemy scouting data"
+            disabled={!canRefresh || isRefreshing}
+            title={
+              canRefresh
+                ? "Load or update enemy scouting data"
+                : "Admin sign in required to refresh scouting data"
+            }
           >
             <RefreshCw size={15} />
-            {isRefreshing ? "Refreshing" : "Refresh"}
+            {canRefresh ? (isRefreshing ? "Refreshing" : "Refresh") : "Admin only"}
           </button>
         }
       />
@@ -69,7 +75,7 @@ export function EnemyScoutingPanel({
                   <SortableHeader label="Position" sortKey="position" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Estimated stats" sortKey="estimated_stats" sort={sort} onSortChange={setSort} />
-                  <SortableHeader label="Revivable" sortKey="is_revivable" sort={sort} onSortChange={setSort} />
+                  <SortableHeader label="Stats updated" sortKey="estimated_stats_updated_at" sort={sort} onSortChange={setSort} />
                 </tr>
               </thead>
               <tbody>
@@ -105,7 +111,7 @@ export function EnemyScoutingPanel({
                         ? "-"
                         : formatNumber(member.estimated_stats)}
                     </td>
-                    <td>{member.is_revivable ? "Yes" : "No"}</td>
+                    <td>{formatRelativeTime(member.estimated_stats_updated_at)}</td>
                   </tr>
                 ))}
               </tbody>

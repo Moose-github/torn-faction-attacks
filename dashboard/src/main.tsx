@@ -574,7 +574,7 @@ function App() {
                 >
                   <p className="panel-description">
                     Summarises each faction member's war performance, including enemy attacks, outside hits,
-                    friendly hosps, defends, and adjusted respect.
+                    friendly hosps, defends, and adjusted respect. Click a member name to see their attacks.
                   </p>
                   <MemberTable
                     members={members}

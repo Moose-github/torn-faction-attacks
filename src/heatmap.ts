@@ -1,7 +1,7 @@
 import { HOME_FACTION_ID } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { Env, TornFactionMember, WarRow } from "./types";
-import { json, nowSeconds } from "./utils";
+import { boolToInt, json, nowSeconds } from "./utils";
 
 const ACTIVITY_WINDOW_SECONDS = 15 * 60;
 const HOME_RETENTION_SECONDS = 30 * 24 * 60 * 60;
@@ -124,6 +124,7 @@ async function sampleFactionActivity(
 
   const members = await fetchTornFactionMembers(env, factionId);
   const activeCount = countRecentlyActiveMembers(members, sampledAt);
+  await updateCachedRevivableMembers(env, factionId, members);
 
   await env.DB.prepare(
     `
@@ -144,6 +145,32 @@ async function sampleFactionActivity(
   )
     .bind(factionId, bucket.date, bucket.intervalIndex, activeCount, members.length, sampledAt)
     .run();
+}
+
+async function updateCachedRevivableMembers(
+  env: Env,
+  factionId: number,
+  members: TornFactionMember[],
+): Promise<void> {
+  const tableName =
+    factionId === HOME_FACTION_ID ? "home_faction_members" : "enemy_faction_members";
+  const statements = members
+    .filter((member) => typeof member.is_revivable === "boolean")
+    .map((member) =>
+      env.DB.prepare(
+        `
+        UPDATE ${tableName}
+        SET is_revivable = ?,
+            updated_at = unixepoch()
+        WHERE faction_id = ?
+          AND member_id = ?
+        `,
+      ).bind(boolToInt(member.is_revivable ?? false), factionId, member.id),
+    );
+
+  if (statements.length > 0) {
+    await env.DB.batch(statements);
+  }
 }
 
 function countRecentlyActiveMembers(
