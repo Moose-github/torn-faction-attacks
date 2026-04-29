@@ -1112,7 +1112,8 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
         a.defender_faction_name,
         a.result,
         a.respect_gain,
-        a.respect_loss
+        a.respect_loss,
+        a.m_retaliation
       FROM attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?

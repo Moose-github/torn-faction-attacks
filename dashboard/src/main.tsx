@@ -463,6 +463,7 @@ function App() {
                       <InlineMetric label="Respect gained" value={officialRespectGained} />
                       <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
                       <InlineMetric label="Assists" value={sumMembers(members, "enemy_assists")} />
+                      <InlineMetric label="Retaliations" value={sumMembers(members, "enemy_retaliations")} />
                     </div>
                   </section>
 

@@ -123,6 +123,7 @@ export type MemberAttack = {
   result: string | null;
   respect_gain: number;
   respect_loss: number;
+  m_retaliation?: number | null;
   classification: MemberAttackClassification;
 };
 
