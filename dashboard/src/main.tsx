@@ -35,7 +35,12 @@ import { Sidebar } from "./components/Sidebar";
 import { AdminControls } from "./views/AdminControls";
 import { MembersOverview } from "./views/MembersOverview";
 import { WarRoom } from "./views/WarRoom";
-import { detailNumber, formatNumber, formatWarDateRange } from "./utils/format";
+import {
+  detailNumber,
+  formatLongDateTime,
+  formatNumber,
+  formatWarDateRange,
+} from "./utils/format";
 import {
   displayMember,
   displayWarStatus,
@@ -311,6 +316,7 @@ function App() {
   const showFactionActivity = hasWarData && activityTotal(activityBuckets, ["enemy_success", "enemy_assist", "outside"]) > 0;
   const showEnemyActivity = hasWarData && activityTotal(activityBuckets, ["defend_lost", "defend_won"]) > 0;
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
+  const isScheduledWar = selectedWar?.status === "scheduled";
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -382,15 +388,23 @@ function App() {
                   </div>
                   <div className="war-time-lines">
                     <WarTimeLine
-                      label="Buttgrass times"
-                      value={formatWarDateRange(selectedWar.practical_start_time, selectedWar.practical_finish_time)}
+                      label={isScheduledWar ? "Buttgrass start time" : "Buttgrass times"}
+                      value={
+                        isScheduledWar
+                          ? formatLongDateTime(selectedWar.practical_start_time)
+                          : formatWarDateRange(selectedWar.practical_start_time, selectedWar.practical_finish_time)
+                      }
                     />
                     <WarTimeLine
-                      label="Torn official times"
-                      value={formatWarDateRange(
-                        selectedWar.official_start_time ?? selectedWar.practical_start_time,
-                        selectedWar.official_end_time,
-                      )}
+                      label={isScheduledWar ? "Torn official start time" : "Torn official times"}
+                      value={
+                        isScheduledWar
+                          ? formatLongDateTime(selectedWar.official_start_time ?? selectedWar.practical_start_time)
+                          : formatWarDateRange(
+                              selectedWar.official_start_time ?? selectedWar.practical_start_time,
+                              selectedWar.official_end_time,
+                            )
+                      }
                     />
                   </div>
                 </div>
@@ -420,6 +434,13 @@ function App() {
                     icon={<CalendarClock size={18} />}
                   />
                 </section>
+              ) : null}
+
+              {!hasWarData ? (
+                <UpcomingWarEmptyPanel
+                  war={selectedWar}
+                  onOpenWarRoom={() => changeView("warRoom")}
+                />
               ) : null}
 
               {hasWarData ? (
@@ -657,6 +678,32 @@ function TermProgress({
   );
 }
 
+function UpcomingWarEmptyPanel({
+  war,
+  onOpenWarRoom,
+}: {
+  war: WarSummary;
+  onOpenWarRoom: () => void;
+}) {
+  const now = useCurrentTime();
+  const startTime = war.official_start_time ?? war.practical_start_time;
+  const remainingSeconds = Math.max(0, Number(startTime ?? 0) - Math.floor(now / 1000));
+
+  return (
+    <section className="panel upcoming-war-panel">
+      <PanelHeader title="War starts in" aside={formatDuration(remainingSeconds)} />
+      <p className="panel-description">
+        Performance panels will appear once attacks or official report data exists. Use the War room for scouting,
+        stat comparison, and activity heatmaps before the war starts.
+      </p>
+      <button type="button" className="icon-text-button" onClick={onOpenWarRoom}>
+        <Radar size={15} />
+        Open War room
+      </button>
+    </section>
+  );
+}
+
 function RefreshCountdowns() {
   const now = useCurrentTime();
 
@@ -671,7 +718,6 @@ function RefreshCountdowns() {
 function CountdownPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="countdown-pill" title={`Next ${label} refresh`}>
-      <span>{label}</span>
       <strong>{value}</strong>
     </div>
   );
@@ -698,6 +744,23 @@ function formatCountdown(milliseconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatDuration(totalSeconds: number): string {
+  if (totalSeconds <= 0) {
+    return "Started";
+  }
+
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  }
+
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

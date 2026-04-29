@@ -60,36 +60,26 @@ input:disabled {
 }
 
 .refresh-countdowns {
-  display: flex;
+  display: grid;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 3px;
   margin-left: auto;
 }
 
 .countdown-pill {
-  display: grid;
-  gap: 2px;
-  min-width: 72px;
-  padding: 7px 9px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.58);
-  color: #64748b;
+  min-width: 42px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   text-align: right;
 }
 
-.countdown-pill span {
-  font-size: 0.68rem;
-  font-weight: 800;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
 .countdown-pill strong {
-  color: #334155;
-  font-size: 0.86rem;
+  color: #64748b;
+  font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
+  font-weight: 800;
   line-height: 1;
 }
 
@@ -282,6 +272,32 @@ h2 {
 .war-hero-panel {
   min-height: 0;
   padding: 18px 22px;
+}
+
+.war-room-hero-panel {
+  min-height: 0;
+  padding: 18px 22px;
+}
+
+.war-room-countdown {
+  display: grid;
+  gap: 6px;
+  min-width: 170px;
+  text-align: right;
+}
+
+.war-room-countdown span {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.war-room-countdown strong {
+  color: #111827;
+  font-size: 1.65rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .hero-panel h2 {
@@ -567,6 +583,16 @@ h2 {
 .metric-list {
   display: grid;
   gap: 10px;
+}
+
+.upcoming-war-panel {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.upcoming-war-panel .icon-text-button {
+  justify-self: start;
 }
 
 .report-validation-table {
