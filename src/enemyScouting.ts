@@ -380,7 +380,10 @@ async function refreshMissingStatEstimates(
   }
 }
 
-async function fetchTornFactionMembers(env: Env, factionId: number): Promise<TornFactionMember[]> {
+export async function fetchTornFactionMembers(
+  env: Env,
+  factionId: number,
+): Promise<TornFactionMember[]> {
   const url = new URL(`${TORN_FACTION_API_BASE_URL}/${factionId}/members`);
   url.searchParams.set("striptags", "false");
 

@@ -59,6 +59,40 @@ input:disabled {
   margin-bottom: 24px;
 }
 
+.refresh-countdowns {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.countdown-pill {
+  display: grid;
+  gap: 2px;
+  min-width: 72px;
+  padding: 7px 9px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #64748b;
+  text-align: right;
+}
+
+.countdown-pill span {
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.countdown-pill strong {
+  color: #334155;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
 .eyebrow {
   margin: 0 0 6px;
   color: #526071;
@@ -461,6 +495,73 @@ h2 {
 .scouting-chart-wrap {
   width: 100%;
   height: 320px;
+}
+
+.heatmap-panel {
+  grid-column: 1 / -1;
+}
+
+.heatmap-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.heatmap-block {
+  display: grid;
+  gap: 8px;
+}
+
+.heatmap-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #334155;
+  font-size: 0.88rem;
+}
+
+.heatmap-title-row span {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.heatmap-scroll {
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.heatmap-time-axis,
+.heatmap-row {
+  display: grid;
+  grid-template-columns: 74px repeat(96, minmax(8px, 1fr));
+  gap: 2px;
+  min-width: 940px;
+}
+
+.heatmap-time-axis {
+  align-items: end;
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.heatmap-row {
+  align-items: center;
+  margin-bottom: 3px;
+}
+
+.heatmap-date {
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.heatmap-cell {
+  display: block;
+  aspect-ratio: 1;
+  min-height: 8px;
+  border-radius: 2px;
 }
 
 .metric-list {
@@ -932,6 +1033,11 @@ td {
   .topbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .refresh-countdowns {
+    justify-content: flex-start;
+    margin-left: 0;
   }
 
   .status-grid,

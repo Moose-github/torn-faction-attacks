@@ -9,7 +9,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { EnemyFactionMember, MemberStats, WarActivityBucket } from "../api";
+import {
+  EnemyFactionMember,
+  FactionActivityHeatmapRow,
+  MemberStats,
+  WarActivityBucket,
+} from "../api";
 import { EmptyState } from "./Common";
 import { formatNumber, formatTime } from "../utils/format";
 import { activityLabel, displayMember, MemberSortKey } from "../utils/members";
@@ -124,8 +129,12 @@ const scoutingBuckets = [
   { label: "<1m", min: 0, max: 1_000_000 },
   { label: "1m-10m", min: 1_000_000, max: 10_000_000 },
   { label: "10m-100m", min: 10_000_000, max: 100_000_000 },
-  { label: "100m-1b", min: 100_000_000, max: 1_000_000_000 },
-  { label: "1b-10b", min: 1_000_000_000, max: 10_000_000_000 },
+  { label: "100m-250m", min: 100_000_000, max: 250_000_000 },
+  { label: "250m-500m", min: 250_000_000, max: 500_000_000 },
+  { label: "500m-1b", min: 500_000_000, max: 1_000_000_000 },
+  { label: "1b-2.5b", min: 1_000_000_000, max: 2_500_000_000 },
+  { label: "2.5b-5b", min: 2_500_000_000, max: 5_000_000_000 },
+  { label: "5b-10b", min: 5_000_000_000, max: 10_000_000_000 },
   { label: "10b+", min: 10_000_000_000, max: Number.POSITIVE_INFINITY },
 ] as const;
 
@@ -161,7 +170,7 @@ export function ScoutingComparisonChart({
           <Tooltip formatter={(value) => [formatNumber(Number(value)), "Members"]} />
           <Legend />
           <Bar dataKey="Buttgrass" fill="#2563eb" radius={[4, 4, 0, 0]} />
-          <Bar dataKey={enemyName} fill="#f97316" radius={[4, 4, 0, 0]} />
+          <Bar dataKey={enemyName} fill="#ef4444" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -181,4 +190,92 @@ function countBucket(
     const stats = Number(member.estimated_stats ?? 0);
     return stats >= min && stats < max;
   }).length;
+}
+
+export function FactionActivityHeatmap({
+  rows,
+  factionId,
+  label,
+  color,
+}: {
+  rows: FactionActivityHeatmapRow[];
+  factionId: number | null;
+  label: string;
+  color: "blue" | "red";
+}) {
+  if (factionId === null) {
+    return <EmptyState text="No faction selected" />;
+  }
+
+  const factionRows = rows.filter((row) => row.faction_id === factionId);
+  if (factionRows.length === 0) {
+    return <EmptyState text="No heatmap samples yet" />;
+  }
+
+  const dates = Array.from(new Set(factionRows.map((row) => row.date))).sort();
+  const rowMap = new Map(
+    factionRows.map((row) => [`${row.date}:${row.interval_index}`, row]),
+  );
+
+  return (
+    <div className="heatmap-block">
+      <div className="heatmap-title-row">
+        <strong>{label}</strong>
+        <span>{formatNumber(factionRows.length)} samples</span>
+      </div>
+      <div className="heatmap-scroll">
+        <div className="heatmap-time-axis">
+          <span />
+          {[0, 24, 48, 72, 95].map((interval) => (
+            <span key={interval} style={{ gridColumn: interval + 2 }}>
+              {intervalLabel(interval)}
+            </span>
+          ))}
+        </div>
+        {dates.map((date) => (
+          <div className="heatmap-row" key={date}>
+            <span className="heatmap-date">{formatHeatmapDate(date)}</span>
+            {Array.from({ length: 96 }, (_, intervalIndex) => {
+              const row = rowMap.get(`${date}:${intervalIndex}`);
+              const percent = row && row.total_count > 0 ? row.active_count / row.total_count : 0;
+              return (
+                <span
+                  key={intervalIndex}
+                  className="heatmap-cell"
+                  style={{ backgroundColor: heatmapColor(color, percent, Boolean(row)) }}
+                  title={
+                    row
+                      ? `${formatHeatmapDate(date)} ${intervalLabel(intervalIndex)}: ${row.active_count}/${row.total_count} active`
+                      : `${formatHeatmapDate(date)} ${intervalLabel(intervalIndex)}: no sample`
+                  }
+                />
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function heatmapColor(color: "blue" | "red", percent: number, hasSample: boolean): string {
+  if (!hasSample) {
+    return "#f1f5f9";
+  }
+
+  const alpha = Math.min(0.92, 0.14 + percent * 0.78);
+  return color === "red" ? `rgba(239, 68, 68, ${alpha})` : `rgba(37, 99, 235, ${alpha})`;
+}
+
+function formatHeatmapDate(date: string): string {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+  }).format(parsed);
+}
+
+function intervalLabel(intervalIndex: number): string {
+  const minutes = intervalIndex * 15;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }

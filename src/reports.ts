@@ -5,6 +5,7 @@ import {
   POSITIVE_RESULTS_SQL,
   RANKED_WAR_REPORT_API_BASE_URL,
 } from "./constants";
+import { clearEnemyHeatmapForFaction } from "./heatmap";
 import { OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { Env, TornRankedWarReport, TornRankedWarReportResponse } from "./types";
 import { json, nowSeconds } from "./utils";
@@ -262,6 +263,8 @@ export async function applyRankedWarReport(
       warId,
     )
     .run();
+
+  await clearEnemyHeatmapForFaction(env, enemyFaction?.id ?? factionId ?? null);
 
   const existingMemberRows = await env.DB.prepare(
     `

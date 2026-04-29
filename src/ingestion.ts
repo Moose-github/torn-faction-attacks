@@ -7,6 +7,7 @@ import {
   SOURCE_NAME,
 } from "./constants";
 import { fetchEnemyScoutingOnceForWar } from "./enemyScouting";
+import { clearEnemyHeatmapForFaction, sampleFactionActivityHeatmaps } from "./heatmap";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   applyIncrementalWarSummaries,
@@ -151,12 +152,19 @@ export async function runIngestion(env: Env): Promise<void> {
   if (ingestionWar && officialEndTime !== null) {
     await fetchAndApplyRankedWarReport(env, ingestionWar, latestRankedWar?.id ?? ingestionWar.torn_war_id);
     await finalizeWar(env, ingestionWar.id);
+    await sampleFactionActivityHeatmaps(env).catch((err) => {
+      console.error("Faction activity heatmap sampling failed:", err?.message || err);
+    });
     return;
   }
 
   if (ingestionWar) {
     await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
   }
+
+  await sampleFactionActivityHeatmaps(env).catch((err) => {
+    console.error("Faction activity heatmap sampling failed:", err?.message || err);
+  });
 }
 
 type ActiveWarForIngestion = {
@@ -641,6 +649,8 @@ async function syncActiveWarOfficialEnd(
   )
     .bind(SOURCE_NAME)
     .run();
+
+  await clearEnemyHeatmapForFaction(env, scores.enemyFaction?.id ?? activeWar.enemy_faction_id ?? null);
 
   return officialEndTime;
 }

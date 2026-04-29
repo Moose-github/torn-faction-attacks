@@ -5,6 +5,7 @@ import {
   getStats,
   getWar,
   getWarActivity,
+  getWarActivityHeatmap,
   getEnemyScouting,
   getScoutingComparison,
   getWarMemberAttacks,
@@ -12,6 +13,7 @@ import {
   getWars,
   refreshEnemyScouting,
   EnemyScoutingResponse,
+  FactionActivityHeatmapResponse,
   MemberAttack,
   MemberStats,
   ReportDiscrepanciesResponse,
@@ -21,7 +23,12 @@ import {
   WarSummary,
   WarType,
 } from "./api";
-import { ActivityChart, AttackChart, ScoutingComparisonChart } from "./components/Charts";
+import {
+  ActivityChart,
+  AttackChart,
+  FactionActivityHeatmap,
+  ScoutingComparisonChart,
+} from "./components/Charts";
 import { ChainBonusList } from "./components/ChainBonuses";
 import { EnemyScoutingPanel } from "./components/EnemyScouting";
 import {
@@ -74,6 +81,8 @@ function App() {
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
   const [activityBuckets, setActivityBuckets] = React.useState<WarActivityBucket[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
+  const [activityHeatmap, setActivityHeatmap] = React.useState<FactionActivityHeatmapResponse | null>(null);
+  const [isLoadingActivityHeatmap, setIsLoadingActivityHeatmap] = React.useState(false);
   const [reportDiscrepancies, setReportDiscrepancies] = React.useState<ReportDiscrepanciesResponse | null>(null);
   const [isLoadingReportDiscrepancies, setIsLoadingReportDiscrepancies] = React.useState(false);
   const [enemyScouting, setEnemyScouting] = React.useState<EnemyScoutingResponse | null>(null);
@@ -212,6 +221,39 @@ function App() {
   const isLatestWar = selectedWar !== null && selectedWar.name === wars[0]?.name;
   const showScoutingPanels =
     isLatestWar && selectedWar?.enemy_faction_id !== null && selectedWar.official_end_time === null;
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadActivityHeatmap() {
+      if (!selectedWarName || !showScoutingPanels) {
+        setActivityHeatmap(null);
+        return;
+      }
+
+      setIsLoadingActivityHeatmap(true);
+
+      try {
+        const response = await getWarActivityHeatmap(selectedWarName);
+        if (!cancelled) {
+          setActivityHeatmap(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setActivityHeatmap(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingActivityHeatmap(false);
+        }
+      }
+    }
+
+    loadActivityHeatmap();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWarName, showScoutingPanels]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -424,6 +466,7 @@ function App() {
           <p className="eyebrow">Buttgrass Inc - test01</p>
           <h1>Torn faction attacks</h1>
         </div>
+        <RefreshCountdowns />
       </header>
 
       {error ? <div className="error-panel">{error}</div> : null}
@@ -533,6 +576,32 @@ function App() {
                         enemyMembers={scoutingComparison?.enemy.members ?? []}
                         enemyName={selectedWar.name}
                       />
+                    </section>
+                  ) : null}
+
+                  {showScoutingPanels ? (
+                    <section className="panel heatmap-panel">
+                      <PanelHeader
+                        title="Faction activity heatmaps"
+                        aside={isLoadingActivityHeatmap ? "Loading" : "15 minute samples"}
+                      />
+                      <p className="panel-description">
+                        Tracks how many members were recently active in each 15 minute window, based on Torn member last action timestamps.
+                      </p>
+                      <div className="heatmap-stack">
+                        <FactionActivityHeatmap
+                          rows={activityHeatmap?.rows ?? []}
+                          factionId={activityHeatmap?.home_faction_id ?? null}
+                          label="Buttgrass"
+                          color="blue"
+                        />
+                        <FactionActivityHeatmap
+                          rows={activityHeatmap?.rows ?? []}
+                          factionId={selectedWar.enemy_faction_id}
+                          label={selectedWar.name}
+                          color="red"
+                        />
+                      </div>
                     </section>
                   ) : null}
 
@@ -771,6 +840,49 @@ function TermProgress({
       </small>
     </div>
   );
+}
+
+function RefreshCountdowns() {
+  const now = useCurrentTime();
+
+  return (
+    <div className="refresh-countdowns" aria-label="Refresh countdowns">
+      <CountdownPill label="5 min" value={formatCountdown(nextBoundaryMs(now, 5))} />
+      <CountdownPill label="15 min" value={formatCountdown(nextBoundaryMs(now, 15))} />
+    </div>
+  );
+}
+
+function CountdownPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="countdown-pill" title={`Next ${label} refresh`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function useCurrentTime(): number {
+  const [now, setNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return now;
+}
+
+function nextBoundaryMs(now: number, intervalMinutes: number): number {
+  const intervalMs = intervalMinutes * 60 * 1000;
+  return intervalMs - (now % intervalMs);
+}
+
+function formatCountdown(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

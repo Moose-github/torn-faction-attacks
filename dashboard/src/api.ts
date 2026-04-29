@@ -170,6 +170,27 @@ export type WarActivityResponse = {
   buckets: WarActivityBucket[];
 };
 
+export type FactionActivityHeatmapRow = {
+  faction_id: number;
+  date: string;
+  interval_index: number;
+  active_count: number;
+  total_count: number;
+  sampled_at: number;
+};
+
+export type FactionActivityHeatmapResponse = {
+  ok: boolean;
+  interval_minutes: number;
+  war: {
+    id: number;
+    name: string;
+    enemy_faction_id: number | null;
+  };
+  home_faction_id: number;
+  rows: FactionActivityHeatmapRow[];
+};
+
 export type EnemyFactionMember = {
   member_id: number;
   faction_id: number;
@@ -365,6 +386,14 @@ export async function getWarMemberAttacks(
 export async function getWarActivity(warName: string): Promise<WarActivityResponse> {
   return getJson<WarActivityResponse>(
     `/api/wars/${encodeURIComponent(warName)}/activity?bucket_minutes=15`,
+  );
+}
+
+export async function getWarActivityHeatmap(
+  warName: string,
+): Promise<FactionActivityHeatmapResponse> {
+  return getJson<FactionActivityHeatmapResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/activity-heatmap`,
   );
 }
 

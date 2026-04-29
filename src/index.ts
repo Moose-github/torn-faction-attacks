@@ -4,6 +4,7 @@ import {
   getScoutingComparisonForWar,
   refreshEnemyScoutingForWar,
 } from "./enemyScouting";
+import { getWarActivityHeatmap } from "./heatmap";
 import { runIngestion } from "./ingestion";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
@@ -171,6 +172,14 @@ export default {
       request.method === "GET"
     ) {
       return getWarActivity(url, env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      url.pathname.endsWith("/activity-heatmap") &&
+      request.method === "GET"
+    ) {
+      return getWarActivityHeatmap(url, env);
     }
 
     if (

@@ -32,6 +32,11 @@ export type TornFactionMember = {
   days_in_faction?: number;
   position?: string;
   is_revivable?: boolean;
+  last_action?: {
+    status?: string;
+    timestamp?: number;
+    relative?: string;
+  };
 };
 
 export type TornRankedWar = {
