@@ -27,144 +27,143 @@ import {
 import { boolToInt, normalizeAttacks, nowSeconds } from "./utils";
 
 export async function runIngestion(env: Env): Promise<void> {
-  await ensureState(env);
-  const latestRankedWar = await fetchLatestRankedWar(env).catch((err) => {
-    console.error("Torn ranked wars sync failed:", err?.message || err);
-    return null;
-  });
-  await syncUpcomingRankedWar(env, latestRankedWar);
-  await activateScheduledWarIfDue(env);
+  try {
+    await ensureState(env);
+    const latestRankedWar = await fetchLatestRankedWar(env).catch((err) => {
+      console.error("Torn ranked wars sync failed:", err?.message || err);
+      return null;
+    });
+    await syncUpcomingRankedWar(env, latestRankedWar);
+    await activateScheduledWarIfDue(env);
 
-  const state = (await env.DB.prepare(
-    `
-    SELECT last_started, active_war_id
-    FROM sync_state
-    WHERE name = ?
-    `,
-  )
-    .bind(SOURCE_NAME)
-    .first()) as {
-    last_started: number;
-    active_war_id: number | null;
-  } | null;
-
-  const activeWar = state?.active_war_id
-    ? ((await env.DB.prepare(
-        `
-        SELECT
-          id,
-          name,
-          practical_start_time,
-          status,
-          war_type,
-          enemy_faction_id,
-          torn_war_id,
-          practical_finish_time,
-          official_end_time,
-          auto_end_enabled,
-          faction_respect_limit
-        FROM wars
-        WHERE id = ? AND status = 'active'
-        LIMIT 1
-        `,
-      )
-        .bind(state.active_war_id)
-        .first()) as ActiveWarForIngestion | null)
-    : null;
-  const officialEndTime =
-    activeWar && latestRankedWar ? await syncActiveWarOfficialEnd(env, activeWar, latestRankedWar) : null;
-  if (activeWar && latestRankedWar && officialEndTime === null) {
-    await syncRankedWarScores(env, activeWar, latestRankedWar);
-  }
-  if (!activeWar && latestRankedWar) {
-    await syncUnfinishedRankedWar(env, latestRankedWar);
-  }
-  if (!activeWar) {
-    await syncMissingRankedWarReports(env);
-  }
-  const ingestionWar = activeWar
-    ? {
-        ...activeWar,
-        official_end_time: officialEndTime ?? activeWar.official_end_time,
-      }
-    : null;
-
-  let from = Math.max(0, (state?.last_started ?? 0) - OVERLAP_SECONDS);
-  let newestStarted = state?.last_started ?? 0;
-  const ingestRunId = crypto.randomUUID();
-  let sawAnyRows = false;
-
-  while (true) {
-    const data = await fetchAttacks(env, from);
-    const attacks = normalizeAttacks(data.attacks);
-
-    if (attacks.length === 0) {
-      break;
-    }
-
-    sawAnyRows = true;
-    const statements: D1PreparedStatement[] = [];
-    let pageNewestStarted = newestStarted;
-
-    for (const attack of attacks) {
-      pageNewestStarted = Math.max(pageNewestStarted, attack.started ?? 0);
-
-      const warId =
-        ingestionWar &&
-        attack.started != null &&
-        attack.started >= ingestionWar.practical_start_time &&
-        (ingestionWar.official_end_time === null || attack.started <= ingestionWar.official_end_time)
-          ? ingestionWar.id
-          : null;
-
-      statements.push(buildLiveInsertStatement(env, ingestRunId, warId, attack));
-    }
-
-    if (statements.length > 0) {
-      await env.DB.batch(statements);
-    }
-
-    newestStarted = pageNewestStarted;
-
-    await env.DB.prepare(
+    const state = (await env.DB.prepare(
       `
-      INSERT INTO sync_state (name, last_started, updated_at)
-      VALUES (?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(name) DO UPDATE SET
-        last_started = excluded.last_started,
-        updated_at = CURRENT_TIMESTAMP
+      SELECT last_started, active_war_id
+      FROM sync_state
+      WHERE name = ?
       `,
     )
-      .bind(SOURCE_NAME, newestStarted)
-      .run();
+      .bind(SOURCE_NAME)
+      .first()) as {
+      last_started: number;
+      active_war_id: number | null;
+    } | null;
 
-    if (attacks.length < LIMIT) {
-      break;
+    const activeWar = state?.active_war_id
+      ? ((await env.DB.prepare(
+          `
+          SELECT
+            id,
+            name,
+            practical_start_time,
+            status,
+            war_type,
+            enemy_faction_id,
+            torn_war_id,
+            practical_finish_time,
+            official_end_time,
+            auto_end_enabled,
+            faction_respect_limit
+          FROM wars
+          WHERE id = ? AND status = 'active'
+          LIMIT 1
+          `,
+        )
+          .bind(state.active_war_id)
+          .first()) as ActiveWarForIngestion | null)
+      : null;
+    const officialEndTime =
+      activeWar && latestRankedWar ? await syncActiveWarOfficialEnd(env, activeWar, latestRankedWar) : null;
+    if (activeWar && latestRankedWar && officialEndTime === null) {
+      await syncRankedWarScores(env, activeWar, latestRankedWar);
+    }
+    if (!activeWar && latestRankedWar) {
+      await syncUnfinishedRankedWar(env, latestRankedWar);
+    }
+    if (!activeWar) {
+      await syncMissingRankedWarReports(env);
+    }
+    const ingestionWar = activeWar
+      ? {
+          ...activeWar,
+          official_end_time: officialEndTime ?? activeWar.official_end_time,
+        }
+      : null;
+
+    let from = Math.max(0, (state?.last_started ?? 0) - OVERLAP_SECONDS);
+    let newestStarted = state?.last_started ?? 0;
+    const ingestRunId = crypto.randomUUID();
+    let sawAnyRows = false;
+
+    while (true) {
+      const data = await fetchAttacks(env, from);
+      const attacks = normalizeAttacks(data.attacks);
+
+      if (attacks.length === 0) {
+        break;
+      }
+
+      sawAnyRows = true;
+      const statements: D1PreparedStatement[] = [];
+      let pageNewestStarted = newestStarted;
+
+      for (const attack of attacks) {
+        pageNewestStarted = Math.max(pageNewestStarted, attack.started ?? 0);
+
+        const warId =
+          ingestionWar &&
+          attack.started != null &&
+          attack.started >= ingestionWar.practical_start_time &&
+          (ingestionWar.official_end_time === null || attack.started <= ingestionWar.official_end_time)
+            ? ingestionWar.id
+            : null;
+
+        statements.push(buildLiveInsertStatement(env, ingestRunId, warId, attack));
+      }
+
+      if (statements.length > 0) {
+        await env.DB.batch(statements);
+      }
+
+      newestStarted = pageNewestStarted;
+
+      await env.DB.prepare(
+        `
+        INSERT INTO sync_state (name, last_started, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(name) DO UPDATE SET
+          last_started = excluded.last_started,
+          updated_at = CURRENT_TIMESTAMP
+        `,
+      )
+        .bind(SOURCE_NAME, newestStarted)
+        .run();
+
+      if (attacks.length < LIMIT) {
+        break;
+      }
+
+      from = newestStarted;
     }
 
-    from = newestStarted;
-  }
+    if (sawAnyRows && ingestionWar) {
+      await applyIncrementalWarSummaries(env, ingestionWar.id, ingestRunId);
+    }
 
-  if (sawAnyRows && ingestionWar) {
-    await applyIncrementalWarSummaries(env, ingestionWar.id, ingestRunId);
-  }
+    if (ingestionWar && officialEndTime !== null) {
+      await fetchAndApplyRankedWarReport(env, ingestionWar, latestRankedWar?.id ?? ingestionWar.torn_war_id);
+      await finalizeWar(env, ingestionWar.id);
+      return;
+    }
 
-  if (ingestionWar && officialEndTime !== null) {
-    await fetchAndApplyRankedWarReport(env, ingestionWar, latestRankedWar?.id ?? ingestionWar.torn_war_id);
-    await finalizeWar(env, ingestionWar.id);
+    if (ingestionWar) {
+      await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
+    }
+  } finally {
     await sampleFactionActivityHeatmaps(env).catch((err) => {
       console.error("Faction activity heatmap sampling failed:", err?.message || err);
     });
-    return;
   }
-
-  if (ingestionWar) {
-    await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
-  }
-
-  await sampleFactionActivityHeatmaps(env).catch((err) => {
-    console.error("Faction activity heatmap sampling failed:", err?.message || err);
-  });
 }
 
 type ActiveWarForIngestion = {
