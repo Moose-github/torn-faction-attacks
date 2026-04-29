@@ -200,16 +200,13 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         : Number(enemyFactionValue);
     const enemyFactionId = reportEnemyFaction?.id ?? bodyEnemyFactionId;
     const generatedName =
-      reportEnemyFaction && tornWarId !== null
-        ? `${reportEnemyFaction.name} ${tornWarId}`
-        : reportEnemyFaction?.name ??
-          (typeof body.name === "string" && body.name.trim()
-            ? body.name.trim()
-            : `historical-${tornWarId ?? Number(body.practical_start_time ?? body.start_time)}`);
+      reportEnemyFaction?.name ??
+      (typeof body.name === "string" && body.name.trim()
+        ? body.name.trim()
+        : `historical-${tornWarId ?? Number(body.practical_start_time ?? body.start_time)}`);
     const name = await uniqueWarName(
       env,
       sanitizeWarName(generatedName),
-      tornWarId,
     );
     const reportStartTime = report?.start ?? null;
     const reportFinishTime = report?.end && report.end > 0 ? report.end : null;
@@ -1287,25 +1284,30 @@ function sanitizeWarName(value: string): string {
 async function uniqueWarName(
   env: Env,
   baseName: string,
-  tornWarId: number | null,
 ): Promise<string> {
-  const existing = await env.DB.prepare(
-    `
-    SELECT id
-    FROM wars
-    WHERE LOWER(name) = LOWER(?)
-    LIMIT 1
-    `,
-  )
-    .bind(baseName)
-    .first();
+  let candidate = baseName;
+  for (let suffix = 1; suffix <= 99; suffix += 1) {
+    const existing = await env.DB.prepare(
+      `
+      SELECT id
+      FROM wars
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+      .bind(candidate)
+      .first();
 
-  if (!existing) {
-    return baseName;
+    if (!existing) {
+      return candidate;
+    }
+
+    const suffixText = ` ${suffix + 1}`;
+    candidate = `${baseName.slice(0, 50 - suffixText.length)}${suffixText}`;
   }
 
-  const suffix = tornWarId !== null ? ` ${tornWarId}` : ` ${nowSeconds()}`;
-  return `${baseName.slice(0, 50 - suffix.length)}${suffix}`;
+  const fallbackSuffix = ` ${nowSeconds()}`;
+  return `${baseName.slice(0, 50 - fallbackSuffix.length)}${fallbackSuffix}`;
 }
 
 function parseOptionalBoolean(value: unknown): boolean {

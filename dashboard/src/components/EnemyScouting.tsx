@@ -1,7 +1,21 @@
-import { RefreshCw } from "lucide-react";
-import { EnemyScoutingResponse } from "../api";
+import React from "react";
+import { ArrowDown, ArrowUp, RefreshCw } from "lucide-react";
+import { EnemyFactionMember, EnemyScoutingResponse } from "../api";
 import { formatNumber } from "../utils/format";
-import { EmptyState, InlineMetric, PanelHeader } from "./Common";
+import { EmptyState, PanelHeader } from "./Common";
+
+type EnemyScoutingSortKey =
+  | "name"
+  | "level"
+  | "position"
+  | "days_in_faction"
+  | "estimated_stats"
+  | "is_revivable";
+
+type EnemyScoutingSort = {
+  key: EnemyScoutingSortKey;
+  direction: "asc" | "desc";
+};
 
 export function EnemyScoutingPanel({
   scouting,
@@ -14,7 +28,11 @@ export function EnemyScoutingPanel({
   isRefreshing: boolean;
   onRefresh: () => void;
 }) {
-  const members = scouting?.members ?? [];
+  const [sort, setSort] = React.useState<EnemyScoutingSort>({
+    key: "estimated_stats",
+    direction: "desc",
+  });
+  const members = sortEnemyScoutingMembers(scouting?.members ?? [], sort);
 
   return (
     <section className="panel table-panel">
@@ -42,28 +60,16 @@ export function EnemyScoutingPanel({
         <EmptyState text="No enemy scouting data loaded for this war" />
       ) : (
         <>
-          <div className="metric-list scouting-metrics">
-            <InlineMetric label="Average level" value={scouting?.summary.average_level ?? 0} />
-            <InlineMetric
-              label="Average estimated stats"
-              value={scouting?.summary.average_estimated_stats ?? 0}
-              muted={scouting?.summary.average_estimated_stats === null}
-            />
-            <InlineMetric
-              label="Missing estimates"
-              value={scouting?.summary.missing_estimated_stats ?? 0}
-            />
-          </div>
           <div className="table-scroll">
             <table>
               <thead>
                 <tr>
-                  <th>Member</th>
-                  <th>Level</th>
-                  <th>Position</th>
-                  <th>Days in faction</th>
-                  <th>Estimated stats</th>
-                  <th>Revivable</th>
+                  <SortableHeader label="Member" sortKey="name" sort={sort} onSortChange={setSort} />
+                  <SortableHeader label="Level" sortKey="level" sort={sort} onSortChange={setSort} />
+                  <SortableHeader label="Position" sortKey="position" sort={sort} onSortChange={setSort} />
+                  <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
+                  <SortableHeader label="Estimated stats" sortKey="estimated_stats" sort={sort} onSortChange={setSort} />
+                  <SortableHeader label="Revivable" sortKey="is_revivable" sort={sort} onSortChange={setSort} />
                 </tr>
               </thead>
               <tbody>
@@ -87,5 +93,75 @@ export function EnemyScoutingPanel({
         </>
       )}
     </section>
+  );
+}
+
+function sortEnemyScoutingMembers(
+  members: EnemyFactionMember[],
+  sort: EnemyScoutingSort,
+): EnemyFactionMember[] {
+  return [...members].sort((a, b) => {
+    const direction = sort.direction === "desc" ? -1 : 1;
+    const aValue = scoutingSortValue(a, sort.key);
+    const bValue = scoutingSortValue(b, sort.key);
+
+    if (typeof aValue === "string" && typeof bValue === "string") {
+      return aValue.localeCompare(bValue) * direction;
+    }
+
+    if (aValue < bValue) {
+      return -1 * direction;
+    }
+
+    if (aValue > bValue) {
+      return 1 * direction;
+    }
+
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function scoutingSortValue(
+  member: EnemyFactionMember,
+  key: EnemyScoutingSortKey,
+): string | number {
+  if (key === "name") {
+    return member.name.toLowerCase();
+  }
+
+  if (key === "position") {
+    return (member.position ?? "").toLowerCase();
+  }
+
+  return Number(member[key] ?? 0);
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  sort,
+  onSortChange,
+}: {
+  label: React.ReactNode;
+  sortKey: EnemyScoutingSortKey;
+  sort: EnemyScoutingSort;
+  onSortChange: (sort: EnemyScoutingSort) => void;
+}) {
+  const isActive = sort.key === sortKey;
+  const nextDirection = isActive && sort.direction === "desc" ? "asc" : "desc";
+
+  return (
+    <th>
+      <button
+        type="button"
+        className={isActive ? "sort-button active" : "sort-button"}
+        onClick={() => onSortChange({ key: sortKey, direction: nextDirection })}
+      >
+        {label}
+        {isActive ? (
+          sort.direction === "desc" ? <ArrowDown size={14} /> : <ArrowUp size={14} />
+        ) : null}
+      </button>
+    </th>
   );
 }

@@ -18,6 +18,11 @@ type EnemyFactionMemberRow = {
   updated_at: number;
 };
 
+type StatEstimate = {
+  stats: number;
+  updatedAt: number | null;
+};
+
 export async function getEnemyScoutingForWar(url: URL, env: Env): Promise<Response> {
   const war = await readWarFromScoutingUrl(url, env);
   if (war instanceof Response) {
@@ -180,19 +185,19 @@ async function refreshMissingStatEstimates(
   for (const ids of chunks(missingIds, FFSCOUTER_BATCH_SIZE)) {
     const estimates = await fetchFfscouterStats(env, ids).catch((err) => {
       console.warn("FFScouter stats fetch failed:", err?.message || err);
-      return new Map<number, number>();
+      return new Map<number, StatEstimate>();
     });
 
-    const statements = Array.from(estimates.entries()).map(([memberId, stats]) =>
+    const statements = Array.from(estimates.entries()).map(([memberId, estimate]) =>
       env.DB.prepare(
         `
         UPDATE enemy_faction_members
         SET estimated_stats = ?,
-            estimated_stats_updated_at = unixepoch(),
+            estimated_stats_updated_at = COALESCE(?, unixepoch()),
             updated_at = unixepoch()
         WHERE member_id = ?
         `,
-      ).bind(stats, memberId),
+      ).bind(estimate.stats, estimate.updatedAt, memberId),
     );
 
     if (statements.length > 0) {
@@ -223,7 +228,7 @@ async function fetchTornFactionMembers(env: Env, factionId: number): Promise<Tor
 async function fetchFfscouterStats(
   env: Env,
   memberIds: number[],
-): Promise<Map<number, number>> {
+): Promise<Map<number, StatEstimate>> {
   if (memberIds.length === 0 || !env.FFSCOUTER_API_KEY) {
     return new Map();
   }
@@ -243,8 +248,8 @@ async function fetchFfscouterStats(
   return extractStatEstimates(await response.json());
 }
 
-function extractStatEstimates(data: any): Map<number, number> {
-  const estimates = new Map<number, number>();
+function extractStatEstimates(data: any): Map<number, StatEstimate> {
+  const estimates = new Map<number, StatEstimate>();
   const containers = [data?.stats, data?.data, data?.results, data];
 
   for (const container of containers) {
@@ -267,7 +272,7 @@ function extractStatEstimates(data: any): Map<number, number> {
   return estimates;
 }
 
-function addEstimate(estimates: Map<number, number>, idValue: unknown, source: any) {
+function addEstimate(estimates: Map<number, StatEstimate>, idValue: unknown, source: any) {
   const memberId = Number(idValue);
   if (!Number.isInteger(memberId) || memberId <= 0) {
     return;
@@ -278,6 +283,7 @@ function addEstimate(estimates: Map<number, number>, idValue: unknown, source: a
       ? firstFiniteNumber(
           source.total,
           source.total_stats,
+          source.bs_estimate,
           source.estimated_stats,
           source.battle_stats,
           source.stats,
@@ -286,7 +292,10 @@ function addEstimate(estimates: Map<number, number>, idValue: unknown, source: a
       : finiteNumber(source);
 
   if (stats !== null) {
-    estimates.set(memberId, stats);
+    estimates.set(memberId, {
+      stats,
+      updatedAt: firstFiniteNumber(source?.last_updated, source?.updated_at),
+    });
   }
 }
 

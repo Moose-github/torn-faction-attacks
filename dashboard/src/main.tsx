@@ -45,7 +45,6 @@ import {
   MemberAttackSort,
   MemberSort,
   memberSortLabel,
-  splitGeneratedWarTitle,
   sortMembers,
   sortMemberAttacks,
   sumMembers,
@@ -206,7 +205,6 @@ function App() {
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
-  const selectedWarTitle = splitGeneratedWarTitle(selectedWar?.name ?? "");
 
   React.useEffect(() => {
     let cancelled = false;
@@ -333,6 +331,28 @@ function App() {
   );
   const derivedSuccessfulAttacks = sumMembers(members, "enemy_attacks_successful");
   const officialRespectGained = selectedWar?.official_home_score ?? derivedRespectGained;
+  const memberActionTotal =
+    derivedSuccessfulAttacks +
+    sumMembers(members, "enemy_assists") +
+    sumMembers(members, "outside_attacks") +
+    sumMembers(members, "friendly_hospitals") +
+    sumMembers(members, "defends_total");
+  const hasWarData =
+    selectedWar !== null &&
+    selectedWar.status !== "scheduled" &&
+    (memberActionTotal > 0 ||
+      officialRespectGained > 0 ||
+      derivedRespectGained > 0 ||
+      derivedRespectLost > 0 ||
+      chainBonuses.length > 0 ||
+      activityTotal(activityBuckets) > 0 ||
+      hasTornReport);
+  const isLatestWar = selectedWar !== null && selectedWar.name === wars[0]?.name;
+  const showEnemyScouting = isLatestWar && selectedWar?.enemy_faction_id !== null;
+  const showContentGrid = showEnemyScouting || hasWarData;
+  const showFactionActivity = hasWarData && activityTotal(activityBuckets, ["enemy_success", "enemy_assist", "outside"]) > 0;
+  const showEnemyActivity = hasWarData && activityTotal(activityBuckets, ["defend_lost", "defend_won"]) > 0;
+  const showMemberBreakdown = hasWarData && memberActionTotal > 0;
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -400,9 +420,9 @@ function App() {
                   </p>
                   <div className="war-title-row">
                     <h2>
-                      {selectedWarTitle.name}
-                      {selectedWarTitle.tornWarId ? (
-                        <span className="war-title-id">{selectedWarTitle.tornWarId}</span>
+                      {selectedWar.name}
+                      {selectedWar.torn_war_id ? (
+                        <span className="war-title-id">{selectedWar.torn_war_id}</span>
                       ) : null}
                     </h2>
                     <span>{formatWarType(selectedWar)}</span>
@@ -429,60 +449,72 @@ function App() {
                 ) : null}
               </section>
 
-              <section className="status-grid war-status-grid">
-                <MetricCard
-                  label="Respect gained"
-                  value={formatNumber(officialRespectGained)}
-                  icon={<Target size={18} />}
-                />
-                <MetricCard
-                  label="Successful attacks"
-                  value={formatNumber(derivedSuccessfulAttacks)}
-                  icon={<Swords size={18} />}
-                />
-                <MetricCard
-                  label="Victory / loss"
-                  value={warOutcome(selectedWar, derivedRespectGained, derivedRespectLost)}
-                  icon={<CalendarClock size={18} />}
-                />
-              </section>
-
-              <section className="content-grid">
-                <EnemyScoutingPanel
-                  scouting={enemyScouting}
-                  isLoading={isLoadingEnemyScouting}
-                  isRefreshing={isRefreshingEnemyScouting}
-                  onRefresh={refreshSelectedEnemyScouting}
-                />
-
-                <section className="panel chart-panel">
-                  <PanelHeader
-                    title={memberSortLabel(memberSort.key)}
-                    aside={isLoadingDetail ? "Loading" : "Top 10 members"}
+              {hasWarData ? (
+                <section className="status-grid war-status-grid">
+                  <MetricCard
+                    label="Respect gained"
+                    value={formatNumber(officialRespectGained)}
+                    icon={<Target size={18} />}
                   />
-                  <AttackChart
-                    members={members.slice(0, 10)}
-                    metricKey={memberSort.key}
-                    metricLabel={memberSortLabel(memberSort.key)}
+                  <MetricCard
+                    label="Successful attacks"
+                    value={formatNumber(derivedSuccessfulAttacks)}
+                    icon={<Swords size={18} />}
+                  />
+                  <MetricCard
+                    label="Victory / loss"
+                    value={warOutcome(selectedWar, derivedRespectGained, derivedRespectLost)}
+                    icon={<CalendarClock size={18} />}
                   />
                 </section>
+              ) : null}
 
-                <section className="panel">
-                  <PanelHeader title="War totals" />
-                  <div className="metric-list">
-                    <InlineMetric label="Respect gained" value={officialRespectGained} />
-                    <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
-                    <InlineMetric label="Assists" value={sumMembers(members, "enemy_assists")} />
-                  </div>
+              {showContentGrid ? (
+                <section className="content-grid">
+                  {showEnemyScouting ? (
+                    <EnemyScoutingPanel
+                      scouting={enemyScouting}
+                      isLoading={isLoadingEnemyScouting}
+                      isRefreshing={isRefreshingEnemyScouting}
+                      onRefresh={refreshSelectedEnemyScouting}
+                    />
+                  ) : null}
+
+                  {hasWarData ? (
+                    <section className="panel chart-panel">
+                      <PanelHeader
+                        title={memberSortLabel(memberSort.key)}
+                        aside={isLoadingDetail ? "Loading" : "Top 10 members"}
+                      />
+                      <AttackChart
+                        members={members.slice(0, 10)}
+                        metricKey={memberSort.key}
+                        metricLabel={memberSortLabel(memberSort.key)}
+                      />
+                    </section>
+                  ) : null}
+
+                  {hasWarData ? (
+                    <section className="panel">
+                      <PanelHeader title="War totals" />
+                      <div className="metric-list">
+                        <InlineMetric label="Respect gained" value={officialRespectGained} />
+                        <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
+                        <InlineMetric label="Assists" value={sumMembers(members, "enemy_assists")} />
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {chainBonuses.length > 0 ? (
+                    <section className="panel">
+                      <PanelHeader title="Chain bonuses" aside="Top 5" />
+                      <ChainBonusList attacks={chainBonuses} compact />
+                    </section>
+                  ) : null}
                 </section>
+              ) : null}
 
-                <section className="panel">
-                  <PanelHeader title="Chain bonuses" aside="Top 5" />
-                  <ChainBonusList attacks={chainBonuses} compact />
-                </section>
-              </section>
-
-              {hasTornReport ? (
+              {hasWarData && hasTornReport ? (
                 <>
                   <CollapsiblePanel
                     title="Torn report validation"
@@ -543,51 +575,57 @@ function App() {
                 </>
               ) : null}
 
-              <CollapsiblePanel
-                title="Buttgrass attacks over time"
-                collapsed={collapsedPanels.factionActivity ?? true}
-                onToggle={() => togglePanel("factionActivity")}
-                className="activity-panel"
-              >
-                <p className="panel-description">
-                  Shows Buttgrass attack activity across the war window, grouped into successful attacks,
-                  assists, and outside hits.
-                </p>
-                <ActivityChart buckets={activityBuckets} keys={["enemy_success", "enemy_assist", "outside"]} />
-              </CollapsiblePanel>
+              {showFactionActivity ? (
+                <CollapsiblePanel
+                  title="Buttgrass attacks over time"
+                  collapsed={collapsedPanels.factionActivity ?? true}
+                  onToggle={() => togglePanel("factionActivity")}
+                  className="activity-panel"
+                >
+                  <p className="panel-description">
+                    Shows Buttgrass attack activity across the war window, grouped into successful attacks,
+                    assists, and outside hits.
+                  </p>
+                  <ActivityChart buckets={activityBuckets} keys={["enemy_success", "enemy_assist", "outside"]} />
+                </CollapsiblePanel>
+              ) : null}
 
-              <CollapsiblePanel
-                title={`${selectedWar.name} attacks over time`}
-                collapsed={collapsedPanels.enemyActivity ?? true}
-                onToggle={() => togglePanel("enemyActivity")}
-                className="activity-panel"
-              >
-                <p className="panel-description">
-                  Shows enemy attacks against Buttgrass over time, split by whether the defend was won or lost.
-                </p>
-                <ActivityChart buckets={activityBuckets} keys={["defend_lost", "defend_won"]} />
-              </CollapsiblePanel>
+              {showEnemyActivity ? (
+                <CollapsiblePanel
+                  title={`${selectedWar.name} attacks over time`}
+                  collapsed={collapsedPanels.enemyActivity ?? true}
+                  onToggle={() => togglePanel("enemyActivity")}
+                  className="activity-panel"
+                >
+                  <p className="panel-description">
+                    Shows enemy attacks against Buttgrass over time, split by whether the defend was won or lost.
+                  </p>
+                  <ActivityChart buckets={activityBuckets} keys={["defend_lost", "defend_won"]} />
+                </CollapsiblePanel>
+              ) : null}
 
-              <CollapsiblePanel
-                title="Faction members breakdown"
-                collapsed={collapsedPanels.memberBreakdown ?? false}
-                onToggle={() => togglePanel("memberBreakdown")}
-                className="table-panel"
-              >
-                <p className="panel-description">
-                  Summarises each faction member's war performance, including enemy attacks, outside hits,
-                  friendly hosps, defends, and adjusted respect.
-                </p>
-                <MemberTable
-                  members={members}
-                  sort={memberSort}
-                  onSortChange={setMemberSort}
-                  selectedMemberId={selectedMember?.member_id ?? null}
-                  onMemberSelect={setSelectedMember}
-                />
-              </CollapsiblePanel>
+              {showMemberBreakdown ? (
+                <CollapsiblePanel
+                  title="Faction members breakdown"
+                  collapsed={collapsedPanels.memberBreakdown ?? false}
+                  onToggle={() => togglePanel("memberBreakdown")}
+                  className="table-panel"
+                >
+                  <p className="panel-description">
+                    Summarises each faction member's war performance, including enemy attacks, outside hits,
+                    friendly hosps, defends, and adjusted respect.
+                  </p>
+                  <MemberTable
+                    members={members}
+                    sort={memberSort}
+                    onSortChange={setMemberSort}
+                    selectedMemberId={selectedMember?.member_id ?? null}
+                    onMemberSelect={setSelectedMember}
+                  />
+                </CollapsiblePanel>
+              ) : null}
 
-              {selectedMember ? (
+              {showMemberBreakdown && selectedMember ? (
                 <section className="panel table-panel" ref={memberAttackPanelRef}>
                   <PanelHeader
                     title={`${displayMember(selectedMember)} attacks`}
@@ -625,6 +663,23 @@ function formatWarType(war: WarSummary): string {
     default:
       return "Real war";
   }
+}
+
+function activityTotal(
+  buckets: WarActivityBucket[],
+  keys: Array<keyof Pick<WarActivityBucket, "enemy_success" | "enemy_assist" | "outside" | "defend_lost" | "defend_won">> = [
+    "enemy_success",
+    "enemy_assist",
+    "outside",
+    "defend_lost",
+    "defend_won",
+  ],
+): number {
+  return buckets.reduce(
+    (total, bucket) =>
+      total + keys.reduce((bucketTotal, key) => bucketTotal + Number(bucket[key] ?? 0), 0),
+    0,
+  );
 }
 
 function WarTimeLine({ label, value }: { label: string; value: string }) {

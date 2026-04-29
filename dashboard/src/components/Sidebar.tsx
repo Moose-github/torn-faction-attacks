@@ -2,7 +2,7 @@ import React from "react";
 import { WarSummary, WarType } from "../api";
 import { EmptyState, PanelHeader } from "./Common";
 import { formatDate } from "../utils/format";
-import { displayWarStatus, splitGeneratedWarTitle } from "../utils/members";
+import { displayWarStatus } from "../utils/members";
 
 export function Sidebar({
   warType,
@@ -128,8 +128,6 @@ function WarNavButton({
   selected: boolean;
   onSelect: (name: string) => void;
 }) {
-  const title = splitGeneratedWarTitle(war.name);
-
   return (
     <button
       type="button"
@@ -137,7 +135,7 @@ function WarNavButton({
       onClick={() => onSelect(war.name)}
     >
       <span className="war-nav-main">
-        <strong>{title.name}</strong>
+        <strong>{war.name}</strong>
         <small>
           {displayWarStatus(war)} - {formatDate(war.practical_start_time)}
         </small>

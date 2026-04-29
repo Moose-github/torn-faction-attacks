@@ -33,19 +33,6 @@ export function displayMember(member: MemberStats): string {
   return member.member_name ?? `#${member.member_id}`;
 }
 
-export function splitGeneratedWarTitle(name: string): { name: string; tornWarId: string | null } {
-  const match = /^(.*) (\d{5})$/.exec(name.trim());
-
-  if (!match) {
-    return { name, tornWarId: null };
-  }
-
-  return {
-    name: match[1],
-    tornWarId: match[2],
-  };
-}
-
 export function sortMembers(members: MemberStats[], sort: MemberSort): MemberStats[] {
   return [...members].sort((a, b) => {
     const direction = sort.direction === "desc" ? -1 : 1;

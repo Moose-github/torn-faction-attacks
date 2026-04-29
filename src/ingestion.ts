@@ -789,7 +789,7 @@ async function syncUpcomingRankedWar(
     return;
   }
 
-  const name = buildScheduledRankedWarName(enemyFaction.name, rankedWar.id);
+  const name = await buildScheduledRankedWarName(env, enemyFaction.name);
 
   await env.DB.prepare(
     `
@@ -878,13 +878,34 @@ async function updateWarRankedWarScores(
     .run();
 }
 
-function buildScheduledRankedWarName(enemyFactionName: string, tornWarId: number): string {
-  const baseName = `${enemyFactionName} ${tornWarId}`
+async function buildScheduledRankedWarName(env: Env, enemyFactionName: string): Promise<string> {
+  const baseName = enemyFactionName
     .replace(/[^a-zA-Z0-9 _-]/g, "")
     .trim()
-    .slice(0, 50);
+    .slice(0, 50) || "Ranked war";
 
-  return baseName || `War ${tornWarId}`;
+  let candidate = baseName;
+  for (let suffix = 1; suffix <= 99; suffix += 1) {
+    const existing = await env.DB.prepare(
+      `
+      SELECT id
+      FROM wars
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+      .bind(candidate)
+      .first();
+
+    if (!existing) {
+      return candidate;
+    }
+
+    const suffixText = ` ${suffix + 1}`;
+    candidate = `${baseName.slice(0, 50 - suffixText.length)}${suffixText}`;
+  }
+
+  return `${baseName.slice(0, 39)} ${nowSeconds()}`;
 }
 
 async function fetchLatestRankedWar(env: Env): Promise<TornRankedWar | null> {
