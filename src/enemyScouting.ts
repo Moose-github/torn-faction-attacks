@@ -1,4 +1,4 @@
-import { FFSCOUTER_STATS_API_URL, TORN_FACTION_API_BASE_URL } from "./constants";
+import { FFSCOUTER_STATS_API_URL, HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import { boolToInt, json } from "./utils";
 
@@ -8,7 +8,6 @@ const SCOUTING_FETCH_TIMEOUT_MS = 15000;
 type EnemyFactionMemberRow = {
   member_id: number;
   faction_id: number;
-  faction_name: string | null;
   name: string;
   level: number | null;
   position: string | null;
@@ -49,14 +48,21 @@ export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Re
 
   const enemyFactionId = war.enemy_faction_id as number;
   const existing = await readEnemyScouting(env, enemyFactionId);
+  let refreshed = false;
+
   if (existing.length === 0) {
-    await replaceEnemyFactionMembers(env, enemyFactionId);
+    refreshed = await replaceEnemyFactionMembers(env, enemyFactionId);
   } else {
     await refreshMissingStatEstimates(env, existing);
+    refreshed = true;
+  }
+
+  if (refreshed) {
+    await refreshHomeFactionMembers(env);
   }
 
   const scouting = await readEnemyScouting(env, enemyFactionId);
-  return jsonEnemyScouting(war, scouting, true);
+  return jsonEnemyScouting(war, scouting, refreshed);
 }
 
 export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Promise<void> {
@@ -75,20 +81,26 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
     return;
   }
 
+  let refreshed = false;
   try {
-    await replaceEnemyFactionMembers(env, war.enemy_faction_id);
+    refreshed = await replaceEnemyFactionMembers(env, war.enemy_faction_id);
+    if (refreshed) {
+      await refreshHomeFactionMembers(env);
+    }
   } catch (err: any) {
     console.warn(`Enemy scouting fetch failed for war ${warId}:`, err?.message || err);
   } finally {
-    await env.DB.prepare(
-      `
-      UPDATE wars
-      SET enemy_scouting_auto_attempted_at = COALESCE(enemy_scouting_auto_attempted_at, unixepoch())
-      WHERE id = ?
-      `,
-    )
-      .bind(warId)
-      .run();
+    if (refreshed) {
+      await env.DB.prepare(
+        `
+        UPDATE wars
+        SET enemy_scouting_auto_attempted_at = COALESCE(enemy_scouting_auto_attempted_at, unixepoch())
+        WHERE id = ?
+        `,
+      )
+        .bind(warId)
+        .run();
+    }
   }
 }
 
@@ -128,22 +140,6 @@ async function readEnemyScouting(
   env: Env,
   factionId: number,
 ): Promise<EnemyFactionMemberRow[]> {
-  const staleRows = (await env.DB.prepare(
-    `
-    SELECT faction_id
-    FROM enemy_faction_members
-    WHERE faction_id != ?
-    LIMIT 1
-    `,
-  )
-    .bind(factionId)
-    .all()).results ?? [];
-
-  if (staleRows.length > 0) {
-    await env.DB.prepare(`DELETE FROM enemy_faction_members`).run();
-    return [];
-  }
-
   const rows = await env.DB.prepare(
     `
     SELECT *
@@ -158,23 +154,28 @@ async function readEnemyScouting(
   return (rows.results ?? []) as EnemyFactionMemberRow[];
 }
 
-async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<void> {
-  const members = await fetchTornFactionMembers(env, factionId);
-  await env.DB.prepare(`DELETE FROM enemy_faction_members`).run();
-
-  if (members.length === 0) {
-    return;
+async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<boolean> {
+  if (!(await canReplaceCachedEnemyScouting(env, factionId))) {
+    console.warn(
+      `Skipping enemy scouting refresh for faction ${factionId}: cached faction has not officially ended`,
+    );
+    return false;
   }
 
-  const factionName = null;
-  await env.DB.batch(
-    members.map((member) =>
+  const members = await fetchTornFactionMembers(env, factionId);
+
+  if (members.length === 0) {
+    return false;
+  }
+
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM enemy_faction_members`),
+    ...members.map((member) =>
       env.DB.prepare(
         `
         INSERT INTO enemy_faction_members (
           member_id,
           faction_id,
-          faction_name,
           name,
           level,
           position,
@@ -182,10 +183,9 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
           is_revivable,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
-          faction_name = excluded.faction_name,
           name = excluded.name,
           level = excluded.level,
           position = excluded.position,
@@ -196,7 +196,54 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
       ).bind(
         member.id,
         factionId,
-        factionName,
+        member.name,
+        finiteNumber(member.level),
+        member.position ?? null,
+        finiteNumber(member.days_in_faction),
+        boolToInt(member.is_revivable ?? false),
+      ),
+    ),
+  ]);
+
+  const rows = await readEnemyScouting(env, factionId);
+  await refreshMissingStatEstimates(env, rows);
+  return true;
+}
+
+async function refreshHomeFactionMembers(env: Env): Promise<void> {
+  const members = await fetchTornFactionMembers(env, HOME_FACTION_ID);
+
+  if (members.length === 0) {
+    return;
+  }
+
+  await env.DB.batch(
+    members.map((member) =>
+      env.DB.prepare(
+        `
+        INSERT INTO home_faction_members (
+          member_id,
+          faction_id,
+          name,
+          level,
+          position,
+          days_in_faction,
+          is_revivable,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
+        ON CONFLICT(member_id) DO UPDATE SET
+          faction_id = excluded.faction_id,
+          name = excluded.name,
+          level = excluded.level,
+          position = excluded.position,
+          days_in_faction = excluded.days_in_faction,
+          is_revivable = excluded.is_revivable,
+          updated_at = excluded.updated_at
+        `,
+      ).bind(
+        member.id,
+        HOME_FACTION_ID,
         member.name,
         finiteNumber(member.level),
         member.position ?? null,
@@ -206,13 +253,55 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
     ),
   );
 
-  const rows = await readEnemyScouting(env, factionId);
-  await refreshMissingStatEstimates(env, rows);
+  const rows = (await env.DB.prepare(
+    `
+    SELECT *
+    FROM home_faction_members
+    WHERE estimated_stats IS NULL
+    ORDER BY level DESC, name ASC
+    `,
+  ).all()).results as EnemyFactionMemberRow[] | undefined;
+
+  await refreshMissingStatEstimates(env, rows ?? [], "home_faction_members");
+}
+
+async function canReplaceCachedEnemyScouting(env: Env, nextFactionId: number): Promise<boolean> {
+  const cachedFactions = ((await env.DB.prepare(
+    `
+    SELECT DISTINCT faction_id
+    FROM enemy_faction_members
+    WHERE faction_id != ?
+    `,
+  )
+    .bind(nextFactionId)
+    .all()).results ?? []) as { faction_id: number }[];
+
+  for (const cachedFaction of cachedFactions) {
+    const unfinishedWar = (await env.DB.prepare(
+      `
+      SELECT id
+      FROM wars
+      WHERE enemy_faction_id = ?
+        AND official_end_time IS NULL
+      ORDER BY practical_start_time DESC
+      LIMIT 1
+      `,
+    )
+      .bind(cachedFaction.faction_id)
+      .first()) as { id: number } | null;
+
+    if (unfinishedWar) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 async function refreshMissingStatEstimates(
   env: Env,
   rows: EnemyFactionMemberRow[],
+  tableName = "enemy_faction_members",
 ): Promise<void> {
   if (!env.FFSCOUTER_API_KEY) {
     return;
@@ -231,7 +320,7 @@ async function refreshMissingStatEstimates(
     const statements = Array.from(estimates.entries()).map(([memberId, estimate]) =>
       env.DB.prepare(
         `
-        UPDATE enemy_faction_members
+        UPDATE ${tableName}
         SET estimated_stats = ?,
             estimated_stats_updated_at = COALESCE(?, unixepoch()),
             updated_at = unixepoch()

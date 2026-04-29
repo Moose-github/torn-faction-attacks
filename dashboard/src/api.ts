@@ -173,7 +173,6 @@ export type WarActivityResponse = {
 export type EnemyFactionMember = {
   member_id: number;
   faction_id: number;
-  faction_name: string | null;
   name: string;
   level: number | null;
   position: string | null;
