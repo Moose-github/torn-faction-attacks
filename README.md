@@ -153,7 +153,7 @@ List recent attacks:
 GET /api/attacks?limit=50
 ```
 
-Create an active or scheduled war:
+Create an active or scheduled event:
 
 ```http
 POST /api/wars
@@ -163,26 +163,14 @@ Example body:
 
 ```json
 {
-  "name": "example-war",
+  "name": "example-event",
   "practical_start_time": 1760000000,
   "enemy_faction_id": 12345,
-  "war_type": "real"
+  "war_type": "event"
 }
 ```
 
-Termed war example:
-
-```json
-{
-  "name": "example-termed-war",
-  "practical_start_time": 1760000000,
-  "enemy_faction_id": 12345,
-  "war_type": "termed",
-  "auto_end_enabled": true,
-  "faction_respect_limit": 5000,
-  "member_respect_limit": 250
-}
-```
+Official `real` and `termed` wars are created automatically while live/upcoming, or imported after they finish.
 
 Import a historical war:
 
@@ -198,7 +186,25 @@ Example body:
   "practical_start_time": 1759000000,
   "practical_finish_time": 1759086400,
   "enemy_faction_id": 12345,
-  "war_type": "real"
+  "war_type": "real",
+  "torn_war_id": 40232
+}
+```
+
+Import a historical event:
+
+```http
+POST /api/wars/import-event
+```
+
+Example body:
+
+```json
+{
+  "name": "training-night",
+  "practical_start_time": 1759000000,
+  "practical_finish_time": 1759086400,
+  "enemy_faction_id": 12345
 }
 ```
 
@@ -214,7 +220,7 @@ List wars:
 GET /api/wars
 ```
 
-Filter wars by event type:
+Filter wars by war type:
 
 ```http
 GET /api/wars?war_type=termed
@@ -250,12 +256,12 @@ Get overall stats:
 GET /api/stats
 ```
 
-Filter stats by event type:
+Filter stats by war type:
 
 ```http
 GET /api/stats?war_type=real
 GET /api/stats?war_type=termed
-GET /api/stats?war_type=other
+GET /api/stats?war_type=event
 ```
 
 ## Scheduled Ingestion
@@ -353,3 +359,4 @@ The dashboard shows recorded wars, member breakdowns, attack activity charts, ra
 ## Notes
 
 Admin and mutation endpoints require a dashboard auth session. The current admin model is intentionally lightweight while the project is still changing.
+

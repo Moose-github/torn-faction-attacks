@@ -378,8 +378,8 @@ function WarStartCountdown({ startTime }: { startTime: number | null }) {
 function formatWarRoomType(war: WarSummary): string {
   return war.war_type === "termed"
     ? "Termed war"
-    : war.war_type === "other"
-      ? "Other event"
+    : war.war_type === "event"
+      ? "Event"
       : "Real war";
 }
 
@@ -410,3 +410,4 @@ function formatDuration(totalSeconds: number): string {
 
   return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
+

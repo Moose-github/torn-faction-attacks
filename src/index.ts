@@ -20,14 +20,15 @@ import {
   getWarActivity,
   getWarAttacks,
   exportWarAttacksCsv,
+  importHistoricalEvent,
   getWarMemberAttacks,
   importHistoricalWar,
   listWars,
+  previewHistoricalEventImport,
   previewHistoricalWarImport,
   relinkWarAttacks,
+  updateEvent,
   updateOfficialWar,
-  updateOtherEvent,
-  updateWar,
 } from "./wars";
 
 export default {
@@ -96,16 +97,22 @@ export default {
       return importHistoricalWar(request, env);
     }
 
+    if (url.pathname === "/api/wars/import-event" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
+      return importHistoricalEvent(request, env);
+    }
+
     if (url.pathname === "/api/wars/import/preview" && request.method === "POST") {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
       return previewHistoricalWarImport(request, env);
     }
 
-    if (url.pathname === "/api/wars/update" && request.method === "POST") {
+    if (url.pathname === "/api/wars/import-event/preview" && request.method === "POST") {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
-      return updateWar(request, env);
+      return previewHistoricalEventImport(request, env);
     }
 
     if (url.pathname === "/api/wars/update-official" && request.method === "POST") {
@@ -114,10 +121,10 @@ export default {
       return updateOfficialWar(request, env);
     }
 
-    if (url.pathname === "/api/events/update" && request.method === "POST") {
+    if (url.pathname === "/api/wars/update-event" && request.method === "POST") {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
-      return updateOtherEvent(request, env);
+      return updateEvent(request, env);
     }
 
     if (url.pathname === "/api/wars/delete" && request.method === "POST") {
@@ -248,3 +255,4 @@ export default {
     );
   },
 };
+

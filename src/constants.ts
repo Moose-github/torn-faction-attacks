@@ -8,7 +8,7 @@ export const TORN_KEY_INFO_API_URL = "https://api.torn.com/v2/key/info";
 export const LIMIT = 100;
 export const OVERLAP_SECONDS = 60;
 export const AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60;
-export const WAR_TYPES = ["real", "termed", "other"] as const;
+export const WAR_TYPES = ["real", "termed", "event"] as const;
 
 // Hardcoded for now to keep the reporting model focused on your faction.
 export const HOME_FACTION_ID = 8803;
@@ -51,3 +51,4 @@ export const KNOWN_UNSUCCESSFUL_ATTACK_RESULTS = [
 ] as const;
 
 export const KNOWN_UNSUCCESSFUL_RESULTS_SQL = `'Lost','Stalemate','Assist','Interrupted','Timeout','Escape'`;
+

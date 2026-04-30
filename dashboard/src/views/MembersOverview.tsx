@@ -51,9 +51,9 @@ export function MembersOverview({ warType }: { warType: WarType }) {
       {error ? <div className="error-panel">{error}</div> : null}
       <section className="hero-panel compact-hero-panel">
         <div>
-          <p className="eyebrow">{warType === "all" ? "All events" : warType}</p>
+          <p className="eyebrow">{warType === "all" ? "All records" : warType}</p>
           <h2>Member performance</h2>
-          <p>Combined member results across the selected event type.</p>
+          <p>Combined member results across the selected record type.</p>
         </div>
       </section>
 
@@ -81,7 +81,7 @@ export function MembersOverview({ warType }: { warType: WarType }) {
           aside={isLoading ? "Loading" : `${members.length} members`}
         />
         <p className="panel-description">
-          Combines member performance across the selected event type so longer-term activity can be compared.
+          Combines member performance across the selected record type so longer-term activity can be compared.
         </p>
         <MemberTable members={members} sort={sort} onSortChange={setSort} />
       </section>

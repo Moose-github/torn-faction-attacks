@@ -81,7 +81,7 @@ function WarTypeSelect({
       <option value="all">All</option>
       <option value="real">Real</option>
       <option value="termed">Termed</option>
-      <option value="other">Other</option>
+      <option value="event">Event</option>
     </select>
   );
 }
@@ -159,3 +159,4 @@ function WarNavButton({
     </button>
   );
 }
+

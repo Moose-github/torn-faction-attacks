@@ -620,8 +620,8 @@ function formatWarType(war: WarSummary): string {
   switch (war.war_type) {
     case "termed":
       return "Termed war";
-    case "other":
-      return "Other event";
+    case "event":
+      return "Event";
     default:
       return "Real war";
   }
@@ -769,5 +769,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>,
 );
+
 
 

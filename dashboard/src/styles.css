@@ -848,6 +848,58 @@ h2 {
   gap: 16px;
 }
 
+.admin-panel-run {
+  order: 1;
+}
+
+.admin-panel-create-event {
+  order: 2;
+}
+
+.admin-panel-import-war {
+  order: 3;
+}
+
+.admin-panel-import-event {
+  order: 4;
+}
+
+.admin-panel-edit-official {
+  order: 5;
+}
+
+.admin-panel-edit-event {
+  order: 6;
+}
+
+.admin-panel-relink {
+  order: 7;
+}
+
+.admin-panel-report {
+  order: 8;
+}
+
+.admin-panel-pull-window {
+  order: 9;
+}
+
+.admin-panel-export {
+  order: 10;
+}
+
+.admin-panel-delete {
+  order: 11;
+}
+
+.todo-panel {
+  order: 12;
+}
+
+.admin-result-panel {
+  order: 13;
+}
+
 .admin-action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -55,8 +55,8 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
       enemyFactionValue === undefined || enemyFactionValue === null
         ? null
         : Number(enemyFactionValue);
-    const warType = parseWarType(body.war_type, "other");
-    if (warType !== "other") {
+    const warType = parseWarType(body.war_type, "event");
+    if (warType !== "event") {
       return json(
         {
           ok: false,
@@ -178,6 +178,17 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
     };
 
     const warType = parseWarType(body.war_type, "real");
+    if (warType === "event") {
+      return json(
+        {
+          ok: false,
+          error: "Use /api/wars/import-event for historical event imports",
+          code: "WRONG_IMPORT_ENDPOINT",
+        },
+        400,
+      );
+    }
+
     const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
     const report = tornWarId !== null ? await fetchTornRankedWarReport(tornWarId, env) : null;
     const reportFactions = report?.factions ?? [];
@@ -431,6 +442,119 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
   }
 }
 
+export async function importHistoricalEvent(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as {
+      name?: unknown;
+      practical_start_time?: unknown;
+      start_time?: unknown;
+      practical_finish_time?: unknown;
+      finish_time?: unknown;
+      enemy_faction_id?: unknown;
+      faction_id?: unknown;
+    };
+
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const startTime = Number(body.practical_start_time ?? body.start_time);
+    const finishTime = Number(body.practical_finish_time ?? body.finish_time);
+    const enemyFactionValue = body.enemy_faction_id ?? body.faction_id;
+    const enemyFactionId =
+      enemyFactionValue === undefined || enemyFactionValue === null || enemyFactionValue === ""
+        ? null
+        : Number(enemyFactionValue);
+    const now = nowSeconds();
+
+    if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
+      return json({ ok: false, error: "Invalid event name", code: "INVALID_NAME" }, 400);
+    }
+
+    if (!Number.isInteger(startTime) || startTime < 0) {
+      return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
+    }
+
+    if (!Number.isInteger(finishTime) || finishTime < 0) {
+      return json({ ok: false, error: "Invalid practical_finish_time", code: "INVALID_FINISH_TIME" }, 400);
+    }
+
+    if (finishTime < startTime) {
+      return json(
+        {
+          ok: false,
+          error: "practical_finish_time must be greater than or equal to practical_start_time",
+          code: "INVALID_TIME_RANGE",
+        },
+        400,
+      );
+    }
+
+    if (finishTime > now) {
+      return json(
+        {
+          ok: false,
+          error: "practical_finish_time cannot be in the future for historical event import",
+          code: "FINISH_TIME_IN_FUTURE",
+        },
+        400,
+      );
+    }
+
+    if (enemyFactionId !== null && (!Number.isInteger(enemyFactionId) || enemyFactionId < 0)) {
+      return json({ ok: false, error: "Invalid enemy_faction_id", code: "INVALID_FACTION_ID" }, 400);
+    }
+
+    const eventName = await uniqueWarName(env, sanitizeWarName(name));
+    const war = (await env.DB.prepare(
+      `
+      INSERT INTO wars (
+        name,
+        status,
+        practical_start_time,
+        practical_finish_time,
+        official_start_time,
+        official_end_time,
+        enemy_faction_id,
+        war_type,
+        torn_war_id,
+        auto_end_enabled,
+        faction_respect_limit,
+        member_respect_limit
+      )
+      VALUES (?, 'ended', ?, ?, NULL, NULL, ?, 'event', NULL, 0, NULL, NULL)
+      RETURNING
+        ${WAR_RETURNING_COLUMNS}
+      `,
+    )
+      .bind(eventName, startTime, finishTime, enemyFactionId)
+      .first()) as WarRow | null;
+
+    if (!war) {
+      throw new Error("Failed to create event");
+    }
+
+    const importedAttackCount = await ingestHistoricalWarWindow(
+      env,
+      war.id,
+      startTime,
+      finishTime,
+    );
+    await finalizeWar(env, war.id);
+
+    return json(
+      {
+        ok: true,
+        war_id: war.id,
+        name: war.name,
+        practical_start_time: startTime,
+        practical_finish_time: finishTime,
+        imported_attack_count: importedAttackCount,
+      },
+      201,
+    );
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
+}
+
 export async function previewHistoricalWarImport(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as {
@@ -445,6 +569,17 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
     };
 
     const warType = parseWarType(body.war_type, "real");
+    if (warType === "event") {
+      return json(
+        {
+          ok: false,
+          error: "Use /api/wars/import-event/preview for historical event previews",
+          code: "WRONG_IMPORT_ENDPOINT",
+        },
+        400,
+      );
+    }
+
     const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
     const report = tornWarId !== null ? await fetchTornRankedWarReport(tornWarId, env) : null;
     const reportStartTime = report?.start ?? null;
@@ -571,18 +706,59 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
   }
 }
 
-type UpdateWarMode = "any" | "official" | "other";
+export async function previewHistoricalEventImport(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as {
+      practical_start_time?: unknown;
+      start_time?: unknown;
+      practical_finish_time?: unknown;
+      finish_time?: unknown;
+    };
 
-export async function updateWar(request: Request, env: Env): Promise<Response> {
-  return updateWarInternal(request, env, "any");
+    const startTime = Number(body.practical_start_time ?? body.start_time);
+    const finishTime = Number(body.practical_finish_time ?? body.finish_time);
+
+    if (!Number.isInteger(startTime) || startTime < 0) {
+      return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
+    }
+
+    if (!Number.isInteger(finishTime) || finishTime < 0) {
+      return json({ ok: false, error: "Invalid practical_finish_time", code: "INVALID_FINISH_TIME" }, 400);
+    }
+
+    if (finishTime < startTime) {
+      return json(
+        {
+          ok: false,
+          error: "practical_finish_time must be greater than or equal to practical_start_time",
+          code: "INVALID_TIME_RANGE",
+        },
+        400,
+      );
+    }
+
+    const preview = await previewHistoricalWarWindow(env, startTime, finishTime);
+
+    return json({
+      ok: true,
+      practical_start_time: startTime,
+      practical_finish_time: finishTime,
+      duration_seconds: finishTime - startTime,
+      ...preview,
+    });
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
 }
+
+type UpdateWarMode = "official" | "event";
 
 export async function updateOfficialWar(request: Request, env: Env): Promise<Response> {
   return updateWarInternal(request, env, "official");
 }
 
-export async function updateOtherEvent(request: Request, env: Env): Promise<Response> {
-  return updateWarInternal(request, env, "other");
+export async function updateEvent(request: Request, env: Env): Promise<Response> {
+  return updateWarInternal(request, env, "event");
 }
 
 async function updateWarInternal(
@@ -671,34 +847,23 @@ async function updateWarInternal(
     );
 
     if (mode === "official") {
-      if (existingWarType === "other" || warType === "other") {
+      if (existingWarType === "event" || warType === "event") {
         return json(
-          { ok: false, error: "Use the event editor for other events", code: "WRONG_EDITOR" },
+          { ok: false, error: "Use the event editor for event records", code: "WRONG_EDITOR" },
           400,
         );
       }
     }
 
-    if (mode === "any" && existingWarType !== "other" && warType === "other") {
-      return json(
-        {
-          ok: false,
-          error: "Official wars cannot be converted into other events",
-          code: "INVALID_WAR_TYPE_CHANGE",
-        },
-        400,
-      );
-    }
-
-    if (mode === "other" || (mode === "any" && existingWarType === "other")) {
-      if (existingWarType !== "other") {
+    if (mode === "event") {
+      if (existingWarType !== "event") {
         return json(
           { ok: false, error: "Use the official war editor for Torn-backed wars", code: "WRONG_EDITOR" },
           400,
         );
       }
 
-      warType = "other";
+      warType = "event";
       name = typeof body.name === "string" ? body.name.trim() : existing.name;
       if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
         return json({ ok: false, error: "Invalid event name", code: "INVALID_NAME" }, 400);
@@ -2148,3 +2313,4 @@ function validateTermedWarFields(
 
   return null;
 }
+

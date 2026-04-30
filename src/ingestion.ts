@@ -581,7 +581,7 @@ async function syncRankedWarScores(
   activeWar: ActiveWarForIngestion,
   rankedWar: TornRankedWar,
 ): Promise<void> {
-  if (activeWar.war_type === "other") {
+  if (activeWar.war_type === "event") {
     return;
   }
 
@@ -601,7 +601,7 @@ async function syncActiveWarOfficialEnd(
     return null;
   }
 
-  if (activeWar.war_type === "other") {
+  if (activeWar.war_type === "event") {
     return null;
   }
 
@@ -672,7 +672,7 @@ async function syncUnfinishedRankedWar(env: Env, rankedWar: TornRankedWar): Prom
     FROM wars
     WHERE torn_war_id = ?
       AND official_end_time IS NULL
-      AND COALESCE(war_type, 'real') != 'other'
+      AND COALESCE(war_type, 'real') != 'event'
     ORDER BY practical_start_time DESC
     LIMIT 1
     `,
@@ -712,7 +712,7 @@ async function syncMissingRankedWarReports(env: Env): Promise<void> {
       AND status = 'ended'
       AND official_end_time IS NOT NULL
       AND torn_report_fetched_at IS NULL
-      AND COALESCE(war_type, 'real') != 'other'
+      AND COALESCE(war_type, 'real') != 'event'
     ORDER BY official_end_time DESC, practical_start_time DESC
     LIMIT 3
     `,
@@ -1108,3 +1108,4 @@ function buildHistoricalImportStatement(
     ingestRunId,
   );
 }
+
