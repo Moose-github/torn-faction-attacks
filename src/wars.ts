@@ -55,17 +55,17 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
       enemyFactionValue === undefined || enemyFactionValue === null
         ? null
         : Number(enemyFactionValue);
-    const warType = parseWarType(body.war_type, "real");
-    const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
-    const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
-    const factionRespectLimit = parseOptionalNonNegativeNumber(
-      body.faction_respect_limit,
-      "faction_respect_limit",
-    );
-    const memberRespectLimit = parseOptionalNonNegativeNumber(
-      body.member_respect_limit,
-      "member_respect_limit",
-    );
+    const warType = parseWarType(body.war_type, "other");
+    if (warType !== "other") {
+      return json(
+        {
+          ok: false,
+          error: "Official wars are auto-created from Torn or imported after they finish",
+          code: "MANUAL_OFFICIAL_WAR_DISABLED",
+        },
+        400,
+      );
+    }
 
     const practicalStartValue = body.practical_start_time ?? body.start_time;
     if (practicalStartValue !== undefined) {
@@ -78,16 +78,6 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
 
     if (enemyFactionId !== null && (!Number.isInteger(enemyFactionId) || enemyFactionId < 0)) {
       return json({ ok: false, error: "Invalid enemy_faction_id", code: "INVALID_FACTION_ID" }, 400);
-    }
-
-    const validationError = validateTermedWarFields(
-      warType,
-      autoEndEnabled,
-      factionRespectLimit,
-      memberRespectLimit,
-    );
-    if (validationError) {
-      return validationError;
     }
 
     const status = startTime > now ? "scheduled" : "active";
@@ -148,10 +138,10 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
         startTime,
         enemyFactionId,
         warType,
-        tornWarId,
-        autoEndEnabled,
-        factionRespectLimit,
-        memberRespectLimit,
+        null,
+        0,
+        null,
+        null,
       )
       .first()) as WarRow | null;
 
@@ -581,7 +571,25 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
   }
 }
 
+type UpdateWarMode = "any" | "official" | "other";
+
 export async function updateWar(request: Request, env: Env): Promise<Response> {
+  return updateWarInternal(request, env, "any");
+}
+
+export async function updateOfficialWar(request: Request, env: Env): Promise<Response> {
+  return updateWarInternal(request, env, "official");
+}
+
+export async function updateOtherEvent(request: Request, env: Env): Promise<Response> {
+  return updateWarInternal(request, env, "other");
+}
+
+async function updateWarInternal(
+  request: Request,
+  env: Env,
+  mode: UpdateWarMode,
+): Promise<Response> {
   try {
     const body = (await request.json()) as {
       id?: unknown;
@@ -613,6 +621,7 @@ export async function updateWar(request: Request, env: Env): Promise<Response> {
         official_start_time,
         official_end_time,
         enemy_faction_id,
+        war_type,
         torn_war_id
       FROM wars
       WHERE id = ?
@@ -626,6 +635,7 @@ export async function updateWar(request: Request, env: Env): Promise<Response> {
       official_start_time: number | null;
       official_end_time: number | null;
       enemy_faction_id: number | null;
+      war_type: (typeof WAR_TYPES)[number] | null;
       torn_war_id: number | null;
     } | null;
 
@@ -633,7 +643,8 @@ export async function updateWar(request: Request, env: Env): Promise<Response> {
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
     }
 
-    const name = existing.name;
+    const existingWarType = existing.war_type ?? "real";
+    let name = existing.name;
 
     const status = parseWarStatus(body.status);
     const practicalStartTime = Number(body.practical_start_time);
@@ -646,24 +657,66 @@ export async function updateWar(request: Request, env: Env): Promise<Response> {
       body.official_finish_time ?? body.official_end_time,
       "official_finish_time",
     );
-    const warType = parseWarType(body.war_type, "real");
+    let warType = parseWarType(body.war_type, existingWarType);
     let enemyFactionId = parseOptionalInteger(body.enemy_faction_id, "enemy_faction_id");
     let tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
-    const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
-    const factionRespectLimit = parseOptionalNonNegativeNumber(
+    let autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
+    let factionRespectLimit = parseOptionalNonNegativeNumber(
       body.faction_respect_limit,
       "faction_respect_limit",
     );
-    const memberRespectLimit = parseOptionalNonNegativeNumber(
+    let memberRespectLimit = parseOptionalNonNegativeNumber(
       body.member_respect_limit,
       "member_respect_limit",
     );
+
+    if (mode === "official") {
+      if (existingWarType === "other" || warType === "other") {
+        return json(
+          { ok: false, error: "Use the event editor for other events", code: "WRONG_EDITOR" },
+          400,
+        );
+      }
+    }
+
+    if (mode === "any" && existingWarType !== "other" && warType === "other") {
+      return json(
+        {
+          ok: false,
+          error: "Official wars cannot be converted into other events",
+          code: "INVALID_WAR_TYPE_CHANGE",
+        },
+        400,
+      );
+    }
+
+    if (mode === "other" || (mode === "any" && existingWarType === "other")) {
+      if (existingWarType !== "other") {
+        return json(
+          { ok: false, error: "Use the official war editor for Torn-backed wars", code: "WRONG_EDITOR" },
+          400,
+        );
+      }
+
+      warType = "other";
+      name = typeof body.name === "string" ? body.name.trim() : existing.name;
+      if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
+        return json({ ok: false, error: "Invalid event name", code: "INVALID_NAME" }, 400);
+      }
+    }
 
     if (warType === "real" || warType === "termed") {
       officialStartTime = existing.official_start_time;
       officialFinishTime = existing.official_end_time;
       enemyFactionId = existing.enemy_faction_id;
       tornWarId = existing.torn_war_id;
+    } else {
+      officialStartTime = null;
+      officialFinishTime = null;
+      tornWarId = null;
+      autoEndEnabled = 0;
+      factionRespectLimit = null;
+      memberRespectLimit = null;
     }
 
     if (status === "active" || status === "scheduled") {

@@ -20,7 +20,8 @@ import {
   refreshAuthSession,
   relinkAttacks,
   runIngestion,
-  updateWar,
+  updateOfficialWar,
+  updateOtherEvent,
   WarSummary,
   WarType,
 } from "../api";
@@ -38,7 +39,10 @@ export function AdminControls() {
   );
   const [tornKey, setTornKey] = React.useState("");
   const [isAuthenticating, setIsAuthenticating] = React.useState(false);
-  const [createForm, setCreateForm] = React.useState<AdminWarFormState>(() => defaultWarForm());
+  const [createForm, setCreateForm] = React.useState<AdminWarFormState>(() => ({
+    ...defaultWarForm(),
+    warType: "other",
+  }));
   const [importForm, setImportForm] = React.useState<AdminWarFormState>(() => ({
     ...defaultWarForm(),
     finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
@@ -51,8 +55,15 @@ export function AdminControls() {
     fetchMissing: false,
   });
   const [wars, setWars] = React.useState<WarSummary[]>([]);
-  const [editForm, setEditForm] = React.useState<AdminWarFormState>(() => defaultWarForm());
-  const [selectedEditWarId, setSelectedEditWarId] = React.useState("");
+  const [officialEditForm, setOfficialEditForm] = React.useState<AdminWarFormState>(() =>
+    defaultWarForm(),
+  );
+  const [eventEditForm, setEventEditForm] = React.useState<AdminWarFormState>(() => ({
+    ...defaultWarForm(),
+    warType: "other",
+  }));
+  const [selectedOfficialWarId, setSelectedOfficialWarId] = React.useState("");
+  const [selectedEventWarId, setSelectedEventWarId] = React.useState("");
   const [exportForm, setExportForm] = React.useState<AdminExportFormState>({
     warName: "",
     scope: "war_relevant" as "all" | "outgoing" | "war_relevant",
@@ -115,11 +126,15 @@ export function AdminControls() {
             response.wars.find((war) => war.name === current.warName) ?? firstExportableWar,
           ),
         }));
-        setSelectedEditWarId((current) => current || String(response.wars[0]?.id ?? ""));
-        setEditForm((current) =>
-          selectedEditWarId || response.wars.length === 0
-            ? current
-            : warToForm(response.wars[0]),
+        const firstOfficialWar = response.wars.find(isOfficialWar);
+        const firstOtherEvent = response.wars.find(isOtherEvent);
+        setSelectedOfficialWarId((current) => current || String(firstOfficialWar?.id ?? ""));
+        setOfficialEditForm((current) =>
+          firstOfficialWar && !selectedOfficialWarId ? warToForm(firstOfficialWar) : current,
+        );
+        setSelectedEventWarId((current) => current || String(firstOtherEvent?.id ?? ""));
+        setEventEditForm((current) =>
+          firstOtherEvent && !selectedEventWarId ? warToForm(firstOtherEvent) : current,
         );
       } catch {
         if (!cancelled) {
@@ -177,6 +192,8 @@ export function AdminControls() {
     { label: "End active war", run: endActiveWar, tone: "danger" },
   ];
   const exportableWars = wars.filter(isExportableWar);
+  const officialWars = wars.filter(isOfficialWar);
+  const otherEvents = wars.filter(isOtherEvent);
 
   return (
     <>
@@ -254,19 +271,19 @@ export function AdminControls() {
         <ProjectTodoPanel />
 
         <section className="panel">
-          <PanelHeader title="Edit existing war" />
+          <PanelHeader title="Edit official war" />
           <form
             className="admin-form"
             onSubmit={(event) => {
               event.preventDefault();
-              runAdminAction("Update war", () =>
-                updateWar(toWarEditPayload(Number(selectedEditWarId), editForm)).then((response) => {
+              runAdminAction("Update official war", () =>
+                updateOfficialWar(toWarEditPayload(Number(selectedOfficialWarId), officialEditForm)).then((response) => {
                   const updatedWar = (response as { war?: WarSummary }).war;
                   if (updatedWar) {
                     setWars((current) =>
                       current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war)),
                     );
-                    setEditForm(warToForm(updatedWar));
+                    setOfficialEditForm(warToForm(updatedWar));
                     setExportForm((current) =>
                       current.warName === updatedWar.name
                         ? exportFormForWar(current, updatedWar)
@@ -281,12 +298,12 @@ export function AdminControls() {
             <label className="admin-form-wide">
               <span>War</span>
               <select
-                value={selectedEditWarId}
+                value={selectedOfficialWarId}
                 onChange={(event) => {
-                  const war = wars.find((candidate) => candidate.id === Number(event.target.value));
-                  setSelectedEditWarId(event.target.value);
+                  const war = officialWars.find((candidate) => candidate.id === Number(event.target.value));
+                  setSelectedOfficialWarId(event.target.value);
                   if (war) {
-                    setEditForm(warToForm(war));
+                    setOfficialEditForm(warToForm(war));
                   }
                 }}
                 required
@@ -294,7 +311,7 @@ export function AdminControls() {
                 <option value="" disabled>
                   Select war
                 </option>
-                {wars.map((war) => (
+                {officialWars.map((war) => (
                   <option value={war.id} key={war.id}>
                     {war.name}
                     {war.torn_war_id ? ` / Torn #${war.torn_war_id}` : ""}
@@ -303,17 +320,87 @@ export function AdminControls() {
               </select>
             </label>
             <WarFields
-              form={editForm}
-              onChange={setEditForm}
+              form={officialEditForm}
+              onChange={setOfficialEditForm}
               showName={false}
               showFinishTimes
               showTornFields={false}
               showStatus
+              allowedWarTypes={["real", "termed"]}
             />
             <button
               type="submit"
               className="admin-button primary admin-form-wide"
-              disabled={isBusy !== null || !selectedEditWarId}
+              disabled={isBusy !== null || !selectedOfficialWarId}
+            >
+              Confirm changes
+            </button>
+          </form>
+        </section>
+
+        <section className="panel">
+          <PanelHeader title="Edit other event" />
+          <form
+            className="admin-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Update event", () =>
+                updateOtherEvent(toWarEditPayload(Number(selectedEventWarId), eventEditForm)).then((response) => {
+                  const updatedWar = (response as { war?: WarSummary }).war;
+                  if (updatedWar) {
+                    setWars((current) =>
+                      current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war)),
+                    );
+                    setEventEditForm(warToForm(updatedWar));
+                    setExportForm((current) =>
+                      current.warName === updatedWar.name
+                        ? exportFormForWar(current, updatedWar)
+                        : current,
+                    );
+                  }
+                  return response;
+                }),
+              );
+            }}
+          >
+            <label className="admin-form-wide">
+              <span>Event</span>
+              <select
+                value={selectedEventWarId}
+                onChange={(event) => {
+                  const war = otherEvents.find((candidate) => candidate.id === Number(event.target.value));
+                  setSelectedEventWarId(event.target.value);
+                  if (war) {
+                    setEventEditForm(warToForm(war));
+                  }
+                }}
+                required
+              >
+                <option value="" disabled>
+                  Select event
+                </option>
+                {otherEvents.map((war) => (
+                  <option value={war.id} key={war.id}>
+                    {war.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <WarFields
+              form={eventEditForm}
+              onChange={setEventEditForm}
+              showName
+              showFinishTimes
+              showOfficialTimes={false}
+              showEnemyFaction
+              showTornWarId={false}
+              showStatus
+              allowedWarTypes={["other"]}
+            />
+            <button
+              type="submit"
+              className="admin-button primary admin-form-wide"
+              disabled={isBusy !== null || !selectedEventWarId}
             >
               Confirm changes
             </button>
@@ -481,12 +568,12 @@ export function AdminControls() {
           </form>
         </section>
 
-        <WarForm
-          title="Create active or scheduled war"
+        <EventForm
+          title="Create active or scheduled event"
           form={createForm}
           onChange={setCreateForm}
           isBusy={isBusy !== null}
-          onSubmit={(payload) => runAdminAction("Create war", () => createWar(payload))}
+          onSubmit={(payload) => runAdminAction("Create event", () => createWar(payload))}
         />
 
         <WarForm
@@ -496,6 +583,7 @@ export function AdminControls() {
           isBusy={isBusy !== null}
           requireFinishTime
           hideName
+          allowedWarTypes={["real", "termed"]}
           showAutoEnd={false}
           secondaryActionLabel="Preview import window"
           onSecondaryAction={(payload) =>
@@ -719,6 +807,63 @@ type AdminExportFormState = {
   customFinishTime: string;
 };
 
+function EventForm({
+  title,
+  form,
+  onChange,
+  onSubmit,
+  isBusy,
+}: {
+  title: string;
+  form: AdminWarFormState;
+  onChange: (form: AdminWarFormState) => void;
+  onSubmit: (payload: AdminWarPayload) => void;
+  isBusy: boolean;
+}) {
+  function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
+    onChange({ ...form, warType: "other", [key]: value });
+  }
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit(toEventPayload(form));
+  }
+
+  return (
+    <section className="panel">
+      <PanelHeader title={title} />
+      <form className="admin-form" onSubmit={submit}>
+        <label>
+          <span>Name</span>
+          <input value={form.name} onChange={(event) => update("name", event.target.value)} required />
+        </label>
+        <label>
+          <span>Time input</span>
+          <select value={form.timeMode} onChange={(event) => updateTimeMode(form, onChange, event.target.value as AdminWarFormState["timeMode"])}>
+            <option value="datetime">Date and time</option>
+            <option value="epoch">Epoch seconds</option>
+          </select>
+        </label>
+        <label>
+          <span>Start time</span>
+          {form.timeMode === "epoch" ? (
+            <input inputMode="numeric" value={form.startEpoch} onChange={(event) => update("startEpoch", event.target.value)} required />
+          ) : (
+            <input type="datetime-local" value={form.startTime} onChange={(event) => updateDateTime(form, onChange, "start", event.target.value)} required />
+          )}
+        </label>
+        <label>
+          <span>Enemy faction ID</span>
+          <input inputMode="numeric" value={form.factionId} onChange={(event) => update("factionId", event.target.value)} />
+        </label>
+        <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy}>
+          {title}
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function WarForm({
   title,
   form,
@@ -728,6 +873,7 @@ function WarForm({
   requireFinishTime = false,
   hideName = false,
   showAutoEnd = true,
+  allowedWarTypes,
   secondaryActionLabel,
   onSecondaryAction,
 }: {
@@ -739,11 +885,13 @@ function WarForm({
   requireFinishTime?: boolean;
   hideName?: boolean;
   showAutoEnd?: boolean;
+  allowedWarTypes?: Array<Exclude<WarType, "all">>;
   secondaryActionLabel?: string;
   onSecondaryAction?: (payload: AdminWarPayload) => void;
 }) {
   const canUseTermFields = form.warType === "termed";
   const practicalTimesDisabled = requireFinishTime && form.warType === "real";
+  const warTypeOptions = allowedWarTypes ?? ["real", "termed", "other"];
 
   function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
     onChange({ ...form, [key]: value });
@@ -767,9 +915,11 @@ function WarForm({
         <label>
           <span>War type</span>
           <select value={form.warType} onChange={(event) => update("warType", event.target.value as Exclude<WarType, "all">)}>
-            <option value="real">Real</option>
-            <option value="termed">Termed</option>
-            <option value="other">Other</option>
+            {warTypeOptions.map((warType) => (
+              <option value={warType} key={warType}>
+                {warTypeLabel(warType)}
+              </option>
+            ))}
           </select>
         </label>
         <label>
@@ -876,17 +1026,26 @@ function WarFields({
   showName = true,
   showFinishTimes = false,
   showTornFields = true,
+  showOfficialTimes = showTornFields,
+  showEnemyFaction = showTornFields,
+  showTornWarId = showTornFields,
   showStatus = false,
+  allowedWarTypes,
 }: {
   form: AdminWarFormState;
   onChange: (form: AdminWarFormState) => void;
   showName?: boolean;
   showFinishTimes?: boolean;
   showTornFields?: boolean;
+  showOfficialTimes?: boolean;
+  showEnemyFaction?: boolean;
+  showTornWarId?: boolean;
   showStatus?: boolean;
+  allowedWarTypes?: Array<Exclude<WarType, "all">>;
 }) {
   const canUseTermFields = form.warType === "termed";
   const canEditTornFields = form.warType === "other";
+  const warTypeOptions = allowedWarTypes ?? ["real", "termed", "other"];
 
   function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
     onChange({ ...form, [key]: value });
@@ -913,9 +1072,11 @@ function WarFields({
       <label>
         <span>War type</span>
         <select value={form.warType} onChange={(event) => update("warType", event.target.value as Exclude<WarType, "all">)}>
-          <option value="real">Real</option>
-          <option value="termed">Termed</option>
-          <option value="other">Other</option>
+          {warTypeOptions.map((warType) => (
+            <option value={warType} key={warType}>
+              {warTypeLabel(warType)}
+            </option>
+          ))}
         </select>
       </label>
       <label>
@@ -943,7 +1104,7 @@ function WarFields({
               <input type="datetime-local" value={form.finishTime} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} />
             )}
           </label>
-          {showTornFields ? (
+          {showOfficialTimes ? (
             <>
               <label>
                 <span>Official start time</span>
@@ -965,16 +1126,20 @@ function WarFields({
           ) : null}
         </>
       ) : null}
-      {showTornFields ? (
+      {showEnemyFaction || showTornWarId ? (
         <>
-          <label>
-            <span>Enemy faction ID</span>
-            <input inputMode="numeric" value={form.factionId} disabled={!canEditTornFields} onChange={(event) => update("factionId", event.target.value)} />
-          </label>
-          <label>
-            <span>Torn war ID</span>
-            <input inputMode="numeric" value={form.tornWarId} disabled={!canEditTornFields} onChange={(event) => update("tornWarId", event.target.value)} />
-          </label>
+          {showEnemyFaction ? (
+            <label>
+              <span>Enemy faction ID</span>
+              <input inputMode="numeric" value={form.factionId} disabled={!canEditTornFields} onChange={(event) => update("factionId", event.target.value)} />
+            </label>
+          ) : null}
+          {showTornWarId ? (
+            <label>
+              <span>Torn war ID</span>
+              <input inputMode="numeric" value={form.tornWarId} disabled={!canEditTornFields} onChange={(event) => update("tornWarId", event.target.value)} />
+            </label>
+          ) : null}
         </>
       ) : null}
       {canUseTermFields ? (
@@ -1051,6 +1216,18 @@ function defaultWarForm(): AdminWarFormState {
   };
 }
 
+function toEventPayload(form: AdminWarFormState): AdminWarPayload {
+  const payload: AdminWarPayload = {
+    war_type: "other",
+    name: form.name.trim(),
+    practical_start_time: secondsFromFormTime(form, "start"),
+  };
+
+  setOptionalNumber(payload, "enemy_faction_id", form.factionId);
+
+  return payload;
+}
+
 function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): AdminWarPayload {
   const payload: AdminWarPayload = {
     war_type: form.warType,
@@ -1080,6 +1257,26 @@ function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): Admi
   }
 
   return payload;
+}
+
+function isOfficialWar(war: WarSummary): boolean {
+  return war.war_type !== "other";
+}
+
+function isOtherEvent(war: WarSummary): boolean {
+  return war.war_type === "other";
+}
+
+function warTypeLabel(warType: Exclude<WarType, "all">): string {
+  if (warType === "real") {
+    return "Real";
+  }
+
+  if (warType === "termed") {
+    return "Termed";
+  }
+
+  return "Other";
 }
 
 function warToForm(war: WarSummary): AdminWarFormState {

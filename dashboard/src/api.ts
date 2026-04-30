@@ -472,6 +472,14 @@ export async function updateWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars/update", payload);
 }
 
+export async function updateOfficialWar(payload: AdminWarPayload): Promise<unknown> {
+  return postJson("/api/wars/update-official", payload);
+}
+
+export async function updateOtherEvent(payload: AdminWarPayload): Promise<unknown> {
+  return postJson("/api/events/update", payload);
+}
+
 export async function importWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars/import", payload);
 }

@@ -25,6 +25,8 @@ import {
   listWars,
   previewHistoricalWarImport,
   relinkWarAttacks,
+  updateOfficialWar,
+  updateOtherEvent,
   updateWar,
 } from "./wars";
 
@@ -104,6 +106,18 @@ export default {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
       return updateWar(request, env);
+    }
+
+    if (url.pathname === "/api/wars/update-official" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
+      return updateOfficialWar(request, env);
+    }
+
+    if (url.pathname === "/api/events/update" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
+      return updateOtherEvent(request, env);
     }
 
     if (url.pathname === "/api/wars/delete" && request.method === "POST") {
