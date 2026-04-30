@@ -452,10 +452,6 @@ export async function getScoutingComparison(
   );
 }
 
-export async function checkHealth(): Promise<unknown> {
-  return getJson("/api/health");
-}
-
 export async function runIngestion(): Promise<unknown> {
   return postJson("/api/run");
 }

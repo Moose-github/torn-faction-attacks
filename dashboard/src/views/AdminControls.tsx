@@ -3,7 +3,6 @@ import {
   AdminWarPayload,
   AuthSession,
   authenticateTornKey,
-  checkHealth,
   clearStoredAuthSession,
   createWar,
   deleteWar,
@@ -27,7 +26,7 @@ import {
   WarSummary,
   WarType,
 } from "../api";
-import { PanelHeader } from "../components/Common";
+import { CollapsiblePanel, PanelHeader } from "../components/Common";
 
 type AdminAction = {
   label: string;
@@ -92,6 +91,7 @@ export function AdminControls() {
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [isRepairPanelCollapsed, setIsRepairPanelCollapsed] = React.useState(true);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -194,9 +194,7 @@ export function AdminControls() {
   }
 
   const actions: AdminAction[] = [
-    { label: "Health check", run: checkHealth },
     { label: "Run ingestion", run: runIngestion },
-    { label: "Rebuild stats", run: rebuildStats },
     { label: "End active war", run: endActiveWar, tone: "danger" },
   ];
   const exportableWars = wars.filter(isExportableWar);
@@ -260,7 +258,7 @@ export function AdminControls() {
       {authSession?.access_level === "admin" ? (
       <section className="admin-grid">
         <section className="panel admin-panel-run">
-          <PanelHeader title="Run and rebuild" />
+          <PanelHeader title="Run controls" />
           <div className="admin-action-grid">
             {actions.map((action) => (
               <button
@@ -654,139 +652,161 @@ export function AdminControls() {
           </form>
         </section>
 
-        <section className="panel admin-panel-relink">
-          <PanelHeader title="Relink attacks" />
-          <form className="admin-form">
-            <label>
-              <span>Torn war ID</span>
-              <input
-                inputMode="numeric"
-                value={relinkForm.tornWarId}
-                onChange={(event) =>
-                  setRelinkForm({ ...relinkForm, tornWarId: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              <span>War/event name</span>
-              <input
-                value={relinkForm.name}
-                onChange={(event) => setRelinkForm({ ...relinkForm, name: event.target.value })}
-              />
-            </label>
-            <label className="checkbox-row admin-form-wide">
-              <input
-                type="checkbox"
-                checked={relinkForm.fetchMissing}
-                onChange={(event) =>
-                  setRelinkForm({ ...relinkForm, fetchMissing: event.target.checked })
-                }
-              />
-              <span>Fetch missing attacks first</span>
-            </label>
-            <button
-              type="button"
-              className="admin-button admin-form-wide"
-              disabled={isBusy !== null}
-              onClick={() =>
-                runAdminAction("Preview relink attacks", () =>
-                  previewRelinkAttacks(toRelinkPayload(relinkForm)),
-                )
-              }
-            >
-              Preview relink attacks
-            </button>
-            <button
-              type="button"
-              className="admin-button primary admin-form-wide"
-              disabled={isBusy !== null}
-              onClick={() =>
-                runAdminAction("Relink attacks", () => relinkAttacks(toRelinkPayload(relinkForm)))
-              }
-            >
-              Relink attacks
-            </button>
-          </form>
-        </section>
+        <CollapsiblePanel
+          title="Repair/debug tools"
+          aside="Advanced"
+          className="admin-panel-repair"
+          collapsed={isRepairPanelCollapsed}
+          onToggle={() => setIsRepairPanelCollapsed((current) => !current)}
+        >
+          <div className="admin-repair-grid">
+            <section className="admin-tool-section">
+              <PanelHeader title="Rebuild stats" />
+              <button
+                type="button"
+                className="admin-button primary"
+                disabled={isBusy !== null}
+                onClick={() => runAdminAction("Rebuild stats", rebuildStats)}
+              >
+                {isBusy === "Rebuild stats" ? "Working" : "Rebuild stats"}
+              </button>
+            </section>
 
-        <section className="panel admin-panel-report">
-          <PanelHeader title="Fetch Torn report" />
-          <form
-            className="admin-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              runAdminAction("Fetch Torn report", () =>
-                fetchTornWarReport(Number(reportForm.tornWarId)),
-              );
-            }}
-          >
-            <label>
-              <span>Torn war ID</span>
-              <input
-                inputMode="numeric"
-                value={reportForm.tornWarId}
-                onChange={(event) => setReportForm({ tornWarId: event.target.value })}
-                required
-              />
-            </label>
-            <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
-              Fetch Torn report
-            </button>
-          </form>
-        </section>
+            <section className="admin-tool-section">
+              <PanelHeader title="Relink attacks" />
+              <form className="admin-form">
+                <label>
+                  <span>Torn war ID</span>
+                  <input
+                    inputMode="numeric"
+                    value={relinkForm.tornWarId}
+                    onChange={(event) =>
+                      setRelinkForm({ ...relinkForm, tornWarId: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  <span>War/event name</span>
+                  <input
+                    value={relinkForm.name}
+                    onChange={(event) => setRelinkForm({ ...relinkForm, name: event.target.value })}
+                  />
+                </label>
+                <label className="checkbox-row admin-form-wide">
+                  <input
+                    type="checkbox"
+                    checked={relinkForm.fetchMissing}
+                    onChange={(event) =>
+                      setRelinkForm({ ...relinkForm, fetchMissing: event.target.checked })
+                    }
+                  />
+                  <span>Fetch missing attacks first</span>
+                </label>
+                <button
+                  type="button"
+                  className="admin-button admin-form-wide"
+                  disabled={isBusy !== null}
+                  onClick={() =>
+                    runAdminAction("Preview relink attacks", () =>
+                      previewRelinkAttacks(toRelinkPayload(relinkForm)),
+                    )
+                  }
+                >
+                  Preview relink attacks
+                </button>
+                <button
+                  type="button"
+                  className="admin-button primary admin-form-wide"
+                  disabled={isBusy !== null}
+                  onClick={() =>
+                    runAdminAction("Relink attacks", () => relinkAttacks(toRelinkPayload(relinkForm)))
+                  }
+                >
+                  Relink attacks
+                </button>
+              </form>
+            </section>
 
-        <section className="panel admin-panel-pull-window">
-          <PanelHeader title="Pull attack window" />
-          <form
-            className="admin-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              runAdminAction("Pull attack window", () =>
-                pullAttackWindow({
-                  practical_start_time: secondsFromDateTimeLocal(attackWindowForm.startTime),
-                  practical_finish_time: secondsFromDateTimeLocal(attackWindowForm.finishTime),
-                  limit: attackWindowForm.limit.trim() ? Number(attackWindowForm.limit) : undefined,
-                }),
-              );
-            }}
-          >
-            <label>
-              <span>Start time</span>
-              <input
-                type="datetime-local"
-                value={attackWindowForm.startTime}
-                onChange={(event) =>
-                  setAttackWindowForm({ ...attackWindowForm, startTime: event.target.value })
-                }
-                required
-              />
-            </label>
-            <label>
-              <span>Finish time</span>
-              <input
-                type="datetime-local"
-                value={attackWindowForm.finishTime}
-                onChange={(event) =>
-                  setAttackWindowForm({ ...attackWindowForm, finishTime: event.target.value })
-                }
-                required
-              />
-            </label>
-            <label>
-              <span>Returned attacks</span>
-              <input
-                inputMode="numeric"
-                value={attackWindowForm.limit}
-                onChange={(event) =>
-                  setAttackWindowForm({ ...attackWindowForm, limit: event.target.value })
-                }
-              />
-            </label>
-            <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
-              Pull attack window
-            </button>
-          </form>
-        </section>
+            <section className="admin-tool-section">
+              <PanelHeader title="Fetch Torn report" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runAdminAction("Fetch Torn report", () =>
+                    fetchTornWarReport(Number(reportForm.tornWarId)),
+                  );
+                }}
+              >
+                <label>
+                  <span>Torn war ID</span>
+                  <input
+                    inputMode="numeric"
+                    value={reportForm.tornWarId}
+                    onChange={(event) => setReportForm({ tornWarId: event.target.value })}
+                    required
+                  />
+                </label>
+                <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
+                  Fetch Torn report
+                </button>
+              </form>
+            </section>
+
+            <section className="admin-tool-section">
+              <PanelHeader title="Pull attack window" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runAdminAction("Pull attack window", () =>
+                    pullAttackWindow({
+                      practical_start_time: secondsFromDateTimeLocal(attackWindowForm.startTime),
+                      practical_finish_time: secondsFromDateTimeLocal(attackWindowForm.finishTime),
+                      limit: attackWindowForm.limit.trim() ? Number(attackWindowForm.limit) : undefined,
+                    }),
+                  );
+                }}
+              >
+                <label>
+                  <span>Start time</span>
+                  <input
+                    type="datetime-local"
+                    value={attackWindowForm.startTime}
+                    onChange={(event) =>
+                      setAttackWindowForm({ ...attackWindowForm, startTime: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Finish time</span>
+                  <input
+                    type="datetime-local"
+                    value={attackWindowForm.finishTime}
+                    onChange={(event) =>
+                      setAttackWindowForm({ ...attackWindowForm, finishTime: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Returned attacks</span>
+                  <input
+                    inputMode="numeric"
+                    value={attackWindowForm.limit}
+                    onChange={(event) =>
+                      setAttackWindowForm({ ...attackWindowForm, limit: event.target.value })
+                    }
+                  />
+                </label>
+                <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
+                  Pull attack window
+                </button>
+              </form>
+            </section>
+          </div>
+        </CollapsiblePanel>
 
         <section className="panel admin-result-panel">
           <PanelHeader title="Latest API response" />

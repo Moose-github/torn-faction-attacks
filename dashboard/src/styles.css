@@ -872,38 +872,44 @@ h2 {
   order: 6;
 }
 
-.admin-panel-relink {
-  order: 7;
-}
-
-.admin-panel-report {
-  order: 8;
-}
-
-.admin-panel-pull-window {
+.admin-panel-repair {
   order: 9;
+  grid-column: 1 / -1;
 }
 
 .admin-panel-export {
-  order: 10;
+  order: 7;
 }
 
 .admin-panel-delete {
-  order: 11;
+  order: 8;
 }
 
 .todo-panel {
-  order: 12;
+  order: 10;
 }
 
 .admin-result-panel {
-  order: 13;
+  order: 11;
 }
 
 .admin-action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.admin-repair-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-tool-section {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding-top: 2px;
 }
 
 .admin-button {
