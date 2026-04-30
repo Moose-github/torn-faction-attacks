@@ -240,10 +240,7 @@ export function FactionActivityHeatmap({
     return <EmptyState text="No heatmap samples yet" />;
   }
 
-  const dates = Array.from(new Set(factionRows.map((row) => row.date))).sort();
-  const rowMap = new Map(
-    factionRows.map((row) => [`${row.date}:${row.interval_index}`, row]),
-  );
+  const intervalAverages = averageHeatmapIntervals(factionRows);
 
   return (
     <div className="heatmap-block">
@@ -252,40 +249,68 @@ export function FactionActivityHeatmap({
         <span>{formatNumber(factionRows.length)} samples</span>
       </div>
       <div className="heatmap-day-stack">
-        {dates.map((date) => (
-          <div className="heatmap-day" key={date}>
-            <div className="heatmap-day-header">
-              <strong>{formatHeatmapDate(date)}</strong>
-              <span>15 min slots</span>
-            </div>
-            <div className="heatmap-square-grid">
-              {Array.from({ length: 96 }, (_, intervalIndex) => {
-                const row = rowMap.get(`${date}:${intervalIndex}`);
-                const percent = row && row.total_count > 0 ? row.active_count / row.total_count : 0;
-                return (
-                  <span
-                    key={intervalIndex}
-                    className="heatmap-cell"
-                    style={{ backgroundColor: heatmapColor(color, percent, Boolean(row)) }}
-                    title={
-                      row
-                        ? `${formatHeatmapDate(date)} ${intervalLabel(intervalIndex)}: ${row.active_count}/${row.total_count} active`
-                        : `${formatHeatmapDate(date)} ${intervalLabel(intervalIndex)}: no sample`
-                    }
-                  />
-                );
-              })}
-            </div>
-            <div className="heatmap-square-axis">
-              <span>00:00</span>
-              <span>06:00</span>
-              <span>12:00</span>
-              <span>18:00</span>
-            </div>
+        <div className="heatmap-day">
+          <div className="heatmap-day-header">
+            <strong>Average day</strong>
+            <span>15 min averages</span>
           </div>
-        ))}
+          <div className="heatmap-square-grid">
+            {Array.from({ length: 96 }, (_, intervalIndex) => {
+              const row = intervalAverages.get(intervalIndex);
+              const percent = row && row.averageTotal > 0 ? row.averageActive / row.averageTotal : 0;
+              return (
+                <span
+                  key={intervalIndex}
+                  className="heatmap-cell"
+                  style={{ backgroundColor: heatmapColor(color, percent, Boolean(row)) }}
+                  title={
+                    row
+                      ? `${intervalLabel(intervalIndex)}: ${formatNumber(row.averageActive)} / ${formatNumber(row.averageTotal)} active average (${formatNumber(row.samples)} samples)`
+                      : `${intervalLabel(intervalIndex)}: no sample`
+                  }
+                />
+              );
+            })}
+          </div>
+          <div className="heatmap-square-axis">
+            <span>Night</span>
+            <span>Morning</span>
+            <span>Afternoon</span>
+            <span>Evening</span>
+          </div>
+        </div>
       </div>
     </div>
+  );
+}
+
+function averageHeatmapIntervals(rows: FactionActivityHeatmapRow[]) {
+  const totals = new Map<
+    number,
+    { activeTotal: number; memberTotal: number; samples: number }
+  >();
+
+  for (const row of rows) {
+    const existing = totals.get(row.interval_index) ?? {
+      activeTotal: 0,
+      memberTotal: 0,
+      samples: 0,
+    };
+    existing.activeTotal += row.active_count;
+    existing.memberTotal += row.total_count;
+    existing.samples += 1;
+    totals.set(row.interval_index, existing);
+  }
+
+  return new Map(
+    [...totals.entries()].map(([intervalIndex, total]) => [
+      intervalIndex,
+      {
+        averageActive: total.activeTotal / total.samples,
+        averageTotal: total.memberTotal / total.samples,
+        samples: total.samples,
+      },
+    ]),
   );
 }
 
@@ -296,14 +321,6 @@ function heatmapColor(color: "blue" | "red", percent: number, hasSample: boolean
 
   const alpha = Math.min(0.92, 0.14 + percent * 0.78);
   return color === "red" ? `rgba(239, 68, 68, ${alpha})` : `rgba(37, 99, 235, ${alpha})`;
-}
-
-function formatHeatmapDate(date: string): string {
-  const parsed = new Date(`${date}T00:00:00Z`);
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-  }).format(parsed);
 }
 
 function intervalLabel(intervalIndex: number): string {
