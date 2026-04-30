@@ -258,17 +258,20 @@ export function FactionActivityHeatmap({
             {Array.from({ length: 96 }, (_, intervalIndex) => {
               const row = intervalAverages.get(intervalIndex);
               const percent = row && row.averageTotal > 0 ? row.averageActive / row.averageTotal : 0;
+              const isHourStart = intervalIndex % 4 === 0;
               return (
                 <span
                   key={intervalIndex}
-                  className="heatmap-cell"
+                  className={isHourStart ? "heatmap-cell heatmap-hour-cell" : "heatmap-cell"}
                   style={{ backgroundColor: heatmapColor(color, percent, Boolean(row)) }}
                   title={
                     row
                       ? `${intervalLabel(intervalIndex)}: ${formatNumber(row.averageActive)} / ${formatNumber(row.averageTotal)} active average (${formatNumber(row.samples)} samples)`
                       : `${intervalLabel(intervalIndex)}: no sample`
                   }
-                />
+                >
+                  {isHourStart ? String(Math.floor(intervalIndex / 4)).padStart(2, "0") : null}
+                </span>
               );
             })}
           </div>
