@@ -633,26 +633,7 @@ export async function updateWar(request: Request, env: Env): Promise<Response> {
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
     }
 
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_NAME" }, 400);
-    }
-
-    const duplicateName = (await env.DB.prepare(
-      `
-      SELECT id
-      FROM wars
-      WHERE LOWER(name) = LOWER(?)
-        AND id != ?
-      LIMIT 1
-      `,
-    )
-      .bind(name, warId)
-      .first()) as { id: number } | null;
-
-    if (duplicateName) {
-      return json({ ok: false, error: "War name already exists", code: "WAR_NAME_EXISTS" }, 400);
-    }
+    const name = existing.name;
 
     const status = parseWarStatus(body.status);
     const practicalStartTime = Number(body.practical_start_time);

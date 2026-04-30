@@ -53,7 +53,7 @@ export function AdminControls() {
   const [wars, setWars] = React.useState<WarSummary[]>([]);
   const [editForm, setEditForm] = React.useState<AdminWarFormState>(() => defaultWarForm());
   const [selectedEditWarId, setSelectedEditWarId] = React.useState("");
-  const [exportForm, setExportForm] = React.useState({
+  const [exportForm, setExportForm] = React.useState<AdminExportFormState>({
     warName: "",
     scope: "war_relevant" as "all" | "outgoing" | "war_relevant",
     window: "official" as "official" | "practical",
@@ -108,9 +108,12 @@ export function AdminControls() {
         }
 
         setWars(response.wars);
+        const firstExportableWar = response.wars.find(isExportableWar);
         setExportForm((current) => ({
-          ...current,
-          warName: current.warName || response.wars[0]?.name || "",
+          ...exportFormForWar(
+            current,
+            response.wars.find((war) => war.name === current.warName) ?? firstExportableWar,
+          ),
         }));
         setSelectedEditWarId((current) => current || String(response.wars[0]?.id ?? ""));
         setEditForm((current) =>
@@ -173,6 +176,7 @@ export function AdminControls() {
     { label: "Rebuild stats", run: rebuildStats },
     { label: "End active war", run: endActiveWar, tone: "danger" },
   ];
+  const exportableWars = wars.filter(isExportableWar);
 
   return (
     <>
@@ -265,8 +269,8 @@ export function AdminControls() {
                     setEditForm(warToForm(updatedWar));
                     setExportForm((current) =>
                       current.warName === updatedWar.name
-                        ? current
-                        : { ...current, warName: updatedWar.name },
+                        ? exportFormForWar(current, updatedWar)
+                        : exportFormForWar({ ...current, warName: updatedWar.name }, updatedWar),
                     );
                   }
                   return response;
@@ -301,7 +305,9 @@ export function AdminControls() {
             <WarFields
               form={editForm}
               onChange={setEditForm}
+              showName={false}
               showFinishTimes
+              showTornFields={false}
               showStatus
             />
             <button
@@ -342,15 +348,16 @@ export function AdminControls() {
               <span>War</span>
               <select
                 value={exportForm.warName}
-                onChange={(event) =>
-                  setExportForm({ ...exportForm, warName: event.target.value })
-                }
+                onChange={(event) => {
+                  const war = exportableWars.find((candidate) => candidate.name === event.target.value);
+                  setExportForm(exportFormForWar({ ...exportForm, warName: event.target.value }, war));
+                }}
                 required
               >
                 <option value="" disabled>
                   Select war
                 </option>
-                {wars.map((war) => (
+                {exportableWars.map((war) => (
                   <option value={war.name} key={war.id}>
                     {war.name}
                     {war.torn_war_id ? ` / Torn #${war.torn_war_id}` : ""}
@@ -378,12 +385,14 @@ export function AdminControls() {
               <span>Time window</span>
               <select
                 value={exportForm.window}
-                onChange={(event) =>
-                  setExportForm({
+                onChange={(event) => {
+                  const nextForm = {
                     ...exportForm,
                     window: event.target.value as typeof exportForm.window,
-                  })
-                }
+                  };
+                  const war = exportableWars.find((candidate) => candidate.name === nextForm.warName);
+                  setExportForm(exportFormForWar(nextForm, war));
+                }}
               >
                 <option value="official">Official Torn window</option>
                 <option value="practical">Buttgrass practical window</option>
@@ -698,6 +707,18 @@ type AdminWarFormState = {
   memberRespectLimit: string;
 };
 
+type AdminExportFormState = {
+  warName: string;
+  scope: "all" | "outgoing" | "war_relevant";
+  window: "official" | "practical";
+  linkedStatus: "linked" | "matching" | "unlinked";
+  columns: "standard" | "debug";
+  overrideStart: boolean;
+  overrideFinish: boolean;
+  customStartTime: string;
+  customFinishTime: string;
+};
+
 function WarForm({
   title,
   form,
@@ -852,12 +873,16 @@ function WarForm({
 function WarFields({
   form,
   onChange,
+  showName = true,
   showFinishTimes = false,
+  showTornFields = true,
   showStatus = false,
 }: {
   form: AdminWarFormState;
   onChange: (form: AdminWarFormState) => void;
+  showName?: boolean;
   showFinishTimes?: boolean;
+  showTornFields?: boolean;
   showStatus?: boolean;
 }) {
   const canUseTermFields = form.warType === "termed";
@@ -869,10 +894,12 @@ function WarFields({
 
   return (
     <>
-      <label>
-        <span>Name</span>
-        <input value={form.name} onChange={(event) => update("name", event.target.value)} required />
-      </label>
+      {showName ? (
+        <label>
+          <span>Name</span>
+          <input value={form.name} onChange={(event) => update("name", event.target.value)} required />
+        </label>
+      ) : null}
       {showStatus ? (
         <label>
           <span>Status</span>
@@ -916,32 +943,40 @@ function WarFields({
               <input type="datetime-local" value={form.finishTime} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} />
             )}
           </label>
+          {showTornFields ? (
+            <>
+              <label>
+                <span>Official start time</span>
+                {form.timeMode === "epoch" ? (
+                  <input inputMode="numeric" value={form.officialStartEpoch} disabled={!canEditTornFields} onChange={(event) => update("officialStartEpoch", event.target.value)} />
+                ) : (
+                  <input type="datetime-local" value={form.officialStartTime} disabled={!canEditTornFields} onChange={(event) => updateDateTime(form, onChange, "officialStart", event.target.value)} />
+                )}
+              </label>
+              <label>
+                <span>Official finish time</span>
+                {form.timeMode === "epoch" ? (
+                  <input inputMode="numeric" value={form.officialFinishEpoch} disabled={!canEditTornFields} onChange={(event) => update("officialFinishEpoch", event.target.value)} />
+                ) : (
+                  <input type="datetime-local" value={form.officialFinishTime} disabled={!canEditTornFields} onChange={(event) => updateDateTime(form, onChange, "officialFinish", event.target.value)} />
+                )}
+              </label>
+            </>
+          ) : null}
+        </>
+      ) : null}
+      {showTornFields ? (
+        <>
           <label>
-            <span>Official start time</span>
-            {form.timeMode === "epoch" ? (
-              <input inputMode="numeric" value={form.officialStartEpoch} disabled={!canEditTornFields} onChange={(event) => update("officialStartEpoch", event.target.value)} />
-            ) : (
-              <input type="datetime-local" value={form.officialStartTime} disabled={!canEditTornFields} onChange={(event) => updateDateTime(form, onChange, "officialStart", event.target.value)} />
-            )}
+            <span>Enemy faction ID</span>
+            <input inputMode="numeric" value={form.factionId} disabled={!canEditTornFields} onChange={(event) => update("factionId", event.target.value)} />
           </label>
           <label>
-            <span>Official finish time</span>
-            {form.timeMode === "epoch" ? (
-              <input inputMode="numeric" value={form.officialFinishEpoch} disabled={!canEditTornFields} onChange={(event) => update("officialFinishEpoch", event.target.value)} />
-            ) : (
-              <input type="datetime-local" value={form.officialFinishTime} disabled={!canEditTornFields} onChange={(event) => updateDateTime(form, onChange, "officialFinish", event.target.value)} />
-            )}
+            <span>Torn war ID</span>
+            <input inputMode="numeric" value={form.tornWarId} disabled={!canEditTornFields} onChange={(event) => update("tornWarId", event.target.value)} />
           </label>
         </>
       ) : null}
-      <label>
-        <span>Enemy faction ID</span>
-        <input inputMode="numeric" value={form.factionId} disabled={!canEditTornFields} onChange={(event) => update("factionId", event.target.value)} />
-      </label>
-      <label>
-        <span>Torn war ID</span>
-        <input inputMode="numeric" value={form.tornWarId} disabled={!canEditTornFields} onChange={(event) => update("tornWarId", event.target.value)} />
-      </label>
       {canUseTermFields ? (
         <>
           <label className="checkbox-row">
@@ -1067,6 +1102,44 @@ function warToForm(war: WarSummary): AdminWarFormState {
     autoEndEnabled: Boolean(war.auto_end_enabled),
     factionRespectLimit: war.faction_respect_limit === null ? "" : String(war.faction_respect_limit),
     memberRespectLimit: war.member_respect_limit === null ? "" : String(war.member_respect_limit),
+  };
+}
+
+function isExportableWar(war: WarSummary): boolean {
+  return Boolean(war.official_end_time ?? war.practical_finish_time);
+}
+
+function exportFormForWar(
+  form: AdminExportFormState,
+  war: WarSummary | undefined,
+): AdminExportFormState {
+  if (!war) {
+    return { ...form, warName: "" };
+  }
+
+  const { start, finish } = exportWindowTimes(war, form.window);
+  return {
+    ...form,
+    warName: war.name,
+    customStartTime: dateTimeLocalFromSeconds(start),
+    customFinishTime: dateTimeLocalFromSeconds(finish),
+  };
+}
+
+function exportWindowTimes(
+  war: WarSummary,
+  window: AdminExportFormState["window"],
+): { start: number; finish: number } {
+  if (window === "practical") {
+    return {
+      start: war.practical_start_time,
+      finish: war.practical_finish_time ?? war.official_end_time ?? war.practical_start_time,
+    };
+  }
+
+  return {
+    start: war.official_start_time ?? war.practical_start_time,
+    finish: war.official_end_time ?? war.practical_finish_time ?? war.practical_start_time,
   };
 }
 
