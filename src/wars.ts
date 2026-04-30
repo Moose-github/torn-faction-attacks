@@ -607,14 +607,27 @@ export async function updateWar(request: Request, env: Env): Promise<Response> {
 
     const existing = (await env.DB.prepare(
       `
-      SELECT id, name
+      SELECT
+        id,
+        name,
+        official_start_time,
+        official_end_time,
+        enemy_faction_id,
+        torn_war_id
       FROM wars
       WHERE id = ?
       LIMIT 1
       `,
     )
       .bind(warId)
-      .first()) as { id: number; name: string } | null;
+      .first()) as {
+      id: number;
+      name: string;
+      official_start_time: number | null;
+      official_end_time: number | null;
+      enemy_faction_id: number | null;
+      torn_war_id: number | null;
+    } | null;
 
     if (!existing) {
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
@@ -647,14 +660,14 @@ export async function updateWar(request: Request, env: Env): Promise<Response> {
       body.practical_finish_time,
       "practical_finish_time",
     );
-    const officialStartTime = parseOptionalInteger(body.official_start_time, "official_start_time");
-    const officialFinishTime = parseOptionalInteger(
+    let officialStartTime = parseOptionalInteger(body.official_start_time, "official_start_time");
+    let officialFinishTime = parseOptionalInteger(
       body.official_finish_time ?? body.official_end_time,
       "official_finish_time",
     );
-    const enemyFactionId = parseOptionalInteger(body.enemy_faction_id, "enemy_faction_id");
     const warType = parseWarType(body.war_type, "real");
-    const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
+    let enemyFactionId = parseOptionalInteger(body.enemy_faction_id, "enemy_faction_id");
+    let tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
     const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
     const factionRespectLimit = parseOptionalNonNegativeNumber(
       body.faction_respect_limit,
@@ -664,6 +677,13 @@ export async function updateWar(request: Request, env: Env): Promise<Response> {
       body.member_respect_limit,
       "member_respect_limit",
     );
+
+    if (warType === "real" || warType === "termed") {
+      officialStartTime = existing.official_start_time;
+      officialFinishTime = existing.official_end_time;
+      enemyFactionId = existing.enemy_faction_id;
+      tornWarId = existing.torn_war_id;
+    }
 
     if (status === "active" || status === "scheduled") {
       const conflictingWar = (await env.DB.prepare(

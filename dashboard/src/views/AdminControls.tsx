@@ -861,6 +861,7 @@ function WarFields({
   showStatus?: boolean;
 }) {
   const canUseTermFields = form.warType === "termed";
+  const canEditTornFields = form.warType === "other";
 
   function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
     onChange({ ...form, [key]: value });
@@ -918,56 +919,57 @@ function WarFields({
           <label>
             <span>Official start time</span>
             {form.timeMode === "epoch" ? (
-              <input inputMode="numeric" value={form.officialStartEpoch} onChange={(event) => update("officialStartEpoch", event.target.value)} />
+              <input inputMode="numeric" value={form.officialStartEpoch} disabled={!canEditTornFields} onChange={(event) => update("officialStartEpoch", event.target.value)} />
             ) : (
-              <input type="datetime-local" value={form.officialStartTime} onChange={(event) => updateDateTime(form, onChange, "officialStart", event.target.value)} />
+              <input type="datetime-local" value={form.officialStartTime} disabled={!canEditTornFields} onChange={(event) => updateDateTime(form, onChange, "officialStart", event.target.value)} />
             )}
           </label>
           <label>
             <span>Official finish time</span>
             {form.timeMode === "epoch" ? (
-              <input inputMode="numeric" value={form.officialFinishEpoch} onChange={(event) => update("officialFinishEpoch", event.target.value)} />
+              <input inputMode="numeric" value={form.officialFinishEpoch} disabled={!canEditTornFields} onChange={(event) => update("officialFinishEpoch", event.target.value)} />
             ) : (
-              <input type="datetime-local" value={form.officialFinishTime} onChange={(event) => updateDateTime(form, onChange, "officialFinish", event.target.value)} />
+              <input type="datetime-local" value={form.officialFinishTime} disabled={!canEditTornFields} onChange={(event) => updateDateTime(form, onChange, "officialFinish", event.target.value)} />
             )}
           </label>
         </>
       ) : null}
       <label>
         <span>Enemy faction ID</span>
-        <input inputMode="numeric" value={form.factionId} onChange={(event) => update("factionId", event.target.value)} />
+        <input inputMode="numeric" value={form.factionId} disabled={!canEditTornFields} onChange={(event) => update("factionId", event.target.value)} />
       </label>
       <label>
         <span>Torn war ID</span>
-        <input inputMode="numeric" value={form.tornWarId} onChange={(event) => update("tornWarId", event.target.value)} />
+        <input inputMode="numeric" value={form.tornWarId} disabled={!canEditTornFields} onChange={(event) => update("tornWarId", event.target.value)} />
       </label>
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          checked={form.autoEndEnabled}
-          disabled={!canUseTermFields}
-          onChange={(event) => update("autoEndEnabled", event.target.checked)}
-        />
-        <span>Auto-end termed war</span>
-      </label>
-      <label>
-        <span>Faction respect limit</span>
-        <input
-          inputMode="decimal"
-          value={form.factionRespectLimit}
-          disabled={!canUseTermFields}
-          onChange={(event) => update("factionRespectLimit", event.target.value)}
-        />
-      </label>
-      <label>
-        <span>Member respect limit</span>
-        <input
-          inputMode="decimal"
-          value={form.memberRespectLimit}
-          disabled={!canUseTermFields}
-          onChange={(event) => update("memberRespectLimit", event.target.value)}
-        />
-      </label>
+      {canUseTermFields ? (
+        <>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.autoEndEnabled}
+              onChange={(event) => update("autoEndEnabled", event.target.checked)}
+            />
+            <span>Auto-end termed war</span>
+          </label>
+          <label>
+            <span>Faction respect limit</span>
+            <input
+              inputMode="decimal"
+              value={form.factionRespectLimit}
+              onChange={(event) => update("factionRespectLimit", event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Member respect limit</span>
+            <input
+              inputMode="decimal"
+              value={form.memberRespectLimit}
+              onChange={(event) => update("memberRespectLimit", event.target.value)}
+            />
+          </label>
+        </>
+      ) : null}
     </>
   );
 }

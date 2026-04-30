@@ -807,18 +807,20 @@ async function syncUpcomingRankedWar(
       name,
       status,
       practical_start_time,
+      official_start_time,
       enemy_faction_id,
       war_type,
       torn_war_id,
       official_home_score,
       official_enemy_score
     )
-    VALUES (?, 'scheduled', ?, ?, 'real', ?, ?, ?)
+    VALUES (?, 'scheduled', ?, ?, ?, 'real', ?, ?, ?)
     RETURNING id
     `,
   )
     .bind(
       name,
+      rankedWar.start,
       rankedWar.start,
       enemyFaction.id,
       rankedWar.id,
@@ -875,6 +877,7 @@ async function updateWarRankedWarScores(
     `
     UPDATE wars
     SET practical_start_time = COALESCE(?, practical_start_time),
+        official_start_time = COALESCE(official_start_time, ?),
         enemy_faction_id = COALESCE(?, enemy_faction_id),
         torn_war_id = COALESCE(torn_war_id, ?),
         official_home_score = ?,
@@ -884,6 +887,7 @@ async function updateWarRankedWarScores(
   )
     .bind(
       startTime ?? null,
+      rankedWar.start ?? null,
       enemyFaction?.id ?? null,
       rankedWar.id,
       homeFaction.score,
