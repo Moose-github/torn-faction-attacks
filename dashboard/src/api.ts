@@ -297,17 +297,19 @@ export type MemberReportComparisonRow = MemberReportComparisonTotals & {
 };
 
 export type AdminWarPayload = {
+  id?: number;
+  status?: string;
   name?: string;
   practical_start_time?: number;
-  practical_finish_time?: number;
-  official_start_time?: number;
-  official_finish_time?: number;
-  enemy_faction_id?: number;
+  practical_finish_time?: number | null;
+  official_start_time?: number | null;
+  official_finish_time?: number | null;
+  enemy_faction_id?: number | null;
   war_type: Exclude<WarType, "all">;
-  torn_war_id?: number;
+  torn_war_id?: number | null;
   auto_end_enabled?: boolean;
-  faction_respect_limit?: number;
-  member_respect_limit?: number;
+  faction_respect_limit?: number | null;
+  member_respect_limit?: number | null;
 };
 
 export type AttackWindowPayload = {
@@ -319,7 +321,7 @@ export type AttackWindowPayload = {
 export type AttackExportOptions = {
   warName: string;
   scope: "all" | "outgoing" | "war_relevant";
-  window: "official" | "practical" | "custom";
+  window: "official" | "practical";
   linkedStatus: "linked" | "matching" | "unlinked";
   columns: "standard" | "debug";
   customStart?: number;
@@ -466,6 +468,10 @@ export async function createWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars", payload);
 }
 
+export async function updateWar(payload: AdminWarPayload): Promise<unknown> {
+  return postJson("/api/wars/update", payload);
+}
+
 export async function importWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars/import", payload);
 }
@@ -531,13 +537,11 @@ export async function exportWarAttacksCsv(options: AttackExportOptions): Promise
     columns: options.columns,
   });
 
-  if (options.window === "custom") {
-    if (options.customStart !== undefined) {
-      params.set("custom_start", String(options.customStart));
-    }
-    if (options.customFinish !== undefined) {
-      params.set("custom_finish", String(options.customFinish));
-    }
+  if (options.customStart !== undefined) {
+    params.set("custom_start", String(options.customStart));
+  }
+  if (options.customFinish !== undefined) {
+    params.set("custom_finish", String(options.customFinish));
   }
 
   const response = await fetch(
