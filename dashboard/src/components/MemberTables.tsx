@@ -15,12 +15,14 @@ export function MemberTable({
   members,
   sort,
   onSortChange,
+  showTermedColumns,
   selectedMemberId,
   onMemberSelect,
 }: {
   members: MemberStats[];
   sort: MemberSort;
   onSortChange: (sort: MemberSort) => void;
+  showTermedColumns?: boolean;
   selectedMemberId?: number | null;
   onMemberSelect?: (member: MemberStats) => void;
 }) {
@@ -36,11 +38,22 @@ export function MemberTable({
             <SortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Attacks" sortKey="enemy_attacks_successful" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Outside hits" sortKey="outside_attacks" sort={sort} onSortChange={onSortChange} />
+            {showTermedColumns ? null : (
+              <SortableHeader label="Outside hits" sortKey="outside_attacks" sort={sort} onSortChange={onSortChange} />
+            )}
             <SortableHeader label="Respect gained" sortKey="enemy_respect_gained" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Assists" sortKey="enemy_assists" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label={<>Friendly<br />hosps</>} sortKey="friendly_hospitals" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Retaliations" sortKey="enemy_retaliations" sort={sort} onSortChange={onSortChange} />
+            {showTermedColumns ? (
+              <>
+                <SortableHeader label={<>Average<br />fair fight</>} sortKey="average_fair_fight" sort={sort} onSortChange={onSortChange} />
+                <SortableHeader label={<>Percent<br />limit</>} sortKey="member_respect_limit_percent" sort={sort} onSortChange={onSortChange} />
+              </>
+            ) : (
+              <>
+                <SortableHeader label={<>Friendly<br />hosps</>} sortKey="friendly_hospitals" sort={sort} onSortChange={onSortChange} />
+                <SortableHeader label="Retaliations" sortKey="enemy_retaliations" sort={sort} onSortChange={onSortChange} />
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -78,17 +91,45 @@ export function MemberTable({
               <td>
                 <DefendBreakdown member={member} />
               </td>
-              <td>{formatNumber(member.outside_attacks)}</td>
+              {showTermedColumns ? null : <td>{formatNumber(member.outside_attacks)}</td>}
               <td>{formatNumber(member.enemy_respect_gained)}</td>
               <td>{formatNumber(member.enemy_assists)}</td>
-              <td>{formatNumber(member.friendly_hospitals)}</td>
-              <td>{formatNumber(member.enemy_retaliations)}</td>
+              {showTermedColumns ? (
+                <>
+                  <td>{formatNullableNumber(member.average_fair_fight, 2)}</td>
+                  <td>{formatNullablePercent(member.member_respect_limit_percent)}</td>
+                </>
+              ) : (
+                <>
+                  <td>{formatNumber(member.friendly_hospitals)}</td>
+                  <td>{formatNumber(member.enemy_retaliations)}</td>
+                </>
+              )}
             </tr>
           ))}
         </tbody>
       </table>
     </div>
   );
+}
+
+function formatNullableNumber(value: number | null | undefined, digits = 0): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "-";
+  }
+
+  return Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+function formatNullablePercent(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "-";
+  }
+
+  return `${Number(value).toFixed(1)}%`;
 }
 
 export function MemberAttackList({

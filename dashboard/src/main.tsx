@@ -209,6 +209,17 @@ function App() {
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
 
   React.useEffect(() => {
+    const termedOnlySorts = ["average_fair_fight", "member_respect_limit_percent"];
+    const hiddenTermedSorts = ["outside_attacks"];
+    if (
+      (selectedWar?.war_type !== "termed" && termedOnlySorts.includes(memberSort.key)) ||
+      (selectedWar?.war_type === "termed" && hiddenTermedSorts.includes(memberSort.key))
+    ) {
+      setMemberSort({ key: "enemy_attacks_successful", direction: "desc" });
+    }
+  }, [memberSort.key, selectedWar?.war_type]);
+
+  React.useEffect(() => {
     if (view !== "war" || !selectedWarName || !selectedWar) {
       return;
     }
@@ -642,6 +653,7 @@ function App() {
                     members={members}
                     sort={memberSort}
                     onSortChange={setMemberSort}
+                    showTermedColumns={selectedWar.war_type === "termed"}
                     selectedMemberId={selectedMember?.member_id ?? null}
                     onMemberSelect={setSelectedMember}
                   />

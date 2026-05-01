@@ -8,7 +8,9 @@ export type MemberSortKey =
   | "enemy_respect_gained"
   | "enemy_assists"
   | "enemy_retaliations"
-  | "friendly_hospitals";
+  | "friendly_hospitals"
+  | "average_fair_fight"
+  | "member_respect_limit_percent";
 
 export type MemberSort = {
   key: MemberSortKey;
@@ -192,6 +194,10 @@ export function memberSortLabel(key: MemberSortKey): string {
       return "Friendly hosps";
     case "enemy_retaliations":
       return "Retaliations";
+    case "average_fair_fight":
+      return "Average fair fight";
+    case "member_respect_limit_percent":
+      return "Percent limit";
     default:
       return "Value";
   }

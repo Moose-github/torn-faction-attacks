@@ -26,6 +26,8 @@ export type MemberStats = {
   enemy_retaliations: number;
   outside_attacks: number;
   friendly_hospitals: number;
+  average_fair_fight: number | null;
+  member_respect_limit_percent: number | null;
   defends_total: number;
   defends_won: number;
   respect_lost: number;

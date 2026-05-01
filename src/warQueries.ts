@@ -86,13 +86,29 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
 
     const memberStats = await env.DB.prepare(
       `
-      SELECT *
-      FROM war_member_stats
-      WHERE war_id = ?
+      SELECT
+        wms.*,
+        (
+          SELECT AVG(a.m_fair_fight)
+          FROM attacks a
+          JOIN wars w ON w.id = a.war_id
+          WHERE a.war_id = wms.war_id
+            AND a.attacker_id = wms.member_id
+            AND a.attacker_faction_id = ${HOME_FACTION_ID}
+            AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+            AND ${OUTGOING_ACTION_WINDOW_SQL}
+        ) AS average_fair_fight,
+        CASE
+          WHEN ? IS NOT NULL AND ? > 0
+          THEN wms.enemy_respect_gained * 100.0 / ?
+          ELSE NULL
+        END AS member_respect_limit_percent
+      FROM war_member_stats wms
+      WHERE wms.war_id = ?
       ORDER BY enemy_respect_gained DESC, enemy_attacks_successful DESC, enemy_attacks_total DESC
       `,
     )
-      .bind(war.id)
+      .bind(war.member_respect_limit, war.member_respect_limit, war.member_respect_limit, war.id)
       .all();
     const chainBonuses = await getWarChainBonuses(env, war.id, 5);
 
