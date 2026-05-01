@@ -171,6 +171,7 @@ export type WarActivityBucket = {
 export type WarActivityResponse = {
   ok: boolean;
   bucket_minutes: number;
+  window: "practical" | "official";
   buckets: WarActivityBucket[];
 };
 
@@ -443,9 +444,12 @@ export async function getWarMemberAttacks(
   );
 }
 
-export async function getWarActivity(warName: string): Promise<WarActivityResponse> {
+export async function getWarActivity(
+  warName: string,
+  window: "practical" | "official" = "practical",
+): Promise<WarActivityResponse> {
   return getJson<WarActivityResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/activity?bucket_minutes=15`,
+    `/api/wars/${encodeURIComponent(warName)}/activity?bucket_minutes=15&window=${window}`,
   );
 }
 

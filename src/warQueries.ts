@@ -284,6 +284,12 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
 
     const bucketMinutes = parseBucketMinutes(url.searchParams.get("bucket_minutes"));
     const bucketSeconds = bucketMinutes * 60;
+    const windowMode = parseActivityWindow(url.searchParams.get("window"));
+    if (windowMode instanceof Response) {
+      return windowMode;
+    }
+    const outgoingWindowSql =
+      windowMode === "official" ? OFFICIAL_OUTGOING_ACTION_WINDOW_SQL : OUTGOING_ACTION_WINDOW_SQL;
 
     const war = (await env.DB.prepare(
       `
@@ -308,7 +314,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
           WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
            AND (? IS NULL OR a.defender_faction_id = ?)
            AND a.result IN (${POSITIVE_RESULTS_SQL})
-           AND ${OUTGOING_ACTION_WINDOW_SQL}
+           AND ${outgoingWindowSql}
           THEN 1
           ELSE 0
         END) AS enemy_success,
@@ -316,14 +322,14 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
           WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
            AND (? IS NULL OR a.defender_faction_id = ?)
            AND a.result = 'Assist'
-           AND ${OUTGOING_ACTION_WINDOW_SQL}
+           AND ${outgoingWindowSql}
           THEN 1
           ELSE 0
         END) AS enemy_assist,
         SUM(CASE
           WHEN ? IS NOT NULL
            AND a.attacker_faction_id = ${HOME_FACTION_ID}
-           AND ${OUTGOING_ACTION_WINDOW_SQL}
+           AND ${outgoingWindowSql}
            AND (a.defender_faction_id IS NULL OR a.defender_faction_id != ?)
            AND NOT (
              a.defender_faction_id = ${HOME_FACTION_ID}
@@ -392,6 +398,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
         enemy_faction_id: war.enemy_faction_id,
       },
       bucket_minutes: bucketMinutes,
+      window: windowMode,
       buckets,
     });
   } catch (err: any) {
@@ -472,6 +479,28 @@ function parseBucketMinutes(value: string | null): number {
 
   return Math.min(parsed, 120);
 }
+
+function parseActivityWindow(value: string | null): "practical" | "official" | Response {
+  if (value === null || value.trim() === "" || value === "practical") {
+    return "practical";
+  }
+
+  if (value === "official") {
+    return "official";
+  }
+
+  return json({ ok: false, error: "Invalid activity window", code: "INVALID_ACTIVITY_WINDOW" }, 400);
+}
+
+const OFFICIAL_OUTGOING_ACTION_WINDOW_SQL = `
+  (
+    a.started IS NULL
+    OR (
+      a.started >= COALESCE(w.official_start_time, w.practical_start_time)
+      AND (w.official_end_time IS NULL OR a.started <= w.official_end_time)
+    )
+  )
+`;
 
 function classifyMemberAttack(
   attack: {

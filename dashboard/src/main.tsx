@@ -75,6 +75,7 @@ function App() {
   const [error, setError] = React.useState<string | null>(null);
   const [isLoadingWars, setIsLoadingWars] = React.useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
+  const [factionActivityWindow, setFactionActivityWindow] = React.useState<"practical" | "official">("practical");
   const [activityBuckets, setActivityBuckets] = React.useState<WarActivityBucket[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
   const [reportDiscrepancies, setReportDiscrepancies] = React.useState<ReportDiscrepanciesResponse | null>(null);
@@ -179,7 +180,7 @@ function App() {
       setError(null);
 
       try {
-        const response = await getWarActivity(selectedWarName);
+        const response = await getWarActivity(selectedWarName, factionActivityWindow);
         if (!cancelled) {
           setActivityBuckets(Array.isArray(response.buckets) ? response.buckets : []);
         }
@@ -198,7 +199,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedWarName]);
+  }, [selectedWarName, factionActivityWindow]);
 
   React.useEffect(() => {
     setSelectedMember(null);
@@ -236,7 +237,7 @@ function App() {
           getWars(warType),
           getStats(warType),
           getWar(selectedWarName),
-          getWarActivity(selectedWarName),
+          getWarActivity(selectedWarName, factionActivityWindow),
         ]);
 
         if (cancelled) {
@@ -275,6 +276,7 @@ function App() {
     selectedWarName,
     view,
     warType,
+    factionActivityWindow,
   ]);
 
   React.useEffect(() => {
@@ -616,9 +618,25 @@ function App() {
                   onToggle={() => togglePanel("factionActivity")}
                   className="activity-panel"
                 >
+                  <div className="panel-toggle-row" aria-label="Buttgrass activity time range">
+                    <button
+                      type="button"
+                      className={factionActivityWindow === "practical" ? "toggle-chip active" : "toggle-chip"}
+                      onClick={() => setFactionActivityWindow("practical")}
+                    >
+                      Practical
+                    </button>
+                    <button
+                      type="button"
+                      className={factionActivityWindow === "official" ? "toggle-chip active" : "toggle-chip"}
+                      onClick={() => setFactionActivityWindow("official")}
+                    >
+                      Official
+                    </button>
+                  </div>
                   <p className="panel-description">
-                    Shows Buttgrass attack activity across the war window, grouped into successful attacks,
-                    assists, and outside hits.
+                    Shows Buttgrass attack activity across the selected time range, grouped into successful
+                    attacks, assists, and outside hits.
                   </p>
                   <ActivityChart buckets={activityBuckets} keys={["enemy_success", "enemy_assist", "outside"]} />
                 </CollapsiblePanel>
