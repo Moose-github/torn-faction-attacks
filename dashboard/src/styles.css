@@ -895,7 +895,7 @@ h2 {
 }
 
 .admin-panel-events {
-  order: 2;
+  order: 8;
   grid-column: 1 / -1;
 }
 
@@ -927,7 +927,8 @@ h2 {
 }
 
 .todo-panel {
-  order: 10;
+  order: 1;
+  grid-column: 1 / -1;
 }
 
 .admin-result-panel {
