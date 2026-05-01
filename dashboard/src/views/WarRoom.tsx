@@ -17,6 +17,8 @@ import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common"
 import { EnemyScoutingPanel } from "../components/EnemyScouting";
 import { formatLongDateTime } from "../utils/format";
 
+const WAR_ROOM_HEATMAP_REFRESH_MS = 15 * 60_000;
+
 export function WarRoom({
   selectedWar,
   selectedWarName,
@@ -164,6 +166,36 @@ export function WarRoom({
       cancelled = true;
     };
   }, [canLoadScouting, selectedWarName]);
+
+  React.useEffect(() => {
+    if (!selectedWarName || !canLoadScouting || selectedWar?.official_end_time !== null) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const [comparisonResponse, heatmapResponse] = await Promise.all([
+          getScoutingComparison(selectedWarName),
+          getWarActivityHeatmap(selectedWarName),
+        ]);
+
+        if (!cancelled) {
+          setScoutingComparison(comparisonResponse);
+          setActivityHeatmap(heatmapResponse);
+        }
+      } catch {
+        if (!cancelled) {
+          setActivityHeatmap(null);
+        }
+      }
+    }, WAR_ROOM_HEATMAP_REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [canLoadScouting, selectedWar?.official_end_time, selectedWarName]);
 
   async function refreshSelectedEnemyScouting() {
     if (!selectedWarName) {

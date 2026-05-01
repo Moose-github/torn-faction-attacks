@@ -54,6 +54,9 @@ import {
 } from "./utils/members";
 import "./styles.css";
 
+const ACTIVE_WAR_REFRESH_MS = 60_000;
+const SLOW_WAR_REFRESH_MS = 5 * 60_000;
+
 function App() {
   const [warType, setWarType] = React.useState<WarType>("all");
   const [view, setView] = React.useState<"war" | "warRoom" | "members" | "admin">("war");
@@ -200,10 +203,68 @@ function App() {
   React.useEffect(() => {
     setSelectedMember(null);
     setMemberAttacks([]);
-  }, [selectedWarName]);
+}, [selectedWarName]);
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
+
+  React.useEffect(() => {
+    if (view !== "war" || !selectedWarName || !selectedWar) {
+      return;
+    }
+
+    const refreshMs = warPageRefreshInterval(selectedWar);
+    if (refreshMs === null) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const [warsResponse, statsResponse, detailResponse, activityResponse] = await Promise.all([
+          getWars(warType),
+          getStats(warType),
+          getWar(selectedWarName),
+          getWarActivity(selectedWarName),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setWars(warsResponse.wars);
+        setOverallWars(statsResponse.overall.total_wars);
+        setWarDetail(detailResponse);
+        setActivityBuckets(Array.isArray(activityResponse.buckets) ? activityResponse.buckets : []);
+
+        if (detailResponse.war.torn_report_fetched_at) {
+          const discrepancies = await getWarReportDiscrepancies(selectedWarName);
+          if (!cancelled) {
+            setReportDiscrepancies(discrepancies);
+          }
+        } else {
+          setReportDiscrepancies(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      }
+    }, refreshMs);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    selectedWar?.official_end_time,
+    selectedWar?.practical_finish_time,
+    selectedWar?.status,
+    selectedWar?.war_type,
+    selectedWarName,
+    view,
+    warType,
+  ]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -625,6 +686,26 @@ function formatWarType(war: WarSummary): string {
     default:
       return "Real war";
   }
+}
+
+function warPageRefreshInterval(war: WarSummary): number | null {
+  if (war.official_end_time !== null || war.status === "ended") {
+    return null;
+  }
+
+  if (war.status === "scheduled") {
+    return SLOW_WAR_REFRESH_MS;
+  }
+
+  if (war.war_type === "termed" && war.practical_finish_time !== null) {
+    return SLOW_WAR_REFRESH_MS;
+  }
+
+  if (war.status === "active") {
+    return ACTIVE_WAR_REFRESH_MS;
+  }
+
+  return null;
 }
 
 function activityTotal(
