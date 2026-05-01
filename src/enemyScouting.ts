@@ -134,6 +134,30 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
   }
 }
 
+export async function refreshMissingFfscouterEstimates(env: Env): Promise<void> {
+  const enemyRows = (await env.DB.prepare(
+    `
+    SELECT *
+    FROM enemy_faction_members
+    WHERE estimated_stats IS NULL
+    ORDER BY level DESC, name ASC
+    `,
+  ).all()).results as EnemyFactionMemberRow[] | undefined;
+
+  await refreshMissingStatEstimates(env, enemyRows ?? []);
+
+  const homeRows = (await env.DB.prepare(
+    `
+    SELECT *
+    FROM home_faction_members
+    WHERE estimated_stats IS NULL
+    ORDER BY level DESC, name ASC
+    `,
+  ).all()).results as EnemyFactionMemberRow[] | undefined;
+
+  await refreshMissingStatEstimates(env, homeRows ?? [], "home_faction_members");
+}
+
 async function readWarFromScoutingUrl(url: URL, env: Env): Promise<WarRow | Response> {
   const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
 

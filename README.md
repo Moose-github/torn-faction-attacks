@@ -266,15 +266,15 @@ GET /api/stats?war_type=event
 
 ## Scheduled Ingestion
 
-The Worker is configured to run every 5 minutes:
+The Worker uses separate cron schedules for ingestion and heatmap sampling:
 
 ```json
 "triggers": {
-  "crons": ["*/5 * * * *"]
+  "crons": ["*/5 * * * *", "*/15 * * * *"]
 }
 ```
 
-During each run, the Worker:
+Every 5 minutes, the ingestion run:
 
 1. Ensures sync state exists.
 2. Checks Torn's latest ranked war and creates a scheduled war if the faction is enlisted in a future war.
@@ -283,7 +283,9 @@ During each run, the Worker:
 5. Inserts unseen attacks into D1.
 6. Updates active war summaries when relevant attacks are imported.
 7. Checks active termed wars with auto-end enabled against the latest Torn ranked war score.
-8. Updates live official Torn scores and fetches missing ranked war reports for ended wars.
+8. Updates live official Torn scores and fetches the active war report once Torn marks the war ended.
+
+Every 15 minutes, the maintenance run samples faction member activity, updates cached revivable status, fetches missing ranked war reports for ended wars, and retries missing FFScouter stat estimates.
 
 For termed wars, the latest Torn ranked war score is stored in `wars.official_home_score` and `wars.official_enemy_score`. If `official_home_score` reaches `faction_respect_limit`, the Worker records a `practical_finish_time` and rebuilds derived stats using that practical window for Buttgrass attacks.
 

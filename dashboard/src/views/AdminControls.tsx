@@ -709,10 +709,6 @@ export function AdminControls() {
                     value={formatDuration(ingestionRun.started_at, ingestionRun.stats_finished_at)}
                   />
                   <MetricLine
-                    label="Heatmap ready"
-                    value={formatDuration(ingestionRun.started_at, ingestionRun.heatmap_finished_at)}
-                  />
-                  <MetricLine
                     label="Fetched"
                     value={`${ingestionRun.fetched_attacks} attacks across ${ingestionRun.fetched_pages} pages`}
                   />

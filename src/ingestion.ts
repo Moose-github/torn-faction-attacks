@@ -7,7 +7,6 @@ import {
   SOURCE_NAME,
 } from "./constants";
 import { fetchEnemyScoutingOnceForWar } from "./enemyScouting";
-import { sampleFactionActivityHeatmaps } from "./heatmap";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   applyIncrementalWarSummaries,
@@ -45,7 +44,6 @@ type IngestionRunUpdate = Partial<{
   d1_writes_finished_at: number;
   stats_finished_at: number;
   report_finished_at: number;
-  heatmap_finished_at: number;
   finished_at: number;
   latest_attack_started: number;
   fetched_pages: number;
@@ -128,9 +126,6 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
     }
     if (!activeWar && latestRankedWar) {
       await syncUnfinishedRankedWar(env, latestRankedWar);
-    }
-    if (!activeWar) {
-      await syncMissingRankedWarReports(env);
     }
     const ingestionWar = activeWar
       ? {
@@ -234,11 +229,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
     });
     throw err;
   } finally {
-    await sampleFactionActivityHeatmaps(env).catch((err) => {
-      console.error("Faction activity heatmap sampling failed:", err?.message || err);
-    });
     await updateIngestionRunMetric(env, metrics.id, {
-      heatmap_finished_at: nowSeconds(),
       finished_at: nowSeconds(),
       status: metrics.error ? "error" : "success",
       error: metrics.error,
@@ -848,7 +839,7 @@ async function syncUnfinishedRankedWar(env: Env, rankedWar: TornRankedWar): Prom
   await updateWarRankedWarScores(env, war.id, war.enemy_faction_id, rankedWar);
 }
 
-async function syncMissingRankedWarReports(env: Env): Promise<void> {
+export async function syncMissingRankedWarReports(env: Env): Promise<void> {
   const rows = await env.DB.prepare(
     `
     SELECT

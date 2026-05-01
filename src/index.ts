@@ -6,6 +6,7 @@ import {
 } from "./enemyScouting";
 import { getWarActivityHeatmap } from "./heatmap";
 import { getLatestIngestionRun, runIngestion } from "./ingestion";
+import { runScheduledMaintenance } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { ExecutionContext, Env, ScheduledController } from "./types";
@@ -252,7 +253,17 @@ export default {
     return json({ error: "Not found" }, 404);
   },
 
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (event.cron === "*/15 * * * *") {
+      ctx.waitUntil(
+        runScheduledMaintenance(env).catch((err) => {
+          console.error("Cron maintenance failed:", err?.message || err);
+          console.error(err);
+        }),
+      );
+      return;
+    }
+
     ctx.waitUntil(
       runIngestion(env).catch((err) => {
         console.error("Cron ingestion failed:", err?.message || err);
