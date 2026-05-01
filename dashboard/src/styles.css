@@ -909,7 +909,10 @@ h2 {
   display: grid;
   align-content: start;
   gap: 12px;
-  padding-top: 2px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
 }
 
 .admin-tool-section-wide {

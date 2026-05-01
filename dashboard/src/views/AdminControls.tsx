@@ -40,6 +40,7 @@ export function AdminControls() {
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
     getStoredAuthSession(),
   );
+  const [useEpochTime, setUseEpochTime] = React.useState(false);
   const [tornKey, setTornKey] = React.useState("");
   const [isAuthenticating, setIsAuthenticating] = React.useState(false);
   const [createForm, setCreateForm] = React.useState<AdminWarFormState>(() => ({
@@ -83,11 +84,15 @@ export function AdminControls() {
     overrideFinish: false,
     customStartTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
     customFinishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
+    customStartEpoch: String(Math.floor(Date.now() / 1000) - 3600),
+    customFinishEpoch: String(Math.floor(Date.now() / 1000)),
   });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [attackWindowForm, setAttackWindowForm] = React.useState({
     startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
     finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
+    startEpoch: String(Math.floor(Date.now() / 1000) - 3600),
+    finishEpoch: String(Math.floor(Date.now() / 1000)),
     limit: "100",
   });
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
@@ -96,6 +101,7 @@ export function AdminControls() {
   const [isRepairPanelCollapsed, setIsRepairPanelCollapsed] = React.useState(true);
   const [ingestionRun, setIngestionRun] = React.useState<IngestionRun | null>(null);
   const [isLoadingIngestionRun, setIsLoadingIngestionRun] = React.useState(false);
+  const adminTimeMode: AdminWarFormState["timeMode"] = useEpochTime ? "epoch" : "datetime";
 
   React.useEffect(() => {
     let cancelled = false;
@@ -142,11 +148,15 @@ export function AdminControls() {
         const firstEvent = response.wars.find(isEvent);
         setSelectedOfficialWarId((current) => current || String(firstOfficialWar?.id ?? ""));
         setOfficialEditForm((current) =>
-          firstOfficialWar && !selectedOfficialWarId ? warToForm(firstOfficialWar) : current,
+          firstOfficialWar && !selectedOfficialWarId
+            ? convertWarFormTimeMode(warToForm(firstOfficialWar), adminTimeMode)
+            : current,
         );
         setSelectedEventWarId((current) => current || String(firstEvent?.id ?? ""));
         setEventEditForm((current) =>
-          firstEvent && !selectedEventWarId ? warToForm(firstEvent) : current,
+          firstEvent && !selectedEventWarId
+            ? convertWarFormTimeMode(warToForm(firstEvent), adminTimeMode)
+            : current,
         );
       } catch {
         if (!cancelled) {
@@ -160,7 +170,7 @@ export function AdminControls() {
     return () => {
       cancelled = true;
     };
-  }, [authSession?.access_level]);
+  }, [authSession?.access_level, adminTimeMode]);
 
   async function login(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -182,6 +192,18 @@ export function AdminControls() {
     clearStoredAuthSession();
     setAuthSession(null);
     setResult(null);
+  }
+
+  function setGlobalTimeMode(useEpoch: boolean) {
+    const timeMode: AdminWarFormState["timeMode"] = useEpoch ? "epoch" : "datetime";
+    setUseEpochTime(useEpoch);
+    setCreateForm((current) => convertWarFormTimeMode(current, timeMode));
+    setImportWarForm((current) => convertWarFormTimeMode(current, timeMode));
+    setImportEventForm((current) => convertWarFormTimeMode(current, timeMode));
+    setOfficialEditForm((current) => convertWarFormTimeMode(current, timeMode));
+    setEventEditForm((current) => convertWarFormTimeMode(current, timeMode));
+    setExportForm((current) => convertExportFormTimeMode(current, timeMode));
+    setAttackWindowForm((current) => convertAttackWindowFormTimeMode(current, timeMode));
   }
 
   async function runAdminAction(label: string, action: () => Promise<unknown>) {
@@ -272,6 +294,14 @@ export function AdminControls() {
             title="Admin session"
             aside={authSession.user.name ?? `Torn user ${authSession.user.id}`}
           />
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={useEpochTime}
+              onChange={(event) => setGlobalTimeMode(event.target.checked)}
+            />
+            <span>Epoch time</span>
+          </label>
           <button type="button" className="admin-button" onClick={logout}>
             Sign out
           </button>
@@ -312,7 +342,7 @@ export function AdminControls() {
                     setWars((current) =>
                       current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war)),
                     );
-                    setOfficialEditForm(warToForm(updatedWar));
+                    setOfficialEditForm(convertWarFormTimeMode(warToForm(updatedWar), adminTimeMode));
                     setExportForm((current) =>
                       current.warName === updatedWar.name
                         ? exportFormForWar(current, updatedWar)
@@ -332,7 +362,7 @@ export function AdminControls() {
                   const war = officialWars.find((candidate) => candidate.id === Number(event.target.value));
                   setSelectedOfficialWarId(event.target.value);
                   if (war) {
-                    setOfficialEditForm(warToForm(war));
+                    setOfficialEditForm(convertWarFormTimeMode(warToForm(war), adminTimeMode));
                   }
                 }}
                 required
@@ -380,7 +410,7 @@ export function AdminControls() {
                     setWars((current) =>
                       current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war)),
                     );
-                    setEventEditForm(warToForm(updatedWar));
+                    setEventEditForm(convertWarFormTimeMode(warToForm(updatedWar), adminTimeMode));
                     setExportForm((current) =>
                       current.warName === updatedWar.name
                         ? exportFormForWar(current, updatedWar)
@@ -400,7 +430,7 @@ export function AdminControls() {
                   const war = events.find((candidate) => candidate.id === Number(event.target.value));
                   setSelectedEventWarId(event.target.value);
                   if (war) {
-                    setEventEditForm(warToForm(war));
+                    setEventEditForm(convertWarFormTimeMode(warToForm(war), adminTimeMode));
                   }
                 }}
                 required
@@ -450,10 +480,10 @@ export function AdminControls() {
                   linkedStatus: exportForm.linkedStatus,
                   columns: exportForm.columns,
                   customStart: exportForm.overrideStart
-                    ? secondsFromDateTimeLocal(exportForm.customStartTime)
+                    ? exportSecondsFromForm(exportForm, adminTimeMode, "start")
                     : undefined,
                   customFinish: exportForm.overrideFinish
-                    ? secondsFromDateTimeLocal(exportForm.customFinishTime)
+                    ? exportSecondsFromForm(exportForm, adminTimeMode, "finish")
                     : undefined,
                 });
                 return { ok: true, exported: exportForm.warName };
@@ -526,14 +556,25 @@ export function AdminControls() {
             </label>
             <label>
               <span>Export start</span>
-              <input
-                type="datetime-local"
-                value={exportForm.customStartTime}
-                disabled={!exportForm.overrideStart}
-                onChange={(event) =>
-                  setExportForm({ ...exportForm, customStartTime: event.target.value })
-                }
-              />
+              {adminTimeMode === "epoch" ? (
+                <input
+                  inputMode="numeric"
+                  value={exportForm.customStartEpoch}
+                  disabled={!exportForm.overrideStart}
+                  onChange={(event) =>
+                    setExportForm(updateExportEpoch(exportForm, "start", event.target.value))
+                  }
+                />
+              ) : (
+                <input
+                  type="datetime-local"
+                  value={exportForm.customStartTime}
+                  disabled={!exportForm.overrideStart}
+                  onChange={(event) =>
+                    setExportForm(updateExportDateTime(exportForm, "start", event.target.value))
+                  }
+                />
+              )}
             </label>
             <label className="checkbox-row">
               <input
@@ -547,14 +588,25 @@ export function AdminControls() {
             </label>
             <label>
               <span>Export finish</span>
-              <input
-                type="datetime-local"
-                value={exportForm.customFinishTime}
-                disabled={!exportForm.overrideFinish}
-                onChange={(event) =>
-                  setExportForm({ ...exportForm, customFinishTime: event.target.value })
-                }
-              />
+              {adminTimeMode === "epoch" ? (
+                <input
+                  inputMode="numeric"
+                  value={exportForm.customFinishEpoch}
+                  disabled={!exportForm.overrideFinish}
+                  onChange={(event) =>
+                    setExportForm(updateExportEpoch(exportForm, "finish", event.target.value))
+                  }
+                />
+              ) : (
+                <input
+                  type="datetime-local"
+                  value={exportForm.customFinishTime}
+                  disabled={!exportForm.overrideFinish}
+                  onChange={(event) =>
+                    setExportForm(updateExportDateTime(exportForm, "finish", event.target.value))
+                  }
+                />
+              )}
             </label>
             <label>
               <span>Linked status</span>
@@ -828,8 +880,16 @@ export function AdminControls() {
                   event.preventDefault();
                   runAdminAction("Pull attack window", () =>
                     pullAttackWindow({
-                      practical_start_time: secondsFromDateTimeLocal(attackWindowForm.startTime),
-                      practical_finish_time: secondsFromDateTimeLocal(attackWindowForm.finishTime),
+                      practical_start_time: attackWindowSecondsFromForm(
+                        attackWindowForm,
+                        adminTimeMode,
+                        "start",
+                      ),
+                      practical_finish_time: attackWindowSecondsFromForm(
+                        attackWindowForm,
+                        adminTimeMode,
+                        "finish",
+                      ),
                       limit: attackWindowForm.limit.trim() ? Number(attackWindowForm.limit) : undefined,
                     }),
                   );
@@ -837,25 +897,55 @@ export function AdminControls() {
               >
                 <label>
                   <span>Start time</span>
-                  <input
-                    type="datetime-local"
-                    value={attackWindowForm.startTime}
-                    onChange={(event) =>
-                      setAttackWindowForm({ ...attackWindowForm, startTime: event.target.value })
-                    }
-                    required
-                  />
+                  {adminTimeMode === "epoch" ? (
+                    <input
+                      inputMode="numeric"
+                      value={attackWindowForm.startEpoch}
+                      onChange={(event) =>
+                        setAttackWindowForm(
+                          updateAttackWindowEpoch(attackWindowForm, "start", event.target.value),
+                        )
+                      }
+                      required
+                    />
+                  ) : (
+                    <input
+                      type="datetime-local"
+                      value={attackWindowForm.startTime}
+                      onChange={(event) =>
+                        setAttackWindowForm(
+                          updateAttackWindowDateTime(attackWindowForm, "start", event.target.value),
+                        )
+                      }
+                      required
+                    />
+                  )}
                 </label>
                 <label>
                   <span>Finish time</span>
-                  <input
-                    type="datetime-local"
-                    value={attackWindowForm.finishTime}
-                    onChange={(event) =>
-                      setAttackWindowForm({ ...attackWindowForm, finishTime: event.target.value })
-                    }
-                    required
-                  />
+                  {adminTimeMode === "epoch" ? (
+                    <input
+                      inputMode="numeric"
+                      value={attackWindowForm.finishEpoch}
+                      onChange={(event) =>
+                        setAttackWindowForm(
+                          updateAttackWindowEpoch(attackWindowForm, "finish", event.target.value),
+                        )
+                      }
+                      required
+                    />
+                  ) : (
+                    <input
+                      type="datetime-local"
+                      value={attackWindowForm.finishTime}
+                      onChange={(event) =>
+                        setAttackWindowForm(
+                          updateAttackWindowDateTime(attackWindowForm, "finish", event.target.value),
+                        )
+                      }
+                      required
+                    />
+                  )}
                 </label>
                 <label>
                   <span>Returned attacks</span>
@@ -915,6 +1005,16 @@ type AdminExportFormState = {
   overrideFinish: boolean;
   customStartTime: string;
   customFinishTime: string;
+  customStartEpoch: string;
+  customFinishEpoch: string;
+};
+
+type AdminAttackWindowFormState = {
+  startTime: string;
+  finishTime: string;
+  startEpoch: string;
+  finishEpoch: string;
+  limit: string;
 };
 
 function EventForm({
@@ -948,13 +1048,6 @@ function EventForm({
         <label>
           <span>Name</span>
           <input value={form.name} onChange={(event) => update("name", event.target.value)} required />
-        </label>
-        <label>
-          <span>Time input</span>
-          <select value={form.timeMode} onChange={(event) => updateTimeMode(form, onChange, event.target.value as AdminWarFormState["timeMode"])}>
-            <option value="datetime">Date and time</option>
-            <option value="epoch">Epoch seconds</option>
-          </select>
         </label>
         <label>
           <span>Start time</span>
@@ -1011,13 +1104,6 @@ function HistoricalEventForm({
         <label>
           <span>Name</span>
           <input value={form.name} onChange={(event) => update("name", event.target.value)} required />
-        </label>
-        <label>
-          <span>Time input</span>
-          <select value={form.timeMode} onChange={(event) => updateTimeMode(form, onChange, event.target.value as AdminWarFormState["timeMode"])}>
-            <option value="datetime">Date and time</option>
-            <option value="epoch">Epoch seconds</option>
-          </select>
         </label>
         <label>
           <span>Start time</span>
@@ -1115,13 +1201,6 @@ function WarForm({
                 {warTypeLabel(warType)}
               </option>
             ))}
-          </select>
-        </label>
-        <label>
-          <span>Time input</span>
-          <select value={form.timeMode} onChange={(event) => updateTimeMode(form, onChange, event.target.value as AdminWarFormState["timeMode"])}>
-            <option value="datetime">Date and time</option>
-            <option value="epoch">Epoch seconds</option>
           </select>
         </label>
         <label>
@@ -1272,13 +1351,6 @@ function WarFields({
               {warTypeLabel(warType)}
             </option>
           ))}
-        </select>
-      </label>
-      <label>
-        <span>Time input</span>
-        <select value={form.timeMode} onChange={(event) => updateTimeMode(form, onChange, event.target.value as AdminWarFormState["timeMode"])}>
-          <option value="datetime">Date and time</option>
-          <option value="epoch">Epoch seconds</option>
         </select>
       </label>
       <label>
@@ -1537,6 +1609,8 @@ function exportFormForWar(
     warName: war.name,
     customStartTime: dateTimeLocalFromSeconds(start),
     customFinishTime: dateTimeLocalFromSeconds(finish),
+    customStartEpoch: String(start),
+    customFinishEpoch: String(finish),
   };
 }
 
@@ -1591,17 +1665,16 @@ function toRelinkPayload(form: { tornWarId: string; name: string; fetchMissing: 
   };
 }
 
-function updateTimeMode(
+function convertWarFormTimeMode(
   form: AdminWarFormState,
-  onChange: (form: AdminWarFormState) => void,
   timeMode: AdminWarFormState["timeMode"],
-) {
+): AdminWarFormState {
   if (timeMode === form.timeMode) {
-    return;
+    return form;
   }
 
   if (timeMode === "epoch") {
-    onChange({
+    return {
       ...form,
       timeMode,
       startEpoch: String(secondsFromDateTimeLocal(form.startTime)),
@@ -1612,11 +1685,10 @@ function updateTimeMode(
       officialFinishEpoch: form.officialFinishTime
         ? String(secondsFromDateTimeLocal(form.officialFinishTime))
         : "",
-    });
-    return;
+    };
   }
 
-  onChange({
+  return {
     ...form,
     timeMode,
     startTime: dateTimeLocalFromSeconds(Number(form.startEpoch || 0)),
@@ -1627,7 +1699,149 @@ function updateTimeMode(
     officialFinishTime: form.officialFinishEpoch
       ? dateTimeLocalFromSeconds(Number(form.officialFinishEpoch))
       : "",
-  });
+  };
+}
+
+function convertExportFormTimeMode(
+  form: AdminExportFormState,
+  timeMode: AdminWarFormState["timeMode"],
+): AdminExportFormState {
+  if (timeMode === "epoch") {
+    return {
+      ...form,
+      customStartEpoch: String(secondsFromDateTimeLocal(form.customStartTime)),
+      customFinishEpoch: String(secondsFromDateTimeLocal(form.customFinishTime)),
+    };
+  }
+
+  return {
+    ...form,
+    customStartTime: dateTimeLocalFromSeconds(Number(form.customStartEpoch || 0)),
+    customFinishTime: dateTimeLocalFromSeconds(Number(form.customFinishEpoch || 0)),
+  };
+}
+
+function updateExportDateTime(
+  form: AdminExportFormState,
+  field: "start" | "finish",
+  value: string,
+): AdminExportFormState {
+  if (field === "start") {
+    return {
+      ...form,
+      customStartTime: value,
+      customStartEpoch: String(secondsFromDateTimeLocal(value)),
+    };
+  }
+
+  return {
+    ...form,
+    customFinishTime: value,
+    customFinishEpoch: String(secondsFromDateTimeLocal(value)),
+  };
+}
+
+function updateExportEpoch(
+  form: AdminExportFormState,
+  field: "start" | "finish",
+  value: string,
+): AdminExportFormState {
+  if (field === "start") {
+    return {
+      ...form,
+      customStartEpoch: value,
+      customStartTime: dateTimeLocalFromSeconds(Number(value || 0)),
+    };
+  }
+
+  return {
+    ...form,
+    customFinishEpoch: value,
+    customFinishTime: dateTimeLocalFromSeconds(Number(value || 0)),
+  };
+}
+
+function exportSecondsFromForm(
+  form: AdminExportFormState,
+  timeMode: AdminWarFormState["timeMode"],
+  field: "start" | "finish",
+): number {
+  if (timeMode === "epoch") {
+    return Number(field === "start" ? form.customStartEpoch : form.customFinishEpoch);
+  }
+
+  return secondsFromDateTimeLocal(field === "start" ? form.customStartTime : form.customFinishTime);
+}
+
+function convertAttackWindowFormTimeMode(
+  form: AdminAttackWindowFormState,
+  timeMode: AdminWarFormState["timeMode"],
+): AdminAttackWindowFormState {
+  if (timeMode === "epoch") {
+    return {
+      ...form,
+      startEpoch: String(secondsFromDateTimeLocal(form.startTime)),
+      finishEpoch: String(secondsFromDateTimeLocal(form.finishTime)),
+    };
+  }
+
+  return {
+    ...form,
+    startTime: dateTimeLocalFromSeconds(Number(form.startEpoch || 0)),
+    finishTime: dateTimeLocalFromSeconds(Number(form.finishEpoch || 0)),
+  };
+}
+
+function updateAttackWindowDateTime(
+  form: AdminAttackWindowFormState,
+  field: "start" | "finish",
+  value: string,
+): AdminAttackWindowFormState {
+  if (field === "start") {
+    return {
+      ...form,
+      startTime: value,
+      startEpoch: String(secondsFromDateTimeLocal(value)),
+    };
+  }
+
+  return {
+    ...form,
+    finishTime: value,
+    finishEpoch: String(secondsFromDateTimeLocal(value)),
+  };
+}
+
+function updateAttackWindowEpoch(
+  form: AdminAttackWindowFormState,
+  field: "start" | "finish",
+  value: string,
+): AdminAttackWindowFormState {
+  if (field === "start") {
+    return {
+      ...form,
+      startEpoch: value,
+      startTime: dateTimeLocalFromSeconds(Number(value || 0)),
+    };
+  }
+
+  return {
+    ...form,
+    finishEpoch: value,
+    finishTime: dateTimeLocalFromSeconds(Number(value || 0)),
+  };
+}
+
+function attackWindowSecondsFromForm(
+  form: AdminAttackWindowFormState,
+  timeMode: AdminWarFormState["timeMode"],
+  field: "start" | "finish",
+): number {
+  if (timeMode === "epoch") {
+    return Number(field === "start" ? form.startEpoch : form.finishEpoch);
+  }
+
+  return secondsFromDateTimeLocal(field === "start" ? form.startTime : form.finishTime);
 }
 
 function updateDateTime(
