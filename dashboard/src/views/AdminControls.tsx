@@ -6,7 +6,6 @@ import {
   clearStoredAuthSession,
   createWar,
   deleteWar,
-  endActiveWar,
   exportWarAttacksCsv,
   fetchTornWarReport,
   getLatestIngestionRun,
@@ -29,12 +28,6 @@ import {
   WarType,
 } from "../api";
 import { CollapsiblePanel, PanelHeader } from "../components/Common";
-
-type AdminAction = {
-  label: string;
-  run: () => Promise<unknown>;
-  tone?: "danger";
-};
 
 export function AdminControls() {
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
@@ -98,6 +91,7 @@ export function AdminControls() {
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [isEventPanelCollapsed, setIsEventPanelCollapsed] = React.useState(true);
   const [isRepairPanelCollapsed, setIsRepairPanelCollapsed] = React.useState(true);
   const [ingestionRun, setIngestionRun] = React.useState<IngestionRun | null>(null);
   const [isLoadingIngestionRun, setIsLoadingIngestionRun] = React.useState(false);
@@ -238,10 +232,6 @@ export function AdminControls() {
     }
   }, [authSession?.access_level]);
 
-  const actions: AdminAction[] = [
-    { label: "Run ingestion", run: runIngestion },
-    { label: "End active war", run: endActiveWar, tone: "danger" },
-  ];
   const exportableWars = wars.filter(isExportableWar);
   const officialWars = wars.filter(isOfficialWar);
   const events = wars.filter(isEvent);
@@ -310,23 +300,6 @@ export function AdminControls() {
 
       {authSession?.access_level === "admin" ? (
       <section className="admin-grid">
-        <section className="panel admin-panel-run">
-          <PanelHeader title="Run controls" />
-          <div className="admin-action-grid">
-            {actions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                className={action.tone === "danger" ? "admin-button danger" : "admin-button"}
-                disabled={isBusy !== null}
-                onClick={() => runAdminAction(action.label, action.run)}
-              >
-                {isBusy === action.label ? "Working" : action.label}
-              </button>
-            ))}
-          </div>
-        </section>
-
         <ProjectTodoPanel />
 
         <section className="panel admin-panel-edit-official">
@@ -397,74 +370,106 @@ export function AdminControls() {
           </form>
         </section>
 
-        <section className="panel admin-panel-edit-event">
-          <PanelHeader title="Edit event" />
-          <form
-            className="admin-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              runAdminAction("Update event", () =>
-                updateEvent(toWarEditPayload(Number(selectedEventWarId), eventEditForm)).then((response) => {
-                  const updatedWar = (response as { war?: WarSummary }).war;
-                  if (updatedWar) {
-                    setWars((current) =>
-                      current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war)),
-                    );
-                    setEventEditForm(convertWarFormTimeMode(warToForm(updatedWar), adminTimeMode));
-                    setExportForm((current) =>
-                      current.warName === updatedWar.name
-                        ? exportFormForWar(current, updatedWar)
-                        : current,
-                    );
-                  }
-                  return response;
-                }),
-              );
-            }}
-          >
-            <label className="admin-form-wide">
-              <span>Event</span>
-              <select
-                value={selectedEventWarId}
-                onChange={(event) => {
-                  const war = events.find((candidate) => candidate.id === Number(event.target.value));
-                  setSelectedEventWarId(event.target.value);
-                  if (war) {
-                    setEventEditForm(convertWarFormTimeMode(warToForm(war), adminTimeMode));
-                  }
-                }}
-                required
-              >
-                <option value="" disabled>
-                  Select event
-                </option>
-                {events.map((war) => (
-                  <option value={war.id} key={war.id}>
-                    {war.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <WarFields
-              form={eventEditForm}
-              onChange={setEventEditForm}
-              showName
-              showFinishTimes
-              showOfficialTimes={false}
-              showEnemyFaction
-              showTornWarId={false}
-              showStatus
-              allowedWarTypes={["event"]}
+        <CollapsiblePanel
+          title="Event controls"
+          aside="Create / edit / import"
+          className="admin-panel-events"
+          collapsed={isEventPanelCollapsed}
+          onToggle={() => setIsEventPanelCollapsed((current) => !current)}
+        >
+          <div className="admin-event-grid">
+            <EventForm
+              title="Create active or scheduled event"
+              panelClassName="admin-event-command"
+              form={createForm}
+              onChange={setCreateForm}
+              isBusy={isBusy !== null}
+              onSubmit={(payload) => runAdminAction("Create event", () => createWar(payload))}
             />
-            <button
-              type="submit"
-              className="admin-button primary admin-form-wide"
-              disabled={isBusy !== null || !selectedEventWarId}
-            >
-              Confirm changes
-            </button>
-          </form>
-        </section>
+
+            <section className="panel admin-event-command">
+              <PanelHeader title="Edit event" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runAdminAction("Update event", () =>
+                    updateEvent(toWarEditPayload(Number(selectedEventWarId), eventEditForm)).then((response) => {
+                      const updatedWar = (response as { war?: WarSummary }).war;
+                      if (updatedWar) {
+                        setWars((current) =>
+                          current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war)),
+                        );
+                        setEventEditForm(convertWarFormTimeMode(warToForm(updatedWar), adminTimeMode));
+                        setExportForm((current) =>
+                          current.warName === updatedWar.name
+                            ? exportFormForWar(current, updatedWar)
+                            : current,
+                        );
+                      }
+                      return response;
+                    }),
+                  );
+                }}
+              >
+                <label className="admin-form-wide">
+                  <span>Event</span>
+                  <select
+                    value={selectedEventWarId}
+                    onChange={(event) => {
+                      const war = events.find((candidate) => candidate.id === Number(event.target.value));
+                      setSelectedEventWarId(event.target.value);
+                      if (war) {
+                        setEventEditForm(convertWarFormTimeMode(warToForm(war), adminTimeMode));
+                      }
+                    }}
+                    required
+                  >
+                    <option value="" disabled>
+                      Select event
+                    </option>
+                    {events.map((war) => (
+                      <option value={war.id} key={war.id}>
+                        {war.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <WarFields
+                  form={eventEditForm}
+                  onChange={setEventEditForm}
+                  showName
+                  showFinishTimes
+                  showOfficialTimes={false}
+                  showEnemyFaction
+                  showTornWarId={false}
+                  showStatus
+                  allowedWarTypes={["event"]}
+                />
+                <button
+                  type="submit"
+                  className="admin-button primary admin-form-wide"
+                  disabled={isBusy !== null || !selectedEventWarId}
+                >
+                  Confirm changes
+                </button>
+              </form>
+            </section>
+
+            <HistoricalEventForm
+              title="Import historical event"
+              panelClassName="admin-event-command"
+              form={importEventForm}
+              onChange={setImportEventForm}
+              isBusy={isBusy !== null}
+              secondaryActionLabel="Preview import window"
+              onSecondaryAction={(payload) =>
+                runAdminAction("Preview event import window", () => previewImportEvent(payload))
+              }
+              onSubmit={(payload) => runAdminAction("Import event", () => importEvent(payload))}
+            />
+          </div>
+        </CollapsiblePanel>
 
         <section className="panel admin-panel-export">
           <PanelHeader title="Export attacks CSV" />
@@ -649,15 +654,6 @@ export function AdminControls() {
           </form>
         </section>
 
-        <EventForm
-          title="Create active or scheduled event"
-          panelClassName="admin-panel-create-event"
-          form={createForm}
-          onChange={setCreateForm}
-          isBusy={isBusy !== null}
-          onSubmit={(payload) => runAdminAction("Create event", () => createWar(payload))}
-        />
-
         <WarForm
           title="Import historical war"
           panelClassName="admin-panel-import-war"
@@ -674,58 +670,6 @@ export function AdminControls() {
           }
           onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
         />
-
-        <HistoricalEventForm
-          title="Import historical event"
-          panelClassName="admin-panel-import-event"
-          form={importEventForm}
-          onChange={setImportEventForm}
-          isBusy={isBusy !== null}
-          secondaryActionLabel="Preview import window"
-          onSecondaryAction={(payload) =>
-            runAdminAction("Preview event import window", () => previewImportEvent(payload))
-          }
-          onSubmit={(payload) => runAdminAction("Import event", () => importEvent(payload))}
-        />
-
-        <section className="panel admin-panel-delete">
-          <PanelHeader title="Delete war/event" />
-          <form
-            className="admin-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              runAdminAction("Delete war", () =>
-                deleteWar({
-                  torn_war_id: deleteForm.tornWarId.trim()
-                    ? Number(deleteForm.tornWarId)
-                    : undefined,
-                  name: deleteForm.name.trim() || undefined,
-                }),
-              );
-            }}
-          >
-            <label>
-              <span>Torn war ID</span>
-              <input
-                inputMode="numeric"
-                value={deleteForm.tornWarId}
-                onChange={(event) =>
-                  setDeleteForm({ ...deleteForm, tornWarId: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              <span>War/event name</span>
-              <input
-                value={deleteForm.name}
-                onChange={(event) => setDeleteForm({ ...deleteForm, name: event.target.value })}
-              />
-            </label>
-            <button type="submit" className="admin-button danger admin-form-wide" disabled={isBusy !== null}>
-              Delete war
-            </button>
-          </form>
-        </section>
 
         <CollapsiblePanel
           title="Repair/debug tools"
@@ -777,6 +721,57 @@ export function AdminControls() {
               >
                 Refresh baseline
               </button>
+            </section>
+
+            <section className="admin-tool-section">
+              <PanelHeader title="Run ingestion" />
+              <button
+                type="button"
+                className="admin-button primary"
+                disabled={isBusy !== null}
+                onClick={() => runAdminAction("Run ingestion", runIngestion)}
+              >
+                {isBusy === "Run ingestion" ? "Working" : "Run ingestion"}
+              </button>
+            </section>
+
+            <section className="admin-tool-section">
+              <PanelHeader title="Delete war/event" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runAdminAction("Delete war", () =>
+                    deleteWar({
+                      torn_war_id: deleteForm.tornWarId.trim()
+                        ? Number(deleteForm.tornWarId)
+                        : undefined,
+                      name: deleteForm.name.trim() || undefined,
+                    }),
+                  );
+                }}
+              >
+                <label>
+                  <span>Torn war ID</span>
+                  <input
+                    inputMode="numeric"
+                    value={deleteForm.tornWarId}
+                    onChange={(event) =>
+                      setDeleteForm({ ...deleteForm, tornWarId: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  <span>War/event name</span>
+                  <input
+                    value={deleteForm.name}
+                    onChange={(event) => setDeleteForm({ ...deleteForm, name: event.target.value })}
+                  />
+                </label>
+                <button type="submit" className="admin-button danger admin-form-wide" disabled={isBusy !== null}>
+                  Delete war
+                </button>
+              </form>
             </section>
 
             <section className="admin-tool-section">

@@ -41,7 +41,12 @@ export function MemberTable({
             {showTermedColumns ? null : (
               <SortableHeader label="Outside hits" sortKey="outside_attacks" sort={sort} onSortChange={onSortChange} />
             )}
-            <SortableHeader label="Respect gained" sortKey="enemy_respect_gained" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader
+              label={<span title="Adjusted respect, with chain bonus hits counted at the member's average hit value.">Respect gained</span>}
+              sortKey="enemy_respect_gained"
+              sort={sort}
+              onSortChange={onSortChange}
+            />
             <SortableHeader label="Assists" sortKey="enemy_assists" sort={sort} onSortChange={onSortChange} />
             {showTermedColumns ? (
               <>
