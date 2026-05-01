@@ -1204,6 +1204,10 @@ function WarForm({
           </select>
         </label>
         <label>
+          <span>Torn war ID</span>
+          <input inputMode="numeric" value={form.tornWarId} onChange={(event) => update("tornWarId", event.target.value)} />
+        </label>
+        <label>
           <span>{requireFinishTime ? "Practical start time" : "Start time"}</span>
           {form.timeMode === "epoch" ? (
             <input inputMode="numeric" value={form.startEpoch} disabled={practicalTimesDisabled} onChange={(event) => update("startEpoch", event.target.value)} required={!practicalTimesDisabled} />
@@ -1221,32 +1225,8 @@ function WarForm({
                 <input type="datetime-local" value={form.finishTime} disabled={practicalTimesDisabled} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} required={!practicalTimesDisabled} />
               )}
             </label>
-            <label>
-              <span>Official start time</span>
-              {form.timeMode === "epoch" ? (
-                <input inputMode="numeric" value={form.officialStartEpoch} disabled={practicalTimesDisabled} onChange={(event) => update("officialStartEpoch", event.target.value)} />
-              ) : (
-                <input type="datetime-local" value={form.officialStartTime} disabled={practicalTimesDisabled} onChange={(event) => updateDateTime(form, onChange, "officialStart", event.target.value)} />
-              )}
-            </label>
-            <label>
-              <span>Official finish time</span>
-              {form.timeMode === "epoch" ? (
-                <input inputMode="numeric" value={form.officialFinishEpoch} disabled={practicalTimesDisabled} onChange={(event) => update("officialFinishEpoch", event.target.value)} />
-              ) : (
-                <input type="datetime-local" value={form.officialFinishTime} disabled={practicalTimesDisabled} onChange={(event) => updateDateTime(form, onChange, "officialFinish", event.target.value)} />
-              )}
-            </label>
           </>
         ) : null}
-        <label>
-          <span>Enemy faction ID</span>
-          <input inputMode="numeric" value={form.factionId} onChange={(event) => update("factionId", event.target.value)} />
-        </label>
-        <label>
-          <span>Torn war ID</span>
-          <input inputMode="numeric" value={form.tornWarId} onChange={(event) => update("tornWarId", event.target.value)} />
-        </label>
         {showAutoEnd ? (
           <label className="checkbox-row">
             <input
