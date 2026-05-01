@@ -8,6 +8,9 @@ import {
   getWarMemberAttacks,
   getWarReportDiscrepancies,
   getWars,
+  AuthSession,
+  getStoredAuthSession,
+  refreshAuthSession,
   MemberAttack,
   MemberStats,
   ReportDiscrepanciesResponse,
@@ -60,6 +63,9 @@ const SLOW_WAR_REFRESH_MS = 5 * 60_000;
 function App() {
   const [warType, setWarType] = React.useState<WarType>("all");
   const [view, setView] = React.useState<"war" | "warRoom" | "members" | "admin">("war");
+  const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
+    getStoredAuthSession(),
+  );
   const [wars, setWars] = React.useState<WarSummary[]>([]);
   const [selectedWarName, setSelectedWarName] = React.useState<string | null>(null);
   const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
@@ -85,6 +91,22 @@ function App() {
   const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
   const [isLoadingMemberAttacks, setIsLoadingMemberAttacks] = React.useState(false);
   const memberAttackPanelRef = React.useRef<HTMLElement | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function refreshSession() {
+      const session = await refreshAuthSession();
+      if (!cancelled) {
+        setAuthSession(session ?? getStoredAuthSession());
+      }
+    }
+
+    refreshSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [view]);
 
   React.useEffect(() => {
   let cancelled = false;
@@ -208,6 +230,7 @@ function App() {
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
+  const isAdmin = authSession?.access_level === "admin";
 
   React.useEffect(() => {
     const termedOnlySorts = ["average_fair_fight", "member_respect_limit_percent"];
@@ -662,6 +685,17 @@ function App() {
                   collapsed={collapsedPanels.memberBreakdown ?? false}
                   onToggle={() => togglePanel("memberBreakdown")}
                   className="table-panel"
+                  control={
+                    isAdmin ? (
+                      <button
+                        type="button"
+                        className="panel-action-button"
+                        onClick={() => exportMembersCsv(members, selectedWar)}
+                      >
+                        CSV
+                      </button>
+                    ) : undefined
+                  }
                 >
                   <p className="panel-description">
                     Summarises each faction member's war performance. Click a member name to see their attacks.
@@ -682,6 +716,17 @@ function App() {
                   <PanelHeader
                     title={`${displayMember(selectedMember)} attacks`}
                     aside={isLoadingMemberAttacks ? "Loading" : `${memberAttacks.length} attacks`}
+                    control={
+                      isAdmin ? (
+                        <button
+                          type="button"
+                          className="panel-action-button"
+                          onClick={() => exportMemberAttacksCsv(sortedMemberAttacks, selectedWar, selectedMember)}
+                        >
+                          CSV
+                        </button>
+                      ) : undefined
+                    }
                   />
                   <p className="panel-description">
                     Lists this member's individual attacks and defends during the counted war period, with row
@@ -752,6 +797,98 @@ function activityTotal(
       total + keys.reduce((bucketTotal, key) => bucketTotal + Number(bucket[key] ?? 0), 0),
     0,
   );
+}
+
+function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
+  if (!war) {
+    return;
+  }
+
+  const termed = war.war_type === "termed";
+  const columns: Array<{
+    label: string;
+    value: (member: MemberStats) => string | number | null | undefined;
+  }> = [
+    { label: "Member", value: (member) => displayMember(member) },
+    { label: "Attacks", value: (member) => member.enemy_attacks_successful },
+    { label: "Defends", value: (member) => member.defends_total },
+    ...(termed
+      ? []
+      : [{ label: "Outside hits", value: (member: MemberStats) => member.outside_attacks }]),
+    { label: "Respect gained", value: (member) => member.enemy_respect_gained },
+    { label: "Assists", value: (member) => member.enemy_assists },
+    ...(termed
+      ? [
+          { label: "Average fair fight", value: (member: MemberStats) => member.average_fair_fight },
+          { label: "Percent limit", value: (member: MemberStats) => member.member_respect_limit_percent },
+        ]
+      : [
+          { label: "Friendly hosps", value: (member: MemberStats) => member.friendly_hospitals },
+          { label: "Retaliations", value: (member: MemberStats) => member.enemy_retaliations },
+        ]),
+  ];
+  const lines = [
+    columns.map((column) => csvCell(column.label)).join(","),
+    ...members.map((member) => columns.map((column) => csvCell(column.value(member))).join(",")),
+  ];
+  const blob = new Blob([`${lines.join("\r\n")}\r\n`], { type: "text/csv;charset=utf-8" });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${sanitizeCsvFilename(war.name)}-members.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function exportMemberAttacksCsv(
+  attacks: MemberAttack[],
+  war: WarSummary | null,
+  member: MemberStats | null,
+) {
+  if (!war || !member) {
+    return;
+  }
+
+  const columns: Array<{
+    label: string;
+    value: (attack: MemberAttack) => string | number | null | undefined;
+  }> = [
+    { label: "Time", value: (attack) => attack.started },
+    { label: "Type", value: (attack) => attack.classification },
+    { label: "Attacker", value: (attack) => attack.attacker_name ?? attack.attacker_id },
+    { label: "Defender", value: (attack) => attack.defender_name ?? attack.defender_id },
+    { label: "Defender faction", value: (attack) => attack.defender_faction_id },
+    { label: "Result", value: (attack) => attack.result },
+    { label: "Respect", value: (attack) => attack.respect_gain },
+  ];
+  const lines = [
+    columns.map((column) => csvCell(column.label)).join(","),
+    ...attacks.map((attack) => columns.map((column) => csvCell(column.value(attack))).join(",")),
+  ];
+  const blob = new Blob([`${lines.join("\r\n")}\r\n`], { type: "text/csv;charset=utf-8" });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${sanitizeCsvFilename(war.name)}-${sanitizeCsvFilename(displayMember(member))}-attacks.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function sanitizeCsvFilename(value: string): string {
+  return value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "members";
 }
 
 function WarTimeLine({ label, value }: { label: string; value: string }) {

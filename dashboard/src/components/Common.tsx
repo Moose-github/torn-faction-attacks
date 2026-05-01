@@ -46,6 +46,7 @@ export function PanelHeader({
 export function CollapsiblePanel({
   title,
   aside,
+  control,
   collapsed,
   onToggle,
   className = "",
@@ -53,6 +54,7 @@ export function CollapsiblePanel({
 }: {
   title: string;
   aside?: string;
+  control?: React.ReactNode;
   collapsed: boolean;
   onToggle: () => void;
   className?: string;
@@ -65,7 +67,7 @@ export function CollapsiblePanel({
           <span>{collapsed ? "+" : "-"}</span>
           <strong>{title}</strong>
         </button>
-        {aside ? <span>{aside}</span> : null}
+        {control ?? (aside ? <span>{aside}</span> : null)}
       </div>
       {collapsed ? null : children}
     </section>

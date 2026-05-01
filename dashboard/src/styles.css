@@ -789,6 +789,23 @@ h2 {
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 }
 
+.panel-action-button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.panel-action-button:hover {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
 .report-validation-table td:first-child {
   font-weight: 800;
 }
