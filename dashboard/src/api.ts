@@ -318,6 +318,32 @@ export type AttackWindowPayload = {
   limit?: number;
 };
 
+export type IngestionRun = {
+  id: string;
+  trigger_source: string;
+  started_at: number;
+  ranked_war_checked_at: number | null;
+  attacks_fetch_finished_at: number | null;
+  d1_writes_finished_at: number | null;
+  stats_finished_at: number | null;
+  report_finished_at: number | null;
+  heatmap_finished_at: number | null;
+  finished_at: number | null;
+  latest_attack_started: number | null;
+  fetched_pages: number;
+  fetched_attacks: number;
+  wrote_batches: number;
+  saw_rows: number;
+  active_war_id: number | null;
+  status: string;
+  error: string | null;
+};
+
+export type IngestionRunResponse = {
+  ok: boolean;
+  run: IngestionRun | null;
+};
+
 export type AttackExportOptions = {
   warName: string;
   scope: "all" | "outgoing" | "war_relevant";
@@ -458,6 +484,10 @@ export async function runIngestion(): Promise<unknown> {
 
 export async function rebuildStats(): Promise<unknown> {
   return postJson("/api/rebuild");
+}
+
+export async function getLatestIngestionRun(): Promise<IngestionRunResponse> {
+  return getJson<IngestionRunResponse>("/api/admin/ingestion-run", true);
 }
 
 export async function createWar(payload: AdminWarPayload): Promise<unknown> {

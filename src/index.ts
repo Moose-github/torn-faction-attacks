@@ -5,7 +5,7 @@ import {
   refreshEnemyScoutingForWar,
 } from "./enemyScouting";
 import { getWarActivityHeatmap } from "./heatmap";
-import { runIngestion } from "./ingestion";
+import { getLatestIngestionRun, runIngestion } from "./ingestion";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { ExecutionContext, Env, ScheduledController } from "./types";
@@ -53,8 +53,14 @@ export default {
     if (url.pathname === "/api/run" && request.method === "POST") {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
-      await runIngestion(env);
+      await runIngestion(env, "manual");
       return json({ ok: true });
+    }
+
+    if (url.pathname === "/api/admin/ingestion-run" && request.method === "GET") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
+      return getLatestIngestionRun(env);
     }
 
     if (url.pathname === "/api/rebuild" && request.method === "POST") {

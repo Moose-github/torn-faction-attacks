@@ -34,26 +34,53 @@ export async function sampleFactionActivityHeatmaps(env: Env): Promise<void> {
   await sampleFactionActivity(env, HOME_FACTION_ID, sampledAt);
 
   if (latestWar?.enemy_faction_id && latestWar.official_end_time === null) {
+    await clearReplaceableEnemyHeatmaps(env, latestWar.enemy_faction_id);
     await sampleFactionActivity(env, latestWar.enemy_faction_id, sampledAt);
   }
 }
 
-export async function clearEnemyHeatmapForFaction(
+async function clearReplaceableEnemyHeatmaps(
   env: Env,
-  enemyFactionId: number | null,
+  nextFactionId: number,
 ): Promise<void> {
-  if (enemyFactionId === null) {
-    return;
-  }
-
-  await env.DB.prepare(
+  const cachedFactions = ((await env.DB.prepare(
     `
-    DELETE FROM faction_activity_heatmap
-    WHERE faction_id = ?
+    SELECT DISTINCT faction_id
+    FROM faction_activity_heatmap
+    WHERE faction_id != ?
+      AND faction_id != ?
     `,
   )
-    .bind(enemyFactionId)
-    .run();
+    .bind(nextFactionId, HOME_FACTION_ID)
+    .all()).results ?? []) as { faction_id: number }[];
+
+  for (const cachedFaction of cachedFactions) {
+    const unfinishedWar = (await env.DB.prepare(
+      `
+      SELECT id
+      FROM wars
+      WHERE enemy_faction_id = ?
+        AND official_end_time IS NULL
+      ORDER BY practical_start_time DESC
+      LIMIT 1
+      `,
+    )
+      .bind(cachedFaction.faction_id)
+      .first()) as { id: number } | null;
+
+    if (unfinishedWar) {
+      continue;
+    }
+
+    await env.DB.prepare(
+      `
+      DELETE FROM faction_activity_heatmap
+      WHERE faction_id = ?
+      `,
+    )
+      .bind(cachedFaction.faction_id)
+      .run();
+  }
 }
 
 export async function getWarActivityHeatmap(url: URL, env: Env): Promise<Response> {

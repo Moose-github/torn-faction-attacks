@@ -912,6 +912,34 @@ h2 {
   padding-top: 2px;
 }
 
+.admin-tool-section-wide {
+  grid-column: 1 / -1;
+}
+
+.admin-metric-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+}
+
+.admin-metric-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.admin-metric-line strong {
+  color: #0f172a;
+  font-size: 0.86rem;
+  text-align: right;
+}
+
 .admin-button {
   min-height: 42px;
   padding: 0 12px;

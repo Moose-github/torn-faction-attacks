@@ -9,8 +9,10 @@ import {
   endActiveWar,
   exportWarAttacksCsv,
   fetchTornWarReport,
+  getLatestIngestionRun,
   getWars,
   getStoredAuthSession,
+  IngestionRun,
   importEvent,
   importWar,
   previewImportEvent,
@@ -92,6 +94,8 @@ export function AdminControls() {
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [isRepairPanelCollapsed, setIsRepairPanelCollapsed] = React.useState(true);
+  const [ingestionRun, setIngestionRun] = React.useState<IngestionRun | null>(null);
+  const [isLoadingIngestionRun, setIsLoadingIngestionRun] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -186,12 +190,31 @@ export function AdminControls() {
 
     try {
       setResult(await action());
+      await loadLatestIngestionRun();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsBusy(null);
     }
   }
+
+  async function loadLatestIngestionRun() {
+    setIsLoadingIngestionRun(true);
+    try {
+      const response = await getLatestIngestionRun();
+      setIngestionRun(response.run);
+    } catch {
+      setIngestionRun(null);
+    } finally {
+      setIsLoadingIngestionRun(false);
+    }
+  }
+
+  React.useEffect(() => {
+    if (authSession?.access_level === "admin") {
+      loadLatestIngestionRun();
+    }
+  }, [authSession?.access_level]);
 
   const actions: AdminAction[] = [
     { label: "Run ingestion", run: runIngestion },
@@ -660,6 +683,54 @@ export function AdminControls() {
           onToggle={() => setIsRepairPanelCollapsed((current) => !current)}
         >
           <div className="admin-repair-grid">
+            <section className="admin-tool-section admin-tool-section-wide">
+              <PanelHeader
+                title="Latest ingestion baseline"
+                aside={isLoadingIngestionRun ? "Loading" : ingestionRun?.status ?? "No runs"}
+              />
+              {ingestionRun ? (
+                <div className="admin-metric-list">
+                  <MetricLine label="Started" value={formatIngestionTime(ingestionRun.started_at)} />
+                  <MetricLine label="Finished" value={formatIngestionTime(ingestionRun.finished_at)} />
+                  <MetricLine
+                    label="Total duration"
+                    value={formatDuration(ingestionRun.started_at, ingestionRun.finished_at)}
+                  />
+                  <MetricLine
+                    label="Torn/rankedwar checked"
+                    value={formatDuration(ingestionRun.started_at, ingestionRun.ranked_war_checked_at)}
+                  />
+                  <MetricLine
+                    label="Attacks fetched"
+                    value={formatDuration(ingestionRun.started_at, ingestionRun.attacks_fetch_finished_at)}
+                  />
+                  <MetricLine
+                    label="Stats ready"
+                    value={formatDuration(ingestionRun.started_at, ingestionRun.stats_finished_at)}
+                  />
+                  <MetricLine
+                    label="Heatmap ready"
+                    value={formatDuration(ingestionRun.started_at, ingestionRun.heatmap_finished_at)}
+                  />
+                  <MetricLine
+                    label="Fetched"
+                    value={`${ingestionRun.fetched_attacks} attacks across ${ingestionRun.fetched_pages} pages`}
+                  />
+                  {ingestionRun.error ? <MetricLine label="Error" value={ingestionRun.error} /> : null}
+                </div>
+              ) : (
+                <p className="panel-description">No ingestion run has been recorded yet.</p>
+              )}
+              <button
+                type="button"
+                className="admin-button"
+                disabled={isLoadingIngestionRun}
+                onClick={loadLatestIngestionRun}
+              >
+                Refresh baseline
+              </button>
+            </section>
+
             <section className="admin-tool-section">
               <PanelHeader title="Rebuild stats" />
               <button
@@ -1322,6 +1393,15 @@ function ProjectTodoPanel() {
   );
 }
 
+function MetricLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="admin-metric-line">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 function defaultWarForm(): AdminWarFormState {
   return {
     name: "",
@@ -1671,6 +1751,28 @@ function optionalSecondsFromFormTime(
 
 function secondsFromDateTimeLocal(value: string): number {
   return Math.floor(new Date(value).getTime() / 1000);
+}
+
+function formatIngestionTime(timestamp: number | null): string {
+  if (!timestamp) {
+    return "Not recorded";
+  }
+
+  return new Date(timestamp * 1000).toLocaleString();
+}
+
+function formatDuration(start: number | null, finish: number | null): string {
+  if (!start || !finish) {
+    return "Not recorded";
+  }
+
+  const durationMs = Math.max(0, (finish - start) * 1000);
+  if (durationMs < 1000) {
+    return "<1s";
+  }
+
+  const seconds = durationMs / 1000;
+  return seconds < 60 ? `${seconds.toFixed(1)}s` : `${(seconds / 60).toFixed(1)}m`;
 }
 
 function dateTimeLocalFromSeconds(timestamp: number): string {
