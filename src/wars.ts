@@ -10,7 +10,7 @@ import {
   pullAttackWindow,
   setActiveWarState,
 } from "./ingestion";
-import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromRaw } from "./summaries";
+import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   WAR_RETURNING_COLUMNS,
@@ -148,8 +148,8 @@ export async function createWar(request: Request, env: Env): Promise<Response> {
     if (status === "active" && war) {
       await setActiveWarState(env, war.id, startTime);
       await backfillWarAssignments(env, war.id, startTime);
-      await rebuildWarSummaryFromRaw(env, war.id);
       await rebuildWarMemberStatsFromRaw(env, war.id);
+      await rebuildWarSummaryFromMemberStats(env, war.id);
     }
 
     return json({ ok: true, war }, 201);
@@ -1003,8 +1003,8 @@ async function updateWarInternal(
         .run();
     }
 
-    await rebuildWarSummaryFromRaw(env, warId);
     await rebuildWarMemberStatsFromRaw(env, warId);
+    await rebuildWarSummaryFromMemberStats(env, warId);
 
     return json({ ok: true, war });
   } catch (err: any) {

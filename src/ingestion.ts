@@ -12,7 +12,7 @@ import {
   applyIncrementalWarSummaries,
   finalizeWar,
   rebuildWarMemberStatsFromRaw,
-  rebuildWarSummaryFromRaw,
+  rebuildWarSummaryFromMemberStats,
 } from "./summaries";
 import {
   D1PreparedStatement,
@@ -554,8 +554,8 @@ async function activateScheduledWarIfDue(env: Env): Promise<void> {
 
   await setActiveWarState(env, scheduledWar.id, scheduledWar.practical_start_time);
   await backfillWarAssignments(env, scheduledWar.id, scheduledWar.practical_start_time);
-  await rebuildWarSummaryFromRaw(env, scheduledWar.id);
   await rebuildWarMemberStatsFromRaw(env, scheduledWar.id);
+  await rebuildWarSummaryFromMemberStats(env, scheduledWar.id);
 }
 
 export async function setActiveWarState(
@@ -686,8 +686,8 @@ async function autoEndTermedWarIfLimitReached(
     .bind(checkedAt, rankedWar.id, activeWar.id)
     .run();
 
-  await rebuildWarSummaryFromRaw(env, activeWar.id);
   await rebuildWarMemberStatsFromRaw(env, activeWar.id);
+  await rebuildWarSummaryFromMemberStats(env, activeWar.id);
 }
 
 async function syncRankedWarScores(

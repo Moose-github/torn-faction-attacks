@@ -1,7 +1,7 @@
 import { HOME_FACTION_ID, SOURCE_NAME } from "./constants";
 import { ingestHistoricalWarWindow } from "./ingestion";
 import { DEFENSE_ACTION_WINDOW_SQL } from "./sql";
-import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromRaw } from "./summaries";
+import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
 import { Env, WarRow } from "./types";
 import { json } from "./utils";
 
@@ -56,7 +56,7 @@ export async function relinkWarAttacks(request: Request, env: Env): Promise<Resp
 
       if (!dryRun) {
         await rebuildWarMemberStatsFromRaw(env, war.id);
-        await rebuildWarSummaryFromRaw(env, war.id);
+        await rebuildWarSummaryFromMemberStats(env, war.id);
       }
     }
 

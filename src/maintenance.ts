@@ -1,6 +1,7 @@
 import { refreshMissingFfscouterEstimates } from "./enemyScouting";
 import { sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncMissingRankedWarReports } from "./ingestion";
+import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { Env } from "./types";
 
 type MaintenanceTask = {
@@ -21,6 +22,10 @@ export async function runScheduledMaintenance(env: Env): Promise<void> {
     {
       name: "missing FFScouter estimates",
       run: () => refreshMissingFfscouterEstimates(env),
+    },
+    {
+      name: "member stat correction",
+      run: () => rebuildOpenWarMemberStatsFromRaw(env).then(() => undefined),
     },
   ];
 
