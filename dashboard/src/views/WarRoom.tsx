@@ -256,7 +256,7 @@ export function WarRoom({
 
       <section className="content-grid">
         <CollapsiblePanel
-          title="Faction stats comparison"
+          title="Stats comparison"
           aside={isLoadingScoutingComparison ? "Loading" : "Estimated stats"}
           collapsed={collapsedPanels.scoutingComparison ?? false}
           onToggle={() => togglePanel("scoutingComparison")}
@@ -273,14 +273,14 @@ export function WarRoom({
         </CollapsiblePanel>
 
         <CollapsiblePanel
-          title="Faction activity heatmaps"
+          title="Activity heatmaps"
           aside={isLoadingActivityHeatmap ? "Loading" : "15 minute samples"}
           collapsed={collapsedPanels.activityHeatmaps ?? false}
           onToggle={() => togglePanel("activityHeatmaps")}
           className="heatmap-panel"
         >
           <p className="panel-description">
-            Tracks how many members were recently active in each 15 minute window, based on Torn member last action timestamps.
+            Shows average daily activity patterns from Torn member last-action timestamps.
           </p>
           <div className="heatmap-stack">
             <FactionActivityHeatmap

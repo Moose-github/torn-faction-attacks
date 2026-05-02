@@ -6,25 +6,26 @@ import { formatDate, formatNumber } from "../utils/format";
 const GROUP_DEFINITIONS = [
   {
     key: "after_practical_finish",
-    title: "Buttgrass hits after practical finish",
-    detail: "These can appear in Torn's official totals but not member performance stats.",
+    title: "Hits after practical finish",
+    detail:
+      "These Buttgrass hits happened after the practical finish, so they may appear in Torn totals but not member performance.",
   },
   {
     key: "uncounted_enemy_results",
     title: "Unknown attack results",
     detail:
-      "These are Buttgrass attacks on the enemy faction with result values outside the known successful and unsuccessful lists.",
+      "These enemy-faction attacks have result values outside the known successful and unsuccessful lists.",
   },
   {
     key: "chain_bonus_adjustments",
     title: "Chain bonus respect adjusted",
     detail:
-      "These chain bonus hits count as the member's normal average respect instead of the raw bonus-inflated respect.",
+      "Chain bonus attacks count, but bonus respect is replaced with the member's average respect/hit.",
   },
   {
     key: "outside_official_window",
-    title: "Buttgrass hits outside official window",
-    detail: "These linked Buttgrass attacks are before the start time or after Torn's official end.",
+    title: "Hits outside official window",
+    detail: "These linked Buttgrass attacks fall outside Torn's official war window.",
   },
 ];
 
@@ -109,8 +110,7 @@ function MemberReportComparison({
         <div>
           <h3>Official member totals</h3>
           <p>
-            Compares Torn's official member attacks and score against local raw successful hits in the
-            official war window.
+            Compares each member's dashboard totals with Torn's official member totals.
           </p>
         </div>
         <strong>
@@ -193,7 +193,9 @@ export function discrepancyAside(response: ReportDiscrepanciesResponse | null): 
   const { attacks, respectRemoved } = visibleGroupDefinitions(response).reduce(
     (totals, definition) => {
       const group = response.groups[definition.key];
-      totals.attacks += group?.count ?? 0;
+      if (definition.key !== "chain_bonus_adjustments") {
+        totals.attacks += group?.count ?? 0;
+      }
 
       if (
         definition.key === "chain_bonus_adjustments" ||
@@ -215,7 +217,7 @@ function visibleGroupDefinitions(response: ReportDiscrepanciesResponse) {
 
 function discrepancyGroupSummary(key: string, count: number, respectGain: number): string {
   if (key === "chain_bonus_adjustments") {
-    return `${formatNumber(count)} attacks / ${formatNumber(respectGain)} respect adjusted`;
+    return `${formatNumber(count)} chain hits / ${formatNumber(respectGain)} respect removed`;
   }
 
   if (key === "after_practical_finish") {

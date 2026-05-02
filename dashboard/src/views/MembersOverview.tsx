@@ -1,12 +1,13 @@
 import React from "react";
 import { CalendarClock, Swords, Target } from "lucide-react";
-import { getStats, WarType } from "../api";
+import { getStats, MemberStats, WarType } from "../api";
 import { MetricCard, PanelHeader } from "../components/Common";
 import { MemberTable } from "../components/MemberTables";
+import { downloadCsv, sanitizeCsvFilename } from "../utils/csv";
 import { formatNumber } from "../utils/format";
-import { MemberSort, sortMembers, sumMembers } from "../utils/members";
+import { displayMember, MemberSort, sortMembers, sumMembers } from "../utils/members";
 
-export function MembersOverview() {
+export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
   const [warType, setWarType] = React.useState<WarType>("all");
   const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getStats>> | null>(null);
   const [sort, setSort] = React.useState<MemberSort>({
@@ -95,6 +96,20 @@ export function MembersOverview() {
         <PanelHeader
           title="Faction members breakdown"
           aside={isLoading ? "Loading" : `${members.length} members`}
+          control={
+            isAdmin ? (
+              <>
+                <span>{isLoading ? "Loading" : `${members.length} members`}</span>
+                <button
+                  type="button"
+                  className="panel-action-button"
+                  onClick={() => exportMembersOverviewCsv(members, warType)}
+                >
+                  CSV
+                </button>
+              </>
+            ) : undefined
+          }
         />
         <p className="panel-description">
           Combines member performance across the selected record type so longer-term activity can be compared.
@@ -108,5 +123,34 @@ export function MembersOverview() {
         />
       </section>
     </>
+  );
+}
+
+function exportMembersOverviewCsv(members: MemberStats[], warType: WarType) {
+  const columns: Array<{
+    label: string;
+    value: (member: MemberStats) => string | number | null | undefined;
+  }> = [
+    { label: "Member", value: (member) => displayMember(member) },
+    { label: "Wars participated", value: (member) => member.wars_participated },
+    { label: "Attacks", value: (member) => member.enemy_attacks_successful },
+    { label: "Defends", value: (member) => member.defends_total },
+    ...(warType === "termed"
+      ? []
+      : [{ label: "Outside hits", value: (member: MemberStats) => member.outside_attacks }]),
+    { label: "Respect gained", value: (member) => member.enemy_respect_gained },
+    { label: "Assists", value: (member) => member.enemy_assists },
+    ...(warType === "termed"
+      ? [{ label: "Percent limit", value: (member: MemberStats) => member.member_respect_limit_percent }]
+      : [
+          { label: "Friendly hosps", value: (member: MemberStats) => member.friendly_hospitals },
+          { label: "Retaliations", value: (member: MemberStats) => member.enemy_retaliations },
+        ]),
+  ];
+
+  downloadCsv(
+    `member-performance-${sanitizeCsvFilename(warType)}.csv`,
+    columns,
+    members,
   );
 }

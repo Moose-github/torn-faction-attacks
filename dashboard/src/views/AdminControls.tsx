@@ -715,7 +715,7 @@ export function AdminControls() {
           <div className="admin-repair-grid">
             <section className="admin-tool-section admin-tool-section-wide">
               <PanelHeader
-                title="Latest ingestion baseline"
+                title="Latest data refresh"
                 aside={isLoadingIngestionRun ? "Loading" : ingestionRun?.status ?? "No runs"}
               />
               {ingestionRun ? (
@@ -817,7 +817,7 @@ export function AdminControls() {
             </section>
 
             <section className="admin-tool-section">
-              <PanelHeader title="Relink attacks" />
+              <PanelHeader title="Reassign attacks to wars/events" />
               <form className="admin-form">
                 <label>
                   <span>Torn war ID</span>
@@ -851,22 +851,22 @@ export function AdminControls() {
                   className="admin-button admin-form-wide"
                   disabled={isBusy !== null}
                   onClick={() =>
-                    runAdminAction("Preview relink attacks", () =>
+                    runAdminAction("Preview attack reassignment", () =>
                       previewRelinkAttacks(toRelinkPayload(relinkForm)),
                     )
                   }
                 >
-                  Preview relink attacks
+                  Preview reassignment
                 </button>
                 <button
                   type="button"
                   className="admin-button primary admin-form-wide"
                   disabled={isBusy !== null}
                   onClick={() =>
-                    runAdminAction("Relink attacks", () => relinkAttacks(toRelinkPayload(relinkForm)))
+                    runAdminAction("Reassign attacks to wars/events", () => relinkAttacks(toRelinkPayload(relinkForm)))
                   }
                 >
-                  Relink attacks
+                  Reassign attacks
                 </button>
               </form>
             </section>
@@ -898,12 +898,12 @@ export function AdminControls() {
             </section>
 
             <section className="admin-tool-section">
-              <PanelHeader title="Pull attack window" />
+              <PanelHeader title="Fetch attacks by time range" />
               <form
                 className="admin-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  runAdminAction("Pull attack window", () =>
+                  runAdminAction("Fetch attacks by time range", () =>
                     pullAttackWindow({
                       practical_start_time: attackWindowSecondsFromForm(
                         attackWindowForm,
@@ -983,7 +983,7 @@ export function AdminControls() {
                   />
                 </label>
                 <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
-                  Pull attack window
+                  Fetch attacks
                 </button>
               </form>
             </section>

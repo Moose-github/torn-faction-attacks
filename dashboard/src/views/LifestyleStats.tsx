@@ -6,6 +6,7 @@ import {
   refreshMemberLifestyleStats,
 } from "../api";
 import { MetricCard, PanelHeader } from "../components/Common";
+import { downloadCsv, sanitizeCsvFilename } from "../utils/csv";
 import { formatNumber, formatRelativeTime } from "../utils/format";
 
 type LifestyleSortKey =
@@ -170,6 +171,20 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
         <PanelHeader
           title="Member daily averages"
           aside={isLoading ? "Loading" : `${members.length} members`}
+          control={
+            isAdmin ? (
+              <>
+                <span>{isLoading ? "Loading" : `${members.length} members`}</span>
+                <button
+                  type="button"
+                  className="panel-action-button"
+                  onClick={() => exportLifestyleCsv(members, period)}
+                >
+                  CSV
+                </button>
+              </>
+            ) : undefined
+          }
         />
         <p className="panel-description">
           Shows each member's average daily activity during selected time period.
@@ -178,6 +193,35 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
         <LifestyleTable members={members} sort={sort} onSortChange={setSort} />
       </section>
     </>
+  );
+}
+
+function exportLifestyleCsv(
+  members: MemberLifestyleStats[],
+  period: { startDate: string; endDate: string },
+) {
+  const columns: Array<{
+    label: string;
+    value: (member: MemberLifestyleStats) => string | number | null | undefined;
+  }> = [
+    { label: "Member", value: (member) => member.member_name ?? member.member_id },
+    { label: "Member ID", value: (member) => member.member_id },
+    { label: "ODs", value: (member) => member.overdosed },
+    { label: "Daily Xanax", value: (member) => member.average_xantaken },
+    { label: "Daily Refills", value: (member) => member.average_refills },
+    { label: "Daily Activity Hours", value: (member) => activityHours(member.average_useractivity) },
+    { label: "Daily Gym Energy", value: (member) => member.average_gymenergy },
+    { label: "Daily Strength", value: (member) => member.average_gymstrength },
+    { label: "Daily Speed", value: (member) => member.average_gymspeed },
+    { label: "Daily Defense", value: (member) => member.average_gymdefense },
+    { label: "Daily Dexterity", value: (member) => member.average_gymdexterity },
+    { label: "Updated At", value: (member) => member.updated_at },
+  ];
+
+  downloadCsv(
+    `member-daily-averages-${sanitizeCsvFilename(period.startDate)}-${sanitizeCsvFilename(period.endDate)}.csv`,
+    columns,
+    members,
   );
 }
 
@@ -340,6 +384,9 @@ function formatActivityAverage(secondsPerDay: number | null): string {
     return "-";
   }
 
-  const hours = secondsPerDay / 3600;
-  return `${formatNumber(hours)}h`;
+  return `${formatNumber(activityHours(secondsPerDay))}h`;
+}
+
+function activityHours(secondsPerDay: number | null): number | null {
+  return secondsPerDay === null ? null : secondsPerDay / 3600;
 }

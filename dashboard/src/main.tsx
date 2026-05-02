@@ -57,6 +57,7 @@ import {
   formatNumber,
   formatWarDateRange,
 } from "./utils/format";
+import { downloadCsv, sanitizeCsvFilename } from "./utils/csv";
 import {
   displayMember,
   displayWarStatus,
@@ -519,7 +520,7 @@ function App() {
           ) : view === "lifestyle" ? (
             <LifestyleStats isAdmin={isAdmin} />
           ) : view === "members" ? (
-            <MembersOverview />
+            <MembersOverview isAdmin={isAdmin} />
           ) : view === "warRoom" ? (
             <WarRoom selectedWar={selectedWar} selectedWarName={selectedWarName} onError={setError} />
           ) : selectedWar ? (
@@ -637,7 +638,7 @@ function App() {
                     className="table-panel"
                   >
                     <p className="panel-description">
-                      Compares dashboard-derived attacks and adjusted respect against Torn's official ranked war report.
+                      Compares dashboard totals with Torn's official ranked war report.
                     </p>
                     <div className="table-scroll">
                       <table className="report-validation-table">
@@ -674,15 +675,14 @@ function App() {
                     </div>
                   </CollapsiblePanel>
                   <CollapsiblePanel
-                    title="Report discrepancy drilldown"
+                    title="Report discrepancy breakdown"
                     aside={isLoadingReportDiscrepancies ? "Loading" : discrepancyAside(reportDiscrepancies)}
                     collapsed={collapsedPanels.reportDiscrepancies ?? true}
                     onToggle={() => togglePanel("reportDiscrepancies")}
                     className="table-panel"
                   >
                     <p className="panel-description">
-                      Breaks down the specific attacks that explain differences between member-performance
-                      rules and Torn's official ranked war report.
+                      Breaks down attack and respect adjustments behind differences from Torn's official ranked war report.
                     </p>
                     <ReportDiscrepancyPanel response={reportDiscrepancies} />
                   </CollapsiblePanel>
@@ -784,8 +784,7 @@ function App() {
                     }
                   />
                   <p className="panel-description">
-                    Lists this member's individual attacks and defends during the counted war period, with row
-                    colour showing how each action was classified.
+                    Lists this member's counted attacks and defends, with row colour showing how each action was classified.
                   </p>
                   <MemberAttackList
                     attacks={sortedMemberAttacks}
@@ -927,19 +926,7 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
           { label: "Retaliations", value: (member: MemberStats) => member.enemy_retaliations },
         ]),
   ];
-  const lines = [
-    columns.map((column) => csvCell(column.label)).join(","),
-    ...members.map((member) => columns.map((column) => csvCell(column.value(member))).join(",")),
-  ];
-  const blob = new Blob([`${lines.join("\r\n")}\r\n`], { type: "text/csv;charset=utf-8" });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${sanitizeCsvFilename(war.name)}-members.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
+  downloadCsv(`${sanitizeCsvFilename(war.name)}-members.csv`, columns, members);
 }
 
 function exportMemberAttacksCsv(
@@ -963,32 +950,11 @@ function exportMemberAttacksCsv(
     { label: "Result", value: (attack) => attack.result },
     { label: "Respect", value: (attack) => attack.respect_gain },
   ];
-  const lines = [
-    columns.map((column) => csvCell(column.label)).join(","),
-    ...attacks.map((attack) => columns.map((column) => csvCell(column.value(attack))).join(",")),
-  ];
-  const blob = new Blob([`${lines.join("\r\n")}\r\n`], { type: "text/csv;charset=utf-8" });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${sanitizeCsvFilename(war.name)}-${sanitizeCsvFilename(displayMember(member))}-attacks.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
-}
-
-function csvCell(value: unknown): string {
-  if (value === null || value === undefined) {
-    return "";
-  }
-
-  const text = String(value);
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-function sanitizeCsvFilename(value: string): string {
-  return value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "members";
+  downloadCsv(
+    `${sanitizeCsvFilename(war.name)}-${sanitizeCsvFilename(displayMember(member))}-attacks.csv`,
+    columns,
+    attacks,
+  );
 }
 
 function WarTimeLine({ label, value }: { label: string; value: string }) {
