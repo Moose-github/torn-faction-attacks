@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BarChart3, CalendarClock, Pill, Radar, Swords, Target, Wrench } from "lucide-react";
 import {
-  getStats,
   getWar,
   getWarActivity,
   getWarMemberAttacks,
@@ -70,7 +69,6 @@ function App() {
   const [wars, setWars] = React.useState<WarSummary[]>([]);
   const [selectedWarName, setSelectedWarName] = React.useState<string | null>(null);
   const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
-  const [overallWars, setOverallWars] = React.useState(0);
   const [memberSort, setMemberSort] = React.useState<MemberSort>({
     key: "enemy_attacks_successful",
     direction: "desc",
@@ -84,7 +82,6 @@ function App() {
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
   const [factionActivityWindow, setFactionActivityWindow] = React.useState<"practical" | "official">("practical");
   const [activityBuckets, setActivityBuckets] = React.useState<WarActivityBucket[]>([]);
-  const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
   const [reportDiscrepancies, setReportDiscrepancies] = React.useState<ReportDiscrepanciesResponse | null>(null);
   const [isLoadingReportDiscrepancies, setIsLoadingReportDiscrepancies] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({});
@@ -117,15 +114,11 @@ function App() {
     setError(null);
 
     try {
-      const [warsResponse, statsResponse] = await Promise.all([
-        getWars(warType),
-        getStats(warType),
-      ]);
+      const warsResponse = await getWars(warType);
 
       if (cancelled) return;
 
       setWars(warsResponse.wars);
-      setOverallWars(statsResponse.overall.total_wars);
 
       setSelectedWarName((currentSelectedWarName) => {
         const selectedStillVisible = warsResponse.wars.some(
@@ -199,7 +192,6 @@ function App() {
         return;
       }
 
-      setIsLoadingActivity(true);
       setError(null);
 
       try {
@@ -210,10 +202,6 @@ function App() {
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingActivity(false);
         }
       }
     }
@@ -257,9 +245,8 @@ function App() {
     let cancelled = false;
     const timer = window.setInterval(async () => {
       try {
-        const [warsResponse, statsResponse, detailResponse, activityResponse] = await Promise.all([
+        const [warsResponse, detailResponse, activityResponse] = await Promise.all([
           getWars(warType),
-          getStats(warType),
           getWar(selectedWarName),
           getWarActivity(selectedWarName, factionActivityWindow),
         ]);
@@ -269,7 +256,6 @@ function App() {
         }
 
         setWars(warsResponse.wars);
-        setOverallWars(statsResponse.overall.total_wars);
         setWarDetail(detailResponse);
         setActivityBuckets(Array.isArray(activityResponse.buckets) ? activityResponse.buckets : []);
 

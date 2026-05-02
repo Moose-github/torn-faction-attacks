@@ -36,20 +36,6 @@ type LifestyleMemberRow = {
   updated_at: number | null;
 };
 
-type LifestyleStatsRow = LifestyleStats & {
-  member_id: number;
-  member_name: string | null;
-  level: number | null;
-  position: string | null;
-  gymenergy: number | null;
-  gymstrength: number | null;
-  gymspeed: number | null;
-  gymdefense: number | null;
-  gymdexterity: number | null;
-  updated_at: number | null;
-  error: string | null;
-};
-
 type LifestylePeriodRow = {
   member_id: number;
   member_name: string | null;
@@ -615,35 +601,6 @@ async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Pr
   )
     .bind(snapshotDate)
     .run();
-}
-
-function summarizeLifestyleRows(rows: LifestyleStatsRow[]) {
-  const withXanax = rows.filter((row) => row.xantaken !== null);
-  const withOverdoses = rows.filter((row) => row.overdosed !== null);
-  const totalXanax = rows.reduce((total, row) => total + Number(row.xantaken ?? 0), 0);
-  const totalOverdoses = rows.reduce((total, row) => total + Number(row.overdosed ?? 0), 0);
-  const totalGymEnergy = rows.reduce((total, row) => total + Number(row.gymenergy ?? 0), 0);
-  const totalRefills = rows.reduce((total, row) => total + Number(row.refills ?? 0), 0);
-  const withGymEnergy = rows.filter((row) => row.gymenergy !== null);
-  const withRefills = rows.filter((row) => row.refills !== null);
-
-  return {
-    members: rows.length,
-    updated_members: rows.filter((row) => row.updated_at !== null).length,
-    total_xantaken: totalXanax,
-    average_xantaken: withXanax.length === 0 ? 0 : totalXanax / withXanax.length,
-    total_overdosed: totalOverdoses,
-    average_overdosed: withOverdoses.length === 0 ? 0 : totalOverdoses / withOverdoses.length,
-    average_gymenergy: withGymEnergy.length === 0 ? 0 : totalGymEnergy / withGymEnergy.length,
-    average_refills: withRefills.length === 0 ? 0 : totalRefills / withRefills.length,
-    errors: rows.filter((row) => row.error).length,
-    oldest_updated_at: rows.reduce<number | null>((oldest, row) => {
-      if (row.updated_at === null) {
-        return oldest;
-      }
-      return oldest === null ? row.updated_at : Math.min(oldest, row.updated_at);
-    }, null),
-  };
 }
 
 function buildPeriodRows(rows: LifestyleSnapshotRow[]): LifestylePeriodRow[] {

@@ -1206,20 +1206,6 @@ function parseWarType(value: unknown, fallback: string): string {
   return warType;
 }
 
-function parseWarTypeQuery(url: URL): string | null | Response {
-  const value = url.searchParams.get("war_type");
-  if (value === null || value.trim() === "") {
-    return null;
-  }
-
-  const warType = value.trim().toLowerCase();
-  if (!WAR_TYPES.includes(warType as (typeof WAR_TYPES)[number])) {
-    return json({ ok: false, error: "Invalid war_type", code: "INVALID_WAR_TYPE" }, 400);
-  }
-
-  return warType;
-}
-
 function parseWarStatus(value: unknown): string {
   const status = value === undefined || value === null ? "" : String(value).trim().toLowerCase();
 

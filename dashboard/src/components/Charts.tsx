@@ -74,7 +74,7 @@ function chartMetricValue(member: MemberStats, metricKey: MemberSortKey): number
   return Number(member[metricKey] ?? 0);
 }
 
-export type ActivityKey = keyof Pick<
+type ActivityKey = keyof Pick<
   WarActivityBucket,
   "enemy_success" | "enemy_assist" | "outside" | "defend_lost" | "defend_won"
 >;
@@ -274,12 +274,6 @@ export function FactionActivityHeatmap({
                 </span>
               );
             })}
-          </div>
-          <div className="heatmap-square-axis">
-            <span>Night</span>
-            <span>Morning</span>
-            <span>Afternoon</span>
-            <span>Evening</span>
           </div>
         </div>
       </div>

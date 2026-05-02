@@ -6,9 +6,7 @@ import {
   classificationLabel,
   displayMember,
   MemberAttackSort,
-  MemberAttackSortKey,
   MemberSort,
-  MemberSortKey,
 } from "../utils/members";
 
 export function MemberTable({

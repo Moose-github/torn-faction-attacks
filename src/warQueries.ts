@@ -290,17 +290,34 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
     }
     const outgoingWindowSql =
       windowMode === "official" ? OFFICIAL_OUTGOING_ACTION_WINDOW_SQL : OUTGOING_ACTION_WINDOW_SQL;
+    const activityWindowSql =
+      windowMode === "official" ? OFFICIAL_ACTIVITY_WINDOW_SQL : PRACTICAL_ACTIVITY_WINDOW_SQL;
 
     const war = (await env.DB.prepare(
       `
-      SELECT id, name, enemy_faction_id
+      SELECT
+        id,
+        name,
+        enemy_faction_id,
+        practical_start_time,
+        practical_finish_time,
+        official_start_time,
+        official_end_time
       FROM wars
       WHERE LOWER(name) = LOWER(?)
       LIMIT 1
       `,
     )
       .bind(name)
-      .first()) as { id: number; name: string; enemy_faction_id: number | null } | null;
+      .first()) as {
+      id: number;
+      name: string;
+      enemy_faction_id: number | null;
+      practical_start_time: number;
+      practical_finish_time: number | null;
+      official_start_time: number | null;
+      official_end_time: number | null;
+    } | null;
 
     if (!war) {
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
@@ -360,6 +377,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.started IS NOT NULL
+        AND ${activityWindowSql}
       GROUP BY bucket_start
       ORDER BY bucket_start ASC
       `,
@@ -396,6 +414,10 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
         id: war.id,
         name: war.name,
         enemy_faction_id: war.enemy_faction_id,
+        practical_start_time: war.practical_start_time,
+        practical_finish_time: war.practical_finish_time,
+        official_start_time: war.official_start_time,
+        official_end_time: war.official_end_time,
       },
       bucket_minutes: bucketMinutes,
       window: windowMode,
@@ -500,6 +522,16 @@ const OFFICIAL_OUTGOING_ACTION_WINDOW_SQL = `
       AND (w.official_end_time IS NULL OR a.started <= w.official_end_time)
     )
   )
+`;
+
+const PRACTICAL_ACTIVITY_WINDOW_SQL = `
+  a.started >= w.practical_start_time
+  AND (w.practical_finish_time IS NULL OR a.started <= w.practical_finish_time)
+`;
+
+const OFFICIAL_ACTIVITY_WINDOW_SQL = `
+  a.started >= COALESCE(w.official_start_time, w.practical_start_time)
+  AND (w.official_end_time IS NULL OR a.started <= w.official_end_time)
 `;
 
 function classifyMemberAttack(

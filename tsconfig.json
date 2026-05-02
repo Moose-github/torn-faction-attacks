@@ -8,6 +8,8 @@
 		"noEmit": true,
 		"isolatedModules": true,
 		"forceConsistentCasingInFileNames": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
 		"skipLibCheck": true,
 		"strict": true
 	},

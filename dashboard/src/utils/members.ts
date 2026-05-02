@@ -134,7 +134,7 @@ export function displayWarStatus(war: WarSummary): string {
   return war.status;
 }
 
-export function hasOfficialEnd(war: WarSummary): boolean {
+function hasOfficialEnd(war: WarSummary): boolean {
   return Boolean(war.official_end_time);
 }
 

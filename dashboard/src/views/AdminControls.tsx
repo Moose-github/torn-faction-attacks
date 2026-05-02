@@ -300,8 +300,6 @@ export function AdminControls() {
 
       {authSession?.access_level === "admin" ? (
       <section className="admin-grid">
-        <ProjectTodoPanel />
-
         <section className="panel admin-panel-edit-official">
           <PanelHeader title="Edit official war" />
           <form
@@ -1413,26 +1411,6 @@ function WarFields({
         </>
       ) : null}
     </>
-  );
-}
-
-function ProjectTodoPanel() {
-  const items = [
-    "Add better admin controls",
-    "Add better security-fix endpoints",
-    "Add Caching",
-    "UI stuff",
-  ];
-
-  return (
-    <section className="panel todo-panel">
-      <PanelHeader title="To-do" />
-      <ol>
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ol>
-    </section>
   );
 }
 

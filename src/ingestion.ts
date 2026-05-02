@@ -544,7 +544,7 @@ export async function pullAttackWindow(
   };
 }
 
-export async function activateScheduledWarIfDue(env: Env): Promise<void> {
+async function activateScheduledWarIfDue(env: Env): Promise<void> {
   const now = nowSeconds();
 
   const activeWar = (await env.DB.prepare(

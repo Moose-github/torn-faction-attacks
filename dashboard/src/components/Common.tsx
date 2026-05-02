@@ -1,4 +1,5 @@
 import React from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { formatNumber } from "../utils/format";
 
 export function MetricCard({
@@ -64,7 +65,7 @@ export function CollapsiblePanel({
     <section className={`panel collapsible-panel ${className}`.trim()}>
       <div className="panel-header collapsible-header">
         <button type="button" className="collapse-button" onClick={onToggle}>
-          <span>{collapsed ? "+" : "-"}</span>
+          <span>{collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</span>
           <strong>{title}</strong>
         </button>
         {control ?? (aside ? <span>{aside}</span> : null)}

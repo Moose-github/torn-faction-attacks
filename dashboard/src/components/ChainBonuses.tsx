@@ -16,16 +16,18 @@ export function ChainBonusList({
   return (
     <div className={compact ? "chain-bonus-compact" : "table-scroll"}>
       <table className={compact ? "chain-bonus-table compact-table" : "chain-bonus-table"}>
-        <thead>
-          <tr>
-            {!compact ? <th>Time</th> : null}
-            <th>Member</th>
-            <th>Chain</th>
-            {!compact ? <th>Raw</th> : null}
-            {!compact ? <th>Adjusted</th> : null}
-            {!compact ? <th>Removed</th> : null}
-          </tr>
-        </thead>
+        {!compact ? (
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Member</th>
+              <th>Chain</th>
+              <th>Raw</th>
+              <th>Adjusted</th>
+              <th>Removed</th>
+            </tr>
+          </thead>
+        ) : null}
         <tbody>
           {attacks.map((attack) => (
             <tr key={`chain-${attack.id}`}>

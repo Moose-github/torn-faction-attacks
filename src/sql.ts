@@ -1,4 +1,4 @@
-export const WAR_COLUMN_NAMES = [
+const WAR_COLUMN_NAMES = [
   "id",
   "name",
   "status",
