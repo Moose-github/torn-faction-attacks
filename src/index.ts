@@ -98,7 +98,7 @@ export default {
     }
 
     if (url.pathname === "/api/member-lifestyle-stats" && request.method === "GET") {
-      return getMemberLifestyleStats(env);
+      return getMemberLifestyleStats(url, env);
     }
 
     if (url.pathname === "/api/member-lifestyle-stats/refresh" && request.method === "POST") {

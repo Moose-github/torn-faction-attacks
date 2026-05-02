@@ -349,33 +349,38 @@ export type IngestionRunResponse = {
 export type MemberLifestyleStats = {
   member_id: number;
   member_name: string | null;
-  level: number | null;
-  position: string | null;
-  xantaken: number | null;
-  overdosed: number | null;
-  refills: number | null;
-  useractivity: number | null;
-  gymenergy: number | null;
-  gymstrength: number | null;
-  gymspeed: number | null;
-  gymdefense: number | null;
-  gymdexterity: number | null;
+  overdosed: number;
+  average_xantaken: number;
+  average_refills: number;
+  average_useractivity: number;
+  average_gymenergy: number;
+  average_gymstrength: number;
+  average_gymspeed: number;
+  average_gymdefense: number;
+  average_gymdexterity: number;
+  first_snapshot_date: string | null;
+  last_snapshot_date: string | null;
   updated_at: number | null;
-  error: string | null;
 };
 
 export type MemberLifestyleStatsResponse = {
   ok: boolean;
+  period: {
+    start_date: string;
+    end_date: string;
+    days: number;
+  };
   summary: {
     members: number;
-    updated_members: number;
-    total_xantaken: number;
-    average_xantaken: number;
     total_overdosed: number;
-    average_overdosed: number;
-    average_gymenergy: number;
+    average_xantaken: number;
     average_refills: number;
-    errors: number;
+    average_useractivity: number;
+    average_gymenergy: number;
+    average_gymstrength: number;
+    average_gymspeed: number;
+    average_gymdefense: number;
+    average_gymdexterity: number;
     oldest_updated_at: number | null;
   };
   members: MemberLifestyleStats[];
@@ -541,8 +546,20 @@ export async function getLatestIngestionRun(): Promise<IngestionRunResponse> {
   return getJson<IngestionRunResponse>("/api/admin/ingestion-run", true);
 }
 
-export async function getMemberLifestyleStats(): Promise<MemberLifestyleStatsResponse> {
-  return getJson<MemberLifestyleStatsResponse>("/api/member-lifestyle-stats");
+export async function getMemberLifestyleStats(options: {
+  startDate?: string;
+  endDate?: string;
+} = {}): Promise<MemberLifestyleStatsResponse> {
+  const params = new URLSearchParams();
+  if (options.startDate) {
+    params.set("start_date", options.startDate);
+  }
+  if (options.endDate) {
+    params.set("end_date", options.endDate);
+  }
+
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return getJson<MemberLifestyleStatsResponse>(`/api/member-lifestyle-stats${suffix}`);
 }
 
 export async function refreshMemberLifestyleStats(

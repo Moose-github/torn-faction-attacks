@@ -821,12 +821,30 @@ h2 {
   font-weight: 800;
 }
 
+.lifestyle-filter-panel {
+  margin-bottom: 16px;
+}
+
+.lifestyle-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.lifestyle-filter-row label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
 .report-validation-table td:first-child {
   font-weight: 800;
 }
 
 .lifestyle-table {
-  min-width: 920px;
+  min-width: 1060px;
 }
 
 .lifestyle-table td:first-child {

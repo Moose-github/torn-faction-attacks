@@ -50,14 +50,47 @@ type LifestyleStatsRow = LifestyleStats & {
   error: string | null;
 };
 
-export async function getMemberLifestyleStats(env: Env): Promise<Response> {
-  const rows = ((await env.DB.prepare(
+type LifestylePeriodRow = {
+  member_id: number;
+  member_name: string | null;
+  overdosed: number;
+  average_xantaken: number;
+  average_refills: number;
+  average_useractivity: number;
+  average_gymenergy: number;
+  average_gymstrength: number;
+  average_gymspeed: number;
+  average_gymdefense: number;
+  average_gymdexterity: number;
+  first_snapshot_date: string | null;
+  last_snapshot_date: string | null;
+  updated_at: number | null;
+};
+
+type LifestyleSnapshotRow = {
+  member_id: number;
+  snapshot_date: string;
+  member_name: string | null;
+  xantaken: number | null;
+  overdosed: number | null;
+  refills: number | null;
+  useractivity: number | null;
+  gymenergy: number | null;
+  gymstrength: number | null;
+  gymspeed: number | null;
+  gymdefense: number | null;
+  gymdexterity: number | null;
+  captured_at: number;
+};
+
+export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
+  const period = readLifestylePeriod(url);
+  const snapshotRows = ((await env.DB.prepare(
     `
     SELECT
       member_id,
+      snapshot_date,
       member_name,
-      level,
-      position,
       xantaken,
       overdosed,
       refills,
@@ -67,16 +100,20 @@ export async function getMemberLifestyleStats(env: Env): Promise<Response> {
       gymspeed,
       gymdefense,
       gymdexterity,
-      updated_at,
-      error
-    FROM member_lifestyle_stats
-    ORDER BY xantaken DESC NULLS LAST, member_name ASC
+      captured_at
+    FROM member_lifestyle_stat_snapshots
+    WHERE snapshot_date BETWEEN ? AND ?
+    ORDER BY member_id ASC, snapshot_date ASC
     `,
-  ).all()).results ?? []) as LifestyleStatsRow[];
+  )
+    .bind(period.start_date, period.end_date)
+    .all()).results ?? []) as LifestyleSnapshotRow[];
+  const rows = buildPeriodRows(snapshotRows);
 
   return json({
     ok: true,
-    summary: summarizeLifestyleRows(rows),
+    period,
+    summary: summarizeLifestylePeriodRows(rows),
     members: rows,
   });
 }
@@ -90,6 +127,7 @@ export async function refreshMemberLifestyleStatsFromRequest(
   const force = url.searchParams.get("force") === "true";
   const result = await refreshMemberLifestyleStats(env, { limit, force });
   const gymResult = await refreshGymContributorStats(env);
+  await writeLifestyleSnapshotForDate(env, utcDateKey(nowSeconds()));
 
   return json({ ok: true, ...result, gym_contributors: gymResult });
 }
@@ -154,7 +192,10 @@ export async function refreshDailyMemberLifestyleStats(
     staleBefore: refreshAt,
   });
   await refreshDailyGymContributorStats(env, refreshAt);
-  await markDailyLifestyleRefreshCompleteIfDone(env, stateName, refreshAt);
+  const complete = await markDailyLifestyleRefreshCompleteIfDone(env, stateName, refreshAt);
+  if (complete) {
+    await writeLifestyleSnapshotForDate(env, utcDateKey(refreshAt));
+  }
 
   return { ...result, skipped: false };
 }
@@ -199,7 +240,7 @@ async function markDailyLifestyleRefreshCompleteIfDone(
   env: Env,
   stateName: string,
   refreshAt: number,
-): Promise<void> {
+): Promise<boolean> {
   const remaining = await env.DB.prepare(
     `
     SELECT members.member_id
@@ -215,7 +256,7 @@ async function markDailyLifestyleRefreshCompleteIfDone(
     .first();
 
   if (remaining) {
-    return;
+    return false;
   }
 
   await env.DB.prepare(
@@ -229,6 +270,8 @@ async function markDailyLifestyleRefreshCompleteIfDone(
   )
     .bind(stateName, nowSeconds())
     .run();
+
+  return true;
 }
 
 async function syncHomeFactionMemberList(env: Env): Promise<void> {
@@ -370,7 +413,7 @@ async function upsertLifestyleStats(
       updated_at,
       error
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch(), ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), ?)
     ON CONFLICT(member_id) DO UPDATE SET
       member_name = excluded.member_name,
       level = excluded.level,
@@ -506,6 +549,58 @@ async function readHomeMembersById(env: Env): Promise<Map<number, LifestyleMembe
   return new Map(rows.map((row) => [row.member_id, row]));
 }
 
+async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Promise<void> {
+  await env.DB.prepare(
+    `
+    INSERT INTO member_lifestyle_stat_snapshots (
+      member_id,
+      snapshot_date,
+      member_name,
+      xantaken,
+      overdosed,
+      refills,
+      useractivity,
+      gymenergy,
+      gymstrength,
+      gymspeed,
+      gymdefense,
+      gymdexterity,
+      captured_at
+    )
+    SELECT
+      member_id,
+      ?,
+      member_name,
+      xantaken,
+      overdosed,
+      refills,
+      useractivity,
+      gymenergy,
+      gymstrength,
+      gymspeed,
+      gymdefense,
+      gymdexterity,
+      unixepoch()
+    FROM member_lifestyle_stats
+    WHERE updated_at IS NOT NULL
+    ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
+      member_name = excluded.member_name,
+      xantaken = excluded.xantaken,
+      overdosed = excluded.overdosed,
+      refills = excluded.refills,
+      useractivity = excluded.useractivity,
+      gymenergy = excluded.gymenergy,
+      gymstrength = excluded.gymstrength,
+      gymspeed = excluded.gymspeed,
+      gymdefense = excluded.gymdefense,
+      gymdexterity = excluded.gymdexterity,
+      captured_at = excluded.captured_at
+    `,
+  )
+    .bind(snapshotDate)
+    .run();
+}
+
 function summarizeLifestyleRows(rows: LifestyleStatsRow[]) {
   const withXanax = rows.filter((row) => row.xantaken !== null);
   const withOverdoses = rows.filter((row) => row.overdosed !== null);
@@ -533,6 +628,118 @@ function summarizeLifestyleRows(rows: LifestyleStatsRow[]) {
       return oldest === null ? row.updated_at : Math.min(oldest, row.updated_at);
     }, null),
   };
+}
+
+function buildPeriodRows(rows: LifestyleSnapshotRow[]): LifestylePeriodRow[] {
+  const grouped = new Map<number, LifestyleSnapshotRow[]>();
+  for (const row of rows) {
+    const existing = grouped.get(row.member_id) ?? [];
+    existing.push(row);
+    grouped.set(row.member_id, existing);
+  }
+
+  return Array.from(grouped.entries()).map(([memberId, snapshots]) => {
+    const ordered = [...snapshots].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    const first = ordered[0];
+    const last = ordered[ordered.length - 1];
+    const days = Math.max(1, dateDiffDays(first.snapshot_date, last.snapshot_date));
+
+    return {
+      member_id: memberId,
+      member_name: last.member_name ?? first.member_name,
+      overdosed: delta(first.overdosed, last.overdosed),
+      average_xantaken: averageDelta(first.xantaken, last.xantaken, days),
+      average_refills: averageDelta(first.refills, last.refills, days),
+      average_useractivity: averageDelta(first.useractivity, last.useractivity, days),
+      average_gymenergy: averageDelta(first.gymenergy, last.gymenergy, days),
+      average_gymstrength: averageDelta(first.gymstrength, last.gymstrength, days),
+      average_gymspeed: averageDelta(first.gymspeed, last.gymspeed, days),
+      average_gymdefense: averageDelta(first.gymdefense, last.gymdefense, days),
+      average_gymdexterity: averageDelta(first.gymdexterity, last.gymdexterity, days),
+      first_snapshot_date: first.snapshot_date,
+      last_snapshot_date: last.snapshot_date,
+      updated_at: last.captured_at,
+    };
+  });
+}
+
+function summarizeLifestylePeriodRows(rows: LifestylePeriodRow[]) {
+  const members = rows.length;
+  return {
+    members,
+    total_overdosed: rows.reduce((total, row) => total + row.overdosed, 0),
+    average_xantaken: average(rows.map((row) => row.average_xantaken)),
+    average_refills: average(rows.map((row) => row.average_refills)),
+    average_useractivity: average(rows.map((row) => row.average_useractivity)),
+    average_gymenergy: average(rows.map((row) => row.average_gymenergy)),
+    average_gymstrength: average(rows.map((row) => row.average_gymstrength)),
+    average_gymspeed: average(rows.map((row) => row.average_gymspeed)),
+    average_gymdefense: average(rows.map((row) => row.average_gymdefense)),
+    average_gymdexterity: average(rows.map((row) => row.average_gymdexterity)),
+    oldest_updated_at: rows.reduce<number | null>((oldest, row) => {
+      if (row.updated_at === null) {
+        return oldest;
+      }
+      return oldest === null ? row.updated_at : Math.min(oldest, row.updated_at);
+    }, null),
+  };
+}
+
+function readLifestylePeriod(url: URL): { start_date: string; end_date: string; days: number } {
+  const current = currentUtcMonthRange();
+  const startDate = normalizeDateParam(url.searchParams.get("start_date")) ?? current.start_date;
+  const endDate = normalizeDateParam(url.searchParams.get("end_date")) ?? current.end_date;
+  const normalizedEnd = startDate > endDate ? startDate : endDate;
+
+  return {
+    start_date: startDate,
+    end_date: normalizedEnd,
+    days: Math.max(1, dateDiffDays(startDate, normalizedEnd)),
+  };
+}
+
+function currentUtcMonthRange(): { start_date: string; end_date: string } {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+  return {
+    start_date: start.toISOString().slice(0, 10),
+    end_date: now.toISOString().slice(0, 10),
+  };
+}
+
+function normalizeDateParam(value: string | null): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  return Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)) ? null : value;
+}
+
+function averageDelta(start: number | null, finish: number | null, days: number): number {
+  return delta(start, finish) / Math.max(1, days);
+}
+
+function delta(start: number | null, finish: number | null): number {
+  if (start === null || finish === null) {
+    return 0;
+  }
+
+  return Math.max(0, Number(finish) - Number(start));
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function dateDiffDays(startDate: string, endDate: string): number {
+  const start = Date.parse(`${startDate}T00:00:00.000Z`);
+  const end = Date.parse(`${endDate}T00:00:00.000Z`);
+  return Math.max(1, Math.round((end - start) / 86_400_000));
 }
 
 function extractLifestyleStats(source: unknown): LifestyleStats {

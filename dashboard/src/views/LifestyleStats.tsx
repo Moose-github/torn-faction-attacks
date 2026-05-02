@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowDown, ArrowUp, Dumbbell, Pill, RotateCw, Zap } from "lucide-react";
+import { Activity, ArrowDown, ArrowUp, Dumbbell, Pill, RotateCw } from "lucide-react";
 import {
   getMemberLifestyleStats,
   MemberLifestyleStats,
@@ -10,14 +10,15 @@ import { formatNumber, formatRelativeTime } from "../utils/format";
 
 type LifestyleSortKey =
   | "member_name"
-  | "xantaken"
   | "overdosed"
-  | "useractivity"
-  | "gymenergy"
-  | "gymstrength"
-  | "gymspeed"
-  | "gymdefense"
-  | "gymdexterity"
+  | "average_xantaken"
+  | "average_refills"
+  | "average_useractivity"
+  | "average_gymenergy"
+  | "average_gymstrength"
+  | "average_gymspeed"
+  | "average_gymdefense"
+  | "average_gymdexterity"
   | "updated_at";
 
 type LifestyleSort = {
@@ -27,20 +28,22 @@ type LifestyleSort = {
 
 const SORT_LABELS: Record<LifestyleSortKey, string> = {
   member_name: "Member",
-  xantaken: "Xanax",
   overdosed: "ODs",
-  useractivity: "Activity",
-  gymenergy: "Gym energy",
-  gymstrength: "Strength",
-  gymspeed: "Speed",
-  gymdefense: "Defense",
-  gymdexterity: "Dexterity",
+  average_xantaken: "Xanax / day",
+  average_refills: "Refills / day",
+  average_useractivity: "Activity / day",
+  average_gymenergy: "Gym energy / day",
+  average_gymstrength: "Strength / day",
+  average_gymspeed: "Speed / day",
+  average_gymdefense: "Defense / day",
+  average_gymdexterity: "Dexterity / day",
   updated_at: "Updated",
 };
 
 export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
   const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getMemberLifestyleStats>> | null>(null);
-  const [sort, setSort] = React.useState<LifestyleSort>({ key: "xantaken", direction: "desc" });
+  const [sort, setSort] = React.useState<LifestyleSort>({ key: "average_xantaken", direction: "desc" });
+  const [period, setPeriod] = React.useState(() => currentMonthPeriod());
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -51,13 +54,13 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
     setError(null);
 
     try {
-      setStats(await getMemberLifestyleStats());
+      setStats(await getMemberLifestyleStats(period));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [period]);
 
   React.useEffect(() => {
     loadStats();
@@ -96,7 +99,7 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
         <div>
           <p className="eyebrow">Public personal stats</p>
           <h2>Faction lifestyle stats</h2>
-          <p>Daily cached non-war member totals from Torn personal stats and faction contributors.</p>
+          <p>Current-month report by default, using daily snapshots from Torn personal stats and faction contributors.</p>
         </div>
         {isAdmin ? (
           <button
@@ -113,21 +116,43 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
 
       {refreshMessage ? <div className="lifestyle-refresh-note">{refreshMessage}</div> : null}
 
+      <section className="panel lifestyle-filter-panel">
+        <PanelHeader title="Time period" aside={`${stats?.period.days ?? periodDays(period.startDate, period.endDate)} days`} />
+        <div className="lifestyle-filter-row">
+          <label>
+            <span>Start</span>
+            <input
+              type="date"
+              value={period.startDate}
+              onChange={(event) => setPeriod((current) => ({ ...current, startDate: event.target.value }))}
+            />
+          </label>
+          <label>
+            <span>End</span>
+            <input
+              type="date"
+              value={period.endDate}
+              onChange={(event) => setPeriod((current) => ({ ...current, endDate: event.target.value }))}
+            />
+          </label>
+        </div>
+      </section>
+
       <section className="status-grid lifestyle-status-grid">
         <MetricCard
-          label="Average Xanax"
+          label="Total ODs"
+          value={formatNumber(stats?.summary.total_overdosed ?? 0)}
+          icon={<Activity size={18} />}
+        />
+        <MetricCard
+          label="Xanax / day"
           value={formatNumber(stats?.summary.average_xantaken ?? 0)}
           icon={<Pill size={18} />}
         />
         <MetricCard
-          label="Average Gym energy"
+          label="Gym energy / day"
           value={formatNumber(stats?.summary.average_gymenergy ?? 0)}
           icon={<Dumbbell size={18} />}
-        />
-        <MetricCard
-          label="Average Refills"
-          value={formatNumber(stats?.summary.average_refills ?? 0)}
-          icon={<Zap size={18} />}
         />
       </section>
 
@@ -137,8 +162,8 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
           aside={isLoading ? "Loading" : `${members.length} members`}
         />
         <p className="panel-description">
-          Shows the latest daily lifetime totals for each member. Activity is total Torn user activity time,
-          and overdoses are all-drug overdoses because Torn does not expose Xanax-only overdoses as a public stat.
+          Shows each member's total overdoses and average daily non-war activity during the selected period.
+          Overdoses are all-drug overdoses because Torn does not expose Xanax-only overdoses as a public stat.
         </p>
         <LifestyleTable members={members} sort={sort} onSortChange={setSort} />
       </section>
@@ -162,14 +187,15 @@ function LifestyleTable({
           <tr>
             {[
               "member_name",
-              "xantaken",
               "overdosed",
-              "useractivity",
-              "gymenergy",
-              "gymstrength",
-              "gymspeed",
-              "gymdefense",
-              "gymdexterity",
+              "average_xantaken",
+              "average_refills",
+              "average_useractivity",
+              "average_gymenergy",
+              "average_gymstrength",
+              "average_gymspeed",
+              "average_gymdefense",
+              "average_gymdexterity",
               "updated_at",
             ].map((key) => (
               <SortableHeader
@@ -195,15 +221,16 @@ function LifestyleTable({
                   {member.member_name ?? member.member_id}
                 </a>
               </td>
-              <td>{cell(member.xantaken)}</td>
               <td>{cell(member.overdosed)}</td>
-              <td>{formatActivity(member.useractivity)}</td>
-              <td>{cell(member.gymenergy)}</td>
-              <td>{cell(member.gymstrength)}</td>
-              <td>{cell(member.gymspeed)}</td>
-              <td>{cell(member.gymdefense)}</td>
-              <td>{cell(member.gymdexterity)}</td>
-              <td title={member.error ?? undefined}>{member.error ? "Error" : formatRelativeTime(member.updated_at)}</td>
+              <td>{cell(member.average_xantaken)}</td>
+              <td>{cell(member.average_refills)}</td>
+              <td>{formatActivityAverage(member.average_useractivity)}</td>
+              <td>{cell(member.average_gymenergy)}</td>
+              <td>{cell(member.average_gymstrength)}</td>
+              <td>{cell(member.average_gymspeed)}</td>
+              <td>{cell(member.average_gymdefense)}</td>
+              <td>{cell(member.average_gymdexterity)}</td>
+              <td>{formatRelativeTime(member.updated_at)}</td>
             </tr>
           ))}
         </tbody>
@@ -264,17 +291,31 @@ function cell(value: number | null): string {
   return value === null ? "-" : formatNumber(value);
 }
 
-function formatActivity(seconds: number | null): string {
-  if (seconds === null) {
+function currentMonthPeriod(): { startDate: string; endDate: string } {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate: now.toISOString().slice(0, 10),
+  };
+}
+
+function periodDays(startDate: string, endDate: string): number {
+  const start = Date.parse(`${startDate}T00:00:00.000Z`);
+  const end = Date.parse(`${endDate}T00:00:00.000Z`);
+  if (Number.isNaN(start) || Number.isNaN(end)) {
+    return 1;
+  }
+
+  return Math.max(1, Math.round((end - start) / 86_400_000));
+}
+
+function formatActivityAverage(secondsPerDay: number | null): string {
+  if (secondsPerDay === null) {
     return "-";
   }
 
-  const hours = Math.floor(seconds / 3600);
-  const days = Math.floor(hours / 24);
-
-  if (days > 0) {
-    return `${formatNumber(days)}d`;
-  }
-
+  const hours = secondsPerDay / 3600;
   return `${formatNumber(hours)}h`;
 }
