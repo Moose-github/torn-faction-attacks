@@ -157,6 +157,10 @@ h2 {
   grid-template-columns: repeat(3, minmax(160px, 1fr));
 }
 
+.lifestyle-status-grid {
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+}
+
 .dashboard-layout {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
@@ -806,7 +810,26 @@ h2 {
   color: #1d4ed8;
 }
 
+.lifestyle-refresh-note {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
 .report-validation-table td:first-child {
+  font-weight: 800;
+}
+
+.lifestyle-table {
+  min-width: 1480px;
+}
+
+.lifestyle-table td:first-child {
   font-weight: 800;
 }
 

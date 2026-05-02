@@ -157,6 +157,31 @@ CREATE TABLE faction_activity_heatmap (
   PRIMARY KEY (faction_id, date, interval_index)
 );
 
+CREATE TABLE member_lifestyle_stats (
+  member_id INTEGER PRIMARY KEY,
+  member_name TEXT,
+  level INTEGER,
+  position TEXT,
+  xantaken INTEGER,
+  overdosed INTEGER,
+  drugsused INTEGER,
+  refills INTEGER,
+  statenhancersused INTEGER,
+  energydrinkused INTEGER,
+  boostersused INTEGER,
+  alcoholused INTEGER,
+  candyused INTEGER,
+  rehabs INTEGER,
+  useractivity INTEGER,
+  gymenergy INTEGER,
+  gymstrength INTEGER,
+  gymspeed INTEGER,
+  gymdefense INTEGER,
+  gymdexterity INTEGER,
+  updated_at INTEGER,
+  error TEXT
+);
+
 CREATE INDEX idx_attacks_started
   ON attacks(started DESC);
 
@@ -214,3 +239,6 @@ CREATE INDEX idx_faction_activity_heatmap_sampled
 
 CREATE INDEX idx_faction_activity_heatmap_faction_sampled
   ON faction_activity_heatmap(faction_id, sampled_at);
+
+CREATE INDEX idx_member_lifestyle_stats_updated
+  ON member_lifestyle_stats(updated_at);

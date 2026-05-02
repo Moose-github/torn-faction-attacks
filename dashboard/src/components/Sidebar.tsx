@@ -14,18 +14,20 @@ export function Sidebar({
   isLoadingWars,
   warRoomIcon,
   memberIcon,
+  lifestyleIcon,
   adminIcon,
   onWarSelect,
 }: {
   warType: WarType;
   onWarTypeChange: (value: WarType) => void;
-  view: "war" | "warRoom" | "members" | "admin";
-  onViewChange: (view: "war" | "warRoom" | "members" | "admin") => void;
+  view: "war" | "warRoom" | "members" | "lifestyle" | "admin";
+  onViewChange: (view: "war" | "warRoom" | "members" | "lifestyle" | "admin") => void;
   wars: WarSummary[];
   selectedWarName: string | null;
   isLoadingWars: boolean;
   warRoomIcon: React.ReactNode;
   memberIcon: React.ReactNode;
+  lifestyleIcon: React.ReactNode;
   adminIcon: React.ReactNode;
   onWarSelect: (name: string) => void;
 }) {
@@ -47,6 +49,12 @@ export function Sidebar({
         icon={memberIcon}
         label="Member performance"
         onClick={() => onViewChange("members")}
+      />
+      <SidebarLink
+        active={view === "lifestyle"}
+        icon={lifestyleIcon}
+        label="Lifestyle stats"
+        onClick={() => onViewChange("lifestyle")}
       />
       <SidebarLink
         active={view === "admin"}
@@ -111,7 +119,7 @@ function WarNav({
   selectedWarName,
   onSelect,
 }: {
-  view: "war" | "warRoom" | "members" | "admin";
+  view: "war" | "warRoom" | "members" | "lifestyle" | "admin";
   wars: WarSummary[];
   selectedWarName: string | null;
   onSelect: (name: string) => void;

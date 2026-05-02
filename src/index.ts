@@ -6,6 +6,11 @@ import {
 } from "./enemyScouting";
 import { getWarActivityHeatmap } from "./heatmap";
 import { getLatestIngestionRun, runIngestion } from "./ingestion";
+import {
+  getMemberLifestyleStats,
+  refreshDailyMemberLifestyleStats,
+  refreshMemberLifestyleStatsFromRequest,
+} from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
@@ -90,6 +95,16 @@ export default {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
       return getAttackWindow(request, env);
+    }
+
+    if (url.pathname === "/api/member-lifestyle-stats" && request.method === "GET") {
+      return getMemberLifestyleStats(env);
+    }
+
+    if (url.pathname === "/api/member-lifestyle-stats/refresh" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
+      return refreshMemberLifestyleStatsFromRequest(request, env);
     }
 
     if (url.pathname === "/api/wars" && request.method === "POST") {
@@ -265,9 +280,18 @@ export default {
     }
 
     ctx.waitUntil(
-      runIngestion(env).catch((err) => {
-        console.error("Cron ingestion failed:", err?.message || err);
-        console.error(err);
+      Promise.allSettled([
+        runIngestion(env),
+        refreshDailyMemberLifestyleStats(env),
+      ]).then((results) => {
+        results.forEach((result, index) => {
+          if (result.status === "rejected") {
+            const label = index === 0 ? "Cron ingestion" : "Cron lifestyle stats";
+            const err = result.reason;
+            console.error(`${label} failed:`, err?.message || err);
+            console.error(err);
+          }
+        });
       }),
     );
   },

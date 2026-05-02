@@ -346,6 +346,57 @@ export type IngestionRunResponse = {
   run: IngestionRun | null;
 };
 
+export type MemberLifestyleStats = {
+  member_id: number;
+  member_name: string | null;
+  level: number | null;
+  position: string | null;
+  xantaken: number | null;
+  overdosed: number | null;
+  drugsused: number | null;
+  refills: number | null;
+  statenhancersused: number | null;
+  energydrinkused: number | null;
+  boostersused: number | null;
+  alcoholused: number | null;
+  candyused: number | null;
+  rehabs: number | null;
+  useractivity: number | null;
+  gymenergy: number | null;
+  gymstrength: number | null;
+  gymspeed: number | null;
+  gymdefense: number | null;
+  gymdexterity: number | null;
+  updated_at: number | null;
+  error: string | null;
+};
+
+export type MemberLifestyleStatsResponse = {
+  ok: boolean;
+  summary: {
+    members: number;
+    updated_members: number;
+    total_xantaken: number;
+    average_xantaken: number;
+    total_overdosed: number;
+    average_overdosed: number;
+    errors: number;
+    oldest_updated_at: number | null;
+  };
+  members: MemberLifestyleStats[];
+};
+
+export type MemberLifestyleRefreshResponse = {
+  ok: boolean;
+  considered: number;
+  refreshed: number;
+  failed: number;
+  gym_contributors?: {
+    refreshed_stats: number;
+    updated_members: number;
+  };
+};
+
 export type AttackExportOptions = {
   warName: string;
   scope: "all" | "outgoing" | "war_relevant";
@@ -493,6 +544,25 @@ export async function rebuildStats(): Promise<unknown> {
 
 export async function getLatestIngestionRun(): Promise<IngestionRunResponse> {
   return getJson<IngestionRunResponse>("/api/admin/ingestion-run", true);
+}
+
+export async function getMemberLifestyleStats(): Promise<MemberLifestyleStatsResponse> {
+  return getJson<MemberLifestyleStatsResponse>("/api/member-lifestyle-stats");
+}
+
+export async function refreshMemberLifestyleStats(
+  options: { limit?: number; force?: boolean } = {},
+): Promise<MemberLifestyleRefreshResponse> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+  if (options.force) {
+    params.set("force", "true");
+  }
+
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return postJson<MemberLifestyleRefreshResponse>(`/api/member-lifestyle-stats/refresh${suffix}`);
 }
 
 export async function createWar(payload: AdminWarPayload): Promise<unknown> {
