@@ -29,14 +29,14 @@ type LifestyleSort = {
 const SORT_LABELS: Record<LifestyleSortKey, string> = {
   member_name: "Member",
   overdosed: "ODs",
-  average_xantaken: "Xanax / day",
-  average_refills: "Refills / day",
-  average_useractivity: "Activity / day",
-  average_gymenergy: "Gym energy / day",
-  average_gymstrength: "Strength / day",
-  average_gymspeed: "Speed / day",
-  average_gymdefense: "Defense / day",
-  average_gymdexterity: "Dexterity / day",
+  average_xantaken: "Daily Xanax",
+  average_refills: "Daily Refills",
+  average_useractivity: "Daily Activity",
+  average_gymenergy: "Daily Gym energy",
+  average_gymstrength: "Daily Strength",
+  average_gymspeed: "Daily Speed",
+  average_gymdefense: "Daily Defense",
+  average_gymdexterity: "Daily Dexterity",
   updated_at: "Updated",
 };
 
@@ -120,12 +120,12 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
 
       <section className="status-grid lifestyle-status-grid">
         <MetricCard
-          label="Xanax / day"
+          label="Daily Xanax"
           value={formatNumber(stats?.summary.average_xantaken ?? 0)}
           icon={<Pill size={18} />}
         />
         <MetricCard
-          label="Gym energy / day"
+          label="Daily Gym energy"
           value={formatNumber(stats?.summary.average_gymenergy ?? 0)}
           icon={<Dumbbell size={18} />}
         />
@@ -200,7 +200,7 @@ function LifestyleTable({
             ].map((key) => (
               <SortableHeader
                 key={key}
-                label={SORT_LABELS[key as LifestyleSortKey]}
+                label={formatHeaderLabel(SORT_LABELS[key as LifestyleSortKey])}
                 sortKey={key as LifestyleSortKey}
                 sort={sort}
                 onSortChange={onSortChange}
@@ -289,6 +289,20 @@ function sortLifestyleMembers(
 
 function cell(value: number | null): string {
   return value === null ? "-" : formatNumber(value);
+}
+
+function formatHeaderLabel(label: string): React.ReactNode {
+  if (!label.startsWith("Daily ")) {
+    return label;
+  }
+
+  return (
+    <>
+      Daily
+      <br />
+      {label.slice("Daily ".length)}
+    </>
+  );
 }
 
 function currentMonthPeriod(): { startDate: string; endDate: string } {
