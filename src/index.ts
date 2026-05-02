@@ -45,7 +45,7 @@ import {
 } from "./wars";
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
@@ -123,7 +123,7 @@ export default {
     if (url.pathname === "/api/member-lifestyle-stats" && request.method === "GET") {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return getMemberLifestyleStats(url, env);
+      return cachedGetJson(request, ctx, 5 * 60, () => getMemberLifestyleStats(url, env));
     }
 
     if (url.pathname === "/api/member-lifestyle-stats/refresh" && request.method === "POST") {
@@ -213,7 +213,7 @@ export default {
     if (url.pathname === "/api/wars" && request.method === "GET") {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return listWars(url, env);
+      return cachedGetJson(request, ctx, 55, () => listWars(url, env));
     }
 
     if (
@@ -223,7 +223,7 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return getWarReportDiscrepancies(url, env);
+      return cachedGetJson(request, ctx, 30 * 60, () => getWarReportDiscrepancies(url, env));
     }
 
     if (
@@ -233,7 +233,7 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return getEnemyScoutingForWar(url, env);
+      return cachedGetJson(request, ctx, 5 * 60, () => getEnemyScoutingForWar(url, env));
     }
 
     if (
@@ -243,7 +243,7 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return getScoutingComparisonForWar(url, env);
+      return cachedGetJson(request, ctx, 5 * 60, () => getScoutingComparisonForWar(url, env));
     }
 
     if (
@@ -280,7 +280,7 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return getWarActivity(url, env);
+      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, 30 * 60), () => getWarActivity(url, env));
     }
 
     if (
@@ -290,7 +290,7 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return getWarActivityHeatmap(url, env);
+      return cachedGetJson(request, ctx, 5 * 60, () => getWarActivityHeatmap(url, env));
     }
 
     if (
@@ -313,13 +313,13 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return getWar(url, env);
+      return cachedGetJson(request, ctx, warDataTtlSeconds(55, 30 * 60), () => getWar(url, env));
     }
 
     if (url.pathname === "/api/stats" && request.method === "GET") {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return getOverallStats(url, env);
+      return cachedGetJson(request, ctx, 55, () => getOverallStats(url, env));
     }
 
     return json({ error: "Not found" }, 404);
@@ -353,6 +353,159 @@ export default {
     );
   },
 };
+
+type CacheTtl =
+  | number
+  | ((data: any) => number);
+
+type MemoryCacheEntry = {
+  body: string;
+  expiresAt: number;
+  headers: [string, string][];
+  status: number;
+};
+
+const memoryResponseCache = new Map<string, MemoryCacheEntry>();
+const MAX_MEMORY_CACHE_ENTRIES = 100;
+
+async function cachedGetJson(
+  request: Request,
+  ctx: ExecutionContext,
+  ttl: CacheTtl,
+  load: () => Promise<Response>,
+): Promise<Response> {
+  if (request.method !== "GET") {
+    return load();
+  }
+
+  const cacheKey = cacheRequestKey(request);
+  const now = nowSeconds();
+  const memoryHit = memoryResponseCache.get(cacheKey.url);
+
+  if (memoryHit && memoryHit.expiresAt > now) {
+    return cachedResponseFromEntry(memoryHit, "HIT", "memory");
+  }
+
+  if (memoryHit) {
+    memoryResponseCache.delete(cacheKey.url);
+  }
+
+  const edgeCached = await caches.default.match(cacheKey).catch(() => undefined);
+  if (edgeCached) {
+    const response = withCacheHeaders(edgeCached, "HIT", "edge");
+    const text = await response.clone().text();
+    rememberResponse(cacheKey.url, response, text, now + Math.max(1, Number(response.headers.get("X-Cache-TTL") ?? 60)));
+    return response;
+  }
+
+  const loaded = await load();
+  const body = await loaded.clone().text();
+  const data = safeJsonParse(body);
+  const ttlSeconds = Math.max(0, typeof ttl === "function" ? ttl(data) : ttl);
+
+  if (loaded.status !== 200 || ttlSeconds <= 0) {
+    return withCacheHeaders(new Response(body, loaded), "BYPASS", "none");
+  }
+
+  const response = responseForCache(loaded, body, ttlSeconds, "MISS", "none");
+  const cacheResponse = responseForCache(loaded, body, ttlSeconds, "HIT", "edge");
+  rememberResponse(cacheKey.url, cacheResponse, body, now + ttlSeconds);
+  ctx.waitUntil(caches.default.put(cacheKey, cacheResponse.clone()).catch(() => undefined));
+  return response;
+}
+
+function cacheRequestKey(request: Request): Request {
+  const url = new URL(request.url);
+  url.searchParams.sort();
+  url.searchParams.set("_cache_v", "dashboard-v1");
+  return new Request(url.toString(), { method: "GET" });
+}
+
+function warDataTtlSeconds(activeTtlSeconds: number, endedTtlSeconds: number): (data: any) => number {
+  return (data: any) => {
+    const war = data?.war ?? data;
+
+    if (war?.official_end_time !== null && war?.official_end_time !== undefined) {
+      return endedTtlSeconds;
+    }
+
+    if (war?.practical_finish_time !== null && war?.practical_finish_time !== undefined) {
+      return 5 * 60;
+    }
+
+    return activeTtlSeconds;
+  };
+}
+
+function responseForCache(
+  source: Response,
+  body: string,
+  ttlSeconds: number,
+  cacheStatus: "HIT" | "MISS",
+  cacheSource: string,
+): Response {
+  const response = new Response(body, source);
+  response.headers.set("Cache-Control", `public, max-age=${ttlSeconds}`);
+  response.headers.set("X-Cache", cacheStatus);
+  response.headers.set("X-Cache-Source", cacheSource);
+  response.headers.set("X-Cache-TTL", String(ttlSeconds));
+  response.headers.delete("Set-Cookie");
+  return response;
+}
+
+function withCacheHeaders(
+  source: Response,
+  cacheStatus: "HIT" | "MISS" | "BYPASS",
+  cacheSource: string,
+): Response {
+  const response = new Response(source.body, source);
+  response.headers.set("X-Cache", cacheStatus);
+  response.headers.set("X-Cache-Source", cacheSource);
+  return response;
+}
+
+function rememberResponse(
+  key: string,
+  response: Response,
+  body: string,
+  expiresAt: number,
+): void {
+  if (memoryResponseCache.size >= MAX_MEMORY_CACHE_ENTRIES) {
+    const oldestKey = memoryResponseCache.keys().next().value;
+    if (oldestKey) {
+      memoryResponseCache.delete(oldestKey);
+    }
+  }
+
+  memoryResponseCache.set(key, {
+    body,
+    expiresAt,
+    headers: Array.from(response.headers.entries()),
+    status: response.status,
+  });
+}
+
+function cachedResponseFromEntry(
+  entry: MemoryCacheEntry,
+  cacheStatus: "HIT",
+  cacheSource: string,
+): Response {
+  const response = new Response(entry.body, {
+    status: entry.status,
+    headers: entry.headers,
+  });
+  response.headers.set("X-Cache", cacheStatus);
+  response.headers.set("X-Cache-Source", cacheSource);
+  return response;
+}
+
+function safeJsonParse(body: string): any {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
 
 async function requireActionCooldown(
   env: Env,

@@ -96,6 +96,7 @@ function App() {
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
   const [factionActivityWindow, setFactionActivityWindow] = React.useState<"practical" | "official">("practical");
   const [activityBuckets, setActivityBuckets] = React.useState<WarActivityBucket[]>([]);
+  const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
   const [reportDiscrepancies, setReportDiscrepancies] = React.useState<ReportDiscrepanciesResponse | null>(null);
   const [isLoadingReportDiscrepancies, setIsLoadingReportDiscrepancies] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({});
@@ -205,14 +206,26 @@ function App() {
 }, [authSession, selectedWarName]);
 
   React.useEffect(() => {
+    setSelectedMember(null);
+    setMemberAttacks([]);
+    setActivityBuckets([]);
+}, [selectedWarName]);
+
+  const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
+  const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
+  const isAdmin = authSession?.access_level === "admin";
+  const isActivityPanelOpen =
+    collapsedPanels.factionActivity === false || collapsedPanels.enemyActivity === false;
+
+  React.useEffect(() => {
+    if (!authSession || view !== "war" || !selectedWarName || !selectedWar || !isActivityPanelOpen) {
+      return;
+    }
+
     let cancelled = false;
 
     async function loadActivity() {
-      if (!authSession || !selectedWarName) {
-        setActivityBuckets([]);
-        return;
-      }
-
+      setIsLoadingActivity(true);
       setError(null);
 
       try {
@@ -224,23 +237,36 @@ function App() {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
         }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingActivity(false);
+        }
       }
     }
 
     loadActivity();
+
+    if (selectedWar.official_end_time !== null || selectedWar.status === "ended") {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const timer = window.setInterval(loadActivity, SLOW_WAR_REFRESH_MS);
+
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
-  }, [authSession, selectedWarName, factionActivityWindow]);
-
-  React.useEffect(() => {
-    setSelectedMember(null);
-    setMemberAttacks([]);
-}, [selectedWarName]);
-
-  const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
-  const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
-  const isAdmin = authSession?.access_level === "admin";
+  }, [
+    authSession,
+    factionActivityWindow,
+    isActivityPanelOpen,
+    selectedWar?.official_end_time,
+    selectedWar?.status,
+    selectedWarName,
+    view,
+  ]);
 
   React.useEffect(() => {
     if (view === "admin" && !isAdmin) {
@@ -272,10 +298,9 @@ function App() {
     let cancelled = false;
     const timer = window.setInterval(async () => {
       try {
-        const [warsResponse, detailResponse, activityResponse] = await Promise.all([
+        const [warsResponse, detailResponse] = await Promise.all([
           getWars(warType),
           getWar(selectedWarName),
-          getWarActivity(selectedWarName, factionActivityWindow),
         ]);
 
         if (cancelled) {
@@ -284,7 +309,6 @@ function App() {
 
         setWars(warsResponse.wars);
         setWarDetail(detailResponse);
-        setActivityBuckets(Array.isArray(activityResponse.buckets) ? activityResponse.buckets : []);
 
         if (detailResponse.war.torn_report_fetched_at) {
           const discrepancies = await getWarReportDiscrepancies(selectedWarName);
@@ -313,7 +337,6 @@ function App() {
     selectedWarName,
     view,
     warType,
-    factionActivityWindow,
     authSession,
   ]);
 
@@ -423,10 +446,9 @@ function App() {
       derivedRespectGained > 0 ||
       derivedRespectLost > 0 ||
       chainBonuses.length > 0 ||
-      activityTotal(activityBuckets) > 0 ||
       hasTornReport);
-  const showFactionActivity = hasWarData && activityTotal(activityBuckets, ["enemy_success", "enemy_assist", "outside"]) > 0;
-  const showEnemyActivity = hasWarData && activityTotal(activityBuckets, ["defend_lost", "defend_won"]) > 0;
+  const showFactionActivity = hasWarData;
+  const showEnemyActivity = hasWarData;
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
   const isScheduledWar = selectedWar?.status === "scheduled";
 
@@ -692,6 +714,7 @@ function App() {
               {showFactionActivity ? (
                 <CollapsiblePanel
                   title="Buttgrass attacks over time"
+                  aside={isLoadingActivity && collapsedPanels.factionActivity === false ? "Loading" : undefined}
                   collapsed={collapsedPanels.factionActivity ?? true}
                   onToggle={() => togglePanel("factionActivity")}
                   className="activity-panel"
@@ -723,6 +746,7 @@ function App() {
               {showEnemyActivity ? (
                 <CollapsiblePanel
                   title={`${selectedWar.name} attacks over time`}
+                  aside={isLoadingActivity && collapsedPanels.enemyActivity === false ? "Loading" : undefined}
                   collapsed={collapsedPanels.enemyActivity ?? true}
                   onToggle={() => togglePanel("enemyActivity")}
                   className="activity-panel"
@@ -879,23 +903,6 @@ function warPageRefreshInterval(war: WarSummary): number | null {
   }
 
   return null;
-}
-
-function activityTotal(
-  buckets: WarActivityBucket[],
-  keys: Array<keyof Pick<WarActivityBucket, "enemy_success" | "enemy_assist" | "outside" | "defend_lost" | "defend_won">> = [
-    "enemy_success",
-    "enemy_assist",
-    "outside",
-    "defend_lost",
-    "defend_won",
-  ],
-): number {
-  return buckets.reduce(
-    (total, bucket) =>
-      total + keys.reduce((bucketTotal, key) => bucketTotal + Number(bucket[key] ?? 0), 0),
-    0,
-  );
 }
 
 function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
