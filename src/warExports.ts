@@ -32,11 +32,21 @@ export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response>
       "outgoing",
       "war_relevant",
     ] as const, "war_relevant");
-    const windowMode = parseExportOption(url.searchParams.get("window"), [
+    const fallbackWindowMode = parseExportOption(url.searchParams.get("window"), [
       "official",
       "practical",
       "custom",
     ] as const, "official");
+    const startWindowMode = parseExportOption(url.searchParams.get("start_window"), [
+      "official",
+      "practical",
+      "custom",
+    ] as const, fallbackWindowMode);
+    const finishWindowMode = parseExportOption(url.searchParams.get("finish_window"), [
+      "official",
+      "practical",
+      "custom",
+    ] as const, fallbackWindowMode);
     const linkedStatus = parseExportOption(url.searchParams.get("linked_status"), [
       "linked",
       "matching",
@@ -46,7 +56,7 @@ export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response>
       "standard",
       "debug",
     ] as const, "standard");
-    const windowRange = exportWindowForWar(war, windowMode, url);
+    const windowRange = exportWindowForWar(war, startWindowMode, finishWindowMode, url);
 
     if (windowRange instanceof Response) {
       return windowRange;
@@ -90,7 +100,7 @@ export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response>
       .all();
 
     const csv = attacksToCsv((rows.results ?? []) as Record<string, unknown>[], columns);
-    const filename = `${sanitizeFilename(war.name)}-${windowMode}-${scope}-${linkedStatus}.csv`;
+    const filename = `${sanitizeFilename(war.name)}-${startWindowMode}-to-${finishWindowMode}-${scope}-${linkedStatus}.csv`;
 
     return new Response(csv, {
       headers: {
@@ -119,41 +129,12 @@ function parseExportOption<T extends readonly string[]>(
 
 function exportWindowForWar(
   war: WarRow,
-  windowMode: "official" | "practical" | "custom",
+  startWindowMode: "official" | "practical" | "custom",
+  finishWindowMode: "official" | "practical" | "custom",
   url: URL,
 ): { start: number; finish: number } | Response {
-  if (windowMode === "custom") {
-    const start = Number(url.searchParams.get("custom_start"));
-    const finish = Number(url.searchParams.get("custom_finish"));
-
-    if (!Number.isInteger(start) || !Number.isInteger(finish) || start < 0 || finish < start) {
-      return json(
-        { ok: false, error: "Invalid custom export window", code: "INVALID_EXPORT_WINDOW" },
-        400,
-      );
-    }
-
-    return { start, finish };
-  }
-
-  let start =
-    windowMode === "official"
-      ? (war.official_start_time ?? war.practical_start_time)
-      : war.practical_start_time;
-  let finish =
-    windowMode === "official"
-      ? (war.official_end_time ?? war.practical_finish_time ?? nowSeconds())
-      : (war.practical_finish_time ?? nowSeconds());
-  const customStart = url.searchParams.get("custom_start");
-  const customFinish = url.searchParams.get("custom_finish");
-
-  if (customStart !== null && customStart.trim() !== "") {
-    start = Number(customStart);
-  }
-
-  if (customFinish !== null && customFinish.trim() !== "") {
-    finish = Number(customFinish);
-  }
+  const start = exportBoundaryForWar(war, startWindowMode, "start", url);
+  const finish = exportBoundaryForWar(war, finishWindowMode, "finish", url);
 
   if (!Number.isInteger(start) || !Number.isInteger(finish) || finish < start) {
     return json(
@@ -163,6 +144,27 @@ function exportWindowForWar(
   }
 
   return { start, finish };
+}
+
+function exportBoundaryForWar(
+  war: WarRow,
+  windowMode: "official" | "practical" | "custom",
+  boundary: "start" | "finish",
+  url: URL,
+): number {
+  if (windowMode === "custom") {
+    return Number(url.searchParams.get(boundary === "start" ? "custom_start" : "custom_finish"));
+  }
+
+  if (boundary === "start") {
+    return windowMode === "official"
+      ? (war.official_start_time ?? war.practical_start_time)
+      : war.practical_start_time;
+  }
+
+  return windowMode === "official"
+    ? (war.official_end_time ?? war.practical_finish_time ?? nowSeconds())
+    : (war.practical_finish_time ?? nowSeconds());
 }
 
 const STANDARD_EXPORT_COLUMNS = [

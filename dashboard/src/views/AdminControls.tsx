@@ -70,11 +70,10 @@ export function AdminControls() {
   const [exportForm, setExportForm] = React.useState<AdminExportFormState>({
     warName: "",
     scope: "war_relevant" as "all" | "outgoing" | "war_relevant",
-    window: "official" as "official" | "practical",
+    startWindow: "official" as ExportBoundaryWindow,
+    finishWindow: "official" as ExportBoundaryWindow,
     linkedStatus: "linked" as "linked" | "matching" | "unlinked",
     columns: "standard" as "standard" | "debug",
-    overrideStart: false,
-    overrideFinish: false,
     customStartTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
     customFinishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
     customStartEpoch: String(Math.floor(Date.now() / 1000) - 3600),
@@ -479,13 +478,14 @@ export function AdminControls() {
                 await exportWarAttacksCsv({
                   warName: exportForm.warName,
                   scope: exportForm.scope,
-                  window: exportForm.window,
+                  startWindow: exportForm.startWindow,
+                  finishWindow: exportForm.finishWindow,
                   linkedStatus: exportForm.linkedStatus,
                   columns: exportForm.columns,
-                  customStart: exportForm.overrideStart
+                  customStart: exportForm.startWindow === "custom"
                     ? exportSecondsFromForm(exportForm, adminTimeMode, "start")
                     : undefined,
-                  customFinish: exportForm.overrideFinish
+                  customFinish: exportForm.finishWindow === "custom"
                     ? exportSecondsFromForm(exportForm, adminTimeMode, "finish")
                     : undefined,
                 });
@@ -531,39 +531,30 @@ export function AdminControls() {
               </select>
             </label>
             <label>
-              <span>Time window</span>
+              <span>Export start</span>
               <select
-                value={exportForm.window}
+                value={exportForm.startWindow}
                 onChange={(event) => {
                   const nextForm = {
                     ...exportForm,
-                    window: event.target.value as typeof exportForm.window,
+                    startWindow: event.target.value as ExportBoundaryWindow,
                   };
                   const war = exportableWars.find((candidate) => candidate.name === nextForm.warName);
                   setExportForm(exportFormForWar(nextForm, war));
                 }}
               >
-                <option value="official">Official Torn window</option>
-                <option value="practical">Buttgrass practical window</option>
+                <option value="official">Torn official start</option>
+                <option value="practical">Buttgrass practical start</option>
+                <option value="custom">Custom start</option>
               </select>
             </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={exportForm.overrideStart}
-                onChange={(event) =>
-                  setExportForm({ ...exportForm, overrideStart: event.target.checked })
-                }
-              />
-              <span>Choose export start</span>
-            </label>
             <label>
-              <span>Export start</span>
+              <span>Custom start</span>
               {adminTimeMode === "epoch" ? (
                 <input
                   inputMode="numeric"
                   value={exportForm.customStartEpoch}
-                  disabled={!exportForm.overrideStart}
+                  disabled={exportForm.startWindow !== "custom"}
                   onChange={(event) =>
                     setExportForm(updateExportEpoch(exportForm, "start", event.target.value))
                   }
@@ -572,30 +563,38 @@ export function AdminControls() {
                 <input
                   type="datetime-local"
                   value={exportForm.customStartTime}
-                  disabled={!exportForm.overrideStart}
+                  disabled={exportForm.startWindow !== "custom"}
                   onChange={(event) =>
                     setExportForm(updateExportDateTime(exportForm, "start", event.target.value))
                   }
                 />
               )}
             </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={exportForm.overrideFinish}
-                onChange={(event) =>
-                  setExportForm({ ...exportForm, overrideFinish: event.target.checked })
-                }
-              />
-              <span>Choose export finish</span>
-            </label>
             <label>
               <span>Export finish</span>
+              <select
+                value={exportForm.finishWindow}
+                onChange={(event) => {
+                  const nextForm = {
+                    ...exportForm,
+                    finishWindow: event.target.value as ExportBoundaryWindow,
+                  };
+                  const war = exportableWars.find((candidate) => candidate.name === nextForm.warName);
+                  setExportForm(exportFormForWar(nextForm, war));
+                }}
+              >
+                <option value="official">Torn official finish</option>
+                <option value="practical">Buttgrass practical finish</option>
+                <option value="custom">Custom finish</option>
+              </select>
+            </label>
+            <label>
+              <span>Custom finish</span>
               {adminTimeMode === "epoch" ? (
                 <input
                   inputMode="numeric"
                   value={exportForm.customFinishEpoch}
-                  disabled={!exportForm.overrideFinish}
+                  disabled={exportForm.finishWindow !== "custom"}
                   onChange={(event) =>
                     setExportForm(updateExportEpoch(exportForm, "finish", event.target.value))
                   }
@@ -604,7 +603,7 @@ export function AdminControls() {
                 <input
                   type="datetime-local"
                   value={exportForm.customFinishTime}
-                  disabled={!exportForm.overrideFinish}
+                  disabled={exportForm.finishWindow !== "custom"}
                   onChange={(event) =>
                     setExportForm(updateExportDateTime(exportForm, "finish", event.target.value))
                   }
@@ -622,9 +621,9 @@ export function AdminControls() {
                   })
                 }
               >
-                <option value="linked">Linked to selected war</option>
-                <option value="matching">Matching rules, even if not linked</option>
-                <option value="unlinked">Unlinked only</option>
+                <option value="linked">Only attacks already linked to this war/event</option>
+                <option value="matching">All attacks in this time period that match selected scope</option>
+                <option value="unlinked">Only attacks not currently linked to any war/event</option>
               </select>
             </label>
             <label>
@@ -991,16 +990,17 @@ type AdminWarFormState = {
 type AdminExportFormState = {
   warName: string;
   scope: "all" | "outgoing" | "war_relevant";
-  window: "official" | "practical";
+  startWindow: ExportBoundaryWindow;
+  finishWindow: ExportBoundaryWindow;
   linkedStatus: "linked" | "matching" | "unlinked";
   columns: "standard" | "debug";
-  overrideStart: boolean;
-  overrideFinish: boolean;
   customStartTime: string;
   customFinishTime: string;
   customStartEpoch: string;
   customFinishEpoch: string;
 };
+
+type ExportBoundaryWindow = "official" | "practical" | "custom";
 
 type AdminAttackWindowFormState = {
   startTime: string;
@@ -1556,32 +1556,40 @@ function exportFormForWar(
     return { ...form, warName: "" };
   }
 
-  const { start, finish } = exportWindowTimes(war, form.window);
+  const start = exportBoundaryTime(war, form.startWindow, "start");
+  const finish = exportBoundaryTime(war, form.finishWindow, "finish");
   return {
     ...form,
     warName: war.name,
-    customStartTime: dateTimeLocalFromSeconds(start),
-    customFinishTime: dateTimeLocalFromSeconds(finish),
-    customStartEpoch: String(start),
-    customFinishEpoch: String(finish),
+    customStartTime:
+      form.startWindow === "custom" ? form.customStartTime : dateTimeLocalFromSeconds(start),
+    customFinishTime:
+      form.finishWindow === "custom" ? form.customFinishTime : dateTimeLocalFromSeconds(finish),
+    customStartEpoch: form.startWindow === "custom" ? form.customStartEpoch : String(start),
+    customFinishEpoch: form.finishWindow === "custom" ? form.customFinishEpoch : String(finish),
   };
 }
 
-function exportWindowTimes(
+function exportBoundaryTime(
   war: WarSummary,
-  window: AdminExportFormState["window"],
-): { start: number; finish: number } {
-  if (window === "practical") {
-    return {
-      start: war.practical_start_time,
-      finish: war.practical_finish_time ?? war.official_end_time ?? war.practical_start_time,
-    };
+  window: ExportBoundaryWindow,
+  boundary: "start" | "finish",
+): number {
+  if (window === "custom") {
+    return boundary === "start"
+      ? Number(war.official_start_time ?? war.practical_start_time)
+      : Number(war.official_end_time ?? war.practical_finish_time ?? war.practical_start_time);
   }
 
-  return {
-    start: war.official_start_time ?? war.practical_start_time,
-    finish: war.official_end_time ?? war.practical_finish_time ?? war.practical_start_time,
-  };
+  if (boundary === "start") {
+    return window === "official"
+      ? (war.official_start_time ?? war.practical_start_time)
+      : war.practical_start_time;
+  }
+
+  return window === "official"
+    ? (war.official_end_time ?? war.practical_finish_time ?? war.practical_start_time)
+    : (war.practical_finish_time ?? war.official_end_time ?? war.practical_start_time);
 }
 
 function toWarEditPayload(id: number, form: AdminWarFormState): AdminWarPayload {

@@ -81,6 +81,20 @@ input:disabled {
   gap: 12px;
 }
 
+.access-level-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #bbf7d0;
+  border-radius: 7px;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .refresh-countdowns {
   display: grid;
   align-items: center;

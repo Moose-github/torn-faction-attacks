@@ -1,6 +1,17 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BarChart3, CalendarClock, LogIn, Pill, Radar, Swords, Target, Wrench } from "lucide-react";
+import {
+  BarChart3,
+  CalendarClock,
+  LogIn,
+  Pill,
+  Radar,
+  ShieldCheck,
+  Swords,
+  Target,
+  UserRound,
+  Wrench,
+} from "lucide-react";
 import {
   authenticateTornKey,
   clearStoredAuthSession,
@@ -453,9 +464,19 @@ function App() {
         </div>
         <div className="topbar-actions">
           {authSession ? (
-            <button type="button" className="panel-action-button" onClick={signOut}>
-              Sign out
-            </button>
+            <>
+              <span
+                className="access-level-pill"
+                title={`Signed in as ${authSession.access_level}`}
+                aria-label={`Signed in as ${authSession.access_level}`}
+              >
+                {isAdmin ? <ShieldCheck size={15} /> : <UserRound size={15} />}
+                {isAdmin ? "Admin" : "Member"}
+              </span>
+              <button type="button" className="panel-action-button" onClick={signOut}>
+                Sign out
+              </button>
+            </>
           ) : null}
           <RefreshCountdowns />
         </div>

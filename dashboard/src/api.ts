@@ -403,7 +403,8 @@ export type MemberLifestyleRefreshResponse = {
 export type AttackExportOptions = {
   warName: string;
   scope: "all" | "outgoing" | "war_relevant";
-  window: "official" | "practical";
+  startWindow: "official" | "practical" | "custom";
+  finishWindow: "official" | "practical" | "custom";
   linkedStatus: "linked" | "matching" | "unlinked";
   columns: "standard" | "debug";
   customStart?: number;
@@ -663,7 +664,8 @@ export async function exportWarAttacksCsv(options: AttackExportOptions): Promise
   const params = new URLSearchParams({
     format: "csv",
     scope: options.scope,
-    window: options.window,
+    start_window: options.startWindow,
+    finish_window: options.finishWindow,
     linked_status: options.linkedStatus,
     columns: options.columns,
   });
