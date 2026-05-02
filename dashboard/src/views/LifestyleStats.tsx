@@ -101,7 +101,7 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
         <div>
           <p className="eyebrow">Public personal stats</p>
           <h2>Faction lifestyle stats</h2>
-          <p>Current-month report by default, using daily snapshots from Torn personal stats and faction contributors.</p>
+          <p>Averaged daily activity from daily snapshots. Made using Torn personal stats and faction contributors.</p>
         </div>
         {isAdmin ? (
           <button
@@ -162,8 +162,8 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
           aside={isLoading ? "Loading" : `${members.length} members`}
         />
         <p className="panel-description">
-          Shows each member's total overdoses and average daily non-war activity during the selected period.
-          Overdoses are all-drug overdoses because Torn does not expose Xanax-only overdoses as a public stat.
+          Shows each member's average daily activity during selected time period.
+          Overdoses show all drugs as Torn does have a Xanax-only overdose stat.
         </p>
         <LifestyleTable members={members} sort={sort} onSortChange={setSort} />
       </section>
