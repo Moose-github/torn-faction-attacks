@@ -399,14 +399,19 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
       )
       .all();
 
-    const buckets = (rows.results ?? []).map((row: any) => ({
-      bucket_start: row.bucket_start,
+    const rawBuckets = (rows.results ?? []).map((row: any) => ({
+      bucket_start: Number(row.bucket_start),
       enemy_success: Number(row.enemy_success ?? 0),
       enemy_assist: Number(row.enemy_assist ?? 0),
       outside: Number(row.outside ?? 0),
       defend_lost: Number(row.defend_lost ?? 0),
       defend_won: Number(row.defend_won ?? 0),
     }));
+    const buckets = fillActivityWindowBuckets(
+      rawBuckets,
+      activityWindowBounds(war, windowMode),
+      bucketSeconds,
+    );
 
     return json({
       ok: true,
@@ -426,6 +431,69 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
   }
+}
+
+type ActivityBucket = {
+  bucket_start: number;
+  enemy_success: number;
+  enemy_assist: number;
+  outside: number;
+  defend_lost: number;
+  defend_won: number;
+};
+
+type ActivityWindowWar = {
+  practical_start_time: number;
+  practical_finish_time: number | null;
+  official_start_time: number | null;
+  official_end_time: number | null;
+};
+
+function activityWindowBounds(
+  war: ActivityWindowWar,
+  windowMode: "practical" | "official",
+): { start: number; finish: number | null } {
+  if (windowMode === "official") {
+    return {
+      start: war.official_start_time ?? war.practical_start_time,
+      finish: war.official_end_time,
+    };
+  }
+
+  return {
+    start: war.practical_start_time,
+    finish: war.practical_finish_time,
+  };
+}
+
+function fillActivityWindowBuckets(
+  rawBuckets: ActivityBucket[],
+  bounds: { start: number; finish: number | null },
+  bucketSeconds: number,
+): ActivityBucket[] {
+  if (bounds.finish === null || bounds.finish < bounds.start || bucketSeconds <= 0) {
+    return rawBuckets;
+  }
+
+  const bucketsByStart = new Map(rawBuckets.map((bucket) => [bucket.bucket_start, bucket]));
+  const startBucket = Math.floor(bounds.start / bucketSeconds) * bucketSeconds;
+  const finishBucket = Math.floor(bounds.finish / bucketSeconds) * bucketSeconds;
+  const buckets: ActivityBucket[] = [];
+
+  for (let bucketStart = startBucket; bucketStart <= finishBucket; bucketStart += bucketSeconds) {
+    buckets.push(
+      bucketsByStart.get(bucketStart) ?? {
+        bucket_start: bucketStart,
+        enemy_success: 0,
+        enemy_assist: 0,
+        outside: 0,
+        defend_lost: 0,
+        defend_won: 0,
+      },
+    );
+  }
+
+  return buckets;
 }
 
 export async function getOverallStats(url: URL, env: Env): Promise<Response> {

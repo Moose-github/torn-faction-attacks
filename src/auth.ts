@@ -207,10 +207,11 @@ async function fetchTornJson(
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
-  url.searchParams.set("key", tornKey);
-
   const response = await fetch(url.toString(), {
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      Authorization: `ApiKey ${tornKey}`,
+    },
   });
 
   if (!response.ok) {

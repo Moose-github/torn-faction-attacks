@@ -53,7 +53,7 @@ export function Sidebar({
       <SidebarLink
         active={view === "lifestyle"}
         icon={lifestyleIcon}
-        label="Lifestyle stats"
+        label="Daily Averages"
         onClick={() => onViewChange("lifestyle")}
       />
       <SidebarLink

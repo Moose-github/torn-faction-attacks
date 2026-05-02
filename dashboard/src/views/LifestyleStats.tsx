@@ -100,7 +100,7 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
       <section className="hero-panel compact-hero-panel">
         <div>
           <p className="eyebrow">Public personal stats</p>
-          <h2>Faction lifestyle stats</h2>
+          <h2>Daily Averages</h2>
           <p>Averaged daily activity from daily snapshots. Made using Torn personal stats and faction contributors.</p>
         </div>
         {isAdmin ? (
@@ -158,12 +158,12 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
 
       <section className="panel table-panel">
         <PanelHeader
-          title="Member lifestyle breakdown"
+          title="Member daily averages"
           aside={isLoading ? "Loading" : `${members.length} members`}
         />
         <p className="panel-description">
           Shows each member's average daily activity during selected time period.
-          Overdoses show all drugs as Torn does have a Xanax-only overdose stat.
+          Overdoses show all drugs because Torn does not have a Xanax-only overdose stat.
         </p>
         <LifestyleTable members={members} sort={sort} onSortChange={setSort} />
       </section>
