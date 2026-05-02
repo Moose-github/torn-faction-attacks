@@ -193,6 +193,29 @@ export async function requireMember(request: Request, env: Env): Promise<Respons
   return null;
 }
 
+export async function revokeSessionsForFormerFactionMembers(
+  env: Env,
+  currentMemberIds: Iterable<number>,
+): Promise<number> {
+  const ids = Array.from(new Set(Array.from(currentMemberIds).filter((id) => Number.isInteger(id) && id > 0)));
+
+  if (ids.length === 0) {
+    return 0;
+  }
+
+  const placeholders = ids.map(() => "?").join(", ");
+  const result = await env.DB.prepare(
+    `
+    DELETE FROM auth_sessions
+    WHERE torn_user_id NOT IN (${placeholders})
+    `,
+  )
+    .bind(...ids)
+    .run();
+
+  return Number(result.meta?.changes ?? 0);
+}
+
 async function readAuthSession(request: Request, env: Env): Promise<AuthSession | null> {
   const token = bearerToken(request);
   if (!token) {
