@@ -459,8 +459,8 @@ function App() {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Buttgrass Inc - test01</p>
-          <h1>Torn faction attacks</h1>
+          <p className="eyebrow">Buttgrass Inc</p>
+          <h1>Buttgrass Dashboard</h1>
         </div>
         <div className="topbar-actions">
           {authSession ? (
