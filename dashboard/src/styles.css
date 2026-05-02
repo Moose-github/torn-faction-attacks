@@ -190,15 +190,25 @@ h2 {
 .sidebar {
   position: sticky;
   top: 18px;
+  display: grid;
+  gap: 14px;
   max-height: calc(100vh - 36px);
   overflow: hidden;
+}
+
+.sidebar-panel {
   backdrop-filter: blur(10px);
+}
+
+.sidebar-pages-panel {
+  display: grid;
+  gap: 8px;
 }
 
 .war-nav {
   display: grid;
   gap: 8px;
-  max-height: calc(100vh - 186px);
+  max-height: calc(100vh - 362px);
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -222,7 +232,7 @@ h2 {
   gap: 10px;
   width: 100%;
   min-height: 44px;
-  margin-bottom: 8px;
+  margin: 0;
   padding: 10px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -237,10 +247,6 @@ h2 {
   border-color: #bfdbfe;
   background: #f8fbff;
   color: #1d4ed8;
-}
-
-.sidebar-link:last-of-type {
-  margin-bottom: 14px;
 }
 
 .sidebar-link.active {
@@ -856,6 +862,19 @@ h2 {
 
 .lifestyle-period-card {
   min-height: 132px;
+}
+
+.member-performance-filter-card {
+  min-height: 132px;
+}
+
+.member-performance-filter-card label {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
 .lifestyle-period-card strong {

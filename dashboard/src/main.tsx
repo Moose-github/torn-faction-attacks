@@ -519,7 +519,7 @@ function App() {
           ) : view === "lifestyle" ? (
             <LifestyleStats isAdmin={isAdmin} />
           ) : view === "members" ? (
-            <MembersOverview warType={warType} />
+            <MembersOverview />
           ) : view === "warRoom" ? (
             <WarRoom selectedWar={selectedWar} selectedWarName={selectedWarName} onError={setError} />
           ) : selectedWar ? (

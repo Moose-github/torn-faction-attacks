@@ -34,44 +34,49 @@ export function Sidebar({
   onWarSelect: (name: string) => void;
 }) {
   return (
-    <aside className="sidebar panel">
-      <PanelHeader
-        title="Recorded wars"
-        aside={isLoadingWars ? "Loading" : `${wars.length}`}
-        control={<WarTypeSelect value={warType} onChange={onWarTypeChange} />}
-      />
-      <SidebarLink
-        active={view === "warRoom"}
-        icon={warRoomIcon}
-        label="War room"
-        onClick={() => onViewChange("warRoom")}
-      />
-      <SidebarLink
-        active={view === "members"}
-        icon={memberIcon}
-        label="Member performance"
-        onClick={() => onViewChange("members")}
-      />
-      <SidebarLink
-        active={view === "lifestyle"}
-        icon={lifestyleIcon}
-        label="Daily Averages"
-        onClick={() => onViewChange("lifestyle")}
-      />
-      {isAdmin ? (
+    <aside className="sidebar">
+      <section className="panel sidebar-panel sidebar-pages-panel">
         <SidebarLink
-          active={view === "admin"}
-          icon={adminIcon}
-          label="Admin controls"
-          onClick={() => onViewChange("admin")}
+          active={view === "warRoom"}
+          icon={warRoomIcon}
+          label="War room"
+          onClick={() => onViewChange("warRoom")}
         />
-      ) : null}
-      <WarNav
-        view={view}
-        wars={wars}
-        selectedWarName={selectedWarName}
-        onSelect={onWarSelect}
-      />
+        <SidebarLink
+          active={view === "members"}
+          icon={memberIcon}
+          label="Member performance"
+          onClick={() => onViewChange("members")}
+        />
+        <SidebarLink
+          active={view === "lifestyle"}
+          icon={lifestyleIcon}
+          label="Daily Averages"
+          onClick={() => onViewChange("lifestyle")}
+        />
+        {isAdmin ? (
+          <SidebarLink
+            active={view === "admin"}
+            icon={adminIcon}
+            label="Admin controls"
+            onClick={() => onViewChange("admin")}
+          />
+        ) : null}
+      </section>
+
+      <section className="panel sidebar-panel sidebar-wars-panel">
+        <PanelHeader
+          title="Recorded wars"
+          aside={isLoadingWars ? "Loading" : `${wars.length}`}
+          control={<WarTypeSelect value={warType} onChange={onWarTypeChange} />}
+        />
+        <WarNav
+          view={view}
+          wars={wars}
+          selectedWarName={selectedWarName}
+          onSelect={onWarSelect}
+        />
+      </section>
     </aside>
   );
 }

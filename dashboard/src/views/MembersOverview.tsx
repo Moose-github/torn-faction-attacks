@@ -6,7 +6,8 @@ import { MemberTable } from "../components/MemberTables";
 import { formatNumber } from "../utils/format";
 import { MemberSort, sortMembers, sumMembers } from "../utils/members";
 
-export function MembersOverview({ warType }: { warType: WarType }) {
+export function MembersOverview() {
+  const [warType, setWarType] = React.useState<WarType>("all");
   const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getStats>> | null>(null);
   const [sort, setSort] = React.useState<MemberSort>({
     key: "enemy_attacks_successful",
@@ -68,11 +69,26 @@ export function MembersOverview({ warType }: { warType: WarType }) {
           value={formatNumber(sumMembers(members, "enemy_attacks_successful"))}
           icon={<Swords size={18} />}
         />
-        <MetricCard
-          label="Wars"
-          value={formatNumber(stats?.overall.total_wars ?? 0)}
-          icon={<CalendarClock size={18} />}
-        />
+        <section className="metric-card member-performance-filter-card">
+          <div className="panel-kicker">
+            <CalendarClock size={18} />
+            <span>Wars</span>
+          </div>
+          <strong>{formatNumber(stats?.overall.total_wars ?? 0)}</strong>
+          <label>
+            <span>Record type</span>
+            <select
+              value={warType}
+              aria-label="Filter member performance by war type"
+              onChange={(event) => setWarType(event.target.value as WarType)}
+            >
+              <option value="all">All</option>
+              <option value="real">Real wars</option>
+              <option value="termed">Termed wars</option>
+              <option value="event">Events</option>
+            </select>
+          </label>
+        </section>
       </section>
 
       <section className="panel table-panel">
