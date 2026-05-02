@@ -173,7 +173,7 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
         />
         <p className="panel-description">
           Shows each member's average daily activity during selected time period.
-          Overdoses show all drugs because Torn does not have a Xanax-only overdose stat.
+          ODs show the total change in recorded overdoses during the selected time period.
         </p>
         <LifestyleTable members={members} sort={sort} onSortChange={setSort} />
       </section>
