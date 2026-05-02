@@ -114,6 +114,61 @@ export async function getCurrentAuthSession(request: Request, env: Env): Promise
   });
 }
 
+export async function listAdminUsers(env: Env): Promise<Response> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT torn_user_id, created_at
+    FROM admin_users
+    ORDER BY torn_user_id ASC
+    `,
+  ).all();
+
+  return json({
+    ok: true,
+    admins: rows.results ?? [],
+  });
+}
+
+export async function grantAdminAccess(request: Request, env: Env): Promise<Response> {
+  const body = (await request.json().catch(() => ({}))) as { torn_user_id?: unknown };
+  const tornUserId = Number(body.torn_user_id);
+
+  if (!Number.isInteger(tornUserId) || tornUserId <= 0) {
+    return json(
+      {
+        ok: false,
+        error: "A valid Torn user ID is required",
+        code: "INVALID_TORN_USER_ID",
+      },
+      400,
+    );
+  }
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `
+      INSERT INTO admin_users (torn_user_id)
+      VALUES (?)
+      ON CONFLICT(torn_user_id) DO NOTHING
+      `,
+    ).bind(tornUserId),
+    env.DB.prepare(
+      `
+      UPDATE auth_sessions
+      SET access_level = 'admin'
+      WHERE torn_user_id = ?
+      `,
+    ).bind(tornUserId),
+  ]);
+
+  return json({
+    ok: true,
+    granted: {
+      torn_user_id: tornUserId,
+    },
+  });
+}
+
 export async function requireAdmin(request: Request, env: Env): Promise<Response | null> {
   const session = await readAuthSession(request, env);
 

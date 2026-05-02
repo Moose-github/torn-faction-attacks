@@ -550,6 +550,14 @@ export async function getLatestIngestionRun(): Promise<IngestionRunResponse> {
   return getJson<IngestionRunResponse>("/api/admin/ingestion-run", true);
 }
 
+export async function listAdminUsers(): Promise<unknown> {
+  return getJson("/api/admin/users", true);
+}
+
+export async function grantAdminAccess(tornUserId: number): Promise<unknown> {
+  return postJson("/api/admin/users/grant", { torn_user_id: tornUserId });
+}
+
 export async function getMemberLifestyleStats(options: {
   startDate?: string;
   endDate?: string;

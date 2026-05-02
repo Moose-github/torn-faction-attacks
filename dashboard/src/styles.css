@@ -982,6 +982,24 @@ h2 {
   color: #2563eb;
 }
 
+.admin-header-panel {
+  align-items: center;
+}
+
+.admin-header-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.admin-header-controls .checkbox-row {
+  min-height: 30px;
+}
+
 .admin-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

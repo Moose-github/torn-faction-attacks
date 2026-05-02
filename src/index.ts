@@ -1,4 +1,11 @@
-import { authenticateWithTornKey, getCurrentAuthSession, requireAdmin, requireMember } from "./auth";
+import {
+  authenticateWithTornKey,
+  getCurrentAuthSession,
+  grantAdminAccess,
+  listAdminUsers,
+  requireAdmin,
+  requireMember,
+} from "./auth";
 import {
   getEnemyScoutingForWar,
   getScoutingComparisonForWar,
@@ -69,6 +76,18 @@ export default {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
       return getLatestIngestionRun(env);
+    }
+
+    if (url.pathname === "/api/admin/users" && request.method === "GET") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
+      return listAdminUsers(env);
+    }
+
+    if (url.pathname === "/api/admin/users/grant" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
+      return grantAdminAccess(request, env);
     }
 
     if (url.pathname === "/api/rebuild" && request.method === "POST") {

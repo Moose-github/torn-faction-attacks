@@ -11,9 +11,11 @@ import {
   getLatestIngestionRun,
   getWars,
   getStoredAuthSession,
+  grantAdminAccess,
   IngestionRun,
   importEvent,
   importWar,
+  listAdminUsers,
   previewImportEvent,
   previewImportWar,
   previewRelinkAttacks,
@@ -80,6 +82,7 @@ export function AdminControls() {
     customFinishEpoch: String(Math.floor(Date.now() / 1000)),
   });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
+  const [adminGrantForm, setAdminGrantForm] = React.useState({ tornUserId: "" });
   const [attackWindowForm, setAttackWindowForm] = React.useState({
     startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
     finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
@@ -239,8 +242,21 @@ export function AdminControls() {
     <>
       {error ? <div className="error-panel">{error}</div> : null}
 
-      <section className="hero-panel compact-hero-panel">
+      <section className="hero-panel compact-hero-panel admin-header-panel">
         <h2>Admin controls</h2>
+        {authSession?.access_level === "admin" ? (
+          <div className="admin-header-controls">
+            <span>{authSession.user.name ?? `Torn user ${authSession.user.id}`}</span>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={useEpochTime}
+                onChange={(event) => setGlobalTimeMode(event.target.checked)}
+              />
+              <span>Epoch time</span>
+            </label>
+          </div>
+        ) : null}
       </section>
 
       {!authSession ? (
@@ -277,28 +293,49 @@ export function AdminControls() {
             Sign out
           </button>
         </section>
-      ) : (
-        <section className="panel admin-auth-panel">
-          <PanelHeader
-            title="Admin session"
-            aside={authSession.user.name ?? `Torn user ${authSession.user.id}`}
-          />
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={useEpochTime}
-              onChange={(event) => setGlobalTimeMode(event.target.checked)}
-            />
-            <span>Epoch time</span>
-          </label>
-          <button type="button" className="admin-button" onClick={logout}>
-            Sign out
-          </button>
-        </section>
-      )}
+      ) : null}
 
       {authSession?.access_level === "admin" ? (
       <section className="admin-grid">
+        <section className="panel admin-panel-access">
+          <PanelHeader title="Admin access" />
+          <form
+            className="admin-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Grant admin access", () =>
+                grantAdminAccess(Number(adminGrantForm.tornUserId.trim())),
+              );
+            }}
+          >
+            <label>
+              <span>Torn user ID</span>
+              <input
+                inputMode="numeric"
+                value={adminGrantForm.tornUserId}
+                onChange={(event) => setAdminGrantForm({ tornUserId: event.target.value })}
+                placeholder="1234567"
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              className="admin-button primary"
+              disabled={isBusy !== null || adminGrantForm.tornUserId.trim().length === 0}
+            >
+              Grant admin
+            </button>
+            <button
+              type="button"
+              className="admin-button admin-form-wide"
+              disabled={isBusy !== null}
+              onClick={() => runAdminAction("List admin users", listAdminUsers)}
+            >
+              List current admins
+            </button>
+          </form>
+        </section>
+
         <section className="panel admin-panel-edit-official">
           <PanelHeader title="Edit official war" />
           <form
@@ -721,7 +758,7 @@ export function AdminControls() {
             </section>
 
             <section className="admin-tool-section">
-              <PanelHeader title="Run ingestion" />
+              <PanelHeader title="Maintenance" />
               <button
                 type="button"
                 className="admin-button primary"
@@ -729,6 +766,14 @@ export function AdminControls() {
                 onClick={() => runAdminAction("Run ingestion", runIngestion)}
               >
                 {isBusy === "Run ingestion" ? "Working" : "Run ingestion"}
+              </button>
+              <button
+                type="button"
+                className="admin-button primary"
+                disabled={isBusy !== null}
+                onClick={() => runAdminAction("Rebuild stats", rebuildStats)}
+              >
+                {isBusy === "Rebuild stats" ? "Working" : "Rebuild stats"}
               </button>
             </section>
 
@@ -769,18 +814,6 @@ export function AdminControls() {
                   Delete war
                 </button>
               </form>
-            </section>
-
-            <section className="admin-tool-section">
-              <PanelHeader title="Rebuild stats" />
-              <button
-                type="button"
-                className="admin-button primary"
-                disabled={isBusy !== null}
-                onClick={() => runAdminAction("Rebuild stats", rebuildStats)}
-              >
-                {isBusy === "Rebuild stats" ? "Working" : "Rebuild stats"}
-              </button>
             </section>
 
             <section className="admin-tool-section">
