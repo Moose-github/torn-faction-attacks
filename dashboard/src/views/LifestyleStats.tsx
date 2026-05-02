@@ -78,7 +78,9 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
           result.failed ? `, ${formatNumber(result.failed)} failed` : ""
         }${
           result.gym_contributors
-            ? `; gym stats for ${formatNumber(result.gym_contributors.updated_members)} members`
+            ? result.gym_contributors.error
+              ? `; gym refresh failed: ${result.gym_contributors.error}`
+              : `; gym stats for ${formatNumber(result.gym_contributors.updated_members)} members`
             : ""
         }`,
       );
@@ -116,34 +118,7 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
 
       {refreshMessage ? <div className="lifestyle-refresh-note">{refreshMessage}</div> : null}
 
-      <section className="panel lifestyle-filter-panel">
-        <PanelHeader title="Time period" aside={`${stats?.period.days ?? periodDays(period.startDate, period.endDate)} days`} />
-        <div className="lifestyle-filter-row">
-          <label>
-            <span>Start</span>
-            <input
-              type="date"
-              value={period.startDate}
-              onChange={(event) => setPeriod((current) => ({ ...current, startDate: event.target.value }))}
-            />
-          </label>
-          <label>
-            <span>End</span>
-            <input
-              type="date"
-              value={period.endDate}
-              onChange={(event) => setPeriod((current) => ({ ...current, endDate: event.target.value }))}
-            />
-          </label>
-        </div>
-      </section>
-
       <section className="status-grid lifestyle-status-grid">
-        <MetricCard
-          label="Total ODs"
-          value={formatNumber(stats?.summary.total_overdosed ?? 0)}
-          icon={<Activity size={18} />}
-        />
         <MetricCard
           label="Xanax / day"
           value={formatNumber(stats?.summary.average_xantaken ?? 0)}
@@ -154,6 +129,31 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
           value={formatNumber(stats?.summary.average_gymenergy ?? 0)}
           icon={<Dumbbell size={18} />}
         />
+        <section className="metric-card lifestyle-period-card">
+          <div className="panel-kicker">
+            <Activity size={18} />
+            <span>Time period</span>
+          </div>
+          <strong>{stats?.period.days ?? periodDays(period.startDate, period.endDate)} days</strong>
+          <div className="lifestyle-filter-row">
+            <label>
+              <span>Start</span>
+              <input
+                type="date"
+                value={period.startDate}
+                onChange={(event) => setPeriod((current) => ({ ...current, startDate: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>End</span>
+              <input
+                type="date"
+                value={period.endDate}
+                onChange={(event) => setPeriod((current) => ({ ...current, endDate: event.target.value }))}
+              />
+            </label>
+          </div>
+        </section>
       </section>
 
       <section className="panel table-panel">

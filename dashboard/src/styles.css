@@ -821,14 +821,11 @@ h2 {
   font-weight: 800;
 }
 
-.lifestyle-filter-panel {
-  margin-bottom: 16px;
-}
-
 .lifestyle-filter-row {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+  margin-top: 14px;
 }
 
 .lifestyle-filter-row label {
@@ -837,6 +834,20 @@ h2 {
   color: #475569;
   font-size: 0.82rem;
   font-weight: 800;
+}
+
+.lifestyle-period-card {
+  min-height: 132px;
+}
+
+.lifestyle-period-card strong {
+  margin-top: 12px;
+  font-size: 1.55rem;
+}
+
+.lifestyle-period-card input {
+  width: 138px;
+  min-height: 34px;
 }
 
 .report-validation-table td:first-child {

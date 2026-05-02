@@ -122,14 +122,30 @@ export async function refreshMemberLifestyleStatsFromRequest(
   request: Request,
   env: Env,
 ): Promise<Response> {
-  const url = new URL(request.url);
-  const limit = parseLimit(url.searchParams.get("limit"), 25, 90);
-  const force = url.searchParams.get("force") === "true";
-  const result = await refreshMemberLifestyleStats(env, { limit, force });
-  const gymResult = await refreshGymContributorStats(env);
-  await writeLifestyleSnapshotForDate(env, utcDateKey(nowSeconds()));
+  try {
+    const url = new URL(request.url);
+    const limit = parseLimit(url.searchParams.get("limit"), 25, 90);
+    const force = url.searchParams.get("force") === "true";
+    const result = await refreshMemberLifestyleStats(env, { limit, force });
+    const gymResult = await refreshGymContributorStats(env).catch((err: any) => ({
+      refreshed_stats: 0,
+      updated_members: 0,
+      error: err?.message || String(err),
+    }));
 
-  return json({ ok: true, ...result, gym_contributors: gymResult });
+    await writeLifestyleSnapshotForDate(env, utcDateKey(nowSeconds()));
+
+    return json({ ok: true, ...result, gym_contributors: gymResult });
+  } catch (err: any) {
+    return json(
+      {
+        ok: false,
+        error: err?.message || String(err),
+        code: "LIFESTYLE_REFRESH_FAILED",
+      },
+      500,
+    );
+  }
 }
 
 export async function refreshMemberLifestyleStats(

@@ -394,6 +394,7 @@ export type MemberLifestyleRefreshResponse = {
   gym_contributors?: {
     refreshed_stats: number;
     updated_members: number;
+    error?: string;
   };
 };
 
