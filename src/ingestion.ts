@@ -189,7 +189,11 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
     metrics.attacksFetchFinishedAt = nowSeconds();
     metrics.d1WritesFinishedAt = metrics.attacksFetchFinishedAt;
 
-    if (sawAnyRows && ingestionWar) {
+    if (!ingestionWar) {
+      return;
+    }
+
+    if (sawAnyRows) {
       await applyIncrementalWarSummaries(env, ingestionWar.id, ingestRunId);
       metrics.statsFinishedAt = nowSeconds();
     }

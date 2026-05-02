@@ -29,6 +29,10 @@ type EnemyScoutingWar = {
   enemy_scouting_auto_attempted_at: number | null;
 };
 
+type CurrentScoutingWar = {
+  enemy_faction_id: number;
+};
+
 export async function getEnemyScoutingForWar(url: URL, env: Env): Promise<Response> {
   const war = await readWarFromScoutingUrl(url, env);
   if (war instanceof Response) {
@@ -135,14 +139,22 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
 }
 
 export async function refreshMissingFfscouterEstimates(env: Env): Promise<void> {
+  const scoutingWar = await readCurrentScoutingWar(env);
+  if (!scoutingWar) {
+    return;
+  }
+
   const enemyRows = (await env.DB.prepare(
     `
     SELECT *
     FROM enemy_faction_members
-    WHERE estimated_stats IS NULL
+    WHERE faction_id = ?
+      AND estimated_stats IS NULL
     ORDER BY level DESC, name ASC
     `,
-  ).all()).results as EnemyFactionMemberRow[] | undefined;
+  )
+    .bind(scoutingWar.enemy_faction_id)
+    .all()).results as EnemyFactionMemberRow[] | undefined;
 
   await refreshMissingStatEstimates(env, enemyRows ?? []);
 
@@ -156,6 +168,20 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<void> 
   ).all()).results as EnemyFactionMemberRow[] | undefined;
 
   await refreshMissingStatEstimates(env, homeRows ?? [], "home_faction_members");
+}
+
+async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingWar | null> {
+  return (await env.DB.prepare(
+    `
+    SELECT enemy_faction_id
+    FROM wars
+    WHERE enemy_faction_id IS NOT NULL
+      AND official_end_time IS NULL
+      AND COALESCE(war_type, 'real') != 'event'
+    ORDER BY practical_start_time DESC, id DESC
+    LIMIT 1
+    `,
+  ).first()) as CurrentScoutingWar | null;
 }
 
 async function readWarFromScoutingUrl(url: URL, env: Env): Promise<WarRow | Response> {
