@@ -12,6 +12,7 @@ type HeatmapWar = Pick<
   | "id"
   | "name"
   | "practical_start_time"
+  | "practical_finish_time"
   | "official_start_time"
   | "official_end_time"
   | "enemy_faction_id"
@@ -33,7 +34,11 @@ export async function sampleFactionActivityHeatmaps(env: Env): Promise<void> {
   const latestWar = await readLatestHeatmapWar(env);
   await sampleFactionActivity(env, HOME_FACTION_ID, sampledAt);
 
-  if (latestWar?.enemy_faction_id && latestWar.official_end_time === null) {
+  if (
+    latestWar?.enemy_faction_id &&
+    latestWar.official_end_time === null &&
+    latestWar.practical_finish_time === null
+  ) {
     await clearReplaceableEnemyHeatmaps(env, latestWar.enemy_faction_id);
     await sampleFactionActivity(env, latestWar.enemy_faction_id, sampledAt);
   }
@@ -191,8 +196,17 @@ async function updateCachedRevivableMembers(
             updated_at = unixepoch()
         WHERE faction_id = ?
           AND member_id = ?
+          AND (
+            is_revivable IS NULL
+            OR is_revivable != ?
+          )
         `,
-      ).bind(boolToInt(member.is_revivable ?? false), factionId, member.id),
+      ).bind(
+        boolToInt(member.is_revivable ?? false),
+        factionId,
+        member.id,
+        boolToInt(member.is_revivable ?? false),
+      ),
     );
 
   if (statements.length > 0) {
@@ -229,6 +243,7 @@ async function readLatestHeatmapWar(env: Env): Promise<HeatmapWar | null> {
       id,
       name,
       practical_start_time,
+      practical_finish_time,
       official_start_time,
       official_end_time,
       enemy_faction_id
@@ -253,6 +268,7 @@ async function readHeatmapWarFromUrl(url: URL, env: Env): Promise<HeatmapWar | R
       id,
       name,
       practical_start_time,
+      practical_finish_time,
       official_start_time,
       official_end_time,
       enemy_faction_id

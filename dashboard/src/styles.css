@@ -75,6 +75,12 @@ input:disabled {
   margin-bottom: 24px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
 .refresh-countdowns {
   display: grid;
   align-items: center;
@@ -930,7 +936,12 @@ h2 {
 }
 
 .chain-bonus-compact {
-  overflow: visible;
+  max-height: 306px;
+  overflow-y: auto;
+}
+
+.chain-bonus-compact td {
+  padding: 9px 8px;
 }
 
 .admin-hero svg {
@@ -1091,6 +1102,35 @@ h2 {
 .icon-text-button:disabled {
   cursor: progress;
   opacity: 0.65;
+}
+
+.auth-panel {
+  width: min(520px, 100%);
+  margin: 72px auto 0;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.auth-form .icon-text-button {
+  justify-content: center;
+}
+
+.form-error {
+  margin: 12px 0 0;
+  color: #991b1b;
+  font-size: 0.88rem;
+  font-weight: 800;
 }
 
 .admin-form {

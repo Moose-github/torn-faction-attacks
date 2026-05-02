@@ -1,7 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BarChart3, CalendarClock, Pill, Radar, Swords, Target, Wrench } from "lucide-react";
+import { BarChart3, CalendarClock, LogIn, Pill, Radar, Swords, Target, Wrench } from "lucide-react";
 import {
+  authenticateTornKey,
+  clearStoredAuthSession,
   getWar,
   getWarActivity,
   getWarMemberAttacks,
@@ -110,6 +112,13 @@ function App() {
   let cancelled = false;
 
   async function loadWars() {
+    if (!authSession) {
+      setWars([]);
+      setSelectedWarName(null);
+      setIsLoadingWars(false);
+      return;
+    }
+
     setIsLoadingWars(true);
     setError(null);
 
@@ -145,13 +154,13 @@ function App() {
   return () => {
     cancelled = true;
   };
-}, [warType]);
+}, [authSession, warType]);
 
   React.useEffect(() => {
   let cancelled = false;
 
   async function loadWarDetail() {
-    if (!selectedWarName) {
+    if (!authSession || !selectedWarName) {
       setWarDetail(null);
       return;
     }
@@ -181,13 +190,13 @@ function App() {
   return () => {
     cancelled = true;
   };
-}, [selectedWarName]);
+}, [authSession, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadActivity() {
-      if (!selectedWarName) {
+      if (!authSession || !selectedWarName) {
         setActivityBuckets([]);
         return;
       }
@@ -210,7 +219,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedWarName, factionActivityWindow]);
+  }, [authSession, selectedWarName, factionActivityWindow]);
 
   React.useEffect(() => {
     setSelectedMember(null);
@@ -220,6 +229,12 @@ function App() {
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
   const isAdmin = authSession?.access_level === "admin";
+
+  React.useEffect(() => {
+    if (view === "admin" && !isAdmin) {
+      setView("war");
+    }
+  }, [isAdmin, view]);
 
   React.useEffect(() => {
     const termedOnlySorts = ["average_fair_fight", "member_respect_limit_percent"];
@@ -233,7 +248,7 @@ function App() {
   }, [memberSort.key, selectedWar?.war_type]);
 
   React.useEffect(() => {
-    if (view !== "war" || !selectedWarName || !selectedWar) {
+    if (!authSession || view !== "war" || !selectedWarName || !selectedWar) {
       return;
     }
 
@@ -287,13 +302,14 @@ function App() {
     view,
     warType,
     factionActivityWindow,
+    authSession,
   ]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadReportDiscrepancies() {
-      if (!selectedWarName || !hasTornReport) {
+      if (!authSession || !selectedWarName || !hasTornReport) {
         setReportDiscrepancies(null);
         return;
       }
@@ -321,13 +337,13 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [hasTornReport, selectedWarName]);
+  }, [authSession, hasTornReport, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadMemberAttacks() {
-      if (!selectedWarName || !selectedMember) {
+      if (!authSession || !selectedWarName || !selectedMember) {
         setMemberAttacks([]);
         return;
       }
@@ -355,7 +371,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedWarName, selectedMember]);
+  }, [authSession, selectedWarName, selectedMember]);
 
   React.useEffect(() => {
     if (!selectedMember || memberAttacks.length === 0 || isLoadingMemberAttacks) {
@@ -410,11 +426,22 @@ function App() {
   }
 
   function changeView(nextView: "war" | "warRoom" | "members" | "lifestyle" | "admin") {
+    if (nextView === "admin" && !isAdmin) {
+      return;
+    }
+
     if (nextView === "warRoom" && wars[0]) {
       setSelectedWarName(wars[0].name);
     }
 
     setView(nextView);
+  }
+
+  function signOut() {
+    clearStoredAuthSession();
+    setAuthSession(null);
+    setView("war");
+    setError(null);
   }
 
   return (
@@ -424,10 +451,26 @@ function App() {
           <p className="eyebrow">Buttgrass Inc - test01</p>
           <h1>Torn faction attacks</h1>
         </div>
-        <RefreshCountdowns />
+        <div className="topbar-actions">
+          {authSession ? (
+            <button type="button" className="panel-action-button" onClick={signOut}>
+              Sign out
+            </button>
+          ) : null}
+          <RefreshCountdowns />
+        </div>
       </header>
 
       {error ? <div className="error-panel">{error}</div> : null}
+
+      {!authSession ? (
+        <MemberSignIn
+          onSignedIn={(session) => {
+            setAuthSession(session);
+            setError(null);
+          }}
+        />
+      ) : (
 
       <div className="dashboard-layout">
         <Sidebar
@@ -442,6 +485,7 @@ function App() {
           memberIcon={<BarChart3 size={18} />}
           lifestyleIcon={<Pill size={18} />}
           adminIcon={<Wrench size={18} />}
+          isAdmin={isAdmin}
           onWarSelect={(name) => {
             setSelectedWarName(name);
             setView("war");
@@ -556,7 +600,7 @@ function App() {
 
                   {chainBonuses.length > 0 ? (
                     <section className="panel">
-                      <PanelHeader title="Chain bonuses" aside="Top 5" />
+                      <PanelHeader title="Chain bonuses" aside={`${chainBonuses.length} hits`} />
                       <ChainBonusList attacks={chainBonuses} compact />
                     </section>
                   ) : null}
@@ -737,7 +781,52 @@ function App() {
           )}
         </section>
       </div>
+      )}
     </main>
+  );
+}
+
+function MemberSignIn({ onSignedIn }: { onSignedIn: (session: AuthSession) => void }) {
+  const [key, setKey] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [isSigningIn, setIsSigningIn] = React.useState(false);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setIsSigningIn(true);
+
+    try {
+      onSignedIn(await authenticateTornKey(key));
+      setKey("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSigningIn(false);
+    }
+  }
+
+  return (
+    <section className="panel auth-panel">
+      <PanelHeader title="Faction sign in" />
+      <form className="auth-form" onSubmit={handleSubmit}>
+        <label>
+          <span>Torn API key</span>
+          <input
+            type="password"
+            value={key}
+            autoComplete="off"
+            onChange={(event) => setKey(event.target.value)}
+            placeholder="Paste your Torn key"
+          />
+        </label>
+        <button type="submit" className="icon-text-button" disabled={isSigningIn || key.trim().length === 0}>
+          <LogIn size={15} />
+          {isSigningIn ? "Signing in" : "Sign in"}
+        </button>
+      </form>
+      {error ? <p className="form-error">{error}</p> : null}
+    </section>
   );
 }
 

@@ -54,7 +54,17 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
     setError(null);
 
     try {
-      setStats(await getMemberLifestyleStats(period));
+      const response = await getMemberLifestyleStats(period);
+      setStats(response);
+      if (
+        response.period.start_date !== period.startDate ||
+        response.period.end_date !== period.endDate
+      ) {
+        setPeriod({
+          startDate: response.period.start_date,
+          endDate: response.period.end_date,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

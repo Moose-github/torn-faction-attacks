@@ -1,4 +1,4 @@
-import { authenticateWithTornKey, getCurrentAuthSession, requireAdmin } from "./auth";
+import { authenticateWithTornKey, getCurrentAuthSession, requireAdmin, requireMember } from "./auth";
 import {
   getEnemyScoutingForWar,
   getScoutingComparisonForWar,
@@ -15,7 +15,7 @@ import { runScheduledMaintenance } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { ExecutionContext, Env, ScheduledController } from "./types";
-import { corsHeaders, json, parseLimit } from "./utils";
+import { corsHeaders, json, nowSeconds, parseLimit } from "./utils";
 import {
   createWar,
   deleteWar,
@@ -59,6 +59,8 @@ export default {
     if (url.pathname === "/api/run" && request.method === "POST") {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
+      const cooldownError = await requireActionCooldown(env, "manual_ingestion", 5 * 60);
+      if (cooldownError) return cooldownError;
       await runIngestion(env, "manual");
       return json({ ok: true });
     }
@@ -72,6 +74,8 @@ export default {
     if (url.pathname === "/api/rebuild" && request.method === "POST") {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
+      const cooldownError = await requireActionCooldown(env, "manual_rebuild", 15 * 60);
+      if (cooldownError) return cooldownError;
       const result = await rebuildDerivedStatsFromRaw(env);
       return json({ ok: true, ...result });
     }
@@ -98,12 +102,16 @@ export default {
     }
 
     if (url.pathname === "/api/member-lifestyle-stats" && request.method === "GET") {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
       return getMemberLifestyleStats(url, env);
     }
 
     if (url.pathname === "/api/member-lifestyle-stats/refresh" && request.method === "POST") {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
+      const cooldownError = await requireActionCooldown(env, "member_lifestyle_stats_refresh", 30 * 60);
+      if (cooldownError) return cooldownError;
       return refreshMemberLifestyleStatsFromRequest(request, env);
     }
 
@@ -174,10 +182,18 @@ export default {
     ) {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
+      const cooldownError = await requireActionCooldown(
+        env,
+        `ranked_war_report_fetch:${url.pathname}`,
+        15 * 60,
+      );
+      if (cooldownError) return cooldownError;
       return fetchRankedWarReport(url, env);
     }
 
     if (url.pathname === "/api/wars" && request.method === "GET") {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
       return listWars(url, env);
     }
 
@@ -186,6 +202,8 @@ export default {
       url.pathname.endsWith("/report-discrepancies") &&
       request.method === "GET"
     ) {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
       return getWarReportDiscrepancies(url, env);
     }
 
@@ -194,6 +212,8 @@ export default {
       url.pathname.endsWith("/enemy-scouting") &&
       request.method === "GET"
     ) {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
       return getEnemyScoutingForWar(url, env);
     }
 
@@ -202,6 +222,8 @@ export default {
       url.pathname.endsWith("/scouting-comparison") &&
       request.method === "GET"
     ) {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
       return getScoutingComparisonForWar(url, env);
     }
 
@@ -212,6 +234,12 @@ export default {
     ) {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
+      const cooldownError = await requireActionCooldown(
+        env,
+        `enemy_scouting_refresh:${url.pathname}`,
+        15 * 60,
+      );
+      if (cooldownError) return cooldownError;
       return refreshEnemyScoutingForWar(url, env);
     }
 
@@ -221,6 +249,8 @@ export default {
       url.pathname.endsWith("/attacks") &&
       request.method === "GET"
     ) {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
       return getWarMemberAttacks(url, env);
     }
 
@@ -229,6 +259,8 @@ export default {
       url.pathname.endsWith("/activity") &&
       request.method === "GET"
     ) {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
       return getWarActivity(url, env);
     }
 
@@ -237,6 +269,8 @@ export default {
       url.pathname.endsWith("/activity-heatmap") &&
       request.method === "GET"
     ) {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
       return getWarActivityHeatmap(url, env);
     }
 
@@ -258,10 +292,14 @@ export default {
       !url.pathname.endsWith("/attacks") &&
       request.method === "GET"
     ) {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
       return getWar(url, env);
     }
 
     if (url.pathname === "/api/stats" && request.method === "GET") {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
       return getOverallStats(url, env);
     }
 
@@ -296,4 +334,50 @@ export default {
     );
   },
 };
+
+async function requireActionCooldown(
+  env: Env,
+  name: string,
+  cooldownSeconds: number,
+): Promise<Response | null> {
+  const now = nowSeconds();
+  const existing = (await env.DB.prepare(
+    `
+    SELECT last_started
+    FROM sync_state
+    WHERE name = ?
+    LIMIT 1
+    `,
+  )
+    .bind(name)
+    .first()) as { last_started: number | null } | null;
+  const lastStarted = Number(existing?.last_started ?? 0);
+  const retryAfterSeconds = lastStarted > 0 ? cooldownSeconds - (now - lastStarted) : 0;
+
+  if (retryAfterSeconds > 0) {
+    return json(
+      {
+        ok: false,
+        error: `Please wait ${retryAfterSeconds} seconds before trying again`,
+        code: "COOLDOWN_ACTIVE",
+        retry_after_seconds: retryAfterSeconds,
+      },
+      429,
+    );
+  }
+
+  await env.DB.prepare(
+    `
+    INSERT INTO sync_state (name, last_started, active_war_id)
+    VALUES (?, ?, NULL)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = excluded.last_started,
+      updated_at = CURRENT_TIMESTAMP
+    `,
+  )
+    .bind(name, now)
+    .run();
+
+  return null;
+}
 

@@ -21,6 +21,7 @@ const REFRESH_STALE_SECONDS = 24 * 60 * 60;
 const LIFESTYLE_FETCH_TIMEOUT_MS = 12000;
 const DAILY_REFRESH_AFTER_UTC_HOUR = 0;
 const DAILY_REFRESH_AFTER_UTC_MINUTE = 10;
+const MAX_LIFESTYLE_PERIOD_DAYS = 90;
 
 type LifestyleStatKey = (typeof LIFESTYLE_STAT_KEYS)[number];
 type GymContributorStatKey = (typeof GYM_CONTRIBUTOR_STAT_KEYS)[number];
@@ -658,16 +659,29 @@ function summarizeLifestylePeriodRows(rows: LifestylePeriodRow[]) {
   };
 }
 
-function readLifestylePeriod(url: URL): { start_date: string; end_date: string; days: number } {
+function readLifestylePeriod(url: URL): {
+  start_date: string;
+  end_date: string;
+  days: number;
+  max_days: number;
+  capped: boolean;
+} {
   const current = currentUtcMonthRange();
   const startDate = normalizeDateParam(url.searchParams.get("start_date")) ?? current.start_date;
   const endDate = normalizeDateParam(url.searchParams.get("end_date")) ?? current.end_date;
   const normalizedEnd = startDate > endDate ? startDate : endDate;
+  const days = Math.max(1, dateDiffDays(startDate, normalizedEnd));
+  const capped = days > MAX_LIFESTYLE_PERIOD_DAYS;
+  const cappedStartDate = capped
+    ? dateKeyFromMs(Date.parse(`${normalizedEnd}T00:00:00.000Z`) - MAX_LIFESTYLE_PERIOD_DAYS * 86_400_000)
+    : startDate;
 
   return {
-    start_date: startDate,
+    start_date: cappedStartDate,
     end_date: normalizedEnd,
-    days: Math.max(1, dateDiffDays(startDate, normalizedEnd)),
+    days: Math.max(1, dateDiffDays(cappedStartDate, normalizedEnd)),
+    max_days: MAX_LIFESTYLE_PERIOD_DAYS,
+    capped,
   };
 }
 
@@ -809,6 +823,10 @@ function dailyRefreshReadyAt(timestamp: number): number | null {
 
 function utcDateKey(timestamp: number): string {
   return new Date(timestamp * 1000).toISOString().slice(0, 10);
+}
+
+function dateKeyFromMs(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
 }
 
 async function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {

@@ -110,7 +110,7 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
     )
       .bind(war.member_respect_limit, war.member_respect_limit, war.member_respect_limit, war.id)
       .all();
-    const chainBonuses = await getWarChainBonuses(env, war.id, 5);
+    const chainBonuses = await getWarChainBonuses(env, war.id, 25);
 
     return json({
       ok: true,

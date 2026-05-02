@@ -16,6 +16,7 @@ export function Sidebar({
   memberIcon,
   lifestyleIcon,
   adminIcon,
+  isAdmin,
   onWarSelect,
 }: {
   warType: WarType;
@@ -29,6 +30,7 @@ export function Sidebar({
   memberIcon: React.ReactNode;
   lifestyleIcon: React.ReactNode;
   adminIcon: React.ReactNode;
+  isAdmin: boolean;
   onWarSelect: (name: string) => void;
 }) {
   return (
@@ -56,12 +58,14 @@ export function Sidebar({
         label="Daily Averages"
         onClick={() => onViewChange("lifestyle")}
       />
-      <SidebarLink
-        active={view === "admin"}
-        icon={adminIcon}
-        label="Admin controls"
-        onClick={() => onViewChange("admin")}
-      />
+      {isAdmin ? (
+        <SidebarLink
+          active={view === "admin"}
+          icon={adminIcon}
+          label="Admin controls"
+          onClick={() => onViewChange("admin")}
+        />
+      ) : null}
       <WarNav
         view={view}
         wars={wars}

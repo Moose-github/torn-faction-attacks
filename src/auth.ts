@@ -128,6 +128,16 @@ export async function requireAdmin(request: Request, env: Env): Promise<Response
   return null;
 }
 
+export async function requireMember(request: Request, env: Env): Promise<Response | null> {
+  const session = await readAuthSession(request, env);
+
+  if (!session) {
+    return json({ ok: false, error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+  }
+
+  return null;
+}
+
 async function readAuthSession(request: Request, env: Env): Promise<AuthSession | null> {
   const token = bearerToken(request);
   if (!token) {

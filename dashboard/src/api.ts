@@ -369,6 +369,8 @@ export type MemberLifestyleStatsResponse = {
     start_date: string;
     end_date: string;
     days: number;
+    max_days: number;
+    capped: boolean;
   };
   summary: {
     members: number;
@@ -705,7 +707,7 @@ export async function exportWarAttacksCsv(options: AttackExportOptions): Promise
   window.URL.revokeObjectURL(downloadUrl);
 }
 
-async function getJson<T>(path: string, includeAuth = false): Promise<T> {
+async function getJson<T>(path: string, includeAuth = true): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: authHeaders(includeAuth),
   });

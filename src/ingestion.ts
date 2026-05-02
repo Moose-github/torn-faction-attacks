@@ -29,6 +29,12 @@ type IngestionRunMetrics = {
   id: string;
   triggerSource: string;
   startedAt: number;
+  rankedWarCheckedAt: number | null;
+  attacksFetchFinishedAt: number | null;
+  d1WritesFinishedAt: number | null;
+  statsFinishedAt: number | null;
+  reportFinishedAt: number | null;
+  finishedAt: number | null;
   activeWarId: number | null;
   fetchedPages: number;
   fetchedAttacks: number;
@@ -38,28 +44,17 @@ type IngestionRunMetrics = {
   error: string | null;
 };
 
-type IngestionRunUpdate = Partial<{
-  ranked_war_checked_at: number;
-  attacks_fetch_finished_at: number;
-  d1_writes_finished_at: number;
-  stats_finished_at: number;
-  report_finished_at: number;
-  finished_at: number;
-  latest_attack_started: number;
-  fetched_pages: number;
-  fetched_attacks: number;
-  wrote_batches: number;
-  saw_rows: number;
-  active_war_id: number | null;
-  status: string;
-  error: string | null;
-}>;
-
 export async function runIngestion(env: Env, triggerSource = "cron"): Promise<void> {
   const metrics: IngestionRunMetrics = {
     id: crypto.randomUUID(),
     triggerSource,
     startedAt: nowSeconds(),
+    rankedWarCheckedAt: null,
+    attacksFetchFinishedAt: null,
+    d1WritesFinishedAt: null,
+    statsFinishedAt: null,
+    reportFinishedAt: null,
+    finishedAt: null,
     activeWarId: null,
     fetchedPages: 0,
     fetchedAttacks: 0,
@@ -69,8 +64,6 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
     error: null,
   };
 
-  await createIngestionRunMetric(env, metrics);
-
   try {
     await ensureState(env);
     const latestRankedWar = await fetchLatestRankedWar(env).catch((err) => {
@@ -79,7 +72,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
     });
     await syncUpcomingRankedWar(env, latestRankedWar);
     await activateScheduledWarIfDue(env);
-    await updateIngestionRunMetric(env, metrics.id, { ranked_war_checked_at: nowSeconds() });
+    metrics.rankedWarCheckedAt = nowSeconds();
 
     const state = (await env.DB.prepare(
       `
@@ -118,7 +111,6 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
           .first()) as ActiveWarForIngestion | null)
       : null;
     metrics.activeWarId = activeWar?.id ?? null;
-    await updateIngestionRunMetric(env, metrics.id, { active_war_id: metrics.activeWarId });
     const officialEndTime =
       activeWar && latestRankedWar ? await syncActiveWarOfficialEnd(env, activeWar, latestRankedWar) : null;
     if (activeWar && latestRankedWar && officialEndTime === null) {
@@ -194,52 +186,29 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
       from = newestStarted;
     }
     metrics.latestAttackStarted = newestStarted;
-    await updateIngestionRunMetric(env, metrics.id, {
-      attacks_fetch_finished_at: nowSeconds(),
-      d1_writes_finished_at: nowSeconds(),
-      latest_attack_started: metrics.latestAttackStarted,
-      fetched_pages: metrics.fetchedPages,
-      fetched_attacks: metrics.fetchedAttacks,
-      wrote_batches: metrics.wroteBatches,
-      saw_rows: boolToInt(metrics.sawRows) ?? 0,
-    });
+    metrics.attacksFetchFinishedAt = nowSeconds();
+    metrics.d1WritesFinishedAt = metrics.attacksFetchFinishedAt;
 
     if (sawAnyRows && ingestionWar) {
       await applyIncrementalWarSummaries(env, ingestionWar.id, ingestRunId);
-      await updateIngestionRunMetric(env, metrics.id, { stats_finished_at: nowSeconds() });
+      metrics.statsFinishedAt = nowSeconds();
     }
 
     if (ingestionWar && officialEndTime !== null) {
       await fetchAndApplyRankedWarReport(env, ingestionWar, latestRankedWar?.id ?? ingestionWar.torn_war_id);
       await finalizeWar(env, ingestionWar.id);
-      await updateIngestionRunMetric(env, metrics.id, {
-        report_finished_at: nowSeconds(),
-        stats_finished_at: nowSeconds(),
-      });
+      metrics.reportFinishedAt = nowSeconds();
+      metrics.statsFinishedAt = metrics.reportFinishedAt;
     } else if (ingestionWar) {
       await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
-      await updateIngestionRunMetric(env, metrics.id, { stats_finished_at: nowSeconds() });
+      metrics.statsFinishedAt = nowSeconds();
     }
   } catch (err: any) {
     metrics.error = err?.message || String(err);
-    await updateIngestionRunMetric(env, metrics.id, {
-      status: "error",
-      error: metrics.error,
-      finished_at: nowSeconds(),
-    });
     throw err;
   } finally {
-    await updateIngestionRunMetric(env, metrics.id, {
-      finished_at: nowSeconds(),
-      status: metrics.error ? "error" : "success",
-      error: metrics.error,
-      latest_attack_started: metrics.latestAttackStarted || undefined,
-      fetched_pages: metrics.fetchedPages,
-      fetched_attacks: metrics.fetchedAttacks,
-      wrote_batches: metrics.wroteBatches,
-      saw_rows: boolToInt(metrics.sawRows) ?? 0,
-      active_war_id: metrics.activeWarId,
-    });
+    metrics.finishedAt = nowSeconds();
+    await writeFinalIngestionRunMetric(env, metrics);
   }
 }
 
@@ -281,57 +250,53 @@ export async function getLatestIngestionRun(env: Env): Promise<Response> {
   return json({ ok: true, run: run ?? null });
 }
 
-async function createIngestionRunMetric(
-  env: Env,
-  metrics: IngestionRunMetrics,
-): Promise<void> {
+async function writeFinalIngestionRunMetric(env: Env, metrics: IngestionRunMetrics): Promise<void> {
   await env.DB.prepare(
     `
     INSERT INTO ingestion_runs (
       id,
       trigger_source,
       started_at,
+      ranked_war_checked_at,
+      attacks_fetch_finished_at,
+      d1_writes_finished_at,
+      stats_finished_at,
+      report_finished_at,
+      finished_at,
       latest_attack_started,
+      fetched_pages,
+      fetched_attacks,
+      wrote_batches,
+      saw_rows,
       active_war_id,
+      error,
       status
     )
-    VALUES (?, ?, ?, ?, ?, 'running')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   )
     .bind(
       metrics.id,
       metrics.triggerSource,
       metrics.startedAt,
+      metrics.rankedWarCheckedAt,
+      metrics.attacksFetchFinishedAt,
+      metrics.d1WritesFinishedAt,
+      metrics.statsFinishedAt,
+      metrics.reportFinishedAt,
+      metrics.finishedAt,
       metrics.latestAttackStarted,
+      metrics.fetchedPages,
+      metrics.fetchedAttacks,
+      metrics.wroteBatches,
+      boolToInt(metrics.sawRows) ?? 0,
       metrics.activeWarId,
+      metrics.error,
+      metrics.error ? "error" : "success",
     )
     .run()
     .catch((err: any) => {
-      console.warn("Unable to create ingestion run metric:", err?.message || err);
-    });
-}
-
-async function updateIngestionRunMetric(
-  env: Env,
-  runId: string,
-  update: IngestionRunUpdate,
-): Promise<void> {
-  const entries = Object.entries(update).filter((entry) => entry[1] !== undefined);
-  if (entries.length === 0) {
-    return;
-  }
-
-  await env.DB.prepare(
-    `
-    UPDATE ingestion_runs
-    SET ${entries.map(([key]) => `${key} = ?`).join(", ")}
-    WHERE id = ?
-    `,
-  )
-    .bind(...entries.map((entry) => entry[1]), runId)
-    .run()
-    .catch((err: any) => {
-      console.warn("Unable to update ingestion run metric:", err?.message || err);
+      console.warn("Unable to write ingestion run metric:", err?.message || err);
     });
 }
 
