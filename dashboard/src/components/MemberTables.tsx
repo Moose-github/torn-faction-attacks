@@ -14,6 +14,7 @@ export function MemberTable({
   sort,
   onSortChange,
   showTermedColumns,
+  termedColumnVariant = "war",
   selectedMemberId,
   onMemberSelect,
 }: {
@@ -21,6 +22,7 @@ export function MemberTable({
   sort: MemberSort;
   onSortChange: (sort: MemberSort) => void;
   showTermedColumns?: boolean;
+  termedColumnVariant?: "war" | "overview";
   selectedMemberId?: number | null;
   onMemberSelect?: (member: MemberStats) => void;
 }) {
@@ -48,7 +50,9 @@ export function MemberTable({
             <SortableHeader label="Assists" sortKey="enemy_assists" sort={sort} onSortChange={onSortChange} />
             {showTermedColumns ? (
               <>
-                <SortableHeader label={<>Average<br />fair fight</>} sortKey="average_fair_fight" sort={sort} onSortChange={onSortChange} />
+                {termedColumnVariant === "war" ? (
+                  <SortableHeader label={<>Average<br />fair fight</>} sortKey="average_fair_fight" sort={sort} onSortChange={onSortChange} />
+                ) : null}
                 <SortableHeader label={<>Percent<br />limit</>} sortKey="member_respect_limit_percent" sort={sort} onSortChange={onSortChange} />
               </>
             ) : (
@@ -99,7 +103,9 @@ export function MemberTable({
               <td>{formatNumber(member.enemy_assists)}</td>
               {showTermedColumns ? (
                 <>
-                  <td>{formatNullableNumber(member.average_fair_fight, 2)}</td>
+                  {termedColumnVariant === "war" ? (
+                    <td>{formatNullableNumber(member.average_fair_fight, 2)}</td>
+                  ) : null}
                   <td>{formatNullablePercent(member.member_respect_limit_percent)}</td>
                 </>
               ) : (

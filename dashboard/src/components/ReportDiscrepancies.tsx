@@ -55,13 +55,7 @@ export function ReportDiscrepancyPanel({
                 <h3>{definition.title}</h3>
                 {count > 0 ? <p>{definition.detail}</p> : null}
               </div>
-              <strong>
-                {formatNumber(count)} attacks
-                {definition.key === "chain_bonus_adjustments" ||
-                definition.key === "after_practical_finish"
-                  ? ` / ${formatNumber(group?.respect_gain ?? 0)} removed`
-                  : ""}
-              </strong>
+              <strong>{discrepancyGroupSummary(definition.key, count, group?.respect_gain ?? 0)}</strong>
             </div>
             {count > 0 && group && group.attacks.length > 0 && definition.key === "chain_bonus_adjustments" ? (
               <ChainBonusList attacks={group.attacks as ChainBonusAttack[]} />
@@ -119,7 +113,10 @@ function MemberReportComparison({
             official war window.
           </p>
         </div>
-        <strong>{formatNumber(comparison.mismatches.length)} members</strong>
+        <strong>
+          {formatSignedNumber(comparison.totals.attack_diff)} attacks /{" "}
+          {formatSignedNumber(comparison.totals.respect_diff)} respect
+        </strong>
       </div>
       <div className="table-scroll">
         <table className="discrepancy-table member-report-comparison-table">
@@ -214,6 +211,18 @@ export function discrepancyAside(response: ReportDiscrepanciesResponse | null): 
 
 function visibleGroupDefinitions(response: ReportDiscrepanciesResponse) {
   return GROUP_DEFINITIONS.filter((definition) => (response.groups[definition.key]?.count ?? 0) > 0);
+}
+
+function discrepancyGroupSummary(key: string, count: number, respectGain: number): string {
+  if (key === "chain_bonus_adjustments") {
+    return `${formatNumber(count)} attacks / ${formatNumber(respectGain)} respect adjusted`;
+  }
+
+  if (key === "after_practical_finish") {
+    return `${formatNumber(count)} attacks / ${formatNumber(respectGain)} respect removed`;
+  }
+
+  return `${formatNumber(count)} attacks`;
 }
 
 export function formatReportComparison(reportValue: number | null, derivedValue: number): string {

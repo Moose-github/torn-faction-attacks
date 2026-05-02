@@ -99,7 +99,13 @@ export function MembersOverview() {
         <p className="panel-description">
           Combines member performance across the selected record type so longer-term activity can be compared.
         </p>
-        <MemberTable members={members} sort={sort} onSortChange={setSort} />
+        <MemberTable
+          members={members}
+          sort={sort}
+          onSortChange={setSort}
+          showTermedColumns={warType === "termed"}
+          termedColumnVariant="overview"
+        />
       </section>
     </>
   );

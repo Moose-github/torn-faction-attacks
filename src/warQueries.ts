@@ -535,6 +535,11 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       COALESCE(SUM(wms.enemy_retaliations), 0) AS enemy_retaliations,
       COALESCE(SUM(wms.outside_attacks), 0) AS outside_attacks,
       COALESCE(SUM(wms.friendly_hospitals), 0) AS friendly_hospitals,
+      AVG(CASE
+        WHEN w.member_respect_limit IS NOT NULL AND w.member_respect_limit > 0
+        THEN wms.enemy_respect_gained * 100.0 / w.member_respect_limit
+        ELSE NULL
+      END) AS member_respect_limit_percent,
       COALESCE(SUM(wms.defends_total), 0) AS defends_total,
       COALESCE(SUM(wms.defends_won), 0) AS defends_won,
       COALESCE(SUM(wms.respect_lost), 0) AS respect_lost,
