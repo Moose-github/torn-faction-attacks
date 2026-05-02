@@ -5,7 +5,6 @@ CREATE TABLE member_lifestyle_stats (
   position TEXT,
   xantaken INTEGER,
   overdosed INTEGER,
-  drugsused INTEGER,
   refills INTEGER,
   statenhancersused INTEGER,
   energydrinkused INTEGER,

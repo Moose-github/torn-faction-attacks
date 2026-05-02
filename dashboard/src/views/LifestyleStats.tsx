@@ -1,5 +1,5 @@
 import React from "react";
-import { Activity, BatteryCharging, Pill, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowUp, Dumbbell, Pill, RotateCw, Zap } from "lucide-react";
 import {
   getMemberLifestyleStats,
   MemberLifestyleStats,
@@ -10,17 +10,8 @@ import { formatNumber, formatRelativeTime } from "../utils/format";
 
 type LifestyleSortKey =
   | "member_name"
-  | "level"
   | "xantaken"
   | "overdosed"
-  | "drugsused"
-  | "refills"
-  | "statenhancersused"
-  | "energydrinkused"
-  | "boostersused"
-  | "alcoholused"
-  | "candyused"
-  | "rehabs"
   | "useractivity"
   | "gymenergy"
   | "gymstrength"
@@ -36,17 +27,8 @@ type LifestyleSort = {
 
 const SORT_LABELS: Record<LifestyleSortKey, string> = {
   member_name: "Member",
-  level: "Level",
   xantaken: "Xanax",
   overdosed: "ODs",
-  drugsused: "Drugs",
-  refills: "Refills",
-  statenhancersused: "SEs",
-  energydrinkused: "Energy drinks",
-  boostersused: "Boosters",
-  alcoholused: "Alcohol",
-  candyused: "Candy",
-  rehabs: "Rehabs",
   useractivity: "Activity",
   gymenergy: "Gym energy",
   gymstrength: "Strength",
@@ -114,7 +96,7 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
         <div>
           <p className="eyebrow">Public personal stats</p>
           <h2>Faction lifestyle stats</h2>
-          <p>Cached non-war member stats from Torn personal stats.</p>
+          <p>Daily cached non-war member totals from Torn personal stats and faction contributors.</p>
         </div>
         {isAdmin ? (
           <button
@@ -133,19 +115,19 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
 
       <section className="status-grid lifestyle-status-grid">
         <MetricCard
-          label="Xanax taken"
-          value={formatNumber(stats?.summary.total_xantaken ?? 0)}
+          label="Average Xanax"
+          value={formatNumber(stats?.summary.average_xantaken ?? 0)}
           icon={<Pill size={18} />}
         />
         <MetricCard
-          label="Total overdoses"
-          value={formatNumber(stats?.summary.total_overdosed ?? 0)}
-          icon={<Activity size={18} />}
+          label="Average Gym energy"
+          value={formatNumber(stats?.summary.average_gymenergy ?? 0)}
+          icon={<Dumbbell size={18} />}
         />
         <MetricCard
-          label="Average Xanax"
-          value={formatNumber(stats?.summary.average_xantaken ?? 0)}
-          icon={<BatteryCharging size={18} />}
+          label="Average Refills"
+          value={formatNumber(stats?.summary.average_refills ?? 0)}
+          icon={<Zap size={18} />}
         />
       </section>
 
@@ -155,7 +137,8 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
           aside={isLoading ? "Loading" : `${members.length} members`}
         />
         <p className="panel-description">
-          Overdoses are Torn's all-drug lifetime overdose stat; Xanax-only overdoses are not exposed as a public lifetime stat.
+          Shows the latest daily lifetime totals for each member. Activity is total Torn user activity time,
+          and overdoses are all-drug overdoses because Torn does not expose Xanax-only overdoses as a public stat.
         </p>
         <LifestyleTable members={members} sort={sort} onSortChange={setSort} />
       </section>
@@ -172,13 +155,6 @@ function LifestyleTable({
   sort: LifestyleSort;
   onSortChange: (sort: LifestyleSort) => void;
 }) {
-  function nextSort(key: LifestyleSortKey) {
-    onSortChange({
-      key,
-      direction: sort.key === key && sort.direction === "desc" ? "asc" : "desc",
-    });
-  }
-
   return (
     <div className="table-scroll">
       <table className="lifestyle-table">
@@ -186,17 +162,8 @@ function LifestyleTable({
           <tr>
             {[
               "member_name",
-              "level",
               "xantaken",
               "overdosed",
-              "drugsused",
-              "refills",
-              "statenhancersused",
-              "energydrinkused",
-              "boostersused",
-              "alcoholused",
-              "candyused",
-              "rehabs",
               "useractivity",
               "gymenergy",
               "gymstrength",
@@ -205,16 +172,13 @@ function LifestyleTable({
               "gymdexterity",
               "updated_at",
             ].map((key) => (
-              <th key={key}>
-                <button
-                  type="button"
-                  className={sort.key === key ? "sort-button active" : "sort-button"}
-                  onClick={() => nextSort(key as LifestyleSortKey)}
-                >
-                  {SORT_LABELS[key as LifestyleSortKey]}
-                  {sort.key === key ? (sort.direction === "desc" ? "v" : "^") : ""}
-                </button>
-              </th>
+              <SortableHeader
+                key={key}
+                label={SORT_LABELS[key as LifestyleSortKey]}
+                sortKey={key as LifestyleSortKey}
+                sort={sort}
+                onSortChange={onSortChange}
+              />
             ))}
           </tr>
         </thead>
@@ -231,17 +195,8 @@ function LifestyleTable({
                   {member.member_name ?? member.member_id}
                 </a>
               </td>
-              <td>{cell(member.level)}</td>
               <td>{cell(member.xantaken)}</td>
               <td>{cell(member.overdosed)}</td>
-              <td>{cell(member.drugsused)}</td>
-              <td>{cell(member.refills)}</td>
-              <td>{cell(member.statenhancersused)}</td>
-              <td>{cell(member.energydrinkused)}</td>
-              <td>{cell(member.boostersused)}</td>
-              <td>{cell(member.alcoholused)}</td>
-              <td>{cell(member.candyused)}</td>
-              <td>{cell(member.rehabs)}</td>
               <td>{formatActivity(member.useractivity)}</td>
               <td>{cell(member.gymenergy)}</td>
               <td>{cell(member.gymstrength)}</td>
@@ -254,6 +209,36 @@ function LifestyleTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function SortableHeader<TSortKey extends string>({
+  label,
+  sortKey,
+  sort,
+  onSortChange,
+}: {
+  label: React.ReactNode;
+  sortKey: TSortKey;
+  sort: { key: TSortKey; direction: "asc" | "desc" };
+  onSortChange: (sort: { key: TSortKey; direction: "asc" | "desc" }) => void;
+}) {
+  const isActive = sort.key === sortKey;
+  const nextDirection = isActive && sort.direction === "desc" ? "asc" : "desc";
+
+  return (
+    <th>
+      <button
+        type="button"
+        className={isActive ? "sort-button active" : "sort-button"}
+        onClick={() => onSortChange({ key: sortKey, direction: nextDirection })}
+      >
+        {label}
+        {isActive ? (
+          sort.direction === "desc" ? <ArrowDown size={14} /> : <ArrowUp size={14} />
+        ) : null}
+      </button>
+    </th>
   );
 }
 

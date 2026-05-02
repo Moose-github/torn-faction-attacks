@@ -7,14 +7,7 @@ const PERSONAL_STATS_API_BASE_URL = "https://api.torn.com/v2/user";
 const LIFESTYLE_STAT_KEYS = [
   "xantaken",
   "overdosed",
-  "drugsused",
   "refills",
-  "statenhancersused",
-  "energydrinkused",
-  "boostersused",
-  "alcoholused",
-  "candyused",
-  "rehabs",
   "useractivity",
 ] as const;
 const GYM_CONTRIBUTOR_STAT_KEYS = [
@@ -67,14 +60,7 @@ export async function getMemberLifestyleStats(env: Env): Promise<Response> {
       position,
       xantaken,
       overdosed,
-      drugsused,
       refills,
-      statenhancersused,
-      energydrinkused,
-      boostersused,
-      alcoholused,
-      candyused,
-      rehabs,
       useractivity,
       gymenergy,
       gymstrength,
@@ -379,33 +365,19 @@ async function upsertLifestyleStats(
       position,
       xantaken,
       overdosed,
-      drugsused,
       refills,
-      statenhancersused,
-      energydrinkused,
-      boostersused,
-      alcoholused,
-      candyused,
-      rehabs,
       useractivity,
       updated_at,
       error
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch(), ?)
     ON CONFLICT(member_id) DO UPDATE SET
       member_name = excluded.member_name,
       level = excluded.level,
       position = excluded.position,
       xantaken = COALESCE(excluded.xantaken, member_lifestyle_stats.xantaken),
       overdosed = COALESCE(excluded.overdosed, member_lifestyle_stats.overdosed),
-      drugsused = COALESCE(excluded.drugsused, member_lifestyle_stats.drugsused),
       refills = COALESCE(excluded.refills, member_lifestyle_stats.refills),
-      statenhancersused = COALESCE(excluded.statenhancersused, member_lifestyle_stats.statenhancersused),
-      energydrinkused = COALESCE(excluded.energydrinkused, member_lifestyle_stats.energydrinkused),
-      boostersused = COALESCE(excluded.boostersused, member_lifestyle_stats.boostersused),
-      alcoholused = COALESCE(excluded.alcoholused, member_lifestyle_stats.alcoholused),
-      candyused = COALESCE(excluded.candyused, member_lifestyle_stats.candyused),
-      rehabs = COALESCE(excluded.rehabs, member_lifestyle_stats.rehabs),
       useractivity = COALESCE(excluded.useractivity, member_lifestyle_stats.useractivity),
       updated_at = excluded.updated_at,
       error = excluded.error
@@ -418,14 +390,7 @@ async function upsertLifestyleStats(
       member.position,
       stats.xantaken,
       stats.overdosed,
-      stats.drugsused,
       stats.refills,
-      stats.statenhancersused,
-      stats.energydrinkused,
-      stats.boostersused,
-      stats.alcoholused,
-      stats.candyused,
-      stats.rehabs,
       stats.useractivity,
       error,
     )
@@ -546,6 +511,10 @@ function summarizeLifestyleRows(rows: LifestyleStatsRow[]) {
   const withOverdoses = rows.filter((row) => row.overdosed !== null);
   const totalXanax = rows.reduce((total, row) => total + Number(row.xantaken ?? 0), 0);
   const totalOverdoses = rows.reduce((total, row) => total + Number(row.overdosed ?? 0), 0);
+  const totalGymEnergy = rows.reduce((total, row) => total + Number(row.gymenergy ?? 0), 0);
+  const totalRefills = rows.reduce((total, row) => total + Number(row.refills ?? 0), 0);
+  const withGymEnergy = rows.filter((row) => row.gymenergy !== null);
+  const withRefills = rows.filter((row) => row.refills !== null);
 
   return {
     members: rows.length,
@@ -554,6 +523,8 @@ function summarizeLifestyleRows(rows: LifestyleStatsRow[]) {
     average_xantaken: withXanax.length === 0 ? 0 : totalXanax / withXanax.length,
     total_overdosed: totalOverdoses,
     average_overdosed: withOverdoses.length === 0 ? 0 : totalOverdoses / withOverdoses.length,
+    average_gymenergy: withGymEnergy.length === 0 ? 0 : totalGymEnergy / withGymEnergy.length,
+    average_refills: withRefills.length === 0 ? 0 : totalRefills / withRefills.length,
     errors: rows.filter((row) => row.error).length,
     oldest_updated_at: rows.reduce<number | null>((oldest, row) => {
       if (row.updated_at === null) {

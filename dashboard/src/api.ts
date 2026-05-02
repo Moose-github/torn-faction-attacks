@@ -353,14 +353,7 @@ export type MemberLifestyleStats = {
   position: string | null;
   xantaken: number | null;
   overdosed: number | null;
-  drugsused: number | null;
   refills: number | null;
-  statenhancersused: number | null;
-  energydrinkused: number | null;
-  boostersused: number | null;
-  alcoholused: number | null;
-  candyused: number | null;
-  rehabs: number | null;
   useractivity: number | null;
   gymenergy: number | null;
   gymstrength: number | null;
@@ -380,6 +373,8 @@ export type MemberLifestyleStatsResponse = {
     average_xantaken: number;
     total_overdosed: number;
     average_overdosed: number;
+    average_gymenergy: number;
+    average_refills: number;
     errors: number;
     oldest_updated_at: number | null;
   };
