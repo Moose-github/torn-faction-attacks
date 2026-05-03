@@ -10,6 +10,12 @@ const LIFESTYLE_STAT_KEYS = [
   "refills",
   "useractivity",
 ] as const;
+const TORN_LIFESTYLE_STAT_KEYS = [
+  "xantaken",
+  "overdosed",
+  "refills",
+  "timeplayed",
+] as const;
 const GYM_CONTRIBUTOR_STAT_KEYS = [
   "gymenergy",
   "gymstrength",
@@ -19,6 +25,8 @@ const GYM_CONTRIBUTOR_STAT_KEYS = [
 ] as const;
 const REFRESH_STALE_SECONDS = 24 * 60 * 60;
 const LIFESTYLE_FETCH_TIMEOUT_MS = 12000;
+const LIFESTYLE_FETCH_RETRY_DELAYS_MS = [750, 1500];
+const TRANSIENT_TORN_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const DAILY_REFRESH_AFTER_UTC_HOUR = 0;
 const DAILY_REFRESH_AFTER_UTC_MINUTE = 10;
 const MAX_LIFESTYLE_PERIOD_DAYS = 90;
@@ -375,9 +383,9 @@ async function readLifestyleRefreshCandidates(
 
 async function fetchMemberPersonalStats(env: Env, memberId: number): Promise<LifestyleStats> {
   const url = new URL(`${PERSONAL_STATS_API_BASE_URL}/${memberId}/personalstats`);
-  url.searchParams.set("stat", LIFESTYLE_STAT_KEYS.join(","));
+  url.searchParams.set("stat", TORN_LIFESTYLE_STAT_KEYS.join(","));
 
-  const response = await fetchWithTimeout(url.toString(), {
+  const response = await fetchWithTransientRetry(url.toString(), {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
@@ -731,15 +739,46 @@ function dateDiffDays(startDate: string, endDate: string): number {
 
 function extractLifestyleStats(source: unknown): LifestyleStats {
   const stats = emptyLifestyleStats();
-  if (!source || typeof source !== "object") {
+  if (!source) {
+    return stats;
+  }
+
+  if (Array.isArray(source)) {
+    for (const item of source) {
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+
+      const name = String((item as { name?: unknown }).name ?? "");
+      const value = finiteNumber((item as { value?: unknown }).value);
+      setLifestyleStat(stats, name, value);
+    }
+
+    return stats;
+  }
+
+  if (typeof source !== "object") {
     return stats;
   }
 
   for (const key of LIFESTYLE_STAT_KEYS) {
     stats[key] = finiteNumber((source as Record<string, unknown>)[key]);
   }
+  stats.useractivity =
+    stats.useractivity ?? finiteNumber((source as Record<string, unknown>).timeplayed);
 
   return stats;
+}
+
+function setLifestyleStat(stats: LifestyleStats, name: string, value: number | null): void {
+  if (name === "timeplayed") {
+    stats.useractivity = value;
+    return;
+  }
+
+  if (LIFESTYLE_STAT_KEYS.includes(name as LifestyleStatKey)) {
+    stats[name as LifestyleStatKey] = value;
+  }
 }
 
 function emptyLifestyleStats(): LifestyleStats {
@@ -841,4 +880,37 @@ async function fetchWithTimeout(input: string, init: RequestInit): Promise<Respo
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchWithTransientRetry(input: string, init: RequestInit): Promise<Response> {
+  let lastResponse: Response | null = null;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= LIFESTYLE_FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(input, init);
+      if (!TRANSIENT_TORN_STATUSES.has(response.status) || attempt === LIFESTYLE_FETCH_RETRY_DELAYS_MS.length) {
+        return response;
+      }
+
+      lastResponse = response;
+    } catch (err) {
+      lastError = err;
+      if (attempt === LIFESTYLE_FETCH_RETRY_DELAYS_MS.length) {
+        throw err;
+      }
+    }
+
+    await sleep(LIFESTYLE_FETCH_RETRY_DELAYS_MS[attempt]);
+  }
+
+  if (lastResponse) {
+    return lastResponse;
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Torn personalstats API request failed");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
