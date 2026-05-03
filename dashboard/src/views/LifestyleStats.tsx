@@ -83,7 +83,7 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
     setError(null);
 
     try {
-      const result = await refreshMemberLifestyleStats({ limit: 90, force: true });
+      const result = await refreshMemberLifestyleStats({ limit: 10, force: true });
       setRefreshMessage(
         `Refreshed ${formatNumber(result.refreshed)} members${
           result.failed ? `, ${formatNumber(result.failed)} failed` : ""

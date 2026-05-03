@@ -30,6 +30,7 @@ const TRANSIENT_TORN_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const DAILY_REFRESH_AFTER_UTC_HOUR = 0;
 const DAILY_REFRESH_AFTER_UTC_MINUTE = 10;
 const MAX_LIFESTYLE_PERIOD_DAYS = 90;
+const MAX_MANUAL_PERSONAL_STATS_REFRESH = 20;
 
 type LifestyleStatKey = (typeof LIFESTYLE_STAT_KEYS)[number];
 type GymContributorStatKey = (typeof GYM_CONTRIBUTOR_STAT_KEYS)[number];
@@ -119,7 +120,7 @@ export async function refreshMemberLifestyleStatsFromRequest(
 ): Promise<Response> {
   try {
     const url = new URL(request.url);
-    const limit = parseLimit(url.searchParams.get("limit"), 25, 90);
+    const limit = parseLimit(url.searchParams.get("limit"), 10, MAX_MANUAL_PERSONAL_STATS_REFRESH);
     const force = url.searchParams.get("force") === "true";
     const result = await refreshMemberLifestyleStats(env, { limit, force });
     const gymResult = await refreshGymContributorStats(env).catch((err: any) => ({
@@ -147,7 +148,7 @@ export async function refreshMemberLifestyleStats(
   env: Env,
   options: { limit?: number; force?: boolean; staleBefore?: number } = {},
 ): Promise<{ considered: number; refreshed: number; failed: number }> {
-  const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 25), 90));
+  const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 10), MAX_MANUAL_PERSONAL_STATS_REFRESH));
   const force = options.force ?? false;
 
   await syncHomeFactionMemberList(env);
