@@ -223,13 +223,14 @@ function App() {
     }
 
     let cancelled = false;
+    const activityWarName = selectedWarName;
 
     async function loadActivity() {
       setIsLoadingActivity(true);
       setError(null);
 
       try {
-        const response = await getWarActivity(selectedWarName, factionActivityWindow);
+        const response = await getWarActivity(activityWarName, factionActivityWindow);
         if (!cancelled) {
           setActivityBuckets(Array.isArray(response.buckets) ? response.buckets : []);
         }

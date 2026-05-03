@@ -384,7 +384,7 @@ function formatActivityAverage(secondsPerDay: number | null): string {
     return "-";
   }
 
-  return `${formatNumber(activityHours(secondsPerDay))}h`;
+  return `${formatNumber(secondsPerDay / 3600)}h`;
 }
 
 function activityHours(secondsPerDay: number | null): number | null {
