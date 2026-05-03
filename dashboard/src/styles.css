@@ -687,7 +687,9 @@ h2 {
 }
 
 .heatmap-comparison-block {
-  grid-column: 1 / -1;
+  justify-self: center;
+  width: 100%;
+  max-width: calc((100% - 16px) / 2);
 }
 
 .heatmap-title-row {
