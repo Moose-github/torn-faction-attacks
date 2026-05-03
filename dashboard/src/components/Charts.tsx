@@ -281,6 +281,79 @@ export function FactionActivityHeatmap({
   );
 }
 
+export function FactionActivityComparisonHeatmap({
+  rows,
+  homeFactionId,
+  enemyFactionId,
+  homeLabel,
+  enemyLabel,
+}: {
+  rows: FactionActivityHeatmapRow[];
+  homeFactionId: number | null;
+  enemyFactionId: number | null;
+  homeLabel: string;
+  enemyLabel: string;
+}) {
+  if (homeFactionId === null || enemyFactionId === null) {
+    return <EmptyState text="No factions selected" />;
+  }
+
+  const homeRows = rows.filter((row) => row.faction_id === homeFactionId);
+  const enemyRows = rows.filter((row) => row.faction_id === enemyFactionId);
+  if (homeRows.length === 0 || enemyRows.length === 0) {
+    return <EmptyState text="Not enough heatmap samples to compare yet" />;
+  }
+
+  const homeAverages = averageHeatmapIntervals(homeRows);
+  const enemyAverages = averageHeatmapIntervals(enemyRows);
+  const comparableSamples = Array.from({ length: 96 }).filter(
+    (_, intervalIndex) => homeAverages.has(intervalIndex) && enemyAverages.has(intervalIndex),
+  ).length;
+
+  return (
+    <div className="heatmap-block heatmap-comparison-block">
+      <div className="heatmap-title-row">
+        <strong>Activity comparison</strong>
+        <span>{formatNumber(comparableSamples)} comparable samples</span>
+      </div>
+      <div className="heatmap-day-stack">
+        <div className="heatmap-day">
+          <div className="heatmap-day-header">
+            <strong>Average day</strong>
+            <span>Green favours {homeLabel}; red favours {enemyLabel}</span>
+          </div>
+          <div className="heatmap-square-grid">
+            {Array.from({ length: 96 }, (_, intervalIndex) => {
+              const home = homeAverages.get(intervalIndex);
+              const enemy = enemyAverages.get(intervalIndex);
+              const hasSample = Boolean(home && enemy);
+              const homePercent = home && home.averageTotal > 0 ? home.averageActive / home.averageTotal : 0;
+              const enemyPercent = enemy && enemy.averageTotal > 0 ? enemy.averageActive / enemy.averageTotal : 0;
+              const difference = homePercent - enemyPercent;
+              const isHourStart = intervalIndex % 4 === 0;
+
+              return (
+                <span
+                  key={intervalIndex}
+                  className={isHourStart ? "heatmap-cell heatmap-hour-cell" : "heatmap-cell"}
+                  style={{ backgroundColor: comparisonHeatmapColor(difference, hasSample) }}
+                  title={
+                    hasSample
+                      ? `${intervalLabel(intervalIndex)}: ${homeLabel} ${formatPercent(homePercent)} active, ${enemyLabel} ${formatPercent(enemyPercent)} active (${formatSignedPercent(difference)})`
+                      : `${intervalLabel(intervalIndex)}: no comparable sample`
+                  }
+                >
+                  {isHourStart ? String(Math.floor(intervalIndex / 4)).padStart(2, "0") : null}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function averageHeatmapIntervals(rows: FactionActivityHeatmapRow[]) {
   const totals = new Map<
     number,
@@ -311,6 +384,20 @@ function averageHeatmapIntervals(rows: FactionActivityHeatmapRow[]) {
   );
 }
 
+function comparisonHeatmapColor(difference: number, hasSample: boolean): string {
+  if (!hasSample) {
+    return "#f1f5f9";
+  }
+
+  const magnitude = Math.min(1, Math.abs(difference) / 0.35);
+  if (magnitude < 0.05) {
+    return "#e2e8f0";
+  }
+
+  const alpha = 0.16 + magnitude * 0.72;
+  return difference >= 0 ? `rgba(34, 197, 94, ${alpha})` : `rgba(239, 68, 68, ${alpha})`;
+}
+
 function heatmapColor(color: "blue" | "red", percent: number, hasSample: boolean): string {
   if (!hasSample) {
     return "#f1f5f9";
@@ -323,4 +410,13 @@ function heatmapColor(color: "blue" | "red", percent: number, hasSample: boolean
 function intervalLabel(intervalIndex: number): string {
   const minutes = intervalIndex * 15;
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function formatPercent(value: number): string {
+  return `${formatNumber(value * 100)}%`;
+}
+
+function formatSignedPercent(value: number): string {
+  const formatted = formatPercent(Math.abs(value));
+  return `${value >= 0 ? "+" : "-"}${formatted}`;
 }

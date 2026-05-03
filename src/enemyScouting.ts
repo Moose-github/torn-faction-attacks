@@ -127,10 +127,9 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
 
   let refreshed = false;
   try {
-    refreshed = await replaceEnemyFactionMembers(env, war.enemy_faction_id);
-    if (refreshed) {
-      await refreshHomeFactionMembers(env);
-    }
+    const enemyRefreshed = await replaceEnemyFactionMembers(env, war.enemy_faction_id);
+    await refreshHomeFactionMembers(env);
+    refreshed = enemyRefreshed;
   } catch (err: any) {
     console.warn(`Enemy scouting fetch failed for war ${warId}:`, err?.message || err);
   } finally {

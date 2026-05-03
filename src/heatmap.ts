@@ -63,7 +63,12 @@ export async function sampleFactionActivityHeatmaps(env: Env): Promise<HeatmapSa
   metrics.staleHeatmapRowsDeleted += homeCleanup;
 
   const latestWar = await readLatestHeatmapWar(env);
-  addFactionSampleMetrics(metrics, await sampleFactionActivity(env, HOME_FACTION_ID, sampledAt), "home");
+  const updateRevivableMembers = shouldUpdateRevivableMembers(latestWar, sampledAt);
+  addFactionSampleMetrics(
+    metrics,
+    await sampleFactionActivity(env, HOME_FACTION_ID, sampledAt, updateRevivableMembers),
+    "home",
+  );
 
   if (
     latestWar?.enemy_faction_id &&
@@ -74,7 +79,11 @@ export async function sampleFactionActivityHeatmaps(env: Env): Promise<HeatmapSa
     metrics.writeStatements += enemyCleanup.writeStatements;
     metrics.changedRows += enemyCleanup.changedRows;
     metrics.staleHeatmapRowsDeleted += enemyCleanup.changedRows;
-    addFactionSampleMetrics(metrics, await sampleFactionActivity(env, latestWar.enemy_faction_id, sampledAt), "enemy");
+    addFactionSampleMetrics(
+      metrics,
+      await sampleFactionActivity(env, latestWar.enemy_faction_id, sampledAt, updateRevivableMembers),
+      "enemy",
+    );
   }
 
   return metrics;
@@ -192,6 +201,7 @@ async function sampleFactionActivity(
   env: Env,
   factionId: number,
   sampledAt: number,
+  updateRevivable: boolean,
 ): Promise<FactionActivitySampleMetrics> {
   const metrics: FactionActivitySampleMetrics = {
     sampled: false,
@@ -229,11 +239,13 @@ async function sampleFactionActivity(
       console.log(`Revoked ${revokedSessions} auth session(s) for former faction members`);
     }
   }
-  const revivableMetrics = await updateCachedRevivableMembers(env, factionId, members);
-  metrics.writeStatements += revivableMetrics.writeStatements;
-  metrics.changedRows += revivableMetrics.changedRows;
-  metrics.revivableUpdateStatements += revivableMetrics.writeStatements;
-  metrics.revivableChangedRows += revivableMetrics.changedRows;
+  if (updateRevivable) {
+    const revivableMetrics = await updateCachedRevivableMembers(env, factionId, members);
+    metrics.writeStatements += revivableMetrics.writeStatements;
+    metrics.changedRows += revivableMetrics.changedRows;
+    metrics.revivableUpdateStatements += revivableMetrics.writeStatements;
+    metrics.revivableChangedRows += revivableMetrics.changedRows;
+  }
 
   const result = await env.DB.prepare(
     `
@@ -268,8 +280,21 @@ async function updateCachedRevivableMembers(
 ): Promise<{ writeStatements: number; changedRows: number }> {
   const tableName =
     factionId === HOME_FACTION_ID ? "home_faction_members" : "enemy_faction_members";
+  const revivableMembers = members.filter((member) => typeof member.is_revivable === "boolean");
+  if (revivableMembers.length === 0) {
+    return { writeStatements: 0, changedRows: 0 };
+  }
+
+  const existingValues = await readCachedRevivableValues(env, tableName, factionId);
   const statements = members
-    .filter((member) => typeof member.is_revivable === "boolean")
+    .filter((member) => {
+      if (typeof member.is_revivable !== "boolean") {
+        return false;
+      }
+
+      const nextValue = boolToInt(member.is_revivable);
+      return existingValues.get(member.id) !== nextValue;
+    })
     .map((member) =>
       env.DB.prepare(
         `
@@ -278,16 +303,11 @@ async function updateCachedRevivableMembers(
             updated_at = unixepoch()
         WHERE faction_id = ?
           AND member_id = ?
-          AND (
-            is_revivable IS NULL
-            OR is_revivable != ?
-          )
         `,
       ).bind(
         boolToInt(member.is_revivable ?? false),
         factionId,
         member.id,
-        boolToInt(member.is_revivable ?? false),
       ),
     );
 
@@ -300,6 +320,24 @@ async function updateCachedRevivableMembers(
     writeStatements: statements.length,
     changedRows: results.reduce((total: number, result: unknown) => total + d1Changes(result), 0),
   };
+}
+
+async function readCachedRevivableValues(
+  env: Env,
+  tableName: string,
+  factionId: number,
+): Promise<Map<number, number | null>> {
+  const rows = ((await env.DB.prepare(
+    `
+    SELECT member_id, is_revivable
+    FROM ${tableName}
+    WHERE faction_id = ?
+    `,
+  )
+    .bind(factionId)
+    .all()).results ?? []) as { member_id: number; is_revivable: number | null }[];
+
+  return new Map(rows.map((row) => [row.member_id, row.is_revivable]));
 }
 
 function countRecentlyActiveMembers(
@@ -387,6 +425,18 @@ function heatmapBucket(timestamp: number): { date: string; intervalIndex: number
     date: `${year}-${month}-${day}`,
     intervalIndex: Math.min(INTERVALS_PER_DAY - 1, Math.floor(minutes / 15)),
   };
+}
+
+function shouldUpdateRevivableMembers(war: HeatmapWar | null, sampledAt: number): boolean {
+  if (!war) {
+    return false;
+  }
+
+  const start = war.official_start_time ?? war.practical_start_time;
+  const updateFrom = start - 2 * 60 * 60;
+  const updateUntil = war.practical_finish_time;
+
+  return sampledAt >= updateFrom && (updateUntil === null || sampledAt <= updateUntil);
 }
 
 function d1Changes(result: unknown): number {

@@ -686,6 +686,10 @@ h2 {
   min-width: 0;
 }
 
+.heatmap-comparison-block {
+  grid-column: 1 / -1;
+}
+
 .heatmap-title-row {
   display: flex;
   align-items: center;

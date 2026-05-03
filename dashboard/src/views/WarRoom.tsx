@@ -12,7 +12,11 @@ import {
   ScoutingComparisonResponse,
   WarSummary,
 } from "../api";
-import { FactionActivityHeatmap, ScoutingComparisonChart } from "../components/Charts";
+import {
+  FactionActivityComparisonHeatmap,
+  FactionActivityHeatmap,
+  ScoutingComparisonChart,
+} from "../components/Charts";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { EnemyScoutingPanel } from "../components/EnemyScouting";
 import { formatLongDateTime } from "../utils/format";
@@ -44,6 +48,7 @@ export function WarRoom({
     revivableMembers: true,
   });
   const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
+  const now = useCurrentTime();
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -295,6 +300,13 @@ export function WarRoom({
               label={selectedWar.name}
               color="red"
             />
+            <FactionActivityComparisonHeatmap
+              rows={activityHeatmap?.rows ?? []}
+              homeFactionId={activityHeatmap?.home_faction_id ?? null}
+              enemyFactionId={selectedWar.enemy_faction_id}
+              homeLabel="Buttgrass"
+              enemyLabel={selectedWar.name}
+            />
           </div>
         </CollapsiblePanel>
 
@@ -302,6 +314,7 @@ export function WarRoom({
           homeMembers={scoutingComparison?.home.members ?? []}
           enemyMembers={scoutingComparison?.enemy.members ?? []}
           enemyName={selectedWar.name}
+          isCollecting={isRevivableCollectionActive(selectedWar, Math.floor(now / 1000))}
           collapsed={collapsedPanels.revivableMembers ?? true}
           onToggle={() => togglePanel("revivableMembers")}
         />
@@ -322,33 +335,39 @@ function RevivableMembersPanel({
   homeMembers,
   enemyMembers,
   enemyName,
+  isCollecting,
   collapsed,
   onToggle,
 }: {
   homeMembers: EnemyFactionMember[];
   enemyMembers: EnemyFactionMember[];
   enemyName: string;
+  isCollecting: boolean;
   collapsed: boolean;
   onToggle: () => void;
 }) {
   const revivableCount =
-    countRevivableMembers(homeMembers) + countRevivableMembers(enemyMembers);
+    isCollecting ? countRevivableMembers(homeMembers) + countRevivableMembers(enemyMembers) : 0;
 
   return (
     <CollapsiblePanel
       title="Revivable members"
-      aside={`${revivableCount} revivable`}
+      aside={isCollecting ? `${revivableCount} revivable` : "Not gathering"}
       collapsed={collapsed}
       onToggle={onToggle}
       className="revivable-panel"
     >
       <p className="panel-description">
-        Lists cached faction members currently marked revivable by Torn, refreshed from the 15 minute activity samples.
+        Lists faction members currently marked revivable by Torn. This is gathered from two hours before official start until practical finish.
       </p>
-      <div className="revivable-grid">
-        <RevivableMemberList factionName="Buttgrass" members={homeMembers} />
-        <RevivableMemberList factionName={enemyName} members={enemyMembers} />
-      </div>
+      {isCollecting ? (
+        <div className="revivable-grid">
+          <RevivableMemberList factionName="Buttgrass" members={homeMembers} />
+          <RevivableMemberList factionName={enemyName} members={enemyMembers} />
+        </div>
+      ) : (
+        <EmptyState text="Revivable member information is not currently being gathered. Collection starts two hours before official war start and stops at practical finish." />
+      )}
     </CollapsiblePanel>
   );
 }
@@ -413,6 +432,17 @@ function formatWarRoomType(war: WarSummary): string {
     : war.war_type === "event"
       ? "Event"
       : "Real war";
+}
+
+function isRevivableCollectionActive(war: WarSummary, nowSeconds: number): boolean {
+  const start = war.official_start_time ?? war.practical_start_time;
+  if (!start) {
+    return false;
+  }
+
+  const updateFrom = start - 2 * 60 * 60;
+  const updateUntil = war.practical_finish_time;
+  return nowSeconds >= updateFrom && (updateUntil === null || nowSeconds <= updateUntil);
 }
 
 function useCurrentTime(): number {
