@@ -104,6 +104,9 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
   }
 
   const members = sortLifestyleMembers(stats?.members ?? [], sort);
+  const periodLengthDays = stats?.period.days ?? periodDays(period.startDate, period.endDate);
+  const dailyXanax = stats?.summary.average_xantaken ?? 0;
+  const dailyGymEnergy = stats?.summary.average_gymenergy ?? 0;
 
   return (
     <>
@@ -132,12 +135,14 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
       <section className="status-grid lifestyle-status-grid">
         <MetricCard
           label="Daily Xanax"
-          value={formatNumber(stats?.summary.average_xantaken ?? 0)}
+          value={formatNumber(dailyXanax)}
+          detail={`Total ${formatNumber(dailyXanax * periodLengthDays)}`}
           icon={<Pill size={18} />}
         />
         <MetricCard
           label="Daily Gym energy"
-          value={formatNumber(stats?.summary.average_gymenergy ?? 0)}
+          value={formatNumber(dailyGymEnergy)}
+          detail={`Total ${formatNumber(dailyGymEnergy * periodLengthDays)}`}
           icon={<Dumbbell size={18} />}
         />
         <section className="metric-card lifestyle-period-card">
@@ -145,7 +150,7 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
             <Activity size={18} />
             <span>Time period</span>
           </div>
-          <strong>{stats?.period.days ?? periodDays(period.startDate, period.endDate)} days</strong>
+          <strong>{periodLengthDays} days</strong>
           <div className="lifestyle-filter-row">
             <label>
               <span>Start</span>

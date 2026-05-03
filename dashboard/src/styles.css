@@ -503,6 +503,13 @@ h2 {
   line-height: 1;
 }
 
+.metric-card-detail {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 .panel-header {
   display: flex;
   align-items: flex-start;

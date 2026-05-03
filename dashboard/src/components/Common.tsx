@@ -6,10 +6,12 @@ export function MetricCard({
   label,
   value,
   icon,
+  detail,
 }: {
   label: string;
   value: string;
   icon: React.ReactNode;
+  detail?: string;
 }) {
   return (
     <article className="metric-card">
@@ -18,6 +20,7 @@ export function MetricCard({
         <span>{label}</span>
       </div>
       <strong>{value}</strong>
+      {detail ? <p className="metric-card-detail">{detail}</p> : null}
     </article>
   );
 }
