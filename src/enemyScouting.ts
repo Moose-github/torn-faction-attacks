@@ -23,6 +23,16 @@ type StatEstimate = {
   updatedAt: number | null;
 };
 
+export type FfscouterRefreshMetrics = {
+  writeStatements: number;
+  changedRows: number;
+  enemyCandidates: number;
+  homeCandidates: number;
+  enemyUpdated: number;
+  homeUpdated: number;
+  skipped: boolean;
+};
+
 type EnemyScoutingWar = {
   id: number;
   enemy_faction_id: number | null;
@@ -138,10 +148,19 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
   }
 }
 
-export async function refreshMissingFfscouterEstimates(env: Env): Promise<void> {
+export async function refreshMissingFfscouterEstimates(env: Env): Promise<FfscouterRefreshMetrics> {
+  const metrics: FfscouterRefreshMetrics = {
+    writeStatements: 0,
+    changedRows: 0,
+    enemyCandidates: 0,
+    homeCandidates: 0,
+    enemyUpdated: 0,
+    homeUpdated: 0,
+    skipped: false,
+  };
   const scoutingWar = await readCurrentScoutingWar(env);
   if (!scoutingWar) {
-    return;
+    return { ...metrics, skipped: true };
   }
 
   const enemyRows = (await env.DB.prepare(
@@ -156,7 +175,11 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<void> 
     .bind(scoutingWar.enemy_faction_id)
     .all()).results as EnemyFactionMemberRow[] | undefined;
 
-  await refreshMissingStatEstimates(env, enemyRows ?? []);
+  metrics.enemyCandidates = enemyRows?.length ?? 0;
+  const enemyMetrics = await refreshMissingStatEstimates(env, enemyRows ?? []);
+  metrics.writeStatements += enemyMetrics.writeStatements;
+  metrics.changedRows += enemyMetrics.changedRows;
+  metrics.enemyUpdated += enemyMetrics.changedRows;
 
   const homeRows = (await env.DB.prepare(
     `
@@ -167,7 +190,13 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<void> 
     `,
   ).all()).results as EnemyFactionMemberRow[] | undefined;
 
-  await refreshMissingStatEstimates(env, homeRows ?? [], "home_faction_members");
+  metrics.homeCandidates = homeRows?.length ?? 0;
+  const homeMetrics = await refreshMissingStatEstimates(env, homeRows ?? [], "home_faction_members");
+  metrics.writeStatements += homeMetrics.writeStatements;
+  metrics.changedRows += homeMetrics.changedRows;
+  metrics.homeUpdated += homeMetrics.changedRows;
+
+  return metrics;
 }
 
 async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingWar | null> {
@@ -397,9 +426,10 @@ async function refreshMissingStatEstimates(
   env: Env,
   rows: EnemyFactionMemberRow[],
   tableName = "enemy_faction_members",
-): Promise<void> {
+): Promise<{ writeStatements: number; changedRows: number }> {
+  const metrics = { writeStatements: 0, changedRows: 0 };
   if (!env.FFSCOUTER_API_KEY) {
-    return;
+    return metrics;
   }
 
   const missingIds = rows
@@ -425,9 +455,16 @@ async function refreshMissingStatEstimates(
     );
 
     if (statements.length > 0) {
-      await env.DB.batch(statements);
+      const results = await env.DB.batch(statements);
+      metrics.writeStatements += statements.length;
+      metrics.changedRows += results.reduce(
+        (total: number, result: unknown) => total + d1Changes(result),
+        0,
+      );
     }
   }
+
+  return metrics;
 }
 
 export async function fetchTornFactionMembers(
@@ -497,6 +534,11 @@ function extractStatEstimates(data: any): Map<number, StatEstimate> {
   }
 
   return estimates;
+}
+
+function d1Changes(result: unknown): number {
+  const changes = (result as { meta?: { changes?: unknown } } | null)?.meta?.changes;
+  return typeof changes === "number" && Number.isFinite(changes) ? changes : 0;
 }
 
 function addEstimate(estimates: Map<number, StatEstimate>, idValue: unknown, source: any) {

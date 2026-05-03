@@ -18,7 +18,7 @@ import {
   refreshDailyMemberLifestyleStats,
   refreshMemberLifestyleStatsFromRequest,
 } from "./lifestyleStats";
-import { runScheduledMaintenance } from "./maintenance";
+import { getLatestMaintenanceRun, runScheduledMaintenance } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { ExecutionContext, Env, ScheduledController } from "./types";
@@ -76,6 +76,12 @@ export default {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
       return getLatestIngestionRun(env);
+    }
+
+    if (url.pathname === "/api/admin/maintenance-run" && request.method === "GET") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
+      return getLatestMaintenanceRun(env);
     }
 
     if (url.pathname === "/api/admin/users" && request.method === "GET") {

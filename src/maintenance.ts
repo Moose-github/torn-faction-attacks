@@ -3,13 +3,31 @@ import { sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncMissingRankedWarReports } from "./ingestion";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { Env } from "./types";
+import { json, nowSeconds } from "./utils";
+
+type MaintenanceTaskMetrics = {
+  writeStatements: number;
+  changedRows: number;
+  details?: Record<string, unknown>;
+};
 
 type MaintenanceTask = {
   name: string;
-  run: () => Promise<void>;
+  run: () => Promise<MaintenanceTaskMetrics>;
+};
+
+type MaintenanceTaskLog = MaintenanceTaskMetrics & {
+  id: string;
+  name: string;
+  startedAt: number;
+  finishedAt: number;
+  status: "success" | "error";
+  error: string | null;
 };
 
 export async function runScheduledMaintenance(env: Env): Promise<void> {
+  const runId = crypto.randomUUID();
+  const startedAt = nowSeconds();
   const tasks: MaintenanceTask[] = [
     {
       name: "heatmap sampling",
@@ -17,7 +35,14 @@ export async function runScheduledMaintenance(env: Env): Promise<void> {
     },
     {
       name: "missing ranked war reports",
-      run: () => syncMissingRankedWarReports(env),
+      run: async () => {
+        const result = await syncMissingRankedWarReports(env);
+        return {
+          writeStatements: result.writeOperations,
+          changedRows: result.writeOperations,
+          details: result,
+        };
+      },
     },
     {
       name: "missing FFScouter estimates",
@@ -25,17 +50,164 @@ export async function runScheduledMaintenance(env: Env): Promise<void> {
     },
     {
       name: "member stat correction",
-      run: () => rebuildOpenWarMemberStatsFromRaw(env).then(() => undefined),
+      run: async () => {
+        const result = await rebuildOpenWarMemberStatsFromRaw(env);
+        return {
+          writeStatements: result.wars_rebuilt,
+          changedRows: result.wars_rebuilt,
+          details: result,
+        };
+      },
     },
   ];
 
-  const results = await Promise.allSettled(tasks.map((task) => task.run()));
+  const results = await Promise.all(tasks.map((task) => runMaintenanceTask(task)));
 
-  results.forEach((result, index) => {
-    if (result.status === "rejected") {
-      const err = result.reason;
-      console.error(`Scheduled maintenance ${tasks[index].name} failed:`, err?.message || err);
-      console.error(err);
+  for (const result of results) {
+    if (result.status === "error") {
+      console.error(`Scheduled maintenance ${result.name} failed:`, result.error);
     }
+  }
+
+  await writeMaintenanceRunMetric(env, runId, startedAt, results);
+}
+
+export async function getLatestMaintenanceRun(env: Env): Promise<Response> {
+  const run = await env.DB.prepare(
+    `
+    SELECT *
+    FROM scheduled_maintenance_runs
+    ORDER BY started_at DESC
+    LIMIT 1
+    `,
+  )
+    .first()
+    .catch((err: any) => {
+      console.warn("Unable to read scheduled maintenance run metric:", err?.message || err);
+      return null;
+    });
+
+  if (!run) {
+    return json({ ok: true, run: null, tasks: [] });
+  }
+
+  const tasks = await env.DB.prepare(
+    `
+    SELECT *
+    FROM scheduled_maintenance_tasks
+    WHERE run_id = ?
+    ORDER BY started_at ASC, task_name ASC
+    `,
+  )
+    .bind((run as { id: string }).id)
+    .all()
+    .catch((err: any) => {
+      console.warn("Unable to read scheduled maintenance task metrics:", err?.message || err);
+      return { results: [] };
+    });
+
+  return json({ ok: true, run, tasks: tasks.results ?? [] });
+}
+
+async function runMaintenanceTask(task: MaintenanceTask): Promise<MaintenanceTaskLog> {
+  const startedAt = nowSeconds();
+  try {
+    const result = await task.run();
+    return {
+      id: crypto.randomUUID(),
+      name: task.name,
+      startedAt,
+      finishedAt: nowSeconds(),
+      status: "success",
+      error: null,
+      writeStatements: result.writeStatements,
+      changedRows: result.changedRows,
+      details: result.details,
+    };
+  } catch (err: any) {
+    return {
+      id: crypto.randomUUID(),
+      name: task.name,
+      startedAt,
+      finishedAt: nowSeconds(),
+      status: "error",
+      error: err?.message || String(err),
+      writeStatements: 0,
+      changedRows: 0,
+      details: undefined,
+    };
+  }
+}
+
+async function writeMaintenanceRunMetric(
+  env: Env,
+  runId: string,
+  startedAt: number,
+  results: MaintenanceTaskLog[],
+): Promise<void> {
+  const finishedAt = nowSeconds();
+  const failed = results.find((result) => result.status === "error");
+  const writeStatements = results.reduce((total, result) => total + result.writeStatements, 0);
+  const changedRows = results.reduce((total, result) => total + result.changedRows, 0);
+
+  const statements = [
+    env.DB.prepare(
+      `
+      INSERT INTO scheduled_maintenance_runs (
+        id,
+        started_at,
+        finished_at,
+        status,
+        task_count,
+        write_statements,
+        changed_rows,
+        error
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    ).bind(
+      runId,
+      startedAt,
+      finishedAt,
+      failed ? "error" : "success",
+      results.length,
+      writeStatements,
+      changedRows,
+      failed?.error ?? null,
+    ),
+    ...results.map((result) =>
+      env.DB.prepare(
+        `
+        INSERT INTO scheduled_maintenance_tasks (
+          id,
+          run_id,
+          task_name,
+          started_at,
+          finished_at,
+          status,
+          write_statements,
+          changed_rows,
+          details,
+          error
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      ).bind(
+        result.id,
+        runId,
+        result.name,
+        result.startedAt,
+        result.finishedAt,
+        result.status,
+        result.writeStatements,
+        result.changedRows,
+        result.details ? JSON.stringify(result.details) : null,
+        result.error,
+      ),
+    ),
+  ];
+
+  await env.DB.batch(statements).catch((err: any) => {
+    console.warn("Unable to write scheduled maintenance metrics:", err?.message || err);
   });
 }

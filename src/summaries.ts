@@ -22,6 +22,7 @@ export async function rebuildOpenWarMemberStatsFromRaw(env: Env): Promise<{ wars
     FROM wars
     WHERE status = 'active'
       AND finalized_at IS NULL
+      AND practical_finish_time IS NULL
     ORDER BY practical_start_time ASC, id ASC
     `,
   ).all();

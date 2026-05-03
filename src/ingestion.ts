@@ -39,6 +39,10 @@ type IngestionRunMetrics = {
   fetchedPages: number;
   fetchedAttacks: number;
   wroteBatches: number;
+  attackWriteStatements: number;
+  syncStateWrites: number;
+  statWriteOperations: number;
+  reportWriteOperations: number;
   sawRows: boolean;
   latestAttackStarted: number;
   error: string | null;
@@ -59,6 +63,10 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
     fetchedPages: 0,
     fetchedAttacks: 0,
     wroteBatches: 0,
+    attackWriteStatements: 0,
+    syncStateWrites: 0,
+    statWriteOperations: 0,
+    reportWriteOperations: 0,
     sawRows: false,
     latestAttackStarted: 0,
     error: null,
@@ -163,6 +171,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
       if (statements.length > 0) {
         await env.DB.batch(statements);
         metrics.wroteBatches += 1;
+        metrics.attackWriteStatements += statements.length;
       }
 
       newestStarted = pageNewestStarted;
@@ -178,6 +187,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
       )
         .bind(SOURCE_NAME, newestStarted)
         .run();
+      metrics.syncStateWrites += 1;
 
       if (attacks.length < LIMIT) {
         break;
@@ -195,16 +205,20 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
 
     if (sawAnyRows) {
       await applyIncrementalWarSummaries(env, ingestionWar.id, ingestRunId);
+      metrics.statWriteOperations += 1;
       metrics.statsFinishedAt = nowSeconds();
     }
 
     if (ingestionWar && officialEndTime !== null) {
       await fetchAndApplyRankedWarReport(env, ingestionWar, latestRankedWar?.id ?? ingestionWar.torn_war_id);
       await finalizeWar(env, ingestionWar.id);
+      metrics.reportWriteOperations += 1;
+      metrics.statWriteOperations += 1;
       metrics.reportFinishedAt = nowSeconds();
       metrics.statsFinishedAt = metrics.reportFinishedAt;
     } else if (ingestionWar) {
       await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
+      metrics.reportWriteOperations += 1;
       metrics.statsFinishedAt = nowSeconds();
     }
   } catch (err: any) {
@@ -271,12 +285,16 @@ async function writeFinalIngestionRunMetric(env: Env, metrics: IngestionRunMetri
       fetched_pages,
       fetched_attacks,
       wrote_batches,
+      attack_write_statements,
+      sync_state_writes,
+      stat_write_operations,
+      report_write_operations,
       saw_rows,
       active_war_id,
       error,
       status
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   )
     .bind(
@@ -293,6 +311,10 @@ async function writeFinalIngestionRunMetric(env: Env, metrics: IngestionRunMetri
       metrics.fetchedPages,
       metrics.fetchedAttacks,
       metrics.wroteBatches,
+      metrics.attackWriteStatements,
+      metrics.syncStateWrites,
+      metrics.statWriteOperations,
+      metrics.reportWriteOperations,
       boolToInt(metrics.sawRows) ?? 0,
       metrics.activeWarId,
       metrics.error,
@@ -808,7 +830,11 @@ async function syncUnfinishedRankedWar(env: Env, rankedWar: TornRankedWar): Prom
   await updateWarRankedWarScores(env, war.id, war.enemy_faction_id, rankedWar);
 }
 
-export async function syncMissingRankedWarReports(env: Env): Promise<void> {
+export async function syncMissingRankedWarReports(env: Env): Promise<{
+  checked: number;
+  fetched: number;
+  writeOperations: number;
+}> {
   const rows = await env.DB.prepare(
     `
     SELECT
@@ -835,30 +861,41 @@ export async function syncMissingRankedWarReports(env: Env): Promise<void> {
   )
     .all();
 
+  let fetched = 0;
   for (const war of (rows.results ?? []) as ActiveWarForIngestion[]) {
-    await fetchAndApplyRankedWarReport(env, war, war.torn_war_id);
+    if (await fetchAndApplyRankedWarReport(env, war, war.torn_war_id)) {
+      fetched += 1;
+    }
   }
+
+  return {
+    checked: (rows.results ?? []).length,
+    fetched,
+    writeOperations: fetched,
+  };
 }
 
 async function fetchAndApplyRankedWarReport(
   env: Env,
   war: ActiveWarForIngestion,
   rankedWarId: number | null,
-): Promise<void> {
+): Promise<boolean> {
   if (rankedWarId === null) {
-    return;
+    return false;
   }
 
   try {
     const report = await fetchTornRankedWarReport(rankedWarId, env);
     if (!report) {
       console.warn(`Torn ranked war report ${rankedWarId} was not available yet`);
-      return;
+      return false;
     }
 
     await applyRankedWarReport(env, war.id, war.name, war.enemy_faction_id, rankedWarId, report);
+    return true;
   } catch (err: any) {
     console.error(`Torn ranked war report ${rankedWarId} fetch failed:`, err?.message || err);
+    return false;
   }
 }
 

@@ -28,27 +28,79 @@ type HeatmapRow = {
   sampled_at: number;
 };
 
-export async function sampleFactionActivityHeatmaps(env: Env): Promise<void> {
+export type HeatmapSampleMetrics = {
+  writeStatements: number;
+  changedRows: number;
+  homeSampled: boolean;
+  enemySampled: boolean;
+  revivableUpdateStatements: number;
+  revivableChangedRows: number;
+  staleHeatmapRowsDeleted: number;
+};
+
+type FactionActivitySampleMetrics = {
+  sampled: boolean;
+  writeStatements: number;
+  changedRows: number;
+  revivableUpdateStatements: number;
+  revivableChangedRows: number;
+};
+
+export async function sampleFactionActivityHeatmaps(env: Env): Promise<HeatmapSampleMetrics> {
   const sampledAt = nowSeconds();
-  await cleanupHomeHeatmap(env, sampledAt);
+  const metrics: HeatmapSampleMetrics = {
+    writeStatements: 0,
+    changedRows: 0,
+    homeSampled: false,
+    enemySampled: false,
+    revivableUpdateStatements: 0,
+    revivableChangedRows: 0,
+    staleHeatmapRowsDeleted: 0,
+  };
+  const homeCleanup = await cleanupHomeHeatmap(env, sampledAt);
+  metrics.writeStatements += 1;
+  metrics.changedRows += homeCleanup;
+  metrics.staleHeatmapRowsDeleted += homeCleanup;
 
   const latestWar = await readLatestHeatmapWar(env);
-  await sampleFactionActivity(env, HOME_FACTION_ID, sampledAt);
+  addFactionSampleMetrics(metrics, await sampleFactionActivity(env, HOME_FACTION_ID, sampledAt), "home");
 
   if (
     latestWar?.enemy_faction_id &&
     latestWar.official_end_time === null &&
     latestWar.practical_finish_time === null
   ) {
-    await clearReplaceableEnemyHeatmaps(env, latestWar.enemy_faction_id);
-    await sampleFactionActivity(env, latestWar.enemy_faction_id, sampledAt);
+    const enemyCleanup = await clearReplaceableEnemyHeatmaps(env, latestWar.enemy_faction_id);
+    metrics.writeStatements += enemyCleanup.writeStatements;
+    metrics.changedRows += enemyCleanup.changedRows;
+    metrics.staleHeatmapRowsDeleted += enemyCleanup.changedRows;
+    addFactionSampleMetrics(metrics, await sampleFactionActivity(env, latestWar.enemy_faction_id, sampledAt), "enemy");
+  }
+
+  return metrics;
+}
+
+function addFactionSampleMetrics(
+  target: HeatmapSampleMetrics,
+  sample: FactionActivitySampleMetrics,
+  faction: "home" | "enemy",
+): void {
+  target.writeStatements += sample.writeStatements;
+  target.changedRows += sample.changedRows;
+  target.revivableUpdateStatements += sample.revivableUpdateStatements;
+  target.revivableChangedRows += sample.revivableChangedRows;
+  if (faction === "home") {
+    target.homeSampled = sample.sampled;
+  } else {
+    target.enemySampled = sample.sampled;
   }
 }
 
 async function clearReplaceableEnemyHeatmaps(
   env: Env,
   nextFactionId: number,
-): Promise<void> {
+): Promise<{ writeStatements: number; changedRows: number }> {
+  const metrics = { writeStatements: 0, changedRows: 0 };
   const cachedFactions = ((await env.DB.prepare(
     `
     SELECT DISTINCT faction_id
@@ -78,7 +130,7 @@ async function clearReplaceableEnemyHeatmaps(
       continue;
     }
 
-    await env.DB.prepare(
+    const result = await env.DB.prepare(
       `
       DELETE FROM faction_activity_heatmap
       WHERE faction_id = ?
@@ -86,7 +138,11 @@ async function clearReplaceableEnemyHeatmaps(
     )
       .bind(cachedFaction.faction_id)
       .run();
+    metrics.writeStatements += 1;
+    metrics.changedRows += d1Changes(result);
   }
+
+  return metrics;
 }
 
 export async function getWarActivityHeatmap(url: URL, env: Env): Promise<Response> {
@@ -136,7 +192,14 @@ async function sampleFactionActivity(
   env: Env,
   factionId: number,
   sampledAt: number,
-): Promise<void> {
+): Promise<FactionActivitySampleMetrics> {
+  const metrics: FactionActivitySampleMetrics = {
+    sampled: false,
+    writeStatements: 0,
+    changedRows: 0,
+    revivableUpdateStatements: 0,
+    revivableChangedRows: 0,
+  };
   const bucket = heatmapBucket(sampledAt);
   const existing = await env.DB.prepare(
     `
@@ -152,7 +215,7 @@ async function sampleFactionActivity(
     .first();
 
   if (existing) {
-    return;
+    return metrics;
   }
 
   const members = await fetchTornFactionMembers(env, factionId);
@@ -166,9 +229,13 @@ async function sampleFactionActivity(
       console.log(`Revoked ${revokedSessions} auth session(s) for former faction members`);
     }
   }
-  await updateCachedRevivableMembers(env, factionId, members);
+  const revivableMetrics = await updateCachedRevivableMembers(env, factionId, members);
+  metrics.writeStatements += revivableMetrics.writeStatements;
+  metrics.changedRows += revivableMetrics.changedRows;
+  metrics.revivableUpdateStatements += revivableMetrics.writeStatements;
+  metrics.revivableChangedRows += revivableMetrics.changedRows;
 
-  await env.DB.prepare(
+  const result = await env.DB.prepare(
     `
     INSERT INTO faction_activity_heatmap (
       faction_id,
@@ -187,13 +254,18 @@ async function sampleFactionActivity(
   )
     .bind(factionId, bucket.date, bucket.intervalIndex, activeCount, members.length, sampledAt)
     .run();
+  metrics.sampled = true;
+  metrics.writeStatements += 1;
+  metrics.changedRows += d1Changes(result);
+
+  return metrics;
 }
 
 async function updateCachedRevivableMembers(
   env: Env,
   factionId: number,
   members: TornFactionMember[],
-): Promise<void> {
+): Promise<{ writeStatements: number; changedRows: number }> {
   const tableName =
     factionId === HOME_FACTION_ID ? "home_faction_members" : "enemy_faction_members";
   const statements = members
@@ -219,9 +291,15 @@ async function updateCachedRevivableMembers(
       ),
     );
 
-  if (statements.length > 0) {
-    await env.DB.batch(statements);
+  if (statements.length === 0) {
+    return { writeStatements: 0, changedRows: 0 };
   }
+
+  const results = await env.DB.batch(statements);
+  return {
+    writeStatements: statements.length,
+    changedRows: results.reduce((total: number, result: unknown) => total + d1Changes(result), 0),
+  };
 }
 
 function countRecentlyActiveMembers(
@@ -234,8 +312,8 @@ function countRecentlyActiveMembers(
   }).length;
 }
 
-async function cleanupHomeHeatmap(env: Env, sampledAt: number): Promise<void> {
-  await env.DB.prepare(
+async function cleanupHomeHeatmap(env: Env, sampledAt: number): Promise<number> {
+  const result = await env.DB.prepare(
     `
     DELETE FROM faction_activity_heatmap
     WHERE faction_id = ?
@@ -244,6 +322,7 @@ async function cleanupHomeHeatmap(env: Env, sampledAt: number): Promise<void> {
   )
     .bind(HOME_FACTION_ID, sampledAt - HOME_RETENTION_SECONDS)
     .run();
+  return d1Changes(result);
 }
 
 async function readLatestHeatmapWar(env: Env): Promise<HeatmapWar | null> {
@@ -308,4 +387,9 @@ function heatmapBucket(timestamp: number): { date: string; intervalIndex: number
     date: `${year}-${month}-${day}`,
     intervalIndex: Math.min(INTERVALS_PER_DAY - 1, Math.floor(minutes / 15)),
   };
+}
+
+function d1Changes(result: unknown): number {
+  const changes = (result as { meta?: { changes?: unknown } } | null)?.meta?.changes;
+  return typeof changes === "number" && Number.isFinite(changes) ? changes : 0;
 }
