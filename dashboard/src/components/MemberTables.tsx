@@ -57,6 +57,7 @@ export function MemberTable({
               </>
             ) : (
               <>
+                <SortableHeader label={<>Average<br />fair fight</>} sortKey="average_fair_fight" sort={sort} onSortChange={onSortChange} />
                 <SortableHeader label={<>Friendly<br />hosps</>} sortKey="friendly_hospitals" sort={sort} onSortChange={onSortChange} />
                 <SortableHeader label="Retaliations" sortKey="enemy_retaliations" sort={sort} onSortChange={onSortChange} />
               </>
@@ -110,6 +111,7 @@ export function MemberTable({
                 </>
               ) : (
                 <>
+                  <td>{formatNullableNumber(member.average_fair_fight, 2)}</td>
                   <td>{formatNumber(member.friendly_hospitals)}</td>
                   <td>{formatNumber(member.enemy_retaliations)}</td>
                 </>

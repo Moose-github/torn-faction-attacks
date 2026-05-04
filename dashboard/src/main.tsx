@@ -915,26 +915,37 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
   const columns: Array<{
     label: string;
     value: (member: MemberStats) => string | number | null | undefined;
-  }> = [
-    { label: "Member", value: (member) => displayMember(member) },
-    { label: "Attacks", value: (member) => member.enemy_attacks_successful },
-    { label: "Defends", value: (member) => member.defends_total },
-    ...(termed
-      ? []
-      : [{ label: "Outside hits", value: (member: MemberStats) => member.outside_attacks }]),
-    { label: "Respect gained", value: (member) => member.enemy_respect_gained },
-    { label: "Assists", value: (member) => member.enemy_assists },
-    ...(termed
-      ? [
-          { label: "Average fair fight", value: (member: MemberStats) => member.average_fair_fight },
-          { label: "Percent limit", value: (member: MemberStats) => member.member_respect_limit_percent },
-        ]
-      : [
-          { label: "Friendly hosps", value: (member: MemberStats) => member.friendly_hospitals },
-          { label: "Retaliations", value: (member: MemberStats) => member.enemy_retaliations },
-        ]),
-  ];
+  }> = termed
+    ? [
+        { label: "Member name", value: (member) => displayMember(member) },
+        { label: "Member ID", value: (member) => member.member_id },
+        { label: "Attacks", value: (member) => member.enemy_attacks_successful },
+        { label: "Defends", value: (member) => member.defends_total },
+        { label: "Respect gained", value: (member) => formatCsvDecimal(member.enemy_respect_gained) },
+        { label: "Assists", value: (member) => member.enemy_assists },
+        { label: "Average fair fight", value: (member) => formatCsvDecimal(member.average_fair_fight) },
+        { label: "Percent limit", value: (member) => formatCsvDecimal(member.member_respect_limit_percent) },
+      ]
+    : [
+        { label: "Member name", value: (member) => displayMember(member) },
+        { label: "Member ID", value: (member) => member.member_id },
+        { label: "Attacks", value: (member) => member.enemy_attacks_successful },
+        { label: "Defends", value: (member) => member.defends_total },
+        { label: "Respect gained", value: (member) => formatCsvDecimal(member.enemy_respect_gained) },
+        { label: "Assists", value: (member) => member.enemy_assists },
+        { label: "Average fair fight", value: (member) => formatCsvDecimal(member.average_fair_fight) },
+        { label: "Friendly hosps", value: (member) => member.friendly_hospitals },
+        { label: "Retaliations", value: (member) => member.enemy_retaliations },
+      ];
   downloadCsv(`${sanitizeCsvFilename(war.name)}-members.csv`, columns, members);
+}
+
+function formatCsvDecimal(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return "";
+  }
+
+  return Number(value).toFixed(2);
 }
 
 function exportMemberAttacksCsv(
