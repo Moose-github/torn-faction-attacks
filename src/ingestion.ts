@@ -48,6 +48,8 @@ type IngestionRunMetrics = {
   error: string | null;
 };
 
+const NOOP_CRON_INGESTION_METRIC_INTERVAL_SECONDS = 30 * 60;
+
 export async function runIngestion(env: Env, triggerSource = "cron"): Promise<void> {
   const metrics: IngestionRunMetrics = {
     id: crypto.randomUUID(),
@@ -138,6 +140,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
 
     let from = Math.max(0, (state?.last_started ?? 0) - OVERLAP_SECONDS);
     let newestStarted = state?.last_started ?? 0;
+    let persistedStarted = state?.last_started ?? 0;
     const ingestRunId = crypto.randomUUID();
     let wroteAnyWarRows = false;
 
@@ -190,18 +193,21 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
 
       newestStarted = pageNewestStarted;
 
-      await env.DB.prepare(
-        `
-        INSERT INTO sync_state (name, last_started, updated_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(name) DO UPDATE SET
-          last_started = excluded.last_started,
-          updated_at = CURRENT_TIMESTAMP
-        `,
-      )
-        .bind(SOURCE_NAME, newestStarted)
-        .run();
-      metrics.syncStateWrites += 1;
+      if (newestStarted > persistedStarted) {
+        await env.DB.prepare(
+          `
+          INSERT INTO sync_state (name, last_started, updated_at)
+          VALUES (?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(name) DO UPDATE SET
+            last_started = excluded.last_started,
+            updated_at = CURRENT_TIMESTAMP
+          `,
+        )
+          .bind(SOURCE_NAME, newestStarted)
+          .run();
+        persistedStarted = newestStarted;
+        metrics.syncStateWrites += 1;
+      }
 
       if (attacks.length < LIMIT) {
         break;
@@ -293,6 +299,10 @@ export async function getLatestIngestionRun(env: Env): Promise<Response> {
 }
 
 async function writeFinalIngestionRunMetric(env: Env, metrics: IngestionRunMetrics): Promise<void> {
+  if (!(await shouldWriteFinalIngestionRunMetric(env, metrics))) {
+    return;
+  }
+
   await env.DB.prepare(
     `
     INSERT INTO ingestion_runs (
@@ -348,6 +358,40 @@ async function writeFinalIngestionRunMetric(env: Env, metrics: IngestionRunMetri
     .catch((err: any) => {
       console.warn("Unable to write ingestion run metric:", err?.message || err);
     });
+}
+
+async function shouldWriteFinalIngestionRunMetric(
+  env: Env,
+  metrics: IngestionRunMetrics,
+): Promise<boolean> {
+  if (!isNoopCronIngestionRun(metrics)) {
+    return true;
+  }
+
+  const latest = (await env.DB.prepare(
+    `
+    SELECT started_at
+    FROM ingestion_runs
+    ORDER BY started_at DESC
+    LIMIT 1
+    `,
+  )
+    .first()
+    .catch(() => null)) as { started_at: number | null } | null;
+
+  return Number(latest?.started_at ?? 0) <=
+    metrics.startedAt - NOOP_CRON_INGESTION_METRIC_INTERVAL_SECONDS;
+}
+
+function isNoopCronIngestionRun(metrics: IngestionRunMetrics): boolean {
+  return (
+    metrics.triggerSource === "cron" &&
+    metrics.error === null &&
+    metrics.attackWriteStatements === 0 &&
+    metrics.syncStateWrites === 0 &&
+    metrics.statWriteOperations === 0 &&
+    metrics.reportWriteOperations === 0
+  );
 }
 
 async function scanAttackWindow(

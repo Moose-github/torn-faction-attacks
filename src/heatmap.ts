@@ -7,6 +7,7 @@ import { boolToInt, json, nowSeconds } from "./utils";
 const ACTIVITY_WINDOW_SECONDS = 15 * 60;
 const HOME_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const INTERVALS_PER_DAY = 96;
+const HOME_HEATMAP_CLEANUP_STATE_NAME = "home_heatmap_cleanup";
 
 type HeatmapWar = Pick<
   WarRow,
@@ -57,10 +58,10 @@ export async function sampleFactionActivityHeatmaps(env: Env): Promise<HeatmapSa
     revivableChangedRows: 0,
     staleHeatmapRowsDeleted: 0,
   };
-  const homeCleanup = await cleanupHomeHeatmap(env, sampledAt);
-  metrics.writeStatements += 1;
-  metrics.changedRows += homeCleanup;
-  metrics.staleHeatmapRowsDeleted += homeCleanup;
+  const homeCleanup = await cleanupHomeHeatmapIfDue(env, sampledAt);
+  metrics.writeStatements += homeCleanup.writeStatements;
+  metrics.changedRows += homeCleanup.changedRows;
+  metrics.staleHeatmapRowsDeleted += homeCleanup.staleRowsDeleted;
 
   const latestWar = await readLatestHeatmapWar(env);
   const updateRevivableMembers = shouldUpdateRevivableMembers(latestWar, sampledAt);
@@ -350,7 +351,25 @@ function countRecentlyActiveMembers(
   }).length;
 }
 
-async function cleanupHomeHeatmap(env: Env, sampledAt: number): Promise<number> {
+async function cleanupHomeHeatmapIfDue(
+  env: Env,
+  sampledAt: number,
+): Promise<{ writeStatements: number; changedRows: number; staleRowsDeleted: number }> {
+  const lastCleanup = (await env.DB.prepare(
+    `
+    SELECT last_started
+    FROM sync_state
+    WHERE name = ?
+    LIMIT 1
+    `,
+  )
+    .bind(HOME_HEATMAP_CLEANUP_STATE_NAME)
+    .first()) as { last_started: number | null } | null;
+
+  if (lastCleanup?.last_started && lastCleanup.last_started > sampledAt - 24 * 60 * 60) {
+    return { writeStatements: 0, changedRows: 0, staleRowsDeleted: 0 };
+  }
+
   const result = await env.DB.prepare(
     `
     DELETE FROM faction_activity_heatmap
@@ -360,7 +379,24 @@ async function cleanupHomeHeatmap(env: Env, sampledAt: number): Promise<number> 
   )
     .bind(HOME_FACTION_ID, sampledAt - HOME_RETENTION_SECONDS)
     .run();
-  return d1Changes(result);
+  const staleRowsDeleted = d1Changes(result);
+  await env.DB.prepare(
+    `
+    INSERT INTO sync_state (name, last_started, active_war_id)
+    VALUES (?, ?, NULL)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = excluded.last_started,
+      updated_at = CURRENT_TIMESTAMP
+    `,
+  )
+    .bind(HOME_HEATMAP_CLEANUP_STATE_NAME, sampledAt)
+    .run();
+
+  return {
+    writeStatements: 2,
+    changedRows: staleRowsDeleted + 1,
+    staleRowsDeleted,
+  };
 }
 
 async function readLatestHeatmapWar(env: Env): Promise<HeatmapWar | null> {

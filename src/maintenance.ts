@@ -27,6 +27,8 @@ type MaintenanceTaskLog = MaintenanceTaskMetrics & {
 
 const METRICS_RETENTION_SECONDS = 14 * 24 * 60 * 60;
 const METRICS_RETENTION_STATE_NAME = "scheduled_metrics_retention";
+const MEMBER_STAT_CORRECTION_INTERVAL_SECONDS = 60 * 60;
+const MEMBER_STAT_CORRECTION_STATE_NAME = "open_war_member_stats_rebuild";
 
 export async function runScheduledMaintenance(env: Env): Promise<void> {
   const runId = crypto.randomUUID();
@@ -53,14 +55,7 @@ export async function runScheduledMaintenance(env: Env): Promise<void> {
     },
     {
       name: "member stat correction",
-      run: async () => {
-        const result = await rebuildOpenWarMemberStatsFromRaw(env);
-        return {
-          writeStatements: result.wars_rebuilt,
-          changedRows: result.wars_rebuilt,
-          details: result,
-        };
-      },
+      run: () => runMemberStatCorrectionIfDue(env),
     },
   ];
 
@@ -184,7 +179,7 @@ async function writeMaintenanceRunMetric(
       changedRows,
       failed?.error ?? null,
     ),
-    ...results.map((result) =>
+    ...results.filter(shouldLogMaintenanceTask).map((result) =>
       env.DB.prepare(
         `
         INSERT INTO scheduled_maintenance_tasks (
@@ -219,6 +214,77 @@ async function writeMaintenanceRunMetric(
   await env.DB.batch(statements).catch((err: any) => {
     console.warn("Unable to write scheduled maintenance metrics:", err?.message || err);
   });
+}
+
+function shouldLogMaintenanceTask(result: MaintenanceTaskLog): boolean {
+  if (result.status === "error") {
+    return true;
+  }
+
+  if (result.writeStatements === 0 && result.changedRows === 0) {
+    return false;
+  }
+
+  if (result.name === "heatmap sampling") {
+    return result.writeStatements > 1 || result.changedRows > 1;
+  }
+
+  return true;
+}
+
+async function runMemberStatCorrectionIfDue(env: Env): Promise<MaintenanceTaskMetrics> {
+  const now = nowSeconds();
+  const lastCorrection = (await env.DB.prepare(
+    `
+    SELECT last_started
+    FROM sync_state
+    WHERE name = ?
+    LIMIT 1
+    `,
+  )
+    .bind(MEMBER_STAT_CORRECTION_STATE_NAME)
+    .first()) as { last_started: number | null } | null;
+
+  if (
+    lastCorrection?.last_started &&
+    lastCorrection.last_started > now - MEMBER_STAT_CORRECTION_INTERVAL_SECONDS
+  ) {
+    return {
+      writeStatements: 0,
+      changedRows: 0,
+      details: {
+        skipped: true,
+        reason: "member stat correction already ran in the last hour",
+      },
+    };
+  }
+
+  const result = await rebuildOpenWarMemberStatsFromRaw(env);
+  if (result.wars_rebuilt === 0) {
+    return {
+      writeStatements: 0,
+      changedRows: 0,
+      details: result,
+    };
+  }
+
+  await env.DB.prepare(
+    `
+    INSERT INTO sync_state (name, last_started, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = excluded.last_started,
+      updated_at = CURRENT_TIMESTAMP
+    `,
+  )
+    .bind(MEMBER_STAT_CORRECTION_STATE_NAME, now)
+    .run();
+
+  return {
+    writeStatements: result.wars_rebuilt + 1,
+    changedRows: result.wars_rebuilt + 1,
+    details: result,
+  };
 }
 
 async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
