@@ -79,6 +79,17 @@ type LifestyleSnapshotRow = {
   captured_at: number;
 };
 
+type LifestyleSnapshotNumberKey =
+  | "xantaken"
+  | "overdosed"
+  | "refills"
+  | "useractivity"
+  | "gymenergy"
+  | "gymstrength"
+  | "gymspeed"
+  | "gymdefense"
+  | "gymdexterity";
+
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
   const period = readLifestylePeriod(url);
   const snapshotRows = ((await env.DB.prepare(
@@ -625,20 +636,19 @@ function buildPeriodRows(rows: LifestyleSnapshotRow[]): LifestylePeriodRow[] {
     const ordered = [...snapshots].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
     const first = ordered[0];
     const last = ordered[ordered.length - 1];
-    const days = Math.max(1, dateDiffDays(first.snapshot_date, last.snapshot_date));
 
     return {
       member_id: memberId,
       member_name: last.member_name ?? first.member_name,
-      overdosed: delta(first.overdosed, last.overdosed),
-      average_xantaken: averageDelta(first.xantaken, last.xantaken, days),
-      average_refills: averageDelta(first.refills, last.refills, days),
-      average_useractivity: averageDelta(first.useractivity, last.useractivity, days),
-      average_gymenergy: averageDelta(first.gymenergy, last.gymenergy, days),
-      average_gymstrength: averageDelta(first.gymstrength, last.gymstrength, days),
-      average_gymspeed: averageDelta(first.gymspeed, last.gymspeed, days),
-      average_gymdefense: averageDelta(first.gymdefense, last.gymdefense, days),
-      average_gymdexterity: averageDelta(first.gymdexterity, last.gymdexterity, days),
+      overdosed: periodDelta(ordered, "overdosed"),
+      average_xantaken: averagePeriodDelta(ordered, "xantaken"),
+      average_refills: averagePeriodDelta(ordered, "refills"),
+      average_useractivity: averagePeriodDelta(ordered, "useractivity"),
+      average_gymenergy: averagePeriodDelta(ordered, "gymenergy"),
+      average_gymstrength: averagePeriodDelta(ordered, "gymstrength"),
+      average_gymspeed: averagePeriodDelta(ordered, "gymspeed"),
+      average_gymdefense: averagePeriodDelta(ordered, "gymdefense"),
+      average_gymdexterity: averagePeriodDelta(ordered, "gymdexterity"),
       first_snapshot_date: first.snapshot_date,
       last_snapshot_date: last.snapshot_date,
       updated_at: last.captured_at,
@@ -714,6 +724,43 @@ function normalizeDateParam(value: string | null): string | null {
 
 function averageDelta(start: number | null, finish: number | null, days: number): number {
   return delta(start, finish) / Math.max(1, days);
+}
+
+function averagePeriodDelta(rows: LifestyleSnapshotRow[], key: LifestyleSnapshotNumberKey): number {
+  const endpoints = nonNullPeriodEndpoints(rows, key);
+  if (!endpoints) {
+    return 0;
+  }
+
+  return averageDelta(
+    endpoints.first[key],
+    endpoints.last[key],
+    dateDiffDays(endpoints.first.snapshot_date, endpoints.last.snapshot_date),
+  );
+}
+
+function periodDelta(rows: LifestyleSnapshotRow[], key: LifestyleSnapshotNumberKey): number {
+  const endpoints = nonNullPeriodEndpoints(rows, key);
+  if (!endpoints) {
+    return 0;
+  }
+
+  return delta(endpoints.first[key], endpoints.last[key]);
+}
+
+function nonNullPeriodEndpoints(
+  rows: LifestyleSnapshotRow[],
+  key: LifestyleSnapshotNumberKey,
+): { first: LifestyleSnapshotRow; last: LifestyleSnapshotRow } | null {
+  const populatedRows = rows.filter((row) => row[key] !== null);
+  if (populatedRows.length === 0) {
+    return null;
+  }
+
+  return {
+    first: populatedRows[0],
+    last: populatedRows[populatedRows.length - 1],
+  };
 }
 
 function delta(start: number | null, finish: number | null): number {

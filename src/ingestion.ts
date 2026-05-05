@@ -109,7 +109,9 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
             practical_finish_time,
             official_end_time,
             auto_end_enabled,
-            faction_respect_limit
+            faction_respect_limit,
+            official_home_score,
+            official_enemy_score
           FROM wars
           WHERE id = ? AND status = 'active'
           LIMIT 1
@@ -137,7 +139,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
     let from = Math.max(0, (state?.last_started ?? 0) - OVERLAP_SECONDS);
     let newestStarted = state?.last_started ?? 0;
     const ingestRunId = crypto.randomUUID();
-    let sawAnyRows = false;
+    let wroteAnyWarRows = false;
 
     while (true) {
       const data = await fetchAttacks(env, from);
@@ -149,9 +151,9 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
         break;
       }
 
-      sawAnyRows = true;
       metrics.sawRows = true;
       const statements: D1PreparedStatement[] = [];
+      const existingAttackRows = await readExistingAttackRows(env, attacks.map((attack) => attack.id));
       let pageNewestStarted = newestStarted;
 
       for (const attack of attacks) {
@@ -165,7 +167,19 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
             ? ingestionWar.id
             : null;
 
+        const existingAttack = existingAttackRows.get(attack.id);
+        if (existingAttack) {
+          if (warId !== null && existingAttack.war_id === null) {
+            statements.push(buildLiveWarAssignmentStatement(env, ingestRunId, warId, attack.id));
+            wroteAnyWarRows = true;
+          }
+          continue;
+        }
+
         statements.push(buildLiveInsertStatement(env, ingestRunId, warId, attack));
+        if (warId !== null) {
+          wroteAnyWarRows = true;
+        }
       }
 
       if (statements.length > 0) {
@@ -203,7 +217,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
       return;
     }
 
-    if (sawAnyRows) {
+    if (wroteAnyWarRows) {
       await applyIncrementalWarSummaries(env, ingestionWar.id, ingestRunId);
       metrics.statWriteOperations += 1;
       metrics.statsFinishedAt = nowSeconds();
@@ -217,9 +231,12 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
       metrics.reportFinishedAt = nowSeconds();
       metrics.statsFinishedAt = metrics.reportFinishedAt;
     } else if (ingestionWar) {
-      await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
-      metrics.reportWriteOperations += 1;
-      metrics.statsFinishedAt = nowSeconds();
+      const autoEnded = await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
+      if (autoEnded) {
+        metrics.reportWriteOperations += 1;
+        metrics.statWriteOperations += 1;
+        metrics.statsFinishedAt = nowSeconds();
+      }
     }
   } catch (err: any) {
     metrics.error = err?.message || String(err);
@@ -242,12 +259,19 @@ type ActiveWarForIngestion = {
   official_end_time: number | null;
   auto_end_enabled: number;
   faction_respect_limit: number | null;
+  official_home_score: number | null;
+  official_enemy_score: number | null;
 };
 
 type AttackWindowStats = {
   matching_attack_count: number;
   first_attack_started: number | null;
   last_attack_started: number | null;
+};
+
+type ExistingAttackRow = {
+  id: number;
+  war_id: number | null;
 };
 
 export async function getLatestIngestionRun(env: Env): Promise<Response> {
@@ -665,25 +689,30 @@ async function autoEndTermedWarIfLimitReached(
   env: Env,
   activeWar: ActiveWarForIngestion,
   latestRankedWar: TornRankedWar | null,
-): Promise<void> {
+): Promise<boolean> {
   if (
     activeWar.war_type !== "termed" ||
     activeWar.auto_end_enabled !== 1 ||
-    activeWar.faction_respect_limit === null
+    activeWar.faction_respect_limit === null ||
+    activeWar.practical_finish_time !== null
   ) {
-    return;
+    return false;
   }
 
   const rankedWar = latestRankedWar ?? (await fetchLatestRankedWar(env));
   if (!rankedWar) {
-    return;
+    return false;
   }
 
   if (activeWar.torn_war_id !== null && rankedWar.id !== activeWar.torn_war_id) {
     console.warn(
       `Skipping termed auto-end check: latest Torn ranked war ${rankedWar.id} does not match active war ${activeWar.torn_war_id}`,
     );
-    return;
+    return false;
+  }
+
+  if (latestRankedWar === null) {
+    await updateWarRankedWarScores(env, activeWar.id, activeWar.enemy_faction_id ?? null, rankedWar);
   }
 
   const homeFaction = rankedWar.factions?.find(
@@ -691,13 +720,11 @@ async function autoEndTermedWarIfLimitReached(
   );
   if (!homeFaction || !Number.isFinite(homeFaction.score)) {
     console.warn("Skipping termed auto-end check: home faction score missing from Torn response");
-    return;
+    return false;
   }
 
-  await updateWarRankedWarScores(env, activeWar.id, activeWar.enemy_faction_id, rankedWar);
-
   if (homeFaction.score < activeWar.faction_respect_limit) {
-    return;
+    return false;
   }
 
   const checkedAt = nowSeconds();
@@ -714,6 +741,7 @@ async function autoEndTermedWarIfLimitReached(
 
   await rebuildWarMemberStatsFromRaw(env, activeWar.id);
   await rebuildWarSummaryFromMemberStats(env, activeWar.id);
+  return true;
 }
 
 async function syncRankedWarScores(
@@ -726,6 +754,16 @@ async function syncRankedWarScores(
   }
 
   if (!rankedWarMatchesActiveWar(activeWar, rankedWar)) {
+    return;
+  }
+
+  const scores = getRankedWarScores(activeWar.enemy_faction_id ?? null, rankedWar);
+  if (
+    activeWar.torn_war_id === rankedWar.id &&
+    activeWar.enemy_faction_id === (scores.enemyFaction?.id ?? activeWar.enemy_faction_id) &&
+    activeWar.official_home_score === (scores.homeFaction?.score ?? null) &&
+    activeWar.official_enemy_score === (scores.enemyFaction?.score ?? null)
+  ) {
     return;
   }
 
@@ -1099,6 +1137,46 @@ async function fetchLatestRankedWar(env: Env): Promise<TornRankedWar | null> {
 
   const data = (await response.json()) as TornRankedWarResponse;
   return data.rankedwars?.[0] ?? null;
+}
+
+async function readExistingAttackRows(
+  env: Env,
+  attackIds: number[],
+): Promise<Map<number, ExistingAttackRow>> {
+  const uniqueIds = Array.from(new Set(attackIds.filter((id) => Number.isInteger(id) && id > 0)));
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  const rows = ((await env.DB.prepare(
+    `
+    SELECT id, war_id
+    FROM attacks
+    WHERE id IN (${uniqueIds.map(() => "?").join(",")})
+    `,
+  )
+    .bind(...uniqueIds)
+    .all()).results ?? []) as ExistingAttackRow[];
+
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
+function buildLiveWarAssignmentStatement(
+  env: Env,
+  ingestRunId: string,
+  warId: number,
+  attackId: number,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `
+    UPDATE attacks
+    SET war_id = ?,
+        ingest_run_id = ?,
+        fetched_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+      AND war_id IS NULL
+    `,
+  ).bind(warId, ingestRunId, attackId);
 }
 
 function buildLiveInsertStatement(

@@ -21,6 +21,15 @@ type AuthSession = TornAuthUser & {
   expires_at: number;
 };
 
+type CachedAuthSession = {
+  session: AuthSession;
+  cache_expires_at: number;
+};
+
+const AUTH_SESSION_CACHE_TTL_SECONDS = 60;
+const MAX_AUTH_SESSION_CACHE_ENTRIES = 250;
+const authSessionCache = new Map<string, CachedAuthSession>();
+
 export async function authenticateWithTornKey(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as { key?: unknown };
@@ -70,10 +79,11 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
 
     const accessLevel: AccessLevel = admin ? "admin" : "member";
     const token = createSessionToken();
-    const expiresAt = nowSeconds() + AUTH_SESSION_TTL_SECONDS;
+    const issuedAt = nowSeconds();
+    const expiresAt = issuedAt + AUTH_SESSION_TTL_SECONDS;
 
     await env.DB.batch([
-      env.DB.prepare(`DELETE FROM auth_sessions WHERE expires_at <= ?`).bind(nowSeconds()),
+      env.DB.prepare(`DELETE FROM auth_sessions WHERE expires_at <= ?`).bind(issuedAt),
       env.DB.prepare(
         `
         INSERT INTO auth_sessions (token, torn_user_id, access_level, expires_at)
@@ -81,6 +91,16 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
         `,
       ).bind(token, user.id, accessLevel, expiresAt),
     ]);
+
+    rememberAuthSession(
+      token,
+      {
+        ...user,
+        access_level: accessLevel,
+        expires_at: expiresAt,
+      },
+      issuedAt,
+    );
 
     return json({
       ok: true,
@@ -161,6 +181,8 @@ export async function grantAdminAccess(request: Request, env: Env): Promise<Resp
     ).bind(tornUserId),
   ]);
 
+  authSessionCache.clear();
+
   return json({
     ok: true,
     granted: {
@@ -213,13 +235,27 @@ export async function revokeSessionsForFormerFactionMembers(
     .bind(...ids)
     .run();
 
-  return Number(result.meta?.changes ?? 0);
+  const changes = Number(result.meta?.changes ?? 0);
+  if (changes > 0) {
+    authSessionCache.clear();
+  }
+
+  return changes;
 }
 
 async function readAuthSession(request: Request, env: Env): Promise<AuthSession | null> {
   const token = bearerToken(request);
   if (!token) {
     return null;
+  }
+
+  const now = nowSeconds();
+  const cached = authSessionCache.get(token);
+  if (cached) {
+    if (cached.cache_expires_at > now && cached.session.expires_at > now) {
+      return cached.session;
+    }
+    authSessionCache.delete(token);
   }
 
   const session = (await env.DB.prepare(
@@ -231,7 +267,7 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
     LIMIT 1
     `,
   )
-    .bind(token, nowSeconds())
+    .bind(token, now)
     .first()) as {
     torn_user_id: number;
     access_level: AccessLevel;
@@ -242,7 +278,7 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
     return null;
   }
 
-  return {
+  const authSession = {
     id: session.torn_user_id,
     name: null,
     key_access_level: null,
@@ -251,6 +287,23 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
     access_level: session.access_level,
     expires_at: session.expires_at,
   };
+
+  rememberAuthSession(token, authSession, now);
+  return authSession;
+}
+
+function rememberAuthSession(token: string, session: AuthSession, now: number): void {
+  if (authSessionCache.size >= MAX_AUTH_SESSION_CACHE_ENTRIES) {
+    const oldestToken = authSessionCache.keys().next().value;
+    if (oldestToken) {
+      authSessionCache.delete(oldestToken);
+    }
+  }
+
+  authSessionCache.set(token, {
+    session,
+    cache_expires_at: Math.min(session.expires_at, now + AUTH_SESSION_CACHE_TTL_SECONDS),
+  });
 }
 
 function bearerToken(request: Request): string | null {

@@ -88,16 +88,6 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
       `
       SELECT
         wms.*,
-        (
-          SELECT AVG(a.m_fair_fight)
-          FROM attacks a
-          JOIN wars w ON w.id = a.war_id
-          WHERE a.war_id = wms.war_id
-            AND a.attacker_id = wms.member_id
-            AND a.attacker_faction_id = ${HOME_FACTION_ID}
-            AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
-            AND ${OUTGOING_ACTION_WINDOW_SQL}
-        ) AS average_fair_fight,
         CASE
           WHEN ? IS NOT NULL AND ? > 0
           THEN wms.enemy_respect_gained * 100.0 / ?
@@ -535,6 +525,12 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       COALESCE(SUM(wms.enemy_retaliations), 0) AS enemy_retaliations,
       COALESCE(SUM(wms.outside_attacks), 0) AS outside_attacks,
       COALESCE(SUM(wms.friendly_hospitals), 0) AS friendly_hospitals,
+      CASE
+        WHEN COALESCE(SUM(wms.enemy_attacks_total), 0) > 0
+        THEN SUM(COALESCE(wms.average_fair_fight, 0) * wms.enemy_attacks_total) * 1.0
+          / SUM(wms.enemy_attacks_total)
+        ELSE NULL
+      END AS average_fair_fight,
       AVG(CASE
         WHEN w.member_respect_limit IS NOT NULL AND w.member_respect_limit > 0
         THEN wms.enemy_respect_gained * 100.0 / w.member_respect_limit

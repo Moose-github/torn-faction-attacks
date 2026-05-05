@@ -25,6 +25,9 @@ type MaintenanceTaskLog = MaintenanceTaskMetrics & {
   error: string | null;
 };
 
+const METRICS_RETENTION_SECONDS = 14 * 24 * 60 * 60;
+const METRICS_RETENTION_STATE_NAME = "scheduled_metrics_retention";
+
 export async function runScheduledMaintenance(env: Env): Promise<void> {
   const runId = crypto.randomUUID();
   const startedAt = nowSeconds();
@@ -62,14 +65,20 @@ export async function runScheduledMaintenance(env: Env): Promise<void> {
   ];
 
   const results = await Promise.all(tasks.map((task) => runMaintenanceTask(task)));
+  const retentionResult = await runMaintenanceTask({
+    name: "metrics retention cleanup",
+    run: () => cleanupOldMetrics(env),
+  });
+  const loggedResults =
+    retentionResult.details?.skipped === true ? results : [...results, retentionResult];
 
-  for (const result of results) {
+  for (const result of loggedResults) {
     if (result.status === "error") {
       console.error(`Scheduled maintenance ${result.name} failed:`, result.error);
     }
   }
 
-  await writeMaintenanceRunMetric(env, runId, startedAt, results);
+  await writeMaintenanceRunMetric(env, runId, startedAt, loggedResults);
 }
 
 export async function getLatestMaintenanceRun(env: Env): Promise<Response> {
@@ -210,4 +219,95 @@ async function writeMaintenanceRunMetric(
   await env.DB.batch(statements).catch((err: any) => {
     console.warn("Unable to write scheduled maintenance metrics:", err?.message || err);
   });
+}
+
+async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
+  const now = nowSeconds();
+  const lastCleanup = (await env.DB.prepare(
+    `
+    SELECT last_started
+    FROM sync_state
+    WHERE name = ?
+    LIMIT 1
+    `,
+  )
+    .bind(METRICS_RETENTION_STATE_NAME)
+    .first()) as { last_started: number | null } | null;
+
+  if (lastCleanup?.last_started && lastCleanup.last_started > now - 24 * 60 * 60) {
+    return {
+      writeStatements: 0,
+      changedRows: 0,
+      details: {
+        skipped: true,
+        reason: "retention already ran in the last 24 hours",
+      },
+    };
+  }
+
+  const cutoff = now - METRICS_RETENTION_SECONDS;
+  const taskDelete = await env.DB.prepare(
+    `
+    DELETE FROM scheduled_maintenance_tasks
+    WHERE run_id IN (
+      SELECT id
+      FROM scheduled_maintenance_runs
+      WHERE started_at < ?
+    )
+    `,
+  )
+    .bind(cutoff)
+    .run();
+  const maintenanceDelete = await env.DB.prepare(
+    `
+    DELETE FROM scheduled_maintenance_runs
+    WHERE started_at < ?
+    `,
+  )
+    .bind(cutoff)
+    .run();
+  const ingestionDelete = await env.DB.prepare(
+    `
+    DELETE FROM ingestion_runs
+    WHERE started_at < ?
+    `,
+  )
+    .bind(cutoff)
+    .run();
+
+  await env.DB.prepare(
+    `
+    INSERT INTO sync_state (name, last_started, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = excluded.last_started,
+      updated_at = CURRENT_TIMESTAMP
+    `,
+  )
+    .bind(METRICS_RETENTION_STATE_NAME, now)
+    .run();
+
+  const deletedMaintenanceTasks = d1Changes(taskDelete);
+  const deletedMaintenanceRuns = d1Changes(maintenanceDelete);
+  const deletedIngestionRuns = d1Changes(ingestionDelete);
+
+  return {
+    writeStatements: 4,
+    changedRows:
+      deletedMaintenanceTasks +
+      deletedMaintenanceRuns +
+      deletedIngestionRuns +
+      1,
+    details: {
+      cutoff,
+      retention_days: 14,
+      deleted_maintenance_tasks: deletedMaintenanceTasks,
+      deleted_maintenance_runs: deletedMaintenanceRuns,
+      deleted_ingestion_runs: deletedIngestionRuns,
+    },
+  };
+}
+
+function d1Changes(result: D1Result<unknown>): number {
+  return Number(result.meta?.changes ?? 0);
 }

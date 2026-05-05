@@ -174,6 +174,7 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
         enemy_retaliations = 0,
         outside_attacks = 0,
         friendly_hospitals = 0,
+        average_fair_fight = NULL,
         defends_total = 0,
         defends_won = 0,
         respect_lost = 0,
@@ -250,6 +251,7 @@ async function upsertWarMemberAttackStats(
       enemy_retaliations,
       outside_attacks,
       friendly_hospitals,
+      average_fair_fight,
       first_action_at,
       last_action_at
     )
@@ -327,6 +329,11 @@ async function upsertWarMemberAttackStats(
         THEN 1
         ELSE 0
       END) AS friendly_hospitals,
+      AVG(CASE
+        WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id
+        THEN a.m_fair_fight
+        ELSE NULL
+      END) AS average_fair_fight,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
     FROM attacks a
@@ -350,6 +357,14 @@ async function upsertWarMemberAttackStats(
       enemy_retaliations = war_member_stats.enemy_retaliations + excluded.enemy_retaliations,
       outside_attacks = war_member_stats.outside_attacks + excluded.outside_attacks,
       friendly_hospitals = war_member_stats.friendly_hospitals + excluded.friendly_hospitals,
+      average_fair_fight = CASE
+        WHEN war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total > 0 THEN
+          (
+            COALESCE(war_member_stats.average_fair_fight, 0) * war_member_stats.enemy_attacks_total +
+            COALESCE(excluded.average_fair_fight, 0) * excluded.enemy_attacks_total
+          ) / (war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total)
+        ELSE COALESCE(excluded.average_fair_fight, war_member_stats.average_fair_fight)
+      END,
       first_action_at = CASE
         WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
         WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
@@ -434,6 +449,7 @@ async function upsertIngestedWarMemberAttackStats(
       enemy_retaliations,
       outside_attacks,
       friendly_hospitals,
+      average_fair_fight,
       first_action_at,
       last_action_at
     )
@@ -511,6 +527,11 @@ async function upsertIngestedWarMemberAttackStats(
         THEN 1
         ELSE 0
       END) AS friendly_hospitals,
+      AVG(CASE
+        WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id
+        THEN a.m_fair_fight
+        ELSE NULL
+      END) AS average_fair_fight,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
     FROM attacks a
@@ -535,6 +556,14 @@ async function upsertIngestedWarMemberAttackStats(
       enemy_retaliations = war_member_stats.enemy_retaliations + excluded.enemy_retaliations,
       outside_attacks = war_member_stats.outside_attacks + excluded.outside_attacks,
       friendly_hospitals = war_member_stats.friendly_hospitals + excluded.friendly_hospitals,
+      average_fair_fight = CASE
+        WHEN war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total > 0 THEN
+          (
+            COALESCE(war_member_stats.average_fair_fight, 0) * war_member_stats.enemy_attacks_total +
+            COALESCE(excluded.average_fair_fight, 0) * excluded.enemy_attacks_total
+          ) / (war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total)
+        ELSE COALESCE(excluded.average_fair_fight, war_member_stats.average_fair_fight)
+      END,
       first_action_at = CASE
         WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
         WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
