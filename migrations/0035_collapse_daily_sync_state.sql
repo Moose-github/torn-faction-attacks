@@ -4,7 +4,8 @@ SELECT
   CAST(strftime('%s', MAX(substr(name, length('member_lifestyle_stats_daily_') + 1)) || ' 00:10:00') AS INTEGER),
   NULL
 FROM sync_state
-WHERE name GLOB 'member_lifestyle_stats_daily_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+WHERE name LIKE 'member_lifestyle_stats_daily_____-__-__'
+  AND length(name) = length('member_lifestyle_stats_daily_') + 10
 HAVING MAX(substr(name, length('member_lifestyle_stats_daily_') + 1)) IS NOT NULL
 ON CONFLICT(name) DO UPDATE SET
   last_started = CASE
@@ -19,7 +20,8 @@ SELECT
   CAST(strftime('%s', MAX(substr(name, length('member_gym_contributors_daily_') + 1)) || ' 00:10:00') AS INTEGER),
   NULL
 FROM sync_state
-WHERE name GLOB 'member_gym_contributors_daily_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+WHERE name LIKE 'member_gym_contributors_daily_____-__-__'
+  AND length(name) = length('member_gym_contributors_daily_') + 10
 HAVING MAX(substr(name, length('member_gym_contributors_daily_') + 1)) IS NOT NULL
 ON CONFLICT(name) DO UPDATE SET
   last_started = CASE
@@ -29,5 +31,11 @@ ON CONFLICT(name) DO UPDATE SET
   updated_at = CURRENT_TIMESTAMP;
 
 DELETE FROM sync_state
-WHERE name GLOB 'member_lifestyle_stats_daily_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-   OR name GLOB 'member_gym_contributors_daily_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]';
+WHERE (
+    name LIKE 'member_lifestyle_stats_daily_____-__-__'
+    AND length(name) = length('member_lifestyle_stats_daily_') + 10
+  )
+   OR (
+    name LIKE 'member_gym_contributors_daily_____-__-__'
+    AND length(name) = length('member_gym_contributors_daily_') + 10
+  );
