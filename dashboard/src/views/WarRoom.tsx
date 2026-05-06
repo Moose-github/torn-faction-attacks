@@ -40,6 +40,8 @@ export function WarRoom({
   const [isRefreshingEnemyScouting, setIsRefreshingEnemyScouting] = React.useState(false);
   const [scoutingComparison, setScoutingComparison] =
     React.useState<ScoutingComparisonResponse | null>(null);
+  const [scoutingComparisonMetric, setScoutingComparisonMetric] =
+    React.useState<"estimated_stats" | "networth">("estimated_stats");
   const [isLoadingScoutingComparison, setIsLoadingScoutingComparison] = React.useState(false);
   const [activityHeatmap, setActivityHeatmap] =
     React.useState<FactionActivityHeatmapResponse | null>(null);
@@ -262,18 +264,36 @@ export function WarRoom({
       <section className="content-grid">
         <CollapsiblePanel
           title="Stats comparison"
-          aside={isLoadingScoutingComparison ? "Loading" : "Estimated stats"}
+          aside={isLoadingScoutingComparison ? "Loading" : scoutingComparisonMetricLabel(scoutingComparisonMetric)}
           collapsed={collapsedPanels.scoutingComparison ?? false}
           onToggle={() => togglePanel("scoutingComparison")}
           className="scouting-comparison-panel"
         >
           <p className="panel-description">
-            Compares cached estimated battle stats for Buttgrass and the enemy faction by member count in each range.
+            Compares cached faction member stats for Buttgrass and the enemy faction by member count in each range.
           </p>
+          <div className="panel-toggle-row" aria-label="Stats comparison metric">
+            <button
+              type="button"
+              className={scoutingComparisonMetric === "estimated_stats" ? "toggle-chip active" : "toggle-chip"}
+              onClick={() => setScoutingComparisonMetric("estimated_stats")}
+            >
+              Battle stats
+            </button>
+            <button
+              type="button"
+              className={scoutingComparisonMetric === "networth" ? "toggle-chip active" : "toggle-chip"}
+              onClick={() => setScoutingComparisonMetric("networth")}
+            >
+              Networth
+            </button>
+          </div>
           <ScoutingComparisonChart
             homeMembers={scoutingComparison?.home.members ?? []}
             enemyMembers={scoutingComparison?.enemy.members ?? []}
             enemyName={selectedWar.name}
+            metric={scoutingComparisonMetric}
+            metricLabel={scoutingComparisonMetricLabel(scoutingComparisonMetric).toLowerCase()}
           />
         </CollapsiblePanel>
 
@@ -329,6 +349,10 @@ export function WarRoom({
       </section>
     </>
   );
+}
+
+function scoutingComparisonMetricLabel(metric: "estimated_stats" | "networth"): string {
+  return metric === "networth" ? "Networth" : "Estimated stats";
 }
 
 function RevivableMembersPanel({

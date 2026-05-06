@@ -10,7 +10,9 @@ type EnemyScoutingSortKey =
   | "position"
   | "days_in_faction"
   | "estimated_stats"
-  | "estimated_stats_updated_at";
+  | "estimated_stats_updated_at"
+  | "networth"
+  | "networth_updated_at";
 
 type EnemyScoutingSort = {
   key: EnemyScoutingSortKey;
@@ -59,7 +61,7 @@ export function EnemyScoutingPanel({
         }
       />
       <p className="panel-description">
-        Shows the cached enemy roster from Torn and estimated stats from FFScouter where available.
+        Shows the cached enemy roster from Torn, estimated battle stats, and networth where available.
       </p>
 
       {members.length === 0 ? (
@@ -76,6 +78,8 @@ export function EnemyScoutingPanel({
                   <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Estimated stats" sortKey="estimated_stats" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Stats updated" sortKey="estimated_stats_updated_at" sort={sort} onSortChange={setSort} />
+                  <SortableHeader label="Networth" sortKey="networth" sort={sort} onSortChange={setSort} />
+                  <SortableHeader label="Networth updated" sortKey="networth_updated_at" sort={sort} onSortChange={setSort} />
                 </tr>
               </thead>
               <tbody>
@@ -112,6 +116,8 @@ export function EnemyScoutingPanel({
                         : formatNumber(member.estimated_stats)}
                     </td>
                     <td>{formatRelativeTime(member.estimated_stats_updated_at)}</td>
+                    <td>{member.networth === null ? "-" : formatNumber(member.networth)}</td>
+                    <td>{formatRelativeTime(member.networth_updated_at)}</td>
                   </tr>
                 ))}
               </tbody>

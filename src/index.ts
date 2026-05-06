@@ -10,6 +10,7 @@ import {
   getEnemyScoutingForWar,
   getScoutingComparisonForWar,
   refreshEnemyScoutingForWar,
+  refreshMissingScoutingNetworth,
 } from "./enemyScouting";
 import { getWarActivityHeatmap } from "./heatmap";
 import { getLatestIngestionRun, runIngestion } from "./ingestion";
@@ -341,6 +342,10 @@ export default {
       jobs.push({
         label: "Cron lifestyle stats",
         run: () => refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true }),
+      });
+      jobs.push({
+        label: "Cron scouting networth",
+        run: () => refreshMissingScoutingNetworth(env, { limit: 40 }),
       });
     }
 

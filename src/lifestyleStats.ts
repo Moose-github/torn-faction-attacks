@@ -1,21 +1,23 @@
 import { HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
+import { fetchTornPersonalStats } from "./personalStats";
 import { claimDailyBatchGate } from "./scheduledGates";
 import { Env, TornFactionMember } from "./types";
 import { boolToInt, json, nowSeconds, parseLimit } from "./utils";
 
-const PERSONAL_STATS_API_BASE_URL = "https://api.torn.com/v2/user";
 const LIFESTYLE_STAT_KEYS = [
   "xantaken",
   "overdosed",
   "refills",
   "useractivity",
+  "networth",
 ] as const;
 const TORN_LIFESTYLE_STAT_KEYS = [
   "xantaken",
   "overdosed",
   "refills",
   "timeplayed",
+  "networth",
 ] as const;
 const GYM_CONTRIBUTOR_STAT_KEYS = [
   "gymenergy",
@@ -26,8 +28,6 @@ const GYM_CONTRIBUTOR_STAT_KEYS = [
 ] as const;
 const REFRESH_STALE_SECONDS = 24 * 60 * 60;
 const LIFESTYLE_FETCH_TIMEOUT_MS = 12000;
-const LIFESTYLE_FETCH_RETRY_DELAYS_MS = [750, 1500];
-const TRANSIENT_TORN_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const DAILY_REFRESH_AFTER_UTC_HOUR = 0;
 const DAILY_REFRESH_AFTER_UTC_MINUTE = 10;
 const MAX_LIFESTYLE_PERIOD_DAYS = 90;
@@ -57,6 +57,7 @@ type LifestylePeriodRow = {
   average_xantaken: number;
   average_refills: number;
   average_useractivity: number;
+  networth: number | null;
   average_gymenergy: number;
   average_gymstrength: number;
   average_gymspeed: number;
@@ -75,6 +76,7 @@ type LifestyleSnapshotRow = {
   overdosed: number | null;
   refills: number | null;
   useractivity: number | null;
+  networth: number | null;
   gymenergy: number | null;
   gymstrength: number | null;
   gymspeed: number | null;
@@ -106,6 +108,7 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
       overdosed,
       refills,
       useractivity,
+      networth,
       gymenergy,
       gymstrength,
       gymspeed,
@@ -169,6 +172,7 @@ export async function refreshMemberLifestyleStats(
   await syncHomeFactionMemberList(env);
 
   const members = await readLifestyleRefreshCandidates(env, limit, force, options.staleBefore);
+  const refreshedMemberIds: number[] = [];
   let refreshed = 0;
   let failed = 0;
 
@@ -176,12 +180,15 @@ export async function refreshMemberLifestyleStats(
     try {
       const stats = await fetchMemberPersonalStats(env, member.member_id);
       await upsertLifestyleStats(env, member, stats, null);
+      refreshedMemberIds.push(member.member_id);
       refreshed += 1;
     } catch (err: any) {
       await upsertLifestyleStats(env, member, emptyLifestyleStats(), err?.message || String(err));
       failed += 1;
     }
   }
+
+  await syncHomeFactionMemberNetworth(env, refreshedMemberIds);
 
   return {
     considered: members.length,
@@ -418,26 +425,7 @@ async function readLifestyleRefreshCandidates(
 }
 
 async function fetchMemberPersonalStats(env: Env, memberId: number): Promise<LifestyleStats> {
-  const url = new URL(`${PERSONAL_STATS_API_BASE_URL}/${memberId}/personalstats`);
-  url.searchParams.set("stat", TORN_LIFESTYLE_STAT_KEYS.join(","));
-
-  const response = await fetchWithTransientRetry(url.toString(), {
-    headers: {
-      Accept: "application/json",
-      Authorization: `ApiKey ${env.TORN_API_KEY}`,
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Torn personalstats API error: ${response.status}`);
-  }
-
-  const data = (await response.json()) as any;
-  if (data?.error) {
-    throw new Error(data.error.error ?? data.error.message ?? "Torn personalstats API error");
-  }
-
-  return extractLifestyleStats(data?.personalstats);
+  return extractLifestyleStats(await fetchTornPersonalStats(env, memberId, TORN_LIFESTYLE_STAT_KEYS));
 }
 
 async function upsertLifestyleStats(
@@ -457,10 +445,11 @@ async function upsertLifestyleStats(
       overdosed,
       refills,
       useractivity,
+      networth,
       updated_at,
       error
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), ?)
     ON CONFLICT(member_id) DO UPDATE SET
       member_name = excluded.member_name,
       level = excluded.level,
@@ -469,6 +458,7 @@ async function upsertLifestyleStats(
       overdosed = COALESCE(excluded.overdosed, member_lifestyle_stats.overdosed),
       refills = COALESCE(excluded.refills, member_lifestyle_stats.refills),
       useractivity = COALESCE(excluded.useractivity, member_lifestyle_stats.useractivity),
+      networth = COALESCE(excluded.networth, member_lifestyle_stats.networth),
       updated_at = excluded.updated_at,
       error = excluded.error
     `,
@@ -482,6 +472,7 @@ async function upsertLifestyleStats(
       stats.overdosed,
       stats.refills,
       stats.useractivity,
+      stats.networth,
       error,
     )
     .run();
@@ -596,6 +587,47 @@ async function readHomeMembersById(env: Env): Promise<Map<number, LifestyleMembe
   return new Map(rows.map((row) => [row.member_id, row]));
 }
 
+async function syncHomeFactionMemberNetworth(env: Env, memberIds: number[]): Promise<void> {
+  if (memberIds.length === 0) {
+    return;
+  }
+
+  const uniqueIds = Array.from(new Set(memberIds));
+  const placeholders = uniqueIds.map(() => "?").join(", ");
+  await env.DB.prepare(
+    `
+    UPDATE home_faction_members
+    SET
+      networth = (
+        SELECT stats.networth
+        FROM member_lifestyle_stats stats
+        WHERE stats.member_id = home_faction_members.member_id
+      ),
+      networth_updated_at = (
+        SELECT stats.updated_at
+        FROM member_lifestyle_stats stats
+        WHERE stats.member_id = home_faction_members.member_id
+      ),
+      updated_at = unixepoch()
+    WHERE member_id IN (${placeholders})
+      AND EXISTS (
+        SELECT 1
+        FROM member_lifestyle_stats stats
+        WHERE stats.member_id = home_faction_members.member_id
+          AND stats.networth IS NOT NULL
+          AND (
+            home_faction_members.networth IS NULL
+            OR home_faction_members.networth != stats.networth
+            OR home_faction_members.networth_updated_at IS NULL
+            OR home_faction_members.networth_updated_at != stats.updated_at
+          )
+      )
+    `,
+  )
+    .bind(...uniqueIds)
+    .run();
+}
+
 async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Promise<void> {
   await env.DB.prepare(
     `
@@ -607,6 +639,7 @@ async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Pr
       overdosed,
       refills,
       useractivity,
+      networth,
       gymenergy,
       gymstrength,
       gymspeed,
@@ -622,6 +655,7 @@ async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Pr
       overdosed,
       refills,
       useractivity,
+      networth,
       gymenergy,
       gymstrength,
       gymspeed,
@@ -636,6 +670,7 @@ async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Pr
       overdosed = excluded.overdosed,
       refills = excluded.refills,
       useractivity = excluded.useractivity,
+      networth = excluded.networth,
       gymenergy = excluded.gymenergy,
       gymstrength = excluded.gymstrength,
       gymspeed = excluded.gymspeed,
@@ -668,6 +703,7 @@ function buildPeriodRows(rows: LifestyleSnapshotRow[]): LifestylePeriodRow[] {
       average_xantaken: averagePeriodDelta(ordered, "xantaken"),
       average_refills: averagePeriodDelta(ordered, "refills"),
       average_useractivity: averagePeriodDelta(ordered, "useractivity"),
+      networth: latestNonNullValue(ordered, "networth"),
       average_gymenergy: averagePeriodDelta(ordered, "gymenergy"),
       average_gymstrength: averagePeriodDelta(ordered, "gymstrength"),
       average_gymspeed: averagePeriodDelta(ordered, "gymspeed"),
@@ -688,6 +724,9 @@ function summarizeLifestylePeriodRows(rows: LifestylePeriodRow[]) {
     average_xantaken: average(rows.map((row) => row.average_xantaken)),
     average_refills: average(rows.map((row) => row.average_refills)),
     average_useractivity: average(rows.map((row) => row.average_useractivity)),
+    average_networth: average(
+      rows.map((row) => row.networth).filter((value): value is number => value !== null),
+    ),
     average_gymenergy: average(rows.map((row) => row.average_gymenergy)),
     average_gymstrength: average(rows.map((row) => row.average_gymstrength)),
     average_gymspeed: average(rows.map((row) => row.average_gymspeed)),
@@ -770,6 +809,17 @@ function periodDelta(rows: LifestyleSnapshotRow[], key: LifestyleSnapshotNumberK
   }
 
   return delta(endpoints.first[key], endpoints.last[key]);
+}
+
+function latestNonNullValue(rows: LifestyleSnapshotRow[], key: LifestyleStatKey): number | null {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const value = rows[index][key];
+    if (value !== null) {
+      return value;
+    }
+  }
+
+  return null;
 }
 
 function nonNullPeriodEndpoints(
@@ -952,37 +1002,4 @@ async function fetchWithTimeout(input: string, init: RequestInit): Promise<Respo
   } finally {
     clearTimeout(timeout);
   }
-}
-
-async function fetchWithTransientRetry(input: string, init: RequestInit): Promise<Response> {
-  let lastResponse: Response | null = null;
-  let lastError: unknown = null;
-
-  for (let attempt = 0; attempt <= LIFESTYLE_FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
-    try {
-      const response = await fetchWithTimeout(input, init);
-      if (!TRANSIENT_TORN_STATUSES.has(response.status) || attempt === LIFESTYLE_FETCH_RETRY_DELAYS_MS.length) {
-        return response;
-      }
-
-      lastResponse = response;
-    } catch (err) {
-      lastError = err;
-      if (attempt === LIFESTYLE_FETCH_RETRY_DELAYS_MS.length) {
-        throw err;
-      }
-    }
-
-    await sleep(LIFESTYLE_FETCH_RETRY_DELAYS_MS[attempt]);
-  }
-
-  if (lastResponse) {
-    return lastResponse;
-  }
-
-  throw lastError instanceof Error ? lastError : new Error("Torn personalstats API request failed");
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -15,6 +15,7 @@ type LifestyleSortKey =
   | "average_xantaken"
   | "average_refills"
   | "average_useractivity"
+  | "networth"
   | "average_gymenergy"
   | "average_gymstrength"
   | "average_gymspeed"
@@ -33,6 +34,7 @@ const SORT_LABELS: Record<LifestyleSortKey, string> = {
   average_xantaken: "Daily Xanax",
   average_refills: "Daily Refills",
   average_useractivity: "Daily Activity",
+  networth: "Networth",
   average_gymenergy: "Daily Gym energy",
   average_gymstrength: "Daily Strength",
   average_gymspeed: "Daily Speed",
@@ -215,6 +217,7 @@ function exportLifestyleCsv(
     { label: "Daily Xanax", value: (member) => member.average_xantaken },
     { label: "Daily Refills", value: (member) => member.average_refills },
     { label: "Daily Activity Hours", value: (member) => activityHours(member.average_useractivity) },
+    { label: "Networth", value: (member) => member.networth },
     { label: "Daily Gym Energy", value: (member) => member.average_gymenergy },
     { label: "Daily Strength", value: (member) => member.average_gymstrength },
     { label: "Daily Speed", value: (member) => member.average_gymspeed },
@@ -250,6 +253,7 @@ function LifestyleTable({
               "average_xantaken",
               "average_refills",
               "average_useractivity",
+              "networth",
               "average_gymenergy",
               "average_gymstrength",
               "average_gymspeed",
@@ -284,6 +288,7 @@ function LifestyleTable({
               <td>{cell(member.average_xantaken)}</td>
               <td>{cell(member.average_refills)}</td>
               <td>{formatActivityAverage(member.average_useractivity)}</td>
+              <td>{cell(member.networth)}</td>
               <td>{cell(member.average_gymenergy)}</td>
               <td>{cell(member.average_gymstrength)}</td>
               <td>{cell(member.average_gymspeed)}</td>

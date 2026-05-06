@@ -206,6 +206,8 @@ export type EnemyFactionMember = {
   is_revivable: number | null;
   estimated_stats: number | null;
   estimated_stats_updated_at: number | null;
+  networth: number | null;
+  networth_updated_at: number | null;
   updated_at: number;
 };
 
@@ -223,6 +225,7 @@ export type EnemyScoutingResponse = {
     average_estimated_stats: number | null;
     missing_estimated_stats: number;
     stats_available: number;
+    networth_available: number;
   };
   members: EnemyFactionMember[];
 };
@@ -353,6 +356,7 @@ export type MemberLifestyleStats = {
   average_xantaken: number;
   average_refills: number;
   average_useractivity: number;
+  networth: number | null;
   average_gymenergy: number;
   average_gymstrength: number;
   average_gymspeed: number;
@@ -378,6 +382,7 @@ export type MemberLifestyleStatsResponse = {
     average_xantaken: number;
     average_refills: number;
     average_useractivity: number;
+    average_networth: number;
     average_gymenergy: number;
     average_gymstrength: number;
     average_gymspeed: number;

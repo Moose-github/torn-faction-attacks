@@ -131,6 +131,8 @@ CREATE TABLE enemy_faction_members (
   is_revivable INTEGER,
   estimated_stats INTEGER,
   estimated_stats_updated_at INTEGER,
+  networth INTEGER,
+  networth_updated_at INTEGER,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
@@ -144,6 +146,8 @@ CREATE TABLE home_faction_members (
   is_revivable INTEGER,
   estimated_stats INTEGER,
   estimated_stats_updated_at INTEGER,
+  networth INTEGER,
+  networth_updated_at INTEGER,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
@@ -166,6 +170,7 @@ CREATE TABLE member_lifestyle_stats (
   overdosed INTEGER,
   refills INTEGER,
   useractivity INTEGER,
+  networth INTEGER,
   gymenergy INTEGER,
   gymstrength INTEGER,
   gymspeed INTEGER,
@@ -183,6 +188,7 @@ CREATE TABLE member_lifestyle_stat_snapshots (
   overdosed INTEGER,
   refills INTEGER,
   useractivity INTEGER,
+  networth INTEGER,
   gymenergy INTEGER,
   gymstrength INTEGER,
   gymspeed INTEGER,

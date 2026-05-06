@@ -144,22 +144,26 @@ export function ScoutingComparisonChart({
   homeMembers,
   enemyMembers,
   enemyName,
+  metric = "estimated_stats",
+  metricLabel = "estimated stats",
 }: {
   homeMembers: EnemyFactionMember[];
   enemyMembers: EnemyFactionMember[];
   enemyName: string;
+  metric?: "estimated_stats" | "networth";
+  metricLabel?: string;
 }) {
-  const homeEstimated = homeMembers.filter(hasEstimate);
-  const enemyEstimated = enemyMembers.filter(hasEstimate);
+  const homeEstimated = homeMembers.filter((member) => hasScoutingMetric(member, metric));
+  const enemyEstimated = enemyMembers.filter((member) => hasScoutingMetric(member, metric));
 
   if (homeEstimated.length === 0 && enemyEstimated.length === 0) {
-    return <EmptyState text="No estimated stats loaded yet" />;
+    return <EmptyState text={`No ${metricLabel} loaded yet`} />;
   }
 
   const data = scoutingBuckets.map((bucket) => ({
     bucket: bucket.label,
-    Buttgrass: countBucket(homeEstimated, bucket.min, bucket.max),
-    [enemyName]: countBucket(enemyEstimated, bucket.min, bucket.max),
+    Buttgrass: countBucket(homeEstimated, bucket.min, bucket.max, metric),
+    [enemyName]: countBucket(enemyEstimated, bucket.min, bucket.max, metric),
   }));
 
   return (
@@ -205,17 +209,21 @@ export function ScoutingComparisonChart({
   );
 }
 
-function hasEstimate(member: EnemyFactionMember): boolean {
-  return Number.isFinite(Number(member.estimated_stats)) && Number(member.estimated_stats) > 0;
+function hasScoutingMetric(
+  member: EnemyFactionMember,
+  metric: "estimated_stats" | "networth",
+): boolean {
+  return Number.isFinite(Number(member[metric])) && Number(member[metric]) > 0;
 }
 
 function countBucket(
   members: EnemyFactionMember[],
   min: number,
   max: number,
+  metric: "estimated_stats" | "networth",
 ): number {
   return members.filter((member) => {
-    const stats = Number(member.estimated_stats ?? 0);
+    const stats = Number(member[metric] ?? 0);
     return stats >= min && stats < max;
   }).length;
 }

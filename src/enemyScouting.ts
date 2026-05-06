@@ -1,9 +1,11 @@
 import { FFSCOUTER_STATS_API_URL, HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
+import { fetchTornPersonalStats } from "./personalStats";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import { boolToInt, json } from "./utils";
 
 const FFSCOUTER_BATCH_SIZE = 100;
 const SCOUTING_FETCH_TIMEOUT_MS = 15000;
+const NETWORTH_REFRESH_LIMIT = 40;
 
 type EnemyFactionMemberRow = {
   member_id: number;
@@ -15,6 +17,8 @@ type EnemyFactionMemberRow = {
   is_revivable: number | null;
   estimated_stats: number | null;
   estimated_stats_updated_at: number | null;
+  networth: number | null;
+  networth_updated_at: number | null;
   updated_at: number;
 };
 
@@ -30,6 +34,14 @@ export type FfscouterRefreshMetrics = {
   homeCandidates: number;
   enemyUpdated: number;
   homeUpdated: number;
+  skipped: boolean;
+};
+
+export type ScoutingNetworthRefreshMetrics = {
+  writeStatements: number;
+  changedRows: number;
+  candidates: number;
+  updated: number;
   skipped: boolean;
 };
 
@@ -194,6 +206,67 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<Ffscou
   metrics.writeStatements += homeMetrics.writeStatements;
   metrics.changedRows += homeMetrics.changedRows;
   metrics.homeUpdated += homeMetrics.changedRows;
+
+  return metrics;
+}
+
+export async function refreshMissingScoutingNetworth(
+  env: Env,
+  options: { limit?: number } = {},
+): Promise<ScoutingNetworthRefreshMetrics> {
+  const metrics: ScoutingNetworthRefreshMetrics = {
+    writeStatements: 0,
+    changedRows: 0,
+    candidates: 0,
+    updated: 0,
+    skipped: false,
+  };
+  const scoutingWar = await readCurrentScoutingWar(env);
+  if (!scoutingWar) {
+    return { ...metrics, skipped: true };
+  }
+
+  const limit = Math.max(
+    1,
+    Math.min(Math.floor(options.limit ?? NETWORTH_REFRESH_LIMIT), NETWORTH_REFRESH_LIMIT),
+  );
+  const rows = ((await env.DB.prepare(
+    `
+    SELECT *
+    FROM enemy_faction_members
+    WHERE faction_id = ?
+      AND networth_updated_at IS NULL
+    ORDER BY level DESC, name ASC
+    LIMIT ?
+    `,
+  )
+    .bind(scoutingWar.enemy_faction_id, limit)
+    .all()).results ?? []) as EnemyFactionMemberRow[];
+
+  metrics.candidates = rows.length;
+
+  for (const row of rows) {
+    const stats = await fetchTornPersonalStats(env, row.member_id, ["networth"]);
+    const networth = finiteNumber(stats.networth);
+
+    const result = await env.DB.prepare(
+      `
+      UPDATE enemy_faction_members
+      SET networth = ?,
+          networth_updated_at = unixepoch(),
+          updated_at = unixepoch()
+      WHERE faction_id = ?
+        AND member_id = ?
+        AND networth_updated_at IS NULL
+      `,
+    )
+      .bind(networth, scoutingWar.enemy_faction_id, row.member_id)
+      .run();
+    const changes = d1Changes(result);
+    metrics.writeStatements += 1;
+    metrics.changedRows += changes;
+    metrics.updated += changes;
+  }
 
   return metrics;
 }
@@ -599,6 +672,7 @@ function jsonEnemyScouting(
   refreshed: boolean,
 ): Response {
   const statsRows = rows.filter((row) => row.estimated_stats !== null);
+  const networthRows = rows.filter((row) => row.networth !== null);
   const averageLevel =
     rows.length === 0
       ? 0
@@ -623,6 +697,7 @@ function jsonEnemyScouting(
       average_estimated_stats: averageEstimatedStats,
       missing_estimated_stats: rows.length - statsRows.length,
       stats_available: statsRows.length,
+      networth_available: networthRows.length,
     },
     members: rows,
   });
