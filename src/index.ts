@@ -332,26 +332,28 @@ export default {
   },
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (event.cron === "*/15 * * * *") {
-      ctx.waitUntil(
-        runScheduledMaintenance(env).catch((err) => {
-          console.error("Cron maintenance failed:", err?.message || err);
-          console.error(err);
-        }),
-      );
-      return;
+    const minute = new Date(event.scheduledTime).getUTCMinutes();
+    const jobs: Array<{ label: string; run: () => Promise<unknown> }> = [];
+
+    if (minute % 5 === 0) {
+      jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
+    } else {
+      jobs.push({
+        label: "Cron lifestyle stats",
+        run: () => refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true }),
+      });
+    }
+
+    if (minute % 15 === 0) {
+      jobs.push({ label: "Cron maintenance", run: () => runScheduledMaintenance(env) });
     }
 
     ctx.waitUntil(
-      Promise.allSettled([
-        runIngestion(env),
-        refreshDailyMemberLifestyleStats(env),
-      ]).then((results) => {
+      Promise.allSettled(jobs.map((job) => job.run())).then((results) => {
         results.forEach((result, index) => {
           if (result.status === "rejected") {
-            const label = index === 0 ? "Cron ingestion" : "Cron lifestyle stats";
             const err = result.reason;
-            console.error(`${label} failed:`, err?.message || err);
+            console.error(`${jobs[index]?.label ?? "Cron job"} failed:`, err?.message || err);
             console.error(err);
           }
         });

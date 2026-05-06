@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
+import { claimDailyBatchGate } from "./scheduledGates";
 import { Env, TornFactionMember } from "./types";
 import { boolToInt, json, nowSeconds, parseLimit } from "./utils";
 
@@ -30,7 +31,10 @@ const TRANSIENT_TORN_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const DAILY_REFRESH_AFTER_UTC_HOUR = 0;
 const DAILY_REFRESH_AFTER_UTC_MINUTE = 10;
 const MAX_LIFESTYLE_PERIOD_DAYS = 90;
-const MAX_MANUAL_PERSONAL_STATS_REFRESH = 20;
+const MAX_MANUAL_PERSONAL_STATS_REFRESH = 40;
+const DAILY_LIFESTYLE_REFRESH_LIMIT = 40;
+const DAILY_LIFESTYLE_LOCK_SECONDS = 75;
+const DAILY_LIFESTYLE_LOCK_STATE_NAME = "member_lifestyle_stats_daily_lock";
 
 type LifestyleStatKey = (typeof LIFESTYLE_STAT_KEYS)[number];
 type GymContributorStatKey = (typeof GYM_CONTRIBUTOR_STAT_KEYS)[number];
@@ -188,13 +192,47 @@ export async function refreshMemberLifestyleStats(
 
 export async function refreshDailyMemberLifestyleStats(
   env: Env,
+  options: { limit?: number; useLock?: boolean } = {},
 ): Promise<{ considered: number; refreshed: number; failed: number; skipped: boolean }> {
-  const refreshAt = dailyRefreshReadyAt(nowSeconds());
+  const now = nowSeconds();
+  const refreshAt = dailyRefreshReadyAt(now);
   if (refreshAt === null) {
     return { considered: 0, refreshed: 0, failed: 0, skipped: true };
   }
 
   const stateName = `member_lifestyle_stats_daily_${utcDateKey(refreshAt)}`;
+  if (options.useLock) {
+    const gate = await claimDailyBatchGate(env, {
+      completeStateName: stateName,
+      lockStateName: DAILY_LIFESTYLE_LOCK_STATE_NAME,
+      now,
+      lockSeconds: DAILY_LIFESTYLE_LOCK_SECONDS,
+    });
+
+    if (gate.completed || !gate.locked) {
+      return { considered: 0, refreshed: 0, failed: 0, skipped: true };
+    }
+  } else if (await isDailyLifestyleRefreshComplete(env, stateName)) {
+    return { considered: 0, refreshed: 0, failed: 0, skipped: true };
+  }
+
+  const result = await refreshMemberLifestyleStats(env, {
+    limit: options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT,
+    staleBefore: refreshAt,
+  });
+  await refreshDailyGymContributorStats(env, refreshAt);
+  const complete = await markDailyLifestyleRefreshCompleteIfDone(env, stateName, refreshAt);
+  if (complete) {
+    await writeLifestyleSnapshotForDate(env, utcDateKey(refreshAt));
+  }
+
+  return { ...result, skipped: false };
+}
+
+async function isDailyLifestyleRefreshComplete(
+  env: Env,
+  stateName: string,
+): Promise<boolean> {
   const existing = await env.DB.prepare(
     `
     SELECT name
@@ -206,21 +244,7 @@ export async function refreshDailyMemberLifestyleStats(
     .bind(stateName)
     .first();
 
-  if (existing) {
-    return { considered: 0, refreshed: 0, failed: 0, skipped: true };
-  }
-
-  const result = await refreshMemberLifestyleStats(env, {
-    limit: 10,
-    staleBefore: refreshAt,
-  });
-  await refreshDailyGymContributorStats(env, refreshAt);
-  const complete = await markDailyLifestyleRefreshCompleteIfDone(env, stateName, refreshAt);
-  if (complete) {
-    await writeLifestyleSnapshotForDate(env, utcDateKey(refreshAt));
-  }
-
-  return { ...result, skipped: false };
+  return Boolean(existing);
 }
 
 async function refreshDailyGymContributorStats(
