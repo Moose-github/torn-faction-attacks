@@ -127,7 +127,13 @@ export function ActivityChart({
   );
 }
 
-const scoutingBuckets = [
+type ScoutingBucket = {
+  label: string;
+  min: number;
+  max: number;
+};
+
+const battleStatsBuckets: ScoutingBucket[] = [
   { label: "<1m", min: 0, max: 1_000_000 },
   { label: "1m-10m", min: 1_000_000, max: 10_000_000 },
   { label: "10m-100m", min: 10_000_000, max: 100_000_000 },
@@ -138,7 +144,20 @@ const scoutingBuckets = [
   { label: "2.5b-5b", min: 2_500_000_000, max: 5_000_000_000 },
   { label: "5b-10b", min: 5_000_000_000, max: 10_000_000_000 },
   { label: "10b+", min: 10_000_000_000, max: Number.POSITIVE_INFINITY },
-] as const;
+];
+
+const networthBuckets: ScoutingBucket[] = [
+  { label: "<500m", min: 0, max: 500_000_000 },
+  { label: "0.5b-1b", min: 500_000_000, max: 1_000_000_000 },
+  { label: "1b-2.5b", min: 1_000_000_000, max: 2_500_000_000 },
+  { label: "2.5b-5b", min: 2_500_000_000, max: 5_000_000_000 },
+  { label: "5b-10b", min: 5_000_000_000, max: 10_000_000_000 },
+  { label: "10b-20b", min: 10_000_000_000, max: 20_000_000_000 },
+  { label: "20b-30b", min: 20_000_000_000, max: 30_000_000_000 },
+  { label: "30b-40b", min: 30_000_000_000, max: 40_000_000_000 },
+  { label: "40b-50b", min: 40_000_000_000, max: 50_000_000_000 },
+  { label: "50b+", min: 50_000_000_000, max: Number.POSITIVE_INFINITY },
+];
 
 export function ScoutingComparisonChart({
   homeMembers,
@@ -160,7 +179,8 @@ export function ScoutingComparisonChart({
     return <EmptyState text={`No ${metricLabel} loaded yet`} />;
   }
 
-  const data = scoutingBuckets.map((bucket) => ({
+  const buckets = metric === "networth" ? networthBuckets : battleStatsBuckets;
+  const data = buckets.map((bucket) => ({
     bucket: bucket.label,
     Buttgrass: countBucket(homeEstimated, bucket.min, bucket.max, metric),
     [enemyName]: countBucket(enemyEstimated, bucket.min, bucket.max, metric),
