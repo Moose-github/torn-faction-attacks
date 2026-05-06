@@ -10,6 +10,7 @@ export async function claimDailyBatchGate(
   env: Env,
   options: {
     completeStateName: string;
+    completeAfter?: number;
     lockStateName: string;
     now: number;
     lockSeconds?: number;
@@ -17,7 +18,7 @@ export async function claimDailyBatchGate(
 ): Promise<DailyBatchGateResult> {
   const existing = await env.DB.prepare(
     `
-    SELECT name
+    SELECT last_started
     FROM sync_state
     WHERE name = ?
     LIMIT 1
@@ -26,7 +27,8 @@ export async function claimDailyBatchGate(
     .bind(options.completeStateName)
     .first();
 
-  if (existing) {
+  const completedAt = Number((existing as { last_started?: unknown } | null)?.last_started ?? 0);
+  if (existing && completedAt >= (options.completeAfter ?? 0)) {
     return {
       completeStateName: options.completeStateName,
       locked: false,

@@ -1,9 +1,8 @@
 import React from "react";
-import { Activity, ArrowDown, ArrowUp, Dumbbell, Pill, RotateCw } from "lucide-react";
+import { Activity, ArrowDown, ArrowUp, Dumbbell, Pill } from "lucide-react";
 import {
   getMemberLifestyleStats,
   MemberLifestyleStats,
-  refreshMemberLifestyleStats,
 } from "../api";
 import { MetricCard, PanelHeader } from "../components/Common";
 import { downloadCsv, sanitizeCsvFilename } from "../utils/csv";
@@ -49,8 +48,6 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
   const [period, setPeriod] = React.useState(() => currentMonthPeriod());
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
-  const [isRefreshing, setIsRefreshing] = React.useState(false);
-  const [refreshMessage, setRefreshMessage] = React.useState<string | null>(null);
 
   const loadStats = React.useCallback(async () => {
     setIsLoading(true);
@@ -79,32 +76,6 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
     loadStats();
   }, [loadStats]);
 
-  async function refreshStats() {
-    setIsRefreshing(true);
-    setRefreshMessage(null);
-    setError(null);
-
-    try {
-      const result = await refreshMemberLifestyleStats({ limit: 10, force: true });
-      setRefreshMessage(
-        `Refreshed ${formatNumber(result.refreshed)} members${
-          result.failed ? `, ${formatNumber(result.failed)} failed` : ""
-        }${
-          result.gym_contributors
-            ? result.gym_contributors.error
-              ? `; gym refresh failed: ${result.gym_contributors.error}`
-              : `; gym stats for ${formatNumber(result.gym_contributors.updated_members)} members`
-            : ""
-        }`,
-      );
-      await loadStats();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsRefreshing(false);
-    }
-  }
-
   const members = sortLifestyleMembers(stats?.members ?? [], sort);
   const periodLengthDays = stats?.period.days ?? periodDays(period.startDate, period.endDate);
   const dailyXanax = stats?.summary.average_xantaken ?? 0;
@@ -119,20 +90,7 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
           <h2>Daily Averages</h2>
           <p>Averaged daily activity from daily snapshots. Made using Torn personal stats and faction contributors.</p>
         </div>
-        {isAdmin ? (
-          <button
-            type="button"
-            className="icon-text-button"
-            onClick={refreshStats}
-            disabled={isRefreshing}
-          >
-            <RotateCw size={15} />
-            Refresh
-          </button>
-        ) : null}
       </section>
-
-      {refreshMessage ? <div className="lifestyle-refresh-note">{refreshMessage}</div> : null}
 
       <section className="status-grid lifestyle-status-grid">
         <MetricCard

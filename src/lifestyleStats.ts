@@ -33,6 +33,8 @@ const DAILY_REFRESH_AFTER_UTC_MINUTE = 10;
 const MAX_LIFESTYLE_PERIOD_DAYS = 90;
 const MAX_MANUAL_PERSONAL_STATS_REFRESH = 40;
 const DAILY_LIFESTYLE_REFRESH_LIMIT = 40;
+const DAILY_LIFESTYLE_COMPLETE_STATE_NAME = "member_lifestyle_stats_daily";
+const DAILY_GYM_COMPLETE_STATE_NAME = "member_gym_contributors_daily";
 const DAILY_LIFESTYLE_LOCK_SECONDS = 75;
 const DAILY_LIFESTYLE_LOCK_STATE_NAME = "member_lifestyle_stats_daily_lock";
 
@@ -207,10 +209,10 @@ export async function refreshDailyMemberLifestyleStats(
     return { considered: 0, refreshed: 0, failed: 0, skipped: true };
   }
 
-  const stateName = `member_lifestyle_stats_daily_${utcDateKey(refreshAt)}`;
   if (options.useLock) {
     const gate = await claimDailyBatchGate(env, {
-      completeStateName: stateName,
+      completeStateName: DAILY_LIFESTYLE_COMPLETE_STATE_NAME,
+      completeAfter: refreshAt,
       lockStateName: DAILY_LIFESTYLE_LOCK_STATE_NAME,
       now,
       lockSeconds: DAILY_LIFESTYLE_LOCK_SECONDS,
@@ -219,7 +221,7 @@ export async function refreshDailyMemberLifestyleStats(
     if (gate.completed || !gate.locked) {
       return { considered: 0, refreshed: 0, failed: 0, skipped: true };
     }
-  } else if (await isDailyLifestyleRefreshComplete(env, stateName)) {
+  } else if (await isDailyLifestyleRefreshComplete(env, refreshAt)) {
     return { considered: 0, refreshed: 0, failed: 0, skipped: true };
   }
 
@@ -228,7 +230,7 @@ export async function refreshDailyMemberLifestyleStats(
     staleBefore: refreshAt,
   });
   await refreshDailyGymContributorStats(env, refreshAt);
-  const complete = await markDailyLifestyleRefreshCompleteIfDone(env, stateName, refreshAt);
+  const complete = await markDailyLifestyleRefreshCompleteIfDone(env, refreshAt);
   if (complete) {
     await writeLifestyleSnapshotForDate(env, utcDateKey(refreshAt));
   }
@@ -238,39 +240,38 @@ export async function refreshDailyMemberLifestyleStats(
 
 async function isDailyLifestyleRefreshComplete(
   env: Env,
-  stateName: string,
+  refreshAt: number,
 ): Promise<boolean> {
   const existing = await env.DB.prepare(
     `
-    SELECT name
+    SELECT last_started
     FROM sync_state
     WHERE name = ?
     LIMIT 1
     `,
   )
-    .bind(stateName)
-    .first();
+    .bind(DAILY_LIFESTYLE_COMPLETE_STATE_NAME)
+    .first() as { last_started?: number } | null;
 
-  return Boolean(existing);
+  return Number(existing?.last_started ?? 0) >= refreshAt;
 }
 
 async function refreshDailyGymContributorStats(
   env: Env,
   refreshAt: number,
 ): Promise<{ refreshed_stats: number; updated_members: number; skipped: boolean }> {
-  const stateName = `member_gym_contributors_daily_${utcDateKey(refreshAt)}`;
   const existing = await env.DB.prepare(
     `
-    SELECT name
+    SELECT last_started
     FROM sync_state
     WHERE name = ?
     LIMIT 1
     `,
   )
-    .bind(stateName)
-    .first();
+    .bind(DAILY_GYM_COMPLETE_STATE_NAME)
+    .first() as { last_started?: number } | null;
 
-  if (existing) {
+  if (Number(existing?.last_started ?? 0) >= refreshAt) {
     return { refreshed_stats: 0, updated_members: 0, skipped: true };
   }
 
@@ -284,7 +285,7 @@ async function refreshDailyGymContributorStats(
       updated_at = CURRENT_TIMESTAMP
     `,
   )
-    .bind(stateName, nowSeconds())
+    .bind(DAILY_GYM_COMPLETE_STATE_NAME, refreshAt)
     .run();
 
   return { ...result, skipped: false };
@@ -292,7 +293,6 @@ async function refreshDailyGymContributorStats(
 
 async function markDailyLifestyleRefreshCompleteIfDone(
   env: Env,
-  stateName: string,
   refreshAt: number,
 ): Promise<boolean> {
   const remaining = await env.DB.prepare(
@@ -322,7 +322,7 @@ async function markDailyLifestyleRefreshCompleteIfDone(
       updated_at = CURRENT_TIMESTAMP
     `,
   )
-    .bind(stateName, nowSeconds())
+    .bind(DAILY_LIFESTYLE_COMPLETE_STATE_NAME, refreshAt)
     .run();
 
   return true;
