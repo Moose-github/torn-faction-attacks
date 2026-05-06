@@ -10,9 +10,7 @@ type EnemyScoutingSortKey =
   | "position"
   | "days_in_faction"
   | "estimated_stats"
-  | "estimated_stats_updated_at"
-  | "networth"
-  | "networth_updated_at";
+  | "networth";
 
 type EnemyScoutingSort = {
   key: EnemyScoutingSortKey;
@@ -77,9 +75,7 @@ export function EnemyScoutingPanel({
                   <SortableHeader label="Position" sortKey="position" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Estimated stats" sortKey="estimated_stats" sort={sort} onSortChange={setSort} />
-                  <SortableHeader label="Stats updated" sortKey="estimated_stats_updated_at" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Networth" sortKey="networth" sort={sort} onSortChange={setSort} />
-                  <SortableHeader label="Networth updated" sortKey="networth_updated_at" sort={sort} onSortChange={setSort} />
                 </tr>
               </thead>
               <tbody>
@@ -110,14 +106,14 @@ export function EnemyScoutingPanel({
                     <td>{formatNumber(member.level ?? 0)}</td>
                     <td>{member.position ?? "-"}</td>
                     <td>{formatNumber(member.days_in_faction ?? 0)}</td>
-                    <td>
+                    <td title={updatedTitle("Estimated stats", member.estimated_stats_updated_at)}>
                       {member.estimated_stats === null
                         ? "-"
                         : formatNumber(member.estimated_stats)}
                     </td>
-                    <td>{formatRelativeTime(member.estimated_stats_updated_at)}</td>
-                    <td>{member.networth === null ? "-" : formatNumber(member.networth)}</td>
-                    <td>{formatRelativeTime(member.networth_updated_at)}</td>
+                    <td title={updatedTitle("Networth", member.networth_updated_at)}>
+                      {member.networth === null ? "-" : formatNumber(member.networth)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -127,6 +123,10 @@ export function EnemyScoutingPanel({
       )}
     </section>
   );
+}
+
+function updatedTitle(label: string, updatedAt: number | null): string {
+  return `${label} updated: ${formatRelativeTime(updatedAt)}`;
 }
 
 function sortEnemyScoutingMembers(
