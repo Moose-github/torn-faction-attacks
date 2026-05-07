@@ -21,6 +21,12 @@ import { EmptyState } from "./Common";
 import { formatNumber, formatTime } from "../utils/format";
 import { activityLabel, displayMember, MemberSortKey } from "../utils/members";
 
+type ActivityIntervalAverage = {
+  averageActive: number;
+  averageTotal: number;
+  samples: number;
+};
+
 export function AttackChart({
   members,
   metricKey = "enemy_attacks_successful",
@@ -269,6 +275,7 @@ export function FactionActivityHeatmap({
   }
 
   const intervalAverages = averageHeatmapIntervals(factionRows);
+  const intervalIntensities = individualHeatmapIntensities(intervalAverages);
 
   return (
     <div className="heatmap-block">
@@ -285,13 +292,13 @@ export function FactionActivityHeatmap({
           <div className="heatmap-square-grid">
             {Array.from({ length: 96 }, (_, intervalIndex) => {
               const row = intervalAverages.get(intervalIndex);
-              const percent = row && row.averageTotal > 0 ? row.averageActive / row.averageTotal : 0;
+              const intensity = intervalIntensities.get(intervalIndex) ?? 0;
               const isHourStart = intervalIndex % 4 === 0;
               return (
                 <span
                   key={intervalIndex}
                   className={isHourStart ? "heatmap-cell heatmap-hour-cell" : "heatmap-cell"}
-                  style={{ backgroundColor: heatmapColor(color, percent, Boolean(row)) }}
+                  style={{ backgroundColor: heatmapColor(color, intensity, Boolean(row)) }}
                   title={
                     row
                       ? `${intervalLabel(intervalIndex)}: ${formatNumber(row.averageActive)} / ${formatNumber(row.averageTotal)} active average (${formatNumber(row.samples)} samples)`
@@ -383,10 +390,7 @@ export function FactionActivityComparisonHeatmap({
 }
 
 function averageHeatmapIntervals(rows: FactionActivityHeatmapRow[]) {
-  const totals = new Map<
-    number,
-    { activeTotal: number; memberTotal: number; samples: number }
-  >();
+  const totals = new Map<number, { activeTotal: number; memberTotal: number; samples: number }>();
 
   for (const row of rows) {
     const existing = totals.get(row.interval_index) ?? {
@@ -400,7 +404,7 @@ function averageHeatmapIntervals(rows: FactionActivityHeatmapRow[]) {
     totals.set(row.interval_index, existing);
   }
 
-  return new Map(
+  return new Map<number, ActivityIntervalAverage>(
     [...totals.entries()].map(([intervalIndex, total]) => [
       intervalIndex,
       {
@@ -410,6 +414,51 @@ function averageHeatmapIntervals(rows: FactionActivityHeatmapRow[]) {
       },
     ]),
   );
+}
+
+function individualHeatmapIntensities(intervalAverages: Map<number, ActivityIntervalAverage>): Map<number, number> {
+  const values = [...intervalAverages.entries()]
+    .map(([intervalIndex, row]) => ({
+      intervalIndex,
+      percent: row.averageTotal > 0 ? row.averageActive / row.averageTotal : 0,
+    }))
+    .filter((value) => Number.isFinite(value.percent));
+
+  if (values.length === 0) {
+    return new Map();
+  }
+
+  const sortedPercents = values.map((value) => value.percent).sort((a, b) => a - b);
+  const lowest = sortedPercents[0];
+  const highest = sortedPercents[sortedPercents.length - 1];
+
+  if (lowest === highest) {
+    return new Map(values.map((value) => [value.intervalIndex, 0.5]));
+  }
+
+  return new Map(
+    values.map((value) => {
+      const lowerCount = sortedPercents.filter((percent) => percent < value.percent).length;
+      const percentile = lowerCount / Math.max(1, sortedPercents.length - 1);
+      return [value.intervalIndex, heatmapBucketIntensity(percentile)];
+    }),
+  );
+}
+
+function heatmapBucketIntensity(percentile: number): number {
+  if (percentile >= 0.8) {
+    return 1;
+  }
+  if (percentile >= 0.6) {
+    return 0.76;
+  }
+  if (percentile >= 0.4) {
+    return 0.52;
+  }
+  if (percentile >= 0.2) {
+    return 0.3;
+  }
+  return 0.1;
 }
 
 function comparisonHeatmapColor(difference: number, hasSample: boolean): string {
@@ -426,12 +475,12 @@ function comparisonHeatmapColor(difference: number, hasSample: boolean): string 
   return difference >= 0 ? `rgba(34, 197, 94, ${alpha})` : `rgba(239, 68, 68, ${alpha})`;
 }
 
-function heatmapColor(color: "blue" | "red", percent: number, hasSample: boolean): string {
+function heatmapColor(color: "blue" | "red", intensity: number, hasSample: boolean): string {
   if (!hasSample) {
     return "#f1f5f9";
   }
 
-  const alpha = Math.min(0.92, 0.14 + percent * 0.78);
+  const alpha = Math.min(0.94, 0.1 + intensity * 0.84);
   return color === "red" ? `rgba(239, 68, 68, ${alpha})` : `rgba(37, 99, 235, ${alpha})`;
 }
 

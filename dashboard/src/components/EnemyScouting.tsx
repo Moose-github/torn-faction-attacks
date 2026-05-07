@@ -1,7 +1,7 @@
 import React from "react";
 import { ArrowDown, ArrowUp, RefreshCw, Sword } from "lucide-react";
 import { EnemyFactionMember, EnemyScoutingResponse } from "../api";
-import { formatNumber, formatRelativeTime } from "../utils/format";
+import { formatNetworth, formatNumber, formatRelativeTime } from "../utils/format";
 import { EmptyState, PanelHeader } from "./Common";
 
 type EnemyScoutingSortKey =
@@ -112,7 +112,7 @@ export function EnemyScoutingPanel({
                         : formatNumber(member.estimated_stats)}
                     </td>
                     <td title={updatedTitle("Networth", member.networth_updated_at)}>
-                      {member.networth === null ? "-" : formatNumber(member.networth)}
+                      {formatNetworth(member.networth)}
                     </td>
                   </tr>
                 ))}

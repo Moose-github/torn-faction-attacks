@@ -6,6 +6,25 @@ export function formatNumber(value: number): string {
   return numberFormatter.format(value);
 }
 
+export function formatNetworth(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "-";
+  }
+
+  if (value >= 1_000_000_000) {
+    return `${formatFixedCompact(value / 1_000_000_000)}b`;
+  }
+
+  return `${formatFixedCompact(value / 1_000_000)}m`;
+}
+
+function formatFixedCompact(value: number): string {
+  return new Intl.NumberFormat("en-GB", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 export function formatDate(timestamp: number | null): string {
   if (!timestamp) {
     return "-";

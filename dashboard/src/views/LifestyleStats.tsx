@@ -6,7 +6,7 @@ import {
 } from "../api";
 import { MetricCard, PanelHeader } from "../components/Common";
 import { downloadCsv, sanitizeCsvFilename } from "../utils/csv";
-import { formatNumber, formatRelativeTime } from "../utils/format";
+import { formatNetworth, formatNumber, formatRelativeTime } from "../utils/format";
 
 type LifestyleSortKey =
   | "member_name"
@@ -253,7 +253,7 @@ function LifestyleTable({
               <td>{cell(member.adjusted_average_xantaken)}</td>
               <td>{cell(member.average_refills)}</td>
               <td>{formatActivityAverage(member.average_useractivity)}</td>
-              <td>{cell(member.networth)}</td>
+              <td>{formatNetworth(member.networth)}</td>
               <td>{cell(member.average_gymenergy)}</td>
               <td>{cell(member.average_gymstrength)}</td>
               <td>{cell(member.average_gymspeed)}</td>
