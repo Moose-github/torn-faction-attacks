@@ -111,7 +111,7 @@ export function EnemyScoutingPanel({
                         ? "-"
                         : formatNumber(member.estimated_stats)}
                     </td>
-                    <td title={updatedTitle("Networth", member.networth_updated_at)}>
+                    <td title={networthTitle(member.networth, member.networth_updated_at)}>
                       {formatNetworth(member.networth)}
                     </td>
                   </tr>
@@ -127,6 +127,14 @@ export function EnemyScoutingPanel({
 
 function updatedTitle(label: string, updatedAt: number | null): string {
   return `${label} updated: ${formatRelativeTime(updatedAt)}`;
+}
+
+function networthTitle(networth: number | null, updatedAt: number | null): string {
+  if (networth === null) {
+    return updatedTitle("Networth", updatedAt);
+  }
+
+  return `Exact networth: ${formatNumber(networth)}. ${updatedTitle("Networth", updatedAt)}`;
 }
 
 function sortEnemyScoutingMembers(

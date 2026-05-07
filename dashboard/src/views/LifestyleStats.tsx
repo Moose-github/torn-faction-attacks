@@ -253,7 +253,7 @@ function LifestyleTable({
               <td>{cell(member.adjusted_average_xantaken)}</td>
               <td>{cell(member.average_refills)}</td>
               <td>{formatActivityAverage(member.average_useractivity)}</td>
-              <td>{formatNetworth(member.networth)}</td>
+              <td title={networthTitle(member.networth)}>{formatNetworth(member.networth)}</td>
               <td>{cell(member.average_gymenergy)}</td>
               <td>{cell(member.average_gymstrength)}</td>
               <td>{cell(member.average_gymspeed)}</td>
@@ -318,6 +318,10 @@ function sortLifestyleMembers(
 
 function cell(value: number | null): string {
   return value === null ? "-" : formatNumber(value);
+}
+
+function networthTitle(networth: number | null): string {
+  return networth === null ? "No networth loaded" : `Exact networth: ${formatNumber(networth)}`;
 }
 
 function formatHeaderLabel(label: string): React.ReactNode {

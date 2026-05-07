@@ -305,7 +305,7 @@ export function WarRoom({
           className="heatmap-panel"
         >
           <p className="panel-description">
-            Shows average daily activity patterns from Torn member last-action timestamps.
+            Shows average daily activity patterns from Torn member last-action timestamps, scaled by faction average.
           </p>
           <div className="heatmap-stack">
             <FactionActivityHeatmap

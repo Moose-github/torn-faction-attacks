@@ -447,16 +447,16 @@ function individualHeatmapIntensities(intervalAverages: Map<number, ActivityInte
 
 function heatmapBucketIntensity(percentile: number): number {
   if (percentile >= 0.8) {
-    return 1;
+    return 0.84;
   }
   if (percentile >= 0.6) {
-    return 0.76;
+    return 0.68;
   }
   if (percentile >= 0.4) {
-    return 0.52;
+    return 0.48;
   }
   if (percentile >= 0.2) {
-    return 0.3;
+    return 0.28;
   }
   return 0.1;
 }
@@ -480,7 +480,7 @@ function heatmapColor(color: "blue" | "red", intensity: number, hasSample: boole
     return "#f1f5f9";
   }
 
-  const alpha = Math.min(0.94, 0.1 + intensity * 0.84);
+  const alpha = Math.min(0.82, 0.1 + intensity * 0.72);
   return color === "red" ? `rgba(239, 68, 68, ${alpha})` : `rgba(37, 99, 235, ${alpha})`;
 }
 
