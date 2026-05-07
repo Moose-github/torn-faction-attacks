@@ -354,6 +354,7 @@ export type MemberLifestyleStats = {
   member_name: string | null;
   overdosed: number;
   average_xantaken: number;
+  adjusted_average_xantaken: number;
   average_refills: number;
   average_useractivity: number;
   networth: number | null;
@@ -381,6 +382,7 @@ export type MemberLifestyleStatsResponse = {
     total_overdosed: number;
     total_xantaken: number;
     average_xantaken: number;
+    adjusted_average_xantaken: number;
     average_refills: number;
     average_useractivity: number;
     average_networth: number;

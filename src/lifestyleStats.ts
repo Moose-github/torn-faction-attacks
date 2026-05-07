@@ -58,6 +58,7 @@ type LifestylePeriodRow = {
   overdosed: number;
   total_xantaken: number;
   average_xantaken: number;
+  adjusted_average_xantaken: number;
   average_refills: number;
   average_useractivity: number;
   networth: number | null;
@@ -704,6 +705,7 @@ function buildPeriodRows(rows: LifestyleSnapshotRow[]): LifestylePeriodRow[] {
       overdosed: periodDelta(ordered, "overdosed"),
       total_xantaken: periodDelta(ordered, "xantaken"),
       average_xantaken: averagePeriodDelta(ordered, "xantaken"),
+      adjusted_average_xantaken: adjustedAverageXanax(ordered),
       average_refills: averagePeriodDelta(ordered, "refills"),
       average_useractivity: averagePeriodDelta(ordered, "useractivity"),
       networth: latestNonNullValue(ordered, "networth"),
@@ -727,6 +729,7 @@ function summarizeLifestylePeriodRows(rows: LifestylePeriodRow[]) {
     total_overdosed: rows.reduce((total, row) => total + row.overdosed, 0),
     total_xantaken: rows.reduce((total, row) => total + row.total_xantaken, 0),
     average_xantaken: average(rows.map((row) => row.average_xantaken)),
+    adjusted_average_xantaken: average(rows.map((row) => row.adjusted_average_xantaken)),
     average_refills: average(rows.map((row) => row.average_refills)),
     average_useractivity: average(rows.map((row) => row.average_useractivity)),
     average_networth: average(
@@ -815,6 +818,24 @@ function periodDelta(rows: LifestyleSnapshotRow[], key: LifestyleSnapshotNumberK
   }
 
   return delta(endpoints.first[key], endpoints.last[key]);
+}
+
+function adjustedAverageXanax(rows: LifestyleSnapshotRow[]): number {
+  const xanaxEndpoints = nonNullPeriodEndpoints(rows, "xantaken");
+  const overdoseEndpoints = nonNullPeriodEndpoints(rows, "overdosed");
+  if (!xanaxEndpoints) {
+    return 0;
+  }
+
+  const days = dateDiffDays(xanaxEndpoints.first.snapshot_date, xanaxEndpoints.last.snapshot_date);
+  const overdoses = overdoseEndpoints ? delta(overdoseEndpoints.first.overdosed, overdoseEndpoints.last.overdosed) : 0;
+  const adjustedDays = days - overdoses;
+
+  if (adjustedDays <= 0) {
+    return 0;
+  }
+
+  return delta(xanaxEndpoints.first.xantaken, xanaxEndpoints.last.xantaken) / adjustedDays;
 }
 
 function latestNonNullValue(rows: LifestyleSnapshotRow[], key: LifestyleStatKey): number | null {
