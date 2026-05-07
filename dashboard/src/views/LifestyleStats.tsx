@@ -79,7 +79,9 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
   const members = sortLifestyleMembers(stats?.members ?? [], sort);
   const periodLengthDays = stats?.period.days ?? periodDays(period.startDate, period.endDate);
   const dailyXanax = stats?.summary.average_xantaken ?? 0;
+  const totalXanax = stats?.summary.total_xantaken ?? 0;
   const dailyGymEnergy = stats?.summary.average_gymenergy ?? 0;
+  const totalGymEnergy = stats?.summary.total_gymenergy ?? 0;
 
   return (
     <>
@@ -96,13 +98,13 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
         <MetricCard
           label="Daily Xanax"
           value={formatNumber(dailyXanax)}
-          detail={`Total ${formatNumber(dailyXanax * periodLengthDays)}`}
+          detail={`Faction total ${formatNumber(totalXanax)}`}
           icon={<Pill size={18} />}
         />
         <MetricCard
           label="Daily Gym energy"
           value={formatNumber(dailyGymEnergy)}
-          detail={`Total ${formatNumber(dailyGymEnergy * periodLengthDays)}`}
+          detail={`Faction total ${formatNumber(totalGymEnergy)}`}
           icon={<Dumbbell size={18} />}
         />
         <section className="metric-card lifestyle-period-card">

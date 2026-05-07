@@ -56,10 +56,12 @@ type LifestylePeriodRow = {
   member_id: number;
   member_name: string | null;
   overdosed: number;
+  total_xantaken: number;
   average_xantaken: number;
   average_refills: number;
   average_useractivity: number;
   networth: number | null;
+  total_gymenergy: number;
   average_gymenergy: number;
   average_gymstrength: number;
   average_gymspeed: number;
@@ -700,10 +702,12 @@ function buildPeriodRows(rows: LifestyleSnapshotRow[]): LifestylePeriodRow[] {
       member_id: memberId,
       member_name: last.member_name ?? first.member_name,
       overdosed: periodDelta(ordered, "overdosed"),
+      total_xantaken: periodDelta(ordered, "xantaken"),
       average_xantaken: averagePeriodDelta(ordered, "xantaken"),
       average_refills: averagePeriodDelta(ordered, "refills"),
       average_useractivity: averagePeriodDelta(ordered, "useractivity"),
       networth: latestNonNullValue(ordered, "networth"),
+      total_gymenergy: periodDelta(ordered, "gymenergy"),
       average_gymenergy: averagePeriodDelta(ordered, "gymenergy"),
       average_gymstrength: averagePeriodDelta(ordered, "gymstrength"),
       average_gymspeed: averagePeriodDelta(ordered, "gymspeed"),
@@ -721,12 +725,14 @@ function summarizeLifestylePeriodRows(rows: LifestylePeriodRow[]) {
   return {
     members,
     total_overdosed: rows.reduce((total, row) => total + row.overdosed, 0),
+    total_xantaken: rows.reduce((total, row) => total + row.total_xantaken, 0),
     average_xantaken: average(rows.map((row) => row.average_xantaken)),
     average_refills: average(rows.map((row) => row.average_refills)),
     average_useractivity: average(rows.map((row) => row.average_useractivity)),
     average_networth: average(
       rows.map((row) => row.networth).filter((value): value is number => value !== null),
     ),
+    total_gymenergy: rows.reduce((total, row) => total + row.total_gymenergy, 0),
     average_gymenergy: average(rows.map((row) => row.average_gymenergy)),
     average_gymstrength: average(rows.map((row) => row.average_gymstrength)),
     average_gymspeed: average(rows.map((row) => row.average_gymspeed)),

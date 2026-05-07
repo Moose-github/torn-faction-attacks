@@ -379,10 +379,12 @@ export type MemberLifestyleStatsResponse = {
   summary: {
     members: number;
     total_overdosed: number;
+    total_xantaken: number;
     average_xantaken: number;
     average_refills: number;
     average_useractivity: number;
     average_networth: number;
+    total_gymenergy: number;
     average_gymenergy: number;
     average_gymstrength: number;
     average_gymspeed: number;
