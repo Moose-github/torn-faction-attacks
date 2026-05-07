@@ -321,6 +321,16 @@ function cell(value: number | null): string {
 }
 
 function formatHeaderLabel(label: string): React.ReactNode {
+  if (label === "Adjusted Xanax") {
+    return (
+      <>
+        Adjusted
+        <br />
+        Xanax
+      </>
+    );
+  }
+
   if (!label.startsWith("Daily ")) {
     return label;
   }
