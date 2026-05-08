@@ -37,6 +37,7 @@ const DAILY_LIFESTYLE_COMPLETE_STATE_NAME = "member_lifestyle_stats_daily";
 const DAILY_GYM_COMPLETE_STATE_NAME = "member_gym_contributors_daily";
 const DAILY_LIFESTYLE_LOCK_SECONDS = 75;
 const DAILY_LIFESTYLE_LOCK_STATE_NAME = "member_lifestyle_stats_daily_lock";
+const DAILY_LIFESTYLE_RESET_STATE_NAME = "member_lifestyle_stats_daily_reset";
 
 type LifestyleStatKey = (typeof LIFESTYLE_STAT_KEYS)[number];
 type GymContributorStatKey = (typeof GYM_CONTRIBUTOR_STAT_KEYS)[number];
@@ -228,6 +229,8 @@ export async function refreshDailyMemberLifestyleStats(
     return { considered: 0, refreshed: 0, failed: 0, skipped: true };
   }
 
+  await resetDailyLifestylePersonalStatsIfNeeded(env, refreshAt);
+
   const result = await refreshMemberLifestyleStats(env, {
     limit: options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT,
     staleBefore: refreshAt,
@@ -257,6 +260,62 @@ async function isDailyLifestyleRefreshComplete(
     .first() as { last_started?: number } | null;
 
   return Number(existing?.last_started ?? 0) >= refreshAt;
+}
+
+async function resetDailyLifestylePersonalStatsIfNeeded(
+  env: Env,
+  refreshAt: number,
+): Promise<boolean> {
+  const existing = await env.DB.prepare(
+    `
+    SELECT last_started
+    FROM sync_state
+    WHERE name = ?
+    LIMIT 1
+    `,
+  )
+    .bind(DAILY_LIFESTYLE_RESET_STATE_NAME)
+    .first() as { last_started?: number } | null;
+
+  if (Number(existing?.last_started ?? 0) >= refreshAt) {
+    return false;
+  }
+
+  await syncHomeFactionMemberList(env);
+  await env.DB.prepare(
+    `
+    UPDATE member_lifestyle_stats
+    SET
+      xantaken = NULL,
+      overdosed = NULL,
+      refills = NULL,
+      useractivity = NULL,
+      networth = NULL,
+      updated_at = NULL,
+      error = NULL
+    WHERE member_id IN (
+      SELECT member_id
+      FROM home_faction_members
+      WHERE faction_id = ?
+    )
+    `,
+  )
+    .bind(HOME_FACTION_ID)
+    .run();
+
+  await env.DB.prepare(
+    `
+    INSERT INTO sync_state (name, last_started, active_war_id)
+    VALUES (?, ?, NULL)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = excluded.last_started,
+      updated_at = CURRENT_TIMESTAMP
+    `,
+  )
+    .bind(DAILY_LIFESTYLE_RESET_STATE_NAME, refreshAt)
+    .run();
+
+  return true;
 }
 
 async function refreshDailyGymContributorStats(
@@ -306,6 +365,7 @@ async function markDailyLifestyleRefreshCompleteIfDone(
       ON stats.member_id = members.member_id
     WHERE stats.updated_at IS NULL
       OR stats.updated_at < ?
+      OR stats.error IS NOT NULL
     LIMIT 1
     `,
   )
@@ -452,7 +512,7 @@ async function upsertLifestyleStats(
       updated_at,
       error
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN unixepoch() ELSE NULL END, ?)
     ON CONFLICT(member_id) DO UPDATE SET
       member_name = excluded.member_name,
       level = excluded.level,
@@ -462,7 +522,10 @@ async function upsertLifestyleStats(
       refills = COALESCE(excluded.refills, member_lifestyle_stats.refills),
       useractivity = COALESCE(excluded.useractivity, member_lifestyle_stats.useractivity),
       networth = COALESCE(excluded.networth, member_lifestyle_stats.networth),
-      updated_at = excluded.updated_at,
+      updated_at = CASE
+        WHEN excluded.error IS NULL THEN excluded.updated_at
+        ELSE member_lifestyle_stats.updated_at
+      END,
       error = excluded.error
     `,
   )
@@ -476,6 +539,7 @@ async function upsertLifestyleStats(
       stats.refills,
       stats.useractivity,
       stats.networth,
+      error,
       error,
     )
     .run();
