@@ -652,7 +652,9 @@ h2 {
 }
 
 .enemy-travel-table td:nth-child(2),
-.enemy-travel-table td:nth-child(3) {
+.enemy-travel-table td:nth-child(3),
+.enemy-travel-table td:nth-child(4),
+.enemy-travel-table td:nth-child(5) {
   white-space: nowrap;
 }
 

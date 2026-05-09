@@ -490,7 +490,7 @@ function EnemyTravelPanel({
 
   return (
     <CollapsiblePanel
-      title="Enemy travel"
+      title="Enemy travel tracker"
       aside={isLoading ? "Loading" : `${travelers.length} traveling | ${checkedLabel}`}
       collapsed={collapsed}
       onToggle={onToggle}
@@ -508,9 +508,10 @@ function EnemyTravelPanel({
               <tr>
                 <th>Member</th>
                 <th>Route</th>
+                <th>Departure</th>
+                <th>Travel time</th>
                 <th>Arrival</th>
                 <th>Plane</th>
-                <th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -527,15 +528,14 @@ function EnemyTravelPanel({
                     </a>
                   </td>
                   <td>{formatTravelRoute(member)}</td>
-                  <td title={formatTravelStartWindow(member)}>{formatArrivalRange(member)}</td>
+                  <td title={formatTravelStartWindow(member)}>{formatDepartureWindow(member)}</td>
+                  <td>{formatTravelDuration(member)}</td>
+                  <td>{formatArrivalRange(member)}</td>
                   <td>
                     <span className="plane-type">
                       <Plane size={14} />
                       {formatPlaneType(member.plane_image_type)}
                     </span>
-                  </td>
-                  <td title={`Status updated ${formatRelativeTime(member.status_updated_at ?? null)}`}>
-                    {member.status_description ?? "Traveling"}
                   </td>
                 </tr>
               ))}
@@ -569,6 +569,54 @@ function formatArrivalRange(member: EnemyFactionMember): string {
   }
 
   return "ETA unknown";
+}
+
+function formatDepartureWindow(member: EnemyFactionMember): string {
+  const startedAfter = member.travel_started_after ?? null;
+  const startedBefore = member.travel_started_before ?? null;
+  if (startedAfter && startedBefore) {
+    return startedAfter === startedBefore
+      ? formatTime(startedBefore)
+      : `${formatTime(startedAfter)}-${formatTime(startedBefore)}`;
+  }
+
+  if (startedBefore) {
+    return `By ${formatTime(startedBefore)}`;
+  }
+
+  return "Unknown";
+}
+
+function formatTravelDuration(member: EnemyFactionMember): string {
+  const startedBefore = member.travel_started_before ?? null;
+  const latestArrival = member.estimated_arrival_latest ?? null;
+  if (startedBefore && latestArrival && latestArrival >= startedBefore) {
+    return formatTravelDurationValue(latestArrival - startedBefore);
+  }
+
+  const startedAfter = member.travel_started_after ?? null;
+  const earliestArrival = member.estimated_arrival_earliest ?? null;
+  if (startedAfter && earliestArrival && earliestArrival >= startedAfter) {
+    return formatTravelDurationValue(earliestArrival - startedAfter);
+  }
+
+  return "Unknown";
+}
+
+function formatTravelDurationValue(seconds: number): string {
+  const totalMinutes = Math.max(0, Math.round(seconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0 && minutes > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+
+  if (hours > 0) {
+    return `${hours}h`;
+  }
+
+  return `${minutes}m`;
 }
 
 function formatTravelStartWindow(member: EnemyFactionMember): string {

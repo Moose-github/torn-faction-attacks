@@ -8,25 +8,26 @@ const SCOUTING_FETCH_TIMEOUT_MS = 15000;
 const NETWORTH_REFRESH_LIMIT = 40;
 const TORN_LOCATION = "Torn";
 
-type TravelDurationKey = "standard" | "light_aircraft" | "wlt_benefit" | "airliner";
+type TravelDurationKey = "Standard" | "Airstrip" | "WLT benefit" | "Business Class";
 
 const TRAVEL_DURATIONS_MINUTES: Record<string, Record<TravelDurationKey, number>> = {
-  Mexico: { standard: 26, light_aircraft: 18, wlt_benefit: 13, airliner: 8 },
-  "Cayman Islands": { standard: 35, light_aircraft: 25, wlt_benefit: 18, airliner: 11 },
-  Canada: { standard: 41, light_aircraft: 29, wlt_benefit: 20, airliner: 12 },
-  Hawaii: { standard: 134, light_aircraft: 94, wlt_benefit: 67, airliner: 40 },
-  "United Kingdom": { standard: 159, light_aircraft: 111, wlt_benefit: 80, airliner: 48 },
-  Argentina: { standard: 167, light_aircraft: 117, wlt_benefit: 83, airliner: 50 },
-  Switzerland: { standard: 175, light_aircraft: 123, wlt_benefit: 88, airliner: 53 },
-  Japan: { standard: 225, light_aircraft: 158, wlt_benefit: 113, airliner: 68 },
-  China: { standard: 242, light_aircraft: 169, wlt_benefit: 121, airliner: 72 },
-  "United Arab Emirates": { standard: 271, light_aircraft: 190, wlt_benefit: 135, airliner: 81 },
-  "South Africa": { standard: 297, light_aircraft: 208, wlt_benefit: 149, airliner: 89 },
+  Mexico: { Standard: 26, Airstrip: 18, "WLT benefit": 13, "Business Class": 8 },
+  "Cayman Islands": { Standard: 35, Airstrip: 25, "WLT benefit": 18, "Business Class": 11 },
+  Canada: { Standard: 41, Airstrip: 29, "WLT benefit": 20, "Business Class": 12 },
+  Hawaii: { Standard: 134, Airstrip: 94, "WLT benefit": 67, "Business Class": 40 },
+  "United Kingdom": { Standard: 159, Airstrip: 111, "WLT benefit": 80, "Business Class": 48 },
+  Argentina: { Standard: 167, Airstrip: 117, "WLT benefit": 83, "Business Class": 50 },
+  Switzerland: { Standard: 175, Airstrip: 123, "WLT benefit": 88, "Business Class": 53 },
+  Japan: { Standard: 225, Airstrip: 158, "WLT benefit": 113, "Business Class": 68 },
+  China: { Standard: 242, Airstrip: 169, "WLT benefit": 121, "Business Class": 72 },
+  "United Arab Emirates": { Standard: 271, Airstrip: 190, "WLT benefit": 135, "Business Class": 81 },
+  "South Africa": { Standard: 297, Airstrip: 208, "WLT benefit": 149, "Business Class": 89 },
 };
 
 const PLANE_IMAGE_TYPE_TO_DURATION_KEY: Record<string, TravelDurationKey> = {
-  light_aircraft: "light_aircraft",
-  airliner: "airliner",
+  light_aircraft: "Standard",
+  private_jet: "Airstrip",
+  airliner: "Business Class",
 };
 
 const TRAVEL_LOCATION_ALIASES: Record<string, string> = {
@@ -41,10 +42,10 @@ const TRAVEL_LOCATION_ALIASES: Record<string, string> = {
   "south africa": "South Africa",
   switzerland: "Switzerland",
   torn: TORN_LOCATION,
+  uk: "United Kingdom",
+  "united kingdom": "United Kingdom",
   uae: "United Arab Emirates",
   "united arab emirates": "United Arab Emirates",
-  "united kingdom": "United Kingdom",
-  uk: "United Kingdom",
 };
 
 type EnemyFactionMemberRow = {
