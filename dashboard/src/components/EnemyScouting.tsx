@@ -71,6 +71,7 @@ export function EnemyScoutingPanel({
               <thead>
                 <tr>
                   <SortableHeader label="Member" sortKey="name" sort={sort} onSortChange={setSort} />
+                  <th>Status</th>
                   <SortableHeader label="Level" sortKey="level" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Position" sortKey="position" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
@@ -101,6 +102,11 @@ export function EnemyScoutingPanel({
                         >
                           <Sword size={14} />
                         </a>
+                      </span>
+                    </td>
+                    <td title={enemyStatusTitle(member)}>
+                      <span className={`enemy-status-badge ${enemyStatusClass(member.status_state)}`}>
+                        {enemyStatusLabel(member)}
                       </span>
                     </td>
                     <td>{formatNumber(member.level ?? 0)}</td>
@@ -135,6 +141,24 @@ function networthTitle(networth: number | null, updatedAt: number | null): strin
   }
 
   return `Exact networth: ${formatNumber(networth)}. ${updatedTitle("Networth", updatedAt)}`;
+}
+
+function enemyStatusLabel(member: EnemyFactionMember): string {
+  if (member.status_state === "Traveling") {
+    return member.travel_destination ? `Traveling to ${member.travel_destination}` : "Traveling";
+  }
+
+  return member.status_state ?? "Unknown";
+}
+
+function enemyStatusTitle(member: EnemyFactionMember): string {
+  const description = member.status_description ?? member.status_state ?? "Unknown status";
+  return `${description}. Status updated: ${formatRelativeTime(member.status_updated_at ?? null)}`;
+}
+
+function enemyStatusClass(status: string | null | undefined): string {
+  const normalized = (status ?? "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return normalized || "unknown";
 }
 
 function sortEnemyScoutingMembers(

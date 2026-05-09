@@ -20,7 +20,7 @@ import {
 } from "../components/Charts";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { EnemyScoutingPanel } from "../components/EnemyScouting";
-import { formatLongDateTime, formatRelativeTime, formatTime } from "../utils/format";
+import { formatLongDateTime, formatNumber, formatRelativeTime, formatTime } from "../utils/format";
 
 const WAR_ROOM_HEATMAP_REFRESH_MS = 15 * 60_000;
 const WAR_ROOM_SCOUTING_REFRESH_MS = 5 * 60_000;
@@ -366,6 +366,12 @@ export function WarRoom({
           onToggle={() => togglePanel("revivableMembers")}
         />
 
+        <EnemyStatusSummaryPanel
+          members={enemyScouting?.members ?? []}
+          statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
+          isLoading={isLoadingEnemyScouting}
+        />
+
         <EnemyTravelPanel
           members={enemyScouting?.members ?? []}
           statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
@@ -384,6 +390,78 @@ export function WarRoom({
       </section>
     </>
   );
+}
+
+function EnemyStatusSummaryPanel({
+  members,
+  statusCheckedAt,
+  isLoading,
+}: {
+  members: EnemyFactionMember[];
+  statusCheckedAt: number | null;
+  isLoading: boolean;
+}) {
+  const summary = summarizeEnemyStatuses(members);
+  const checkedLabel = statusCheckedAt ? `Checked ${formatRelativeTime(statusCheckedAt)}` : "Not checked";
+
+  return (
+    <section className="panel enemy-status-summary-panel">
+      <PanelHeader title="Enemy status summary" aside={isLoading ? "Loading" : checkedLabel} />
+      <div className="enemy-status-summary-grid">
+        <StatusSummaryItem label="Okay" value={summary.okay} />
+        <StatusSummaryItem label="Traveling" value={summary.traveling} />
+        <StatusSummaryItem label="Hospital" value={summary.hospital} />
+        <StatusSummaryItem label="Jail" value={summary.jail} />
+        <StatusSummaryItem label="Other" value={summary.other} />
+        <StatusSummaryItem label="Unknown" value={summary.unknown} />
+        <StatusSummaryItem label="Revivable" value={summary.revivable} />
+      </div>
+    </section>
+  );
+}
+
+function StatusSummaryItem({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="enemy-status-summary-item">
+      <span>{label}</span>
+      <strong>{formatNumber(value)}</strong>
+    </div>
+  );
+}
+
+function summarizeEnemyStatuses(members: EnemyFactionMember[]) {
+  const summary = {
+    okay: 0,
+    traveling: 0,
+    hospital: 0,
+    jail: 0,
+    other: 0,
+    unknown: 0,
+    revivable: 0,
+  };
+
+  for (const member of members) {
+    if (member.is_revivable) {
+      summary.revivable += 1;
+    }
+
+    const status = (member.status_state ?? "").toLowerCase();
+    if (!status) {
+      summary.unknown += 1;
+    } else if (status === "okay") {
+      summary.okay += 1;
+    } else if (status === "traveling") {
+      summary.traveling += 1;
+    } else if (status === "hospital") {
+      summary.hospital += 1;
+    } else if (status === "jail") {
+      summary.jail += 1;
+    } else {
+      summary.other += 1;
+    }
+  }
+
+  return summary;
 }
 
 function EnemyTravelPanel({
