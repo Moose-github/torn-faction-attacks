@@ -82,7 +82,7 @@ function chartMetricValue(member: MemberStats, metricKey: MemberSortKey): number
 
 type ActivityKey = keyof Pick<
   WarActivityBucket,
-  "enemy_success" | "enemy_assist" | "outside" | "defend_lost" | "defend_won"
+  "enemy_success" | "enemy_assist" | "outside" | "defend_lost" | "defend_won" | "defend_other"
 >;
 
 const activityColors: Record<ActivityKey, string> = {
@@ -91,6 +91,7 @@ const activityColors: Record<ActivityKey, string> = {
   outside: "#a855f7",
   defend_lost: "#ef4444",
   defend_won: "#f97316",
+  defend_other: "#64748b",
 };
 
 export function ActivityChart({

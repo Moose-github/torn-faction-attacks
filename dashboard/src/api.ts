@@ -30,6 +30,7 @@ export type MemberStats = {
   member_respect_limit_percent: number | null;
   defends_total: number;
   defends_won: number;
+  defends_other: number;
   respect_lost: number;
   first_seen_at: number | null;
   last_seen_at: number | null;
@@ -108,6 +109,7 @@ export type MemberAttackClassification =
   | "outside"
   | "defend_lost"
   | "defend_won"
+  | "defend_other"
   | "other";
 
 export type MemberAttack = {
@@ -166,6 +168,7 @@ export type WarActivityBucket = {
   outside: number;
   defend_lost: number;
   defend_won: number;
+  defend_other: number;
 };
 
 export type WarActivityResponse = {

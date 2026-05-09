@@ -245,7 +245,8 @@ function AttackBreakdown({ member }: { member: MemberStats }) {
 }
 
 function DefendBreakdown({ member }: { member: MemberStats }) {
-  const defendsLost = Math.max(0, member.defends_total - member.defends_won);
+  const defendsOther = Number(member.defends_other ?? 0);
+  const defendsLost = Math.max(0, member.defends_total - member.defends_won - defendsOther);
 
   if (member.defends_total === 0) {
     return <>0</>;
@@ -254,7 +255,7 @@ function DefendBreakdown({ member }: { member: MemberStats }) {
   return (
     <span
       className="tooltip-value"
-      title={`Won: ${formatNumber(member.defends_won)} | Lost: ${formatNumber(defendsLost)}`}
+      title={`Lost: ${formatNumber(defendsLost)} | Won: ${formatNumber(member.defends_won)} | Other: ${formatNumber(defendsOther)}`}
     >
       {formatNumber(member.defends_total)}
     </span>

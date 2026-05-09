@@ -1,5 +1,6 @@
 import {
   HOME_FACTION_ID,
+  DEFEND_WON_RESULTS_SQL,
   POSITIVE_ATTACK_RESULTS,
   POSITIVE_RESULTS_SQL,
   WAR_TYPES,
@@ -358,11 +359,26 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
           WHEN ? IS NOT NULL
            AND a.attacker_faction_id = ?
            AND a.defender_faction_id = ${HOME_FACTION_ID}
-           AND (a.result NOT IN (${POSITIVE_RESULTS_SQL}) OR a.result IS NULL)
+            AND a.result IN (${DEFEND_WON_RESULTS_SQL})
+            AND ${DEFENSE_ACTION_WINDOW_SQL}
+          THEN 1
+          ELSE 0
+        END) AS defend_won,
+        SUM(CASE
+          WHEN ? IS NOT NULL
+           AND a.attacker_faction_id = ?
+           AND a.defender_faction_id = ${HOME_FACTION_ID}
+           AND (
+             a.result IS NULL
+             OR (
+               a.result NOT IN (${POSITIVE_RESULTS_SQL})
+               AND a.result NOT IN (${DEFEND_WON_RESULTS_SQL})
+             )
+           )
            AND ${DEFENSE_ACTION_WINDOW_SQL}
           THEN 1
           ELSE 0
-        END) AS defend_won
+        END) AS defend_other
       FROM attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
@@ -385,6 +401,8 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
         war.enemy_faction_id,
         war.enemy_faction_id,
         war.enemy_faction_id,
+        war.enemy_faction_id,
+        war.enemy_faction_id,
         war.id,
       )
       .all();
@@ -396,6 +414,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
       outside: Number(row.outside ?? 0),
       defend_lost: Number(row.defend_lost ?? 0),
       defend_won: Number(row.defend_won ?? 0),
+      defend_other: Number(row.defend_other ?? 0),
     }));
     const buckets = fillActivityWindowBuckets(
       rawBuckets,
@@ -430,6 +449,7 @@ type ActivityBucket = {
   outside: number;
   defend_lost: number;
   defend_won: number;
+  defend_other: number;
 };
 
 type ActivityWindowWar = {
@@ -479,6 +499,7 @@ function fillActivityWindowBuckets(
         outside: 0,
         defend_lost: 0,
         defend_won: 0,
+        defend_other: 0,
       },
     );
   }
@@ -538,6 +559,7 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       END) AS member_respect_limit_percent,
       COALESCE(SUM(wms.defends_total), 0) AS defends_total,
       COALESCE(SUM(wms.defends_won), 0) AS defends_won,
+      COALESCE(SUM(wms.defends_other), 0) AS defends_other,
       COALESCE(SUM(wms.respect_lost), 0) AS respect_lost,
       MIN(wms.first_action_at) AS first_seen_at,
       MAX(wms.last_action_at) AS last_seen_at
@@ -644,7 +666,11 @@ function classifyMemberAttack(
     attack.attacker_faction_id === enemyFactionId &&
     attack.defender_faction_id === HOME_FACTION_ID
   ) {
-    return positiveResult ? "defend_lost" : "defend_won";
+    if (positiveResult) {
+      return "defend_lost";
+    }
+
+    return attack.result === "Lost" ? "defend_won" : "defend_other";
   }
 
   return "other";

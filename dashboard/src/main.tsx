@@ -753,9 +753,9 @@ function App() {
                   className="activity-panel"
                 >
                   <p className="panel-description">
-                    Shows enemy attacks against Buttgrass over time, split by whether the defend was won or lost.
+                    Shows enemy attacks against Buttgrass over time, split by lost, won, and other defend outcomes.
                   </p>
-                  <ActivityChart buckets={activityBuckets} keys={["defend_lost", "defend_won"]} />
+                  <ActivityChart buckets={activityBuckets} keys={["defend_lost", "defend_won", "defend_other"]} />
                 </CollapsiblePanel>
               ) : null}
 
@@ -921,6 +921,9 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
         { label: "Member ID", value: (member) => member.member_id },
         { label: "Attacks", value: (member) => member.enemy_attacks_successful },
         { label: "Defends", value: (member) => member.defends_total },
+        { label: "Defends lost", value: (member) => memberDefendsLost(member) },
+        { label: "Defends won", value: (member) => member.defends_won },
+        { label: "Other defends", value: (member) => member.defends_other },
         { label: "Respect gained", value: (member) => formatCsvDecimal(member.enemy_respect_gained) },
         { label: "Assists", value: (member) => member.enemy_assists },
         { label: "Average fair fight", value: (member) => formatCsvDecimal(member.average_fair_fight) },
@@ -931,6 +934,9 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
         { label: "Member ID", value: (member) => member.member_id },
         { label: "Attacks", value: (member) => member.enemy_attacks_successful },
         { label: "Defends", value: (member) => member.defends_total },
+        { label: "Defends lost", value: (member) => memberDefendsLost(member) },
+        { label: "Defends won", value: (member) => member.defends_won },
+        { label: "Other defends", value: (member) => member.defends_other },
         { label: "Respect gained", value: (member) => formatCsvDecimal(member.enemy_respect_gained) },
         { label: "Assists", value: (member) => member.enemy_assists },
         { label: "Average fair fight", value: (member) => formatCsvDecimal(member.average_fair_fight) },
@@ -938,6 +944,10 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
         { label: "Retaliations", value: (member) => member.enemy_retaliations },
       ];
   downloadCsv(`${sanitizeCsvFilename(war.name)}-members.csv`, columns, members);
+}
+
+function memberDefendsLost(member: MemberStats): number {
+  return Math.max(0, member.defends_total - member.defends_won - Number(member.defends_other ?? 0));
 }
 
 function formatCsvDecimal(value: number | null | undefined): string {

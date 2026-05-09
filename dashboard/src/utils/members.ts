@@ -152,6 +152,8 @@ export function classificationLabel(classification: MemberAttack["classification
       return "Defend lost";
     case "defend_won":
       return "Defend won";
+    case "defend_other":
+      return "Defend other";
     case "enemy_attempt":
       return "Attempt";
     default:
@@ -171,6 +173,8 @@ export function activityLabel(key: string): string {
       return "Defends lost";
     case "defend_won":
       return "Defends won";
+    case "defend_other":
+      return "Other defends";
     default:
       return key;
   }

@@ -1,4 +1,9 @@
-import { CHAIN_BONUS_HITS_SQL, HOME_FACTION_ID, POSITIVE_RESULTS_SQL } from "./constants";
+import {
+  CHAIN_BONUS_HITS_SQL,
+  DEFEND_WON_RESULTS_SQL,
+  HOME_FACTION_ID,
+  POSITIVE_RESULTS_SQL,
+} from "./constants";
 import { DEFENSE_ACTION_WINDOW_SQL, OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { Env } from "./types";
 
@@ -177,6 +182,7 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
         average_fair_fight = NULL,
         defends_total = 0,
         defends_won = 0,
+        defends_other = 0,
         respect_lost = 0,
         first_action_at = NULL,
         last_action_at = NULL
@@ -593,6 +599,7 @@ async function upsertIngestedWarMemberDefendStats(
       member_name,
       defends_total,
       defends_won,
+      defends_other,
       respect_lost,
       first_action_at,
       last_action_at
@@ -603,9 +610,18 @@ async function upsertIngestedWarMemberDefendStats(
       MAX(a.defender_name),
       COUNT(*) AS defends_total,
       SUM(CASE
-        WHEN a.result NOT IN (${POSITIVE_RESULTS_SQL}) OR a.result IS NULL THEN 1
+        WHEN a.result IN (${DEFEND_WON_RESULTS_SQL}) THEN 1
         ELSE 0
       END) AS defends_won,
+      SUM(CASE
+        WHEN a.result IS NULL
+          OR (
+            a.result NOT IN (${POSITIVE_RESULTS_SQL})
+            AND a.result NOT IN (${DEFEND_WON_RESULTS_SQL})
+          )
+        THEN 1
+        ELSE 0
+      END) AS defends_other,
       COALESCE(SUM(CASE
         WHEN a.result IN (${POSITIVE_RESULTS_SQL})
         THEN a.respect_gain
@@ -627,6 +643,7 @@ async function upsertIngestedWarMemberDefendStats(
       member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
       defends_total = war_member_stats.defends_total + excluded.defends_total,
       defends_won = war_member_stats.defends_won + excluded.defends_won,
+      defends_other = war_member_stats.defends_other + excluded.defends_other,
       respect_lost = war_member_stats.respect_lost + excluded.respect_lost,
       first_action_at = CASE
         WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
@@ -656,6 +673,7 @@ async function upsertWarMemberDefendStats(
       member_name,
       defends_total,
       defends_won,
+      defends_other,
       respect_lost,
       first_action_at,
       last_action_at
@@ -666,9 +684,18 @@ async function upsertWarMemberDefendStats(
       MAX(a.defender_name),
       COUNT(*) AS defends_total,
       SUM(CASE
-        WHEN a.result NOT IN (${POSITIVE_RESULTS_SQL}) OR a.result IS NULL THEN 1
+        WHEN a.result IN (${DEFEND_WON_RESULTS_SQL}) THEN 1
         ELSE 0
       END) AS defends_won,
+      SUM(CASE
+        WHEN a.result IS NULL
+          OR (
+            a.result NOT IN (${POSITIVE_RESULTS_SQL})
+            AND a.result NOT IN (${DEFEND_WON_RESULTS_SQL})
+          )
+        THEN 1
+        ELSE 0
+      END) AS defends_other,
       COALESCE(SUM(CASE
         WHEN a.result IN (${POSITIVE_RESULTS_SQL})
         THEN a.respect_gain
@@ -689,6 +716,7 @@ async function upsertWarMemberDefendStats(
       member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
       defends_total = war_member_stats.defends_total + excluded.defends_total,
       defends_won = war_member_stats.defends_won + excluded.defends_won,
+      defends_other = war_member_stats.defends_other + excluded.defends_other,
       respect_lost = war_member_stats.respect_lost + excluded.respect_lost,
       first_action_at = CASE
         WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at

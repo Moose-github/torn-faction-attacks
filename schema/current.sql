@@ -113,6 +113,7 @@ CREATE TABLE war_member_stats (
   friendly_hospitals INTEGER NOT NULL DEFAULT 0,
   defends_total INTEGER NOT NULL DEFAULT 0,
   defends_won INTEGER NOT NULL DEFAULT 0,
+  defends_other INTEGER NOT NULL DEFAULT 0,
   respect_lost REAL NOT NULL DEFAULT 0,
   first_action_at INTEGER,
   last_action_at INTEGER,

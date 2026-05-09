@@ -1470,6 +1470,14 @@ tbody tr:not(.attack-row):hover td {
   border-left-color: #f97316;
 }
 
+.attack-row.defend_other td {
+  background: #f8fafc;
+}
+
+.attack-row.defend_other td:first-child {
+  border-left-color: #64748b;
+}
+
 .tooltip-value {
   cursor: help;
   text-decoration: underline;

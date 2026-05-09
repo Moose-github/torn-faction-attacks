@@ -310,10 +310,11 @@ export async function applyRankedWarReport(
             friendly_hospitals,
             defends_total,
             defends_won,
+            defends_other,
             respect_lost,
             added_from_report
           )
-          VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+          VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
           `,
         ).bind(warId, member.id, member.name ?? null),
       ),
