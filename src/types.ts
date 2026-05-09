@@ -37,6 +37,14 @@ export type TornFactionMember = {
     timestamp?: number;
     relative?: string;
   };
+  status?: {
+    description?: string | null;
+    details?: unknown;
+    state?: string | null;
+    color?: string | null;
+    until?: number | null;
+    plane_image_type?: string | null;
+  } | null;
 };
 
 export type TornRankedWar = {
@@ -140,6 +148,7 @@ export type WarRow = {
   official_enemy_score: number | null;
   official_enemy_attacks: number | null;
   enemy_scouting_auto_attempted_at: number | null;
+  enemy_scouting_status_checked_at: number | null;
   finalized_at: number | null;
 };
 

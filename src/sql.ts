@@ -19,6 +19,7 @@ const WAR_COLUMN_NAMES = [
   "official_enemy_score",
   "official_enemy_attacks",
   "enemy_scouting_auto_attempted_at",
+  "enemy_scouting_status_checked_at",
   "finalized_at",
 ];
 

@@ -65,6 +65,7 @@ export type WarSummary = {
   official_enemy_score: number | null;
   official_enemy_attacks: number | null;
   enemy_scouting_auto_attempted_at: number | null;
+  enemy_scouting_status_checked_at: number | null;
   finalized_at: number | null;
   faction_attacks: number;
   enemy_attacks: number;
@@ -211,6 +212,19 @@ export type EnemyFactionMember = {
   estimated_stats_updated_at: number | null;
   networth: number | null;
   networth_updated_at: number | null;
+  status_state?: string | null;
+  status_description?: string | null;
+  plane_image_type?: string | null;
+  travel_origin?: string | null;
+  travel_destination?: string | null;
+  travel_signature?: string | null;
+  travel_detected_at?: number | null;
+  travel_started_after?: number | null;
+  travel_started_before?: number | null;
+  estimated_arrival_at?: number | null;
+  estimated_arrival_earliest?: number | null;
+  estimated_arrival_latest?: number | null;
+  status_updated_at?: number | null;
   updated_at: number;
 };
 
@@ -229,6 +243,8 @@ export type EnemyScoutingResponse = {
     missing_estimated_stats: number;
     stats_available: number;
     networth_available: number;
+    traveling: number;
+    status_checked_at: number | null;
   };
   members: EnemyFactionMember[];
 };

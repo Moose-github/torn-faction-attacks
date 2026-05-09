@@ -1,4 +1,5 @@
 import React from "react";
+import { Plane } from "lucide-react";
 import {
   EnemyFactionMember,
   EnemyScoutingResponse,
@@ -19,9 +20,10 @@ import {
 } from "../components/Charts";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { EnemyScoutingPanel } from "../components/EnemyScouting";
-import { formatLongDateTime } from "../utils/format";
+import { formatLongDateTime, formatRelativeTime, formatTime } from "../utils/format";
 
 const WAR_ROOM_HEATMAP_REFRESH_MS = 15 * 60_000;
+const WAR_ROOM_SCOUTING_REFRESH_MS = 5 * 60_000;
 
 export function WarRoom({
   selectedWar,
@@ -204,6 +206,31 @@ export function WarRoom({
     };
   }, [canLoadScouting, selectedWar?.official_end_time, selectedWarName]);
 
+  React.useEffect(() => {
+    if (!selectedWarName || !canLoadScouting || selectedWar?.official_end_time !== null) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await getEnemyScouting(selectedWarName);
+        if (!cancelled) {
+          setEnemyScouting(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setEnemyScouting(null);
+        }
+      }
+    }, WAR_ROOM_SCOUTING_REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [canLoadScouting, selectedWar?.official_end_time, selectedWarName]);
+
   async function refreshSelectedEnemyScouting() {
     if (!selectedWarName) {
       return;
@@ -339,6 +366,14 @@ export function WarRoom({
           onToggle={() => togglePanel("revivableMembers")}
         />
 
+        <EnemyTravelPanel
+          members={enemyScouting?.members ?? []}
+          statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
+          isLoading={isLoadingEnemyScouting}
+          collapsed={collapsedPanels.enemyTravel ?? false}
+          onToggle={() => togglePanel("enemyTravel")}
+        />
+
         <EnemyScoutingPanel
           scouting={enemyScouting}
           isLoading={isLoadingEnemyScouting}
@@ -349,6 +384,132 @@ export function WarRoom({
       </section>
     </>
   );
+}
+
+function EnemyTravelPanel({
+  members,
+  statusCheckedAt,
+  isLoading,
+  collapsed,
+  onToggle,
+}: {
+  members: EnemyFactionMember[];
+  statusCheckedAt: number | null;
+  isLoading: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const travelers = members
+    .filter((member) => member.status_state === "Traveling")
+    .sort((a, b) => {
+      const arrivalDiff =
+        Number(a.estimated_arrival_at ?? Number.MAX_SAFE_INTEGER) -
+        Number(b.estimated_arrival_at ?? Number.MAX_SAFE_INTEGER);
+      return arrivalDiff !== 0 ? arrivalDiff : a.name.localeCompare(b.name);
+    });
+  const checkedLabel = statusCheckedAt ? `Checked ${formatRelativeTime(statusCheckedAt)}` : "Not checked";
+
+  return (
+    <CollapsiblePanel
+      title="Enemy travel"
+      aside={isLoading ? "Loading" : `${travelers.length} traveling | ${checkedLabel}`}
+      collapsed={collapsed}
+      onToggle={onToggle}
+      className="enemy-travel-panel table-panel"
+    >
+      <p className="panel-description">
+        Tracks enemy members currently shown by Torn as traveling, with arrival estimates from route and plane type.
+      </p>
+      {travelers.length === 0 ? (
+        <EmptyState text="No enemy travelers cached" />
+      ) : (
+        <div className="table-scroll">
+          <table className="enemy-travel-table">
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Route</th>
+                <th>Arrival</th>
+                <th>Plane</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {travelers.map((member) => (
+                <tr key={member.member_id}>
+                  <td>
+                    <a
+                      href={`https://www.torn.com/profiles.php?XID=${member.member_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`Open ${member.name} on Torn`}
+                    >
+                      {member.name}
+                    </a>
+                  </td>
+                  <td>{formatTravelRoute(member)}</td>
+                  <td title={formatTravelStartWindow(member)}>{formatArrivalRange(member)}</td>
+                  <td>
+                    <span className="plane-type">
+                      <Plane size={14} />
+                      {formatPlaneType(member.plane_image_type)}
+                    </span>
+                  </td>
+                  <td title={`Status updated ${formatRelativeTime(member.status_updated_at ?? null)}`}>
+                    {member.status_description ?? "Traveling"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </CollapsiblePanel>
+  );
+}
+
+function formatTravelRoute(member: EnemyFactionMember): string {
+  const origin = member.travel_origin ?? "-";
+  const destination = member.travel_destination ?? "-";
+  return `${origin} -> ${destination}`;
+}
+
+function formatArrivalRange(member: EnemyFactionMember): string {
+  const earliest = member.estimated_arrival_earliest ?? null;
+  const latest = member.estimated_arrival_latest ?? null;
+  if (earliest && latest) {
+    return earliest === latest ? formatTime(earliest) : `${formatTime(earliest)}-${formatTime(latest)}`;
+  }
+
+  if (member.estimated_arrival_at) {
+    return `Approx ${formatTime(member.estimated_arrival_at)}`;
+  }
+
+  return "ETA unknown";
+}
+
+function formatTravelStartWindow(member: EnemyFactionMember): string {
+  if (member.travel_started_after && member.travel_started_before) {
+    return `Travel started between ${formatTime(member.travel_started_after)} and ${formatTime(member.travel_started_before)}`;
+  }
+
+  if (member.travel_started_before) {
+    return `Travel first seen by ${formatTime(member.travel_started_before)}`;
+  }
+
+  return member.status_description ?? "Travel timing unknown";
+}
+
+function formatPlaneType(value: string | null | undefined): string {
+  if (!value) {
+    return "Unknown";
+  }
+
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function scoutingComparisonMetricLabel(metric: "estimated_stats" | "networth"): string {

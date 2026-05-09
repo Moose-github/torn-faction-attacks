@@ -10,6 +10,7 @@ import {
   getEnemyScoutingForWar,
   getScoutingComparisonForWar,
   refreshEnemyScoutingForWar,
+  refreshCurrentEnemyTravelStatuses,
   refreshMissingScoutingNetworth,
 } from "./enemyScouting";
 import { getWarActivityHeatmap } from "./heatmap";
@@ -338,6 +339,10 @@ export default {
 
     if (minute % 5 === 0) {
       jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
+      jobs.push({
+        label: "Cron enemy travel",
+        run: () => refreshCurrentEnemyTravelStatuses(env),
+      });
     } else {
       jobs.push({
         label: "Cron lifestyle stats",

@@ -1,11 +1,51 @@
 import { FFSCOUTER_STATS_API_URL, HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
 import { fetchTornPersonalStats } from "./personalStats";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
-import { boolToInt, json } from "./utils";
+import { boolToInt, json, nowSeconds } from "./utils";
 
 const FFSCOUTER_BATCH_SIZE = 100;
 const SCOUTING_FETCH_TIMEOUT_MS = 15000;
 const NETWORTH_REFRESH_LIMIT = 40;
+const TORN_LOCATION = "Torn";
+
+type TravelDurationKey = "standard" | "light_aircraft" | "wlt_benefit" | "airliner";
+
+const TRAVEL_DURATIONS_MINUTES: Record<string, Record<TravelDurationKey, number>> = {
+  Mexico: { standard: 26, light_aircraft: 18, wlt_benefit: 13, airliner: 8 },
+  "Cayman Islands": { standard: 35, light_aircraft: 25, wlt_benefit: 18, airliner: 11 },
+  Canada: { standard: 41, light_aircraft: 29, wlt_benefit: 20, airliner: 12 },
+  Hawaii: { standard: 134, light_aircraft: 94, wlt_benefit: 67, airliner: 40 },
+  "United Kingdom": { standard: 159, light_aircraft: 111, wlt_benefit: 80, airliner: 48 },
+  Argentina: { standard: 167, light_aircraft: 117, wlt_benefit: 83, airliner: 50 },
+  Switzerland: { standard: 175, light_aircraft: 123, wlt_benefit: 88, airliner: 53 },
+  Japan: { standard: 225, light_aircraft: 158, wlt_benefit: 113, airliner: 68 },
+  China: { standard: 242, light_aircraft: 169, wlt_benefit: 121, airliner: 72 },
+  "United Arab Emirates": { standard: 271, light_aircraft: 190, wlt_benefit: 135, airliner: 81 },
+  "South Africa": { standard: 297, light_aircraft: 208, wlt_benefit: 149, airliner: 89 },
+};
+
+const PLANE_IMAGE_TYPE_TO_DURATION_KEY: Record<string, TravelDurationKey> = {
+  light_aircraft: "light_aircraft",
+  airliner: "airliner",
+};
+
+const TRAVEL_LOCATION_ALIASES: Record<string, string> = {
+  argentina: "Argentina",
+  canada: "Canada",
+  cayman: "Cayman Islands",
+  "cayman islands": "Cayman Islands",
+  china: "China",
+  hawaii: "Hawaii",
+  japan: "Japan",
+  mexico: "Mexico",
+  "south africa": "South Africa",
+  switzerland: "Switzerland",
+  torn: TORN_LOCATION,
+  uae: "United Arab Emirates",
+  "united arab emirates": "United Arab Emirates",
+  "united kingdom": "United Kingdom",
+  uk: "United Kingdom",
+};
 
 type EnemyFactionMemberRow = {
   member_id: number;
@@ -19,12 +59,63 @@ type EnemyFactionMemberRow = {
   estimated_stats_updated_at: number | null;
   networth: number | null;
   networth_updated_at: number | null;
+  status_state?: string | null;
+  status_description?: string | null;
+  plane_image_type?: string | null;
+  travel_origin?: string | null;
+  travel_destination?: string | null;
+  travel_signature?: string | null;
+  travel_detected_at?: number | null;
+  travel_started_after?: number | null;
+  travel_started_before?: number | null;
+  estimated_arrival_at?: number | null;
+  estimated_arrival_earliest?: number | null;
+  estimated_arrival_latest?: number | null;
+  status_updated_at?: number | null;
   updated_at: number;
 };
 
 type StatEstimate = {
   stats: number;
   updatedAt: number | null;
+};
+
+type ParsedTravel = {
+  origin: string;
+  destination: string;
+  flightLocation: string;
+};
+
+type TravelEstimate = {
+  estimated_arrival_at: number | null;
+  estimated_arrival_earliest: number | null;
+  estimated_arrival_latest: number | null;
+};
+
+type MemberTravelStatus = {
+  status_state: string | null;
+  status_description: string | null;
+  plane_image_type: string | null;
+  travel_origin: string | null;
+  travel_destination: string | null;
+  travel_signature: string | null;
+  travel_detected_at: number | null;
+  travel_started_after: number | null;
+  travel_started_before: number | null;
+  estimated_arrival_at: number | null;
+  estimated_arrival_earliest: number | null;
+  estimated_arrival_latest: number | null;
+  status_updated_at: number | null;
+};
+
+type EnemyMemberSnapshot = MemberTravelStatus & {
+  member_id: number;
+  faction_id: number;
+  name: string;
+  level: number | null;
+  position: string | null;
+  days_in_faction: number | null;
+  is_revivable: number;
 };
 
 export type FfscouterRefreshMetrics = {
@@ -52,7 +143,17 @@ type EnemyScoutingWar = {
 };
 
 type CurrentScoutingWar = {
+  id: number;
   enemy_faction_id: number;
+  enemy_scouting_status_checked_at: number | null;
+};
+
+export type EnemyTravelRefreshMetrics = {
+  writeStatements: number;
+  changedRows: number;
+  fetchedMembers: number;
+  updatedMembers: number;
+  skipped: boolean;
 };
 
 export async function getEnemyScoutingForWar(url: URL, env: Env): Promise<Response> {
@@ -108,8 +209,17 @@ export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Re
 
   if (existing.length === 0) {
     refreshed = await replaceEnemyFactionMembers(env, enemyFactionId);
+    if (refreshed) {
+      await markEnemyScoutingStatusChecked(env, war.id, nowSeconds());
+    }
   } else {
-    await refreshMissingStatEstimates(env, existing);
+    await refreshEnemyFactionMemberStatuses(
+      env,
+      war.id,
+      enemyFactionId,
+      war.enemy_scouting_status_checked_at,
+    );
+    await refreshMissingStatEstimates(env, await readEnemyScouting(env, enemyFactionId));
     refreshed = true;
   }
 
@@ -149,7 +259,8 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
       await env.DB.prepare(
         `
         UPDATE wars
-        SET enemy_scouting_auto_attempted_at = COALESCE(enemy_scouting_auto_attempted_at, unixepoch())
+        SET enemy_scouting_auto_attempted_at = COALESCE(enemy_scouting_auto_attempted_at, unixepoch()),
+            enemy_scouting_status_checked_at = COALESCE(enemy_scouting_status_checked_at, unixepoch())
         WHERE id = ?
         `,
       )
@@ -157,6 +268,28 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
         .run();
     }
   }
+}
+
+export async function refreshCurrentEnemyTravelStatuses(
+  env: Env,
+): Promise<EnemyTravelRefreshMetrics> {
+  const war = await readCurrentScoutingWar(env);
+  if (!war) {
+    return {
+      writeStatements: 0,
+      changedRows: 0,
+      fetchedMembers: 0,
+      updatedMembers: 0,
+      skipped: true,
+    };
+  }
+
+  return refreshEnemyFactionMemberStatuses(
+    env,
+    war.id,
+    war.enemy_faction_id,
+    war.enemy_scouting_status_checked_at,
+  );
 }
 
 export async function refreshMissingFfscouterEstimates(env: Env): Promise<FfscouterRefreshMetrics> {
@@ -274,7 +407,7 @@ export async function refreshMissingScoutingNetworth(
 async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingWar | null> {
   return (await env.DB.prepare(
     `
-    SELECT enemy_faction_id
+    SELECT id, enemy_faction_id, enemy_scouting_status_checked_at
     FROM wars
     WHERE enemy_faction_id IS NOT NULL
       AND official_end_time IS NULL
@@ -364,10 +497,12 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
     return false;
   }
 
+  const fetchedAt = nowSeconds();
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM enemy_faction_members`),
-    ...members.map((member) =>
-      env.DB.prepare(
+    ...members.map((member) => {
+      const travelStatus = buildMemberTravelStatus(member, null, null, fetchedAt);
+      return env.DB.prepare(
         `
         INSERT INTO enemy_faction_members (
           member_id,
@@ -377,9 +512,22 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
           position,
           days_in_faction,
           is_revivable,
+          status_state,
+          status_description,
+          plane_image_type,
+          travel_origin,
+          travel_destination,
+          travel_signature,
+          travel_detected_at,
+          travel_started_after,
+          travel_started_before,
+          estimated_arrival_at,
+          estimated_arrival_earliest,
+          estimated_arrival_latest,
+          status_updated_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
@@ -387,6 +535,19 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
           position = excluded.position,
           days_in_faction = excluded.days_in_faction,
           is_revivable = excluded.is_revivable,
+          status_state = excluded.status_state,
+          status_description = excluded.status_description,
+          plane_image_type = excluded.plane_image_type,
+          travel_origin = excluded.travel_origin,
+          travel_destination = excluded.travel_destination,
+          travel_signature = excluded.travel_signature,
+          travel_detected_at = excluded.travel_detected_at,
+          travel_started_after = excluded.travel_started_after,
+          travel_started_before = excluded.travel_started_before,
+          estimated_arrival_at = excluded.estimated_arrival_at,
+          estimated_arrival_earliest = excluded.estimated_arrival_earliest,
+          estimated_arrival_latest = excluded.estimated_arrival_latest,
+          status_updated_at = excluded.status_updated_at,
           updated_at = excluded.updated_at
         `,
       ).bind(
@@ -397,8 +558,21 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
         member.position ?? null,
         finiteNumber(member.days_in_faction),
         boolToInt(member.is_revivable ?? false),
-      ),
-    ),
+        travelStatus.status_state,
+        travelStatus.status_description,
+        travelStatus.plane_image_type,
+        travelStatus.travel_origin,
+        travelStatus.travel_destination,
+        travelStatus.travel_signature,
+        travelStatus.travel_detected_at,
+        travelStatus.travel_started_after,
+        travelStatus.travel_started_before,
+        travelStatus.estimated_arrival_at,
+        travelStatus.estimated_arrival_earliest,
+        travelStatus.estimated_arrival_latest,
+        travelStatus.status_updated_at,
+      );
+    }),
   ]);
 
   const rows = await readEnemyScouting(env, factionId);
@@ -492,6 +666,372 @@ async function canReplaceCachedEnemyScouting(env: Env, nextFactionId: number): P
   }
 
   return true;
+}
+
+async function refreshEnemyFactionMemberStatuses(
+  env: Env,
+  warId: number,
+  factionId: number,
+  previousPollAt: number | null,
+): Promise<EnemyTravelRefreshMetrics> {
+  const fetchedAt = nowSeconds();
+  const members = await fetchTornFactionMembers(env, factionId);
+
+  if (members.length === 0) {
+    return {
+      writeStatements: 0,
+      changedRows: 0,
+      fetchedMembers: 0,
+      updatedMembers: 0,
+      skipped: true,
+    };
+  }
+
+  const existingRows = await readEnemyScouting(env, factionId);
+  const existingById = new Map(existingRows.map((row) => [row.member_id, row]));
+  const statements: D1PreparedStatement[] = [];
+
+  for (const member of members) {
+    const existing = existingById.get(member.id) ?? null;
+    const next = buildEnemyMemberSnapshot(member, factionId, existing, previousPollAt, fetchedAt);
+    if (!existing || enemyMemberSnapshotChanged(existing, next)) {
+      statements.push(upsertEnemyMemberSnapshot(env, next));
+    }
+  }
+
+  let changedRows = 0;
+  if (statements.length > 0) {
+    const results = await env.DB.batch(statements);
+    changedRows = results.reduce((total: number, result: unknown) => total + d1Changes(result), 0);
+  }
+
+  await markEnemyScoutingStatusChecked(env, warId, fetchedAt);
+
+  return {
+    writeStatements: statements.length + 1,
+    changedRows,
+    fetchedMembers: members.length,
+    updatedMembers: statements.length,
+    skipped: false,
+  };
+}
+
+function upsertEnemyMemberSnapshot(
+  env: Env,
+  snapshot: EnemyMemberSnapshot,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `
+    INSERT INTO enemy_faction_members (
+      member_id,
+      faction_id,
+      name,
+      level,
+      position,
+      days_in_faction,
+      is_revivable,
+      status_state,
+      status_description,
+      plane_image_type,
+      travel_origin,
+      travel_destination,
+      travel_signature,
+      travel_detected_at,
+      travel_started_after,
+      travel_started_before,
+      estimated_arrival_at,
+      estimated_arrival_earliest,
+      estimated_arrival_latest,
+      status_updated_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+    ON CONFLICT(member_id) DO UPDATE SET
+      faction_id = excluded.faction_id,
+      name = excluded.name,
+      level = excluded.level,
+      position = excluded.position,
+      days_in_faction = excluded.days_in_faction,
+      is_revivable = excluded.is_revivable,
+      status_state = excluded.status_state,
+      status_description = excluded.status_description,
+      plane_image_type = excluded.plane_image_type,
+      travel_origin = excluded.travel_origin,
+      travel_destination = excluded.travel_destination,
+      travel_signature = excluded.travel_signature,
+      travel_detected_at = excluded.travel_detected_at,
+      travel_started_after = excluded.travel_started_after,
+      travel_started_before = excluded.travel_started_before,
+      estimated_arrival_at = excluded.estimated_arrival_at,
+      estimated_arrival_earliest = excluded.estimated_arrival_earliest,
+      estimated_arrival_latest = excluded.estimated_arrival_latest,
+      status_updated_at = excluded.status_updated_at,
+      updated_at = excluded.updated_at
+    `,
+  ).bind(
+    snapshot.member_id,
+    snapshot.faction_id,
+    snapshot.name,
+    snapshot.level,
+    snapshot.position,
+    snapshot.days_in_faction,
+    snapshot.is_revivable,
+    snapshot.status_state,
+    snapshot.status_description,
+    snapshot.plane_image_type,
+    snapshot.travel_origin,
+    snapshot.travel_destination,
+    snapshot.travel_signature,
+    snapshot.travel_detected_at,
+    snapshot.travel_started_after,
+    snapshot.travel_started_before,
+    snapshot.estimated_arrival_at,
+    snapshot.estimated_arrival_earliest,
+    snapshot.estimated_arrival_latest,
+    snapshot.status_updated_at,
+  );
+}
+
+async function markEnemyScoutingStatusChecked(
+  env: Env,
+  warId: number,
+  checkedAt: number,
+): Promise<void> {
+  await env.DB.prepare(
+    `
+    UPDATE wars
+    SET enemy_scouting_status_checked_at = ?
+    WHERE id = ?
+    `,
+  )
+    .bind(checkedAt, warId)
+    .run();
+}
+
+function buildEnemyMemberSnapshot(
+  member: TornFactionMember,
+  factionId: number,
+  previous: EnemyFactionMemberRow | null,
+  previousPollAt: number | null,
+  fetchedAt: number,
+): EnemyMemberSnapshot {
+  return {
+    member_id: member.id,
+    faction_id: factionId,
+    name: member.name,
+    level: finiteNumber(member.level),
+    position: member.position ?? null,
+    days_in_faction: finiteNumber(member.days_in_faction),
+    is_revivable: boolToInt(member.is_revivable ?? false) ?? 0,
+    ...buildMemberTravelStatus(member, previous, previousPollAt, fetchedAt),
+  };
+}
+
+function buildMemberTravelStatus(
+  member: TornFactionMember,
+  previous: EnemyFactionMemberRow | null,
+  previousPollAt: number | null,
+  fetchedAt: number,
+): MemberTravelStatus {
+  const statusState = cleanText(member.status?.state);
+  const statusDescription = cleanText(member.status?.description);
+  const planeImageType = cleanText(member.status?.plane_image_type);
+  const parsedTravel = parseTravelDescription(statusDescription);
+  const isTraveling = statusState === "Traveling" && parsedTravel !== null;
+  const travelSignature = isTraveling
+    ? buildTravelSignature(statusDescription, planeImageType, parsedTravel)
+    : null;
+  const statusChanged =
+    previous === null ||
+    previous.status_state !== statusState ||
+    previous.status_description !== statusDescription ||
+    previous.plane_image_type !== planeImageType ||
+    previous.travel_signature !== travelSignature;
+  const isNewTrip =
+    isTraveling &&
+    (previous?.status_state !== "Traveling" || previous.travel_signature !== travelSignature);
+
+  if (!isTraveling || !parsedTravel) {
+    return {
+      status_state: statusState,
+      status_description: statusDescription,
+      plane_image_type: planeImageType,
+      travel_origin: null,
+      travel_destination: null,
+      travel_signature: null,
+      travel_detected_at: null,
+      travel_started_after: null,
+      travel_started_before: null,
+      estimated_arrival_at: null,
+      estimated_arrival_earliest: null,
+      estimated_arrival_latest: null,
+      status_updated_at: statusChanged ? fetchedAt : (previous?.status_updated_at ?? fetchedAt),
+    };
+  }
+
+  if (!isNewTrip && previous) {
+    return {
+      status_state: statusState,
+      status_description: statusDescription,
+      plane_image_type: planeImageType,
+      travel_origin: parsedTravel.origin,
+      travel_destination: parsedTravel.destination,
+      travel_signature: travelSignature,
+      travel_detected_at: previous.travel_detected_at ?? null,
+      travel_started_after: previous.travel_started_after ?? null,
+      travel_started_before: previous.travel_started_before ?? null,
+      estimated_arrival_at: previous.estimated_arrival_at ?? null,
+      estimated_arrival_earliest: previous.estimated_arrival_earliest ?? null,
+      estimated_arrival_latest: previous.estimated_arrival_latest ?? null,
+      status_updated_at: statusChanged ? fetchedAt : (previous.status_updated_at ?? fetchedAt),
+    };
+  }
+
+  const startedAfter = previousPollAt ?? previous?.status_updated_at ?? null;
+  const startedBefore = fetchedAt;
+  const estimate = estimateTravelArrival(
+    parsedTravel.flightLocation,
+    planeImageType,
+    startedAfter,
+    startedBefore,
+  );
+
+  return {
+    status_state: statusState,
+    status_description: statusDescription,
+    plane_image_type: planeImageType,
+    travel_origin: parsedTravel.origin,
+    travel_destination: parsedTravel.destination,
+    travel_signature: travelSignature,
+    travel_detected_at: fetchedAt,
+    travel_started_after: startedAfter,
+    travel_started_before: startedBefore,
+    ...estimate,
+    status_updated_at: fetchedAt,
+  };
+}
+
+function parseTravelDescription(description: string | null): ParsedTravel | null {
+  if (!description) {
+    return null;
+  }
+
+  const outbound = /^Traveling to (.+)$/i.exec(description);
+  if (outbound) {
+    const destination = normalizeTravelLocation(outbound[1]);
+    if (!destination || destination === TORN_LOCATION) {
+      return null;
+    }
+    return {
+      origin: TORN_LOCATION,
+      destination,
+      flightLocation: destination,
+    };
+  }
+
+  const returning = /^Traveling from (.+) to Torn$/i.exec(description);
+  if (returning) {
+    const origin = normalizeTravelLocation(returning[1]);
+    if (!origin || origin === TORN_LOCATION) {
+      return null;
+    }
+    return {
+      origin,
+      destination: TORN_LOCATION,
+      flightLocation: origin,
+    };
+  }
+
+  return null;
+}
+
+function normalizeTravelLocation(value: string | undefined): string | null {
+  const cleaned = cleanText(value);
+  if (!cleaned) {
+    return null;
+  }
+
+  return TRAVEL_LOCATION_ALIASES[cleaned.toLowerCase()] ?? cleaned;
+}
+
+function estimateTravelArrival(
+  flightLocation: string,
+  planeImageType: string | null,
+  startedAfter: number | null,
+  startedBefore: number,
+): TravelEstimate {
+  const durationKey = planeImageType ? PLANE_IMAGE_TYPE_TO_DURATION_KEY[planeImageType] : undefined;
+  const durationMinutes = durationKey ? TRAVEL_DURATIONS_MINUTES[flightLocation]?.[durationKey] : undefined;
+  if (!durationMinutes) {
+    return {
+      estimated_arrival_at: null,
+      estimated_arrival_earliest: null,
+      estimated_arrival_latest: null,
+    };
+  }
+
+  const durationSeconds = durationMinutes * 60;
+  const estimatedLatest = startedBefore + durationSeconds;
+  const estimatedEarliest = startedAfter === null ? null : startedAfter + durationSeconds;
+  const estimatedArrival =
+    estimatedEarliest === null
+      ? estimatedLatest
+      : Math.floor((estimatedEarliest + estimatedLatest) / 2);
+
+  return {
+    estimated_arrival_at: estimatedArrival,
+    estimated_arrival_earliest: estimatedEarliest,
+    estimated_arrival_latest: estimatedLatest,
+  };
+}
+
+function buildTravelSignature(
+  description: string | null,
+  planeImageType: string | null,
+  travel: ParsedTravel,
+): string {
+  return [
+    description ?? "",
+    planeImageType ?? "",
+    travel.origin,
+    travel.destination,
+  ].join("|");
+}
+
+function enemyMemberSnapshotChanged(
+  previous: EnemyFactionMemberRow,
+  next: EnemyMemberSnapshot,
+): boolean {
+  return (
+    previous.faction_id !== next.faction_id ||
+    previous.name !== next.name ||
+    previous.level !== next.level ||
+    previous.position !== next.position ||
+    previous.days_in_faction !== next.days_in_faction ||
+    previous.is_revivable !== next.is_revivable ||
+    previous.status_state !== next.status_state ||
+    previous.status_description !== next.status_description ||
+    previous.plane_image_type !== next.plane_image_type ||
+    previous.travel_origin !== next.travel_origin ||
+    previous.travel_destination !== next.travel_destination ||
+    previous.travel_signature !== next.travel_signature ||
+    previous.travel_detected_at !== next.travel_detected_at ||
+    previous.travel_started_after !== next.travel_started_after ||
+    previous.travel_started_before !== next.travel_started_before ||
+    previous.estimated_arrival_at !== next.estimated_arrival_at ||
+    previous.estimated_arrival_earliest !== next.estimated_arrival_earliest ||
+    previous.estimated_arrival_latest !== next.estimated_arrival_latest ||
+    previous.status_updated_at !== next.status_updated_at
+  );
+}
+
+function cleanText(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const cleaned = value.trim();
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 async function refreshMissingStatEstimates(
@@ -673,6 +1213,7 @@ function jsonEnemyScouting(
 ): Response {
   const statsRows = rows.filter((row) => row.estimated_stats !== null);
   const networthRows = rows.filter((row) => row.networth !== null);
+  const travelingRows = rows.filter((row) => row.status_state === "Traveling");
   const averageLevel =
     rows.length === 0
       ? 0
@@ -698,6 +1239,8 @@ function jsonEnemyScouting(
       missing_estimated_stats: rows.length - statsRows.length,
       stats_available: statsRows.length,
       networth_available: networthRows.length,
+      traveling: travelingRows.length,
+      status_checked_at: war.enemy_scouting_status_checked_at,
     },
     members: rows,
   });

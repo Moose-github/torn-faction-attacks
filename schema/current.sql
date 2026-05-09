@@ -38,7 +38,8 @@ CREATE TABLE wars (
   official_enemy_attacks INTEGER,
   official_end_time INTEGER,
   official_start_time INTEGER,
-  enemy_scouting_auto_attempted_at INTEGER
+  enemy_scouting_auto_attempted_at INTEGER,
+  enemy_scouting_status_checked_at INTEGER
 );
 
 CREATE TABLE sync_state (
@@ -134,6 +135,19 @@ CREATE TABLE enemy_faction_members (
   estimated_stats_updated_at INTEGER,
   networth INTEGER,
   networth_updated_at INTEGER,
+  status_state TEXT,
+  status_description TEXT,
+  plane_image_type TEXT,
+  travel_origin TEXT,
+  travel_destination TEXT,
+  travel_signature TEXT,
+  travel_detected_at INTEGER,
+  travel_started_after INTEGER,
+  travel_started_before INTEGER,
+  estimated_arrival_at INTEGER,
+  estimated_arrival_earliest INTEGER,
+  estimated_arrival_latest INTEGER,
+  status_updated_at INTEGER,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
