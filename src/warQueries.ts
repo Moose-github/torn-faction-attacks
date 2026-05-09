@@ -1,11 +1,11 @@
 import {
+  CHAIN_BONUS_HITS_SQL,
   HOME_FACTION_ID,
   DEFEND_WON_RESULTS_SQL,
   POSITIVE_ATTACK_RESULTS,
   POSITIVE_RESULTS_SQL,
   WAR_TYPES,
 } from "./constants";
-import { getWarChainBonuses } from "./reports";
 import {
   DEFENSE_ACTION_WINDOW_SQL,
   OUTGOING_ACTION_WINDOW_SQL,
@@ -101,14 +101,80 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
     )
       .bind(war.member_respect_limit, war.member_respect_limit, war.member_respect_limit, war.id)
       .all();
-    const chainBonuses = await getWarChainBonuses(env, war.id, 25);
-
     return json({
       ok: true,
       war,
       summary,
       members: memberStats.results ?? [],
-      chain_bonuses: chainBonuses,
+      chain_bonuses: [],
+    });
+  } catch (err: any) {
+    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
+  }
+}
+
+export async function getWarChainBonusesForWar(url: URL, env: Env): Promise<Response> {
+  try {
+    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+
+    if (!name) {
+      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
+    }
+
+    const limit = parseLimit(url.searchParams.get("limit"), 25, 100);
+    const war = (await env.DB.prepare(
+      `
+      SELECT id, name
+      FROM wars
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+      .bind(name)
+      .first()) as { id: number; name: string } | null;
+
+    if (!war) {
+      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+    }
+
+    const chainBonuses = await env.DB.prepare(
+      `
+      SELECT
+        a.id,
+        a.started,
+        a.attacker_id,
+        a.attacker_name,
+        a.attacker_faction_id,
+        a.attacker_faction_name,
+        a.defender_id,
+        a.defender_name,
+        a.defender_faction_id,
+        a.defender_faction_name,
+        a.result,
+        a.chain,
+        a.respect_gain,
+        a.respect_loss,
+        NULL AS adjusted_respect_gain,
+        NULL AS respect_removed
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+      ORDER BY a.chain DESC, a.started ASC
+      LIMIT ?
+      `,
+    )
+      .bind(war.id, limit)
+      .all();
+
+    return json({
+      ok: true,
+      war,
+      chain_bonuses: chainBonuses.results ?? [],
     });
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);

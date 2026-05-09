@@ -34,6 +34,7 @@ import {
   getWar,
   getWarActivity,
   getWarAttacks,
+  getWarChainBonusesForWar,
   exportWarAttacksCsv,
   importHistoricalEvent,
   getWarMemberAttacks,
@@ -299,6 +300,18 @@ export default {
       const authError = await requireMember(request, env);
       if (authError) return authError;
       return cachedGetJson(request, ctx, 5 * 60, () => getWarActivityHeatmap(url, env));
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      url.pathname.endsWith("/chain-bonuses") &&
+      request.method === "GET"
+    ) {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
+      return cachedGetJson(request, ctx, warDataTtlSeconds(15 * 60, 30 * 60), () =>
+        getWarChainBonusesForWar(url, env),
+      );
     }
 
     if (

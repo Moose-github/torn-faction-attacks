@@ -102,6 +102,15 @@ export type WarDetailResponse = {
   chain_bonuses: ChainBonusAttack[];
 };
 
+export type WarChainBonusesResponse = {
+  ok: boolean;
+  war: {
+    id: number;
+    name: string;
+  };
+  chain_bonuses: ChainBonusAttack[];
+};
+
 export type MemberAttackClassification =
   | "enemy_success"
   | "enemy_assist"
@@ -149,8 +158,8 @@ export type ChainBonusAttack = Pick<
   | "respect_loss"
 > & {
   chain: number | null;
-  adjusted_respect_gain: number;
-  respect_removed: number;
+  adjusted_respect_gain?: number | null;
+  respect_removed?: number | null;
 };
 
 export type MemberAttacksResponse = {
@@ -541,6 +550,12 @@ export async function getWarActivityHeatmap(
 ): Promise<FactionActivityHeatmapResponse> {
   return getJson<FactionActivityHeatmapResponse>(
     `/api/wars/${encodeURIComponent(warName)}/activity-heatmap`,
+  );
+}
+
+export async function getWarChainBonuses(warName: string): Promise<WarChainBonusesResponse> {
+  return getJson<WarChainBonusesResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/chain-bonuses`,
   );
 }
 

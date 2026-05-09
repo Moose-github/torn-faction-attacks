@@ -17,6 +17,7 @@ import {
   clearStoredAuthSession,
   getWar,
   getWarActivity,
+  getWarChainBonuses,
   getWarMemberAttacks,
   getWarReportDiscrepancies,
   getWars,
@@ -24,6 +25,7 @@ import {
   getStoredAuthSession,
   refreshAuthSession,
   MemberAttack,
+  ChainBonusAttack,
   MemberStats,
   ReportDiscrepanciesResponse,
   WarDetailResponse,
@@ -73,6 +75,7 @@ import "./styles.css";
 
 const ACTIVE_WAR_REFRESH_MS = 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
+const CHAIN_BONUS_REFRESH_MS = 15 * 60_000;
 
 function App() {
   const [warType, setWarType] = React.useState<WarType>("all");
@@ -83,6 +86,7 @@ function App() {
   const [wars, setWars] = React.useState<WarSummary[]>([]);
   const [selectedWarName, setSelectedWarName] = React.useState<string | null>(null);
   const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
+  const [chainBonuses, setChainBonuses] = React.useState<ChainBonusAttack[]>([]);
   const [memberSort, setMemberSort] = React.useState<MemberSort>({
     key: "enemy_attacks_successful",
     direction: "desc",
@@ -209,6 +213,7 @@ function App() {
     setSelectedMember(null);
     setMemberAttacks([]);
     setActivityBuckets([]);
+    setChainBonuses([]);
 }, [selectedWarName]);
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
@@ -216,6 +221,50 @@ function App() {
   const isAdmin = authSession?.access_level === "admin";
   const isActivityPanelOpen =
     collapsedPanels.factionActivity === false || collapsedPanels.enemyActivity === false;
+
+  React.useEffect(() => {
+    if (!authSession || view !== "war" || !selectedWarName || !selectedWar) {
+      setChainBonuses([]);
+      return;
+    }
+
+    let cancelled = false;
+    const chainBonusWarName = selectedWarName;
+
+    async function loadChainBonuses() {
+      try {
+        const response = await getWarChainBonuses(chainBonusWarName);
+        if (!cancelled) {
+          setChainBonuses(Array.isArray(response.chain_bonuses) ? response.chain_bonuses : []);
+        }
+      } catch {
+        if (!cancelled) {
+          setChainBonuses([]);
+        }
+      }
+    }
+
+    loadChainBonuses();
+
+    if (selectedWar.official_end_time !== null || selectedWar.status === "ended") {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const timer = window.setInterval(loadChainBonuses, CHAIN_BONUS_REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    authSession,
+    selectedWar?.official_end_time,
+    selectedWar?.status,
+    selectedWarName,
+    view,
+  ]);
 
   React.useEffect(() => {
     if (!authSession || view !== "war" || !selectedWarName || !selectedWar || !isActivityPanelOpen) {
@@ -422,7 +471,6 @@ function App() {
 
   const members = sortMembers(warDetail?.members ?? [], memberSort);
   const sortedMemberAttacks = sortMemberAttacks(memberAttacks, memberAttackSort);
-  const chainBonuses = warDetail?.chain_bonuses ?? [];
   const derivedRespectGained = detailNumber(
     warDetail?.summary?.total_respect_gain,
     selectedWar?.total_respect_gain,

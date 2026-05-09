@@ -49,6 +49,7 @@ export function WarRoom({
     React.useState<FactionActivityHeatmapResponse | null>(null);
   const [isLoadingActivityHeatmap, setIsLoadingActivityHeatmap] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({
+    activityHeatmaps: true,
     revivableMembers: true,
   });
   const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
@@ -289,6 +290,12 @@ export function WarRoom({
       </section>
 
       <section className="content-grid">
+        <EnemyStatusSummaryPanel
+          members={enemyScouting?.members ?? []}
+          statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
+          isLoading={isLoadingEnemyScouting}
+        />
+
         <CollapsiblePanel
           title="Stats comparison"
           aside={isLoadingScoutingComparison ? "Loading" : scoutingComparisonMetricLabel(scoutingComparisonMetric)}
@@ -364,12 +371,6 @@ export function WarRoom({
           isCollecting={isRevivableCollectionActive(selectedWar, Math.floor(now / 1000))}
           collapsed={collapsedPanels.revivableMembers ?? true}
           onToggle={() => togglePanel("revivableMembers")}
-        />
-
-        <EnemyStatusSummaryPanel
-          members={enemyScouting?.members ?? []}
-          statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
-          isLoading={isLoadingEnemyScouting}
         />
 
         <EnemyTravelPanel

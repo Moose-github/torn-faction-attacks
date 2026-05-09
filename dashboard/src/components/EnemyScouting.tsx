@@ -6,6 +6,7 @@ import { EmptyState, PanelHeader } from "./Common";
 
 type EnemyScoutingSortKey =
   | "name"
+  | "status"
   | "level"
   | "position"
   | "days_in_faction"
@@ -15,6 +16,19 @@ type EnemyScoutingSortKey =
 type EnemyScoutingSort = {
   key: EnemyScoutingSortKey;
   direction: "asc" | "desc";
+};
+
+type EnemyScoutingFilterKey = EnemyScoutingSortKey | "status";
+type EnemyScoutingFilters = Record<EnemyScoutingFilterKey, string>;
+
+const emptyEnemyScoutingFilters: EnemyScoutingFilters = {
+  name: "",
+  status: "",
+  level: "",
+  position: "",
+  days_in_faction: "",
+  estimated_stats: "",
+  networth: "",
 };
 
 export function EnemyScoutingPanel({
@@ -34,13 +48,22 @@ export function EnemyScoutingPanel({
     key: "estimated_stats",
     direction: "desc",
   });
-  const members = sortEnemyScoutingMembers(scouting?.members ?? [], sort);
+  const [filters, setFilters] = React.useState<EnemyScoutingFilters>(emptyEnemyScoutingFilters);
+  const rawMembers = scouting?.members ?? [];
+  const filteredMembers = filterEnemyScoutingMembers(rawMembers, filters);
+  const members = sortEnemyScoutingMembers(filteredMembers, sort);
+  const hasFilters = Object.values(filters).some((value) => value.trim() !== "");
+  const aside = isLoading
+    ? "Loading"
+    : hasFilters
+      ? `${formatNumber(members.length)} / ${formatNumber(rawMembers.length)} members`
+      : `${formatNumber(members.length)} members`;
 
   return (
     <section className="panel table-panel enemy-scouting-panel">
       <PanelHeader
         title="Enemy faction scouting"
-        aside={isLoading ? "Loading" : `${formatNumber(members.length)} members`}
+        aside={aside}
         control={
           <button
             type="button"
@@ -71,12 +94,31 @@ export function EnemyScoutingPanel({
               <thead>
                 <tr>
                   <SortableHeader label="Member" sortKey="name" sort={sort} onSortChange={setSort} />
-                  <th>Status</th>
+                  <SortableHeader label="Status" sortKey="status" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Level" sortKey="level" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Position" sortKey="position" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Estimated stats" sortKey="estimated_stats" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Networth" sortKey="networth" sort={sort} onSortChange={setSort} />
+                </tr>
+                <tr className="enemy-scouting-filter-row">
+                  <FilterHeader label="Member" filterKey="name" filters={filters} onFiltersChange={setFilters} />
+                  <FilterHeader label="Status" filterKey="status" filters={filters} onFiltersChange={setFilters} />
+                  <FilterHeader label="Level" filterKey="level" filters={filters} onFiltersChange={setFilters} />
+                  <FilterHeader label="Position" filterKey="position" filters={filters} onFiltersChange={setFilters} />
+                  <FilterHeader
+                    label="Days in faction"
+                    filterKey="days_in_faction"
+                    filters={filters}
+                    onFiltersChange={setFilters}
+                  />
+                  <FilterHeader
+                    label="Estimated stats"
+                    filterKey="estimated_stats"
+                    filters={filters}
+                    onFiltersChange={setFilters}
+                  />
+                  <FilterHeader label="Networth" filterKey="networth" filters={filters} onFiltersChange={setFilters} />
                 </tr>
               </thead>
               <tbody>
@@ -129,6 +171,66 @@ export function EnemyScoutingPanel({
       )}
     </section>
   );
+}
+
+function filterEnemyScoutingMembers(
+  members: EnemyFactionMember[],
+  filters: EnemyScoutingFilters,
+): EnemyFactionMember[] {
+  const activeFilters = Object.entries(filters).filter(([, value]) => value.trim() !== "") as Array<
+    [EnemyScoutingFilterKey, string]
+  >;
+  if (activeFilters.length === 0) {
+    return members;
+  }
+
+  return members.filter((member) =>
+    activeFilters.every(([key, filter]) =>
+      enemyScoutingFilterValue(member, key).includes(normalizeFilterText(filter)),
+    ),
+  );
+}
+
+function enemyScoutingFilterValue(
+  member: EnemyFactionMember,
+  key: EnemyScoutingFilterKey,
+): string {
+  if (key === "name") {
+    return normalizeFilterText(`${member.name} ${member.member_id}`);
+  }
+
+  if (key === "status") {
+    return normalizeFilterText(
+      [
+        member.status_state,
+        member.status_description,
+        enemyStatusLabel(member),
+        member.travel_origin,
+        member.travel_destination,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+  }
+
+  if (key === "position") {
+    return normalizeFilterText(member.position ?? "-");
+  }
+
+  if (key === "networth") {
+    return normalizeFilterText(
+      member.networth === null
+        ? "-"
+        : `${member.networth} ${formatNumber(member.networth)} ${formatNetworth(member.networth)}`,
+    );
+  }
+
+  const value = member[key];
+  return normalizeFilterText(value === null || value === undefined ? "-" : `${value} ${formatNumber(Number(value))}`);
+}
+
+function normalizeFilterText(value: string): string {
+  return value.toLowerCase().trim();
 }
 
 function updatedTitle(label: string, updatedAt: number | null): string {
@@ -198,6 +300,10 @@ function scoutingSortValue(
     return (member.position ?? "").toLowerCase();
   }
 
+  if (key === "status") {
+    return enemyStatusLabel(member).toLowerCase();
+  }
+
   return Number(member[key] ?? 0);
 }
 
@@ -227,6 +333,33 @@ function SortableHeader({
           sort.direction === "desc" ? <ArrowDown size={14} /> : <ArrowUp size={14} />
         ) : null}
       </button>
+    </th>
+  );
+}
+
+function FilterHeader({
+  label,
+  filterKey,
+  filters,
+  onFiltersChange,
+}: {
+  label: string;
+  filterKey: EnemyScoutingFilterKey;
+  filters: EnemyScoutingFilters;
+  onFiltersChange: React.Dispatch<React.SetStateAction<EnemyScoutingFilters>>;
+}) {
+  return (
+    <th className="enemy-scouting-filter-cell">
+      <input
+        aria-label={`Filter enemy scouting by ${label}`}
+        value={filters[filterKey]}
+        onChange={(event) =>
+          onFiltersChange((current) => ({
+            ...current,
+            [filterKey]: event.target.value,
+          }))
+        }
+      />
     </th>
   );
 }
