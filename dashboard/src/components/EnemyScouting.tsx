@@ -18,19 +18,6 @@ type EnemyScoutingSort = {
   direction: "asc" | "desc";
 };
 
-type EnemyScoutingFilterKey = EnemyScoutingSortKey | "status";
-type EnemyScoutingFilters = Record<EnemyScoutingFilterKey, string>;
-
-const emptyEnemyScoutingFilters: EnemyScoutingFilters = {
-  name: "",
-  status: "",
-  level: "",
-  position: "",
-  days_in_faction: "",
-  estimated_stats: "",
-  networth: "",
-};
-
 export function EnemyScoutingPanel({
   scouting,
   isLoading,
@@ -48,22 +35,13 @@ export function EnemyScoutingPanel({
     key: "estimated_stats",
     direction: "desc",
   });
-  const [filters, setFilters] = React.useState<EnemyScoutingFilters>(emptyEnemyScoutingFilters);
-  const rawMembers = scouting?.members ?? [];
-  const filteredMembers = filterEnemyScoutingMembers(rawMembers, filters);
-  const members = sortEnemyScoutingMembers(filteredMembers, sort);
-  const hasFilters = Object.values(filters).some((value) => value.trim() !== "");
-  const aside = isLoading
-    ? "Loading"
-    : hasFilters
-      ? `${formatNumber(members.length)} / ${formatNumber(rawMembers.length)} members`
-      : `${formatNumber(members.length)} members`;
+  const members = sortEnemyScoutingMembers(scouting?.members ?? [], sort);
 
   return (
     <section className="panel table-panel enemy-scouting-panel">
       <PanelHeader
         title="Enemy faction scouting"
-        aside={aside}
+        aside={isLoading ? "Loading" : `${formatNumber(members.length)} members`}
         control={
           <button
             type="button"
@@ -100,25 +78,6 @@ export function EnemyScoutingPanel({
                   <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Estimated stats" sortKey="estimated_stats" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Networth" sortKey="networth" sort={sort} onSortChange={setSort} />
-                </tr>
-                <tr className="enemy-scouting-filter-row">
-                  <FilterHeader label="Member" filterKey="name" filters={filters} onFiltersChange={setFilters} />
-                  <FilterHeader label="Status" filterKey="status" filters={filters} onFiltersChange={setFilters} />
-                  <FilterHeader label="Level" filterKey="level" filters={filters} onFiltersChange={setFilters} />
-                  <FilterHeader label="Position" filterKey="position" filters={filters} onFiltersChange={setFilters} />
-                  <FilterHeader
-                    label="Days in faction"
-                    filterKey="days_in_faction"
-                    filters={filters}
-                    onFiltersChange={setFilters}
-                  />
-                  <FilterHeader
-                    label="Estimated stats"
-                    filterKey="estimated_stats"
-                    filters={filters}
-                    onFiltersChange={setFilters}
-                  />
-                  <FilterHeader label="Networth" filterKey="networth" filters={filters} onFiltersChange={setFilters} />
                 </tr>
               </thead>
               <tbody>
@@ -173,66 +132,6 @@ export function EnemyScoutingPanel({
   );
 }
 
-function filterEnemyScoutingMembers(
-  members: EnemyFactionMember[],
-  filters: EnemyScoutingFilters,
-): EnemyFactionMember[] {
-  const activeFilters = Object.entries(filters).filter(([, value]) => value.trim() !== "") as Array<
-    [EnemyScoutingFilterKey, string]
-  >;
-  if (activeFilters.length === 0) {
-    return members;
-  }
-
-  return members.filter((member) =>
-    activeFilters.every(([key, filter]) =>
-      enemyScoutingFilterValue(member, key).includes(normalizeFilterText(filter)),
-    ),
-  );
-}
-
-function enemyScoutingFilterValue(
-  member: EnemyFactionMember,
-  key: EnemyScoutingFilterKey,
-): string {
-  if (key === "name") {
-    return normalizeFilterText(`${member.name} ${member.member_id}`);
-  }
-
-  if (key === "status") {
-    return normalizeFilterText(
-      [
-        member.status_state,
-        member.status_description,
-        enemyStatusLabel(member),
-        member.travel_origin,
-        member.travel_destination,
-      ]
-        .filter(Boolean)
-        .join(" "),
-    );
-  }
-
-  if (key === "position") {
-    return normalizeFilterText(member.position ?? "-");
-  }
-
-  if (key === "networth") {
-    return normalizeFilterText(
-      member.networth === null
-        ? "-"
-        : `${member.networth} ${formatNumber(member.networth)} ${formatNetworth(member.networth)}`,
-    );
-  }
-
-  const value = member[key];
-  return normalizeFilterText(value === null || value === undefined ? "-" : `${value} ${formatNumber(Number(value))}`);
-}
-
-function normalizeFilterText(value: string): string {
-  return value.toLowerCase().trim();
-}
-
 function updatedTitle(label: string, updatedAt: number | null): string {
   return `${label} updated: ${formatRelativeTime(updatedAt)}`;
 }
@@ -250,12 +149,48 @@ function enemyStatusLabel(member: EnemyFactionMember): string {
     return member.travel_destination ? `Traveling to ${member.travel_destination}` : "Traveling";
   }
 
+  if (member.status_state === "Hospital") {
+    const duration = hospitalDurationLabel(member.status_description);
+    return duration ? `Hospital ${duration}` : "Hospital";
+  }
+
   return member.status_state ?? "Unknown";
 }
 
 function enemyStatusTitle(member: EnemyFactionMember): string {
+  if (member.status_state === "Hospital") {
+    return `Hospital. Status updated: ${formatRelativeTime(member.status_updated_at ?? null)}`;
+  }
+
   const description = member.status_description ?? member.status_state ?? "Unknown status";
   return `${description}. Status updated: ${formatRelativeTime(member.status_updated_at ?? null)}`;
+}
+
+function hospitalDurationLabel(description: string | null | undefined): string | null {
+  if (!description) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  const matches = description.matchAll(
+    /(\d+)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi,
+  );
+
+  for (const match of matches) {
+    const value = match[1];
+    const unit = match[2].toLowerCase();
+    if (unit.startsWith("d")) {
+      parts.push(`${value}d`);
+    } else if (unit.startsWith("h")) {
+      parts.push(`${value}h`);
+    } else if (unit.startsWith("m")) {
+      parts.push(`${value}m`);
+    } else if (unit.startsWith("s")) {
+      parts.push(`${value}s`);
+    }
+  }
+
+  return parts.length > 0 ? parts.slice(0, 2).join(" ") : null;
 }
 
 function enemyStatusClass(status: string | null | undefined): string {
@@ -333,33 +268,6 @@ function SortableHeader({
           sort.direction === "desc" ? <ArrowDown size={14} /> : <ArrowUp size={14} />
         ) : null}
       </button>
-    </th>
-  );
-}
-
-function FilterHeader({
-  label,
-  filterKey,
-  filters,
-  onFiltersChange,
-}: {
-  label: string;
-  filterKey: EnemyScoutingFilterKey;
-  filters: EnemyScoutingFilters;
-  onFiltersChange: React.Dispatch<React.SetStateAction<EnemyScoutingFilters>>;
-}) {
-  return (
-    <th className="enemy-scouting-filter-cell">
-      <input
-        aria-label={`Filter enemy scouting by ${label}`}
-        value={filters[filterKey]}
-        onChange={(event) =>
-          onFiltersChange((current) => ({
-            ...current,
-            [filterKey]: event.target.value,
-          }))
-        }
-      />
     </th>
   );
 }

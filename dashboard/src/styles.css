@@ -445,21 +445,6 @@ h2 {
   grid-column: 1 / -1;
 }
 
-.enemy-scouting-filter-row th {
-  top: 39px;
-  padding-top: 0;
-}
-
-.enemy-scouting-filter-cell input {
-  width: 100%;
-  min-width: 86px;
-  min-height: 30px;
-  padding: 0 8px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: none;
-}
-
 .scouting-comparison-panel {
   grid-column: 1 / -1;
 }
