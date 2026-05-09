@@ -469,8 +469,12 @@ function EnemyTravelPanel({
 }
 
 function formatTravelRoute(member: EnemyFactionMember): string {
-  const origin = member.travel_origin ?? "-";
-  const destination = member.travel_destination ?? "-";
+  if (!member.travel_origin || !member.travel_destination) {
+    return member.status_description ?? "Route unknown";
+  }
+
+  const origin = member.travel_origin;
+  const destination = member.travel_destination;
   return `${origin} -> ${destination}`;
 }
 

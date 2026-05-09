@@ -350,7 +350,7 @@ export function FactionActivityComparisonHeatmap({
     <div className="heatmap-block heatmap-comparison-block">
       <div className="heatmap-title-row">
         <strong>Activity comparison</strong>
-        <span>{formatNumber(comparableSamples)} comparable samples</span>
+        <span>{formatNumber(comparableSamples)} comparable time slots</span>
       </div>
       <div className="heatmap-day-stack">
         <div className="heatmap-day">

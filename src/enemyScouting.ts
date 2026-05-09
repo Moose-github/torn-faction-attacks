@@ -929,6 +929,19 @@ function parseTravelDescription(description: string | null): ParsedTravel | null
     };
   }
 
+  const explicitOutbound = /^Traveling from Torn to (.+)$/i.exec(description);
+  if (explicitOutbound) {
+    const destination = normalizeTravelLocation(explicitOutbound[1]);
+    if (!destination || destination === TORN_LOCATION) {
+      return null;
+    }
+    return {
+      origin: TORN_LOCATION,
+      destination,
+      flightLocation: destination,
+    };
+  }
+
   const returning = /^Traveling from (.+) to Torn$/i.exec(description);
   if (returning) {
     const origin = normalizeTravelLocation(returning[1]);
