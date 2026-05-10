@@ -73,7 +73,7 @@ import {
 } from "./utils/members";
 import "./styles.css";
 
-const ACTIVE_WAR_REFRESH_MS = 60_000;
+const ACTIVE_WAR_REFRESH_MS = 5 * 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
 const CHAIN_BONUS_REFRESH_MS = 15 * 60_000;
 
@@ -221,6 +221,7 @@ function App() {
   const isAdmin = authSession?.access_level === "admin";
   const isActivityPanelOpen =
     collapsedPanels.factionActivity === false || collapsedPanels.enemyActivity === false;
+  const isReportValidationOpen = collapsedPanels.reportValidation === false;
 
   React.useEffect(() => {
     if (!authSession || view !== "war" || !selectedWarName || !selectedWar) {
@@ -360,12 +361,12 @@ function App() {
         setWars(warsResponse.wars);
         setWarDetail(detailResponse);
 
-        if (detailResponse.war.torn_report_fetched_at) {
+        if (detailResponse.war.torn_report_fetched_at && isReportValidationOpen) {
           const discrepancies = await getWarReportDiscrepancies(selectedWarName);
           if (!cancelled) {
             setReportDiscrepancies(discrepancies);
           }
-        } else {
+        } else if (!detailResponse.war.torn_report_fetched_at) {
           setReportDiscrepancies(null);
         }
       } catch (err) {
@@ -388,14 +389,17 @@ function App() {
     view,
     warType,
     authSession,
+    isReportValidationOpen,
   ]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadReportDiscrepancies() {
-      if (!authSession || !selectedWarName || !hasTornReport) {
-        setReportDiscrepancies(null);
+      if (!authSession || !selectedWarName || !hasTornReport || !isReportValidationOpen) {
+        if (!hasTornReport) {
+          setReportDiscrepancies(null);
+        }
         return;
       }
 
@@ -422,7 +426,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [authSession, hasTornReport, selectedWarName]);
+  }, [authSession, hasTornReport, isReportValidationOpen, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;

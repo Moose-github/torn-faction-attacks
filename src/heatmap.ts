@@ -47,7 +47,10 @@ type FactionActivitySampleMetrics = {
   revivableChangedRows: number;
 };
 
-export async function sampleFactionActivityHeatmaps(env: Env): Promise<HeatmapSampleMetrics> {
+export async function sampleFactionActivityHeatmaps(
+  env: Env,
+  options: { membersByFaction?: Map<number, TornFactionMember[]> } = {},
+): Promise<HeatmapSampleMetrics> {
   const sampledAt = nowSeconds();
   const metrics: HeatmapSampleMetrics = {
     writeStatements: 0,
@@ -67,7 +70,13 @@ export async function sampleFactionActivityHeatmaps(env: Env): Promise<HeatmapSa
   const updateRevivableMembers = shouldUpdateRevivableMembers(latestWar, sampledAt);
   addFactionSampleMetrics(
     metrics,
-    await sampleFactionActivity(env, HOME_FACTION_ID, sampledAt, updateRevivableMembers),
+    await sampleFactionActivity(
+      env,
+      HOME_FACTION_ID,
+      sampledAt,
+      updateRevivableMembers,
+      options.membersByFaction?.get(HOME_FACTION_ID),
+    ),
     "home",
   );
 
@@ -82,7 +91,13 @@ export async function sampleFactionActivityHeatmaps(env: Env): Promise<HeatmapSa
     metrics.staleHeatmapRowsDeleted += enemyCleanup.changedRows;
     addFactionSampleMetrics(
       metrics,
-      await sampleFactionActivity(env, latestWar.enemy_faction_id, sampledAt, updateRevivableMembers),
+      await sampleFactionActivity(
+        env,
+        latestWar.enemy_faction_id,
+        sampledAt,
+        updateRevivableMembers,
+        options.membersByFaction?.get(latestWar.enemy_faction_id),
+      ),
       "enemy",
     );
   }
@@ -195,6 +210,7 @@ async function sampleFactionActivity(
   factionId: number,
   sampledAt: number,
   updateRevivable: boolean,
+  prefetchedMembers?: TornFactionMember[],
 ): Promise<FactionActivitySampleMetrics> {
   const metrics: FactionActivitySampleMetrics = {
     sampled: false,
@@ -221,7 +237,7 @@ async function sampleFactionActivity(
     return metrics;
   }
 
-  const members = await fetchTornFactionMembers(env, factionId);
+  const members = prefetchedMembers ?? await fetchTornFactionMembers(env, factionId);
   const activeCount = countRecentlyActiveMembers(members, sampledAt);
   if (factionId === HOME_FACTION_ID) {
     const revokedSessions = await revokeSessionsForFormerFactionMembers(

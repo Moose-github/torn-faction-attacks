@@ -2,7 +2,7 @@ import { refreshMissingFfscouterEstimates } from "./enemyScouting";
 import { sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncMissingRankedWarReports } from "./ingestion";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
-import { Env } from "./types";
+import { Env, TornFactionMember } from "./types";
 import { json, nowSeconds } from "./utils";
 
 type MaintenanceTaskMetrics = {
@@ -30,13 +30,19 @@ const METRICS_RETENTION_STATE_NAME = "scheduled_metrics_retention";
 const MEMBER_STAT_CORRECTION_INTERVAL_SECONDS = 60 * 60;
 const MEMBER_STAT_CORRECTION_STATE_NAME = "open_war_member_stats_rebuild";
 
-export async function runScheduledMaintenance(env: Env): Promise<void> {
+export async function runScheduledMaintenance(
+  env: Env,
+  options: { heatmapMembersByFaction?: Map<number, TornFactionMember[]> } = {},
+): Promise<void> {
   const runId = crypto.randomUUID();
   const startedAt = nowSeconds();
   const tasks: MaintenanceTask[] = [
     {
       name: "heatmap sampling",
-      run: () => sampleFactionActivityHeatmaps(env),
+      run: () =>
+        sampleFactionActivityHeatmaps(env, {
+          membersByFaction: options.heatmapMembersByFaction,
+        }),
     },
     {
       name: "missing ranked war reports",

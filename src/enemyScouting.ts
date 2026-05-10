@@ -155,6 +155,8 @@ export type EnemyTravelRefreshMetrics = {
   fetchedMembers: number;
   updatedMembers: number;
   skipped: boolean;
+  factionId?: number | null;
+  members?: TornFactionMember[];
 };
 
 export async function getEnemyScoutingForWar(url: URL, env: Env): Promise<Response> {
@@ -273,6 +275,7 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
 
 export async function refreshCurrentEnemyTravelStatuses(
   env: Env,
+  options: { includeMembers?: boolean } = {},
 ): Promise<EnemyTravelRefreshMetrics> {
   const war = await readCurrentScoutingWar(env);
   if (!war) {
@@ -282,6 +285,7 @@ export async function refreshCurrentEnemyTravelStatuses(
       fetchedMembers: 0,
       updatedMembers: 0,
       skipped: true,
+      factionId: null,
     };
   }
 
@@ -290,6 +294,7 @@ export async function refreshCurrentEnemyTravelStatuses(
     war.id,
     war.enemy_faction_id,
     war.enemy_scouting_status_checked_at,
+    { includeMembers: options.includeMembers },
   );
 }
 
@@ -674,9 +679,10 @@ async function refreshEnemyFactionMemberStatuses(
   warId: number,
   factionId: number,
   previousPollAt: number | null,
+  options: { members?: TornFactionMember[]; includeMembers?: boolean } = {},
 ): Promise<EnemyTravelRefreshMetrics> {
   const fetchedAt = nowSeconds();
-  const members = await fetchTornFactionMembers(env, factionId);
+  const members = options.members ?? await fetchTornFactionMembers(env, factionId);
 
   if (members.length === 0) {
     return {
@@ -685,6 +691,8 @@ async function refreshEnemyFactionMemberStatuses(
       fetchedMembers: 0,
       updatedMembers: 0,
       skipped: true,
+      factionId,
+      members: options.includeMembers ? members : undefined,
     };
   }
 
@@ -714,6 +722,8 @@ async function refreshEnemyFactionMemberStatuses(
     fetchedMembers: members.length,
     updatedMembers: statements.length,
     skipped: false,
+    factionId,
+    members: options.includeMembers ? members : undefined,
   };
 }
 

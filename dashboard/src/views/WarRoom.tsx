@@ -54,6 +54,7 @@ export function WarRoom({
   });
   const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
   const now = useCurrentTime();
+  const isActivityHeatmapsOpen = collapsedPanels.activityHeatmaps === false;
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -148,7 +149,7 @@ export function WarRoom({
     let cancelled = false;
 
     async function loadActivityHeatmap() {
-      if (!selectedWarName || !canLoadScouting) {
+      if (!selectedWarName || !canLoadScouting || !isActivityHeatmapsOpen) {
         setActivityHeatmap(null);
         return;
       }
@@ -175,7 +176,7 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadScouting, selectedWarName]);
+  }, [canLoadScouting, isActivityHeatmapsOpen, selectedWarName]);
 
   React.useEffect(() => {
     if (!selectedWarName || !canLoadScouting || selectedWar?.official_end_time !== null) {
@@ -187,12 +188,14 @@ export function WarRoom({
       try {
         const [comparisonResponse, heatmapResponse] = await Promise.all([
           getScoutingComparison(selectedWarName),
-          getWarActivityHeatmap(selectedWarName),
+          isActivityHeatmapsOpen ? getWarActivityHeatmap(selectedWarName) : Promise.resolve(null),
         ]);
 
         if (!cancelled) {
           setScoutingComparison(comparisonResponse);
-          setActivityHeatmap(heatmapResponse);
+          if (heatmapResponse) {
+            setActivityHeatmap(heatmapResponse);
+          }
         }
       } catch {
         if (!cancelled) {
@@ -205,7 +208,7 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadScouting, selectedWar?.official_end_time, selectedWarName]);
+  }, [canLoadScouting, isActivityHeatmapsOpen, selectedWar?.official_end_time, selectedWarName]);
 
   React.useEffect(() => {
     if (!selectedWarName || !canLoadScouting || selectedWar?.official_end_time !== null) {
@@ -243,7 +246,9 @@ export function WarRoom({
     try {
       setEnemyScouting(await refreshEnemyScouting(selectedWarName));
       setScoutingComparison(await getScoutingComparison(selectedWarName));
-      setActivityHeatmap(await getWarActivityHeatmap(selectedWarName));
+      if (isActivityHeatmapsOpen) {
+        setActivityHeatmap(await getWarActivityHeatmap(selectedWarName));
+      }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {

@@ -23,7 +23,7 @@ import {
 import { getLatestMaintenanceRun, runScheduledMaintenance } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
-import { ExecutionContext, Env, ScheduledController } from "./types";
+import { ExecutionContext, Env, ScheduledController, TornFactionMember } from "./types";
 import { corsHeaders, json, nowSeconds, parseLimit } from "./utils";
 import {
   createWar,
@@ -350,7 +350,10 @@ export default {
     const minute = new Date(event.scheduledTime).getUTCMinutes();
     const jobs: Array<{ label: string; run: () => Promise<unknown> }> = [];
 
-    if (minute % 5 === 0) {
+    if (minute % 15 === 0) {
+      jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
+      jobs.push({ label: "Cron travel and maintenance", run: () => runTravelAndMaintenance(env) });
+    } else if (minute % 5 === 0) {
       jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
       jobs.push({
         label: "Cron enemy travel",
@@ -367,10 +370,6 @@ export default {
       });
     }
 
-    if (minute % 15 === 0) {
-      jobs.push({ label: "Cron maintenance", run: () => runScheduledMaintenance(env) });
-    }
-
     ctx.waitUntil(
       Promise.allSettled(jobs.map((job) => job.run())).then((results) => {
         results.forEach((result, index) => {
@@ -384,6 +383,22 @@ export default {
     );
   },
 };
+
+async function runTravelAndMaintenance(env: Env): Promise<void> {
+  const heatmapMembersByFaction = new Map<number, TornFactionMember[]>();
+
+  try {
+    const travel = await refreshCurrentEnemyTravelStatuses(env, { includeMembers: true });
+    if (travel.factionId && travel.members) {
+      heatmapMembersByFaction.set(travel.factionId, travel.members);
+    }
+  } catch (err: any) {
+    console.error("Cron enemy travel failed:", err?.message || err);
+    console.error(err);
+  }
+
+  await runScheduledMaintenance(env, { heatmapMembersByFaction });
+}
 
 type CacheTtl =
   | number
