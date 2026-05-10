@@ -91,12 +91,12 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
         wms.*,
         CASE
           WHEN ? IS NOT NULL AND ? > 0
-          THEN wms.enemy_respect_gained * 100.0 / ?
+          THEN wms.respect_gained * 100.0 / ?
           ELSE NULL
         END AS member_respect_limit_percent
       FROM war_member_stats wms
       WHERE wms.war_id = ?
-      ORDER BY enemy_respect_gained DESC, enemy_attacks_successful DESC, enemy_attacks_total DESC
+      ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, attacks_vs_enemy_total DESC
       `,
     )
       .bind(war.member_respect_limit, war.member_respect_limit, war.member_respect_limit, war.id)
@@ -603,24 +603,24 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       wms.member_id,
       MAX(wms.member_name) AS member_name,
       COUNT(DISTINCT wms.war_id) AS wars_participated,
-      COALESCE(SUM(wms.enemy_attacks_total), 0) AS enemy_attacks_total,
-      COALESCE(SUM(wms.enemy_attacks_successful), 0) AS enemy_attacks_successful,
-      COALESCE(SUM(wms.enemy_respect_gained), 0) AS enemy_respect_gained,
-      COALESCE(SUM(wms.enemy_assists), 0) AS enemy_assists,
-      COALESCE(SUM(wms.enemy_hospitalizations), 0) AS enemy_hospitalizations,
-      COALESCE(SUM(wms.enemy_mugs), 0) AS enemy_mugs,
-      COALESCE(SUM(wms.enemy_retaliations), 0) AS enemy_retaliations,
-      COALESCE(SUM(wms.outside_attacks), 0) AS outside_attacks,
-      COALESCE(SUM(wms.friendly_hospitals), 0) AS friendly_hospitals,
+      COALESCE(SUM(wms.attacks_vs_enemy_total), 0) AS attacks_vs_enemy_total,
+      COALESCE(SUM(wms.attacks_vs_enemy_successful), 0) AS attacks_vs_enemy_successful,
+      COALESCE(SUM(wms.respect_gained), 0) AS respect_gained,
+      COALESCE(SUM(wms.assists_vs_enemy), 0) AS assists_vs_enemy,
+      COALESCE(SUM(wms.hospitalizations_vs_enemy), 0) AS hospitalizations_vs_enemy,
+      COALESCE(SUM(wms.mugs_vs_enemy), 0) AS mugs_vs_enemy,
+      COALESCE(SUM(wms.retaliations_vs_enemy), 0) AS retaliations_vs_enemy,
+      COALESCE(SUM(wms.outside_hits), 0) AS outside_hits,
+      COALESCE(SUM(wms.friendly_hosps), 0) AS friendly_hosps,
       CASE
-        WHEN COALESCE(SUM(wms.enemy_attacks_total), 0) > 0
-        THEN SUM(COALESCE(wms.average_fair_fight, 0) * wms.enemy_attacks_total) * 1.0
-          / SUM(wms.enemy_attacks_total)
+        WHEN COALESCE(SUM(wms.attacks_vs_enemy_total), 0) > 0
+        THEN SUM(COALESCE(wms.average_fair_fight, 0) * wms.attacks_vs_enemy_total) * 1.0
+          / SUM(wms.attacks_vs_enemy_total)
         ELSE NULL
       END AS average_fair_fight,
       AVG(CASE
         WHEN w.member_respect_limit IS NOT NULL AND w.member_respect_limit > 0
-        THEN wms.enemy_respect_gained * 100.0 / w.member_respect_limit
+        THEN wms.respect_gained * 100.0 / w.member_respect_limit
         ELSE NULL
       END) AS member_respect_limit_percent,
       COALESCE(SUM(wms.defends_total), 0) AS defends_total,
@@ -633,7 +633,7 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     JOIN wars w ON w.id = wms.war_id
     WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
     GROUP BY wms.member_id
-    ORDER BY enemy_respect_gained DESC, enemy_attacks_successful DESC, enemy_attacks_total DESC
+    ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, attacks_vs_enemy_total DESC
     `,
   )
     .bind(warType, warType)

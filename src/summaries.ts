@@ -95,16 +95,16 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
     )
     SELECT
       w.id,
-      COALESCE(SUM(wms.enemy_attacks_total), 0) AS faction_attacks,
+      COALESCE(SUM(wms.attacks_vs_enemy_total), 0) AS faction_attacks,
       COALESCE(SUM(wms.defends_total), 0) AS enemy_attacks,
-      COALESCE(SUM(wms.outside_attacks), 0) AS outside_hits_outgoing,
-      COALESCE(SUM(wms.enemy_respect_gained), 0) AS total_respect_gain,
+      COALESCE(SUM(wms.outside_hits), 0) AS outside_hits_outgoing,
+      COALESCE(SUM(wms.respect_gained), 0) AS total_respect_gain,
       COALESCE(SUM(wms.respect_lost), 0) AS total_respect_lost,
       COUNT(CASE
-        WHEN wms.enemy_attacks_total > 0
-          OR wms.enemy_assists > 0
-          OR wms.outside_attacks > 0
-          OR wms.friendly_hospitals > 0
+        WHEN wms.attacks_vs_enemy_total > 0
+          OR wms.assists_vs_enemy > 0
+          OR wms.outside_hits > 0
+          OR wms.friendly_hosps > 0
         THEN 1
       END) AS unique_attackers,
       MIN(wms.first_action_at) AS first_attack_at,
@@ -169,16 +169,16 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
   const resetStatement = env.DB.prepare(
     `
     UPDATE war_member_stats
-    SET enemy_attacks_total = 0,
-        enemy_attacks_successful = 0,
-        enemy_respect_gained = 0,
-        enemy_respect_gained_raw = 0,
-        enemy_assists = 0,
-        enemy_hospitalizations = 0,
-        enemy_mugs = 0,
-        enemy_retaliations = 0,
-        outside_attacks = 0,
-        friendly_hospitals = 0,
+    SET attacks_vs_enemy_total = 0,
+        attacks_vs_enemy_successful = 0,
+        respect_gained = 0,
+        respect_gained_raw = 0,
+        assists_vs_enemy = 0,
+        hospitalizations_vs_enemy = 0,
+        mugs_vs_enemy = 0,
+        retaliations_vs_enemy = 0,
+        outside_hits = 0,
+        friendly_hosps = 0,
         average_fair_fight = NULL,
         defends_total = 0,
         defends_won = 0,
@@ -247,16 +247,16 @@ async function upsertWarMemberAttackStats(
       war_id,
       member_id,
       member_name,
-      enemy_attacks_total,
-      enemy_attacks_successful,
-      enemy_respect_gained,
-      enemy_respect_gained_raw,
-      enemy_assists,
-      enemy_hospitalizations,
-      enemy_mugs,
-      enemy_retaliations,
-      outside_attacks,
-      friendly_hospitals,
+      attacks_vs_enemy_total,
+      attacks_vs_enemy_successful,
+      respect_gained,
+      respect_gained_raw,
+      assists_vs_enemy,
+      hospitalizations_vs_enemy,
+      mugs_vs_enemy,
+      retaliations_vs_enemy,
+      outside_hits,
+      friendly_hosps,
       average_fair_fight,
       first_action_at,
       last_action_at
@@ -268,13 +268,13 @@ async function upsertWarMemberAttackStats(
       SUM(CASE
         WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id THEN 1
         ELSE 0
-      END) AS enemy_attacks_total,
+      END) AS attacks_vs_enemy_total,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result IN (${POSITIVE_RESULTS_SQL})
         THEN 1
         ELSE 0
-      END) AS enemy_attacks_successful,
+      END) AS attacks_vs_enemy_successful,
       COALESCE(SUM(CASE
         WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id
         THEN CASE
@@ -284,38 +284,38 @@ async function upsertWarMemberAttackStats(
           ELSE a.respect_gain
         END
         ELSE 0
-      END), 0) AS enemy_respect_gained,
+      END), 0) AS respect_gained,
       COALESCE(SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result IN (${POSITIVE_RESULTS_SQL})
         THEN a.respect_gain
         ELSE 0
-      END), 0) AS enemy_respect_gained_raw,
+      END), 0) AS respect_gained_raw,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Assist'
         THEN 1
         ELSE 0
-      END) AS enemy_assists,
+      END) AS assists_vs_enemy,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Hospitalized'
         THEN 1
         ELSE 0
-      END) AS enemy_hospitalizations,
+      END) AS hospitalizations_vs_enemy,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Mugged'
         THEN 1
         ELSE 0
-      END) AS enemy_mugs,
+      END) AS mugs_vs_enemy,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Hospitalized'
          AND COALESCE(a.m_retaliation, 1) > 1
         THEN 1
         ELSE 0
-      END) AS enemy_retaliations,
+      END) AS retaliations_vs_enemy,
       SUM(CASE
         WHEN w.enemy_faction_id IS NOT NULL
          AND (
@@ -328,13 +328,13 @@ async function upsertWarMemberAttackStats(
          )
         THEN 1
         ELSE 0
-      END) AS outside_attacks,
+      END) AS outside_hits,
       SUM(CASE
         WHEN a.result = 'Hospitalized'
          AND a.defender_faction_id = ${HOME_FACTION_ID}
         THEN 1
         ELSE 0
-      END) AS friendly_hospitals,
+      END) AS friendly_hosps,
       AVG(CASE
         WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id
         THEN a.m_fair_fight
@@ -353,22 +353,22 @@ async function upsertWarMemberAttackStats(
     GROUP BY a.war_id, a.attacker_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      enemy_attacks_total = war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total,
-      enemy_attacks_successful = war_member_stats.enemy_attacks_successful + excluded.enemy_attacks_successful,
-      enemy_respect_gained = war_member_stats.enemy_respect_gained + excluded.enemy_respect_gained,
-      enemy_respect_gained_raw = war_member_stats.enemy_respect_gained_raw + excluded.enemy_respect_gained_raw,
-      enemy_assists = war_member_stats.enemy_assists + excluded.enemy_assists,
-      enemy_hospitalizations = war_member_stats.enemy_hospitalizations + excluded.enemy_hospitalizations,
-      enemy_mugs = war_member_stats.enemy_mugs + excluded.enemy_mugs,
-      enemy_retaliations = war_member_stats.enemy_retaliations + excluded.enemy_retaliations,
-      outside_attacks = war_member_stats.outside_attacks + excluded.outside_attacks,
-      friendly_hospitals = war_member_stats.friendly_hospitals + excluded.friendly_hospitals,
+      attacks_vs_enemy_total = war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total,
+      attacks_vs_enemy_successful = war_member_stats.attacks_vs_enemy_successful + excluded.attacks_vs_enemy_successful,
+      respect_gained = war_member_stats.respect_gained + excluded.respect_gained,
+      respect_gained_raw = war_member_stats.respect_gained_raw + excluded.respect_gained_raw,
+      assists_vs_enemy = war_member_stats.assists_vs_enemy + excluded.assists_vs_enemy,
+      hospitalizations_vs_enemy = war_member_stats.hospitalizations_vs_enemy + excluded.hospitalizations_vs_enemy,
+      mugs_vs_enemy = war_member_stats.mugs_vs_enemy + excluded.mugs_vs_enemy,
+      retaliations_vs_enemy = war_member_stats.retaliations_vs_enemy + excluded.retaliations_vs_enemy,
+      outside_hits = war_member_stats.outside_hits + excluded.outside_hits,
+      friendly_hosps = war_member_stats.friendly_hosps + excluded.friendly_hosps,
       average_fair_fight = CASE
-        WHEN war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total > 0 THEN
+        WHEN war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total > 0 THEN
           (
-            COALESCE(war_member_stats.average_fair_fight, 0) * war_member_stats.enemy_attacks_total +
-            COALESCE(excluded.average_fair_fight, 0) * excluded.enemy_attacks_total
-          ) / (war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total)
+            COALESCE(war_member_stats.average_fair_fight, 0) * war_member_stats.attacks_vs_enemy_total +
+            COALESCE(excluded.average_fair_fight, 0) * excluded.attacks_vs_enemy_total
+          ) / (war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total)
         ELSE COALESCE(excluded.average_fair_fight, war_member_stats.average_fair_fight)
       END,
       first_action_at = CASE
@@ -424,8 +424,8 @@ async function upsertIngestedWarMemberAttackStats(
       SELECT
         member_id,
         CASE
-          WHEN enemy_attacks_successful > 0
-          THEN enemy_respect_gained_raw * 1.0 / enemy_attacks_successful
+          WHEN attacks_vs_enemy_successful > 0
+          THEN respect_gained_raw * 1.0 / attacks_vs_enemy_successful
           ELSE NULL
         END AS avg_respect
       FROM war_member_stats
@@ -434,8 +434,8 @@ async function upsertIngestedWarMemberAttackStats(
     war_average AS (
       SELECT
         CASE
-          WHEN COALESCE(SUM(enemy_attacks_successful), 0) > 0
-          THEN SUM(enemy_respect_gained_raw) * 1.0 / SUM(enemy_attacks_successful)
+          WHEN COALESCE(SUM(attacks_vs_enemy_successful), 0) > 0
+          THEN SUM(respect_gained_raw) * 1.0 / SUM(attacks_vs_enemy_successful)
           ELSE NULL
         END AS avg_respect
       FROM war_member_stats
@@ -445,16 +445,16 @@ async function upsertIngestedWarMemberAttackStats(
       war_id,
       member_id,
       member_name,
-      enemy_attacks_total,
-      enemy_attacks_successful,
-      enemy_respect_gained,
-      enemy_respect_gained_raw,
-      enemy_assists,
-      enemy_hospitalizations,
-      enemy_mugs,
-      enemy_retaliations,
-      outside_attacks,
-      friendly_hospitals,
+      attacks_vs_enemy_total,
+      attacks_vs_enemy_successful,
+      respect_gained,
+      respect_gained_raw,
+      assists_vs_enemy,
+      hospitalizations_vs_enemy,
+      mugs_vs_enemy,
+      retaliations_vs_enemy,
+      outside_hits,
+      friendly_hosps,
       average_fair_fight,
       first_action_at,
       last_action_at
@@ -466,13 +466,13 @@ async function upsertIngestedWarMemberAttackStats(
       SUM(CASE
         WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id THEN 1
         ELSE 0
-      END) AS enemy_attacks_total,
+      END) AS attacks_vs_enemy_total,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result IN (${POSITIVE_RESULTS_SQL})
         THEN 1
         ELSE 0
-      END) AS enemy_attacks_successful,
+      END) AS attacks_vs_enemy_successful,
       COALESCE(SUM(CASE
         WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id
         THEN CASE
@@ -482,38 +482,38 @@ async function upsertIngestedWarMemberAttackStats(
           ELSE a.respect_gain
         END
         ELSE 0
-      END), 0) AS enemy_respect_gained,
+      END), 0) AS respect_gained,
       COALESCE(SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result IN (${POSITIVE_RESULTS_SQL})
         THEN a.respect_gain
         ELSE 0
-      END), 0) AS enemy_respect_gained_raw,
+      END), 0) AS respect_gained_raw,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Assist'
         THEN 1
         ELSE 0
-      END) AS enemy_assists,
+      END) AS assists_vs_enemy,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Hospitalized'
         THEN 1
         ELSE 0
-      END) AS enemy_hospitalizations,
+      END) AS hospitalizations_vs_enemy,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Mugged'
         THEN 1
         ELSE 0
-      END) AS enemy_mugs,
+      END) AS mugs_vs_enemy,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Hospitalized'
          AND COALESCE(a.m_retaliation, 1) > 1
         THEN 1
         ELSE 0
-      END) AS enemy_retaliations,
+      END) AS retaliations_vs_enemy,
       SUM(CASE
         WHEN w.enemy_faction_id IS NOT NULL
          AND (
@@ -526,13 +526,13 @@ async function upsertIngestedWarMemberAttackStats(
          )
         THEN 1
         ELSE 0
-      END) AS outside_attacks,
+      END) AS outside_hits,
       SUM(CASE
         WHEN a.result = 'Hospitalized'
          AND a.defender_faction_id = ${HOME_FACTION_ID}
         THEN 1
         ELSE 0
-      END) AS friendly_hospitals,
+      END) AS friendly_hosps,
       AVG(CASE
         WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id
         THEN a.m_fair_fight
@@ -552,22 +552,22 @@ async function upsertIngestedWarMemberAttackStats(
     GROUP BY a.war_id, a.attacker_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      enemy_attacks_total = war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total,
-      enemy_attacks_successful = war_member_stats.enemy_attacks_successful + excluded.enemy_attacks_successful,
-      enemy_respect_gained = war_member_stats.enemy_respect_gained + excluded.enemy_respect_gained,
-      enemy_respect_gained_raw = war_member_stats.enemy_respect_gained_raw + excluded.enemy_respect_gained_raw,
-      enemy_assists = war_member_stats.enemy_assists + excluded.enemy_assists,
-      enemy_hospitalizations = war_member_stats.enemy_hospitalizations + excluded.enemy_hospitalizations,
-      enemy_mugs = war_member_stats.enemy_mugs + excluded.enemy_mugs,
-      enemy_retaliations = war_member_stats.enemy_retaliations + excluded.enemy_retaliations,
-      outside_attacks = war_member_stats.outside_attacks + excluded.outside_attacks,
-      friendly_hospitals = war_member_stats.friendly_hospitals + excluded.friendly_hospitals,
+      attacks_vs_enemy_total = war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total,
+      attacks_vs_enemy_successful = war_member_stats.attacks_vs_enemy_successful + excluded.attacks_vs_enemy_successful,
+      respect_gained = war_member_stats.respect_gained + excluded.respect_gained,
+      respect_gained_raw = war_member_stats.respect_gained_raw + excluded.respect_gained_raw,
+      assists_vs_enemy = war_member_stats.assists_vs_enemy + excluded.assists_vs_enemy,
+      hospitalizations_vs_enemy = war_member_stats.hospitalizations_vs_enemy + excluded.hospitalizations_vs_enemy,
+      mugs_vs_enemy = war_member_stats.mugs_vs_enemy + excluded.mugs_vs_enemy,
+      retaliations_vs_enemy = war_member_stats.retaliations_vs_enemy + excluded.retaliations_vs_enemy,
+      outside_hits = war_member_stats.outside_hits + excluded.outside_hits,
+      friendly_hosps = war_member_stats.friendly_hosps + excluded.friendly_hosps,
       average_fair_fight = CASE
-        WHEN war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total > 0 THEN
+        WHEN war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total > 0 THEN
           (
-            COALESCE(war_member_stats.average_fair_fight, 0) * war_member_stats.enemy_attacks_total +
-            COALESCE(excluded.average_fair_fight, 0) * excluded.enemy_attacks_total
-          ) / (war_member_stats.enemy_attacks_total + excluded.enemy_attacks_total)
+            COALESCE(war_member_stats.average_fair_fight, 0) * war_member_stats.attacks_vs_enemy_total +
+            COALESCE(excluded.average_fair_fight, 0) * excluded.attacks_vs_enemy_total
+          ) / (war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total)
         ELSE COALESCE(excluded.average_fair_fight, war_member_stats.average_fair_fight)
       END,
       first_action_at = CASE

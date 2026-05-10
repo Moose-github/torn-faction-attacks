@@ -29,7 +29,7 @@ type ActivityIntervalAverage = {
 
 export function AttackChart({
   members,
-  metricKey = "enemy_attacks_successful",
+  metricKey = "attacks_vs_enemy_successful",
   metricLabel = "Attacks",
 }: {
   members: MemberStats[];
@@ -74,7 +74,7 @@ export function AttackChart({
 
 function chartMetricValue(member: MemberStats, metricKey: MemberSortKey): number {
   if (metricKey === "member_name") {
-    return Number(member.enemy_attacks_successful ?? 0);
+    return Number(member.attacks_vs_enemy_successful ?? 0);
   }
 
   return Number(member[metricKey] ?? 0);

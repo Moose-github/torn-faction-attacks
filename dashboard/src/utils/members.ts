@@ -2,13 +2,13 @@ import { MemberAttack, MemberStats, WarSummary } from "../api";
 
 export type MemberSortKey =
   | "member_name"
-  | "enemy_attacks_successful"
+  | "attacks_vs_enemy_successful"
   | "defends_total"
-  | "outside_attacks"
-  | "enemy_respect_gained"
-  | "enemy_assists"
-  | "enemy_retaliations"
-  | "friendly_hospitals"
+  | "outside_hits"
+  | "respect_gained"
+  | "assists_vs_enemy"
+  | "retaliations_vs_enemy"
+  | "friendly_hosps"
   | "average_fair_fight"
   | "member_respect_limit_percent";
 
@@ -56,8 +56,8 @@ export function sortMembers(members: MemberStats[], sort: MemberSort): MemberSta
     }
 
     return (
-      b.enemy_attacks_successful - a.enemy_attacks_successful ||
-      b.enemy_respect_gained - a.enemy_respect_gained
+      b.attacks_vs_enemy_successful - a.attacks_vs_enemy_successful ||
+      b.respect_gained - a.respect_gained
     );
   });
 }
@@ -184,19 +184,19 @@ export function memberSortLabel(key: MemberSortKey): string {
   switch (key) {
     case "member_name":
       return "Attacks";
-    case "enemy_attacks_successful":
+    case "attacks_vs_enemy_successful":
       return "Attacks";
     case "defends_total":
       return "Defends";
-    case "outside_attacks":
+    case "outside_hits":
       return "Outside hits";
-    case "enemy_respect_gained":
+    case "respect_gained":
       return "Respect gained";
-    case "enemy_assists":
+    case "assists_vs_enemy":
       return "Assists";
-    case "friendly_hospitals":
+    case "friendly_hosps":
       return "Friendly hosps";
-    case "enemy_retaliations":
+    case "retaliations_vs_enemy":
       return "Retaliations";
     case "average_fair_fight":
       return "Average fair fight";

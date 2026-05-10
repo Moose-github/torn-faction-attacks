@@ -88,7 +88,7 @@ function App() {
   const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
   const [chainBonuses, setChainBonuses] = React.useState<ChainBonusAttack[]>([]);
   const [memberSort, setMemberSort] = React.useState<MemberSort>({
-    key: "enemy_attacks_successful",
+    key: "attacks_vs_enemy_successful",
     direction: "desc",
   });
   const [memberAttackSort, setMemberAttackSort] = React.useState<MemberAttackSort>({
@@ -327,12 +327,12 @@ function App() {
 
   React.useEffect(() => {
     const termedOnlySorts = ["average_fair_fight", "member_respect_limit_percent"];
-    const hiddenTermedSorts = ["outside_attacks"];
+    const hiddenTermedSorts = ["outside_hits"];
     if (
       (selectedWar?.war_type !== "termed" && termedOnlySorts.includes(memberSort.key)) ||
       (selectedWar?.war_type === "termed" && hiddenTermedSorts.includes(memberSort.key))
     ) {
-      setMemberSort({ key: "enemy_attacks_successful", direction: "desc" });
+      setMemberSort({ key: "attacks_vs_enemy_successful", direction: "desc" });
     }
   }, [memberSort.key, selectedWar?.war_type]);
 
@@ -483,13 +483,13 @@ function App() {
     warDetail?.summary?.total_respect_lost,
     selectedWar?.total_respect_lost,
   );
-  const derivedSuccessfulAttacks = sumMembers(members, "enemy_attacks_successful");
+  const derivedSuccessfulAttacks = sumMembers(members, "attacks_vs_enemy_successful");
   const officialRespectGained = selectedWar?.official_home_score ?? derivedRespectGained;
   const memberActionTotal =
     derivedSuccessfulAttacks +
-    sumMembers(members, "enemy_assists") +
-    sumMembers(members, "outside_attacks") +
-    sumMembers(members, "friendly_hospitals") +
+    sumMembers(members, "assists_vs_enemy") +
+    sumMembers(members, "outside_hits") +
+    sumMembers(members, "friendly_hosps") +
     sumMembers(members, "defends_total");
   const hasWarData =
     selectedWar !== null &&
@@ -690,8 +690,8 @@ function App() {
                     <div className="metric-list">
                       <InlineMetric label="Respect gained" value={officialRespectGained} />
                       <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
-                      <InlineMetric label="Assists" value={sumMembers(members, "enemy_assists")} />
-                      <InlineMetric label="Retaliations" value={sumMembers(members, "enemy_retaliations")} />
+                      <InlineMetric label="Assists" value={sumMembers(members, "assists_vs_enemy")} />
+                      <InlineMetric label="Retaliations" value={sumMembers(members, "retaliations_vs_enemy")} />
                     </div>
                   </section>
 
@@ -971,29 +971,29 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
     ? [
         { label: "Member name", value: (member) => displayMember(member) },
         { label: "Member ID", value: (member) => member.member_id },
-        { label: "Attacks", value: (member) => member.enemy_attacks_successful },
+        { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
         { label: "Defends", value: (member) => member.defends_total },
         { label: "Defends lost", value: (member) => memberDefendsLost(member) },
         { label: "Defends won", value: (member) => member.defends_won },
         { label: "Other defends", value: (member) => member.defends_other },
-        { label: "Respect gained", value: (member) => formatCsvDecimal(member.enemy_respect_gained) },
-        { label: "Assists", value: (member) => member.enemy_assists },
+        { label: "Respect gained", value: (member) => formatCsvDecimal(member.respect_gained) },
+        { label: "Assists", value: (member) => member.assists_vs_enemy },
         { label: "Average fair fight", value: (member) => formatCsvDecimal(member.average_fair_fight) },
         { label: "Percent limit", value: (member) => formatCsvDecimal(member.member_respect_limit_percent) },
       ]
     : [
         { label: "Member name", value: (member) => displayMember(member) },
         { label: "Member ID", value: (member) => member.member_id },
-        { label: "Attacks", value: (member) => member.enemy_attacks_successful },
+        { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
         { label: "Defends", value: (member) => member.defends_total },
         { label: "Defends lost", value: (member) => memberDefendsLost(member) },
         { label: "Defends won", value: (member) => member.defends_won },
         { label: "Other defends", value: (member) => member.defends_other },
-        { label: "Respect gained", value: (member) => formatCsvDecimal(member.enemy_respect_gained) },
-        { label: "Assists", value: (member) => member.enemy_assists },
+        { label: "Respect gained", value: (member) => formatCsvDecimal(member.respect_gained) },
+        { label: "Assists", value: (member) => member.assists_vs_enemy },
         { label: "Average fair fight", value: (member) => formatCsvDecimal(member.average_fair_fight) },
-        { label: "Friendly hosps", value: (member) => member.friendly_hospitals },
-        { label: "Retaliations", value: (member) => member.enemy_retaliations },
+        { label: "Friendly hosps", value: (member) => member.friendly_hosps },
+        { label: "Retaliations", value: (member) => member.retaliations_vs_enemy },
       ];
   downloadCsv(`${sanitizeCsvFilename(war.name)}-members.csv`, columns, members);
 }

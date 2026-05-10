@@ -11,7 +11,7 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
   const [warType, setWarType] = React.useState<WarType>("all");
   const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getStats>> | null>(null);
   const [sort, setSort] = React.useState<MemberSort>({
-    key: "enemy_attacks_successful",
+    key: "attacks_vs_enemy_successful",
     direction: "desc",
   });
   const [error, setError] = React.useState<string | null>(null);
@@ -67,7 +67,7 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
         />
         <MetricCard
           label="Successful attacks"
-          value={formatNumber(sumMembers(members, "enemy_attacks_successful"))}
+          value={formatNumber(sumMembers(members, "attacks_vs_enemy_successful"))}
           icon={<Swords size={18} />}
         />
         <section className="metric-card member-performance-filter-card">
@@ -133,18 +133,18 @@ function exportMembersOverviewCsv(members: MemberStats[], warType: WarType) {
   }> = [
     { label: "Member", value: (member) => displayMember(member) },
     { label: "Wars participated", value: (member) => member.wars_participated },
-    { label: "Attacks", value: (member) => member.enemy_attacks_successful },
+    { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
     { label: "Defends", value: (member) => member.defends_total },
     ...(warType === "termed"
       ? []
-      : [{ label: "Outside hits", value: (member: MemberStats) => member.outside_attacks }]),
-    { label: "Respect gained", value: (member) => member.enemy_respect_gained },
-    { label: "Assists", value: (member) => member.enemy_assists },
+      : [{ label: "Outside hits", value: (member: MemberStats) => member.outside_hits }]),
+    { label: "Respect gained", value: (member) => member.respect_gained },
+    { label: "Assists", value: (member) => member.assists_vs_enemy },
     ...(warType === "termed"
       ? [{ label: "Percent limit", value: (member: MemberStats) => member.member_respect_limit_percent }]
       : [
-          { label: "Friendly hosps", value: (member: MemberStats) => member.friendly_hospitals },
-          { label: "Retaliations", value: (member: MemberStats) => member.enemy_retaliations },
+          { label: "Friendly hosps", value: (member: MemberStats) => member.friendly_hosps },
+          { label: "Retaliations", value: (member: MemberStats) => member.retaliations_vs_enemy },
         ]),
   ];
 

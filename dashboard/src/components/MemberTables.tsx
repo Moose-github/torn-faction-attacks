@@ -36,18 +36,18 @@ export function MemberTable({
         <thead>
           <tr>
             <SortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Attacks" sortKey="enemy_attacks_successful" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Attacks" sortKey="attacks_vs_enemy_successful" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
             {showTermedColumns ? null : (
-              <SortableHeader label="Outside hits" sortKey="outside_attacks" sort={sort} onSortChange={onSortChange} />
+              <SortableHeader label="Outside hits" sortKey="outside_hits" sort={sort} onSortChange={onSortChange} />
             )}
             <SortableHeader
               label={<span title="Adjusted respect, with chain bonus hits counted at the member's average hit value.">Respect gained</span>}
-              sortKey="enemy_respect_gained"
+              sortKey="respect_gained"
               sort={sort}
               onSortChange={onSortChange}
             />
-            <SortableHeader label="Assists" sortKey="enemy_assists" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label="Assists" sortKey="assists_vs_enemy" sort={sort} onSortChange={onSortChange} />
             {showTermedColumns ? (
               <>
                 {termedColumnVariant === "war" ? (
@@ -58,8 +58,8 @@ export function MemberTable({
             ) : (
               <>
                 <SortableHeader label={<>Average<br />fair fight</>} sortKey="average_fair_fight" sort={sort} onSortChange={onSortChange} />
-                <SortableHeader label={<>Friendly<br />hosps</>} sortKey="friendly_hospitals" sort={sort} onSortChange={onSortChange} />
-                <SortableHeader label="Retaliations" sortKey="enemy_retaliations" sort={sort} onSortChange={onSortChange} />
+                <SortableHeader label={<>Friendly<br />hosps</>} sortKey="friendly_hosps" sort={sort} onSortChange={onSortChange} />
+                <SortableHeader label="Retaliations" sortKey="retaliations_vs_enemy" sort={sort} onSortChange={onSortChange} />
               </>
             )}
           </tr>
@@ -99,9 +99,9 @@ export function MemberTable({
               <td>
                 <DefendBreakdown member={member} />
               </td>
-              {showTermedColumns ? null : <td>{formatNumber(member.outside_attacks)}</td>}
-              <td>{formatNumber(member.enemy_respect_gained)}</td>
-              <td>{formatNumber(member.enemy_assists)}</td>
+              {showTermedColumns ? null : <td>{formatNumber(member.outside_hits)}</td>}
+              <td>{formatNumber(member.respect_gained)}</td>
+              <td>{formatNumber(member.assists_vs_enemy)}</td>
               {showTermedColumns ? (
                 <>
                   {termedColumnVariant === "war" ? (
@@ -112,8 +112,8 @@ export function MemberTable({
               ) : (
                 <>
                   <td>{formatNullableNumber(member.average_fair_fight, 2)}</td>
-                  <td>{formatNumber(member.friendly_hospitals)}</td>
-                  <td>{formatNumber(member.enemy_retaliations)}</td>
+                  <td>{formatNumber(member.friendly_hosps)}</td>
+                  <td>{formatNumber(member.retaliations_vs_enemy)}</td>
                 </>
               )}
             </tr>
@@ -221,25 +221,25 @@ function SortableHeader<TSortKey extends string>({
 function AttackBreakdown({ member }: { member: MemberStats }) {
   const leaves = Math.max(
     0,
-    member.enemy_attacks_successful -
-      member.enemy_hospitalizations -
-      member.enemy_mugs,
+    member.attacks_vs_enemy_successful -
+      member.hospitalizations_vs_enemy -
+      member.mugs_vs_enemy,
   );
   const hasBreakdown =
-    member.enemy_hospitalizations > 0 ||
-    member.enemy_mugs > 0 ||
-    (leaves > 0 && leaves !== member.enemy_attacks_successful);
+    member.hospitalizations_vs_enemy > 0 ||
+    member.mugs_vs_enemy > 0 ||
+    (leaves > 0 && leaves !== member.attacks_vs_enemy_successful);
 
   if (!hasBreakdown) {
-    return <>{formatNumber(member.enemy_attacks_successful)}</>;
+    return <>{formatNumber(member.attacks_vs_enemy_successful)}</>;
   }
 
   return (
     <span
       className="tooltip-value"
-      title={`Hospitalizations: ${formatNumber(member.enemy_hospitalizations)} | Mugs: ${formatNumber(member.enemy_mugs)} | Leaves: ${formatNumber(leaves)}`}
+      title={`Hospitalizations: ${formatNumber(member.hospitalizations_vs_enemy)} | Mugs: ${formatNumber(member.mugs_vs_enemy)} | Leaves: ${formatNumber(leaves)}`}
     >
-      {formatNumber(member.enemy_attacks_successful)}
+      {formatNumber(member.attacks_vs_enemy_successful)}
     </span>
   );
 }

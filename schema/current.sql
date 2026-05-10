@@ -103,15 +103,17 @@ CREATE TABLE war_member_stats (
   war_id INTEGER NOT NULL,
   member_id INTEGER NOT NULL,
   member_name TEXT,
-  enemy_attacks_total INTEGER NOT NULL DEFAULT 0,
-  enemy_attacks_successful INTEGER NOT NULL DEFAULT 0,
-  enemy_respect_gained REAL NOT NULL DEFAULT 0,
-  enemy_assists INTEGER NOT NULL DEFAULT 0,
-  enemy_hospitalizations INTEGER NOT NULL DEFAULT 0,
-  enemy_mugs INTEGER NOT NULL DEFAULT 0,
-  enemy_retaliations INTEGER NOT NULL DEFAULT 0,
-  outside_attacks INTEGER NOT NULL DEFAULT 0,
-  friendly_hospitals INTEGER NOT NULL DEFAULT 0,
+  attacks_vs_enemy_total INTEGER NOT NULL DEFAULT 0,
+  attacks_vs_enemy_successful INTEGER NOT NULL DEFAULT 0,
+  respect_gained REAL NOT NULL DEFAULT 0,
+  respect_gained_raw REAL NOT NULL DEFAULT 0,
+  assists_vs_enemy INTEGER NOT NULL DEFAULT 0,
+  hospitalizations_vs_enemy INTEGER NOT NULL DEFAULT 0,
+  mugs_vs_enemy INTEGER NOT NULL DEFAULT 0,
+  retaliations_vs_enemy INTEGER NOT NULL DEFAULT 0,
+  outside_hits INTEGER NOT NULL DEFAULT 0,
+  friendly_hosps INTEGER NOT NULL DEFAULT 0,
+  average_fair_fight REAL,
   defends_total INTEGER NOT NULL DEFAULT 0,
   defends_won INTEGER NOT NULL DEFAULT 0,
   defends_other INTEGER NOT NULL DEFAULT 0,
@@ -249,6 +251,9 @@ CREATE INDEX idx_wars_lower_name
 
 CREATE INDEX idx_war_member_stats_war
   ON war_member_stats(war_id);
+
+CREATE INDEX idx_member_stats_respect_sort
+  ON war_member_stats(war_id, respect_gained DESC, attacks_vs_enemy_successful DESC, attacks_vs_enemy_total DESC);
 
 CREATE INDEX idx_auth_sessions_expires_at
   ON auth_sessions(expires_at);
