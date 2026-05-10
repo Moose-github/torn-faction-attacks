@@ -154,6 +154,11 @@ function enemyStatusLabel(member: EnemyFactionMember): string {
     return duration ? `Hospital ${duration}` : "Hospital";
   }
 
+  if (member.status_state === "Abroad") {
+    const location = abroadLocationLabel(member.status_description);
+    return location ? `Abroad - ${location}` : "Abroad";
+  }
+
   return member.status_state ?? "Unknown";
 }
 
@@ -191,6 +196,20 @@ function hospitalDurationLabel(description: string | null | undefined): string |
   }
 
   return parts.length > 0 ? parts.slice(0, 2).join(" ") : null;
+}
+
+function abroadLocationLabel(description: string | null | undefined): string | null {
+  if (!description) {
+    return null;
+  }
+
+  const trimmed = description.trim();
+  const match =
+    /^In (.+)$/i.exec(trimmed) ??
+    /^Abroad in (.+)$/i.exec(trimmed) ??
+    /^Currently in (.+)$/i.exec(trimmed);
+
+  return match?.[1]?.trim() || trimmed;
 }
 
 function enemyStatusClass(status: string | null | undefined): string {

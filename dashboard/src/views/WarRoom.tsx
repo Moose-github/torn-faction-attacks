@@ -420,6 +420,7 @@ function EnemyStatusSummaryPanel({
       <div className="enemy-status-summary-grid">
         <StatusSummaryItem label="Okay" value={summary.okay} />
         <StatusSummaryItem label="Traveling" value={summary.traveling} />
+        <StatusSummaryItem label="Abroad" value={summary.abroad} />
         <StatusSummaryItem label="Hospital" value={summary.hospital} />
         <StatusSummaryItem label="Jail" value={summary.jail} />
         <StatusSummaryItem label="Other" value={summary.other} />
@@ -443,6 +444,7 @@ function summarizeEnemyStatuses(members: EnemyFactionMember[]) {
   const summary = {
     okay: 0,
     traveling: 0,
+    abroad: 0,
     hospital: 0,
     jail: 0,
     other: 0,
@@ -462,6 +464,8 @@ function summarizeEnemyStatuses(members: EnemyFactionMember[]) {
       summary.okay += 1;
     } else if (status === "traveling") {
       summary.traveling += 1;
+    } else if (status === "abroad") {
+      summary.abroad += 1;
     } else if (status === "hospital") {
       summary.hospital += 1;
     } else if (status === "jail") {
