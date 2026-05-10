@@ -200,7 +200,7 @@ export default {
     if (url.pathname === "/api/wars/end" && request.method === "POST") {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
-      return endActiveWar(env);
+      return endActiveWar(request, env);
     }
 
     if (

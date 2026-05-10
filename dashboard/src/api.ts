@@ -697,8 +697,11 @@ export async function relinkAttacks(payload: {
   return postJson("/api/wars/relink-attacks", { ...payload, dry_run: false });
 }
 
-export async function endActiveWar(): Promise<unknown> {
-  return postJson("/api/wars/end");
+export async function endActiveWar(options: { practical_finish_time?: number } = {}): Promise<unknown> {
+  return postJson(
+    "/api/wars/end",
+    options.practical_finish_time === undefined ? undefined : options,
+  );
 }
 
 export async function fetchTornWarReport(tornWarId: number): Promise<unknown> {

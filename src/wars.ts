@@ -1131,7 +1131,22 @@ export async function deleteWar(request: Request, env: Env): Promise<Response> {
   }
 }
 
-export async function endActiveWar(env: Env): Promise<Response> {
+export async function endActiveWar(request: Request, env: Env): Promise<Response> {
+  let requestedFinishTime: number | null = null;
+
+  try {
+    const rawBody = await request.text();
+    if (rawBody.trim() !== "") {
+      const body = JSON.parse(rawBody) as { practical_finish_time?: unknown };
+      requestedFinishTime = parseOptionalInteger(
+        body.practical_finish_time,
+        "practical_finish_time",
+      );
+    }
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
+
   const state = (await env.DB.prepare(
     `SELECT active_war_id FROM sync_state WHERE name = ?`,
   )
@@ -1143,7 +1158,52 @@ export async function endActiveWar(env: Env): Promise<Response> {
     return json({ ok: false, error: "No active war" }, 400);
   }
 
-  const endedAt = nowSeconds();
+  const activeWar = (await env.DB.prepare(
+    `
+    SELECT practical_start_time
+    FROM wars
+    WHERE id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(activeWarId)
+    .first()) as { practical_start_time: number } | null;
+
+  if (!activeWar) {
+    return json({ ok: false, error: "Active war not found", code: "WAR_NOT_FOUND" }, 404);
+  }
+
+  const now = nowSeconds();
+  const endedAt = requestedFinishTime ?? now;
+
+  if (!Number.isInteger(endedAt) || endedAt < 0) {
+    return json(
+      { ok: false, error: "Invalid practical_finish_time", code: "INVALID_FINISH_TIME" },
+      400,
+    );
+  }
+
+  if (endedAt < activeWar.practical_start_time) {
+    return json(
+      {
+        ok: false,
+        error: "practical_finish_time must be greater than or equal to practical_start_time",
+        code: "INVALID_TIME_RANGE",
+      },
+      400,
+    );
+  }
+
+  if (endedAt > now) {
+    return json(
+      {
+        ok: false,
+        error: "practical_finish_time cannot be in the future",
+        code: "FINISH_TIME_IN_FUTURE",
+      },
+      400,
+    );
+  }
 
   await env.DB.prepare(
     `

@@ -6,6 +6,7 @@ import {
   clearStoredAuthSession,
   createWar,
   deleteWar,
+  endActiveWar,
   exportWarAttacksCsv,
   fetchTornWarReport,
   getLatestIngestionRun,
@@ -71,6 +72,7 @@ export function AdminControls() {
   }));
   const [selectedOfficialWarId, setSelectedOfficialWarId] = React.useState("");
   const [selectedEventWarId, setSelectedEventWarId] = React.useState("");
+  const [practicalEndMode, setPracticalEndMode] = React.useState<"now" | "custom">("now");
   const [exportForm, setExportForm] = React.useState<AdminExportFormState>({
     warName: "",
     scope: "war_relevant" as "all" | "outgoing" | "war_relevant",
@@ -134,28 +136,7 @@ export function AdminControls() {
           return;
         }
 
-        setWars(response.wars);
-        const firstExportableWar = response.wars.find(isExportableWar);
-        setExportForm((current) => ({
-          ...exportFormForWar(
-            current,
-            response.wars.find((war) => war.name === current.warName) ?? firstExportableWar,
-          ),
-        }));
-        const firstOfficialWar = response.wars.find(isOfficialWar);
-        const firstEvent = response.wars.find(isEvent);
-        setSelectedOfficialWarId((current) => current || String(firstOfficialWar?.id ?? ""));
-        setOfficialEditForm((current) =>
-          firstOfficialWar && !selectedOfficialWarId
-            ? convertWarFormTimeMode(warToForm(firstOfficialWar), adminTimeMode)
-            : current,
-        );
-        setSelectedEventWarId((current) => current || String(firstEvent?.id ?? ""));
-        setEventEditForm((current) =>
-          firstEvent && !selectedEventWarId
-            ? convertWarFormTimeMode(warToForm(firstEvent), adminTimeMode)
-            : current,
-        );
+        applyLoadedWars(response.wars);
       } catch {
         if (!cancelled) {
           setWars([]);
@@ -169,6 +150,38 @@ export function AdminControls() {
       cancelled = true;
     };
   }, [authSession?.access_level, adminTimeMode]);
+
+  function applyLoadedWars(loadedWars: WarSummary[]) {
+    setWars(loadedWars);
+
+    const firstExportableWar = loadedWars.find(isExportableWar);
+    setExportForm((current) => ({
+      ...exportFormForWar(
+        current,
+        loadedWars.find((war) => war.name === current.warName) ?? firstExportableWar,
+      ),
+    }));
+
+    const firstOfficialWar = loadedWars.find(isOfficialWar);
+    const selectedOfficialWar =
+      loadedWars.find((war) => war.id === Number(selectedOfficialWarId) && isOfficialWar(war)) ??
+      firstOfficialWar;
+    setSelectedOfficialWarId(selectedOfficialWar ? String(selectedOfficialWar.id) : "");
+    setOfficialEditForm((current) =>
+      selectedOfficialWar
+        ? convertWarFormTimeMode(warToForm(selectedOfficialWar), adminTimeMode)
+        : current,
+    );
+
+    const firstEvent = loadedWars.find(isEvent);
+    const selectedEvent =
+      loadedWars.find((war) => war.id === Number(selectedEventWarId) && isEvent(war)) ??
+      firstEvent;
+    setSelectedEventWarId(selectedEvent ? String(selectedEvent.id) : "");
+    setEventEditForm((current) =>
+      selectedEvent ? convertWarFormTimeMode(warToForm(selectedEvent), adminTimeMode) : current,
+    );
+  }
 
   async function login(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -239,6 +252,22 @@ export function AdminControls() {
   const exportableWars = wars.filter(isExportableWar);
   const officialWars = wars.filter(isOfficialWar);
   const events = wars.filter(isEvent);
+  const selectedOfficialWar = officialWars.find((war) => war.id === Number(selectedOfficialWarId));
+  const selectedPracticalEndTime =
+    practicalEndMode === "custom" ? optionalSecondsFromFormTime(officialEditForm, "finish") : null;
+  const canSetPracticalEnd =
+    selectedOfficialWar?.status === "active" &&
+    selectedOfficialWar.practical_finish_time === null &&
+    selectedOfficialWar.official_end_time === null &&
+    (
+      practicalEndMode === "now" ||
+      (
+        selectedPracticalEndTime !== null &&
+        Number.isFinite(selectedPracticalEndTime) &&
+        selectedPracticalEndTime >= selectedOfficialWar.practical_start_time &&
+        selectedPracticalEndTime <= Math.floor(Date.now() / 1000)
+      )
+    );
 
   return (
     <>
@@ -402,6 +431,52 @@ export function AdminControls() {
               disabled={isBusy !== null || !selectedOfficialWarId}
             >
               Confirm changes
+            </button>
+            <label>
+              <span>Practical end</span>
+              <select
+                value={practicalEndMode}
+                onChange={(event) => setPracticalEndMode(event.target.value as "now" | "custom")}
+              >
+                <option value="now">Now</option>
+                <option value="custom">Practical finish time</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              className="admin-button admin-form-wide"
+              disabled={isBusy !== null || !canSetPracticalEnd}
+              onClick={() => {
+                if (!selectedOfficialWar || !canSetPracticalEnd) {
+                  return;
+                }
+
+                const practicalFinishTime =
+                  practicalEndMode === "custom" && selectedPracticalEndTime !== null
+                    ? selectedPracticalEndTime
+                    : undefined;
+                const endLabel =
+                  practicalFinishTime === undefined
+                    ? "now"
+                    : dateTimeLocalFromSeconds(practicalFinishTime).replace("T", " ");
+
+                if (!window.confirm(`Set practical end to ${endLabel} for ${selectedOfficialWar.name}?`)) {
+                  return;
+                }
+
+                runAdminAction("Set practical end", async () => {
+                  const response = await endActiveWar(
+                    practicalFinishTime === undefined
+                      ? undefined
+                      : { practical_finish_time: practicalFinishTime },
+                  );
+                  const warsResponse = await getWars("all");
+                  applyLoadedWars(warsResponse.wars);
+                  return response;
+                });
+              }}
+            >
+              {practicalEndMode === "now" ? "Set practical end now" : "Set practical end to this time"}
             </button>
           </form>
         </section>

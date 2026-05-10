@@ -53,6 +53,10 @@ export function WarRoom({
     revivableMembers: true,
   });
   const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
+  const isWarLive =
+    selectedWar?.status === "active" &&
+    selectedWar.official_end_time === null &&
+    selectedWar.practical_finish_time === null;
   const now = useCurrentTime();
   const isActivityHeatmapsOpen = collapsedPanels.activityHeatmaps === false;
 
@@ -179,7 +183,7 @@ export function WarRoom({
   }, [canLoadScouting, isActivityHeatmapsOpen, selectedWarName]);
 
   React.useEffect(() => {
-    if (!selectedWarName || !canLoadScouting || selectedWar?.official_end_time !== null) {
+    if (!selectedWarName || !canLoadScouting || !isWarLive) {
       return;
     }
 
@@ -208,10 +212,10 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadScouting, isActivityHeatmapsOpen, selectedWar?.official_end_time, selectedWarName]);
+  }, [canLoadScouting, isActivityHeatmapsOpen, isWarLive, selectedWarName]);
 
   React.useEffect(() => {
-    if (!selectedWarName || !canLoadScouting || selectedWar?.official_end_time !== null) {
+    if (!selectedWarName || !canLoadScouting || !isWarLive) {
       return;
     }
 
@@ -233,7 +237,7 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadScouting, selectedWar?.official_end_time, selectedWarName]);
+  }, [canLoadScouting, isWarLive, selectedWarName]);
 
   async function refreshSelectedEnemyScouting() {
     if (!selectedWarName) {
