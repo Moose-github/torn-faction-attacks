@@ -5,6 +5,7 @@ import { formatDate, formatNumber } from "../utils/format";
 import {
   classificationLabel,
   displayMember,
+  memberDefendsLost,
   MemberAttackSort,
   MemberSort,
 } from "../utils/members";
@@ -38,6 +39,7 @@ export function MemberTable({
             <SortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Attacks" sortKey="attacks_vs_enemy_successful" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader label={<>Defends<br />lost</>} sortKey="defends_lost" sort={sort} onSortChange={onSortChange} />
             {showTermedColumns ? null : (
               <SortableHeader label="Outside hits" sortKey="outside_hits" sort={sort} onSortChange={onSortChange} />
             )}
@@ -47,6 +49,7 @@ export function MemberTable({
               sort={sort}
               onSortChange={onSortChange}
             />
+            <SortableHeader label={<>Respect<br />lost</>} sortKey="respect_lost" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Assists" sortKey="assists_vs_enemy" sort={sort} onSortChange={onSortChange} />
             {showTermedColumns ? (
               <>
@@ -99,8 +102,10 @@ export function MemberTable({
               <td>
                 <DefendBreakdown member={member} />
               </td>
+              <td>{formatNumber(memberDefendsLost(member))}</td>
               {showTermedColumns ? null : <td>{formatNumber(member.outside_hits)}</td>}
               <td>{formatNumber(member.respect_gained)}</td>
+              <td>{formatNumber(member.respect_lost)}</td>
               <td>{formatNumber(member.assists_vs_enemy)}</td>
               {showTermedColumns ? (
                 <>
@@ -246,7 +251,7 @@ function AttackBreakdown({ member }: { member: MemberStats }) {
 
 function DefendBreakdown({ member }: { member: MemberStats }) {
   const defendsOther = Number(member.defends_other ?? 0);
-  const defendsLost = Math.max(0, member.defends_total - member.defends_won - defendsOther);
+  const defendsLost = memberDefendsLost(member);
 
   if (member.defends_total === 0) {
     return <>0</>;

@@ -5,7 +5,7 @@ import { MetricCard, PanelHeader } from "../components/Common";
 import { MemberTable } from "../components/MemberTables";
 import { downloadCsv, sanitizeCsvFilename } from "../utils/csv";
 import { formatNumber } from "../utils/format";
-import { displayMember, MemberSort, sortMembers, sumMembers } from "../utils/members";
+import { displayMember, memberDefendsLost, MemberSort, sortMembers, sumMembers } from "../utils/members";
 
 export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
   const [warType, setWarType] = React.useState<WarType>("all");
@@ -135,10 +135,12 @@ function exportMembersOverviewCsv(members: MemberStats[], warType: WarType) {
     { label: "Wars participated", value: (member) => member.wars_participated },
     { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
     { label: "Defends", value: (member) => member.defends_total },
+    { label: "Defends lost", value: (member) => memberDefendsLost(member) },
     ...(warType === "termed"
       ? []
       : [{ label: "Outside hits", value: (member: MemberStats) => member.outside_hits }]),
     { label: "Respect gained", value: (member) => member.respect_gained },
+    { label: "Respect lost", value: (member) => member.respect_lost },
     { label: "Assists", value: (member) => member.assists_vs_enemy },
     ...(warType === "termed"
       ? [{ label: "Percent limit", value: (member: MemberStats) => member.member_respect_limit_percent }]

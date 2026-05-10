@@ -19,7 +19,7 @@ import {
 } from "../api";
 import { EmptyState } from "./Common";
 import { formatNumber, formatTime } from "../utils/format";
-import { activityLabel, displayMember, MemberSortKey } from "../utils/members";
+import { activityLabel, displayMember, memberDefendsLost, MemberSortKey } from "../utils/members";
 
 type ActivityIntervalAverage = {
   averageActive: number;
@@ -75,6 +75,10 @@ export function AttackChart({
 function chartMetricValue(member: MemberStats, metricKey: MemberSortKey): number {
   if (metricKey === "member_name") {
     return Number(member.attacks_vs_enemy_successful ?? 0);
+  }
+
+  if (metricKey === "defends_lost") {
+    return memberDefendsLost(member);
   }
 
   return Number(member[metricKey] ?? 0);

@@ -65,6 +65,7 @@ import {
   displayWarStatus,
   MemberAttackSort,
   MemberSort,
+  memberDefendsLost,
   memberSortLabel,
   sortMembers,
   sortMemberAttacks,
@@ -977,6 +978,7 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
         { label: "Defends won", value: (member) => member.defends_won },
         { label: "Other defends", value: (member) => member.defends_other },
         { label: "Respect gained", value: (member) => formatCsvDecimal(member.respect_gained) },
+        { label: "Respect lost", value: (member) => formatCsvDecimal(member.respect_lost) },
         { label: "Assists", value: (member) => member.assists_vs_enemy },
         { label: "Average fair fight", value: (member) => formatCsvDecimal(member.average_fair_fight) },
         { label: "Percent limit", value: (member) => formatCsvDecimal(member.member_respect_limit_percent) },
@@ -990,16 +992,13 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
         { label: "Defends won", value: (member) => member.defends_won },
         { label: "Other defends", value: (member) => member.defends_other },
         { label: "Respect gained", value: (member) => formatCsvDecimal(member.respect_gained) },
+        { label: "Respect lost", value: (member) => formatCsvDecimal(member.respect_lost) },
         { label: "Assists", value: (member) => member.assists_vs_enemy },
         { label: "Average fair fight", value: (member) => formatCsvDecimal(member.average_fair_fight) },
         { label: "Friendly hosps", value: (member) => member.friendly_hosps },
         { label: "Retaliations", value: (member) => member.retaliations_vs_enemy },
       ];
   downloadCsv(`${sanitizeCsvFilename(war.name)}-members.csv`, columns, members);
-}
-
-function memberDefendsLost(member: MemberStats): number {
-  return Math.max(0, member.defends_total - member.defends_won - Number(member.defends_other ?? 0));
 }
 
 function formatCsvDecimal(value: number | null | undefined): string {

@@ -4,8 +4,10 @@ export type MemberSortKey =
   | "member_name"
   | "attacks_vs_enemy_successful"
   | "defends_total"
+  | "defends_lost"
   | "outside_hits"
   | "respect_gained"
+  | "respect_lost"
   | "assists_vs_enemy"
   | "retaliations_vs_enemy"
   | "friendly_hosps"
@@ -67,6 +69,10 @@ export function sumMembers(members: MemberStats[], key: keyof MemberStats): numb
     const value = member[key];
     return total + (typeof value === "number" ? value : 0);
   }, 0);
+}
+
+export function memberDefendsLost(member: MemberStats): number {
+  return Math.max(0, member.defends_total - member.defends_won - Number(member.defends_other ?? 0));
 }
 
 export function sortMemberAttacks(
@@ -188,10 +194,14 @@ export function memberSortLabel(key: MemberSortKey): string {
       return "Attacks";
     case "defends_total":
       return "Defends";
+    case "defends_lost":
+      return "Defends lost";
     case "outside_hits":
       return "Outside hits";
     case "respect_gained":
       return "Respect gained";
+    case "respect_lost":
+      return "Respect lost";
     case "assists_vs_enemy":
       return "Assists";
     case "friendly_hosps":
@@ -210,6 +220,10 @@ export function memberSortLabel(key: MemberSortKey): string {
 function sortValue(member: MemberStats, key: MemberSortKey): string | number {
   if (key === "member_name") {
     return displayMember(member).toLowerCase();
+  }
+
+  if (key === "defends_lost") {
+    return memberDefendsLost(member);
   }
 
   return Number(member[key] ?? 0);
