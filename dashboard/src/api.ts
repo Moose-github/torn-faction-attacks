@@ -5,9 +5,9 @@ export type WarType = "all" | "real" | "termed" | "event";
 
 export type OverallStats = {
   total_wars: number;
-  faction_attacks: number;
-  enemy_attacks: number;
-  outside_hits_outgoing: number;
+  attacks_vs_enemy_total: number;
+  attacks_from_enemy_total: number;
+  outside_hits: number;
   total_respect_gain: number;
   total_respect_lost: number;
   latest_attack_started: number | null;
@@ -67,9 +67,9 @@ export type WarSummary = {
   enemy_scouting_auto_attempted_at: number | null;
   enemy_scouting_status_checked_at: number | null;
   finalized_at: number | null;
-  faction_attacks: number;
-  enemy_attacks: number;
-  outside_hits_outgoing: number;
+  attacks_vs_enemy_total: number;
+  attacks_from_enemy_total: number;
+  outside_hits: number;
   total_respect_gain: number;
   total_respect_lost: number;
   unique_attackers: number;
@@ -88,9 +88,9 @@ export type WarDetailResponse = {
   war: WarSummary;
   summary: {
     war_id: number;
-    faction_attacks: number;
-    enemy_attacks: number;
-    outside_hits_outgoing: number;
+    attacks_vs_enemy_total: number;
+    attacks_from_enemy_total: number;
+    outside_hits: number;
     total_respect_gain: number;
     total_respect_lost: number;
     unique_attackers: number;
@@ -337,7 +337,7 @@ export type AdminWarPayload = {
   practical_start_time?: number;
   practical_finish_time?: number | null;
   official_start_time?: number | null;
-  official_finish_time?: number | null;
+  official_end_time?: number | null;
   enemy_faction_id?: number | null;
   war_type: Exclude<WarType, "all">;
   torn_war_id?: number | null;
@@ -657,7 +657,7 @@ export async function previewImportWar(payload: AdminWarPayload): Promise<unknow
     practical_start_time: payload.practical_start_time,
     practical_finish_time: payload.practical_finish_time,
     official_start_time: payload.official_start_time,
-    official_finish_time: payload.official_finish_time,
+    official_end_time: payload.official_end_time,
     war_type: payload.war_type,
     torn_war_id: payload.torn_war_id,
   });

@@ -1536,7 +1536,7 @@ function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): Admi
   if (includeFinishTime && form.warType !== "real") {
     payload.practical_finish_time = secondsFromFormTime(form, "finish");
     setOptionalTime(payload, "official_start_time", form, "officialStart");
-    setOptionalTime(payload, "official_finish_time", form, "officialFinish");
+    setOptionalTime(payload, "official_end_time", form, "officialFinish");
   }
 
   setOptionalNumber(payload, "enemy_faction_id", form.factionId);
@@ -1651,7 +1651,7 @@ function toWarEditPayload(id: number, form: AdminWarFormState): AdminWarPayload 
     practical_start_time: secondsFromFormTime(form, "start"),
     practical_finish_time: optionalSecondsFromFormTime(form, "finish"),
     official_start_time: optionalSecondsFromFormTime(form, "officialStart"),
-    official_finish_time: optionalSecondsFromFormTime(form, "officialFinish"),
+    official_end_time: optionalSecondsFromFormTime(form, "officialFinish"),
     enemy_faction_id: optionalNumberOrNull(form.factionId),
     torn_war_id: optionalNumberOrNull(form.tornWarId),
     auto_end_enabled: form.warType === "termed" ? form.autoEndEnabled : false,
@@ -1916,7 +1916,7 @@ function secondsFromFormTime(
   return secondsFromDateTimeLocal(form.officialFinishTime);
 }
 
-function setOptionalTime<T extends "official_start_time" | "official_finish_time">(
+function setOptionalTime<T extends "official_start_time" | "official_end_time">(
   payload: AdminWarPayload,
   key: T,
   form: AdminWarFormState,

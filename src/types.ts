@@ -154,9 +154,9 @@ export type WarRow = {
 
 export type WarSummaryRow = {
   war_id: number;
-  faction_attacks: number;
-  enemy_attacks: number;
-  outside_hits_outgoing: number;
+  attacks_vs_enemy_total: number;
+  attacks_from_enemy_total: number;
+  outside_hits: number;
   total_respect_gain: number;
   total_respect_lost: number;
   unique_attackers: number;

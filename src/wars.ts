@@ -168,6 +168,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       practical_finish_time?: unknown;
       finish_time?: unknown;
       official_start_time?: unknown;
+      official_end_time?: unknown;
       official_finish_time?: unknown;
       enemy_faction_id?: unknown;
       faction_id?: unknown;
@@ -234,7 +235,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       reportStartTime ?? startTime,
     );
     const officialFinishTime = optionalTimestampOrDefault(
-      body.official_finish_time,
+      body.official_end_time ?? body.official_finish_time,
       reportFinishTime ?? finishTime,
     );
     const now = nowSeconds();
@@ -293,7 +294,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
 
     if (!Number.isInteger(officialFinishTime) || officialFinishTime < 0) {
       return json(
-        { ok: false, error: "Invalid official_finish_time", code: "INVALID_OFFICIAL_FINISH_TIME" },
+        { ok: false, error: "Invalid official_end_time", code: "INVALID_OFFICIAL_END_TIME" },
         400,
       );
     }
@@ -327,7 +328,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       return json(
         {
           ok: false,
-          error: "official_finish_time must be greater than or equal to official_start_time",
+          error: "official_end_time must be greater than or equal to official_start_time",
           code: "INVALID_OFFICIAL_TIME_RANGE",
         },
         400,
@@ -349,7 +350,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       return json(
         {
           ok: false,
-          error: "official_finish_time cannot be in the future for historical import",
+          error: "official_end_time cannot be in the future for historical import",
           code: "OFFICIAL_FINISH_TIME_IN_FUTURE",
         },
         400,
@@ -432,7 +433,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         practical_start_time: startTime,
         practical_finish_time: finishTime,
         official_start_time: officialStartTime,
-        official_finish_time: officialFinishTime,
+        official_end_time: officialFinishTime,
         imported_attack_count: importedAttackCount,
         torn_report: reportResult,
       },
@@ -564,6 +565,7 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
       practical_finish_time?: unknown;
       finish_time?: unknown;
       official_start_time?: unknown;
+      official_end_time?: unknown;
       official_finish_time?: unknown;
       war_type?: unknown;
       torn_war_id?: unknown;
@@ -598,7 +600,7 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
       reportStartTime ?? startTime,
     );
     const officialFinishTime = optionalTimestampOrDefault(
-      body.official_finish_time,
+      body.official_end_time ?? body.official_finish_time,
       reportFinishTime ?? finishTime,
     );
 
@@ -652,7 +654,7 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
 
     if (!Number.isInteger(officialFinishTime) || officialFinishTime < 0) {
       return json(
-        { ok: false, error: "Invalid official_finish_time", code: "INVALID_OFFICIAL_FINISH_TIME" },
+        { ok: false, error: "Invalid official_end_time", code: "INVALID_OFFICIAL_END_TIME" },
         400,
       );
     }
@@ -672,7 +674,7 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
       return json(
         {
           ok: false,
-          error: "official_finish_time must be greater than or equal to official_start_time",
+          error: "official_end_time must be greater than or equal to official_start_time",
           code: "INVALID_OFFICIAL_TIME_RANGE",
         },
         400,
@@ -697,7 +699,7 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
       practical_start_time: startTime,
       practical_finish_time: finishTime,
       official_start_time: officialStartTime,
-      official_finish_time: officialFinishTime,
+      official_end_time: officialFinishTime,
       duration_seconds: finishTime - startTime,
       official_duration_seconds: officialFinishTime - officialStartTime,
       ...preview,
@@ -831,8 +833,8 @@ async function updateWarInternal(
     );
     let officialStartTime = parseOptionalInteger(body.official_start_time, "official_start_time");
     let officialFinishTime = parseOptionalInteger(
-      body.official_finish_time ?? body.official_end_time,
-      "official_finish_time",
+      body.official_end_time ?? body.official_finish_time,
+      "official_end_time",
     );
     let warType = parseWarType(body.war_type, existingWarType);
     let enemyFactionId = parseOptionalInteger(body.enemy_faction_id, "enemy_faction_id");
@@ -934,7 +936,7 @@ async function updateWarInternal(
       return json(
         {
           ok: false,
-          error: "official_finish_time must be greater than or equal to official_start_time",
+          error: "official_end_time must be greater than or equal to official_start_time",
           code: "INVALID_OFFICIAL_TIME_RANGE",
         },
         400,

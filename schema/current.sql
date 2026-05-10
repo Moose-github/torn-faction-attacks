@@ -49,6 +49,56 @@ CREATE TABLE sync_state (
   active_war_id INTEGER
 );
 
+CREATE TABLE ingestion_runs (
+  id TEXT PRIMARY KEY,
+  trigger_source TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  ranked_war_checked_at INTEGER,
+  attacks_fetch_finished_at INTEGER,
+  d1_writes_finished_at INTEGER,
+  stats_finished_at INTEGER,
+  report_finished_at INTEGER,
+  heatmap_finished_at INTEGER,
+  finished_at INTEGER,
+  latest_attack_started INTEGER,
+  fetched_pages INTEGER NOT NULL DEFAULT 0,
+  fetched_attacks INTEGER NOT NULL DEFAULT 0,
+  wrote_batches INTEGER NOT NULL DEFAULT 0,
+  saw_rows INTEGER NOT NULL DEFAULT 0,
+  active_war_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'running',
+  error TEXT,
+  attack_write_statements INTEGER NOT NULL DEFAULT 0,
+  sync_state_writes INTEGER NOT NULL DEFAULT 0,
+  stat_write_operations INTEGER NOT NULL DEFAULT 0,
+  report_write_operations INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE scheduled_maintenance_runs (
+  id TEXT PRIMARY KEY,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  status TEXT NOT NULL DEFAULT 'running',
+  task_count INTEGER NOT NULL DEFAULT 0,
+  write_statements INTEGER NOT NULL DEFAULT 0,
+  changed_rows INTEGER NOT NULL DEFAULT 0,
+  error TEXT
+);
+
+CREATE TABLE scheduled_maintenance_tasks (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  task_name TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  status TEXT NOT NULL DEFAULT 'running',
+  write_statements INTEGER NOT NULL DEFAULT 0,
+  changed_rows INTEGER NOT NULL DEFAULT 0,
+  details TEXT,
+  error TEXT,
+  FOREIGN KEY (run_id) REFERENCES scheduled_maintenance_runs(id)
+);
+
 CREATE TABLE attacks (
   id INTEGER PRIMARY KEY,
   war_id INTEGER,
@@ -87,15 +137,15 @@ CREATE TABLE attacks (
 
 CREATE TABLE war_summary (
   war_id INTEGER PRIMARY KEY,
-  faction_attacks INTEGER NOT NULL DEFAULT 0,
+  attacks_vs_enemy_total INTEGER NOT NULL DEFAULT 0,
   total_respect_gain REAL NOT NULL DEFAULT 0,
   total_respect_lost REAL NOT NULL DEFAULT 0,
   unique_attackers INTEGER NOT NULL DEFAULT 0,
   first_attack_at INTEGER,
   last_attack_at INTEGER,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  enemy_attacks INTEGER NOT NULL DEFAULT 0,
-  outside_hits_outgoing INTEGER NOT NULL DEFAULT 0,
+  attacks_from_enemy_total INTEGER NOT NULL DEFAULT 0,
+  outside_hits INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (war_id) REFERENCES wars(id)
 );
 
@@ -233,6 +283,9 @@ CREATE INDEX idx_attacks_war_attacker_started
 CREATE INDEX idx_attacks_war_defender_started
   ON attacks(war_id, defender_id, started DESC);
 
+CREATE INDEX idx_attacks_war_ingest_run
+  ON attacks(war_id, ingest_run_id);
+
 CREATE INDEX idx_wars_status_practical_start
   ON wars(status, practical_start_time DESC);
 
@@ -257,6 +310,15 @@ CREATE INDEX idx_member_stats_respect_sort
 
 CREATE INDEX idx_auth_sessions_expires_at
   ON auth_sessions(expires_at);
+
+CREATE INDEX idx_ingestion_runs_started
+  ON ingestion_runs(started_at DESC);
+
+CREATE INDEX idx_scheduled_maintenance_runs_started
+  ON scheduled_maintenance_runs(started_at DESC);
+
+CREATE INDEX idx_scheduled_maintenance_tasks_run
+  ON scheduled_maintenance_tasks(run_id);
 
 CREATE INDEX idx_enemy_faction_members_faction
   ON enemy_faction_members(faction_id);

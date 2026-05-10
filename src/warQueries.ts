@@ -26,9 +26,9 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
       `
       SELECT
         ${WAR_SELECT_COLUMNS_WITH_ALIAS},
-        COALESCE(ws.faction_attacks, 0) AS faction_attacks,
-        COALESCE(ws.enemy_attacks, 0) AS enemy_attacks,
-        COALESCE(ws.outside_hits_outgoing, 0) AS outside_hits_outgoing,
+        COALESCE(ws.attacks_vs_enemy_total, 0) AS attacks_vs_enemy_total,
+        COALESCE(ws.attacks_from_enemy_total, 0) AS attacks_from_enemy_total,
+        COALESCE(ws.outside_hits, 0) AS outside_hits,
         COALESCE(ws.total_respect_gain, 0) AS total_respect_gain,
         COALESCE(ws.total_respect_lost, 0) AS total_respect_lost,
         COALESCE(ws.unique_attackers, 0) AS unique_attackers,
@@ -583,9 +583,9 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     `
     SELECT
       COUNT(*) AS total_wars,
-      COALESCE(SUM(ws.faction_attacks), 0) AS faction_attacks,
-      COALESCE(SUM(ws.enemy_attacks), 0) AS enemy_attacks,
-      COALESCE(SUM(ws.outside_hits_outgoing), 0) AS outside_hits_outgoing,
+      COALESCE(SUM(ws.attacks_vs_enemy_total), 0) AS attacks_vs_enemy_total,
+      COALESCE(SUM(ws.attacks_from_enemy_total), 0) AS attacks_from_enemy_total,
+      COALESCE(SUM(ws.outside_hits), 0) AS outside_hits,
       COALESCE(SUM(ws.total_respect_gain), 0) AS total_respect_gain,
       COALESCE(SUM(ws.total_respect_lost), 0) AS total_respect_lost,
       MAX(ws.last_attack_at) AS latest_attack_started

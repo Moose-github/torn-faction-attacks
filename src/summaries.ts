@@ -83,9 +83,9 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
     `
     INSERT INTO war_summary (
       war_id,
-      faction_attacks,
-      enemy_attacks,
-      outside_hits_outgoing,
+      attacks_vs_enemy_total,
+      attacks_from_enemy_total,
+      outside_hits,
       total_respect_gain,
       total_respect_lost,
       unique_attackers,
@@ -95,9 +95,9 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
     )
     SELECT
       w.id,
-      COALESCE(SUM(wms.attacks_vs_enemy_total), 0) AS faction_attacks,
-      COALESCE(SUM(wms.defends_total), 0) AS enemy_attacks,
-      COALESCE(SUM(wms.outside_hits), 0) AS outside_hits_outgoing,
+      COALESCE(SUM(wms.attacks_vs_enemy_total), 0) AS attacks_vs_enemy_total,
+      COALESCE(SUM(wms.defends_total), 0) AS attacks_from_enemy_total,
+      COALESCE(SUM(wms.outside_hits), 0) AS outside_hits,
       COALESCE(SUM(wms.respect_gained), 0) AS total_respect_gain,
       COALESCE(SUM(wms.respect_lost), 0) AS total_respect_lost,
       COUNT(CASE
@@ -115,9 +115,9 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
     WHERE w.id = ?
     GROUP BY w.id
     ON CONFLICT(war_id) DO UPDATE SET
-      faction_attacks = excluded.faction_attacks,
-      enemy_attacks = excluded.enemy_attacks,
-      outside_hits_outgoing = excluded.outside_hits_outgoing,
+      attacks_vs_enemy_total = excluded.attacks_vs_enemy_total,
+      attacks_from_enemy_total = excluded.attacks_from_enemy_total,
+      outside_hits = excluded.outside_hits,
       total_respect_gain = excluded.total_respect_gain,
       total_respect_lost = excluded.total_respect_lost,
       unique_attackers = excluded.unique_attackers,
