@@ -3,72 +3,11 @@ import {
   DEFEND_WON_RESULTS_SQL,
   HOME_FACTION_ID,
   POSITIVE_RESULTS_SQL,
-} from "./constants";
-import { DEFENSE_ACTION_WINDOW_SQL, OUTGOING_ACTION_WINDOW_SQL } from "./sql";
-import { Env } from "./types";
-
-function addNumericStatSql(column: string): string {
-  return `${column} = war_member_stats.${column} + excluded.${column}`;
-}
-
-function appendTextStatSql(column: string, separatorSql: string): string {
-  return `${column} = CASE
-        WHEN war_member_stats.${column} = '' THEN excluded.${column}
-        WHEN excluded.${column} = '' THEN war_member_stats.${column}
-        ELSE war_member_stats.${column} || ${separatorSql} || excluded.${column}
-      END`;
-}
-
-const ACTION_TIME_MERGE_SQL = `
-      first_action_at = CASE
-        WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
-        WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
-        ELSE MIN(war_member_stats.first_action_at, excluded.first_action_at)
-      END,
-      last_action_at = CASE
-        WHEN war_member_stats.last_action_at IS NULL THEN excluded.last_action_at
-        WHEN excluded.last_action_at IS NULL THEN war_member_stats.last_action_at
-        ELSE MAX(war_member_stats.last_action_at, excluded.last_action_at)
-      END`;
-
-const ATTACK_MEMBER_STAT_MERGE_SQL = `
-      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      ${addNumericStatSql("attacks_vs_enemy_total")},
-      ${addNumericStatSql("attacks_vs_enemy_successful")},
-      ${addNumericStatSql("respect_gained")},
-      ${addNumericStatSql("respect_gained_raw")},
-      ${addNumericStatSql("chain_bonus_hits_vs_enemy")},
-      ${addNumericStatSql("chain_bonus_respect_removed")},
-      ${appendTextStatSql("chain_bonus_hit_values_vs_enemy", "', '")},
-      ${appendTextStatSql("chain_bonus_hit_details_vs_enemy", "char(10)")},
-      ${addNumericStatSql("assists_vs_enemy")},
-      ${addNumericStatSql("hospitalizations_vs_enemy")},
-      ${addNumericStatSql("mugs_vs_enemy")},
-      ${addNumericStatSql("retaliations_vs_enemy")},
-      ${addNumericStatSql("outside_hits")},
-      ${addNumericStatSql("friendly_hosps")},
-      average_fair_fight = CASE
-        WHEN war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total > 0 THEN
-          (
-            COALESCE(war_member_stats.average_fair_fight, 0) * war_member_stats.attacks_vs_enemy_total +
-            COALESCE(excluded.average_fair_fight, 0) * excluded.attacks_vs_enemy_total
-          ) / (war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total)
-        ELSE COALESCE(excluded.average_fair_fight, war_member_stats.average_fair_fight)
-      END,
-${ACTION_TIME_MERGE_SQL}`;
-
-const DEFEND_MEMBER_STAT_MERGE_SQL = `
-      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      ${addNumericStatSql("defends_total")},
-      ${addNumericStatSql("defends_won")},
-      ${addNumericStatSql("defends_other")},
-      ${addNumericStatSql("respect_lost")},
-      ${addNumericStatSql("respect_lost_raw")},
-      ${addNumericStatSql("enemy_chain_bonus_hits_received")},
-      ${addNumericStatSql("enemy_chain_bonus_respect_removed")},
-      ${appendTextStatSql("enemy_chain_bonus_hit_values_received", "', '")},
-      ${appendTextStatSql("enemy_chain_bonus_hit_details_received", "char(10)")},
-${ACTION_TIME_MERGE_SQL}`;
+} from "../constants";
+import { DEFENSE_ACTION_WINDOW_SQL, OUTGOING_ACTION_WINDOW_SQL } from "../sql";
+import { Env } from "../types";
+import { ATTACK_MEMBER_STAT_MERGE_SQL, DEFEND_MEMBER_STAT_MERGE_SQL } from "./sqlFragments";
+import { rebuildWarSummaryFromMemberStats } from "./warSummary";
 
 export async function applyIncrementalWarSummaries(
   env: Env,
@@ -137,64 +76,6 @@ export async function finalizeWar(env: Env, warId: number): Promise<void> {
     .run();
 
   await env.DB.prepare(`UPDATE war_summary SET updated_at = unixepoch() WHERE war_id = ?`)
-    .bind(warId)
-    .run();
-}
-
-export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number): Promise<void> {
-  await env.DB.prepare(
-    `
-    INSERT INTO war_summary (
-      war_id,
-      attacks_vs_enemy_total,
-      attacks_from_enemy_total,
-      outside_hits,
-      total_respect_gain,
-      total_respect_gain_raw,
-      total_respect_lost,
-      total_respect_lost_raw,
-      unique_attackers,
-      first_attack_at,
-      last_attack_at,
-      updated_at
-    )
-    SELECT
-      w.id,
-      COALESCE(SUM(wms.attacks_vs_enemy_total), 0) AS attacks_vs_enemy_total,
-      COALESCE(SUM(wms.defends_total), 0) AS attacks_from_enemy_total,
-      COALESCE(SUM(wms.outside_hits), 0) AS outside_hits,
-      COALESCE(SUM(wms.respect_gained), 0) AS total_respect_gain,
-      COALESCE(SUM(wms.respect_gained_raw), 0) AS total_respect_gain_raw,
-      COALESCE(SUM(wms.respect_lost), 0) AS total_respect_lost,
-      COALESCE(SUM(wms.respect_lost_raw), 0) AS total_respect_lost_raw,
-      COUNT(CASE
-        WHEN wms.attacks_vs_enemy_total > 0
-          OR wms.assists_vs_enemy > 0
-          OR wms.outside_hits > 0
-          OR wms.friendly_hosps > 0
-        THEN 1
-      END) AS unique_attackers,
-      MIN(wms.first_action_at) AS first_attack_at,
-      MAX(wms.last_action_at) AS last_attack_at,
-      unixepoch() AS updated_at
-    FROM wars w
-    LEFT JOIN war_member_stats wms ON wms.war_id = w.id
-    WHERE w.id = ?
-    GROUP BY w.id
-    ON CONFLICT(war_id) DO UPDATE SET
-      attacks_vs_enemy_total = excluded.attacks_vs_enemy_total,
-      attacks_from_enemy_total = excluded.attacks_from_enemy_total,
-      outside_hits = excluded.outside_hits,
-      total_respect_gain = excluded.total_respect_gain,
-      total_respect_gain_raw = excluded.total_respect_gain_raw,
-      total_respect_lost = excluded.total_respect_lost,
-      total_respect_lost_raw = excluded.total_respect_lost_raw,
-      unique_attackers = excluded.unique_attackers,
-      first_attack_at = excluded.first_attack_at,
-      last_attack_at = excluded.last_attack_at,
-      updated_at = excluded.updated_at
-    `,
-  )
     .bind(warId)
     .run();
 }
