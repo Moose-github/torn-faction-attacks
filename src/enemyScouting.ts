@@ -25,7 +25,6 @@ const TRAVEL_DURATIONS_MINUTES: Record<string, Record<TravelDurationKey, number>
 };
 
 const PLANE_IMAGE_TYPE_TO_DURATION_KEY: Record<string, TravelDurationKey> = {
-  airliner: "Standard",
   light_aircraft: "Airstrip",
   private_jet: "WLT benefit",
 };
@@ -881,6 +880,20 @@ function buildMemberTravelStatus(
   }
 
   if (!isNewTrip && previous) {
+    const estimate =
+      planeImageType === "airliner"
+        ? estimateTravelArrival(
+            parsedTravel.flightLocation,
+            planeImageType,
+            previous.travel_started_after ?? null,
+            previous.travel_started_before ?? fetchedAt,
+          )
+        : {
+            estimated_arrival_at: previous.estimated_arrival_at ?? null,
+            estimated_arrival_earliest: previous.estimated_arrival_earliest ?? null,
+            estimated_arrival_latest: previous.estimated_arrival_latest ?? null,
+          };
+
     return {
       status_state: statusState,
       status_description: statusDescription,
@@ -891,9 +904,7 @@ function buildMemberTravelStatus(
       travel_detected_at: previous.travel_detected_at ?? null,
       travel_started_after: previous.travel_started_after ?? null,
       travel_started_before: previous.travel_started_before ?? null,
-      estimated_arrival_at: previous.estimated_arrival_at ?? null,
-      estimated_arrival_earliest: previous.estimated_arrival_earliest ?? null,
-      estimated_arrival_latest: previous.estimated_arrival_latest ?? null,
+      ...estimate,
       status_updated_at: statusChanged ? fetchedAt : (previous.status_updated_at ?? fetchedAt),
     };
   }
@@ -984,6 +995,32 @@ function estimateTravelArrival(
   startedAfter: number | null,
   startedBefore: number,
 ): TravelEstimate {
+  if (planeImageType === "airliner") {
+    const businessClassMinutes = TRAVEL_DURATIONS_MINUTES[flightLocation]?.["Business Class"];
+    const standardMinutes = TRAVEL_DURATIONS_MINUTES[flightLocation]?.Standard;
+    if (!businessClassMinutes || !standardMinutes) {
+      return {
+        estimated_arrival_at: null,
+        estimated_arrival_earliest: null,
+        estimated_arrival_latest: null,
+      };
+    }
+
+    const estimatedEarliest =
+      startedAfter === null ? null : startedAfter + businessClassMinutes * 60;
+    const estimatedLatest = startedBefore + standardMinutes * 60;
+    const estimatedArrival =
+      estimatedEarliest === null
+        ? estimatedLatest
+        : Math.floor((estimatedEarliest + estimatedLatest) / 2);
+
+    return {
+      estimated_arrival_at: estimatedArrival,
+      estimated_arrival_earliest: estimatedEarliest,
+      estimated_arrival_latest: estimatedLatest,
+    };
+  }
+
   const durationKey = planeImageType ? PLANE_IMAGE_TYPE_TO_DURATION_KEY[planeImageType] : undefined;
   const durationMinutes = durationKey ? TRAVEL_DURATIONS_MINUTES[flightLocation]?.[durationKey] : undefined;
   if (!durationMinutes) {

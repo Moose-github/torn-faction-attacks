@@ -511,6 +511,7 @@ function EnemyTravelPanel({
     >
       <p className="panel-description">
         Tracks enemy members currently shown by Torn as traveling, with arrival estimates from route and plane type.
+        Torn reports both Standard and Business Class flights as airliner, so those estimates are shown as a range.
       </p>
       {travelers.length === 0 ? (
         <EmptyState text="No enemy travelers cached" />
@@ -524,7 +525,7 @@ function EnemyTravelPanel({
                 <th>Departure</th>
                 <th>Travel time</th>
                 <th>Arrival</th>
-                <th>Plane</th>
+                <th>Travel type</th>
               </tr>
             </thead>
             <tbody>
@@ -542,12 +543,12 @@ function EnemyTravelPanel({
                   </td>
                   <td>{formatTravelRoute(member)}</td>
                   <td title={formatTravelStartWindow(member)}>{formatDepartureWindow(member)}</td>
-                  <td>{formatTravelDuration(member)}</td>
-                  <td>{formatArrivalRange(member)}</td>
+                  <td title={formatTravelDurationTooltip(member)}>{formatTravelDuration(member)}</td>
+                  <td title={formatArrivalTooltip(member)}>{formatArrivalRange(member)}</td>
                   <td>
-                    <span className="plane-type">
+                    <span className="plane-type" title={formatPlaneTypeTooltip(member)}>
                       <Plane size={14} />
-                      {formatPlaneType(member.plane_image_type)}
+                      {formatTravelType(member)}
                     </span>
                   </td>
                 </tr>
@@ -601,6 +602,31 @@ function formatDepartureWindow(member: EnemyFactionMember): string {
 }
 
 function formatTravelDuration(member: EnemyFactionMember): string {
+  if (isAmbiguousAirliner(member)) {
+    const startedAfter = member.travel_started_after ?? null;
+    const startedBefore = member.travel_started_before ?? null;
+    const earliestArrival = member.estimated_arrival_earliest ?? null;
+    const latestArrival = member.estimated_arrival_latest ?? null;
+    const businessClassDuration =
+      startedAfter && earliestArrival && earliestArrival >= startedAfter
+        ? earliestArrival - startedAfter
+        : null;
+    const standardDuration =
+      startedBefore && latestArrival && latestArrival >= startedBefore
+        ? latestArrival - startedBefore
+        : null;
+
+    if (businessClassDuration !== null && standardDuration !== null) {
+      return businessClassDuration === standardDuration
+        ? formatTravelDurationValue(standardDuration)
+        : `${formatTravelDurationValue(businessClassDuration)}-${formatTravelDurationValue(standardDuration)}`;
+    }
+
+    if (standardDuration !== null) {
+      return `Up to ${formatTravelDurationValue(standardDuration)}`;
+    }
+  }
+
   const startedBefore = member.travel_started_before ?? null;
   const latestArrival = member.estimated_arrival_latest ?? null;
   if (startedBefore && latestArrival && latestArrival >= startedBefore) {
@@ -614,6 +640,14 @@ function formatTravelDuration(member: EnemyFactionMember): string {
   }
 
   return "Unknown";
+}
+
+function formatTravelDurationTooltip(member: EnemyFactionMember): string {
+  if (isAmbiguousAirliner(member)) {
+    return "Airliner can be either Business Class or Standard. Travel time range shows Business Class fastest and Standard slowest.";
+  }
+
+  return formatPlaneType(member.plane_image_type);
 }
 
 function formatTravelDurationValue(seconds: number): string {
@@ -642,6 +676,40 @@ function formatTravelStartWindow(member: EnemyFactionMember): string {
   }
 
   return member.status_description ?? "Travel timing unknown";
+}
+
+function formatArrivalTooltip(member: EnemyFactionMember): string {
+  if (isAmbiguousAirliner(member)) {
+    return "Arrival range uses Business Class for earliest arrival and Standard for latest arrival because Torn reports both as airliner.";
+  }
+
+  return member.status_description ?? "Travel arrival estimate";
+}
+
+function isAmbiguousAirliner(member: EnemyFactionMember): boolean {
+  return member.plane_image_type === "airliner";
+}
+
+function formatTravelType(member: EnemyFactionMember): string {
+  switch (member.plane_image_type) {
+    case "airliner":
+      return "Business Class-Standard";
+    case "light_aircraft":
+      return "Airstrip";
+    case "private_jet":
+      return "WLT benefit";
+    default:
+      return "Unknown";
+  }
+}
+
+function formatPlaneTypeTooltip(member: EnemyFactionMember): string {
+  const planeType = formatPlaneType(member.plane_image_type);
+  if (isAmbiguousAirliner(member)) {
+    return `${planeType}; Torn reports both Standard and Business Class flights as airliner`;
+  }
+
+  return planeType;
 }
 
 function formatPlaneType(value: string | null | undefined): string {
