@@ -419,21 +419,29 @@ function EnemyStatusSummaryPanel({
       <PanelHeader title="Enemy status summary" aside={isLoading ? "Loading" : checkedLabel} />
       <div className="enemy-status-summary-grid">
         <StatusSummaryItem label="Okay" value={summary.okay} />
-        <StatusSummaryItem label="Traveling" value={summary.traveling} />
-        <StatusSummaryItem label="Abroad" value={summary.abroad} />
-        <StatusSummaryItem label="Hospital" value={summary.hospital} />
-        <StatusSummaryItem label="Jail" value={summary.jail} />
-        <StatusSummaryItem label="Other" value={summary.other} />
-        <StatusSummaryItem label="Unknown" value={summary.unknown} />
-        <StatusSummaryItem label="Revivable" value={summary.revivable} />
+        <StatusSummaryItem label="Traveling" value={summary.traveling} tone="traveling" />
+        <StatusSummaryItem label="Abroad" value={summary.abroad} tone="abroad" />
+        <StatusSummaryItem label="Hospital" value={summary.hospital} tone="danger" />
+        <StatusSummaryItem label="Jail" value={summary.jail} tone="danger" />
+        <StatusSummaryItem label="Other" value={summary.other} tone="muted" />
+        <StatusSummaryItem label="Unknown" value={summary.unknown} tone="muted" />
+        <StatusSummaryItem label="Revivable" value={summary.revivable} tone="good" />
       </div>
     </section>
   );
 }
 
-function StatusSummaryItem({ label, value }: { label: string; value: number }) {
+function StatusSummaryItem({
+  label,
+  value,
+  tone = "okay",
+}: {
+  label: string;
+  value: number;
+  tone?: "okay" | "traveling" | "abroad" | "danger" | "muted" | "good";
+}) {
   return (
-    <div className="enemy-status-summary-item">
+    <div className={`enemy-status-summary-item ${tone}`}>
       <span>{label}</span>
       <strong>{formatNumber(value)}</strong>
     </div>
