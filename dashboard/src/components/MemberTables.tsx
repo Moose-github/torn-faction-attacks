@@ -55,12 +55,14 @@ export function MemberTable({
               sort={sort}
               onSortChange={onSortChange}
             />
-            <SortableHeader
-              label={<>Respect<br />lost raw</>}
-              sortKey="respect_lost_raw"
-              sort={sort}
-              onSortChange={onSortChange}
-            />
+            {showTermedColumns ? null : (
+              <SortableHeader
+                label={<>Respect<br />lost raw</>}
+                sortKey="respect_lost_raw"
+                sort={sort}
+                onSortChange={onSortChange}
+              />
+            )}
             <SortableHeader label="Assists" sortKey="assists_vs_enemy" sort={sort} onSortChange={onSortChange} />
             {showTermedColumns ? (
               <>
@@ -121,6 +123,7 @@ export function MemberTable({
                   raw={member.respect_gained_raw}
                   chainHits={member.chain_bonus_hits_vs_enemy}
                   chainHitValues={member.chain_bonus_hit_values_vs_enemy}
+                  chainHitDetails={member.chain_bonus_hit_details_vs_enemy}
                   respectRemoved={member.chain_bonus_respect_removed}
                   tooltipLabel="Respect gained"
                   markerLabel="chain"
@@ -132,12 +135,13 @@ export function MemberTable({
                   raw={member.respect_lost_raw}
                   chainHits={member.enemy_chain_bonus_hits_received}
                   chainHitValues={member.enemy_chain_bonus_hit_values_received}
+                  chainHitDetails={member.enemy_chain_bonus_hit_details_received}
                   respectRemoved={member.enemy_chain_bonus_respect_removed}
                   tooltipLabel="Respect lost"
                   markerLabel="chain"
                 />
               </td>
-              <td>{formatNumber(member.respect_lost_raw)}</td>
+              {showTermedColumns ? null : <td>{formatNumber(member.respect_lost_raw)}</td>}
               <td>{formatNumber(member.assists_vs_enemy)}</td>
               {showTermedColumns ? (
                 <>
@@ -185,6 +189,7 @@ function RespectAdjustmentCell({
   raw,
   chainHits,
   chainHitValues,
+  chainHitDetails,
   respectRemoved,
   tooltipLabel,
   markerLabel,
@@ -193,6 +198,7 @@ function RespectAdjustmentCell({
   raw: number | null | undefined;
   chainHits: number | null | undefined;
   chainHitValues: string | null | undefined;
+  chainHitDetails: string | null | undefined;
   respectRemoved: number | null | undefined;
   tooltipLabel: string;
   markerLabel: string;
@@ -201,6 +207,7 @@ function RespectAdjustmentCell({
   const rawValue = Number(raw ?? adjusted);
   const removedValue = Number(respectRemoved ?? rawValue - adjusted);
   const chainValues = chainHitValues?.trim() || "Unknown";
+  const chainDetails = chainHitDetails?.trim() || chainValues;
 
   if (hitCount <= 0) {
     return <>{formatNumber(adjusted)}</>;
@@ -218,7 +225,7 @@ function RespectAdjustmentCell({
       </span>
       <span
         className="respect-adjustment-marker"
-        title={`${tooltipLabel} chain hits: ${chainValues}`}
+        title={`${tooltipLabel} chain hits:\n${chainDetails}`}
       >
         {formatNumber(hitCount)} {markerLabel}
       </span>
