@@ -58,6 +58,9 @@ export function WarRoom({
     selectedWar.official_end_time === null &&
     selectedWar.practical_finish_time === null;
   const now = useCurrentTime();
+  const isMemberTrackingActive = selectedWar
+    ? isWarRoomMemberTrackingActive(selectedWar, Math.floor(now / 1000))
+    : false;
   const isActivityHeatmapsOpen = collapsedPanels.activityHeatmaps === false;
 
   function togglePanel(panel: string) {
@@ -377,7 +380,7 @@ export function WarRoom({
           homeMembers={scoutingComparison?.home.members ?? []}
           enemyMembers={scoutingComparison?.enemy.members ?? []}
           enemyName={selectedWar.name}
-          isCollecting={isWarRoomMemberTrackingActive(selectedWar, Math.floor(now / 1000))}
+          isCollecting={isMemberTrackingActive}
           collapsed={collapsedPanels.revivableMembers ?? true}
           onToggle={() => togglePanel("revivableMembers")}
         />
@@ -386,6 +389,7 @@ export function WarRoom({
           members={enemyScouting?.members ?? []}
           statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
           isLoading={isLoadingEnemyScouting}
+          isCollecting={isMemberTrackingActive}
           collapsed={collapsedPanels.enemyTravel ?? false}
           onToggle={() => togglePanel("enemyTravel")}
         />
@@ -395,6 +399,7 @@ export function WarRoom({
           isLoading={isLoadingEnemyScouting}
           isRefreshing={isRefreshingEnemyScouting}
           canRefresh={canRefreshEnemyScouting}
+          showStatusColumn={isMemberTrackingActive}
           onRefresh={refreshSelectedEnemyScouting}
         />
       </section>
@@ -490,29 +495,33 @@ function EnemyTravelPanel({
   members,
   statusCheckedAt,
   isLoading,
+  isCollecting,
   collapsed,
   onToggle,
 }: {
   members: EnemyFactionMember[];
   statusCheckedAt: number | null;
   isLoading: boolean;
+  isCollecting: boolean;
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const travelers = members
-    .filter((member) => member.status_state === "Traveling")
-    .sort((a, b) => {
-      const arrivalDiff =
-        Number(a.estimated_arrival_at ?? Number.MAX_SAFE_INTEGER) -
-        Number(b.estimated_arrival_at ?? Number.MAX_SAFE_INTEGER);
-      return arrivalDiff !== 0 ? arrivalDiff : a.name.localeCompare(b.name);
-    });
+  const travelers = isCollecting
+    ? members
+        .filter((member) => member.status_state === "Traveling")
+        .sort((a, b) => {
+          const arrivalDiff =
+            Number(a.estimated_arrival_at ?? Number.MAX_SAFE_INTEGER) -
+            Number(b.estimated_arrival_at ?? Number.MAX_SAFE_INTEGER);
+          return arrivalDiff !== 0 ? arrivalDiff : a.name.localeCompare(b.name);
+        })
+    : [];
   const checkedLabel = statusCheckedAt ? `Checked ${formatRelativeTime(statusCheckedAt)}` : "Not checked";
 
   return (
     <CollapsiblePanel
       title="Enemy travel tracker"
-      aside={isLoading ? "Loading" : `${travelers.length} traveling | ${checkedLabel}`}
+      aside={isCollecting ? (isLoading ? "Loading" : `${travelers.length} traveling | ${checkedLabel}`) : "Not gathering"}
       collapsed={collapsed}
       onToggle={onToggle}
       className="enemy-travel-panel table-panel"
@@ -522,7 +531,9 @@ function EnemyTravelPanel({
         <br />
         Torn reports both Standard and Business Class flights as airliner, so those estimates are shown as a range.
       </p>
-      {travelers.length === 0 ? (
+      {!isCollecting ? (
+        <EmptyState text="Enemy travel information is not currently being gathered. Collection starts two hours before official war start and stops at practical finish." />
+      ) : travelers.length === 0 ? (
         <EmptyState text="No enemy travelers cached" />
       ) : (
         <div className="table-scroll">

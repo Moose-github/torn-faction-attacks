@@ -8,6 +8,7 @@ const FFSCOUTER_BATCH_SIZE = 100;
 const SCOUTING_FETCH_TIMEOUT_MS = 15000;
 const NETWORTH_REFRESH_LIMIT = 40;
 const TORN_LOCATION = "Torn";
+const ENEMY_TRAVEL_CLEAR_STATE_PREFIX = "enemy_travel_cleared";
 
 type TravelDurationKey = "Standard" | "Airstrip" | "WLT benefit" | "Business Class";
 
@@ -307,10 +308,15 @@ export async function refreshCurrentEnemyTravelStatuses(
     };
   }
 
-  if (!isWarRoomMemberTrackingActive(war, nowSeconds())) {
+  const checkedAt = nowSeconds();
+  if (!isWarRoomMemberTrackingActive(war, checkedAt)) {
+    const clearMetrics =
+      war.practical_finish_time !== null && checkedAt > war.practical_finish_time
+        ? await clearEnemyTravelTrackerData(env, war.id, war.enemy_faction_id)
+        : { writeStatements: 0, changedRows: 0 };
     return {
-      writeStatements: 0,
-      changedRows: 0,
+      writeStatements: clearMetrics.writeStatements,
+      changedRows: clearMetrics.changedRows,
       fetchedMembers: 0,
       updatedMembers: 0,
       skipped: true,
@@ -836,6 +842,84 @@ function upsertEnemyMemberSnapshot(
     snapshot.estimated_arrival_latest,
     snapshot.status_updated_at,
   );
+}
+
+async function clearEnemyTravelTrackerData(
+  env: Env,
+  warId: number,
+  factionId: number,
+): Promise<{ writeStatements: number; changedRows: number }> {
+  const stateName = `${ENEMY_TRAVEL_CLEAR_STATE_PREFIX}:${warId}`;
+  const existingClear = await env.DB.prepare(
+    `
+    SELECT last_started
+    FROM sync_state
+    WHERE name = ?
+    LIMIT 1
+    `,
+  )
+    .bind(stateName)
+    .first();
+
+  if (existingClear) {
+    return { writeStatements: 0, changedRows: 0 };
+  }
+
+  const result = await env.DB.prepare(
+    `
+    UPDATE enemy_faction_members
+    SET status_state = NULL,
+        status_description = NULL,
+        plane_image_type = NULL,
+        travel_origin = NULL,
+        travel_destination = NULL,
+        travel_signature = NULL,
+        travel_detected_at = NULL,
+        travel_started_after = NULL,
+        travel_started_before = NULL,
+        estimated_arrival_at = NULL,
+        estimated_arrival_earliest = NULL,
+        estimated_arrival_latest = NULL,
+        status_updated_at = NULL,
+        updated_at = unixepoch()
+    WHERE faction_id = ?
+      AND (
+        status_state IS NOT NULL OR
+        status_description IS NOT NULL OR
+        plane_image_type IS NOT NULL OR
+        travel_origin IS NOT NULL OR
+        travel_destination IS NOT NULL OR
+        travel_signature IS NOT NULL OR
+        travel_detected_at IS NOT NULL OR
+        travel_started_after IS NOT NULL OR
+        travel_started_before IS NOT NULL OR
+        estimated_arrival_at IS NOT NULL OR
+        estimated_arrival_earliest IS NOT NULL OR
+        estimated_arrival_latest IS NOT NULL OR
+        status_updated_at IS NOT NULL
+      )
+    `,
+  )
+    .bind(factionId)
+    .run();
+
+  await env.DB.prepare(
+    `
+    INSERT INTO sync_state (name, last_started, active_war_id)
+    VALUES (?, unixepoch(), ?)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = excluded.last_started,
+      active_war_id = excluded.active_war_id,
+      updated_at = CURRENT_TIMESTAMP
+    `,
+  )
+    .bind(stateName, warId)
+    .run();
+
+  return {
+    writeStatements: 2,
+    changedRows: d1Changes(result) + 1,
+  };
 }
 
 async function markEnemyScoutingStatusChecked(

@@ -23,18 +23,27 @@ export function EnemyScoutingPanel({
   isLoading,
   isRefreshing,
   canRefresh,
+  showStatusColumn,
   onRefresh,
 }: {
   scouting: EnemyScoutingResponse | null;
   isLoading: boolean;
   isRefreshing: boolean;
   canRefresh: boolean;
+  showStatusColumn: boolean;
   onRefresh: () => void;
 }) {
   const [sort, setSort] = React.useState<EnemyScoutingSort>({
     key: "estimated_stats",
     direction: "desc",
   });
+
+  React.useEffect(() => {
+    if (!showStatusColumn && sort.key === "status") {
+      setSort({ key: "estimated_stats", direction: "desc" });
+    }
+  }, [showStatusColumn, sort.key]);
+
   const members = sortEnemyScoutingMembers(scouting?.members ?? [], sort);
 
   return (
@@ -72,7 +81,9 @@ export function EnemyScoutingPanel({
               <thead>
                 <tr>
                   <SortableHeader label="Member" sortKey="name" sort={sort} onSortChange={setSort} />
-                  <SortableHeader label="Status" sortKey="status" sort={sort} onSortChange={setSort} />
+                  {showStatusColumn ? (
+                    <SortableHeader label="Status" sortKey="status" sort={sort} onSortChange={setSort} />
+                  ) : null}
                   <SortableHeader label="Level" sortKey="level" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Position" sortKey="position" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
@@ -105,11 +116,13 @@ export function EnemyScoutingPanel({
                         </a>
                       </span>
                     </td>
-                    <td title={enemyStatusTitle(member)}>
-                      <span className={`enemy-status-badge ${enemyStatusClass(member.status_state)}`}>
-                        {enemyStatusLabel(member)}
-                      </span>
-                    </td>
+                    {showStatusColumn ? (
+                      <td title={enemyStatusTitle(member)}>
+                        <span className={`enemy-status-badge ${enemyStatusClass(member.status_state)}`}>
+                          {enemyStatusLabel(member)}
+                        </span>
+                      </td>
+                    ) : null}
                     <td>{formatNumber(member.level ?? 0)}</td>
                     <td>{member.position ?? "-"}</td>
                     <td>{formatNumber(member.days_in_faction ?? 0)}</td>
