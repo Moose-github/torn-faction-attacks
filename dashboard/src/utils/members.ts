@@ -8,6 +8,7 @@ export type MemberSortKey =
   | "outside_hits"
   | "respect_gained"
   | "respect_lost"
+  | "respect_lost_raw"
   | "assists_vs_enemy"
   | "retaliations_vs_enemy"
   | "friendly_hosps"
@@ -202,6 +203,8 @@ export function memberSortLabel(key: MemberSortKey): string {
       return "Respect gained";
     case "respect_lost":
       return "Respect lost";
+    case "respect_lost_raw":
+      return "Respect lost raw";
     case "assists_vs_enemy":
       return "Assists";
     case "friendly_hosps":

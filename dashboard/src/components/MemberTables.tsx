@@ -41,15 +41,26 @@ export function MemberTable({
             <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label={<>Defends<br />lost</>} sortKey="defends_lost" sort={sort} onSortChange={onSortChange} />
             {showTermedColumns ? null : (
-              <SortableHeader label="Outside hits" sortKey="outside_hits" sort={sort} onSortChange={onSortChange} />
+              <SortableHeader label={<>Outside<br />hits</>} sortKey="outside_hits" sort={sort} onSortChange={onSortChange} />
             )}
             <SortableHeader
-              label={<span title="Adjusted respect, with chain bonus hits counted at the member's average hit value.">Respect gained</span>}
+              label={<span title="Adjusted respect, with chain bonus hits counted at the member's average hit value.">Respect<br />gained</span>}
               sortKey="respect_gained"
               sort={sort}
               onSortChange={onSortChange}
             />
-            <SortableHeader label={<>Respect<br />lost</>} sortKey="respect_lost" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader
+              label={<span title="Adjusted respect lost, with enemy chain bonus hits counted at the enemy attacker's average hit value.">Respect<br />lost</span>}
+              sortKey="respect_lost"
+              sort={sort}
+              onSortChange={onSortChange}
+            />
+            <SortableHeader
+              label={<>Respect<br />lost raw</>}
+              sortKey="respect_lost_raw"
+              sort={sort}
+              onSortChange={onSortChange}
+            />
             <SortableHeader label="Assists" sortKey="assists_vs_enemy" sort={sort} onSortChange={onSortChange} />
             {showTermedColumns ? (
               <>
@@ -126,6 +137,7 @@ export function MemberTable({
                   markerLabel="chain"
                 />
               </td>
+              <td>{formatNumber(member.respect_lost_raw)}</td>
               <td>{formatNumber(member.assists_vs_enemy)}</td>
               {showTermedColumns ? (
                 <>

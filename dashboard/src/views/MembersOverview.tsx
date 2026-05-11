@@ -141,6 +141,7 @@ function exportMembersOverviewCsv(members: MemberStats[], warType: WarType) {
       : [{ label: "Outside hits", value: (member: MemberStats) => member.outside_hits }]),
     { label: "Respect gained", value: (member) => member.respect_gained },
     { label: "Respect lost", value: (member) => member.respect_lost },
+    { label: "Respect lost raw", value: (member) => member.respect_lost_raw },
     { label: "Assists", value: (member) => member.assists_vs_enemy },
     ...(warType === "termed"
       ? [{ label: "Percent limit", value: (member: MemberStats) => member.member_respect_limit_percent }]
