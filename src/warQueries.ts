@@ -108,7 +108,6 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
       war,
       summary,
       members: memberStats.results ?? [],
-      chain_bonuses: [],
     });
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);

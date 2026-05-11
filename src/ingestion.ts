@@ -15,7 +15,6 @@ import {
   rebuildWarSummaryFromMemberStats,
 } from "./summaries";
 import {
-  D1PreparedStatement,
   Env,
   TornAttack,
   TornAttackResponse,

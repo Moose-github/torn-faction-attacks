@@ -4,11 +4,6 @@ export interface Env {
   FFSCOUTER_API_KEY?: string;
 }
 
-export type D1Database = any;
-export type D1PreparedStatement = any;
-export type ScheduledController = any;
-export type ExecutionContext = any;
-
 export type TornAttackResponse = {
   attacks?: TornAttack[] | Record<string, TornAttack>;
 };

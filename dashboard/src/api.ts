@@ -106,14 +106,15 @@ export type WarDetailResponse = {
     attacks_from_enemy_total: number;
     outside_hits: number;
     total_respect_gain: number;
+    total_respect_gain_raw: number;
     total_respect_lost: number;
+    total_respect_lost_raw: number;
     unique_attackers: number;
     first_attack_at: number | null;
     last_attack_at: number | null;
     updated_at: number;
   } | null;
   members: MemberStats[];
-  chain_bonuses: ChainBonusAttack[];
 };
 
 export type WarChainBonusesResponse = {
@@ -238,6 +239,12 @@ export type EnemyFactionMember = {
   status_state?: string | null;
   status_description?: string | null;
   plane_image_type?: string | null;
+  plane_type_label?: string | null;
+  travel_type?: string | null;
+  travel_type_note?: string | null;
+  travel_time_note?: string | null;
+  arrival_note?: string | null;
+  is_travel_time_range?: boolean;
   travel_origin?: string | null;
   travel_destination?: string | null;
   travel_signature?: string | null;

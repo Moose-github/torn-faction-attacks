@@ -29,6 +29,12 @@ const PLANE_IMAGE_TYPE_TO_DURATION_KEY: Record<string, TravelDurationKey> = {
   private_jet: "WLT benefit",
 };
 
+const PLANE_IMAGE_TYPE_LABELS: Record<string, string> = {
+  airliner: "Airliner",
+  light_aircraft: "Light Aircraft",
+  private_jet: "Private Jet",
+};
+
 const TRAVEL_LOCATION_ALIASES: Record<string, string> = {
   argentina: "Argentina",
   canada: "Canada",
@@ -90,6 +96,15 @@ type TravelEstimate = {
   estimated_arrival_at: number | null;
   estimated_arrival_earliest: number | null;
   estimated_arrival_latest: number | null;
+};
+
+type TravelDisplay = {
+  plane_type_label: string | null;
+  travel_type: string | null;
+  travel_type_note: string | null;
+  travel_time_note: string | null;
+  arrival_note: string | null;
+  is_travel_time_range: boolean;
 };
 
 type MemberTravelStatus = {
@@ -1046,6 +1061,53 @@ function estimateTravelArrival(
   };
 }
 
+function buildTravelDisplay(row: EnemyFactionMemberRow): TravelDisplay {
+  const planeTypeLabel = formatPlaneImageType(row.plane_image_type);
+
+  if (row.plane_image_type === "airliner") {
+    const note = "Torn reports both Standard and Business Class flights as airliner.";
+    return {
+      plane_type_label: planeTypeLabel,
+      travel_type: "Business Class-Standard",
+      travel_type_note: `${planeTypeLabel ?? "Airliner"}; ${note}`,
+      travel_time_note:
+        "Airliner can be either Business Class or Standard. Travel time range shows Business Class fastest and Standard slowest.",
+      arrival_note:
+        "Arrival range uses Business Class for earliest arrival and Standard for latest arrival because Torn reports both as airliner.",
+      is_travel_time_range: true,
+    };
+  }
+
+  const durationKey = row.plane_image_type
+    ? PLANE_IMAGE_TYPE_TO_DURATION_KEY[row.plane_image_type]
+    : undefined;
+  const travelType = durationKey ?? null;
+
+  return {
+    plane_type_label: planeTypeLabel,
+    travel_type: travelType,
+    travel_type_note: planeTypeLabel,
+    travel_time_note: travelType ?? planeTypeLabel,
+    arrival_note: row.status_description ?? "Travel arrival estimate",
+    is_travel_time_range: false,
+  };
+}
+
+function formatPlaneImageType(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return (
+    PLANE_IMAGE_TYPE_LABELS[value] ??
+    value
+      .split("_")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ")
+  );
+}
+
 function buildTravelSignature(
   description: string | null,
   planeImageType: string | null,
@@ -1303,7 +1365,10 @@ function jsonEnemyScouting(
       traveling: travelingRows.length,
       status_checked_at: war.enemy_scouting_status_checked_at,
     },
-    members: rows,
+    members: rows.map((row) => ({
+      ...row,
+      ...buildTravelDisplay(row),
+    })),
   });
 }
 

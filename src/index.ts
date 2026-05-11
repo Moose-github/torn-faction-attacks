@@ -23,7 +23,7 @@ import {
 import { getLatestMaintenanceRun, runScheduledMaintenance } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
-import { ExecutionContext, Env, ScheduledController, TornFactionMember } from "./types";
+import { Env, TornFactionMember } from "./types";
 import { corsHeaders, json, nowSeconds, parseLimit } from "./utils";
 import {
   createWar,

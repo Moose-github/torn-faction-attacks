@@ -7,6 +7,69 @@ import {
 import { DEFENSE_ACTION_WINDOW_SQL, OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { Env } from "./types";
 
+function addNumericStatSql(column: string): string {
+  return `${column} = war_member_stats.${column} + excluded.${column}`;
+}
+
+function appendTextStatSql(column: string, separatorSql: string): string {
+  return `${column} = CASE
+        WHEN war_member_stats.${column} = '' THEN excluded.${column}
+        WHEN excluded.${column} = '' THEN war_member_stats.${column}
+        ELSE war_member_stats.${column} || ${separatorSql} || excluded.${column}
+      END`;
+}
+
+const ACTION_TIME_MERGE_SQL = `
+      first_action_at = CASE
+        WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
+        WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
+        ELSE MIN(war_member_stats.first_action_at, excluded.first_action_at)
+      END,
+      last_action_at = CASE
+        WHEN war_member_stats.last_action_at IS NULL THEN excluded.last_action_at
+        WHEN excluded.last_action_at IS NULL THEN war_member_stats.last_action_at
+        ELSE MAX(war_member_stats.last_action_at, excluded.last_action_at)
+      END`;
+
+const ATTACK_MEMBER_STAT_MERGE_SQL = `
+      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
+      ${addNumericStatSql("attacks_vs_enemy_total")},
+      ${addNumericStatSql("attacks_vs_enemy_successful")},
+      ${addNumericStatSql("respect_gained")},
+      ${addNumericStatSql("respect_gained_raw")},
+      ${addNumericStatSql("chain_bonus_hits_vs_enemy")},
+      ${addNumericStatSql("chain_bonus_respect_removed")},
+      ${appendTextStatSql("chain_bonus_hit_values_vs_enemy", "', '")},
+      ${appendTextStatSql("chain_bonus_hit_details_vs_enemy", "char(10)")},
+      ${addNumericStatSql("assists_vs_enemy")},
+      ${addNumericStatSql("hospitalizations_vs_enemy")},
+      ${addNumericStatSql("mugs_vs_enemy")},
+      ${addNumericStatSql("retaliations_vs_enemy")},
+      ${addNumericStatSql("outside_hits")},
+      ${addNumericStatSql("friendly_hosps")},
+      average_fair_fight = CASE
+        WHEN war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total > 0 THEN
+          (
+            COALESCE(war_member_stats.average_fair_fight, 0) * war_member_stats.attacks_vs_enemy_total +
+            COALESCE(excluded.average_fair_fight, 0) * excluded.attacks_vs_enemy_total
+          ) / (war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total)
+        ELSE COALESCE(excluded.average_fair_fight, war_member_stats.average_fair_fight)
+      END,
+${ACTION_TIME_MERGE_SQL}`;
+
+const DEFEND_MEMBER_STAT_MERGE_SQL = `
+      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
+      ${addNumericStatSql("defends_total")},
+      ${addNumericStatSql("defends_won")},
+      ${addNumericStatSql("defends_other")},
+      ${addNumericStatSql("respect_lost")},
+      ${addNumericStatSql("respect_lost_raw")},
+      ${addNumericStatSql("enemy_chain_bonus_hits_received")},
+      ${addNumericStatSql("enemy_chain_bonus_respect_removed")},
+      ${appendTextStatSql("enemy_chain_bonus_hit_values_received", "', '")},
+      ${appendTextStatSql("enemy_chain_bonus_hit_details_received", "char(10)")},
+${ACTION_TIME_MERGE_SQL}`;
+
 export async function applyIncrementalWarSummaries(
   env: Env,
   warId: number,
@@ -399,47 +462,7 @@ async function upsertWarMemberAttackStats(
       AND ${OUTGOING_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.attacker_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
-      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      attacks_vs_enemy_total = war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total,
-      attacks_vs_enemy_successful = war_member_stats.attacks_vs_enemy_successful + excluded.attacks_vs_enemy_successful,
-      respect_gained = war_member_stats.respect_gained + excluded.respect_gained,
-      respect_gained_raw = war_member_stats.respect_gained_raw + excluded.respect_gained_raw,
-      chain_bonus_hits_vs_enemy = war_member_stats.chain_bonus_hits_vs_enemy + excluded.chain_bonus_hits_vs_enemy,
-      chain_bonus_respect_removed = war_member_stats.chain_bonus_respect_removed + excluded.chain_bonus_respect_removed,
-      chain_bonus_hit_values_vs_enemy = CASE
-        WHEN war_member_stats.chain_bonus_hit_values_vs_enemy = '' THEN excluded.chain_bonus_hit_values_vs_enemy
-        WHEN excluded.chain_bonus_hit_values_vs_enemy = '' THEN war_member_stats.chain_bonus_hit_values_vs_enemy
-        ELSE war_member_stats.chain_bonus_hit_values_vs_enemy || ', ' || excluded.chain_bonus_hit_values_vs_enemy
-      END,
-      chain_bonus_hit_details_vs_enemy = CASE
-        WHEN war_member_stats.chain_bonus_hit_details_vs_enemy = '' THEN excluded.chain_bonus_hit_details_vs_enemy
-        WHEN excluded.chain_bonus_hit_details_vs_enemy = '' THEN war_member_stats.chain_bonus_hit_details_vs_enemy
-        ELSE war_member_stats.chain_bonus_hit_details_vs_enemy || char(10) || excluded.chain_bonus_hit_details_vs_enemy
-      END,
-      assists_vs_enemy = war_member_stats.assists_vs_enemy + excluded.assists_vs_enemy,
-      hospitalizations_vs_enemy = war_member_stats.hospitalizations_vs_enemy + excluded.hospitalizations_vs_enemy,
-      mugs_vs_enemy = war_member_stats.mugs_vs_enemy + excluded.mugs_vs_enemy,
-      retaliations_vs_enemy = war_member_stats.retaliations_vs_enemy + excluded.retaliations_vs_enemy,
-      outside_hits = war_member_stats.outside_hits + excluded.outside_hits,
-      friendly_hosps = war_member_stats.friendly_hosps + excluded.friendly_hosps,
-      average_fair_fight = CASE
-        WHEN war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total > 0 THEN
-          (
-            COALESCE(war_member_stats.average_fair_fight, 0) * war_member_stats.attacks_vs_enemy_total +
-            COALESCE(excluded.average_fair_fight, 0) * excluded.attacks_vs_enemy_total
-          ) / (war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total)
-        ELSE COALESCE(excluded.average_fair_fight, war_member_stats.average_fair_fight)
-      END,
-      first_action_at = CASE
-        WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
-        WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
-        ELSE MIN(war_member_stats.first_action_at, excluded.first_action_at)
-      END,
-      last_action_at = CASE
-        WHEN war_member_stats.last_action_at IS NULL THEN excluded.last_action_at
-        WHEN excluded.last_action_at IS NULL THEN war_member_stats.last_action_at
-        ELSE MAX(war_member_stats.last_action_at, excluded.last_action_at)
-      END
+${ATTACK_MEMBER_STAT_MERGE_SQL}
     `,
   )
     .bind(warId, warId, warId, HOME_FACTION_ID)
@@ -642,47 +665,7 @@ async function upsertIngestedWarMemberAttackStats(
       AND ${OUTGOING_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.attacker_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
-      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      attacks_vs_enemy_total = war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total,
-      attacks_vs_enemy_successful = war_member_stats.attacks_vs_enemy_successful + excluded.attacks_vs_enemy_successful,
-      respect_gained = war_member_stats.respect_gained + excluded.respect_gained,
-      respect_gained_raw = war_member_stats.respect_gained_raw + excluded.respect_gained_raw,
-      chain_bonus_hits_vs_enemy = war_member_stats.chain_bonus_hits_vs_enemy + excluded.chain_bonus_hits_vs_enemy,
-      chain_bonus_respect_removed = war_member_stats.chain_bonus_respect_removed + excluded.chain_bonus_respect_removed,
-      chain_bonus_hit_values_vs_enemy = CASE
-        WHEN war_member_stats.chain_bonus_hit_values_vs_enemy = '' THEN excluded.chain_bonus_hit_values_vs_enemy
-        WHEN excluded.chain_bonus_hit_values_vs_enemy = '' THEN war_member_stats.chain_bonus_hit_values_vs_enemy
-        ELSE war_member_stats.chain_bonus_hit_values_vs_enemy || ', ' || excluded.chain_bonus_hit_values_vs_enemy
-      END,
-      chain_bonus_hit_details_vs_enemy = CASE
-        WHEN war_member_stats.chain_bonus_hit_details_vs_enemy = '' THEN excluded.chain_bonus_hit_details_vs_enemy
-        WHEN excluded.chain_bonus_hit_details_vs_enemy = '' THEN war_member_stats.chain_bonus_hit_details_vs_enemy
-        ELSE war_member_stats.chain_bonus_hit_details_vs_enemy || char(10) || excluded.chain_bonus_hit_details_vs_enemy
-      END,
-      assists_vs_enemy = war_member_stats.assists_vs_enemy + excluded.assists_vs_enemy,
-      hospitalizations_vs_enemy = war_member_stats.hospitalizations_vs_enemy + excluded.hospitalizations_vs_enemy,
-      mugs_vs_enemy = war_member_stats.mugs_vs_enemy + excluded.mugs_vs_enemy,
-      retaliations_vs_enemy = war_member_stats.retaliations_vs_enemy + excluded.retaliations_vs_enemy,
-      outside_hits = war_member_stats.outside_hits + excluded.outside_hits,
-      friendly_hosps = war_member_stats.friendly_hosps + excluded.friendly_hosps,
-      average_fair_fight = CASE
-        WHEN war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total > 0 THEN
-          (
-            COALESCE(war_member_stats.average_fair_fight, 0) * war_member_stats.attacks_vs_enemy_total +
-            COALESCE(excluded.average_fair_fight, 0) * excluded.attacks_vs_enemy_total
-          ) / (war_member_stats.attacks_vs_enemy_total + excluded.attacks_vs_enemy_total)
-        ELSE COALESCE(excluded.average_fair_fight, war_member_stats.average_fair_fight)
-      END,
-      first_action_at = CASE
-        WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
-        WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
-        ELSE MIN(war_member_stats.first_action_at, excluded.first_action_at)
-      END,
-      last_action_at = CASE
-        WHEN war_member_stats.last_action_at IS NULL THEN excluded.last_action_at
-        WHEN excluded.last_action_at IS NULL THEN war_member_stats.last_action_at
-        ELSE MAX(war_member_stats.last_action_at, excluded.last_action_at)
-      END
+${ATTACK_MEMBER_STAT_MERGE_SQL}
     `,
   )
     .bind(warId, warId, warId, ingestRunId)
@@ -812,34 +795,7 @@ async function upsertIngestedWarMemberDefendStats(
       AND ${DEFENSE_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
-      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      defends_total = war_member_stats.defends_total + excluded.defends_total,
-      defends_won = war_member_stats.defends_won + excluded.defends_won,
-      defends_other = war_member_stats.defends_other + excluded.defends_other,
-      respect_lost = war_member_stats.respect_lost + excluded.respect_lost,
-      respect_lost_raw = war_member_stats.respect_lost_raw + excluded.respect_lost_raw,
-      enemy_chain_bonus_hits_received = war_member_stats.enemy_chain_bonus_hits_received + excluded.enemy_chain_bonus_hits_received,
-      enemy_chain_bonus_respect_removed = war_member_stats.enemy_chain_bonus_respect_removed + excluded.enemy_chain_bonus_respect_removed,
-      enemy_chain_bonus_hit_values_received = CASE
-        WHEN war_member_stats.enemy_chain_bonus_hit_values_received = '' THEN excluded.enemy_chain_bonus_hit_values_received
-        WHEN excluded.enemy_chain_bonus_hit_values_received = '' THEN war_member_stats.enemy_chain_bonus_hit_values_received
-        ELSE war_member_stats.enemy_chain_bonus_hit_values_received || ', ' || excluded.enemy_chain_bonus_hit_values_received
-      END,
-      enemy_chain_bonus_hit_details_received = CASE
-        WHEN war_member_stats.enemy_chain_bonus_hit_details_received = '' THEN excluded.enemy_chain_bonus_hit_details_received
-        WHEN excluded.enemy_chain_bonus_hit_details_received = '' THEN war_member_stats.enemy_chain_bonus_hit_details_received
-        ELSE war_member_stats.enemy_chain_bonus_hit_details_received || char(10) || excluded.enemy_chain_bonus_hit_details_received
-      END,
-      first_action_at = CASE
-        WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
-        WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
-        ELSE MIN(war_member_stats.first_action_at, excluded.first_action_at)
-      END,
-      last_action_at = CASE
-        WHEN war_member_stats.last_action_at IS NULL THEN excluded.last_action_at
-        WHEN excluded.last_action_at IS NULL THEN war_member_stats.last_action_at
-        ELSE MAX(war_member_stats.last_action_at, excluded.last_action_at)
-      END
+${DEFEND_MEMBER_STAT_MERGE_SQL}
     `,
   )
     .bind(warId, warId, warId, ingestRunId)
@@ -967,34 +923,7 @@ async function upsertWarMemberDefendStats(
       AND ${DEFENSE_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
-      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
-      defends_total = war_member_stats.defends_total + excluded.defends_total,
-      defends_won = war_member_stats.defends_won + excluded.defends_won,
-      defends_other = war_member_stats.defends_other + excluded.defends_other,
-      respect_lost = war_member_stats.respect_lost + excluded.respect_lost,
-      respect_lost_raw = war_member_stats.respect_lost_raw + excluded.respect_lost_raw,
-      enemy_chain_bonus_hits_received = war_member_stats.enemy_chain_bonus_hits_received + excluded.enemy_chain_bonus_hits_received,
-      enemy_chain_bonus_respect_removed = war_member_stats.enemy_chain_bonus_respect_removed + excluded.enemy_chain_bonus_respect_removed,
-      enemy_chain_bonus_hit_values_received = CASE
-        WHEN war_member_stats.enemy_chain_bonus_hit_values_received = '' THEN excluded.enemy_chain_bonus_hit_values_received
-        WHEN excluded.enemy_chain_bonus_hit_values_received = '' THEN war_member_stats.enemy_chain_bonus_hit_values_received
-        ELSE war_member_stats.enemy_chain_bonus_hit_values_received || ', ' || excluded.enemy_chain_bonus_hit_values_received
-      END,
-      enemy_chain_bonus_hit_details_received = CASE
-        WHEN war_member_stats.enemy_chain_bonus_hit_details_received = '' THEN excluded.enemy_chain_bonus_hit_details_received
-        WHEN excluded.enemy_chain_bonus_hit_details_received = '' THEN war_member_stats.enemy_chain_bonus_hit_details_received
-        ELSE war_member_stats.enemy_chain_bonus_hit_details_received || char(10) || excluded.enemy_chain_bonus_hit_details_received
-      END,
-      first_action_at = CASE
-        WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
-        WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
-        ELSE MIN(war_member_stats.first_action_at, excluded.first_action_at)
-      END,
-      last_action_at = CASE
-        WHEN war_member_stats.last_action_at IS NULL THEN excluded.last_action_at
-        WHEN excluded.last_action_at IS NULL THEN war_member_stats.last_action_at
-        ELSE MAX(war_member_stats.last_action_at, excluded.last_action_at)
-      END
+${DEFEND_MEMBER_STAT_MERGE_SQL}
     `,
   )
     .bind(warId, warId, warId, HOME_FACTION_ID)

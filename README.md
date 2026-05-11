@@ -30,6 +30,7 @@ src/
   wars.ts         War creation, import, listing, and lookup APIs
   reports.ts      Torn ranked war report fetch and validation helpers
   summaries.ts    War and member summary rebuilds
+  enemyScouting.ts Enemy faction member/status/travel cache helpers
   auth.ts         Torn-key session authentication and admin lookup
   sql.ts          Shared SQL column lists and action windows
   constants.ts    API constants and faction settings
@@ -43,7 +44,7 @@ migrations/
   ...
 ```
 
-The app schema starts in `0002_create_torn_attack_tables.sql`; later migrations reshape member performance, add event/termed-war fields, ranked war report fields, auth tables, and schema cleanup.
+The app schema starts in `0002_create_torn_attack_tables.sql`; later migrations reshape member performance, add event/termed-war fields, ranked war report fields, auth tables, enemy scouting/travel fields, raw respect totals, and schema cleanup.
 
 ## Configuration
 
@@ -93,6 +94,8 @@ The main app tables are:
 - `war_summary`
 - `war_member_stats`
 - `enemy_faction_members`
+- `home_faction_members`
+- `faction_activity_heatmap`
 - `admin_users`
 - `auth_sessions`
 
@@ -244,6 +247,24 @@ Refresh enemy scouting for a war:
 POST /api/wars/:name/enemy-scouting
 ```
 
+Compare home and enemy scouting:
+
+```http
+GET /api/wars/:name/scouting-comparison
+```
+
+Get activity heatmap data:
+
+```http
+GET /api/wars/:name/activity-heatmap
+```
+
+Get chain bonus hits for a war:
+
+```http
+GET /api/wars/:name/chain-bonuses
+```
+
 Get attacks for a war:
 
 ```http
@@ -284,8 +305,9 @@ Every 5 minutes, the ingestion run:
 6. Updates active war summaries when relevant attacks are imported.
 7. Checks active termed wars with auto-end enabled against the latest Torn ranked war score.
 8. Updates live official Torn scores and fetches the active war report once Torn marks the war ended.
+9. Refreshes current enemy faction member statuses for active wars, including cached scouting status and travel estimates.
 
-Every 15 minutes, the maintenance run samples faction member activity, updates cached revivable status, fetches missing ranked war reports for ended wars, and retries missing FFScouter stat estimates.
+Every 15 minutes, the maintenance run samples faction member activity, updates cached revivable status, fetches missing ranked war reports for ended wars, retries missing FFScouter stat estimates, and refreshes missing networth estimates.
 
 For termed wars, the latest Torn ranked war score is stored in `wars.official_home_score` and `wars.official_enemy_score`. If `official_home_score` reaches `faction_respect_limit`, the Worker records a `practical_finish_time` and rebuilds derived stats using that practical window for Buttgrass attacks.
 
@@ -319,7 +341,7 @@ npm run deploy
 
 ## Dashboard
 
-The React dashboard lives in `dashboard/` and is intended to be deployed with Cloudflare Pages.
+The React dashboard lives in `dashboard/` and is intended to be deployed with Cloudflare Pages. It shows recorded wars, member breakdowns, enemy status/scouting/travel panels, activity heatmaps, ranked war report validation, discrepancy drilldowns, member attack lists, and admin controls for the testing workflow.
 
 Install dashboard dependencies:
 
@@ -353,10 +375,6 @@ Set this Pages environment variable so the dashboard knows where the Worker API 
 ```text
 VITE_API_BASE_URL=https://torn-faction-attacks.moose-3065754.workers.dev
 ```
-
-## Dashboard
-
-The dashboard shows recorded wars, member breakdowns, attack activity charts, ranked war report validation, discrepancy drilldowns, member attack lists, and admin controls for the testing workflow.
 
 ## Notes
 

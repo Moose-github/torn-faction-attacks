@@ -643,11 +643,7 @@ function formatTravelDuration(member: EnemyFactionMember): string {
 }
 
 function formatTravelDurationTooltip(member: EnemyFactionMember): string {
-  if (isAmbiguousAirliner(member)) {
-    return "Airliner can be either Business Class or Standard. Travel time range shows Business Class fastest and Standard slowest.";
-  }
-
-  return formatPlaneType(member.plane_image_type);
+  return member.travel_time_note ?? member.travel_type_note ?? formatPlaneType(member.plane_image_type);
 }
 
 function formatTravelDurationValue(seconds: number): string {
@@ -679,37 +675,19 @@ function formatTravelStartWindow(member: EnemyFactionMember): string {
 }
 
 function formatArrivalTooltip(member: EnemyFactionMember): string {
-  if (isAmbiguousAirliner(member)) {
-    return "Arrival range uses Business Class for earliest arrival and Standard for latest arrival because Torn reports both as airliner.";
-  }
-
-  return member.status_description ?? "Travel arrival estimate";
+  return member.arrival_note ?? member.status_description ?? "Travel arrival estimate";
 }
 
 function isAmbiguousAirliner(member: EnemyFactionMember): boolean {
-  return member.plane_image_type === "airliner";
+  return member.is_travel_time_range === true;
 }
 
 function formatTravelType(member: EnemyFactionMember): string {
-  switch (member.plane_image_type) {
-    case "airliner":
-      return "Business Class-Standard";
-    case "light_aircraft":
-      return "Airstrip";
-    case "private_jet":
-      return "WLT benefit";
-    default:
-      return "Unknown";
-  }
+  return member.travel_type ?? "Unknown";
 }
 
 function formatPlaneTypeTooltip(member: EnemyFactionMember): string {
-  const planeType = formatPlaneType(member.plane_image_type);
-  if (isAmbiguousAirliner(member)) {
-    return `${planeType}; Torn reports both Standard and Business Class flights as airliner`;
-  }
-
-  return planeType;
+  return member.travel_type_note ?? member.plane_type_label ?? formatPlaneType(member.plane_image_type);
 }
 
 function formatPlaneType(value: string | null | undefined): string {
