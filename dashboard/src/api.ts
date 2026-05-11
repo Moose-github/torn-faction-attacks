@@ -568,9 +568,11 @@ export async function getWarActivity(
 
 export async function getWarActivityHeatmap(
   warName: string,
+  warId?: number,
 ): Promise<FactionActivityHeatmapResponse> {
+  const query = typeof warId === "number" ? `?war_id=${encodeURIComponent(String(warId))}` : "";
   return getJson<FactionActivityHeatmapResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/activity-heatmap`,
+    `/api/wars/${encodeURIComponent(warName)}/activity-heatmap${query}`,
   );
 }
 

@@ -429,9 +429,40 @@ async function readLatestHeatmapWar(env: Env): Promise<HeatmapWar | null> {
 
 async function readHeatmapWarFromUrl(url: URL, env: Env): Promise<HeatmapWar | Response> {
   const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+  const warId = parseHeatmapWarId(url.searchParams.get("war_id"));
 
   if (!name) {
     return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
+  }
+
+  if (url.searchParams.has("war_id") && warId === null) {
+    return json({ ok: false, error: "Invalid war_id", code: "INVALID_WAR_ID" }, 400);
+  }
+
+  if (warId !== null) {
+    const war = (await env.DB.prepare(
+      `
+      SELECT
+        id,
+        name,
+        practical_start_time,
+        practical_finish_time,
+        official_start_time,
+        official_end_time,
+        enemy_faction_id
+      FROM wars
+      WHERE id = ?
+      LIMIT 1
+      `,
+    )
+      .bind(warId)
+      .first()) as HeatmapWar | null;
+
+    if (!war) {
+      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+    }
+
+    return war;
   }
 
   const war = (await env.DB.prepare(
@@ -446,6 +477,7 @@ async function readHeatmapWarFromUrl(url: URL, env: Env): Promise<HeatmapWar | R
       enemy_faction_id
     FROM wars
     WHERE LOWER(name) = LOWER(?)
+    ORDER BY practical_start_time DESC, id DESC
     LIMIT 1
     `,
   )
@@ -457,6 +489,18 @@ async function readHeatmapWarFromUrl(url: URL, env: Env): Promise<HeatmapWar | R
   }
 
   return war;
+}
+
+function parseHeatmapWarId(value: string | null): number | null {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+
+  const warId = Number(value);
+  if (!Number.isInteger(warId) || warId <= 0) {
+    return null;
+  }
+  return warId;
 }
 
 function heatmapBucket(timestamp: number): { date: string; intervalIndex: number } {

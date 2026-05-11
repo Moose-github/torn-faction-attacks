@@ -153,7 +153,7 @@ export function WarRoom({
     let cancelled = false;
 
     async function loadActivityHeatmap() {
-      if (!selectedWarName || !canLoadScouting || !isActivityHeatmapsOpen) {
+      if (!selectedWarName || !selectedWar || !canLoadScouting || !isActivityHeatmapsOpen) {
         setActivityHeatmap(null);
         return;
       }
@@ -161,7 +161,7 @@ export function WarRoom({
       setIsLoadingActivityHeatmap(true);
 
       try {
-        const response = await getWarActivityHeatmap(selectedWarName);
+        const response = await getWarActivityHeatmap(selectedWarName, selectedWar.id);
         if (!cancelled) {
           setActivityHeatmap(response);
         }
@@ -180,10 +180,10 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadScouting, isActivityHeatmapsOpen, selectedWarName]);
+  }, [canLoadScouting, isActivityHeatmapsOpen, selectedWar?.id, selectedWarName]);
 
   React.useEffect(() => {
-    if (!selectedWarName || !canLoadScouting || !isWarLive) {
+    if (!selectedWarName || !selectedWar || !canLoadScouting || !isWarLive) {
       return;
     }
 
@@ -192,7 +192,7 @@ export function WarRoom({
       try {
         const [comparisonResponse, heatmapResponse] = await Promise.all([
           getScoutingComparison(selectedWarName),
-          isActivityHeatmapsOpen ? getWarActivityHeatmap(selectedWarName) : Promise.resolve(null),
+          isActivityHeatmapsOpen ? getWarActivityHeatmap(selectedWarName, selectedWar.id) : Promise.resolve(null),
         ]);
 
         if (!cancelled) {
@@ -212,7 +212,7 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadScouting, isActivityHeatmapsOpen, isWarLive, selectedWarName]);
+  }, [canLoadScouting, isActivityHeatmapsOpen, isWarLive, selectedWar?.id, selectedWarName]);
 
   React.useEffect(() => {
     if (!selectedWarName || !canLoadScouting || !isWarLive) {
@@ -240,7 +240,7 @@ export function WarRoom({
   }, [canLoadScouting, isWarLive, selectedWarName]);
 
   async function refreshSelectedEnemyScouting() {
-    if (!selectedWarName) {
+    if (!selectedWarName || !selectedWar) {
       return;
     }
 
@@ -251,7 +251,7 @@ export function WarRoom({
       setEnemyScouting(await refreshEnemyScouting(selectedWarName));
       setScoutingComparison(await getScoutingComparison(selectedWarName));
       if (isActivityHeatmapsOpen) {
-        setActivityHeatmap(await getWarActivityHeatmap(selectedWarName));
+        setActivityHeatmap(await getWarActivityHeatmap(selectedWarName, selectedWar.id));
       }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
