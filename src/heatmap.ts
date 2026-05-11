@@ -3,6 +3,7 @@ import { revokeSessionsForFormerFactionMembers } from "./auth";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { Env, TornFactionMember, WarRow } from "./types";
 import { boolToInt, json, nowSeconds } from "./utils";
+import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
 
 const ACTIVITY_WINDOW_SECONDS = 15 * 60;
 const HOME_RETENTION_SECONDS = 30 * 24 * 60 * 60;
@@ -67,7 +68,7 @@ export async function sampleFactionActivityHeatmaps(
   metrics.staleHeatmapRowsDeleted += homeCleanup.staleRowsDeleted;
 
   const latestWar = await readLatestHeatmapWar(env);
-  const updateRevivableMembers = shouldUpdateRevivableMembers(latestWar, sampledAt);
+  const updateRevivableMembers = isWarRoomMemberTrackingActive(latestWar, sampledAt);
   addFactionSampleMetrics(
     metrics,
     await sampleFactionActivity(
@@ -469,18 +470,6 @@ function heatmapBucket(timestamp: number): { date: string; intervalIndex: number
     date: `${year}-${month}-${day}`,
     intervalIndex: Math.min(INTERVALS_PER_DAY - 1, Math.floor(minutes / 15)),
   };
-}
-
-function shouldUpdateRevivableMembers(war: HeatmapWar | null, sampledAt: number): boolean {
-  if (!war) {
-    return false;
-  }
-
-  const start = war.official_start_time ?? war.practical_start_time;
-  const updateFrom = start - 2 * 60 * 60;
-  const updateUntil = war.practical_finish_time;
-
-  return sampledAt >= updateFrom && (updateUntil === null || sampledAt <= updateUntil);
 }
 
 function d1Changes(result: unknown): number {

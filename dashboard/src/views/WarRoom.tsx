@@ -377,7 +377,7 @@ export function WarRoom({
           homeMembers={scoutingComparison?.home.members ?? []}
           enemyMembers={scoutingComparison?.enemy.members ?? []}
           enemyName={selectedWar.name}
-          isCollecting={isRevivableCollectionActive(selectedWar, Math.floor(now / 1000))}
+          isCollecting={isWarRoomMemberTrackingActive(selectedWar, Math.floor(now / 1000))}
           collapsed={collapsedPanels.revivableMembers ?? true}
           onToggle={() => togglePanel("revivableMembers")}
         />
@@ -847,7 +847,7 @@ function formatWarRoomType(war: WarSummary): string {
       : "Real war";
 }
 
-function isRevivableCollectionActive(war: WarSummary, nowSeconds: number): boolean {
+function isWarRoomMemberTrackingActive(war: WarSummary, nowSeconds: number): boolean {
   const start = war.official_start_time ?? war.practical_start_time;
   if (!start) {
     return false;

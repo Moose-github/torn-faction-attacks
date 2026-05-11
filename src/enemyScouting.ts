@@ -2,6 +2,7 @@ import { FFSCOUTER_STATS_API_URL, HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } f
 import { fetchTornPersonalStats } from "./personalStats";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import { boolToInt, json, nowSeconds } from "./utils";
+import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
 
 const FFSCOUTER_BATCH_SIZE = 100;
 const SCOUTING_FETCH_TIMEOUT_MS = 15000;
@@ -160,6 +161,9 @@ type EnemyScoutingWar = {
 type CurrentScoutingWar = {
   id: number;
   enemy_faction_id: number;
+  practical_start_time: number;
+  practical_finish_time: number | null;
+  official_start_time: number | null;
   enemy_scouting_status_checked_at: number | null;
 };
 
@@ -303,6 +307,17 @@ export async function refreshCurrentEnemyTravelStatuses(
     };
   }
 
+  if (!isWarRoomMemberTrackingActive(war, nowSeconds())) {
+    return {
+      writeStatements: 0,
+      changedRows: 0,
+      fetchedMembers: 0,
+      updatedMembers: 0,
+      skipped: true,
+      factionId: war.enemy_faction_id,
+    };
+  }
+
   return refreshEnemyFactionMemberStatuses(
     env,
     war.id,
@@ -427,7 +442,13 @@ export async function refreshMissingScoutingNetworth(
 async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingWar | null> {
   return (await env.DB.prepare(
     `
-    SELECT id, enemy_faction_id, enemy_scouting_status_checked_at
+    SELECT
+      id,
+      enemy_faction_id,
+      practical_start_time,
+      practical_finish_time,
+      official_start_time,
+      enemy_scouting_status_checked_at
     FROM wars
     WHERE enemy_faction_id IS NOT NULL
       AND official_end_time IS NULL

@@ -274,7 +274,7 @@ export function FactionActivityHeatmap({
     return <EmptyState text="No faction selected" />;
   }
 
-  const factionRows = rows.filter((row) => row.faction_id === factionId);
+  const factionRows = rows.filter((row) => sameFactionId(row.faction_id, factionId));
   if (factionRows.length === 0) {
     return <EmptyState text="No heatmap samples yet" />;
   }
@@ -338,8 +338,8 @@ export function FactionActivityComparisonHeatmap({
     return <EmptyState text="No factions selected" />;
   }
 
-  const homeRows = rows.filter((row) => row.faction_id === homeFactionId);
-  const enemyRows = rows.filter((row) => row.faction_id === enemyFactionId);
+  const homeRows = rows.filter((row) => sameFactionId(row.faction_id, homeFactionId));
+  const enemyRows = rows.filter((row) => sameFactionId(row.faction_id, enemyFactionId));
   if (homeRows.length === 0 || enemyRows.length === 0) {
     return <EmptyState text="Not enough heatmap samples to compare yet" />;
   }
@@ -398,15 +398,20 @@ function averageHeatmapIntervals(rows: FactionActivityHeatmapRow[]) {
   const totals = new Map<number, { activeTotal: number; memberTotal: number; samples: number }>();
 
   for (const row of rows) {
-    const existing = totals.get(row.interval_index) ?? {
+    const intervalIndex = heatmapIntervalIndex(row.interval_index);
+    if (intervalIndex === null) {
+      continue;
+    }
+
+    const existing = totals.get(intervalIndex) ?? {
       activeTotal: 0,
       memberTotal: 0,
       samples: 0,
     };
-    existing.activeTotal += row.active_count;
-    existing.memberTotal += row.total_count;
+    existing.activeTotal += heatmapNumber(row.active_count);
+    existing.memberTotal += heatmapNumber(row.total_count);
     existing.samples += 1;
-    totals.set(row.interval_index, existing);
+    totals.set(intervalIndex, existing);
   }
 
   return new Map<number, ActivityIntervalAverage>(
@@ -419,6 +424,23 @@ function averageHeatmapIntervals(rows: FactionActivityHeatmapRow[]) {
       },
     ]),
   );
+}
+
+function sameFactionId(rowFactionId: unknown, factionId: number): boolean {
+  return Number(rowFactionId) === factionId;
+}
+
+function heatmapIntervalIndex(value: unknown): number | null {
+  const intervalIndex = Number(value);
+  if (!Number.isInteger(intervalIndex) || intervalIndex < 0 || intervalIndex >= 96) {
+    return null;
+  }
+  return intervalIndex;
+}
+
+function heatmapNumber(value: unknown): number {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : 0;
 }
 
 function individualHeatmapIntensities(intervalAverages: Map<number, ActivityIntervalAverage>): Map<number, number> {
