@@ -519,6 +519,7 @@ function EnemyTravelPanel({
     >
       <p className="panel-description">
         Tracks enemy members currently shown by Torn as traveling, with arrival estimates from route and plane type.
+        <br />
         Torn reports both Standard and Business Class flights as airliner, so those estimates are shown as a range.
       </p>
       {travelers.length === 0 ? (
@@ -683,7 +684,36 @@ function formatTravelStartWindow(member: EnemyFactionMember): string {
 }
 
 function formatArrivalTooltip(member: EnemyFactionMember): string {
+  if (isAmbiguousAirliner(member)) {
+    const possibleArrivals = formatAmbiguousAirlinerArrivalTooltip(member);
+    if (possibleArrivals) {
+      return possibleArrivals;
+    }
+  }
+
   return member.arrival_note ?? member.status_description ?? "Travel arrival estimate";
+}
+
+function formatAmbiguousAirlinerArrivalTooltip(member: EnemyFactionMember): string | null {
+  const startedAfter = member.travel_started_after ?? null;
+  const startedBefore = member.travel_started_before ?? null;
+  const earliestArrival = member.estimated_arrival_earliest ?? null;
+  const latestArrival = member.estimated_arrival_latest ?? null;
+
+  if (!startedAfter || !startedBefore || !earliestArrival || !latestArrival) {
+    return null;
+  }
+
+  const businessClassDuration = earliestArrival - startedAfter;
+  const standardDuration = latestArrival - startedBefore;
+  if (businessClassDuration < 0 || standardDuration < 0) {
+    return null;
+  }
+
+  return [
+    `Standard: ${formatTime(startedAfter + standardDuration)}-${formatTime(startedBefore + standardDuration)}`,
+    `Business Class: ${formatTime(startedAfter + businessClassDuration)}-${formatTime(startedBefore + businessClassDuration)}`,
+  ].join("\n");
 }
 
 function isAmbiguousAirliner(member: EnemyFactionMember): boolean {

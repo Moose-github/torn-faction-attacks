@@ -1068,7 +1068,7 @@ function buildTravelDisplay(row: EnemyFactionMemberRow): TravelDisplay {
     const note = "Torn reports both Standard and Business Class flights as airliner.";
     return {
       plane_type_label: planeTypeLabel,
-      travel_type: "Business Class-Standard",
+      travel_type: "Business Class/Standard",
       travel_type_note: `${planeTypeLabel ?? "Airliner"}; ${note}`,
       travel_time_note:
         "Airliner can be either Business Class or Standard. Travel time range shows Business Class fastest and Standard slowest.",
