@@ -1576,6 +1576,27 @@ tbody tr:not(.attack-row):hover td {
   text-underline-offset: 4px;
 }
 
+.respect-adjustment-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: help;
+}
+
+.respect-adjustment-marker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

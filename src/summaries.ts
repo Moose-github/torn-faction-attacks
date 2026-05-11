@@ -173,6 +173,8 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
         attacks_vs_enemy_successful = 0,
         respect_gained = 0,
         respect_gained_raw = 0,
+        chain_bonus_hits_vs_enemy = 0,
+        chain_bonus_respect_removed = 0,
         assists_vs_enemy = 0,
         hospitalizations_vs_enemy = 0,
         mugs_vs_enemy = 0,
@@ -184,6 +186,9 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
         defends_won = 0,
         defends_other = 0,
         respect_lost = 0,
+        respect_lost_raw = 0,
+        enemy_chain_bonus_hits_received = 0,
+        enemy_chain_bonus_respect_removed = 0,
         first_action_at = NULL,
         last_action_at = NULL
     ${whereClause}
@@ -251,6 +256,8 @@ async function upsertWarMemberAttackStats(
       attacks_vs_enemy_successful,
       respect_gained,
       respect_gained_raw,
+      chain_bonus_hits_vs_enemy,
+      chain_bonus_respect_removed,
       assists_vs_enemy,
       hospitalizations_vs_enemy,
       mugs_vs_enemy,
@@ -291,6 +298,20 @@ async function upsertWarMemberAttackStats(
         THEN a.respect_gain
         ELSE 0
       END), 0) AS respect_gained_raw,
+      SUM(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN 1
+        ELSE 0
+      END) AS chain_bonus_hits_vs_enemy,
+      COALESCE(SUM(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
+        ELSE 0
+      END), 0) AS chain_bonus_respect_removed,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Assist'
@@ -357,6 +378,8 @@ async function upsertWarMemberAttackStats(
       attacks_vs_enemy_successful = war_member_stats.attacks_vs_enemy_successful + excluded.attacks_vs_enemy_successful,
       respect_gained = war_member_stats.respect_gained + excluded.respect_gained,
       respect_gained_raw = war_member_stats.respect_gained_raw + excluded.respect_gained_raw,
+      chain_bonus_hits_vs_enemy = war_member_stats.chain_bonus_hits_vs_enemy + excluded.chain_bonus_hits_vs_enemy,
+      chain_bonus_respect_removed = war_member_stats.chain_bonus_respect_removed + excluded.chain_bonus_respect_removed,
       assists_vs_enemy = war_member_stats.assists_vs_enemy + excluded.assists_vs_enemy,
       hospitalizations_vs_enemy = war_member_stats.hospitalizations_vs_enemy + excluded.hospitalizations_vs_enemy,
       mugs_vs_enemy = war_member_stats.mugs_vs_enemy + excluded.mugs_vs_enemy,
@@ -449,6 +472,8 @@ async function upsertIngestedWarMemberAttackStats(
       attacks_vs_enemy_successful,
       respect_gained,
       respect_gained_raw,
+      chain_bonus_hits_vs_enemy,
+      chain_bonus_respect_removed,
       assists_vs_enemy,
       hospitalizations_vs_enemy,
       mugs_vs_enemy,
@@ -489,6 +514,20 @@ async function upsertIngestedWarMemberAttackStats(
         THEN a.respect_gain
         ELSE 0
       END), 0) AS respect_gained_raw,
+      SUM(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN 1
+        ELSE 0
+      END) AS chain_bonus_hits_vs_enemy,
+      COALESCE(SUM(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
+        ELSE 0
+      END), 0) AS chain_bonus_respect_removed,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Assist'
@@ -556,6 +595,8 @@ async function upsertIngestedWarMemberAttackStats(
       attacks_vs_enemy_successful = war_member_stats.attacks_vs_enemy_successful + excluded.attacks_vs_enemy_successful,
       respect_gained = war_member_stats.respect_gained + excluded.respect_gained,
       respect_gained_raw = war_member_stats.respect_gained_raw + excluded.respect_gained_raw,
+      chain_bonus_hits_vs_enemy = war_member_stats.chain_bonus_hits_vs_enemy + excluded.chain_bonus_hits_vs_enemy,
+      chain_bonus_respect_removed = war_member_stats.chain_bonus_respect_removed + excluded.chain_bonus_respect_removed,
       assists_vs_enemy = war_member_stats.assists_vs_enemy + excluded.assists_vs_enemy,
       hospitalizations_vs_enemy = war_member_stats.hospitalizations_vs_enemy + excluded.hospitalizations_vs_enemy,
       mugs_vs_enemy = war_member_stats.mugs_vs_enemy + excluded.mugs_vs_enemy,
@@ -593,6 +634,35 @@ async function upsertIngestedWarMemberDefendStats(
 ): Promise<void> {
   await env.DB.prepare(
     `
+    WITH member_averages AS (
+      SELECT
+        a.attacker_id,
+        AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_id IS NOT NULL
+        AND w.enemy_faction_id IS NOT NULL
+        AND a.attacker_faction_id = w.enemy_faction_id
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
+      GROUP BY a.attacker_id
+    ),
+    war_average AS (
+      SELECT AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_id IS NOT NULL
+        AND w.enemy_faction_id IS NOT NULL
+        AND a.attacker_faction_id = w.enemy_faction_id
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
+    )
     INSERT INTO war_member_stats (
       war_id,
       member_id,
@@ -601,6 +671,9 @@ async function upsertIngestedWarMemberDefendStats(
       defends_won,
       defends_other,
       respect_lost,
+      respect_lost_raw,
+      enemy_chain_bonus_hits_received,
+      enemy_chain_bonus_respect_removed,
       first_action_at,
       last_action_at
     )
@@ -624,13 +697,36 @@ async function upsertIngestedWarMemberDefendStats(
       END) AS defends_other,
       COALESCE(SUM(CASE
         WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-        THEN a.respect_gain
+        THEN CASE
+          WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
+          ELSE a.respect_gain
+        END
         ELSE 0
       END), 0) AS respect_lost,
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+        THEN a.respect_gain
+        ELSE 0
+      END), 0) AS respect_lost_raw,
+      SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN 1
+        ELSE 0
+      END) AS enemy_chain_bonus_hits_received,
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
+        ELSE 0
+      END), 0) AS enemy_chain_bonus_respect_removed,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
     FROM attacks a
     JOIN wars w ON w.id = a.war_id
+    LEFT JOIN member_averages ma ON ma.attacker_id = a.attacker_id
+    LEFT JOIN war_average wa ON 1 = 1
     WHERE a.war_id = ?
       AND a.ingest_run_id = ?
       AND a.defender_faction_id = ${HOME_FACTION_ID}
@@ -645,6 +741,9 @@ async function upsertIngestedWarMemberDefendStats(
       defends_won = war_member_stats.defends_won + excluded.defends_won,
       defends_other = war_member_stats.defends_other + excluded.defends_other,
       respect_lost = war_member_stats.respect_lost + excluded.respect_lost,
+      respect_lost_raw = war_member_stats.respect_lost_raw + excluded.respect_lost_raw,
+      enemy_chain_bonus_hits_received = war_member_stats.enemy_chain_bonus_hits_received + excluded.enemy_chain_bonus_hits_received,
+      enemy_chain_bonus_respect_removed = war_member_stats.enemy_chain_bonus_respect_removed + excluded.enemy_chain_bonus_respect_removed,
       first_action_at = CASE
         WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
         WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
@@ -657,7 +756,7 @@ async function upsertIngestedWarMemberDefendStats(
       END
     `,
   )
-    .bind(warId, ingestRunId)
+    .bind(warId, warId, warId, ingestRunId)
     .run();
 }
 
@@ -667,6 +766,35 @@ async function upsertWarMemberDefendStats(
 ): Promise<void> {
   await env.DB.prepare(
     `
+    WITH member_averages AS (
+      SELECT
+        a.attacker_id,
+        AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_id IS NOT NULL
+        AND w.enemy_faction_id IS NOT NULL
+        AND a.attacker_faction_id = w.enemy_faction_id
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
+      GROUP BY a.attacker_id
+    ),
+    war_average AS (
+      SELECT AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_id IS NOT NULL
+        AND w.enemy_faction_id IS NOT NULL
+        AND a.attacker_faction_id = w.enemy_faction_id
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
+    )
     INSERT INTO war_member_stats (
       war_id,
       member_id,
@@ -675,6 +803,9 @@ async function upsertWarMemberDefendStats(
       defends_won,
       defends_other,
       respect_lost,
+      respect_lost_raw,
+      enemy_chain_bonus_hits_received,
+      enemy_chain_bonus_respect_removed,
       first_action_at,
       last_action_at
     )
@@ -698,13 +829,36 @@ async function upsertWarMemberDefendStats(
       END) AS defends_other,
       COALESCE(SUM(CASE
         WHEN a.result IN (${POSITIVE_RESULTS_SQL})
-        THEN a.respect_gain
+        THEN CASE
+          WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
+          ELSE a.respect_gain
+        END
         ELSE 0
       END), 0) AS respect_lost,
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+        THEN a.respect_gain
+        ELSE 0
+      END), 0) AS respect_lost_raw,
+      SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN 1
+        ELSE 0
+      END) AS enemy_chain_bonus_hits_received,
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
+        ELSE 0
+      END), 0) AS enemy_chain_bonus_respect_removed,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
     FROM attacks a
     JOIN wars w ON w.id = a.war_id
+    LEFT JOIN member_averages ma ON ma.attacker_id = a.attacker_id
+    LEFT JOIN war_average wa ON 1 = 1
     WHERE a.war_id = ?
       AND a.defender_faction_id = ?
       AND a.defender_id IS NOT NULL
@@ -718,6 +872,9 @@ async function upsertWarMemberDefendStats(
       defends_won = war_member_stats.defends_won + excluded.defends_won,
       defends_other = war_member_stats.defends_other + excluded.defends_other,
       respect_lost = war_member_stats.respect_lost + excluded.respect_lost,
+      respect_lost_raw = war_member_stats.respect_lost_raw + excluded.respect_lost_raw,
+      enemy_chain_bonus_hits_received = war_member_stats.enemy_chain_bonus_hits_received + excluded.enemy_chain_bonus_hits_received,
+      enemy_chain_bonus_respect_removed = war_member_stats.enemy_chain_bonus_respect_removed + excluded.enemy_chain_bonus_respect_removed,
       first_action_at = CASE
         WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
         WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
@@ -730,6 +887,6 @@ async function upsertWarMemberDefendStats(
       END
     `,
   )
-    .bind(warId, HOME_FACTION_ID)
+    .bind(warId, warId, warId, HOME_FACTION_ID)
     .run();
 }

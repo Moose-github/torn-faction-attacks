@@ -25,9 +25,9 @@ const TRAVEL_DURATIONS_MINUTES: Record<string, Record<TravelDurationKey, number>
 };
 
 const PLANE_IMAGE_TYPE_TO_DURATION_KEY: Record<string, TravelDurationKey> = {
-  light_aircraft: "Standard",
-  private_jet: "Airstrip",
-  airliner: "Business Class",
+  airliner: "Standard",
+  light_aircraft: "Airstrip",
+  private_jet: "WLT benefit",
 };
 
 const TRAVEL_LOCATION_ALIASES: Record<string, string> = {

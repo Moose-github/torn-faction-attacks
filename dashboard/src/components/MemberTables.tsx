@@ -104,8 +104,26 @@ export function MemberTable({
               </td>
               <td>{formatNumber(memberDefendsLost(member))}</td>
               {showTermedColumns ? null : <td>{formatNumber(member.outside_hits)}</td>}
-              <td>{formatNumber(member.respect_gained)}</td>
-              <td>{formatNumber(member.respect_lost)}</td>
+              <td>
+                <RespectAdjustmentCell
+                  adjusted={member.respect_gained}
+                  raw={member.respect_gained_raw}
+                  chainHits={member.chain_bonus_hits_vs_enemy}
+                  respectRemoved={member.chain_bonus_respect_removed}
+                  tooltipLabel="Respect gained"
+                  markerLabel="chain"
+                />
+              </td>
+              <td>
+                <RespectAdjustmentCell
+                  adjusted={member.respect_lost}
+                  raw={member.respect_lost_raw}
+                  chainHits={member.enemy_chain_bonus_hits_received}
+                  respectRemoved={member.enemy_chain_bonus_respect_removed}
+                  tooltipLabel="Respect lost"
+                  markerLabel="enemy chain"
+                />
+              </td>
               <td>{formatNumber(member.assists_vs_enemy)}</td>
               {showTermedColumns ? (
                 <>
@@ -146,6 +164,40 @@ function formatNullablePercent(value: number | null | undefined): string {
   }
 
   return `${Number(value).toFixed(1)}%`;
+}
+
+function RespectAdjustmentCell({
+  adjusted,
+  raw,
+  chainHits,
+  respectRemoved,
+  tooltipLabel,
+  markerLabel,
+}: {
+  adjusted: number;
+  raw: number | null | undefined;
+  chainHits: number | null | undefined;
+  respectRemoved: number | null | undefined;
+  tooltipLabel: string;
+  markerLabel: string;
+}) {
+  const hitCount = Number(chainHits ?? 0);
+  const rawValue = Number(raw ?? adjusted);
+  const removedValue = Number(respectRemoved ?? rawValue - adjusted);
+
+  if (hitCount <= 0) {
+    return <>{formatNumber(adjusted)}</>;
+  }
+
+  return (
+    <span
+      className="respect-adjustment-cell"
+      title={`${tooltipLabel}: ${formatNumber(adjusted)} | Raw: ${formatNumber(rawValue)} | Chain hits: ${formatNumber(hitCount)} | Respect removed: ${formatNumber(removedValue)}`}
+    >
+      <span>{formatNumber(adjusted)}</span>
+      <span className="respect-adjustment-marker">{formatNumber(hitCount)} {markerLabel}</span>
+    </span>
+  );
 }
 
 export function MemberAttackList({
