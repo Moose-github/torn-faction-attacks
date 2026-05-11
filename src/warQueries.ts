@@ -609,6 +609,7 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       COALESCE(SUM(wms.respect_gained_raw), 0) AS respect_gained_raw,
       COALESCE(SUM(wms.chain_bonus_hits_vs_enemy), 0) AS chain_bonus_hits_vs_enemy,
       COALESCE(SUM(wms.chain_bonus_respect_removed), 0) AS chain_bonus_respect_removed,
+      COALESCE(GROUP_CONCAT(NULLIF(wms.chain_bonus_hit_values_vs_enemy, ''), ', '), '') AS chain_bonus_hit_values_vs_enemy,
       COALESCE(SUM(wms.assists_vs_enemy), 0) AS assists_vs_enemy,
       COALESCE(SUM(wms.hospitalizations_vs_enemy), 0) AS hospitalizations_vs_enemy,
       COALESCE(SUM(wms.mugs_vs_enemy), 0) AS mugs_vs_enemy,
@@ -633,6 +634,7 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       COALESCE(SUM(wms.respect_lost_raw), 0) AS respect_lost_raw,
       COALESCE(SUM(wms.enemy_chain_bonus_hits_received), 0) AS enemy_chain_bonus_hits_received,
       COALESCE(SUM(wms.enemy_chain_bonus_respect_removed), 0) AS enemy_chain_bonus_respect_removed,
+      COALESCE(GROUP_CONCAT(NULLIF(wms.enemy_chain_bonus_hit_values_received, ''), ', '), '') AS enemy_chain_bonus_hit_values_received,
       MIN(wms.first_action_at) AS first_seen_at,
       MAX(wms.last_action_at) AS last_seen_at
     FROM war_member_stats wms

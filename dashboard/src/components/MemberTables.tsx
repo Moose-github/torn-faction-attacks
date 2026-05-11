@@ -109,6 +109,7 @@ export function MemberTable({
                   adjusted={member.respect_gained}
                   raw={member.respect_gained_raw}
                   chainHits={member.chain_bonus_hits_vs_enemy}
+                  chainHitValues={member.chain_bonus_hit_values_vs_enemy}
                   respectRemoved={member.chain_bonus_respect_removed}
                   tooltipLabel="Respect gained"
                   markerLabel="chain"
@@ -119,9 +120,10 @@ export function MemberTable({
                   adjusted={member.respect_lost}
                   raw={member.respect_lost_raw}
                   chainHits={member.enemy_chain_bonus_hits_received}
+                  chainHitValues={member.enemy_chain_bonus_hit_values_received}
                   respectRemoved={member.enemy_chain_bonus_respect_removed}
                   tooltipLabel="Respect lost"
-                  markerLabel="enemy chain"
+                  markerLabel="chain"
                 />
               </td>
               <td>{formatNumber(member.assists_vs_enemy)}</td>
@@ -170,6 +172,7 @@ function RespectAdjustmentCell({
   adjusted,
   raw,
   chainHits,
+  chainHitValues,
   respectRemoved,
   tooltipLabel,
   markerLabel,
@@ -177,6 +180,7 @@ function RespectAdjustmentCell({
   adjusted: number;
   raw: number | null | undefined;
   chainHits: number | null | undefined;
+  chainHitValues: string | null | undefined;
   respectRemoved: number | null | undefined;
   tooltipLabel: string;
   markerLabel: string;
@@ -184,6 +188,7 @@ function RespectAdjustmentCell({
   const hitCount = Number(chainHits ?? 0);
   const rawValue = Number(raw ?? adjusted);
   const removedValue = Number(respectRemoved ?? rawValue - adjusted);
+  const chainValues = chainHitValues?.trim() || "Unknown";
 
   if (hitCount <= 0) {
     return <>{formatNumber(adjusted)}</>;
@@ -192,10 +197,19 @@ function RespectAdjustmentCell({
   return (
     <span
       className="respect-adjustment-cell"
-      title={`${tooltipLabel}: ${formatNumber(adjusted)} | Raw: ${formatNumber(rawValue)} | Chain hits: ${formatNumber(hitCount)} | Respect removed: ${formatNumber(removedValue)}`}
     >
-      <span>{formatNumber(adjusted)}</span>
-      <span className="respect-adjustment-marker">{formatNumber(hitCount)} {markerLabel}</span>
+      <span
+        className="respect-adjustment-value"
+        title={`Raw: ${formatNumber(rawValue)} | Respect removed: ${formatNumber(removedValue)}`}
+      >
+        {formatNumber(adjusted)}
+      </span>
+      <span
+        className="respect-adjustment-marker"
+        title={`${tooltipLabel} chain hits: ${chainValues}`}
+      >
+        {formatNumber(hitCount)} {markerLabel}
+      </span>
     </span>
   );
 }

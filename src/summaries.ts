@@ -175,6 +175,7 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
         respect_gained_raw = 0,
         chain_bonus_hits_vs_enemy = 0,
         chain_bonus_respect_removed = 0,
+        chain_bonus_hit_values_vs_enemy = '',
         assists_vs_enemy = 0,
         hospitalizations_vs_enemy = 0,
         mugs_vs_enemy = 0,
@@ -189,6 +190,7 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
         respect_lost_raw = 0,
         enemy_chain_bonus_hits_received = 0,
         enemy_chain_bonus_respect_removed = 0,
+        enemy_chain_bonus_hit_values_received = '',
         first_action_at = NULL,
         last_action_at = NULL
     ${whereClause}
@@ -258,6 +260,7 @@ async function upsertWarMemberAttackStats(
       respect_gained_raw,
       chain_bonus_hits_vs_enemy,
       chain_bonus_respect_removed,
+      chain_bonus_hit_values_vs_enemy,
       assists_vs_enemy,
       hospitalizations_vs_enemy,
       mugs_vs_enemy,
@@ -312,6 +315,13 @@ async function upsertWarMemberAttackStats(
         THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
         ELSE 0
       END), 0) AS chain_bonus_respect_removed,
+      COALESCE(GROUP_CONCAT(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.chain
+        ELSE NULL
+      END, ', '), '') AS chain_bonus_hit_values_vs_enemy,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Assist'
@@ -380,6 +390,11 @@ async function upsertWarMemberAttackStats(
       respect_gained_raw = war_member_stats.respect_gained_raw + excluded.respect_gained_raw,
       chain_bonus_hits_vs_enemy = war_member_stats.chain_bonus_hits_vs_enemy + excluded.chain_bonus_hits_vs_enemy,
       chain_bonus_respect_removed = war_member_stats.chain_bonus_respect_removed + excluded.chain_bonus_respect_removed,
+      chain_bonus_hit_values_vs_enemy = CASE
+        WHEN war_member_stats.chain_bonus_hit_values_vs_enemy = '' THEN excluded.chain_bonus_hit_values_vs_enemy
+        WHEN excluded.chain_bonus_hit_values_vs_enemy = '' THEN war_member_stats.chain_bonus_hit_values_vs_enemy
+        ELSE war_member_stats.chain_bonus_hit_values_vs_enemy || ', ' || excluded.chain_bonus_hit_values_vs_enemy
+      END,
       assists_vs_enemy = war_member_stats.assists_vs_enemy + excluded.assists_vs_enemy,
       hospitalizations_vs_enemy = war_member_stats.hospitalizations_vs_enemy + excluded.hospitalizations_vs_enemy,
       mugs_vs_enemy = war_member_stats.mugs_vs_enemy + excluded.mugs_vs_enemy,
@@ -474,6 +489,7 @@ async function upsertIngestedWarMemberAttackStats(
       respect_gained_raw,
       chain_bonus_hits_vs_enemy,
       chain_bonus_respect_removed,
+      chain_bonus_hit_values_vs_enemy,
       assists_vs_enemy,
       hospitalizations_vs_enemy,
       mugs_vs_enemy,
@@ -528,6 +544,13 @@ async function upsertIngestedWarMemberAttackStats(
         THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
         ELSE 0
       END), 0) AS chain_bonus_respect_removed,
+      COALESCE(GROUP_CONCAT(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.chain
+        ELSE NULL
+      END, ', '), '') AS chain_bonus_hit_values_vs_enemy,
       SUM(CASE
         WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
          AND a.result = 'Assist'
@@ -597,6 +620,11 @@ async function upsertIngestedWarMemberAttackStats(
       respect_gained_raw = war_member_stats.respect_gained_raw + excluded.respect_gained_raw,
       chain_bonus_hits_vs_enemy = war_member_stats.chain_bonus_hits_vs_enemy + excluded.chain_bonus_hits_vs_enemy,
       chain_bonus_respect_removed = war_member_stats.chain_bonus_respect_removed + excluded.chain_bonus_respect_removed,
+      chain_bonus_hit_values_vs_enemy = CASE
+        WHEN war_member_stats.chain_bonus_hit_values_vs_enemy = '' THEN excluded.chain_bonus_hit_values_vs_enemy
+        WHEN excluded.chain_bonus_hit_values_vs_enemy = '' THEN war_member_stats.chain_bonus_hit_values_vs_enemy
+        ELSE war_member_stats.chain_bonus_hit_values_vs_enemy || ', ' || excluded.chain_bonus_hit_values_vs_enemy
+      END,
       assists_vs_enemy = war_member_stats.assists_vs_enemy + excluded.assists_vs_enemy,
       hospitalizations_vs_enemy = war_member_stats.hospitalizations_vs_enemy + excluded.hospitalizations_vs_enemy,
       mugs_vs_enemy = war_member_stats.mugs_vs_enemy + excluded.mugs_vs_enemy,
@@ -674,6 +702,7 @@ async function upsertIngestedWarMemberDefendStats(
       respect_lost_raw,
       enemy_chain_bonus_hits_received,
       enemy_chain_bonus_respect_removed,
+      enemy_chain_bonus_hit_values_received,
       first_action_at,
       last_action_at
     )
@@ -721,6 +750,12 @@ async function upsertIngestedWarMemberDefendStats(
         THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
         ELSE 0
       END), 0) AS enemy_chain_bonus_respect_removed,
+      COALESCE(GROUP_CONCAT(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.chain
+        ELSE NULL
+      END, ', '), '') AS enemy_chain_bonus_hit_values_received,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
     FROM attacks a
@@ -744,6 +779,11 @@ async function upsertIngestedWarMemberDefendStats(
       respect_lost_raw = war_member_stats.respect_lost_raw + excluded.respect_lost_raw,
       enemy_chain_bonus_hits_received = war_member_stats.enemy_chain_bonus_hits_received + excluded.enemy_chain_bonus_hits_received,
       enemy_chain_bonus_respect_removed = war_member_stats.enemy_chain_bonus_respect_removed + excluded.enemy_chain_bonus_respect_removed,
+      enemy_chain_bonus_hit_values_received = CASE
+        WHEN war_member_stats.enemy_chain_bonus_hit_values_received = '' THEN excluded.enemy_chain_bonus_hit_values_received
+        WHEN excluded.enemy_chain_bonus_hit_values_received = '' THEN war_member_stats.enemy_chain_bonus_hit_values_received
+        ELSE war_member_stats.enemy_chain_bonus_hit_values_received || ', ' || excluded.enemy_chain_bonus_hit_values_received
+      END,
       first_action_at = CASE
         WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
         WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at
@@ -806,6 +846,7 @@ async function upsertWarMemberDefendStats(
       respect_lost_raw,
       enemy_chain_bonus_hits_received,
       enemy_chain_bonus_respect_removed,
+      enemy_chain_bonus_hit_values_received,
       first_action_at,
       last_action_at
     )
@@ -853,6 +894,12 @@ async function upsertWarMemberDefendStats(
         THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
         ELSE 0
       END), 0) AS enemy_chain_bonus_respect_removed,
+      COALESCE(GROUP_CONCAT(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.chain
+        ELSE NULL
+      END, ', '), '') AS enemy_chain_bonus_hit_values_received,
       MIN(a.started) AS first_action_at,
       MAX(a.started) AS last_action_at
     FROM attacks a
@@ -875,6 +922,11 @@ async function upsertWarMemberDefendStats(
       respect_lost_raw = war_member_stats.respect_lost_raw + excluded.respect_lost_raw,
       enemy_chain_bonus_hits_received = war_member_stats.enemy_chain_bonus_hits_received + excluded.enemy_chain_bonus_hits_received,
       enemy_chain_bonus_respect_removed = war_member_stats.enemy_chain_bonus_respect_removed + excluded.enemy_chain_bonus_respect_removed,
+      enemy_chain_bonus_hit_values_received = CASE
+        WHEN war_member_stats.enemy_chain_bonus_hit_values_received = '' THEN excluded.enemy_chain_bonus_hit_values_received
+        WHEN excluded.enemy_chain_bonus_hit_values_received = '' THEN war_member_stats.enemy_chain_bonus_hit_values_received
+        ELSE war_member_stats.enemy_chain_bonus_hit_values_received || ', ' || excluded.enemy_chain_bonus_hit_values_received
+      END,
       first_action_at = CASE
         WHEN war_member_stats.first_action_at IS NULL THEN excluded.first_action_at
         WHEN excluded.first_action_at IS NULL THEN war_member_stats.first_action_at

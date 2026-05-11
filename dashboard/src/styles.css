@@ -1578,22 +1578,21 @@ tbody tr:not(.attack-row):hover td {
 
 .respect-adjustment-cell {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.respect-adjustment-value,
+.respect-adjustment-marker {
   cursor: help;
 }
 
 .respect-adjustment-marker {
-  display: inline-flex;
-  align-items: center;
-  min-height: 18px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: #fef3c7;
-  color: #92400e;
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.1;
   white-space: nowrap;
 }
 

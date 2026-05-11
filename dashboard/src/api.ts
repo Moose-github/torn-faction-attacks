@@ -23,6 +23,7 @@ export type MemberStats = {
   respect_gained_raw: number;
   chain_bonus_hits_vs_enemy: number;
   chain_bonus_respect_removed: number;
+  chain_bonus_hit_values_vs_enemy: string;
   assists_vs_enemy: number;
   hospitalizations_vs_enemy: number;
   mugs_vs_enemy: number;
@@ -38,6 +39,7 @@ export type MemberStats = {
   respect_lost_raw: number;
   enemy_chain_bonus_hits_received: number;
   enemy_chain_bonus_respect_removed: number;
+  enemy_chain_bonus_hit_values_received: string;
   first_seen_at: number | null;
   last_seen_at: number | null;
   added_from_report?: number;
