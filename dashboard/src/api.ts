@@ -9,7 +9,9 @@ export type OverallStats = {
   attacks_from_enemy_total: number;
   outside_hits: number;
   total_respect_gain: number;
+  total_respect_gain_raw: number;
   total_respect_lost: number;
+  total_respect_lost_raw: number;
   latest_attack_started: number | null;
 };
 
@@ -79,7 +81,9 @@ export type WarSummary = {
   attacks_from_enemy_total: number;
   outside_hits: number;
   total_respect_gain: number;
+  total_respect_gain_raw: number;
   total_respect_lost: number;
+  total_respect_lost_raw: number;
   unique_attackers: number;
   first_attack_at: number | null;
   last_attack_at: number | null;

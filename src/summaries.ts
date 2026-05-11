@@ -87,7 +87,9 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
       attacks_from_enemy_total,
       outside_hits,
       total_respect_gain,
+      total_respect_gain_raw,
       total_respect_lost,
+      total_respect_lost_raw,
       unique_attackers,
       first_attack_at,
       last_attack_at,
@@ -99,7 +101,9 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
       COALESCE(SUM(wms.defends_total), 0) AS attacks_from_enemy_total,
       COALESCE(SUM(wms.outside_hits), 0) AS outside_hits,
       COALESCE(SUM(wms.respect_gained), 0) AS total_respect_gain,
+      COALESCE(SUM(wms.respect_gained_raw), 0) AS total_respect_gain_raw,
       COALESCE(SUM(wms.respect_lost), 0) AS total_respect_lost,
+      COALESCE(SUM(wms.respect_lost_raw), 0) AS total_respect_lost_raw,
       COUNT(CASE
         WHEN wms.attacks_vs_enemy_total > 0
           OR wms.assists_vs_enemy > 0
@@ -119,7 +123,9 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
       attacks_from_enemy_total = excluded.attacks_from_enemy_total,
       outside_hits = excluded.outside_hits,
       total_respect_gain = excluded.total_respect_gain,
+      total_respect_gain_raw = excluded.total_respect_gain_raw,
       total_respect_lost = excluded.total_respect_lost,
+      total_respect_lost_raw = excluded.total_respect_lost_raw,
       unique_attackers = excluded.unique_attackers,
       first_attack_at = excluded.first_attack_at,
       last_attack_at = excluded.last_attack_at,

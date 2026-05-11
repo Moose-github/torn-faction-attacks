@@ -485,6 +485,10 @@ function App() {
     selectedWar?.total_respect_lost,
   );
   const derivedSuccessfulAttacks = sumMembers(members, "attacks_vs_enemy_successful");
+  const derivedEnemySuccessfulAttacks = members.reduce(
+    (total, member) => total + memberDefendsLost(member),
+    0,
+  );
   const officialRespectGained = selectedWar?.official_home_score ?? derivedRespectGained;
   const memberActionTotal =
     derivedSuccessfulAttacks +
@@ -738,13 +742,13 @@ function App() {
                           </tr>
                           <tr>
                             <td>Enemy attacks</td>
-                            <td>-</td>
-                            <td>{formatNumber(selectedWar.official_enemy_attacks ?? 0)}</td>
+                            <td>{formatNumber(derivedEnemySuccessfulAttacks)}</td>
+                            <td>{formatReportComparison(selectedWar.official_enemy_attacks, derivedEnemySuccessfulAttacks)}</td>
                           </tr>
                           <tr>
                             <td>Enemy score</td>
-                            <td>-</td>
-                            <td>{formatNumber(selectedWar.official_enemy_score ?? 0)}</td>
+                            <td>{formatNumber(derivedRespectLost)}</td>
+                            <td>{formatReportComparison(selectedWar.official_enemy_score, derivedRespectLost)}</td>
                           </tr>
                         </tbody>
                       </table>

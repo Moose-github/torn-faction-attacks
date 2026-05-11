@@ -30,7 +30,9 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
         COALESCE(ws.attacks_from_enemy_total, 0) AS attacks_from_enemy_total,
         COALESCE(ws.outside_hits, 0) AS outside_hits,
         COALESCE(ws.total_respect_gain, 0) AS total_respect_gain,
+        COALESCE(ws.total_respect_gain_raw, 0) AS total_respect_gain_raw,
         COALESCE(ws.total_respect_lost, 0) AS total_respect_lost,
+        COALESCE(ws.total_respect_lost_raw, 0) AS total_respect_lost_raw,
         COALESCE(ws.unique_attackers, 0) AS unique_attackers,
         ws.first_attack_at,
         ws.last_attack_at,
@@ -587,7 +589,9 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       COALESCE(SUM(ws.attacks_from_enemy_total), 0) AS attacks_from_enemy_total,
       COALESCE(SUM(ws.outside_hits), 0) AS outside_hits,
       COALESCE(SUM(ws.total_respect_gain), 0) AS total_respect_gain,
+      COALESCE(SUM(ws.total_respect_gain_raw), 0) AS total_respect_gain_raw,
       COALESCE(SUM(ws.total_respect_lost), 0) AS total_respect_lost,
+      COALESCE(SUM(ws.total_respect_lost_raw), 0) AS total_respect_lost_raw,
       MAX(ws.last_attack_at) AS latest_attack_started
     FROM war_summary ws
     JOIN wars w ON w.id = ws.war_id
