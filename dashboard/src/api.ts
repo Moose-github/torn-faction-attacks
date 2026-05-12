@@ -502,6 +502,8 @@ export type DiceGameRollResponse = DiceGameResponse & {
     is_win: boolean;
     win_amount: number;
     loss_amount: number;
+    haunted_number_trap: boolean;
+    haunted_original_number: number | null;
     tax_triggered: boolean;
     tax_too_poor: boolean;
     tax_percent: number;
@@ -725,10 +727,15 @@ export async function getDiceGame(): Promise<DiceGameResponse> {
   return getJson<DiceGameResponse>("/api/dice-game");
 }
 
-export async function rollDiceGame(betAmount: number, betNumber: number): Promise<DiceGameRollResponse> {
+export async function rollDiceGame(
+  betAmount: number,
+  betNumber: number,
+  hauntedOriginalNumber?: number,
+): Promise<DiceGameRollResponse> {
   return postJson<DiceGameRollResponse>("/api/dice-game/roll", {
     bet_amount: betAmount,
     bet_number: betNumber,
+    haunted_original_number: hauntedOriginalNumber,
   });
 }
 

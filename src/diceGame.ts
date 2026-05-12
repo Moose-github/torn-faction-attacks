@@ -72,6 +72,8 @@ type RollDecision = {
   naturalWin: boolean;
   winAmount: number;
   lossAmount: number;
+  hauntedNumberTrap: boolean;
+  hauntedOriginalNumber: number | null;
   taxTriggered: boolean;
   taxTooPoor: boolean;
   taxPercent: number;
@@ -123,9 +125,11 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
   const body = (await request.json().catch(() => ({}))) as {
     bet_amount?: unknown;
     bet_number?: unknown;
+    haunted_original_number?: unknown;
   };
   const betAmount = Number(body.bet_amount);
   const betNumber = Number(body.bet_number);
+  const hauntedOriginalNumber = Number(body.haunted_original_number);
 
   if (!Number.isInteger(betAmount) || betAmount <= 0 || betAmount > MAX_BET_AMOUNT) {
     return json(
@@ -149,9 +153,22 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
     );
   }
 
+  const trappedOriginalNumber = Number.isInteger(hauntedOriginalNumber)
+    && hauntedOriginalNumber >= 1
+    && hauntedOriginalNumber <= 6
+    && hauntedOriginalNumber !== betNumber
+    ? hauntedOriginalNumber
+    : null;
+
   const existing = await ensureDiceProfile(env, user);
-  const decision = decideRoll(existing, betAmount);
-  const rollFaces = diceFaces(betAmount, decision.lossAmount, betNumber, decision.isWin);
+  const decision = decideRoll(existing, betAmount, trappedOriginalNumber);
+  const rollFaces = diceFaces(
+    betAmount,
+    decision.lossAmount,
+    betNumber,
+    decision.isWin,
+    decision.hauntedOriginalNumber,
+  );
   const totalLossAmount = decision.lossAmount + decision.taxAmount;
   const now = nowSeconds();
 
@@ -228,6 +245,8 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
       is_win: decision.isWin,
       win_amount: decision.winAmount,
       loss_amount: decision.lossAmount,
+      haunted_number_trap: decision.hauntedNumberTrap,
+      haunted_original_number: decision.hauntedOriginalNumber,
       tax_triggered: decision.taxTriggered,
       tax_too_poor: decision.taxTooPoor,
       tax_percent: decision.taxPercent,
@@ -401,16 +420,17 @@ function lossAmountForRoll(betAmount: number, rollNumber: number): number {
   return betAmount + insultingFee + loyaltyPenalty + paperworkFee;
 }
 
-function decideRoll(existing: DiceProfileRow, betAmount: number): RollDecision {
+function decideRoll(existing: DiceProfileRow, betAmount: number, trappedOriginalNumber: number | null): RollDecision {
   const rollNumber = existing.rolls + 1;
   const pityRequiredLosses = normalizedPityAfterLosses(existing.pity_after_losses);
-  const rawWin = rollWins(existing.last_natural_win === 1);
-  const doubleWinBlocked = existing.last_roll_won === 1 && rawWin;
-  const naturalWin = rawWin && !doubleWinBlocked;
-  const pityChecked = !naturalWin && !doubleWinBlocked && existing.consecutive_losses >= pityRequiredLosses;
+  const hauntedNumberTrap = trappedOriginalNumber !== null;
+  const rawWin = !hauntedNumberTrap && rollWins(existing.last_natural_win === 1);
+  const doubleWinBlocked = !hauntedNumberTrap && existing.last_roll_won === 1 && rawWin;
+  const naturalWin = !hauntedNumberTrap && rawWin && !doubleWinBlocked;
+  const pityChecked = !hauntedNumberTrap && !naturalWin && !doubleWinBlocked && existing.consecutive_losses >= pityRequiredLosses;
   const pityPayout = betAmount;
   const pityWin = pityChecked && pityPayout < existing.streak_loss_total;
-  const isWin = naturalWin || pityWin;
+  const isWin = !hauntedNumberTrap && (naturalWin || pityWin);
   const winAmount = isWin ? betAmount : 0;
   const lossAmount = isWin ? 0 : lossAmountForRoll(betAmount, rollNumber);
   const tax = taxForRoll(existing.xanax_balance + winAmount - lossAmount);
@@ -426,6 +446,8 @@ function decideRoll(existing: DiceProfileRow, betAmount: number): RollDecision {
     naturalWin,
     winAmount,
     lossAmount,
+    hauntedNumberTrap,
+    hauntedOriginalNumber: trappedOriginalNumber,
     taxTriggered: tax.triggered,
     taxTooPoor: tax.tooPoor,
     taxPercent: tax.percent,
@@ -458,8 +480,9 @@ function diceFaces(
   lossAmount: number,
   betNumber: number,
   isWin: boolean,
+  forcedFinalFace: number | null = null,
 ): [number, number, number] {
-  const finalFace = isWin ? betNumber : losingFaceForBet(betNumber, betAmount, lossAmount);
+  const finalFace = forcedFinalFace ?? (isWin ? betNumber : losingFaceForBet(betNumber, betAmount, lossAmount));
   return [
     1 + ((betAmount * 7) % 6),
     betNumber,

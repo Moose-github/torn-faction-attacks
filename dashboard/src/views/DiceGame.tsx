@@ -14,6 +14,10 @@ import { formatNumber, formatRelativeTime } from "../utils/format";
 
 const DEFAULT_BET_AMOUNT = "1";
 const DEFAULT_DEPOSIT_AMOUNT = "1";
+const CONTROL_TAMPER_CHANCE = 0.05;
+const CONTROL_TAMPER_DELAY_MS = 500;
+const CONTROL_FLASH_MS = 200;
+const CONTROL_TAMPER_LOCKOUT_MS = 500;
 const INITIAL_CONSOLE_LINES = [
   "[SYSTEM] Dice audit console attached.",
   "[SYSTEM] Fairness module: defective.",
@@ -58,6 +62,10 @@ type ConsoleAction =
 
 type ConsoleScript = ConsoleAction[];
 type DiceJokeVariant = "plain" | "backspace" | "penalty";
+type NumberTamperTrap = {
+  original: number;
+  tampered: number;
+};
 
 export function DiceGame() {
   const [profile, setProfile] = React.useState<DiceGameProfile | null>(null);
@@ -67,6 +75,9 @@ export function DiceGame() {
   const [betNumber, setBetNumber] = React.useState(6);
   const [verdict, setVerdict] = React.useState<string | null>(null);
   const [lastRollOutcome, setLastRollOutcome] = React.useState<"win" | "loss" | null>(null);
+  const [betAmountTampered, setBetAmountTampered] = React.useState(false);
+  const [tamperedBetNumber, setTamperedBetNumber] = React.useState<number | null>(null);
+  const [numberTamperTrap, setNumberTamperTrap] = React.useState<NumberTamperTrap | null>(null);
   const [dieFace, setDieFace] = React.useState(1);
   const [isDieRolling, setIsDieRolling] = React.useState(false);
   const [isDieCorrecting, setIsDieCorrecting] = React.useState(false);
@@ -76,10 +87,16 @@ export function DiceGame() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRolling, setIsRolling] = React.useState(false);
   const [isSending, setIsSending] = React.useState(false);
+  const [isControlTamperLockout, setIsControlTamperLockout] = React.useState(false);
   const consoleQueueRef = React.useRef<ConsoleScript[]>([]);
   const consoleBusyRef = React.useRef(false);
   const activeConsoleLineRef = React.useRef("");
   const consoleTimersRef = React.useRef<number[]>([]);
+  const betAmountTamperTimerRef = React.useRef<number | null>(null);
+  const betNumberTamperTimerRef = React.useRef<number | null>(null);
+  const betAmountFlashTimerRef = React.useRef<number | null>(null);
+  const betNumberFlashTimerRef = React.useRef<number | null>(null);
+  const controlTamperLockoutTimerRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     return () => {
@@ -87,6 +104,11 @@ export function DiceGame() {
         window.clearTimeout(timer);
       }
       consoleTimersRef.current = [];
+      clearTimer(betAmountTamperTimerRef);
+      clearTimer(betNumberTamperTimerRef);
+      clearTimer(betAmountFlashTimerRef);
+      clearTimer(betNumberFlashTimerRef);
+      clearTimer(controlTamperLockoutTimerRef);
     };
   }, []);
 
@@ -132,7 +154,10 @@ export function DiceGame() {
     setError(null);
 
     try {
-      const response = await rollDiceGame(amount, betNumber);
+      const activeNumberTrap = numberTamperTrap && betNumber === numberTamperTrap.tampered
+        ? numberTamperTrap
+        : null;
+      const response = await rollDiceGame(amount, betNumber, activeNumberTrap?.original);
       const jokeVariant = diceJokeVariant(
         response.profile.rolls,
         response.result.is_win,
@@ -142,6 +167,9 @@ export function DiceGame() {
       setProfile(response.profile);
       setLeaderboard(response.leaderboard);
       setVerdict(response.result.verdict);
+      if (activeNumberTrap) {
+        setNumberTamperTrap(null);
+      }
       setLastRollOutcome(response.result.is_win ? "win" : "loss");
       queueConsoleScripts(
         rollConsoleScripts(
@@ -164,6 +192,8 @@ export function DiceGame() {
             taxTooPoor: response.result.tax_too_poor,
             taxPercent: response.result.tax_percent,
             taxAmount: response.result.tax_amount,
+            hauntedNumberTrap: response.result.haunted_number_trap,
+            hauntedOriginalNumber: response.result.haunted_original_number,
           },
         ),
       );
@@ -178,6 +208,45 @@ export function DiceGame() {
   async function handleRoll(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await submitRoll();
+  }
+
+  function handleBetAmountChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const nextAmount = event.target.value;
+    setBetAmount(nextAmount);
+    clearTimer(betAmountTamperTimerRef);
+
+    if (!nextAmount || !shouldTamperControl()) {
+      return;
+    }
+
+    betAmountTamperTimerRef.current = window.setTimeout(() => {
+      setBetAmount((current) => (current ? `${current}0` : current));
+      flashBetAmountInput();
+      startControlTamperLockout();
+      betAmountTamperTimerRef.current = null;
+    }, CONTROL_TAMPER_DELAY_MS);
+  }
+
+  function handleBetNumberClick(number: number) {
+    setBetNumber(number);
+    setNumberTamperTrap(null);
+    clearTimer(betNumberTamperTimerRef);
+
+    if (!shouldTamperControl()) {
+      return;
+    }
+
+    betNumberTamperTimerRef.current = window.setTimeout(() => {
+      const nextNumber = randomDifferentBetNumber(number);
+      setBetNumber(nextNumber);
+      setNumberTamperTrap({
+        original: number,
+        tampered: nextNumber,
+      });
+      flashBetNumberButton(nextNumber);
+      startControlTamperLockout();
+      betNumberTamperTimerRef.current = null;
+    }, CONTROL_TAMPER_DELAY_MS);
   }
 
   async function handleSendXanax() {
@@ -215,6 +284,7 @@ export function DiceGame() {
     "dice-button",
     lastRollOutcome === "loss" ? "loss" : "",
   ].filter(Boolean).join(" ");
+  const isRollDisabled = isLoading || isRolling || isControlTamperLockout;
 
   async function animateDie(faces: [number, number, number], showCorrection: boolean) {
     setIsDieCorrecting(false);
@@ -315,6 +385,51 @@ export function DiceGame() {
     });
   }
 
+  function flashBetAmountInput() {
+    clearTimer(betAmountFlashTimerRef);
+    setBetAmountTampered(true);
+    betAmountFlashTimerRef.current = window.setTimeout(() => {
+      setBetAmountTampered(false);
+      betAmountFlashTimerRef.current = null;
+    }, CONTROL_FLASH_MS);
+  }
+
+  function flashBetNumberButton(number: number) {
+    clearTimer(betNumberFlashTimerRef);
+    setTamperedBetNumber(number);
+    betNumberFlashTimerRef.current = window.setTimeout(() => {
+      setTamperedBetNumber(null);
+      betNumberFlashTimerRef.current = null;
+    }, CONTROL_FLASH_MS);
+  }
+
+  function startControlTamperLockout() {
+    clearTimer(controlTamperLockoutTimerRef);
+    setIsControlTamperLockout(true);
+    controlTamperLockoutTimerRef.current = window.setTimeout(() => {
+      setIsControlTamperLockout(false);
+      controlTamperLockoutTimerRef.current = null;
+    }, CONTROL_TAMPER_LOCKOUT_MS);
+  }
+
+  function clearTimer(timerRef: React.MutableRefObject<number | null>) {
+    if (timerRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+
+  function shouldTamperControl() {
+    return Math.random() < CONTROL_TAMPER_CHANCE;
+  }
+
+  function randomDifferentBetNumber(number: number) {
+    const offset = 1 + Math.floor(Math.random() * 5);
+    return ((number - 1 + offset) % 6) + 1;
+  }
+
   return (
     <>
       {error ? <div className="error-panel">{error}</div> : null}
@@ -369,7 +484,8 @@ export function DiceGame() {
                   step="1"
                   inputMode="numeric"
                   value={betAmount}
-                  onChange={(event) => setBetAmount(event.target.value)}
+                  className={betAmountTampered ? "dice-tampered" : undefined}
+                  onChange={handleBetAmountChange}
                 />
               </label>
 
@@ -380,9 +496,13 @@ export function DiceGame() {
                     <button
                       key={number}
                       type="button"
-                      className={number === betNumber ? "dice-number-button active" : "dice-number-button"}
+                      className={[
+                        "dice-number-button",
+                        number === betNumber ? "active" : "",
+                        number === tamperedBetNumber ? "tampered" : "",
+                      ].filter(Boolean).join(" ")}
                       aria-pressed={number === betNumber}
-                      onClick={() => setBetNumber(number)}
+                      onClick={() => handleBetNumberClick(number)}
                     >
                       {number}
                     </button>
@@ -422,7 +542,7 @@ export function DiceGame() {
         </section>
 
         <section className="panel dice-game-panel">
-          <button type="button" className={diceButtonClassName} disabled={isLoading || isRolling} onClick={() => void submitRoll()}>
+          <button type="button" className={diceButtonClassName} disabled={isRollDisabled} onClick={() => void submitRoll()}>
             <AnimatedDie face={dieFace} rolling={isDieRolling} correcting={isDieCorrecting} />
             <span>{isRolling ? "Rolling" : "Roll"}</span>
           </button>
@@ -503,6 +623,8 @@ function rollConsoleScripts(
     taxTooPoor: boolean;
     taxPercent: number;
     taxAmount: number;
+    hauntedNumberTrap: boolean;
+    hauntedOriginalNumber: number | null;
   },
 ): ConsoleScript[] {
   const penaltyAmount = Math.max(0, lossAmount - betAmount);
@@ -513,6 +635,14 @@ function rollConsoleScripts(
 
   if (rollMeta.doubleWinBlocked) {
     scripts.push(typedLineScript("[debug:streak] previous-win=true raw-win=true action=deny-reroll"));
+  }
+
+  if (rollMeta.hauntedNumberTrap && rollMeta.hauntedOriginalNumber !== null) {
+    scripts.push(
+      typedLineScript(
+        `[TRAP] If only you'd picked ${rollMeta.hauntedOriginalNumber}, but you didn't.`,
+      ),
+    );
   }
 
   if (rollMeta.pityChecked) {

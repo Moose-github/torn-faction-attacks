@@ -518,6 +518,13 @@ h2 {
   text-transform: uppercase;
 }
 
+.dice-bet-label input.dice-tampered {
+  border-color: #f87171;
+  background: #fef2f2;
+  color: #991b1b;
+  animation: dice-control-tamper 200ms ease;
+}
+
 .dice-number-field {
   display: grid;
   gap: 8px;
@@ -566,6 +573,24 @@ h2 {
   background: #ccfbf1;
   color: #115e59;
   box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.2);
+}
+
+.dice-number-button.tampered {
+  border-color: #f87171;
+  background: #fee2e2;
+  color: #991b1b;
+  animation: dice-control-tamper 200ms ease;
+}
+
+@keyframes dice-control-tamper {
+  0%,
+  100% {
+    box-shadow: none;
+  }
+
+  42% {
+    box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.28);
+  }
 }
 
 .dice-button {
