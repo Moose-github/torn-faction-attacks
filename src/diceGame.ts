@@ -64,6 +64,10 @@ type RollDecision = {
   naturalWin: boolean;
   winAmount: number;
   lossAmount: number;
+  taxTriggered: boolean;
+  taxTooPoor: boolean;
+  taxPercent: number;
+  taxAmount: number;
   verdict: string;
   doubleWinBlocked: boolean;
   pityChecked: boolean;
@@ -74,6 +78,13 @@ type RollDecision = {
   nextConsecutiveLosses: number;
   nextStreakLossTotal: number;
   nextPityAfterLosses: number;
+};
+
+type TaxDecision = {
+  triggered: boolean;
+  tooPoor: boolean;
+  percent: number;
+  amount: number;
 };
 
 export async function getDiceGameState(request: Request, env: Env, url: URL): Promise<Response> {
@@ -133,6 +144,7 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
   const existing = await ensureDiceProfile(env, user);
   const decision = decideRoll(existing, betAmount);
   const rollFaces = diceFaces(betAmount, decision.lossAmount, betNumber, decision.isWin);
+  const totalLossAmount = decision.lossAmount + decision.taxAmount;
   const now = nowSeconds();
 
   await env.DB.prepare(
@@ -178,17 +190,17 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
     .bind(
       user.torn_user_id,
       user.member_name,
-      STARTING_XANAX_BALANCE + decision.winAmount - decision.lossAmount,
+      STARTING_XANAX_BALANCE + decision.winAmount - totalLossAmount,
       decision.winAmount,
-      decision.lossAmount,
+      totalLossAmount,
       decision.nextConsecutiveLosses,
       decision.nextStreakLossTotal,
       decision.nextPityAfterLosses,
       decision.isWin ? 1 : 0,
       decision.naturalWin ? 1 : 0,
-      decision.lossAmount,
+      totalLossAmount,
       betAmount,
-      decision.lossAmount,
+      totalLossAmount,
       decision.verdict,
       now,
       now,
@@ -208,6 +220,10 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
       is_win: decision.isWin,
       win_amount: decision.winAmount,
       loss_amount: decision.lossAmount,
+      tax_triggered: decision.taxTriggered,
+      tax_too_poor: decision.taxTooPoor,
+      tax_percent: decision.taxPercent,
+      tax_amount: decision.taxAmount,
       verdict: decision.verdict,
       roll_faces: rollFaces,
       double_win_blocked: decision.doubleWinBlocked,
@@ -389,6 +405,7 @@ function decideRoll(existing: DiceProfileRow, betAmount: number): RollDecision {
   const isWin = naturalWin || pityWin;
   const winAmount = isWin ? betAmount : 0;
   const lossAmount = isWin ? 0 : lossAmountForRoll(betAmount, rollNumber);
+  const tax = taxForRoll(existing.xanax_balance + winAmount - lossAmount);
   const nextConsecutiveLosses = isWin ? 0 : existing.consecutive_losses + 1;
   const nextStreakLossTotal = isWin ? 0 : existing.streak_loss_total + lossAmount;
   const nextPityAfterLosses = isWin ? randomPityAfterLosses() : pityRequiredLosses;
@@ -401,6 +418,10 @@ function decideRoll(existing: DiceProfileRow, betAmount: number): RollDecision {
     naturalWin,
     winAmount,
     lossAmount,
+    taxTriggered: tax.triggered,
+    taxTooPoor: tax.tooPoor,
+    taxPercent: tax.percent,
+    taxAmount: tax.amount,
     verdict,
     doubleWinBlocked,
     pityChecked,
@@ -453,6 +474,34 @@ function randomPityAfterLosses(): number {
 
 function feeGagTriggers(rollNumber: number): boolean {
   return rollNumber % 10 === 5;
+}
+
+function taxForRoll(balanceAfterRoll: number): TaxDecision {
+  if (randomUint32() % 50 !== 0) {
+    return {
+      triggered: false,
+      tooPoor: false,
+      percent: 0,
+      amount: 0,
+    };
+  }
+
+  if (balanceAfterRoll < 100) {
+    return {
+      triggered: true,
+      tooPoor: true,
+      percent: 0,
+      amount: 0,
+    };
+  }
+
+  const percent = 1 + (randomUint32() % 10);
+  return {
+    triggered: true,
+    tooPoor: false,
+    percent,
+    amount: Math.max(1, Math.ceil((balanceAfterRoll * percent) / 100)),
+  };
 }
 
 function rollWins(afterNaturalWin: boolean): boolean {

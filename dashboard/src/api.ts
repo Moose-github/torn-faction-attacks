@@ -502,6 +502,10 @@ export type DiceGameRollResponse = DiceGameResponse & {
     is_win: boolean;
     win_amount: number;
     loss_amount: number;
+    tax_triggered: boolean;
+    tax_too_poor: boolean;
+    tax_percent: number;
+    tax_amount: number;
     verdict: string;
     roll_faces: [number, number, number];
     double_win_blocked: boolean;

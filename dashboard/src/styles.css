@@ -444,36 +444,6 @@ h2 {
   width: min(360px, 100%);
 }
 
-.dice-game-hero {
-  border-color: rgba(20, 184, 166, 0.3);
-  background: #f7fffc;
-}
-
-.dice-balance-block {
-  display: grid;
-  gap: 5px;
-  min-width: 190px;
-  text-align: right;
-}
-
-.dice-balance-block span {
-  color: #475569;
-  font-size: 0.78rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.dice-balance-block strong {
-  color: #047857;
-  font-size: 2rem;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.dice-balance-block strong.negative {
-  color: #b91c1c;
-}
-
 .dice-status-grid {
   grid-template-columns: repeat(3, minmax(160px, 1fr));
 }
@@ -490,6 +460,24 @@ h2 {
   display: grid;
   gap: 18px;
   align-content: start;
+}
+
+.dice-control-section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dice-control-section + .dice-control-section {
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.dice-control-section h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-weight: 900;
 }
 
 .dice-game-panel {

@@ -13,11 +13,30 @@ import { MetricCard, PanelHeader } from "../components/Common";
 import { formatNumber, formatRelativeTime } from "../utils/format";
 
 const DEFAULT_BET_AMOUNT = "1";
+const DEFAULT_DEPOSIT_AMOUNT = "1";
 const INITIAL_CONSOLE_LINES = [
   "[SYSTEM] Dice audit console attached.",
   "[SYSTEM] Fairness module found: decorative.",
   "[READY] Awaiting xanax.",
 ];
+
+const PENALTY_MESSAGES = [
+  "[PENALTY] Table maintenance fee: {amount} xanax.",
+  "[PENALTY] Dice handling charge: {amount} xanax.",
+  "[PENALTY] M00SE needs some Xanax: {amount} xanax.",
+  "[PENALTY] House edge recalibration fee: {amount} xanax.",
+  "[PENALTY] You've been hit by a smooth criminal: -{amount} xanax.",
+];
+
+const TAX_MESSAGES = [
+  "[TAX] Emergency dice duty collected: -{amount} xanax ({percent}%).",
+  "[TAX] House revenue office skim: -{amount} xanax ({percent}%).",
+  "[TAX] Unreported optimism levy: -{amount} xanax ({percent}%).",
+  "[TAX] Balance inspection adjustment: -{amount} xanax ({percent}%).",
+  "[TAX] M00SE fiscal clawback: -{amount} xanax ({percent}%).",
+];
+
+const TAX_TOO_POOR_MESSAGE = "[TAX] Audit skipped: balance below 100 xanax, too poor to tax.";
 
 const PIP_LAYOUT: Record<number, string[]> = {
   1: ["center"],
@@ -41,6 +60,7 @@ export function DiceGame() {
   const [profile, setProfile] = React.useState<DiceGameProfile | null>(null);
   const [leaderboard, setLeaderboard] = React.useState<DiceGameLeaderboardRow[]>([]);
   const [betAmount, setBetAmount] = React.useState(DEFAULT_BET_AMOUNT);
+  const [depositAmount, setDepositAmount] = React.useState(DEFAULT_DEPOSIT_AMOUNT);
   const [betNumber, setBetNumber] = React.useState(6);
   const [verdict, setVerdict] = React.useState<string | null>(null);
   const [dieFace, setDieFace] = React.useState(1);
@@ -135,6 +155,10 @@ export function DiceGame() {
             pityRequiredLosses: response.result.pity_required_losses,
             pityStreakLosses: response.result.pity_streak_losses,
             pityPayout: response.result.pity_payout,
+            taxTriggered: response.result.tax_triggered,
+            taxTooPoor: response.result.tax_too_poor,
+            taxPercent: response.result.tax_percent,
+            taxAmount: response.result.tax_amount,
           },
         ),
       );
@@ -152,7 +176,7 @@ export function DiceGame() {
   }
 
   async function handleSendXanax() {
-    const amount = Math.trunc(Number(betAmount) || 0);
+    const amount = Math.trunc(Number(depositAmount) || 0);
 
     setIsSending(true);
     setError(null);
@@ -171,6 +195,11 @@ export function DiceGame() {
     } finally {
       setIsSending(false);
     }
+  }
+
+  async function handleDeposit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await handleSendXanax();
   }
 
   const balance = profile?.xanax_balance ?? 0;
@@ -281,15 +310,11 @@ export function DiceGame() {
     <>
       {error ? <div className="error-panel">{error}</div> : null}
 
-      <section className="hero-panel compact-hero-panel dice-game-hero">
+      <section className="hero-panel compact-hero-panel">
         <div>
           <p className="eyebrow">Definitely not gambling</p>
           <h2>Dice Game</h2>
-          <p>{verdict ?? "The dice are ready to make a completely impartial decision."}</p>
-        </div>
-        <div className="dice-balance-block">
-          <span>Current xanax balance</span>
-          <strong className={balance < 0 ? "negative" : ""}>{formatNumber(balance)}</strong>
+          <p>The dice are ready to make a completely impartial decision.</p>
         </div>
       </section>
 
@@ -326,49 +351,66 @@ export function DiceGame() {
       <section className="dice-play-layout">
         <section className="panel dice-controls-panel">
           <PanelHeader title="Bet controls" />
-          <form className="dice-form" onSubmit={handleRoll}>
-            <label className="dice-bet-label">
-              <span>Xanax amount</span>
-              <input
-                type="number"
-                step="1"
-                inputMode="numeric"
-                value={betAmount}
-                onChange={(event) => setBetAmount(event.target.value)}
-              />
-            </label>
+          <section className="dice-control-section">
+            <h3>Bet</h3>
+            <form className="dice-form" onSubmit={handleRoll}>
+              <label className="dice-bet-label">
+                <span>Xanax amount</span>
+                <input
+                  type="number"
+                  step="1"
+                  inputMode="numeric"
+                  value={betAmount}
+                  onChange={(event) => setBetAmount(event.target.value)}
+                />
+              </label>
 
-            <fieldset className="dice-number-field">
-              <legend>Bet on</legend>
-              <div className="dice-number-grid">
-                {[1, 2, 3, 4, 5, 6].map((number) => (
-                  <button
-                    key={number}
-                    type="button"
-                    className={number === betNumber ? "dice-number-button active" : "dice-number-button"}
-                    aria-pressed={number === betNumber}
-                    onClick={() => setBetNumber(number)}
-                  >
-                    {number}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
+              <fieldset className="dice-number-field">
+                <legend>Bet on</legend>
+                <div className="dice-number-grid">
+                  {[1, 2, 3, 4, 5, 6].map((number) => (
+                    <button
+                      key={number}
+                      type="button"
+                      className={number === betNumber ? "dice-number-button active" : "dice-number-button"}
+                      aria-pressed={number === betNumber}
+                      onClick={() => setBetNumber(number)}
+                    >
+                      {number}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </form>
+          </section>
 
-            <button
-              type="button"
-              className="icon-text-button dice-send-button"
-              disabled={isLoading || isSending}
-              onClick={handleSendXanax}
-            >
-              <CircleDollarSign size={16} />
-              {isSending ? "Adding xanax" : "Add xanax"}
-            </button>
-          </form>
+          <section className="dice-control-section">
+            <h3>Deposit</h3>
+            <form className="dice-form" onSubmit={handleDeposit}>
+              <label className="dice-bet-label">
+                <span>Xanax amount</span>
+                <input
+                  type="number"
+                  step="1"
+                  inputMode="numeric"
+                  value={depositAmount}
+                  onChange={(event) => setDepositAmount(event.target.value)}
+                />
+              </label>
+
+              <button
+                type="submit"
+                className="icon-text-button dice-send-button"
+                disabled={isLoading || isSending}
+              >
+                <CircleDollarSign size={16} />
+                {isSending ? "Adding xanax" : "Add xanax"}
+              </button>
+            </form>
+          </section>
         </section>
 
         <section className="panel dice-game-panel">
-          <PanelHeader title="Dice table" aside={isLoading ? "Loading" : "Rigged"} />
           <button type="button" className="dice-button" disabled={isLoading || isRolling} onClick={() => void submitRoll()}>
             <AnimatedDie face={dieFace} rolling={isDieRolling} correcting={isDieCorrecting} />
             <span>{isRolling ? "Rolling" : "Roll"}</span>
@@ -446,6 +488,10 @@ function rollConsoleScripts(
     pityRequiredLosses: number;
     pityStreakLosses: number;
     pityPayout: number;
+    taxTriggered: boolean;
+    taxTooPoor: boolean;
+    taxPercent: number;
+    taxAmount: number;
   },
 ): ConsoleScript[] {
   const penaltyAmount = Math.max(0, lossAmount - betAmount);
@@ -482,11 +528,33 @@ function rollConsoleScripts(
   }
 
   if (jokeVariant === "penalty") {
-    scripts.push(typedLineScript(`[PENALTY] Extra table penalties applied: ${formatNumber(penaltyAmount)} xanax.`));
+    scripts.push(typedLineScript(penaltyMessage(penaltyAmount, betAmount, lossAmount)));
+  }
+
+  if (rollMeta.taxTriggered) {
+    scripts.push(
+      typedLineScript(
+        rollMeta.taxTooPoor
+          ? TAX_TOO_POOR_MESSAGE
+          : taxMessage(rollMeta.taxAmount, rollMeta.taxPercent, betAmount, lossAmount),
+      ),
+    );
   }
 
   scripts.push(typedLineScript(`[RESULT] ${verdict}`));
   return scripts;
+}
+
+function penaltyMessage(penaltyAmount: number, betAmount: number, lossAmount: number): string {
+  const index = Math.abs((betAmount + lossAmount) % PENALTY_MESSAGES.length);
+  return PENALTY_MESSAGES[index].replace("{amount}", formatNumber(penaltyAmount));
+}
+
+function taxMessage(taxAmount: number, taxPercent: number, betAmount: number, lossAmount: number): string {
+  const index = Math.abs((betAmount + lossAmount + taxAmount + taxPercent) % TAX_MESSAGES.length);
+  return TAX_MESSAGES[index]
+    .replace("{amount}", formatNumber(taxAmount))
+    .replace("{percent}", formatNumber(taxPercent));
 }
 
 function diceJokeVariant(
