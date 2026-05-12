@@ -359,7 +359,6 @@ export function DiceGame() {
 
       <section className="dice-play-layout">
         <section className="panel dice-controls-panel">
-          <PanelHeader title="Bet controls" />
           <section className="dice-control-section">
             <h3>Bet</h3>
             <form className="dice-form" onSubmit={handleRoll}>
@@ -394,7 +393,10 @@ export function DiceGame() {
           </section>
 
           <section className="dice-control-section">
-            <h3>Deposit</h3>
+            <div className="dice-section-heading">
+              <h3>Deposit</h3>
+              <span>Deposits work on the honor system</span>
+            </div>
             <form className="dice-form" onSubmit={handleDeposit}>
               <label className="dice-bet-label">
                 <span>Xanax amount</span>

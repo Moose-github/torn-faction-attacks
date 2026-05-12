@@ -419,7 +419,7 @@ function decideRoll(existing: DiceProfileRow, betAmount: number): RollDecision {
   const nextPityAfterLosses = isWin ? randomPityAfterLosses() : pityRequiredLosses;
   const verdict = isWin
     ? diceWinVerdict(existing.rolls, winAmount)
-    : diceLossVerdict(existing.rolls, lossAmount);
+    : diceLossVerdict(existing.rolls, betAmount);
 
   return {
     isWin,

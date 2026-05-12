@@ -480,6 +480,21 @@ h2 {
   font-weight: 900;
 }
 
+.dice-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dice-section-heading span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: right;
+}
+
 .dice-game-panel {
   display: grid;
   gap: 18px;
