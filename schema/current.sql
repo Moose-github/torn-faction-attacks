@@ -287,6 +287,7 @@ CREATE TABLE dice_game_losses (
   streak_loss_total INTEGER NOT NULL DEFAULT 0,
   pity_after_losses INTEGER NOT NULL DEFAULT 0,
   last_roll_won INTEGER NOT NULL DEFAULT 0,
+  last_natural_win INTEGER NOT NULL DEFAULT 0,
   largest_loss INTEGER NOT NULL DEFAULT 0,
   last_bet_amount INTEGER,
   last_loss_amount INTEGER,

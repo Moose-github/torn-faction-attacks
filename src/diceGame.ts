@@ -20,6 +20,7 @@ type DiceProfileRow = {
   streak_loss_total: number;
   pity_after_losses: number;
   last_roll_won: number;
+  last_natural_win: number;
   largest_loss: number;
   last_bet_amount: number | null;
   last_loss_amount: number | null;
@@ -60,6 +61,7 @@ const WIN_VERDICTS = [
 
 type RollDecision = {
   isWin: boolean;
+  naturalWin: boolean;
   winAmount: number;
   lossAmount: number;
   verdict: string;
@@ -146,6 +148,7 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
       streak_loss_total,
       pity_after_losses,
       last_roll_won,
+      last_natural_win,
       largest_loss,
       last_bet_amount,
       last_loss_amount,
@@ -153,7 +156,7 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(torn_user_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, dice_game_losses.member_name),
       xanax_balance = dice_game_losses.xanax_balance + excluded.total_gained - excluded.last_loss_amount,
@@ -164,6 +167,7 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
       streak_loss_total = excluded.streak_loss_total,
       pity_after_losses = excluded.pity_after_losses,
       last_roll_won = excluded.last_roll_won,
+      last_natural_win = excluded.last_natural_win,
       largest_loss = MAX(dice_game_losses.largest_loss, excluded.last_loss_amount),
       last_bet_amount = excluded.last_bet_amount,
       last_loss_amount = excluded.last_loss_amount,
@@ -181,6 +185,7 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
       decision.nextStreakLossTotal,
       decision.nextPityAfterLosses,
       decision.isWin ? 1 : 0,
+      decision.naturalWin ? 1 : 0,
       decision.lossAmount,
       betAmount,
       decision.lossAmount,
@@ -312,6 +317,7 @@ async function getDiceProfile(env: Env, tornUserId: number): Promise<DiceProfile
       streak_loss_total,
       pity_after_losses,
       last_roll_won,
+      last_natural_win,
       largest_loss,
       last_bet_amount,
       last_loss_amount,
@@ -360,16 +366,21 @@ async function listDiceLeaderboard(env: Env, limit: number): Promise<DiceLeaderb
   }));
 }
 
-function riggedLossAmount(betAmount: number, rolls: number): number {
+function lossAmountForRoll(betAmount: number, rollNumber: number): number {
+  if (!feeGagTriggers(rollNumber)) {
+    return betAmount;
+  }
+
   const insultingFee = Math.max(1, Math.ceil(betAmount * 0.13));
-  const loyaltyPenalty = rolls % 4 === 3 ? Math.ceil(betAmount * 0.5) : 0;
-  const paperworkFee = rolls >= 6 ? rolls : 0;
+  const loyaltyPenalty = Math.ceil(betAmount * 0.5);
+  const paperworkFee = Math.max(1, Math.ceil(rollNumber / 2));
   return betAmount + insultingFee + loyaltyPenalty + paperworkFee;
 }
 
 function decideRoll(existing: DiceProfileRow, betAmount: number): RollDecision {
+  const rollNumber = existing.rolls + 1;
   const pityRequiredLosses = normalizedPityAfterLosses(existing.pity_after_losses);
-  const rawWin = rollWins();
+  const rawWin = rollWins(existing.last_natural_win === 1);
   const doubleWinBlocked = existing.last_roll_won === 1 && rawWin;
   const naturalWin = rawWin && !doubleWinBlocked;
   const pityChecked = !naturalWin && !doubleWinBlocked && existing.consecutive_losses >= pityRequiredLosses;
@@ -377,16 +388,17 @@ function decideRoll(existing: DiceProfileRow, betAmount: number): RollDecision {
   const pityWin = pityChecked && pityPayout < existing.streak_loss_total;
   const isWin = naturalWin || pityWin;
   const winAmount = isWin ? betAmount : 0;
-  const lossAmount = isWin ? 0 : riggedLossAmount(betAmount, existing.rolls);
+  const lossAmount = isWin ? 0 : lossAmountForRoll(betAmount, rollNumber);
   const nextConsecutiveLosses = isWin ? 0 : existing.consecutive_losses + 1;
   const nextStreakLossTotal = isWin ? 0 : existing.streak_loss_total + lossAmount;
   const nextPityAfterLosses = isWin ? randomPityAfterLosses() : pityRequiredLosses;
   const verdict = isWin
-    ? diceWinVerdict(existing.rolls, winAmount, pityWin)
+    ? diceWinVerdict(existing.rolls, winAmount)
     : diceLossVerdict(existing.rolls, lossAmount);
 
   return {
     isWin,
+    naturalWin,
     winAmount,
     lossAmount,
     verdict,
@@ -407,11 +419,7 @@ function diceLossVerdict(rolls: number, lossAmount: number): string {
   return `${verdict} -${lossAmount} xanax.`;
 }
 
-function diceWinVerdict(rolls: number, winAmount: number, pityWin: boolean): string {
-  if (pityWin) {
-    return `Pity win approved. Payout stays below the loss streak. +${winAmount} xanax.`;
-  }
-
+function diceWinVerdict(rolls: number, winAmount: number): string {
   const verdict = WIN_VERDICTS[rolls % WIN_VERDICTS.length];
   return `${verdict} +${winAmount} xanax.`;
 }
@@ -443,8 +451,12 @@ function randomPityAfterLosses(): number {
   return 3 + (randomUint32() % 3);
 }
 
-function rollWins(): boolean {
-  return randomUint32() % 10 === 0;
+function feeGagTriggers(rollNumber: number): boolean {
+  return rollNumber % 10 === 5;
+}
+
+function rollWins(afterNaturalWin: boolean): boolean {
+  return randomUint32() % (afterNaturalWin ? 4 : 10) === 0;
 }
 
 function randomUint32(): number {

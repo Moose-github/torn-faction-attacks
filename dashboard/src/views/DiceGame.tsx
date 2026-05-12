@@ -35,7 +35,7 @@ type ConsoleAction =
   | { kind: "commit" };
 
 type ConsoleScript = ConsoleAction[];
-type DiceJokeVariant = "plain" | "backspace" | "fee";
+type DiceJokeVariant = "plain" | "backspace" | "penalty";
 
 export function DiceGame() {
   const [profile, setProfile] = React.useState<DiceGameProfile | null>(null);
@@ -109,7 +109,12 @@ export function DiceGame() {
 
     try {
       const response = await rollDiceGame(amount, betNumber);
-      const jokeVariant = response.result.is_win ? "plain" : diceJokeVariant(response.profile.rolls);
+      const jokeVariant = diceJokeVariant(
+        response.profile.rolls,
+        response.result.is_win,
+        response.result.loss_amount,
+        amount,
+      );
       setProfile(response.profile);
       setLeaderboard(response.leaderboard);
       setVerdict(response.result.verdict);
@@ -443,27 +448,20 @@ function rollConsoleScripts(
     pityPayout: number;
   },
 ): ConsoleScript[] {
-  const fee = Math.max(0, lossAmount - betAmount);
+  const penaltyAmount = Math.max(0, lossAmount - betAmount);
   const nearWinSuffix = `${faces[1]} - WIN`;
   const scripts: ConsoleScript[] = [
     typedLineScript(`[BET] ${formatNumber(betAmount)} xanax on ${betNumber}. Brave. Misguided.`),
   ];
 
   if (rollMeta.doubleWinBlocked) {
-    scripts.push(typedLineScript("[RULE] Back-to-back wins are disallowed. Rerolling."));
+    scripts.push(typedLineScript("[debug:streak] previous-win=true raw-win=true action=deny-reroll"));
   }
 
   if (rollMeta.pityChecked) {
     scripts.push(
       typedLineScript(
-        `[PITY CHECK] ${formatNumber(rollMeta.pityRequiredLosses)} loss trigger met; streak losses ${formatNumber(rollMeta.pityStreakLosses)}, payout ${formatNumber(rollMeta.pityPayout)}.`,
-      ),
-    );
-    scripts.push(
-      typedLineScript(
-        rollMeta.pityWin
-          ? "[PITY CHECK] Approved: payout is still less than the streak losses."
-          : "[PITY CHECK] Denied: payout would not leave the player net negative.",
+        `[debug:pity] trigger-losses=${formatNumber(rollMeta.pityRequiredLosses)} loss-total=${formatNumber(rollMeta.pityStreakLosses)} payout=${formatNumber(rollMeta.pityPayout)} ${rollMeta.pityWin ? "allow" : "deny"}`,
       ),
     );
   }
@@ -483,21 +481,30 @@ function rollConsoleScripts(
     scripts.push(typedLineScript(`[ROLL] Roll - ${faces[2]} - LOSS`));
   }
 
-  if (jokeVariant === "fee") {
-    scripts.push(typedLineScript(`[FEE] Convenience misfortune fee: ${formatNumber(fee)} xanax.`));
+  if (jokeVariant === "penalty") {
+    scripts.push(typedLineScript(`[PENALTY] Extra table penalties applied: ${formatNumber(penaltyAmount)} xanax.`));
   }
 
   scripts.push(typedLineScript(`[RESULT] ${verdict}`));
   return scripts;
 }
 
-function diceJokeVariant(rollNumber: number): DiceJokeVariant {
-  if (rollNumber % 10 === 0) {
-    return "backspace";
+function diceJokeVariant(
+  rollNumber: number,
+  isWin: boolean,
+  lossAmount: number,
+  betAmount: number,
+): DiceJokeVariant {
+  if (isWin) {
+    return "plain";
   }
 
-  if (rollNumber % 10 === 5) {
-    return "fee";
+  if (lossAmount > betAmount) {
+    return "penalty";
+  }
+
+  if (rollNumber % 10 === 0) {
+    return "backspace";
   }
 
   return "plain";
