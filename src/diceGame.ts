@@ -3,6 +3,7 @@ import { json, nowSeconds, parseLimit } from "./utils";
 
 const STARTING_XANAX_BALANCE = 250;
 const MAX_BET_AMOUNT = 1_000_000;
+const PITY_LOSS_THRESHOLDS = [8, 12, 17] as const;
 
 type DiceUser = {
   torn_user_id: number;
@@ -43,20 +44,27 @@ type DiceLeaderboardRow = {
 
 const VERDICTS = [
   "The dice land badly. Strange how often that happens.",
-  "The dice considered a win, then remembered policy.",
-  "The dice roll across the table and into house custody.",
+  "Bold strategy: losing immediately.",
+  "The dice roll across the table and off the edge.",
   "The dice declare your xanax emotionally unprepared.",
-  "The dice say: no refunds, only probability theater.",
-  "The house edge updates during the roll. Very agile.",
+  "The dice say: no refunds.",
+  "The moose council rejects your score.",
   "Almost a win, except for the part where it is not.",
   "The dice were balanced until accounting got involved.",
+  "You lose.",
+  "Better luck next time.",
+  "Hahahahaha",
 ];
 
 const WIN_VERDICTS = [
   "The dice accidentally allow a win. Someone check the table.",
   "A win slips through the cracks. Accounting has been notified.",
-  "The dice land clean. The house looks personally offended.",
+  "The dice land clean. You must have cheated.",
   "You win. This result is under internal review.",
+  "You won.",
+  "Congratulations",
+  "A win! Scientists are baffled.",
+
 ];
 
 type RollDecision = {
@@ -465,11 +473,13 @@ function losingFaceForBet(betNumber: number, betAmount: number, lossAmount: numb
 }
 
 function normalizedPityAfterLosses(value: number): number {
-  return value >= 3 && value <= 5 ? value : randomPityAfterLosses();
+  return PITY_LOSS_THRESHOLDS.includes(value as (typeof PITY_LOSS_THRESHOLDS)[number])
+    ? value
+    : randomPityAfterLosses();
 }
 
 function randomPityAfterLosses(): number {
-  return 3 + (randomUint32() % 3);
+  return PITY_LOSS_THRESHOLDS[randomUint32() % PITY_LOSS_THRESHOLDS.length] ?? 12;
 }
 
 function feeGagTriggers(rollNumber: number): boolean {

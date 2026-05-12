@@ -16,27 +16,30 @@ const DEFAULT_BET_AMOUNT = "1";
 const DEFAULT_DEPOSIT_AMOUNT = "1";
 const INITIAL_CONSOLE_LINES = [
   "[SYSTEM] Dice audit console attached.",
-  "[SYSTEM] Fairness module found: decorative.",
+  "[SYSTEM] Fairness module: defective.",
   "[READY] Awaiting xanax.",
 ];
 
 const PENALTY_MESSAGES = [
-  "[PENALTY] Table maintenance fee: {amount} xanax.",
-  "[PENALTY] Dice handling charge: {amount} xanax.",
-  "[PENALTY] M00SE needs some Xanax: {amount} xanax.",
-  "[PENALTY] House edge recalibration fee: {amount} xanax.",
+  "[PENALTY] Table maintenance fee: -{amount} xanax.",
+  "[PENALTY] Dice handling charge: -{amount} xanax.",
+  "[PENALTY] M00SE needs some Xanax, {amount} xanax removed.",
+  "[PENALTY] House edge recalibration fee: -{amount} xanax.",
   "[PENALTY] You've been hit by a smooth criminal: -{amount} xanax.",
+  "[PENALTY] Your balance has been grazed: -{amount} xanax.",
+    "[PENALTY] Processing fee processed: -{amount} xanax.",
+    "[PENALTY] Fun detected. Fun deducted: -{amount} xanax.",
 ];
 
 const TAX_MESSAGES = [
-  "[TAX] Emergency dice duty collected: -{amount} xanax ({percent}%).",
-  "[TAX] House revenue office skim: -{amount} xanax ({percent}%).",
+  "[TAX] Your net worth has been optimized downward: -{amount} xanax ({percent}%).",
+  "[TAX] Funds skimmed at random: -{amount} xanax ({percent}%).",
   "[TAX] Unreported optimism levy: -{amount} xanax ({percent}%).",
   "[TAX] Balance inspection adjustment: -{amount} xanax ({percent}%).",
-  "[TAX] M00SE fiscal clawback: -{amount} xanax ({percent}%).",
+  "[TAX] The moose economy thanks you. The moose economy is fake. -{amount} xanax ({percent}%).",
 ];
 
-const TAX_TOO_POOR_MESSAGE = "[TAX] Audit skipped: balance below 100 xanax, too poor to tax.";
+const TAX_TOO_POOR_MESSAGE = "[TAX] Balance below 100 xanax, too poor to tax.";
 
 const PIP_LAYOUT: Record<number, string[]> = {
   1: ["center"],
@@ -63,6 +66,7 @@ export function DiceGame() {
   const [depositAmount, setDepositAmount] = React.useState(DEFAULT_DEPOSIT_AMOUNT);
   const [betNumber, setBetNumber] = React.useState(6);
   const [verdict, setVerdict] = React.useState<string | null>(null);
+  const [lastRollOutcome, setLastRollOutcome] = React.useState<"win" | "loss" | null>(null);
   const [dieFace, setDieFace] = React.useState(1);
   const [isDieRolling, setIsDieRolling] = React.useState(false);
   const [isDieCorrecting, setIsDieCorrecting] = React.useState(false);
@@ -138,6 +142,7 @@ export function DiceGame() {
       setProfile(response.profile);
       setLeaderboard(response.leaderboard);
       setVerdict(response.result.verdict);
+      setLastRollOutcome(response.result.is_win ? "win" : "loss");
       queueConsoleScripts(
         rollConsoleScripts(
           response.result.roll_faces,
@@ -206,6 +211,10 @@ export function DiceGame() {
   const totalGained = profile?.total_gained ?? 0;
   const totalLost = profile?.total_lost ?? 0;
   const rolls = profile?.rolls ?? 0;
+  const diceButtonClassName = [
+    "dice-button",
+    lastRollOutcome === "loss" ? "loss" : "",
+  ].filter(Boolean).join(" ");
 
   async function animateDie(faces: [number, number, number], showCorrection: boolean) {
     setIsDieCorrecting(false);
@@ -314,7 +323,7 @@ export function DiceGame() {
         <div>
           <p className="eyebrow">Definitely not gambling</p>
           <h2>Dice Game</h2>
-          <p>The dice are ready to make a completely impartial decision.</p>
+          <p>Every roll is fair, every outcome is legit, and every refund request is immediately denied without appeal.</p>
         </div>
       </section>
 
@@ -411,7 +420,7 @@ export function DiceGame() {
         </section>
 
         <section className="panel dice-game-panel">
-          <button type="button" className="dice-button" disabled={isLoading || isRolling} onClick={() => void submitRoll()}>
+          <button type="button" className={diceButtonClassName} disabled={isLoading || isRolling} onClick={() => void submitRoll()}>
             <AnimatedDie face={dieFace} rolling={isDieRolling} correcting={isDieCorrecting} />
             <span>{isRolling ? "Rolling" : "Roll"}</span>
           </button>
