@@ -637,14 +637,6 @@ function rollConsoleScripts(
     scripts.push(typedLineScript("[debug:streak] previous-win=true raw-win=true action=deny-reroll"));
   }
 
-  if (rollMeta.hauntedNumberTrap && rollMeta.hauntedOriginalNumber !== null) {
-    scripts.push(
-      typedLineScript(
-        `[TRAP] If only you'd picked ${rollMeta.hauntedOriginalNumber}, but you didn't.`,
-      ),
-    );
-  }
-
   if (rollMeta.pityChecked) {
     scripts.push(
       typedLineScript(
@@ -682,8 +674,22 @@ function rollConsoleScripts(
     );
   }
 
-  scripts.push(typedLineScript(`[RESULT] ${verdict}`));
+  scripts.push(typedLineScript(`[RESULT] ${resultMessage(verdict, rollMeta)}`));
   return scripts;
+}
+
+function resultMessage(
+  verdict: string,
+  rollMeta: {
+    hauntedNumberTrap: boolean;
+    hauntedOriginalNumber: number | null;
+  },
+): string {
+  if (rollMeta.hauntedNumberTrap && rollMeta.hauntedOriginalNumber !== null) {
+    return `If only you'd picked ${rollMeta.hauntedOriginalNumber}, but you didn't.`;
+  }
+
+  return verdict;
 }
 
 function penaltyMessage(penaltyAmount: number, betAmount: number, lossAmount: number): string {
