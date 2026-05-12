@@ -191,6 +191,7 @@ h2 {
   position: sticky;
   top: 18px;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 14px;
   max-height: calc(100vh - 36px);
   overflow: hidden;
@@ -203,6 +204,15 @@ h2 {
 .sidebar-pages-panel {
   display: grid;
   gap: 8px;
+}
+
+.sidebar-wars-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-dice-panel {
+  padding: 10px;
 }
 
 .war-nav {
@@ -432,6 +442,283 @@ h2 {
 
 .hero-progress {
   width: min(360px, 100%);
+}
+
+.dice-game-hero {
+  border-color: rgba(20, 184, 166, 0.3);
+  background: #f7fffc;
+}
+
+.dice-balance-block {
+  display: grid;
+  gap: 5px;
+  min-width: 190px;
+  text-align: right;
+}
+
+.dice-balance-block span {
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.dice-balance-block strong {
+  color: #047857;
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.dice-balance-block strong.negative {
+  color: #b91c1c;
+}
+
+.dice-status-grid {
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+}
+
+.dice-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.dice-game-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.dice-form {
+  display: grid;
+  gap: 16px;
+}
+
+.dice-bet-label {
+  display: grid;
+  gap: 8px;
+}
+
+.dice-bet-label span {
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.dice-button {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-height: 244px;
+  width: 100%;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  background: #ecfeff;
+  color: #0f766e;
+  cursor: pointer;
+  font-size: 1.05rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.dice-button:hover:not(:disabled) {
+  border-color: #14b8a6;
+  background: #ccfbf1;
+  color: #115e59;
+  transform: translateY(-1px);
+}
+
+.dice-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.animated-die {
+  position: relative;
+  display: block;
+  width: 118px;
+  aspect-ratio: 1;
+  border: 2px solid #0f172a;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 16px 28px rgba(15, 23, 42, 0.2);
+}
+
+.animated-die.rolling {
+  animation: dice-roll 720ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.animated-die.correcting {
+  animation: dice-correct 520ms ease-in-out;
+}
+
+.die-pip {
+  position: absolute;
+  width: 18px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: #0f172a;
+}
+
+.die-pip.top-left {
+  top: 22px;
+  left: 22px;
+}
+
+.die-pip.top-right {
+  top: 22px;
+  right: 22px;
+}
+
+.die-pip.middle-left {
+  top: 50px;
+  left: 22px;
+}
+
+.die-pip.middle-right {
+  top: 50px;
+  right: 22px;
+}
+
+.die-pip.center {
+  top: 50px;
+  left: 50px;
+}
+
+.die-pip.bottom-left {
+  bottom: 22px;
+  left: 22px;
+}
+
+.die-pip.bottom-right {
+  right: 22px;
+  bottom: 22px;
+}
+
+@keyframes dice-roll {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+
+  18% {
+    transform: rotate(42deg) scale(1.08) translateY(-6px);
+  }
+
+  36% {
+    transform: rotate(-34deg) scale(0.96) translateX(8px);
+  }
+
+  58% {
+    transform: rotate(26deg) scale(1.04) translateX(-6px);
+  }
+
+  78% {
+    transform: rotate(-12deg) scale(1.01);
+  }
+
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes dice-correct {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+
+  35% {
+    transform: rotate(8deg) scale(1.04) translateX(4px);
+  }
+
+  70% {
+    transform: rotate(-8deg) scale(1.01) translateX(-4px);
+  }
+
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+.dice-send-button {
+  justify-content: center;
+  width: 100%;
+}
+
+.dice-verdict-panel {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #fee2e2;
+  border-radius: 8px;
+  background: #fff7ed;
+}
+
+.dice-verdict-panel span {
+  color: #9a3412;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.dice-verdict-panel strong {
+  color: #7f1d1d;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.dice-console {
+  display: grid;
+  align-content: end;
+  gap: 4px;
+  min-height: 176px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 14px;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #d1fae5;
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.16);
+}
+
+.dice-console p {
+  margin: 0;
+  color: inherit;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
+}
+
+.dice-console-active {
+  color: #a7f3d0;
+}
+
+.dice-console-active span {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 3px;
+  background: #34d399;
+  vertical-align: -0.14em;
+  animation: dice-cursor-blink 900ms steps(2, start) infinite;
+}
+
+@keyframes dice-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.dice-leaderboard-panel {
+  min-width: 0;
+}
+
+.dice-leaderboard-table {
+  min-width: 780px;
 }
 
 .content-grid {
@@ -1724,6 +2011,7 @@ tbody tr:not(.attack-row):hover td {
   .status-grid,
   .admin-grid,
   .admin-event-grid,
+  .dice-layout,
   .heatmap-stack,
   .revivable-grid,
   .enemy-status-summary-grid,

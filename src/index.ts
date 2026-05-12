@@ -20,6 +20,7 @@ import {
   refreshDailyMemberLifestyleStats,
   refreshMemberLifestyleStatsFromRequest,
 } from "./lifestyleStats";
+import { getDiceGameState, rollDiceGame, sendXanaxToDiceGame } from "./diceGame";
 import { getLatestMaintenanceRun, runScheduledMaintenance } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
@@ -141,6 +142,24 @@ export default {
       const cooldownError = await requireActionCooldown(env, "member_lifestyle_stats_refresh", 30 * 60);
       if (cooldownError) return cooldownError;
       return refreshMemberLifestyleStatsFromRequest(request, env);
+    }
+
+    if (url.pathname === "/api/dice-game" && request.method === "GET") {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
+      return getDiceGameState(request, env, url);
+    }
+
+    if (url.pathname === "/api/dice-game/roll" && request.method === "POST") {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
+      return rollDiceGame(request, env);
+    }
+
+    if (url.pathname === "/api/dice-game/send-xanax" && request.method === "POST") {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
+      return sendXanaxToDiceGame(request, env);
     }
 
     if (url.pathname === "/api/wars" && request.method === "POST") {

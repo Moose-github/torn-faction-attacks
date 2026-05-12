@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import {
   BarChart3,
   CalendarClock,
+  Dices,
   LogIn,
   Pill,
   Radar,
@@ -50,6 +51,7 @@ import {
 } from "./components/ReportDiscrepancies";
 import { Sidebar } from "./components/Sidebar";
 import { AdminControls } from "./views/AdminControls";
+import { DiceGame } from "./views/DiceGame";
 import { LifestyleStats } from "./views/LifestyleStats";
 import { MembersOverview } from "./views/MembersOverview";
 import { WarRoom } from "./views/WarRoom";
@@ -80,7 +82,7 @@ const CHAIN_BONUS_REFRESH_MS = 15 * 60_000;
 
 function App() {
   const [warType, setWarType] = React.useState<WarType>("all");
-  const [view, setView] = React.useState<"war" | "warRoom" | "members" | "lifestyle" | "admin">("war");
+  const [view, setView] = React.useState<"war" | "warRoom" | "members" | "lifestyle" | "diceGame" | "admin">("war");
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
     getStoredAuthSession(),
   );
@@ -517,7 +519,7 @@ function App() {
     }));
   }
 
-  function changeView(nextView: "war" | "warRoom" | "members" | "lifestyle" | "admin") {
+  function changeView(nextView: "war" | "warRoom" | "members" | "lifestyle" | "diceGame" | "admin") {
     if (nextView === "admin" && !isAdmin) {
       return;
     }
@@ -586,6 +588,7 @@ function App() {
           warRoomIcon={<Radar size={18} />}
           memberIcon={<BarChart3 size={18} />}
           lifestyleIcon={<Pill size={18} />}
+          diceGameIcon={<Dices size={18} />}
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
           onWarSelect={(name) => {
@@ -597,6 +600,8 @@ function App() {
         <section className="main-content">
           {view === "admin" ? (
             <AdminControls />
+          ) : view === "diceGame" ? (
+            <DiceGame />
           ) : view === "lifestyle" ? (
             <LifestyleStats isAdmin={isAdmin} />
           ) : view === "members" ? (

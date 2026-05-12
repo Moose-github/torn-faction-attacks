@@ -458,6 +458,55 @@ export type MemberLifestyleRefreshResponse = {
   };
 };
 
+export type DiceGameProfile = {
+  torn_user_id: number;
+  member_name: string | null;
+  xanax_balance: number;
+  total_gained: number;
+  total_lost: number;
+  rolls: number;
+  largest_loss: number;
+  last_bet_amount: number | null;
+  last_loss_amount: number | null;
+  last_verdict: string | null;
+  updated_at: number;
+};
+
+export type DiceGameLeaderboardRow = {
+  rank: number;
+  torn_user_id: number;
+  member_name: string | null;
+  total_gained: number;
+  xanax_balance: number;
+  total_lost: number;
+  rolls: number;
+  largest_loss: number;
+  last_verdict: string | null;
+  updated_at: number;
+};
+
+export type DiceGameResponse = {
+  ok: boolean;
+  profile: DiceGameProfile;
+  leaderboard: DiceGameLeaderboardRow[];
+};
+
+export type DiceGameRollResponse = DiceGameResponse & {
+  result: {
+    bet_amount: number;
+    loss_amount: number;
+    verdict: string;
+    roll_faces: [number, number, number];
+  };
+};
+
+export type DiceGameSendXanaxResponse = DiceGameResponse & {
+  result: {
+    amount: number;
+    message: string;
+  };
+};
+
 export type AttackExportOptions = {
   warName: string;
   scope: "all" | "outgoing" | "war_relevant";
@@ -653,6 +702,22 @@ export async function refreshMemberLifestyleStats(
 
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   return postJson<MemberLifestyleRefreshResponse>(`/api/member-lifestyle-stats/refresh${suffix}`);
+}
+
+export async function getDiceGame(): Promise<DiceGameResponse> {
+  return getJson<DiceGameResponse>("/api/dice-game");
+}
+
+export async function rollDiceGame(betAmount: number): Promise<DiceGameRollResponse> {
+  return postJson<DiceGameRollResponse>("/api/dice-game/roll", {
+    bet_amount: betAmount,
+  });
+}
+
+export async function sendXanaxToDiceGame(amount: number): Promise<DiceGameSendXanaxResponse> {
+  return postJson<DiceGameSendXanaxResponse>("/api/dice-game/send-xanax", {
+    amount,
+  });
 }
 
 export async function createWar(payload: AdminWarPayload): Promise<unknown> {

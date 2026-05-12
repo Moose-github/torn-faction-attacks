@@ -1,0 +1,453 @@
+import React from "react";
+import { CircleDollarSign, Dices, Trophy, Waves } from "lucide-react";
+import {
+  getDiceGame,
+  rollDiceGame,
+  sendXanaxToDiceGame,
+} from "../api";
+import type {
+  DiceGameLeaderboardRow,
+  DiceGameProfile,
+} from "../api";
+import { MetricCard, PanelHeader } from "../components/Common";
+import { formatNumber, formatRelativeTime } from "../utils/format";
+
+const DEFAULT_BET_AMOUNT = "1";
+const INITIAL_CONSOLE_LINES = [
+  "[SYSTEM] Dice audit console attached.",
+  "[SYSTEM] Fairness module found: decorative.",
+  "[READY] Awaiting xanax.",
+];
+
+const PIP_LAYOUT: Record<number, string[]> = {
+  1: ["center"],
+  2: ["top-left", "bottom-right"],
+  3: ["top-left", "center", "bottom-right"],
+  4: ["top-left", "top-right", "bottom-left", "bottom-right"],
+  5: ["top-left", "top-right", "center", "bottom-left", "bottom-right"],
+  6: ["top-left", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-right"],
+};
+
+type ConsoleAction =
+  | { kind: "type"; text: string }
+  | { kind: "backspace"; count: number }
+  | { kind: "pause"; ms: number }
+  | { kind: "commit" };
+
+type ConsoleScript = ConsoleAction[];
+
+export function DiceGame() {
+  const [profile, setProfile] = React.useState<DiceGameProfile | null>(null);
+  const [leaderboard, setLeaderboard] = React.useState<DiceGameLeaderboardRow[]>([]);
+  const [betAmount, setBetAmount] = React.useState(DEFAULT_BET_AMOUNT);
+  const [verdict, setVerdict] = React.useState<string | null>(null);
+  const [dieFace, setDieFace] = React.useState(1);
+  const [isDieRolling, setIsDieRolling] = React.useState(false);
+  const [isDieCorrecting, setIsDieCorrecting] = React.useState(false);
+  const [consoleLines, setConsoleLines] = React.useState<string[]>(INITIAL_CONSOLE_LINES);
+  const [activeConsoleLine, setActiveConsoleLine] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [isRolling, setIsRolling] = React.useState(false);
+  const [isSending, setIsSending] = React.useState(false);
+  const consoleQueueRef = React.useRef<ConsoleScript[]>([]);
+  const consoleBusyRef = React.useRef(false);
+  const activeConsoleLineRef = React.useRef("");
+  const consoleTimersRef = React.useRef<number[]>([]);
+
+  React.useEffect(() => {
+    return () => {
+      for (const timer of consoleTimersRef.current) {
+        window.clearTimeout(timer);
+      }
+      consoleTimersRef.current = [];
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const response = await getDiceGame();
+        if (!cancelled) {
+          setProfile(response.profile);
+          setLeaderboard(response.leaderboard);
+          setVerdict(response.profile.last_verdict);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleRoll(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const amount = Number(betAmount);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      setError("Bet amount must be a whole number of xanax.");
+      return;
+    }
+
+    setIsRolling(true);
+    setError(null);
+
+    try {
+      const response = await rollDiceGame(amount);
+      setProfile(response.profile);
+      setLeaderboard(response.leaderboard);
+      setVerdict(response.result.verdict);
+      queueConsoleScripts(
+        rollConsoleScripts(
+          response.result.roll_faces,
+          amount,
+          response.result.loss_amount,
+          response.result.verdict,
+        ),
+      );
+      await animateDie(response.result.roll_faces);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsRolling(false);
+    }
+  }
+
+  async function handleSendXanax() {
+    const amount = Math.trunc(Number(betAmount) || 0);
+
+    setIsSending(true);
+    setError(null);
+
+    try {
+      const response = await sendXanaxToDiceGame(amount);
+      setProfile(response.profile);
+      setLeaderboard(response.leaderboard);
+      setVerdict(response.result.message);
+      queueConsoleLines([
+        `[DEPOSIT] Received ${formatNumber(response.result.amount)} xanax.`,
+        "[ACCOUNTING] Balance updated instantly. Receipts remain imaginary.",
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  const balance = profile?.xanax_balance ?? 0;
+  const totalGained = profile?.total_gained ?? 0;
+  const totalLost = profile?.total_lost ?? 0;
+  const rolls = profile?.rolls ?? 0;
+
+  async function animateDie(faces: [number, number, number]) {
+    setIsDieCorrecting(false);
+    setIsDieRolling(true);
+
+    for (let index = 0; index < 12; index += 1) {
+      setDieFace(1 + ((faces[0] + index) % 6));
+      await wait(54);
+    }
+
+    setDieFace(faces[1]);
+    setIsDieRolling(false);
+    await wait(520);
+    setIsDieCorrecting(true);
+    await wait(210);
+    setDieFace(faces[2]);
+    await wait(320);
+    setIsDieCorrecting(false);
+  }
+
+  function queueConsoleLines(lines: string[]) {
+    queueConsoleScripts(lines.map((line) => typedLineScript(line)));
+  }
+
+  function queueConsoleScripts(scripts: ConsoleScript[]) {
+    consoleQueueRef.current.push(...scripts);
+    void runConsoleQueue();
+  }
+
+  async function runConsoleQueue() {
+    if (consoleBusyRef.current) {
+      return;
+    }
+
+    consoleBusyRef.current = true;
+
+    while (consoleQueueRef.current.length > 0) {
+      const script = consoleQueueRef.current.shift();
+      if (!script) {
+        continue;
+      }
+
+      activeConsoleLineRef.current = "";
+      setActiveConsoleLine("");
+
+      for (const action of script) {
+        if (action.kind === "type") {
+          await typeConsoleText(action.text);
+        } else if (action.kind === "backspace") {
+          await backspaceConsoleText(action.count);
+        } else if (action.kind === "pause") {
+          await wait(action.ms);
+        } else {
+          commitActiveConsoleLine();
+        }
+      }
+    }
+
+    consoleBusyRef.current = false;
+  }
+
+  async function typeConsoleText(text: string) {
+    for (const character of text) {
+      activeConsoleLineRef.current += character;
+      setActiveConsoleLine(activeConsoleLineRef.current);
+      await wait(character === " " ? 12 : 18);
+    }
+  }
+
+  async function backspaceConsoleText(count: number) {
+    for (let index = 0; index < count; index += 1) {
+      activeConsoleLineRef.current = activeConsoleLineRef.current.slice(0, -1);
+      setActiveConsoleLine(activeConsoleLineRef.current);
+      await wait(45);
+    }
+  }
+
+  function commitActiveConsoleLine() {
+    const line = activeConsoleLineRef.current;
+    if (!line) {
+      return;
+    }
+    setConsoleLines((current) => [...current, line].slice(-18));
+    activeConsoleLineRef.current = "";
+    setActiveConsoleLine("");
+  }
+
+  function wait(milliseconds: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = window.setTimeout(() => {
+        consoleTimersRef.current = consoleTimersRef.current.filter((item) => item !== timer);
+        resolve();
+      }, milliseconds);
+      consoleTimersRef.current.push(timer);
+    });
+  }
+
+  return (
+    <>
+      {error ? <div className="error-panel">{error}</div> : null}
+
+      <section className="hero-panel compact-hero-panel dice-game-hero">
+        <div>
+          <p className="eyebrow">Definitely not gambling</p>
+          <h2>Dice Game</h2>
+          <p>{verdict ?? "The dice are ready to make a completely impartial decision."}</p>
+        </div>
+        <div className="dice-balance-block">
+          <span>Current xanax balance</span>
+          <strong className={balance < 0 ? "negative" : ""}>{formatNumber(balance)}</strong>
+        </div>
+      </section>
+
+      <section className="status-grid dice-status-grid">
+        <MetricCard
+          label="Xanax balance"
+          value={formatNumber(balance)}
+          detail={balance < 0 ? "The table accepts debt" : "For now"}
+          icon={<CircleDollarSign size={18} />}
+        />
+        <MetricCard
+          label="Xanax sent in"
+          value={formatNumber(totalGained)}
+          detail="Absolutely accepted"
+          icon={<Waves size={18} />}
+        />
+        <MetricCard
+          label="Xanax lost"
+          value={formatNumber(totalLost)}
+          detail={profile?.last_loss_amount ? `Last loss ${formatNumber(profile.last_loss_amount)}` : `${formatNumber(rolls)} rolls`}
+          icon={<Dices size={18} />}
+        />
+      </section>
+
+      <section className="dice-layout">
+        <section className="panel dice-game-panel">
+          <PanelHeader title="Dice table" aside={isLoading ? "Loading" : "Rigged"} />
+          <form className="dice-form" onSubmit={handleRoll}>
+            <label className="dice-bet-label">
+              <span>Xanax amount</span>
+              <input
+                type="number"
+                step="1"
+                inputMode="numeric"
+                value={betAmount}
+                onChange={(event) => setBetAmount(event.target.value)}
+              />
+            </label>
+
+            <button type="submit" className="dice-button" disabled={isLoading || isRolling}>
+              <AnimatedDie face={dieFace} rolling={isDieRolling} correcting={isDieCorrecting} />
+              <span>{isRolling ? "Rolling" : "Roll"}</span>
+            </button>
+
+            <button
+              type="button"
+              className="icon-text-button dice-send-button"
+              disabled={isLoading || isSending}
+              onClick={handleSendXanax}
+            >
+              <CircleDollarSign size={16} />
+              {isSending ? "Sending in xanax" : "Send in xanax"}
+            </button>
+          </form>
+
+          <div className="dice-verdict-panel">
+            <span>Latest verdict</span>
+            <strong>{verdict ?? "Roll again never."}</strong>
+          </div>
+
+          <section className="dice-console" aria-label="Dice roll console">
+            {consoleLines.map((line, index) => (
+              <p key={`${line}-${index}`}>{line}</p>
+            ))}
+            {activeConsoleLine ? (
+              <p className="dice-console-active">
+                {activeConsoleLine}
+                <span />
+              </p>
+            ) : null}
+          </section>
+        </section>
+
+        <section className="panel table-panel dice-leaderboard-panel">
+          <PanelHeader
+            icon={<Trophy size={18} />}
+            title="Xanax leaderboard"
+            aside={isLoading ? "Loading" : `${leaderboard.length} players`}
+          />
+          <DiceLeaderboard rows={leaderboard} />
+        </section>
+      </section>
+    </>
+  );
+}
+
+function AnimatedDie({
+  face,
+  rolling,
+  correcting,
+}: {
+  face: number;
+  rolling: boolean;
+  correcting: boolean;
+}) {
+  const className = [
+    "animated-die",
+    rolling ? "rolling" : "",
+    correcting ? "correcting" : "",
+  ].filter(Boolean).join(" ");
+
+  return (
+    <span className={className} aria-label={`Rolled ${face}`}>
+      {(PIP_LAYOUT[face] ?? PIP_LAYOUT[1]).map((position) => (
+        <span key={position} className={`die-pip ${position}`} />
+      ))}
+    </span>
+  );
+}
+
+function typedLineScript(line: string): ConsoleScript {
+  return [
+    { kind: "type", text: line },
+    { kind: "commit" },
+  ];
+}
+
+function rollConsoleScripts(
+  faces: [number, number, number],
+  betAmount: number,
+  lossAmount: number,
+  verdict: string,
+): ConsoleScript[] {
+  const fee = Math.max(0, lossAmount - betAmount);
+
+  return [
+    typedLineScript(`[ROLL] Roll 1 / 3 - ${faces[0]} - LOSS`),
+    [
+      { kind: "type", text: `[ROLL] Roll 2 / 3 - ${faces[1]} - WIN` },
+      { kind: "pause", ms: 520 },
+      { kind: "backspace", count: 3 },
+      { kind: "type", text: "LOSS" },
+      { kind: "commit" },
+    ],
+    typedLineScript(`[ROLL] Roll 3 / 3 - ${faces[2]} - ALSO LOSS`),
+    typedLineScript(`[FEE] Convenience misfortune fee: ${formatNumber(fee)} xanax.`),
+    typedLineScript(`[RESULT] ${verdict}`),
+  ];
+}
+
+function DiceLeaderboard({ rows }: { rows: DiceGameLeaderboardRow[] }) {
+  if (rows.length === 0) {
+    return <div className="empty-state">No sacrifices recorded</div>;
+  }
+
+  return (
+    <div className="table-scroll">
+      <table className="dice-leaderboard-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Member</th>
+            <th>Gained</th>
+            <th>Lost</th>
+            <th>Net</th>
+            <th>Rolls</th>
+            <th>Largest</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.torn_user_id}>
+              <td>#{row.rank}</td>
+              <td>
+                <a
+                  className="member-link"
+                  href={`https://www.torn.com/profiles.php?XID=${row.torn_user_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {row.member_name ?? row.torn_user_id}
+                </a>
+              </td>
+              <td>{formatNumber(row.total_gained)}</td>
+              <td>{formatNumber(row.total_lost)}</td>
+              <td>{formatNumber(row.total_gained - row.total_lost)}</td>
+              <td>{formatNumber(row.rolls)}</td>
+              <td>{formatNumber(row.largest_loss)}</td>
+              <td>{formatRelativeTime(row.updated_at)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}

@@ -15,20 +15,22 @@ export function Sidebar({
   warRoomIcon,
   memberIcon,
   lifestyleIcon,
+  diceGameIcon,
   adminIcon,
   isAdmin,
   onWarSelect,
 }: {
   warType: WarType;
   onWarTypeChange: (value: WarType) => void;
-  view: "war" | "warRoom" | "members" | "lifestyle" | "admin";
-  onViewChange: (view: "war" | "warRoom" | "members" | "lifestyle" | "admin") => void;
+  view: "war" | "warRoom" | "members" | "lifestyle" | "diceGame" | "admin";
+  onViewChange: (view: "war" | "warRoom" | "members" | "lifestyle" | "diceGame" | "admin") => void;
   wars: WarSummary[];
   selectedWarName: string | null;
   isLoadingWars: boolean;
   warRoomIcon: React.ReactNode;
   memberIcon: React.ReactNode;
   lifestyleIcon: React.ReactNode;
+  diceGameIcon: React.ReactNode;
   adminIcon: React.ReactNode;
   isAdmin: boolean;
   onWarSelect: (name: string) => void;
@@ -75,6 +77,15 @@ export function Sidebar({
           wars={wars}
           selectedWarName={selectedWarName}
           onSelect={onWarSelect}
+        />
+      </section>
+
+      <section className="panel sidebar-panel sidebar-dice-panel">
+        <SidebarLink
+          active={view === "diceGame"}
+          icon={diceGameIcon}
+          label="Dice Game"
+          onClick={() => onViewChange("diceGame")}
         />
       </section>
     </aside>
@@ -128,7 +139,7 @@ function WarNav({
   selectedWarName,
   onSelect,
 }: {
-  view: "war" | "warRoom" | "members" | "lifestyle" | "admin";
+  view: "war" | "warRoom" | "members" | "lifestyle" | "diceGame" | "admin";
   wars: WarSummary[];
   selectedWarName: string | null;
   onSelect: (name: string) => void;
