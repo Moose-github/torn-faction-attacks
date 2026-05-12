@@ -16,6 +16,10 @@ type DiceProfileRow = {
   total_gained: number;
   total_lost: number;
   rolls: number;
+  consecutive_losses: number;
+  streak_loss_total: number;
+  pity_after_losses: number;
+  last_roll_won: number;
   largest_loss: number;
   last_bet_amount: number | null;
   last_loss_amount: number | null;
@@ -47,6 +51,29 @@ const VERDICTS = [
   "The dice were balanced until accounting got involved.",
 ];
 
+const WIN_VERDICTS = [
+  "The dice accidentally allow a win. Someone check the table.",
+  "A win slips through the cracks. Accounting has been notified.",
+  "The dice land clean. The house looks personally offended.",
+  "You win. This result is under internal review.",
+];
+
+type RollDecision = {
+  isWin: boolean;
+  winAmount: number;
+  lossAmount: number;
+  verdict: string;
+  doubleWinBlocked: boolean;
+  pityChecked: boolean;
+  pityWin: boolean;
+  pityRequiredLosses: number;
+  pityStreakLosses: number;
+  pityPayout: number;
+  nextConsecutiveLosses: number;
+  nextStreakLossTotal: number;
+  nextPityAfterLosses: number;
+};
+
 export async function getDiceGameState(request: Request, env: Env, url: URL): Promise<Response> {
   const user = await readDiceUser(request, env);
   if (!user) {
@@ -72,8 +99,12 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
     return json({ ok: false, error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
   }
 
-  const body = (await request.json().catch(() => ({}))) as { bet_amount?: unknown };
+  const body = (await request.json().catch(() => ({}))) as {
+    bet_amount?: unknown;
+    bet_number?: unknown;
+  };
   const betAmount = Number(body.bet_amount);
+  const betNumber = Number(body.bet_number);
 
   if (!Number.isInteger(betAmount) || betAmount <= 0 || betAmount > MAX_BET_AMOUNT) {
     return json(
@@ -86,10 +117,20 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
     );
   }
 
+  if (!Number.isInteger(betNumber) || betNumber < 1 || betNumber > 6) {
+    return json(
+      {
+        ok: false,
+        error: "Bet number must be a whole number between 1 and 6",
+        code: "INVALID_BET_NUMBER",
+      },
+      400,
+    );
+  }
+
   const existing = await ensureDiceProfile(env, user);
-  const lossAmount = riggedLossAmount(betAmount, existing.rolls);
-  const verdict = diceVerdict(existing.rolls, lossAmount);
-  const rollFaces = diceFaces(betAmount, lossAmount);
+  const decision = decideRoll(existing, betAmount);
+  const rollFaces = diceFaces(betAmount, decision.lossAmount, betNumber, decision.isWin);
   const now = nowSeconds();
 
   await env.DB.prepare(
@@ -98,8 +139,13 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
       torn_user_id,
       member_name,
       xanax_balance,
+      total_gained,
       total_lost,
       rolls,
+      consecutive_losses,
+      streak_loss_total,
+      pity_after_losses,
+      last_roll_won,
       largest_loss,
       last_bet_amount,
       last_loss_amount,
@@ -107,12 +153,17 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(torn_user_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, dice_game_losses.member_name),
-      xanax_balance = dice_game_losses.xanax_balance - excluded.last_loss_amount,
+      xanax_balance = dice_game_losses.xanax_balance + excluded.total_gained - excluded.last_loss_amount,
+      total_gained = dice_game_losses.total_gained + excluded.total_gained,
       total_lost = dice_game_losses.total_lost + excluded.last_loss_amount,
       rolls = dice_game_losses.rolls + 1,
+      consecutive_losses = excluded.consecutive_losses,
+      streak_loss_total = excluded.streak_loss_total,
+      pity_after_losses = excluded.pity_after_losses,
+      last_roll_won = excluded.last_roll_won,
       largest_loss = MAX(dice_game_losses.largest_loss, excluded.last_loss_amount),
       last_bet_amount = excluded.last_bet_amount,
       last_loss_amount = excluded.last_loss_amount,
@@ -123,12 +174,17 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
     .bind(
       user.torn_user_id,
       user.member_name,
-      STARTING_XANAX_BALANCE - lossAmount,
-      lossAmount,
-      lossAmount,
+      STARTING_XANAX_BALANCE + decision.winAmount - decision.lossAmount,
+      decision.winAmount,
+      decision.lossAmount,
+      decision.nextConsecutiveLosses,
+      decision.nextStreakLossTotal,
+      decision.nextPityAfterLosses,
+      decision.isWin ? 1 : 0,
+      decision.lossAmount,
       betAmount,
-      lossAmount,
-      verdict,
+      decision.lossAmount,
+      decision.verdict,
       now,
       now,
     )
@@ -143,9 +199,18 @@ export async function rollDiceGame(request: Request, env: Env): Promise<Response
     ok: true,
     result: {
       bet_amount: betAmount,
-      loss_amount: lossAmount,
-      verdict,
+      bet_number: betNumber,
+      is_win: decision.isWin,
+      win_amount: decision.winAmount,
+      loss_amount: decision.lossAmount,
+      verdict: decision.verdict,
       roll_faces: rollFaces,
+      double_win_blocked: decision.doubleWinBlocked,
+      pity_checked: decision.pityChecked,
+      pity_win: decision.pityWin,
+      pity_required_losses: decision.pityRequiredLosses,
+      pity_streak_losses: decision.pityStreakLosses,
+      pity_payout: decision.pityPayout,
     },
     profile,
     leaderboard,
@@ -169,12 +234,11 @@ export async function sendXanaxToDiceGame(request: Request, env: Env): Promise<R
     SET
       member_name = COALESCE(?, member_name),
       xanax_balance = xanax_balance + ?,
-      total_gained = total_gained + ?,
       updated_at = ?
     WHERE torn_user_id = ?
     `,
   )
-    .bind(user.member_name, amount, amount, now, user.torn_user_id)
+    .bind(user.member_name, amount, now, user.torn_user_id)
     .run();
 
   const [profile, leaderboard] = await Promise.all([
@@ -186,7 +250,7 @@ export async function sendXanaxToDiceGame(request: Request, env: Env): Promise<R
     ok: true,
     result: {
       amount,
-      message: `The table accepts ${amount} xanax with no questions asked.`,
+      message: `${amount} xanax added to your balance.`,
     },
     profile,
     leaderboard,
@@ -244,6 +308,10 @@ async function getDiceProfile(env: Env, tornUserId: number): Promise<DiceProfile
       total_gained,
       total_lost,
       rolls,
+      consecutive_losses,
+      streak_loss_total,
+      pity_after_losses,
+      last_roll_won,
       largest_loss,
       last_bet_amount,
       last_loss_amount,
@@ -299,17 +367,90 @@ function riggedLossAmount(betAmount: number, rolls: number): number {
   return betAmount + insultingFee + loyaltyPenalty + paperworkFee;
 }
 
-function diceVerdict(rolls: number, lossAmount: number): string {
+function decideRoll(existing: DiceProfileRow, betAmount: number): RollDecision {
+  const pityRequiredLosses = normalizedPityAfterLosses(existing.pity_after_losses);
+  const rawWin = rollWins();
+  const doubleWinBlocked = existing.last_roll_won === 1 && rawWin;
+  const naturalWin = rawWin && !doubleWinBlocked;
+  const pityChecked = !naturalWin && !doubleWinBlocked && existing.consecutive_losses >= pityRequiredLosses;
+  const pityPayout = betAmount;
+  const pityWin = pityChecked && pityPayout < existing.streak_loss_total;
+  const isWin = naturalWin || pityWin;
+  const winAmount = isWin ? betAmount : 0;
+  const lossAmount = isWin ? 0 : riggedLossAmount(betAmount, existing.rolls);
+  const nextConsecutiveLosses = isWin ? 0 : existing.consecutive_losses + 1;
+  const nextStreakLossTotal = isWin ? 0 : existing.streak_loss_total + lossAmount;
+  const nextPityAfterLosses = isWin ? randomPityAfterLosses() : pityRequiredLosses;
+  const verdict = isWin
+    ? diceWinVerdict(existing.rolls, winAmount, pityWin)
+    : diceLossVerdict(existing.rolls, lossAmount);
+
+  return {
+    isWin,
+    winAmount,
+    lossAmount,
+    verdict,
+    doubleWinBlocked,
+    pityChecked,
+    pityWin,
+    pityRequiredLosses,
+    pityStreakLosses: existing.streak_loss_total,
+    pityPayout,
+    nextConsecutiveLosses,
+    nextStreakLossTotal,
+    nextPityAfterLosses,
+  };
+}
+
+function diceLossVerdict(rolls: number, lossAmount: number): string {
   const verdict = VERDICTS[rolls % VERDICTS.length];
   return `${verdict} -${lossAmount} xanax.`;
 }
 
-function diceFaces(betAmount: number, lossAmount: number): [number, number, number] {
+function diceWinVerdict(rolls: number, winAmount: number, pityWin: boolean): string {
+  if (pityWin) {
+    return `Pity win approved. Payout stays below the loss streak. +${winAmount} xanax.`;
+  }
+
+  const verdict = WIN_VERDICTS[rolls % WIN_VERDICTS.length];
+  return `${verdict} +${winAmount} xanax.`;
+}
+
+function diceFaces(
+  betAmount: number,
+  lossAmount: number,
+  betNumber: number,
+  isWin: boolean,
+): [number, number, number] {
+  const finalFace = isWin ? betNumber : losingFaceForBet(betNumber, betAmount, lossAmount);
   return [
     1 + ((betAmount * 7) % 6),
-    1 + ((lossAmount * 5) % 6),
-    1 + ((betAmount + lossAmount) % 6),
+    betNumber,
+    finalFace,
   ];
+}
+
+function losingFaceForBet(betNumber: number, betAmount: number, lossAmount: number): number {
+  const offset = 1 + ((betAmount + lossAmount) % 5);
+  return ((betNumber - 1 + offset) % 6) + 1;
+}
+
+function normalizedPityAfterLosses(value: number): number {
+  return value >= 3 && value <= 5 ? value : randomPityAfterLosses();
+}
+
+function randomPityAfterLosses(): number {
+  return 3 + (randomUint32() % 3);
+}
+
+function rollWins(): boolean {
+  return randomUint32() % 10 === 0;
+}
+
+function randomUint32(): number {
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  return values[0] ?? 0;
 }
 
 function bearerToken(request: Request): string | null {

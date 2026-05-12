@@ -465,6 +465,10 @@ export type DiceGameProfile = {
   total_gained: number;
   total_lost: number;
   rolls: number;
+  consecutive_losses: number;
+  streak_loss_total: number;
+  pity_after_losses: number;
+  last_roll_won: number;
   largest_loss: number;
   last_bet_amount: number | null;
   last_loss_amount: number | null;
@@ -494,9 +498,18 @@ export type DiceGameResponse = {
 export type DiceGameRollResponse = DiceGameResponse & {
   result: {
     bet_amount: number;
+    bet_number: number;
+    is_win: boolean;
+    win_amount: number;
     loss_amount: number;
     verdict: string;
     roll_faces: [number, number, number];
+    double_win_blocked: boolean;
+    pity_checked: boolean;
+    pity_win: boolean;
+    pity_required_losses: number;
+    pity_streak_losses: number;
+    pity_payout: number;
   };
 };
 
@@ -708,9 +721,10 @@ export async function getDiceGame(): Promise<DiceGameResponse> {
   return getJson<DiceGameResponse>("/api/dice-game");
 }
 
-export async function rollDiceGame(betAmount: number): Promise<DiceGameRollResponse> {
+export async function rollDiceGame(betAmount: number, betNumber: number): Promise<DiceGameRollResponse> {
   return postJson<DiceGameRollResponse>("/api/dice-game/roll", {
     bet_amount: betAmount,
+    bet_number: betNumber,
   });
 }
 

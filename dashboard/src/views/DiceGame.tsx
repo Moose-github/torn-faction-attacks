@@ -35,11 +35,13 @@ type ConsoleAction =
   | { kind: "commit" };
 
 type ConsoleScript = ConsoleAction[];
+type DiceJokeVariant = "plain" | "backspace" | "fee";
 
 export function DiceGame() {
   const [profile, setProfile] = React.useState<DiceGameProfile | null>(null);
   const [leaderboard, setLeaderboard] = React.useState<DiceGameLeaderboardRow[]>([]);
   const [betAmount, setBetAmount] = React.useState(DEFAULT_BET_AMOUNT);
+  const [betNumber, setBetNumber] = React.useState(6);
   const [verdict, setVerdict] = React.useState<string | null>(null);
   const [dieFace, setDieFace] = React.useState(1);
   const [isDieRolling, setIsDieRolling] = React.useState(false);
@@ -95,9 +97,7 @@ export function DiceGame() {
     };
   }, []);
 
-  async function handleRoll(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  async function submitRoll() {
     const amount = Number(betAmount);
     if (!Number.isInteger(amount) || amount <= 0) {
       setError("Bet amount must be a whole number of xanax.");
@@ -108,24 +108,42 @@ export function DiceGame() {
     setError(null);
 
     try {
-      const response = await rollDiceGame(amount);
+      const response = await rollDiceGame(amount, betNumber);
+      const jokeVariant = response.result.is_win ? "plain" : diceJokeVariant(response.profile.rolls);
       setProfile(response.profile);
       setLeaderboard(response.leaderboard);
       setVerdict(response.result.verdict);
       queueConsoleScripts(
         rollConsoleScripts(
           response.result.roll_faces,
+          response.result.bet_number,
           amount,
+          response.result.is_win,
+          response.result.win_amount,
           response.result.loss_amount,
           response.result.verdict,
+          jokeVariant,
+          {
+            doubleWinBlocked: response.result.double_win_blocked,
+            pityChecked: response.result.pity_checked,
+            pityWin: response.result.pity_win,
+            pityRequiredLosses: response.result.pity_required_losses,
+            pityStreakLosses: response.result.pity_streak_losses,
+            pityPayout: response.result.pity_payout,
+          },
         ),
       );
-      await animateDie(response.result.roll_faces);
+      await animateDie(response.result.roll_faces, jokeVariant === "backspace");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRolling(false);
     }
+  }
+
+  async function handleRoll(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitRoll();
   }
 
   async function handleSendXanax() {
@@ -140,8 +158,8 @@ export function DiceGame() {
       setLeaderboard(response.leaderboard);
       setVerdict(response.result.message);
       queueConsoleLines([
-        `[DEPOSIT] Received ${formatNumber(response.result.amount)} xanax.`,
-        "[ACCOUNTING] Balance updated instantly. Receipts remain imaginary.",
+        `[DEPOSIT] ${formatNumber(response.result.amount)} xanax added.`,
+        "[BALANCE] Current balance updated.",
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -155,7 +173,7 @@ export function DiceGame() {
   const totalLost = profile?.total_lost ?? 0;
   const rolls = profile?.rolls ?? 0;
 
-  async function animateDie(faces: [number, number, number]) {
+  async function animateDie(faces: [number, number, number], showCorrection: boolean) {
     setIsDieCorrecting(false);
     setIsDieRolling(true);
 
@@ -164,14 +182,17 @@ export function DiceGame() {
       await wait(54);
     }
 
-    setDieFace(faces[1]);
+    setDieFace(showCorrection ? faces[1] : faces[2]);
     setIsDieRolling(false);
-    await wait(520);
-    setIsDieCorrecting(true);
-    await wait(210);
-    setDieFace(faces[2]);
-    await wait(320);
-    setIsDieCorrecting(false);
+
+    if (showCorrection) {
+      await wait(520);
+      setIsDieCorrecting(true);
+      await wait(210);
+      setDieFace(faces[2]);
+      await wait(320);
+      setIsDieCorrecting(false);
+    }
   }
 
   function queueConsoleLines(lines: string[]) {
@@ -275,9 +296,9 @@ export function DiceGame() {
           icon={<CircleDollarSign size={18} />}
         />
         <MetricCard
-          label="Xanax sent in"
+          label="Xanax gained"
           value={formatNumber(totalGained)}
-          detail="Absolutely accepted"
+          detail="Dice wins only"
           icon={<Waves size={18} />}
         />
         <MetricCard
@@ -288,9 +309,18 @@ export function DiceGame() {
         />
       </section>
 
-      <section className="dice-layout">
-        <section className="panel dice-game-panel">
-          <PanelHeader title="Dice table" aside={isLoading ? "Loading" : "Rigged"} />
+      <section className="panel table-panel dice-leaderboard-panel">
+        <PanelHeader
+          icon={<Trophy size={18} />}
+          title="Xanax leaderboard"
+          aside={isLoading ? "Loading" : `${leaderboard.length} players`}
+        />
+        <DiceLeaderboard rows={leaderboard} />
+      </section>
+
+      <section className="dice-play-layout">
+        <section className="panel dice-controls-panel">
+          <PanelHeader title="Bet controls" />
           <form className="dice-form" onSubmit={handleRoll}>
             <label className="dice-bet-label">
               <span>Xanax amount</span>
@@ -303,10 +333,22 @@ export function DiceGame() {
               />
             </label>
 
-            <button type="submit" className="dice-button" disabled={isLoading || isRolling}>
-              <AnimatedDie face={dieFace} rolling={isDieRolling} correcting={isDieCorrecting} />
-              <span>{isRolling ? "Rolling" : "Roll"}</span>
-            </button>
+            <fieldset className="dice-number-field">
+              <legend>Bet on</legend>
+              <div className="dice-number-grid">
+                {[1, 2, 3, 4, 5, 6].map((number) => (
+                  <button
+                    key={number}
+                    type="button"
+                    className={number === betNumber ? "dice-number-button active" : "dice-number-button"}
+                    aria-pressed={number === betNumber}
+                    onClick={() => setBetNumber(number)}
+                  >
+                    {number}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
 
             <button
               type="button"
@@ -315,36 +357,38 @@ export function DiceGame() {
               onClick={handleSendXanax}
             >
               <CircleDollarSign size={16} />
-              {isSending ? "Sending in xanax" : "Send in xanax"}
+              {isSending ? "Adding xanax" : "Add xanax"}
             </button>
           </form>
+        </section>
+
+        <section className="panel dice-game-panel">
+          <PanelHeader title="Dice table" aside={isLoading ? "Loading" : "Rigged"} />
+          <button type="button" className="dice-button" disabled={isLoading || isRolling} onClick={() => void submitRoll()}>
+            <AnimatedDie face={dieFace} rolling={isDieRolling} correcting={isDieCorrecting} />
+            <span>{isRolling ? "Rolling" : "Roll"}</span>
+          </button>
 
           <div className="dice-verdict-panel">
             <span>Latest verdict</span>
             <strong>{verdict ?? "Roll again never."}</strong>
           </div>
-
-          <section className="dice-console" aria-label="Dice roll console">
-            {consoleLines.map((line, index) => (
-              <p key={`${line}-${index}`}>{line}</p>
-            ))}
-            {activeConsoleLine ? (
-              <p className="dice-console-active">
-                {activeConsoleLine}
-                <span />
-              </p>
-            ) : null}
-          </section>
         </section>
+      </section>
 
-        <section className="panel table-panel dice-leaderboard-panel">
-          <PanelHeader
-            icon={<Trophy size={18} />}
-            title="Xanax leaderboard"
-            aside={isLoading ? "Loading" : `${leaderboard.length} players`}
-          />
-          <DiceLeaderboard rows={leaderboard} />
-        </section>
+      <section className="panel dice-console-panel">
+        <PanelHeader title="Roll console" />
+        <div className="dice-console" aria-label="Dice roll console">
+          {consoleLines.map((line, index) => (
+            <p key={`${line}-${index}`}>{line}</p>
+          ))}
+          {activeConsoleLine ? (
+            <p className="dice-console-active">
+              {activeConsoleLine}
+              <span />
+            </p>
+          ) : null}
+        </div>
       </section>
     </>
   );
@@ -383,25 +427,80 @@ function typedLineScript(line: string): ConsoleScript {
 
 function rollConsoleScripts(
   faces: [number, number, number],
+  betNumber: number,
   betAmount: number,
+  isWin: boolean,
+  winAmount: number,
   lossAmount: number,
   verdict: string,
+  jokeVariant: DiceJokeVariant,
+  rollMeta: {
+    doubleWinBlocked: boolean;
+    pityChecked: boolean;
+    pityWin: boolean;
+    pityRequiredLosses: number;
+    pityStreakLosses: number;
+    pityPayout: number;
+  },
 ): ConsoleScript[] {
   const fee = Math.max(0, lossAmount - betAmount);
-
-  return [
-    typedLineScript(`[ROLL] Roll 1 / 3 - ${faces[0]} - LOSS`),
-    [
-      { kind: "type", text: `[ROLL] Roll 2 / 3 - ${faces[1]} - WIN` },
-      { kind: "pause", ms: 520 },
-      { kind: "backspace", count: 3 },
-      { kind: "type", text: "LOSS" },
-      { kind: "commit" },
-    ],
-    typedLineScript(`[ROLL] Roll 3 / 3 - ${faces[2]} - ALSO LOSS`),
-    typedLineScript(`[FEE] Convenience misfortune fee: ${formatNumber(fee)} xanax.`),
-    typedLineScript(`[RESULT] ${verdict}`),
+  const nearWinSuffix = `${faces[1]} - WIN`;
+  const scripts: ConsoleScript[] = [
+    typedLineScript(`[BET] ${formatNumber(betAmount)} xanax on ${betNumber}. Brave. Misguided.`),
   ];
+
+  if (rollMeta.doubleWinBlocked) {
+    scripts.push(typedLineScript("[RULE] Back-to-back wins are disallowed. Rerolling."));
+  }
+
+  if (rollMeta.pityChecked) {
+    scripts.push(
+      typedLineScript(
+        `[PITY CHECK] ${formatNumber(rollMeta.pityRequiredLosses)} loss trigger met; streak losses ${formatNumber(rollMeta.pityStreakLosses)}, payout ${formatNumber(rollMeta.pityPayout)}.`,
+      ),
+    );
+    scripts.push(
+      typedLineScript(
+        rollMeta.pityWin
+          ? "[PITY CHECK] Approved: payout is still less than the streak losses."
+          : "[PITY CHECK] Denied: payout would not leave the player net negative.",
+      ),
+    );
+  }
+
+  if (isWin) {
+    scripts.push(typedLineScript(`[ROLL] Roll - ${faces[2]} - WIN`));
+    scripts.push(typedLineScript(`[PAYOUT] Extremely suspicious payout: ${formatNumber(winAmount)} xanax.`));
+  } else if (jokeVariant === "backspace") {
+    scripts.push([
+      { kind: "type", text: `[ROLL] Roll - ${nearWinSuffix}` },
+      { kind: "pause", ms: 520 },
+      { kind: "backspace", count: nearWinSuffix.length },
+      { kind: "type", text: `${faces[2]} - LOSS` },
+      { kind: "commit" },
+    ]);
+  } else {
+    scripts.push(typedLineScript(`[ROLL] Roll - ${faces[2]} - LOSS`));
+  }
+
+  if (jokeVariant === "fee") {
+    scripts.push(typedLineScript(`[FEE] Convenience misfortune fee: ${formatNumber(fee)} xanax.`));
+  }
+
+  scripts.push(typedLineScript(`[RESULT] ${verdict}`));
+  return scripts;
+}
+
+function diceJokeVariant(rollNumber: number): DiceJokeVariant {
+  if (rollNumber % 10 === 0) {
+    return "backspace";
+  }
+
+  if (rollNumber % 10 === 5) {
+    return "fee";
+  }
+
+  return "plain";
 }
 
 function DiceLeaderboard({ rows }: { rows: DiceGameLeaderboardRow[] }) {
