@@ -78,6 +78,14 @@ export function memberDefendsLost(member: MemberStats): number {
   return Math.max(0, member.defends_total - member.defends_won - Number(member.defends_other ?? 0));
 }
 
+export function memberNonHospitalizedDefendsLost(member: MemberStats): number {
+  return Number(member.defends_lost_non_hospitalized ?? 0);
+}
+
+export function memberNonHospitalizedRespectLost(member: MemberStats): number {
+  return Number(member.respect_lost_non_hospitalized ?? 0);
+}
+
 export function sortMemberAttacks(
   attacks: MemberAttack[],
   sort: MemberAttackSort,

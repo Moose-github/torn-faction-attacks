@@ -6,6 +6,8 @@ import {
   classificationLabel,
   displayMember,
   memberDefendsLost,
+  memberNonHospitalizedDefendsLost,
+  memberNonHospitalizedRespectLost,
   MemberAttackSort,
   MemberSort,
 } from "../utils/members";
@@ -128,7 +130,7 @@ export function MemberTable({
                 <DefendBreakdown member={member} />
               </td>
               <td>{formatNumber(memberDefendsLost(member))}</td>
-              <td>{formatNumber(member.defends_lost_non_hospitalized)}</td>
+              <td>{formatNumber(memberNonHospitalizedDefendsLost(member))}</td>
               {showTermedColumns ? null : <td>{formatNumber(member.outside_hits)}</td>}
               <td>
                 <RespectAdjustmentCell
@@ -154,7 +156,7 @@ export function MemberTable({
                   markerLabel="chain"
                 />
               </td>
-              <td>{formatNumber(member.respect_lost_non_hospitalized)}</td>
+              <td>{formatNumber(memberNonHospitalizedRespectLost(member))}</td>
               {showTermedColumns ? null : <td>{formatNumber(member.respect_lost_raw)}</td>}
               <td>{formatNumber(member.assists_vs_enemy)}</td>
               {showTermedColumns ? (
