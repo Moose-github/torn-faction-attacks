@@ -165,17 +165,7 @@ function networthTitle(networth: number | null, updatedAt: number | null): strin
 }
 
 function bspBattlestatsTitle(member: EnemyFactionMember): string {
-  const parts = [updatedTitle("BSP battle stats", member.bsp_battlestats_updated_at)];
-  if (member.bsp_battlestats_result != null) {
-    parts.push(`Result: ${member.bsp_battlestats_result}`);
-  }
-  if (member.bsp_battlestats_reason) {
-    parts.push(`Reason: ${member.bsp_battlestats_reason}`);
-  }
-  if (member.bsp_battlestats_prediction_date) {
-    parts.push(`Prediction date: ${member.bsp_battlestats_prediction_date}`);
-  }
-  return parts.join(". ");
+  return updatedTitle("BSP battle stats", member.bsp_battlestats_updated_at);
 }
 
 function enemyStatusLabel(member: EnemyFactionMember): string {

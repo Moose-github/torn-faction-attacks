@@ -73,9 +73,6 @@ type EnemyFactionMemberRow = {
   ff_battlestats_updated_at: number | null;
   bsp_battlestats: number | null;
   bsp_battlestats_updated_at: number | null;
-  bsp_battlestats_result: number | null;
-  bsp_battlestats_reason: string | null;
-  bsp_battlestats_prediction_date: string | null;
   networth: number | null;
   networth_updated_at: number | null;
   status_state?: string | null;
@@ -97,13 +94,6 @@ type EnemyFactionMemberRow = {
 type FfBattlestatEstimate = {
   stats: number;
   updatedAt: number | null;
-};
-
-type BspBattlestatPrediction = {
-  stats: number | null;
-  result: number | null;
-  reason: string | null;
-  predictionDate: string | null;
 };
 
 type ParsedTravel = {
@@ -168,7 +158,6 @@ export type BspBattlestatRefreshMetrics = {
   changedRows: number;
   candidates: number;
   updated: number;
-  failedPredictions: number;
   skipped: boolean;
 };
 
@@ -422,7 +411,6 @@ export async function refreshMissingBspBattlestatPredictions(
     changedRows: 0,
     candidates: 0,
     updated: 0,
-    failedPredictions: 0,
     skipped: false,
   };
   if (!env.BSP_TORN_API_KEY) {
@@ -463,7 +451,6 @@ function addBspBattlestatMetrics(
   target.changedRows += source.changedRows;
   target.candidates += source.candidates;
   target.updated += source.updated;
-  target.failedPredictions += source.failedPredictions;
 }
 
 async function refreshMissingBspBattlestatPredictionsForFaction(
@@ -478,7 +465,6 @@ async function refreshMissingBspBattlestatPredictionsForFaction(
     changedRows: 0,
     candidates: 0,
     updated: 0,
-    failedPredictions: 0,
     skipped: false,
   };
   if (!env.BSP_TORN_API_KEY) {
@@ -522,9 +508,6 @@ async function refreshMissingBspBattlestatPredictionsForFaction(
       `
       UPDATE ${tableName}
       SET bsp_battlestats = ?,
-          bsp_battlestats_result = ?,
-          bsp_battlestats_reason = ?,
-          bsp_battlestats_prediction_date = ?,
           bsp_battlestats_updated_at = unixepoch(),
           updated_at = unixepoch()
       WHERE faction_id = ?
@@ -533,10 +516,7 @@ async function refreshMissingBspBattlestatPredictionsForFaction(
       `,
     )
       .bind(
-        prediction.stats,
-        prediction.result,
-        prediction.reason,
-        prediction.predictionDate,
+        prediction,
         factionId,
         row.member_id,
       )
@@ -546,9 +526,6 @@ async function refreshMissingBspBattlestatPredictionsForFaction(
     metrics.writeStatements += 1;
     metrics.changedRows += changes;
     metrics.updated += changes;
-    if (prediction.stats === null) {
-      metrics.failedPredictions += changes;
-    }
   }
 
   return metrics;
@@ -724,17 +701,11 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
           ff_battlestats_updated_at = NULL,
           bsp_battlestats = NULL,
           bsp_battlestats_updated_at = NULL,
-          bsp_battlestats_result = NULL,
-          bsp_battlestats_reason = NULL,
-          bsp_battlestats_prediction_date = NULL,
           updated_at = unixepoch()
       WHERE ff_battlestats IS NOT NULL
          OR ff_battlestats_updated_at IS NOT NULL
          OR bsp_battlestats IS NOT NULL
          OR bsp_battlestats_updated_at IS NOT NULL
-         OR bsp_battlestats_result IS NOT NULL
-         OR bsp_battlestats_reason IS NOT NULL
-         OR bsp_battlestats_prediction_date IS NOT NULL
       `,
     ),
     ...members.map((member) => {
@@ -1553,7 +1524,7 @@ async function fetchFfscouterStats(
 async function fetchBspBattlestatPrediction(
   env: Env,
   memberId: number,
-): Promise<BspBattlestatPrediction> {
+): Promise<number | null> {
   if (!env.BSP_TORN_API_KEY) {
     throw new Error("BSP_TORN_API_KEY is not configured");
   }
@@ -1570,17 +1541,13 @@ async function fetchBspBattlestatPrediction(
   return parseBspBattlestatPrediction(await response.json());
 }
 
-function parseBspBattlestatPrediction(data: any): BspBattlestatPrediction {
+function parseBspBattlestatPrediction(data: any): number | null {
   const result = Number.isFinite(Number(data?.Result)) ? Number(data.Result) : null;
-  const failed = result === 0 || result === 6;
-  const stats = failed ? null : finiteNumber(data?.TBS);
+  if (result === 0 || result === 6) {
+    return null;
+  }
 
-  return {
-    stats,
-    result,
-    reason: cleanText(data?.Reason),
-    predictionDate: cleanText(data?.PredictionDate),
-  };
+  return finiteNumber(data?.TBS);
 }
 
 function extractFfBattlestatEstimates(data: any): Map<number, FfBattlestatEstimate> {

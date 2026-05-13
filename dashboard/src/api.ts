@@ -236,9 +236,6 @@ export type EnemyFactionMember = {
   ff_battlestats_updated_at: number | null;
   bsp_battlestats: number | null;
   bsp_battlestats_updated_at: number | null;
-  bsp_battlestats_result: number | null;
-  bsp_battlestats_reason: string | null;
-  bsp_battlestats_prediction_date: string | null;
   networth: number | null;
   networth_updated_at: number | null;
   status_state?: string | null;
