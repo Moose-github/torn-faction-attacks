@@ -43,7 +43,7 @@ export function WarRoom({
   const [scoutingComparison, setScoutingComparison] =
     React.useState<ScoutingComparisonResponse | null>(null);
   const [scoutingComparisonMetric, setScoutingComparisonMetric] =
-    React.useState<"ff_battlestats" | "networth">("ff_battlestats");
+    React.useState<ScoutingComparisonMetric>("ff_battlestats");
   const [isLoadingScoutingComparison, setIsLoadingScoutingComparison] = React.useState(false);
   const [activityHeatmap, setActivityHeatmap] =
     React.useState<FactionActivityHeatmapResponse | null>(null);
@@ -325,6 +325,13 @@ export function WarRoom({
               onClick={() => setScoutingComparisonMetric("ff_battlestats")}
             >
               FF stats
+            </button>
+            <button
+              type="button"
+              className={scoutingComparisonMetric === "bsp_battlestats" ? "toggle-chip active" : "toggle-chip"}
+              onClick={() => setScoutingComparisonMetric("bsp_battlestats")}
+            >
+              BSP stats
             </button>
             <button
               type="button"
@@ -751,8 +758,14 @@ function formatPlaneType(value: string | null | undefined): string {
     .join(" ");
 }
 
-function scoutingComparisonMetricLabel(metric: "ff_battlestats" | "networth"): string {
-  return metric === "networth" ? "Networth" : "FF stats";
+type ScoutingComparisonMetric = "ff_battlestats" | "bsp_battlestats" | "networth";
+
+function scoutingComparisonMetricLabel(metric: ScoutingComparisonMetric): string {
+  if (metric === "networth") {
+    return "Networth";
+  }
+
+  return metric === "bsp_battlestats" ? "BSP stats" : "FF stats";
 }
 
 function RevivableMembersPanel({

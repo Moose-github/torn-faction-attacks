@@ -180,7 +180,7 @@ export function ScoutingComparisonChart({
   homeMembers: EnemyFactionMember[];
   enemyMembers: EnemyFactionMember[];
   enemyName: string;
-  metric?: "ff_battlestats" | "networth";
+  metric?: "ff_battlestats" | "bsp_battlestats" | "networth";
   metricLabel?: string;
 }) {
   const homeEstimated = homeMembers.filter((member) => hasScoutingMetric(member, metric));
@@ -242,7 +242,7 @@ export function ScoutingComparisonChart({
 
 function hasScoutingMetric(
   member: EnemyFactionMember,
-  metric: "ff_battlestats" | "networth",
+  metric: "ff_battlestats" | "bsp_battlestats" | "networth",
 ): boolean {
   return Number.isFinite(Number(member[metric])) && Number(member[metric]) > 0;
 }
@@ -251,7 +251,7 @@ function countBucket(
   members: EnemyFactionMember[],
   min: number,
   max: number,
-  metric: "ff_battlestats" | "networth",
+  metric: "ff_battlestats" | "bsp_battlestats" | "networth",
 ): number {
   return members.filter((member) => {
     const stats = Number(member[metric] ?? 0);
