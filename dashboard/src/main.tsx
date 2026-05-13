@@ -50,9 +50,6 @@ import {
   ReportDiscrepancyPanel,
 } from "./components/ReportDiscrepancies";
 import { Sidebar } from "./components/Sidebar";
-import { AdminControls } from "./views/AdminControls";
-import { DiceGame } from "./views/DiceGame";
-import { LifestyleStats } from "./views/LifestyleStats";
 import { MembersOverview } from "./views/MembersOverview";
 import { WarRoom } from "./views/WarRoom";
 import {
@@ -79,6 +76,16 @@ import "./styles.css";
 const ACTIVE_WAR_REFRESH_MS = 5 * 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
 const CHAIN_BONUS_REFRESH_MS = 15 * 60_000;
+
+const AdminControls = React.lazy(() =>
+  import("./views/AdminControls").then((module) => ({ default: module.AdminControls })),
+);
+const DiceGame = React.lazy(() =>
+  import("./views/DiceGame").then((module) => ({ default: module.DiceGame })),
+);
+const LifestyleStats = React.lazy(() =>
+  import("./views/LifestyleStats").then((module) => ({ default: module.LifestyleStats })),
+);
 
 function App() {
   const [warType, setWarType] = React.useState<WarType>("all");
@@ -599,11 +606,17 @@ function App() {
 
         <section className="main-content">
           {view === "admin" ? (
-            <AdminControls />
+            <LazyPage>
+              <AdminControls />
+            </LazyPage>
           ) : view === "diceGame" ? (
-            <DiceGame />
+            <LazyPage>
+              <DiceGame />
+            </LazyPage>
           ) : view === "lifestyle" ? (
-            <LifestyleStats isAdmin={isAdmin} />
+            <LazyPage>
+              <LifestyleStats isAdmin={isAdmin} />
+            </LazyPage>
           ) : view === "members" ? (
             <MembersOverview isAdmin={isAdmin} />
           ) : view === "warRoom" ? (
@@ -890,6 +903,14 @@ function App() {
       </div>
       )}
     </main>
+  );
+}
+
+function LazyPage({ children }: { children: React.ReactNode }) {
+  return (
+    <React.Suspense fallback={<EmptyState text="Loading page" />}>
+      {children}
+    </React.Suspense>
   );
 }
 
