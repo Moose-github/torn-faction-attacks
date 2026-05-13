@@ -1543,7 +1543,7 @@ async function fetchBspBattlestatPrediction(
 
 function parseBspBattlestatPrediction(data: any): number | null {
   const result = Number.isFinite(Number(data?.Result)) ? Number(data.Result) : null;
-  if (result === 0 || result === 6) {
+  if (result === 0 || result === 4) {
     return null;
   }
 

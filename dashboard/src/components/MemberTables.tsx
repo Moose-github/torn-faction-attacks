@@ -40,6 +40,12 @@ export function MemberTable({
             <SortableHeader label="Attacks" sortKey="attacks_vs_enemy_successful" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
             <SortableHeader label={<>Defends<br />lost</>} sortKey="defends_lost" sort={sort} onSortChange={onSortChange} />
+            <SortableHeader
+              label={<span title="Defends lost where the enemy result was not Hospitalized.">Non-hosp<br />defends lost</span>}
+              sortKey="defends_lost_non_hospitalized"
+              sort={sort}
+              onSortChange={onSortChange}
+            />
             {showTermedColumns ? null : (
               <SortableHeader label={<>Outside<br />hits</>} sortKey="outside_hits" sort={sort} onSortChange={onSortChange} />
             )}
@@ -52,6 +58,12 @@ export function MemberTable({
             <SortableHeader
               label={<span title="Adjusted respect lost, with enemy chain bonus hits counted at the enemy attacker's average hit value.">Respect<br />lost</span>}
               sortKey="respect_lost"
+              sort={sort}
+              onSortChange={onSortChange}
+            />
+            <SortableHeader
+              label={<span title="Adjusted respect lost from defends where the enemy result was not Hospitalized.">Non-hosp<br />respect lost</span>}
+              sortKey="respect_lost_non_hospitalized"
               sort={sort}
               onSortChange={onSortChange}
             />
@@ -116,6 +128,7 @@ export function MemberTable({
                 <DefendBreakdown member={member} />
               </td>
               <td>{formatNumber(memberDefendsLost(member))}</td>
+              <td>{formatNumber(member.defends_lost_non_hospitalized)}</td>
               {showTermedColumns ? null : <td>{formatNumber(member.outside_hits)}</td>}
               <td>
                 <RespectAdjustmentCell
@@ -141,6 +154,7 @@ export function MemberTable({
                   markerLabel="chain"
                 />
               </td>
+              <td>{formatNumber(member.respect_lost_non_hospitalized)}</td>
               {showTermedColumns ? null : <td>{formatNumber(member.respect_lost_raw)}</td>}
               <td>{formatNumber(member.assists_vs_enemy)}</td>
               {showTermedColumns ? (

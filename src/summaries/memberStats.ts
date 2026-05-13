@@ -137,7 +137,9 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
         defends_total = 0,
         defends_won = 0,
         defends_other = 0,
+        defends_lost_non_hospitalized = 0,
         respect_lost = 0,
+        respect_lost_non_hospitalized = 0,
         respect_lost_raw = 0,
         enemy_chain_bonus_hits_received = 0,
         enemy_chain_bonus_respect_removed = 0,
@@ -596,7 +598,9 @@ async function upsertIngestedWarMemberDefendStats(
       defends_total,
       defends_won,
       defends_other,
+      defends_lost_non_hospitalized,
       respect_lost,
+      respect_lost_non_hospitalized,
       respect_lost_raw,
       enemy_chain_bonus_hits_received,
       enemy_chain_bonus_respect_removed,
@@ -623,6 +627,12 @@ async function upsertIngestedWarMemberDefendStats(
         THEN 1
         ELSE 0
       END) AS defends_other,
+      SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.result != 'Hospitalized'
+        THEN 1
+        ELSE 0
+      END) AS defends_lost_non_hospitalized,
       COALESCE(SUM(CASE
         WHEN a.result IN (${POSITIVE_RESULTS_SQL})
         THEN CASE
@@ -632,6 +642,16 @@ async function upsertIngestedWarMemberDefendStats(
         END
         ELSE 0
       END), 0) AS respect_lost,
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.result != 'Hospitalized'
+        THEN CASE
+          WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
+          ELSE a.respect_gain
+        END
+        ELSE 0
+      END), 0) AS respect_lost_non_hospitalized,
       COALESCE(SUM(CASE
         WHEN a.result IN (${POSITIVE_RESULTS_SQL})
         THEN a.respect_gain
@@ -725,7 +745,9 @@ async function upsertWarMemberDefendStats(
       defends_total,
       defends_won,
       defends_other,
+      defends_lost_non_hospitalized,
       respect_lost,
+      respect_lost_non_hospitalized,
       respect_lost_raw,
       enemy_chain_bonus_hits_received,
       enemy_chain_bonus_respect_removed,
@@ -752,6 +774,12 @@ async function upsertWarMemberDefendStats(
         THEN 1
         ELSE 0
       END) AS defends_other,
+      SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.result != 'Hospitalized'
+        THEN 1
+        ELSE 0
+      END) AS defends_lost_non_hospitalized,
       COALESCE(SUM(CASE
         WHEN a.result IN (${POSITIVE_RESULTS_SQL})
         THEN CASE
@@ -761,6 +789,16 @@ async function upsertWarMemberDefendStats(
         END
         ELSE 0
       END), 0) AS respect_lost,
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.result != 'Hospitalized'
+        THEN CASE
+          WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
+          ELSE a.respect_gain
+        END
+        ELSE 0
+      END), 0) AS respect_lost_non_hospitalized,
       COALESCE(SUM(CASE
         WHEN a.result IN (${POSITIVE_RESULTS_SQL})
         THEN a.respect_gain

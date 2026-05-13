@@ -5,9 +5,11 @@ export type MemberSortKey =
   | "attacks_vs_enemy_successful"
   | "defends_total"
   | "defends_lost"
+  | "defends_lost_non_hospitalized"
   | "outside_hits"
   | "respect_gained"
   | "respect_lost"
+  | "respect_lost_non_hospitalized"
   | "respect_lost_raw"
   | "assists_vs_enemy"
   | "retaliations_vs_enemy"
@@ -197,12 +199,16 @@ export function memberSortLabel(key: MemberSortKey): string {
       return "Defends";
     case "defends_lost":
       return "Defends lost";
+    case "defends_lost_non_hospitalized":
+      return "Non-hosp defends lost";
     case "outside_hits":
       return "Outside hits";
     case "respect_gained":
       return "Respect gained";
     case "respect_lost":
       return "Respect lost";
+    case "respect_lost_non_hospitalized":
+      return "Non-hosp respect lost";
     case "respect_lost_raw":
       return "Respect lost raw";
     case "assists_vs_enemy":

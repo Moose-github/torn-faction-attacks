@@ -38,7 +38,9 @@ export type MemberStats = {
   defends_total: number;
   defends_won: number;
   defends_other: number;
+  defends_lost_non_hospitalized: number;
   respect_lost: number;
+  respect_lost_non_hospitalized: number;
   respect_lost_raw: number;
   enemy_chain_bonus_hits_received: number;
   enemy_chain_bonus_respect_removed: number;

@@ -136,11 +136,13 @@ function exportMembersOverviewCsv(members: MemberStats[], warType: WarType) {
     { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
     { label: "Defends", value: (member) => member.defends_total },
     { label: "Defends lost", value: (member) => memberDefendsLost(member) },
+    { label: "Non-hosp defends lost", value: (member) => member.defends_lost_non_hospitalized },
     ...(warType === "termed"
       ? []
       : [{ label: "Outside hits", value: (member: MemberStats) => member.outside_hits }]),
     { label: "Respect gained", value: (member) => member.respect_gained },
     { label: "Respect lost", value: (member) => member.respect_lost },
+    { label: "Non-hosp respect lost", value: (member) => member.respect_lost_non_hospitalized },
     { label: "Respect lost raw", value: (member) => member.respect_lost_raw },
     { label: "Assists", value: (member) => member.assists_vs_enemy },
     ...(warType === "termed"
