@@ -14,6 +14,7 @@ import { formatNumber, formatRelativeTime } from "../utils/format";
 
 const DEFAULT_BET_AMOUNT = "1";
 const DEFAULT_DEPOSIT_AMOUNT = "1";
+const MAX_DEPOSIT_BALANCE = 1_000;
 const CONTROL_TAMPER_CHANCE = 0.05;
 const CONTROL_TAMPER_DELAY_MS = 500;
 const CONTROL_FLASH_MS = 200;
@@ -250,7 +251,18 @@ export function DiceGame() {
   }
 
   async function handleSendXanax() {
-    const amount = Math.trunc(Number(depositAmount) || 0);
+    const currentBalance = profile?.xanax_balance ?? 0;
+    const remainingDeposit = Math.max(0, MAX_DEPOSIT_BALANCE - currentBalance);
+    const requestedAmount = Math.trunc(Number(depositAmount) || 0);
+    const amount = Math.min(requestedAmount, remainingDeposit);
+
+    if (amount <= 0) {
+      return;
+    }
+
+    if (amount !== requestedAmount) {
+      setDepositAmount(String(amount));
+    }
 
     setIsSending(true);
     setError(null);
@@ -280,6 +292,8 @@ export function DiceGame() {
   const totalGained = profile?.total_gained ?? 0;
   const totalLost = profile?.total_lost ?? 0;
   const rolls = profile?.rolls ?? 0;
+  const depositRemaining = Math.max(0, MAX_DEPOSIT_BALANCE - balance);
+  const isDepositDisabled = isLoading || isSending || depositRemaining <= 0;
   const diceButtonClassName = [
     "dice-button",
     lastRollOutcome === "loss" ? "loss" : "",
@@ -524,6 +538,7 @@ export function DiceGame() {
                   type="number"
                   step="1"
                   inputMode="numeric"
+                  max={depositRemaining}
                   value={depositAmount}
                   onChange={(event) => setDepositAmount(event.target.value)}
                 />
@@ -532,7 +547,7 @@ export function DiceGame() {
               <button
                 type="submit"
                 className="icon-text-button dice-send-button"
-                disabled={isLoading || isSending}
+                disabled={isDepositDisabled}
               >
                 <CircleDollarSign size={16} />
                 {isSending ? "Adding xanax" : "Add xanax"}
