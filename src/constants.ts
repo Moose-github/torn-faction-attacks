@@ -4,6 +4,7 @@ export const RANKED_WARS_API_URL = "https://api.torn.com/v2/faction/rankedwars";
 export const RANKED_WAR_REPORT_API_BASE_URL = "https://api.torn.com/v2/faction";
 export const TORN_FACTION_API_BASE_URL = "https://api.torn.com/v2/faction";
 export const FFSCOUTER_STATS_API_URL = "https://ffscouter.com/api/v1/get-stats";
+export const LOL_MANAGER_BATTLESTATS_API_BASE_URL = "http://www.lol-manager.com/api/battlestats";
 export const TORN_KEY_INFO_API_URL = "https://api.torn.com/v2/key/info";
 export const LIMIT = 100;
 export const OVERLAP_SECONDS = 60;

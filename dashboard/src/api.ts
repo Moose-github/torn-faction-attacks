@@ -232,8 +232,13 @@ export type EnemyFactionMember = {
   position: string | null;
   days_in_faction: number | null;
   is_revivable: number | null;
-  estimated_stats: number | null;
-  estimated_stats_updated_at: number | null;
+  ff_battlestats: number | null;
+  ff_battlestats_updated_at: number | null;
+  bsp_battlestats: number | null;
+  bsp_battlestats_updated_at: number | null;
+  bsp_battlestats_result: number | null;
+  bsp_battlestats_reason: string | null;
+  bsp_battlestats_prediction_date: string | null;
   networth: number | null;
   networth_updated_at: number | null;
   status_state?: string | null;
@@ -269,8 +274,8 @@ export type EnemyScoutingResponse = {
   summary: {
     members_loaded: number;
     average_level: number;
-    average_estimated_stats: number | null;
-    missing_estimated_stats: number;
+    average_ff_battlestats: number | null;
+    missing_ff_battlestats: number;
     stats_available: number;
     networth_available: number;
     traveling: number;

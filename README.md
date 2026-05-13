@@ -52,12 +52,19 @@ The Worker expects:
 
 - A D1 binding named `DB`
 - A secret named `TORN_API_KEY`
+- Optional: a secret named `BSP_TORN_API_KEY` for BSP stat predictions
 - Optional: a secret named `FFSCOUTER_API_KEY` for enemy stat estimates
 
 Set the Torn API key with:
 
 ```bash
 npx wrangler secret put TORN_API_KEY
+```
+
+Set the BSP Torn API key with:
+
+```bash
+npx wrangler secret put BSP_TORN_API_KEY
 ```
 
 Set the FFScouter key with:

@@ -1,4 +1,7 @@
-import { refreshMissingFfscouterEstimates } from "./enemyScouting";
+import {
+  refreshMissingFfscouterEstimates,
+  refreshMissingBspBattlestatPredictions,
+} from "./enemyScouting";
 import { sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncMissingRankedWarReports } from "./ingestion";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
@@ -58,6 +61,10 @@ export async function runScheduledMaintenance(
     {
       name: "missing FFScouter estimates",
       run: () => refreshMissingFfscouterEstimates(env),
+    },
+    {
+      name: "missing BSP battlestat predictions",
+      run: () => refreshMissingBspBattlestatPredictions(env),
     },
     {
       name: "member stat correction",

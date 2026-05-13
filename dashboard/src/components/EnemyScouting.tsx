@@ -10,7 +10,8 @@ type EnemyScoutingSortKey =
   | "level"
   | "position"
   | "days_in_faction"
-  | "estimated_stats"
+  | "ff_battlestats"
+  | "bsp_battlestats"
   | "networth";
 
 type EnemyScoutingSort = {
@@ -34,13 +35,13 @@ export function EnemyScoutingPanel({
   onRefresh: () => void;
 }) {
   const [sort, setSort] = React.useState<EnemyScoutingSort>({
-    key: "estimated_stats",
+    key: "ff_battlestats",
     direction: "desc",
   });
 
   React.useEffect(() => {
     if (!showStatusColumn && sort.key === "status") {
-      setSort({ key: "estimated_stats", direction: "desc" });
+      setSort({ key: "ff_battlestats", direction: "desc" });
     }
   }, [showStatusColumn, sort.key]);
 
@@ -69,7 +70,7 @@ export function EnemyScoutingPanel({
         }
       />
       <p className="panel-description">
-        Shows the cached enemy roster from Torn, estimated battle stats, and networth where available.
+        Shows the cached enemy roster from Torn, FF stats, BSP stats, and networth where available.
       </p>
 
       {members.length === 0 ? (
@@ -87,7 +88,8 @@ export function EnemyScoutingPanel({
                   <SortableHeader label="Level" sortKey="level" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Position" sortKey="position" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
-                  <SortableHeader label="Estimated stats" sortKey="estimated_stats" sort={sort} onSortChange={setSort} />
+                  <SortableHeader label="FF stats" sortKey="ff_battlestats" sort={sort} onSortChange={setSort} />
+                  <SortableHeader label="BSP stats" sortKey="bsp_battlestats" sort={sort} onSortChange={setSort} />
                   <SortableHeader label="Networth" sortKey="networth" sort={sort} onSortChange={setSort} />
                 </tr>
               </thead>
@@ -126,10 +128,15 @@ export function EnemyScoutingPanel({
                     <td>{formatNumber(member.level ?? 0)}</td>
                     <td>{member.position ?? "-"}</td>
                     <td>{formatNumber(member.days_in_faction ?? 0)}</td>
-                    <td title={updatedTitle("Estimated stats", member.estimated_stats_updated_at)}>
-                      {member.estimated_stats === null
+                    <td title={updatedTitle("FF battle stats", member.ff_battlestats_updated_at)}>
+                      {member.ff_battlestats === null
                         ? "-"
-                        : formatNumber(member.estimated_stats)}
+                        : formatNumber(member.ff_battlestats)}
+                    </td>
+                    <td title={bspBattlestatsTitle(member)}>
+                      {member.bsp_battlestats == null
+                        ? "-"
+                        : formatNumber(member.bsp_battlestats)}
                     </td>
                     <td title={networthTitle(member.networth, member.networth_updated_at)}>
                       {formatNetworth(member.networth)}
@@ -155,6 +162,20 @@ function networthTitle(networth: number | null, updatedAt: number | null): strin
   }
 
   return `Exact networth: ${formatNumber(networth)}. ${updatedTitle("Networth", updatedAt)}`;
+}
+
+function bspBattlestatsTitle(member: EnemyFactionMember): string {
+  const parts = [updatedTitle("BSP battle stats", member.bsp_battlestats_updated_at)];
+  if (member.bsp_battlestats_result != null) {
+    parts.push(`Result: ${member.bsp_battlestats_result}`);
+  }
+  if (member.bsp_battlestats_reason) {
+    parts.push(`Reason: ${member.bsp_battlestats_reason}`);
+  }
+  if (member.bsp_battlestats_prediction_date) {
+    parts.push(`Prediction date: ${member.bsp_battlestats_prediction_date}`);
+  }
+  return parts.join(". ");
 }
 
 function enemyStatusLabel(member: EnemyFactionMember): string {

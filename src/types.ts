@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
   TORN_API_KEY: string;
+  BSP_TORN_API_KEY?: string;
   FFSCOUTER_API_KEY?: string;
 }
 

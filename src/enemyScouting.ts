@@ -1,4 +1,9 @@
-import { FFSCOUTER_STATS_API_URL, HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
+import {
+  FFSCOUTER_STATS_API_URL,
+  HOME_FACTION_ID,
+  LOL_MANAGER_BATTLESTATS_API_BASE_URL,
+  TORN_FACTION_API_BASE_URL,
+} from "./constants";
 import { fetchTornPersonalStats } from "./personalStats";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import { boolToInt, json, nowSeconds } from "./utils";
@@ -6,6 +11,7 @@ import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
 
 const FFSCOUTER_BATCH_SIZE = 100;
 const SCOUTING_FETCH_TIMEOUT_MS = 15000;
+const BSP_BATTLESTAT_REFRESH_LIMIT = 40;
 const NETWORTH_REFRESH_LIMIT = 40;
 const TORN_LOCATION = "Torn";
 const ENEMY_TRAVEL_CLEAR_STATE_PREFIX = "enemy_travel_cleared";
@@ -63,8 +69,13 @@ type EnemyFactionMemberRow = {
   position: string | null;
   days_in_faction: number | null;
   is_revivable: number | null;
-  estimated_stats: number | null;
-  estimated_stats_updated_at: number | null;
+  ff_battlestats: number | null;
+  ff_battlestats_updated_at: number | null;
+  bsp_battlestats: number | null;
+  bsp_battlestats_updated_at: number | null;
+  bsp_battlestats_result: number | null;
+  bsp_battlestats_reason: string | null;
+  bsp_battlestats_prediction_date: string | null;
   networth: number | null;
   networth_updated_at: number | null;
   status_state?: string | null;
@@ -83,9 +94,16 @@ type EnemyFactionMemberRow = {
   updated_at: number;
 };
 
-type StatEstimate = {
+type FfBattlestatEstimate = {
   stats: number;
   updatedAt: number | null;
+};
+
+type BspBattlestatPrediction = {
+  stats: number | null;
+  result: number | null;
+  reason: string | null;
+  predictionDate: string | null;
 };
 
 type ParsedTravel = {
@@ -142,6 +160,15 @@ export type FfscouterRefreshMetrics = {
   homeCandidates: number;
   enemyUpdated: number;
   homeUpdated: number;
+  skipped: boolean;
+};
+
+export type BspBattlestatRefreshMetrics = {
+  writeStatements: number;
+  changedRows: number;
+  candidates: number;
+  updated: number;
+  failedPredictions: number;
   skipped: boolean;
 };
 
@@ -241,7 +268,9 @@ export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Re
       enemyFactionId,
       war.enemy_scouting_status_checked_at,
     );
-    await refreshMissingStatEstimates(env, await readEnemyScouting(env, enemyFactionId));
+    const refreshedRows = await readEnemyScouting(env, enemyFactionId);
+    await refreshMissingFfBattlestats(env, refreshedRows);
+    await refreshMissingBspBattlestatPredictionsForFaction(env, "enemy_faction_members", enemyFactionId, refreshedRows);
     refreshed = true;
   }
 
@@ -353,7 +382,7 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<Ffscou
     SELECT *
     FROM enemy_faction_members
     WHERE faction_id = ?
-      AND estimated_stats IS NULL
+      AND ff_battlestats IS NULL
     ORDER BY level DESC, name ASC
     `,
   )
@@ -361,7 +390,7 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<Ffscou
     .all()).results as EnemyFactionMemberRow[] | undefined;
 
   metrics.enemyCandidates = enemyRows?.length ?? 0;
-  const enemyMetrics = await refreshMissingStatEstimates(env, enemyRows ?? []);
+  const enemyMetrics = await refreshMissingFfBattlestats(env, enemyRows ?? []);
   metrics.writeStatements += enemyMetrics.writeStatements;
   metrics.changedRows += enemyMetrics.changedRows;
   metrics.enemyUpdated += enemyMetrics.changedRows;
@@ -370,16 +399,157 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<Ffscou
     `
     SELECT *
     FROM home_faction_members
-    WHERE estimated_stats IS NULL
+    WHERE ff_battlestats IS NULL
     ORDER BY level DESC, name ASC
     `,
   ).all()).results as EnemyFactionMemberRow[] | undefined;
 
   metrics.homeCandidates = homeRows?.length ?? 0;
-  const homeMetrics = await refreshMissingStatEstimates(env, homeRows ?? [], "home_faction_members");
+  const homeMetrics = await refreshMissingFfBattlestats(env, homeRows ?? [], "home_faction_members");
   metrics.writeStatements += homeMetrics.writeStatements;
   metrics.changedRows += homeMetrics.changedRows;
   metrics.homeUpdated += homeMetrics.changedRows;
+
+  return metrics;
+}
+
+export async function refreshMissingBspBattlestatPredictions(
+  env: Env,
+  options: { limit?: number } = {},
+): Promise<BspBattlestatRefreshMetrics> {
+  const metrics: BspBattlestatRefreshMetrics = {
+    writeStatements: 0,
+    changedRows: 0,
+    candidates: 0,
+    updated: 0,
+    failedPredictions: 0,
+    skipped: false,
+  };
+  if (!env.BSP_TORN_API_KEY) {
+    return { ...metrics, skipped: true };
+  }
+
+  const scoutingWar = await readCurrentScoutingWar(env);
+  if (!scoutingWar) {
+    return { ...metrics, skipped: true };
+  }
+
+  const enemyMetrics = await refreshMissingBspBattlestatPredictionsForFaction(
+    env,
+    "enemy_faction_members",
+    scoutingWar.enemy_faction_id,
+    undefined,
+    options,
+  );
+  addBspBattlestatMetrics(metrics, enemyMetrics);
+
+  const homeMetrics = await refreshMissingBspBattlestatPredictionsForFaction(
+    env,
+    "home_faction_members",
+    HOME_FACTION_ID,
+    undefined,
+    options,
+  );
+  addBspBattlestatMetrics(metrics, homeMetrics);
+
+  return metrics;
+}
+
+function addBspBattlestatMetrics(
+  target: BspBattlestatRefreshMetrics,
+  source: BspBattlestatRefreshMetrics,
+): void {
+  target.writeStatements += source.writeStatements;
+  target.changedRows += source.changedRows;
+  target.candidates += source.candidates;
+  target.updated += source.updated;
+  target.failedPredictions += source.failedPredictions;
+}
+
+async function refreshMissingBspBattlestatPredictionsForFaction(
+  env: Env,
+  tableName: "enemy_faction_members" | "home_faction_members",
+  factionId: number,
+  rows?: EnemyFactionMemberRow[],
+  options: { limit?: number } = {},
+): Promise<BspBattlestatRefreshMetrics> {
+  const metrics: BspBattlestatRefreshMetrics = {
+    writeStatements: 0,
+    changedRows: 0,
+    candidates: 0,
+    updated: 0,
+    failedPredictions: 0,
+    skipped: false,
+  };
+  if (!env.BSP_TORN_API_KEY) {
+    return { ...metrics, skipped: true };
+  }
+
+  const limit = Math.max(
+    1,
+    Math.min(Math.floor(options.limit ?? BSP_BATTLESTAT_REFRESH_LIMIT), BSP_BATTLESTAT_REFRESH_LIMIT),
+  );
+  const candidateRows = rows
+    ? rows
+        .filter((row) => row.faction_id === factionId && row.bsp_battlestats_updated_at == null)
+        .slice(0, limit)
+    : ((await env.DB.prepare(
+        `
+        SELECT *
+        FROM ${tableName}
+        WHERE faction_id = ?
+          AND bsp_battlestats_updated_at IS NULL
+        ORDER BY ff_battlestats DESC NULLS LAST, level DESC, name ASC
+        LIMIT ?
+        `,
+      )
+        .bind(factionId, limit)
+        .all()).results ?? []) as EnemyFactionMemberRow[];
+
+  metrics.candidates = candidateRows.length;
+
+  for (const row of candidateRows) {
+    const prediction = await fetchBspBattlestatPrediction(env, row.member_id).catch((err) => {
+      console.warn(`BSP battlestat prediction fetch failed for ${row.member_id}:`, err?.message || err);
+      return null;
+    });
+
+    if (!prediction) {
+      continue;
+    }
+
+    const result = await env.DB.prepare(
+      `
+      UPDATE ${tableName}
+      SET bsp_battlestats = ?,
+          bsp_battlestats_result = ?,
+          bsp_battlestats_reason = ?,
+          bsp_battlestats_prediction_date = ?,
+          bsp_battlestats_updated_at = unixepoch(),
+          updated_at = unixepoch()
+      WHERE faction_id = ?
+        AND member_id = ?
+        AND bsp_battlestats_updated_at IS NULL
+      `,
+    )
+      .bind(
+        prediction.stats,
+        prediction.result,
+        prediction.reason,
+        prediction.predictionDate,
+        factionId,
+        row.member_id,
+      )
+      .run();
+
+    const changes = d1Changes(result);
+    metrics.writeStatements += 1;
+    metrics.changedRows += changes;
+    metrics.updated += changes;
+    if (prediction.stats === null) {
+      metrics.failedPredictions += changes;
+    }
+  }
 
   return metrics;
 }
@@ -506,7 +676,7 @@ async function readEnemyScouting(
     SELECT *
     FROM enemy_faction_members
     WHERE faction_id = ?
-    ORDER BY estimated_stats DESC NULLS LAST, level DESC, name ASC
+    ORDER BY ff_battlestats DESC NULLS LAST, level DESC, name ASC
     `,
   )
     .bind(factionId)
@@ -521,7 +691,7 @@ async function readHomeScouting(env: Env): Promise<EnemyFactionMemberRow[]> {
     SELECT *
     FROM home_faction_members
     WHERE faction_id = ?
-    ORDER BY estimated_stats DESC NULLS LAST, level DESC, name ASC
+    ORDER BY ff_battlestats DESC NULLS LAST, level DESC, name ASC
     `,
   )
     .bind(HOME_FACTION_ID)
@@ -547,6 +717,26 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
   const fetchedAt = nowSeconds();
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM enemy_faction_members`),
+    env.DB.prepare(
+      `
+      UPDATE home_faction_members
+      SET ff_battlestats = NULL,
+          ff_battlestats_updated_at = NULL,
+          bsp_battlestats = NULL,
+          bsp_battlestats_updated_at = NULL,
+          bsp_battlestats_result = NULL,
+          bsp_battlestats_reason = NULL,
+          bsp_battlestats_prediction_date = NULL,
+          updated_at = unixepoch()
+      WHERE ff_battlestats IS NOT NULL
+         OR ff_battlestats_updated_at IS NOT NULL
+         OR bsp_battlestats IS NOT NULL
+         OR bsp_battlestats_updated_at IS NOT NULL
+         OR bsp_battlestats_result IS NOT NULL
+         OR bsp_battlestats_reason IS NOT NULL
+         OR bsp_battlestats_prediction_date IS NOT NULL
+      `,
+    ),
     ...members.map((member) => {
       const travelStatus = buildMemberTravelStatus(member, null, null, fetchedAt);
       return env.DB.prepare(
@@ -623,7 +813,8 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
   ]);
 
   const rows = await readEnemyScouting(env, factionId);
-  await refreshMissingStatEstimates(env, rows);
+  await refreshMissingFfBattlestats(env, rows);
+  await refreshMissingBspBattlestatPredictionsForFaction(env, "enemy_faction_members", factionId, rows);
   return true;
 }
 
@@ -674,12 +865,19 @@ async function refreshHomeFactionMembers(env: Env): Promise<void> {
     `
     SELECT *
     FROM home_faction_members
-    WHERE estimated_stats IS NULL
+    WHERE ff_battlestats IS NULL
+       OR bsp_battlestats_updated_at IS NULL
     ORDER BY level DESC, name ASC
     `,
   ).all()).results as EnemyFactionMemberRow[] | undefined;
 
-  await refreshMissingStatEstimates(env, rows ?? [], "home_faction_members");
+  await refreshMissingFfBattlestats(env, rows ?? [], "home_faction_members");
+  await refreshMissingBspBattlestatPredictionsForFaction(
+    env,
+    "home_faction_members",
+    HOME_FACTION_ID,
+    rows ?? [],
+  );
 }
 
 async function canReplaceCachedEnemyScouting(env: Env, nextFactionId: number): Promise<boolean> {
@@ -1262,7 +1460,7 @@ function cleanText(value: unknown): string | null {
   return cleaned.length > 0 ? cleaned : null;
 }
 
-async function refreshMissingStatEstimates(
+async function refreshMissingFfBattlestats(
   env: Env,
   rows: EnemyFactionMemberRow[],
   tableName = "enemy_faction_members",
@@ -1273,21 +1471,21 @@ async function refreshMissingStatEstimates(
   }
 
   const missingIds = rows
-    .filter((row) => row.estimated_stats === null)
+    .filter((row) => row.ff_battlestats === null)
     .map((row) => row.member_id);
 
   for (const ids of chunks(missingIds, FFSCOUTER_BATCH_SIZE)) {
     const estimates = await fetchFfscouterStats(env, ids).catch((err) => {
       console.warn("FFScouter stats fetch failed:", err?.message || err);
-      return new Map<number, StatEstimate>();
+      return new Map<number, FfBattlestatEstimate>();
     });
 
     const statements = Array.from(estimates.entries()).map(([memberId, estimate]) =>
       env.DB.prepare(
         `
         UPDATE ${tableName}
-        SET estimated_stats = ?,
-            estimated_stats_updated_at = COALESCE(?, unixepoch()),
+        SET ff_battlestats = ?,
+            ff_battlestats_updated_at = COALESCE(?, unixepoch()),
             updated_at = unixepoch()
         WHERE member_id = ?
         `,
@@ -1332,7 +1530,7 @@ export async function fetchTornFactionMembers(
 async function fetchFfscouterStats(
   env: Env,
   memberIds: number[],
-): Promise<Map<number, StatEstimate>> {
+): Promise<Map<number, FfBattlestatEstimate>> {
   if (memberIds.length === 0 || !env.FFSCOUTER_API_KEY) {
     return new Map();
   }
@@ -1349,11 +1547,44 @@ async function fetchFfscouterStats(
     throw new Error(`FFScouter API error: ${response.status}`);
   }
 
-  return extractStatEstimates(await response.json());
+  return extractFfBattlestatEstimates(await response.json());
 }
 
-function extractStatEstimates(data: any): Map<number, StatEstimate> {
-  const estimates = new Map<number, StatEstimate>();
+async function fetchBspBattlestatPrediction(
+  env: Env,
+  memberId: number,
+): Promise<BspBattlestatPrediction> {
+  if (!env.BSP_TORN_API_KEY) {
+    throw new Error("BSP_TORN_API_KEY is not configured");
+  }
+
+  const url = `${LOL_MANAGER_BATTLESTATS_API_BASE_URL}/${encodeURIComponent(env.BSP_TORN_API_KEY)}/${memberId}/9.4.2`;
+  const response = await fetchWithTimeout(url, {
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error(`BSP battlestats API error: ${response.status}`);
+  }
+
+  return parseBspBattlestatPrediction(await response.json());
+}
+
+function parseBspBattlestatPrediction(data: any): BspBattlestatPrediction {
+  const result = Number.isFinite(Number(data?.Result)) ? Number(data.Result) : null;
+  const failed = result === 0 || result === 6;
+  const stats = failed ? null : finiteNumber(data?.TBS);
+
+  return {
+    stats,
+    result,
+    reason: cleanText(data?.Reason),
+    predictionDate: cleanText(data?.PredictionDate),
+  };
+}
+
+function extractFfBattlestatEstimates(data: any): Map<number, FfBattlestatEstimate> {
+  const estimates = new Map<number, FfBattlestatEstimate>();
   const containers = [data?.stats, data?.data, data?.results, data];
 
   for (const container of containers) {
@@ -1381,7 +1612,7 @@ function d1Changes(result: unknown): number {
   return typeof changes === "number" && Number.isFinite(changes) ? changes : 0;
 }
 
-function addEstimate(estimates: Map<number, StatEstimate>, idValue: unknown, source: any) {
+function addEstimate(estimates: Map<number, FfBattlestatEstimate>, idValue: unknown, source: any) {
   const memberId = Number(idValue);
   if (!Number.isInteger(memberId) || memberId <= 0) {
     return;
@@ -1393,7 +1624,7 @@ function addEstimate(estimates: Map<number, StatEstimate>, idValue: unknown, sou
           source.total,
           source.total_stats,
           source.bs_estimate,
-          source.estimated_stats,
+          source.ff_battlestats,
           source.battle_stats,
           source.stats,
           source.value,
@@ -1439,17 +1670,17 @@ function jsonEnemyScouting(
   rows: EnemyFactionMemberRow[],
   refreshed: boolean,
 ): Response {
-  const statsRows = rows.filter((row) => row.estimated_stats !== null);
+  const statsRows = rows.filter((row) => row.ff_battlestats !== null);
   const networthRows = rows.filter((row) => row.networth !== null);
   const travelingRows = rows.filter((row) => row.status_state === "Traveling");
   const averageLevel =
     rows.length === 0
       ? 0
       : rows.reduce((total, row) => total + Number(row.level ?? 0), 0) / rows.length;
-  const averageEstimatedStats =
+  const averageFfBattlestats =
     statsRows.length === 0
       ? null
-      : statsRows.reduce((total, row) => total + Number(row.estimated_stats ?? 0), 0) /
+      : statsRows.reduce((total, row) => total + Number(row.ff_battlestats ?? 0), 0) /
         statsRows.length;
 
   return json({
@@ -1463,8 +1694,8 @@ function jsonEnemyScouting(
     summary: {
       members_loaded: rows.length,
       average_level: averageLevel,
-      average_estimated_stats: averageEstimatedStats,
-      missing_estimated_stats: rows.length - statsRows.length,
+      average_ff_battlestats: averageFfBattlestats,
+      missing_ff_battlestats: rows.length - statsRows.length,
       stats_available: statsRows.length,
       networth_available: networthRows.length,
       traveling: travelingRows.length,
