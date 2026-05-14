@@ -1542,12 +1542,25 @@ async function fetchBspBattlestatPrediction(
 }
 
 function parseBspBattlestatPrediction(data: any): number | null {
-  const result = Number.isFinite(Number(data?.Result)) ? Number(data.Result) : null;
+  const prediction = parseBspBattlestatPayload(data);
+  const result = Number.isFinite(Number(prediction?.Result)) ? Number(prediction.Result) : null;
   if (result === 0 || result === 4) {
     return null;
   }
 
-  return finiteNumber(data?.TBS);
+  return finiteNumber(prediction?.TBS);
+}
+
+function parseBspBattlestatPayload(data: any): any {
+  if (typeof data !== "string") {
+    return data;
+  }
+
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
 }
 
 function extractFfBattlestatEstimates(data: any): Map<number, FfBattlestatEstimate> {
