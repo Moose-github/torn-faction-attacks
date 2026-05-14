@@ -1286,6 +1286,133 @@ h2 {
   text-shadow: 0 1px 2px rgba(255, 255, 255, 0.55);
 }
 
+.member-activity-heatmap {
+  display: grid;
+  gap: 12px;
+}
+
+.member-activity-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.member-activity-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.member-activity-selection strong {
+  color: #0f172a;
+}
+
+.member-activity-grid-wrap {
+  overflow: auto;
+  max-height: min(68vh, 720px);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.member-activity-grid {
+  display: grid;
+  gap: 1px;
+  width: max-content;
+  min-width: 100%;
+  user-select: none;
+  background: rgba(226, 232, 240, 0.72);
+}
+
+.member-activity-corner,
+.member-activity-time,
+.member-activity-member,
+.member-activity-cell {
+  min-width: 0;
+  border: 0;
+  color: #334155;
+  font: inherit;
+}
+
+.member-activity-corner,
+.member-activity-time {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 30px;
+  background: #f8fafc;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.member-activity-corner {
+  left: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.member-activity-time {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  writing-mode: vertical-rl;
+  cursor: pointer;
+}
+
+.member-activity-member {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: block;
+  overflow: hidden;
+  height: 24px;
+  padding: 0 10px;
+  background: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.member-activity-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 24px;
+  padding: 0;
+  font-size: 0.62rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: crosshair;
+}
+
+.member-activity-cell:hover,
+.member-activity-time:hover,
+.member-activity-member:hover {
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.42);
+}
+
+.member-activity-cell.selected,
+.member-activity-time.selected,
+.member-activity-member.selected {
+  box-shadow:
+    inset 0 0 0 2px rgba(37, 99, 235, 0.76),
+    inset 0 0 0 999px rgba(191, 219, 254, 0.38);
+}
+
 .metric-list {
   display: grid;
   gap: 10px;

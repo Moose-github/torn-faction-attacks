@@ -24,6 +24,7 @@ export {
   getWarActivity,
   getWarAttacks,
   getWarChainBonusesForWar,
+  getWarMemberActivityHeatmap,
   getWarMemberAttacks,
   listWars,
 } from "./warQueries";

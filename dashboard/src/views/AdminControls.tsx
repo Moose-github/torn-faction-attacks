@@ -87,6 +87,7 @@ export function AdminControls() {
   });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [adminGrantForm, setAdminGrantForm] = React.useState({ tornUserId: "" });
+  const [rebuildWarId, setRebuildWarId] = React.useState("");
   const [attackWindowForm, setAttackWindowForm] = React.useState({
     startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
     finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
@@ -844,14 +845,38 @@ export function AdminControls() {
               >
                 {isBusy === "Run ingestion" ? "Working" : "Run ingestion"}
               </button>
-              <button
-                type="button"
-                className="admin-button primary"
-                disabled={isBusy !== null}
-                onClick={() => runAdminAction("Rebuild stats", rebuildStats)}
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const warId = Number(rebuildWarId);
+                  runAdminAction("Rebuild stats", () =>
+                    rebuildStats(rebuildWarId.trim() === "" ? undefined : warId),
+                  );
+                }}
               >
-                {isBusy === "Rebuild stats" ? "Working" : "Rebuild stats"}
-              </button>
+                <label className="admin-form-wide">
+                  Rebuild one war
+                  <select
+                    value={rebuildWarId}
+                    onChange={(event) => setRebuildWarId(event.target.value)}
+                  >
+                    <option value="">All wars</option>
+                    {wars.map((war) => (
+                      <option key={war.id} value={war.id}>
+                        #{war.id} {war.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  className="admin-button primary admin-form-wide"
+                  disabled={isBusy !== null}
+                >
+                  {isBusy === "Rebuild stats" ? "Working" : rebuildWarId ? "Rebuild selected war" : "Rebuild all stats"}
+                </button>
+              </form>
               <button
                 type="button"
                 className="admin-button"

@@ -34,6 +34,7 @@ import {
   getOverallStats,
   getWar,
   getWarActivity,
+  getWarMemberActivityHeatmap,
   getWarAttacks,
   getWarChainBonusesForWar,
   exportWarAttacksCsv,
@@ -103,9 +104,19 @@ export default {
     if (url.pathname === "/api/rebuild" && request.method === "POST") {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
+      const body = (await request.json().catch(() => ({}))) as { war_id?: unknown };
+      const warId = body.war_id === undefined || body.war_id === null || body.war_id === ""
+        ? undefined
+        : Number(body.war_id);
+      if (warId !== undefined && (!Number.isInteger(warId) || warId <= 0)) {
+        return json({ ok: false, error: "Invalid war_id", code: "INVALID_WAR_ID" }, 400);
+      }
       const cooldownError = await requireActionCooldown(env, "manual_rebuild", 15 * 60);
       if (cooldownError) return cooldownError;
-      const result = await rebuildDerivedStatsFromRaw(env);
+      const result = await rebuildDerivedStatsFromRaw(env, warId);
+      if (warId !== undefined && result.wars_rebuilt === 0) {
+        return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+      }
       return json({ ok: true, ...result });
     }
 
@@ -299,6 +310,18 @@ export default {
       const authError = await requireMember(request, env);
       if (authError) return authError;
       return getWarMemberAttacks(url, env);
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      url.pathname.endsWith("/member-activity-heatmap") &&
+      request.method === "GET"
+    ) {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
+      return cachedGetJson(request, ctx, warDataTtlSeconds(55, 30 * 60), () =>
+        getWarMemberActivityHeatmap(url, env),
+      );
     }
 
     if (

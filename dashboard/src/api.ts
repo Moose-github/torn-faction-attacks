@@ -205,6 +205,48 @@ export type WarActivityResponse = {
   buckets: WarActivityBucket[];
 };
 
+export type WarMemberActivityMetric =
+  | "attacks_successful"
+  | "outside_hits"
+  | "defends_lost"
+  | "respect_gained"
+  | "respect_lost";
+
+export type WarMemberActivityMember = {
+  member_id: number;
+  member_name: string | null;
+  attacks_vs_enemy_successful: number;
+  outside_hits: number;
+  defends_total: number;
+  defends_won: number;
+  defends_other: number;
+  respect_gained: number;
+  respect_lost: number;
+};
+
+export type WarMemberActivityBucket = Record<WarMemberActivityMetric, number> & {
+  war_id: number;
+  member_id: number;
+  bucket_start: number;
+};
+
+export type WarMemberActivityHeatmapResponse = {
+  ok: boolean;
+  bucket_minutes: number;
+  war: {
+    id: number;
+    name: string;
+    enemy_faction_id: number | null;
+    practical_start_time: number;
+    practical_finish_time: number | null;
+    official_start_time: number | null;
+    official_end_time: number | null;
+  };
+  time_buckets: number[];
+  members: WarMemberActivityMember[];
+  buckets: WarMemberActivityBucket[];
+};
+
 export type FactionActivityHeatmapRow = {
   faction_id: number;
   date: string;
@@ -648,6 +690,14 @@ export async function getWarActivityHeatmap(
   );
 }
 
+export async function getWarMemberActivityHeatmap(
+  warName: string,
+): Promise<WarMemberActivityHeatmapResponse> {
+  return getJson<WarMemberActivityHeatmapResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/member-activity-heatmap`,
+  );
+}
+
 export async function getWarChainBonuses(warName: string): Promise<WarChainBonusesResponse> {
   return getJson<WarChainBonusesResponse>(
     `/api/wars/${encodeURIComponent(warName)}/chain-bonuses`,
@@ -680,8 +730,10 @@ export async function runIngestion(): Promise<unknown> {
   return postJson("/api/run");
 }
 
-export async function rebuildStats(): Promise<unknown> {
-  return postJson("/api/rebuild");
+export async function rebuildStats(warId?: number): Promise<unknown> {
+  return warId === undefined
+    ? postJson("/api/rebuild")
+    : postJson("/api/rebuild", { war_id: warId });
 }
 
 export async function getLatestIngestionRun(): Promise<IngestionRunResponse> {

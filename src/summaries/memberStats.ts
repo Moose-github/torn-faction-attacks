@@ -9,6 +9,8 @@ import { Env } from "../types";
 import { ATTACK_MEMBER_STAT_MERGE_SQL, DEFEND_MEMBER_STAT_MERGE_SQL } from "./sqlFragments";
 import { rebuildWarSummaryFromMemberStats } from "./warSummary";
 
+const MEMBER_ACTIVITY_BUCKET_SECONDS = 15 * 60;
+
 export async function applyIncrementalWarSummaries(
   env: Env,
   warId: number,
@@ -80,9 +82,30 @@ export async function finalizeWar(env: Env, warId: number): Promise<void> {
     .run();
 }
 
-export async function rebuildDerivedStatsFromRaw(env: Env): Promise<{
+export async function rebuildDerivedStatsFromRaw(env: Env, warId?: number): Promise<{
   wars_rebuilt: number;
 }> {
+  if (warId !== undefined) {
+    const war = (await env.DB.prepare(
+      `
+      SELECT id
+      FROM wars
+      WHERE id = ?
+      LIMIT 1
+      `,
+    )
+      .bind(warId)
+      .first()) as { id: number } | null;
+
+    if (!war) {
+      return { wars_rebuilt: 0 };
+    }
+
+    await rebuildWarMemberStatsFromRaw(env, war.id);
+    await rebuildWarSummaryFromMemberStats(env, war.id);
+    return { wars_rebuilt: 1 };
+  }
+
   await resetDerivedWarMemberStats(env);
 
   const rows = await env.DB.prepare(
@@ -108,8 +131,13 @@ export async function rebuildDerivedStatsFromRaw(env: Env): Promise<{
 export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Promise<void> {
   await resetDerivedWarMemberStats(env, warId);
 
+  await env.DB.prepare(`DELETE FROM war_member_activity_buckets WHERE war_id = ?`)
+    .bind(warId)
+    .run();
+
   await upsertWarMemberAttackStats(env, warId);
   await upsertWarMemberDefendStats(env, warId);
+  await upsertWarMemberActivityBuckets(env, warId);
 }
 
 async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<void> {
@@ -375,7 +403,234 @@ async function applyIngestedWarMemberStats(
 
   await upsertIngestedWarMemberAttackStats(env, warId, ingestRunId);
   await upsertIngestedWarMemberDefendStats(env, warId, ingestRunId);
+  await upsertWarMemberActivityBuckets(env, warId, ingestRunId);
   return appliedAttacks;
+}
+
+async function upsertWarMemberActivityBuckets(
+  env: Env,
+  warId: number,
+  ingestRunId?: string,
+): Promise<void> {
+  const ingestFilter = ingestRunId ? "AND a.ingest_run_id = ?" : "";
+  const bindValues = ingestRunId
+    ? [
+        warId,
+        warId,
+        warId,
+        warId,
+        MEMBER_ACTIVITY_BUCKET_SECONDS,
+        MEMBER_ACTIVITY_BUCKET_SECONDS,
+        warId,
+        ingestRunId,
+        MEMBER_ACTIVITY_BUCKET_SECONDS,
+        MEMBER_ACTIVITY_BUCKET_SECONDS,
+        warId,
+        ingestRunId,
+      ]
+    : [
+        warId,
+        warId,
+        warId,
+        warId,
+        MEMBER_ACTIVITY_BUCKET_SECONDS,
+        MEMBER_ACTIVITY_BUCKET_SECONDS,
+        warId,
+        MEMBER_ACTIVITY_BUCKET_SECONDS,
+        MEMBER_ACTIVITY_BUCKET_SECONDS,
+        warId,
+      ];
+
+  await env.DB.prepare(
+    `
+    WITH outgoing_member_averages AS (
+      SELECT
+        a.attacker_id AS member_id,
+        AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND a.attacker_id IS NOT NULL
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+      GROUP BY a.attacker_id
+    ),
+    outgoing_war_average AS (
+      SELECT AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+    ),
+    defend_member_averages AS (
+      SELECT
+        a.attacker_id,
+        AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_id IS NOT NULL
+        AND w.enemy_faction_id IS NOT NULL
+        AND a.attacker_faction_id = w.enemy_faction_id
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
+      GROUP BY a.attacker_id
+    ),
+    defend_war_average AS (
+      SELECT AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_id IS NOT NULL
+        AND w.enemy_faction_id IS NOT NULL
+        AND a.attacker_faction_id = w.enemy_faction_id
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
+    ),
+    bucket_rows AS (
+      SELECT
+        a.war_id,
+        a.attacker_id AS member_id,
+        CAST((a.started / ?) AS INTEGER) * ? AS bucket_start,
+        SUM(CASE
+          WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+           AND a.result IN (${POSITIVE_RESULTS_SQL})
+          THEN 1
+          ELSE 0
+        END) AS attacks_successful,
+        SUM(CASE
+          WHEN w.enemy_faction_id IS NOT NULL
+           AND (
+             a.defender_faction_id IS NULL
+             OR a.defender_faction_id != w.enemy_faction_id
+           )
+           AND NOT (
+             a.defender_faction_id = ${HOME_FACTION_ID}
+             AND a.result = 'Hospitalized'
+           )
+          THEN 1
+          ELSE 0
+        END) AS outside_hits,
+        0 AS defends_lost,
+        COALESCE(SUM(CASE
+          WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+           AND a.result IN (${POSITIVE_RESULTS_SQL})
+          THEN CASE
+            WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
+            THEN COALESCE(oma.avg_respect, owa.avg_respect, 0)
+            ELSE a.respect_gain
+          END
+          ELSE 0
+        END), 0) AS respect_gained,
+        0 AS respect_lost
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      LEFT JOIN outgoing_member_averages oma ON oma.member_id = a.attacker_id
+      LEFT JOIN outgoing_war_average owa ON 1 = 1
+      WHERE a.war_id = ?
+        ${ingestFilter}
+        AND a.started IS NOT NULL
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND a.attacker_id IS NOT NULL
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+      GROUP BY a.war_id, a.attacker_id, bucket_start
+      HAVING attacks_successful > 0
+        OR outside_hits > 0
+        OR respect_gained > 0
+
+      UNION ALL
+
+      SELECT
+        a.war_id,
+        a.defender_id AS member_id,
+        CAST((a.started / ?) AS INTEGER) * ? AS bucket_start,
+        0 AS attacks_successful,
+        0 AS outside_hits,
+        SUM(CASE
+          WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+          THEN 1
+          ELSE 0
+        END) AS defends_lost,
+        0 AS respect_gained,
+        COALESCE(SUM(CASE
+          WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+          THEN CASE
+            WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
+            THEN COALESCE(dma.avg_respect, dwa.avg_respect, 0)
+            ELSE a.respect_gain
+          END
+          ELSE 0
+        END), 0) AS respect_lost
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      LEFT JOIN defend_member_averages dma ON dma.attacker_id = a.attacker_id
+      LEFT JOIN defend_war_average dwa ON 1 = 1
+      WHERE a.war_id = ?
+        ${ingestFilter}
+        AND a.started IS NOT NULL
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_id IS NOT NULL
+        AND w.enemy_faction_id IS NOT NULL
+        AND a.attacker_faction_id = w.enemy_faction_id
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
+      GROUP BY a.war_id, a.defender_id, bucket_start
+      HAVING defends_lost > 0
+        OR respect_lost > 0
+    ),
+    grouped_rows AS (
+      SELECT
+        war_id,
+        member_id,
+        bucket_start,
+        SUM(attacks_successful) AS attacks_successful,
+        SUM(outside_hits) AS outside_hits,
+        SUM(defends_lost) AS defends_lost,
+        SUM(respect_gained) AS respect_gained,
+        SUM(respect_lost) AS respect_lost
+      FROM bucket_rows
+      GROUP BY war_id, member_id, bucket_start
+    )
+    INSERT INTO war_member_activity_buckets (
+      war_id,
+      member_id,
+      bucket_start,
+      attacks_successful,
+      outside_hits,
+      defends_lost,
+      respect_gained,
+      respect_lost
+    )
+    SELECT
+      war_id,
+      member_id,
+      bucket_start,
+      attacks_successful,
+      outside_hits,
+      defends_lost,
+      respect_gained,
+      respect_lost
+    FROM grouped_rows
+    ON CONFLICT(war_id, member_id, bucket_start) DO UPDATE SET
+      attacks_successful = war_member_activity_buckets.attacks_successful + excluded.attacks_successful,
+      outside_hits = war_member_activity_buckets.outside_hits + excluded.outside_hits,
+      defends_lost = war_member_activity_buckets.defends_lost + excluded.defends_lost,
+      respect_gained = war_member_activity_buckets.respect_gained + excluded.respect_gained,
+      respect_lost = war_member_activity_buckets.respect_lost + excluded.respect_lost
+    `,
+  )
+    .bind(...bindValues)
+    .run();
 }
 
 async function upsertIngestedWarMemberAttackStats(

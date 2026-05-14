@@ -13,7 +13,7 @@ import {
   WAR_SELECT_COLUMNS_WITH_ALIAS,
 } from "./sql";
 import { Env, WarRow, WarSummaryRow } from "./types";
-import { json, parseLimit } from "./utils";
+import { json, nowSeconds, parseLimit } from "./utils";
 
 export async function listWars(url: URL, env: Env): Promise<Response> {
   try {
@@ -503,6 +503,120 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
       bucket_minutes: bucketMinutes,
       window: windowMode,
       buckets,
+    });
+  } catch (err: any) {
+    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
+  }
+}
+
+export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<Response> {
+  try {
+    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+
+    if (!name) {
+      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
+    }
+
+    const bucketMinutes = 15;
+    const bucketSeconds = bucketMinutes * 60;
+    const war = (await env.DB.prepare(
+      `
+      SELECT
+        id,
+        name,
+        enemy_faction_id,
+        practical_start_time,
+        practical_finish_time,
+        official_start_time,
+        official_end_time
+      FROM wars
+      WHERE LOWER(name) = LOWER(?)
+      LIMIT 1
+      `,
+    )
+      .bind(name)
+      .first()) as {
+      id: number;
+      name: string;
+      enemy_faction_id: number | null;
+      practical_start_time: number;
+      practical_finish_time: number | null;
+      official_start_time: number | null;
+      official_end_time: number | null;
+    } | null;
+
+    if (!war) {
+      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+    }
+
+    const startBucket = Math.floor(war.practical_start_time / bucketSeconds) * bucketSeconds;
+    const finishAt = war.practical_finish_time ?? nowSeconds();
+    const finishBucket = finishAt >= war.practical_start_time
+      ? Math.floor(finishAt / bucketSeconds) * bucketSeconds
+      : startBucket - bucketSeconds;
+    const timeBuckets: number[] = [];
+
+    for (let bucketStart = startBucket; bucketStart <= finishBucket; bucketStart += bucketSeconds) {
+      timeBuckets.push(bucketStart);
+    }
+
+    const members = await env.DB.prepare(
+      `
+      SELECT
+        member_id,
+        member_name,
+        attacks_vs_enemy_successful,
+        outside_hits,
+        defends_total,
+        defends_won,
+        defends_other,
+        respect_gained,
+        respect_lost
+      FROM war_member_stats
+      WHERE war_id = ?
+      ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, member_name ASC
+      `,
+    )
+      .bind(war.id)
+      .all();
+
+    const buckets = timeBuckets.length === 0
+      ? { results: [] }
+      : await env.DB.prepare(
+        `
+        SELECT
+          war_id,
+          member_id,
+          bucket_start,
+          attacks_successful,
+          outside_hits,
+          defends_lost,
+          respect_gained,
+          respect_lost
+        FROM war_member_activity_buckets
+        WHERE war_id = ?
+          AND bucket_start BETWEEN ? AND ?
+        ORDER BY bucket_start ASC, member_id ASC
+        `,
+      )
+        .bind(war.id, startBucket, finishBucket)
+        .all();
+
+    return json({
+      ok: true,
+      bucket_minutes: bucketMinutes,
+      war: {
+        id: war.id,
+        name: war.name,
+        enemy_faction_id: war.enemy_faction_id,
+        practical_start_time: war.practical_start_time,
+        practical_finish_time: war.practical_finish_time,
+        official_start_time: war.official_start_time,
+        official_end_time: war.official_end_time,
+      },
+      time_buckets: timeBuckets,
+      members: members.results ?? [],
+      buckets: buckets.results ?? [],
     });
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
