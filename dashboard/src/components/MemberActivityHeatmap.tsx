@@ -1,4 +1,5 @@
 import React from "react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import {
   WarMemberActivityBucket,
   WarMemberActivityHeatmapResponse,
@@ -9,7 +10,7 @@ import { EmptyState } from "./Common";
 import { formatLongDateTime, formatNumber, formatTime } from "../utils/format";
 
 const metricOptions: Array<{ key: WarMemberActivityMetric; label: string; color: "blue" | "red" | "green" }> = [
-  { key: "attacks_successful", label: "Attacks", color: "blue" },
+  { key: "attacks_successful", label: "Attacks", color: "green" },
   { key: "outside_hits", label: "Outside hits", color: "blue" },
   { key: "defends_lost", label: "Defends lost", color: "red" },
   { key: "respect_gained", label: "Respect gained", color: "green" },
@@ -40,6 +41,7 @@ export function MemberActivityHeatmap({
   const [metric, setMetric] = React.useState<WarMemberActivityMetric>("attacks_successful");
   const [selection, setSelection] = React.useState<GridSelection | null>(null);
   const [dragAnchor, setDragAnchor] = React.useState<{ memberIndex: number; bucketIndex: number } | null>(null);
+  const [isExpanded, setIsExpanded] = React.useState(false);
 
   React.useEffect(() => {
     if (!dragAnchor) {
@@ -57,7 +59,23 @@ export function MemberActivityHeatmap({
   React.useEffect(() => {
     setSelection(null);
     setDragAnchor(null);
+    setIsExpanded(false);
   }, [heatmap?.war.id]);
+
+  React.useEffect(() => {
+    if (!isExpanded) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsExpanded(false);
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [isExpanded]);
 
   if (isLoading) {
     return <EmptyState text="Loading member activity" />;
@@ -135,7 +153,7 @@ export function MemberActivityHeatmap({
   }
 
   return (
-    <div className="member-activity-heatmap">
+    <div className={isExpanded ? "member-activity-heatmap expanded" : "member-activity-heatmap"}>
       <div className="member-activity-toolbar">
         <div className="panel-toggle-row" aria-label="Member activity metric">
           {metricOptions.map((option) => (
@@ -149,7 +167,18 @@ export function MemberActivityHeatmap({
             </button>
           ))}
         </div>
-        <SelectionSummary summary={selectionSummary} metric={metric} />
+        <div className="member-activity-toolbar-actions">
+          <SelectionSummary summary={selectionSummary} metric={metric} />
+          <button
+            type="button"
+            className="panel-action-button member-activity-size-button"
+            title={isExpanded ? "Collapse heatmap" : "Expand heatmap"}
+            aria-label={isExpanded ? "Collapse heatmap" : "Expand heatmap"}
+            onClick={() => setIsExpanded((current) => !current)}
+          >
+            {isExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
+        </div>
       </div>
 
       <div className="member-activity-grid-wrap">
@@ -215,9 +244,7 @@ export function MemberActivityHeatmap({
                     title={`${displayMember(member)} | ${formatTime(bucketStart)}-${formatTime(bucketStart + data.bucket_minutes * 60)} | ${metricOption.label}: ${formatNumber(value)}`}
                     onMouseDown={() => beginSelection(memberIndex, bucketIndex)}
                     onMouseEnter={() => extendSelection(memberIndex, bucketIndex)}
-                  >
-                    {value > 0 ? formatCompactCell(value) : ""}
-                  </button>
+                  />
                 );
               })}
             </React.Fragment>
@@ -352,16 +379,4 @@ function activityCellColor(value: number, maxValue: number, color: "blue" | "red
   }[color];
 
   return `rgba(${colors[0]}, ${colors[1]}, ${colors[2]}, ${0.16 + intensity * 0.72})`;
-}
-
-function formatCompactCell(value: number): string {
-  if (value >= 1000) {
-    return "999";
-  }
-
-  if (value >= 100) {
-    return String(Math.round(value));
-  }
-
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
