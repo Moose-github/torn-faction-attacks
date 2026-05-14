@@ -84,6 +84,7 @@ export async function finalizeWar(env: Env, warId: number): Promise<void> {
 
 export async function rebuildDerivedStatsFromRaw(env: Env, warId?: number): Promise<{
   wars_rebuilt: number;
+  activity_bucket_rows: number;
 }> {
   if (warId !== undefined) {
     const war = (await env.DB.prepare(
@@ -98,12 +99,15 @@ export async function rebuildDerivedStatsFromRaw(env: Env, warId?: number): Prom
       .first()) as { id: number } | null;
 
     if (!war) {
-      return { wars_rebuilt: 0 };
+      return { wars_rebuilt: 0, activity_bucket_rows: 0 };
     }
 
     await rebuildWarMemberStatsFromRaw(env, war.id);
     await rebuildWarSummaryFromMemberStats(env, war.id);
-    return { wars_rebuilt: 1 };
+    return {
+      wars_rebuilt: 1,
+      activity_bucket_rows: await countWarMemberActivityBuckets(env, war.id),
+    };
   }
 
   await resetDerivedWarMemberStats(env);
@@ -125,7 +129,29 @@ export async function rebuildDerivedStatsFromRaw(env: Env, warId?: number): Prom
 
   return {
     wars_rebuilt: wars.length,
+    activity_bucket_rows: await countWarMemberActivityBuckets(env),
   };
+}
+
+async function countWarMemberActivityBuckets(env: Env, warId?: number): Promise<number> {
+  const row = warId === undefined
+    ? await env.DB.prepare(
+      `
+      SELECT COUNT(*) AS count
+      FROM war_member_activity_buckets
+      `,
+    ).first()
+    : await env.DB.prepare(
+      `
+      SELECT COUNT(*) AS count
+      FROM war_member_activity_buckets
+      WHERE war_id = ?
+      `,
+    )
+      .bind(warId)
+      .first();
+
+  return Number((row as { count?: number | null } | null)?.count ?? 0);
 }
 
 export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Promise<void> {

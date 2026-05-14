@@ -111,7 +111,11 @@ export default {
       if (warId !== undefined && (!Number.isInteger(warId) || warId <= 0)) {
         return json({ ok: false, error: "Invalid war_id", code: "INVALID_WAR_ID" }, 400);
       }
-      const cooldownError = await requireActionCooldown(env, "manual_rebuild", 15 * 60);
+      const cooldownError = await requireActionCooldown(
+        env,
+        warId === undefined ? "manual_rebuild:all" : `manual_rebuild:${warId}`,
+        15 * 60,
+      );
       if (cooldownError) return cooldownError;
       const result = await rebuildDerivedStatsFromRaw(env, warId);
       if (warId !== undefined && result.wars_rebuilt === 0) {
