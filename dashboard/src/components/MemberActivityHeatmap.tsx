@@ -1,5 +1,5 @@
 import React from "react";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { Maximize2, Minimize2, ZoomIn, ZoomOut } from "lucide-react";
 import {
   WarMemberActivityBucket,
   WarMemberActivityHeatmapResponse,
@@ -16,6 +16,8 @@ const metricOptions: Array<{ key: WarMemberActivityMetric; label: string; color:
   { key: "respect_gained", label: "Respect gained", color: "green" },
   { key: "respect_lost", label: "Respect lost", color: "red" },
 ];
+const zoomLevels = [0.75, 1, 1.25, 1.5, 2];
+const defaultZoomIndex = 1;
 
 type GridSelection = {
   startMemberIndex: number;
@@ -42,6 +44,7 @@ export function MemberActivityHeatmap({
   const [selection, setSelection] = React.useState<GridSelection | null>(null);
   const [dragAnchor, setDragAnchor] = React.useState<{ memberIndex: number; bucketIndex: number } | null>(null);
   const [isExpanded, setIsExpanded] = React.useState(false);
+  const [zoomIndex, setZoomIndex] = React.useState(defaultZoomIndex);
 
   React.useEffect(() => {
     if (!dragAnchor) {
@@ -104,6 +107,18 @@ export function MemberActivityHeatmap({
   const selectionSummary = normalizedSelection
     ? summarizeSelection(data.members, data.time_buckets, bucketMap, normalizedSelection)
     : null;
+  const zoom = zoomLevels[zoomIndex] ?? 1;
+  const cellWidth = Math.round(22 * zoom);
+  const cellHeight = Math.round(24 * zoom);
+  const headerHeight = Math.max(30, Math.round(30 * zoom));
+  const canZoomOut = zoomIndex > 0;
+  const canZoomIn = zoomIndex < zoomLevels.length - 1;
+  const gridStyle = {
+    "--member-activity-cell-width": `${cellWidth}px`,
+    "--member-activity-cell-height": `${cellHeight}px`,
+    "--member-activity-header-height": `${headerHeight}px`,
+    gridTemplateColumns: `minmax(150px, 220px) repeat(${data.time_buckets.length}, var(--member-activity-cell-width))`,
+  } as React.CSSProperties;
 
   function beginSelection(memberIndex: number, bucketIndex: number) {
     setDragAnchor({ memberIndex, bucketIndex });
@@ -169,9 +184,32 @@ export function MemberActivityHeatmap({
         </div>
         <div className="member-activity-toolbar-actions">
           <SelectionSummary summary={selectionSummary} metric={metric} />
+          <div className="member-activity-zoom-controls" aria-label="Member activity zoom">
+            <button
+              type="button"
+              className="panel-action-button member-activity-icon-button"
+              title="Zoom out"
+              aria-label="Zoom out"
+              disabled={!canZoomOut}
+              onClick={() => setZoomIndex((current) => Math.max(0, current - 1))}
+            >
+              <ZoomOut size={15} />
+            </button>
+            <span className="member-activity-zoom-value">{Math.round(zoom * 100)}%</span>
+            <button
+              type="button"
+              className="panel-action-button member-activity-icon-button"
+              title="Zoom in"
+              aria-label="Zoom in"
+              disabled={!canZoomIn}
+              onClick={() => setZoomIndex((current) => Math.min(zoomLevels.length - 1, current + 1))}
+            >
+              <ZoomIn size={15} />
+            </button>
+          </div>
           <button
             type="button"
-            className="panel-action-button member-activity-size-button"
+            className="panel-action-button member-activity-icon-button"
             title={isExpanded ? "Collapse heatmap" : "Expand heatmap"}
             aria-label={isExpanded ? "Collapse heatmap" : "Expand heatmap"}
             onClick={() => setIsExpanded((current) => !current)}
@@ -184,9 +222,7 @@ export function MemberActivityHeatmap({
       <div className="member-activity-grid-wrap">
         <div
           className="member-activity-grid"
-          style={{
-            gridTemplateColumns: `minmax(150px, 220px) repeat(${data.time_buckets.length}, 22px)`,
-          }}
+          style={gridStyle}
           onMouseLeave={() => setDragAnchor(null)}
         >
           <div className="member-activity-corner">Member</div>
