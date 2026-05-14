@@ -16,8 +16,8 @@ const metricOptions: Array<{ key: WarMemberActivityMetric; label: string; color:
   { key: "respect_gained", label: "Respect gained", color: "green" },
   { key: "respect_lost", label: "Respect lost", color: "red" },
 ];
-const zoomLevels = [0.75, 1, 1.25, 1.5, 2];
-const defaultZoomIndex = 1;
+const zoomLevels = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+const defaultZoomIndex = 3;
 
 type GridSelection = {
   startMemberIndex: number;
