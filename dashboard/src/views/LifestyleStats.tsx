@@ -4,7 +4,7 @@ import {
   getMemberLifestyleStats,
   MemberLifestyleStats,
 } from "../api";
-import { MetricCard, PanelHeader } from "../components/Common";
+import { PanelHeader } from "../components/Common";
 import { downloadCsv, sanitizeCsvFilename } from "../utils/csv";
 import { formatNetworth, formatNumber, formatRelativeTime } from "../utils/format";
 
@@ -84,6 +84,35 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
   const totalXanax = stats?.summary.total_xantaken ?? 0;
   const dailyGymEnergy = stats?.summary.average_gymenergy ?? 0;
   const totalGymEnergy = stats?.summary.total_gymenergy ?? 0;
+  const factionDailyXanax = totalXanax / Math.max(1, periodLengthDays);
+  const factionDailyGymEnergy = totalGymEnergy / Math.max(1, periodLengthDays);
+  const availableStartDate = stats?.period.available_start_date ?? null;
+  const availableEndDate = stats?.period.available_end_date ?? null;
+  const hasAvailableRange = availableStartDate !== null && availableEndDate !== null;
+
+  function updateStartDate(value: string) {
+    setPeriod((current) => {
+      const startDate = clampDateToAvailableRange(value, availableStartDate, availableEndDate);
+      const endDate = clampDateToAvailableRange(
+        current.endDate < startDate ? startDate : current.endDate,
+        availableStartDate,
+        availableEndDate,
+      );
+      return { startDate, endDate };
+    });
+  }
+
+  function updateEndDate(value: string) {
+    setPeriod((current) => {
+      const endDate = clampDateToAvailableRange(value, availableStartDate, availableEndDate);
+      const startDate = clampDateToAvailableRange(
+        current.startDate > endDate ? endDate : current.startDate,
+        availableStartDate,
+        availableEndDate,
+      );
+      return { startDate, endDate };
+    });
+  }
 
   return (
     <>
@@ -97,17 +126,19 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
       </section>
 
       <section className="status-grid lifestyle-status-grid">
-        <MetricCard
+        <LifestyleAverageCard
           label="Daily Xanax"
           value={formatNumber(dailyXanax)}
-          detail={`Faction total ${formatNumber(totalXanax)}`}
           icon={<Pill size={18} />}
+          factionDailyValue={formatNumber(factionDailyXanax)}
+          factionTotalValue={formatNumber(totalXanax)}
         />
-        <MetricCard
+        <LifestyleAverageCard
           label="Daily Gym energy"
           value={formatNumber(dailyGymEnergy)}
-          detail={`Faction total ${formatNumber(totalGymEnergy)}`}
           icon={<Dumbbell size={18} />}
+          factionDailyValue={formatNumber(factionDailyGymEnergy)}
+          factionTotalValue={formatNumber(totalGymEnergy)}
         />
         <section className="metric-card lifestyle-period-card">
           <div className="panel-kicker">
@@ -121,7 +152,10 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
               <input
                 type="date"
                 value={period.startDate}
-                onChange={(event) => setPeriod((current) => ({ ...current, startDate: event.target.value }))}
+                min={availableStartDate ?? undefined}
+                max={availableEndDate ?? undefined}
+                disabled={!hasAvailableRange}
+                onChange={(event) => updateStartDate(event.target.value)}
               />
             </label>
             <label>
@@ -129,10 +163,20 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
               <input
                 type="date"
                 value={period.endDate}
-                onChange={(event) => setPeriod((current) => ({ ...current, endDate: event.target.value }))}
+                min={availableStartDate ?? undefined}
+                max={availableEndDate ?? undefined}
+                disabled={!hasAvailableRange}
+                onChange={(event) => updateEndDate(event.target.value)}
               />
             </label>
           </div>
+          {hasAvailableRange ? (
+            <span className="lifestyle-date-range-note">
+              Available {availableStartDate} to {availableEndDate}
+            </span>
+          ) : (
+            <span className="lifestyle-date-range-note">No snapshot data available yet</span>
+          )}
         </section>
       </section>
 
@@ -162,6 +206,41 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
         <LifestyleTable members={members} sort={sort} onSortChange={setSort} />
       </section>
     </>
+  );
+}
+
+function LifestyleAverageCard({
+  label,
+  value,
+  icon,
+  factionDailyValue,
+  factionTotalValue,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  factionDailyValue: string;
+  factionTotalValue: string;
+}) {
+  return (
+    <article className="metric-card lifestyle-average-card">
+      <div className="panel-kicker">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <strong>{value}</strong>
+      <span className="lifestyle-main-metric-label">Avg per player / day</span>
+      <div className="lifestyle-sub-metrics">
+        <span>
+          <b>{factionDailyValue}</b>
+          <small>Faction / day</small>
+        </span>
+        <span>
+          <b>{factionTotalValue}</b>
+          <small>Faction total</small>
+        </span>
+      </div>
+    </article>
   );
 }
 
@@ -322,6 +401,22 @@ function cell(value: number | null): string {
 
 function networthTitle(networth: number | null): string {
   return networth === null ? "No networth loaded" : `Exact networth: ${formatNumber(networth)}`;
+}
+
+function clampDateToAvailableRange(
+  value: string,
+  availableStartDate: string | null,
+  availableEndDate: string | null,
+): string {
+  if (availableStartDate && value < availableStartDate) {
+    return availableStartDate;
+  }
+
+  if (availableEndDate && value > availableEndDate) {
+    return availableEndDate;
+  }
+
+  return value;
 }
 
 function formatHeaderLabel(label: string): React.ReactNode {

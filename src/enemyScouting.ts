@@ -222,6 +222,8 @@ export async function getScoutingComparisonForWar(url: URL, env: Env): Promise<R
     war: {
       id: war.id,
       name: war.name,
+      practical_finish_time: war.practical_finish_time,
+      official_end_time: war.official_end_time,
       enemy_faction_id: war.enemy_faction_id,
     },
     home: {
@@ -1669,6 +1671,8 @@ function jsonEnemyScouting(
     war: {
       id: war.id,
       name: war.name,
+      practical_finish_time: war.practical_finish_time,
+      official_end_time: war.official_end_time,
       enemy_faction_id: war.enemy_faction_id,
     },
     summary: {

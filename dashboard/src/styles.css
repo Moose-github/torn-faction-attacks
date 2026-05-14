@@ -1570,6 +1570,44 @@ h2 {
   min-height: 132px;
 }
 
+.lifestyle-average-card {
+  min-height: 150px;
+}
+
+.lifestyle-main-metric-label {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.lifestyle-sub-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.lifestyle-sub-metrics span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lifestyle-sub-metrics b {
+  overflow-wrap: anywhere;
+  color: #10213f;
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.lifestyle-sub-metrics small {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .member-performance-filter-card {
   min-height: 132px;
 }
@@ -1591,6 +1629,14 @@ h2 {
 .lifestyle-period-card input {
   width: 138px;
   min-height: 34px;
+}
+
+.lifestyle-date-range-note {
+  display: block;
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .report-validation-table td:first-child {

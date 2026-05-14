@@ -199,6 +199,8 @@ export async function getWarActivityHeatmap(url: URL, env: Env): Promise<Respons
     war: {
       id: war.id,
       name: war.name,
+      practical_finish_time: war.practical_finish_time,
+      official_end_time: war.official_end_time,
       enemy_faction_id: war.enemy_faction_id,
     },
     home_faction_id: HOME_FACTION_ID,

@@ -266,7 +266,9 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return cachedGetJson(request, ctx, 30 * 60, () => getWarReportDiscrepancies(url, env));
+      return cachedGetJson(request, ctx, warDataTtlSeconds(30 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+        getWarReportDiscrepancies(url, env),
+      );
     }
 
     if (
@@ -276,7 +278,9 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return cachedGetJson(request, ctx, 5 * 60, () => getEnemyScoutingForWar(url, env));
+      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+        getEnemyScoutingForWar(url, env),
+      );
     }
 
     if (
@@ -286,7 +290,9 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return cachedGetJson(request, ctx, 5 * 60, () => getScoutingComparisonForWar(url, env));
+      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+        getScoutingComparisonForWar(url, env),
+      );
     }
 
     if (
@@ -323,7 +329,7 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(55, 30 * 60), () =>
+      return cachedGetJson(request, ctx, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
         getWarMemberActivityHeatmap(url, env),
       );
     }
@@ -335,7 +341,9 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, 30 * 60), () => getWarActivity(url, env));
+      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+        getWarActivity(url, env),
+      );
     }
 
     if (
@@ -345,7 +353,9 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return cachedGetJson(request, ctx, 5 * 60, () => getWarActivityHeatmap(url, env));
+      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+        getWarActivityHeatmap(url, env),
+      );
     }
 
     if (
@@ -355,7 +365,7 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(15 * 60, 30 * 60), () =>
+      return cachedGetJson(request, ctx, warDataTtlSeconds(15 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
         getWarChainBonusesForWar(url, env),
       );
     }
@@ -380,7 +390,7 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(55, 30 * 60), () => getWar(url, env));
+      return cachedGetJson(request, ctx, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () => getWar(url, env));
     }
 
     if (url.pathname === "/api/stats" && request.method === "GET") {
@@ -459,6 +469,8 @@ type MemoryCacheEntry = {
 
 const memoryResponseCache = new Map<string, MemoryCacheEntry>();
 const MAX_MEMORY_CACHE_ENTRIES = 100;
+const PRACTICAL_FINISH_CACHE_TTL_SECONDS = 15 * 60;
+const OFFICIAL_END_CACHE_TTL_SECONDS = 3 * 60 * 60;
 
 async function cachedGetJson(
   request: Request,
@@ -522,7 +534,7 @@ function warDataTtlSeconds(activeTtlSeconds: number, endedTtlSeconds: number): (
     }
 
     if (war?.practical_finish_time !== null && war?.practical_finish_time !== undefined) {
-      return 5 * 60;
+      return PRACTICAL_FINISH_CACHE_TTL_SECONDS;
     }
 
     return activeTtlSeconds;

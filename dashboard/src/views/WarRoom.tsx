@@ -8,11 +8,9 @@ import {
   getEnemyScouting,
   getScoutingComparison,
   getWarActivityHeatmap,
-  getWarMemberActivityHeatmap,
   refreshAuthSession,
   refreshEnemyScouting,
   ScoutingComparisonResponse,
-  WarMemberActivityHeatmapResponse,
   WarSummary,
 } from "../api";
 import {
@@ -22,7 +20,6 @@ import {
 } from "../components/Charts";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { EnemyScoutingPanel } from "../components/EnemyScouting";
-import { MemberActivityHeatmap } from "../components/MemberActivityHeatmap";
 import { formatLongDateTime, formatNumber, formatRelativeTime, formatTime } from "../utils/format";
 
 const WAR_ROOM_HEATMAP_REFRESH_MS = 15 * 60_000;
@@ -51,12 +48,8 @@ export function WarRoom({
   const [activityHeatmap, setActivityHeatmap] =
     React.useState<FactionActivityHeatmapResponse | null>(null);
   const [isLoadingActivityHeatmap, setIsLoadingActivityHeatmap] = React.useState(false);
-  const [memberActivityHeatmap, setMemberActivityHeatmap] =
-    React.useState<WarMemberActivityHeatmapResponse | null>(null);
-  const [isLoadingMemberActivityHeatmap, setIsLoadingMemberActivityHeatmap] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({
     activityHeatmaps: true,
-    memberActivityHeatmap: true,
     revivableMembers: true,
   });
   const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
@@ -69,7 +62,6 @@ export function WarRoom({
     ? isWarRoomMemberTrackingActive(selectedWar, Math.floor(now / 1000))
     : false;
   const isActivityHeatmapsOpen = collapsedPanels.activityHeatmaps === false;
-  const isMemberActivityHeatmapOpen = collapsedPanels.memberActivityHeatmap === false;
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -194,39 +186,6 @@ export function WarRoom({
   }, [canLoadScouting, isActivityHeatmapsOpen, selectedWar?.id, selectedWarName]);
 
   React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadMemberActivityHeatmap() {
-      if (!selectedWarName || !selectedWar || !canLoadScouting || !isMemberActivityHeatmapOpen) {
-        setMemberActivityHeatmap(null);
-        return;
-      }
-
-      setIsLoadingMemberActivityHeatmap(true);
-
-      try {
-        const response = await getWarMemberActivityHeatmap(selectedWarName);
-        if (!cancelled) {
-          setMemberActivityHeatmap(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setMemberActivityHeatmap(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingMemberActivityHeatmap(false);
-        }
-      }
-    }
-
-    loadMemberActivityHeatmap();
-    return () => {
-      cancelled = true;
-    };
-  }, [canLoadScouting, isMemberActivityHeatmapOpen, selectedWar?.id, selectedWarName]);
-
-  React.useEffect(() => {
     if (!selectedWarName || !selectedWar || !canLoadScouting || !isWarLive) {
       return;
     }
@@ -257,31 +216,6 @@ export function WarRoom({
       window.clearInterval(timer);
     };
   }, [canLoadScouting, isActivityHeatmapsOpen, isWarLive, selectedWar?.id, selectedWarName]);
-
-  React.useEffect(() => {
-    if (!selectedWarName || !selectedWar || !canLoadScouting || !isWarLive || !isMemberActivityHeatmapOpen) {
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setInterval(async () => {
-      try {
-        const response = await getWarMemberActivityHeatmap(selectedWarName);
-        if (!cancelled) {
-          setMemberActivityHeatmap(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setMemberActivityHeatmap(null);
-        }
-      }
-    }, WAR_ROOM_HEATMAP_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [canLoadScouting, isMemberActivityHeatmapOpen, isWarLive, selectedWar?.id, selectedWarName]);
 
   React.useEffect(() => {
     if (!selectedWarName || !canLoadScouting || !isWarLive) {
@@ -321,9 +255,6 @@ export function WarRoom({
       setScoutingComparison(await getScoutingComparison(selectedWarName));
       if (isActivityHeatmapsOpen) {
         setActivityHeatmap(await getWarActivityHeatmap(selectedWarName, selectedWar.id));
-      }
-      if (isMemberActivityHeatmapOpen) {
-        setMemberActivityHeatmap(await getWarMemberActivityHeatmap(selectedWarName));
       }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -417,19 +348,6 @@ export function WarRoom({
             metric={scoutingComparisonMetric}
             metricLabel={scoutingComparisonMetricLabel(scoutingComparisonMetric).toLowerCase()}
           />
-        </CollapsiblePanel>
-
-        <CollapsiblePanel
-          title="Member activity heatmap"
-          aside={isLoadingMemberActivityHeatmap ? "Loading" : "15 minute buckets"}
-          collapsed={collapsedPanels.memberActivityHeatmap ?? true}
-          onToggle={() => togglePanel("memberActivityHeatmap")}
-          className="member-activity-panel"
-        >
-          <p className="panel-description">
-            Shows member attack and defend activity by 15-minute war bucket. Drag cells, rows, or time columns to total a selection.
-          </p>
-          <MemberActivityHeatmap heatmap={memberActivityHeatmap} isLoading={isLoadingMemberActivityHeatmap} />
         </CollapsiblePanel>
 
         <CollapsiblePanel

@@ -468,6 +468,8 @@ export type MemberLifestyleStatsResponse = {
   period: {
     start_date: string;
     end_date: string;
+    available_start_date: string | null;
+    available_end_date: string | null;
     days: number;
     max_days: number;
     capped: boolean;

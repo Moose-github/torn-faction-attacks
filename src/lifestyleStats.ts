@@ -103,7 +103,8 @@ type LifestyleSnapshotNumberKey =
   | "gymdexterity";
 
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
-  const period = readLifestylePeriod(url);
+  const availableRange = await readLifestyleSnapshotDateRange(env);
+  const period = readLifestylePeriod(url, availableRange);
   const snapshotRows = ((await env.DB.prepare(
     `
     SELECT
@@ -260,6 +261,28 @@ async function isDailyLifestyleRefreshComplete(
     .first() as { last_started?: number } | null;
 
   return Number(existing?.last_started ?? 0) >= refreshAt;
+}
+
+async function readLifestyleSnapshotDateRange(
+  env: Env,
+): Promise<{ start_date: string; end_date: string } | null> {
+  const row = (await env.DB.prepare(
+    `
+    SELECT
+      MIN(snapshot_date) AS start_date,
+      MAX(snapshot_date) AS end_date
+    FROM member_lifestyle_stat_snapshots
+    `,
+  ).first()) as { start_date: string | null; end_date: string | null } | null;
+
+  if (!row?.start_date || !row.end_date) {
+    return null;
+  }
+
+  return {
+    start_date: row.start_date,
+    end_date: row.end_date,
+  };
 }
 
 async function resetDailyLifestylePersonalStatsIfNeeded(
@@ -814,30 +837,65 @@ function summarizeLifestylePeriodRows(rows: LifestylePeriodRow[]) {
   };
 }
 
-function readLifestylePeriod(url: URL): {
+function readLifestylePeriod(
+  url: URL,
+  availableRange: { start_date: string; end_date: string } | null = null,
+): {
   start_date: string;
   end_date: string;
+  available_start_date: string | null;
+  available_end_date: string | null;
   days: number;
   max_days: number;
   capped: boolean;
 } {
   const current = currentUtcMonthRange();
-  const startDate = normalizeDateParam(url.searchParams.get("start_date")) ?? current.start_date;
-  const endDate = normalizeDateParam(url.searchParams.get("end_date")) ?? current.end_date;
+  const startDate = clampDateToRange(
+    normalizeDateParam(url.searchParams.get("start_date")) ?? current.start_date,
+    availableRange,
+  );
+  const endDate = clampDateToRange(
+    normalizeDateParam(url.searchParams.get("end_date")) ?? current.end_date,
+    availableRange,
+  );
   const normalizedEnd = startDate > endDate ? startDate : endDate;
   const days = Math.max(1, dateDiffDays(startDate, normalizedEnd));
   const capped = days > MAX_LIFESTYLE_PERIOD_DAYS;
-  const cappedStartDate = capped
-    ? dateKeyFromMs(Date.parse(`${normalizedEnd}T00:00:00.000Z`) - MAX_LIFESTYLE_PERIOD_DAYS * 86_400_000)
-    : startDate;
+  const cappedStartDate = clampDateToRange(
+    capped
+      ? dateKeyFromMs(Date.parse(`${normalizedEnd}T00:00:00.000Z`) - MAX_LIFESTYLE_PERIOD_DAYS * 86_400_000)
+      : startDate,
+    availableRange,
+  );
 
   return {
     start_date: cappedStartDate,
     end_date: normalizedEnd,
+    available_start_date: availableRange?.start_date ?? null,
+    available_end_date: availableRange?.end_date ?? null,
     days: Math.max(1, dateDiffDays(cappedStartDate, normalizedEnd)),
     max_days: MAX_LIFESTYLE_PERIOD_DAYS,
     capped,
   };
+}
+
+function clampDateToRange(
+  date: string,
+  range: { start_date: string; end_date: string } | null,
+): string {
+  if (!range) {
+    return date;
+  }
+
+  if (date < range.start_date) {
+    return range.start_date;
+  }
+
+  if (date > range.end_date) {
+    return range.end_date;
+  }
+
+  return date;
 }
 
 function currentUtcMonthRange(): { start_date: string; end_date: string } {
