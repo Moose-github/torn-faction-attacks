@@ -19,6 +19,7 @@ import {
   getWar,
   getWarActivity,
   getWarChainBonuses,
+  getWarMemberActivityHeatmap,
   getWarMemberAttacks,
   getWarReportDiscrepancies,
   getWars,
@@ -31,6 +32,7 @@ import {
   ReportDiscrepanciesResponse,
   WarDetailResponse,
   WarActivityBucket,
+  WarMemberActivityHeatmapResponse,
   WarSummary,
   WarType,
 } from "./api";
@@ -44,6 +46,7 @@ import {
   PanelHeader,
 } from "./components/Common";
 import { MemberAttackList, MemberTable } from "./components/MemberTables";
+import { MemberActivityHeatmap } from "./components/MemberActivityHeatmap";
 import {
   discrepancyAside,
   formatReportComparison,
@@ -113,6 +116,9 @@ function App() {
   const [factionActivityWindow, setFactionActivityWindow] = React.useState<"practical" | "official">("practical");
   const [activityBuckets, setActivityBuckets] = React.useState<WarActivityBucket[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
+  const [memberActivityHeatmap, setMemberActivityHeatmap] =
+    React.useState<WarMemberActivityHeatmapResponse | null>(null);
+  const [isLoadingMemberActivityHeatmap, setIsLoadingMemberActivityHeatmap] = React.useState(false);
   const [reportDiscrepancies, setReportDiscrepancies] = React.useState<ReportDiscrepanciesResponse | null>(null);
   const [isLoadingReportDiscrepancies, setIsLoadingReportDiscrepancies] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({});
@@ -233,6 +239,7 @@ function App() {
   const isAdmin = authSession?.access_level === "admin";
   const isActivityPanelOpen =
     collapsedPanels.factionActivity === false || collapsedPanels.enemyActivity === false;
+  const isMemberActivityPanelOpen = collapsedPanels.memberActivityHeatmap === false;
   const isReportValidationOpen = collapsedPanels.reportValidation === false;
 
   React.useEffect(() => {
@@ -325,6 +332,59 @@ function App() {
     authSession,
     factionActivityWindow,
     isActivityPanelOpen,
+    selectedWar?.official_end_time,
+    selectedWar?.status,
+    selectedWarName,
+    view,
+  ]);
+
+  React.useEffect(() => {
+    if (!authSession || view !== "war" || !selectedWarName || !selectedWar || !isMemberActivityPanelOpen) {
+      setMemberActivityHeatmap(null);
+      return;
+    }
+
+    let cancelled = false;
+    const heatmapWarName = selectedWarName;
+
+    async function loadMemberActivityHeatmap() {
+      setIsLoadingMemberActivityHeatmap(true);
+      setError(null);
+
+      try {
+        const response = await getWarMemberActivityHeatmap(heatmapWarName);
+        if (!cancelled) {
+          setMemberActivityHeatmap(response);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+          setMemberActivityHeatmap(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingMemberActivityHeatmap(false);
+        }
+      }
+    }
+
+    loadMemberActivityHeatmap();
+
+    if (selectedWar.official_end_time !== null || selectedWar.status === "ended") {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const timer = window.setInterval(loadMemberActivityHeatmap, SLOW_WAR_REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    authSession,
+    isMemberActivityPanelOpen,
     selectedWar?.official_end_time,
     selectedWar?.status,
     selectedWarName,
@@ -518,6 +578,7 @@ function App() {
       hasTornReport);
   const showFactionActivity = hasWarData;
   const showEnemyActivity = hasWarData;
+  const showMemberActivityHeatmap = hasWarData;
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
   const isScheduledWar = selectedWar?.status === "scheduled";
 
@@ -833,6 +894,25 @@ function App() {
                     Shows enemy attacks against Buttgrass over time, split by lost, won, and other defend outcomes.
                   </p>
                   <ActivityChart buckets={activityBuckets} keys={["defend_lost", "defend_won", "defend_other"]} />
+                </CollapsiblePanel>
+              ) : null}
+
+              {showMemberActivityHeatmap ? (
+                <CollapsiblePanel
+                  title="Member activity heatmap"
+                  aside={isLoadingMemberActivityHeatmap && collapsedPanels.memberActivityHeatmap === false ? "Loading" : "15 minute buckets"}
+                  collapsed={collapsedPanels.memberActivityHeatmap ?? true}
+                  onToggle={() => togglePanel("memberActivityHeatmap")}
+                  className="member-activity-panel"
+                >
+                  <p className="panel-description">
+                    Shows member attacks, outside hits, defends lost, and respect by 15-minute war bucket.
+                    Drag cells, rows, or time columns to total a selection.
+                  </p>
+                  <MemberActivityHeatmap
+                    heatmap={memberActivityHeatmap}
+                    isLoading={isLoadingMemberActivityHeatmap}
+                  />
                 </CollapsiblePanel>
               ) : null}
 
