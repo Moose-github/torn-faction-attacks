@@ -621,6 +621,7 @@ async function upsertWarMemberActivityBuckets(
       respect_gained,
       respect_lost
     FROM grouped_rows
+    WHERE true
     ON CONFLICT(war_id, member_id, bucket_start) DO UPDATE SET
       attacks_successful = war_member_activity_buckets.attacks_successful + excluded.attacks_successful,
       outside_hits = war_member_activity_buckets.outside_hits + excluded.outside_hits,
