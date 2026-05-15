@@ -6,7 +6,6 @@ import {
   clearStoredAuthSession,
   createWar,
   deleteWar,
-  endActiveWar,
   exportWarAttacksCsv,
   fetchTornWarReport,
   getLatestIngestionRun,
@@ -63,16 +62,18 @@ export function AdminControls() {
     fetchMissing: false,
   });
   const [wars, setWars] = React.useState<WarSummary[]>([]);
-  const [officialEditForm, setOfficialEditForm] = React.useState<AdminWarFormState>(() =>
+  const [currentWarEditForm, setCurrentWarEditForm] = React.useState<AdminWarFormState>(() =>
+    defaultWarForm(),
+  );
+  const [historicalWarEditForm, setHistoricalWarEditForm] = React.useState<AdminWarFormState>(() =>
     defaultWarForm(),
   );
   const [eventEditForm, setEventEditForm] = React.useState<AdminWarFormState>(() => ({
     ...defaultWarForm(),
     warType: "event",
   }));
-  const [selectedOfficialWarId, setSelectedOfficialWarId] = React.useState("");
+  const [selectedHistoricalWarId, setSelectedHistoricalWarId] = React.useState("");
   const [selectedEventWarId, setSelectedEventWarId] = React.useState("");
-  const [practicalEndMode, setPracticalEndMode] = React.useState<"now" | "custom">("now");
   const [exportForm, setExportForm] = React.useState<AdminExportFormState>({
     warName: "",
     scope: "war_relevant" as "all" | "outgoing" | "war_relevant",
@@ -99,6 +100,7 @@ export function AdminControls() {
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [isEventPanelCollapsed, setIsEventPanelCollapsed] = React.useState(true);
+  const [isHistoricalWarPanelCollapsed, setIsHistoricalWarPanelCollapsed] = React.useState(true);
   const [isRepairPanelCollapsed, setIsRepairPanelCollapsed] = React.useState(true);
   const [ingestionRun, setIngestionRun] = React.useState<IngestionRun | null>(null);
   const [isLoadingIngestionRun, setIsLoadingIngestionRun] = React.useState(false);
@@ -163,14 +165,21 @@ export function AdminControls() {
       ),
     }));
 
-    const firstOfficialWar = loadedWars.find(isOfficialWar);
-    const selectedOfficialWar =
-      loadedWars.find((war) => war.id === Number(selectedOfficialWarId) && isOfficialWar(war)) ??
-      firstOfficialWar;
-    setSelectedOfficialWarId(selectedOfficialWar ? String(selectedOfficialWar.id) : "");
-    setOfficialEditForm((current) =>
-      selectedOfficialWar
-        ? convertWarFormTimeMode(warToForm(selectedOfficialWar), adminTimeMode)
+    const currentOfficialWar = loadedWars.find(isCurrentOfficialWar);
+    setCurrentWarEditForm((current) =>
+      currentOfficialWar
+        ? convertWarFormTimeMode(warToForm(currentOfficialWar), adminTimeMode)
+        : current,
+    );
+
+    const firstHistoricalWar = loadedWars.find(isHistoricalOfficialWar);
+    const selectedHistoricalWar =
+      loadedWars.find((war) => war.id === Number(selectedHistoricalWarId) && isHistoricalOfficialWar(war)) ??
+      firstHistoricalWar;
+    setSelectedHistoricalWarId(selectedHistoricalWar ? String(selectedHistoricalWar.id) : "");
+    setHistoricalWarEditForm((current) =>
+      selectedHistoricalWar
+        ? convertWarFormTimeMode(warToForm(selectedHistoricalWar), adminTimeMode)
         : current,
     );
 
@@ -212,7 +221,8 @@ export function AdminControls() {
     setCreateForm((current) => convertWarFormTimeMode(current, timeMode));
     setImportWarForm((current) => convertWarFormTimeMode(current, timeMode));
     setImportEventForm((current) => convertWarFormTimeMode(current, timeMode));
-    setOfficialEditForm((current) => convertWarFormTimeMode(current, timeMode));
+    setCurrentWarEditForm((current) => convertWarFormTimeMode(current, timeMode));
+    setHistoricalWarEditForm((current) => convertWarFormTimeMode(current, timeMode));
     setEventEditForm((current) => convertWarFormTimeMode(current, timeMode));
     setExportForm((current) => convertExportFormTimeMode(current, timeMode));
     setAttackWindowForm((current) => convertAttackWindowFormTimeMode(current, timeMode));
@@ -252,23 +262,9 @@ export function AdminControls() {
 
   const exportableWars = wars.filter(isExportableWar);
   const officialWars = wars.filter(isOfficialWar);
+  const currentOfficialWar = officialWars.find(isCurrentOfficialWar) ?? null;
+  const historicalOfficialWars = officialWars.filter(isHistoricalOfficialWar);
   const events = wars.filter(isEvent);
-  const selectedOfficialWar = officialWars.find((war) => war.id === Number(selectedOfficialWarId));
-  const selectedPracticalEndTime =
-    practicalEndMode === "custom" ? optionalSecondsFromFormTime(officialEditForm, "finish") : null;
-  const canSetPracticalEnd =
-    selectedOfficialWar?.status === "active" &&
-    selectedOfficialWar.practical_finish_time === null &&
-    selectedOfficialWar.official_end_time === null &&
-    (
-      practicalEndMode === "now" ||
-      (
-        selectedPracticalEndTime !== null &&
-        Number.isFinite(selectedPracticalEndTime) &&
-        selectedPracticalEndTime >= selectedOfficialWar.practical_start_time &&
-        selectedPracticalEndTime <= Math.floor(Date.now() / 1000)
-      )
-    );
 
   return (
     <>
@@ -368,119 +364,162 @@ export function AdminControls() {
           </form>
         </section>
 
-        <section className="panel admin-panel-edit-official">
-          <PanelHeader title="Edit official war" />
-          <form
-            className="admin-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              runAdminAction("Update official war", () =>
-                updateOfficialWar(toWarEditPayload(Number(selectedOfficialWarId), officialEditForm)).then((response) => {
-                  const updatedWar = (response as { war?: WarSummary }).war;
-                  if (updatedWar) {
-                    setWars((current) =>
-                      current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war)),
-                    );
-                    setOfficialEditForm(convertWarFormTimeMode(warToForm(updatedWar), adminTimeMode));
-                    setExportForm((current) =>
-                      current.warName === updatedWar.name
-                        ? exportFormForWar(current, updatedWar)
-                        : exportFormForWar({ ...current, warName: updatedWar.name }, updatedWar),
-                    );
-                  }
-                  return response;
-                }),
-              );
-            }}
-          >
-            <label className="admin-form-wide">
-              <span>War</span>
-              <select
-                value={selectedOfficialWarId}
-                onChange={(event) => {
-                  const war = officialWars.find((candidate) => candidate.id === Number(event.target.value));
-                  setSelectedOfficialWarId(event.target.value);
-                  if (war) {
-                    setOfficialEditForm(convertWarFormTimeMode(warToForm(war), adminTimeMode));
-                  }
-                }}
-                required
-              >
-                <option value="" disabled>
-                  Select war
-                </option>
-                {officialWars.map((war) => (
-                  <option value={war.id} key={war.id}>
-                    {war.name}
-                    {war.torn_war_id ? ` / Torn #${war.torn_war_id}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <WarFields
-              form={officialEditForm}
-              onChange={setOfficialEditForm}
-              showName={false}
-              showFinishTimes
-              showTornFields={false}
-              showStatus
-              allowedWarTypes={["real", "termed"]}
-            />
-            <button
-              type="submit"
-              className="admin-button primary admin-form-wide"
-              disabled={isBusy !== null || !selectedOfficialWarId}
-            >
-              Confirm changes
-            </button>
-            <label>
-              <span>Practical end</span>
-              <select
-                value={practicalEndMode}
-                onChange={(event) => setPracticalEndMode(event.target.value as "now" | "custom")}
-              >
-                <option value="now">Now</option>
-                <option value="custom">Practical finish time</option>
-              </select>
-            </label>
-            <button
-              type="button"
-              className="admin-button admin-form-wide"
-              disabled={isBusy !== null || !canSetPracticalEnd}
-              onClick={() => {
-                if (!selectedOfficialWar || !canSetPracticalEnd) {
-                  return;
-                }
-
-                const practicalFinishTime =
-                  practicalEndMode === "custom" && selectedPracticalEndTime !== null
-                    ? selectedPracticalEndTime
-                    : undefined;
-                const endLabel =
-                  practicalFinishTime === undefined
-                    ? "now"
-                    : dateTimeLocalFromSeconds(practicalFinishTime).replace("T", " ");
-
-                if (!window.confirm(`Set practical end to ${endLabel} for ${selectedOfficialWar.name}?`)) {
-                  return;
-                }
-
-                runAdminAction("Set practical end", async () => {
-                  const response = await endActiveWar(
-                    practicalFinishTime === undefined
-                      ? undefined
-                      : { practical_finish_time: practicalFinishTime },
-                  );
-                  const warsResponse = await getWars("all");
-                  applyLoadedWars(warsResponse.wars);
-                  return response;
-                });
+        {currentOfficialWar ? (
+          <section className="panel admin-panel-edit-official">
+            <PanelHeader title="Edit Current war" aside={currentOfficialWar.name} />
+            <form
+              className="admin-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                runAdminAction("Update current war", () =>
+                  updateOfficialWar(toWarEditPayload(currentOfficialWar.id, currentWarEditForm)).then((response) => {
+                    const updatedWar = (response as { war?: WarSummary }).war;
+                    if (updatedWar) {
+                      setWars((current) =>
+                        current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war)),
+                      );
+                      setCurrentWarEditForm(convertWarFormTimeMode(warToForm(updatedWar), adminTimeMode));
+                      setExportForm((current) =>
+                        current.warName === updatedWar.name
+                          ? exportFormForWar(current, updatedWar)
+                          : exportFormForWar({ ...current, warName: updatedWar.name }, updatedWar),
+                      );
+                    }
+                    return response;
+                  }),
+                );
               }}
             >
-              {practicalEndMode === "now" ? "Set practical end now" : "Set practical end to this time"}
-            </button>
-          </form>
-        </section>
+              <WarFields
+                form={currentWarEditForm}
+                onChange={setCurrentWarEditForm}
+                showName={false}
+                showFinishTimes
+                showTornFields={false}
+                allowedWarTypes={["real", "termed"]}
+              />
+              <button
+                type="submit"
+                className="admin-button primary admin-form-wide"
+                disabled={isBusy !== null}
+              >
+                Confirm changes
+              </button>
+              <button
+                type="button"
+                className="admin-button admin-form-wide"
+                disabled={isBusy !== null}
+                onClick={() => {
+                  const now = Math.floor(Date.now() / 1000);
+                  setCurrentWarEditForm((current) => {
+                    const next = {
+                      ...current,
+                      finishTime: dateTimeLocalFromSeconds(now),
+                      finishEpoch: String(now),
+                    };
+                    return convertWarFormTimeMode(next, adminTimeMode);
+                  });
+                }}
+              >
+                Set practical finish time to now
+              </button>
+            </form>
+          </section>
+        ) : null}
+
+        <CollapsiblePanel
+          title="Historical wars"
+          aside="Edit / import"
+          className="admin-panel-historical-wars"
+          collapsed={isHistoricalWarPanelCollapsed}
+          onToggle={() => setIsHistoricalWarPanelCollapsed((current) => !current)}
+        >
+          <div className="admin-event-grid">
+            <section className="panel admin-event-command">
+              <PanelHeader title="Edit historical war" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runAdminAction("Update historical war", () =>
+                    updateOfficialWar(toWarEditPayload(Number(selectedHistoricalWarId), historicalWarEditForm)).then((response) => {
+                      const updatedWar = (response as { war?: WarSummary }).war;
+                      if (updatedWar) {
+                        setWars((current) =>
+                          current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war)),
+                        );
+                        setHistoricalWarEditForm(convertWarFormTimeMode(warToForm(updatedWar), adminTimeMode));
+                        setExportForm((current) =>
+                          current.warName === updatedWar.name
+                            ? exportFormForWar(current, updatedWar)
+                            : current,
+                        );
+                      }
+                      return response;
+                    }),
+                  );
+                }}
+              >
+                <label className="admin-form-wide">
+                  <span>War</span>
+                  <select
+                    value={selectedHistoricalWarId}
+                    onChange={(event) => {
+                      const war = historicalOfficialWars.find((candidate) => candidate.id === Number(event.target.value));
+                      setSelectedHistoricalWarId(event.target.value);
+                      if (war) {
+                        setHistoricalWarEditForm(convertWarFormTimeMode(warToForm(war), adminTimeMode));
+                      }
+                    }}
+                    required
+                  >
+                    <option value="" disabled>
+                      Select war
+                    </option>
+                    {historicalOfficialWars.map((war) => (
+                      <option value={war.id} key={war.id}>
+                        {war.name}
+                        {war.torn_war_id ? ` / Torn #${war.torn_war_id}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <WarFields
+                  form={historicalWarEditForm}
+                  onChange={setHistoricalWarEditForm}
+                  showName={false}
+                  showFinishTimes
+                  showTornFields={false}
+                  allowedWarTypes={["real", "termed"]}
+                />
+                <button
+                  type="submit"
+                  className="admin-button primary admin-form-wide"
+                  disabled={isBusy !== null || !selectedHistoricalWarId}
+                >
+                  Confirm changes
+                </button>
+              </form>
+            </section>
+
+            <WarForm
+              title="Import historical war"
+              panelClassName="admin-event-command"
+              form={importWarForm}
+              onChange={setImportWarForm}
+              isBusy={isBusy !== null}
+              requireFinishTime
+              hideName
+              allowedWarTypes={["real", "termed"]}
+              showAutoEnd={false}
+              secondaryActionLabel="Preview import window"
+              onSecondaryAction={(payload) =>
+                runAdminAction("Preview import window", () => previewImportWar(payload))
+              }
+              onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
+            />
+          </div>
+        </CollapsiblePanel>
 
         <CollapsiblePanel
           title="Event controls"
@@ -555,7 +594,6 @@ export function AdminControls() {
                   showOfficialTimes={false}
                   showEnemyFaction
                   showTornWarId={false}
-                  showStatus
                   allowedWarTypes={["event"]}
                 />
                 <button
@@ -582,206 +620,6 @@ export function AdminControls() {
             />
           </div>
         </CollapsiblePanel>
-
-        <section className="panel admin-panel-export">
-          <PanelHeader title="Export attacks CSV" />
-          <form
-            className="admin-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              runAdminAction("Export attacks CSV", async () => {
-                await exportWarAttacksCsv({
-                  warName: exportForm.warName,
-                  scope: exportForm.scope,
-                  startWindow: exportForm.startWindow,
-                  finishWindow: exportForm.finishWindow,
-                  linkedStatus: exportForm.linkedStatus,
-                  columns: exportForm.columns,
-                  customStart: exportForm.startWindow === "custom"
-                    ? exportSecondsFromForm(exportForm, adminTimeMode, "start")
-                    : undefined,
-                  customFinish: exportForm.finishWindow === "custom"
-                    ? exportSecondsFromForm(exportForm, adminTimeMode, "finish")
-                    : undefined,
-                });
-                return { ok: true, exported: exportForm.warName };
-              });
-            }}
-          >
-            <label className="admin-form-wide">
-              <span>War/event</span>
-              <select
-                value={exportForm.warName}
-                onChange={(event) => {
-                  const war = exportableWars.find((candidate) => candidate.name === event.target.value);
-                  setExportForm(exportFormForWar({ ...exportForm, warName: event.target.value }, war));
-                }}
-                required
-              >
-                <option value="" disabled>
-                  Select war
-                </option>
-                {exportableWars.map((war) => (
-                  <option value={war.name} key={war.id}>
-                    {war.name}
-                    {war.torn_war_id ? ` / Torn #${war.torn_war_id}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Attack scope</span>
-              <select
-                value={exportForm.scope}
-                onChange={(event) =>
-                  setExportForm({
-                    ...exportForm,
-                    scope: event.target.value as typeof exportForm.scope,
-                  })
-                }
-              >
-                <option value="all">All attacks in time period</option>
-                <option value="outgoing">Outgoing only</option>
-                <option value="war_relevant">Outgoing + incoming from enemy</option>
-              </select>
-            </label>
-            <label>
-              <span>Export start</span>
-              <select
-                value={exportForm.startWindow}
-                onChange={(event) => {
-                  const nextForm = {
-                    ...exportForm,
-                    startWindow: event.target.value as ExportBoundaryWindow,
-                  };
-                  const war = exportableWars.find((candidate) => candidate.name === nextForm.warName);
-                  setExportForm(exportFormForWar(nextForm, war));
-                }}
-              >
-                <option value="official">Torn official start</option>
-                <option value="practical">Buttgrass practical start</option>
-                <option value="custom">Custom start</option>
-              </select>
-            </label>
-            <label>
-              <span>Custom start</span>
-              {adminTimeMode === "epoch" ? (
-                <input
-                  inputMode="numeric"
-                  value={exportForm.customStartEpoch}
-                  disabled={exportForm.startWindow !== "custom"}
-                  onChange={(event) =>
-                    setExportForm(updateExportEpoch(exportForm, "start", event.target.value))
-                  }
-                />
-              ) : (
-                <input
-                  type="datetime-local"
-                  value={exportForm.customStartTime}
-                  disabled={exportForm.startWindow !== "custom"}
-                  onChange={(event) =>
-                    setExportForm(updateExportDateTime(exportForm, "start", event.target.value))
-                  }
-                />
-              )}
-            </label>
-            <label>
-              <span>Export finish</span>
-              <select
-                value={exportForm.finishWindow}
-                onChange={(event) => {
-                  const nextForm = {
-                    ...exportForm,
-                    finishWindow: event.target.value as ExportBoundaryWindow,
-                  };
-                  const war = exportableWars.find((candidate) => candidate.name === nextForm.warName);
-                  setExportForm(exportFormForWar(nextForm, war));
-                }}
-              >
-                <option value="official">Torn official finish</option>
-                <option value="practical">Buttgrass practical finish</option>
-                <option value="custom">Custom finish</option>
-              </select>
-            </label>
-            <label>
-              <span>Custom finish</span>
-              {adminTimeMode === "epoch" ? (
-                <input
-                  inputMode="numeric"
-                  value={exportForm.customFinishEpoch}
-                  disabled={exportForm.finishWindow !== "custom"}
-                  onChange={(event) =>
-                    setExportForm(updateExportEpoch(exportForm, "finish", event.target.value))
-                  }
-                />
-              ) : (
-                <input
-                  type="datetime-local"
-                  value={exportForm.customFinishTime}
-                  disabled={exportForm.finishWindow !== "custom"}
-                  onChange={(event) =>
-                    setExportForm(updateExportDateTime(exportForm, "finish", event.target.value))
-                  }
-                />
-              )}
-            </label>
-            <label>
-              <span>Linked status</span>
-              <select
-                value={exportForm.linkedStatus}
-                onChange={(event) =>
-                  setExportForm({
-                    ...exportForm,
-                    linkedStatus: event.target.value as typeof exportForm.linkedStatus,
-                  })
-                }
-              >
-                <option value="linked">Only attacks already linked to this war/event</option>
-                <option value="matching">All attacks in this time period that match selected scope</option>
-                <option value="unlinked">Only attacks not currently linked to any war/event</option>
-              </select>
-            </label>
-            <label>
-              <span>Columns</span>
-              <select
-                value={exportForm.columns}
-                onChange={(event) =>
-                  setExportForm({
-                    ...exportForm,
-                    columns: event.target.value as typeof exportForm.columns,
-                  })
-                }
-              >
-                <option value="standard">Standard export</option>
-                <option value="debug">Debug export</option>
-              </select>
-            </label>
-            <button
-              type="submit"
-              className="admin-button primary admin-form-wide"
-              disabled={isBusy !== null || !exportForm.warName}
-            >
-              Export CSV
-            </button>
-          </form>
-        </section>
-
-        <WarForm
-          title="Import historical war"
-          panelClassName="admin-panel-import-war"
-          form={importWarForm}
-          onChange={setImportWarForm}
-          isBusy={isBusy !== null}
-          requireFinishTime
-          hideName
-          allowedWarTypes={["real", "termed"]}
-          showAutoEnd={false}
-          secondaryActionLabel="Preview import window"
-          onSecondaryAction={(payload) =>
-            runAdminAction("Preview import window", () => previewImportWar(payload))
-          }
-          onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
-        />
 
         <CollapsiblePanel
           title="Repair/debug tools"
@@ -833,6 +671,189 @@ export function AdminControls() {
               >
                 Refresh baseline
               </button>
+            </section>
+
+            <section className="admin-tool-section admin-tool-section-wide">
+              <PanelHeader title="Export attacks CSV" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runAdminAction("Export attacks CSV", async () => {
+                    await exportWarAttacksCsv({
+                      warName: exportForm.warName,
+                      scope: exportForm.scope,
+                      startWindow: exportForm.startWindow,
+                      finishWindow: exportForm.finishWindow,
+                      linkedStatus: exportForm.linkedStatus,
+                      columns: exportForm.columns,
+                      customStart: exportForm.startWindow === "custom"
+                        ? exportSecondsFromForm(exportForm, adminTimeMode, "start")
+                        : undefined,
+                      customFinish: exportForm.finishWindow === "custom"
+                        ? exportSecondsFromForm(exportForm, adminTimeMode, "finish")
+                        : undefined,
+                    });
+                    return { ok: true, exported: exportForm.warName };
+                  });
+                }}
+              >
+                <label className="admin-form-wide">
+                  <span>War/event</span>
+                  <select
+                    value={exportForm.warName}
+                    onChange={(event) => {
+                      const war = exportableWars.find((candidate) => candidate.name === event.target.value);
+                      setExportForm(exportFormForWar({ ...exportForm, warName: event.target.value }, war));
+                    }}
+                    required
+                  >
+                    <option value="" disabled>
+                      Select war
+                    </option>
+                    {exportableWars.map((war) => (
+                      <option value={war.name} key={war.id}>
+                        {war.name}
+                        {war.torn_war_id ? ` / Torn #${war.torn_war_id}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Attack scope</span>
+                  <select
+                    value={exportForm.scope}
+                    onChange={(event) =>
+                      setExportForm({
+                        ...exportForm,
+                        scope: event.target.value as typeof exportForm.scope,
+                      })
+                    }
+                  >
+                    <option value="all">All attacks in time period</option>
+                    <option value="outgoing">Outgoing only</option>
+                    <option value="war_relevant">Outgoing + incoming from enemy</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Export start</span>
+                  <select
+                    value={exportForm.startWindow}
+                    onChange={(event) => {
+                      const nextForm = {
+                        ...exportForm,
+                        startWindow: event.target.value as ExportBoundaryWindow,
+                      };
+                      const war = exportableWars.find((candidate) => candidate.name === nextForm.warName);
+                      setExportForm(exportFormForWar(nextForm, war));
+                    }}
+                  >
+                    <option value="official">Torn official start</option>
+                    <option value="practical">Buttgrass practical start</option>
+                    <option value="custom">Custom start</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Custom start</span>
+                  {adminTimeMode === "epoch" ? (
+                    <input
+                      inputMode="numeric"
+                      value={exportForm.customStartEpoch}
+                      disabled={exportForm.startWindow !== "custom"}
+                      onChange={(event) =>
+                        setExportForm(updateExportEpoch(exportForm, "start", event.target.value))
+                      }
+                    />
+                  ) : (
+                    <input
+                      type="datetime-local"
+                      value={exportForm.customStartTime}
+                      disabled={exportForm.startWindow !== "custom"}
+                      onChange={(event) =>
+                        setExportForm(updateExportDateTime(exportForm, "start", event.target.value))
+                      }
+                    />
+                  )}
+                </label>
+                <label>
+                  <span>Export finish</span>
+                  <select
+                    value={exportForm.finishWindow}
+                    onChange={(event) => {
+                      const nextForm = {
+                        ...exportForm,
+                        finishWindow: event.target.value as ExportBoundaryWindow,
+                      };
+                      const war = exportableWars.find((candidate) => candidate.name === nextForm.warName);
+                      setExportForm(exportFormForWar(nextForm, war));
+                    }}
+                  >
+                    <option value="official">Torn official finish</option>
+                    <option value="practical">Buttgrass practical finish</option>
+                    <option value="custom">Custom finish</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Custom finish</span>
+                  {adminTimeMode === "epoch" ? (
+                    <input
+                      inputMode="numeric"
+                      value={exportForm.customFinishEpoch}
+                      disabled={exportForm.finishWindow !== "custom"}
+                      onChange={(event) =>
+                        setExportForm(updateExportEpoch(exportForm, "finish", event.target.value))
+                      }
+                    />
+                  ) : (
+                    <input
+                      type="datetime-local"
+                      value={exportForm.customFinishTime}
+                      disabled={exportForm.finishWindow !== "custom"}
+                      onChange={(event) =>
+                        setExportForm(updateExportDateTime(exportForm, "finish", event.target.value))
+                      }
+                    />
+                  )}
+                </label>
+                <label>
+                  <span>Linked status</span>
+                  <select
+                    value={exportForm.linkedStatus}
+                    onChange={(event) =>
+                      setExportForm({
+                        ...exportForm,
+                        linkedStatus: event.target.value as typeof exportForm.linkedStatus,
+                      })
+                    }
+                  >
+                    <option value="linked">Only attacks already linked to this war/event</option>
+                    <option value="matching">All attacks in this time period that match selected scope</option>
+                    <option value="unlinked">Only attacks not currently linked to any war/event</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Columns</span>
+                  <select
+                    value={exportForm.columns}
+                    onChange={(event) =>
+                      setExportForm({
+                        ...exportForm,
+                        columns: event.target.value as typeof exportForm.columns,
+                      })
+                    }
+                  >
+                    <option value="standard">Standard export</option>
+                    <option value="debug">Debug export</option>
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  className="admin-button primary admin-form-wide"
+                  disabled={isBusy !== null || !exportForm.warName}
+                >
+                  Export CSV
+                </button>
+              </form>
             </section>
 
             <section className="admin-tool-section">
@@ -1653,6 +1674,14 @@ function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): Admi
 
 function isOfficialWar(war: WarSummary): boolean {
   return war.war_type !== "event";
+}
+
+function isCurrentOfficialWar(war: WarSummary): boolean {
+  return isOfficialWar(war) && war.official_end_time === null;
+}
+
+function isHistoricalOfficialWar(war: WarSummary): boolean {
+  return isOfficialWar(war) && war.official_end_time !== null;
 }
 
 function isEvent(war: WarSummary): boolean {
