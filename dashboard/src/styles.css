@@ -1066,7 +1066,7 @@ h2 {
 }
 
 .enemy-travel-table td {
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .enemy-travel-sections {
@@ -1096,7 +1096,24 @@ h2 {
   white-space: nowrap;
 }
 
+.enemy-travel-table td.split-travel-cell {
+  position: relative;
+}
+
+.enemy-travel-table td.split-travel-cell::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 50%;
+  left: 0;
+  right: 0;
+  border-top: 1px solid rgba(15, 23, 42, 0.22);
+  pointer-events: none;
+}
+
 .stacked-travel-options {
+  position: relative;
+  z-index: 1;
   display: inline-grid;
   gap: 3px;
   line-height: 1.15;
@@ -1104,8 +1121,10 @@ h2 {
 }
 
 .plane-type {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
   color: #475569;
   font-weight: 800;
@@ -1114,7 +1133,6 @@ h2 {
 
 .plane-type svg {
   flex: 0 0 auto;
-  margin-top: 1px;
 }
 
 .enemy-status-badge {
