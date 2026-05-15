@@ -396,6 +396,7 @@ export function AdminControls() {
                 showName={false}
                 showFinishTimes
                 showTornFields={false}
+                breakAfterWarType
                 allowedWarTypes={["real", "termed"]}
               />
               <button
@@ -490,6 +491,7 @@ export function AdminControls() {
                   showName={false}
                   showFinishTimes
                   showTornFields={false}
+                  breakAfterWarType
                   allowedWarTypes={["real", "termed"]}
                 />
                 <button
@@ -1448,6 +1450,7 @@ function WarFields({
   showEnemyFaction = showTornFields,
   showTornWarId = showTornFields,
   showStatus = false,
+  breakAfterWarType = false,
   allowedWarTypes,
 }: {
   form: AdminWarFormState;
@@ -1459,6 +1462,7 @@ function WarFields({
   showEnemyFaction?: boolean;
   showTornWarId?: boolean;
   showStatus?: boolean;
+  breakAfterWarType?: boolean;
   allowedWarTypes?: Array<Exclude<WarType, "all">>;
 }) {
   const canUseTermFields = form.warType === "termed";
@@ -1497,6 +1501,7 @@ function WarFields({
           ))}
         </select>
       </label>
+      {breakAfterWarType ? <div className="admin-form-spacer" aria-hidden="true" /> : null}
       <label>
         <span>Practical start time</span>
         {form.timeMode === "epoch" ? (
