@@ -7,7 +7,7 @@ import {
 import { fetchTornPersonalStats } from "./personalStats";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import { boolToInt, json, nowSeconds } from "./utils";
-import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
+import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./warRoomTracking";
 
 const FFSCOUTER_BATCH_SIZE = 100;
 const SCOUTING_FETCH_TIMEOUT_MS = 15000;
@@ -15,8 +15,10 @@ const BSP_BATTLESTAT_REFRESH_LIMIT = 40;
 const NETWORTH_REFRESH_LIMIT = 40;
 const TORN_LOCATION = "Torn";
 const ENEMY_TRAVEL_CLEAR_STATE_PREFIX = "enemy_travel_cleared";
+const BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS = 5 * 60;
 
 type TravelDurationKey = "Standard" | "Airstrip" | "WLT benefit" | "Business Class";
+type StoredTravelTripType = TravelDurationKey | "Business Class/Standard";
 
 const TRAVEL_DURATIONS_MINUTES: Record<string, Record<TravelDurationKey, number>> = {
   Mexico: { Standard: 26, Airstrip: 18, "WLT benefit": 13, "Business Class": 8 },
@@ -87,6 +89,9 @@ type EnemyFactionMemberRow = {
   estimated_arrival_at?: number | null;
   estimated_arrival_earliest?: number | null;
   estimated_arrival_latest?: number | null;
+  travel_trip_destination?: string | null;
+  travel_trip_type?: string | null;
+  travel_trip_inferred_at?: number | null;
   status_updated_at?: number | null;
   updated_at: number;
 };
@@ -115,6 +120,9 @@ type TravelDisplay = {
   travel_time_note: string | null;
   arrival_note: string | null;
   is_travel_time_range: boolean;
+  return_travel_type: string | null;
+  return_travel_time_seconds: number | null;
+  return_travel_time_note: string | null;
 };
 
 type MemberTravelStatus = {
@@ -130,6 +138,9 @@ type MemberTravelStatus = {
   estimated_arrival_at: number | null;
   estimated_arrival_earliest: number | null;
   estimated_arrival_latest: number | null;
+  travel_trip_destination: string | null;
+  travel_trip_type: string | null;
+  travel_trip_inferred_at: number | null;
   status_updated_at: number | null;
 };
 
@@ -222,6 +233,7 @@ export async function getScoutingComparisonForWar(url: URL, env: Env): Promise<R
     war: {
       id: war.id,
       name: war.name,
+      status: war.status,
       practical_finish_time: war.practical_finish_time,
       official_end_time: war.official_end_time,
       enemy_faction_id: war.enemy_faction_id,
@@ -314,7 +326,7 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
 
 export async function refreshCurrentEnemyTravelStatuses(
   env: Env,
-  options: { includeMembers?: boolean } = {},
+  options: { includeMembers?: boolean; liveOnly?: boolean } = {},
 ): Promise<EnemyTravelRefreshMetrics> {
   const war = await readCurrentScoutingWar(env);
   if (!war) {
@@ -329,6 +341,17 @@ export async function refreshCurrentEnemyTravelStatuses(
   }
 
   const checkedAt = nowSeconds();
+  if (options.liveOnly && !isWarRoomMemberTrackingLive(war, checkedAt)) {
+    return {
+      writeStatements: 0,
+      changedRows: 0,
+      fetchedMembers: 0,
+      updatedMembers: 0,
+      skipped: true,
+      factionId: war.enemy_faction_id,
+    };
+  }
+
   if (!isWarRoomMemberTrackingActive(war, checkedAt)) {
     const clearMetrics =
       war.practical_finish_time !== null && checkedAt > war.practical_finish_time
@@ -734,10 +757,13 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
           estimated_arrival_at,
           estimated_arrival_earliest,
           estimated_arrival_latest,
+          travel_trip_destination,
+          travel_trip_type,
+          travel_trip_inferred_at,
           status_updated_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
@@ -757,6 +783,9 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
           estimated_arrival_at = excluded.estimated_arrival_at,
           estimated_arrival_earliest = excluded.estimated_arrival_earliest,
           estimated_arrival_latest = excluded.estimated_arrival_latest,
+          travel_trip_destination = excluded.travel_trip_destination,
+          travel_trip_type = excluded.travel_trip_type,
+          travel_trip_inferred_at = excluded.travel_trip_inferred_at,
           status_updated_at = excluded.status_updated_at,
           updated_at = excluded.updated_at
         `,
@@ -780,6 +809,9 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
         travelStatus.estimated_arrival_at,
         travelStatus.estimated_arrival_earliest,
         travelStatus.estimated_arrival_latest,
+        travelStatus.travel_trip_destination,
+        travelStatus.travel_trip_type,
+        travelStatus.travel_trip_inferred_at,
         travelStatus.status_updated_at,
       );
     }),
@@ -965,10 +997,13 @@ function upsertEnemyMemberSnapshot(
       estimated_arrival_at,
       estimated_arrival_earliest,
       estimated_arrival_latest,
+      travel_trip_destination,
+      travel_trip_type,
+      travel_trip_inferred_at,
       status_updated_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
     ON CONFLICT(member_id) DO UPDATE SET
       faction_id = excluded.faction_id,
       name = excluded.name,
@@ -988,6 +1023,9 @@ function upsertEnemyMemberSnapshot(
       estimated_arrival_at = excluded.estimated_arrival_at,
       estimated_arrival_earliest = excluded.estimated_arrival_earliest,
       estimated_arrival_latest = excluded.estimated_arrival_latest,
+      travel_trip_destination = excluded.travel_trip_destination,
+      travel_trip_type = excluded.travel_trip_type,
+      travel_trip_inferred_at = excluded.travel_trip_inferred_at,
       status_updated_at = excluded.status_updated_at,
       updated_at = excluded.updated_at
     `,
@@ -1011,6 +1049,9 @@ function upsertEnemyMemberSnapshot(
     snapshot.estimated_arrival_at,
     snapshot.estimated_arrival_earliest,
     snapshot.estimated_arrival_latest,
+    snapshot.travel_trip_destination,
+    snapshot.travel_trip_type,
+    snapshot.travel_trip_inferred_at,
     snapshot.status_updated_at,
   );
 }
@@ -1051,6 +1092,9 @@ async function clearEnemyTravelTrackerData(
         estimated_arrival_at = NULL,
         estimated_arrival_earliest = NULL,
         estimated_arrival_latest = NULL,
+        travel_trip_destination = NULL,
+        travel_trip_type = NULL,
+        travel_trip_inferred_at = NULL,
         status_updated_at = NULL,
         updated_at = unixepoch()
     WHERE faction_id = ?
@@ -1067,6 +1111,9 @@ async function clearEnemyTravelTrackerData(
         estimated_arrival_at IS NOT NULL OR
         estimated_arrival_earliest IS NOT NULL OR
         estimated_arrival_latest IS NOT NULL OR
+        travel_trip_destination IS NOT NULL OR
+        travel_trip_type IS NOT NULL OR
+        travel_trip_inferred_at IS NOT NULL OR
         status_updated_at IS NOT NULL
       )
     `,
@@ -1139,6 +1186,7 @@ function buildMemberTravelStatus(
   const planeImageType = cleanText(member.status?.plane_image_type);
   const parsedTravel = parseTravelDescription(statusDescription);
   const isTraveling = statusState === "Traveling" && parsedTravel !== null;
+  const abroadLocation = statusState === "Abroad" ? parseAbroadLocation(statusDescription) : null;
   const travelSignature = isTraveling
     ? buildTravelSignature(statusDescription, planeImageType, parsedTravel)
     : null;
@@ -1153,6 +1201,11 @@ function buildMemberTravelStatus(
     (previous?.status_state !== "Traveling" || previous.travel_signature !== travelSignature);
 
   if (!isTraveling || !parsedTravel) {
+    const keepTrip =
+      statusState === "Abroad" &&
+      abroadLocation !== null &&
+      previous?.travel_trip_destination === abroadLocation;
+
     return {
       status_state: statusState,
       status_description: statusDescription,
@@ -1166,11 +1219,34 @@ function buildMemberTravelStatus(
       estimated_arrival_at: null,
       estimated_arrival_earliest: null,
       estimated_arrival_latest: null,
+      travel_trip_destination: keepTrip ? (previous?.travel_trip_destination ?? null) : null,
+      travel_trip_type: keepTrip ? (previous?.travel_trip_type ?? null) : null,
+      travel_trip_inferred_at: keepTrip ? (previous?.travel_trip_inferred_at ?? null) : null,
       status_updated_at: statusChanged ? fetchedAt : (previous?.status_updated_at ?? fetchedAt),
     };
   }
 
+  const previousTrip =
+    previous && previous.travel_trip_destination === parsedTravel.flightLocation
+      ? {
+          type: parseStoredTravelTripType(previous.travel_trip_type),
+          inferredAt: previous.travel_trip_inferred_at ?? null,
+        }
+      : null;
+  const baseTripType =
+    parsedTravel.destination === TORN_LOCATION && previousTrip?.type
+      ? previousTrip.type
+      : initialTravelTripType(planeImageType);
+
   if (!isNewTrip && previous) {
+    const tripType = resolveTravelTripType(
+      parsedTravel.flightLocation,
+      planeImageType,
+      previous.travel_started_before ?? fetchedAt,
+      baseTripType,
+      previousTrip?.inferredAt ?? previous.travel_trip_inferred_at ?? null,
+      fetchedAt,
+    );
     const estimate =
       planeImageType === "airliner"
         ? estimateTravelArrival(
@@ -1178,6 +1254,7 @@ function buildMemberTravelStatus(
             planeImageType,
             previous.travel_started_after ?? null,
             previous.travel_started_before ?? fetchedAt,
+            tripType.type,
           )
         : {
             estimated_arrival_at: previous.estimated_arrival_at ?? null,
@@ -1196,17 +1273,29 @@ function buildMemberTravelStatus(
       travel_started_after: previous.travel_started_after ?? null,
       travel_started_before: previous.travel_started_before ?? null,
       ...estimate,
+      travel_trip_destination: parsedTravel.flightLocation,
+      travel_trip_type: tripType.type,
+      travel_trip_inferred_at: tripType.inferredAt,
       status_updated_at: statusChanged ? fetchedAt : (previous.status_updated_at ?? fetchedAt),
     };
   }
 
   const startedAfter = previousPollAt ?? previous?.status_updated_at ?? null;
   const startedBefore = fetchedAt;
+  const tripType = resolveTravelTripType(
+    parsedTravel.flightLocation,
+    planeImageType,
+    startedBefore,
+    baseTripType,
+    previousTrip?.inferredAt ?? null,
+    fetchedAt,
+  );
   const estimate = estimateTravelArrival(
     parsedTravel.flightLocation,
     planeImageType,
     startedAfter,
     startedBefore,
+    tripType.type,
   );
 
   return {
@@ -1220,6 +1309,9 @@ function buildMemberTravelStatus(
     travel_started_after: startedAfter,
     travel_started_before: startedBefore,
     ...estimate,
+    travel_trip_destination: parsedTravel.flightLocation,
+    travel_trip_type: tripType.type,
+    travel_trip_inferred_at: tripType.inferredAt,
     status_updated_at: fetchedAt,
   };
 }
@@ -1280,11 +1372,73 @@ function normalizeTravelLocation(value: string | undefined): string | null {
   return TRAVEL_LOCATION_ALIASES[cleaned.toLowerCase()] ?? cleaned;
 }
 
+function parseAbroadLocation(description: string | null): string | null {
+  if (!description) {
+    return null;
+  }
+
+  const match =
+    /^In (.+)$/i.exec(description) ??
+    /^Abroad in (.+)$/i.exec(description) ??
+    /^Currently in (.+)$/i.exec(description);
+  const location = normalizeTravelLocation(match?.[1] ?? description);
+  return location === TORN_LOCATION ? null : location;
+}
+
+function initialTravelTripType(planeImageType: string | null): StoredTravelTripType | null {
+  if (planeImageType === "airliner") {
+    return "Business Class/Standard";
+  }
+
+  const durationKey = planeImageType ? PLANE_IMAGE_TYPE_TO_DURATION_KEY[planeImageType] : undefined;
+  return durationKey ?? null;
+}
+
+function parseStoredTravelTripType(value: string | null | undefined): StoredTravelTripType | null {
+  if (
+    value === "Standard" ||
+    value === "Airstrip" ||
+    value === "WLT benefit" ||
+    value === "Business Class" ||
+    value === "Business Class/Standard"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+function resolveTravelTripType(
+  flightLocation: string,
+  planeImageType: string | null,
+  startedBefore: number,
+  currentType: StoredTravelTripType | null,
+  currentInferredAt: number | null,
+  fetchedAt: number,
+): { type: StoredTravelTripType | null; inferredAt: number | null } {
+  if (planeImageType !== "airliner" || currentType !== "Business Class/Standard") {
+    return { type: currentType, inferredAt: currentInferredAt };
+  }
+
+  const businessClassMinutes = TRAVEL_DURATIONS_MINUTES[flightLocation]?.["Business Class"];
+  if (!businessClassMinutes) {
+    return { type: currentType, inferredAt: currentInferredAt };
+  }
+
+  const businessClassLatestArrival = startedBefore + businessClassMinutes * 60;
+  if (fetchedAt > businessClassLatestArrival + BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS) {
+    return { type: "Standard", inferredAt: currentInferredAt ?? fetchedAt };
+  }
+
+  return { type: currentType, inferredAt: currentInferredAt };
+}
+
 function estimateTravelArrival(
   flightLocation: string,
   planeImageType: string | null,
   startedAfter: number | null,
   startedBefore: number,
+  tripType: StoredTravelTripType | null = null,
 ): TravelEstimate {
   if (planeImageType === "airliner") {
     const businessClassMinutes = TRAVEL_DURATIONS_MINUTES[flightLocation]?.["Business Class"];
@@ -1294,6 +1448,23 @@ function estimateTravelArrival(
         estimated_arrival_at: null,
         estimated_arrival_earliest: null,
         estimated_arrival_latest: null,
+      };
+    }
+
+    if (tripType === "Standard" || tripType === "Business Class") {
+      const durationMinutes = tripType === "Standard" ? standardMinutes : businessClassMinutes;
+      const durationSeconds = durationMinutes * 60;
+      const estimatedLatest = startedBefore + durationSeconds;
+      const estimatedEarliest = startedAfter === null ? null : startedAfter + durationSeconds;
+      const estimatedArrival =
+        estimatedEarliest === null
+          ? estimatedLatest
+          : Math.floor((estimatedEarliest + estimatedLatest) / 2);
+
+      return {
+        estimated_arrival_at: estimatedArrival,
+        estimated_arrival_earliest: estimatedEarliest,
+        estimated_arrival_latest: estimatedLatest,
       };
     }
 
@@ -1339,8 +1510,33 @@ function estimateTravelArrival(
 
 function buildTravelDisplay(row: EnemyFactionMemberRow): TravelDisplay {
   const planeTypeLabel = formatPlaneImageType(row.plane_image_type);
+  const tripType = parseStoredTravelTripType(row.travel_trip_type);
+  const returnTravelTimeSeconds = returnTravelDurationSeconds(row.travel_trip_destination, tripType);
+  const returnTravelType =
+    tripType === "Business Class/Standard" ? "Business Class minimum" : (tripType ?? null);
+  const returnTravelTimeNote =
+    row.status_state === "Abroad" && row.travel_trip_destination
+      ? `Minimum return time from ${row.travel_trip_destination} if leaving now.`
+      : null;
 
   if (row.plane_image_type === "airliner") {
+    if (tripType === "Standard" || tripType === "Business Class") {
+      return {
+        plane_type_label: planeTypeLabel,
+        travel_type: tripType,
+        travel_type_note:
+          tripType === "Standard"
+            ? `${planeTypeLabel ?? "Airliner"}; Standard inferred because Business Class timing was ruled out.`
+            : planeTypeLabel,
+        travel_time_note: tripType,
+        arrival_note: row.status_description ?? "Travel arrival estimate",
+        is_travel_time_range: false,
+        return_travel_type: returnTravelType,
+        return_travel_time_seconds: returnTravelTimeSeconds,
+        return_travel_time_note: returnTravelTimeNote,
+      };
+    }
+
     const note = "Torn reports both Standard and Business Class flights as airliner.";
     return {
       plane_type_label: planeTypeLabel,
@@ -1351,6 +1547,9 @@ function buildTravelDisplay(row: EnemyFactionMemberRow): TravelDisplay {
       arrival_note:
         "Arrival range uses Business Class for earliest arrival and Standard for latest arrival because Torn reports both as airliner.",
       is_travel_time_range: true,
+      return_travel_type: returnTravelType,
+      return_travel_time_seconds: returnTravelTimeSeconds,
+      return_travel_time_note: returnTravelTimeNote,
     };
   }
 
@@ -1361,12 +1560,28 @@ function buildTravelDisplay(row: EnemyFactionMemberRow): TravelDisplay {
 
   return {
     plane_type_label: planeTypeLabel,
-    travel_type: travelType,
+    travel_type: row.status_state === "Abroad" ? (tripType ?? travelType) : travelType,
     travel_type_note: planeTypeLabel,
     travel_time_note: travelType ?? planeTypeLabel,
     arrival_note: row.status_description ?? "Travel arrival estimate",
     is_travel_time_range: false,
+    return_travel_type: returnTravelType,
+    return_travel_time_seconds: returnTravelTimeSeconds,
+    return_travel_time_note: returnTravelTimeNote,
   };
+}
+
+function returnTravelDurationSeconds(
+  destination: string | null | undefined,
+  tripType: StoredTravelTripType | null,
+): number | null {
+  if (!destination || !tripType) {
+    return null;
+  }
+
+  const durationKey = tripType === "Business Class/Standard" ? "Business Class" : tripType;
+  const minutes = TRAVEL_DURATIONS_MINUTES[destination]?.[durationKey];
+  return minutes ? minutes * 60 : null;
 }
 
 function formatPlaneImageType(value: string | null | undefined): string | null {
@@ -1420,6 +1635,9 @@ function enemyMemberSnapshotChanged(
     previous.estimated_arrival_at !== next.estimated_arrival_at ||
     previous.estimated_arrival_earliest !== next.estimated_arrival_earliest ||
     previous.estimated_arrival_latest !== next.estimated_arrival_latest ||
+    previous.travel_trip_destination !== next.travel_trip_destination ||
+    previous.travel_trip_type !== next.travel_trip_type ||
+    previous.travel_trip_inferred_at !== next.travel_trip_inferred_at ||
     previous.status_updated_at !== next.status_updated_at
   );
 }

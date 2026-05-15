@@ -1069,10 +1069,32 @@ h2 {
   vertical-align: top;
 }
 
+.enemy-travel-sections {
+  display: grid;
+  gap: 18px;
+}
+
+.enemy-abroad-section {
+  display: grid;
+  gap: 8px;
+}
+
+.enemy-abroad-section h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1rem;
+}
+
 .enemy-travel-table td:nth-child(2),
 .enemy-travel-table td:nth-child(3),
 .enemy-travel-table td:nth-child(4),
 .enemy-travel-table td:nth-child(5) {
+  white-space: nowrap;
+}
+
+.stacked-travel-options {
+  display: inline-grid;
+  gap: 3px;
   white-space: nowrap;
 }
 

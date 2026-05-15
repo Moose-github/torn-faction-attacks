@@ -18,3 +18,17 @@ export function isWarRoomMemberTrackingActive(
 
   return timestamp >= updateFrom && (updateUntil === null || timestamp <= updateUntil);
 }
+
+export function isWarRoomMemberTrackingLive(
+  war: WarRoomTrackingWindow | null,
+  timestamp: number,
+): boolean {
+  if (!war) {
+    return false;
+  }
+
+  const start = war.official_start_time ?? war.practical_start_time;
+  const updateUntil = war.practical_finish_time;
+
+  return timestamp >= start && (updateUntil === null || timestamp <= updateUntil);
+}

@@ -278,7 +278,7 @@ export default {
     ) {
       const authError = await requireMember(request, env);
       if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55), () =>
         getEnemyScoutingForWar(url, env),
       );
     }
@@ -417,6 +417,10 @@ export default {
       });
     } else {
       jobs.push({
+        label: "Cron live enemy travel",
+        run: () => refreshCurrentEnemyTravelStatuses(env, { liveOnly: true }),
+      });
+      jobs.push({
         label: "Cron lifestyle stats",
         run: () => refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true }),
       });
@@ -525,7 +529,11 @@ function cacheRequestKey(request: Request): Request {
   return new Request(url.toString(), { method: "GET" });
 }
 
-function warDataTtlSeconds(activeTtlSeconds: number, endedTtlSeconds: number): (data: any) => number {
+function warDataTtlSeconds(
+  activeTtlSeconds: number,
+  endedTtlSeconds: number,
+  liveTtlSeconds?: number,
+): (data: any) => number {
   return (data: any) => {
     const war = data?.war ?? data;
 
@@ -535,6 +543,10 @@ function warDataTtlSeconds(activeTtlSeconds: number, endedTtlSeconds: number): (
 
     if (war?.practical_finish_time !== null && war?.practical_finish_time !== undefined) {
       return PRACTICAL_FINISH_CACHE_TTL_SECONDS;
+    }
+
+    if (liveTtlSeconds !== undefined && war?.status === "active") {
+      return liveTtlSeconds;
     }
 
     return activeTtlSeconds;

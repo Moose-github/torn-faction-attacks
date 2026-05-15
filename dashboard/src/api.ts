@@ -262,6 +262,9 @@ export type FactionActivityHeatmapResponse = {
   war: {
     id: number;
     name: string;
+    status?: string;
+    practical_finish_time?: number | null;
+    official_end_time?: number | null;
     enemy_faction_id: number | null;
   };
   home_faction_id: number;
@@ -291,6 +294,9 @@ export type EnemyFactionMember = {
   travel_time_note?: string | null;
   arrival_note?: string | null;
   is_travel_time_range?: boolean;
+  return_travel_type?: string | null;
+  return_travel_time_seconds?: number | null;
+  return_travel_time_note?: string | null;
   travel_origin?: string | null;
   travel_destination?: string | null;
   travel_signature?: string | null;
@@ -300,6 +306,9 @@ export type EnemyFactionMember = {
   estimated_arrival_at?: number | null;
   estimated_arrival_earliest?: number | null;
   estimated_arrival_latest?: number | null;
+  travel_trip_destination?: string | null;
+  travel_trip_type?: string | null;
+  travel_trip_inferred_at?: number | null;
   status_updated_at?: number | null;
   updated_at: number;
 };
