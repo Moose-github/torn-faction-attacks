@@ -1889,6 +1889,7 @@ function jsonEnemyScouting(
     war: {
       id: war.id,
       name: war.name,
+      status: war.status,
       practical_finish_time: war.practical_finish_time,
       official_end_time: war.official_end_time,
       enemy_faction_id: war.enemy_faction_id,
