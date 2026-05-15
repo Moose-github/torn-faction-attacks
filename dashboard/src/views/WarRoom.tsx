@@ -797,7 +797,7 @@ function formatAmbiguousAirlinerArrivalTooltip(member: EnemyFactionMember, nowSe
 }
 
 function isAmbiguousAirliner(member: EnemyFactionMember): boolean {
-  return member.is_travel_time_range === true;
+  return member.travel_type === "Business Class/Standard";
 }
 
 function renderTravelType(member: EnemyFactionMember, nowSeconds: number): React.ReactNode {
