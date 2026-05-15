@@ -16,6 +16,7 @@ const metricOptions: Array<{ key: WarMemberActivityMetric; label: string; color:
   { key: "respect_gained", label: "Respect gained", color: "green" },
   { key: "respect_lost", label: "Respect lost", color: "red" },
 ];
+const activityMetricKeys: WarMemberActivityMetric[] = ["attacks_successful", "outside_hits"];
 const zoomLevels = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 const defaultZoomIndex = 3;
 
@@ -40,7 +41,7 @@ export function MemberActivityHeatmap({
   heatmap: WarMemberActivityHeatmapResponse | null;
   isLoading: boolean;
 }) {
-  const [metric, setMetric] = React.useState<WarMemberActivityMetric>("attacks_successful");
+  const [selectedMetrics, setSelectedMetrics] = React.useState<WarMemberActivityMetric[]>(["attacks_successful"]);
   const [selection, setSelection] = React.useState<GridSelection | null>(null);
   const [dragAnchor, setDragAnchor] = React.useState<{ memberIndex: number; bucketIndex: number } | null>(null);
   const [isExpanded, setIsExpanded] = React.useState(false);
@@ -96,11 +97,12 @@ export function MemberActivityHeatmap({
   const bucketMap = new Map(
     data.buckets.map((bucket) => [bucketKey(bucket.member_id, bucket.bucket_start), bucket]),
   );
-  const metricOption = metricOptions.find((option) => option.key === metric) ?? metricOptions[0];
+  const metricLabel = selectedMetricLabel(selectedMetrics);
+  const metricColor = selectedMetricColor(selectedMetrics);
   const maxValue = Math.max(
     0,
     ...data.members.flatMap((member) =>
-      data.time_buckets.map((bucketStart) => cellMetric(bucketMap, member.member_id, bucketStart, metric)),
+      data.time_buckets.map((bucketStart) => cellMetric(bucketMap, member.member_id, bucketStart, selectedMetrics)),
     ),
   );
   const normalizedSelection = normalizeSelection(selection);
@@ -167,6 +169,40 @@ export function MemberActivityHeatmap({
     setDragAnchor({ memberIndex, bucketIndex: 0 });
   }
 
+  function selectMetric(key: WarMemberActivityMetric) {
+    if (!activityMetricKeys.includes(key)) {
+      setSelectedMetrics([key]);
+      return;
+    }
+
+    setSelectedMetrics((current) => {
+      const currentIsActivityOnly = current.every((metricKey) => activityMetricKeys.includes(metricKey));
+      const selected = current.includes(key);
+
+      if (!currentIsActivityOnly) {
+        return [key];
+      }
+
+      if (selected && current.length > 1) {
+        return current.filter((metricKey) => metricKey !== key);
+      }
+
+      if (selected) {
+        return current;
+      }
+
+      return [...current, key];
+    });
+  }
+
+  function metricSelected(key: WarMemberActivityMetric): boolean {
+    if (activityMetricKeys.includes(key)) {
+      return selectedMetrics.includes(key);
+    }
+
+    return selectedMetrics.length === 1 && selectedMetrics[0] === key;
+  }
+
   return (
     <div className={isExpanded ? "member-activity-heatmap expanded" : "member-activity-heatmap"}>
       <div className="member-activity-toolbar">
@@ -175,15 +211,15 @@ export function MemberActivityHeatmap({
             <button
               key={option.key}
               type="button"
-              className={metric === option.key ? "toggle-chip active" : "toggle-chip"}
-              onClick={() => setMetric(option.key)}
+              className={metricSelected(option.key) ? "toggle-chip active" : "toggle-chip"}
+              onClick={() => selectMetric(option.key)}
             >
               {option.label}
             </button>
           ))}
         </div>
         <div className="member-activity-toolbar-actions">
-          <SelectionSummary summary={selectionSummary} metric={metric} />
+          <SelectionSummary summary={selectionSummary} selectedMetrics={selectedMetrics} />
           <div className="member-activity-zoom-controls" aria-label="Member activity zoom">
             <button
               type="button"
@@ -269,15 +305,16 @@ export function MemberActivityHeatmap({
                 {displayMember(member)}
               </button>
               {data.time_buckets.map((bucketStart, bucketIndex) => {
-                const value = cellMetric(bucketMap, member.member_id, bucketStart, metric);
+                const value = cellMetric(bucketMap, member.member_id, bucketStart, selectedMetrics);
                 const selected = cellSelected(normalizedSelection, memberIndex, bucketIndex);
+                const bucket = bucketMap.get(bucketKey(member.member_id, bucketStart));
                 return (
                   <button
                     key={`${member.member_id}-${bucketStart}`}
                     type="button"
                     className={selected ? "member-activity-cell selected" : "member-activity-cell"}
-                    style={{ backgroundColor: activityCellColor(value, maxValue, metricOption.color) }}
-                    title={`${displayMember(member)} | ${formatTime(bucketStart)}-${formatTime(bucketStart + data.bucket_minutes * 60)} | ${metricOption.label}: ${formatNumber(value)}`}
+                    style={{ backgroundColor: activityCellColor(value, maxValue, metricColor) }}
+                    title={`${displayMember(member)} | ${formatTime(bucketStart)}-${formatTime(bucketStart + data.bucket_minutes * 60)} | ${metricLabel}: ${formatNumber(value)}${selectedMetrics.length > 1 ? ` (${selectedMetrics.map((metricKey) => `${metricOptionLabel(metricKey)} ${formatNumber(Number(bucket?.[metricKey] ?? 0))}`).join(", ")})` : ""}`}
                     onMouseDown={() => beginSelection(memberIndex, bucketIndex)}
                     onMouseEnter={() => extendSelection(memberIndex, bucketIndex)}
                   />
@@ -293,20 +330,21 @@ export function MemberActivityHeatmap({
 
 function SelectionSummary({
   summary,
-  metric,
+  selectedMetrics,
 }: {
   summary: ReturnType<typeof summarizeSelection> | null;
-  metric: WarMemberActivityMetric;
+  selectedMetrics: WarMemberActivityMetric[];
 }) {
   if (!summary) {
     return <div className="member-activity-selection">Drag cells, member rows, or time columns to total them.</div>;
   }
 
-  const metricLabel = metricOptions.find((option) => option.key === metric)?.label ?? "Selected metric";
+  const metricLabel = selectedMetricLabel(selectedMetrics);
+  const selectedTotal = selectedMetrics.reduce((total, metric) => total + summary.totals[metric], 0);
 
   return (
     <div className="member-activity-selection">
-      <strong>{metricLabel}: {formatNumber(summary.totals[metric])}</strong>
+      <strong>{metricLabel}: {formatNumber(selectedTotal)}</strong>
       <span>{formatNumber(summary.memberCount)} members</span>
       <span>{formatNumber(summary.bucketCount)} time slots</span>
       <span>{formatTime(summary.startBucket)}-{formatTime(summary.endBucket + summary.bucketSeconds)}</span>
@@ -371,9 +409,10 @@ function cellMetric(
   bucketMap: Map<string, WarMemberActivityBucket>,
   memberId: number,
   bucketStart: number,
-  metric: WarMemberActivityMetric,
+  metrics: WarMemberActivityMetric[],
 ): number {
-  return Number(bucketMap.get(bucketKey(memberId, bucketStart))?.[metric] ?? 0);
+  const bucket = bucketMap.get(bucketKey(memberId, bucketStart));
+  return metrics.reduce((total, metric) => total + Number(bucket?.[metric] ?? 0), 0);
 }
 
 function bucketKey(memberId: number, bucketStart: number): string {
@@ -415,4 +454,20 @@ function activityCellColor(value: number, maxValue: number, color: "blue" | "red
   }[color];
 
   return `rgba(${colors[0]}, ${colors[1]}, ${colors[2]}, ${0.16 + intensity * 0.72})`;
+}
+
+function metricOptionLabel(metric: WarMemberActivityMetric): string {
+  return metricOptions.find((option) => option.key === metric)?.label ?? metric;
+}
+
+function selectedMetricLabel(metrics: WarMemberActivityMetric[]): string {
+  return metrics.map(metricOptionLabel).join(" + ");
+}
+
+function selectedMetricColor(metrics: WarMemberActivityMetric[]): "blue" | "red" | "green" {
+  if (metrics.length === 1) {
+    return metricOptions.find((option) => option.key === metrics[0])?.color ?? "green";
+  }
+
+  return "green";
 }

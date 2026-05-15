@@ -1071,18 +1071,22 @@ h2 {
 
 .enemy-travel-sections {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .enemy-abroad-section {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .enemy-abroad-section h3 {
   margin: 0;
   color: #0f172a;
   font-size: 1rem;
+}
+
+.enemy-abroad-section .panel-description {
+  margin-bottom: 4px;
 }
 
 .enemy-travel-table td:nth-child(2),
@@ -1095,16 +1099,22 @@ h2 {
 .stacked-travel-options {
   display: inline-grid;
   gap: 3px;
+  line-height: 1.15;
   white-space: nowrap;
 }
 
 .plane-type {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   color: #475569;
   font-weight: 800;
   white-space: nowrap;
+}
+
+.plane-type svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .enemy-status-badge {
@@ -1334,6 +1344,12 @@ h2 {
   gap: 12px;
 }
 
+.member-activity-toolbar .panel-toggle-row {
+  flex-wrap: wrap;
+  max-width: 100%;
+  margin: 0;
+}
+
 .member-activity-toolbar-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1376,6 +1392,7 @@ h2 {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  min-height: 34px;
   color: #64748b;
   font-size: 0.82rem;
   font-weight: 700;
@@ -1588,12 +1605,9 @@ h2 {
   font-weight: 800;
 }
 
-.lifestyle-period-card {
-  min-height: 132px;
-}
-
+.lifestyle-period-card,
 .lifestyle-average-card {
-  min-height: 150px;
+  min-height: 156px;
 }
 
 .lifestyle-main-metric-label {
@@ -1609,6 +1623,8 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .lifestyle-sub-metrics span {
