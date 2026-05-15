@@ -1111,6 +1111,10 @@ h2 {
   pointer-events: none;
 }
 
+.enemy-travel-table td.split-travel-cell:last-child::before {
+  right: 16px;
+}
+
 .stacked-travel-options {
   position: relative;
   z-index: 1;
