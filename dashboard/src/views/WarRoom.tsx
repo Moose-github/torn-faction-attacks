@@ -566,28 +566,23 @@ function EnemyTravelPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {travelers.map((member) => {
-                    const splitTravel = hasSplitTravelOptions(member, nowSeconds);
-                    const splitCellClass = splitTravel ? "split-travel-cell" : undefined;
-
-                    return (
-                      <tr key={member.member_id}>
-                        <td>
-                          <TravelMemberLink member={member} />
-                        </td>
-                        <td>{formatTravelRoute(member)}</td>
-                        <td className={splitCellClass} title={formatTravelStartWindow(member)}>{renderDepartureWindow(member, nowSeconds)}</td>
-                        <td className={splitCellClass} title={formatTravelDurationTooltip(member, nowSeconds)}>{renderTravelDuration(member, nowSeconds)}</td>
-                        <td className={splitCellClass} title={formatArrivalTooltip(member, nowSeconds)}>{renderArrivalRange(member, nowSeconds)}</td>
-                        <td className={splitCellClass}>
-                          <span className="plane-type" title={formatPlaneTypeTooltip(member, nowSeconds)}>
-                            <Plane size={14} />
-                            {renderTravelType(member, nowSeconds)}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {travelers.map((member) => (
+                    <tr key={member.member_id}>
+                      <td>
+                        <TravelMemberLink member={member} />
+                      </td>
+                      <td>{formatTravelRoute(member)}</td>
+                      <td title={formatTravelStartWindow(member)}>{renderDepartureWindow(member, nowSeconds)}</td>
+                      <td title={formatTravelDurationTooltip(member, nowSeconds)}>{renderTravelDuration(member, nowSeconds)}</td>
+                      <td title={formatArrivalTooltip(member, nowSeconds)}>{renderArrivalRange(member, nowSeconds)}</td>
+                      <td>
+                        <span className="plane-type" title={formatPlaneTypeTooltip(member, nowSeconds)}>
+                          <Plane size={14} />
+                          {renderTravelType(member, nowSeconds)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -939,10 +934,6 @@ function ambiguousAirlinerResolvedAsStandard(member: EnemyFactionMember, nowSeco
   }
 
   return nowSeconds > businessClass.latestArrival + BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS;
-}
-
-function hasSplitTravelOptions(member: EnemyFactionMember, nowSeconds: number): boolean {
-  return (displayedAmbiguousAirlinerTravelPossibilities(member, nowSeconds)?.length ?? 0) > 1;
 }
 
 function StackedTravelOptions({ values }: { values: string[] }) {

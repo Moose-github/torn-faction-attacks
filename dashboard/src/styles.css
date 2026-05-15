@@ -1096,11 +1096,11 @@ h2 {
   white-space: nowrap;
 }
 
-.enemy-travel-table td.split-travel-cell {
+.enemy-travel-table td:has(.stacked-travel-options) {
   position: relative;
 }
 
-.enemy-travel-table td.split-travel-cell::before {
+.enemy-travel-table td:has(.stacked-travel-options)::before {
   content: "";
   position: absolute;
   z-index: 0;
@@ -1111,7 +1111,7 @@ h2 {
   pointer-events: none;
 }
 
-.enemy-travel-table td.split-travel-cell:last-child::before {
+.enemy-travel-table td:has(.stacked-travel-options):last-child::before {
   right: 16px;
 }
 
