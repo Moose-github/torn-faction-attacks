@@ -50,7 +50,7 @@ export function Miscellaneous() {
         <div>
           <p className="eyebrow">Miscellaneous</p>
           <h2>Miscellaneous</h2>
-          <p>Cached Torn shoplifting information from the five-minute refresh.</p>
+          <p>Useful tools and live information that do not fit cleanly into the main war views.</p>
         </div>
       </section>
 
@@ -61,7 +61,10 @@ export function Miscellaneous() {
         />
         {data?.error ? <p className="form-error">{data.error}</p> : null}
         {fetchedAt ? (
-          <p className="panel-description">Last fetched {formatLongDateTime(fetchedAt)}.</p>
+          <p className="panel-description">
+            Cached Torn shoplifting obstacles and security status from the one-minute refresh. Last fetched{" "}
+            {formatLongDateTime(fetchedAt)}.
+          </p>
         ) : null}
         {rows.length === 0 ? (
           <EmptyState text={isLoading ? "Loading shoplifting data" : "No shoplifting data cached yet"} />
