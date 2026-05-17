@@ -77,13 +77,26 @@ export function Miscellaneous() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={`${row.shopKey}:${row.title}`}>
+                  <tr key={row.shopKey}>
                     <td>{formatShopName(row.shopKey)}</td>
-                    <td>{row.title}</td>
                     <td>
-                      <span className={row.disabled ? "shoplifting-status disabled" : "shoplifting-status active"}>
-                        {row.disabled ? "Disabled" : "Active"}
-                      </span>
+                      <div className="shoplifting-obstacle-stack">
+                        {row.obstacles.map((obstacle) => (
+                          <span key={obstacle.title}>{obstacle.title}</span>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="shoplifting-obstacle-stack">
+                        {row.obstacles.map((obstacle) => (
+                          <span
+                            className={obstacle.disabled ? "shoplifting-status disabled" : "shoplifting-status active"}
+                            key={obstacle.title}
+                          >
+                            {obstacle.disabled ? "Disabled" : "Active"}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -98,16 +111,15 @@ export function Miscellaneous() {
 
 function shopliftingRows(shoplifting: MiscellaneousResponse["shoplifting"]): Array<{
   shopKey: string;
-  title: string;
-  disabled: boolean;
+  obstacles: Array<{
+    title: string;
+    disabled: boolean;
+  }>;
 }> {
-  return Object.entries(shoplifting).flatMap(([shopKey, obstacles]) =>
-    obstacles.map((obstacle) => ({
-      shopKey,
-      title: obstacle.title,
-      disabled: obstacle.disabled,
-    })),
-  );
+  return Object.entries(shoplifting).map(([shopKey, obstacles]) => ({
+    shopKey,
+    obstacles,
+  }));
 }
 
 function formatShopName(value: string): string {

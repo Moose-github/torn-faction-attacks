@@ -3,6 +3,7 @@ export interface Env {
   TORN_API_KEY: string;
   BSP_TORN_API_KEY?: string;
   FFSCOUTER_API_KEY?: string;
+  DISCORD_WEBHOOK_URL?: string;
 }
 
 export type TornAttackResponse = {

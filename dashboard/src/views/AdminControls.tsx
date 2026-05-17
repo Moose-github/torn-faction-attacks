@@ -25,6 +25,7 @@ import {
   refreshMemberLifestyleStats,
   relinkAttacks,
   runIngestion,
+  sendDiscordMessage,
   updateEvent,
   updateOfficialWar,
   WarSummary,
@@ -88,6 +89,7 @@ export function AdminControls() {
   });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [adminGrantForm, setAdminGrantForm] = React.useState({ tornUserId: "" });
+  const [discordForm, setDiscordForm] = React.useState({ message: "" });
   const [rebuildWarId, setRebuildWarId] = React.useState("");
   const [attackWindowForm, setAttackWindowForm] = React.useState({
     startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
@@ -360,6 +362,41 @@ export function AdminControls() {
               onClick={() => runAdminAction("List admin users", listAdminUsers)}
             >
               List current admins
+            </button>
+          </form>
+        </section>
+
+        <section className="panel admin-panel-discord">
+          <PanelHeader title="Discord message" />
+          <form
+            className="admin-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Send Discord message", () =>
+                sendDiscordMessage(discordForm.message).then((response) => {
+                  setDiscordForm({ message: "" });
+                  return response;
+                }),
+              );
+            }}
+          >
+            <label className="admin-form-wide">
+              <span>Message</span>
+              <textarea
+                value={discordForm.message}
+                onChange={(event) => setDiscordForm({ message: event.target.value })}
+                maxLength={1900}
+                rows={4}
+                placeholder="Message to send to Discord"
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              className="admin-button primary admin-form-wide"
+              disabled={isBusy !== null || discordForm.message.trim().length === 0}
+            >
+              {isBusy === "Send Discord message" ? "Sending" : "Send to Discord"}
             </button>
           </form>
         </section>

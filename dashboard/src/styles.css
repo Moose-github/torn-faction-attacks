@@ -20,14 +20,16 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
 button,
 a,
 input,
-select {
+select,
+textarea {
   transition:
     border-color 140ms ease,
     background-color 140ms ease,
@@ -40,19 +42,27 @@ select {
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.24);
   outline-offset: 2px;
 }
 
 input,
-select {
+select,
+textarea {
   min-height: 38px;
   padding: 0 10px;
   border: 1px solid #cbd5e1;
   border-radius: 7px;
   background: #fff;
   color: #172033;
+}
+
+textarea {
+  min-height: 92px;
+  padding: 10px;
+  resize: vertical;
 }
 
 input:disabled {
@@ -1645,6 +1655,12 @@ h2 {
 .shoplifting-status.disabled {
   background: #dcfce7;
   color: #166534;
+}
+
+.shoplifting-obstacle-stack {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
 }
 
 .lifestyle-period-card,

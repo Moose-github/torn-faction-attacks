@@ -22,6 +22,7 @@ import {
 } from "./lifestyleStats";
 import { getMiscellaneousData, refreshTornShoplifting } from "./miscellaneous";
 import { getDiceGameState, rollDiceGame, sendXanaxToDiceGame } from "./diceGame";
+import { sendDiscordMessageFromRequest } from "./discord";
 import { getLatestMaintenanceRun, runScheduledMaintenance } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
@@ -100,6 +101,12 @@ export default {
       const authError = await requireAdmin(request, env);
       if (authError) return authError;
       return grantAdminAccess(request, env);
+    }
+
+    if (url.pathname === "/api/admin/discord/message" && request.method === "POST") {
+      const authError = await requireAdmin(request, env);
+      if (authError) return authError;
+      return sendDiscordMessageFromRequest(request, env);
     }
 
     if (url.pathname === "/api/rebuild" && request.method === "POST") {

@@ -771,6 +771,10 @@ export async function grantAdminAccess(tornUserId: number): Promise<unknown> {
   return postJson("/api/admin/users/grant", { torn_user_id: tornUserId });
 }
 
+export async function sendDiscordMessage(message: string): Promise<unknown> {
+  return postJson("/api/admin/discord/message", { message });
+}
+
 export async function getMemberLifestyleStats(options: {
   startDate?: string;
   endDate?: string;
