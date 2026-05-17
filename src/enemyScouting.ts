@@ -134,7 +134,7 @@ type TravelDisplay = {
   return_travel_time_note: string | null;
 };
 
-type MemberTravelStatus = {
+type MemberStatusSnapshot = {
   status_state: string | null;
   status_description: string | null;
   last_action_status: string | null;
@@ -155,7 +155,7 @@ type MemberTravelStatus = {
   status_updated_at: number | null;
 };
 
-type EnemyMemberSnapshot = MemberTravelStatus & {
+type EnemyMemberSnapshot = MemberStatusSnapshot & {
   member_id: number;
   faction_id: number;
   name: string;
@@ -207,7 +207,7 @@ type CurrentScoutingWar = {
   enemy_scouting_status_checked_at: number | null;
 };
 
-export type EnemyTravelRefreshMetrics = {
+export type EnemyMemberTrackingRefreshMetrics = {
   writeStatements: number;
   changedRows: number;
   fetchedMembers: number;
@@ -396,10 +396,10 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
   }
 }
 
-export async function refreshCurrentEnemyTravelStatuses(
+export async function refreshCurrentEnemyMemberTracking(
   env: Env,
   options: { includeMembers?: boolean; liveOnly?: boolean } = {},
-): Promise<EnemyTravelRefreshMetrics> {
+): Promise<EnemyMemberTrackingRefreshMetrics> {
   const war = await readCurrentScoutingWar(env);
   if (!war) {
     return {
@@ -808,7 +808,7 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
       `,
     ),
     ...members.map((member) => {
-      const travelStatus = buildMemberTravelStatus(member, null, null, fetchedAt);
+      const statusSnapshot = buildMemberStatusSnapshot(member, null, null, fetchedAt);
       return env.DB.prepare(
         `
         INSERT INTO enemy_faction_members (
@@ -821,6 +821,8 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
           is_revivable,
           status_state,
           status_description,
+          last_action_status,
+          last_action_timestamp,
           plane_image_type,
           travel_origin,
           travel_destination,
@@ -837,7 +839,7 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
           status_updated_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
@@ -847,6 +849,8 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
           is_revivable = excluded.is_revivable,
           status_state = excluded.status_state,
           status_description = excluded.status_description,
+          last_action_status = excluded.last_action_status,
+          last_action_timestamp = excluded.last_action_timestamp,
           plane_image_type = excluded.plane_image_type,
           travel_origin = excluded.travel_origin,
           travel_destination = excluded.travel_destination,
@@ -871,22 +875,24 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
         member.position ?? null,
         finiteNumber(member.days_in_faction),
         boolToInt(member.is_revivable ?? false),
-        travelStatus.status_state,
-        travelStatus.status_description,
-        travelStatus.plane_image_type,
-        travelStatus.travel_origin,
-        travelStatus.travel_destination,
-        travelStatus.travel_signature,
-        travelStatus.travel_detected_at,
-        travelStatus.travel_started_after,
-        travelStatus.travel_started_before,
-        travelStatus.estimated_arrival_at,
-        travelStatus.estimated_arrival_earliest,
-        travelStatus.estimated_arrival_latest,
-        travelStatus.travel_trip_destination,
-        travelStatus.travel_trip_type,
-        travelStatus.travel_trip_inferred_at,
-        travelStatus.status_updated_at,
+        statusSnapshot.status_state,
+        statusSnapshot.status_description,
+        statusSnapshot.last_action_status,
+        statusSnapshot.last_action_timestamp,
+        statusSnapshot.plane_image_type,
+        statusSnapshot.travel_origin,
+        statusSnapshot.travel_destination,
+        statusSnapshot.travel_signature,
+        statusSnapshot.travel_detected_at,
+        statusSnapshot.travel_started_after,
+        statusSnapshot.travel_started_before,
+        statusSnapshot.estimated_arrival_at,
+        statusSnapshot.estimated_arrival_earliest,
+        statusSnapshot.estimated_arrival_latest,
+        statusSnapshot.travel_trip_destination,
+        statusSnapshot.travel_trip_type,
+        statusSnapshot.travel_trip_inferred_at,
+        statusSnapshot.status_updated_at,
       );
     }),
   ]);
@@ -999,7 +1005,7 @@ async function refreshEnemyFactionMemberStatuses(
   factionId: number,
   previousPollAt: number | null,
   options: { members?: TornFactionMember[]; includeMembers?: boolean } = {},
-): Promise<EnemyTravelRefreshMetrics> {
+): Promise<EnemyMemberTrackingRefreshMetrics> {
   const fetchedAt = nowSeconds();
   const members = options.members ?? await fetchTornFactionMembers(env, factionId);
 
@@ -1634,16 +1640,16 @@ function buildEnemyMemberSnapshot(
     position: member.position ?? null,
     days_in_faction: finiteNumber(member.days_in_faction),
     is_revivable: boolToInt(member.is_revivable ?? false) ?? 0,
-    ...buildMemberTravelStatus(member, previous, previousPollAt, fetchedAt),
+    ...buildMemberStatusSnapshot(member, previous, previousPollAt, fetchedAt),
   };
 }
 
-function buildMemberTravelStatus(
+function buildMemberStatusSnapshot(
   member: TornFactionMember,
   previous: EnemyFactionMemberRow | null,
   previousPollAt: number | null,
   fetchedAt: number,
-): MemberTravelStatus {
+): MemberStatusSnapshot {
   const statusState = cleanText(member.status?.state);
   const statusDescription = cleanText(member.status?.description);
   const lastActionStatus = cleanText(member.last_action?.status);

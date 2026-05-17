@@ -11,7 +11,7 @@ import {
   getEnemyScoutingForWar,
   getScoutingComparisonForWar,
   refreshEnemyScoutingForWar,
-  refreshCurrentEnemyTravelStatuses,
+  refreshCurrentEnemyMemberTracking,
   refreshMissingScoutingNetworth,
 } from "./enemyScouting";
 import { getWarActivityHeatmap } from "./heatmap";
@@ -437,17 +437,17 @@ export default {
 
     if (minute % 15 === 0) {
       jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
-      jobs.push({ label: "Cron travel and maintenance", run: () => runTravelAndMaintenance(env) });
+      jobs.push({ label: "Cron enemy tracking and maintenance", run: () => runEnemyTrackingAndMaintenance(env) });
     } else if (minute % 5 === 0) {
       jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
       jobs.push({
-        label: "Cron enemy travel",
-        run: () => refreshCurrentEnemyTravelStatuses(env),
+        label: "Cron enemy member tracking",
+        run: () => refreshCurrentEnemyMemberTracking(env),
       });
     } else {
       jobs.push({
-        label: "Cron live enemy travel",
-        run: () => refreshCurrentEnemyTravelStatuses(env, { liveOnly: true }),
+        label: "Cron live enemy member tracking",
+        run: () => refreshCurrentEnemyMemberTracking(env, { liveOnly: true }),
       });
       jobs.push({
         label: "Cron lifestyle stats",
@@ -473,16 +473,16 @@ export default {
   },
 };
 
-async function runTravelAndMaintenance(env: Env): Promise<void> {
+async function runEnemyTrackingAndMaintenance(env: Env): Promise<void> {
   const heatmapMembersByFaction = new Map<number, TornFactionMember[]>();
 
   try {
-    const travel = await refreshCurrentEnemyTravelStatuses(env, { includeMembers: true });
-    if (travel.factionId && travel.members) {
-      heatmapMembersByFaction.set(travel.factionId, travel.members);
+    const tracking = await refreshCurrentEnemyMemberTracking(env, { includeMembers: true });
+    if (tracking.factionId && tracking.members) {
+      heatmapMembersByFaction.set(tracking.factionId, tracking.members);
     }
   } catch (err: any) {
-    console.error("Cron enemy travel failed:", err?.message || err);
+    console.error("Cron enemy member tracking failed:", err?.message || err);
     console.error(err);
   }
 
