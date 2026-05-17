@@ -99,7 +99,10 @@ export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response>
       .bind(...binds)
       .all();
 
-    const csv = attacksToCsv((rows.results ?? []) as Record<string, unknown>[], columns);
+    const csv = attacksToCsv(
+      ((rows.results ?? []) as Record<string, unknown>[]).map(addPlayerColumns),
+      columns,
+    );
     const filename = `${sanitizeFilename(war.name)}-${startWindowMode}-to-${finishWindowMode}-${scope}-${linkedStatus}.csv`;
 
     return new Response(csv, {
@@ -168,6 +171,8 @@ function exportBoundaryForWar(
 }
 
 const STANDARD_EXPORT_COLUMNS = [
+  "player_name",
+  "player_id",
   "id",
   "war_id",
   "started",
@@ -218,6 +223,33 @@ function attacksToCsv(
   ];
 
   return `${lines.join("\r\n")}\r\n`;
+}
+
+function addPlayerColumns(row: Record<string, unknown>): Record<string, unknown> {
+  const homePlayerIsAttacker = Number(row.attacker_faction_id) === HOME_FACTION_ID;
+  const homePlayerIsDefender = Number(row.defender_faction_id) === HOME_FACTION_ID;
+
+  if (homePlayerIsAttacker) {
+    return {
+      ...row,
+      player_name: row.attacker_name,
+      player_id: row.attacker_id,
+    };
+  }
+
+  if (homePlayerIsDefender) {
+    return {
+      ...row,
+      player_name: row.defender_name,
+      player_id: row.defender_id,
+    };
+  }
+
+  return {
+    ...row,
+    player_name: row.attacker_name,
+    player_id: row.attacker_id,
+  };
 }
 
 function csvCell(value: unknown): string {
