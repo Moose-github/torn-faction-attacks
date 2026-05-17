@@ -382,6 +382,9 @@ export function WarRoom({
         <EnemyPushPressurePanel
           data={pushPressure}
           isLoading={isLoadingPushPressure}
+          isCollecting={isMemberTrackingActive}
+          collapsed={collapsedPanels.enemyPushPressure ?? false}
+          onToggle={() => togglePanel("enemyPushPressure")}
         />
 
         <CollapsiblePanel
@@ -539,9 +542,15 @@ function StatusSummaryItem({
 function EnemyPushPressurePanel({
   data,
   isLoading,
+  isCollecting,
+  collapsed,
+  onToggle,
 }: {
   data: EnemyPushPressureResponse | null;
   isLoading: boolean;
+  isCollecting: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
   const latest = data?.latest ?? null;
   const history = data?.history ?? [];
@@ -550,12 +559,20 @@ function EnemyPushPressurePanel({
     : latest
       ? `${pushPressureLevelLabel(latest.pressure_level)} · ${formatRelativeTime(latest.bucket_start)}`
       : "No samples";
+  const displayAside = isCollecting ? aside : "Not gathering";
   const reasons = latest ? pushPressureReasons(latest) : [];
 
   return (
-    <section className="panel enemy-push-pressure-panel">
-      <PanelHeader title="Enemy push pressure (WIP)" aside={aside} />
-      {latest ? (
+    <CollapsiblePanel
+      title="Enemy push pressure (WIP)"
+      aside={displayAside}
+      collapsed={collapsed}
+      onToggle={onToggle}
+      className="enemy-push-pressure-panel"
+    >
+      {!isCollecting ? (
+        <EmptyState text="Enemy push pressure is not currently being gathered. Collection starts two hours before official war start and stops at practical finish." />
+      ) : latest ? (
         <>
           <div className={`push-pressure-status ${pushPressureTone(latest.pressure_level)}`}>
             <div>
@@ -593,7 +610,7 @@ function EnemyPushPressurePanel({
       ) : (
         <EmptyState text={isLoading ? "Loading push pressure" : "No push pressure samples yet"} />
       )}
-    </section>
+    </CollapsiblePanel>
   );
 }
 
