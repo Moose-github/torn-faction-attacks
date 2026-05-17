@@ -1083,7 +1083,7 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
   }> = termed
     ? [
         { label: "Player name", value: (member) => displayMember(member) },
-        { label: "Player ID", value: (member) => member.member_id },
+        { label: "Member ID", value: (member) => member.member_id },
         { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
         { label: "Defends", value: (member) => member.defends_total },
         { label: "Defends lost", value: (member) => memberDefendsLost(member) },
@@ -1098,7 +1098,7 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
       ]
     : [
         { label: "Player name", value: (member) => displayMember(member) },
-        { label: "Player ID", value: (member) => member.member_id },
+        { label: "Member ID", value: (member) => member.member_id },
         { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
         { label: "Defends", value: (member) => member.defends_total },
         { label: "Defends lost", value: (member) => memberDefendsLost(member) },
@@ -1138,7 +1138,7 @@ function exportMemberAttacksCsv(
     value: (attack: MemberAttack) => string | number | null | undefined;
   }> = [
     { label: "Player name", value: () => displayMember(member) },
-    { label: "Player ID", value: () => member.member_id },
+    { label: "Member ID", value: () => member.member_id },
     { label: "Time", value: (attack) => attack.started },
     { label: "Type", value: (attack) => attack.classification },
     { label: "Attacker", value: (attack) => attack.attacker_name ?? attack.attacker_id },

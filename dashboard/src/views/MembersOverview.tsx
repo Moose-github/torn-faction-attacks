@@ -140,7 +140,7 @@ function exportMembersOverviewCsv(members: MemberStats[], warType: WarType) {
     value: (member: MemberStats) => string | number | null | undefined;
   }> = [
     { label: "Player name", value: (member) => displayMember(member) },
-    { label: "Player ID", value: (member) => member.member_id },
+    { label: "Member ID", value: (member) => member.member_id },
     { label: "Wars participated", value: (member) => member.wars_participated },
     { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
     { label: "Defends", value: (member) => member.defends_total },
