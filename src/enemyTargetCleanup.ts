@@ -38,11 +38,15 @@ export async function clearEnemyDataForNewTarget(
           ff_battlestats_updated_at = NULL,
           bsp_battlestats = NULL,
           bsp_battlestats_updated_at = NULL,
+          networth = NULL,
+          networth_updated_at = NULL,
           updated_at = unixepoch()
       WHERE ff_battlestats IS NOT NULL
          OR ff_battlestats_updated_at IS NOT NULL
          OR bsp_battlestats IS NOT NULL
          OR bsp_battlestats_updated_at IS NOT NULL
+         OR networth IS NOT NULL
+         OR networth_updated_at IS NOT NULL
       `,
     ).run();
     const changes = d1Changes(result);

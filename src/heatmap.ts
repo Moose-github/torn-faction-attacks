@@ -1,6 +1,5 @@
 import { HOME_FACTION_ID } from "./constants";
 import { revokeSessionsForFormerFactionMembers } from "./auth";
-import { clearEnemyDataForNewTarget } from "./enemyTargetCleanup";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { Env, TornFactionMember, WarRow } from "./types";
 import { boolToInt, json, nowSeconds } from "./utils";
@@ -87,12 +86,6 @@ export async function sampleFactionActivityHeatmaps(
     latestWar.official_end_time === null &&
     latestWar.practical_finish_time === null
   ) {
-    const enemyCleanup = await clearEnemyDataForNewTarget(env, latestWar.enemy_faction_id, {
-      clearReplaceableHeatmaps: true,
-    });
-    metrics.writeStatements += enemyCleanup.writeStatements;
-    metrics.changedRows += enemyCleanup.changedRows;
-    metrics.staleHeatmapRowsDeleted += enemyCleanup.enemyHeatmapRowsDeleted;
     addFactionSampleMetrics(
       metrics,
       await sampleFactionActivity(
