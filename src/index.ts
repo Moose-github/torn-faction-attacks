@@ -55,6 +55,7 @@ import {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const routeContext = { request, env, ctx, url };
 
     if (request.method === "OPTIONS") {
       return new Response(null, {
@@ -63,370 +64,7 @@ export default {
       });
     }
 
-    if (url.pathname === "/api/auth/torn" && request.method === "POST") {
-      return authenticateWithTornKey(request, env);
-    }
-
-    if (url.pathname === "/api/auth/me" && request.method === "GET") {
-      return getCurrentAuthSession(request, env);
-    }
-
-    if (url.pathname === "/api/run" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      const cooldownError = await requireActionCooldown(env, "manual_ingestion", 5 * 60);
-      if (cooldownError) return cooldownError;
-      await runIngestion(env, "manual");
-      return json({ ok: true });
-    }
-
-    if (url.pathname === "/api/admin/ingestion-run" && request.method === "GET") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return getLatestIngestionRun(env);
-    }
-
-    if (url.pathname === "/api/admin/maintenance-run" && request.method === "GET") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return getLatestMaintenanceRun(env);
-    }
-
-    if (url.pathname === "/api/admin/users" && request.method === "GET") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return listAdminUsers(env);
-    }
-
-    if (url.pathname === "/api/admin/users/grant" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return grantAdminAccess(request, env);
-    }
-
-    if (url.pathname === "/api/admin/discord/message" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return sendDiscordMessageFromRequest(request, env);
-    }
-
-    if (url.pathname === "/api/rebuild" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      const body = (await request.json().catch(() => ({}))) as { war_id?: unknown };
-      const warId = body.war_id === undefined || body.war_id === null || body.war_id === ""
-        ? undefined
-        : Number(body.war_id);
-      if (warId !== undefined && (!Number.isInteger(warId) || warId <= 0)) {
-        return json({ ok: false, error: "Invalid war_id", code: "INVALID_WAR_ID" }, 400);
-      }
-      const cooldownError = await requireActionCooldown(
-        env,
-        warId === undefined ? "manual_rebuild:all" : `manual_rebuild:${warId}`,
-        15 * 60,
-      );
-      if (cooldownError) return cooldownError;
-      const result = await rebuildDerivedStatsFromRaw(env, warId);
-      if (warId !== undefined && result.wars_rebuilt === 0) {
-        return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
-      }
-      return json({ ok: true, ...result });
-    }
-
-    if (url.pathname === "/api/health") {
-      return json({ ok: true });
-    }
-
-    if (url.pathname === "/api/attacks") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      const limit = parseLimit(url.searchParams.get("limit"), 50, 100);
-      const rows = await env.DB.prepare(`SELECT * FROM attacks ORDER BY started DESC LIMIT ?`)
-        .bind(limit)
-        .all();
-
-      return json(rows.results ?? []);
-    }
-
-    if (url.pathname === "/api/attacks/window" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return getAttackWindow(request, env);
-    }
-
-    if (url.pathname === "/api/member-lifestyle-stats" && request.method === "GET") {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, 5 * 60, () => getMemberLifestyleStats(url, env));
-    }
-
-    if (url.pathname === "/api/member-lifestyle-stats/refresh" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      const cooldownError = await requireActionCooldown(env, "member_lifestyle_stats_refresh", 30 * 60);
-      if (cooldownError) return cooldownError;
-      return refreshMemberLifestyleStatsFromRequest(request, env);
-    }
-
-    if (url.pathname === "/api/miscellaneous" && request.method === "GET") {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, 55, () => getMiscellaneousData(env));
-    }
-
-    if (url.pathname === "/api/dice-game" && request.method === "GET") {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return getDiceGameState(request, env, url);
-    }
-
-    if (url.pathname === "/api/dice-game/roll" && request.method === "POST") {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return rollDiceGame(request, env);
-    }
-
-    if (url.pathname === "/api/dice-game/send-xanax" && request.method === "POST") {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return sendXanaxToDiceGame(request, env);
-    }
-
-    if (url.pathname === "/api/wars" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return createWar(request, env);
-    }
-
-    if (url.pathname === "/api/wars/import" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return importHistoricalWar(request, env);
-    }
-
-    if (url.pathname === "/api/wars/import-event" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return importHistoricalEvent(request, env);
-    }
-
-    if (url.pathname === "/api/wars/import/preview" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return previewHistoricalWarImport(request, env);
-    }
-
-    if (url.pathname === "/api/wars/import-event/preview" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return previewHistoricalEventImport(request, env);
-    }
-
-    if (url.pathname === "/api/wars/update-official" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return updateOfficialWar(request, env);
-    }
-
-    if (url.pathname === "/api/wars/update-event" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return updateEvent(request, env);
-    }
-
-    if (url.pathname === "/api/wars/delete" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return deleteWar(request, env);
-    }
-
-    if (url.pathname === "/api/wars/relink-attacks" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return relinkWarAttacks(request, env);
-    }
-
-    if (url.pathname === "/api/wars/end" && request.method === "POST") {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      return endActiveWar(request, env);
-    }
-
-    if (
-      url.pathname.startsWith("/api/torn-wars/") &&
-      url.pathname.endsWith("/report/fetch") &&
-      request.method === "POST"
-    ) {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      const cooldownError = await requireActionCooldown(
-        env,
-        `ranked_war_report_fetch:${url.pathname}`,
-        15 * 60,
-      );
-      if (cooldownError) return cooldownError;
-      return fetchRankedWarReport(url, env);
-    }
-
-    if (url.pathname === "/api/wars" && request.method === "GET") {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, 55, () => listWars(url, env));
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/report-discrepancies") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(30 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-        getWarReportDiscrepancies(url, env),
-      );
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/enemy-push-pressure") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-        getEnemyPushPressureForWar(url, env),
-      );
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/enemy-scouting") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55), () =>
-        getEnemyScoutingForWar(url, env),
-      );
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/scouting-comparison") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-        getScoutingComparisonForWar(url, env),
-      );
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/enemy-scouting") &&
-      request.method === "POST"
-    ) {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      const cooldownError = await requireActionCooldown(
-        env,
-        `enemy_scouting_refresh:${url.pathname}`,
-        15 * 60,
-      );
-      if (cooldownError) return cooldownError;
-      return refreshEnemyScoutingForWar(url, env);
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.includes("/members/") &&
-      url.pathname.endsWith("/attacks") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return getWarMemberAttacks(url, env);
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/member-activity-heatmap") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-        getWarMemberActivityHeatmap(url, env),
-      );
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/activity") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-        getWarActivity(url, env),
-      );
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/activity-heatmap") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-        getWarActivityHeatmap(url, env),
-      );
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/chain-bonuses") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(15 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-        getWarChainBonusesForWar(url, env),
-      );
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      url.pathname.endsWith("/attacks") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireAdmin(request, env);
-      if (authError) return authError;
-      if (url.searchParams.get("format") === "csv") {
-        return exportWarAttacksCsv(url, env);
-      }
-      return getWarAttacks(url, env);
-    }
-
-    if (
-      url.pathname.startsWith("/api/wars/") &&
-      !url.pathname.endsWith("/attacks") &&
-      request.method === "GET"
-    ) {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () => getWar(url, env));
-    }
-
-    if (url.pathname === "/api/stats" && request.method === "GET") {
-      const authError = await requireMember(request, env);
-      if (authError) return authError;
-      return cachedGetJson(request, ctx, 55, () => getOverallStats(url, env));
-    }
-
-    return json({ error: "Not found" }, 404);
+    return (await routeApiRequest(routeContext)) ?? json({ error: "Not found" }, 404);
   },
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -472,6 +110,338 @@ export default {
     );
   },
 };
+
+type RouteContext = {
+  request: Request;
+  env: Env;
+  ctx: ExecutionContext;
+  url: URL;
+};
+
+type RouteResult = Response | null;
+type RouteHandler = () => Promise<Response> | Response;
+
+async function routeApiRequest(routeContext: RouteContext): Promise<RouteResult> {
+  return (
+    (await routePublicApi(routeContext)) ??
+    (await routeAdminApi(routeContext)) ??
+    (await routeMemberUtilityApi(routeContext)) ??
+    (await routeWarCommands(routeContext)) ??
+    (await routeWarReads(routeContext))
+  );
+}
+
+async function routePublicApi({ request, env, url }: RouteContext): Promise<RouteResult> {
+  if (matchesRoute(url, request, "/api/auth/torn", "POST")) {
+    return authenticateWithTornKey(request, env);
+  }
+
+  if (matchesRoute(url, request, "/api/auth/me", "GET")) {
+    return getCurrentAuthSession(request, env);
+  }
+
+  if (matchesRoute(url, request, "/api/health")) {
+    return json({ ok: true });
+  }
+
+  return null;
+}
+
+async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
+  const { request, env, url } = routeContext;
+
+  if (matchesRoute(url, request, "/api/run", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "manual_ingestion", 5 * 60);
+      if (cooldownError) return cooldownError;
+      await runIngestion(env, "manual");
+      return json({ ok: true });
+    });
+  }
+
+  if (matchesRoute(url, request, "/api/admin/ingestion-run", "GET")) {
+    return withAdmin(routeContext, () => getLatestIngestionRun(env));
+  }
+
+  if (matchesRoute(url, request, "/api/admin/maintenance-run", "GET")) {
+    return withAdmin(routeContext, () => getLatestMaintenanceRun(env));
+  }
+
+  if (matchesRoute(url, request, "/api/admin/users", "GET")) {
+    return withAdmin(routeContext, () => listAdminUsers(env));
+  }
+
+  if (matchesRoute(url, request, "/api/admin/users/grant", "POST")) {
+    return withAdmin(routeContext, () => grantAdminAccess(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/admin/discord/message", "POST")) {
+    return withAdmin(routeContext, () => sendDiscordMessageFromRequest(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/rebuild", "POST")) {
+    return withAdmin(routeContext, () => rebuildStatsFromRequest(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/attacks")) {
+    return withAdmin(routeContext, () => getRecentAttacks(url, env));
+  }
+
+  if (matchesRoute(url, request, "/api/attacks/window", "POST")) {
+    return withAdmin(routeContext, () => getAttackWindow(request, env));
+  }
+
+  return null;
+}
+
+async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteResult> {
+  const { request, env, url } = routeContext;
+
+  if (matchesRoute(url, request, "/api/member-lifestyle-stats", "GET")) {
+    return cachedMemberGet(routeContext, 5 * 60, () => getMemberLifestyleStats(url, env));
+  }
+
+  if (matchesRoute(url, request, "/api/member-lifestyle-stats/refresh", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "member_lifestyle_stats_refresh", 30 * 60);
+      if (cooldownError) return cooldownError;
+      return refreshMemberLifestyleStatsFromRequest(request, env);
+    });
+  }
+
+  if (matchesRoute(url, request, "/api/miscellaneous", "GET")) {
+    return cachedMemberGet(routeContext, 55, () => getMiscellaneousData(env));
+  }
+
+  if (matchesRoute(url, request, "/api/dice-game", "GET")) {
+    return withMember(routeContext, () => getDiceGameState(request, env, url));
+  }
+
+  if (matchesRoute(url, request, "/api/dice-game/roll", "POST")) {
+    return withMember(routeContext, () => rollDiceGame(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/dice-game/send-xanax", "POST")) {
+    return withMember(routeContext, () => sendXanaxToDiceGame(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/stats", "GET")) {
+    return cachedMemberGet(routeContext, 55, () => getOverallStats(url, env));
+  }
+
+  return null;
+}
+
+async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult> {
+  const { request, env, url } = routeContext;
+
+  if (matchesRoute(url, request, "/api/wars", "POST")) {
+    return withAdmin(routeContext, () => createWar(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/wars/import", "POST")) {
+    return withAdmin(routeContext, () => importHistoricalWar(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/wars/import-event", "POST")) {
+    return withAdmin(routeContext, () => importHistoricalEvent(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/wars/import/preview", "POST")) {
+    return withAdmin(routeContext, () => previewHistoricalWarImport(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/wars/import-event/preview", "POST")) {
+    return withAdmin(routeContext, () => previewHistoricalEventImport(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/wars/update-official", "POST")) {
+    return withAdmin(routeContext, () => updateOfficialWar(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/wars/update-event", "POST")) {
+    return withAdmin(routeContext, () => updateEvent(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/wars/delete", "POST")) {
+    return withAdmin(routeContext, () => deleteWar(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/wars/relink-attacks", "POST")) {
+    return withAdmin(routeContext, () => relinkWarAttacks(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/wars/end", "POST")) {
+    return withAdmin(routeContext, () => endActiveWar(request, env));
+  }
+
+  if (isTornWarReportFetchRoute(url, request)) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, `ranked_war_report_fetch:${url.pathname}`, 15 * 60);
+      if (cooldownError) return cooldownError;
+      return fetchRankedWarReport(url, env);
+    });
+  }
+
+  if (isWarSubroute(url, request, "/enemy-scouting", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, `enemy_scouting_refresh:${url.pathname}`, 15 * 60);
+      if (cooldownError) return cooldownError;
+      return refreshEnemyScoutingForWar(url, env);
+    });
+  }
+
+  return null;
+}
+
+async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
+  const { request, env, url } = routeContext;
+
+  if (matchesRoute(url, request, "/api/wars", "GET")) {
+    return cachedMemberGet(routeContext, 55, () => listWars(url, env));
+  }
+
+  if (isWarSubroute(url, request, "/report-discrepancies", "GET")) {
+    return cachedMemberGet(routeContext, warDataTtlSeconds(30 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+      getWarReportDiscrepancies(url, env),
+    );
+  }
+
+  if (isWarSubroute(url, request, "/enemy-push-pressure", "GET")) {
+    return cachedMemberGet(routeContext, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+      getEnemyPushPressureForWar(url, env),
+    );
+  }
+
+  if (isWarSubroute(url, request, "/enemy-scouting", "GET")) {
+    return cachedMemberGet(routeContext, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55), () =>
+      getEnemyScoutingForWar(url, env),
+    );
+  }
+
+  if (isWarSubroute(url, request, "/scouting-comparison", "GET")) {
+    return cachedMemberGet(routeContext, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+      getScoutingComparisonForWar(url, env),
+    );
+  }
+
+  if (isWarMemberAttacksRoute(url, request)) {
+    return withMember(routeContext, () => getWarMemberAttacks(url, env));
+  }
+
+  if (isWarSubroute(url, request, "/member-activity-heatmap", "GET")) {
+    return cachedMemberGet(routeContext, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+      getWarMemberActivityHeatmap(url, env),
+    );
+  }
+
+  if (isWarSubroute(url, request, "/activity", "GET")) {
+    return cachedMemberGet(routeContext, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+      getWarActivity(url, env),
+    );
+  }
+
+  if (isWarSubroute(url, request, "/activity-heatmap", "GET")) {
+    return cachedMemberGet(routeContext, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+      getWarActivityHeatmap(url, env),
+    );
+  }
+
+  if (isWarSubroute(url, request, "/chain-bonuses", "GET")) {
+    return cachedMemberGet(routeContext, warDataTtlSeconds(15 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+      getWarChainBonusesForWar(url, env),
+    );
+  }
+
+  if (isWarSubroute(url, request, "/attacks", "GET")) {
+    return withAdmin(routeContext, () =>
+      url.searchParams.get("format") === "csv" ? exportWarAttacksCsv(url, env) : getWarAttacks(url, env),
+    );
+  }
+
+  if (isWarDetailRoute(url, request)) {
+    return cachedMemberGet(routeContext, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+      getWar(url, env),
+    );
+  }
+
+  return null;
+}
+
+async function withAdmin(routeContext: RouteContext, handler: RouteHandler): Promise<Response> {
+  const authError = await requireAdmin(routeContext.request, routeContext.env);
+  return authError ?? await handler();
+}
+
+async function withMember(routeContext: RouteContext, handler: RouteHandler): Promise<Response> {
+  const authError = await requireMember(routeContext.request, routeContext.env);
+  return authError ?? await handler();
+}
+
+async function cachedMemberGet(
+  routeContext: RouteContext,
+  ttl: CacheTtl,
+  load: () => Promise<Response>,
+): Promise<Response> {
+  return withMember(routeContext, () => cachedGetJson(routeContext.request, routeContext.ctx, ttl, load));
+}
+
+async function rebuildStatsFromRequest(request: Request, env: Env): Promise<Response> {
+  const body = (await request.json().catch(() => ({}))) as { war_id?: unknown };
+  const warId = body.war_id === undefined || body.war_id === null || body.war_id === ""
+    ? undefined
+    : Number(body.war_id);
+  if (warId !== undefined && (!Number.isInteger(warId) || warId <= 0)) {
+    return json({ ok: false, error: "Invalid war_id", code: "INVALID_WAR_ID" }, 400);
+  }
+
+  const cooldownError = await requireActionCooldown(
+    env,
+    warId === undefined ? "manual_rebuild:all" : `manual_rebuild:${warId}`,
+    15 * 60,
+  );
+  if (cooldownError) return cooldownError;
+
+  const result = await rebuildDerivedStatsFromRaw(env, warId);
+  if (warId !== undefined && result.wars_rebuilt === 0) {
+    return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+  }
+  return json({ ok: true, ...result });
+}
+
+async function getRecentAttacks(url: URL, env: Env): Promise<Response> {
+  const limit = parseLimit(url.searchParams.get("limit"), 50, 100);
+  const rows = await env.DB.prepare(`SELECT * FROM attacks ORDER BY started DESC LIMIT ?`)
+    .bind(limit)
+    .all();
+
+  return json(rows.results ?? []);
+}
+
+function matchesRoute(url: URL, request: Request, pathname: string, method?: string): boolean {
+  return url.pathname === pathname && (!method || request.method === method);
+}
+
+function isTornWarReportFetchRoute(url: URL, request: Request): boolean {
+  return request.method === "POST" && url.pathname.startsWith("/api/torn-wars/") && url.pathname.endsWith("/report/fetch");
+}
+
+function isWarSubroute(url: URL, request: Request, suffix: string, method: string): boolean {
+  return request.method === method && url.pathname.startsWith("/api/wars/") && url.pathname.endsWith(suffix);
+}
+
+function isWarMemberAttacksRoute(url: URL, request: Request): boolean {
+  return (
+    request.method === "GET" &&
+    url.pathname.startsWith("/api/wars/") &&
+    url.pathname.includes("/members/") &&
+    url.pathname.endsWith("/attacks")
+  );
+}
+
+function isWarDetailRoute(url: URL, request: Request): boolean {
+  return request.method === "GET" && url.pathname.startsWith("/api/wars/") && !url.pathname.endsWith("/attacks");
+}
 
 async function runEnemyTrackingAndMaintenance(env: Env): Promise<void> {
   const heatmapMembersByFaction = new Map<number, TornFactionMember[]>();
