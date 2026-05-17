@@ -420,13 +420,13 @@ export default {
     const minute = new Date(event.scheduledTime).getUTCMinutes();
     const jobs: Array<{ label: string; run: () => Promise<unknown> }> = [];
 
+    jobs.push({ label: "Cron Torn shoplifting", run: () => refreshTornShoplifting(env) });
+
     if (minute % 15 === 0) {
       jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
-      jobs.push({ label: "Cron Torn shoplifting", run: () => refreshTornShoplifting(env) });
       jobs.push({ label: "Cron travel and maintenance", run: () => runTravelAndMaintenance(env) });
     } else if (minute % 5 === 0) {
       jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
-      jobs.push({ label: "Cron Torn shoplifting", run: () => refreshTornShoplifting(env) });
       jobs.push({
         label: "Cron enemy travel",
         run: () => refreshCurrentEnemyTravelStatuses(env),

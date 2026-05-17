@@ -160,6 +160,7 @@ async function sendShopliftingSecurityAlerts(
   fetchedAt: number,
 ): Promise<number> {
   let alertsSent = 0;
+  const sentAlertStates = await readSentShopliftingSecurityAlerts(env);
 
   for (const alert of SHOPLIFTING_SECURITY_ALERTS) {
     const obstacles = shoplifting[alert.shopKey] ?? [];
@@ -167,15 +168,17 @@ async function sendShopliftingSecurityAlerts(
     const allSecuritiesDown = obstacles.length >= 2 && obstacles.every((obstacle) => obstacle.disabled);
 
     if (!allSecuritiesDown) {
-      await clearShopliftingSecurityAlert(env, stateName);
+      if (sentAlertStates.has(stateName)) {
+        await clearShopliftingSecurityAlert(env, stateName);
+      }
       continue;
     }
 
-    if (await hasShopliftingSecurityAlertBeenSent(env, stateName)) {
+    if (sentAlertStates.has(stateName)) {
       continue;
     }
 
-    await sendDiscordMessage(env, formatShopliftingSecurityAlert(alert.shopName, obstacles));
+    await sendDiscordMessage(env, formatShopliftingSecurityAlert(alert.shopName));
     await markShopliftingSecurityAlertSent(env, stateName, fetchedAt);
     alertsSent += 1;
   }
@@ -183,19 +186,22 @@ async function sendShopliftingSecurityAlerts(
   return alertsSent;
 }
 
-async function hasShopliftingSecurityAlertBeenSent(env: Env, stateName: string): Promise<boolean> {
-  const row = await env.DB.prepare(
+async function readSentShopliftingSecurityAlerts(env: Env): Promise<Set<string>> {
+  const stateNames = SHOPLIFTING_SECURITY_ALERTS.map(
+    (alert) => `${SHOPLIFTING_SECURITY_ALERT_STATE_PREFIX}:${alert.shopKey}`,
+  );
+  const placeholders = stateNames.map(() => "?").join(", ");
+  const result = await env.DB.prepare(
     `
     SELECT name
     FROM sync_state
-    WHERE name = ?
-    LIMIT 1
+    WHERE name IN (${placeholders})
     `,
   )
-    .bind(stateName)
-    .first<{ name: string }>();
+    .bind(...stateNames)
+    .all<{ name: string }>();
 
-  return Boolean(row);
+  return new Set((result.results ?? []).map((row) => row.name));
 }
 
 async function markShopliftingSecurityAlertSent(env: Env, stateName: string, fetchedAt: number): Promise<void> {
@@ -223,7 +229,7 @@ async function clearShopliftingSecurityAlert(env: Env, stateName: string): Promi
     .run();
 }
 
-function formatShopliftingSecurityAlert(shopName: string, _obstacles: TornShopliftingObstacle[]): string {
+function formatShopliftingSecurityAlert(shopName: string): string {
   return `Shoplifting alert: all securities are down at ${shopName}.`;
 }
 
