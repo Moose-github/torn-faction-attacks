@@ -15,6 +15,7 @@ export function Sidebar({
   warRoomIcon,
   memberIcon,
   lifestyleIcon,
+  miscIcon,
   diceGameIcon,
   adminIcon,
   isAdmin,
@@ -22,14 +23,15 @@ export function Sidebar({
 }: {
   warType: WarType;
   onWarTypeChange: (value: WarType) => void;
-  view: "war" | "warRoom" | "members" | "lifestyle" | "diceGame" | "admin";
-  onViewChange: (view: "war" | "warRoom" | "members" | "lifestyle" | "diceGame" | "admin") => void;
+  view: "war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin";
+  onViewChange: (view: "war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin") => void;
   wars: WarSummary[];
   selectedWarName: string | null;
   isLoadingWars: boolean;
   warRoomIcon: React.ReactNode;
   memberIcon: React.ReactNode;
   lifestyleIcon: React.ReactNode;
+  miscIcon: React.ReactNode;
   diceGameIcon: React.ReactNode;
   adminIcon: React.ReactNode;
   isAdmin: boolean;
@@ -55,6 +57,12 @@ export function Sidebar({
           icon={lifestyleIcon}
           label="Daily Averages"
           onClick={() => onViewChange("lifestyle")}
+        />
+        <SidebarLink
+          active={view === "miscellaneous"}
+          icon={miscIcon}
+          label="Miscellaneous"
+          onClick={() => onViewChange("miscellaneous")}
         />
         {isAdmin ? (
           <SidebarLink
@@ -139,7 +147,7 @@ function WarNav({
   selectedWarName,
   onSelect,
 }: {
-  view: "war" | "warRoom" | "members" | "lifestyle" | "diceGame" | "admin";
+  view: "war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin";
   wars: WarSummary[];
   selectedWarName: string | null;
   onSelect: (name: string) => void;

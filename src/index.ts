@@ -20,6 +20,7 @@ import {
   refreshDailyMemberLifestyleStats,
   refreshMemberLifestyleStatsFromRequest,
 } from "./lifestyleStats";
+import { getMiscellaneousData, refreshTornShoplifting } from "./miscellaneous";
 import { getDiceGameState, rollDiceGame, sendXanaxToDiceGame } from "./diceGame";
 import { getLatestMaintenanceRun, runScheduledMaintenance } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
@@ -157,6 +158,12 @@ export default {
       const cooldownError = await requireActionCooldown(env, "member_lifestyle_stats_refresh", 30 * 60);
       if (cooldownError) return cooldownError;
       return refreshMemberLifestyleStatsFromRequest(request, env);
+    }
+
+    if (url.pathname === "/api/miscellaneous" && request.method === "GET") {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
+      return cachedGetJson(request, ctx, 55, () => getMiscellaneousData(env));
     }
 
     if (url.pathname === "/api/dice-game" && request.method === "GET") {
@@ -408,9 +415,11 @@ export default {
 
     if (minute % 15 === 0) {
       jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
+      jobs.push({ label: "Cron Torn shoplifting", run: () => refreshTornShoplifting(env) });
       jobs.push({ label: "Cron travel and maintenance", run: () => runTravelAndMaintenance(env) });
     } else if (minute % 5 === 0) {
       jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
+      jobs.push({ label: "Cron Torn shoplifting", run: () => refreshTornShoplifting(env) });
       jobs.push({
         label: "Cron enemy travel",
         run: () => refreshCurrentEnemyTravelStatuses(env),

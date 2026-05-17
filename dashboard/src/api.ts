@@ -515,6 +515,18 @@ export type MemberLifestyleRefreshResponse = {
   };
 };
 
+export type ShopliftingObstacle = {
+  title: string;
+  disabled: boolean;
+};
+
+export type MiscellaneousResponse = {
+  ok: boolean;
+  shoplifting: Record<string, ShopliftingObstacle[]>;
+  fetched_at: number | null;
+  error: string | null;
+};
+
 export type DiceGameProfile = {
   torn_user_id: number;
   member_name: string | null;
@@ -788,6 +800,10 @@ export async function refreshMemberLifestyleStats(
 
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   return postJson<MemberLifestyleRefreshResponse>(`/api/member-lifestyle-stats/refresh${suffix}`);
+}
+
+export async function getMiscellaneousData(): Promise<MiscellaneousResponse> {
+  return getJson<MiscellaneousResponse>("/api/miscellaneous");
 }
 
 export async function getDiceGame(): Promise<DiceGameResponse> {

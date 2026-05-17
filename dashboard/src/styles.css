@@ -1627,6 +1627,26 @@ h2 {
   font-weight: 800;
 }
 
+.shoplifting-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.shoplifting-status.active {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.shoplifting-status.disabled {
+  background: #dcfce7;
+  color: #166534;
+}
+
 .lifestyle-period-card,
 .lifestyle-average-card {
   min-height: 156px;

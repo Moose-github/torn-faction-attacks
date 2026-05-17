@@ -303,11 +303,13 @@ export function WarRoom({
       </section>
 
       <section className="content-grid">
-        <EnemyStatusSummaryPanel
-          members={enemyScouting?.members ?? []}
-          statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
-          isLoading={isLoadingEnemyScouting}
-        />
+        {isMemberTrackingActive ? (
+          <EnemyStatusSummaryPanel
+            members={enemyScouting?.members ?? []}
+            statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
+            isLoading={isLoadingEnemyScouting}
+          />
+        ) : null}
 
         <CollapsiblePanel
           title="Stats comparison"

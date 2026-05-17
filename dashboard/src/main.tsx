@@ -91,10 +91,13 @@ const DiceGame = React.lazy(() =>
 const LifestyleStats = React.lazy(() =>
   import("./views/LifestyleStats").then((module) => ({ default: module.LifestyleStats })),
 );
+const Miscellaneous = React.lazy(() =>
+  import("./views/Miscellaneous").then((module) => ({ default: module.Miscellaneous })),
+);
 
 function App() {
   const [warType, setWarType] = React.useState<WarType>("all");
-  const [view, setView] = React.useState<"war" | "warRoom" | "members" | "lifestyle" | "diceGame" | "admin">("war");
+  const [view, setView] = React.useState<"war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin">("war");
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
     getStoredAuthSession(),
   );
@@ -589,7 +592,7 @@ function App() {
     }));
   }
 
-  function changeView(nextView: "war" | "warRoom" | "members" | "lifestyle" | "diceGame" | "admin") {
+  function changeView(nextView: "war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin") {
     if (nextView === "admin" && !isAdmin) {
       return;
     }
@@ -658,6 +661,7 @@ function App() {
           warRoomIcon={<Radar size={18} />}
           memberIcon={<BarChart3 size={18} />}
           lifestyleIcon={<Pill size={18} />}
+          miscIcon={<Target size={18} />}
           diceGameIcon={<Dices size={18} />}
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
@@ -679,6 +683,10 @@ function App() {
           ) : view === "lifestyle" ? (
             <LazyPage>
               <LifestyleStats isAdmin={isAdmin} />
+            </LazyPage>
+          ) : view === "miscellaneous" ? (
+            <LazyPage>
+              <Miscellaneous />
             </LazyPage>
           ) : view === "members" ? (
             <MembersOverview isAdmin={isAdmin} />
