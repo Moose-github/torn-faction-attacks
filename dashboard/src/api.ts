@@ -527,6 +527,42 @@ export type MiscellaneousResponse = {
   error: string | null;
 };
 
+export type EnemyPushPressureSnapshot = {
+  war_id: number;
+  faction_id: number;
+  bucket_start: number;
+  total_members: number;
+  online_count: number;
+  idle_count: number;
+  offline_count: number;
+  recently_active_count: number;
+  offline_idle_to_online_count: number;
+  enemy_attacks_last_5m: number;
+  hospital_count: number;
+  revivable_count: number;
+  baseline_active_count: number | null;
+  activity_above_baseline: number | null;
+  online_delta_10m: number;
+  recently_active_delta_10m: number;
+  pressure_score: number;
+  pressure_level: "quiet" | "building" | "likely" | "underway" | string;
+  created_at: number;
+};
+
+export type EnemyPushPressureResponse = {
+  ok: boolean;
+  war: {
+    id: number;
+    name: string;
+    status: string;
+    practical_finish_time: number | null;
+    official_end_time: number | null;
+    enemy_faction_id: number | null;
+  };
+  latest: EnemyPushPressureSnapshot | null;
+  history: EnemyPushPressureSnapshot[];
+};
+
 export type DiceGameProfile = {
   torn_user_id: number;
   member_name: string | null;
@@ -746,6 +782,12 @@ export async function getScoutingComparison(
 ): Promise<ScoutingComparisonResponse> {
   return getJson<ScoutingComparisonResponse>(
     `/api/wars/${encodeURIComponent(warName)}/scouting-comparison`,
+  );
+}
+
+export async function getEnemyPushPressure(warName: string): Promise<EnemyPushPressureResponse> {
+  return getJson<EnemyPushPressureResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/enemy-push-pressure`,
   );
 }
 

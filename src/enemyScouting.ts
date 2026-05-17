@@ -4,6 +4,7 @@ import {
   LOL_MANAGER_BATTLESTATS_API_BASE_URL,
   TORN_FACTION_API_BASE_URL,
 } from "./constants";
+import { sendDiscordMessage } from "./discord";
 import { fetchTornPersonalStats } from "./personalStats";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import { boolToInt, json, nowSeconds } from "./utils";
@@ -16,6 +17,12 @@ const NETWORTH_REFRESH_LIMIT = 40;
 const TORN_LOCATION = "Torn";
 const ENEMY_TRAVEL_CLEAR_STATE_PREFIX = "enemy_travel_cleared";
 const BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS = 5 * 60;
+const PUSH_RECENT_ACTIVITY_WINDOW_SECONDS = 5 * 60;
+const PUSH_REFERENCE_WINDOW_SECONDS = 10 * 60;
+const PUSH_HISTORY_SECONDS = 24 * 60 * 60;
+const HEATMAP_INTERVAL_MINUTES = 15;
+const PUSH_ALERT_USER_MENTION = "<@327916221330620436>";
+const PUSH_ALERT_STATE_PREFIX = "enemy_push_alert";
 
 type TravelDurationKey = "Standard" | "Airstrip" | "WLT benefit" | "Business Class";
 type StoredTravelTripType = TravelDurationKey | "Business Class/Standard";
@@ -79,6 +86,8 @@ type EnemyFactionMemberRow = {
   networth_updated_at: number | null;
   status_state?: string | null;
   status_description?: string | null;
+  last_action_status?: string | null;
+  last_action_timestamp?: number | null;
   plane_image_type?: string | null;
   travel_origin?: string | null;
   travel_destination?: string | null;
@@ -128,6 +137,8 @@ type TravelDisplay = {
 type MemberTravelStatus = {
   status_state: string | null;
   status_description: string | null;
+  last_action_status: string | null;
+  last_action_timestamp: number | null;
   plane_image_type: string | null;
   travel_origin: string | null;
   travel_destination: string | null;
@@ -188,6 +199,7 @@ type EnemyScoutingWar = {
 
 type CurrentScoutingWar = {
   id: number;
+  name: string;
   enemy_faction_id: number;
   practical_start_time: number;
   practical_finish_time: number | null;
@@ -204,6 +216,30 @@ export type EnemyTravelRefreshMetrics = {
   factionId?: number | null;
   members?: TornFactionMember[];
 };
+
+type EnemyPushSnapshotRow = {
+  war_id: number;
+  faction_id: number;
+  bucket_start: number;
+  total_members: number;
+  online_count: number;
+  idle_count: number;
+  offline_count: number;
+  recently_active_count: number;
+  offline_idle_to_online_count: number;
+  enemy_attacks_last_5m: number;
+  hospital_count: number;
+  revivable_count: number;
+  baseline_active_count: number | null;
+  activity_above_baseline: number | null;
+  online_delta_10m: number;
+  recently_active_delta_10m: number;
+  pressure_score: number;
+  pressure_level: string;
+  created_at: number;
+};
+
+type EnemyPushSnapshotInput = Omit<EnemyPushSnapshotRow, "created_at">;
 
 export async function getEnemyScoutingForWar(url: URL, env: Env): Promise<Response> {
   const war = await readWarFromScoutingUrl(url, env);
@@ -249,6 +285,41 @@ export async function getScoutingComparisonForWar(url: URL, env: Env): Promise<R
   });
 }
 
+export async function getEnemyPushPressureForWar(url: URL, env: Env): Promise<Response> {
+  const war = await readWarFromScoutingUrl(url, env);
+  if (war instanceof Response) {
+    return war;
+  }
+
+  const since = nowSeconds() - PUSH_HISTORY_SECONDS;
+  const rows = ((await env.DB.prepare(
+    `
+    SELECT *
+    FROM enemy_push_activity_snapshots
+    WHERE war_id = ?
+      AND bucket_start >= ?
+    ORDER BY bucket_start ASC
+    `,
+  )
+    .bind(war.id, since)
+    .all()).results ?? []) as EnemyPushSnapshotRow[];
+  const latest = rows.length > 0 ? rows[rows.length - 1] : null;
+
+  return json({
+    ok: true,
+    war: {
+      id: war.id,
+      name: war.name,
+      status: war.status,
+      practical_finish_time: war.practical_finish_time,
+      official_end_time: war.official_end_time,
+      enemy_faction_id: war.enemy_faction_id,
+    },
+    latest,
+    history: rows,
+  });
+}
+
 export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Response> {
   const war = await readWarFromScoutingUrl(url, env);
   if (war instanceof Response) {
@@ -268,6 +339,7 @@ export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Re
     await refreshEnemyFactionMemberStatuses(
       env,
       war.id,
+      war.name,
       enemyFactionId,
       war.enemy_scouting_status_checked_at,
     );
@@ -370,6 +442,7 @@ export async function refreshCurrentEnemyTravelStatuses(
   return refreshEnemyFactionMemberStatuses(
     env,
     war.id,
+    war.name,
     war.enemy_faction_id,
     war.enemy_scouting_status_checked_at,
     { includeMembers: options.includeMembers },
@@ -622,6 +695,7 @@ async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingWar | nu
     `
     SELECT
       id,
+      name,
       enemy_faction_id,
       practical_start_time,
       practical_finish_time,
@@ -921,6 +995,7 @@ async function canReplaceCachedEnemyScouting(env: Env, nextFactionId: number): P
 async function refreshEnemyFactionMemberStatuses(
   env: Env,
   warId: number,
+  warName: string,
   factionId: number,
   previousPollAt: number | null,
   options: { members?: TornFactionMember[]; includeMembers?: boolean } = {},
@@ -943,6 +1018,7 @@ async function refreshEnemyFactionMemberStatuses(
   const existingRows = await readEnemyScouting(env, factionId);
   const existingById = new Map(existingRows.map((row) => [row.member_id, row]));
   const statements: D1PreparedStatement[] = [];
+  const pushSnapshot = await buildEnemyPushSnapshot(env, warId, factionId, members, existingById, fetchedAt);
 
   for (const member of members) {
     const existing = existingById.get(member.id) ?? null;
@@ -951,6 +1027,7 @@ async function refreshEnemyFactionMemberStatuses(
       statements.push(upsertEnemyMemberSnapshot(env, next));
     }
   }
+  statements.push(upsertEnemyPushSnapshot(env, pushSnapshot));
 
   let changedRows = 0;
   if (statements.length > 0) {
@@ -959,6 +1036,9 @@ async function refreshEnemyFactionMemberStatuses(
   }
 
   await markEnemyScoutingStatusChecked(env, warId, fetchedAt);
+  await sendEnemyPushAlerts(env, warId, warName, pushSnapshot).catch((err) => {
+    console.warn(`Enemy push Discord alert failed for war ${warId}:`, err?.message || err);
+  });
 
   return {
     writeStatements: statements.length + 1,
@@ -969,6 +1049,383 @@ async function refreshEnemyFactionMemberStatuses(
     factionId,
     members: options.includeMembers ? members : undefined,
   };
+}
+
+async function buildEnemyPushSnapshot(
+  env: Env,
+  warId: number,
+  factionId: number,
+  members: TornFactionMember[],
+  existingById: Map<number, EnemyFactionMemberRow>,
+  fetchedAt: number,
+): Promise<EnemyPushSnapshotInput> {
+  let onlineCount = 0;
+  let idleCount = 0;
+  let offlineCount = 0;
+  let recentlyActiveCount = 0;
+  let offlineIdleToOnlineCount = 0;
+  let hospitalCount = 0;
+  let revivableCount = 0;
+
+  for (const member of members) {
+    const actionStatus = normalizeLastActionStatus(member.last_action?.status);
+    const previousActionStatus = normalizeLastActionStatus(existingById.get(member.id)?.last_action_status);
+    if (actionStatus === "online") {
+      onlineCount += 1;
+      if (previousActionStatus === "offline" || previousActionStatus === "idle") {
+        offlineIdleToOnlineCount += 1;
+      }
+    } else if (actionStatus === "idle") {
+      idleCount += 1;
+    } else if (actionStatus === "offline") {
+      offlineCount += 1;
+    }
+
+    const lastActionTimestamp = finiteNumber(member.last_action?.timestamp);
+    if (
+      lastActionTimestamp !== null &&
+      lastActionTimestamp > 0 &&
+      fetchedAt - lastActionTimestamp <= PUSH_RECENT_ACTIVITY_WINDOW_SECONDS
+    ) {
+      recentlyActiveCount += 1;
+    }
+
+    if (member.status?.state === "Hospital") {
+      hospitalCount += 1;
+    }
+
+    if (member.is_revivable) {
+      revivableCount += 1;
+    }
+  }
+
+  const bucketStart = Math.floor(fetchedAt / 60) * 60;
+  const [reference, baselineActiveCount, enemyAttacksLast5m] = await Promise.all([
+    readEnemyPushReferenceSnapshot(env, warId, bucketStart - PUSH_REFERENCE_WINDOW_SECONDS),
+    readEnemyActivityBaseline(env, factionId, bucketStart),
+    readEnemyAttacksLast5m(env, warId, factionId, fetchedAt),
+  ]);
+  const onlineDelta10m = reference ? onlineCount - Number(reference.online_count ?? 0) : 0;
+  const recentlyActiveDelta10m = reference
+    ? recentlyActiveCount - Number(reference.recently_active_count ?? 0)
+    : 0;
+  const activityAboveBaseline =
+    baselineActiveCount === null ? null : recentlyActiveCount - baselineActiveCount;
+  const pressureScore = calculatePushPressureScore({
+    totalMembers: members.length,
+    onlineDelta10m,
+    recentlyActiveCount,
+    recentlyActiveDelta10m,
+    offlineIdleToOnlineCount,
+    activityAboveBaseline,
+    enemyAttacksLast5m,
+  });
+
+  return {
+    war_id: warId,
+    faction_id: factionId,
+    bucket_start: bucketStart,
+    total_members: members.length,
+    online_count: onlineCount,
+    idle_count: idleCount,
+    offline_count: offlineCount,
+    recently_active_count: recentlyActiveCount,
+    offline_idle_to_online_count: offlineIdleToOnlineCount,
+    enemy_attacks_last_5m: enemyAttacksLast5m,
+    hospital_count: hospitalCount,
+    revivable_count: revivableCount,
+    baseline_active_count: baselineActiveCount,
+    activity_above_baseline: activityAboveBaseline,
+    online_delta_10m: onlineDelta10m,
+    recently_active_delta_10m: recentlyActiveDelta10m,
+    pressure_score: pressureScore,
+    pressure_level: pushPressureLevel(pressureScore, enemyAttacksLast5m),
+  };
+}
+
+async function readEnemyPushReferenceSnapshot(
+  env: Env,
+  warId: number,
+  referenceAt: number,
+): Promise<Pick<EnemyPushSnapshotRow, "online_count" | "recently_active_count"> | null> {
+  return (await env.DB.prepare(
+    `
+    SELECT online_count, recently_active_count
+    FROM enemy_push_activity_snapshots
+    WHERE war_id = ?
+      AND bucket_start <= ?
+    ORDER BY bucket_start DESC
+    LIMIT 1
+    `,
+  )
+    .bind(warId, referenceAt)
+    .first()) as Pick<EnemyPushSnapshotRow, "online_count" | "recently_active_count"> | null;
+}
+
+async function readEnemyActivityBaseline(
+  env: Env,
+  factionId: number,
+  sampledAt: number,
+): Promise<number | null> {
+  const bucket = activityHeatmapInterval(sampledAt);
+  const row = (await env.DB.prepare(
+    `
+    SELECT AVG(active_count) AS active_count
+    FROM faction_activity_heatmap
+    WHERE faction_id = ?
+      AND interval_index = ?
+    `,
+  )
+    .bind(factionId, bucket)
+    .first()) as { active_count: number | null } | null;
+
+  return finiteNumber(row?.active_count);
+}
+
+async function readEnemyAttacksLast5m(
+  env: Env,
+  warId: number,
+  factionId: number,
+  fetchedAt: number,
+): Promise<number> {
+  const row = (await env.DB.prepare(
+    `
+    SELECT COUNT(*) AS attacks
+    FROM attacks
+    WHERE war_id = ?
+      AND attacker_faction_id = ?
+      AND defender_faction_id = ?
+      AND started >= ?
+      AND started <= ?
+    `,
+  )
+    .bind(warId, factionId, HOME_FACTION_ID, fetchedAt - PUSH_RECENT_ACTIVITY_WINDOW_SECONDS, fetchedAt)
+    .first()) as { attacks: number | null } | null;
+
+  return Math.max(0, Math.floor(Number(row?.attacks ?? 0)));
+}
+
+function upsertEnemyPushSnapshot(env: Env, snapshot: EnemyPushSnapshotInput): D1PreparedStatement {
+  return env.DB.prepare(
+    `
+    INSERT INTO enemy_push_activity_snapshots (
+      war_id,
+      faction_id,
+      bucket_start,
+      total_members,
+      online_count,
+      idle_count,
+      offline_count,
+      recently_active_count,
+      offline_idle_to_online_count,
+      enemy_attacks_last_5m,
+      hospital_count,
+      revivable_count,
+      baseline_active_count,
+      activity_above_baseline,
+      online_delta_10m,
+      recently_active_delta_10m,
+      pressure_score,
+      pressure_level,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+    ON CONFLICT(war_id, bucket_start) DO UPDATE SET
+      faction_id = excluded.faction_id,
+      total_members = excluded.total_members,
+      online_count = excluded.online_count,
+      idle_count = excluded.idle_count,
+      offline_count = excluded.offline_count,
+      recently_active_count = excluded.recently_active_count,
+      offline_idle_to_online_count = excluded.offline_idle_to_online_count,
+      enemy_attacks_last_5m = excluded.enemy_attacks_last_5m,
+      hospital_count = excluded.hospital_count,
+      revivable_count = excluded.revivable_count,
+      baseline_active_count = excluded.baseline_active_count,
+      activity_above_baseline = excluded.activity_above_baseline,
+      online_delta_10m = excluded.online_delta_10m,
+      recently_active_delta_10m = excluded.recently_active_delta_10m,
+      pressure_score = excluded.pressure_score,
+      pressure_level = excluded.pressure_level,
+      created_at = excluded.created_at
+    `,
+  ).bind(
+    snapshot.war_id,
+    snapshot.faction_id,
+    snapshot.bucket_start,
+    snapshot.total_members,
+    snapshot.online_count,
+    snapshot.idle_count,
+    snapshot.offline_count,
+    snapshot.recently_active_count,
+    snapshot.offline_idle_to_online_count,
+    snapshot.enemy_attacks_last_5m,
+    snapshot.hospital_count,
+    snapshot.revivable_count,
+    snapshot.baseline_active_count,
+    snapshot.activity_above_baseline,
+    snapshot.online_delta_10m,
+    snapshot.recently_active_delta_10m,
+    snapshot.pressure_score,
+    snapshot.pressure_level,
+  );
+}
+
+function calculatePushPressureScore(values: {
+  totalMembers: number;
+  onlineDelta10m: number;
+  recentlyActiveCount: number;
+  recentlyActiveDelta10m: number;
+  offlineIdleToOnlineCount: number;
+  activityAboveBaseline: number | null;
+  enemyAttacksLast5m: number;
+}): number {
+  const activeClusterThreshold = Math.max(4, Math.ceil(values.totalMembers * 0.12));
+  const activeClusterScore = Math.max(0, values.recentlyActiveCount - activeClusterThreshold);
+  const baselineScore =
+    values.activityAboveBaseline === null ? 0 : Math.max(0, Math.floor(values.activityAboveBaseline));
+
+  return (
+    Math.max(0, values.onlineDelta10m) +
+    Math.max(0, values.recentlyActiveDelta10m) +
+    values.offlineIdleToOnlineCount * 2 +
+    values.enemyAttacksLast5m * 3 +
+    activeClusterScore +
+    baselineScore
+  );
+}
+
+function pushPressureLevel(score: number, enemyAttacksLast5m: number): string {
+  if (enemyAttacksLast5m >= 5 || (enemyAttacksLast5m >= 2 && score >= 10)) {
+    return "underway";
+  }
+  if (score >= 16) {
+    return "likely";
+  }
+  if (score >= 7) {
+    return "building";
+  }
+  return "quiet";
+}
+
+async function sendEnemyPushAlerts(
+  env: Env,
+  warId: number,
+  warName: string,
+  snapshot: EnemyPushSnapshotInput,
+): Promise<void> {
+  const likelyStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:likely`;
+  const underwayStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:underway`;
+
+  if (snapshot.pressure_level === "underway") {
+    await clearEnemyPushAlert(env, likelyStateName);
+    await sendEnemyPushAlertIfNeeded(env, underwayStateName, formatEnemyPushAlertMessage("underway", warName, snapshot), snapshot.bucket_start);
+    return;
+  }
+
+  await clearEnemyPushAlert(env, underwayStateName);
+  if (snapshot.pressure_level === "likely") {
+    await sendEnemyPushAlertIfNeeded(env, likelyStateName, formatEnemyPushAlertMessage("likely", warName, snapshot), snapshot.bucket_start);
+    return;
+  }
+
+  await clearEnemyPushAlert(env, likelyStateName);
+}
+
+async function sendEnemyPushAlertIfNeeded(
+  env: Env,
+  stateName: string,
+  message: string,
+  sentAt: number,
+): Promise<void> {
+  const existing = await env.DB.prepare(
+    `
+    SELECT name
+    FROM sync_state
+    WHERE name = ?
+    LIMIT 1
+    `,
+  )
+    .bind(stateName)
+    .first();
+
+  if (existing) {
+    return;
+  }
+
+  await sendDiscordMessage(env, message);
+  await env.DB.prepare(
+    `
+    INSERT INTO sync_state (name, last_started, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = excluded.last_started,
+      updated_at = CURRENT_TIMESTAMP
+    `,
+  )
+    .bind(stateName, sentAt)
+    .run();
+}
+
+async function clearEnemyPushAlert(env: Env, stateName: string): Promise<void> {
+  await env.DB.prepare(
+    `
+    DELETE FROM sync_state
+    WHERE name = ?
+    `,
+  )
+    .bind(stateName)
+    .run();
+}
+
+function formatEnemyPushAlertMessage(
+  alertType: "likely" | "underway",
+  warName: string,
+  snapshot: EnemyPushSnapshotInput,
+): string {
+  const headline =
+    alertType === "underway"
+      ? `WIP enemy push alert: push appears to be happening currently for ${warName}.`
+      : `WIP enemy push alert: push is likely happening soon for ${warName}.`;
+  const reasons = enemyPushAlertReasons(snapshot);
+  return `${PUSH_ALERT_USER_MENTION} ${headline} Score ${snapshot.pressure_score}.${reasons ? ` ${reasons}` : ""}`;
+}
+
+function enemyPushAlertReasons(snapshot: EnemyPushSnapshotInput): string {
+  const reasons: string[] = [];
+  if (snapshot.enemy_attacks_last_5m > 0) {
+    reasons.push(`${snapshot.enemy_attacks_last_5m} enemy attacks in 5m`);
+  }
+  if (snapshot.online_delta_10m > 0) {
+    reasons.push(`+${snapshot.online_delta_10m} online in 10m`);
+  }
+  if (snapshot.offline_idle_to_online_count > 0) {
+    reasons.push(`${snapshot.offline_idle_to_online_count} Offline/Idle -> Online`);
+  }
+  if (snapshot.recently_active_delta_10m > 0) {
+    reasons.push(`+${snapshot.recently_active_delta_10m} recently active vs 10m ago`);
+  }
+  return reasons.length > 0 ? `Signals: ${reasons.join("; ")}.` : "";
+}
+
+function normalizeLastActionStatus(value: unknown): "online" | "idle" | "offline" | "other" {
+  const status = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (status === "online") {
+    return "online";
+  }
+  if (status === "idle") {
+    return "idle";
+  }
+  if (status === "offline") {
+    return "offline";
+  }
+  return "other";
+}
+
+function activityHeatmapInterval(timestamp: number): number {
+  const date = new Date(timestamp * 1000);
+  const minutes = date.getUTCHours() * 60 + date.getUTCMinutes();
+  return Math.floor(minutes / HEATMAP_INTERVAL_MINUTES);
 }
 
 function upsertEnemyMemberSnapshot(
@@ -987,6 +1444,8 @@ function upsertEnemyMemberSnapshot(
       is_revivable,
       status_state,
       status_description,
+      last_action_status,
+      last_action_timestamp,
       plane_image_type,
       travel_origin,
       travel_destination,
@@ -1003,7 +1462,7 @@ function upsertEnemyMemberSnapshot(
       status_updated_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
     ON CONFLICT(member_id) DO UPDATE SET
       faction_id = excluded.faction_id,
       name = excluded.name,
@@ -1013,6 +1472,8 @@ function upsertEnemyMemberSnapshot(
       is_revivable = excluded.is_revivable,
       status_state = excluded.status_state,
       status_description = excluded.status_description,
+      last_action_status = excluded.last_action_status,
+      last_action_timestamp = excluded.last_action_timestamp,
       plane_image_type = excluded.plane_image_type,
       travel_origin = excluded.travel_origin,
       travel_destination = excluded.travel_destination,
@@ -1039,6 +1500,8 @@ function upsertEnemyMemberSnapshot(
     snapshot.is_revivable,
     snapshot.status_state,
     snapshot.status_description,
+    snapshot.last_action_status,
+    snapshot.last_action_timestamp,
     snapshot.plane_image_type,
     snapshot.travel_origin,
     snapshot.travel_destination,
@@ -1183,6 +1646,8 @@ function buildMemberTravelStatus(
 ): MemberTravelStatus {
   const statusState = cleanText(member.status?.state);
   const statusDescription = cleanText(member.status?.description);
+  const lastActionStatus = cleanText(member.last_action?.status);
+  const lastActionTimestamp = finiteNumber(member.last_action?.timestamp);
   const planeImageType = cleanText(member.status?.plane_image_type);
   const parsedTravel = parseTravelDescription(statusDescription);
   const isTraveling = statusState === "Traveling" && parsedTravel !== null;
@@ -1209,6 +1674,8 @@ function buildMemberTravelStatus(
     return {
       status_state: statusState,
       status_description: statusDescription,
+      last_action_status: lastActionStatus,
+      last_action_timestamp: lastActionTimestamp,
       plane_image_type: planeImageType,
       travel_origin: null,
       travel_destination: null,
@@ -1265,6 +1732,8 @@ function buildMemberTravelStatus(
     return {
       status_state: statusState,
       status_description: statusDescription,
+      last_action_status: lastActionStatus,
+      last_action_timestamp: lastActionTimestamp,
       plane_image_type: planeImageType,
       travel_origin: parsedTravel.origin,
       travel_destination: parsedTravel.destination,
@@ -1301,6 +1770,8 @@ function buildMemberTravelStatus(
   return {
     status_state: statusState,
     status_description: statusDescription,
+    last_action_status: lastActionStatus,
+    last_action_timestamp: lastActionTimestamp,
     plane_image_type: planeImageType,
     travel_origin: parsedTravel.origin,
     travel_destination: parsedTravel.destination,
@@ -1625,6 +2096,8 @@ function enemyMemberSnapshotChanged(
     previous.is_revivable !== next.is_revivable ||
     previous.status_state !== next.status_state ||
     previous.status_description !== next.status_description ||
+    previous.last_action_status !== next.last_action_status ||
+    previous.last_action_timestamp !== next.last_action_timestamp ||
     previous.plane_image_type !== next.plane_image_type ||
     previous.travel_origin !== next.travel_origin ||
     previous.travel_destination !== next.travel_destination ||

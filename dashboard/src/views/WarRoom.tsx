@@ -2,8 +2,10 @@ import React from "react";
 import { Plane } from "lucide-react";
 import {
   EnemyFactionMember,
+  EnemyPushPressureResponse,
   EnemyScoutingResponse,
   FactionActivityHeatmapResponse,
+  getEnemyPushPressure,
   getStoredAuthSession,
   getEnemyScouting,
   getScoutingComparison,
@@ -49,6 +51,8 @@ export function WarRoom({
   const [activityHeatmap, setActivityHeatmap] =
     React.useState<FactionActivityHeatmapResponse | null>(null);
   const [isLoadingActivityHeatmap, setIsLoadingActivityHeatmap] = React.useState(false);
+  const [pushPressure, setPushPressure] = React.useState<EnemyPushPressureResponse | null>(null);
+  const [isLoadingPushPressure, setIsLoadingPushPressure] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({
     activityHeatmaps: true,
     revivableMembers: true,
@@ -115,6 +119,39 @@ export function WarRoom({
     }
 
     loadEnemyScouting();
+    return () => {
+      cancelled = true;
+    };
+  }, [canLoadScouting, selectedWarName]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadPushPressure() {
+      if (!selectedWarName || !canLoadScouting) {
+        setPushPressure(null);
+        return;
+      }
+
+      setIsLoadingPushPressure(true);
+
+      try {
+        const response = await getEnemyPushPressure(selectedWarName);
+        if (!cancelled) {
+          setPushPressure(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setPushPressure(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingPushPressure(false);
+        }
+      }
+    }
+
+    loadPushPressure();
     return () => {
       cancelled = true;
     };
@@ -227,8 +264,10 @@ export function WarRoom({
     const timer = window.setInterval(async () => {
       try {
         const response = await getEnemyScouting(selectedWarName);
+        const pressureResponse = await getEnemyPushPressure(selectedWarName);
         if (!cancelled) {
           setEnemyScouting(response);
+          setPushPressure(pressureResponse);
         }
       } catch {
         if (!cancelled) {
@@ -310,6 +349,11 @@ export function WarRoom({
             isLoading={isLoadingEnemyScouting}
           />
         ) : null}
+
+        <EnemyPushPressurePanel
+          data={pushPressure}
+          isLoading={isLoadingPushPressure}
+        />
 
         <CollapsiblePanel
           title="Stats comparison"
@@ -461,6 +505,155 @@ function StatusSummaryItem({
       <strong>{formatNumber(value)}</strong>
     </div>
   );
+}
+
+function EnemyPushPressurePanel({
+  data,
+  isLoading,
+}: {
+  data: EnemyPushPressureResponse | null;
+  isLoading: boolean;
+}) {
+  const latest = data?.latest ?? null;
+  const history = data?.history ?? [];
+  const aside = isLoading
+    ? "Loading"
+    : latest
+      ? `${pushPressureLevelLabel(latest.pressure_level)} · ${formatRelativeTime(latest.bucket_start)}`
+      : "No samples";
+  const reasons = latest ? pushPressureReasons(latest) : [];
+
+  return (
+    <section className="panel enemy-push-pressure-panel">
+      <PanelHeader title="Enemy push pressure (WIP)" aside={aside} />
+      {latest ? (
+        <>
+          <div className={`push-pressure-status ${pushPressureTone(latest.pressure_level)}`}>
+            <div>
+              <span>Current pressure</span>
+              <strong>{pushPressureLevelLabel(latest.pressure_level)}</strong>
+            </div>
+            <div>
+              <span>Score</span>
+              <strong>{formatNumber(latest.pressure_score)}</strong>
+            </div>
+            <div>
+              <span>Online</span>
+              <strong>{formatNumber(latest.online_count)}</strong>
+            </div>
+            <div>
+              <span>Active 5m</span>
+              <strong>{formatNumber(latest.recently_active_count)}</strong>
+            </div>
+            <div>
+              <span>Enemy attacks 5m</span>
+              <strong>{formatNumber(latest.enemy_attacks_last_5m)}</strong>
+            </div>
+          </div>
+          {reasons.length > 0 ? (
+            <div className="push-pressure-reasons">
+              {reasons.map((reason) => (
+                <span key={reason}>{reason}</span>
+              ))}
+            </div>
+          ) : (
+            <p className="panel-description">No strong build-up signals in the current sample.</p>
+          )}
+          <PushPressureSparkline rows={history} />
+        </>
+      ) : (
+        <EmptyState text={isLoading ? "Loading push pressure" : "No push pressure samples yet"} />
+      )}
+    </section>
+  );
+}
+
+function PushPressureSparkline({
+  rows,
+}: {
+  rows: EnemyPushPressureResponse["history"];
+}) {
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const width = 640;
+  const height = 86;
+  const padding = 8;
+  const latest = rows[rows.length - 1];
+  const start = latest.bucket_start - 24 * 60 * 60;
+  const maxScore = Math.max(10, ...rows.map((row) => row.pressure_score));
+  const points = rows
+    .map((row) => {
+      const x = padding + ((row.bucket_start - start) / (24 * 60 * 60)) * (width - padding * 2);
+      const y = height - padding - (row.pressure_score / maxScore) * (height - padding * 2);
+      return `${Math.max(padding, Math.min(width - padding, x)).toFixed(1)},${Math.max(padding, Math.min(height - padding, y)).toFixed(1)}`;
+    })
+    .join(" ");
+
+  return (
+    <div className="push-pressure-sparkline" aria-label="24 hour enemy push pressure sparkline">
+      <div className="push-pressure-sparkline-labels">
+        <span>24h pressure</span>
+        <span>{formatTime(latest.bucket_start)}</span>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <line x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
+        <line x1={padding} x2={width - padding} y1={height / 2} y2={height / 2} />
+        <polyline points={points} />
+      </svg>
+    </div>
+  );
+}
+
+function pushPressureReasons(latest: EnemyPushPressureResponse["latest"]): string[] {
+  if (!latest) {
+    return [];
+  }
+
+  const reasons: string[] = [];
+  if (latest.online_delta_10m > 0) {
+    reasons.push(`+${formatNumber(latest.online_delta_10m)} online in 10m`);
+  }
+  if (latest.offline_idle_to_online_count > 0) {
+    reasons.push(`${formatNumber(latest.offline_idle_to_online_count)} moved Offline/Idle -> Online`);
+  }
+  if (latest.recently_active_delta_10m > 0) {
+    reasons.push(`+${formatNumber(latest.recently_active_delta_10m)} active in 5m vs 10m ago`);
+  }
+  if (latest.activity_above_baseline !== null && latest.activity_above_baseline > 0) {
+    reasons.push(`${formatNumber(Math.round(latest.activity_above_baseline))} above usual time-slot activity`);
+  }
+  if (latest.enemy_attacks_last_5m > 0) {
+    reasons.push(`${formatNumber(latest.enemy_attacks_last_5m)} enemy attacks in last 5m`);
+  }
+  return reasons;
+}
+
+function pushPressureLevelLabel(level: string): string {
+  if (level === "underway") {
+    return "Happening currently";
+  }
+  if (level === "likely") {
+    return "Likely soon";
+  }
+  if (level === "building") {
+    return "Building";
+  }
+  return "Quiet";
+}
+
+function pushPressureTone(level: string): string {
+  if (level === "underway") {
+    return "high";
+  }
+  if (level === "likely") {
+    return "high";
+  }
+  if (level === "building") {
+    return "medium";
+  }
+  return "low";
 }
 
 function summarizeEnemyStatuses(members: EnemyFactionMember[]) {

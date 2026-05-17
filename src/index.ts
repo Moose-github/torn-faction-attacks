@@ -7,6 +7,7 @@ import {
   requireMember,
 } from "./auth";
 import {
+  getEnemyPushPressureForWar,
   getEnemyScoutingForWar,
   getScoutingComparisonForWar,
   refreshEnemyScoutingForWar,
@@ -282,6 +283,18 @@ export default {
       if (authError) return authError;
       return cachedGetJson(request, ctx, warDataTtlSeconds(30 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
         getWarReportDiscrepancies(url, env),
+      );
+    }
+
+    if (
+      url.pathname.startsWith("/api/wars/") &&
+      url.pathname.endsWith("/enemy-push-pressure") &&
+      request.method === "GET"
+    ) {
+      const authError = await requireMember(request, env);
+      if (authError) return authError;
+      return cachedGetJson(request, ctx, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+        getEnemyPushPressureForWar(url, env),
       );
     }
 
