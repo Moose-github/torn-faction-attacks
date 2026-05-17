@@ -291,19 +291,9 @@ export async function getEnemyPushPressureForWar(url: URL, env: Env): Promise<Re
     return war;
   }
 
-  const since = nowSeconds() - PUSH_HISTORY_SECONDS;
-  const rows = ((await env.DB.prepare(
-    `
-    SELECT *
-    FROM enemy_push_activity_snapshots
-    WHERE war_id = ?
-      AND bucket_start >= ?
-    ORDER BY bucket_start ASC
-    `,
-  )
-    .bind(war.id, since)
-    .all()).results ?? []) as EnemyPushSnapshotRow[];
-  const latest = rows.length > 0 ? rows[rows.length - 1] : null;
+  const includeHistory = url.searchParams.get("include_history") !== "0";
+  const latest = await readLatestEnemyPushSnapshot(env, war.id);
+  const history = includeHistory ? await readEnemyPushHistory(env, war.id) : [];
 
   return json({
     ok: true,
@@ -316,8 +306,37 @@ export async function getEnemyPushPressureForWar(url: URL, env: Env): Promise<Re
       enemy_faction_id: war.enemy_faction_id,
     },
     latest,
-    history: rows,
+    history,
   });
+}
+
+async function readLatestEnemyPushSnapshot(env: Env, warId: number): Promise<EnemyPushSnapshotRow | null> {
+  return (await env.DB.prepare(
+    `
+    SELECT *
+    FROM enemy_push_activity_snapshots
+    WHERE war_id = ?
+    ORDER BY bucket_start DESC
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first()) as EnemyPushSnapshotRow | null;
+}
+
+async function readEnemyPushHistory(env: Env, warId: number): Promise<EnemyPushSnapshotRow[]> {
+  const since = nowSeconds() - PUSH_HISTORY_SECONDS;
+  return ((await env.DB.prepare(
+    `
+    SELECT *
+    FROM enemy_push_activity_snapshots
+    WHERE war_id = ?
+      AND bucket_start >= ?
+    ORDER BY bucket_start ASC
+    `,
+  )
+    .bind(warId, since)
+    .all()).results ?? []) as EnemyPushSnapshotRow[];
 }
 
 export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Response> {

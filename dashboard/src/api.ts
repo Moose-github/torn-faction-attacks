@@ -785,9 +785,13 @@ export async function getScoutingComparison(
   );
 }
 
-export async function getEnemyPushPressure(warName: string): Promise<EnemyPushPressureResponse> {
+export async function getEnemyPushPressure(
+  warName: string,
+  options: { includeHistory?: boolean } = {},
+): Promise<EnemyPushPressureResponse> {
+  const query = options.includeHistory === false ? "?include_history=0" : "";
   return getJson<EnemyPushPressureResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/enemy-push-pressure`,
+    `/api/wars/${encodeURIComponent(warName)}/enemy-push-pressure${query}`,
   );
 }
 

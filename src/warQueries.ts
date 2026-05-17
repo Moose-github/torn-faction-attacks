@@ -319,7 +319,10 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
       war: {
         id: war.id,
         name: war.name,
+        status: war.status,
         enemy_faction_id: war.enemy_faction_id,
+        practical_finish_time: war.practical_finish_time,
+        official_end_time: war.official_end_time,
       },
       member_id: memberId,
       paging: {

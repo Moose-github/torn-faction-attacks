@@ -326,7 +326,9 @@ async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
   }
 
   if (isWarMemberAttacksRoute(url, request)) {
-    return withMember(routeContext, () => getWarMemberAttacks(url, env));
+    return cachedMemberGet(routeContext, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+      getWarMemberAttacks(url, env),
+    );
   }
 
   if (isWarSubroute(url, request, "/member-activity-heatmap", "GET")) {

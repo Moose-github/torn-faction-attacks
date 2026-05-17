@@ -80,6 +80,7 @@ import "./styles.css";
 
 const ACTIVE_WAR_REFRESH_MS = 5 * 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
+const PRACTICAL_FINISH_REFRESH_MS = 15 * 60_000;
 const CHAIN_BONUS_REFRESH_MS = 15 * 60_000;
 
 const AdminControls = React.lazy(() =>
@@ -325,7 +326,8 @@ function App() {
       };
     }
 
-    const timer = window.setInterval(loadActivity, SLOW_WAR_REFRESH_MS);
+    const refreshMs = warSecondaryPanelRefreshInterval(selectedWar);
+    const timer = window.setInterval(loadActivity, refreshMs);
 
     return () => {
       cancelled = true;
@@ -336,6 +338,7 @@ function App() {
     factionActivityWindow,
     isActivityPanelOpen,
     selectedWar?.official_end_time,
+    selectedWar?.practical_finish_time,
     selectedWar?.status,
     selectedWarName,
     view,
@@ -379,7 +382,8 @@ function App() {
       };
     }
 
-    const timer = window.setInterval(loadMemberActivityHeatmap, SLOW_WAR_REFRESH_MS);
+    const refreshMs = warSecondaryPanelRefreshInterval(selectedWar);
+    const timer = window.setInterval(loadMemberActivityHeatmap, refreshMs);
 
     return () => {
       cancelled = true;
@@ -389,6 +393,7 @@ function App() {
     authSession,
     isMemberActivityPanelOpen,
     selectedWar?.official_end_time,
+    selectedWar?.practical_finish_time,
     selectedWar?.status,
     selectedWarName,
     view,
@@ -1068,8 +1073,8 @@ function warPageRefreshInterval(war: WarSummary): number | null {
     return SLOW_WAR_REFRESH_MS;
   }
 
-  if (war.war_type === "termed" && war.practical_finish_time !== null) {
-    return SLOW_WAR_REFRESH_MS;
+  if (war.practical_finish_time !== null) {
+    return PRACTICAL_FINISH_REFRESH_MS;
   }
 
   if (war.status === "active") {
@@ -1077,6 +1082,10 @@ function warPageRefreshInterval(war: WarSummary): number | null {
   }
 
   return null;
+}
+
+function warSecondaryPanelRefreshInterval(war: WarSummary): number {
+  return war.practical_finish_time !== null ? PRACTICAL_FINISH_REFRESH_MS : SLOW_WAR_REFRESH_MS;
 }
 
 function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {

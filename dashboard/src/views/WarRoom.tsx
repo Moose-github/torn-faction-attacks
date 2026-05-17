@@ -26,6 +26,7 @@ import { formatLongDateTime, formatNumber, formatRelativeTime, formatTime } from
 
 const WAR_ROOM_HEATMAP_REFRESH_MS = 15 * 60_000;
 const WAR_ROOM_LIVE_SCOUTING_REFRESH_MS = 60_000;
+const WAR_ROOM_PUSH_HISTORY_REFRESH_MS = 5 * 60_000;
 const BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS = 5 * 60;
 
 export function WarRoom({
@@ -264,10 +265,13 @@ export function WarRoom({
     const timer = window.setInterval(async () => {
       try {
         const response = await getEnemyScouting(selectedWarName);
-        const pressureResponse = await getEnemyPushPressure(selectedWarName);
+        const pressureResponse = await getEnemyPushPressure(selectedWarName, { includeHistory: false });
         if (!cancelled) {
           setEnemyScouting(response);
-          setPushPressure(pressureResponse);
+          setPushPressure((current) => ({
+            ...pressureResponse,
+            history: current?.history ?? pressureResponse.history,
+          }));
         }
       } catch {
         if (!cancelled) {
@@ -275,6 +279,31 @@ export function WarRoom({
         }
       }
     }, WAR_ROOM_LIVE_SCOUTING_REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [canLoadScouting, isWarLive, selectedWarName]);
+
+  React.useEffect(() => {
+    if (!selectedWarName || !canLoadScouting || !isWarLive) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await getEnemyPushPressure(selectedWarName);
+        if (!cancelled) {
+          setPushPressure(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setPushPressure(null);
+        }
+      }
+    }, WAR_ROOM_PUSH_HISTORY_REFRESH_MS);
 
     return () => {
       cancelled = true;
