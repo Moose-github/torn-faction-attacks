@@ -5,6 +5,7 @@ import {
   TORN_FACTION_API_BASE_URL,
 } from "./constants";
 import { sendDiscordMessage } from "./discord";
+import { clearEnemyDataForNewTarget } from "./enemyTargetCleanup";
 import { fetchTornPersonalStats } from "./personalStats";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import { boolToInt, json, nowSeconds } from "./utils";
@@ -15,7 +16,7 @@ const SCOUTING_FETCH_TIMEOUT_MS = 15000;
 const BSP_BATTLESTAT_REFRESH_LIMIT = 40;
 const NETWORTH_REFRESH_LIMIT = 40;
 const TORN_LOCATION = "Torn";
-const ENEMY_TRAVEL_CLEAR_STATE_PREFIX = "enemy_travel_cleared";
+const LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX = "enemy_live_tracking_cleared";
 const BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS = 5 * 60;
 const PUSH_RECENT_ACTIVITY_WINDOW_SECONDS = 5 * 60;
 const PUSH_REFERENCE_WINDOW_SECONDS = 10 * 60;
@@ -446,7 +447,7 @@ export async function refreshCurrentEnemyMemberTracking(
   if (!isWarRoomMemberTrackingActive(war, checkedAt)) {
     const clearMetrics =
       war.practical_finish_time !== null && checkedAt > war.practical_finish_time
-        ? await clearEnemyTravelTrackerData(env, war.id, war.enemy_faction_id)
+        ? await clearLiveEnemyTrackingData(env, war.id, war.enemy_faction_id)
         : { writeStatements: 0, changedRows: 0 };
     return {
       writeStatements: clearMetrics.writeStatements,
@@ -810,23 +811,13 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
   }
 
   const fetchedAt = nowSeconds();
-  await env.DB.batch([
-    env.DB.prepare(`DELETE FROM enemy_faction_members`),
-    env.DB.prepare(
-      `
-      UPDATE home_faction_members
-      SET ff_battlestats = NULL,
-          ff_battlestats_updated_at = NULL,
-          bsp_battlestats = NULL,
-          bsp_battlestats_updated_at = NULL,
-          updated_at = unixepoch()
-      WHERE ff_battlestats IS NOT NULL
-         OR ff_battlestats_updated_at IS NOT NULL
-         OR bsp_battlestats IS NOT NULL
-         OR bsp_battlestats_updated_at IS NOT NULL
-      `,
-    ),
-    ...members.map((member) => {
+  await clearEnemyDataForNewTarget(env, factionId, {
+    clearCachedEnemyRoster: true,
+    clearHomeComparisonStats: true,
+    clearReplaceableHeatmaps: true,
+  });
+  await env.DB.batch(
+    members.map((member) => {
       const statusSnapshot = buildMemberStatusSnapshot(member, null, null, fetchedAt);
       return env.DB.prepare(
         `
@@ -914,7 +905,7 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
         statusSnapshot.status_updated_at,
       );
     }),
-  ]);
+  );
 
   const rows = await readEnemyScouting(env, factionId);
   await refreshMissingFfBattlestats(env, rows);
@@ -1544,12 +1535,12 @@ function upsertEnemyMemberSnapshot(
   );
 }
 
-async function clearEnemyTravelTrackerData(
+async function clearLiveEnemyTrackingData(
   env: Env,
   warId: number,
   factionId: number,
 ): Promise<{ writeStatements: number; changedRows: number }> {
-  const stateName = `${ENEMY_TRAVEL_CLEAR_STATE_PREFIX}:${warId}`;
+  const stateName = `${LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX}:${warId}`;
   const existingClear = await env.DB.prepare(
     `
     SELECT last_started
@@ -1565,11 +1556,14 @@ async function clearEnemyTravelTrackerData(
     return { writeStatements: 0, changedRows: 0 };
   }
 
-  const result = await env.DB.prepare(
+  const memberResult = await env.DB.prepare(
     `
     UPDATE enemy_faction_members
-    SET status_state = NULL,
+    SET is_revivable = NULL,
+        status_state = NULL,
         status_description = NULL,
+        last_action_status = NULL,
+        last_action_timestamp = NULL,
         plane_image_type = NULL,
         travel_origin = NULL,
         travel_destination = NULL,
@@ -1587,8 +1581,11 @@ async function clearEnemyTravelTrackerData(
         updated_at = unixepoch()
     WHERE faction_id = ?
       AND (
+        is_revivable IS NOT NULL OR
         status_state IS NOT NULL OR
         status_description IS NOT NULL OR
+        last_action_status IS NOT NULL OR
+        last_action_timestamp IS NOT NULL OR
         plane_image_type IS NOT NULL OR
         travel_origin IS NOT NULL OR
         travel_destination IS NOT NULL OR
@@ -1609,6 +1606,24 @@ async function clearEnemyTravelTrackerData(
     .bind(factionId)
     .run();
 
+  const pushSnapshotResult = await env.DB.prepare(
+    `
+    DELETE FROM enemy_push_activity_snapshots
+    WHERE war_id = ?
+    `,
+  )
+    .bind(warId)
+    .run();
+
+  const pushAlertResult = await env.DB.prepare(
+    `
+    DELETE FROM sync_state
+    WHERE name LIKE ?
+    `,
+  )
+    .bind(`${PUSH_ALERT_STATE_PREFIX}:${warId}:%`)
+    .run();
+
   await env.DB.prepare(
     `
     INSERT INTO sync_state (name, last_started, active_war_id)
@@ -1623,8 +1638,12 @@ async function clearEnemyTravelTrackerData(
     .run();
 
   return {
-    writeStatements: 2,
-    changedRows: d1Changes(result) + 1,
+    writeStatements: 4,
+    changedRows:
+      d1Changes(memberResult) +
+      d1Changes(pushSnapshotResult) +
+      d1Changes(pushAlertResult) +
+      1,
   };
 }
 

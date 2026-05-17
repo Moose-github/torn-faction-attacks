@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID } from "./constants";
 import { revokeSessionsForFormerFactionMembers } from "./auth";
+import { clearEnemyDataForNewTarget } from "./enemyTargetCleanup";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { Env, TornFactionMember, WarRow } from "./types";
 import { boolToInt, json, nowSeconds } from "./utils";
@@ -86,10 +87,12 @@ export async function sampleFactionActivityHeatmaps(
     latestWar.official_end_time === null &&
     latestWar.practical_finish_time === null
   ) {
-    const enemyCleanup = await clearReplaceableEnemyHeatmaps(env, latestWar.enemy_faction_id);
+    const enemyCleanup = await clearEnemyDataForNewTarget(env, latestWar.enemy_faction_id, {
+      clearReplaceableHeatmaps: true,
+    });
     metrics.writeStatements += enemyCleanup.writeStatements;
     metrics.changedRows += enemyCleanup.changedRows;
-    metrics.staleHeatmapRowsDeleted += enemyCleanup.changedRows;
+    metrics.staleHeatmapRowsDeleted += enemyCleanup.enemyHeatmapRowsDeleted;
     addFactionSampleMetrics(
       metrics,
       await sampleFactionActivity(
@@ -120,55 +123,6 @@ function addFactionSampleMetrics(
   } else {
     target.enemySampled = sample.sampled;
   }
-}
-
-async function clearReplaceableEnemyHeatmaps(
-  env: Env,
-  nextFactionId: number,
-): Promise<{ writeStatements: number; changedRows: number }> {
-  const metrics = { writeStatements: 0, changedRows: 0 };
-  const cachedFactions = ((await env.DB.prepare(
-    `
-    SELECT DISTINCT faction_id
-    FROM faction_activity_heatmap
-    WHERE faction_id != ?
-      AND faction_id != ?
-    `,
-  )
-    .bind(nextFactionId, HOME_FACTION_ID)
-    .all()).results ?? []) as { faction_id: number }[];
-
-  for (const cachedFaction of cachedFactions) {
-    const unfinishedWar = (await env.DB.prepare(
-      `
-      SELECT id
-      FROM wars
-      WHERE enemy_faction_id = ?
-        AND official_end_time IS NULL
-      ORDER BY practical_start_time DESC
-      LIMIT 1
-      `,
-    )
-      .bind(cachedFaction.faction_id)
-      .first()) as { id: number } | null;
-
-    if (unfinishedWar) {
-      continue;
-    }
-
-    const result = await env.DB.prepare(
-      `
-      DELETE FROM faction_activity_heatmap
-      WHERE faction_id = ?
-      `,
-    )
-      .bind(cachedFaction.faction_id)
-      .run();
-    metrics.writeStatements += 1;
-    metrics.changedRows += d1Changes(result);
-  }
-
-  return metrics;
 }
 
 export async function getWarActivityHeatmap(url: URL, env: Env): Promise<Response> {
