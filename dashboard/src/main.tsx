@@ -716,7 +716,7 @@ function ApiKeyUseNotice() {
       <dl>
         <div>
           <dt>Data storage</dt>
-          <dd>Temporary auth session for 12 hours; faction and war data is stored for dashboard history.</dd>
+          <dd>Temporary auth session for 12 hours.</dd>
         </div>
         <div>
           <dt>Data sharing</dt>
@@ -724,7 +724,7 @@ function ApiKeyUseNotice() {
         </div>
         <div>
           <dt>Purpose of use</dt>
-          <dd>Verify your Torn identity, faction membership, and dashboard access level.</dd>
+          <dd>Verify your Torn identity, faction membership, and access level.</dd>
         </div>
         <div>
           <dt>Key storage</dt>
@@ -732,7 +732,7 @@ function ApiKeyUseNotice() {
         </div>
         <div>
           <dt>Key access level</dt>
-          <dd>Public access is enough for member sign-in. Faction access may grant admin access.</dd>
+          <dd>Public access is enough for everything. Faction access may grant admin access, but that is separate from the key access level.</dd>
         </div>
       </dl>
     </section>
