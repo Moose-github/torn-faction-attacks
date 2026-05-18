@@ -1,4 +1,9 @@
 import { sendDiscordMessage } from "./discord";
+import {
+  clearSyncLatch,
+  readSetSyncLatches,
+  setSyncLatch,
+} from "./syncLatches";
 import { Env } from "./types";
 import { json, nowSeconds } from "./utils";
 
@@ -190,43 +195,15 @@ async function readSentShopliftingSecurityAlerts(env: Env): Promise<Set<string>>
   const stateNames = SHOPLIFTING_SECURITY_ALERTS.map(
     (alert) => `${SHOPLIFTING_SECURITY_ALERT_STATE_PREFIX}:${alert.shopKey}`,
   );
-  const placeholders = stateNames.map(() => "?").join(", ");
-  const result = await env.DB.prepare(
-    `
-    SELECT name
-    FROM sync_state
-    WHERE name IN (${placeholders})
-    `,
-  )
-    .bind(...stateNames)
-    .all<{ name: string }>();
-
-  return new Set((result.results ?? []).map((row) => row.name));
+  return readSetSyncLatches(env, stateNames);
 }
 
 async function markShopliftingSecurityAlertSent(env: Env, stateName: string, fetchedAt: number): Promise<void> {
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(stateName, fetchedAt)
-    .run();
+  await setSyncLatch(env, stateName, fetchedAt);
 }
 
 async function clearShopliftingSecurityAlert(env: Env, stateName: string): Promise<void> {
-  await env.DB.prepare(
-    `
-    DELETE FROM sync_state
-    WHERE name = ?
-    `,
-  )
-    .bind(stateName)
-    .run();
+  await clearSyncLatch(env, stateName);
 }
 
 function formatShopliftingSecurityAlert(shopName: string): string {

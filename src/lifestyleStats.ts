@@ -2,6 +2,7 @@ import { HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { fetchTornPersonalStats } from "./personalStats";
 import { claimDailyBatchGate } from "./scheduledGates";
+import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember } from "./types";
 import { boolToInt, json, nowSeconds, parseLimit } from "./utils";
 
@@ -249,18 +250,7 @@ async function isDailyLifestyleRefreshComplete(
   env: Env,
   refreshAt: number,
 ): Promise<boolean> {
-  const existing = await env.DB.prepare(
-    `
-    SELECT last_started
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(DAILY_LIFESTYLE_COMPLETE_STATE_NAME)
-    .first() as { last_started?: number } | null;
-
-  return Number(existing?.last_started ?? 0) >= refreshAt;
+  return (await readSyncTimestamp(env, DAILY_LIFESTYLE_COMPLETE_STATE_NAME)) >= refreshAt;
 }
 
 async function readLifestyleSnapshotDateRange(
@@ -289,18 +279,7 @@ async function resetDailyLifestylePersonalStatsIfNeeded(
   env: Env,
   refreshAt: number,
 ): Promise<boolean> {
-  const existing = await env.DB.prepare(
-    `
-    SELECT last_started
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(DAILY_LIFESTYLE_RESET_STATE_NAME)
-    .first() as { last_started?: number } | null;
-
-  if (Number(existing?.last_started ?? 0) >= refreshAt) {
+  if ((await readSyncTimestamp(env, DAILY_LIFESTYLE_RESET_STATE_NAME)) >= refreshAt) {
     return false;
   }
 
@@ -326,17 +305,7 @@ async function resetDailyLifestylePersonalStatsIfNeeded(
     .bind(HOME_FACTION_ID)
     .run();
 
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, active_war_id)
-    VALUES (?, ?, NULL)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(DAILY_LIFESTYLE_RESET_STATE_NAME, refreshAt)
-    .run();
+  await upsertSyncTimestamp(env, DAILY_LIFESTYLE_RESET_STATE_NAME, refreshAt, null);
 
   return true;
 }
@@ -345,33 +314,12 @@ async function refreshDailyGymContributorStats(
   env: Env,
   refreshAt: number,
 ): Promise<{ refreshed_stats: number; updated_members: number; skipped: boolean }> {
-  const existing = await env.DB.prepare(
-    `
-    SELECT last_started
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(DAILY_GYM_COMPLETE_STATE_NAME)
-    .first() as { last_started?: number } | null;
-
-  if (Number(existing?.last_started ?? 0) >= refreshAt) {
+  if ((await readSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME)) >= refreshAt) {
     return { refreshed_stats: 0, updated_members: 0, skipped: true };
   }
 
   const result = await refreshGymContributorStats(env);
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, active_war_id)
-    VALUES (?, ?, NULL)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(DAILY_GYM_COMPLETE_STATE_NAME, refreshAt)
-    .run();
+  await upsertSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME, refreshAt, null);
 
   return { ...result, skipped: false };
 }
@@ -399,17 +347,7 @@ async function markDailyLifestyleRefreshCompleteIfDone(
     return false;
   }
 
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, active_war_id)
-    VALUES (?, ?, NULL)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(DAILY_LIFESTYLE_COMPLETE_STATE_NAME, refreshAt)
-    .run();
+  await upsertSyncTimestamp(env, DAILY_LIFESTYLE_COMPLETE_STATE_NAME, refreshAt, null);
 
   return true;
 }

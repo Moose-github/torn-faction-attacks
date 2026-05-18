@@ -1,6 +1,7 @@
 import { HOME_FACTION_ID } from "./constants";
 import { revokeSessionsForFormerFactionMembers } from "./auth";
 import { fetchTornFactionMembers } from "./enemyScouting";
+import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember, WarRow } from "./types";
 import { boolToInt, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
@@ -313,18 +314,9 @@ async function cleanupHomeHeatmapIfDue(
   env: Env,
   sampledAt: number,
 ): Promise<{ writeStatements: number; changedRows: number; staleRowsDeleted: number }> {
-  const lastCleanup = (await env.DB.prepare(
-    `
-    SELECT last_started
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(HOME_HEATMAP_CLEANUP_STATE_NAME)
-    .first()) as { last_started: number | null } | null;
+  const lastCleanupAt = await readSyncTimestamp(env, HOME_HEATMAP_CLEANUP_STATE_NAME);
 
-  if (lastCleanup?.last_started && lastCleanup.last_started > sampledAt - 24 * 60 * 60) {
+  if (lastCleanupAt > sampledAt - 24 * 60 * 60) {
     return { writeStatements: 0, changedRows: 0, staleRowsDeleted: 0 };
   }
 
@@ -338,17 +330,7 @@ async function cleanupHomeHeatmapIfDue(
     .bind(HOME_FACTION_ID, sampledAt - HOME_RETENTION_SECONDS)
     .run();
   const staleRowsDeleted = d1Changes(result);
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, active_war_id)
-    VALUES (?, ?, NULL)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(HOME_HEATMAP_CLEANUP_STATE_NAME, sampledAt)
-    .run();
+  await upsertSyncTimestamp(env, HOME_HEATMAP_CLEANUP_STATE_NAME, sampledAt, null);
 
   return {
     writeStatements: 2,

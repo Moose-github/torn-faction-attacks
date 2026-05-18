@@ -27,6 +27,7 @@ import { sendDiscordMessageFromRequest } from "./discord";
 import { getLatestMaintenanceRun, runScheduledMaintenance } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
+import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember } from "./types";
 import { corsHeaders, json, nowSeconds, parseLimit } from "./utils";
 import {
@@ -662,17 +663,7 @@ async function requireActionCooldown(
   cooldownSeconds: number,
 ): Promise<Response | null> {
   const now = nowSeconds();
-  const existing = (await env.DB.prepare(
-    `
-    SELECT last_started
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(name)
-    .first()) as { last_started: number | null } | null;
-  const lastStarted = Number(existing?.last_started ?? 0);
+  const lastStarted = await readSyncTimestamp(env, name);
   const retryAfterSeconds = lastStarted > 0 ? cooldownSeconds - (now - lastStarted) : 0;
 
   if (retryAfterSeconds > 0) {
@@ -687,17 +678,7 @@ async function requireActionCooldown(
     );
   }
 
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, active_war_id)
-    VALUES (?, ?, NULL)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(name, now)
-    .run();
+  await upsertSyncTimestamp(env, name, now, null);
 
   return null;
 }

@@ -2,6 +2,7 @@ import { HOME_FACTION_ID, SOURCE_NAME } from "./constants";
 import { clearLiveEnemyTrackingData } from "./enemyScouting";
 import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
 import { WAR_RETURNING_COLUMNS } from "./sql";
+import { readSyncState, upsertSyncTimestamp } from "./syncState";
 import { Env, WarRow } from "./types";
 import { nowSeconds } from "./utils";
 
@@ -45,16 +46,7 @@ export async function clearCurrentWarState(env: Env, warId?: number): Promise<vo
 }
 
 export async function readCurrentWarId(env: Env): Promise<number | null> {
-  const state = (await env.DB.prepare(
-    `
-    SELECT active_war_id
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(SOURCE_NAME)
-    .first()) as { active_war_id: number | null } | null;
+  const state = await readSyncState(env, SOURCE_NAME);
 
   return state?.active_war_id ?? null;
 }
@@ -207,18 +199,7 @@ async function setCurrentWarState(
   warId: number,
   startedAt: number,
 ): Promise<void> {
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, active_war_id, updated_at)
-    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      active_war_id = excluded.active_war_id,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(SOURCE_NAME, startedAt, warId)
-    .run();
+  await upsertSyncTimestamp(env, SOURCE_NAME, startedAt, warId);
 }
 
 async function backfillWarAssignments(

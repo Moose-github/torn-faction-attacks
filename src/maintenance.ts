@@ -5,6 +5,7 @@ import {
 import { sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncMissingRankedWarReports } from "./ingestion";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
+import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember } from "./types";
 import { json, nowSeconds } from "./utils";
 
@@ -247,21 +248,9 @@ function shouldLogMaintenanceTask(result: MaintenanceTaskLog): boolean {
 
 async function runMemberStatCorrectionIfDue(env: Env): Promise<MaintenanceTaskMetrics> {
   const now = nowSeconds();
-  const lastCorrection = (await env.DB.prepare(
-    `
-    SELECT last_started
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(MEMBER_STAT_CORRECTION_STATE_NAME)
-    .first()) as { last_started: number | null } | null;
+  const lastCorrectionAt = await readSyncTimestamp(env, MEMBER_STAT_CORRECTION_STATE_NAME);
 
-  if (
-    lastCorrection?.last_started &&
-    lastCorrection.last_started > now - MEMBER_STAT_CORRECTION_INTERVAL_SECONDS
-  ) {
+  if (lastCorrectionAt > now - MEMBER_STAT_CORRECTION_INTERVAL_SECONDS) {
     return {
       writeStatements: 0,
       changedRows: 0,
@@ -281,17 +270,7 @@ async function runMemberStatCorrectionIfDue(env: Env): Promise<MaintenanceTaskMe
     };
   }
 
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(MEMBER_STAT_CORRECTION_STATE_NAME, now)
-    .run();
+  await upsertSyncTimestamp(env, MEMBER_STAT_CORRECTION_STATE_NAME, now);
 
   return {
     writeStatements: result.wars_rebuilt + 1,
@@ -302,18 +281,9 @@ async function runMemberStatCorrectionIfDue(env: Env): Promise<MaintenanceTaskMe
 
 async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
   const now = nowSeconds();
-  const lastCleanup = (await env.DB.prepare(
-    `
-    SELECT last_started
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(METRICS_RETENTION_STATE_NAME)
-    .first()) as { last_started: number | null } | null;
+  const lastCleanupAt = await readSyncTimestamp(env, METRICS_RETENTION_STATE_NAME);
 
-  if (lastCleanup?.last_started && lastCleanup.last_started > now - 24 * 60 * 60) {
+  if (lastCleanupAt > now - 24 * 60 * 60) {
     return {
       writeStatements: 0,
       changedRows: 0,
@@ -354,17 +324,7 @@ async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
     .bind(cutoff)
     .run();
 
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(METRICS_RETENTION_STATE_NAME, now)
-    .run();
+  await upsertSyncTimestamp(env, METRICS_RETENTION_STATE_NAME, now);
 
   const deletedMaintenanceTasks = d1Changes(taskDelete);
   const deletedMaintenanceRuns = d1Changes(maintenanceDelete);

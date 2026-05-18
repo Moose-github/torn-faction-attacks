@@ -1,3 +1,4 @@
+import { readSyncTimestamp } from "./syncState";
 import { Env } from "./types";
 
 export type DailyBatchGateResult = {
@@ -16,19 +17,8 @@ export async function claimDailyBatchGate(
     lockSeconds?: number;
   },
 ): Promise<DailyBatchGateResult> {
-  const existing = await env.DB.prepare(
-    `
-    SELECT last_started
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(options.completeStateName)
-    .first();
-
-  const completedAt = Number((existing as { last_started?: unknown } | null)?.last_started ?? 0);
-  if (existing && completedAt >= (options.completeAfter ?? 0)) {
+  const completedAt = await readSyncTimestamp(env, options.completeStateName);
+  if (completedAt > 0 && completedAt >= (options.completeAfter ?? 0)) {
     return {
       completeStateName: options.completeStateName,
       locked: false,

@@ -13,6 +13,11 @@ import {
   finalizeWar,
 } from "./summaries";
 import {
+  insertSyncStateIfMissing,
+  readSyncState,
+  upsertSyncTimestamp,
+} from "./syncState";
+import {
   Env,
   TornAttack,
   TornAttackResponse,
@@ -86,18 +91,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
     await activateScheduledWarIfDue(env);
     metrics.rankedWarCheckedAt = nowSeconds();
 
-    const state = (await env.DB.prepare(
-      `
-      SELECT last_started, active_war_id
-      FROM sync_state
-      WHERE name = ?
-      `,
-    )
-      .bind(SOURCE_NAME)
-      .first()) as {
-      last_started: number;
-      active_war_id: number | null;
-    } | null;
+    const state = await readSyncState(env, SOURCE_NAME);
 
     const activeWar = state?.active_war_id
       ? ((await env.DB.prepare(
@@ -196,17 +190,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
       newestStarted = pageNewestStarted;
 
       if (newestStarted > persistedStarted) {
-        await env.DB.prepare(
-          `
-          INSERT INTO sync_state (name, last_started, updated_at)
-          VALUES (?, ?, CURRENT_TIMESTAMP)
-          ON CONFLICT(name) DO UPDATE SET
-            last_started = excluded.last_started,
-            updated_at = CURRENT_TIMESTAMP
-          `,
-        )
-          .bind(SOURCE_NAME, newestStarted)
-          .run();
+        await upsertSyncTimestamp(env, SOURCE_NAME, newestStarted);
         persistedStarted = newestStarted;
         metrics.syncStateWrites += 1;
       }
@@ -647,15 +631,7 @@ async function activateScheduledWarIfDue(env: Env): Promise<void> {
 async function ensureState(env: Env): Promise<void> {
   const now = nowSeconds();
 
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(name) DO NOTHING
-    `,
-  )
-    .bind(SOURCE_NAME, now)
-    .run();
+  await insertSyncStateIfMissing(env, SOURCE_NAME, now);
 }
 
 async function fetchAttacks(env: Env, from: number, to?: number): Promise<TornAttackResponse> {

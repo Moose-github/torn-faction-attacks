@@ -7,6 +7,13 @@ import {
 import { sendDiscordMessage } from "./discord";
 import { clearEnemyDataForNewTarget } from "./enemyTargetCleanup";
 import { fetchTornPersonalStats } from "./personalStats";
+import {
+  clearSyncLatch,
+  clearSyncLatchesByPrefix,
+  isSyncLatchSet,
+  setSyncLatch,
+} from "./syncLatches";
+import { hasSyncState, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import { boolToInt, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./warRoomTracking";
@@ -1354,44 +1361,16 @@ async function sendEnemyPushAlertIfNeeded(
   message: string,
   sentAt: number,
 ): Promise<void> {
-  const existing = await env.DB.prepare(
-    `
-    SELECT name
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(stateName)
-    .first();
-
-  if (existing) {
+  if (await isSyncLatchSet(env, stateName)) {
     return;
   }
 
   await sendDiscordMessage(env, message);
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(stateName, sentAt)
-    .run();
+  await setSyncLatch(env, stateName, sentAt);
 }
 
 async function clearEnemyPushAlert(env: Env, stateName: string): Promise<void> {
-  await env.DB.prepare(
-    `
-    DELETE FROM sync_state
-    WHERE name = ?
-    `,
-  )
-    .bind(stateName)
-    .run();
+  await clearSyncLatch(env, stateName);
 }
 
 function formatEnemyPushAlertMessage(
@@ -1541,18 +1520,7 @@ export async function clearLiveEnemyTrackingData(
   factionId: number,
 ): Promise<{ writeStatements: number; changedRows: number }> {
   const stateName = `${LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX}:${warId}`;
-  const existingClear = await env.DB.prepare(
-    `
-    SELECT last_started
-    FROM sync_state
-    WHERE name = ?
-    LIMIT 1
-    `,
-  )
-    .bind(stateName)
-    .first();
-
-  if (existingClear) {
+  if (await hasSyncState(env, stateName)) {
     return { writeStatements: 0, changedRows: 0 };
   }
 
@@ -1615,27 +1583,12 @@ export async function clearLiveEnemyTrackingData(
     .bind(warId)
     .run();
 
-  const pushAlertResult = await env.DB.prepare(
-    `
-    DELETE FROM sync_state
-    WHERE name LIKE ?
-    `,
-  )
-    .bind(`${PUSH_ALERT_STATE_PREFIX}:${warId}:%`)
-    .run();
+  const pushAlertResult = await clearSyncLatchesByPrefix(
+    env,
+    `${PUSH_ALERT_STATE_PREFIX}:${warId}:`,
+  );
 
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, active_war_id)
-    VALUES (?, unixepoch(), ?)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      active_war_id = excluded.active_war_id,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(stateName, warId)
-    .run();
+  await upsertSyncTimestamp(env, stateName, nowSeconds(), warId);
 
   return {
     writeStatements: 4,
