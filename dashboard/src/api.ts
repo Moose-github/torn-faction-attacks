@@ -336,6 +336,7 @@ export type EnemyScoutingResponse = {
 
 export type ScoutingComparisonResponse = {
   ok: boolean;
+  comparison_stats_complete?: boolean;
   war: {
     id: number;
     name: string;
@@ -1046,4 +1047,3 @@ function filenameFromContentDisposition(value: string): string | null {
   const match = value.match(/filename="([^"]+)"/);
   return match?.[1] ?? null;
 }
-

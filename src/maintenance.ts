@@ -29,6 +29,7 @@ const METRICS_RETENTION_SECONDS = 14 * 24 * 60 * 60;
 const METRICS_RETENTION_STATE_NAME = "scheduled_metrics_retention";
 const MEMBER_STAT_CORRECTION_INTERVAL_SECONDS = 60 * 60;
 const MEMBER_STAT_CORRECTION_STATE_NAME = "open_war_member_stats_rebuild";
+const NOOP_MAINTENANCE_METRIC_INTERVAL_SECONDS = 60 * 60;
 
 export async function runScheduledMaintenance(
   env: Env,
@@ -75,7 +76,9 @@ export async function runScheduledMaintenance(
     }
   }
 
-  await writeMaintenanceRunMetric(env, runId, startedAt, loggedResults);
+  if (await shouldWriteMaintenanceRunMetric(env, startedAt, loggedResults)) {
+    await writeMaintenanceRunMetric(env, runId, startedAt, loggedResults);
+  }
 }
 
 export async function getLatestMaintenanceRun(env: Env): Promise<Response> {
@@ -232,6 +235,29 @@ function shouldLogMaintenanceTask(result: MaintenanceTaskLog): boolean {
   }
 
   return true;
+}
+
+async function shouldWriteMaintenanceRunMetric(
+  env: Env,
+  startedAt: number,
+  results: MaintenanceTaskLog[],
+): Promise<boolean> {
+  if (results.length > 0) {
+    return true;
+  }
+
+  const latest = (await env.DB.prepare(
+    `
+    SELECT started_at
+    FROM scheduled_maintenance_runs
+    ORDER BY started_at DESC
+    LIMIT 1
+    `,
+  )
+    .first()
+    .catch(() => null)) as { started_at: number | null } | null;
+
+  return Number(latest?.started_at ?? 0) <= startedAt - NOOP_MAINTENANCE_METRIC_INTERVAL_SECONDS;
 }
 
 async function runMemberStatCorrectionIfDue(env: Env): Promise<MaintenanceTaskMetrics> {

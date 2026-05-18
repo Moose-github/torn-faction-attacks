@@ -324,7 +324,7 @@ async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
   }
 
   if (isWarSubroute(url, request, "/scouting-comparison", "GET")) {
-    return cachedMemberGet(routeContext, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
+    return cachedMemberGet(routeContext, scoutingComparisonTtlSeconds, () =>
       getScoutingComparisonForWar(url, env),
     );
   }
@@ -542,6 +542,14 @@ function warDataTtlSeconds(
   };
 }
 
+function scoutingComparisonTtlSeconds(data: any): number {
+  if (data?.comparison_stats_complete === true) {
+    return OFFICIAL_END_CACHE_TTL_SECONDS;
+  }
+
+  return warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS)(data);
+}
+
 function responseForCache(
   source: Response,
   body: string,
@@ -637,4 +645,3 @@ async function requireActionCooldown(
 
   return null;
 }
-

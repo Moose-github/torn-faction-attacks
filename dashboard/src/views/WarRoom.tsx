@@ -230,15 +230,18 @@ export function WarRoom({
     }
 
     let cancelled = false;
+    const shouldRefreshScoutingComparison = scoutingComparison?.comparison_stats_complete !== true;
     const timer = window.setInterval(async () => {
       try {
         const [comparisonResponse, heatmapResponse] = await Promise.all([
-          getScoutingComparison(selectedWarName),
+          shouldRefreshScoutingComparison ? getScoutingComparison(selectedWarName) : Promise.resolve(null),
           isActivityHeatmapsOpen ? getWarActivityHeatmap(selectedWarName, selectedWar.id) : Promise.resolve(null),
         ]);
 
         if (!cancelled) {
-          setScoutingComparison(comparisonResponse);
+          if (comparisonResponse) {
+            setScoutingComparison(comparisonResponse);
+          }
           if (heatmapResponse) {
             setActivityHeatmap(heatmapResponse);
           }
@@ -254,7 +257,14 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadScouting, isActivityHeatmapsOpen, isWarLive, selectedWar?.id, selectedWarName]);
+  }, [
+    canLoadScouting,
+    isActivityHeatmapsOpen,
+    isWarLive,
+    scoutingComparison?.comparison_stats_complete,
+    selectedWar?.id,
+    selectedWarName,
+  ]);
 
   React.useEffect(() => {
     if (!selectedWarName || !canLoadScouting || !isWarLive) {
@@ -557,7 +567,7 @@ function EnemyPushPressurePanel({
   const aside = isLoading
     ? "Loading"
     : latest
-      ? `${pushPressureLevelLabel(latest.pressure_level)} · ${formatRelativeTime(latest.bucket_start)}`
+      ? `${pushPressureLevelLabel(latest.pressure_level)} Â· ${formatRelativeTime(latest.bucket_start)}`
       : "No samples";
   const displayAside = isCollecting ? aside : "Not gathering";
   const reasons = latest ? pushPressureReasons(latest) : [];
@@ -1342,4 +1352,3 @@ function formatDuration(totalSeconds: number): string {
 
   return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
-

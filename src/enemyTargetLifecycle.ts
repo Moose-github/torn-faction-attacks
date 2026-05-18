@@ -22,6 +22,7 @@ type EnemyTargetMatchedOptions = {
 const BSP_FILL_COMPLETE_STATE_PREFIX = "enemy_target_bsp_fill_complete";
 const ENEMY_NETWORTH_FILL_COMPLETE_STATE_PREFIX = "enemy_target_networth_fill_complete";
 const FF_FILL_COMPLETE_STATE_PREFIX = "enemy_target_ff_fill_complete";
+const COMPARISON_STATS_COMPLETE_STATE_PREFIX = "enemy_target_comparison_stats_complete";
 const STATS_IMAGE_PENDING_STATE_PREFIX = "enemy_target_stats_image_pending";
 const STATS_IMAGE_SENT_STATE_PREFIX = "enemy_target_stats_image_sent";
 
@@ -114,7 +115,7 @@ export async function handleEnemyTargetMatched(
       env,
       enemyTargetStatsImageSentLatchName(options.warId, nextFactionId),
     );
-    metrics.writeStatements += 5;
+    metrics.writeStatements += 6;
     metrics.changedRows += latchChanges;
     metrics.changedRows += 1 + d1Changes(sentClear);
     metrics.fillCompletionLatchesCleared += latchChanges;
@@ -136,6 +137,13 @@ export function enemyTargetNetworthFillCompleteLatchName(
   enemyFactionId: number,
 ): string {
   return `${ENEMY_NETWORTH_FILL_COMPLETE_STATE_PREFIX}:${warId}:${enemyFactionId}`;
+}
+
+export function enemyTargetComparisonStatsCompleteLatchName(
+  warId: number,
+  enemyFactionId: number,
+): string {
+  return `${COMPARISON_STATS_COMPLETE_STATE_PREFIX}:${warId}:${enemyFactionId}`;
 }
 
 export function enemyTargetStatsImagePendingLatchName(
@@ -181,6 +189,7 @@ async function clearEnemyTargetFillCompletionLatches(
     clearSyncLatch(env, enemyTargetBspFillCompleteLatchName(warId, enemyFactionId)),
     clearSyncLatch(env, enemyTargetFfFillCompleteLatchName(warId, enemyFactionId)),
     clearSyncLatch(env, enemyTargetNetworthFillCompleteLatchName(warId, enemyFactionId)),
+    clearSyncLatch(env, enemyTargetComparisonStatsCompleteLatchName(warId, enemyFactionId)),
   ]);
 
   return results.reduce((total, result) => total + d1Changes(result), 0);

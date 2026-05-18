@@ -172,12 +172,14 @@ export async function refreshMemberLifestyleStatsFromRequest(
 
 export async function refreshMemberLifestyleStats(
   env: Env,
-  options: { limit?: number; force?: boolean; staleBefore?: number } = {},
+  options: { limit?: number; force?: boolean; staleBefore?: number; homeMembersSynced?: boolean } = {},
 ): Promise<{ considered: number; refreshed: number; failed: number }> {
   const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 10), MAX_MANUAL_PERSONAL_STATS_REFRESH));
   const force = options.force ?? false;
 
-  await syncHomeFactionMemberList(env);
+  if (!options.homeMembersSynced) {
+    await syncHomeFactionMemberList(env);
+  }
 
   const members = await readLifestyleRefreshCandidates(env, limit, force, options.staleBefore);
   const refreshedMemberIds: number[] = [];
@@ -231,13 +233,15 @@ export async function refreshDailyMemberLifestyleStats(
     return { considered: 0, refreshed: 0, failed: 0, skipped: true };
   }
 
-  await resetDailyLifestylePersonalStatsIfNeeded(env, refreshAt);
+  await syncHomeFactionMemberList(env);
+  await resetDailyLifestylePersonalStatsIfNeeded(env, refreshAt, { homeMembersSynced: true });
 
   const result = await refreshMemberLifestyleStats(env, {
     limit: options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT,
     staleBefore: refreshAt,
+    homeMembersSynced: true,
   });
-  await refreshDailyGymContributorStats(env, refreshAt);
+  await refreshDailyGymContributorStats(env, refreshAt, { homeMembersSynced: true });
   const complete = await markDailyLifestyleRefreshCompleteIfDone(env, refreshAt);
   if (complete) {
     await writeLifestyleSnapshotForDate(env, utcDateKey(refreshAt));
@@ -278,12 +282,15 @@ async function readLifestyleSnapshotDateRange(
 async function resetDailyLifestylePersonalStatsIfNeeded(
   env: Env,
   refreshAt: number,
+  options: { homeMembersSynced?: boolean } = {},
 ): Promise<boolean> {
   if ((await readSyncTimestamp(env, DAILY_LIFESTYLE_RESET_STATE_NAME)) >= refreshAt) {
     return false;
   }
 
-  await syncHomeFactionMemberList(env);
+  if (!options.homeMembersSynced) {
+    await syncHomeFactionMemberList(env);
+  }
   await env.DB.prepare(
     `
     UPDATE member_lifestyle_stats
@@ -313,12 +320,13 @@ async function resetDailyLifestylePersonalStatsIfNeeded(
 async function refreshDailyGymContributorStats(
   env: Env,
   refreshAt: number,
+  options: { homeMembersSynced?: boolean } = {},
 ): Promise<{ refreshed_stats: number; updated_members: number; skipped: boolean }> {
   if ((await readSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME)) >= refreshAt) {
     return { refreshed_stats: 0, updated_members: 0, skipped: true };
   }
 
-  const result = await refreshGymContributorStats(env);
+  const result = await refreshGymContributorStats(env, options);
   await upsertSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME, refreshAt, null);
 
   return { ...result, skipped: false };
@@ -508,8 +516,11 @@ async function upsertLifestyleStats(
 
 async function refreshGymContributorStats(
   env: Env,
+  options: { homeMembersSynced?: boolean } = {},
 ): Promise<{ refreshed_stats: number; updated_members: number }> {
-  await syncHomeFactionMemberList(env);
+  if (!options.homeMembersSynced) {
+    await syncHomeFactionMemberList(env);
+  }
 
   const contributorStats = new Map<number, GymContributorStats>();
   for (const stat of GYM_CONTRIBUTOR_STAT_KEYS) {

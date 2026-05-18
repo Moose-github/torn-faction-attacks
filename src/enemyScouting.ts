@@ -10,6 +10,7 @@ import {
   enemyTargetBspFillCompleteLatchName,
   enemyTargetFfFillCompleteLatchName,
   enemyTargetNetworthFillCompleteLatchName,
+  enemyTargetComparisonStatsCompleteLatchName,
   enemyTargetStatsImagePendingLatchName,
   enemyTargetStatsImageSentLatchName,
   handleEnemyTargetMatched,
@@ -19,6 +20,7 @@ import {
   clearSyncLatch,
   clearSyncLatchesByPrefix,
   isSyncLatchSet,
+  readSetSyncLatches,
   setSyncLatch,
 } from "./syncLatches";
 import { hasSyncState, upsertSyncTimestamp } from "./syncState";
@@ -262,6 +264,38 @@ export type EnemyMemberTrackingRefreshMetrics = {
   members?: TornFactionMember[];
 };
 
+type EnemyTargetStateNames = {
+  ff: string;
+  bsp: string;
+  networth: string;
+  comparisonStatsComplete: string;
+  statsImagePending: string;
+  statsImageSent: string;
+  liveTrackingCleared: string;
+};
+
+type EnemyScoutingCronContext = {
+  war: CurrentScoutingWar;
+  stateNames: EnemyTargetStateNames;
+  activeLatches: Set<string>;
+};
+
+export type EnemyScoutingCronTickMetrics = {
+  skipped: boolean;
+  reason?: string;
+  tracking: EnemyMemberTrackingRefreshMetrics;
+  ff: FfscouterRefreshMetrics;
+  networth: ScoutingNetworthRefreshMetrics;
+  bsp: BspBattlestatRefreshMetrics;
+  image: EnemyStatsImageSendResult;
+};
+
+type EnemyStatsImageSendResult = {
+  sent: boolean;
+  skipped: boolean;
+  reason?: string;
+};
+
 type EnemyPushSnapshotRow = {
   war_id: number;
   faction_id: number;
@@ -304,9 +338,10 @@ export async function getScoutingComparisonForWar(url: URL, env: Env): Promise<R
   }
 
   const enemyFactionId = war.enemy_faction_id as number;
-  const [homeMembers, enemyMembers] = await Promise.all([
+  const [homeMembers, enemyMembers, comparisonStatsComplete] = await Promise.all([
     readHomeScouting(env),
     readEnemyScouting(env, enemyFactionId),
+    isEnemyTargetComparisonStatsCompleteForWar(env, war.id, enemyFactionId),
   ]);
 
   return json({
@@ -327,6 +362,7 @@ export async function getScoutingComparisonForWar(url: URL, env: Env): Promise<R
       faction_id: enemyFactionId,
       members: enemyMembers,
     },
+    comparison_stats_complete: comparisonStatsComplete,
   });
 }
 
@@ -459,6 +495,58 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
   }
 }
 
+export async function runEnemyScoutingCronTick(
+  env: Env,
+  options: { liveOnly?: boolean; bspLimit?: number; networthLimit?: number } = {},
+): Promise<EnemyScoutingCronTickMetrics> {
+  const war = await readCurrentScoutingWar(env);
+  if (!war) {
+    return {
+      ...emptyEnemyScoutingCronTickMetrics(),
+      skipped: true,
+      reason: "no current scouting war",
+    };
+  }
+
+  const stateNames = buildEnemyTargetStateNames(war.id, war.enemy_faction_id);
+  const activeLatches = await readSetSyncLatches(env, Object.values(stateNames));
+  const context: EnemyScoutingCronContext = { war, stateNames, activeLatches };
+  const metrics: EnemyScoutingCronTickMetrics = {
+    ...emptyEnemyScoutingCronTickMetrics(),
+    skipped: false,
+    tracking: await refreshCurrentEnemyMemberTrackingForWar(env, war, {
+      liveOnly: options.liveOnly,
+      activeLatches,
+      stateNames,
+    }),
+  };
+
+  if (!activeLatches.has(stateNames.comparisonStatsComplete)) {
+    if (!activeLatches.has(stateNames.ff)) {
+      metrics.ff = await refreshMissingFfscouterEstimatesForContext(env, context);
+    }
+
+    if (!activeLatches.has(stateNames.networth)) {
+      metrics.networth = await refreshMissingEnemyScoutingNetworthForContext(env, {
+        limit: options.networthLimit ?? NETWORTH_REFRESH_LIMIT,
+        context,
+      });
+    }
+
+    if (!activeLatches.has(stateNames.bsp)) {
+      metrics.bsp = await refreshMissingBspBattlestatPredictionsForContext(env, {
+        limit: options.bspLimit ?? BSP_BATTLESTAT_REFRESH_LIMIT,
+        context,
+      });
+    }
+
+    await markEnemyTargetComparisonStatsCompleteIfReady(env, context);
+  }
+
+  metrics.image = await sendPendingEnemyStatsComparisonImageForContext(env, context);
+  return metrics;
+}
+
 export async function refreshCurrentEnemyMemberTracking(
   env: Env,
   options: { includeMembers?: boolean; liveOnly?: boolean } = {},
@@ -475,6 +563,19 @@ export async function refreshCurrentEnemyMemberTracking(
     };
   }
 
+  return refreshCurrentEnemyMemberTrackingForWar(env, war, options);
+}
+
+async function refreshCurrentEnemyMemberTrackingForWar(
+  env: Env,
+  war: CurrentScoutingWar,
+  options: {
+    includeMembers?: boolean;
+    liveOnly?: boolean;
+    activeLatches?: Set<string>;
+    stateNames?: EnemyTargetStateNames;
+  } = {},
+): Promise<EnemyMemberTrackingRefreshMetrics> {
   const checkedAt = nowSeconds();
   if (options.liveOnly && !isWarRoomMemberTrackingLive(war, checkedAt)) {
     return {
@@ -488,10 +589,16 @@ export async function refreshCurrentEnemyMemberTracking(
   }
 
   if (!isWarRoomMemberTrackingActive(war, checkedAt)) {
-    const clearMetrics =
-      war.practical_finish_time !== null && checkedAt > war.practical_finish_time
-        ? await clearLiveEnemyTrackingData(env, war.id, war.enemy_faction_id)
-        : { writeStatements: 0, changedRows: 0 };
+    let clearMetrics = { writeStatements: 0, changedRows: 0 };
+    const clearLatchName = options.stateNames?.liveTrackingCleared ?? liveEnemyTrackingClearLatchName(war.id);
+    if (
+      war.practical_finish_time !== null &&
+      checkedAt > war.practical_finish_time &&
+      !options.activeLatches?.has(clearLatchName)
+    ) {
+      clearMetrics = await clearLiveEnemyTrackingData(env, war.id, war.enemy_faction_id);
+      options.activeLatches?.add(clearLatchName);
+    }
     return {
       writeStatements: clearMetrics.writeStatements,
       changedRows: clearMetrics.changedRows,
@@ -512,7 +619,26 @@ export async function refreshCurrentEnemyMemberTracking(
   );
 }
 
-export async function refreshMissingFfscouterEstimates(env: Env): Promise<FfscouterRefreshMetrics> {
+export async function refreshMissingFfscouterEstimates(
+  env: Env,
+): Promise<FfscouterRefreshMetrics> {
+  const scoutingWar = await readCurrentScoutingWar(env);
+  if (!scoutingWar) {
+    return { ...emptyFfscouterRefreshMetrics(), skipped: true };
+  }
+
+  const stateNames = buildEnemyTargetStateNames(scoutingWar.id, scoutingWar.enemy_faction_id);
+  return refreshMissingFfscouterEstimatesForContext(env, {
+    war: scoutingWar,
+    stateNames,
+    activeLatches: await readSetSyncLatches(env, [stateNames.ff]),
+  });
+}
+
+async function refreshMissingFfscouterEstimatesForContext(
+  env: Env,
+  context: EnemyScoutingCronContext,
+): Promise<FfscouterRefreshMetrics> {
   const metrics: FfscouterRefreshMetrics = {
     writeStatements: 0,
     changedRows: 0,
@@ -522,16 +648,10 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<Ffscou
     homeUpdated: 0,
     skipped: false,
   };
-  const scoutingWar = await readCurrentScoutingWar(env);
-  if (!scoutingWar) {
-    return { ...metrics, skipped: true };
-  }
+  const scoutingWar = context.war;
 
-  const completeLatchName = enemyTargetFfFillCompleteLatchName(
-    scoutingWar.id,
-    scoutingWar.enemy_faction_id,
-  );
-  if (await isSyncLatchSet(env, completeLatchName)) {
+  const completeLatchName = context.stateNames.ff;
+  if (context.activeLatches.has(completeLatchName)) {
     return { ...metrics, skipped: true };
   }
 
@@ -570,6 +690,7 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<Ffscou
 
   if (metrics.enemyCandidates + metrics.homeCandidates === 0) {
     await setSyncLatch(env, completeLatchName, nowSeconds());
+    context.activeLatches.add(completeLatchName);
   }
 
   return metrics;
@@ -578,6 +699,26 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<Ffscou
 export async function refreshMissingBspBattlestatPredictions(
   env: Env,
   options: { limit?: number } = {},
+): Promise<BspBattlestatRefreshMetrics> {
+  const scoutingWar = await readCurrentScoutingWar(env);
+  if (!scoutingWar) {
+    return { ...emptyBspBattlestatRefreshMetrics(), skipped: true };
+  }
+
+  const stateNames = buildEnemyTargetStateNames(scoutingWar.id, scoutingWar.enemy_faction_id);
+  return refreshMissingBspBattlestatPredictionsForContext(env, {
+    ...options,
+    context: {
+      war: scoutingWar,
+      stateNames,
+      activeLatches: await readSetSyncLatches(env, [stateNames.bsp]),
+    },
+  });
+}
+
+async function refreshMissingBspBattlestatPredictionsForContext(
+  env: Env,
+  options: { limit?: number; context: EnemyScoutingCronContext },
 ): Promise<BspBattlestatRefreshMetrics> {
   const metrics: BspBattlestatRefreshMetrics = {
     writeStatements: 0,
@@ -590,16 +731,10 @@ export async function refreshMissingBspBattlestatPredictions(
     return { ...metrics, skipped: true };
   }
 
-  const scoutingWar = await readCurrentScoutingWar(env);
-  if (!scoutingWar) {
-    return { ...metrics, skipped: true };
-  }
+  const scoutingWar = options.context.war;
 
-  const completeLatchName = enemyTargetBspFillCompleteLatchName(
-    scoutingWar.id,
-    scoutingWar.enemy_faction_id,
-  );
-  if (await isSyncLatchSet(env, completeLatchName)) {
+  const completeLatchName = options.context.stateNames.bsp;
+  if (options.context.activeLatches.has(completeLatchName)) {
     return { ...metrics, skipped: true };
   }
 
@@ -623,6 +758,7 @@ export async function refreshMissingBspBattlestatPredictions(
 
   if (metrics.candidates === 0) {
     await setSyncLatch(env, completeLatchName, nowSeconds());
+    options.context.activeLatches.add(completeLatchName);
   }
 
   return metrics;
@@ -716,9 +852,29 @@ async function refreshMissingBspBattlestatPredictionsForFaction(
   return metrics;
 }
 
-export async function refreshMissingScoutingNetworth(
+export async function refreshMissingEnemyScoutingNetworth(
   env: Env,
   options: { limit?: number } = {},
+): Promise<ScoutingNetworthRefreshMetrics> {
+  const scoutingWar = await readCurrentScoutingWar(env);
+  if (!scoutingWar) {
+    return { ...emptyScoutingNetworthRefreshMetrics(), skipped: true };
+  }
+
+  const stateNames = buildEnemyTargetStateNames(scoutingWar.id, scoutingWar.enemy_faction_id);
+  return refreshMissingEnemyScoutingNetworthForContext(env, {
+    ...options,
+    context: {
+      war: scoutingWar,
+      stateNames,
+      activeLatches: await readSetSyncLatches(env, [stateNames.networth]),
+    },
+  });
+}
+
+async function refreshMissingEnemyScoutingNetworthForContext(
+  env: Env,
+  options: { limit?: number; context: EnemyScoutingCronContext },
 ): Promise<ScoutingNetworthRefreshMetrics> {
   const metrics: ScoutingNetworthRefreshMetrics = {
     writeStatements: 0,
@@ -727,16 +883,10 @@ export async function refreshMissingScoutingNetworth(
     updated: 0,
     skipped: false,
   };
-  const scoutingWar = await readCurrentScoutingWar(env);
-  if (!scoutingWar) {
-    return { ...metrics, skipped: true };
-  }
+  const scoutingWar = options.context.war;
 
-  const completeLatchName = enemyTargetNetworthFillCompleteLatchName(
-    scoutingWar.id,
-    scoutingWar.enemy_faction_id,
-  );
-  if (await isSyncLatchSet(env, completeLatchName)) {
+  const completeLatchName = options.context.stateNames.networth;
+  if (options.context.activeLatches.has(completeLatchName)) {
     return { ...metrics, skipped: true };
   }
 
@@ -760,6 +910,7 @@ export async function refreshMissingScoutingNetworth(
   metrics.candidates = rows.length;
   if (rows.length === 0) {
     await setSyncLatch(env, completeLatchName, nowSeconds());
+    options.context.activeLatches.add(completeLatchName);
     return metrics;
   }
 
@@ -791,30 +942,44 @@ export async function refreshMissingScoutingNetworth(
 
 export async function sendPendingEnemyStatsComparisonImage(
   env: Env,
-): Promise<{ sent: boolean; skipped: boolean; reason?: string }> {
+): Promise<EnemyStatsImageSendResult> {
   const scoutingWar = await readCurrentScoutingWar(env);
   if (!scoutingWar) {
     return { sent: false, skipped: true, reason: "no current scouting war" };
   }
 
-  const pendingLatchName = enemyTargetStatsImagePendingLatchName(
-    scoutingWar.id,
-    scoutingWar.enemy_faction_id,
-  );
-  if (!(await isSyncLatchSet(env, pendingLatchName))) {
+  const stateNames = buildEnemyTargetStateNames(scoutingWar.id, scoutingWar.enemy_faction_id);
+  const activeLatches = await readSetSyncLatches(env, Object.values(stateNames));
+  return sendPendingEnemyStatsComparisonImageForContext(env, {
+    war: scoutingWar,
+    stateNames,
+    activeLatches,
+  });
+}
+
+async function sendPendingEnemyStatsComparisonImageForContext(
+  env: Env,
+  context: EnemyScoutingCronContext,
+): Promise<EnemyStatsImageSendResult> {
+  const scoutingWar = context.war;
+  const pendingLatchName = context.stateNames.statsImagePending;
+  if (!context.activeLatches.has(pendingLatchName)) {
     return { sent: false, skipped: true, reason: "no pending image" };
   }
 
-  const sentLatchName = enemyTargetStatsImageSentLatchName(
-    scoutingWar.id,
-    scoutingWar.enemy_faction_id,
-  );
-  if (await isSyncLatchSet(env, sentLatchName)) {
+  const sentLatchName = context.stateNames.statsImageSent;
+  if (context.activeLatches.has(sentLatchName)) {
     await clearSyncLatch(env, pendingLatchName);
+    context.activeLatches.delete(pendingLatchName);
     return { sent: false, skipped: true, reason: "already sent" };
   }
 
-  const ready = await areEnemyTargetStatsComplete(env, scoutingWar.id, scoutingWar.enemy_faction_id);
+  const ready = await areEnemyTargetComparisonStatsComplete(
+    env,
+    scoutingWar.id,
+    scoutingWar.enemy_faction_id,
+    context,
+  );
   if (!ready) {
     return { sent: false, skipped: true, reason: "stats still filling" };
   }
@@ -838,22 +1003,135 @@ export async function sendPendingEnemyStatsComparisonImage(
 
   await setSyncLatch(env, sentLatchName, nowSeconds());
   await clearSyncLatch(env, pendingLatchName);
+  context.activeLatches.add(sentLatchName);
+  context.activeLatches.delete(pendingLatchName);
   return { sent: true, skipped: false };
 }
 
-async function areEnemyTargetStatsComplete(
+async function areEnemyTargetComparisonStatsComplete(
+  env: Env,
+  warId: number,
+  enemyFactionId: number,
+  context?: EnemyScoutingCronContext,
+): Promise<boolean> {
+  const stateNames = context?.stateNames ?? buildEnemyTargetStateNames(warId, enemyFactionId);
+  if (context?.activeLatches.has(stateNames.comparisonStatsComplete)) {
+    return true;
+  }
+
+  const requiredNames = [
+    stateNames.ff,
+    stateNames.bsp,
+    stateNames.networth,
+  ];
+
+  if (context) {
+    return requiredNames.every((name) => context.activeLatches.has(name));
+  }
+
+  const results = await Promise.all([
+    isSyncLatchSet(env, stateNames.comparisonStatsComplete),
+    ...requiredNames.map((name) => isSyncLatchSet(env, name)),
+  ]);
+  if (results[0]) {
+    return true;
+  }
+  return results.slice(1).every(Boolean);
+}
+
+export async function isEnemyTargetComparisonStatsCompleteForWar(
   env: Env,
   warId: number,
   enemyFactionId: number,
 ): Promise<boolean> {
-  const latchNames = [
-    enemyTargetFfFillCompleteLatchName(warId, enemyFactionId),
-    enemyTargetBspFillCompleteLatchName(warId, enemyFactionId),
-    enemyTargetNetworthFillCompleteLatchName(warId, enemyFactionId),
-  ];
+  return areEnemyTargetComparisonStatsComplete(env, warId, enemyFactionId);
+}
 
-  const results = await Promise.all(latchNames.map((name) => isSyncLatchSet(env, name)));
-  return results.every(Boolean);
+async function markEnemyTargetComparisonStatsCompleteIfReady(
+  env: Env,
+  context: EnemyScoutingCronContext,
+): Promise<void> {
+  const requiredNames = [
+    context.stateNames.ff,
+    context.stateNames.bsp,
+    context.stateNames.networth,
+  ];
+  if (!requiredNames.every((name) => context.activeLatches.has(name))) {
+    return;
+  }
+
+  await setSyncLatch(env, context.stateNames.comparisonStatsComplete, nowSeconds());
+  context.activeLatches.add(context.stateNames.comparisonStatsComplete);
+}
+
+function buildEnemyTargetStateNames(warId: number, enemyFactionId: number): EnemyTargetStateNames {
+  return {
+    ff: enemyTargetFfFillCompleteLatchName(warId, enemyFactionId),
+    bsp: enemyTargetBspFillCompleteLatchName(warId, enemyFactionId),
+    networth: enemyTargetNetworthFillCompleteLatchName(warId, enemyFactionId),
+    comparisonStatsComplete: enemyTargetComparisonStatsCompleteLatchName(warId, enemyFactionId),
+    statsImagePending: enemyTargetStatsImagePendingLatchName(warId, enemyFactionId),
+    statsImageSent: enemyTargetStatsImageSentLatchName(warId, enemyFactionId),
+    liveTrackingCleared: liveEnemyTrackingClearLatchName(warId),
+  };
+}
+
+function liveEnemyTrackingClearLatchName(warId: number): string {
+  return `${LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX}:${warId}`;
+}
+
+function emptyEnemyScoutingCronTickMetrics(): EnemyScoutingCronTickMetrics {
+  return {
+    skipped: false,
+    tracking: emptyEnemyMemberTrackingRefreshMetrics(),
+    ff: emptyFfscouterRefreshMetrics(),
+    networth: emptyScoutingNetworthRefreshMetrics(),
+    bsp: emptyBspBattlestatRefreshMetrics(),
+    image: { sent: false, skipped: true, reason: "not checked" },
+  };
+}
+
+function emptyEnemyMemberTrackingRefreshMetrics(): EnemyMemberTrackingRefreshMetrics {
+  return {
+    writeStatements: 0,
+    changedRows: 0,
+    fetchedMembers: 0,
+    updatedMembers: 0,
+    skipped: true,
+    factionId: null,
+  };
+}
+
+function emptyFfscouterRefreshMetrics(): FfscouterRefreshMetrics {
+  return {
+    writeStatements: 0,
+    changedRows: 0,
+    enemyCandidates: 0,
+    homeCandidates: 0,
+    enemyUpdated: 0,
+    homeUpdated: 0,
+    skipped: true,
+  };
+}
+
+function emptyBspBattlestatRefreshMetrics(): BspBattlestatRefreshMetrics {
+  return {
+    writeStatements: 0,
+    changedRows: 0,
+    candidates: 0,
+    updated: 0,
+    skipped: true,
+  };
+}
+
+function emptyScoutingNetworthRefreshMetrics(): ScoutingNetworthRefreshMetrics {
+  return {
+    writeStatements: 0,
+    changedRows: 0,
+    candidates: 0,
+    updated: 0,
+    skipped: true,
+  };
 }
 
 function buildStatsComparisonSvg({
@@ -1625,38 +1903,62 @@ async function sendEnemyPushAlerts(
 ): Promise<void> {
   const likelyStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:likely`;
   const underwayStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:underway`;
+  const setAlertStates = await readSetSyncLatches(env, [likelyStateName, underwayStateName]);
 
   if (snapshot.pressure_level === "underway") {
-    await clearEnemyPushAlert(env, likelyStateName);
-    await sendEnemyPushAlertIfNeeded(env, underwayStateName, formatEnemyPushAlertMessage("underway", warName, snapshot), snapshot.bucket_start);
+    await clearEnemyPushAlertIfSet(env, likelyStateName, setAlertStates);
+    await sendEnemyPushAlertIfNeeded(
+      env,
+      underwayStateName,
+      setAlertStates,
+      formatEnemyPushAlertMessage("underway", warName, snapshot),
+      snapshot.bucket_start,
+    );
     return;
   }
 
-  await clearEnemyPushAlert(env, underwayStateName);
+  await clearEnemyPushAlertIfSet(env, underwayStateName, setAlertStates);
   if (snapshot.pressure_level === "likely") {
-    await sendEnemyPushAlertIfNeeded(env, likelyStateName, formatEnemyPushAlertMessage("likely", warName, snapshot), snapshot.bucket_start);
+    await sendEnemyPushAlertIfNeeded(
+      env,
+      likelyStateName,
+      setAlertStates,
+      formatEnemyPushAlertMessage("likely", warName, snapshot),
+      snapshot.bucket_start,
+    );
     return;
   }
 
-  await clearEnemyPushAlert(env, likelyStateName);
+  await clearEnemyPushAlertIfSet(env, likelyStateName, setAlertStates);
 }
 
 async function sendEnemyPushAlertIfNeeded(
   env: Env,
   stateName: string,
+  setAlertStates: Set<string>,
   message: string,
   sentAt: number,
 ): Promise<void> {
-  if (await isSyncLatchSet(env, stateName)) {
+  if (setAlertStates.has(stateName)) {
     return;
   }
 
   await sendDiscordMessage(env, message);
   await setSyncLatch(env, stateName, sentAt);
+  setAlertStates.add(stateName);
 }
 
-async function clearEnemyPushAlert(env: Env, stateName: string): Promise<void> {
+async function clearEnemyPushAlertIfSet(
+  env: Env,
+  stateName: string,
+  setAlertStates: Set<string>,
+): Promise<void> {
+  if (!setAlertStates.has(stateName)) {
+    return;
+  }
+
   await clearSyncLatch(env, stateName);
+  setAlertStates.delete(stateName);
 }
 
 function formatEnemyPushAlertMessage(
@@ -1805,7 +2107,7 @@ export async function clearLiveEnemyTrackingData(
   warId: number,
   factionId: number,
 ): Promise<{ writeStatements: number; changedRows: number }> {
-  const stateName = `${LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX}:${warId}`;
+  const stateName = liveEnemyTrackingClearLatchName(warId);
   if (await hasSyncState(env, stateName)) {
     return { writeStatements: 0, changedRows: 0 };
   }
