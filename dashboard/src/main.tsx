@@ -732,7 +732,7 @@ function ApiKeyUseNotice() {
         </div>
         <div>
           <dt>Key access level</dt>
-          <dd>Public access is enough for everything. Faction access may grant admin access, but that is separate from the key access level.</dd>
+          <dd>Public access is enough for everything.</dd>
         </div>
       </dl>
     </section>
