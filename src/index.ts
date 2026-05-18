@@ -6,29 +6,27 @@ import {
   requireAdmin,
   requireMember,
 } from "./auth";
+import { buildCronPlan } from "./cronPlan";
 import {
   getEnemyPushPressureForWar,
   getEnemyScoutingForWar,
   getScoutingComparisonForWar,
   refreshEnemyScoutingForWar,
-  refreshCurrentEnemyMemberTracking,
-  refreshMissingScoutingNetworth,
 } from "./enemyScouting";
 import { getWarActivityHeatmap } from "./heatmap";
 import { getLatestIngestionRun, runIngestion } from "./ingestion";
 import {
   getMemberLifestyleStats,
-  refreshDailyMemberLifestyleStats,
   refreshMemberLifestyleStatsFromRequest,
 } from "./lifestyleStats";
-import { getMiscellaneousData, refreshTornShoplifting } from "./miscellaneous";
+import { getMiscellaneousData } from "./miscellaneous";
 import { getDiceGameState, rollDiceGame, sendXanaxToDiceGame } from "./diceGame";
 import { sendDiscordMessageFromRequest } from "./discord";
-import { getLatestMaintenanceRun, runScheduledMaintenance } from "./maintenance";
+import { getLatestMaintenanceRun } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
-import { Env, TornFactionMember } from "./types";
+import { Env } from "./types";
 import { corsHeaders, json, nowSeconds, parseLimit } from "./utils";
 import {
   deleteWar,
@@ -65,34 +63,7 @@ export default {
   },
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    const minute = new Date(event.scheduledTime).getUTCMinutes();
-    const jobs: Array<{ label: string; run: () => Promise<unknown> }> = [];
-
-    jobs.push({ label: "Cron Torn shoplifting", run: () => refreshTornShoplifting(env) });
-
-    if (minute % 15 === 0) {
-      jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
-      jobs.push({ label: "Cron enemy tracking and maintenance", run: () => runEnemyTrackingAndMaintenance(env) });
-    } else if (minute % 5 === 0) {
-      jobs.push({ label: "Cron ingestion", run: () => runIngestion(env) });
-      jobs.push({
-        label: "Cron enemy member tracking",
-        run: () => refreshCurrentEnemyMemberTracking(env),
-      });
-    } else {
-      jobs.push({
-        label: "Cron live enemy member tracking",
-        run: () => refreshCurrentEnemyMemberTracking(env, { liveOnly: true }),
-      });
-      jobs.push({
-        label: "Cron lifestyle stats",
-        run: () => refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true }),
-      });
-      jobs.push({
-        label: "Cron scouting networth",
-        run: () => refreshMissingScoutingNetworth(env, { limit: 40 }),
-      });
-    }
+    const jobs = buildCronPlan(env, event.scheduledTime);
 
     ctx.waitUntil(
       Promise.allSettled(jobs.map((job) => job.run())).then((results) => {
@@ -476,22 +447,6 @@ function isWarMemberAttacksRoute(url: URL, request: Request): boolean {
 
 function isWarDetailRoute(url: URL, request: Request): boolean {
   return request.method === "GET" && url.pathname.startsWith("/api/wars/") && !url.pathname.endsWith("/attacks");
-}
-
-async function runEnemyTrackingAndMaintenance(env: Env): Promise<void> {
-  const heatmapMembersByFaction = new Map<number, TornFactionMember[]>();
-
-  try {
-    const tracking = await refreshCurrentEnemyMemberTracking(env, { includeMembers: true });
-    if (tracking.factionId && tracking.members) {
-      heatmapMembersByFaction.set(tracking.factionId, tracking.members);
-    }
-  } catch (err: any) {
-    console.error("Cron enemy member tracking failed:", err?.message || err);
-    console.error(err);
-  }
-
-  await runScheduledMaintenance(env, { heatmapMembersByFaction });
 }
 
 type CacheTtl =
