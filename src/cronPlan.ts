@@ -1,7 +1,7 @@
 import {
   refreshCurrentEnemyMemberTracking,
   runEnemyScoutingCronTick,
-} from "./enemyScouting";
+} from "./enemyScoutingCron";
 import { runIngestion } from "./ingestion";
 import { refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
