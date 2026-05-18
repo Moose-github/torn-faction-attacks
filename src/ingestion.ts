@@ -11,8 +11,6 @@ import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   applyIncrementalWarSummaries,
   finalizeWar,
-  rebuildWarMemberStatsFromRaw,
-  rebuildWarSummaryFromMemberStats,
 } from "./summaries";
 import {
   Env,
@@ -23,6 +21,11 @@ import {
   TornRankedWarResponse,
 } from "./types";
 import { boolToInt, json, normalizeAttacks, nowSeconds } from "./utils";
+import {
+  applyTornOfficialWarEnd,
+  recordTermedWarPracticalFinish,
+  startWarTracking,
+} from "./warLifecycle";
 
 type IngestionRunMetrics = {
   id: string;
@@ -635,60 +638,10 @@ async function activateScheduledWarIfDue(env: Env): Promise<void> {
     return;
   }
 
-  await env.DB.prepare(
-    `
-    UPDATE wars
-    SET status = 'active'
-    WHERE id = ?
-    `,
-  )
-    .bind(scheduledWar.id)
-    .run();
-
-  await setActiveWarState(env, scheduledWar.id, scheduledWar.practical_start_time);
-  await backfillWarAssignments(env, scheduledWar.id, scheduledWar.practical_start_time);
-  await rebuildWarMemberStatsFromRaw(env, scheduledWar.id);
-  await rebuildWarSummaryFromMemberStats(env, scheduledWar.id);
-}
-
-export async function setActiveWarState(
-  env: Env,
-  warId: number,
-  startedAt: number,
-): Promise<void> {
-  await env.DB.prepare(
-    `
-    INSERT INTO sync_state (name, last_started, active_war_id, updated_at)
-    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(name) DO UPDATE SET
-      last_started = excluded.last_started,
-      active_war_id = excluded.active_war_id,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  )
-    .bind(SOURCE_NAME, startedAt, warId)
-    .run();
-}
-
-export async function backfillWarAssignments(
-  env: Env,
-  warId: number,
-  startedAt: number,
-): Promise<void> {
-  await env.DB.prepare(
-    `
-    UPDATE attacks
-    SET war_id = ?
-    WHERE war_id IS NULL
-      AND started >= ?
-      AND (
-        attacker_faction_id = ?
-        OR defender_faction_id = ?
-      )
-    `,
-  )
-    .bind(warId, startedAt, HOME_FACTION_ID, HOME_FACTION_ID)
-    .run();
+  await startWarTracking(env, {
+    warId: scheduledWar.id,
+    startedAt: scheduledWar.practical_start_time,
+  });
 }
 
 async function ensureState(env: Env): Promise<void> {
@@ -770,20 +723,13 @@ async function autoEndTermedWarIfLimitReached(
     return false;
   }
 
-  const checkedAt = nowSeconds();
-  await env.DB.prepare(
-    `
-    UPDATE wars
-    SET practical_finish_time = COALESCE(practical_finish_time, ?),
-        torn_war_id = COALESCE(torn_war_id, ?)
-    WHERE id = ?
-    `,
-  )
-    .bind(checkedAt, rankedWar.id, activeWar.id)
-    .run();
-
-  await rebuildWarMemberStatsFromRaw(env, activeWar.id);
-  await rebuildWarSummaryFromMemberStats(env, activeWar.id);
+  await recordTermedWarPracticalFinish(env, {
+    warId: activeWar.id,
+    finishAt: nowSeconds(),
+    enemyFactionId: activeWar.enemy_faction_id,
+    tornWarId: rankedWar.id,
+    preserveExistingFinish: true,
+  });
   return true;
 }
 
@@ -833,42 +779,16 @@ async function syncActiveWarOfficialEnd(
   const officialEndTime = latestRankedWar.end;
   const scores = getRankedWarScores(activeWar.enemy_faction_id ?? null, latestRankedWar);
 
-  await env.DB.prepare(
-    `
-    UPDATE wars
-    SET status = 'ended',
-        official_end_time = ?,
-        practical_finish_time = COALESCE(practical_finish_time, ?),
-        torn_war_id = COALESCE(torn_war_id, ?),
-        enemy_faction_id = COALESCE(?, enemy_faction_id),
-        official_home_score = ?,
-        official_enemy_score = ?,
-        winner_faction_id = COALESCE(?, winner_faction_id)
-    WHERE id = ?
-    `,
-  )
-    .bind(
-      officialEndTime,
-      officialEndTime,
-      latestRankedWar.id,
-      scores.enemyFaction?.id ?? null,
-      scores.homeFaction?.score ?? null,
-      scores.enemyFaction?.score ?? null,
-      latestRankedWar.winner ?? null,
-      activeWar.id,
-    )
-    .run();
-
-  await env.DB.prepare(
-    `
-    UPDATE sync_state
-    SET active_war_id = NULL,
-        updated_at = CURRENT_TIMESTAMP
-    WHERE name = ?
-    `,
-  )
-    .bind(SOURCE_NAME)
-    .run();
+  await applyTornOfficialWarEnd(env, {
+    warId: activeWar.id,
+    officialEndTime,
+    tornWarId: latestRankedWar.id,
+    currentEnemyFactionId: activeWar.enemy_faction_id,
+    enemyFactionId: scores.enemyFaction?.id ?? null,
+    homeScore: scores.homeFaction?.score ?? null,
+    enemyScore: scores.enemyFaction?.score ?? null,
+    winnerFactionId: latestRankedWar.winner ?? null,
+  });
 
   return officialEndTime;
 }

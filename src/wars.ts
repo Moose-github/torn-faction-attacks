@@ -1,22 +1,25 @@
 import {
   HOME_FACTION_ID,
-  SOURCE_NAME,
   WAR_TYPES,
 } from "./constants";
 import {
-  backfillWarAssignments,
   ingestHistoricalWarWindow,
   previewHistoricalWarWindow,
   pullAttackWindow,
-  setActiveWarState,
 } from "./ingestion";
-import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
+import { finalizeWar } from "./summaries";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   WAR_RETURNING_COLUMNS,
 } from "./sql";
 import { Env, WarRow } from "./types";
 import { json, nowSeconds } from "./utils";
+import {
+  clearCurrentWarState,
+  endWarPractically,
+  readCurrentWarId,
+  setWarPracticalWindow,
+} from "./warLifecycle";
 export { exportWarAttacksCsv } from "./warExports";
 export {
   getOverallStats,
@@ -29,136 +32,6 @@ export {
   listWars,
 } from "./warQueries";
 export { relinkWarAttacks } from "./warRelink";
-
-export async function createWar(request: Request, env: Env): Promise<Response> {
-  try {
-    const body = (await request.json()) as {
-      name?: unknown;
-      practical_start_time?: unknown;
-      start_time?: unknown;
-      enemy_faction_id?: unknown;
-      faction_id?: unknown;
-      war_type?: unknown;
-      torn_war_id?: unknown;
-      auto_end_enabled?: unknown;
-      faction_respect_limit?: unknown;
-      member_respect_limit?: unknown;
-    };
-
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_NAME" }, 400);
-    }
-
-    const now = nowSeconds();
-    let startTime = now;
-    const enemyFactionValue = body.enemy_faction_id ?? body.faction_id;
-    const enemyFactionId =
-      enemyFactionValue === undefined || enemyFactionValue === null
-        ? null
-        : Number(enemyFactionValue);
-    const warType = parseWarType(body.war_type, "event");
-    if (warType !== "event") {
-      return json(
-        {
-          ok: false,
-          error: "Official wars are auto-created from Torn or imported after they finish",
-          code: "MANUAL_OFFICIAL_WAR_DISABLED",
-        },
-        400,
-      );
-    }
-
-    const practicalStartValue = body.practical_start_time ?? body.start_time;
-    if (practicalStartValue !== undefined) {
-      const parsed = Number(practicalStartValue);
-      if (!Number.isInteger(parsed) || parsed < 0) {
-        return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
-      }
-      startTime = parsed;
-    }
-
-    if (enemyFactionId !== null && (!Number.isInteger(enemyFactionId) || enemyFactionId < 0)) {
-      return json({ ok: false, error: "Invalid enemy_faction_id", code: "INVALID_FACTION_ID" }, 400);
-    }
-
-    const status = startTime > now ? "scheduled" : "active";
-
-    const existingActiveWar = (await env.DB.prepare(
-      `SELECT id, name FROM wars WHERE status = 'active' LIMIT 1`,
-    ).first()) as { id: number; name: string } | null;
-
-    if (status === "active" && existingActiveWar) {
-      return json(
-        {
-          ok: false,
-          error: "Another war is already active",
-          code: "ACTIVE_WAR_EXISTS",
-          active_war: existingActiveWar,
-        },
-        400,
-      );
-    }
-
-    const existingScheduledWar = (await env.DB.prepare(
-      `SELECT id, name, practical_start_time FROM wars WHERE status = 'scheduled' LIMIT 1`,
-    ).first()) as { id: number; name: string; practical_start_time: number } | null;
-
-    if (status === "scheduled" && existingScheduledWar) {
-      return json(
-        {
-          ok: false,
-          error: "Another war is already scheduled",
-          code: "SCHEDULED_WAR_EXISTS",
-          scheduled_war: existingScheduledWar,
-        },
-        400,
-      );
-    }
-
-    const war = (await env.DB.prepare(
-      `
-      INSERT INTO wars (
-        name,
-        status,
-        practical_start_time,
-        enemy_faction_id,
-        war_type,
-        torn_war_id,
-        auto_end_enabled,
-        faction_respect_limit,
-        member_respect_limit
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      RETURNING
-        ${WAR_RETURNING_COLUMNS}
-      `,
-    )
-      .bind(
-        name,
-        status,
-        startTime,
-        enemyFactionId,
-        warType,
-        null,
-        0,
-        null,
-        null,
-      )
-      .first()) as WarRow | null;
-
-    if (status === "active" && war) {
-      await setActiveWarState(env, war.id, startTime);
-      await backfillWarAssignments(env, war.id, startTime);
-      await rebuildWarMemberStatsFromRaw(env, war.id);
-      await rebuildWarSummaryFromMemberStats(env, war.id);
-    }
-
-    return json({ ok: true, war }, 201);
-  } catch (err: any) {
-    return handleMutationError(err);
-  }
-}
 
 export async function importHistoricalWar(request: Request, env: Env): Promise<Response> {
   try {
@@ -445,119 +318,6 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
   }
 }
 
-export async function importHistoricalEvent(request: Request, env: Env): Promise<Response> {
-  try {
-    const body = (await request.json()) as {
-      name?: unknown;
-      practical_start_time?: unknown;
-      start_time?: unknown;
-      practical_finish_time?: unknown;
-      finish_time?: unknown;
-      enemy_faction_id?: unknown;
-      faction_id?: unknown;
-    };
-
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    const startTime = Number(body.practical_start_time ?? body.start_time);
-    const finishTime = Number(body.practical_finish_time ?? body.finish_time);
-    const enemyFactionValue = body.enemy_faction_id ?? body.faction_id;
-    const enemyFactionId =
-      enemyFactionValue === undefined || enemyFactionValue === null || enemyFactionValue === ""
-        ? null
-        : Number(enemyFactionValue);
-    const now = nowSeconds();
-
-    if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
-      return json({ ok: false, error: "Invalid event name", code: "INVALID_NAME" }, 400);
-    }
-
-    if (!Number.isInteger(startTime) || startTime < 0) {
-      return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
-    }
-
-    if (!Number.isInteger(finishTime) || finishTime < 0) {
-      return json({ ok: false, error: "Invalid practical_finish_time", code: "INVALID_FINISH_TIME" }, 400);
-    }
-
-    if (finishTime < startTime) {
-      return json(
-        {
-          ok: false,
-          error: "practical_finish_time must be greater than or equal to practical_start_time",
-          code: "INVALID_TIME_RANGE",
-        },
-        400,
-      );
-    }
-
-    if (finishTime > now) {
-      return json(
-        {
-          ok: false,
-          error: "practical_finish_time cannot be in the future for historical event import",
-          code: "FINISH_TIME_IN_FUTURE",
-        },
-        400,
-      );
-    }
-
-    if (enemyFactionId !== null && (!Number.isInteger(enemyFactionId) || enemyFactionId < 0)) {
-      return json({ ok: false, error: "Invalid enemy_faction_id", code: "INVALID_FACTION_ID" }, 400);
-    }
-
-    const eventName = await uniqueWarName(env, sanitizeWarName(name));
-    const war = (await env.DB.prepare(
-      `
-      INSERT INTO wars (
-        name,
-        status,
-        practical_start_time,
-        practical_finish_time,
-        official_start_time,
-        official_end_time,
-        enemy_faction_id,
-        war_type,
-        torn_war_id,
-        auto_end_enabled,
-        faction_respect_limit,
-        member_respect_limit
-      )
-      VALUES (?, 'ended', ?, ?, NULL, NULL, ?, 'event', NULL, 0, NULL, NULL)
-      RETURNING
-        ${WAR_RETURNING_COLUMNS}
-      `,
-    )
-      .bind(eventName, startTime, finishTime, enemyFactionId)
-      .first()) as WarRow | null;
-
-    if (!war) {
-      throw new Error("Failed to create event");
-    }
-
-    const importedAttackCount = await ingestHistoricalWarWindow(
-      env,
-      war.id,
-      startTime,
-      finishTime,
-    );
-    await finalizeWar(env, war.id);
-
-    return json(
-      {
-        ok: true,
-        war_id: war.id,
-        name: war.name,
-        practical_start_time: startTime,
-        practical_finish_time: finishTime,
-        imported_attack_count: importedAttackCount,
-      },
-      201,
-    );
-  } catch (err: any) {
-    return handleMutationError(err);
-  }
-}
-
 export async function previewHistoricalWarImport(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as {
@@ -710,82 +470,12 @@ export async function previewHistoricalWarImport(request: Request, env: Env): Pr
   }
 }
 
-export async function previewHistoricalEventImport(request: Request, env: Env): Promise<Response> {
-  try {
-    const body = (await request.json()) as {
-      practical_start_time?: unknown;
-      start_time?: unknown;
-      practical_finish_time?: unknown;
-      finish_time?: unknown;
-    };
-
-    const startTime = Number(body.practical_start_time ?? body.start_time);
-    const finishTime = Number(body.practical_finish_time ?? body.finish_time);
-
-    if (!Number.isInteger(startTime) || startTime < 0) {
-      return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
-    }
-
-    if (!Number.isInteger(finishTime) || finishTime < 0) {
-      return json({ ok: false, error: "Invalid practical_finish_time", code: "INVALID_FINISH_TIME" }, 400);
-    }
-
-    if (finishTime < startTime) {
-      return json(
-        {
-          ok: false,
-          error: "practical_finish_time must be greater than or equal to practical_start_time",
-          code: "INVALID_TIME_RANGE",
-        },
-        400,
-      );
-    }
-
-    const preview = await previewHistoricalWarWindow(env, startTime, finishTime);
-
-    return json({
-      ok: true,
-      practical_start_time: startTime,
-      practical_finish_time: finishTime,
-      duration_seconds: finishTime - startTime,
-      ...preview,
-    });
-  } catch (err: any) {
-    return handleMutationError(err);
-  }
-}
-
-type UpdateWarMode = "official" | "event";
-
 export async function updateOfficialWar(request: Request, env: Env): Promise<Response> {
-  return updateWarInternal(request, env, "official");
-}
-
-export async function updateEvent(request: Request, env: Env): Promise<Response> {
-  return updateWarInternal(request, env, "event");
-}
-
-async function updateWarInternal(
-  request: Request,
-  env: Env,
-  mode: UpdateWarMode,
-): Promise<Response> {
   try {
     const body = (await request.json()) as {
       id?: unknown;
-      name?: unknown;
-      status?: unknown;
       practical_start_time?: unknown;
       practical_finish_time?: unknown;
-      official_start_time?: unknown;
-      official_finish_time?: unknown;
-      official_end_time?: unknown;
-      enemy_faction_id?: unknown;
-      war_type?: unknown;
-      torn_war_id?: unknown;
-      auto_end_enabled?: unknown;
-      faction_respect_limit?: unknown;
-      member_respect_limit?: unknown;
     };
 
     const warId = Number(body.id);
@@ -795,14 +485,7 @@ async function updateWarInternal(
 
     const existing = (await env.DB.prepare(
       `
-      SELECT
-        id,
-        name,
-        official_start_time,
-        official_end_time,
-        enemy_faction_id,
-        war_type,
-        torn_war_id
+      SELECT id, practical_start_time, enemy_faction_id, war_type
       FROM wars
       WHERE id = ?
       LIMIT 1
@@ -811,108 +494,27 @@ async function updateWarInternal(
       .bind(warId)
       .first()) as {
       id: number;
-      name: string;
-      official_start_time: number | null;
-      official_end_time: number | null;
+      practical_start_time: number;
       enemy_faction_id: number | null;
       war_type: (typeof WAR_TYPES)[number] | null;
-      torn_war_id: number | null;
     } | null;
 
     if (!existing) {
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
     }
 
-    const existingWarType = existing.war_type ?? "real";
-    let name = existing.name;
+    if ((existing.war_type ?? "real") === "event") {
+      return json(
+        { ok: false, error: "Use the event editor for event records", code: "WRONG_EDITOR" },
+        400,
+      );
+    }
 
-    const status = parseWarStatus(body.status);
     const practicalStartTime = Number(body.practical_start_time);
     const practicalFinishTime = parseOptionalInteger(
       body.practical_finish_time,
       "practical_finish_time",
     );
-    let officialStartTime = parseOptionalInteger(body.official_start_time, "official_start_time");
-    let officialFinishTime = parseOptionalInteger(
-      body.official_end_time ?? body.official_finish_time,
-      "official_end_time",
-    );
-    let warType = parseWarType(body.war_type, existingWarType);
-    let enemyFactionId = parseOptionalInteger(body.enemy_faction_id, "enemy_faction_id");
-    let tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
-    let autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
-    let factionRespectLimit = parseOptionalNonNegativeNumber(
-      body.faction_respect_limit,
-      "faction_respect_limit",
-    );
-    let memberRespectLimit = parseOptionalNonNegativeNumber(
-      body.member_respect_limit,
-      "member_respect_limit",
-    );
-
-    if (mode === "official") {
-      if (existingWarType === "event" || warType === "event") {
-        return json(
-          { ok: false, error: "Use the event editor for event records", code: "WRONG_EDITOR" },
-          400,
-        );
-      }
-    }
-
-    if (mode === "event") {
-      if (existingWarType !== "event") {
-        return json(
-          { ok: false, error: "Use the official war editor for Torn-backed wars", code: "WRONG_EDITOR" },
-          400,
-        );
-      }
-
-      warType = "event";
-      name = typeof body.name === "string" ? body.name.trim() : existing.name;
-      if (!/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
-        return json({ ok: false, error: "Invalid event name", code: "INVALID_NAME" }, 400);
-      }
-    }
-
-    if (warType === "real" || warType === "termed") {
-      officialStartTime = existing.official_start_time;
-      officialFinishTime = existing.official_end_time;
-      enemyFactionId = existing.enemy_faction_id;
-      tornWarId = existing.torn_war_id;
-    } else {
-      officialStartTime = null;
-      officialFinishTime = null;
-      tornWarId = null;
-      autoEndEnabled = 0;
-      factionRespectLimit = null;
-      memberRespectLimit = null;
-    }
-
-    if (status === "active" || status === "scheduled") {
-      const conflictingWar = (await env.DB.prepare(
-        `
-        SELECT id, name, status
-        FROM wars
-        WHERE status = ?
-          AND id != ?
-        LIMIT 1
-        `,
-      )
-        .bind(status, warId)
-        .first()) as { id: number; name: string; status: string } | null;
-
-      if (conflictingWar) {
-        return json(
-          {
-            ok: false,
-            error: `Another war is already ${status}`,
-            code: status === "active" ? "ACTIVE_WAR_EXISTS" : "SCHEDULED_WAR_EXISTS",
-            war: conflictingWar,
-          },
-          400,
-        );
-      }
-    }
 
     if (!Number.isInteger(practicalStartTime) || practicalStartTime < 0) {
       return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
@@ -929,86 +531,12 @@ async function updateWarInternal(
       );
     }
 
-    if (
-      officialStartTime !== null &&
-      officialFinishTime !== null &&
-      officialFinishTime < officialStartTime
-    ) {
-      return json(
-        {
-          ok: false,
-          error: "official_end_time must be greater than or equal to official_start_time",
-          code: "INVALID_OFFICIAL_TIME_RANGE",
-        },
-        400,
-      );
-    }
-
-    const validationError = validateTermedWarFields(
-      warType,
-      autoEndEnabled,
-      factionRespectLimit,
-      memberRespectLimit,
-    );
-    if (validationError) {
-      return validationError;
-    }
-
-    const war = (await env.DB.prepare(
-      `
-      UPDATE wars
-      SET name = ?,
-          status = ?,
-          practical_start_time = ?,
-          practical_finish_time = ?,
-          official_start_time = ?,
-          official_end_time = ?,
-          enemy_faction_id = ?,
-          war_type = ?,
-          torn_war_id = ?,
-          auto_end_enabled = ?,
-          faction_respect_limit = ?,
-          member_respect_limit = ?
-      WHERE id = ?
-      RETURNING
-        ${WAR_RETURNING_COLUMNS}
-      `,
-    )
-      .bind(
-        name,
-        status,
-        practicalStartTime,
-        practicalFinishTime,
-        officialStartTime,
-        officialFinishTime,
-        enemyFactionId,
-        warType,
-        tornWarId,
-        autoEndEnabled,
-        factionRespectLimit,
-        memberRespectLimit,
-        warId,
-      )
-      .first()) as WarRow | null;
-
-    if (status === "active") {
-      await setActiveWarState(env, warId, practicalStartTime);
-    } else {
-      await env.DB.prepare(
-        `
-        UPDATE sync_state
-        SET active_war_id = NULL,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE name = ?
-          AND active_war_id = ?
-        `,
-      )
-        .bind(SOURCE_NAME, warId)
-        .run();
-    }
-
-    await rebuildWarMemberStatsFromRaw(env, warId);
-    await rebuildWarSummaryFromMemberStats(env, warId);
+    const war = await setWarPracticalWindow(env, {
+      warId,
+      practicalStartTime,
+      practicalFinishTime,
+      enemyFactionId: existing.enemy_faction_id,
+    });
 
     return json({ ok: true, war });
   } catch (err: any) {
@@ -1114,16 +642,7 @@ export async function deleteWar(request: Request, env: Env): Promise<Response> {
     ]);
 
     if (war.status === "active") {
-      await env.DB.prepare(
-        `
-        UPDATE sync_state
-        SET active_war_id = NULL,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE name = ?
-        `,
-      )
-        .bind(SOURCE_NAME)
-        .run();
+      await clearCurrentWarState(env);
     }
 
     return json({ ok: true, deleted_war: war });
@@ -1148,27 +667,21 @@ export async function endActiveWar(request: Request, env: Env): Promise<Response
     return handleMutationError(err);
   }
 
-  const state = (await env.DB.prepare(
-    `SELECT active_war_id FROM sync_state WHERE name = ?`,
-  )
-    .bind(SOURCE_NAME)
-    .first()) as { active_war_id: number | null } | null;
-
-  const activeWarId = state?.active_war_id ?? null;
+  const activeWarId = await readCurrentWarId(env);
   if (!activeWarId) {
     return json({ ok: false, error: "No active war" }, 400);
   }
 
   const activeWar = (await env.DB.prepare(
     `
-    SELECT practical_start_time
+    SELECT practical_start_time, enemy_faction_id
     FROM wars
     WHERE id = ?
     LIMIT 1
     `,
   )
     .bind(activeWarId)
-    .first()) as { practical_start_time: number } | null;
+    .first()) as { practical_start_time: number; enemy_faction_id: number | null } | null;
 
   if (!activeWar) {
     return json({ ok: false, error: "Active war not found", code: "WAR_NOT_FOUND" }, 404);
@@ -1206,28 +719,11 @@ export async function endActiveWar(request: Request, env: Env): Promise<Response
     );
   }
 
-  await env.DB.prepare(
-    `
-    UPDATE wars
-    SET status = 'ended', practical_finish_time = ?
-    WHERE id = ?
-    `,
-  )
-    .bind(endedAt, activeWarId)
-    .run();
-
-  await env.DB.prepare(
-    `
-    UPDATE sync_state
-    SET active_war_id = NULL,
-        updated_at = CURRENT_TIMESTAMP
-    WHERE name = ?
-    `,
-  )
-    .bind(SOURCE_NAME)
-    .run();
-
-  await finalizeWar(env, activeWarId);
+  await endWarPractically(env, {
+    warId: activeWarId,
+    finishAt: endedAt,
+    enemyFactionId: activeWar.enemy_faction_id,
+  });
 
   return json({ ok: true, war_id: activeWarId, practical_finish_time: endedAt });
 }
@@ -1268,16 +764,6 @@ function parseWarType(value: unknown, fallback: string): string {
   }
 
   return warType;
-}
-
-function parseWarStatus(value: unknown): string {
-  const status = value === undefined || value === null ? "" : String(value).trim().toLowerCase();
-
-  if (!["scheduled", "active", "ended"].includes(status)) {
-    throw new ValidationError("Invalid war status", "INVALID_STATUS");
-  }
-
-  return status;
 }
 
 function sanitizeWarName(value: string): string {

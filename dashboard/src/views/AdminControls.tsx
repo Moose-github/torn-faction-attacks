@@ -4,7 +4,6 @@ import {
   AuthSession,
   authenticateTornKey,
   clearStoredAuthSession,
-  createWar,
   deleteWar,
   exportWarAttacksCsv,
   fetchTornWarReport,
@@ -13,10 +12,8 @@ import {
   getStoredAuthSession,
   grantAdminAccess,
   IngestionRun,
-  importEvent,
   importWar,
   listAdminUsers,
-  previewImportEvent,
   previewImportWar,
   previewRelinkAttacks,
   pullAttackWindow,
@@ -26,7 +23,6 @@ import {
   relinkAttacks,
   runIngestion,
   sendDiscordMessage,
-  updateEvent,
   updateOfficialWar,
   WarSummary,
   WarType,
@@ -41,18 +37,8 @@ export function AdminControls() {
   const [useEpochTime, setUseEpochTime] = React.useState(false);
   const [tornKey, setTornKey] = React.useState("");
   const [isAuthenticating, setIsAuthenticating] = React.useState(false);
-  const [createForm, setCreateForm] = React.useState<AdminWarFormState>(() => ({
-    ...defaultWarForm(),
-    warType: "event",
-  }));
   const [importWarForm, setImportWarForm] = React.useState<AdminWarFormState>(() => ({
     ...defaultWarForm(),
-    finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
-    finishEpoch: String(Math.floor(Date.now() / 1000)),
-  }));
-  const [importEventForm, setImportEventForm] = React.useState<AdminWarFormState>(() => ({
-    ...defaultWarForm(),
-    warType: "event",
     finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
     finishEpoch: String(Math.floor(Date.now() / 1000)),
   }));
@@ -69,12 +55,7 @@ export function AdminControls() {
   const [historicalWarEditForm, setHistoricalWarEditForm] = React.useState<AdminWarFormState>(() =>
     defaultWarForm(),
   );
-  const [eventEditForm, setEventEditForm] = React.useState<AdminWarFormState>(() => ({
-    ...defaultWarForm(),
-    warType: "event",
-  }));
   const [selectedHistoricalWarId, setSelectedHistoricalWarId] = React.useState("");
-  const [selectedEventWarId, setSelectedEventWarId] = React.useState("");
   const [exportForm, setExportForm] = React.useState<AdminExportFormState>({
     warName: "",
     scope: "war_relevant" as "all" | "outgoing" | "war_relevant",
@@ -101,7 +82,6 @@ export function AdminControls() {
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [isEventPanelCollapsed, setIsEventPanelCollapsed] = React.useState(true);
   const [isHistoricalWarPanelCollapsed, setIsHistoricalWarPanelCollapsed] = React.useState(true);
   const [isRepairPanelCollapsed, setIsRepairPanelCollapsed] = React.useState(true);
   const [ingestionRun, setIngestionRun] = React.useState<IngestionRun | null>(null);
@@ -185,14 +165,6 @@ export function AdminControls() {
         : current,
     );
 
-    const firstEvent = loadedWars.find(isEvent);
-    const selectedEvent =
-      loadedWars.find((war) => war.id === Number(selectedEventWarId) && isEvent(war)) ??
-      firstEvent;
-    setSelectedEventWarId(selectedEvent ? String(selectedEvent.id) : "");
-    setEventEditForm((current) =>
-      selectedEvent ? convertWarFormTimeMode(warToForm(selectedEvent), adminTimeMode) : current,
-    );
   }
 
   async function login(event: React.FormEvent<HTMLFormElement>) {
@@ -220,12 +192,9 @@ export function AdminControls() {
   function setGlobalTimeMode(useEpoch: boolean) {
     const timeMode: AdminWarFormState["timeMode"] = useEpoch ? "epoch" : "datetime";
     setUseEpochTime(useEpoch);
-    setCreateForm((current) => convertWarFormTimeMode(current, timeMode));
     setImportWarForm((current) => convertWarFormTimeMode(current, timeMode));
-    setImportEventForm((current) => convertWarFormTimeMode(current, timeMode));
     setCurrentWarEditForm((current) => convertWarFormTimeMode(current, timeMode));
     setHistoricalWarEditForm((current) => convertWarFormTimeMode(current, timeMode));
-    setEventEditForm((current) => convertWarFormTimeMode(current, timeMode));
     setExportForm((current) => convertExportFormTimeMode(current, timeMode));
     setAttackWindowForm((current) => convertAttackWindowFormTimeMode(current, timeMode));
   }
@@ -266,7 +235,6 @@ export function AdminControls() {
   const officialWars = wars.filter(isOfficialWar);
   const currentOfficialWar = officialWars.find(isCurrentOfficialWar) ?? null;
   const historicalOfficialWars = officialWars.filter(isHistoricalOfficialWar);
-  const events = wars.filter(isEvent);
 
   return (
     <>
@@ -409,7 +377,7 @@ export function AdminControls() {
               onSubmit={(event) => {
                 event.preventDefault();
                 runAdminAction("Update current war", () =>
-                  updateOfficialWar(toWarEditPayload(currentOfficialWar.id, currentWarEditForm)).then((response) => {
+                  updateOfficialWar(toPracticalWarEditPayload(currentOfficialWar.id, currentWarEditForm)).then((response) => {
                     const updatedWar = (response as { war?: WarSummary }).war;
                     if (updatedWar) {
                       setWars((current) =>
@@ -430,11 +398,7 @@ export function AdminControls() {
               <WarFields
                 form={currentWarEditForm}
                 onChange={setCurrentWarEditForm}
-                showName={false}
-                showFinishTimes
-                showTornFields={false}
-                breakAfterWarType
-                allowedWarTypes={["real", "termed"]}
+                practicalOnly
               />
               <button
                 type="submit"
@@ -480,7 +444,7 @@ export function AdminControls() {
                 onSubmit={(event) => {
                   event.preventDefault();
                   runAdminAction("Update historical war", () =>
-                    updateOfficialWar(toWarEditPayload(Number(selectedHistoricalWarId), historicalWarEditForm)).then((response) => {
+                    updateOfficialWar(toPracticalWarEditPayload(Number(selectedHistoricalWarId), historicalWarEditForm)).then((response) => {
                       const updatedWar = (response as { war?: WarSummary }).war;
                       if (updatedWar) {
                         setWars((current) =>
@@ -525,11 +489,7 @@ export function AdminControls() {
                 <WarFields
                   form={historicalWarEditForm}
                   onChange={setHistoricalWarEditForm}
-                  showName={false}
-                  showFinishTimes
-                  showTornFields={false}
-                  breakAfterWarType
-                  allowedWarTypes={["real", "termed"]}
+                  practicalOnly
                 />
                 <button
                   type="submit"
@@ -556,106 +516,6 @@ export function AdminControls() {
                 runAdminAction("Preview import window", () => previewImportWar(payload))
               }
               onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
-            />
-          </div>
-        </CollapsiblePanel>
-
-        <CollapsiblePanel
-          title="Event controls"
-          aside="Create / edit / import"
-          className="admin-panel-events"
-          collapsed={isEventPanelCollapsed}
-          onToggle={() => setIsEventPanelCollapsed((current) => !current)}
-        >
-          <div className="admin-event-grid">
-            <EventForm
-              title="Create active or scheduled event"
-              panelClassName="admin-event-command"
-              form={createForm}
-              onChange={setCreateForm}
-              isBusy={isBusy !== null}
-              onSubmit={(payload) => runAdminAction("Create event", () => createWar(payload))}
-            />
-
-            <section className="panel admin-event-command">
-              <PanelHeader title="Edit event" />
-              <form
-                className="admin-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  runAdminAction("Update event", () =>
-                    updateEvent(toWarEditPayload(Number(selectedEventWarId), eventEditForm)).then((response) => {
-                      const updatedWar = (response as { war?: WarSummary }).war;
-                      if (updatedWar) {
-                        setWars((current) =>
-                          current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war)),
-                        );
-                        setEventEditForm(convertWarFormTimeMode(warToForm(updatedWar), adminTimeMode));
-                        setExportForm((current) =>
-                          current.warName === updatedWar.name
-                            ? exportFormForWar(current, updatedWar)
-                            : current,
-                        );
-                      }
-                      return response;
-                    }),
-                  );
-                }}
-              >
-                <label className="admin-form-wide">
-                  <span>Event</span>
-                  <select
-                    value={selectedEventWarId}
-                    onChange={(event) => {
-                      const war = events.find((candidate) => candidate.id === Number(event.target.value));
-                      setSelectedEventWarId(event.target.value);
-                      if (war) {
-                        setEventEditForm(convertWarFormTimeMode(warToForm(war), adminTimeMode));
-                      }
-                    }}
-                    required
-                  >
-                    <option value="" disabled>
-                      Select event
-                    </option>
-                    {events.map((war) => (
-                      <option value={war.id} key={war.id}>
-                        {war.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <WarFields
-                  form={eventEditForm}
-                  onChange={setEventEditForm}
-                  showName
-                  showFinishTimes
-                  showOfficialTimes={false}
-                  showEnemyFaction
-                  showTornWarId={false}
-                  allowedWarTypes={["event"]}
-                />
-                <button
-                  type="submit"
-                  className="admin-button primary admin-form-wide"
-                  disabled={isBusy !== null || !selectedEventWarId}
-                >
-                  Confirm changes
-                </button>
-              </form>
-            </section>
-
-            <HistoricalEventForm
-              title="Import historical event"
-              panelClassName="admin-event-command"
-              form={importEventForm}
-              onChange={setImportEventForm}
-              isBusy={isBusy !== null}
-              secondaryActionLabel="Preview import window"
-              onSecondaryAction={(payload) =>
-                runAdminAction("Preview event import window", () => previewImportEvent(payload))
-              }
-              onSubmit={(payload) => runAdminAction("Import event", () => importEvent(payload))}
             />
           </div>
         </CollapsiblePanel>
@@ -1220,132 +1080,6 @@ type AdminAttackWindowFormState = {
   limit: string;
 };
 
-function EventForm({
-  title,
-  panelClassName,
-  form,
-  onChange,
-  onSubmit,
-  isBusy,
-}: {
-  title: string;
-  panelClassName?: string;
-  form: AdminWarFormState;
-  onChange: (form: AdminWarFormState) => void;
-  onSubmit: (payload: AdminWarPayload) => void;
-  isBusy: boolean;
-}) {
-  function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
-    onChange({ ...form, warType: "event", [key]: value });
-  }
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    onSubmit(toEventPayload(form));
-  }
-
-  return (
-    <section className={["panel", panelClassName].filter(Boolean).join(" ")}>
-      <PanelHeader title={title} />
-      <form className="admin-form" onSubmit={submit}>
-        <label>
-          <span>Name</span>
-          <input value={form.name} onChange={(event) => update("name", event.target.value)} required />
-        </label>
-        <label>
-          <span>Start time</span>
-          {form.timeMode === "epoch" ? (
-            <input inputMode="numeric" value={form.startEpoch} onChange={(event) => update("startEpoch", event.target.value)} required />
-          ) : (
-            <input type="datetime-local" value={form.startTime} onChange={(event) => updateDateTime(form, onChange, "start", event.target.value)} required />
-          )}
-        </label>
-        <label>
-          <span>Enemy faction ID</span>
-          <input inputMode="numeric" value={form.factionId} onChange={(event) => update("factionId", event.target.value)} />
-        </label>
-        <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy}>
-          {title}
-        </button>
-      </form>
-    </section>
-  );
-}
-
-function HistoricalEventForm({
-  title,
-  panelClassName,
-  form,
-  onChange,
-  onSubmit,
-  isBusy,
-  secondaryActionLabel,
-  onSecondaryAction,
-}: {
-  title: string;
-  panelClassName?: string;
-  form: AdminWarFormState;
-  onChange: (form: AdminWarFormState) => void;
-  onSubmit: (payload: AdminWarPayload) => void;
-  isBusy: boolean;
-  secondaryActionLabel?: string;
-  onSecondaryAction?: (payload: AdminWarPayload) => void;
-}) {
-  function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
-    onChange({ ...form, warType: "event", [key]: value });
-  }
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    onSubmit(toHistoricalEventPayload(form));
-  }
-
-  return (
-    <section className={["panel", panelClassName].filter(Boolean).join(" ")}>
-      <PanelHeader title={title} />
-      <form className="admin-form" onSubmit={submit}>
-        <label>
-          <span>Name</span>
-          <input value={form.name} onChange={(event) => update("name", event.target.value)} required />
-        </label>
-        <label>
-          <span>Start time</span>
-          {form.timeMode === "epoch" ? (
-            <input inputMode="numeric" value={form.startEpoch} onChange={(event) => update("startEpoch", event.target.value)} required />
-          ) : (
-            <input type="datetime-local" value={form.startTime} onChange={(event) => updateDateTime(form, onChange, "start", event.target.value)} required />
-          )}
-        </label>
-        <label>
-          <span>Finish time</span>
-          {form.timeMode === "epoch" ? (
-            <input inputMode="numeric" value={form.finishEpoch} onChange={(event) => update("finishEpoch", event.target.value)} required />
-          ) : (
-            <input type="datetime-local" value={form.finishTime} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} required />
-          )}
-        </label>
-        <label>
-          <span>Enemy faction ID</span>
-          <input inputMode="numeric" value={form.factionId} onChange={(event) => update("factionId", event.target.value)} />
-        </label>
-        {secondaryActionLabel && onSecondaryAction ? (
-          <button
-            type="button"
-            className="admin-button admin-form-wide"
-            disabled={isBusy}
-            onClick={() => onSecondaryAction(toHistoricalEventPayload(form))}
-          >
-            {secondaryActionLabel}
-          </button>
-        ) : null}
-        <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy}>
-          {title}
-        </button>
-      </form>
-    </section>
-  );
-}
-
 function WarForm({
   title,
   panelClassName,
@@ -1480,6 +1214,7 @@ function WarForm({
 function WarFields({
   form,
   onChange,
+  practicalOnly = false,
   showName = true,
   showFinishTimes = false,
   showTornFields = true,
@@ -1492,6 +1227,7 @@ function WarFields({
 }: {
   form: AdminWarFormState;
   onChange: (form: AdminWarFormState) => void;
+  practicalOnly?: boolean;
   showName?: boolean;
   showFinishTimes?: boolean;
   showTornFields?: boolean;
@@ -1508,6 +1244,29 @@ function WarFields({
 
   function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
     onChange({ ...form, [key]: value });
+  }
+
+  if (practicalOnly) {
+    return (
+      <>
+        <label>
+          <span>Practical start time</span>
+          {form.timeMode === "epoch" ? (
+            <input inputMode="numeric" value={form.startEpoch} onChange={(event) => update("startEpoch", event.target.value)} required />
+          ) : (
+            <input type="datetime-local" value={form.startTime} onChange={(event) => updateDateTime(form, onChange, "start", event.target.value)} required />
+          )}
+        </label>
+        <label>
+          <span>Practical finish time</span>
+          {form.timeMode === "epoch" ? (
+            <input inputMode="numeric" value={form.finishEpoch} onChange={(event) => update("finishEpoch", event.target.value)} />
+          ) : (
+            <input type="datetime-local" value={form.finishTime} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} />
+          )}
+        </label>
+      </>
+    );
   }
 
   return (
@@ -1658,31 +1417,6 @@ function defaultWarForm(): AdminWarFormState {
   };
 }
 
-function toEventPayload(form: AdminWarFormState): AdminWarPayload {
-  const payload: AdminWarPayload = {
-    war_type: "event",
-    name: form.name.trim(),
-    practical_start_time: secondsFromFormTime(form, "start"),
-  };
-
-  setOptionalNumber(payload, "enemy_faction_id", form.factionId);
-
-  return payload;
-}
-
-function toHistoricalEventPayload(form: AdminWarFormState): AdminWarPayload {
-  const payload: AdminWarPayload = {
-    war_type: "event",
-    name: form.name.trim(),
-    practical_start_time: secondsFromFormTime(form, "start"),
-    practical_finish_time: secondsFromFormTime(form, "finish"),
-  };
-
-  setOptionalNumber(payload, "enemy_faction_id", form.factionId);
-
-  return payload;
-}
-
 function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): AdminWarPayload {
   const payload: AdminWarPayload = {
     war_type: form.warType,
@@ -1724,10 +1458,6 @@ function isCurrentOfficialWar(war: WarSummary): boolean {
 
 function isHistoricalOfficialWar(war: WarSummary): boolean {
   return isOfficialWar(war) && war.official_end_time !== null;
-}
-
-function isEvent(war: WarSummary): boolean {
-  return war.war_type === "event";
 }
 
 function warTypeLabel(warType: Exclude<WarType, "all">): string {
@@ -1813,26 +1543,13 @@ function exportBoundaryTime(
     : (war.practical_finish_time ?? war.official_end_time ?? war.practical_start_time);
 }
 
-function toWarEditPayload(id: number, form: AdminWarFormState): AdminWarPayload {
-  const payload: AdminWarPayload = {
+function toPracticalWarEditPayload(id: number, form: AdminWarFormState): AdminWarPayload {
+  return {
     id,
-    name: form.name.trim(),
-    status: form.status,
     war_type: form.warType,
     practical_start_time: secondsFromFormTime(form, "start"),
     practical_finish_time: optionalSecondsFromFormTime(form, "finish"),
-    official_start_time: optionalSecondsFromFormTime(form, "officialStart"),
-    official_end_time: optionalSecondsFromFormTime(form, "officialFinish"),
-    enemy_faction_id: optionalNumberOrNull(form.factionId),
-    torn_war_id: optionalNumberOrNull(form.tornWarId),
-    auto_end_enabled: form.warType === "termed" ? form.autoEndEnabled : false,
-    faction_respect_limit:
-      form.warType === "termed" ? optionalNumberOrNull(form.factionRespectLimit) : null,
-    member_respect_limit:
-      form.warType === "termed" ? optionalNumberOrNull(form.memberRespectLimit) : null,
   };
-
-  return payload;
 }
 
 function toRelinkPayload(form: { tornWarId: string; name: string; fetchMissing: boolean }): {
@@ -2115,10 +1832,6 @@ function setOptionalNumber<T extends keyof AdminWarPayload>(
   if (value.trim() !== "") {
     payload[key] = Number(value) as AdminWarPayload[T];
   }
-}
-
-function optionalNumberOrNull(value: string): number | null {
-  return value.trim() === "" ? null : Number(value);
 }
 
 function optionalSecondsFromFormTime(

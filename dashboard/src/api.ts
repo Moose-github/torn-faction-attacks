@@ -878,24 +878,12 @@ export async function sendXanaxToDiceGame(amount: number): Promise<DiceGameSendX
   });
 }
 
-export async function createWar(payload: AdminWarPayload): Promise<unknown> {
-  return postJson("/api/wars", payload);
-}
-
 export async function updateOfficialWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars/update-official", payload);
 }
 
-export async function updateEvent(payload: AdminWarPayload): Promise<unknown> {
-  return postJson("/api/wars/update-event", payload);
-}
-
 export async function importWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars/import", payload);
-}
-
-export async function importEvent(payload: AdminWarPayload): Promise<unknown> {
-  return postJson("/api/wars/import-event", payload);
 }
 
 export async function previewImportWar(payload: AdminWarPayload): Promise<unknown> {
@@ -906,13 +894,6 @@ export async function previewImportWar(payload: AdminWarPayload): Promise<unknow
     official_end_time: payload.official_end_time,
     war_type: payload.war_type,
     torn_war_id: payload.torn_war_id,
-  });
-}
-
-export async function previewImportEvent(payload: AdminWarPayload): Promise<unknown> {
-  return postJson("/api/wars/import-event/preview", {
-    practical_start_time: payload.practical_start_time,
-    practical_finish_time: payload.practical_finish_time,
   });
 }
 

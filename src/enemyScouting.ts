@@ -1535,7 +1535,7 @@ function upsertEnemyMemberSnapshot(
   );
 }
 
-async function clearLiveEnemyTrackingData(
+export async function clearLiveEnemyTrackingData(
   env: Env,
   warId: number,
   factionId: number,
