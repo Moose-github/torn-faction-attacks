@@ -1,6 +1,7 @@
 import { HOME_FACTION_ID } from "./constants";
-import { clearSyncLatch } from "./syncLatches";
+import { clearSyncLatch, setSyncLatch } from "./syncLatches";
 import { Env } from "./types";
+import { nowSeconds } from "./utils";
 
 export type EnemyTargetLifecycleMetrics = {
   writeStatements: number;
@@ -21,6 +22,8 @@ type EnemyTargetMatchedOptions = {
 const BSP_FILL_COMPLETE_STATE_PREFIX = "enemy_target_bsp_fill_complete";
 const ENEMY_NETWORTH_FILL_COMPLETE_STATE_PREFIX = "enemy_target_networth_fill_complete";
 const FF_FILL_COMPLETE_STATE_PREFIX = "enemy_target_ff_fill_complete";
+const STATS_IMAGE_PENDING_STATE_PREFIX = "enemy_target_stats_image_pending";
+const STATS_IMAGE_SENT_STATE_PREFIX = "enemy_target_stats_image_sent";
 
 export async function canInitializeEnemyTarget(env: Env, nextFactionId: number): Promise<boolean> {
   const cachedFactions = ((await env.DB.prepare(
@@ -102,8 +105,18 @@ export async function handleEnemyTargetMatched(
       options.warId,
       nextFactionId,
     );
-    metrics.writeStatements += 2;
+    await setSyncLatch(
+      env,
+      enemyTargetStatsImagePendingLatchName(options.warId, nextFactionId),
+      nowSeconds(),
+    );
+    const sentClear = await clearSyncLatch(
+      env,
+      enemyTargetStatsImageSentLatchName(options.warId, nextFactionId),
+    );
+    metrics.writeStatements += 5;
     metrics.changedRows += latchChanges;
+    metrics.changedRows += 1 + d1Changes(sentClear);
     metrics.fillCompletionLatchesCleared += latchChanges;
   }
 
@@ -123,6 +136,17 @@ export function enemyTargetNetworthFillCompleteLatchName(
   enemyFactionId: number,
 ): string {
   return `${ENEMY_NETWORTH_FILL_COMPLETE_STATE_PREFIX}:${warId}:${enemyFactionId}`;
+}
+
+export function enemyTargetStatsImagePendingLatchName(
+  warId: number,
+  enemyFactionId: number,
+): string {
+  return `${STATS_IMAGE_PENDING_STATE_PREFIX}:${warId}:${enemyFactionId}`;
+}
+
+export function enemyTargetStatsImageSentLatchName(warId: number, enemyFactionId: number): string {
+  return `${STATS_IMAGE_SENT_STATE_PREFIX}:${warId}:${enemyFactionId}`;
 }
 
 function emptyEnemyTargetLifecycleMetrics(): EnemyTargetLifecycleMetrics {

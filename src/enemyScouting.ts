@@ -4,12 +4,14 @@ import {
   LOL_MANAGER_BATTLESTATS_API_BASE_URL,
   TORN_FACTION_API_BASE_URL,
 } from "./constants";
-import { sendDiscordMessage } from "./discord";
+import { sendDiscordMessage, sendDiscordMessageWithAttachment } from "./discord";
 import {
   canInitializeEnemyTarget,
   enemyTargetBspFillCompleteLatchName,
   enemyTargetFfFillCompleteLatchName,
   enemyTargetNetworthFillCompleteLatchName,
+  enemyTargetStatsImagePendingLatchName,
+  enemyTargetStatsImageSentLatchName,
   handleEnemyTargetMatched,
 } from "./enemyTargetLifecycle";
 import { fetchTornPersonalStats } from "./personalStats";
@@ -29,6 +31,7 @@ const SCOUTING_FETCH_TIMEOUT_MS = 15000;
 const BSP_BATTLESTAT_REFRESH_LIMIT = 40;
 const NETWORTH_REFRESH_LIMIT = 40;
 const TORN_LOCATION = "Torn";
+const HOME_STATS_LABEL = "Buttgrass";
 const LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX = "enemy_live_tracking_cleared";
 const BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS = 5 * 60;
 const PUSH_RECENT_ACTIVITY_WINDOW_SECONDS = 5 * 60;
@@ -40,6 +43,8 @@ const PUSH_ALERT_STATE_PREFIX = "enemy_push_alert";
 
 type TravelDurationKey = "Standard" | "Airstrip" | "WLT benefit" | "Business Class";
 type StoredTravelTripType = TravelDurationKey | "Business Class/Standard";
+type ScoutingComparisonMetric = "ff_battlestats" | "bsp_battlestats" | "networth";
+type ScoutingBucket = { label: string; min: number; max: number };
 
 const TRAVEL_DURATIONS_MINUTES: Record<string, Record<TravelDurationKey, number>> = {
   Mexico: { Standard: 26, Airstrip: 18, "WLT benefit": 13, "Business Class": 8 },
@@ -54,6 +59,32 @@ const TRAVEL_DURATIONS_MINUTES: Record<string, Record<TravelDurationKey, number>
   "United Arab Emirates": { Standard: 271, Airstrip: 190, "WLT benefit": 135, "Business Class": 81 },
   "South Africa": { Standard: 297, Airstrip: 208, "WLT benefit": 149, "Business Class": 89 },
 };
+
+const BATTLE_STATS_BUCKETS: ScoutingBucket[] = [
+  { label: "<1m", min: 0, max: 1_000_000 },
+  { label: "1m-10m", min: 1_000_000, max: 10_000_000 },
+  { label: "10m-100m", min: 10_000_000, max: 100_000_000 },
+  { label: "100m-250m", min: 100_000_000, max: 250_000_000 },
+  { label: "250m-500m", min: 250_000_000, max: 500_000_000 },
+  { label: "500m-1b", min: 500_000_000, max: 1_000_000_000 },
+  { label: "1b-2.5b", min: 1_000_000_000, max: 2_500_000_000 },
+  { label: "2.5b-5b", min: 2_500_000_000, max: 5_000_000_000 },
+  { label: "5b-10b", min: 5_000_000_000, max: 10_000_000_000 },
+  { label: "10b+", min: 10_000_000_000, max: Number.POSITIVE_INFINITY },
+];
+
+const NETWORTH_BUCKETS: ScoutingBucket[] = [
+  { label: "<500m", min: 0, max: 500_000_000 },
+  { label: "0.5b-1b", min: 500_000_000, max: 1_000_000_000 },
+  { label: "1b-2.5b", min: 1_000_000_000, max: 2_500_000_000 },
+  { label: "2.5b-5b", min: 2_500_000_000, max: 5_000_000_000 },
+  { label: "5b-10b", min: 5_000_000_000, max: 10_000_000_000 },
+  { label: "10b-20b", min: 10_000_000_000, max: 20_000_000_000 },
+  { label: "20b-30b", min: 20_000_000_000, max: 30_000_000_000 },
+  { label: "30b-40b", min: 30_000_000_000, max: 40_000_000_000 },
+  { label: "40b-50b", min: 40_000_000_000, max: 50_000_000_000 },
+  { label: "50b+", min: 50_000_000_000, max: Number.POSITIVE_INFINITY },
+];
 
 const PLANE_IMAGE_TYPE_TO_DURATION_KEY: Record<string, TravelDurationKey> = {
   light_aircraft: "Airstrip",
@@ -756,6 +787,260 @@ export async function refreshMissingScoutingNetworth(
   }
 
   return metrics;
+}
+
+export async function sendPendingEnemyStatsComparisonImage(
+  env: Env,
+): Promise<{ sent: boolean; skipped: boolean; reason?: string }> {
+  const scoutingWar = await readCurrentScoutingWar(env);
+  if (!scoutingWar) {
+    return { sent: false, skipped: true, reason: "no current scouting war" };
+  }
+
+  const pendingLatchName = enemyTargetStatsImagePendingLatchName(
+    scoutingWar.id,
+    scoutingWar.enemy_faction_id,
+  );
+  if (!(await isSyncLatchSet(env, pendingLatchName))) {
+    return { sent: false, skipped: true, reason: "no pending image" };
+  }
+
+  const sentLatchName = enemyTargetStatsImageSentLatchName(
+    scoutingWar.id,
+    scoutingWar.enemy_faction_id,
+  );
+  if (await isSyncLatchSet(env, sentLatchName)) {
+    await clearSyncLatch(env, pendingLatchName);
+    return { sent: false, skipped: true, reason: "already sent" };
+  }
+
+  const ready = await areEnemyTargetStatsComplete(env, scoutingWar.id, scoutingWar.enemy_faction_id);
+  if (!ready) {
+    return { sent: false, skipped: true, reason: "stats still filling" };
+  }
+
+  const [homeMembers, enemyMembers] = await Promise.all([
+    readHomeScouting(env),
+    readEnemyScouting(env, scoutingWar.enemy_faction_id),
+  ]);
+  const svg = buildStatsComparisonSvg({
+    enemyName: scoutingWar.name,
+    homeMembers,
+    enemyMembers,
+  });
+
+  await sendDiscordMessageWithAttachment(env, {
+    content: `Enemy stats comparison ready: ${scoutingWar.name}`,
+    filename: `enemy-stats-comparison-${scoutingWar.id}.svg`,
+    mimeType: "image/svg+xml",
+    data: svg,
+  });
+
+  await setSyncLatch(env, sentLatchName, nowSeconds());
+  await clearSyncLatch(env, pendingLatchName);
+  return { sent: true, skipped: false };
+}
+
+async function areEnemyTargetStatsComplete(
+  env: Env,
+  warId: number,
+  enemyFactionId: number,
+): Promise<boolean> {
+  const latchNames = [
+    enemyTargetFfFillCompleteLatchName(warId, enemyFactionId),
+    enemyTargetBspFillCompleteLatchName(warId, enemyFactionId),
+    enemyTargetNetworthFillCompleteLatchName(warId, enemyFactionId),
+  ];
+
+  const results = await Promise.all(latchNames.map((name) => isSyncLatchSet(env, name)));
+  return results.every(Boolean);
+}
+
+function buildStatsComparisonSvg({
+  enemyName,
+  homeMembers,
+  enemyMembers,
+}: {
+  enemyName: string;
+  homeMembers: EnemyFactionMemberRow[];
+  enemyMembers: EnemyFactionMemberRow[];
+}): string {
+  const width = 1200;
+  const panelHeight = 245;
+  const headerHeight = 95;
+  const footerHeight = 35;
+  const height = headerHeight + panelHeight * 3 + footerHeight;
+  const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
+  const panels = [
+    renderStatsPanel({
+      y: headerHeight,
+      title: "FF stats",
+      metric: "ff_battlestats",
+      buckets: BATTLE_STATS_BUCKETS,
+      homeMembers,
+      enemyMembers,
+      enemyName,
+    }),
+    renderStatsPanel({
+      y: headerHeight + panelHeight,
+      title: "BSP stats",
+      metric: "bsp_battlestats",
+      buckets: BATTLE_STATS_BUCKETS,
+      homeMembers,
+      enemyMembers,
+      enemyName,
+    }),
+    renderStatsPanel({
+      y: headerHeight + panelHeight * 2,
+      title: "Networth",
+      metric: "networth",
+      buckets: NETWORTH_BUCKETS,
+      homeMembers,
+      enemyMembers,
+      enemyName,
+    }),
+  ].join("");
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Enemy stats comparison">`,
+    "<rect width=\"1200\" height=\"865\" fill=\"#f8fafc\"/>",
+    "<rect x=\"24\" y=\"20\" width=\"1152\" height=\"62\" rx=\"10\" fill=\"#0f172a\"/>",
+    `<text x="48" y="48" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#ffffff">${escapeSvg(enemyName)} stats comparison</text>`,
+    `<text x="48" y="70" font-family="Arial, sans-serif" font-size="13" fill="#cbd5e1">Generated ${escapeSvg(generatedAt)} UTC after FF, BSP, and networth fills completed</text>`,
+    "<rect x=\"870\" y=\"34\" width=\"14\" height=\"14\" rx=\"3\" fill=\"#2563eb\"/>",
+    `<text x="892" y="46" font-family="Arial, sans-serif" font-size="13" fill="#e2e8f0">${escapeSvg(HOME_STATS_LABEL)}</text>`,
+    "<rect x=\"1010\" y=\"34\" width=\"14\" height=\"14\" rx=\"3\" fill=\"#dc2626\"/>",
+    `<text x="1032" y="46" font-family="Arial, sans-serif" font-size="13" fill="#e2e8f0">${escapeSvg(enemyName)}</text>`,
+    panels,
+    "</svg>",
+  ].join("");
+}
+
+function renderStatsPanel({
+  y,
+  title,
+  metric,
+  buckets,
+  homeMembers,
+  enemyMembers,
+  enemyName,
+}: {
+  y: number;
+  title: string;
+  metric: ScoutingComparisonMetric;
+  buckets: ScoutingBucket[];
+  homeMembers: EnemyFactionMemberRow[];
+  enemyMembers: EnemyFactionMemberRow[];
+  enemyName: string;
+}): string {
+  const left = 48;
+  const top = y + 12;
+  const chartTop = y + 64;
+  const rowHeight = 14;
+  const gap = 7;
+  const bucketLabelWidth = 88;
+  const barLeft = left + bucketLabelWidth;
+  const barWidth = 890;
+  const homeValues = buildBucketCounts(homeMembers, buckets, metric);
+  const enemyValues = buildBucketCounts(enemyMembers, buckets, metric);
+  const maxValue = Math.max(1, ...homeValues, ...enemyValues);
+  const homeCoverage = metricCoverage(homeMembers, metric);
+  const enemyCoverage = metricCoverage(enemyMembers, metric);
+  const homeAverage = metricAverage(homeMembers, metric);
+  const enemyAverage = metricAverage(enemyMembers, metric);
+  const rows = buckets.map((bucket, index) => {
+    const rowY = chartTop + index * (rowHeight + gap);
+    const homeWidth = Math.round((homeValues[index] / maxValue) * barWidth);
+    const enemyWidth = Math.round((enemyValues[index] / maxValue) * barWidth);
+    return [
+      `<text x="${left}" y="${rowY + 11}" font-family="Arial, sans-serif" font-size="11" fill="#475569">${escapeSvg(bucket.label)}</text>`,
+      `<rect x="${barLeft}" y="${rowY}" width="${barWidth}" height="${rowHeight * 2 + 2}" rx="3" fill="#e2e8f0"/>`,
+      `<rect x="${barLeft}" y="${rowY}" width="${homeWidth}" height="${rowHeight}" rx="3" fill="#2563eb"/>`,
+      `<rect x="${barLeft}" y="${rowY + rowHeight + 2}" width="${enemyWidth}" height="${rowHeight}" rx="3" fill="#dc2626"/>`,
+      `<text x="${barLeft + barWidth + 12}" y="${rowY + 11}" font-family="Arial, sans-serif" font-size="11" fill="#334155">${homeValues[index]}</text>`,
+      `<text x="${barLeft + barWidth + 12}" y="${rowY + rowHeight + 13}" font-family="Arial, sans-serif" font-size="11" fill="#334155">${enemyValues[index]}</text>`,
+    ].join("");
+  }).join("");
+
+  return [
+    `<rect x="24" y="${y}" width="1152" height="230" rx="10" fill="#ffffff" stroke="#dbe4ee"/>`,
+    `<text x="${left}" y="${top + 18}" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#0f172a">${escapeSvg(title)}</text>`,
+    `<text x="${left + 180}" y="${top + 18}" font-family="Arial, sans-serif" font-size="12" fill="#475569">${escapeSvg(HOME_STATS_LABEL)} ${homeCoverage.available}/${homeCoverage.total} avg ${escapeSvg(formatCompactNumber(homeAverage))}</text>`,
+    `<text x="${left + 485}" y="${top + 18}" font-family="Arial, sans-serif" font-size="12" fill="#475569">${escapeSvg(enemyName)} ${enemyCoverage.available}/${enemyCoverage.total} avg ${escapeSvg(formatCompactNumber(enemyAverage))}</text>`,
+    rows,
+  ].join("");
+}
+
+function buildBucketCounts(
+  members: EnemyFactionMemberRow[],
+  buckets: ScoutingBucket[],
+  metric: ScoutingComparisonMetric,
+): number[] {
+  return buckets.map(
+    (bucket) =>
+      members.filter((member) => {
+        if (!hasScoutingMetricValue(member, metric)) {
+          return false;
+        }
+        const value = Number(member[metric] ?? 0);
+        return Number.isFinite(value) && value >= bucket.min && value < bucket.max;
+      }).length,
+  );
+}
+
+function metricCoverage(
+  members: EnemyFactionMemberRow[],
+  metric: ScoutingComparisonMetric,
+): { available: number; total: number } {
+  return {
+    available: members.filter((member) => hasScoutingMetricValue(member, metric)).length,
+    total: members.length,
+  };
+}
+
+function metricAverage(
+  members: EnemyFactionMemberRow[],
+  metric: ScoutingComparisonMetric,
+): number | null {
+  const values = members
+    .map((member) => Number(member[metric] ?? 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (values.length === 0) {
+    return null;
+  }
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function hasScoutingMetricValue(
+  member: EnemyFactionMemberRow,
+  metric: ScoutingComparisonMetric,
+): boolean {
+  const value = Number(member[metric] ?? 0);
+  return Number.isFinite(value) && value > 0;
+}
+
+function formatCompactNumber(value: number | null): string {
+  if (value === null) {
+    return "n/a";
+  }
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000_000) return `${trimNumber(value / 1_000_000_000_000)}t`;
+  if (abs >= 1_000_000_000) return `${trimNumber(value / 1_000_000_000)}b`;
+  if (abs >= 1_000_000) return `${trimNumber(value / 1_000_000)}m`;
+  if (abs >= 1_000) return `${trimNumber(value / 1_000)}k`;
+  return String(Math.round(value));
+}
+
+function trimNumber(value: number): string {
+  return value.toFixed(value >= 10 ? 1 : 2).replace(/\.?0+$/, "");
+}
+
+function escapeSvg(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingWar | null> {

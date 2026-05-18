@@ -3,6 +3,7 @@ import {
   refreshMissingFfscouterEstimates,
   refreshMissingBspBattlestatPredictions,
   refreshMissingScoutingNetworth,
+  sendPendingEnemyStatsComparisonImage,
 } from "./enemyScouting";
 import { runIngestion } from "./ingestion";
 import { refreshDailyMemberLifestyleStats } from "./lifestyleStats";
@@ -95,6 +96,14 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     purpose: "Fill missing BSP battlestat predictions in small batches.",
     shouldRun: (minute) => minute % 5 !== 0,
     run: (env) => refreshMissingBspBattlestatPredictions(env, { limit: 40 }),
+  },
+  {
+    label: "Cron enemy stats image",
+    cadence: "1m excluding 5m",
+    category: "discord",
+    purpose: "Send the enemy stats comparison image once all scouting stat fills are complete.",
+    shouldRun: (minute) => minute % 5 !== 0,
+    run: (env) => sendPendingEnemyStatsComparisonImage(env),
   },
 ];
 

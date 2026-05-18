@@ -50,3 +50,39 @@ export async function sendDiscordMessage(env: Env, message: string): Promise<voi
     throw new Error(`Discord webhook failed: ${response.status}${text ? ` ${text}` : ""}`);
   }
 }
+
+export async function sendDiscordMessageWithAttachment(
+  env: Env,
+  options: {
+    content: string;
+    filename: string;
+    mimeType: string;
+    data: string | Uint8Array;
+  },
+): Promise<void> {
+  if (!env.DISCORD_WEBHOOK_URL) {
+    throw new Error("DISCORD_WEBHOOK_URL is not configured");
+  }
+
+  if (options.content.length > MAX_DISCORD_MESSAGE_LENGTH) {
+    throw new Error(`Discord message must be ${MAX_DISCORD_MESSAGE_LENGTH} characters or fewer`);
+  }
+
+  const form = new FormData();
+  form.append("payload_json", JSON.stringify({ content: options.content }));
+  form.append(
+    "files[0]",
+    new Blob([options.data], { type: options.mimeType }),
+    options.filename,
+  );
+
+  const response = await fetch(env.DISCORD_WEBHOOK_URL, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Discord webhook failed: ${response.status}${text ? ` ${text}` : ""}`);
+  }
+}
