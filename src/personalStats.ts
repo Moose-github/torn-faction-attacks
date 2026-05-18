@@ -1,4 +1,5 @@
 import { Env } from "./types";
+import { fetchWithTimeout, finiteNumber } from "./utils";
 
 const PERSONAL_STATS_API_BASE_URL = "https://api.torn.com/v2/user";
 const PERSONAL_STATS_FETCH_TIMEOUT_MS = 12000;
@@ -61,27 +62,13 @@ function extractPersonalStats(source: unknown): Record<string, number | null> {
   return stats;
 }
 
-async function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PERSONAL_STATS_FETCH_TIMEOUT_MS);
-
-  try {
-    return await fetch(input, {
-      ...init,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function fetchWithTransientRetry(input: string, init: RequestInit): Promise<Response> {
   let lastResponse: Response | null = null;
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= PERSONAL_STATS_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
-      const response = await fetchWithTimeout(input, init);
+      const response = await fetchWithTimeout(input, init, PERSONAL_STATS_FETCH_TIMEOUT_MS);
       if (
         !TRANSIENT_TORN_STATUSES.has(response.status) ||
         attempt === PERSONAL_STATS_RETRY_DELAYS_MS.length
@@ -105,11 +92,6 @@ async function fetchWithTransientRetry(input: string, init: RequestInit): Promis
   }
 
   throw lastError instanceof Error ? lastError : new Error("Torn personalstats API request failed");
-}
-
-function finiteNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function sleep(ms: number): Promise<void> {

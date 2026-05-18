@@ -1,3 +1,5 @@
+import { cleanText } from "./utils";
+
 export const TORN_LOCATION = "Torn";
 
 const BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS = 5 * 60;
@@ -370,13 +372,4 @@ function emptyTravelEstimate(): TravelEstimate {
     estimated_arrival_earliest: null,
     estimated_arrival_latest: null,
   };
-}
-
-function cleanText(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const cleaned = value.trim();
-  return cleaned.length > 0 ? cleaned : null;
 }

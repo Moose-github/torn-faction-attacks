@@ -16,13 +16,17 @@ import {
   setSyncLatch,
 } from "./syncLatches";
 import { Env } from "./types";
-import { nowSeconds } from "./utils";
+import { d1Changes, finiteNumber, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./warRoomTracking";
 import {
+  SCOUTING_BATTLE_STATS_BUCKETS,
+  SCOUTING_NETWORTH_BUCKETS,
+  ScoutingBucket,
+  ScoutingComparisonMetric,
+} from "../shared/scoutingBuckets";
+import {
   clearLiveEnemyTrackingData,
-  d1Changes,
   fetchBspBattlestatPrediction,
-  finiteNumber,
   readCurrentScoutingWar,
   readEnemyScouting,
   readHomeScouting,
@@ -42,9 +46,6 @@ const BSP_BATTLESTAT_REFRESH_LIMIT = 40;
 const NETWORTH_REFRESH_LIMIT = 40;
 const HOME_STATS_LABEL = "Buttgrass";
 const LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX = "enemy_live_tracking_cleared";
-
-type ScoutingComparisonMetric = "ff_battlestats" | "bsp_battlestats" | "networth";
-type ScoutingBucket = { label: string; min: number; max: number };
 
 type EnemyTargetStateNames = {
   ff: string;
@@ -77,32 +78,6 @@ export type EnemyScoutingCronTickMetrics = {
   bsp: BspBattlestatRefreshMetrics;
   image: EnemyStatsImageSendResult;
 };
-
-const BATTLE_STATS_BUCKETS: ScoutingBucket[] = [
-  { label: "<1m", min: 0, max: 1_000_000 },
-  { label: "1m-10m", min: 1_000_000, max: 10_000_000 },
-  { label: "10m-100m", min: 10_000_000, max: 100_000_000 },
-  { label: "100m-250m", min: 100_000_000, max: 250_000_000 },
-  { label: "250m-500m", min: 250_000_000, max: 500_000_000 },
-  { label: "500m-1b", min: 500_000_000, max: 1_000_000_000 },
-  { label: "1b-2.5b", min: 1_000_000_000, max: 2_500_000_000 },
-  { label: "2.5b-5b", min: 2_500_000_000, max: 5_000_000_000 },
-  { label: "5b-10b", min: 5_000_000_000, max: 10_000_000_000 },
-  { label: "10b+", min: 10_000_000_000, max: Number.POSITIVE_INFINITY },
-];
-
-const NETWORTH_BUCKETS: ScoutingBucket[] = [
-  { label: "<500m", min: 0, max: 500_000_000 },
-  { label: "0.5b-1b", min: 500_000_000, max: 1_000_000_000 },
-  { label: "1b-2.5b", min: 1_000_000_000, max: 2_500_000_000 },
-  { label: "2.5b-5b", min: 2_500_000_000, max: 5_000_000_000 },
-  { label: "5b-10b", min: 5_000_000_000, max: 10_000_000_000 },
-  { label: "10b-20b", min: 10_000_000_000, max: 20_000_000_000 },
-  { label: "20b-30b", min: 20_000_000_000, max: 30_000_000_000 },
-  { label: "30b-40b", min: 30_000_000_000, max: 40_000_000_000 },
-  { label: "40b-50b", min: 40_000_000_000, max: 50_000_000_000 },
-  { label: "50b+", min: 50_000_000_000, max: Number.POSITIVE_INFINITY },
-];
 
 export async function runEnemyScoutingCronTick(
   env: Env,
@@ -763,7 +738,7 @@ function buildStatsComparisonSvg({
       y: headerHeight,
       title: "FF stats",
       metric: "ff_battlestats",
-      buckets: BATTLE_STATS_BUCKETS,
+      buckets: SCOUTING_BATTLE_STATS_BUCKETS,
       homeMembers,
       enemyMembers,
       enemyName,
@@ -772,7 +747,7 @@ function buildStatsComparisonSvg({
       y: headerHeight + panelHeight,
       title: "BSP stats",
       metric: "bsp_battlestats",
-      buckets: BATTLE_STATS_BUCKETS,
+      buckets: SCOUTING_BATTLE_STATS_BUCKETS,
       homeMembers,
       enemyMembers,
       enemyName,
@@ -781,7 +756,7 @@ function buildStatsComparisonSvg({
       y: headerHeight + panelHeight * 2,
       title: "Networth",
       metric: "networth",
-      buckets: NETWORTH_BUCKETS,
+      buckets: SCOUTING_NETWORTH_BUCKETS,
       homeMembers,
       enemyMembers,
       enemyName,

@@ -3,7 +3,7 @@ import { revokeSessionsForFormerFactionMembers } from "./auth";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember, WarRow } from "./types";
-import { boolToInt, json, nowSeconds } from "./utils";
+import { boolToInt, d1Changes, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
 
 const ACTIVITY_WINDOW_SECONDS = 15 * 60;
@@ -445,9 +445,4 @@ function heatmapBucket(timestamp: number): { date: string; intervalIndex: number
     date: `${year}-${month}-${day}`,
     intervalIndex: Math.min(INTERVALS_PER_DAY - 1, Math.floor(minutes / 15)),
   };
-}
-
-function d1Changes(result: unknown): number {
-  const changes = (result as { meta?: { changes?: unknown } } | null)?.meta?.changes;
-  return typeof changes === "number" && Number.isFinite(changes) ? changes : 0;
 }

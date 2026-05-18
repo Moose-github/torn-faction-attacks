@@ -4,7 +4,7 @@ import { fetchTornPersonalStats } from "./personalStats";
 import { claimDailyBatchGate } from "./scheduledGates";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember } from "./types";
-import { boolToInt, json, nowSeconds, parseLimit } from "./utils";
+import { boolToInt, fetchWithTimeout, finiteNumber, json, nowSeconds, parseLimit } from "./utils";
 
 const LIFESTYLE_STAT_KEYS = [
   "xantaken",
@@ -596,7 +596,7 @@ async function fetchFactionContributorStat(
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
     },
-  });
+  }, LIFESTYLE_FETCH_TIMEOUT_MS);
 
   if (!response.ok) {
     throw new Error(`Torn faction contributors API error for ${stat}: ${response.status}`);
@@ -1061,11 +1061,6 @@ function addContributorValue(
   }
 }
 
-function finiteNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 function dailyRefreshReadyAt(timestamp: number): number | null {
   const date = new Date(timestamp * 1000);
   const readyAt = Date.UTC(
@@ -1086,18 +1081,4 @@ function utcDateKey(timestamp: number): string {
 
 function dateKeyFromMs(timestamp: number): string {
   return new Date(timestamp).toISOString().slice(0, 10);
-}
-
-async function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), LIFESTYLE_FETCH_TIMEOUT_MS);
-
-  try {
-    return await fetch(input, {
-      ...init,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
 }

@@ -20,6 +20,11 @@ import {
 import { EmptyState } from "./Common";
 import { formatNumber, formatTime } from "../utils/format";
 import { activityLabel, displayMember, memberDefendsLost, MemberSortKey } from "../utils/members";
+import {
+  SCOUTING_BATTLE_STATS_BUCKETS,
+  SCOUTING_NETWORTH_BUCKETS,
+  ScoutingComparisonMetric,
+} from "../../../shared/scoutingBuckets";
 
 type ActivityIntervalAverage = {
   averageActive: number;
@@ -138,38 +143,6 @@ export function ActivityChart({
   );
 }
 
-type ScoutingBucket = {
-  label: string;
-  min: number;
-  max: number;
-};
-
-const battleStatsBuckets: ScoutingBucket[] = [
-  { label: "<1m", min: 0, max: 1_000_000 },
-  { label: "1m-10m", min: 1_000_000, max: 10_000_000 },
-  { label: "10m-100m", min: 10_000_000, max: 100_000_000 },
-  { label: "100m-250m", min: 100_000_000, max: 250_000_000 },
-  { label: "250m-500m", min: 250_000_000, max: 500_000_000 },
-  { label: "500m-1b", min: 500_000_000, max: 1_000_000_000 },
-  { label: "1b-2.5b", min: 1_000_000_000, max: 2_500_000_000 },
-  { label: "2.5b-5b", min: 2_500_000_000, max: 5_000_000_000 },
-  { label: "5b-10b", min: 5_000_000_000, max: 10_000_000_000 },
-  { label: "10b+", min: 10_000_000_000, max: Number.POSITIVE_INFINITY },
-];
-
-const networthBuckets: ScoutingBucket[] = [
-  { label: "<500m", min: 0, max: 500_000_000 },
-  { label: "0.5b-1b", min: 500_000_000, max: 1_000_000_000 },
-  { label: "1b-2.5b", min: 1_000_000_000, max: 2_500_000_000 },
-  { label: "2.5b-5b", min: 2_500_000_000, max: 5_000_000_000 },
-  { label: "5b-10b", min: 5_000_000_000, max: 10_000_000_000 },
-  { label: "10b-20b", min: 10_000_000_000, max: 20_000_000_000 },
-  { label: "20b-30b", min: 20_000_000_000, max: 30_000_000_000 },
-  { label: "30b-40b", min: 30_000_000_000, max: 40_000_000_000 },
-  { label: "40b-50b", min: 40_000_000_000, max: 50_000_000_000 },
-  { label: "50b+", min: 50_000_000_000, max: Number.POSITIVE_INFINITY },
-];
-
 export function ScoutingComparisonChart({
   homeMembers,
   enemyMembers,
@@ -180,7 +153,7 @@ export function ScoutingComparisonChart({
   homeMembers: EnemyFactionMember[];
   enemyMembers: EnemyFactionMember[];
   enemyName: string;
-  metric?: "ff_battlestats" | "bsp_battlestats" | "networth";
+  metric?: ScoutingComparisonMetric;
   metricLabel?: string;
 }) {
   const homeEstimated = homeMembers.filter((member) => hasScoutingMetric(member, metric));
@@ -190,7 +163,7 @@ export function ScoutingComparisonChart({
     return <EmptyState text={`No ${metricLabel} loaded yet`} />;
   }
 
-  const buckets = metric === "networth" ? networthBuckets : battleStatsBuckets;
+  const buckets = metric === "networth" ? SCOUTING_NETWORTH_BUCKETS : SCOUTING_BATTLE_STATS_BUCKETS;
   const data = buckets.map((bucket) => ({
     bucket: bucket.label,
     Buttgrass: countBucket(homeEstimated, bucket.min, bucket.max, metric),
@@ -242,7 +215,7 @@ export function ScoutingComparisonChart({
 
 function hasScoutingMetric(
   member: EnemyFactionMember,
-  metric: "ff_battlestats" | "bsp_battlestats" | "networth",
+  metric: ScoutingComparisonMetric,
 ): boolean {
   return Number.isFinite(Number(member[metric])) && Number(member[metric]) > 0;
 }
@@ -251,7 +224,7 @@ function countBucket(
   members: EnemyFactionMember[],
   min: number,
   max: number,
-  metric: "ff_battlestats" | "bsp_battlestats" | "networth",
+  metric: ScoutingComparisonMetric,
 ): number {
   return members.filter((member) => {
     const stats = Number(member[metric] ?? 0);

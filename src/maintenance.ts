@@ -3,7 +3,7 @@ import { syncMissingRankedWarReports } from "./ingestion";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember } from "./types";
-import { json, nowSeconds } from "./utils";
+import { d1Changes, json, nowSeconds } from "./utils";
 
 type MaintenanceTaskMetrics = {
   writeStatements: number;
@@ -359,8 +359,4 @@ async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
       deleted_ingestion_runs: deletedIngestionRuns,
     },
   };
-}
-
-function d1Changes(result: D1Result<unknown>): number {
-  return Number(result.meta?.changes ?? 0);
 }

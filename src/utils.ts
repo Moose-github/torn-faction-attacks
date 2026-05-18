@@ -38,6 +38,43 @@ export function parseLimit(value: string | null, fallback: number, max: number):
   return Math.min(Math.floor(parsed), max);
 }
 
+export function finiteNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function d1Changes(result: unknown): number {
+  const changes = (result as { meta?: { changes?: unknown } } | null)?.meta?.changes;
+  return typeof changes === "number" && Number.isFinite(changes) ? changes : 0;
+}
+
+export function cleanText(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const cleaned = value.trim();
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+export async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export function normalizeAttacks(
   attacks: TornAttack[] | Record<string, TornAttack> | undefined,
 ): TornAttack[] {

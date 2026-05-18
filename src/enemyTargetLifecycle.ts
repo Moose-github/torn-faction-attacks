@@ -1,7 +1,7 @@
 import { HOME_FACTION_ID } from "./constants";
 import { clearSyncLatch, setSyncLatch } from "./syncLatches";
 import { Env } from "./types";
-import { nowSeconds } from "./utils";
+import { d1Changes, nowSeconds } from "./utils";
 
 export type EnemyTargetLifecycleMetrics = {
   writeStatements: number;
@@ -244,9 +244,4 @@ async function clearReplaceableEnemyHeatmaps(
   }
 
   return metrics;
-}
-
-function d1Changes(result: unknown): number {
-  const changes = (result as { meta?: { changes?: unknown } } | null)?.meta?.changes;
-  return typeof changes === "number" && Number.isFinite(changes) ? changes : 0;
 }
