@@ -704,6 +704,37 @@ function MemberSignIn({ onSignedIn }: { onSignedIn: (session: AuthSession) => vo
         </button>
       </form>
       {error ? <p className="form-error">{error}</p> : null}
+      <ApiKeyUseNotice />
+    </section>
+  );
+}
+
+function ApiKeyUseNotice() {
+  return (
+    <section className="api-key-use-notice" aria-label="Torn API key use">
+      <h2>Torn API key use</h2>
+      <dl>
+        <div>
+          <dt>Data storage</dt>
+          <dd>Temporary auth session for 12 hours; faction and war data is stored for dashboard history.</dd>
+        </div>
+        <div>
+          <dt>Data sharing</dt>
+          <dd>Nobody. Your submitted key is sent only to Torn for sign-in validation.</dd>
+        </div>
+        <div>
+          <dt>Purpose of use</dt>
+          <dd>Verify your Torn identity, faction membership, and dashboard access level.</dd>
+        </div>
+        <div>
+          <dt>Key storage</dt>
+          <dd>Not stored. The app creates a temporary session token after successful sign-in.</dd>
+        </div>
+        <div>
+          <dt>Key access level</dt>
+          <dd>Public access is enough for member sign-in. Faction access may grant admin access.</dd>
+        </div>
+      </dl>
     </section>
   );
 }

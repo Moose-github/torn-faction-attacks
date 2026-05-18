@@ -2128,6 +2128,46 @@ h2 {
   justify-content: center;
 }
 
+.api-key-use-notice {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.api-key-use-notice h2 {
+  margin: 0 0 10px;
+  color: #334155;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.api-key-use-notice dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.api-key-use-notice div {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.42fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.api-key-use-notice dt {
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.api-key-use-notice dd {
+  margin: 0;
+  color: #334155;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
 .form-error {
   margin: 12px 0 0;
   color: #991b1b;
