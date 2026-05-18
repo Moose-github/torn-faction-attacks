@@ -19,8 +19,8 @@ export async function setSyncLatch(env: Env, name: string, setAt: number): Promi
   await upsertSyncTimestamp(env, name, setAt);
 }
 
-export async function clearSyncLatch(env: Env, name: string): Promise<void> {
-  await deleteSyncState(env, name);
+export async function clearSyncLatch(env: Env, name: string): Promise<D1Result> {
+  return deleteSyncState(env, name);
 }
 
 export async function clearSyncLatchesByPrefix(

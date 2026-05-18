@@ -1,5 +1,7 @@
 import {
   refreshCurrentEnemyMemberTracking,
+  refreshMissingFfscouterEstimates,
+  refreshMissingBspBattlestatPredictions,
   refreshMissingScoutingNetworth,
 } from "./enemyScouting";
 import { runIngestion } from "./ingestion";
@@ -71,12 +73,28 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     run: (env) => refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true }),
   },
   {
+    label: "Cron FFScouter estimates",
+    cadence: "1m excluding 5m",
+    category: "scouting",
+    purpose: "Fill missing FFScouter battlestat estimates after partial or failed immediate fills.",
+    shouldRun: (minute) => minute % 5 !== 0,
+    run: (env) => refreshMissingFfscouterEstimates(env),
+  },
+  {
     label: "Cron scouting networth",
     cadence: "1m excluding 5m",
     category: "scouting",
     purpose: "Fill missing scouting networth estimates in small batches.",
     shouldRun: (minute) => minute % 5 !== 0,
     run: (env) => refreshMissingScoutingNetworth(env, { limit: 40 }),
+  },
+  {
+    label: "Cron BSP battlestats",
+    cadence: "1m excluding 5m",
+    category: "scouting",
+    purpose: "Fill missing BSP battlestat predictions in small batches.",
+    shouldRun: (minute) => minute % 5 !== 0,
+    run: (env) => refreshMissingBspBattlestatPredictions(env, { limit: 40 }),
   },
 ];
 

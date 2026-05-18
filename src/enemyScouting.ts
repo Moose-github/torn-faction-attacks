@@ -5,7 +5,13 @@ import {
   TORN_FACTION_API_BASE_URL,
 } from "./constants";
 import { sendDiscordMessage } from "./discord";
-import { clearEnemyDataForNewTarget } from "./enemyTargetCleanup";
+import {
+  canInitializeEnemyTarget,
+  enemyTargetBspFillCompleteLatchName,
+  enemyTargetFfFillCompleteLatchName,
+  enemyTargetNetworthFillCompleteLatchName,
+  handleEnemyTargetMatched,
+} from "./enemyTargetLifecycle";
 import { fetchTornPersonalStats } from "./personalStats";
 import {
   clearSyncLatch,
@@ -358,7 +364,7 @@ export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Re
   let refreshed = false;
 
   if (existing.length === 0) {
-    refreshed = await replaceEnemyFactionMembers(env, enemyFactionId);
+    refreshed = await replaceEnemyFactionMembers(env, war.id, enemyFactionId);
     if (refreshed) {
       await markEnemyScoutingStatusChecked(env, war.id, nowSeconds());
     }
@@ -372,7 +378,6 @@ export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Re
     );
     const refreshedRows = await readEnemyScouting(env, enemyFactionId);
     await refreshMissingFfBattlestats(env, refreshedRows);
-    await refreshMissingBspBattlestatPredictionsForFaction(env, "enemy_faction_members", enemyFactionId, refreshedRows);
     refreshed = true;
   }
 
@@ -402,7 +407,7 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
 
   let refreshed = false;
   try {
-    const enemyRefreshed = await replaceEnemyFactionMembers(env, war.enemy_faction_id);
+    const enemyRefreshed = await replaceEnemyFactionMembers(env, war.id, war.enemy_faction_id);
     await refreshHomeFactionMembers(env);
     refreshed = enemyRefreshed;
   } catch (err: any) {
@@ -491,6 +496,14 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<Ffscou
     return { ...metrics, skipped: true };
   }
 
+  const completeLatchName = enemyTargetFfFillCompleteLatchName(
+    scoutingWar.id,
+    scoutingWar.enemy_faction_id,
+  );
+  if (await isSyncLatchSet(env, completeLatchName)) {
+    return { ...metrics, skipped: true };
+  }
+
   const enemyRows = (await env.DB.prepare(
     `
     SELECT *
@@ -524,6 +537,10 @@ export async function refreshMissingFfscouterEstimates(env: Env): Promise<Ffscou
   metrics.changedRows += homeMetrics.changedRows;
   metrics.homeUpdated += homeMetrics.changedRows;
 
+  if (metrics.enemyCandidates + metrics.homeCandidates === 0) {
+    await setSyncLatch(env, completeLatchName, nowSeconds());
+  }
+
   return metrics;
 }
 
@@ -547,6 +564,14 @@ export async function refreshMissingBspBattlestatPredictions(
     return { ...metrics, skipped: true };
   }
 
+  const completeLatchName = enemyTargetBspFillCompleteLatchName(
+    scoutingWar.id,
+    scoutingWar.enemy_faction_id,
+  );
+  if (await isSyncLatchSet(env, completeLatchName)) {
+    return { ...metrics, skipped: true };
+  }
+
   const enemyMetrics = await refreshMissingBspBattlestatPredictionsForFaction(
     env,
     "enemy_faction_members",
@@ -564,6 +589,10 @@ export async function refreshMissingBspBattlestatPredictions(
     options,
   );
   addBspBattlestatMetrics(metrics, homeMetrics);
+
+  if (metrics.candidates === 0) {
+    await setSyncLatch(env, completeLatchName, nowSeconds());
+  }
 
   return metrics;
 }
@@ -672,6 +701,14 @@ export async function refreshMissingScoutingNetworth(
     return { ...metrics, skipped: true };
   }
 
+  const completeLatchName = enemyTargetNetworthFillCompleteLatchName(
+    scoutingWar.id,
+    scoutingWar.enemy_faction_id,
+  );
+  if (await isSyncLatchSet(env, completeLatchName)) {
+    return { ...metrics, skipped: true };
+  }
+
   const limit = Math.max(
     1,
     Math.min(Math.floor(options.limit ?? NETWORTH_REFRESH_LIMIT), NETWORTH_REFRESH_LIMIT),
@@ -690,6 +727,10 @@ export async function refreshMissingScoutingNetworth(
     .all()).results ?? []) as EnemyFactionMemberRow[];
 
   metrics.candidates = rows.length;
+  if (rows.length === 0) {
+    await setSyncLatch(env, completeLatchName, nowSeconds());
+    return metrics;
+  }
 
   for (const row of rows) {
     const stats = await fetchTornPersonalStats(env, row.member_id, ["networth"]);
@@ -803,8 +844,8 @@ async function readHomeScouting(env: Env): Promise<EnemyFactionMemberRow[]> {
   return (rows.results ?? []) as EnemyFactionMemberRow[];
 }
 
-async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<boolean> {
-  if (!(await canReplaceCachedEnemyScouting(env, factionId))) {
+async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: number): Promise<boolean> {
+  if (!(await canInitializeEnemyTarget(env, factionId))) {
     console.warn(
       `Skipping enemy scouting refresh for faction ${factionId}: cached faction has not officially ended`,
     );
@@ -818,7 +859,8 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
   }
 
   const fetchedAt = nowSeconds();
-  await clearEnemyDataForNewTarget(env, factionId, {
+  await handleEnemyTargetMatched(env, factionId, {
+    warId,
     clearCachedEnemyRoster: true,
     clearHomeComparisonStats: true,
     clearReplaceableHeatmaps: true,
@@ -916,7 +958,6 @@ async function replaceEnemyFactionMembers(env: Env, factionId: number): Promise<
 
   const rows = await readEnemyScouting(env, factionId);
   await refreshMissingFfBattlestats(env, rows);
-  await refreshMissingBspBattlestatPredictionsForFaction(env, "enemy_faction_members", factionId, rows);
   return true;
 }
 
@@ -968,51 +1009,11 @@ async function refreshHomeFactionMembers(env: Env): Promise<void> {
     SELECT *
     FROM home_faction_members
     WHERE ff_battlestats IS NULL
-       OR bsp_battlestats_updated_at IS NULL
     ORDER BY level DESC, name ASC
     `,
   ).all()).results as EnemyFactionMemberRow[] | undefined;
 
   await refreshMissingFfBattlestats(env, rows ?? [], "home_faction_members");
-  await refreshMissingBspBattlestatPredictionsForFaction(
-    env,
-    "home_faction_members",
-    HOME_FACTION_ID,
-    rows ?? [],
-  );
-}
-
-async function canReplaceCachedEnemyScouting(env: Env, nextFactionId: number): Promise<boolean> {
-  const cachedFactions = ((await env.DB.prepare(
-    `
-    SELECT DISTINCT faction_id
-    FROM enemy_faction_members
-    WHERE faction_id != ?
-    `,
-  )
-    .bind(nextFactionId)
-    .all()).results ?? []) as { faction_id: number }[];
-
-  for (const cachedFaction of cachedFactions) {
-    const unfinishedWar = (await env.DB.prepare(
-      `
-      SELECT id
-      FROM wars
-      WHERE enemy_faction_id = ?
-        AND official_end_time IS NULL
-      ORDER BY practical_start_time DESC
-      LIMIT 1
-      `,
-    )
-      .bind(cachedFaction.faction_id)
-      .first()) as { id: number } | null;
-
-    if (unfinishedWar) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 async function refreshEnemyFactionMemberStatuses(
