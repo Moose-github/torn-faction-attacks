@@ -1,4 +1,5 @@
 import { HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
+import { bumpMemberLifestyleCacheVersion } from "./cacheVersions";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { fetchTornPersonalStats } from "./personalStats";
 import { claimDailyBatchGate } from "./scheduledGates";
@@ -156,6 +157,7 @@ export async function refreshMemberLifestyleStatsFromRequest(
     }));
 
     await writeLifestyleSnapshotForDate(env, utcDateKey(nowSeconds()));
+    await bumpMemberLifestyleCacheVersion(env);
 
     return json({ ok: true, ...result, gym_contributors: gymResult });
   } catch (err: any) {
@@ -245,6 +247,7 @@ export async function refreshDailyMemberLifestyleStats(
   const complete = await markDailyLifestyleRefreshCompleteIfDone(env, refreshAt);
   if (complete) {
     await writeLifestyleSnapshotForDate(env, utcDateKey(refreshAt));
+    await bumpMemberLifestyleCacheVersion(env);
   }
 
   return { ...result, skipped: false };

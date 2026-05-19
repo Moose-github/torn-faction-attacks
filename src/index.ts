@@ -7,6 +7,12 @@ import {
   requireMember,
 } from "./auth";
 import { buildCronPlan } from "./cronPlan";
+import {
+  bumpGlobalWarCacheVersion,
+  bumpWarCacheVersionById,
+  MEMBER_LIFESTYLE_CACHE_VERSION_NAME,
+  warCacheVersionNames,
+} from "./cacheVersions";
 import { getEnemyPushPressureForWar } from "./enemyPushPressure";
 import {
   getEnemyScoutingForWar,
@@ -26,6 +32,7 @@ import { getLatestMaintenanceRun } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import {
   cachedGetJson,
+  cachedVersionedGetJson,
   CacheTtl,
   OFFICIAL_END_CACHE_TTL_SECONDS,
   scoutingComparisonTtlSeconds,
@@ -173,7 +180,12 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
   const { request, env, url } = routeContext;
 
   if (matchesRoute(url, request, "/api/member-lifestyle-stats", "GET")) {
-    return cachedMemberGet(routeContext, 5 * 60, () => getMemberLifestyleStats(url, env));
+    return cachedMemberGet(
+      routeContext,
+      OFFICIAL_END_CACHE_TTL_SECONDS,
+      () => getMemberLifestyleStats(url, env),
+      [MEMBER_LIFESTYLE_CACHE_VERSION_NAME],
+    );
   }
 
   if (matchesRoute(url, request, "/api/member-lifestyle-stats/refresh", "POST")) {
@@ -312,57 +324,83 @@ async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
     return cachedMemberGet(routeContext, 55, () => listWars(url, env));
   }
 
+  const warVersionNames = warCacheVersionNames(warNameFromSubroute(url));
+
   if (isWarSubroute(url, request, "/report-discrepancies", "GET")) {
-    return cachedMemberGet(routeContext, warDataTtlSeconds(30 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-      getWarReportDiscrepancies(url, env),
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(30 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
+      () => getWarReportDiscrepancies(url, env),
+      warVersionNames,
     );
   }
 
   if (isWarSubroute(url, request, "/enemy-push-pressure", "GET")) {
-    return cachedMemberGet(routeContext, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-      getEnemyPushPressureForWar(url, env),
+    return cachedMemberGet(
+      routeContext,
+      enemyPushPressureTtlSeconds(url),
+      () => getEnemyPushPressureForWar(url, env),
     );
   }
 
   if (isWarSubroute(url, request, "/enemy-scouting", "GET")) {
-    return cachedMemberGet(routeContext, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55), () =>
-      getEnemyScoutingForWar(url, env),
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55),
+      () => getEnemyScoutingForWar(url, env),
     );
   }
 
   if (isWarSubroute(url, request, "/scouting-comparison", "GET")) {
-    return cachedMemberGet(routeContext, scoutingComparisonTtlSeconds, () =>
-      getScoutingComparisonForWar(url, env),
+    return cachedMemberGet(
+      routeContext,
+      scoutingComparisonTtlSeconds,
+      () => getScoutingComparisonForWar(url, env),
     );
   }
 
   if (isWarMemberAttacksRoute(url, request)) {
-    return cachedMemberGet(routeContext, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-      getWarMemberAttacks(url, env),
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
+      () => getWarMemberAttacks(url, env),
+      warVersionNames,
     );
   }
 
   if (isWarSubroute(url, request, "/member-activity-heatmap", "GET")) {
-    return cachedMemberGet(routeContext, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-      getWarMemberActivityHeatmap(url, env),
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
+      () => getWarMemberActivityHeatmap(url, env),
+      warVersionNames,
     );
   }
 
   if (isWarSubroute(url, request, "/activity", "GET")) {
-    return cachedMemberGet(routeContext, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-      getWarActivity(url, env),
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
+      () => getWarActivity(url, env),
+      warVersionNames,
     );
   }
 
   if (isWarSubroute(url, request, "/activity-heatmap", "GET")) {
-    return cachedMemberGet(routeContext, warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-      getWarActivityHeatmap(url, env),
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
+      () => getWarActivityHeatmap(url, env),
+      warVersionNames,
     );
   }
 
   if (isWarSubroute(url, request, "/chain-bonuses", "GET")) {
-    return cachedMemberGet(routeContext, warDataTtlSeconds(15 * 60, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-      getWarChainBonusesForWar(url, env),
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(15 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
+      () => getWarChainBonusesForWar(url, env),
+      warVersionNames,
     );
   }
 
@@ -373,12 +411,25 @@ async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
   }
 
   if (isWarDetailRoute(url, request)) {
-    return cachedMemberGet(routeContext, warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS), () =>
-      getWar(url, env),
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(55, OFFICIAL_END_CACHE_TTL_SECONDS),
+      () => getWar(url, env),
+      warVersionNames,
     );
   }
 
   return null;
+}
+
+function enemyPushPressureTtlSeconds(url: URL): CacheTtl {
+  return url.searchParams.get("include_history") === "0"
+    ? warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55)
+    : warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS);
+}
+
+function warNameFromSubroute(url: URL): string {
+  return decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
 }
 
 async function withAdmin(routeContext: RouteContext, handler: RouteHandler): Promise<Response> {
@@ -395,8 +446,13 @@ async function cachedMemberGet(
   routeContext: RouteContext,
   ttl: CacheTtl,
   load: () => Promise<Response>,
+  versionNames: string[] = [],
 ): Promise<Response> {
-  return withMember(routeContext, () => cachedGetJson(routeContext.request, routeContext.ctx, ttl, load));
+  return withMember(routeContext, () =>
+    versionNames.length > 0
+      ? cachedVersionedGetJson(routeContext.env, routeContext.request, routeContext.ctx, ttl, versionNames, load)
+      : cachedGetJson(routeContext.request, routeContext.ctx, ttl, load),
+  );
 }
 
 async function rebuildStatsFromRequest(request: Request, env: Env): Promise<Response> {
@@ -418,6 +474,11 @@ async function rebuildStatsFromRequest(request: Request, env: Env): Promise<Resp
   const result = await rebuildDerivedStatsFromRaw(env, warId);
   if (warId !== undefined && result.wars_rebuilt === 0) {
     return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+  }
+  if (warId === undefined) {
+    await bumpGlobalWarCacheVersion(env);
+  } else {
+    await bumpWarCacheVersionById(env, warId);
   }
   return json({ ok: true, ...result });
 }

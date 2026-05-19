@@ -1,4 +1,8 @@
 import { HOME_FACTION_ID, SOURCE_NAME } from "./constants";
+import {
+  bumpGlobalWarCacheVersion,
+  bumpWarCacheVersion,
+} from "./cacheVersions";
 import { ingestHistoricalWarWindow } from "./ingestion";
 import { DEFENSE_ACTION_WINDOW_SQL } from "./sql";
 import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
@@ -57,6 +61,13 @@ export async function relinkWarAttacks(request: Request, env: Env): Promise<Resp
       if (!dryRun) {
         await rebuildWarMemberStatsFromRaw(env, war.id);
         await rebuildWarSummaryFromMemberStats(env, war.id);
+        await bumpWarCacheVersion(env, war.name);
+      }
+    }
+
+    if (!dryRun) {
+      if (tornWarId === null && !name) {
+        await bumpGlobalWarCacheVersion(env);
       }
     }
 

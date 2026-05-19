@@ -1,4 +1,6 @@
 import { nowSeconds } from "./utils";
+import { readSyncTimestamp } from "./syncState";
+import { Env } from "./types";
 
 export type CacheTtl =
   | number
@@ -14,19 +16,20 @@ type MemoryCacheEntry = {
 const memoryResponseCache = new Map<string, MemoryCacheEntry>();
 const MAX_MEMORY_CACHE_ENTRIES = 100;
 const PRACTICAL_FINISH_CACHE_TTL_SECONDS = 15 * 60;
-export const OFFICIAL_END_CACHE_TTL_SECONDS = 3 * 60 * 60;
+export const OFFICIAL_END_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
 export async function cachedGetJson(
   request: Request,
   ctx: ExecutionContext,
   ttl: CacheTtl,
   load: () => Promise<Response>,
+  versionKeySuffix = "",
 ): Promise<Response> {
   if (request.method !== "GET") {
     return load();
   }
 
-  const cacheKey = cacheRequestKey(request);
+  const cacheKey = cacheRequestKey(request, versionKeySuffix);
   const now = nowSeconds();
   const memoryHit = memoryResponseCache.get(cacheKey.url);
 
@@ -62,6 +65,18 @@ export async function cachedGetJson(
   return response;
 }
 
+export async function cachedVersionedGetJson(
+  env: Env,
+  request: Request,
+  ctx: ExecutionContext,
+  ttl: CacheTtl,
+  versionNames: string[],
+  load: () => Promise<Response>,
+): Promise<Response> {
+  const versionKeySuffix = await cacheVersionKeySuffix(env, versionNames);
+  return cachedGetJson(request, ctx, ttl, load, versionKeySuffix);
+}
+
 export function warDataTtlSeconds(
   activeTtlSeconds: number,
   endedTtlSeconds: number,
@@ -94,10 +109,24 @@ export function scoutingComparisonTtlSeconds(data: any): number {
   return warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS)(data);
 }
 
-function cacheRequestKey(request: Request): Request {
+async function cacheVersionKeySuffix(env: Env, versionNames: string[]): Promise<string> {
+  if (versionNames.length === 0) {
+    return "";
+  }
+
+  const versionParts = await Promise.all(
+    versionNames.map(async (name) => `${name}:${await readSyncTimestamp(env, name)}`),
+  );
+  return versionParts.join("|");
+}
+
+function cacheRequestKey(request: Request, versionKeySuffix = ""): Request {
   const url = new URL(request.url);
   url.searchParams.sort();
   url.searchParams.set("_cache_v", "dashboard-v1");
+  if (versionKeySuffix) {
+    url.searchParams.set("_data_v", versionKeySuffix);
+  }
   return new Request(url.toString(), { method: "GET" });
 }
 

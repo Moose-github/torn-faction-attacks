@@ -5,6 +5,7 @@ import {
   POSITIVE_RESULTS_SQL,
   RANKED_WAR_REPORT_API_BASE_URL,
 } from "./constants";
+import { bumpWarCacheVersion } from "./cacheVersions";
 import { OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { Env, TornRankedWarReport, TornRankedWarReportResponse } from "./types";
 import { json, nowSeconds } from "./utils";
@@ -59,6 +60,7 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
       tornWarId,
       report,
     );
+    await bumpWarCacheVersion(env, war.name);
 
     return json({ ok: true, ...result });
   } catch (err: any) {

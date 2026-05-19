@@ -3,6 +3,9 @@ import {
   WAR_TYPES,
 } from "./constants";
 import {
+  bumpWarCacheVersion,
+} from "./cacheVersions";
+import {
   ingestHistoricalWarWindow,
   previewHistoricalWarWindow,
   pullAttackWindow,
@@ -298,6 +301,7 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         ? await applyRankedWarReport(env, war.id, war.name, enemyFactionId, tornWarId, report)
         : null;
     await finalizeWar(env, war.id);
+    await bumpWarCacheVersion(env, war.name);
 
     return json(
       {
@@ -644,6 +648,7 @@ export async function deleteWar(request: Request, env: Env): Promise<Response> {
     if (war.status === "active") {
       await clearCurrentWarState(env);
     }
+    await bumpWarCacheVersion(env, war.name);
 
     return json({ ok: true, deleted_war: war });
   } catch (err: any) {

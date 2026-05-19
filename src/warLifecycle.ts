@@ -1,4 +1,5 @@
 import { HOME_FACTION_ID, SOURCE_NAME } from "./constants";
+import { bumpWarCacheVersionById } from "./cacheVersions";
 import { clearLiveEnemyTrackingData } from "./enemyScouting";
 import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
 import { WAR_RETURNING_COLUMNS } from "./sql";
@@ -86,6 +87,7 @@ export async function recordTermedWarPracticalFinish(
 
   await stopLiveEnemyTracking(env, options.warId, options.enemyFactionId);
   await refreshWarDerivedStats(env, options.warId);
+  await bumpWarCacheVersionById(env, options.warId);
 }
 
 export async function setWarPracticalWindow(
@@ -115,6 +117,7 @@ export async function setWarPracticalWindow(
   }
 
   await refreshWarDerivedStats(env, options.warId);
+  await bumpWarCacheVersionById(env, options.warId);
   return war;
 }
 
@@ -140,6 +143,7 @@ export async function endWarPractically(
   await clearCurrentWarState(env, options.warId);
   await stopLiveEnemyTracking(env, options.warId, options.enemyFactionId);
   await finalizeWar(env, options.warId);
+  await bumpWarCacheVersionById(env, options.warId);
 }
 
 export async function applyTornOfficialWarEnd(
@@ -187,6 +191,7 @@ export async function applyTornOfficialWarEnd(
     options.warId,
     options.enemyFactionId ?? options.currentEnemyFactionId,
   );
+  await bumpWarCacheVersionById(env, options.warId);
 }
 
 export async function refreshWarDerivedStats(env: Env, warId: number): Promise<void> {
