@@ -69,6 +69,35 @@ type WarDetailViewProps = {
   warDetail: WarDetailResponse | null;
 };
 
+function ActivityWindowToggle({
+  value,
+  onChange,
+  label,
+}: {
+  value: "practical" | "official";
+  onChange: (window: "practical" | "official") => void;
+  label: string;
+}) {
+  return (
+    <div className="panel-toggle-row" aria-label={label}>
+      <button
+        type="button"
+        className={value === "practical" ? "toggle-chip active" : "toggle-chip"}
+        onClick={() => onChange("practical")}
+      >
+        Practical
+      </button>
+      <button
+        type="button"
+        className={value === "official" ? "toggle-chip active" : "toggle-chip"}
+        onClick={() => onChange("official")}
+      >
+        Official
+      </button>
+    </div>
+  );
+}
+
 export function WarDetailView({
   activityBuckets,
   chainBonuses,
@@ -318,22 +347,11 @@ export function WarDetailView({
                   onToggle={() => onTogglePanel("factionActivity")}
                   className="activity-panel"
                 >
-                  <div className="panel-toggle-row" aria-label="Buttgrass activity time range">
-                    <button
-                      type="button"
-                      className={factionActivityWindow === "practical" ? "toggle-chip active" : "toggle-chip"}
-                      onClick={() => onMemberActivityWindowChange("practical")}
-                    >
-                      Practical
-                    </button>
-                    <button
-                      type="button"
-                      className={factionActivityWindow === "official" ? "toggle-chip active" : "toggle-chip"}
-                      onClick={() => onMemberActivityWindowChange("official")}
-                    >
-                      Official
-                    </button>
-                  </div>
+                  <ActivityWindowToggle
+                    value={factionActivityWindow}
+                    onChange={onMemberActivityWindowChange}
+                    label="Buttgrass activity time range"
+                  />
                   <p className="panel-description">
                     Shows Buttgrass attack activity across the selected time range, grouped into successful
                     attacks, assists, and outside hits.
@@ -350,6 +368,11 @@ export function WarDetailView({
                   onToggle={() => onTogglePanel("enemyActivity")}
                   className="activity-panel"
                 >
+                  <ActivityWindowToggle
+                    value={factionActivityWindow}
+                    onChange={onMemberActivityWindowChange}
+                    label={`${selectedWar.name} activity time range`}
+                  />
                   <p className="panel-description">
                     Shows enemy attacks against Buttgrass over time, split by lost, won, and other defend outcomes.
                   </p>

@@ -99,12 +99,15 @@ export function MemberActivityHeatmap({
   );
   const metricLabel = selectedMetricLabel(selectedMetrics);
   const metricColor = selectedMetricColor(selectedMetrics);
-  const maxValue = Math.max(
-    0,
-    ...data.members.flatMap((member) =>
-      data.time_buckets.map((bucketStart) => cellMetric(bucketMap, member.member_id, bucketStart, selectedMetrics)),
-    ),
-  );
+  const metricMaxValues = maxValuesByMetric(data.members, data.time_buckets, bucketMap);
+  const maxValue = selectedMetrics.length === 1
+    ? metricMaxValues[selectedMetrics[0]] ?? 0
+    : Math.max(
+        0,
+        ...data.members.flatMap((member) =>
+          data.time_buckets.map((bucketStart) => cellMetric(bucketMap, member.member_id, bucketStart, selectedMetrics)),
+        ),
+      );
   const normalizedSelection = normalizeSelection(selection);
   const selectionSummary = normalizedSelection
     ? summarizeSelection(data.members, data.time_buckets, bucketMap, normalizedSelection)
@@ -313,7 +316,9 @@ export function MemberActivityHeatmap({
                     key={`${member.member_id}-${bucketStart}`}
                     type="button"
                     className={selected ? "member-activity-cell selected" : "member-activity-cell"}
-                    style={{ backgroundColor: activityCellColor(value, maxValue, metricColor) }}
+                    style={{
+                      background: activityCellBackground(bucket, selectedMetrics, value, maxValue, metricColor, metricMaxValues),
+                    }}
                     title={`${displayMember(member)} | ${formatTime(bucketStart)}-${formatTime(bucketStart + data.bucket_minutes * 60)} | ${metricLabel}: ${formatNumber(value)}${selectedMetrics.length > 1 ? ` (${selectedMetrics.map((metricKey) => `${metricOptionLabel(metricKey)} ${formatNumber(Number(bucket?.[metricKey] ?? 0))}`).join(", ")})` : ""}`}
                     onMouseDown={() => beginSelection(memberIndex, bucketIndex)}
                     onMouseEnter={() => extendSelection(memberIndex, bucketIndex)}
@@ -441,9 +446,60 @@ function columnSelected(selection: NormalizedSelection | null, bucketIndex: numb
   return Boolean(selection && bucketIndex >= selection.bucketStart && bucketIndex <= selection.bucketEnd);
 }
 
+function maxValuesByMetric(
+  members: WarMemberActivityMember[],
+  timeBuckets: number[],
+  bucketMap: Map<string, WarMemberActivityBucket>,
+): Record<WarMemberActivityMetric, number> {
+  const maxValues: Record<WarMemberActivityMetric, number> = {
+    attacks_successful: 0,
+    outside_hits: 0,
+    defends_lost: 0,
+    respect_gained: 0,
+    respect_lost: 0,
+  };
+
+  for (const member of members) {
+    for (const bucketStart of timeBuckets) {
+      const bucket = bucketMap.get(bucketKey(member.member_id, bucketStart));
+      for (const option of metricOptions) {
+        maxValues[option.key] = Math.max(maxValues[option.key], Number(bucket?.[option.key] ?? 0));
+      }
+    }
+  }
+
+  return maxValues;
+}
+
+function activityCellBackground(
+  bucket: WarMemberActivityBucket | undefined,
+  selectedMetrics: WarMemberActivityMetric[],
+  value: number,
+  maxValue: number,
+  color: "blue" | "red" | "green",
+  metricMaxValues: Record<WarMemberActivityMetric, number>,
+): string {
+  if (selectedMetrics.includes("attacks_successful") && selectedMetrics.includes("outside_hits")) {
+    const attacks = Number(bucket?.attacks_successful ?? 0);
+    const outside = Number(bucket?.outside_hits ?? 0);
+
+    if (attacks <= 0 && outside <= 0) {
+      return "var(--member-activity-empty-cell)";
+    }
+
+    return [
+      "linear-gradient(90deg,",
+      `${activityCellColor(attacks, metricMaxValues.attacks_successful, "green")} 0 50%,`,
+      `${activityCellColor(outside, metricMaxValues.outside_hits, "blue")} 50% 100%)`,
+    ].join(" ");
+  }
+
+  return activityCellColor(value, maxValue, color);
+}
+
 function activityCellColor(value: number, maxValue: number, color: "blue" | "red" | "green"): string {
   if (value <= 0 || maxValue <= 0) {
-    return "#f8fafc";
+    return "var(--member-activity-empty-cell)";
   }
 
   const intensity = Math.max(0.12, Math.min(1, Math.log1p(value) / Math.log1p(maxValue)));

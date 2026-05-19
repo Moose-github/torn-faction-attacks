@@ -24,6 +24,7 @@
   --chart-tooltip-border: #cbd5e1;
   --heatmap-empty-cell: #f1f5f9;
   --heatmap-neutral-cell: #e2e8f0;
+  --member-activity-empty-cell: #f8fafc;
   color: #172033;
   background: #f4f7fb;
   font-family:
@@ -58,6 +59,7 @@
   --chart-tooltip-border: #334155;
   --heatmap-empty-cell: #152238;
   --heatmap-neutral-cell: #26364f;
+  --member-activity-empty-cell: #152238;
   color-scheme: dark;
   color: var(--text-main);
   background: var(--root-bg);
@@ -3120,7 +3122,6 @@ tbody tr:not(.attack-row):hover td {
 }
 
 :root[data-theme="dark"] .admin-tool-section,
-:root[data-theme="dark"] .discrepancy-group,
 :root[data-theme="dark"] .lifestyle-refresh-note {
   border-color: var(--border-faint);
   background: var(--panel-muted-bg);
@@ -3131,6 +3132,27 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .inline-metric,
 :root[data-theme="dark"] .discrepancy-group {
   border-color: var(--border-faint);
+}
+
+:root[data-theme="dark"] .inline-metric {
+  background: transparent;
+}
+
+:root[data-theme="dark"] .discrepancy-group {
+  background: transparent;
+  color: var(--text-main);
+}
+
+:root[data-theme="dark"] .discrepancy-group-header h3 {
+  color: var(--text-strong);
+}
+
+:root[data-theme="dark"] .discrepancy-group-header p {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .discrepancy-group-header strong {
+  color: var(--accent-strong);
 }
 
 :root[data-theme="dark"] .admin-button.primary,
@@ -3181,13 +3203,13 @@ tbody tr:not(.attack-row):hover td {
   background: #34d399;
 }
 
-:root[data-theme="dark"] tbody tr:nth-child(even):not(.attack-row) td,
+:root[data-theme="dark"] .table-scroll tbody tr:nth-child(even):not(.attack-row) td,
 :root[data-theme="dark"] tbody tr:not(.attack-row):hover td,
 :root[data-theme="dark"] .clickable-member-row:hover td {
   background: var(--panel-hover-bg);
 }
 
-:root[data-theme="dark"] tbody tr:nth-child(odd):not(.attack-row) td,
+:root[data-theme="dark"] .table-scroll tbody tr:nth-child(odd):not(.attack-row) td,
 :root[data-theme="dark"] .chain-bonus-table tr:nth-child(odd) td {
   background: var(--panel-bg-solid);
 }

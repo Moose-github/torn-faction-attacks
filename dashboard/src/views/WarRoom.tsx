@@ -525,11 +525,7 @@ function LiveTrackingInactivePanel({
       onToggle={onToggle}
       className="live-tracking-inactive-panel"
     >
-      <p>
-        Push pressure, travel tracking, revivable members and Enemy status are not currently being gathered.
-        <br />
-        Collection starts two hours before official war start and stops at practical finish.
-      </p>
+      <EmptyState text="Push pressure, travel tracking, revivable members and Enemy status are not currently being gathered. Collection starts two hours before official war start and stops at practical finish." />
     </CollapsiblePanel>
   );
 }
