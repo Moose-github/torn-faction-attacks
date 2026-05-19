@@ -25,6 +25,7 @@ import {
   drawText,
   encodePng,
   fillRect,
+  fillRectAlpha,
   strokeRect,
 } from "./simplePng";
 import {
@@ -1038,8 +1039,8 @@ function drawStatsPanel(
     chartPoint(chartLeft, chartBottom, chartHeight, step, index, value, maxValue),
   );
 
-  drawAreaSeries(canvas, homePoints, chartBottom, SIMPLE_PNG_COLORS.blueSoft, SIMPLE_PNG_COLORS.blue);
-  drawAreaSeries(canvas, enemyPoints, chartBottom, SIMPLE_PNG_COLORS.redSoft, SIMPLE_PNG_COLORS.red);
+  drawAreaSeries(canvas, homePoints, chartBottom, SIMPLE_PNG_COLORS.blue, SIMPLE_PNG_COLORS.blue);
+  drawAreaSeries(canvas, enemyPoints, chartBottom, SIMPLE_PNG_COLORS.red, SIMPLE_PNG_COLORS.red);
 
   buckets.forEach((bucket, index) => {
     const labelX = chartLeft + Math.round(index * step);
@@ -1085,7 +1086,7 @@ function drawAreaSeries(
     for (let x = minX; x <= maxX; x += 1) {
       const ratio = end.x === start.x ? 0 : (x - start.x) / (end.x - start.x);
       const y = Math.round(start.y + (end.y - start.y) * ratio);
-      fillRect(canvas, x, y, 1, Math.max(0, baseline - y), fillColor);
+      fillRectAlpha(canvas, x, y, 1, Math.max(0, baseline - y), fillColor, 0.22);
     }
     drawThickLine(canvas, start.x, start.y, end.x, end.y, lineColor);
   }

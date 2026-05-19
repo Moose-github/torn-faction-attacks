@@ -44,8 +44,8 @@ export const SIMPLE_PNG_COLORS = {
 } as const;
 
 export function createPngCanvas(width: number, height: number, background: PngColor): PngCanvas {
-  const canvas = { width, height, pixels: new Uint8Array(width * height) };
-  canvas.pixels.fill(background);
+  const canvas = { width, height, pixels: new Uint8Array(width * height * 3) };
+  fillRect(canvas, 0, 0, width, height, background);
   return canvas;
 }
 
@@ -61,8 +61,47 @@ export function fillRect(
   const startY = Math.max(0, Math.floor(y));
   const endX = Math.min(canvas.width, Math.ceil(x + width));
   const endY = Math.min(canvas.height, Math.ceil(y + height));
+  const rgb = SIMPLE_PNG_PALETTE[color] ?? SIMPLE_PNG_PALETTE[SIMPLE_PNG_COLORS.text];
   for (let row = startY; row < endY; row += 1) {
-    canvas.pixels.fill(color, row * canvas.width + startX, row * canvas.width + endX);
+    for (let col = startX; col < endX; col += 1) {
+      const offset = (row * canvas.width + col) * 3;
+      canvas.pixels[offset] = rgb[0];
+      canvas.pixels[offset + 1] = rgb[1];
+      canvas.pixels[offset + 2] = rgb[2];
+    }
+  }
+}
+
+export function fillRectAlpha(
+  canvas: PngCanvas,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  color: PngColor,
+  alpha: number,
+): void {
+  const clampedAlpha = Math.max(0, Math.min(1, alpha));
+  if (clampedAlpha <= 0) {
+    return;
+  }
+  if (clampedAlpha >= 1) {
+    fillRect(canvas, x, y, width, height, color);
+    return;
+  }
+
+  const startX = Math.max(0, Math.floor(x));
+  const startY = Math.max(0, Math.floor(y));
+  const endX = Math.min(canvas.width, Math.ceil(x + width));
+  const endY = Math.min(canvas.height, Math.ceil(y + height));
+  const rgb = SIMPLE_PNG_PALETTE[color] ?? SIMPLE_PNG_PALETTE[SIMPLE_PNG_COLORS.text];
+  for (let row = startY; row < endY; row += 1) {
+    for (let col = startX; col < endX; col += 1) {
+      const offset = (row * canvas.width + col) * 3;
+      canvas.pixels[offset] = blendChannel(canvas.pixels[offset], rgb[0], clampedAlpha);
+      canvas.pixels[offset + 1] = blendChannel(canvas.pixels[offset + 1], rgb[1], clampedAlpha);
+      canvas.pixels[offset + 2] = blendChannel(canvas.pixels[offset + 2], rgb[2], clampedAlpha);
+    }
   }
 }
 
@@ -158,19 +197,22 @@ export function truncateText(text: string, maxWidth: number, scale = 2): string 
 }
 
 export function encodePng(canvas: PngCanvas): Uint8Array {
-  const scanlineLength = canvas.width + 1;
+  const sourceRowLength = canvas.width * 3;
+  const scanlineLength = sourceRowLength + 1;
   const filtered = new Uint8Array(scanlineLength * canvas.height);
   for (let y = 0; y < canvas.height; y += 1) {
     const targetOffset = y * scanlineLength;
     filtered[targetOffset] = 0;
-    filtered.set(canvas.pixels.subarray(y * canvas.width, (y + 1) * canvas.width), targetOffset + 1);
+    filtered.set(
+      canvas.pixels.subarray(y * sourceRowLength, (y + 1) * sourceRowLength),
+      targetOffset + 1,
+    );
   }
 
   const idatData = zlibStore(filtered);
   return concatBytes([
     PNG_SIGNATURE,
     pngChunk("IHDR", ihdr(canvas.width, canvas.height)),
-    pngChunk("PLTE", paletteBytes()),
     pngChunk("IDAT", idatData),
     pngChunk("IEND", new Uint8Array()),
   ]);
@@ -185,21 +227,15 @@ function ihdr(width: number, height: number): Uint8Array {
   writeUint32(data, 0, width);
   writeUint32(data, 4, height);
   data[8] = 8;
-  data[9] = 3;
+  data[9] = 2;
   data[10] = 0;
   data[11] = 0;
   data[12] = 0;
   return data;
 }
 
-function paletteBytes(): Uint8Array {
-  const data = new Uint8Array(SIMPLE_PNG_PALETTE.length * 3);
-  SIMPLE_PNG_PALETTE.forEach((rgb, index) => {
-    data[index * 3] = rgb[0];
-    data[index * 3 + 1] = rgb[1];
-    data[index * 3 + 2] = rgb[2];
-  });
-  return data;
+function blendChannel(base: number, overlay: number, alpha: number): number {
+  return Math.round(base * (1 - alpha) + overlay * alpha);
 }
 
 function zlibStore(data: Uint8Array): Uint8Array {
