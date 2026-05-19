@@ -1,7 +1,4 @@
-import {
-  refreshCurrentEnemyMemberTracking,
-  runEnemyScoutingCronTick,
-} from "./enemyScoutingCron";
+import { runEnemyScoutingCronTick } from "./enemyScoutingCron";
 import { runIngestion } from "./ingestion";
 import { refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
@@ -18,7 +15,7 @@ export type CronJob = {
 
 type CronJobDefinition = Omit<CronJob, "run"> & {
   shouldRun: (minute: number) => boolean;
-  run: (env: Env) => Promise<unknown>;
+  run: (env: Env, scheduledTime: number) => Promise<unknown>;
 };
 
 const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
@@ -44,23 +41,19 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     category: "maintenance",
     purpose: "Refresh enemy member tracking, reuse the sample for heatmaps, and run maintenance tasks.",
     shouldRun: (minute) => minute % 15 === 0,
-    run: (env) => runEnemyTrackingAndMaintenance(env),
+    run: (env, scheduledTime) => runEnemyTrackingAndMaintenance(env, scheduledTime),
   },
   {
-    label: "Cron enemy member tracking",
-    cadence: "5m excluding 15m",
+    label: "Cron enemy scouting tick",
+    cadence: "1m live / 5m pre-live, excluding 15m",
     category: "enemy-tracking",
-    purpose: "Refresh enemy member tracking outside the heavier maintenance pass.",
-    shouldRun: (minute) => minute % 5 === 0 && minute % 15 !== 0,
-    run: (env) => refreshCurrentEnemyMemberTracking(env),
-  },
-  {
-    label: "Cron live enemy scouting tick",
-    cadence: "1m excluding 5m",
-    category: "enemy-tracking",
-    purpose: "Refresh live enemy tracking and fill scouting stats using shared current-war and latch reads.",
-    shouldRun: (minute) => minute % 5 !== 0,
-    run: (env) => runEnemyScoutingCronTick(env, { liveOnly: true }),
+    purpose: "Refresh enemy tracking on the war-room cadence and fill scouting stats using shared current-war and latch reads.",
+    shouldRun: (minute) => minute % 15 !== 0,
+    run: (env, scheduledTime) =>
+      runEnemyScoutingCronTick(env, {
+        trackingSchedule: "war-room",
+        scheduledTime,
+      }),
   },
   {
     label: "Cron lifestyle stats",
@@ -80,20 +73,24 @@ export function buildCronPlan(env: Env, scheduledTime: number): CronJob[] {
     cadence: job.cadence,
     category: job.category,
     purpose: job.purpose,
-    run: () => job.run(env),
+    run: () => job.run(env, scheduledTime),
   }));
 }
 
-async function runEnemyTrackingAndMaintenance(env: Env): Promise<void> {
+async function runEnemyTrackingAndMaintenance(env: Env, scheduledTime: number): Promise<void> {
   const heatmapMembersByFaction = new Map<number, TornFactionMember[]>();
 
   try {
-    const tracking = await refreshCurrentEnemyMemberTracking(env, { includeMembers: true });
-    if (tracking.factionId && tracking.members) {
-      heatmapMembersByFaction.set(tracking.factionId, tracking.members);
+    const tick = await runEnemyScoutingCronTick(env, {
+      trackingSchedule: "war-room",
+      scheduledTime,
+      includeMembers: true,
+    });
+    if (tick.tracking.factionId && tick.tracking.members) {
+      heatmapMembersByFaction.set(tick.tracking.factionId, tick.tracking.members);
     }
   } catch (err: any) {
-    console.error("Cron enemy member tracking failed:", err?.message || err);
+    console.error("Cron enemy scouting maintenance tick failed:", err?.message || err);
     console.error(err);
   }
 

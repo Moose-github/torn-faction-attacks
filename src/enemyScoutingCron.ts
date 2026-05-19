@@ -1,5 +1,5 @@
 import { HOME_FACTION_ID } from "./constants";
-import { sendDiscordMessageWithAttachment } from "./discord";
+import { sendDiscordMessageWithAttachments } from "./discord";
 import {
   enemyTargetBspFillCompleteLatchName,
   enemyTargetComparisonStatsCompleteLatchName,
@@ -47,6 +47,8 @@ const NETWORTH_REFRESH_LIMIT = 40;
 const HOME_STATS_LABEL = "Buttgrass";
 const LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX = "enemy_live_tracking_cleared";
 
+type EnemyTrackingSchedule = "always" | "live" | "war-room";
+
 type EnemyTargetStateNames = {
   ff: string;
   bsp: string;
@@ -81,7 +83,14 @@ export type EnemyScoutingCronTickMetrics = {
 
 export async function runEnemyScoutingCronTick(
   env: Env,
-  options: { liveOnly?: boolean; bspLimit?: number; networthLimit?: number } = {},
+  options: {
+    trackingSchedule?: EnemyTrackingSchedule;
+    scheduledTime?: number;
+    skipTracking?: boolean;
+    includeMembers?: boolean;
+    bspLimit?: number;
+    networthLimit?: number;
+  } = {},
 ): Promise<EnemyScoutingCronTickMetrics> {
   const war = await readCurrentScoutingWar(env);
   if (!war) {
@@ -98,12 +107,17 @@ export async function runEnemyScoutingCronTick(
   const metrics: EnemyScoutingCronTickMetrics = {
     ...emptyEnemyScoutingCronTickMetrics(),
     skipped: false,
-    tracking: await refreshCurrentEnemyMemberTrackingForWar(env, war, {
-      liveOnly: options.liveOnly,
+  };
+
+  if (!options.skipTracking) {
+    metrics.tracking = await refreshCurrentEnemyMemberTrackingForScheduledTick(env, war, {
+      trackingSchedule: options.trackingSchedule ?? "always",
+      scheduledTime: options.scheduledTime,
+      includeMembers: options.includeMembers,
       activeLatches,
       stateNames,
-    }),
-  };
+    });
+  }
 
   if (!activeLatches.has(stateNames.comparisonStatsComplete)) {
     if (!activeLatches.has(stateNames.ff)) {
@@ -148,6 +162,60 @@ export async function refreshCurrentEnemyMemberTracking(
   }
 
   return refreshCurrentEnemyMemberTrackingForWar(env, war, options);
+}
+
+async function refreshCurrentEnemyMemberTrackingForScheduledTick(
+  env: Env,
+  war: CurrentScoutingWar,
+  options: {
+    trackingSchedule: EnemyTrackingSchedule;
+    scheduledTime?: number;
+    includeMembers?: boolean;
+    activeLatches?: Set<string>;
+    stateNames?: EnemyTargetStateNames;
+  },
+): Promise<EnemyMemberTrackingRefreshMetrics> {
+  const checkedAt = options.scheduledTime
+    ? Math.floor(options.scheduledTime / 1000)
+    : nowSeconds();
+
+  if (!shouldRefreshEnemyTrackingForSchedule(war, options.trackingSchedule, checkedAt)) {
+    return {
+      writeStatements: 0,
+      changedRows: 0,
+      fetchedMembers: 0,
+      updatedMembers: 0,
+      skipped: true,
+      factionId: war.enemy_faction_id,
+    };
+  }
+
+  return refreshCurrentEnemyMemberTrackingForWar(env, war, {
+    includeMembers: options.includeMembers,
+    activeLatches: options.activeLatches,
+    stateNames: options.stateNames,
+  });
+}
+
+function shouldRefreshEnemyTrackingForSchedule(
+  war: CurrentScoutingWar,
+  schedule: EnemyTrackingSchedule,
+  checkedAt: number,
+): boolean {
+  if (schedule === "always") {
+    return true;
+  }
+
+  if (schedule === "live") {
+    return isWarRoomMemberTrackingLive(war, checkedAt);
+  }
+
+  if (isWarRoomMemberTrackingLive(war, checkedAt)) {
+    return true;
+  }
+
+  const minute = new Date(checkedAt * 1000).getUTCMinutes();
+  return minute % 5 === 0;
 }
 
 async function refreshCurrentEnemyMemberTrackingForWar(
@@ -577,12 +645,25 @@ async function sendPendingEnemyStatsComparisonImageForContext(
     homeMembers,
     enemyMembers,
   });
+  const memberTableSvg = buildEnemyMemberStatsTableSvg({
+    enemyName: scoutingWar.name,
+    enemyMembers,
+  });
 
-  await sendDiscordMessageWithAttachment(env, {
+  await sendDiscordMessageWithAttachments(env, {
     content: `Enemy stats comparison ready: ${scoutingWar.name}`,
-    filename: `enemy-stats-comparison-${scoutingWar.id}.svg`,
-    mimeType: "image/svg+xml",
-    data: svg,
+    attachments: [
+      {
+        filename: `enemy-stats-comparison-${scoutingWar.id}.svg`,
+        mimeType: "image/svg+xml",
+        data: svg,
+      },
+      {
+        filename: `enemy-member-stats-${scoutingWar.id}.svg`,
+        mimeType: "image/svg+xml",
+        data: memberTableSvg,
+      },
+    ],
   });
 
   await setSyncLatch(env, sentLatchName, nowSeconds());
@@ -831,6 +912,85 @@ function renderStatsPanel({
     `<text x="${left + 485}" y="${top + 18}" font-family="Arial, sans-serif" font-size="12" fill="#475569">${escapeSvg(enemyName)} ${enemyCoverage.available}/${enemyCoverage.total} avg ${escapeSvg(formatCompactNumber(enemyAverage))}</text>`,
     rows,
   ].join("");
+}
+
+function buildEnemyMemberStatsTableSvg({
+  enemyName,
+  enemyMembers,
+}: {
+  enemyName: string;
+  enemyMembers: EnemyFactionMemberRow[];
+}): string {
+  const width = 1200;
+  const tableTop = 92;
+  const tableHeaderHeight = 30;
+  const rowHeight = 28;
+  const footerHeight = 28;
+  const members = [...enemyMembers].sort(compareEnemyMemberStatsRows);
+  const bodyRows = Math.max(1, members.length);
+  const tableHeight = tableHeaderHeight + bodyRows * rowHeight;
+  const height = tableTop + tableHeight + footerHeight;
+  const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
+  const rows = members.length > 0
+    ? members.map((member, index) => {
+        const y = tableTop + tableHeaderHeight + index * rowHeight;
+        const fill = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+        return [
+          `<rect x="24" y="${y}" width="1152" height="${rowHeight}" fill="${fill}"/>`,
+          `<text x="48" y="${y + 19}" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">${escapeSvg(truncateSvgText(member.name ?? `#${member.member_id}`, 40))}</text>`,
+          `<text x="580" y="${y + 19}" font-family="Arial, sans-serif" font-size="13" fill="#334155">${escapeSvg(formatNullableInteger(member.level))}</text>`,
+          `<text x="720" y="${y + 19}" font-family="Arial, sans-serif" font-size="13" fill="#334155">${escapeSvg(formatNullableInteger(member.ff_battlestats))}</text>`,
+          `<text x="940" y="${y + 19}" font-family="Arial, sans-serif" font-size="13" fill="#334155">${escapeSvg(formatNullableInteger(member.bsp_battlestats))}</text>`,
+        ].join("");
+      }).join("")
+    : [
+        `<rect x="24" y="${tableTop + tableHeaderHeight}" width="1152" height="${rowHeight}" fill="#ffffff"/>`,
+        `<text x="48" y="${tableTop + tableHeaderHeight + 19}" font-family="Arial, sans-serif" font-size="13" fill="#64748b">No enemy members cached</text>`,
+      ].join("");
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Enemy member stats table">`,
+    `<rect width="${width}" height="${height}" fill="#f8fafc"/>`,
+    "<rect x=\"24\" y=\"20\" width=\"1152\" height=\"58\" rx=\"10\" fill=\"#0f172a\"/>",
+    `<text x="48" y="47" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">${escapeSvg(enemyName)} member stats</text>`,
+    `<text x="48" y="68" font-family="Arial, sans-serif" font-size="12" fill="#cbd5e1">Generated ${escapeSvg(generatedAt)} UTC</text>`,
+    `<rect x="24" y="78" width="1152" height="14" fill="#f8fafc"/>`,
+    `<rect x="24" y="${tableTop}" width="1152" height="${tableHeight}" rx="8" fill="#ffffff" stroke="#dbe4ee"/>`,
+    "<rect x=\"24\" y=\"92\" width=\"1152\" height=\"30\" rx=\"8\" fill=\"#e2e8f0\"/>",
+    "<text x=\"48\" y=\"112\" font-family=\"Arial, sans-serif\" font-size=\"12\" font-weight=\"700\" fill=\"#475569\">NAME</text>",
+    "<text x=\"580\" y=\"112\" font-family=\"Arial, sans-serif\" font-size=\"12\" font-weight=\"700\" fill=\"#475569\">LEVEL</text>",
+    "<text x=\"720\" y=\"112\" font-family=\"Arial, sans-serif\" font-size=\"12\" font-weight=\"700\" fill=\"#475569\">FF STATS</text>",
+    "<text x=\"940\" y=\"112\" font-family=\"Arial, sans-serif\" font-size=\"12\" font-weight=\"700\" fill=\"#475569\">BSP STATS</text>",
+    rows,
+    "</svg>",
+  ].join("");
+}
+
+function compareEnemyMemberStatsRows(a: EnemyFactionMemberRow, b: EnemyFactionMemberRow): number {
+  const bFf = Number(b.ff_battlestats ?? 0);
+  const aFf = Number(a.ff_battlestats ?? 0);
+  if (bFf !== aFf) {
+    return bFf - aFf;
+  }
+
+  const bBsp = Number(b.bsp_battlestats ?? 0);
+  const aBsp = Number(a.bsp_battlestats ?? 0);
+  if (bBsp !== aBsp) {
+    return bBsp - aBsp;
+  }
+
+  return (b.level ?? 0) - (a.level ?? 0) || (a.name ?? "").localeCompare(b.name ?? "");
+}
+
+function formatNullableInteger(value: number | null | undefined): string {
+  const numberValue = Number(value ?? 0);
+  return Number.isFinite(numberValue) && numberValue > 0
+    ? Math.round(numberValue).toLocaleString("en-US")
+    : "-";
+}
+
+function truncateSvgText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, Math.max(0, maxLength - 3))}...` : value;
 }
 
 function buildBucketCounts(

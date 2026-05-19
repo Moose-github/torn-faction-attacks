@@ -60,6 +60,29 @@ export async function sendDiscordMessageWithAttachment(
     data: string | Uint8Array;
   },
 ): Promise<void> {
+  return sendDiscordMessageWithAttachments(env, {
+    content: options.content,
+    attachments: [
+      {
+        filename: options.filename,
+        mimeType: options.mimeType,
+        data: options.data,
+      },
+    ],
+  });
+}
+
+export async function sendDiscordMessageWithAttachments(
+  env: Env,
+  options: {
+    content: string;
+    attachments: Array<{
+      filename: string;
+      mimeType: string;
+      data: string | Uint8Array;
+    }>;
+  },
+): Promise<void> {
   if (!env.DISCORD_WEBHOOK_URL) {
     throw new Error("DISCORD_WEBHOOK_URL is not configured");
   }
@@ -70,11 +93,13 @@ export async function sendDiscordMessageWithAttachment(
 
   const form = new FormData();
   form.append("payload_json", JSON.stringify({ content: options.content }));
-  form.append(
-    "files[0]",
-    new Blob([options.data], { type: options.mimeType }),
-    options.filename,
-  );
+  options.attachments.forEach((attachment, index) => {
+    form.append(
+      `files[${index}]`,
+      new Blob([attachment.data], { type: attachment.mimeType }),
+      attachment.filename,
+    );
+  });
 
   const response = await fetch(env.DISCORD_WEBHOOK_URL, {
     method: "POST",
