@@ -51,7 +51,6 @@ type FlatPaymentRule = {
 type BonusRule = {
   id: string;
   type: PercentageRuleType;
-  group: string;
   metric: PayoutMetric;
   operator: BonusOperator;
   threshold: string;
@@ -74,7 +73,6 @@ const DEFAULT_BONUS_RULES: BonusRule[] = [
   {
     id: "fair-fight-3",
     type: "bonus",
-    group: "Average fair fight",
     metric: "average_fair_fight",
     operator: ">=",
     threshold: "3",
@@ -83,7 +81,6 @@ const DEFAULT_BONUS_RULES: BonusRule[] = [
   {
     id: "fair-fight-25",
     type: "bonus",
-    group: "Average fair fight",
     metric: "average_fair_fight",
     operator: ">=",
     threshold: "2.5",
@@ -92,7 +89,6 @@ const DEFAULT_BONUS_RULES: BonusRule[] = [
   {
     id: "defends-lost-10",
     type: "bonus",
-    group: "Defends lost",
     metric: "defends_lost",
     operator: "<",
     threshold: "10",
@@ -432,7 +428,6 @@ function WarPayoutCalculator() {
       {
         id: `bonus-${Date.now()}`,
         type: "bonus",
-        group: "New bonus",
         metric: "average_fair_fight",
         operator: ">=",
         threshold: "",
@@ -635,7 +630,7 @@ function WarPayoutCalculator() {
         <div className="payout-section-header">
           <div>
             <strong>Percentage adjustment rules</strong>
-            <p>Use bonuses or penalties. Only the strongest matching rule for each group and type is used.</p>
+            <p>Use bonuses or penalties. Only the strongest matching rule for each metric and type is used.</p>
           </div>
           <button type="button" className="panel-action-button" onClick={addBonusRule}>
             Add rule
@@ -646,7 +641,6 @@ function WarPayoutCalculator() {
             <thead>
               <tr>
                 <th>Type</th>
-                <th>Group</th>
                 <th>Metric</th>
                 <th>Condition</th>
                 <th>Value</th>
@@ -667,9 +661,6 @@ function WarPayoutCalculator() {
                       <option value="bonus">Bonus</option>
                       <option value="penalty">Penalty</option>
                     </select>
-                  </td>
-                  <td>
-                    <input value={rule.group} onChange={(event) => updateBonusRule(rule.id, { group: event.target.value })} />
                   </td>
                   <td>
                     <select
@@ -861,13 +852,12 @@ function memberPercentageAdjustments(
   member: MemberStats,
   rules: BonusRule[],
 ): { bonusPercent: number; penaltyPercent: number; netPercent: number } {
-  const bestBonusByGroup = new Map<string, number>();
-  const bestPenaltyByGroup = new Map<string, number>();
+  const bestBonusByMetric = new Map<PayoutMetric, number>();
+  const bestPenaltyByMetric = new Map<PayoutMetric, number>();
 
   for (const rule of rules) {
     const threshold = decimalInput(rule.threshold);
     const percent = decimalInput(rule.percent);
-    const group = rule.group.trim() || rule.metric;
     if (!Number.isFinite(threshold) || !Number.isFinite(percent) || percent <= 0) {
       continue;
     }
@@ -876,12 +866,12 @@ function memberPercentageAdjustments(
       continue;
     }
 
-    const target = rule.type === "penalty" ? bestPenaltyByGroup : bestBonusByGroup;
-    target.set(group, Math.max(target.get(group) ?? 0, percent));
+    const target = rule.type === "penalty" ? bestPenaltyByMetric : bestBonusByMetric;
+    target.set(rule.metric, Math.max(target.get(rule.metric) ?? 0, percent));
   }
 
-  const bonusPercent = Array.from(bestBonusByGroup.values()).reduce((total, percent) => total + percent, 0);
-  const penaltyPercent = Array.from(bestPenaltyByGroup.values()).reduce((total, percent) => total + percent, 0);
+  const bonusPercent = Array.from(bestBonusByMetric.values()).reduce((total, percent) => total + percent, 0);
+  const penaltyPercent = Array.from(bestPenaltyByMetric.values()).reduce((total, percent) => total + percent, 0);
   return {
     bonusPercent,
     penaltyPercent,
