@@ -80,6 +80,41 @@ export function strokeRect(
   fillRect(canvas, x + width - 1, y, 1, height, color);
 }
 
+export function drawLine(
+  canvas: PngCanvas,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  color: PngColor,
+): void {
+  let currentX = Math.round(x0);
+  let currentY = Math.round(y0);
+  const targetX = Math.round(x1);
+  const targetY = Math.round(y1);
+  const dx = Math.abs(targetX - currentX);
+  const dy = -Math.abs(targetY - currentY);
+  const stepX = currentX < targetX ? 1 : -1;
+  const stepY = currentY < targetY ? 1 : -1;
+  let error = dx + dy;
+
+  while (true) {
+    fillRect(canvas, currentX, currentY, 1, 1, color);
+    if (currentX === targetX && currentY === targetY) {
+      break;
+    }
+    const doubledError = error * 2;
+    if (doubledError >= dy) {
+      error += dy;
+      currentX += stepX;
+    }
+    if (doubledError <= dx) {
+      error += dx;
+      currentY += stepY;
+    }
+  }
+}
+
 export function drawText(
   canvas: PngCanvas,
   x: number,

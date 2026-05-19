@@ -21,6 +21,7 @@ import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./wa
 import {
   SIMPLE_PNG_COLORS,
   createPngCanvas,
+  drawLine,
   drawText,
   encodePng,
   fillRect,
@@ -953,7 +954,7 @@ function buildStatsComparisonPng({
 }
 
 function statsPanelHeight(bucketCount: number): number {
-  return 74 + bucketCount * 23 + 22;
+  return bucketCount > 8 ? 288 : 268;
 }
 
 function drawStatsPanel(
@@ -980,18 +981,16 @@ function drawStatsPanel(
 ): void {
   const left = 48;
   const top = y + 16;
-  const chartTop = y + 70;
-  const rowHeight = 9;
-  const rowPairGap = 3;
-  const gap = 11;
-  const bucketLabelWidth = 86;
-  const barLeft = left + bucketLabelWidth;
-  const barWidth = 810;
-  const countHomeX = barLeft + barWidth + 50;
-  const countEnemyX = countHomeX + 48;
+  const chartLeft = 108;
+  const chartRight = 1088;
+  const chartTop = y + 72;
+  const chartBottom = y + height - 48;
+  const chartWidth = chartRight - chartLeft;
+  const chartHeight = chartBottom - chartTop;
+  const valueLabelX = chartLeft - 14;
   const homeValues = buildBucketCounts(homeMembers, buckets, metric);
   const enemyValues = buildBucketCounts(enemyMembers, buckets, metric);
-  const maxValue = Math.max(1, ...homeValues, ...enemyValues);
+  const maxValue = niceChartMax(Math.max(1, ...homeValues, ...enemyValues));
   const homeCoverage = metricCoverage(homeMembers, metric);
   const enemyCoverage = metricCoverage(enemyMembers, metric);
   const homeAverage = metricAverage(homeMembers, metric);
@@ -1017,44 +1016,101 @@ function drawStatsPanel(
     SIMPLE_PNG_COLORS.muted,
     { scale: 1, maxWidth: 310, align: "center" },
   );
-  drawText(canvas, countHomeX, top + 10, "BG", SIMPLE_PNG_COLORS.blue, {
-    scale: 1,
-    align: "right",
-  });
-  drawText(canvas, countEnemyX, top + 10, "EN", SIMPLE_PNG_COLORS.red, {
-    scale: 1,
-    align: "right",
-  });
 
-  buckets.forEach((bucket, index) => {
-    const rowY = chartTop + index * (rowHeight * 2 + rowPairGap + gap);
-    const homeWidth = Math.round((homeValues[index] / maxValue) * barWidth);
-    const enemyWidth = Math.round((enemyValues[index] / maxValue) * barWidth);
-    drawText(canvas, left, rowY + 5, bucket.label, SIMPLE_PNG_COLORS.muted, {
+  for (let index = 0; index <= 4; index += 1) {
+    const value = Math.round((maxValue / 4) * index);
+    const gridY = chartBottom - Math.round((index / 4) * chartHeight);
+    fillRect(canvas, chartLeft, gridY, chartWidth, 1, SIMPLE_PNG_COLORS.soft);
+    drawText(canvas, valueLabelX, gridY - 4, String(value), SIMPLE_PNG_COLORS.muted, {
       scale: 1,
-      maxWidth: bucketLabelWidth - 4,
-    });
-    fillRect(canvas, barLeft, rowY, barWidth, rowHeight * 2 + rowPairGap, SIMPLE_PNG_COLORS.soft);
-    if (homeWidth > 0) {
-      fillRect(canvas, barLeft, rowY, homeWidth, rowHeight, SIMPLE_PNG_COLORS.blue);
-    }
-    if (enemyWidth > 0) {
-      fillRect(canvas, barLeft, rowY + rowHeight + rowPairGap, enemyWidth, rowHeight, SIMPLE_PNG_COLORS.red);
-    }
-    drawText(canvas, countHomeX, rowY + 1, String(homeValues[index]), SIMPLE_PNG_COLORS.text, {
-      scale: 1,
-      maxWidth: 36,
+      maxWidth: 48,
       align: "right",
     });
-    drawText(
-      canvas,
-      countEnemyX,
-      rowY + rowHeight + rowPairGap + 1,
-      String(enemyValues[index]),
-      SIMPLE_PNG_COLORS.text,
-      { scale: 1, maxWidth: 36, align: "right" },
-    );
+  }
+  fillRect(canvas, chartLeft, chartTop, 1, chartHeight, SIMPLE_PNG_COLORS.border);
+  fillRect(canvas, chartLeft, chartBottom, chartWidth, 1, SIMPLE_PNG_COLORS.border);
+
+  const step = buckets.length > 1 ? chartWidth / (buckets.length - 1) : chartWidth;
+  const homePoints = homeValues.map((value, index) =>
+    chartPoint(chartLeft, chartBottom, chartHeight, step, index, value, maxValue),
+  );
+  const enemyPoints = enemyValues.map((value, index) =>
+    chartPoint(chartLeft, chartBottom, chartHeight, step, index, value, maxValue),
+  );
+
+  drawAreaSeries(canvas, homePoints, chartBottom, SIMPLE_PNG_COLORS.blueSoft, SIMPLE_PNG_COLORS.blue);
+  drawAreaSeries(canvas, enemyPoints, chartBottom, SIMPLE_PNG_COLORS.redSoft, SIMPLE_PNG_COLORS.red);
+
+  buckets.forEach((bucket, index) => {
+    const labelX = chartLeft + Math.round(index * step);
+    drawText(canvas, labelX, chartBottom + 12, bucket.label, SIMPLE_PNG_COLORS.muted, {
+      scale: 1,
+      maxWidth: Math.max(42, Math.floor(step) - 6),
+      align: "center",
+    });
   });
+}
+
+function chartPoint(
+  chartLeft: number,
+  chartBottom: number,
+  chartHeight: number,
+  step: number,
+  index: number,
+  value: number,
+  maxValue: number,
+): { x: number; y: number } {
+  return {
+    x: chartLeft + Math.round(index * step),
+    y: chartBottom - Math.round((value / maxValue) * chartHeight),
+  };
+}
+
+function drawAreaSeries(
+  canvas: ReturnType<typeof createPngCanvas>,
+  points: Array<{ x: number; y: number }>,
+  baseline: number,
+  fillColor: number,
+  lineColor: number,
+): void {
+  if (points.length === 0) {
+    return;
+  }
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const minX = Math.min(start.x, end.x);
+    const maxX = Math.max(start.x, end.x);
+    for (let x = minX; x <= maxX; x += 1) {
+      const ratio = end.x === start.x ? 0 : (x - start.x) / (end.x - start.x);
+      const y = Math.round(start.y + (end.y - start.y) * ratio);
+      fillRect(canvas, x, y, 1, Math.max(0, baseline - y), fillColor);
+    }
+    drawThickLine(canvas, start.x, start.y, end.x, end.y, lineColor);
+  }
+
+  points.forEach((point) => {
+    fillRect(canvas, point.x - 2, point.y - 2, 5, 5, lineColor);
+  });
+}
+
+function drawThickLine(
+  canvas: ReturnType<typeof createPngCanvas>,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  color: number,
+): void {
+  drawLine(canvas, x0, y0, x1, y1, color);
+  drawLine(canvas, x0, y0 + 1, x1, y1 + 1, color);
+}
+
+function niceChartMax(value: number): number {
+  if (value <= 5) return 5;
+  if (value <= 10) return 10;
+  return Math.ceil(value / 5) * 5;
 }
 
 function buildEnemyMemberStatsTablePng({
@@ -1064,7 +1120,8 @@ function buildEnemyMemberStatsTablePng({
   enemyName: string;
   enemyMembers: EnemyFactionMemberRow[];
 }): Uint8Array {
-  const width = 1200;
+  const width = 920;
+  const contentWidth = width - 48;
   const tableTop = 96;
   const tableHeaderHeight = 30;
   const rowHeight = 24;
@@ -1076,29 +1133,29 @@ function buildEnemyMemberStatsTablePng({
   const canvas = createPngCanvas(width, height, SIMPLE_PNG_COLORS.page);
   const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
 
-  fillRect(canvas, 24, 20, 1152, 62, SIMPLE_PNG_COLORS.dark);
+  fillRect(canvas, 24, 20, contentWidth, 62, SIMPLE_PNG_COLORS.dark);
   drawText(canvas, 48, 34, `${enemyName} member stats`, SIMPLE_PNG_COLORS.white, {
     scale: 3,
-    maxWidth: 800,
+    maxWidth: 620,
   });
   drawText(canvas, 48, 64, `Generated ${generatedAt} UTC`, SIMPLE_PNG_COLORS.mutedOnDark, {
     scale: 1,
     maxWidth: 260,
   });
-  fillRect(canvas, 24, tableTop, 1152, tableHeight, SIMPLE_PNG_COLORS.white);
-  strokeRect(canvas, 24, tableTop, 1152, tableHeight, SIMPLE_PNG_COLORS.border);
-  fillRect(canvas, 24, tableTop, 1152, tableHeaderHeight, SIMPLE_PNG_COLORS.soft);
+  fillRect(canvas, 24, tableTop, contentWidth, tableHeight, SIMPLE_PNG_COLORS.white);
+  strokeRect(canvas, 24, tableTop, contentWidth, tableHeight, SIMPLE_PNG_COLORS.border);
+  fillRect(canvas, 24, tableTop, contentWidth, tableHeaderHeight, SIMPLE_PNG_COLORS.soft);
   drawText(canvas, 48, tableTop + 10, "Name", SIMPLE_PNG_COLORS.muted, { scale: 1 });
-  drawText(canvas, 610, tableTop + 10, "Level", SIMPLE_PNG_COLORS.muted, { scale: 1, align: "right" });
-  drawText(canvas, 790, tableTop + 10, "FF stats", SIMPLE_PNG_COLORS.muted, { scale: 1, align: "right" });
-  drawText(canvas, 1010, tableTop + 10, "BSP stats", SIMPLE_PNG_COLORS.muted, {
+  drawText(canvas, 440, tableTop + 10, "Level", SIMPLE_PNG_COLORS.muted, { scale: 1, align: "right" });
+  drawText(canvas, 630, tableTop + 10, "FF stats", SIMPLE_PNG_COLORS.muted, { scale: 1, align: "right" });
+  drawText(canvas, 820, tableTop + 10, "BSP stats", SIMPLE_PNG_COLORS.muted, {
     scale: 1,
     align: "right",
   });
 
   if (members.length === 0) {
     const y = tableTop + tableHeaderHeight;
-    fillRect(canvas, 24, y, 1152, rowHeight, SIMPLE_PNG_COLORS.white);
+    fillRect(canvas, 24, y, contentWidth, rowHeight, SIMPLE_PNG_COLORS.white);
     drawText(canvas, 48, y + 6, "No enemy members cached", SIMPLE_PNG_COLORS.muted, {
       scale: 1,
       maxWidth: 300,
@@ -1112,25 +1169,25 @@ function buildEnemyMemberStatsTablePng({
       canvas,
       24,
       y,
-      1152,
+      contentWidth,
       rowHeight,
       index % 2 === 0 ? SIMPLE_PNG_COLORS.white : SIMPLE_PNG_COLORS.alternate,
     );
     drawText(canvas, 48, y + 7, member.name ?? `#${member.member_id}`, SIMPLE_PNG_COLORS.dark, {
       scale: 1,
-      maxWidth: 430,
+      maxWidth: 320,
     });
-    drawText(canvas, 610, y + 7, formatNullableInteger(member.level), SIMPLE_PNG_COLORS.text, {
+    drawText(canvas, 440, y + 7, formatNullableInteger(member.level), SIMPLE_PNG_COLORS.text, {
       scale: 1,
       maxWidth: 80,
       align: "right",
     });
-    drawText(canvas, 790, y + 7, formatNullableInteger(member.ff_battlestats), SIMPLE_PNG_COLORS.text, {
+    drawText(canvas, 630, y + 7, formatNullableInteger(member.ff_battlestats), SIMPLE_PNG_COLORS.text, {
       scale: 1,
       maxWidth: 160,
       align: "right",
     });
-    drawText(canvas, 1010, y + 7, formatNullableInteger(member.bsp_battlestats), SIMPLE_PNG_COLORS.text, {
+    drawText(canvas, 820, y + 7, formatNullableInteger(member.bsp_battlestats), SIMPLE_PNG_COLORS.text, {
       scale: 1,
       maxWidth: 160,
       align: "right",
