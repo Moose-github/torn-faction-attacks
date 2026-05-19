@@ -999,12 +999,20 @@ h2 {
   text-transform: uppercase;
 }
 
-.metric-card strong {
+.metric-card-value {
   display: block;
   margin-top: 14px;
   color: #10213f;
   font-size: 1.88rem;
   line-height: 1;
+}
+
+.metric-card-value-fit {
+  overflow: hidden;
+  font-size: clamp(0.92rem, calc(2.08rem - (var(--metric-value-length, 12) * 0.04rem)), 1.88rem);
+  line-height: 1.15;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 .metric-card-detail {
@@ -1083,6 +1091,39 @@ h2 {
 
 .collapse-button strong {
   font-size: 1rem;
+}
+
+.nested-discrepancy-panel {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.nested-discrepancy-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nested-discrepancy-header > span {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #516172;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.nested-collapse-button strong {
+  font-size: 0.92rem;
+}
+
+.nested-discrepancy-content {
+  margin-top: 12px;
 }
 
 .chart-panel {
@@ -2898,6 +2939,17 @@ tbody tr:not(.attack-row):hover td {
   color: var(--text-muted);
 }
 
+:root[data-theme="dark"] .nested-discrepancy-panel {
+  border-color: var(--border-faint);
+  background: rgba(20, 34, 56, 0.72);
+  color: var(--text-main);
+}
+
+:root[data-theme="dark"] .nested-discrepancy-header > span {
+  background: var(--panel-bg-solid);
+  color: var(--text-muted);
+}
+
 :root[data-theme="dark"] .error-panel,
 :root[data-theme="dark"] .form-error {
   border-color: rgba(248, 113, 113, 0.42);
@@ -3215,12 +3267,16 @@ tbody tr:not(.attack-row):hover td {
 }
 
 :root[data-theme="dark"] .table-scroll tbody tr:nth-child(odd):not(.attack-row) td,
-:root[data-theme="dark"] .chain-bonus-table tr:nth-child(odd) td {
+:root[data-theme="dark"] .table-scroll .chain-bonus-table tr:nth-child(odd) td {
   background: var(--panel-bg-solid);
 }
 
-:root[data-theme="dark"] .chain-bonus-table tr:nth-child(even) td {
+:root[data-theme="dark"] .table-scroll .chain-bonus-table tr:nth-child(even) td {
   background: var(--panel-hover-bg);
+}
+
+:root[data-theme="dark"] .chain-bonus-compact td {
+  background: transparent;
 }
 
 :root[data-theme="dark"] .selected-member-row td,

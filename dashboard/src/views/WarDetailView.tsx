@@ -1,5 +1,5 @@
 import React from "react";
-import { CalendarClock, Radar, Swords, Target } from "lucide-react";
+import { CalendarClock, ChevronDown, ChevronRight, Radar, Swords, Target } from "lucide-react";
 import {
   ChainBonusAttack,
   MemberAttack,
@@ -125,6 +125,12 @@ export function WarDetailView({
   warDetail,
 }: WarDetailViewProps) {
   const memberAttackPanelRef = React.useRef<HTMLElement | null>(null);
+  const reportDiscrepancyCollapsed = collapsedPanels.reportDiscrepancies ?? true;
+  const reportDiscrepancyAside = isLoadingReportDiscrepancies
+    ? "Loading"
+    : reportDiscrepancies
+      ? discrepancyAside(reportDiscrepancies)
+      : "Open to load";
   const members = sortMembers(warDetail?.members ?? [], memberSort);
   const sortedMemberAttacks = sortMemberAttacks(memberAttacks, memberAttackSort);
   const hasTornReport = Boolean(selectedWar.torn_report_fetched_at);
@@ -235,6 +241,7 @@ export function WarDetailView({
                     label="Victory / loss"
                     value={warOutcome(selectedWar, derivedRespectGained, derivedRespectLost)}
                     icon={<CalendarClock size={18} />}
+                    fitValue
                   />
                 </section>
               ) : null}
@@ -280,63 +287,72 @@ export function WarDetailView({
               ) : null}
 
               {hasWarData && hasTornReport ? (
-                <>
-                  <CollapsiblePanel
-                    title="Torn report validation"
-                    collapsed={collapsedPanels.reportValidation ?? true}
-                    onToggle={() => onTogglePanel("reportValidation")}
-                    className="table-panel"
-                  >
-                    <p className="panel-description">
-                      Compares dashboard totals with Torn's official ranked war report.
-                    </p>
-                    <div className="table-scroll">
-                      <table className="report-validation-table">
-                        <thead>
-                          <tr>
-                            <th>Measure</th>
-                            <th>Dashboard derived</th>
-                            <th>Torn report</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td>Faction attacks</td>
-                            <td>{formatNumber(derivedSuccessfulAttacks)}</td>
-                            <td>{formatReportComparison(selectedWar.official_home_attacks, derivedSuccessfulAttacks)}</td>
-                          </tr>
-                          <tr>
-                            <td>Faction respect</td>
-                            <td>{formatNumber(derivedRespectGained)}</td>
-                            <td>{formatReportComparison(selectedWar.official_home_score, derivedRespectGained)}</td>
-                          </tr>
-                          <tr>
-                            <td>Enemy attacks</td>
-                            <td>{formatNumber(derivedEnemySuccessfulAttacks)}</td>
-                            <td>{formatReportComparison(selectedWar.official_enemy_attacks, derivedEnemySuccessfulAttacks)}</td>
-                          </tr>
-                          <tr>
-                            <td>Enemy score</td>
-                            <td>{formatNumber(derivedRespectLost)}</td>
-                            <td>{formatReportComparison(selectedWar.official_enemy_score, derivedRespectLost)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                <CollapsiblePanel
+                  title="Torn report validation"
+                  collapsed={collapsedPanels.reportValidation ?? true}
+                  onToggle={() => onTogglePanel("reportValidation")}
+                  className="table-panel"
+                >
+                  <p className="panel-description">
+                    Compares dashboard totals with Torn's official ranked war report.
+                  </p>
+                  <div className="table-scroll">
+                    <table className="report-validation-table">
+                      <thead>
+                        <tr>
+                          <th>Measure</th>
+                          <th>Dashboard derived</th>
+                          <th>Torn report</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>Faction attacks</td>
+                          <td>{formatNumber(derivedSuccessfulAttacks)}</td>
+                          <td>{formatReportComparison(selectedWar.official_home_attacks, derivedSuccessfulAttacks)}</td>
+                        </tr>
+                        <tr>
+                          <td>Faction respect</td>
+                          <td>{formatNumber(derivedRespectGained)}</td>
+                          <td>{formatReportComparison(selectedWar.official_home_score, derivedRespectGained)}</td>
+                        </tr>
+                        <tr>
+                          <td>Enemy attacks</td>
+                          <td>{formatNumber(derivedEnemySuccessfulAttacks)}</td>
+                          <td>{formatReportComparison(selectedWar.official_enemy_attacks, derivedEnemySuccessfulAttacks)}</td>
+                        </tr>
+                        <tr>
+                          <td>Enemy score</td>
+                          <td>{formatNumber(derivedRespectLost)}</td>
+                          <td>{formatReportComparison(selectedWar.official_enemy_score, derivedRespectLost)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <section className="nested-discrepancy-panel">
+                    <div className="nested-discrepancy-header">
+                      <button
+                        type="button"
+                        className="collapse-button nested-collapse-button"
+                        onClick={() => onTogglePanel("reportDiscrepancies")}
+                      >
+                        <span>
+                          {reportDiscrepancyCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                        </span>
+                        <strong>Report discrepancy breakdown</strong>
+                      </button>
+                      <span>{reportDiscrepancyAside}</span>
                     </div>
-                  </CollapsiblePanel>
-                  <CollapsiblePanel
-                    title="Report discrepancy breakdown"
-                    aside={isLoadingReportDiscrepancies ? "Loading" : discrepancyAside(reportDiscrepancies)}
-                    collapsed={collapsedPanels.reportDiscrepancies ?? true}
-                    onToggle={() => onTogglePanel("reportDiscrepancies")}
-                    className="table-panel"
-                  >
-                    <p className="panel-description">
-                      Breaks down attack and respect adjustments behind differences from Torn's official ranked war report.
-                    </p>
-                    <ReportDiscrepancyPanel response={reportDiscrepancies} />
-                  </CollapsiblePanel>
-                </>
+                    {reportDiscrepancyCollapsed ? null : (
+                      <div className="nested-discrepancy-content">
+                        <p className="panel-description">
+                          Breaks down attack and respect adjustments behind differences from Torn's official ranked war report.
+                        </p>
+                        <ReportDiscrepancyPanel response={reportDiscrepancies} />
+                      </div>
+                    )}
+                  </section>
+                </CollapsiblePanel>
               ) : null}
 
               {showFactionActivity ? (

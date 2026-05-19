@@ -7,19 +7,30 @@ export function MetricCard({
   value,
   icon,
   detail,
+  fitValue = false,
 }: {
   label: string;
   value: string;
   icon: React.ReactNode;
   detail?: string;
+  fitValue?: boolean;
 }) {
+  const valueStyle = fitValue
+    ? ({ "--metric-value-length": String(value.length) } as React.CSSProperties)
+    : undefined;
+
   return (
     <article className="metric-card">
       <div className="panel-kicker">
         {icon}
         <span>{label}</span>
       </div>
-      <strong>{value}</strong>
+      <strong
+        className={fitValue ? "metric-card-value metric-card-value-fit" : "metric-card-value"}
+        style={valueStyle}
+      >
+        {value}
+      </strong>
       {detail ? <p className="metric-card-detail">{detail}</p> : null}
     </article>
   );

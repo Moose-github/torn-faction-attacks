@@ -308,6 +308,7 @@ function App() {
     setMemberAttacks([]);
     setActivityBuckets([]);
     setChainBonuses([]);
+    setReportDiscrepancies(null);
 }, [selectedWarName]);
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
@@ -316,7 +317,7 @@ function App() {
   const isActivityPanelOpen =
     collapsedPanels.factionActivity === false || collapsedPanels.enemyActivity === false;
   const isMemberActivityPanelOpen = collapsedPanels.memberActivityHeatmap === false;
-  const isReportValidationOpen = collapsedPanels.reportValidation === false;
+  const isReportDiscrepancyPanelOpen = collapsedPanels.reportDiscrepancies === false;
 
   React.useEffect(() => {
     if (!authSession || view !== "war" || !selectedWarName || !selectedWar) {
@@ -514,7 +515,7 @@ function App() {
         setWars(warsResponse.wars);
         setWarDetail(detailResponse);
 
-        if (detailResponse.war.torn_report_fetched_at && isReportValidationOpen) {
+        if (detailResponse.war.torn_report_fetched_at && isReportDiscrepancyPanelOpen) {
           const discrepancies = await getWarReportDiscrepancies(selectedWarName);
           if (!cancelled) {
             setReportDiscrepancies(discrepancies);
@@ -542,14 +543,14 @@ function App() {
     view,
     warType,
     authSession,
-    isReportValidationOpen,
+    isReportDiscrepancyPanelOpen,
   ]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadReportDiscrepancies() {
-      if (!authSession || !selectedWarName || !hasTornReport || !isReportValidationOpen) {
+      if (!authSession || !selectedWarName || !hasTornReport || !isReportDiscrepancyPanelOpen) {
         if (!hasTornReport) {
           setReportDiscrepancies(null);
         }
@@ -579,7 +580,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [authSession, hasTornReport, isReportValidationOpen, selectedWarName]);
+  }, [authSession, hasTornReport, isReportDiscrepancyPanelOpen, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;
