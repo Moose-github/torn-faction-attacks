@@ -4,9 +4,11 @@ import {
   BarChart3,
   Dices,
   LogIn,
+  Moon,
   Pill,
   Radar,
   ShieldCheck,
+  Sun,
   Target,
   UserRound,
   Wrench,
@@ -68,6 +70,9 @@ type AppRoute = {
   warName: string | null;
 };
 
+type ThemeMode = "light" | "dark";
+const THEME_STORAGE_KEY = "buttgrass-theme";
+
 function parseAppRoute(pathname: string): AppRoute {
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
   const lowerPath = normalizedPath.toLowerCase();
@@ -114,6 +119,15 @@ function pathForView(view: AppView, warName?: string | null): string {
   return PAGE_PATHS[view];
 }
 
+function initialThemeMode(): ThemeMode {
+  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (storedTheme === "light" || storedTheme === "dark") {
+    return storedTheme;
+  }
+
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 const AdminControls = React.lazy(() =>
   import("./views/AdminControls").then((module) => ({ default: module.AdminControls })),
 );
@@ -129,6 +143,7 @@ const Miscellaneous = React.lazy(() =>
 
 function App() {
   const initialRoute = React.useMemo(() => parseAppRoute(window.location.pathname), []);
+  const [themeMode, setThemeMode] = React.useState<ThemeMode>(() => initialThemeMode());
   const [warType, setWarType] = React.useState<WarType>("all");
   const [view, setView] = React.useState<AppView>(initialRoute.view);
   const [routedWarName, setRoutedWarName] = React.useState<string | null>(initialRoute.warName);
@@ -178,6 +193,11 @@ function App() {
       cancelled = true;
     };
   }, [view]);
+
+  React.useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
+    window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
+  }, [themeMode]);
 
   React.useEffect(() => {
     function applyBrowserRoute() {
@@ -652,6 +672,16 @@ function App() {
           <h1>Buttgrass Dashboard</h1>
         </div>
         <div className="topbar-actions">
+          <button
+            type="button"
+            className="theme-toggle-button"
+            onClick={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
+            title={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+            <span>{themeMode === "dark" ? "Light" : "Dark"}</span>
+          </button>
           {authSession ? (
             <>
               <span

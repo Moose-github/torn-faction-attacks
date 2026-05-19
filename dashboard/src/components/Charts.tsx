@@ -54,7 +54,7 @@ export function AttackChart({
     <div className="chart-wrap">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 10, right: 8, left: 0, bottom: 20 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="name"
             angle={-45}
@@ -63,9 +63,10 @@ export function AttackChart({
             height={80}
             tickLine={false}
             axisLine={false}
+            {...chartAxisProps}
           />
-          <YAxis tickLine={false} axisLine={false} width={44} />
-          <Tooltip formatter={(value) => formatNumber(Number(value))} />
+          <YAxis tickLine={false} axisLine={false} width={44} {...chartAxisProps} />
+          <Tooltip formatter={(value) => formatNumber(Number(value))} {...chartTooltipProps} />
           <Bar dataKey="value" name={metricLabel} radius={[4, 4, 0, 0]}>
             {data.map((_, index) => (
               <Cell key={`chart-value-${index}`} fill="#2563eb" />
@@ -103,6 +104,26 @@ const activityColors: Record<ActivityKey, string> = {
   defend_other: "#64748b",
 };
 
+const chartAxisProps = {
+  tick: { fill: "var(--chart-axis)" },
+};
+
+const chartTooltipProps = {
+  contentStyle: {
+    background: "var(--chart-tooltip-bg)",
+    border: "1px solid var(--chart-tooltip-border)",
+    borderRadius: "8px",
+    color: "var(--text-main)",
+    boxShadow: "var(--shadow-panel)",
+  },
+  labelStyle: { color: "var(--text-strong)", fontWeight: 800 },
+  itemStyle: { color: "var(--text-main)" },
+};
+
+const chartLegendProps = {
+  wrapperStyle: { color: "var(--text-muted)", fontWeight: 700 },
+};
+
 export function ActivityChart({
   buckets,
   keys,
@@ -123,17 +144,18 @@ export function ActivityChart({
     <div className="activity-chart-wrap">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={18} />
-          <YAxis tickLine={false} axisLine={false} width={44} />
+          <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={18} {...chartAxisProps} />
+          <YAxis tickLine={false} axisLine={false} width={44} {...chartAxisProps} />
           <Tooltip
             formatter={(value, name) => [
               formatNumber(Number(value)),
               activityLabel(String(name)),
             ]}
             labelFormatter={(label) => `Time ${label}`}
+            {...chartTooltipProps}
           />
-          <Legend formatter={(value) => activityLabel(String(value))} />
+          <Legend formatter={(value) => activityLabel(String(value))} {...chartLegendProps} />
           {keys.map((key) => (
             <Bar key={key} dataKey={key} stackId="activity" fill={activityColors[key]} />
           ))}
@@ -184,11 +206,11 @@ export function ScoutingComparisonChart({
               <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="bucket" tickLine={false} axisLine={false} />
-          <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={44} />
-          <Tooltip formatter={(value) => [formatNumber(Number(value)), "Members"]} />
-          <Legend />
+          <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="bucket" tickLine={false} axisLine={false} {...chartAxisProps} />
+          <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={44} {...chartAxisProps} />
+          <Tooltip formatter={(value) => [formatNumber(Number(value)), "Members"]} {...chartTooltipProps} />
+          <Legend {...chartLegendProps} />
           <Area
             type="monotone"
             dataKey="Buttgrass"
@@ -463,12 +485,12 @@ function heatmapBucketIntensity(percentile: number): number {
 
 function comparisonHeatmapColor(difference: number, hasSample: boolean): string {
   if (!hasSample) {
-    return "#f1f5f9";
+    return "var(--heatmap-empty-cell)";
   }
 
   const magnitude = Math.min(1, Math.abs(difference) / 0.35);
   if (magnitude < 0.05) {
-    return "#e2e8f0";
+    return "var(--heatmap-neutral-cell)";
   }
 
   const alpha = 0.16 + magnitude * 0.72;
@@ -477,7 +499,7 @@ function comparisonHeatmapColor(difference: number, hasSample: boolean): string 
 
 function heatmapColor(color: "blue" | "red", intensity: number, hasSample: boolean): string {
   if (!hasSample) {
-    return "#f1f5f9";
+    return "var(--heatmap-empty-cell)";
   }
 
   const alpha = Math.min(0.82, 0.1 + intensity * 0.72);
