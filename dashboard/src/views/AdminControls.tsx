@@ -5,6 +5,7 @@ import {
   authenticateTornKey,
   clearStoredAuthSession,
   deleteWar,
+  EnemyStatsImagePreviewType,
   exportWarAttacksCsv,
   fetchTornWarReport,
   getLatestIngestionRun,
@@ -14,6 +15,7 @@ import {
   IngestionRun,
   importWar,
   listAdminUsers,
+  previewEnemyStatsImage,
   previewImportWar,
   previewRelinkAttacks,
   pullAttackWindow,
@@ -73,6 +75,8 @@ export function AdminControls() {
   const [adminGrantForm, setAdminGrantForm] = React.useState({ tornUserId: "" });
   const [discordForm, setDiscordForm] = React.useState({ message: "" });
   const [rebuildWarId, setRebuildWarId] = React.useState("");
+  const [statsImagePreviewType, setStatsImagePreviewType] =
+    React.useState<EnemyStatsImagePreviewType>("comparison");
   const [attackWindowForm, setAttackWindowForm] = React.useState({
     startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
     finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
@@ -823,6 +827,35 @@ export function AdminControls() {
               >
                 {isBusy === "Reset stats image latches" ? "Working" : "Reset Discord stats image"}
               </button>
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runAdminAction("Preview stats image", () =>
+                    previewEnemyStatsImage(statsImagePreviewType),
+                  );
+                }}
+              >
+                <label className="admin-form-wide">
+                  <span>Preview Discord image</span>
+                  <select
+                    value={statsImagePreviewType}
+                    onChange={(event) =>
+                      setStatsImagePreviewType(event.target.value as EnemyStatsImagePreviewType)
+                    }
+                  >
+                    <option value="comparison">Stats comparison</option>
+                    <option value="members">Enemy member stats</option>
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  className="admin-button admin-form-wide"
+                  disabled={isBusy !== null}
+                >
+                  {isBusy === "Preview stats image" ? "Opening" : "Preview image"}
+                </button>
+              </form>
             </section>
 
             <section className="admin-tool-section">

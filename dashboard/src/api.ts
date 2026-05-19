@@ -2,6 +2,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "https://torn-faction-attacks.moose-3065754.workers.dev";
 
 export type WarType = "all" | "real" | "termed" | "event";
+export type EnemyStatsImagePreviewType = "comparison" | "members";
 
 export type OverallStats = {
   total_wars: number;
@@ -824,6 +825,37 @@ export async function sendDiscordMessage(message: string): Promise<unknown> {
 
 export async function resetEnemyStatsImageLatches(): Promise<unknown> {
   return postJson("/api/admin/enemy-stats-image/reset");
+}
+
+export async function previewEnemyStatsImage(type: EnemyStatsImagePreviewType): Promise<unknown> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/admin/enemy-stats-image/preview?type=${encodeURIComponent(type)}`,
+    { headers: authHeaders(true) },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    let message = `Request failed: ${response.status}`;
+    try {
+      const data = JSON.parse(text);
+      message = data.error ?? message;
+    } catch {
+      if (text.trim()) {
+        message = text;
+      }
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const previewUrl = window.URL.createObjectURL(blob);
+  const opened = window.open(previewUrl, "_blank", "noopener");
+  window.setTimeout(() => window.URL.revokeObjectURL(previewUrl), 60_000);
+  return {
+    ok: true,
+    opened: Boolean(opened),
+    preview: type,
+  };
 }
 
 export async function getMemberLifestyleStats(options: {

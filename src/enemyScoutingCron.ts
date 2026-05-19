@@ -643,6 +643,54 @@ export async function resetEnemyStatsImageFromRequest(env: Env): Promise<Respons
   });
 }
 
+export async function previewEnemyStatsImageFromRequest(url: URL, env: Env): Promise<Response> {
+  const type = url.searchParams.get("type") ?? "comparison";
+  if (type !== "comparison" && type !== "members") {
+    return json(
+      {
+        ok: false,
+        error: "Preview type must be comparison or members",
+        code: "INVALID_PREVIEW_TYPE",
+      },
+      400,
+    );
+  }
+
+  const scoutingWar = await readCurrentScoutingWar(env);
+  if (!scoutingWar) {
+    return json(
+      { ok: false, error: "No current scouting war found", code: "NO_CURRENT_SCOUTING_WAR" },
+      404,
+    );
+  }
+
+  const [homeMembers, enemyMembers] = await Promise.all([
+    readHomeScouting(env),
+    readEnemyScouting(env, scoutingWar.enemy_faction_id),
+  ]);
+  const data = type === "comparison"
+    ? buildStatsComparisonPng({
+        enemyName: scoutingWar.name,
+        homeMembers,
+        enemyMembers,
+      })
+    : buildEnemyMemberStatsTablePng({
+        enemyName: scoutingWar.name,
+        enemyMembers,
+      });
+  const filename = type === "comparison"
+    ? `enemy-stats-comparison-${scoutingWar.id}.png`
+    : `enemy-member-stats-${scoutingWar.id}.png`;
+
+  return new Response(data, {
+    headers: {
+      "Content-Type": "image/png",
+      "Content-Disposition": `inline; filename="${filename}"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 async function sendPendingEnemyStatsComparisonImageForContext(
   env: Env,
   context: EnemyScoutingCronContext,
@@ -843,66 +891,75 @@ function buildStatsComparisonPng({
   enemyMembers: EnemyFactionMemberRow[];
 }): Uint8Array {
   const width = 1200;
-  const panelHeight = 245;
-  const headerHeight = 95;
-  const footerHeight = 35;
-  const height = headerHeight + panelHeight * 3 + footerHeight;
-  const canvas = createPngCanvas(width, height, SIMPLE_PNG_COLORS.page);
-  const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
-
-  fillRect(canvas, 24, 20, 1152, 62, SIMPLE_PNG_COLORS.dark);
-  drawText(canvas, 48, 36, `${enemyName} stats comparison`, SIMPLE_PNG_COLORS.white, {
-    scale: 3,
-    maxWidth: 760,
-  });
-  drawText(
-    canvas,
-    48,
-    62,
-    `Generated ${generatedAt} UTC after FF, BSP, and networth fills completed`,
-    SIMPLE_PNG_COLORS.mutedOnDark,
-    { scale: 1, maxWidth: 720 },
-  );
-  fillRect(canvas, 870, 34, 14, 14, SIMPLE_PNG_COLORS.blue);
-  drawText(canvas, 892, 35, HOME_STATS_LABEL, SIMPLE_PNG_COLORS.soft, { scale: 1, maxWidth: 110 });
-  fillRect(canvas, 1010, 34, 14, 14, SIMPLE_PNG_COLORS.red);
-  drawText(canvas, 1032, 35, enemyName, SIMPLE_PNG_COLORS.soft, { scale: 1, maxWidth: 130 });
-
-  [
+  const headerHeight = 98;
+  const footerHeight = 24;
+  const panelGap = 18;
+  const statsPanels = [
     {
-      y: headerHeight,
       title: "FF stats",
       metric: "ff_battlestats" as const,
       buckets: SCOUTING_BATTLE_STATS_BUCKETS,
     },
     {
-      y: headerHeight + panelHeight,
       title: "BSP stats",
       metric: "bsp_battlestats" as const,
       buckets: SCOUTING_BATTLE_STATS_BUCKETS,
     },
     {
-      y: headerHeight + panelHeight * 2,
       title: "Networth",
       metric: "networth" as const,
       buckets: SCOUTING_NETWORTH_BUCKETS,
     },
-  ].forEach((panel) =>
+  ];
+  const panelHeights = statsPanels.map((panel) => statsPanelHeight(panel.buckets.length));
+  const height = headerHeight + panelHeights.reduce((total, panelHeight) => total + panelHeight, 0)
+    + panelGap * (statsPanels.length - 1) + footerHeight;
+  const canvas = createPngCanvas(width, height, SIMPLE_PNG_COLORS.page);
+  const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
+
+  fillRect(canvas, 24, 20, 1152, 64, SIMPLE_PNG_COLORS.dark);
+  drawText(canvas, 48, 34, `${enemyName} stats comparison`, SIMPLE_PNG_COLORS.white, {
+    scale: 3,
+    maxWidth: 780,
+  });
+  drawText(
+    canvas,
+    48,
+    64,
+    `Generated ${generatedAt} UTC after FF, BSP, and networth fills completed`,
+    SIMPLE_PNG_COLORS.mutedOnDark,
+    { scale: 1, maxWidth: 720 },
+  );
+  fillRect(canvas, 872, 36, 14, 14, SIMPLE_PNG_COLORS.blue);
+  drawText(canvas, 896, 38, HOME_STATS_LABEL, SIMPLE_PNG_COLORS.soft, { scale: 1, maxWidth: 110 });
+  fillRect(canvas, 1012, 36, 14, 14, SIMPLE_PNG_COLORS.red);
+  drawText(canvas, 1036, 38, enemyName, SIMPLE_PNG_COLORS.soft, { scale: 1, maxWidth: 120 });
+
+  let panelY = headerHeight;
+  statsPanels.forEach((panel, index) => {
     drawStatsPanel(canvas, {
       ...panel,
+      y: panelY,
+      height: panelHeights[index],
       homeMembers,
       enemyMembers,
       enemyName,
-    }),
-  );
+    });
+    panelY += panelHeights[index] + panelGap;
+  });
 
   return encodePng(canvas);
+}
+
+function statsPanelHeight(bucketCount: number): number {
+  return 74 + bucketCount * 23 + 22;
 }
 
 function drawStatsPanel(
   canvas: ReturnType<typeof createPngCanvas>,
   {
     y,
+    height,
     title,
     metric,
     buckets,
@@ -911,6 +968,7 @@ function drawStatsPanel(
     enemyName,
   }: {
     y: number;
+    height: number;
     title: string;
     metric: ScoutingComparisonMetric;
     buckets: ScoutingBucket[];
@@ -920,13 +978,16 @@ function drawStatsPanel(
   },
 ): void {
   const left = 48;
-  const top = y + 12;
-  const chartTop = y + 64;
-  const rowHeight = 14;
-  const gap = 7;
-  const bucketLabelWidth = 88;
+  const top = y + 16;
+  const chartTop = y + 70;
+  const rowHeight = 9;
+  const rowPairGap = 3;
+  const gap = 11;
+  const bucketLabelWidth = 86;
   const barLeft = left + bucketLabelWidth;
-  const barWidth = 890;
+  const barWidth = 810;
+  const countHomeX = barLeft + barWidth + 50;
+  const countEnemyX = countHomeX + 48;
   const homeValues = buildBucketCounts(homeMembers, buckets, metric);
   const enemyValues = buildBucketCounts(enemyMembers, buckets, metric);
   const maxValue = Math.max(1, ...homeValues, ...enemyValues);
@@ -935,52 +996,62 @@ function drawStatsPanel(
   const homeAverage = metricAverage(homeMembers, metric);
   const enemyAverage = metricAverage(enemyMembers, metric);
 
-  fillRect(canvas, 24, y, 1152, 230, SIMPLE_PNG_COLORS.white);
-  strokeRect(canvas, 24, y, 1152, 230, SIMPLE_PNG_COLORS.border);
+  fillRect(canvas, 24, y, 1152, height, SIMPLE_PNG_COLORS.white);
+  strokeRect(canvas, 24, y, 1152, height, SIMPLE_PNG_COLORS.border);
+  fillRect(canvas, 24, y, 1152, 34, SIMPLE_PNG_COLORS.alternate);
   drawText(canvas, left, top + 5, title, SIMPLE_PNG_COLORS.dark, { scale: 2, maxWidth: 160 });
   drawText(
     canvas,
-    left + 180,
-    top + 9,
+    420,
+    top + 10,
     `${HOME_STATS_LABEL} ${homeCoverage.available}/${homeCoverage.total} avg ${formatCompactNumber(homeAverage)}`,
     SIMPLE_PNG_COLORS.muted,
-    { scale: 1, maxWidth: 280 },
+    { scale: 1, maxWidth: 270, align: "center" },
   );
   drawText(
     canvas,
-    left + 485,
-    top + 9,
+    730,
+    top + 10,
     `${enemyName} ${enemyCoverage.available}/${enemyCoverage.total} avg ${formatCompactNumber(enemyAverage)}`,
     SIMPLE_PNG_COLORS.muted,
-    { scale: 1, maxWidth: 330 },
+    { scale: 1, maxWidth: 310, align: "center" },
   );
+  drawText(canvas, countHomeX, top + 10, "BG", SIMPLE_PNG_COLORS.blue, {
+    scale: 1,
+    align: "right",
+  });
+  drawText(canvas, countEnemyX, top + 10, "EN", SIMPLE_PNG_COLORS.red, {
+    scale: 1,
+    align: "right",
+  });
 
   buckets.forEach((bucket, index) => {
-    const rowY = chartTop + index * (rowHeight + gap);
+    const rowY = chartTop + index * (rowHeight * 2 + rowPairGap + gap);
     const homeWidth = Math.round((homeValues[index] / maxValue) * barWidth);
     const enemyWidth = Math.round((enemyValues[index] / maxValue) * barWidth);
-    drawText(canvas, left, rowY + 3, bucket.label, SIMPLE_PNG_COLORS.muted, {
+    drawText(canvas, left, rowY + 5, bucket.label, SIMPLE_PNG_COLORS.muted, {
       scale: 1,
       maxWidth: bucketLabelWidth - 4,
     });
-    fillRect(canvas, barLeft, rowY, barWidth, rowHeight * 2 + 2, SIMPLE_PNG_COLORS.soft);
+    fillRect(canvas, barLeft, rowY, barWidth, rowHeight * 2 + rowPairGap, SIMPLE_PNG_COLORS.soft);
     if (homeWidth > 0) {
       fillRect(canvas, barLeft, rowY, homeWidth, rowHeight, SIMPLE_PNG_COLORS.blue);
     }
     if (enemyWidth > 0) {
-      fillRect(canvas, barLeft, rowY + rowHeight + 2, enemyWidth, rowHeight, SIMPLE_PNG_COLORS.red);
+      fillRect(canvas, barLeft, rowY + rowHeight + rowPairGap, enemyWidth, rowHeight, SIMPLE_PNG_COLORS.red);
     }
-    drawText(canvas, barLeft + barWidth + 12, rowY + 3, String(homeValues[index]), SIMPLE_PNG_COLORS.text, {
+    drawText(canvas, countHomeX, rowY + 1, String(homeValues[index]), SIMPLE_PNG_COLORS.text, {
       scale: 1,
-      maxWidth: 40,
+      maxWidth: 36,
+      align: "right",
     });
     drawText(
       canvas,
-      barLeft + barWidth + 12,
-      rowY + rowHeight + 5,
+      countEnemyX,
+      rowY + rowHeight + rowPairGap + 1,
       String(enemyValues[index]),
       SIMPLE_PNG_COLORS.text,
-      { scale: 1, maxWidth: 40 },
+      { scale: 1, maxWidth: 36, align: "right" },
     );
   });
 }
@@ -993,10 +1064,10 @@ function buildEnemyMemberStatsTablePng({
   enemyMembers: EnemyFactionMemberRow[];
 }): Uint8Array {
   const width = 1200;
-  const tableTop = 92;
-  const tableHeaderHeight = 26;
-  const rowHeight = 22;
-  const footerHeight = 28;
+  const tableTop = 96;
+  const tableHeaderHeight = 30;
+  const rowHeight = 24;
+  const footerHeight = 24;
   const members = [...enemyMembers].sort(compareEnemyMemberStatsRows);
   const bodyRows = Math.max(1, members.length);
   const tableHeight = tableHeaderHeight + bodyRows * rowHeight;
@@ -1004,22 +1075,25 @@ function buildEnemyMemberStatsTablePng({
   const canvas = createPngCanvas(width, height, SIMPLE_PNG_COLORS.page);
   const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
 
-  fillRect(canvas, 24, 20, 1152, 58, SIMPLE_PNG_COLORS.dark);
-  drawText(canvas, 48, 36, `${enemyName} member stats`, SIMPLE_PNG_COLORS.white, {
+  fillRect(canvas, 24, 20, 1152, 62, SIMPLE_PNG_COLORS.dark);
+  drawText(canvas, 48, 34, `${enemyName} member stats`, SIMPLE_PNG_COLORS.white, {
     scale: 3,
     maxWidth: 800,
   });
-  drawText(canvas, 48, 62, `Generated ${generatedAt} UTC`, SIMPLE_PNG_COLORS.mutedOnDark, {
+  drawText(canvas, 48, 64, `Generated ${generatedAt} UTC`, SIMPLE_PNG_COLORS.mutedOnDark, {
     scale: 1,
     maxWidth: 260,
   });
   fillRect(canvas, 24, tableTop, 1152, tableHeight, SIMPLE_PNG_COLORS.white);
   strokeRect(canvas, 24, tableTop, 1152, tableHeight, SIMPLE_PNG_COLORS.border);
   fillRect(canvas, 24, tableTop, 1152, tableHeaderHeight, SIMPLE_PNG_COLORS.soft);
-  drawText(canvas, 48, tableTop + 8, "Name", SIMPLE_PNG_COLORS.muted, { scale: 1 });
-  drawText(canvas, 580, tableTop + 8, "Level", SIMPLE_PNG_COLORS.muted, { scale: 1 });
-  drawText(canvas, 720, tableTop + 8, "FF stats", SIMPLE_PNG_COLORS.muted, { scale: 1 });
-  drawText(canvas, 940, tableTop + 8, "BSP stats", SIMPLE_PNG_COLORS.muted, { scale: 1 });
+  drawText(canvas, 48, tableTop + 10, "Name", SIMPLE_PNG_COLORS.muted, { scale: 1 });
+  drawText(canvas, 610, tableTop + 10, "Level", SIMPLE_PNG_COLORS.muted, { scale: 1, align: "right" });
+  drawText(canvas, 790, tableTop + 10, "FF stats", SIMPLE_PNG_COLORS.muted, { scale: 1, align: "right" });
+  drawText(canvas, 1010, tableTop + 10, "BSP stats", SIMPLE_PNG_COLORS.muted, {
+    scale: 1,
+    align: "right",
+  });
 
   if (members.length === 0) {
     const y = tableTop + tableHeaderHeight;
@@ -1041,21 +1115,24 @@ function buildEnemyMemberStatsTablePng({
       rowHeight,
       index % 2 === 0 ? SIMPLE_PNG_COLORS.white : SIMPLE_PNG_COLORS.alternate,
     );
-    drawText(canvas, 48, y + 6, member.name ?? `#${member.member_id}`, SIMPLE_PNG_COLORS.dark, {
+    drawText(canvas, 48, y + 7, member.name ?? `#${member.member_id}`, SIMPLE_PNG_COLORS.dark, {
       scale: 1,
       maxWidth: 430,
     });
-    drawText(canvas, 580, y + 6, formatNullableInteger(member.level), SIMPLE_PNG_COLORS.text, {
+    drawText(canvas, 610, y + 7, formatNullableInteger(member.level), SIMPLE_PNG_COLORS.text, {
       scale: 1,
       maxWidth: 80,
+      align: "right",
     });
-    drawText(canvas, 720, y + 6, formatNullableInteger(member.ff_battlestats), SIMPLE_PNG_COLORS.text, {
+    drawText(canvas, 790, y + 7, formatNullableInteger(member.ff_battlestats), SIMPLE_PNG_COLORS.text, {
       scale: 1,
       maxWidth: 160,
+      align: "right",
     });
-    drawText(canvas, 940, y + 6, formatNullableInteger(member.bsp_battlestats), SIMPLE_PNG_COLORS.text, {
+    drawText(canvas, 1010, y + 7, formatNullableInteger(member.bsp_battlestats), SIMPLE_PNG_COLORS.text, {
       scale: 1,
       maxWidth: 160,
+      align: "right",
     });
   });
 

@@ -86,11 +86,14 @@ export function drawText(
   y: number,
   text: string,
   color: PngColor,
-  options: { scale?: number; maxWidth?: number } = {},
+  options: { scale?: number; maxWidth?: number; align?: "left" | "center" | "right" } = {},
 ): void {
   const scale = options.scale ?? 2;
   const value = options.maxWidth ? truncateText(text, options.maxWidth, scale) : text;
-  let cursorX = Math.floor(x);
+  const width = measureText(value, scale);
+  const alignOffset =
+    options.align === "right" ? width : options.align === "center" ? Math.round(width / 2) : 0;
+  let cursorX = Math.floor(x) - alignOffset;
   const cursorY = Math.floor(y);
   for (const char of normalizeText(value)) {
     const glyph = FONT[char] ?? FONT[" "];
