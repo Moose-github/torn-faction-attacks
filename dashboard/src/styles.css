@@ -1912,6 +1912,76 @@ h2 {
   justify-items: start;
 }
 
+.payout-calculator-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.payout-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.payout-controls.compact {
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+}
+
+.payout-controls label,
+.payout-bonus-rules label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.payout-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.payout-rules-table input,
+.payout-rules-table select {
+  width: 100%;
+  min-width: 110px;
+}
+
+.payout-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.payout-summary-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #dbe4ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.payout-summary-item span {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.payout-summary-item strong {
+  color: #0f172a;
+  font-size: 1rem;
+}
+
+.payout-table td:last-child,
+.payout-table th:last-child {
+  text-align: right;
+}
+
 .lifestyle-period-card,
 .lifestyle-average-card {
   min-height: 156px;
@@ -2741,6 +2811,9 @@ tbody tr:not(.attack-row):hover td {
   .revivable-grid,
   .enemy-status-summary-grid,
   .content-grid,
+  .payout-controls,
+  .payout-controls.compact,
+  .payout-summary-grid,
   .dashboard-layout {
     grid-template-columns: 1fr;
   }
@@ -2821,6 +2894,7 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .inline-metric,
 :root[data-theme="dark"] .enemy-status-summary-item,
 :root[data-theme="dark"] .push-pressure-status > div,
+:root[data-theme="dark"] .payout-summary-item,
 :root[data-theme="dark"] .revivable-list,
 :root[data-theme="dark"] .dice-player-card,
 :root[data-theme="dark"] .dice-leaderboard-panel,
@@ -3049,6 +3123,7 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .respect-adjustment-marker,
 :root[data-theme="dark"] .inline-metric span,
+:root[data-theme="dark"] .payout-summary-item span,
 :root[data-theme="dark"] .progress-block small,
 :root[data-theme="dark"] .war-nav small,
 :root[data-theme="dark"] .lifestyle-main-metric-label,
