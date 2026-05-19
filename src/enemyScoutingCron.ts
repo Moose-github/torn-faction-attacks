@@ -19,6 +19,14 @@ import { Env } from "./types";
 import { d1Changes, finiteNumber, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./warRoomTracking";
 import {
+  SIMPLE_PNG_COLORS,
+  createPngCanvas,
+  drawText,
+  encodePng,
+  fillRect,
+  strokeRect,
+} from "./simplePng";
+import {
   SCOUTING_BATTLE_STATS_BUCKETS,
   SCOUTING_NETWORTH_BUCKETS,
   ScoutingBucket,
@@ -640,12 +648,12 @@ async function sendPendingEnemyStatsComparisonImageForContext(
     readHomeScouting(env),
     readEnemyScouting(env, scoutingWar.enemy_faction_id),
   ]);
-  const svg = buildStatsComparisonSvg({
+  const statsComparisonPng = buildStatsComparisonPng({
     enemyName: scoutingWar.name,
     homeMembers,
     enemyMembers,
   });
-  const memberTableSvg = buildEnemyMemberStatsTableSvg({
+  const memberTablePng = buildEnemyMemberStatsTablePng({
     enemyName: scoutingWar.name,
     enemyMembers,
   });
@@ -654,14 +662,14 @@ async function sendPendingEnemyStatsComparisonImageForContext(
     content: `Enemy stats comparison ready: ${scoutingWar.name}`,
     attachments: [
       {
-        filename: `enemy-stats-comparison-${scoutingWar.id}.svg`,
-        mimeType: "image/svg+xml",
-        data: svg,
+        filename: `enemy-stats-comparison-${scoutingWar.id}.png`,
+        mimeType: "image/png",
+        data: statsComparisonPng,
       },
       {
-        filename: `enemy-member-stats-${scoutingWar.id}.svg`,
-        mimeType: "image/svg+xml",
-        data: memberTableSvg,
+        filename: `enemy-member-stats-${scoutingWar.id}.png`,
+        mimeType: "image/png",
+        data: memberTablePng,
       },
     ],
   });
@@ -799,7 +807,7 @@ function emptyScoutingNetworthRefreshMetrics(): ScoutingNetworthRefreshMetrics {
   };
 }
 
-function buildStatsComparisonSvg({
+function buildStatsComparisonPng({
   enemyName,
   homeMembers,
   enemyMembers,
@@ -807,75 +815,84 @@ function buildStatsComparisonSvg({
   enemyName: string;
   homeMembers: EnemyFactionMemberRow[];
   enemyMembers: EnemyFactionMemberRow[];
-}): string {
+}): Uint8Array {
   const width = 1200;
   const panelHeight = 245;
   const headerHeight = 95;
   const footerHeight = 35;
   const height = headerHeight + panelHeight * 3 + footerHeight;
+  const canvas = createPngCanvas(width, height, SIMPLE_PNG_COLORS.page);
   const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
-  const panels = [
-    renderStatsPanel({
+
+  fillRect(canvas, 24, 20, 1152, 62, SIMPLE_PNG_COLORS.dark);
+  drawText(canvas, 48, 36, `${enemyName} stats comparison`, SIMPLE_PNG_COLORS.white, {
+    scale: 3,
+    maxWidth: 760,
+  });
+  drawText(
+    canvas,
+    48,
+    62,
+    `Generated ${generatedAt} UTC after FF, BSP, and networth fills completed`,
+    SIMPLE_PNG_COLORS.mutedOnDark,
+    { scale: 1, maxWidth: 720 },
+  );
+  fillRect(canvas, 870, 34, 14, 14, SIMPLE_PNG_COLORS.blue);
+  drawText(canvas, 892, 35, HOME_STATS_LABEL, SIMPLE_PNG_COLORS.soft, { scale: 1, maxWidth: 110 });
+  fillRect(canvas, 1010, 34, 14, 14, SIMPLE_PNG_COLORS.red);
+  drawText(canvas, 1032, 35, enemyName, SIMPLE_PNG_COLORS.soft, { scale: 1, maxWidth: 130 });
+
+  [
+    {
       y: headerHeight,
       title: "FF stats",
-      metric: "ff_battlestats",
+      metric: "ff_battlestats" as const,
       buckets: SCOUTING_BATTLE_STATS_BUCKETS,
-      homeMembers,
-      enemyMembers,
-      enemyName,
-    }),
-    renderStatsPanel({
+    },
+    {
       y: headerHeight + panelHeight,
       title: "BSP stats",
-      metric: "bsp_battlestats",
+      metric: "bsp_battlestats" as const,
       buckets: SCOUTING_BATTLE_STATS_BUCKETS,
-      homeMembers,
-      enemyMembers,
-      enemyName,
-    }),
-    renderStatsPanel({
+    },
+    {
       y: headerHeight + panelHeight * 2,
       title: "Networth",
-      metric: "networth",
+      metric: "networth" as const,
       buckets: SCOUTING_NETWORTH_BUCKETS,
+    },
+  ].forEach((panel) =>
+    drawStatsPanel(canvas, {
+      ...panel,
       homeMembers,
       enemyMembers,
       enemyName,
     }),
-  ].join("");
+  );
 
-  return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Enemy stats comparison">`,
-    "<rect width=\"1200\" height=\"865\" fill=\"#f8fafc\"/>",
-    "<rect x=\"24\" y=\"20\" width=\"1152\" height=\"62\" rx=\"10\" fill=\"#0f172a\"/>",
-    `<text x="48" y="48" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#ffffff">${escapeSvg(enemyName)} stats comparison</text>`,
-    `<text x="48" y="70" font-family="Arial, sans-serif" font-size="13" fill="#cbd5e1">Generated ${escapeSvg(generatedAt)} UTC after FF, BSP, and networth fills completed</text>`,
-    "<rect x=\"870\" y=\"34\" width=\"14\" height=\"14\" rx=\"3\" fill=\"#2563eb\"/>",
-    `<text x="892" y="46" font-family="Arial, sans-serif" font-size="13" fill="#e2e8f0">${escapeSvg(HOME_STATS_LABEL)}</text>`,
-    "<rect x=\"1010\" y=\"34\" width=\"14\" height=\"14\" rx=\"3\" fill=\"#dc2626\"/>",
-    `<text x="1032" y="46" font-family="Arial, sans-serif" font-size="13" fill="#e2e8f0">${escapeSvg(enemyName)}</text>`,
-    panels,
-    "</svg>",
-  ].join("");
+  return encodePng(canvas);
 }
 
-function renderStatsPanel({
-  y,
-  title,
-  metric,
-  buckets,
-  homeMembers,
-  enemyMembers,
-  enemyName,
-}: {
-  y: number;
-  title: string;
-  metric: ScoutingComparisonMetric;
-  buckets: ScoutingBucket[];
-  homeMembers: EnemyFactionMemberRow[];
-  enemyMembers: EnemyFactionMemberRow[];
-  enemyName: string;
-}): string {
+function drawStatsPanel(
+  canvas: ReturnType<typeof createPngCanvas>,
+  {
+    y,
+    title,
+    metric,
+    buckets,
+    homeMembers,
+    enemyMembers,
+    enemyName,
+  }: {
+    y: number;
+    title: string;
+    metric: ScoutingComparisonMetric;
+    buckets: ScoutingBucket[];
+    homeMembers: EnemyFactionMemberRow[];
+    enemyMembers: EnemyFactionMemberRow[];
+    enemyName: string;
+  },
+): void {
   const left = 48;
   const top = y + 12;
   const chartTop = y + 64;
@@ -891,79 +908,132 @@ function renderStatsPanel({
   const enemyCoverage = metricCoverage(enemyMembers, metric);
   const homeAverage = metricAverage(homeMembers, metric);
   const enemyAverage = metricAverage(enemyMembers, metric);
-  const rows = buckets.map((bucket, index) => {
+
+  fillRect(canvas, 24, y, 1152, 230, SIMPLE_PNG_COLORS.white);
+  strokeRect(canvas, 24, y, 1152, 230, SIMPLE_PNG_COLORS.border);
+  drawText(canvas, left, top + 5, title, SIMPLE_PNG_COLORS.dark, { scale: 2, maxWidth: 160 });
+  drawText(
+    canvas,
+    left + 180,
+    top + 9,
+    `${HOME_STATS_LABEL} ${homeCoverage.available}/${homeCoverage.total} avg ${formatCompactNumber(homeAverage)}`,
+    SIMPLE_PNG_COLORS.muted,
+    { scale: 1, maxWidth: 280 },
+  );
+  drawText(
+    canvas,
+    left + 485,
+    top + 9,
+    `${enemyName} ${enemyCoverage.available}/${enemyCoverage.total} avg ${formatCompactNumber(enemyAverage)}`,
+    SIMPLE_PNG_COLORS.muted,
+    { scale: 1, maxWidth: 330 },
+  );
+
+  buckets.forEach((bucket, index) => {
     const rowY = chartTop + index * (rowHeight + gap);
     const homeWidth = Math.round((homeValues[index] / maxValue) * barWidth);
     const enemyWidth = Math.round((enemyValues[index] / maxValue) * barWidth);
-    return [
-      `<text x="${left}" y="${rowY + 11}" font-family="Arial, sans-serif" font-size="11" fill="#475569">${escapeSvg(bucket.label)}</text>`,
-      `<rect x="${barLeft}" y="${rowY}" width="${barWidth}" height="${rowHeight * 2 + 2}" rx="3" fill="#e2e8f0"/>`,
-      `<rect x="${barLeft}" y="${rowY}" width="${homeWidth}" height="${rowHeight}" rx="3" fill="#2563eb"/>`,
-      `<rect x="${barLeft}" y="${rowY + rowHeight + 2}" width="${enemyWidth}" height="${rowHeight}" rx="3" fill="#dc2626"/>`,
-      `<text x="${barLeft + barWidth + 12}" y="${rowY + 11}" font-family="Arial, sans-serif" font-size="11" fill="#334155">${homeValues[index]}</text>`,
-      `<text x="${barLeft + barWidth + 12}" y="${rowY + rowHeight + 13}" font-family="Arial, sans-serif" font-size="11" fill="#334155">${enemyValues[index]}</text>`,
-    ].join("");
-  }).join("");
-
-  return [
-    `<rect x="24" y="${y}" width="1152" height="230" rx="10" fill="#ffffff" stroke="#dbe4ee"/>`,
-    `<text x="${left}" y="${top + 18}" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#0f172a">${escapeSvg(title)}</text>`,
-    `<text x="${left + 180}" y="${top + 18}" font-family="Arial, sans-serif" font-size="12" fill="#475569">${escapeSvg(HOME_STATS_LABEL)} ${homeCoverage.available}/${homeCoverage.total} avg ${escapeSvg(formatCompactNumber(homeAverage))}</text>`,
-    `<text x="${left + 485}" y="${top + 18}" font-family="Arial, sans-serif" font-size="12" fill="#475569">${escapeSvg(enemyName)} ${enemyCoverage.available}/${enemyCoverage.total} avg ${escapeSvg(formatCompactNumber(enemyAverage))}</text>`,
-    rows,
-  ].join("");
+    drawText(canvas, left, rowY + 3, bucket.label, SIMPLE_PNG_COLORS.muted, {
+      scale: 1,
+      maxWidth: bucketLabelWidth - 4,
+    });
+    fillRect(canvas, barLeft, rowY, barWidth, rowHeight * 2 + 2, SIMPLE_PNG_COLORS.soft);
+    if (homeWidth > 0) {
+      fillRect(canvas, barLeft, rowY, homeWidth, rowHeight, SIMPLE_PNG_COLORS.blue);
+    }
+    if (enemyWidth > 0) {
+      fillRect(canvas, barLeft, rowY + rowHeight + 2, enemyWidth, rowHeight, SIMPLE_PNG_COLORS.red);
+    }
+    drawText(canvas, barLeft + barWidth + 12, rowY + 3, String(homeValues[index]), SIMPLE_PNG_COLORS.text, {
+      scale: 1,
+      maxWidth: 40,
+    });
+    drawText(
+      canvas,
+      barLeft + barWidth + 12,
+      rowY + rowHeight + 5,
+      String(enemyValues[index]),
+      SIMPLE_PNG_COLORS.text,
+      { scale: 1, maxWidth: 40 },
+    );
+  });
 }
 
-function buildEnemyMemberStatsTableSvg({
+function buildEnemyMemberStatsTablePng({
   enemyName,
   enemyMembers,
 }: {
   enemyName: string;
   enemyMembers: EnemyFactionMemberRow[];
-}): string {
+}): Uint8Array {
   const width = 1200;
   const tableTop = 92;
-  const tableHeaderHeight = 30;
-  const rowHeight = 28;
+  const tableHeaderHeight = 26;
+  const rowHeight = 22;
   const footerHeight = 28;
   const members = [...enemyMembers].sort(compareEnemyMemberStatsRows);
   const bodyRows = Math.max(1, members.length);
   const tableHeight = tableHeaderHeight + bodyRows * rowHeight;
   const height = tableTop + tableHeight + footerHeight;
+  const canvas = createPngCanvas(width, height, SIMPLE_PNG_COLORS.page);
   const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
-  const rows = members.length > 0
-    ? members.map((member, index) => {
-        const y = tableTop + tableHeaderHeight + index * rowHeight;
-        const fill = index % 2 === 0 ? "#ffffff" : "#f8fafc";
-        return [
-          `<rect x="24" y="${y}" width="1152" height="${rowHeight}" fill="${fill}"/>`,
-          `<text x="48" y="${y + 19}" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">${escapeSvg(truncateSvgText(member.name ?? `#${member.member_id}`, 40))}</text>`,
-          `<text x="580" y="${y + 19}" font-family="Arial, sans-serif" font-size="13" fill="#334155">${escapeSvg(formatNullableInteger(member.level))}</text>`,
-          `<text x="720" y="${y + 19}" font-family="Arial, sans-serif" font-size="13" fill="#334155">${escapeSvg(formatNullableInteger(member.ff_battlestats))}</text>`,
-          `<text x="940" y="${y + 19}" font-family="Arial, sans-serif" font-size="13" fill="#334155">${escapeSvg(formatNullableInteger(member.bsp_battlestats))}</text>`,
-        ].join("");
-      }).join("")
-    : [
-        `<rect x="24" y="${tableTop + tableHeaderHeight}" width="1152" height="${rowHeight}" fill="#ffffff"/>`,
-        `<text x="48" y="${tableTop + tableHeaderHeight + 19}" font-family="Arial, sans-serif" font-size="13" fill="#64748b">No enemy members cached</text>`,
-      ].join("");
 
-  return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Enemy member stats table">`,
-    `<rect width="${width}" height="${height}" fill="#f8fafc"/>`,
-    "<rect x=\"24\" y=\"20\" width=\"1152\" height=\"58\" rx=\"10\" fill=\"#0f172a\"/>",
-    `<text x="48" y="47" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">${escapeSvg(enemyName)} member stats</text>`,
-    `<text x="48" y="68" font-family="Arial, sans-serif" font-size="12" fill="#cbd5e1">Generated ${escapeSvg(generatedAt)} UTC</text>`,
-    `<rect x="24" y="78" width="1152" height="14" fill="#f8fafc"/>`,
-    `<rect x="24" y="${tableTop}" width="1152" height="${tableHeight}" rx="8" fill="#ffffff" stroke="#dbe4ee"/>`,
-    "<rect x=\"24\" y=\"92\" width=\"1152\" height=\"30\" rx=\"8\" fill=\"#e2e8f0\"/>",
-    "<text x=\"48\" y=\"112\" font-family=\"Arial, sans-serif\" font-size=\"12\" font-weight=\"700\" fill=\"#475569\">NAME</text>",
-    "<text x=\"580\" y=\"112\" font-family=\"Arial, sans-serif\" font-size=\"12\" font-weight=\"700\" fill=\"#475569\">LEVEL</text>",
-    "<text x=\"720\" y=\"112\" font-family=\"Arial, sans-serif\" font-size=\"12\" font-weight=\"700\" fill=\"#475569\">FF STATS</text>",
-    "<text x=\"940\" y=\"112\" font-family=\"Arial, sans-serif\" font-size=\"12\" font-weight=\"700\" fill=\"#475569\">BSP STATS</text>",
-    rows,
-    "</svg>",
-  ].join("");
+  fillRect(canvas, 24, 20, 1152, 58, SIMPLE_PNG_COLORS.dark);
+  drawText(canvas, 48, 36, `${enemyName} member stats`, SIMPLE_PNG_COLORS.white, {
+    scale: 3,
+    maxWidth: 800,
+  });
+  drawText(canvas, 48, 62, `Generated ${generatedAt} UTC`, SIMPLE_PNG_COLORS.mutedOnDark, {
+    scale: 1,
+    maxWidth: 260,
+  });
+  fillRect(canvas, 24, tableTop, 1152, tableHeight, SIMPLE_PNG_COLORS.white);
+  strokeRect(canvas, 24, tableTop, 1152, tableHeight, SIMPLE_PNG_COLORS.border);
+  fillRect(canvas, 24, tableTop, 1152, tableHeaderHeight, SIMPLE_PNG_COLORS.soft);
+  drawText(canvas, 48, tableTop + 8, "Name", SIMPLE_PNG_COLORS.muted, { scale: 1 });
+  drawText(canvas, 580, tableTop + 8, "Level", SIMPLE_PNG_COLORS.muted, { scale: 1 });
+  drawText(canvas, 720, tableTop + 8, "FF stats", SIMPLE_PNG_COLORS.muted, { scale: 1 });
+  drawText(canvas, 940, tableTop + 8, "BSP stats", SIMPLE_PNG_COLORS.muted, { scale: 1 });
+
+  if (members.length === 0) {
+    const y = tableTop + tableHeaderHeight;
+    fillRect(canvas, 24, y, 1152, rowHeight, SIMPLE_PNG_COLORS.white);
+    drawText(canvas, 48, y + 6, "No enemy members cached", SIMPLE_PNG_COLORS.muted, {
+      scale: 1,
+      maxWidth: 300,
+    });
+    return encodePng(canvas);
+  }
+
+  members.forEach((member, index) => {
+    const y = tableTop + tableHeaderHeight + index * rowHeight;
+    fillRect(
+      canvas,
+      24,
+      y,
+      1152,
+      rowHeight,
+      index % 2 === 0 ? SIMPLE_PNG_COLORS.white : SIMPLE_PNG_COLORS.alternate,
+    );
+    drawText(canvas, 48, y + 6, member.name ?? `#${member.member_id}`, SIMPLE_PNG_COLORS.dark, {
+      scale: 1,
+      maxWidth: 430,
+    });
+    drawText(canvas, 580, y + 6, formatNullableInteger(member.level), SIMPLE_PNG_COLORS.text, {
+      scale: 1,
+      maxWidth: 80,
+    });
+    drawText(canvas, 720, y + 6, formatNullableInteger(member.ff_battlestats), SIMPLE_PNG_COLORS.text, {
+      scale: 1,
+      maxWidth: 160,
+    });
+    drawText(canvas, 940, y + 6, formatNullableInteger(member.bsp_battlestats), SIMPLE_PNG_COLORS.text, {
+      scale: 1,
+      maxWidth: 160,
+    });
+  });
+
+  return encodePng(canvas);
 }
 
 function compareEnemyMemberStatsRows(a: EnemyFactionMemberRow, b: EnemyFactionMemberRow): number {
@@ -987,10 +1057,6 @@ function formatNullableInteger(value: number | null | undefined): string {
   return Number.isFinite(numberValue) && numberValue > 0
     ? Math.round(numberValue).toLocaleString("en-US")
     : "-";
-}
-
-function truncateSvgText(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, Math.max(0, maxLength - 3))}...` : value;
 }
 
 function buildBucketCounts(
@@ -1055,12 +1121,4 @@ function formatCompactNumber(value: number | null): string {
 
 function trimNumber(value: number): string {
   return value.toFixed(value >= 10 ? 1 : 2).replace(/\.?0+$/, "");
-}
-
-function escapeSvg(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
