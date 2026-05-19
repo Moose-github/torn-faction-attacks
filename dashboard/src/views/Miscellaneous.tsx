@@ -494,7 +494,7 @@ function WarPayoutCalculator() {
       </div>
 
       {mode === "points" ? (
-        <section className="payout-rule-section">
+        <section className="payout-rule-section payout-section-divider">
           <div className="payout-section-header">
             <div>
               <strong>Points</strong>
@@ -559,7 +559,7 @@ function WarPayoutCalculator() {
         </section>
       ) : null}
 
-      <section className="payout-rule-section">
+      <section className="payout-rule-section payout-section-divider">
         <div className="payout-section-header">
           <div>
             <strong>Flat payments</strong>
@@ -623,7 +623,7 @@ function WarPayoutCalculator() {
         </div>
       </section>
 
-      <div className="payout-bonus-rules">
+      <div className="payout-bonus-rules payout-section-divider">
         <div className="payout-section-header">
           <div>
             <strong>Bonus percentage rules</strong>
@@ -698,7 +698,7 @@ function WarPayoutCalculator() {
         </div>
       </div>
 
-      <div className="payout-summary-grid">
+      <div className="payout-summary-grid payout-section-divider">
         <PayoutSummaryItem label="Total pool" value={payout.totalPool} />
         <PayoutSummaryItem label="Flat payments" value={payout.flatTotal} />
         <PayoutSummaryItem label="Remaining pool" value={payout.remainingPool} />

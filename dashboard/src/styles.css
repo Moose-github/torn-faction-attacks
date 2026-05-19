@@ -310,8 +310,14 @@ h2 {
 }
 
 .sidebar-wars-panel {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+.sidebar-wars-panel .panel-header {
+  flex: 0 0 auto;
 }
 
 .sidebar-dice-panel {
@@ -320,8 +326,9 @@ h2 {
 
 .war-nav {
   display: grid;
+  flex: 1 1 auto;
   gap: 8px;
-  max-height: calc(100vh - 362px);
+  min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -1964,6 +1971,11 @@ h2 {
   gap: 8px;
 }
 
+.payout-section-divider {
+  padding-top: 14px;
+  border-top: 1px solid rgba(148, 163, 184, 0.24);
+}
+
 .payout-rules-table input,
 .payout-rules-table select {
   width: 100%;
@@ -2981,7 +2993,8 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] th,
 :root[data-theme="dark"] td,
-:root[data-theme="dark"] .table-scroll {
+:root[data-theme="dark"] .table-scroll,
+:root[data-theme="dark"] .payout-section-divider {
   border-color: var(--border-faint);
 }
 
