@@ -16,7 +16,7 @@ import {
   setSyncLatch,
 } from "./syncLatches";
 import { Env } from "./types";
-import { d1Changes, finiteNumber, json, nowSeconds } from "./utils";
+import { corsHeaders, d1Changes, finiteNumber, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./warRoomTracking";
 import {
   SIMPLE_PNG_COLORS,
@@ -684,6 +684,7 @@ export async function previewEnemyStatsImageFromRequest(url: URL, env: Env): Pro
 
   return new Response(data, {
     headers: {
+      ...corsHeaders,
       "Content-Type": "image/png",
       "Content-Disposition": `inline; filename="${filename}"`,
       "Cache-Control": "no-store",

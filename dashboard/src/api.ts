@@ -828,6 +828,13 @@ export async function resetEnemyStatsImageLatches(): Promise<unknown> {
 }
 
 export async function previewEnemyStatsImage(type: EnemyStatsImagePreviewType): Promise<unknown> {
+  const previewWindow = window.open("", "_blank");
+  if (!previewWindow) {
+    throw new Error("Preview popup was blocked by the browser");
+  }
+  previewWindow.document.title = "Loading Discord image preview";
+  previewWindow.document.body.textContent = "Loading preview...";
+
   const response = await fetch(
     `${API_BASE_URL}/api/admin/enemy-stats-image/preview?type=${encodeURIComponent(type)}`,
     { headers: authHeaders(true) },
@@ -844,16 +851,17 @@ export async function previewEnemyStatsImage(type: EnemyStatsImagePreviewType): 
         message = text;
       }
     }
+    previewWindow.document.body.textContent = message;
     throw new Error(message);
   }
 
   const blob = await response.blob();
   const previewUrl = window.URL.createObjectURL(blob);
-  const opened = window.open(previewUrl, "_blank", "noopener");
-  window.setTimeout(() => window.URL.revokeObjectURL(previewUrl), 60_000);
+  previewWindow.location.href = previewUrl;
+  window.setTimeout(() => window.URL.revokeObjectURL(previewUrl), 300_000);
   return {
     ok: true,
-    opened: Boolean(opened),
+    opened: true,
     preview: type,
   };
 }
