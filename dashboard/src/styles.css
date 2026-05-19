@@ -143,7 +143,9 @@ input:disabled {
 
 .topbar-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
+  justify-content: flex-end;
   gap: 12px;
 }
 
@@ -272,6 +274,18 @@ h2 {
 
 .main-content {
   min-width: 0;
+}
+
+.main-content > .panel,
+.main-content > .collapsible-panel,
+.main-content > .status-grid,
+.main-content > .content-grid,
+.main-content > .hero-panel {
+  margin-bottom: 16px;
+}
+
+.main-content > :last-child {
+  margin-bottom: 0;
 }
 
 .sidebar {
@@ -918,7 +932,6 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.75fr) minmax(260px, 0.75fr);
   gap: 16px;
-  margin-bottom: 16px;
 }
 
 .enemy-scouting-panel {
@@ -1075,6 +1088,10 @@ h2 {
 }
 
 .activity-panel {
+  margin-bottom: 16px;
+}
+
+.member-activity-panel {
   margin-bottom: 16px;
 }
 
@@ -2661,6 +2678,10 @@ tbody tr:not(.attack-row):hover td {
     flex-direction: column;
   }
 
+  .topbar-actions {
+    justify-content: flex-start;
+  }
+
   .refresh-countdowns {
     justify-content: flex-start;
     margin-left: 0;
@@ -2727,6 +2748,7 @@ tbody tr:not(.attack-row):hover td {
 }
 
 :root[data-theme="dark"] .eyebrow,
+:root[data-theme="dark"] .panel-kicker,
 :root[data-theme="dark"] .panel-description,
 :root[data-theme="dark"] .metric-card-detail,
 :root[data-theme="dark"] .war-room-countdown span,
@@ -2767,6 +2789,7 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .sidebar-link,
 :root[data-theme="dark"] .war-nav button,
+:root[data-theme="dark"] .war-nav-type,
 :root[data-theme="dark"] .war-type-select,
 :root[data-theme="dark"] .panel-action-button,
 :root[data-theme="dark"] .icon-text-button,
@@ -2792,6 +2815,7 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .sidebar-link.active,
 :root[data-theme="dark"] .war-nav button.selected,
+:root[data-theme="dark"] .war-nav button.selected .war-nav-type,
 :root[data-theme="dark"] .toggle-chip.active,
 :root[data-theme="dark"] .member-activity-mode-button.active {
   border-color: var(--accent);
@@ -2809,6 +2833,10 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] td,
 :root[data-theme="dark"] .table-scroll {
   border-color: var(--border-faint);
+}
+
+:root[data-theme="dark"] td {
+  color: var(--text-main);
 }
 
 :root[data-theme="dark"] thead,
@@ -2834,7 +2862,10 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] a,
 :root[data-theme="dark"] .table-link,
-:root[data-theme="dark"] .member-link {
+:root[data-theme="dark"] .member-link,
+:root[data-theme="dark"] .enemy-member-actions a:first-child,
+:root[data-theme="dark"] .sort-button.active,
+:root[data-theme="dark"] .sort-button:hover {
   color: var(--accent-strong);
   text-decoration-color: rgba(147, 197, 253, 0.45);
 }
@@ -2951,8 +2982,23 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .heatmap-title-row,
 :root[data-theme="dark"] .api-key-use-notice dd,
 :root[data-theme="dark"] .lifestyle-sub-metrics b,
-:root[data-theme="dark"] .admin-metric-line strong {
+:root[data-theme="dark"] .admin-metric-line strong,
+:root[data-theme="dark"] .metric-card strong,
+:root[data-theme="dark"] .inline-metric strong,
+:root[data-theme="dark"] .respect-adjustment-value,
+:root[data-theme="dark"] .tooltip-value,
+:root[data-theme="dark"] .chain-bonus-table td {
   color: var(--text-main);
+}
+
+:root[data-theme="dark"] .respect-adjustment-marker,
+:root[data-theme="dark"] .inline-metric span,
+:root[data-theme="dark"] .progress-block small,
+:root[data-theme="dark"] .war-nav small,
+:root[data-theme="dark"] .lifestyle-main-metric-label,
+:root[data-theme="dark"] .lifestyle-date-range-note,
+:root[data-theme="dark"] .admin-header-controls {
+  color: var(--text-muted);
 }
 
 :root[data-theme="dark"] .enemy-status-badge {
@@ -3138,6 +3184,15 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] tbody tr:nth-child(even):not(.attack-row) td,
 :root[data-theme="dark"] tbody tr:not(.attack-row):hover td,
 :root[data-theme="dark"] .clickable-member-row:hover td {
+  background: var(--panel-hover-bg);
+}
+
+:root[data-theme="dark"] tbody tr:nth-child(odd):not(.attack-row) td,
+:root[data-theme="dark"] .chain-bonus-table tr:nth-child(odd) td {
+  background: var(--panel-bg-solid);
+}
+
+:root[data-theme="dark"] .chain-bonus-table tr:nth-child(even) td {
   background: var(--panel-hover-bg);
 }
 
