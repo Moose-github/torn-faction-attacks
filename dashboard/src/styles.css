@@ -482,6 +482,11 @@ h2 {
   line-height: 1;
 }
 
+.war-room-countdown-ended strong {
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
 .live-tracking-inactive-panel p {
   margin: 0;
   color: #475569;
@@ -2766,13 +2771,13 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .panel,
 :root[data-theme="dark"] .status-panel,
-:root[data-theme="dark"] .metric-card {
+:root[data-theme="dark"] .metric-card,
+:root[data-theme="dark"] .hero-panel {
   border-color: var(--border-soft);
   background: var(--panel-bg);
   box-shadow: var(--shadow-panel);
 }
 
-:root[data-theme="dark"] .hero-panel,
 :root[data-theme="dark"] .admin-result-panel pre,
 :root[data-theme="dark"] .inline-metric,
 :root[data-theme="dark"] .enemy-status-summary-item,

@@ -865,7 +865,7 @@ function WarStartCountdown({ war }: { war: WarSummary }) {
 
   if (isEnded) {
     return (
-      <div className="war-room-countdown">
+      <div className="war-room-countdown war-room-countdown-ended">
         <span>War ended</span>
         <strong>{endTime ? formatLongDateTime(endTime) : "Ended"}</strong>
       </div>

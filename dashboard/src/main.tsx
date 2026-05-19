@@ -672,6 +672,17 @@ function App() {
           <h1>Buttgrass Dashboard</h1>
         </div>
         <div className="topbar-actions">
+          <RefreshCountdowns />
+          {authSession ? (
+            <span
+              className="access-level-pill"
+              title={`Signed in as ${authSession.access_level}`}
+              aria-label={`Signed in as ${authSession.access_level}`}
+            >
+              {isAdmin ? <ShieldCheck size={15} /> : <UserRound size={15} />}
+              {isAdmin ? "Admin" : "Member"}
+            </span>
+          ) : null}
           <button
             type="button"
             className="theme-toggle-button"
@@ -683,21 +694,10 @@ function App() {
             <span>{themeMode === "dark" ? "Light" : "Dark"}</span>
           </button>
           {authSession ? (
-            <>
-              <span
-                className="access-level-pill"
-                title={`Signed in as ${authSession.access_level}`}
-                aria-label={`Signed in as ${authSession.access_level}`}
-              >
-                {isAdmin ? <ShieldCheck size={15} /> : <UserRound size={15} />}
-                {isAdmin ? "Admin" : "Member"}
-              </span>
-              <button type="button" className="panel-action-button" onClick={signOut}>
-                Sign out
-              </button>
-            </>
+            <button type="button" className="panel-action-button" onClick={signOut}>
+              Sign out
+            </button>
           ) : null}
-          <RefreshCountdowns />
         </div>
       </header>
 
