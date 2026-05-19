@@ -413,9 +413,7 @@ export function WarRoom({
               onToggle={() => togglePanel("enemyTravel")}
             />
           </>
-        ) : (
-          <LiveTrackingInactivePanel />
-        )}
+        ) : null}
 
         <CollapsiblePanel
           title="Stats comparison"
@@ -458,6 +456,13 @@ export function WarRoom({
             metricLabel={scoutingComparisonMetricLabel(scoutingComparisonMetric).toLowerCase()}
           />
         </CollapsiblePanel>
+
+        {!isMemberTrackingActive ? (
+          <LiveTrackingInactivePanel
+            collapsed={collapsedPanels.liveTrackingInactive ?? true}
+            onToggle={() => togglePanel("liveTrackingInactive")}
+          />
+        ) : null}
 
         <CollapsiblePanel
           title="Activity heatmaps"
@@ -505,16 +510,27 @@ export function WarRoom({
   );
 }
 
-function LiveTrackingInactivePanel() {
+function LiveTrackingInactivePanel({
+  collapsed,
+  onToggle,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <section className="panel live-tracking-inactive-panel">
-      <PanelHeader title="Live enemy tracking inactive" />
+    <CollapsiblePanel
+      title="Live enemy tracking inactive"
+      aside="Not gathering"
+      collapsed={collapsed}
+      onToggle={onToggle}
+      className="live-tracking-inactive-panel"
+    >
       <p>
         Push pressure, travel tracking, revivable members and Enemy status are not currently being gathered.
         <br />
         Collection starts two hours before official war start and stops at practical finish.
       </p>
-    </section>
+    </CollapsiblePanel>
   );
 }
 
