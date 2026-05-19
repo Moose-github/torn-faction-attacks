@@ -9,40 +9,34 @@ export function EnemyTravelPanel({
   members,
   statusCheckedAt,
   isLoading,
-  isCollecting,
   collapsed,
   onToggle,
 }: {
   members: EnemyFactionMember[];
   statusCheckedAt: number | null;
   isLoading: boolean;
-  isCollecting: boolean;
   collapsed: boolean;
   onToggle: () => void;
 }) {
   const nowSeconds = Math.floor(useCurrentTime() / 1000);
-  const travelers = isCollecting
-    ? members
-        .filter((member) => member.status_state === "Traveling")
-        .sort((a, b) => {
-          const arrivalDiff =
-            Number(a.estimated_arrival_at ?? Number.MAX_SAFE_INTEGER) -
-            Number(b.estimated_arrival_at ?? Number.MAX_SAFE_INTEGER);
-          return arrivalDiff !== 0 ? arrivalDiff : a.name.localeCompare(b.name);
-        })
-    : [];
-  const abroadMembers = isCollecting
-    ? members
-        .filter((member) => member.status_state === "Abroad")
-        .sort((a, b) => formatAbroadLocation(a).localeCompare(formatAbroadLocation(b)) || a.name.localeCompare(b.name))
-    : [];
+  const travelers = members
+    .filter((member) => member.status_state === "Traveling")
+    .sort((a, b) => {
+      const arrivalDiff =
+        Number(a.estimated_arrival_at ?? Number.MAX_SAFE_INTEGER) -
+        Number(b.estimated_arrival_at ?? Number.MAX_SAFE_INTEGER);
+      return arrivalDiff !== 0 ? arrivalDiff : a.name.localeCompare(b.name);
+    });
+  const abroadMembers = members
+    .filter((member) => member.status_state === "Abroad")
+    .sort((a, b) => formatAbroadLocation(a).localeCompare(formatAbroadLocation(b)) || a.name.localeCompare(b.name));
   const checkedLabel = statusCheckedAt ? `Checked ${formatRelativeTime(statusCheckedAt)}` : "Not checked";
   const travelSummary = `${travelers.length} traveling | ${abroadMembers.length} abroad | ${checkedLabel}`;
 
   return (
     <CollapsiblePanel
       title="Enemy travel tracker"
-      aside={isCollecting ? (isLoading ? "Loading" : travelSummary) : "Not gathering"}
+      aside={isLoading ? "Loading" : travelSummary}
       collapsed={collapsed}
       onToggle={onToggle}
       className="enemy-travel-panel table-panel"
@@ -52,9 +46,7 @@ export function EnemyTravelPanel({
         <br />
         Torn reports both Standard and Business Class flights as airliner, so those estimates are shown as a range.
       </p>
-      {!isCollecting ? (
-        <EmptyState text="Enemy travel information is not currently being gathered. Collection starts two hours before official war start and stops at practical finish." />
-      ) : travelers.length === 0 && abroadMembers.length === 0 ? (
+      {travelers.length === 0 && abroadMembers.length === 0 ? (
         <EmptyState text="No enemy travelers or abroad members cached" />
       ) : (
         <div className="enemy-travel-sections">

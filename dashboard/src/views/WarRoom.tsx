@@ -377,26 +377,45 @@ export function WarRoom({
           </p>
         </div>
         <WarStartCountdown
-          startTime={selectedWar.official_start_time ?? selectedWar.practical_start_time}
+          war={selectedWar}
         />
       </section>
 
       <section className="content-grid">
         {isMemberTrackingActive ? (
-          <EnemyStatusSummaryPanel
-            members={enemyScouting?.members ?? []}
-            statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
-            isLoading={isLoadingEnemyScouting}
-          />
-        ) : null}
+          <>
+            <EnemyStatusSummaryPanel
+              members={enemyScouting?.members ?? []}
+              statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
+              isLoading={isLoadingEnemyScouting}
+            />
 
-        <EnemyPushPressurePanel
-          data={pushPressure}
-          isLoading={isLoadingPushPressure}
-          isCollecting={isMemberTrackingActive}
-          collapsed={collapsedPanels.enemyPushPressure ?? false}
-          onToggle={() => togglePanel("enemyPushPressure")}
-        />
+            <EnemyPushPressurePanel
+              data={pushPressure}
+              isLoading={isLoadingPushPressure}
+              collapsed={collapsedPanels.enemyPushPressure ?? false}
+              onToggle={() => togglePanel("enemyPushPressure")}
+            />
+
+            <RevivableMembersPanel
+              homeMembers={scoutingComparison?.home.members ?? []}
+              enemyMembers={scoutingComparison?.enemy.members ?? []}
+              enemyName={selectedWar.name}
+              collapsed={collapsedPanels.revivableMembers ?? true}
+              onToggle={() => togglePanel("revivableMembers")}
+            />
+
+            <EnemyTravelPanel
+              members={enemyScouting?.members ?? []}
+              statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
+              isLoading={isLoadingEnemyScouting}
+              collapsed={collapsedPanels.enemyTravel ?? false}
+              onToggle={() => togglePanel("enemyTravel")}
+            />
+          </>
+        ) : (
+          <LiveTrackingInactivePanel />
+        )}
 
         <CollapsiblePanel
           title="Stats comparison"
@@ -473,24 +492,6 @@ export function WarRoom({
           </div>
         </CollapsiblePanel>
 
-        <RevivableMembersPanel
-          homeMembers={scoutingComparison?.home.members ?? []}
-          enemyMembers={scoutingComparison?.enemy.members ?? []}
-          enemyName={selectedWar.name}
-          isCollecting={isMemberTrackingActive}
-          collapsed={collapsedPanels.revivableMembers ?? true}
-          onToggle={() => togglePanel("revivableMembers")}
-        />
-
-        <EnemyTravelPanel
-          members={enemyScouting?.members ?? []}
-          statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
-          isLoading={isLoadingEnemyScouting}
-          isCollecting={isMemberTrackingActive}
-          collapsed={collapsedPanels.enemyTravel ?? false}
-          onToggle={() => togglePanel("enemyTravel")}
-        />
-
         <EnemyScoutingPanel
           scouting={enemyScouting}
           isLoading={isLoadingEnemyScouting}
@@ -501,6 +502,19 @@ export function WarRoom({
         />
       </section>
     </>
+  );
+}
+
+function LiveTrackingInactivePanel() {
+  return (
+    <section className="panel live-tracking-inactive-panel">
+      <PanelHeader title="Live enemy tracking inactive" />
+      <p>
+        Push pressure, travel tracking, revivable members and Enemy status are not currently being gathered.
+        <br />
+        Collection starts two hours before official war start and stops at practical finish.
+      </p>
+    </section>
   );
 }
 
@@ -553,13 +567,11 @@ function StatusSummaryItem({
 function EnemyPushPressurePanel({
   data,
   isLoading,
-  isCollecting,
   collapsed,
   onToggle,
 }: {
   data: EnemyPushPressureResponse | null;
   isLoading: boolean;
-  isCollecting: boolean;
   collapsed: boolean;
   onToggle: () => void;
 }) {
@@ -570,20 +582,17 @@ function EnemyPushPressurePanel({
     : latest
       ? `${pushPressureLevelLabel(latest.pressure_level)} Â· ${formatRelativeTime(latest.bucket_start)}`
       : "No samples";
-  const displayAside = isCollecting ? aside : "Not gathering";
   const reasons = latest ? pushPressureReasons(latest) : [];
 
   return (
     <CollapsiblePanel
       title="Enemy push pressure (WIP)"
-      aside={displayAside}
+      aside={aside}
       collapsed={collapsed}
       onToggle={onToggle}
       className="enemy-push-pressure-panel"
     >
-      {!isCollecting ? (
-        <EmptyState text="Enemy push pressure is not currently being gathered. Collection starts two hours before official war start and stops at practical finish." />
-      ) : latest ? (
+      {latest ? (
         <>
           <div className={`push-pressure-status ${pushPressureTone(latest.pressure_level)}`}>
             <div>
@@ -763,24 +772,21 @@ function RevivableMembersPanel({
   homeMembers,
   enemyMembers,
   enemyName,
-  isCollecting,
   collapsed,
   onToggle,
 }: {
   homeMembers: EnemyFactionMember[];
   enemyMembers: EnemyFactionMember[];
   enemyName: string;
-  isCollecting: boolean;
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const revivableCount =
-    isCollecting ? countRevivableMembers(homeMembers) + countRevivableMembers(enemyMembers) : 0;
+  const revivableCount = countRevivableMembers(homeMembers) + countRevivableMembers(enemyMembers);
 
   return (
     <CollapsiblePanel
       title="Revivable members"
-      aside={isCollecting ? `${revivableCount} revivable` : "Not gathering"}
+      aside={`${revivableCount} revivable`}
       collapsed={collapsed}
       onToggle={onToggle}
       className="revivable-panel"
@@ -788,14 +794,10 @@ function RevivableMembersPanel({
       <p className="panel-description">
         Lists faction members currently marked revivable by Torn. This is gathered from two hours before official start until practical finish.
       </p>
-      {isCollecting ? (
-        <div className="revivable-grid">
-          <RevivableMemberList factionName="Buttgrass" members={homeMembers} />
-          <RevivableMemberList factionName={enemyName} members={enemyMembers} />
-        </div>
-      ) : (
-        <EmptyState text="Revivable member information is not currently being gathered. Collection starts two hours before official war start and stops at practical finish." />
-      )}
+      <div className="revivable-grid">
+        <RevivableMemberList factionName="Buttgrass" members={homeMembers} />
+        <RevivableMemberList factionName={enemyName} members={enemyMembers} />
+      </div>
     </CollapsiblePanel>
   );
 }
@@ -842,9 +844,21 @@ function RevivableMemberList({
   );
 }
 
-function WarStartCountdown({ startTime }: { startTime: number | null }) {
+function WarStartCountdown({ war }: { war: WarSummary }) {
   const now = useCurrentTime();
+  const startTime = war.official_start_time ?? war.practical_start_time;
+  const isEnded = war.official_end_time !== null || war.status === "ended";
+  const endTime = war.official_end_time ?? war.practical_finish_time;
   const remainingSeconds = Math.max(0, Number(startTime ?? 0) - Math.floor(now / 1000));
+
+  if (isEnded) {
+    return (
+      <div className="war-room-countdown">
+        <span>War ended</span>
+        <strong>{endTime ? formatLongDateTime(endTime) : "Ended"}</strong>
+      </div>
+    );
+  }
 
   return (
     <div className="war-room-countdown">

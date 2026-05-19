@@ -52,6 +52,67 @@ const ACTIVE_WAR_REFRESH_MS = 5 * 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
 const PRACTICAL_FINISH_REFRESH_MS = 15 * 60_000;
 const CHAIN_BONUS_REFRESH_MS = 15 * 60_000;
+type AppView = "war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin";
+
+const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
+  warRoom: "/war-room",
+  members: "/members",
+  lifestyle: "/daily-averages",
+  miscellaneous: "/miscellaneous",
+  diceGame: "/dice-game",
+  admin: "/admin",
+};
+
+type AppRoute = {
+  view: AppView;
+  warName: string | null;
+};
+
+function parseAppRoute(pathname: string): AppRoute {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  const lowerPath = normalizedPath.toLowerCase();
+
+  if (lowerPath.startsWith("/wars/")) {
+    const rawWarName = normalizedPath.slice("/wars/".length);
+    return {
+      view: "war",
+      warName: safeDecodePathPart(rawWarName),
+    };
+  }
+
+  const matchedPage = Object.entries(PAGE_PATHS).find(([, path]) => path === lowerPath);
+  if (matchedPage) {
+    return {
+      view: matchedPage[0] as AppView,
+      warName: null,
+    };
+  }
+
+  return {
+    view: "war",
+    warName: null,
+  };
+}
+
+function safeDecodePathPart(value: string): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function pathForView(view: AppView, warName?: string | null): string {
+  if (view === "war") {
+    return warName ? `/wars/${encodeURIComponent(warName)}` : "/";
+  }
+
+  return PAGE_PATHS[view];
+}
 
 const AdminControls = React.lazy(() =>
   import("./views/AdminControls").then((module) => ({ default: module.AdminControls })),
@@ -67,8 +128,10 @@ const Miscellaneous = React.lazy(() =>
 );
 
 function App() {
+  const initialRoute = React.useMemo(() => parseAppRoute(window.location.pathname), []);
   const [warType, setWarType] = React.useState<WarType>("all");
-  const [view, setView] = React.useState<"war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin">("war");
+  const [view, setView] = React.useState<AppView>(initialRoute.view);
+  const [routedWarName, setRoutedWarName] = React.useState<string | null>(initialRoute.warName);
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
     getStoredAuthSession(),
   );
@@ -117,6 +180,22 @@ function App() {
   }, [view]);
 
   React.useEffect(() => {
+    function applyBrowserRoute() {
+      const route = parseAppRoute(window.location.pathname);
+      setView(route.view);
+      setRoutedWarName(route.warName);
+      if (route.view === "war" && route.warName) {
+        setSelectedWarName(route.warName);
+      }
+    }
+
+    window.addEventListener("popstate", applyBrowserRoute);
+    return () => {
+      window.removeEventListener("popstate", applyBrowserRoute);
+    };
+  }, []);
+
+  React.useEffect(() => {
   let cancelled = false;
 
   async function loadWars() {
@@ -138,6 +217,10 @@ function App() {
       setWars(warsResponse.wars);
 
       setSelectedWarName((currentSelectedWarName) => {
+        if (routedWarName && warsResponse.wars.some((war) => war.name === routedWarName)) {
+          return routedWarName;
+        }
+
         const selectedStillVisible = warsResponse.wars.some(
           (war) => war.name === currentSelectedWarName,
         );
@@ -162,7 +245,7 @@ function App() {
   return () => {
     cancelled = true;
   };
-}, [authSession, warType]);
+}, [authSession, routedWarName, warType]);
 
   React.useEffect(() => {
   let cancelled = false;
@@ -370,9 +453,10 @@ function App() {
 
   React.useEffect(() => {
     if (view === "admin" && !isAdmin) {
+      goToPath(pathForView("war", selectedWarName), true);
       setView("war");
     }
-  }, [isAdmin, view]);
+  }, [isAdmin, selectedWarName, view]);
 
   React.useEffect(() => {
     const termedOnlySorts = ["average_fair_fight", "member_respect_limit_percent"];
@@ -518,7 +602,19 @@ function App() {
     }));
   }
 
-  function changeView(nextView: "war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin") {
+  function goToPath(path: string, replace = false) {
+    if (window.location.pathname === path) {
+      return;
+    }
+
+    if (replace) {
+      window.history.replaceState(null, "", path);
+    } else {
+      window.history.pushState(null, "", path);
+    }
+  }
+
+  function changeView(nextView: AppView) {
     if (nextView === "admin" && !isAdmin) {
       return;
     }
@@ -527,13 +623,24 @@ function App() {
       setSelectedWarName(wars[0].name);
     }
 
+    setRoutedWarName(null);
     setView(nextView);
+    goToPath(pathForView(nextView, nextView === "war" ? selectedWarName : null));
+  }
+
+  function selectWar(name: string) {
+    setRoutedWarName(name);
+    setSelectedWarName(name);
+    setView("war");
+    goToPath(pathForView("war", name));
   }
 
   function signOut() {
     clearStoredAuthSession();
     setAuthSession(null);
     setView("war");
+    setRoutedWarName(null);
+    goToPath(pathForView("war"), true);
     setError(null);
   }
 
@@ -591,10 +698,7 @@ function App() {
           diceGameIcon={<Dices size={18} />}
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
-          onWarSelect={(name) => {
-            setSelectedWarName(name);
-            setView("war");
-          }}
+          onWarSelect={selectWar}
         />
 
         <section className="main-content">

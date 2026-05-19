@@ -389,6 +389,13 @@ h2 {
   line-height: 1;
 }
 
+.live-tracking-inactive-panel p {
+  margin: 0;
+  color: #475569;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
 .hero-panel h2 {
   margin: 0;
   color: #111827;
