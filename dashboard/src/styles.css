@@ -1094,11 +1094,9 @@ h2 {
 }
 
 .nested-discrepancy-panel {
-  margin-top: 16px;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f8fafc;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
 }
 
 .nested-discrepancy-header {
@@ -2940,8 +2938,7 @@ tbody tr:not(.attack-row):hover td {
 }
 
 :root[data-theme="dark"] .nested-discrepancy-panel {
-  border-color: var(--border-faint);
-  background: rgba(20, 34, 56, 0.72);
+  border-top-color: var(--border-faint);
   color: var(--text-main);
 }
 
@@ -3275,7 +3272,14 @@ tbody tr:not(.attack-row):hover td {
   background: var(--panel-hover-bg);
 }
 
-:root[data-theme="dark"] .chain-bonus-compact td {
+:root[data-theme="dark"] .chain-bonus-compact,
+:root[data-theme="dark"] .chain-bonus-compact table,
+:root[data-theme="dark"] .chain-bonus-compact tbody,
+:root[data-theme="dark"] .chain-bonus-compact tr,
+:root[data-theme="dark"] .chain-bonus-compact tr:nth-child(even),
+:root[data-theme="dark"] .chain-bonus-compact tr:hover,
+:root[data-theme="dark"] .chain-bonus-compact td,
+:root[data-theme="dark"] .chain-bonus-compact tr:hover td {
   background: transparent;
 }
 
