@@ -28,6 +28,7 @@ import {
 import { getMiscellaneousData } from "./miscellaneous";
 import { getDiceGameState, rollDiceGame, sendXanaxToDiceGame } from "./diceGame";
 import { sendDiscordMessageFromRequest } from "./discord";
+import { resetEnemyStatsImageFromRequest } from "./enemyScoutingCron";
 import { getLatestMaintenanceRun } from "./maintenance";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import {
@@ -159,6 +160,10 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 
   if (matchesRoute(url, request, "/api/admin/discord/message", "POST")) {
     return withAdmin(routeContext, () => sendDiscordMessageFromRequest(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/admin/enemy-stats-image/reset", "POST")) {
+    return withAdmin(routeContext, () => resetEnemyStatsImageFromRequest(env));
   }
 
   if (matchesRoute(url, request, "/api/rebuild", "POST")) {

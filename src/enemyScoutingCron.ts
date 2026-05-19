@@ -16,7 +16,7 @@ import {
   setSyncLatch,
 } from "./syncLatches";
 import { Env } from "./types";
-import { d1Changes, finiteNumber, nowSeconds } from "./utils";
+import { d1Changes, finiteNumber, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./warRoomTracking";
 import {
   SIMPLE_PNG_COLORS,
@@ -614,6 +614,32 @@ export async function sendPendingEnemyStatsComparisonImage(
     war: scoutingWar,
     stateNames,
     activeLatches,
+  });
+}
+
+export async function resetEnemyStatsImageFromRequest(env: Env): Promise<Response> {
+  const scoutingWar = await readCurrentScoutingWar(env);
+  if (!scoutingWar) {
+    return json(
+      { ok: false, error: "No current scouting war found", code: "NO_CURRENT_SCOUTING_WAR" },
+      404,
+    );
+  }
+
+  const stateNames = buildEnemyTargetStateNames(scoutingWar.id, scoutingWar.enemy_faction_id);
+  const sentClear = await clearSyncLatch(env, stateNames.statsImageSent);
+  await setSyncLatch(env, stateNames.statsImagePending, nowSeconds());
+
+  return json({
+    ok: true,
+    war: {
+      id: scoutingWar.id,
+      name: scoutingWar.name,
+      enemy_faction_id: scoutingWar.enemy_faction_id,
+    },
+    pending_latch: stateNames.statsImagePending,
+    sent_latch: stateNames.statsImageSent,
+    sent_latch_deleted: d1Changes(sentClear),
   });
 }
 

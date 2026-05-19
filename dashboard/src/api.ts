@@ -822,6 +822,10 @@ export async function sendDiscordMessage(message: string): Promise<unknown> {
   return postJson("/api/admin/discord/message", { message });
 }
 
+export async function resetEnemyStatsImageLatches(): Promise<unknown> {
+  return postJson("/api/admin/enemy-stats-image/reset");
+}
+
 export async function getMemberLifestyleStats(options: {
   startDate?: string;
   endDate?: string;

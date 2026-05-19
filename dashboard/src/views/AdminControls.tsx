@@ -20,6 +20,7 @@ import {
   rebuildStats,
   refreshAuthSession,
   refreshMemberLifestyleStats,
+  resetEnemyStatsImageLatches,
   relinkAttacks,
   runIngestion,
   sendDiscordMessage,
@@ -811,6 +812,16 @@ export function AdminControls() {
                 }
               >
                 {isBusy === "Refresh personalstats" ? "Working" : "Refresh 10 personalstats"}
+              </button>
+              <button
+                type="button"
+                className="admin-button"
+                disabled={isBusy !== null}
+                onClick={() =>
+                  runAdminAction("Reset stats image latches", resetEnemyStatsImageLatches)
+                }
+              >
+                {isBusy === "Reset stats image latches" ? "Working" : "Reset Discord stats image"}
               </button>
             </section>
 
