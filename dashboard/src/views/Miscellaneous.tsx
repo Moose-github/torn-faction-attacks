@@ -14,21 +14,43 @@ import { displayMember, memberDefendsLost } from "../utils/members";
 
 type PayoutMode = "points" | "respect";
 type RespectBasis = "adjusted" | "raw";
-type BonusMetric =
+type PayoutMetric =
   | "average_fair_fight"
   | "defends_lost"
+  | "defends_total"
+  | "defends_won"
+  | "defends_other"
+  | "defends_lost_non_hospitalized"
   | "attacks_vs_enemy_successful"
   | "outside_hits"
   | "assists_vs_enemy"
   | "friendly_hosps"
+  | "hospitalizations_vs_enemy"
+  | "mugs_vs_enemy"
+  | "retaliations_vs_enemy"
   | "respect_gained"
-  | "respect_lost";
+  | "respect_gained_raw"
+  | "respect_lost"
+  | "respect_lost_raw"
+  | "respect_lost_non_hospitalized";
 type BonusOperator = ">=" | ">" | "<=" | "<" | "=";
+
+type PointRule = {
+  id: string;
+  metric: PayoutMetric;
+  points: string;
+};
+
+type FlatPaymentRule = {
+  id: string;
+  metric: PayoutMetric;
+  amount: string;
+};
 
 type BonusRule = {
   id: string;
   group: string;
-  metric: BonusMetric;
+  metric: PayoutMetric;
   operator: BonusOperator;
   threshold: string;
   percent: string;
@@ -69,6 +91,37 @@ const DEFAULT_BONUS_RULES: BonusRule[] = [
     threshold: "10",
     percent: "10",
   },
+];
+
+const PAYOUT_METRICS: Array<{ value: PayoutMetric; label: string }> = [
+  { value: "attacks_vs_enemy_successful", label: "War hits" },
+  { value: "outside_hits", label: "Outside hits" },
+  { value: "assists_vs_enemy", label: "Assists" },
+  { value: "friendly_hosps", label: "Friendly hosps" },
+  { value: "hospitalizations_vs_enemy", label: "Hospitalizations" },
+  { value: "mugs_vs_enemy", label: "Mugs" },
+  { value: "retaliations_vs_enemy", label: "Retaliations" },
+  { value: "defends_total", label: "Defends" },
+  { value: "defends_won", label: "Defends won" },
+  { value: "defends_other", label: "Other defends" },
+  { value: "defends_lost", label: "Defends lost" },
+  { value: "defends_lost_non_hospitalized", label: "Non-hosp defends lost" },
+  { value: "respect_gained", label: "Respect gained" },
+  { value: "respect_gained_raw", label: "Respect gained raw" },
+  { value: "respect_lost", label: "Respect lost" },
+  { value: "respect_lost_raw", label: "Respect lost raw" },
+  { value: "respect_lost_non_hospitalized", label: "Non-hosp respect lost" },
+  { value: "average_fair_fight", label: "Average fair fight" },
+];
+
+const DEFAULT_POINT_RULES: PointRule[] = [
+  { id: "points-war-hits", metric: "attacks_vs_enemy_successful", points: "1" },
+  { id: "points-outside-hits", metric: "outside_hits", points: "0.9" },
+  { id: "points-assists", metric: "assists_vs_enemy", points: "0.75" },
+];
+
+const DEFAULT_FLAT_PAYMENT_RULES: FlatPaymentRule[] = [
+  { id: "flat-friendly-hosps", metric: "friendly_hosps", amount: "2000000" },
 ];
 
 export function Miscellaneous() {
@@ -192,10 +245,13 @@ function WarPayoutCalculator() {
   const [poolInput, setPoolInput] = React.useState("");
   const [mode, setMode] = React.useState<PayoutMode>("points");
   const [respectBasis, setRespectBasis] = React.useState<RespectBasis>("adjusted");
-  const [warHitWeight, setWarHitWeight] = React.useState("1");
-  const [outsideHitWeight, setOutsideHitWeight] = React.useState("0.9");
-  const [assistWeight, setAssistWeight] = React.useState("0.75");
-  const [friendlyHospPayment, setFriendlyHospPayment] = React.useState("2000000");
+  const [pointRules, setPointRules] = React.useState<PointRule[]>(DEFAULT_POINT_RULES);
+  const [flatPaymentRules, setFlatPaymentRules] =
+    React.useState<FlatPaymentRule[]>(DEFAULT_FLAT_PAYMENT_RULES);
+  const [pointMetricToAdd, setPointMetricToAdd] =
+    React.useState<PayoutMetric>("attacks_vs_enemy_successful");
+  const [flatMetricToAdd, setFlatMetricToAdd] =
+    React.useState<PayoutMetric>("friendly_hosps");
   const [bonusRules, setBonusRules] = React.useState<BonusRule[]>(DEFAULT_BONUS_RULES);
 
   React.useEffect(() => {
@@ -277,24 +333,85 @@ function WarPayoutCalculator() {
         totalPool: moneyInput(poolInput),
         mode,
         respectBasis,
-        warHitWeight: decimalInput(warHitWeight),
-        outsideHitWeight: decimalInput(outsideHitWeight),
-        assistWeight: decimalInput(assistWeight),
-        friendlyHospPayment: moneyInput(friendlyHospPayment),
+        pointRules,
+        flatPaymentRules,
         bonusRules,
       }),
     [
-      assistWeight,
       bonusRules,
-      friendlyHospPayment,
+      flatPaymentRules,
       members,
       mode,
-      outsideHitWeight,
+      pointRules,
       poolInput,
       respectBasis,
-      warHitWeight,
     ],
   );
+
+  const availablePointMetrics = availableMetrics(pointRules.map((rule) => rule.metric));
+  const availableFlatMetrics = availableMetrics(flatPaymentRules.map((rule) => rule.metric));
+
+  React.useEffect(() => {
+    if (!availablePointMetrics.some((metric) => metric.value === pointMetricToAdd)) {
+      setPointMetricToAdd(availablePointMetrics[0]?.value ?? "attacks_vs_enemy_successful");
+    }
+  }, [availablePointMetrics, pointMetricToAdd]);
+
+  React.useEffect(() => {
+    if (!availableFlatMetrics.some((metric) => metric.value === flatMetricToAdd)) {
+      setFlatMetricToAdd(availableFlatMetrics[0]?.value ?? "friendly_hosps");
+    }
+  }, [availableFlatMetrics, flatMetricToAdd]);
+
+  function updatePointRule(id: string, patch: Partial<PointRule>) {
+    setPointRules((current) =>
+      current.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
+    );
+  }
+
+  function addPointRule() {
+    if (availablePointMetrics.length === 0) {
+      return;
+    }
+
+    setPointRules((current) => [
+      ...current,
+      {
+        id: `points-${Date.now()}`,
+        metric: pointMetricToAdd,
+        points: "1",
+      },
+    ]);
+  }
+
+  function removePointRule(id: string) {
+    setPointRules((current) => current.filter((rule) => rule.id !== id));
+  }
+
+  function updateFlatPaymentRule(id: string, patch: Partial<FlatPaymentRule>) {
+    setFlatPaymentRules((current) =>
+      current.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
+    );
+  }
+
+  function addFlatPaymentRule() {
+    if (availableFlatMetrics.length === 0) {
+      return;
+    }
+
+    setFlatPaymentRules((current) => [
+      ...current,
+      {
+        id: `flat-${Date.now()}`,
+        metric: flatMetricToAdd,
+        amount: "0",
+      },
+    ]);
+  }
+
+  function removeFlatPaymentRule(id: string) {
+    setFlatPaymentRules((current) => current.filter((rule) => rule.id !== id));
+  }
 
   function updateBonusRule(id: string, patch: Partial<BonusRule>) {
     setBonusRules((current) =>
@@ -377,36 +494,141 @@ function WarPayoutCalculator() {
       </div>
 
       {mode === "points" ? (
-        <div className="payout-controls compact">
-          <label>
-            <span>War hit points</span>
-            <input inputMode="decimal" value={warHitWeight} onChange={(event) => setWarHitWeight(event.target.value)} />
-          </label>
-          <label>
-            <span>Outside hit points</span>
-            <input inputMode="decimal" value={outsideHitWeight} onChange={(event) => setOutsideHitWeight(event.target.value)} />
-          </label>
-          <label>
-            <span>Assist points</span>
-            <input inputMode="decimal" value={assistWeight} onChange={(event) => setAssistWeight(event.target.value)} />
-          </label>
-        </div>
+        <section className="payout-rule-section">
+          <div className="payout-section-header">
+            <div>
+              <strong>Points</strong>
+              <p>Choose which member stats create payout points.</p>
+            </div>
+            <div className="payout-add-control">
+              <select
+                value={pointMetricToAdd}
+                onChange={(event) => setPointMetricToAdd(event.target.value as PayoutMetric)}
+                disabled={availablePointMetrics.length === 0}
+              >
+                {availablePointMetrics.map((metric) => (
+                  <option key={metric.value} value={metric.value}>
+                    {metric.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="panel-action-button"
+                onClick={addPointRule}
+                disabled={availablePointMetrics.length === 0}
+              >
+                Add variable
+              </button>
+            </div>
+          </div>
+          <div className="table-scroll">
+            <table className="payout-rules-table">
+              <thead>
+                <tr>
+                  <th>Variable</th>
+                  <th>Points per</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {pointRules.map((rule) => (
+                  <tr key={rule.id}>
+                    <td>{payoutMetricLabel(rule.metric)}</td>
+                    <td>
+                      <input
+                        inputMode="decimal"
+                        value={rule.points}
+                        onChange={(event) => updatePointRule(rule.id, { points: event.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="panel-action-button"
+                        onClick={() => removePointRule(rule.id)}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       ) : null}
 
-      <div className="payout-controls compact">
-        <label>
-          <span>Friendly hosp flat payment</span>
-          <input
-            inputMode="numeric"
-            value={friendlyHospPayment}
-            onChange={(event) => setFriendlyHospPayment(event.target.value)}
-          />
-        </label>
-      </div>
+      <section className="payout-rule-section">
+        <div className="payout-section-header">
+          <div>
+            <strong>Flat payments</strong>
+            <p>Flat payments are always deducted from the total pool before the remaining pool is split.</p>
+          </div>
+          <div className="payout-add-control">
+            <select
+              value={flatMetricToAdd}
+              onChange={(event) => setFlatMetricToAdd(event.target.value as PayoutMetric)}
+              disabled={availableFlatMetrics.length === 0}
+            >
+              {availableFlatMetrics.map((metric) => (
+                <option key={metric.value} value={metric.value}>
+                  {metric.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="panel-action-button"
+              onClick={addFlatPaymentRule}
+              disabled={availableFlatMetrics.length === 0}
+            >
+              Add variable
+            </button>
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table className="payout-rules-table">
+            <thead>
+              <tr>
+                <th>Variable</th>
+                <th>Payment per</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {flatPaymentRules.map((rule) => (
+                <tr key={rule.id}>
+                  <td>{payoutMetricLabel(rule.metric)}</td>
+                  <td>
+                    <input
+                      inputMode="numeric"
+                      value={rule.amount}
+                      onChange={(event) => updateFlatPaymentRule(rule.id, { amount: event.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="panel-action-button"
+                      onClick={() => removeFlatPaymentRule(rule.id)}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <div className="payout-bonus-rules">
         <div className="payout-section-header">
-          <strong>Bonus rules</strong>
+          <div>
+            <strong>Bonus percentage rules</strong>
+            <p>Only the best matching percentage bonus in each group is used.</p>
+          </div>
           <button type="button" className="panel-action-button" onClick={addBonusRule}>
             Add rule
           </button>
@@ -419,7 +641,7 @@ function WarPayoutCalculator() {
                 <th>Metric</th>
                 <th>Condition</th>
                 <th>Value</th>
-                <th>Bonus</th>
+                <th>Bonus %</th>
                 <th />
               </tr>
             </thead>
@@ -432,16 +654,13 @@ function WarPayoutCalculator() {
                   <td>
                     <select
                       value={rule.metric}
-                      onChange={(event) => updateBonusRule(rule.id, { metric: event.target.value as BonusMetric })}
+                      onChange={(event) => updateBonusRule(rule.id, { metric: event.target.value as PayoutMetric })}
                     >
-                      <option value="average_fair_fight">Average fair fight</option>
-                      <option value="defends_lost">Defends lost</option>
-                      <option value="attacks_vs_enemy_successful">War hits</option>
-                      <option value="outside_hits">Outside hits</option>
-                      <option value="assists_vs_enemy">Assists</option>
-                      <option value="friendly_hosps">Friendly hosps</option>
-                      <option value="respect_gained">Respect gained</option>
-                      <option value="respect_lost">Respect lost</option>
+                      {PAYOUT_METRICS.map((metric) => (
+                        <option key={metric.value} value={metric.value}>
+                          {metric.label}
+                        </option>
+                      ))}
                     </select>
                   </td>
                   <td>
@@ -460,7 +679,12 @@ function WarPayoutCalculator() {
                     <input inputMode="decimal" value={rule.threshold} onChange={(event) => updateBonusRule(rule.id, { threshold: event.target.value })} />
                   </td>
                   <td>
-                    <input inputMode="decimal" value={rule.percent} onChange={(event) => updateBonusRule(rule.id, { percent: event.target.value })} />
+                    <input
+                      inputMode="decimal"
+                      aria-label="Bonus percentage"
+                      value={rule.percent}
+                      onChange={(event) => updateBonusRule(rule.id, { percent: event.target.value })}
+                    />
                   </td>
                   <td>
                     <button type="button" className="panel-action-button" onClick={() => removeBonusRule(rule.id)}>
@@ -492,7 +716,7 @@ function WarPayoutCalculator() {
               <tr>
                 <th>Member</th>
                 <th>{mode === "points" ? "Points" : "Respect"}</th>
-                <th>Bonus</th>
+                <th>Bonus %</th>
                 <th>Flat</th>
                 <th>Variable</th>
                 <th>Final</th>
@@ -535,27 +759,23 @@ function calculatePayoutRows({
   totalPool,
   mode,
   respectBasis,
-  warHitWeight,
-  outsideHitWeight,
-  assistWeight,
-  friendlyHospPayment,
+  pointRules,
+  flatPaymentRules,
   bonusRules,
 }: {
   members: MemberStats[];
   totalPool: number;
   mode: PayoutMode;
   respectBasis: RespectBasis;
-  warHitWeight: number;
-  outsideHitWeight: number;
-  assistWeight: number;
-  friendlyHospPayment: number;
+  pointRules: PointRule[];
+  flatPaymentRules: FlatPaymentRule[];
   bonusRules: BonusRule[];
 }): { rows: PayoutRow[]; totalPool: number; flatTotal: number; remainingPool: number; finalTotal: number } {
   const flatRows = members.map((member) => ({
     member,
-    basis: memberPayoutBasis(member, mode, respectBasis, warHitWeight, outsideHitWeight, assistWeight),
+    basis: memberPayoutBasis(member, mode, respectBasis, pointRules),
     bonusPercent: memberBonusPercent(member, bonusRules),
-    flatPayment: Math.max(0, Number(member.friendly_hosps ?? 0)) * friendlyHospPayment,
+    flatPayment: memberFlatPayment(member, flatPaymentRules),
   }));
   const flatTotal = flatRows.reduce((total, row) => total + row.flatPayment, 0);
   const remainingPool = Math.max(0, totalPool - flatTotal);
@@ -589,9 +809,7 @@ function memberPayoutBasis(
   member: MemberStats,
   mode: PayoutMode,
   respectBasis: RespectBasis,
-  warHitWeight: number,
-  outsideHitWeight: number,
-  assistWeight: number,
+  pointRules: PointRule[],
 ): number {
   if (mode === "respect") {
     return Math.max(
@@ -602,9 +820,17 @@ function memberPayoutBasis(
     );
   }
 
-  return Math.max(0, Number(member.attacks_vs_enemy_successful ?? 0)) * warHitWeight +
-    Math.max(0, Number(member.outside_hits ?? 0)) * outsideHitWeight +
-    Math.max(0, Number(member.assists_vs_enemy ?? 0)) * assistWeight;
+  return pointRules.reduce(
+    (total, rule) => total + Math.max(0, memberMetricValue(member, rule.metric)) * decimalInput(rule.points),
+    0,
+  );
+}
+
+function memberFlatPayment(member: MemberStats, rules: FlatPaymentRule[]): number {
+  return rules.reduce(
+    (total, rule) => total + Math.max(0, memberMetricValue(member, rule.metric)) * moneyInput(rule.amount),
+    0,
+  );
 }
 
 function memberBonusPercent(member: MemberStats, rules: BonusRule[]): number {
@@ -618,7 +844,7 @@ function memberBonusPercent(member: MemberStats, rules: BonusRule[]): number {
       continue;
     }
 
-    if (!bonusRuleMatches(memberBonusMetricValue(member, rule.metric), rule.operator, threshold)) {
+    if (!bonusRuleMatches(memberMetricValue(member, rule.metric), rule.operator, threshold)) {
       continue;
     }
 
@@ -628,11 +854,20 @@ function memberBonusPercent(member: MemberStats, rules: BonusRule[]): number {
   return Array.from(bestByGroup.values()).reduce((total, percent) => total + percent, 0);
 }
 
-function memberBonusMetricValue(member: MemberStats, metric: BonusMetric): number {
+function memberMetricValue(member: MemberStats, metric: PayoutMetric): number {
   if (metric === "defends_lost") {
     return memberDefendsLost(member);
   }
   return Number(member[metric] ?? 0);
+}
+
+function availableMetrics(usedMetrics: PayoutMetric[]): Array<{ value: PayoutMetric; label: string }> {
+  const used = new Set(usedMetrics);
+  return PAYOUT_METRICS.filter((metric) => !used.has(metric.value));
+}
+
+function payoutMetricLabel(metric: PayoutMetric): string {
+  return PAYOUT_METRICS.find((option) => option.value === metric)?.label ?? metric;
 }
 
 function bonusRuleMatches(value: number, operator: BonusOperator, threshold: number): boolean {

@@ -1944,6 +1944,26 @@ h2 {
   margin-bottom: 10px;
 }
 
+.payout-section-header p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.payout-add-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.payout-rule-section,
+.payout-bonus-rules {
+  display: grid;
+  gap: 8px;
+}
+
 .payout-rules-table input,
 .payout-rules-table select {
   width: 100%;
@@ -2814,8 +2834,18 @@ tbody tr:not(.attack-row):hover td {
   .payout-controls,
   .payout-controls.compact,
   .payout-summary-grid,
+  .payout-section-header,
   .dashboard-layout {
     grid-template-columns: 1fr;
+  }
+
+  .payout-section-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .payout-add-control {
+    justify-content: flex-start;
   }
 
   .sidebar {
@@ -3124,6 +3154,7 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .respect-adjustment-marker,
 :root[data-theme="dark"] .inline-metric span,
 :root[data-theme="dark"] .payout-summary-item span,
+:root[data-theme="dark"] .payout-section-header p,
 :root[data-theme="dark"] .progress-block small,
 :root[data-theme="dark"] .war-nav small,
 :root[data-theme="dark"] .lifestyle-main-metric-label,
