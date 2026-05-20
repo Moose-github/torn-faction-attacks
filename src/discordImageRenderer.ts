@@ -100,6 +100,7 @@ function buildStatsComparisonSvg({
   ];
   const height = headerHeight + panels.length * panelHeight + (panels.length - 1) * panelGap + footerHeight;
   const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
+  const memberCountLabel = `Members: ${HOME_STATS_LABEL} ${homeMembers.length} / ${enemyName} ${enemyMembers.length}`;
 
   let panelY = headerHeight;
   const panelSvg = panels
@@ -140,10 +141,11 @@ function buildStatsComparisonSvg({
       size: 12,
       fill: "#cbd5e1",
     }),
-    "<rect x=\"872\" y=\"37\" width=\"14\" height=\"14\" rx=\"3\" fill=\"#2563eb\"/>",
-    svgText(896, 49, HOME_STATS_LABEL, { size: 12, fill: "#e2e8f0" }),
-    "<rect x=\"1012\" y=\"37\" width=\"14\" height=\"14\" rx=\"3\" fill=\"#ef4444\"/>",
-    svgText(1036, 49, enemyName, { size: 12, fill: "#e2e8f0", maxLength: 16 }),
+    "<rect x=\"846\" y=\"43\" width=\"16\" height=\"16\" rx=\"4\" fill=\"#2563eb\"/>",
+    svgText(872, 56, HOME_STATS_LABEL, { size: 14, fill: "#e2e8f0" }),
+    "<rect x=\"1006\" y=\"43\" width=\"16\" height=\"16\" rx=\"4\" fill=\"#ef4444\"/>",
+    svgText(1032, 56, enemyName, { size: 14, fill: "#e2e8f0", maxLength: 16 }),
+    svgText(968, 74, memberCountLabel, { size: 11, fill: "#94a3b8", anchor: "middle", maxLength: 48 }),
     panelSvg,
     "</svg>",
   ].join("");
@@ -168,8 +170,8 @@ function renderStatsPanelSvg({
   enemyMembers: EnemyFactionMemberRow[];
   enemyName: string;
 }): string {
-  const chartLeft = 104;
-  const chartRight = 1096;
+  const chartLeft = 84;
+  const chartRight = 1138;
   const chartTop = y + 78;
   const chartBottom = y + height - 58;
   const chartWidth = chartRight - chartLeft;
@@ -177,8 +179,6 @@ function renderStatsPanelSvg({
   const homeValues = buildBucketCounts(homeMembers, buckets, metric);
   const enemyValues = buildBucketCounts(enemyMembers, buckets, metric);
   const maxValue = niceChartMax(Math.max(1, ...homeValues, ...enemyValues));
-  const homeCoverage = metricCoverage(homeMembers, metric);
-  const enemyCoverage = metricCoverage(enemyMembers, metric);
   const homeAverage = metricAverage(homeMembers, metric);
   const enemyAverage = metricAverage(enemyMembers, metric);
   const step = buckets.length > 1 ? chartWidth / (buckets.length - 1) : chartWidth;
@@ -197,13 +197,13 @@ function renderStatsPanelSvg({
     svgText(
       420,
       y + 25,
-      `${HOME_STATS_LABEL} ${homeCoverage.available}/${homeCoverage.total} avg ${formatCompactNumber(homeAverage)}`,
+      `${HOME_STATS_LABEL} avg ${formatCompactNumber(homeAverage)}`,
       { size: 12, fill: "#475569", anchor: "middle" },
     ),
     svgText(
       730,
       y + 25,
-      `${enemyName} ${enemyCoverage.available}/${enemyCoverage.total} avg ${formatCompactNumber(enemyAverage)}`,
+      `${enemyName} avg ${formatCompactNumber(enemyAverage)}`,
       { size: 12, fill: "#475569", anchor: "middle", maxLength: 42 },
     ),
     renderGridSvg(chartLeft, chartTop, chartWidth, chartHeight, chartBottom, maxValue),
@@ -415,16 +415,6 @@ function buildBucketCounts(
         return Number.isFinite(value) && value >= bucket.min && value < bucket.max;
       }).length,
   );
-}
-
-function metricCoverage(
-  members: EnemyFactionMemberRow[],
-  metric: ScoutingComparisonMetric,
-): { available: number; total: number } {
-  return {
-    available: members.filter((member) => hasScoutingMetricValue(member, metric)).length,
-    total: members.length,
-  };
 }
 
 function metricAverage(
