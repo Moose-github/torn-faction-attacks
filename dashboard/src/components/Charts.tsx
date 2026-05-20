@@ -7,7 +7,6 @@ import {
   CartesianGrid,
   Cell,
   Legend,
-  ReferenceLine,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
@@ -199,9 +198,9 @@ type MemberPointDatum = {
 
 const memberPointHighlightColors: Record<number, string> = {
   1875013: "#f47fff",
-  2807909: "#ffef0f",
+  2807909: "#ff8a00",
   1874922: "#384298",
-  2905276: "#ff8a00",
+  2905276: "#ffef0f",
   2169883: "#00a86b",
 };
 
@@ -424,10 +423,6 @@ function MemberPointGraphCard({
       };
     })
     .filter((point): point is MemberPointDatum => point !== null);
-  const focusedPoint = focusedMemberId === null
-    ? null
-    : data.find((point) => point.memberId === focusedMemberId) ?? null;
-
   return (
     <div className="member-point-chart-card">
       <div className="member-point-chart-header">
@@ -459,26 +454,6 @@ function MemberPointGraphCard({
                 width={54}
                 {...chartAxisProps}
               />
-              {focusedPoint ? (
-                <>
-                  <ReferenceLine
-                    x={focusedPoint.x}
-                    stroke="var(--member-point-reference-line)"
-                    strokeDasharray="4 4"
-                    strokeWidth={1.5}
-                    ifOverflow="visible"
-                    isFront
-                  />
-                  <ReferenceLine
-                    y={focusedPoint.y}
-                    stroke="var(--member-point-reference-line)"
-                    strokeDasharray="4 4"
-                    strokeWidth={1.5}
-                    ifOverflow="visible"
-                    isFront
-                  />
-                </>
-              ) : null}
               <Tooltip
                 content={<MemberPointTooltip />}
                 {...chartTooltipProps}
@@ -525,14 +500,38 @@ function MemberPointDot({
 
   const isFocused = focusedMemberId !== null && payload?.memberId === focusedMemberId;
   return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={4}
-      fill={fill ?? payload?.fill ?? "#2563eb"}
-      stroke={isFocused ? "var(--text-strong)" : "transparent"}
-      strokeWidth={isFocused ? 1.5 : 0}
-    />
+    <g>
+      {isFocused ? (
+        <>
+          <line
+            x1={-10000}
+            x2={10000}
+            y1={cy}
+            y2={cy}
+            stroke="var(--member-point-reference-line)"
+            strokeDasharray="4 4"
+            strokeWidth={1.25}
+          />
+          <line
+            x1={cx}
+            x2={cx}
+            y1={-10000}
+            y2={10000}
+            stroke="var(--member-point-reference-line)"
+            strokeDasharray="4 4"
+            strokeWidth={1.25}
+          />
+        </>
+      ) : null}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={4}
+        fill={fill ?? payload?.fill ?? "#2563eb"}
+        stroke={isFocused ? "var(--text-strong)" : "transparent"}
+        strokeWidth={isFocused ? 1.25 : 0}
+      />
+    </g>
   );
 }
 
