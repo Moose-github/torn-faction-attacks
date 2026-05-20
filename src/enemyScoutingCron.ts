@@ -1,6 +1,10 @@
 import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordMessageWithAttachments } from "./discord";
 import {
+  renderEnemyMemberStatsTablePng,
+  renderStatsComparisonPng,
+} from "./discordImageRenderer";
+import {
   enemyTargetBspFillCompleteLatchName,
   enemyTargetComparisonStatsCompleteLatchName,
   enemyTargetFfFillCompleteLatchName,
@@ -18,22 +22,6 @@ import {
 import { Env } from "./types";
 import { corsHeaders, d1Changes, finiteNumber, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./warRoomTracking";
-import {
-  SIMPLE_PNG_COLORS,
-  createPngCanvas,
-  drawLine,
-  drawText,
-  encodePng,
-  fillRect,
-  fillRectAlpha,
-  strokeRect,
-} from "./simplePng";
-import {
-  SCOUTING_BATTLE_STATS_BUCKETS,
-  SCOUTING_NETWORTH_BUCKETS,
-  ScoutingBucket,
-  ScoutingComparisonMetric,
-} from "../shared/scoutingBuckets";
 import {
   clearLiveEnemyTrackingData,
   fetchBspBattlestatPrediction,
@@ -54,7 +42,6 @@ import type {
 
 const BSP_BATTLESTAT_REFRESH_LIMIT = 40;
 const NETWORTH_REFRESH_LIMIT = 40;
-const HOME_STATS_LABEL = "Buttgrass";
 const LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX = "enemy_live_tracking_cleared";
 
 type EnemyTrackingSchedule = "always" | "live" | "war-room";
@@ -671,12 +658,12 @@ export async function previewEnemyStatsImageFromRequest(url: URL, env: Env): Pro
     readEnemyScouting(env, scoutingWar.enemy_faction_id),
   ]);
   const data = type === "comparison"
-    ? buildStatsComparisonPng({
+    ? await renderStatsComparisonPng({
         enemyName: scoutingWar.name,
         homeMembers,
         enemyMembers,
       })
-    : buildEnemyMemberStatsTablePng({
+    : await renderEnemyMemberStatsTablePng({
         enemyName: scoutingWar.name,
         enemyMembers,
       });
@@ -725,12 +712,12 @@ async function sendPendingEnemyStatsComparisonImageForContext(
     readHomeScouting(env),
     readEnemyScouting(env, scoutingWar.enemy_faction_id),
   ]);
-  const statsComparisonPng = buildStatsComparisonPng({
+  const statsComparisonPng = await renderStatsComparisonPng({
     enemyName: scoutingWar.name,
     homeMembers,
     enemyMembers,
   });
-  const memberTablePng = buildEnemyMemberStatsTablePng({
+  const memberTablePng = await renderEnemyMemberStatsTablePng({
     enemyName: scoutingWar.name,
     enemyMembers,
   });
@@ -882,405 +869,4 @@ function emptyScoutingNetworthRefreshMetrics(): ScoutingNetworthRefreshMetrics {
     updated: 0,
     skipped: true,
   };
-}
-
-function buildStatsComparisonPng({
-  enemyName,
-  homeMembers,
-  enemyMembers,
-}: {
-  enemyName: string;
-  homeMembers: EnemyFactionMemberRow[];
-  enemyMembers: EnemyFactionMemberRow[];
-}): Uint8Array {
-  const width = 1200;
-  const headerHeight = 98;
-  const footerHeight = 24;
-  const panelGap = 18;
-  const statsPanels = [
-    {
-      title: "FF stats",
-      metric: "ff_battlestats" as const,
-      buckets: SCOUTING_BATTLE_STATS_BUCKETS,
-    },
-    {
-      title: "BSP stats",
-      metric: "bsp_battlestats" as const,
-      buckets: SCOUTING_BATTLE_STATS_BUCKETS,
-    },
-    {
-      title: "Networth",
-      metric: "networth" as const,
-      buckets: SCOUTING_NETWORTH_BUCKETS,
-    },
-  ];
-  const panelHeights = statsPanels.map((panel) => statsPanelHeight(panel.buckets.length));
-  const height = headerHeight + panelHeights.reduce((total, panelHeight) => total + panelHeight, 0)
-    + panelGap * (statsPanels.length - 1) + footerHeight;
-  const canvas = createPngCanvas(width, height, SIMPLE_PNG_COLORS.page);
-  const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
-
-  fillRect(canvas, 24, 20, 1152, 64, SIMPLE_PNG_COLORS.dark);
-  drawText(canvas, 48, 34, `${enemyName} stats comparison`, SIMPLE_PNG_COLORS.white, {
-    scale: 3,
-    maxWidth: 780,
-  });
-  drawText(
-    canvas,
-    48,
-    64,
-    `Generated ${generatedAt} UTC after FF, BSP, and networth fills completed`,
-    SIMPLE_PNG_COLORS.mutedOnDark,
-    { scale: 1, maxWidth: 720 },
-  );
-  fillRect(canvas, 872, 36, 14, 14, SIMPLE_PNG_COLORS.blue);
-  drawText(canvas, 896, 38, HOME_STATS_LABEL, SIMPLE_PNG_COLORS.soft, { scale: 1, maxWidth: 110 });
-  fillRect(canvas, 1012, 36, 14, 14, SIMPLE_PNG_COLORS.red);
-  drawText(canvas, 1036, 38, enemyName, SIMPLE_PNG_COLORS.soft, { scale: 1, maxWidth: 120 });
-
-  let panelY = headerHeight;
-  statsPanels.forEach((panel, index) => {
-    drawStatsPanel(canvas, {
-      ...panel,
-      y: panelY,
-      height: panelHeights[index],
-      homeMembers,
-      enemyMembers,
-      enemyName,
-    });
-    panelY += panelHeights[index] + panelGap;
-  });
-
-  return encodePng(canvas);
-}
-
-function statsPanelHeight(bucketCount: number): number {
-  return bucketCount > 8 ? 288 : 268;
-}
-
-function drawStatsPanel(
-  canvas: ReturnType<typeof createPngCanvas>,
-  {
-    y,
-    height,
-    title,
-    metric,
-    buckets,
-    homeMembers,
-    enemyMembers,
-    enemyName,
-  }: {
-    y: number;
-    height: number;
-    title: string;
-    metric: ScoutingComparisonMetric;
-    buckets: ScoutingBucket[];
-    homeMembers: EnemyFactionMemberRow[];
-    enemyMembers: EnemyFactionMemberRow[];
-    enemyName: string;
-  },
-): void {
-  const left = 48;
-  const top = y + 16;
-  const chartLeft = 108;
-  const chartRight = 1088;
-  const chartTop = y + 72;
-  const chartBottom = y + height - 48;
-  const chartWidth = chartRight - chartLeft;
-  const chartHeight = chartBottom - chartTop;
-  const valueLabelX = chartLeft - 14;
-  const homeValues = buildBucketCounts(homeMembers, buckets, metric);
-  const enemyValues = buildBucketCounts(enemyMembers, buckets, metric);
-  const maxValue = niceChartMax(Math.max(1, ...homeValues, ...enemyValues));
-  const homeCoverage = metricCoverage(homeMembers, metric);
-  const enemyCoverage = metricCoverage(enemyMembers, metric);
-  const homeAverage = metricAverage(homeMembers, metric);
-  const enemyAverage = metricAverage(enemyMembers, metric);
-
-  fillRect(canvas, 24, y, 1152, height, SIMPLE_PNG_COLORS.white);
-  strokeRect(canvas, 24, y, 1152, height, SIMPLE_PNG_COLORS.border);
-  fillRect(canvas, 24, y, 1152, 34, SIMPLE_PNG_COLORS.alternate);
-  drawText(canvas, left, top + 5, title, SIMPLE_PNG_COLORS.dark, { scale: 2, maxWidth: 160 });
-  drawText(
-    canvas,
-    420,
-    top + 10,
-    `${HOME_STATS_LABEL} ${homeCoverage.available}/${homeCoverage.total} avg ${formatCompactNumber(homeAverage)}`,
-    SIMPLE_PNG_COLORS.muted,
-    { scale: 1, maxWidth: 270, align: "center" },
-  );
-  drawText(
-    canvas,
-    730,
-    top + 10,
-    `${enemyName} ${enemyCoverage.available}/${enemyCoverage.total} avg ${formatCompactNumber(enemyAverage)}`,
-    SIMPLE_PNG_COLORS.muted,
-    { scale: 1, maxWidth: 310, align: "center" },
-  );
-
-  for (let index = 0; index <= 4; index += 1) {
-    const value = Math.round((maxValue / 4) * index);
-    const gridY = chartBottom - Math.round((index / 4) * chartHeight);
-    fillRect(canvas, chartLeft, gridY, chartWidth, 1, SIMPLE_PNG_COLORS.soft);
-    drawText(canvas, valueLabelX, gridY - 4, String(value), SIMPLE_PNG_COLORS.muted, {
-      scale: 1,
-      maxWidth: 48,
-      align: "right",
-    });
-  }
-  fillRect(canvas, chartLeft, chartTop, 1, chartHeight, SIMPLE_PNG_COLORS.border);
-  fillRect(canvas, chartLeft, chartBottom, chartWidth, 1, SIMPLE_PNG_COLORS.border);
-
-  const step = buckets.length > 1 ? chartWidth / (buckets.length - 1) : chartWidth;
-  const homePoints = homeValues.map((value, index) =>
-    chartPoint(chartLeft, chartBottom, chartHeight, step, index, value, maxValue),
-  );
-  const enemyPoints = enemyValues.map((value, index) =>
-    chartPoint(chartLeft, chartBottom, chartHeight, step, index, value, maxValue),
-  );
-
-  drawAreaSeries(canvas, homePoints, chartBottom, SIMPLE_PNG_COLORS.blue, SIMPLE_PNG_COLORS.blue);
-  drawAreaSeries(canvas, enemyPoints, chartBottom, SIMPLE_PNG_COLORS.red, SIMPLE_PNG_COLORS.red);
-
-  buckets.forEach((bucket, index) => {
-    const labelX = chartLeft + Math.round(index * step);
-    drawText(canvas, labelX, chartBottom + 12, bucket.label, SIMPLE_PNG_COLORS.muted, {
-      scale: 1,
-      maxWidth: Math.max(42, Math.floor(step) - 6),
-      align: "center",
-    });
-  });
-}
-
-function chartPoint(
-  chartLeft: number,
-  chartBottom: number,
-  chartHeight: number,
-  step: number,
-  index: number,
-  value: number,
-  maxValue: number,
-): { x: number; y: number } {
-  return {
-    x: chartLeft + Math.round(index * step),
-    y: chartBottom - Math.round((value / maxValue) * chartHeight),
-  };
-}
-
-function drawAreaSeries(
-  canvas: ReturnType<typeof createPngCanvas>,
-  points: Array<{ x: number; y: number }>,
-  baseline: number,
-  fillColor: number,
-  lineColor: number,
-): void {
-  if (points.length === 0) {
-    return;
-  }
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const start = points[index];
-    const end = points[index + 1];
-    const minX = Math.min(start.x, end.x);
-    const maxX = Math.max(start.x, end.x);
-    for (let x = minX; x <= maxX; x += 1) {
-      const ratio = end.x === start.x ? 0 : (x - start.x) / (end.x - start.x);
-      const y = Math.round(start.y + (end.y - start.y) * ratio);
-      fillRectAlpha(canvas, x, y, 1, Math.max(0, baseline - y), fillColor, 0.22);
-    }
-    drawThickLine(canvas, start.x, start.y, end.x, end.y, lineColor);
-  }
-
-  points.forEach((point) => {
-    fillRect(canvas, point.x - 2, point.y - 2, 5, 5, lineColor);
-  });
-}
-
-function drawThickLine(
-  canvas: ReturnType<typeof createPngCanvas>,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  color: number,
-): void {
-  drawLine(canvas, x0, y0, x1, y1, color);
-  drawLine(canvas, x0, y0 + 1, x1, y1 + 1, color);
-}
-
-function niceChartMax(value: number): number {
-  if (value <= 5) return 5;
-  if (value <= 10) return 10;
-  return Math.ceil(value / 5) * 5;
-}
-
-function buildEnemyMemberStatsTablePng({
-  enemyName,
-  enemyMembers,
-}: {
-  enemyName: string;
-  enemyMembers: EnemyFactionMemberRow[];
-}): Uint8Array {
-  const width = 920;
-  const contentWidth = width - 48;
-  const tableTop = 96;
-  const tableHeaderHeight = 30;
-  const rowHeight = 24;
-  const footerHeight = 24;
-  const members = [...enemyMembers].sort(compareEnemyMemberStatsRows);
-  const bodyRows = Math.max(1, members.length);
-  const tableHeight = tableHeaderHeight + bodyRows * rowHeight;
-  const height = tableTop + tableHeight + footerHeight;
-  const canvas = createPngCanvas(width, height, SIMPLE_PNG_COLORS.page);
-  const generatedAt = new Date().toISOString().replace("T", " ").slice(0, 16);
-
-  fillRect(canvas, 24, 20, contentWidth, 62, SIMPLE_PNG_COLORS.dark);
-  drawText(canvas, 48, 34, `${enemyName} member stats`, SIMPLE_PNG_COLORS.white, {
-    scale: 3,
-    maxWidth: 620,
-  });
-  drawText(canvas, 48, 64, `Generated ${generatedAt} UTC`, SIMPLE_PNG_COLORS.mutedOnDark, {
-    scale: 1,
-    maxWidth: 260,
-  });
-  fillRect(canvas, 24, tableTop, contentWidth, tableHeight, SIMPLE_PNG_COLORS.white);
-  strokeRect(canvas, 24, tableTop, contentWidth, tableHeight, SIMPLE_PNG_COLORS.border);
-  fillRect(canvas, 24, tableTop, contentWidth, tableHeaderHeight, SIMPLE_PNG_COLORS.soft);
-  drawText(canvas, 48, tableTop + 10, "Name", SIMPLE_PNG_COLORS.muted, { scale: 1 });
-  drawText(canvas, 440, tableTop + 10, "Level", SIMPLE_PNG_COLORS.muted, { scale: 1, align: "right" });
-  drawText(canvas, 630, tableTop + 10, "FF stats", SIMPLE_PNG_COLORS.muted, { scale: 1, align: "right" });
-  drawText(canvas, 820, tableTop + 10, "BSP stats", SIMPLE_PNG_COLORS.muted, {
-    scale: 1,
-    align: "right",
-  });
-
-  if (members.length === 0) {
-    const y = tableTop + tableHeaderHeight;
-    fillRect(canvas, 24, y, contentWidth, rowHeight, SIMPLE_PNG_COLORS.white);
-    drawText(canvas, 48, y + 6, "No enemy members cached", SIMPLE_PNG_COLORS.muted, {
-      scale: 1,
-      maxWidth: 300,
-    });
-    return encodePng(canvas);
-  }
-
-  members.forEach((member, index) => {
-    const y = tableTop + tableHeaderHeight + index * rowHeight;
-    fillRect(
-      canvas,
-      24,
-      y,
-      contentWidth,
-      rowHeight,
-      index % 2 === 0 ? SIMPLE_PNG_COLORS.white : SIMPLE_PNG_COLORS.alternate,
-    );
-    drawText(canvas, 48, y + 7, member.name ?? `#${member.member_id}`, SIMPLE_PNG_COLORS.dark, {
-      scale: 1,
-      maxWidth: 320,
-    });
-    drawText(canvas, 440, y + 7, formatNullableInteger(member.level), SIMPLE_PNG_COLORS.text, {
-      scale: 1,
-      maxWidth: 80,
-      align: "right",
-    });
-    drawText(canvas, 630, y + 7, formatNullableInteger(member.ff_battlestats), SIMPLE_PNG_COLORS.text, {
-      scale: 1,
-      maxWidth: 160,
-      align: "right",
-    });
-    drawText(canvas, 820, y + 7, formatNullableInteger(member.bsp_battlestats), SIMPLE_PNG_COLORS.text, {
-      scale: 1,
-      maxWidth: 160,
-      align: "right",
-    });
-  });
-
-  return encodePng(canvas);
-}
-
-function compareEnemyMemberStatsRows(a: EnemyFactionMemberRow, b: EnemyFactionMemberRow): number {
-  const bFf = Number(b.ff_battlestats ?? 0);
-  const aFf = Number(a.ff_battlestats ?? 0);
-  if (bFf !== aFf) {
-    return bFf - aFf;
-  }
-
-  const bBsp = Number(b.bsp_battlestats ?? 0);
-  const aBsp = Number(a.bsp_battlestats ?? 0);
-  if (bBsp !== aBsp) {
-    return bBsp - aBsp;
-  }
-
-  return (b.level ?? 0) - (a.level ?? 0) || (a.name ?? "").localeCompare(b.name ?? "");
-}
-
-function formatNullableInteger(value: number | null | undefined): string {
-  const numberValue = Number(value ?? 0);
-  return Number.isFinite(numberValue) && numberValue > 0
-    ? Math.round(numberValue).toLocaleString("en-US")
-    : "-";
-}
-
-function buildBucketCounts(
-  members: EnemyFactionMemberRow[],
-  buckets: ScoutingBucket[],
-  metric: ScoutingComparisonMetric,
-): number[] {
-  return buckets.map(
-    (bucket) =>
-      members.filter((member) => {
-        if (!hasScoutingMetricValue(member, metric)) {
-          return false;
-        }
-        const value = Number(member[metric] ?? 0);
-        return Number.isFinite(value) && value >= bucket.min && value < bucket.max;
-      }).length,
-  );
-}
-
-function metricCoverage(
-  members: EnemyFactionMemberRow[],
-  metric: ScoutingComparisonMetric,
-): { available: number; total: number } {
-  return {
-    available: members.filter((member) => hasScoutingMetricValue(member, metric)).length,
-    total: members.length,
-  };
-}
-
-function metricAverage(
-  members: EnemyFactionMemberRow[],
-  metric: ScoutingComparisonMetric,
-): number | null {
-  const values = members
-    .map((member) => Number(member[metric] ?? 0))
-    .filter((value) => Number.isFinite(value) && value > 0);
-  if (values.length === 0) {
-    return null;
-  }
-  return values.reduce((total, value) => total + value, 0) / values.length;
-}
-
-function hasScoutingMetricValue(
-  member: EnemyFactionMemberRow,
-  metric: ScoutingComparisonMetric,
-): boolean {
-  const value = Number(member[metric] ?? 0);
-  return Number.isFinite(value) && value > 0;
-}
-
-function formatCompactNumber(value: number | null): string {
-  if (value === null) {
-    return "n/a";
-  }
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000_000) return `${trimNumber(value / 1_000_000_000_000)}t`;
-  if (abs >= 1_000_000_000) return `${trimNumber(value / 1_000_000_000)}b`;
-  if (abs >= 1_000_000) return `${trimNumber(value / 1_000_000)}m`;
-  if (abs >= 1_000) return `${trimNumber(value / 1_000)}k`;
-  return String(Math.round(value));
-}
-
-function trimNumber(value: number): string {
-  return value.toFixed(value >= 10 ? 1 : 2).replace(/\.?0+$/, "");
 }
