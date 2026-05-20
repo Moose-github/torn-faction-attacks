@@ -10,7 +10,7 @@ import {
   WarMemberActivityHeatmapResponse,
   WarSummary,
 } from "../api";
-import { ActivityChart, AttackChart } from "../components/Charts";
+import { ActivityChart, AttackChart, MemberPointGraphs } from "../components/Charts";
 import { ChainBonusList } from "../components/ChainBonuses";
 import { CollapsiblePanel, InlineMetric, MetricCard, PanelHeader } from "../components/Common";
 import { MemberActivityHeatmap } from "../components/MemberActivityHeatmap";
@@ -352,6 +352,24 @@ export function WarDetailView({
                       </div>
                     )}
                   </section>
+                </CollapsiblePanel>
+              ) : null}
+
+              {showMemberBreakdown ? (
+                <CollapsiblePanel
+                  title="Member point graphs"
+                  aside="Member comparisons"
+                  collapsed={collapsedPanels.memberPointGraphs ?? true}
+                  onToggle={() => onTogglePanel("memberPointGraphs")}
+                  className="member-point-graphs-panel"
+                >
+                  <p className="panel-description">
+                    Compares member performance across respect, attacks, defends, fair fight, and termed-war limits.
+                  </p>
+                  <MemberPointGraphs
+                    members={members}
+                    showTermedGraph={selectedWar.war_type === "termed"}
+                  />
                 </CollapsiblePanel>
               ) : null}
 

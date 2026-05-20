@@ -7,6 +7,8 @@ import {
   Cell,
   Legend,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
@@ -19,7 +21,13 @@ import {
 } from "../api";
 import { EmptyState } from "./Common";
 import { formatNumber, formatTime } from "../utils/format";
-import { activityLabel, displayMember, memberDefendsLost, MemberSortKey } from "../utils/members";
+import {
+  activityLabel,
+  displayMember,
+  memberDefendsLost,
+  memberNonHospitalizedDefendsLost,
+  MemberSortKey,
+} from "../utils/members";
 import {
   SCOUTING_BATTLE_STATS_BUCKETS,
   SCOUTING_NETWORTH_BUCKETS,
@@ -165,6 +173,234 @@ export function ActivityChart({
   );
 }
 
+type MemberPointMetric = {
+  label: string;
+  value: (member: MemberStats) => number | null | undefined;
+};
+
+type MemberPointGraph = {
+  title: string;
+  x: MemberPointMetric;
+  y: MemberPointMetric;
+  color: string;
+};
+
+type MemberPointDatum = {
+  fill: string;
+  name: string;
+  x: number;
+  y: number;
+  xLabel: string;
+  yLabel: string;
+};
+
+const memberPointHighlightColors: Record<number, string> = {
+  1875013: "#f47fff",
+  2807909: "#ffef0f",
+  1874922: "#384298",
+  2905276: "#ff8a00",
+  2169883: "#00a86b",
+};
+
+const baseMemberPointGraphs: MemberPointGraph[] = [
+  {
+    title: "Respect gained vs successful attacks",
+    x: {
+      label: "Successful attacks",
+      value: (member) => member.attacks_vs_enemy_successful,
+    },
+    y: {
+      label: "Respect gained",
+      value: (member) => member.respect_gained,
+    },
+    color: "#2563eb",
+  },
+  {
+    title: "Respect gained vs respect lost",
+    x: {
+      label: "Respect lost",
+      value: (member) => member.respect_lost,
+    },
+    y: {
+      label: "Respect gained",
+      value: (member) => member.respect_gained,
+    },
+    color: "#16a34a",
+  },
+  {
+    title: "Average fair fight vs respect gained",
+    x: {
+      label: "Average fair fight",
+      value: (member) => member.average_fair_fight,
+    },
+    y: {
+      label: "Respect gained",
+      value: (member) => member.respect_gained,
+    },
+    color: "#7c3aed",
+  },
+  {
+    title: "Respect lost vs defends lost",
+    x: {
+      label: "Defends lost",
+      value: memberDefendsLost,
+    },
+    y: {
+      label: "Respect lost",
+      value: (member) => member.respect_lost,
+    },
+    color: "#ef4444",
+  },
+  {
+    title: "Defends lost vs non-hosp defends lost",
+    x: {
+      label: "Defends lost",
+      value: memberDefendsLost,
+    },
+    y: {
+      label: "Non-hosp defends lost",
+      value: memberNonHospitalizedDefendsLost,
+    },
+    color: "#f97316",
+  },
+];
+
+const termedMemberPointGraph: MemberPointGraph = {
+  title: "Average fair fight vs member respect limit %",
+  x: {
+    label: "Average fair fight",
+    value: (member) => member.average_fair_fight,
+  },
+  y: {
+    label: "Member respect limit %",
+    value: (member) => member.member_respect_limit_percent,
+  },
+  color: "#0891b2",
+};
+
+export function MemberPointGraphs({
+  members,
+  showTermedGraph,
+}: {
+  members: MemberStats[];
+  showTermedGraph: boolean;
+}) {
+  const graphs = showTermedGraph
+    ? [...baseMemberPointGraphs.slice(0, 3), termedMemberPointGraph, ...baseMemberPointGraphs.slice(3)]
+    : baseMemberPointGraphs;
+
+  if (members.length === 0) {
+    return <EmptyState text="No member data yet" />;
+  }
+
+  return (
+    <div className="member-point-graph-grid">
+      {graphs.map((graph) => (
+        <MemberPointGraphCard
+          key={graph.title}
+          graph={graph}
+          members={members}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MemberPointGraphCard({
+  graph,
+  members,
+}: {
+  graph: MemberPointGraph;
+  members: MemberStats[];
+}) {
+  const data = members
+    .map((member) => {
+      const x = numberOrNull(graph.x.value(member));
+      const y = numberOrNull(graph.y.value(member));
+      if (x === null || y === null) {
+        return null;
+      }
+      return {
+        fill: memberPointHighlightColors[member.member_id] ?? graph.color,
+        name: displayMember(member),
+        x,
+        y,
+        xLabel: graph.x.label,
+        yLabel: graph.y.label,
+      };
+    })
+    .filter((point): point is MemberPointDatum => point !== null);
+
+  return (
+    <div className="member-point-chart-card">
+      <div className="member-point-chart-header">
+        <strong>{graph.title}</strong>
+        <span>{formatNumber(data.length)} members</span>
+      </div>
+      {data.length === 0 ? (
+        <EmptyState text="No comparable member values" />
+      ) : (
+        <div className="member-point-chart">
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
+              <XAxis
+                type="number"
+                dataKey="x"
+                name={graph.x.label}
+                tickLine={false}
+                axisLine={false}
+                width={44}
+                {...chartAxisProps}
+              />
+              <YAxis
+                type="number"
+                dataKey="y"
+                name={graph.y.label}
+                tickLine={false}
+                axisLine={false}
+                width={54}
+                {...chartAxisProps}
+              />
+              <Tooltip content={<MemberPointTooltip />} {...chartTooltipProps} />
+              <Scatter data={data} fillOpacity={0.78}>
+                {data.map((point) => (
+                  <Cell key={`${graph.title}-${point.name}`} fill={point.fill} />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MemberPointTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: MemberPointDatum }>;
+}) {
+  const point = payload?.[0]?.payload;
+  if (!active || !point) {
+    return null;
+  }
+
+  return (
+    <div className="chart-tooltip-card">
+      <strong>{point.name}</strong>
+      <span>
+        {point.xLabel}: {formatNumber(point.x)}
+      </span>
+      <span>
+        {point.yLabel}: {formatNumber(point.y)}
+      </span>
+    </div>
+  );
+}
+
 export function ScoutingComparisonChart({
   homeMembers,
   enemyMembers,
@@ -233,6 +469,11 @@ export function ScoutingComparisonChart({
       </ResponsiveContainer>
     </div>
   );
+}
+
+function numberOrNull(value: number | null | undefined): number | null {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
 }
 
 function hasScoutingMetric(
