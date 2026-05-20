@@ -8,7 +8,7 @@ import {
   WarDetailResponse,
   WarSummary,
 } from "../api";
-import { EmptyState, PanelHeader } from "../components/Common";
+import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { detailNumber, formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
 import { displayMember, memberDefendsLost } from "../utils/members";
 
@@ -127,10 +127,11 @@ const DEFAULT_FLAT_PAYMENT_RULES: FlatPaymentRule[] = [
   { id: "flat-friendly-hosps", metric: "friendly_hosps", amount: "2000000" },
 ];
 
-export function Miscellaneous() {
+export function Miscellaneous({ isAdmin }: { isAdmin: boolean }) {
   const [data, setData] = React.useState<MiscellaneousResponse | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [isPayoutCollapsed, setIsPayoutCollapsed] = React.useState(true);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -178,7 +179,17 @@ export function Miscellaneous() {
         </div>
       </section>
 
-      <WarPayoutCalculator />
+      {isAdmin ? (
+        <CollapsiblePanel
+          title="War payout calculator (WIP)"
+          control={<span className="status-pill admin-only-pill">Admin only</span>}
+          collapsed={isPayoutCollapsed}
+          onToggle={() => setIsPayoutCollapsed((current) => !current)}
+          className="table-panel payout-calculator-panel"
+        >
+          <WarPayoutCalculator />
+        </CollapsiblePanel>
+      ) : null}
 
       <section className="panel table-panel">
         <PanelHeader
@@ -441,9 +452,9 @@ function WarPayoutCalculator() {
   }
 
   return (
-    <section className="panel table-panel payout-calculator-panel">
+    <>
       <PanelHeader
-        title="War payout calculator (WIP)"
+        title="Calculator"
         aside={isLoadingWar ? "Loading war" : `${members.length} members`}
       />
       <p className="panel-description">
@@ -756,7 +767,7 @@ function WarPayoutCalculator() {
           </table>
         </div>
       )}
-    </section>
+    </>
   );
 }
 

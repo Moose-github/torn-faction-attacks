@@ -747,7 +747,7 @@ function App() {
             </LazyPage>
           ) : view === "miscellaneous" ? (
             <LazyPage>
-              <Miscellaneous />
+              <Miscellaneous isAdmin={isAdmin} />
             </LazyPage>
           ) : view === "members" ? (
             <MembersOverview isAdmin={isAdmin} />

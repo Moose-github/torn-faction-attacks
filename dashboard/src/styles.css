@@ -2865,6 +2865,12 @@ tbody tr:not(.attack-row):hover td {
   color: #166534;
 }
 
+.admin-only-pill {
+  border: 1px solid rgba(37, 99, 235, 0.24);
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .progress-block {
   margin-top: 14px;
 }
@@ -3178,6 +3184,12 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .status-pill {
   background: var(--panel-muted-bg);
   color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .admin-only-pill {
+  border-color: rgba(96, 165, 250, 0.34);
+  background: rgba(37, 99, 235, 0.2);
+  color: #93c5fd;
 }
 
 :root[data-theme="dark"] .collapse-button {
