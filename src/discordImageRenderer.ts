@@ -79,7 +79,7 @@ function buildStatsComparisonSvg({
   const width = 1200;
   const headerHeight = 100;
   const panelGap = 18;
-  const panelHeight = 264;
+  const panelHeight = 276;
   const footerHeight = 26;
   const panels = [
     {
@@ -168,10 +168,10 @@ function renderStatsPanelSvg({
   enemyMembers: EnemyFactionMemberRow[];
   enemyName: string;
 }): string {
-  const chartLeft = 108;
-  const chartRight = 1088;
-  const chartTop = y + 72;
-  const chartBottom = y + height - 48;
+  const chartLeft = 104;
+  const chartRight = 1096;
+  const chartTop = y + 78;
+  const chartBottom = y + height - 58;
   const chartWidth = chartRight - chartLeft;
   const chartHeight = chartBottom - chartTop;
   const homeValues = buildBucketCounts(homeMembers, buckets, metric);
@@ -219,7 +219,6 @@ function renderStatsPanelSvg({
           size: 11,
           fill: "#475569",
           anchor: "middle",
-          maxLength: metric === "networth" ? 9 : 8,
         }),
       )
       .join(""),
@@ -263,6 +262,10 @@ function buildEnemyMemberStatsTableSvg({
   const tableHeaderHeight = 30;
   const rowHeight = 24;
   const footerHeight = 24;
+  const nameX = 48;
+  const levelX = 330;
+  const ffStatsX = 590;
+  const bspStatsX = 820;
   const members = [...enemyMembers].sort(compareEnemyMemberStatsRows);
   const bodyRows = Math.max(1, members.length);
   const tableHeight = tableHeaderHeight + bodyRows * rowHeight;
@@ -271,7 +274,7 @@ function buildEnemyMemberStatsTableSvg({
   const rows = members.length === 0
     ? [
         `<rect x="24" y="${tableTop + tableHeaderHeight}" width="${contentWidth}" height="${rowHeight}" fill="#ffffff"/>`,
-        svgText(48, tableTop + tableHeaderHeight + 17, "No enemy members cached", {
+        svgText(nameX, tableTop + tableHeaderHeight + 17, "No enemy members cached", {
           size: 12,
           fill: "#64748b",
         }),
@@ -281,22 +284,22 @@ function buildEnemyMemberStatsTableSvg({
           const rowY = tableTop + tableHeaderHeight + index * rowHeight;
           return [
             `<rect x="24" y="${rowY}" width="${contentWidth}" height="${rowHeight}" fill="${index % 2 === 0 ? "#ffffff" : "#f1f5f9"}"/>`,
-            svgText(48, rowY + 17, member.name ?? `#${member.member_id}`, {
+            svgText(nameX, rowY + 17, member.name ?? `#${member.member_id}`, {
               size: 12,
               fill: "#0f172a",
-              maxLength: 32,
+              maxLength: 26,
             }),
-            svgText(440, rowY + 17, formatNullableInteger(member.level), {
+            svgText(levelX, rowY + 17, formatNullableInteger(member.level), {
               size: 12,
               fill: "#334155",
               anchor: "end",
             }),
-            svgText(630, rowY + 17, formatNullableInteger(member.ff_battlestats), {
+            svgText(ffStatsX, rowY + 17, formatNullableInteger(member.ff_battlestats), {
               size: 12,
               fill: "#334155",
               anchor: "end",
             }),
-            svgText(820, rowY + 17, formatNullableInteger(member.bsp_battlestats), {
+            svgText(bspStatsX, rowY + 17, formatNullableInteger(member.bsp_battlestats), {
               size: 12,
               fill: "#334155",
               anchor: "end",
@@ -319,20 +322,20 @@ function buildEnemyMemberStatsTableSvg({
     `<rect x="24" y="${tableTop}" width="${contentWidth}" height="${tableHeight}" rx="8" fill="#ffffff" stroke="#dbe4ee"/>`,
     `<rect x="24" y="${tableTop}" width="${contentWidth}" height="${tableHeaderHeight}" rx="8" fill="#e2e8f0"/>`,
     `<rect x="24" y="${tableTop + 20}" width="${contentWidth}" height="10" fill="#e2e8f0"/>`,
-    svgText(48, tableTop + 20, "Name", { size: 11, weight: 700, fill: "#475569" }),
-    svgText(440, tableTop + 20, "Level", {
+    svgText(nameX, tableTop + 20, "Name", { size: 11, weight: 700, fill: "#475569" }),
+    svgText(levelX, tableTop + 20, "Level", {
       size: 11,
       weight: 700,
       fill: "#475569",
       anchor: "end",
     }),
-    svgText(630, tableTop + 20, "FF stats", {
+    svgText(ffStatsX, tableTop + 20, "FF stats", {
       size: 11,
       weight: 700,
       fill: "#475569",
       anchor: "end",
     }),
-    svgText(820, tableTop + 20, "BSP stats", {
+    svgText(bspStatsX, tableTop + 20, "BSP stats", {
       size: 11,
       weight: 700,
       fill: "#475569",
