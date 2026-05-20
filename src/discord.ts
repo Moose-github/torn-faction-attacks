@@ -3,6 +3,11 @@ import { json } from "./utils";
 
 const MAX_DISCORD_MESSAGE_LENGTH = 1900;
 
+export type DiscordAllowedMentions = {
+  users?: string[];
+  roles?: string[];
+};
+
 export async function sendDiscordMessageFromRequest(request: Request, env: Env): Promise<Response> {
   if (!env.DISCORD_WEBHOOK_URL) {
     return json(
@@ -32,7 +37,11 @@ export async function sendDiscordMessageFromRequest(request: Request, env: Env):
   return json({ ok: true, sent: true });
 }
 
-export async function sendDiscordMessage(env: Env, message: string): Promise<void> {
+export async function sendDiscordMessage(
+  env: Env,
+  message: string,
+  allowedMentions?: DiscordAllowedMentions,
+): Promise<void> {
   if (!env.DISCORD_WEBHOOK_URL) {
     throw new Error("DISCORD_WEBHOOK_URL is not configured");
   }
@@ -42,13 +51,35 @@ export async function sendDiscordMessage(env: Env, message: string): Promise<voi
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ content: message }),
+    body: JSON.stringify(discordPayload(message, allowedMentions)),
   });
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new Error(`Discord webhook failed: ${response.status}${text ? ` ${text}` : ""}`);
   }
+}
+
+function discordPayload(content: string, allowedMentions?: DiscordAllowedMentions): {
+  content: string;
+  allowed_mentions?: {
+    parse: [];
+    users?: string[];
+    roles?: string[];
+  };
+} {
+  if (!allowedMentions) {
+    return { content };
+  }
+
+  return {
+    content,
+    allowed_mentions: {
+      parse: [],
+      users: allowedMentions.users ?? [],
+      roles: allowedMentions.roles ?? [],
+    },
+  };
 }
 
 export async function sendDiscordMessageWithAttachment(
