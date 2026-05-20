@@ -29,6 +29,7 @@
 		"seedLocalD1": "wrangler d1 migrations apply DB --local"
 	},
 	"dependencies": {
-		"@resvg/resvg-wasm": "^2.6.2"
+		"@resvg/resvg-wasm": "^2.6.2",
+		"dejavu-fonts-ttf": "^2.37.3"
 	}
 }

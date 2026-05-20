@@ -6,6 +6,13 @@
   "triggers": {
     "crons": ["* * * * *"]
   },
+  "rules": [
+    {
+      "type": "Data",
+      "globs": ["**/*.ttf"],
+      "fallthrough": true
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

@@ -1,4 +1,6 @@
 import { Resvg, initWasm } from "@resvg/resvg-wasm";
+import dejavuSansBoldFont from "dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf";
+import dejavuSansFont from "dejavu-fonts-ttf/ttf/DejaVuSans.ttf";
 import resvgWasm from "@resvg/resvg-wasm/index_bg.wasm";
 import {
   SCOUTING_BATTLE_STATS_BUCKETS,
@@ -43,9 +45,10 @@ async function renderSvgToPng(svg: string): Promise<Uint8Array> {
 
   const renderer = new Resvg(svg, {
     font: {
+      fontBuffers: [new Uint8Array(dejavuSansFont), new Uint8Array(dejavuSansBoldFont)],
       loadSystemFonts: false,
-      defaultFontFamily: "Arial",
-      sansSerifFamily: "Arial",
+      defaultFontFamily: "DejaVu Sans",
+      sansSerifFamily: "DejaVu Sans",
     },
     shapeRendering: 2,
     textRendering: 2,
