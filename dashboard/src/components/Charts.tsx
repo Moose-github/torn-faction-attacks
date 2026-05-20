@@ -484,7 +484,11 @@ type MemberPointDotProps = {
   cx?: number;
   cy?: number;
   fill?: string;
+  height?: number;
+  left?: number;
   payload?: MemberPointDatum;
+  top?: number;
+  width?: number;
 };
 
 function MemberPointDot({
@@ -492,20 +496,33 @@ function MemberPointDot({
   cy,
   fill,
   focusedMemberId,
+  height,
+  left,
   payload,
+  top,
+  width,
 }: MemberPointDotProps & { focusedMemberId: number | null }) {
   if (typeof cx !== "number" || typeof cy !== "number") {
     return null;
   }
 
   const isFocused = focusedMemberId !== null && payload?.memberId === focusedMemberId;
+  const hasChartBounds =
+    typeof left === "number" &&
+    typeof top === "number" &&
+    typeof width === "number" &&
+    typeof height === "number";
+  const lineX1 = hasChartBounds ? left : 0;
+  const lineX2 = hasChartBounds ? left + width : cx;
+  const lineY1 = hasChartBounds ? top : cy;
+  const lineY2 = hasChartBounds ? top + height : cy;
   return (
     <g>
       {isFocused ? (
         <>
           <line
-            x1={-10000}
-            x2={10000}
+            x1={lineX1}
+            x2={lineX2}
             y1={cy}
             y2={cy}
             stroke="var(--member-point-reference-line)"
@@ -515,8 +532,8 @@ function MemberPointDot({
           <line
             x1={cx}
             x2={cx}
-            y1={-10000}
-            y2={10000}
+            y1={lineY1}
+            y2={lineY2}
             stroke="var(--member-point-reference-line)"
             strokeDasharray="4 4"
             strokeWidth={1.25}
