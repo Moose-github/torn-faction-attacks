@@ -345,11 +345,12 @@ export function MemberPointGraphs({
     () =>
       members.map((member) => ({
         id: member.member_id,
+        name: displayMember(member),
         label: `${displayMember(member)} (#${member.member_id})`,
       })),
     [members],
   );
-  const focusedMemberId = memberOptions.find((member) => member.label === focusedMemberInput)?.id ?? null;
+  const focusedMemberId = resolveFocusedMemberId(focusedMemberInput, memberOptions);
 
   if (members.length === 0) {
     return <EmptyState text="No member data yet" />;
@@ -460,8 +461,22 @@ function MemberPointGraphCard({
               />
               {focusedPoint ? (
                 <>
-                  <ReferenceLine x={focusedPoint.x} stroke="var(--chart-axis)" strokeDasharray="4 4" strokeOpacity={0.72} />
-                  <ReferenceLine y={focusedPoint.y} stroke="var(--chart-axis)" strokeDasharray="4 4" strokeOpacity={0.72} />
+                  <ReferenceLine
+                    x={focusedPoint.x}
+                    stroke="var(--member-point-reference-line)"
+                    strokeDasharray="4 4"
+                    strokeWidth={1.5}
+                    ifOverflow="visible"
+                    isFront
+                  />
+                  <ReferenceLine
+                    y={focusedPoint.y}
+                    stroke="var(--member-point-reference-line)"
+                    strokeDasharray="4 4"
+                    strokeWidth={1.5}
+                    ifOverflow="visible"
+                    isFront
+                  />
                 </>
               ) : null}
               <Tooltip
@@ -516,9 +531,32 @@ function MemberPointDot({
       r={4}
       fill={fill ?? payload?.fill ?? "#2563eb"}
       stroke={isFocused ? "var(--text-strong)" : "transparent"}
-      strokeWidth={isFocused ? 2.5 : 0}
+      strokeWidth={isFocused ? 1.5 : 0}
     />
   );
+}
+
+function resolveFocusedMemberId(
+  input: string,
+  members: Array<{ id: number; label: string; name: string }>,
+): number | null {
+  const value = input.trim().toLowerCase();
+  if (!value) {
+    return null;
+  }
+
+  const exactMatch = members.find(
+    (member) =>
+      member.label.toLowerCase() === value ||
+      member.name.toLowerCase() === value ||
+      String(member.id) === value,
+  );
+  if (exactMatch) {
+    return exactMatch.id;
+  }
+
+  const partialMatches = members.filter((member) => member.name.toLowerCase().includes(value));
+  return partialMatches.length === 1 ? partialMatches[0].id : null;
 }
 
 function MemberPointTooltip({
