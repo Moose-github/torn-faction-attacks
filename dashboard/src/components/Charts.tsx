@@ -328,6 +328,32 @@ const termedMemberPointGraph: MemberPointGraph = {
   color: "#0891b2",
 };
 
+const tacendaJokePoint: MemberPointDatum = {
+  fill: memberPointHighlightColors[2807909],
+  memberId: 2807909,
+  name: "Tacenda (#2807909)",
+  x: 72,
+  y: 91,
+  xLabel: "Plot density",
+  yLabel: "Tacenda factor",
+};
+
+const tacendaJokeTicks = [0, 25, 50, 75, 100];
+const tacendaJokeXAxisLabels: Record<number, string> = {
+  0: "Rumour",
+  25: "Whisper",
+  50: "Scheme",
+  75: "Lore",
+  100: "Canon",
+};
+const tacendaJokeYAxisLabels: Record<number, string> = {
+  0: "Calm",
+  25: "Noted",
+  50: "Suspicious",
+  75: "Mythic",
+  100: "Tacenda",
+};
+
 export function MemberPointGraphs({
   members,
   showTermedGraph,
@@ -391,6 +417,7 @@ export function MemberPointGraphs({
             focusedMemberId={focusedMemberId}
           />
         ))}
+        <TacendaJokeGraphCard focusedMemberId={focusedMemberId} />
       </div>
     </div>
   );
@@ -480,6 +507,64 @@ function MemberPointGraphCard({
   );
 }
 
+function TacendaJokeGraphCard({ focusedMemberId }: { focusedMemberId: number | null }) {
+  return (
+    <div className="member-point-chart-card">
+      <div className="member-point-chart-header">
+        <strong>Tacenda</strong>
+        <span>1 member</span>
+      </div>
+      <div className="member-point-chart">
+        <ResponsiveContainer width="100%" height="100%">
+          <ScatterChart margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+            <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
+            <XAxis
+              type="number"
+              dataKey="x"
+              name={tacendaJokePoint.xLabel}
+              domain={[0, 100]}
+              ticks={tacendaJokeTicks}
+              tickFormatter={(value) => tacendaJokeXAxisLabels[Number(value)] ?? String(value)}
+              tickLine={false}
+              axisLine={false}
+              width={44}
+              {...chartAxisProps}
+            />
+            <YAxis
+              type="number"
+              dataKey="y"
+              name={tacendaJokePoint.yLabel}
+              domain={[0, 100]}
+              ticks={tacendaJokeTicks}
+              tickFormatter={(value) => tacendaJokeYAxisLabels[Number(value)] ?? String(value)}
+              tickLine={false}
+              axisLine={false}
+              width={72}
+              {...chartAxisProps}
+            />
+            <Tooltip
+              content={<MemberPointTooltip />}
+              {...chartTooltipProps}
+            />
+            <Scatter
+              data={[tacendaJokePoint]}
+              fillOpacity={0.78}
+              shape={(props: unknown) => (
+                <MemberPointDot
+                  {...(props as MemberPointDotProps)}
+                  focusedMemberId={focusedMemberId}
+                />
+              )}
+            >
+              <Cell fill={tacendaJokePoint.fill} />
+            </Scatter>
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 type MemberPointDotProps = {
   cx?: number;
   cy?: number;
@@ -489,6 +574,14 @@ type MemberPointDotProps = {
   payload?: MemberPointDatum;
   top?: number;
   width?: number;
+  xAxis?: {
+    x?: number;
+    width?: number;
+  };
+  yAxis?: {
+    height?: number;
+    y?: number;
+  };
 };
 
 function MemberPointDot({
@@ -501,6 +594,8 @@ function MemberPointDot({
   payload,
   top,
   width,
+  xAxis,
+  yAxis,
 }: MemberPointDotProps & { focusedMemberId: number | null }) {
   if (typeof cx !== "number" || typeof cy !== "number") {
     return null;
@@ -512,10 +607,19 @@ function MemberPointDot({
     typeof top === "number" &&
     typeof width === "number" &&
     typeof height === "number";
-  const lineX1 = hasChartBounds ? left : 0;
-  const lineX2 = hasChartBounds ? left + width : cx;
-  const lineY1 = hasChartBounds ? top : cy;
-  const lineY2 = hasChartBounds ? top + height : cy;
+  const hasAxisBounds =
+    typeof xAxis?.x === "number" &&
+    typeof xAxis.width === "number" &&
+    typeof yAxis?.y === "number" &&
+    typeof yAxis.height === "number";
+  const axisLeft = hasAxisBounds ? Number(xAxis?.x) : null;
+  const axisWidth = hasAxisBounds ? Number(xAxis?.width) : null;
+  const axisTop = hasAxisBounds ? Number(yAxis?.y) : null;
+  const axisHeight = hasAxisBounds ? Number(yAxis?.height) : null;
+  const lineX1 = axisLeft ?? (hasChartBounds ? left : 0);
+  const lineX2 = axisLeft !== null && axisWidth !== null ? axisLeft + axisWidth : hasChartBounds ? left + width : cx;
+  const lineY1 = axisTop ?? (hasChartBounds ? top : 0);
+  const lineY2 = axisTop !== null && axisHeight !== null ? axisTop + axisHeight : hasChartBounds ? top + height : cy;
   return (
     <g>
       {isFocused ? (
