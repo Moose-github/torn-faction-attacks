@@ -1,3 +1,4 @@
+import React from "react";
 import {
   Area,
   AreaChart,
@@ -6,6 +7,7 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  ReferenceLine,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
@@ -187,6 +189,7 @@ type MemberPointGraph = {
 
 type MemberPointDatum = {
   fill: string;
+  memberId: number;
   name: string;
   x: number;
   y: number;
@@ -333,23 +336,62 @@ export function MemberPointGraphs({
   members: MemberStats[];
   showTermedGraph: boolean;
 }) {
+  const listId = React.useId();
+  const [focusedMemberInput, setFocusedMemberInput] = React.useState("");
   const graphs = showTermedGraph
     ? [...baseMemberPointGraphs.slice(0, 3), termedMemberPointGraph, ...baseMemberPointGraphs.slice(3)]
     : baseMemberPointGraphs;
+  const memberOptions = React.useMemo(
+    () =>
+      members.map((member) => ({
+        id: member.member_id,
+        label: `${displayMember(member)} (#${member.member_id})`,
+      })),
+    [members],
+  );
+  const focusedMemberId = memberOptions.find((member) => member.label === focusedMemberInput)?.id ?? null;
 
   if (members.length === 0) {
     return <EmptyState text="No member data yet" />;
   }
 
   return (
-    <div className="member-point-graph-grid">
-      {graphs.map((graph) => (
-        <MemberPointGraphCard
-          key={graph.title}
-          graph={graph}
-          members={members}
-        />
-      ))}
+    <div className="member-point-graphs">
+      <div className="member-point-focus-control">
+        <label htmlFor={listId}>Focus member</label>
+        <div>
+          <input
+            id={listId}
+            list={`${listId}-members`}
+            placeholder="Search member"
+            value={focusedMemberInput}
+            onChange={(event) => setFocusedMemberInput(event.target.value)}
+          />
+          <datalist id={`${listId}-members`}>
+            {memberOptions.map((member) => (
+              <option key={member.id} value={member.label} />
+            ))}
+          </datalist>
+          <button
+            type="button"
+            className="panel-action-button"
+            disabled={!focusedMemberInput}
+            onClick={() => setFocusedMemberInput("")}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+      <div className="member-point-graph-grid">
+        {graphs.map((graph) => (
+          <MemberPointGraphCard
+            key={graph.title}
+            graph={graph}
+            members={members}
+            focusedMemberId={focusedMemberId}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -357,9 +399,11 @@ export function MemberPointGraphs({
 function MemberPointGraphCard({
   graph,
   members,
+  focusedMemberId,
 }: {
   graph: MemberPointGraph;
   members: MemberStats[];
+  focusedMemberId: number | null;
 }) {
   const data = members
     .map((member) => {
@@ -370,6 +414,7 @@ function MemberPointGraphCard({
       }
       return {
         fill: memberPointHighlightColors[member.member_id] ?? graph.color,
+        memberId: member.member_id,
         name: displayMember(member),
         x,
         y,
@@ -378,6 +423,9 @@ function MemberPointGraphCard({
       };
     })
     .filter((point): point is MemberPointDatum => point !== null);
+  const focusedPoint = focusedMemberId === null
+    ? null
+    : data.find((point) => point.memberId === focusedMemberId) ?? null;
 
   return (
     <div className="member-point-chart-card">
@@ -410,8 +458,26 @@ function MemberPointGraphCard({
                 width={54}
                 {...chartAxisProps}
               />
-              <Tooltip content={<MemberPointTooltip />} {...chartTooltipProps} />
-              <Scatter data={data} fillOpacity={0.78}>
+              {focusedPoint ? (
+                <>
+                  <ReferenceLine x={focusedPoint.x} stroke="var(--chart-axis)" strokeDasharray="4 4" strokeOpacity={0.72} />
+                  <ReferenceLine y={focusedPoint.y} stroke="var(--chart-axis)" strokeDasharray="4 4" strokeOpacity={0.72} />
+                </>
+              ) : null}
+              <Tooltip
+                content={<MemberPointTooltip />}
+                {...chartTooltipProps}
+              />
+              <Scatter
+                data={data}
+                fillOpacity={0.78}
+                shape={(props: unknown) => (
+                  <MemberPointDot
+                    {...(props as MemberPointDotProps)}
+                    focusedMemberId={focusedMemberId}
+                  />
+                )}
+              >
                 {data.map((point) => (
                   <Cell key={`${graph.title}-${point.name}`} fill={point.fill} />
                 ))}
@@ -421,6 +487,37 @@ function MemberPointGraphCard({
         </div>
       )}
     </div>
+  );
+}
+
+type MemberPointDotProps = {
+  cx?: number;
+  cy?: number;
+  fill?: string;
+  payload?: MemberPointDatum;
+};
+
+function MemberPointDot({
+  cx,
+  cy,
+  fill,
+  focusedMemberId,
+  payload,
+}: MemberPointDotProps & { focusedMemberId: number | null }) {
+  if (typeof cx !== "number" || typeof cy !== "number") {
+    return null;
+  }
+
+  const isFocused = focusedMemberId !== null && payload?.memberId === focusedMemberId;
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      r={4}
+      fill={fill ?? payload?.fill ?? "#2563eb"}
+      stroke={isFocused ? "var(--text-strong)" : "transparent"}
+      strokeWidth={isFocused ? 2.5 : 0}
+    />
   );
 }
 

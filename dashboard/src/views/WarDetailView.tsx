@@ -364,7 +364,7 @@ export function WarDetailView({
                   className="member-point-graphs-panel"
                 >
                   <p className="panel-description">
-                    Compares member performance across respect, attacks, defends, fair fight, and termed-war limits.
+                    Tacenda's point graphs to compare various member performance metrics, some more useful than others.
                   </p>
                   <MemberPointGraphs
                     members={members}

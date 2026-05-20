@@ -1144,6 +1144,40 @@ h2 {
   margin-bottom: 16px;
 }
 
+.member-point-graphs {
+  display: grid;
+  gap: 12px;
+}
+
+.member-point-focus-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: var(--panel-muted-bg);
+}
+
+.member-point-focus-control label {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.member-point-focus-control > div {
+  display: flex;
+  flex: 1 1 280px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.member-point-focus-control input {
+  min-width: 0;
+}
+
 .member-point-graph-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
