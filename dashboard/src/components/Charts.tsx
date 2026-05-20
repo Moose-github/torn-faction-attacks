@@ -216,6 +216,18 @@ const baseMemberPointGraphs: MemberPointGraph[] = [
     color: "#2563eb",
   },
   {
+    title: "Average fair fight vs successful attacks",
+    x: {
+      label: "Successful attacks",
+      value: (member) => member.attacks_vs_enemy_successful,
+    },
+    y: {
+      label: "Average fair fight",
+      value: (member) => member.average_fair_fight,
+    },
+    color: "#4f46e5",
+  },
+  {
     title: "Adjusted respect gained vs adjusted respect lost",
     x: {
       label: "Adjusted respect lost",
@@ -226,6 +238,42 @@ const baseMemberPointGraphs: MemberPointGraph[] = [
       value: (member) => member.respect_gained,
     },
     color: "#16a34a",
+  },
+  {
+    title: "Adjusted respect gained vs non-hosp respect lost",
+    x: {
+      label: "Non-hosp respect lost",
+      value: (member) => member.respect_lost_non_hospitalized,
+    },
+    y: {
+      label: "Adjusted respect gained",
+      value: (member) => member.respect_gained,
+    },
+    color: "#0d9488",
+  },
+  {
+    title: "Successful attacks vs outside hits",
+    x: {
+      label: "Outside hits",
+      value: (member) => member.outside_hits,
+    },
+    y: {
+      label: "Successful attacks",
+      value: (member) => member.attacks_vs_enemy_successful,
+    },
+    color: "#a855f7",
+  },
+  {
+    title: "Successful attacks vs defends lost",
+    x: {
+      label: "Defends lost",
+      value: memberDefendsLost,
+    },
+    y: {
+      label: "Successful attacks",
+      value: (member) => member.attacks_vs_enemy_successful,
+    },
+    color: "#dc2626",
   },
   {
     title: "Average fair fight vs adjusted respect gained",
