@@ -204,49 +204,49 @@ const memberPointHighlightColors: Record<number, string> = {
 
 const baseMemberPointGraphs: MemberPointGraph[] = [
   {
-    title: "Respect gained vs successful attacks",
+    title: "Adjusted respect gained vs successful attacks",
     x: {
       label: "Successful attacks",
       value: (member) => member.attacks_vs_enemy_successful,
     },
     y: {
-      label: "Respect gained",
+      label: "Adjusted respect gained",
       value: (member) => member.respect_gained,
     },
     color: "#2563eb",
   },
   {
-    title: "Respect gained vs respect lost",
+    title: "Adjusted respect gained vs adjusted respect lost",
     x: {
-      label: "Respect lost",
+      label: "Adjusted respect lost",
       value: (member) => member.respect_lost,
     },
     y: {
-      label: "Respect gained",
+      label: "Adjusted respect gained",
       value: (member) => member.respect_gained,
     },
     color: "#16a34a",
   },
   {
-    title: "Average fair fight vs respect gained",
+    title: "Average fair fight vs adjusted respect gained",
     x: {
       label: "Average fair fight",
       value: (member) => member.average_fair_fight,
     },
     y: {
-      label: "Respect gained",
+      label: "Adjusted respect gained",
       value: (member) => member.respect_gained,
     },
     color: "#7c3aed",
   },
   {
-    title: "Respect lost vs defends lost",
+    title: "Adjusted respect lost vs defends lost",
     x: {
       label: "Defends lost",
       value: memberDefendsLost,
     },
     y: {
-      label: "Respect lost",
+      label: "Adjusted respect lost",
       value: (member) => member.respect_lost,
     },
     color: "#ef4444",

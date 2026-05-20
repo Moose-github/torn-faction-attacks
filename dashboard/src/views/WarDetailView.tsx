@@ -357,7 +357,7 @@ export function WarDetailView({
 
               {showMemberBreakdown ? (
                 <CollapsiblePanel
-                  title="Member point graphs"
+                  title="Tacenda's point graphs"
                   aside="Member comparisons"
                   collapsed={collapsedPanels.memberPointGraphs ?? true}
                   onToggle={() => onTogglePanel("memberPointGraphs")}
