@@ -536,8 +536,8 @@ function tornHealthTone(status: MonitorStatus | null, timing: MonitorTiming): "o
   if (status?.lastError) return "error";
   if (!status?.hasBaseline || timing.dataAgeMs === null) return "warn";
 
-  if (timing.dataAgeMs > 15_000) return "error";
-  if (timing.dataAgeMs > 5_000) return "warn";
+  if (timing.dataAgeMs > 5_000) return "error";
+  if (timing.dataAgeMs > 2_000) return "warn";
   return "ok";
 }
 
@@ -593,7 +593,7 @@ function tornAgeLabel(status: MonitorStatus | null, timing: MonitorTiming): stri
 
 function formatTimingMs(value: number | null | undefined): string {
   if (value === null || value === undefined) return "-";
-  const rounded = Math.max(0, Math.round(value));
+  const rounded = Math.max(1, Math.round(value));
   return `${rounded}ms`;
 }
 

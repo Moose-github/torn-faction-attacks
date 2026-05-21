@@ -706,7 +706,8 @@ h2 {
 }
 
 .enemy-monitor-volume-card input[type="range"] {
-  width: 100%;
+  width: calc(100% + 16px);
+  margin-inline: -8px;
   accent-color: #2563eb;
 }
 
