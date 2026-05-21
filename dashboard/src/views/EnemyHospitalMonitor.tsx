@@ -1,5 +1,5 @@
 import React from "react";
-import { Activity, AlertTriangle, Clock3, Radio, ShieldAlert, Wifi, WifiOff } from "lucide-react";
+import { Activity, AlertTriangle, Clock3, Radio, ShieldAlert, TestTube2, Wifi, WifiOff } from "lucide-react";
 import { MONITOR_WORKER_URL, WarSummary } from "../api";
 import { EmptyState, MetricCard, PanelHeader } from "../components/Common";
 import { formatLongDateTime, formatRelativeTime, formatTime } from "../utils/format";
@@ -79,6 +79,15 @@ type MonitorMessage =
   | { type: "pong"; now: number };
 
 const MAX_VISIBLE_EVENTS = 40;
+const TEST_WAR_ID = 999_999_001;
+
+type MonitorTarget = {
+  id: number;
+  name: string;
+  enemyFactionId: number;
+  tornWarId: number | null;
+  testMode: boolean;
+};
 
 export function EnemyHospitalMonitor({
   activeWar,
@@ -90,7 +99,10 @@ export function EnemyHospitalMonitor({
   const [members, setMembers] = React.useState<MemberMonitorSnapshot[]>([]);
   const [events, setEvents] = React.useState<MonitorEvent[]>([]);
   const [socketError, setSocketError] = React.useState<string | null>(null);
+  const [testFactionIdInput, setTestFactionIdInput] = React.useState("");
+  const [testTarget, setTestTarget] = React.useState<MonitorTarget | null>(null);
 
+  const isLocalTestAvailable = isLocalhost();
   const canMonitor = Boolean(
     activeWar &&
       activeWar.status === "active" &&
@@ -98,20 +110,22 @@ export function EnemyHospitalMonitor({
       activeWar.official_end_time === null &&
       activeWar.practical_finish_time === null,
   );
+  const monitorTarget = canMonitor && activeWar ? monitorTargetFromWar(activeWar) : testTarget;
 
   React.useEffect(() => {
     setEvents([]);
     setMembers([]);
     setStatus(null);
-  }, [activeWar?.id]);
+    setSocketError(null);
+  }, [monitorTarget?.id, monitorTarget?.enemyFactionId]);
 
   React.useEffect(() => {
-    if (!activeWar || !canMonitor) {
+    if (!monitorTarget) {
       setConnectionState("idle");
       return;
     }
 
-    const socketUrl = monitorSocketUrl(activeWar);
+    const socketUrl = monitorSocketUrl(monitorTarget);
     const socket = new WebSocket(socketUrl);
     setConnectionState("connecting");
     setSocketError(null);
@@ -148,23 +162,45 @@ export function EnemyHospitalMonitor({
     return () => {
       socket.close(1000, "Monitor page closed");
     };
-  }, [activeWar, canMonitor]);
+  }, [monitorTarget]);
 
-  if (!activeWar) {
-    return (
-      <section className="panel">
-        <PanelHeader title="Enemy hospital monitor" />
-        <EmptyState text="No active war to monitor" />
-      </section>
-    );
+  function startTestMonitor(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const enemyFactionId = Number(testFactionIdInput);
+    if (!Number.isInteger(enemyFactionId) || enemyFactionId <= 0) {
+      setSocketError("Enter a valid enemy faction ID");
+      return;
+    }
+
+    setTestTarget({
+      id: TEST_WAR_ID,
+      name: `Test faction ${enemyFactionId}`,
+      enemyFactionId,
+      tornWarId: null,
+      testMode: true,
+    });
   }
 
-  if (!canMonitor) {
+  function stopTestMonitor() {
+    setTestTarget(null);
+  }
+
+  if (!monitorTarget) {
     return (
-      <section className="panel">
-        <PanelHeader title="Enemy hospital monitor" />
-        <EmptyState text="Enemy hospital monitoring is available during an active war with an enemy faction" />
-      </section>
+      <>
+        <section className="panel">
+          <PanelHeader title="Enemy hospital monitor" />
+          <EmptyState text="No active war to monitor" />
+        </section>
+        {isLocalTestAvailable ? (
+          <LocalMonitorTestPanel
+            factionId={testFactionIdInput}
+            onFactionIdChange={setTestFactionIdInput}
+            onSubmit={startTestMonitor}
+            error={socketError}
+          />
+        ) : null}
+      </>
     );
   }
 
@@ -179,11 +215,12 @@ export function EnemyHospitalMonitor({
         <div>
           <p className="eyebrow">Enemy hospital monitor</p>
           <div className="war-title-row">
-            <h2>{activeWar.name}</h2>
+            <h2>{monitorTarget.name}</h2>
             <span>{connectionLabel(connectionState)}</span>
+            {monitorTarget.testMode ? <span>Local test</span> : null}
           </div>
           <p>
-            Enemy faction: <strong>{activeWar.enemy_faction_id}</strong>
+            Enemy faction: <strong>{monitorTarget.enemyFactionId}</strong>
           </p>
         </div>
         <div className="enemy-monitor-live-state">
@@ -192,6 +229,18 @@ export function EnemyHospitalMonitor({
           <span>Last poll</span>
         </div>
       </section>
+
+      {monitorTarget.testMode && isLocalTestAvailable ? (
+        <section className="panel enemy-monitor-test-active-panel">
+          <PanelHeader title="Local test monitor" icon={<TestTube2 size={18} />} />
+          <div className="enemy-monitor-test-active-row">
+            <span>Polling faction {monitorTarget.enemyFactionId} with test war metadata.</span>
+            <button type="button" className="panel-action-button" onClick={stopTestMonitor}>
+              Stop test
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="status-grid enemy-monitor-status-grid">
         <MetricCard
@@ -251,6 +300,41 @@ export function EnemyHospitalMonitor({
   );
 }
 
+function LocalMonitorTestPanel({
+  factionId,
+  onFactionIdChange,
+  onSubmit,
+  error,
+}: {
+  factionId: string;
+  onFactionIdChange: (value: string) => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  error: string | null;
+}) {
+  return (
+    <section className="panel enemy-monitor-test-panel">
+      <PanelHeader title="Local test monitor" icon={<TestTube2 size={18} />} />
+      <form className="enemy-monitor-test-form" onSubmit={onSubmit}>
+        <label>
+          Enemy faction ID
+          <input
+            type="number"
+            inputMode="numeric"
+            min="1"
+            value={factionId}
+            onChange={(event) => onFactionIdChange(event.target.value)}
+            placeholder="51794"
+          />
+        </label>
+        <button type="submit" className="panel-action-button">
+          Start test
+        </button>
+      </form>
+      {error ? <p className="form-error">{error}</p> : null}
+    </section>
+  );
+}
+
 function MonitorEventRow({ event }: { event: MonitorEvent }) {
   return (
     <article className={`enemy-monitor-event priority-${event.priority}`}>
@@ -281,16 +365,26 @@ function MemberStatusRow({ member }: { member: MemberMonitorSnapshot }) {
   );
 }
 
-function monitorSocketUrl(activeWar: WarSummary): string {
+function monitorSocketUrl(target: MonitorTarget): string {
   const url = new URL("/ws", MONITOR_WORKER_URL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.searchParams.set("warId", String(activeWar.id));
-  url.searchParams.set("warName", activeWar.name);
-  url.searchParams.set("enemyFactionId", String(activeWar.enemy_faction_id));
-  if (activeWar.torn_war_id) {
-    url.searchParams.set("tornWarId", String(activeWar.torn_war_id));
+  url.searchParams.set("warId", String(target.id));
+  url.searchParams.set("warName", target.name);
+  url.searchParams.set("enemyFactionId", String(target.enemyFactionId));
+  if (target.tornWarId) {
+    url.searchParams.set("tornWarId", String(target.tornWarId));
   }
   return url.toString();
+}
+
+function monitorTargetFromWar(activeWar: WarSummary): MonitorTarget {
+  return {
+    id: activeWar.id,
+    name: activeWar.name,
+    enemyFactionId: activeWar.enemy_faction_id ?? 0,
+    tornWarId: activeWar.torn_war_id,
+    testMode: false,
+  };
 }
 
 function parseMonitorMessage(data: unknown): MonitorMessage | null {
@@ -363,4 +457,8 @@ function stateClass(state: string | null): string {
   if (state === "Okay") return "okay";
   if (state === "Traveling" || state === "Abroad") return "travel";
   return "other";
+}
+
+function isLocalhost(): boolean {
+  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 }

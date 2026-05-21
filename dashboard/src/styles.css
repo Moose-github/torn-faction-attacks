@@ -643,6 +643,47 @@ h2 {
   color: #1d4ed8;
 }
 
+.enemy-monitor-test-panel,
+.enemy-monitor-test-active-panel {
+  margin-top: 16px;
+}
+
+.enemy-monitor-test-form,
+.enemy-monitor-test-active-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.enemy-monitor-test-form label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.enemy-monitor-test-form input {
+  min-height: 34px;
+  width: 170px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.enemy-monitor-test-active-row {
+  justify-content: space-between;
+}
+
+.enemy-monitor-test-active-row span {
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
 .live-tracking-inactive-panel p {
   margin: 0;
   color: #475569;
@@ -3133,6 +3174,11 @@ tbody tr:not(.attack-row):hover td {
   .enemy-monitor-live-state {
     justify-self: start;
     text-align: left;
+  }
+
+  .enemy-monitor-test-form,
+  .enemy-monitor-test-form input {
+    width: 100%;
   }
 }
 
