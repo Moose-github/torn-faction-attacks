@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "torn-enemy-hospital-monitor",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-21",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ENEMY_HOSPITAL_MONITOR",
+        "class_name": "EnemyHospitalMonitor"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EnemyHospitalMonitor"]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
