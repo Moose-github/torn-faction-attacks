@@ -1,5 +1,7 @@
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "https://torn-faction-attacks.moose-3065754.workers.dev";
+export const MONITOR_WORKER_URL =
+  import.meta.env.VITE_MONITOR_WORKER_URL ?? "https://torn-enemy-hospital-monitor.moose-3065754.workers.dev";
 
 export type WarType = "all" | "real" | "termed" | "event";
 export type EnemyStatsImagePreviewType = "comparison" | "members";

@@ -1,4 +1,5 @@
 import React from "react";
+import { Siren } from "lucide-react";
 import {
   EnemyFactionMember,
   EnemyPushPressureResponse,
@@ -34,10 +35,12 @@ export function WarRoom({
   selectedWar,
   selectedWarName,
   onError,
+  onOpenHospitalMonitor,
 }: {
   selectedWar: WarSummary | null;
   selectedWarName: string | null;
   onError: (message: string | null) => void;
+  onOpenHospitalMonitor: () => void;
 }) {
   const [enemyScouting, setEnemyScouting] = React.useState<EnemyScoutingResponse | null>(null);
   const [canRefreshEnemyScouting, setCanRefreshEnemyScouting] = React.useState(
@@ -379,6 +382,16 @@ export function WarRoom({
         <WarStartCountdown
           war={selectedWar}
         />
+        {isWarLive ? (
+          <button
+            type="button"
+            className="panel-action-button war-room-monitor-link"
+            onClick={onOpenHospitalMonitor}
+          >
+            <Siren size={15} />
+            Hospital monitor
+          </button>
+        ) : null}
       </section>
 
       <section className="content-grid">

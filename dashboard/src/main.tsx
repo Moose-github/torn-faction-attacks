@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import {
   BarChart3,
   Dices,
+  Siren,
   LogIn,
   Moon,
   Pill,
@@ -44,6 +45,7 @@ import { Sidebar } from "./components/Sidebar";
 import { MembersOverview } from "./views/MembersOverview";
 import { WarDetailView } from "./views/WarDetailView";
 import { WarRoom } from "./views/WarRoom";
+import { EnemyHospitalMonitor } from "./views/EnemyHospitalMonitor";
 import {
   MemberAttackSort,
   MemberSort,
@@ -54,10 +56,19 @@ const ACTIVE_WAR_REFRESH_MS = 5 * 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
 const PRACTICAL_FINISH_REFRESH_MS = 15 * 60_000;
 const CHAIN_BONUS_REFRESH_MS = 15 * 60_000;
-type AppView = "war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin";
+type AppView =
+  | "war"
+  | "warRoom"
+  | "hospitalMonitor"
+  | "members"
+  | "lifestyle"
+  | "miscellaneous"
+  | "diceGame"
+  | "admin";
 
 const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   warRoom: "/war-room",
+  hospitalMonitor: "/enemy-hospital-monitor",
   members: "/members",
   lifestyle: "/daily-averages",
   miscellaneous: "/miscellaneous",
@@ -312,6 +323,7 @@ function App() {
 }, [selectedWarName]);
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
+  const activeWar = wars.find(isLiveWar) ?? (selectedWar && isLiveWar(selectedWar) ? selectedWar : null);
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
   const isAdmin = authSession?.access_level === "admin";
   const isActivityPanelOpen =
@@ -723,6 +735,7 @@ function App() {
           selectedWarName={selectedWarName}
           isLoadingWars={isLoadingWars}
           warRoomIcon={<Radar size={18} />}
+          hospitalMonitorIcon={<Siren size={18} />}
           memberIcon={<BarChart3 size={18} />}
           lifestyleIcon={<Pill size={18} />}
           miscIcon={<Target size={18} />}
@@ -751,8 +764,15 @@ function App() {
             </LazyPage>
           ) : view === "members" ? (
             <MembersOverview isAdmin={isAdmin} />
+          ) : view === "hospitalMonitor" ? (
+            <EnemyHospitalMonitor activeWar={activeWar} />
           ) : view === "warRoom" ? (
-            <WarRoom selectedWar={selectedWar} selectedWarName={selectedWarName} onError={setError} />
+            <WarRoom
+              selectedWar={selectedWar}
+              selectedWarName={selectedWarName}
+              onError={setError}
+              onOpenHospitalMonitor={() => changeView("hospitalMonitor")}
+            />
           ) : selectedWar ? (
             <WarDetailView
               activityBuckets={activityBuckets}
@@ -896,6 +916,15 @@ function warPageRefreshInterval(war: WarSummary): number | null {
 
 function warSecondaryPanelRefreshInterval(war: WarSummary): number {
   return war.practical_finish_time !== null ? PRACTICAL_FINISH_REFRESH_MS : SLOW_WAR_REFRESH_MS;
+}
+
+function isLiveWar(war: WarSummary): boolean {
+  return (
+    war.status === "active" &&
+    war.enemy_faction_id !== null &&
+    war.official_end_time === null &&
+    war.practical_finish_time === null
+  );
 }
 
 function RefreshCountdowns() {

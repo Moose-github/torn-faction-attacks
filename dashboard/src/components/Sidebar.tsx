@@ -13,6 +13,7 @@ export function Sidebar({
   selectedWarName,
   isLoadingWars,
   warRoomIcon,
+  hospitalMonitorIcon,
   memberIcon,
   lifestyleIcon,
   miscIcon,
@@ -23,12 +24,13 @@ export function Sidebar({
 }: {
   warType: WarType;
   onWarTypeChange: (value: WarType) => void;
-  view: "war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin";
-  onViewChange: (view: "war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin") => void;
+  view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin";
+  onViewChange: (view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin") => void;
   wars: WarSummary[];
   selectedWarName: string | null;
   isLoadingWars: boolean;
   warRoomIcon: React.ReactNode;
+  hospitalMonitorIcon: React.ReactNode;
   memberIcon: React.ReactNode;
   lifestyleIcon: React.ReactNode;
   miscIcon: React.ReactNode;
@@ -45,6 +47,12 @@ export function Sidebar({
           icon={warRoomIcon}
           label="War room"
           onClick={() => onViewChange("warRoom")}
+        />
+        <SidebarLink
+          active={view === "hospitalMonitor"}
+          icon={hospitalMonitorIcon}
+          label="Hospital monitor"
+          onClick={() => onViewChange("hospitalMonitor")}
         />
         <SidebarLink
           active={view === "members"}
@@ -147,7 +155,7 @@ function WarNav({
   selectedWarName,
   onSelect,
 }: {
-  view: "war" | "warRoom" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin";
+  view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "diceGame" | "admin";
   wars: WarSummary[];
   selectedWarName: string | null;
   onSelect: (name: string) => void;
