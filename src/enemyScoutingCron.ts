@@ -721,9 +721,10 @@ async function sendPendingEnemyStatsComparisonImageForContext(
     enemyName: scoutingWar.name,
     enemyMembers,
   });
+  const startAt = scoutingWar.official_start_time ?? scoutingWar.practical_start_time;
 
   await sendDiscordMessageWithAttachments(env, {
-    content: `Enemy stats comparison ready: ${scoutingWar.name}`,
+    content: `War matchup announced: Buttgrass vs ${scoutingWar.name}. Starts <t:${startAt}:R>`,
     attachments: [
       {
         filename: `enemy-stats-comparison-${scoutingWar.id}.png`,

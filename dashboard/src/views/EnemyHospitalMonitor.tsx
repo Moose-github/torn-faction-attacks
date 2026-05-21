@@ -1,8 +1,8 @@
 import React from "react";
-import { Activity, KeyRound, ShieldAlert, TestTube2, UsersRound, Volume2 } from "lucide-react";
-import { MONITOR_WORKER_URL, WarSummary } from "../api";
+import { Activity, KeyRound, Settings, ShieldAlert, TestTube2, UsersRound, Volume2, VolumeX } from "lucide-react";
+import { EnemyFactionMember, getEnemyScouting, MONITOR_WORKER_URL, WarSummary } from "../api";
 import { EmptyState, MetricCard, PanelHeader } from "../components/Common";
-import { formatLongDateTime, formatTime } from "../utils/format";
+import { formatLongDateTime, formatNumber, formatTime } from "../utils/format";
 
 type MonitorConnectionState = "idle" | "connecting" | "open" | "closed" | "error";
 
@@ -89,6 +89,7 @@ type ClockSyncState = {
 const MAX_VISIBLE_EVENTS = 40;
 const TEST_WAR_ID = 999_999_001;
 const ALERT_VOLUME_STORAGE_KEY = "enemyHospitalMonitorAlertVolume";
+const ALERT_MUTED_STORAGE_KEY = "enemyHospitalMonitorAlertMuted";
 
 type MonitorTarget = {
   id: number;
@@ -111,6 +112,8 @@ export function EnemyHospitalMonitor({
   const [testFactionIdInput, setTestFactionIdInput] = React.useState("");
   const [testTarget, setTestTarget] = React.useState<MonitorTarget | null>(null);
   const [alertVolume, setAlertVolume] = React.useState(() => initialAlertVolume());
+  const [alertsMuted, setAlertsMuted] = React.useState(() => initialAlertsMuted());
+  const [cachedEnemyStats, setCachedEnemyStats] = React.useState<Map<number, EnemyFactionMember>>(new Map());
   const [clockSync, setClockSync] = React.useState<ClockSyncState | null>(null);
   const [lastMessageReceivedAtMs, setLastMessageReceivedAtMs] = React.useState<number | null>(null);
   const nowMs = useNowMs(250);
@@ -130,9 +133,28 @@ export function EnemyHospitalMonitor({
     setMembers([]);
     setStatus(null);
     setSocketError(null);
+    setCachedEnemyStats(new Map());
     setClockSync(null);
     setLastMessageReceivedAtMs(null);
   }, [monitorTarget?.id, monitorTarget?.enemyFactionId]);
+
+  React.useEffect(() => {
+    if (!monitorTarget || monitorTarget.testMode) return;
+
+    let cancelled = false;
+    getEnemyScouting(monitorTarget.name)
+      .then((response) => {
+        if (cancelled) return;
+        setCachedEnemyStats(new Map(response.members.map((member) => [member.member_id, member])));
+      })
+      .catch(() => {
+        if (!cancelled) setCachedEnemyStats(new Map());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [monitorTarget]);
 
   React.useEffect(() => {
     if (!monitorTarget) {
@@ -312,7 +334,12 @@ export function EnemyHospitalMonitor({
           icon={<UsersRound size={17} />}
           detail={status?.hasBaseline ? "Baseline active" : "Baseline pending"}
         />
-        <AlertVolumeCard value={alertVolume} onChange={setAlertVolume} />
+        <MonitorSettingsCard
+          volume={alertVolume}
+          muted={alertsMuted}
+          onVolumeChange={setAlertVolume}
+          onMutedChange={setAlertsMuted}
+        />
       </section>
 
       <section className="content-grid enemy-monitor-grid">
@@ -336,7 +363,7 @@ export function EnemyHospitalMonitor({
           ) : (
             <div className="enemy-monitor-member-list">
               {sortedMembers.map((member) => (
-                <MemberStatusRow key={member.id} member={member} />
+                <MemberStatusRow key={member.id} member={member} cachedStats={cachedEnemyStats.get(member.id) ?? null} />
               ))}
             </div>
           )}
@@ -346,34 +373,88 @@ export function EnemyHospitalMonitor({
   );
 }
 
-function AlertVolumeCard({
-  value,
-  onChange,
+function MonitorSettingsCard({
+  volume,
+  muted,
+  onVolumeChange,
+  onMutedChange,
 }: {
-  value: number;
-  onChange: (value: number) => void;
+  volume: number;
+  muted: boolean;
+  onVolumeChange: (value: number) => void;
+  onMutedChange: (value: boolean) => void;
 }) {
+  const [isOpen, setIsOpen] = React.useState(false);
+
   function updateValue(nextValue: number) {
-    onChange(nextValue);
+    onVolumeChange(nextValue);
     window.localStorage.setItem(ALERT_VOLUME_STORAGE_KEY, String(nextValue));
   }
 
+  function toggleMuted() {
+    const nextMuted = !muted;
+    onMutedChange(nextMuted);
+    window.localStorage.setItem(ALERT_MUTED_STORAGE_KEY, nextMuted ? "1" : "0");
+  }
+
   return (
-    <article className="metric-card enemy-monitor-volume-card">
+    <article className="metric-card enemy-monitor-settings-card">
       <div className="panel-kicker">
-        <Volume2 size={17} />
-        <span>Alert volume</span>
+        <Settings size={17} />
+        <span>Settings</span>
       </div>
-      <strong className="metric-card-value">{value}%</strong>
-      <input
-        type="range"
-        min="0"
-        max="100"
-        step="5"
-        value={value}
-        aria-label="Alert volume"
-        onChange={(event) => updateValue(Number(event.target.value))}
-      />
+      <div className="enemy-monitor-settings-actions">
+        <button
+          type="button"
+          className={muted ? "icon-button active" : "icon-button"}
+          aria-label={muted ? "Unmute alert sounds" : "Mute alert sounds"}
+          title={muted ? "Unmute alert sounds" : "Mute alert sounds"}
+          onClick={toggleMuted}
+        >
+          {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        </button>
+        <button
+          type="button"
+          className={isOpen ? "icon-button active" : "icon-button"}
+          aria-label="Open monitor settings"
+          title="Open monitor settings"
+          onClick={() => setIsOpen((current) => !current)}
+        >
+          <Settings size={18} />
+        </button>
+      </div>
+      {isOpen ? (
+        <div className="enemy-monitor-settings-menu">
+          <label className="enemy-monitor-settings-field">
+            <span>
+              Alert volume
+              <strong>{muted ? "Muted" : `${volume}%`}</strong>
+            </span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              value={volume}
+              aria-label="Alert volume"
+              disabled={muted}
+              onChange={(event) => updateValue(Number(event.target.value))}
+            />
+          </label>
+          <label className="enemy-monitor-settings-option disabled">
+            <input type="checkbox" disabled />
+            Flash urgent alerts
+          </label>
+          <label className="enemy-monitor-settings-option disabled">
+            <input type="checkbox" disabled />
+            Browser notifications
+          </label>
+          <label className="enemy-monitor-settings-option disabled">
+            <input type="checkbox" disabled />
+            Auto-open attack links
+          </label>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -431,7 +512,13 @@ function MonitorEventRow({ event }: { event: MonitorEvent }) {
   );
 }
 
-function MemberStatusRow({ member }: { member: MemberMonitorSnapshot }) {
+function MemberStatusRow({
+  member,
+  cachedStats,
+}: {
+  member: MemberMonitorSnapshot;
+  cachedStats: EnemyFactionMember | null;
+}) {
   return (
     <a
       className="enemy-monitor-member"
@@ -445,6 +532,10 @@ function MemberStatusRow({ member }: { member: MemberMonitorSnapshot }) {
       </div>
       <span className={`enemy-monitor-state ${stateClass(member.state)}`}>
         {member.description ?? member.state ?? "Unknown"}
+      </span>
+      <span className="enemy-monitor-bsp-stat" title={bspBattlestatsTitle(cachedStats)}>
+        <small>BSP</small>
+        {cachedStats?.bsp_battlestats == null ? "-" : formatNumber(cachedStats.bsp_battlestats)}
       </span>
       <small>
         {member.until ? `Until ${formatTime(member.until)}` : member.lastActionRelative ?? "No timer"}
@@ -619,6 +710,13 @@ function keyHealthDetail(status: MonitorStatus | null, socketError: string | nul
   return keyError ?? "Monitor keys available";
 }
 
+function bspBattlestatsTitle(member: EnemyFactionMember | null): string {
+  if (!member) return "No cached enemy scouting row for this player.";
+  if (member.bsp_battlestats == null) return "No cached BSP battle stats for this player.";
+  const updated = member.bsp_battlestats_updated_at ? formatLongDateTime(member.bsp_battlestats_updated_at) : "unknown time";
+  return `Cached BSP battle stats. Updated ${updated}.`;
+}
+
 function attackUrl(memberId: number): string {
   return `https://www.torn.com/page.php?sid=attack&user2ID=${encodeURIComponent(String(memberId))}`;
 }
@@ -638,6 +736,10 @@ function initialAlertVolume(): number {
   }
 
   return 70;
+}
+
+function initialAlertsMuted(): boolean {
+  return window.localStorage.getItem(ALERT_MUTED_STORAGE_KEY) === "1";
 }
 
 function useNowMs(intervalMs: number): number {

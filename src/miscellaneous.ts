@@ -9,6 +9,7 @@ import { json, nowSeconds } from "./utils";
 
 const TORN_SHOPLIFTING_API_URL = "https://api.torn.com/v2/torn";
 const SHOPLIFTING_CACHE_ID = 1;
+const SHOPLIFTING_CRIME_URL = "https://www.torn.com/page.php?sid=crimes#/shoplifting";
 const SHOPLIFTING_SECURITY_ALERT_STATE_PREFIX = "shoplifting_security_alert";
 const SHOPLIFTING_SECURITY_ALERTS = [
   { shopKey: "big_als", shopName: "Big Als" },
@@ -266,7 +267,7 @@ function formatDiscordAlertMessage(alertText: string, messageSuffix: string): st
 }
 
 function formatShopliftingSecurityAlert(shopName: string): string {
-  return `Shoplifting alert: all securities are down at ${shopName}.`;
+  return `[Shoplifting alert:](${SHOPLIFTING_CRIME_URL}) all securities are down at ${shopName}.`;
 }
 
 function parseCachedShoplifting(value: string | null): Record<string, TornShopliftingObstacle[]> {

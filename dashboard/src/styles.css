@@ -582,8 +582,27 @@ h2 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.enemy-monitor-status-grid .metric-card {
+  min-height: 84px;
+  padding: 12px 16px;
+}
+
+.enemy-monitor-status-grid .metric-card-value {
+  margin-top: 9px;
+  font-size: 1.45rem;
+}
+
+.enemy-monitor-status-grid .metric-card-detail {
+  margin-top: 5px;
+  font-size: 0.78rem;
+}
+
+.enemy-monitor-status-grid .panel-kicker {
+  font-size: 0.72rem;
+}
+
 .content-grid.enemy-monitor-grid {
-  grid-template-columns: minmax(300px, 0.8fr) minmax(0, 1.2fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .enemy-monitor-events-panel,
@@ -660,7 +679,7 @@ h2 {
 }
 
 .enemy-monitor-member {
-  grid-template-columns: minmax(150px, 0.9fr) minmax(220px, 1fr) minmax(100px, auto);
+  grid-template-columns: minmax(130px, 0.8fr) minmax(180px, 1fr) minmax(78px, auto) minmax(90px, auto);
   align-items: center;
   border-left-width: 1px;
   box-sizing: border-box;
@@ -686,8 +705,25 @@ h2 {
 .enemy-monitor-member div,
 .enemy-monitor-member strong,
 .enemy-monitor-member small,
+.enemy-monitor-bsp-stat,
 .enemy-monitor-state {
   min-width: 0;
+}
+
+.enemy-monitor-bsp-stat {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 5px;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.enemy-monitor-bsp-stat small {
+  color: #64748b;
+  font-size: 0.68rem;
+  text-transform: uppercase;
 }
 
 .enemy-monitor-state.hospital {
@@ -705,10 +741,94 @@ h2 {
   color: #1d4ed8;
 }
 
-.enemy-monitor-volume-card input[type="range"] {
+.enemy-monitor-settings-card {
+  position: relative;
+  overflow: visible;
+}
+
+.enemy-monitor-settings-actions {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 9px;
+}
+
+.enemy-monitor-settings-actions .icon-button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  cursor: pointer;
+}
+
+.enemy-monitor-settings-actions .icon-button:hover,
+.enemy-monitor-settings-actions .icon-button.active {
+  border-color: #93c5fd;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.enemy-monitor-settings-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  width: min(340px, calc(100vw - 32px));
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+}
+
+.enemy-monitor-settings-field {
+  display: grid;
+  gap: 8px;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.enemy-monitor-settings-field span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.enemy-monitor-settings-field strong {
+  color: #10213f;
+  font-size: 0.9rem;
+}
+
+.enemy-monitor-settings-field input[type="range"] {
   width: calc(100% + 16px);
   margin-inline: -8px;
   accent-color: #2563eb;
+}
+
+.enemy-monitor-settings-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.enemy-monitor-settings-option input {
+  min-height: 0;
+}
+
+.enemy-monitor-settings-option.disabled {
+  color: #94a3b8;
 }
 
 .enemy-monitor-test-panel,
@@ -3635,6 +3755,38 @@ tbody tr:not(.attack-row):hover td {
   border-color: rgba(248, 113, 113, 0.4);
   background: rgba(127, 29, 29, 0.24);
   color: #fca5a5;
+}
+
+:root[data-theme="dark"] .enemy-monitor-settings-actions .icon-button {
+  border-color: var(--border-solid);
+  background: var(--panel-muted-bg);
+  color: var(--text-main);
+}
+
+:root[data-theme="dark"] .enemy-monitor-settings-actions .icon-button:hover,
+:root[data-theme="dark"] .enemy-monitor-settings-actions .icon-button.active {
+  border-color: var(--accent);
+  background: rgba(37, 99, 235, 0.28);
+  color: var(--accent-strong);
+}
+
+:root[data-theme="dark"] .enemy-monitor-settings-menu {
+  border-color: var(--border-solid);
+  background: var(--panel-bg-solid);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.36);
+}
+
+:root[data-theme="dark"] .enemy-monitor-settings-field,
+:root[data-theme="dark"] .enemy-monitor-settings-option {
+  color: var(--text-main);
+}
+
+:root[data-theme="dark"] .enemy-monitor-settings-field strong {
+  color: var(--text-strong);
+}
+
+:root[data-theme="dark"] .enemy-monitor-settings-option.disabled {
+  color: var(--text-muted);
 }
 
 :root[data-theme="dark"] .status-pill.scheduled {
