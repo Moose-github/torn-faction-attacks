@@ -95,6 +95,9 @@ export type MonitorStatus = {
   lastPollStartedAt: number | null;
   lastPollFinishedAt: number | null;
   lastSuccessAt: number | null;
+  lastSuccessAtMs: number | null;
+  lastTornResponseMs: number | null;
+  serverNowMs: number;
   lastError: string | null;
   nextPollAt: number | null;
   keyStates: MonitorKeyState[];

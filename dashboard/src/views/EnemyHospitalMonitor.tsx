@@ -1,8 +1,8 @@
 import React from "react";
-import { Activity, AlertTriangle, Clock3, Radio, ShieldAlert, TestTube2, Wifi, WifiOff } from "lucide-react";
+import { Activity, KeyRound, ShieldAlert, TestTube2, UsersRound, Volume2 } from "lucide-react";
 import { MONITOR_WORKER_URL, WarSummary } from "../api";
 import { EmptyState, MetricCard, PanelHeader } from "../components/Common";
-import { formatLongDateTime, formatRelativeTime, formatTime } from "../utils/format";
+import { formatLongDateTime, formatTime } from "../utils/format";
 
 type MonitorConnectionState = "idle" | "connecting" | "open" | "closed" | "error";
 
@@ -18,6 +18,9 @@ type MonitorStatus = {
   lastPollStartedAt: number | null;
   lastPollFinishedAt: number | null;
   lastSuccessAt: number | null;
+  lastSuccessAtMs?: number | null;
+  lastTornResponseMs?: number | null;
+  serverNowMs?: number | null;
   lastError: string | null;
   nextPollAt: number | null;
   keyStates: MonitorKeyState[];
@@ -76,10 +79,16 @@ type MonitorMessage =
   | { type: "status"; status: MonitorStatus }
   | { type: "monitor_event"; event: MonitorEvent }
   | { type: "error"; error: string }
-  | { type: "pong"; now: number };
+  | { type: "pong"; now: number; nowMs?: number; clientSentAtMs?: number | null };
+
+type ClockSyncState = {
+  offsetMs: number;
+  rttMs: number;
+};
 
 const MAX_VISIBLE_EVENTS = 40;
 const TEST_WAR_ID = 999_999_001;
+const ALERT_VOLUME_STORAGE_KEY = "enemyHospitalMonitorAlertVolume";
 
 type MonitorTarget = {
   id: number;
@@ -101,6 +110,10 @@ export function EnemyHospitalMonitor({
   const [socketError, setSocketError] = React.useState<string | null>(null);
   const [testFactionIdInput, setTestFactionIdInput] = React.useState("");
   const [testTarget, setTestTarget] = React.useState<MonitorTarget | null>(null);
+  const [alertVolume, setAlertVolume] = React.useState(() => initialAlertVolume());
+  const [clockSync, setClockSync] = React.useState<ClockSyncState | null>(null);
+  const [lastMessageReceivedAtMs, setLastMessageReceivedAtMs] = React.useState<number | null>(null);
+  const nowMs = useNowMs(250);
 
   const isLocalTestAvailable = isLocalhost();
   const canMonitor = Boolean(
@@ -117,6 +130,8 @@ export function EnemyHospitalMonitor({
     setMembers([]);
     setStatus(null);
     setSocketError(null);
+    setClockSync(null);
+    setLastMessageReceivedAtMs(null);
   }, [monitorTarget?.id, monitorTarget?.enemyFactionId]);
 
   React.useEffect(() => {
@@ -127,26 +142,42 @@ export function EnemyHospitalMonitor({
 
     const socketUrl = monitorSocketUrl(monitorTarget);
     const socket = new WebSocket(socketUrl);
+    let clockSyncTimer: number | null = null;
     setConnectionState("connecting");
     setSocketError(null);
 
+    function sendClockSyncPing() {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({ type: "ping", clientSentAtMs: Date.now() }));
+    }
+
     socket.addEventListener("open", () => {
       setConnectionState("open");
+      sendClockSyncPing();
+      clockSyncTimer = window.setInterval(sendClockSyncPing, 5_000);
     });
 
     socket.addEventListener("message", (event) => {
+      const receivedAtMs = Date.now();
       const message = parseMonitorMessage(event.data);
       if (!message) return;
 
       if (message.type === "snapshot") {
+        setLastMessageReceivedAtMs(receivedAtMs);
         setStatus(message.status);
         setMembers(message.members);
       } else if (message.type === "status") {
+        setLastMessageReceivedAtMs(receivedAtMs);
         setStatus(message.status);
       } else if (message.type === "monitor_event") {
         setEvents((current) => [message.event, ...current].slice(0, MAX_VISIBLE_EVENTS));
       } else if (message.type === "error") {
         setSocketError(message.error);
+      } else if (message.type === "pong" && typeof message.nowMs === "number" && typeof message.clientSentAtMs === "number") {
+        const rttMs = Math.max(0, receivedAtMs - message.clientSentAtMs);
+        const midpointMs = message.clientSentAtMs + rttMs / 2;
+        const offsetMs = midpointMs - message.nowMs;
+        setClockSync((current) => (!current || rttMs <= current.rttMs ? { offsetMs, rttMs } : current));
       }
     });
 
@@ -160,6 +191,7 @@ export function EnemyHospitalMonitor({
     });
 
     return () => {
+      if (clockSyncTimer !== null) window.clearInterval(clockSyncTimer);
       socket.close(1000, "Monitor page closed");
     };
   }, [monitorTarget]);
@@ -205,9 +237,8 @@ export function EnemyHospitalMonitor({
   }
 
   const hospitalizedMembers = members.filter((member) => member.state === "Hospital").length;
-  const earlyAlertCount = events.filter((event) => event.type === "hospital_exit_early").length;
-  const latestEvent = events[0] ?? null;
   const sortedMembers = [...members].sort(compareMonitorMembers);
+  const tornTiming = monitorTiming(status, nowMs, clockSync, lastMessageReceivedAtMs);
 
   return (
     <>
@@ -216,17 +247,37 @@ export function EnemyHospitalMonitor({
           <p className="eyebrow">Enemy hospital monitor</p>
           <div className="war-title-row">
             <h2>{monitorTarget.name}</h2>
-            <span>{connectionLabel(connectionState)}</span>
             {monitorTarget.testMode ? <span>Local test</span> : null}
           </div>
-          <p>
-            Enemy faction: <strong>{monitorTarget.enemyFactionId}</strong>
-          </p>
         </div>
-        <div className="enemy-monitor-live-state">
-          {connectionState === "open" ? <Wifi size={18} /> : <WifiOff size={18} />}
-          <strong>{status?.lastSuccessAt ? formatRelativeTime(status.lastSuccessAt) : "Waiting"}</strong>
-          <span>Last poll</span>
+        <div className="enemy-monitor-health-chips" aria-label="Monitor health">
+          <span
+            className={`enemy-monitor-health-chip ${socketHealthTone(connectionState)}`}
+            title={socketHealthTooltip(connectionState)}
+          >
+            <b>Socket</b>
+            {connectionLabel(connectionState)}
+          </span>
+          <span
+            className={`enemy-monitor-health-chip enemy-monitor-torn-chip ${tornHealthTone(status, tornTiming)}`}
+            title={tornHealthTooltip(status, tornTiming, clockSync)}
+          >
+            <b>Torn</b>
+            <span className="enemy-monitor-timing-values">
+              <span title="Estimated current age of the latest successful Torn response after translating the Worker timestamp onto this browser's clock.">
+                <small>Age</small>
+                {tornAgeLabel(status, tornTiming)}
+              </span>
+              <span title="How long ago this browser received the latest monitor status or snapshot over the WebSocket.">
+                <small>Received</small>
+                {formatTimingMs(tornTiming.receivedAgeMs)}
+              </span>
+              <span title="How long the last Torn API request took from Worker request start to response finish.">
+                <small>Response</small>
+                {formatTimingMs(status?.lastTornResponseMs ?? null)}
+              </span>
+            </span>
+          </span>
         </div>
       </section>
 
@@ -244,29 +295,24 @@ export function EnemyHospitalMonitor({
 
       <section className="status-grid enemy-monitor-status-grid">
         <MetricCard
-          label="Connection"
-          value={connectionLabel(connectionState)}
-          icon={connectionState === "open" ? <Radio size={17} /> : <WifiOff size={17} />}
-          detail={status?.hasBaseline ? "Baseline active" : "Baseline pending"}
-        />
-        <MetricCard
           label="Hospitalized"
           value={String(hospitalizedMembers)}
           icon={<ShieldAlert size={17} />}
           detail={`${members.length} members observed`}
         />
         <MetricCard
-          label="Early exits"
-          value={String(earlyAlertCount)}
-          icon={<AlertTriangle size={17} />}
-          detail={latestEvent ? eventTitle(latestEvent.type) : "No alerts this session"}
+          label="Key health"
+          value={keyHealthValue(status)}
+          icon={<KeyRound size={17} />}
+          detail={keyHealthDetail(status, socketError)}
         />
         <MetricCard
-          label="Next poll"
-          value={status?.nextPollAt ? formatTime(status.nextPollAt) : "-"}
-          icon={<Clock3 size={17} />}
-          detail={status?.lastError ?? socketError ?? "One second cadence"}
+          label="Viewers"
+          value={String(status?.connectedClients ?? 0)}
+          icon={<UsersRound size={17} />}
+          detail={status?.hasBaseline ? "Baseline active" : "Baseline pending"}
         />
+        <AlertVolumeCard value={alertVolume} onChange={setAlertVolume} />
       </section>
 
       <section className="content-grid enemy-monitor-grid">
@@ -297,6 +343,38 @@ export function EnemyHospitalMonitor({
         </section>
       </section>
     </>
+  );
+}
+
+function AlertVolumeCard({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  function updateValue(nextValue: number) {
+    onChange(nextValue);
+    window.localStorage.setItem(ALERT_VOLUME_STORAGE_KEY, String(nextValue));
+  }
+
+  return (
+    <article className="metric-card enemy-monitor-volume-card">
+      <div className="panel-kicker">
+        <Volume2 size={17} />
+        <span>Alert volume</span>
+      </div>
+      <strong className="metric-card-value">{value}%</strong>
+      <input
+        type="range"
+        min="0"
+        max="100"
+        step="5"
+        value={value}
+        aria-label="Alert volume"
+        onChange={(event) => updateValue(Number(event.target.value))}
+      />
+    </article>
   );
 }
 
@@ -337,20 +415,30 @@ function LocalMonitorTestPanel({
 
 function MonitorEventRow({ event }: { event: MonitorEvent }) {
   return (
-    <article className={`enemy-monitor-event priority-${event.priority}`}>
+    <a
+      className={`enemy-monitor-event priority-${event.priority}`}
+      href={attackUrl(event.memberId)}
+      target="_blank"
+      rel="noreferrer"
+    >
       <div>
         <strong>{event.name}</strong>
         <span>{eventTitle(event.type)}</span>
       </div>
       <p>{eventDetail(event)}</p>
       <small>{formatLongDateTime(event.observedAt)}</small>
-    </article>
+    </a>
   );
 }
 
 function MemberStatusRow({ member }: { member: MemberMonitorSnapshot }) {
   return (
-    <article className="enemy-monitor-member">
+    <a
+      className="enemy-monitor-member"
+      href={attackUrl(member.id)}
+      target="_blank"
+      rel="noreferrer"
+    >
       <div>
         <strong>{member.name}</strong>
         <small>#{member.id}</small>
@@ -361,7 +449,7 @@ function MemberStatusRow({ member }: { member: MemberMonitorSnapshot }) {
       <small>
         {member.until ? `Until ${formatTime(member.until)}` : member.lastActionRelative ?? "No timer"}
       </small>
-    </article>
+    </a>
   );
 }
 
@@ -397,9 +485,9 @@ function parseMonitorMessage(data: unknown): MonitorMessage | null {
 }
 
 function compareMonitorMembers(left: MemberMonitorSnapshot, right: MemberMonitorSnapshot): number {
-  const leftHospital = left.state === "Hospital" ? 0 : 1;
-  const rightHospital = right.state === "Hospital" ? 0 : 1;
-  if (leftHospital !== rightHospital) return leftHospital - rightHospital;
+  const leftRank = memberStatusSortRank(left);
+  const rightRank = memberStatusSortRank(right);
+  if (leftRank !== rightRank) return leftRank - rightRank;
 
   const leftUntil = left.until ?? Number.MAX_SAFE_INTEGER;
   const rightUntil = right.until ?? Number.MAX_SAFE_INTEGER;
@@ -421,6 +509,146 @@ function connectionLabel(state: MonitorConnectionState): string {
     default:
       return "Idle";
   }
+}
+
+function socketHealthTone(state: MonitorConnectionState): "ok" | "warn" | "error" {
+  if (state === "open") return "ok";
+  if (state === "error" || state === "closed") return "error";
+  return "warn";
+}
+
+function socketHealthTooltip(state: MonitorConnectionState): string {
+  switch (state) {
+    case "open":
+      return "WebSocket connected to the monitor Worker.";
+    case "connecting":
+      return "WebSocket is connecting to the monitor Worker.";
+    case "closed":
+      return "WebSocket is closed. Monitoring stops when no clients remain.";
+    case "error":
+      return "WebSocket connection failed.";
+    default:
+      return "WebSocket is idle.";
+  }
+}
+
+function tornHealthTone(status: MonitorStatus | null, timing: MonitorTiming): "ok" | "warn" | "error" {
+  if (status?.lastError) return "error";
+  if (!status?.hasBaseline || timing.dataAgeMs === null) return "warn";
+
+  if (timing.dataAgeMs > 15_000) return "error";
+  if (timing.dataAgeMs > 5_000) return "warn";
+  return "ok";
+}
+
+function tornHealthTooltip(status: MonitorStatus | null, timing: MonitorTiming, clockSync: ClockSyncState | null): string {
+  if (status?.lastError) return `Latest Torn poll failed: ${status.lastError}`;
+  if (!status?.hasBaseline) return "Waiting for the first successful Torn response to establish baseline.";
+  if (timing.dataAgeMs === null) return "No successful Torn response recorded yet.";
+
+  const response = formatTimingMs(status.lastTornResponseMs ?? null);
+  const received = formatTimingMs(timing.receivedAgeMs);
+  const clock = clockSync ? ` Clock sync RTT ${Math.round(clockSync.rttMs)}ms.` : " Clock sync pending.";
+  return `Age since the last Torn response reached the Worker: ${formatTimingMs(timing.dataAgeMs)}. Page received the latest monitor message ${received} ago. Last Torn request took ${response}.${clock}`;
+}
+
+type MonitorTiming = {
+  dataAgeMs: number | null;
+  receivedAgeMs: number | null;
+};
+
+function monitorTiming(
+  status: MonitorStatus | null,
+  nowMs: number,
+  clockSync: ClockSyncState | null,
+  lastMessageReceivedAtMs: number | null,
+): MonitorTiming {
+  const receivedAgeMs = lastMessageReceivedAtMs === null ? null : millisecondsSinceMs(lastMessageReceivedAtMs, nowMs);
+  const lastSuccessMs = status?.lastSuccessAtMs ?? (status?.lastSuccessAt ? status.lastSuccessAt * 1000 : null);
+  if (!lastSuccessMs) return { dataAgeMs: null, receivedAgeMs };
+
+  if (clockSync) {
+    return {
+      dataAgeMs: millisecondsSinceMs(lastSuccessMs + clockSync.offsetMs, nowMs),
+      receivedAgeMs,
+    };
+  }
+
+  if (typeof status?.serverNowMs === "number") {
+    const workerAgeAtSendMs = Math.max(0, status.serverNowMs - lastSuccessMs);
+    return {
+      dataAgeMs: workerAgeAtSendMs + (receivedAgeMs ?? 0),
+      receivedAgeMs,
+    };
+  }
+
+  return { dataAgeMs: null, receivedAgeMs };
+}
+
+function tornAgeLabel(status: MonitorStatus | null, timing: MonitorTiming): string {
+  if (status?.lastError) return "Error";
+  if (!status?.hasBaseline) return "Baseline";
+  return formatTimingMs(timing.dataAgeMs);
+}
+
+function formatTimingMs(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "-";
+  const rounded = Math.max(0, Math.round(value));
+  return `${rounded}ms`;
+}
+
+function memberStatusSortRank(member: MemberMonitorSnapshot): number {
+  if (member.state === "Okay") return 0;
+  if (member.state === "Hospital") return 1;
+  return 2;
+}
+
+function keyHealthValue(status: MonitorStatus | null): string {
+  if (!status) return "Waiting";
+  if (status.keyStates.length === 0) return "Unknown";
+
+  const availableKeys = status.keyStates.filter((key) => !key.backoffUntil || key.backoffUntil <= nowSeconds()).length;
+  return `${availableKeys}/${status.keyStates.length}`;
+}
+
+function keyHealthDetail(status: MonitorStatus | null, socketError: string | null): string {
+  if (status?.lastError) return status.lastError;
+  if (socketError) return socketError;
+
+  const keyError = status?.keyStates.find((key) => key.lastError)?.lastError;
+  return keyError ?? "Monitor keys available";
+}
+
+function attackUrl(memberId: number): string {
+  return `https://www.torn.com/page.php?sid=attack&user2ID=${encodeURIComponent(String(memberId))}`;
+}
+
+function millisecondsSinceMs(timestampMs: number, nowMs: number): number {
+  return Math.max(0, nowMs - timestampMs);
+}
+
+function nowSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+function initialAlertVolume(): number {
+  const stored = Number(window.localStorage.getItem(ALERT_VOLUME_STORAGE_KEY));
+  if (Number.isFinite(stored) && stored >= 0 && stored <= 100) {
+    return stored;
+  }
+
+  return 70;
+}
+
+function useNowMs(intervalMs: number): number {
+  const [now, setNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs]);
+
+  return now;
 }
 
 function eventTitle(type: MonitorEventType): string {

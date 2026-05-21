@@ -38,6 +38,8 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
   private lastPollStartedAt: number | null = null;
   private lastPollFinishedAt: number | null = null;
   private lastSuccessAt: number | null = null;
+  private lastSuccessAtMs: number | null = null;
+  private lastTornResponseMs: number | null = null;
   private lastError: string | null = null;
   private nextPollAt: number | null = null;
   private keyStates: MonitorKeyState[] = [
@@ -75,8 +77,9 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
       return;
     }
 
+    const alarmStartedMs = Date.now();
     await this.poll();
-    await this.scheduleNextPoll();
+    await this.scheduleNextPoll(Math.max(0, POLL_INTERVAL_MS - (Date.now() - alarmStartedMs)));
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -91,7 +94,17 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     }
 
     if (parsed.type === "ping") {
-      ws.send(JSON.stringify({ type: "pong", now: nowSeconds() }));
+      ws.send(
+        JSON.stringify({
+          type: "pong",
+          now: nowSeconds(),
+          nowMs: Date.now(),
+          clientSentAtMs:
+            typeof (parsed as { clientSentAtMs?: unknown }).clientSentAtMs === "number"
+              ? (parsed as { clientSentAtMs: number }).clientSentAtMs
+              : null,
+        }),
+      );
     }
   }
 
@@ -204,16 +217,19 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     keyState.lastUsedAt = pollStartedAt;
 
     try {
-      const members = await this.fetchMembers(this.activeWar.enemyFactionId, keyState.alias);
-      const observedAt = nowSeconds();
-      this.handleMembers(members, observedAt);
+      const result = await this.fetchMembers(this.activeWar.enemyFactionId, keyState.alias);
+      const observedAtMs = result.finishedAtMs;
+      const observedAt = Math.floor(observedAtMs / 1000);
       keyState.lastSuccessAt = observedAt;
       keyState.consecutiveErrors = 0;
       keyState.lastError = null;
       keyState.backoffUntil = null;
       this.lastSuccessAt = observedAt;
+      this.lastSuccessAtMs = observedAtMs;
+      this.lastTornResponseMs = result.responseTimeMs;
       this.lastError = null;
       this.lastPollFinishedAt = observedAt;
+      this.handleMembers(result.members, observedAt);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.lastError = message;
@@ -225,13 +241,17 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     }
   }
 
-  private async fetchMembers(enemyFactionId: number, keyAlias: MonitorKeyAlias): Promise<TornFactionMember[]> {
+  private async fetchMembers(
+    enemyFactionId: number,
+    keyAlias: MonitorKeyAlias,
+  ): Promise<{ members: TornFactionMember[]; responseTimeMs: number; finishedAtMs: number }> {
     const key = keyAlias === "monitor-1" ? this.env.MONITOR_TORN_API_KEY_1 : this.env.MONITOR_TORN_API_KEY_2;
     const url = new URL(`https://api.torn.com/v2/faction/${enemyFactionId}/members`);
     url.searchParams.set("striptags", "true");
     url.searchParams.set("timestamp", String(Date.now()));
     url.searchParams.set("comment", "status-monitor");
 
+    const startedAtMs = Date.now();
     const response = await fetch(url, {
       headers: {
         Authorization: `ApiKey ${key}`,
@@ -257,7 +277,12 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
       throw new TornApiError("Torn response did not include a members array");
     }
 
-    return body.members;
+    const finishedAtMs = Date.now();
+    return {
+      members: body.members,
+      responseTimeMs: finishedAtMs - startedAtMs,
+      finishedAtMs,
+    };
   }
 
   private handleMembers(members: TornFactionMember[], observedAt: number): void {
@@ -333,6 +358,9 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
       lastPollStartedAt: this.lastPollStartedAt,
       lastPollFinishedAt: this.lastPollFinishedAt,
       lastSuccessAt: this.lastSuccessAt,
+      lastSuccessAtMs: this.lastSuccessAtMs,
+      lastTornResponseMs: this.lastTornResponseMs,
+      serverNowMs: Date.now(),
       lastError: this.lastError,
       nextPollAt: this.nextPollAt,
       keyStates: this.keyStates,
