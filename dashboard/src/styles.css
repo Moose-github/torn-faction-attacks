@@ -663,6 +663,12 @@ h2 {
   font-size: 0.92rem;
 }
 
+.enemy-monitor-member strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .enemy-monitor-event span,
 .enemy-monitor-member small,
 .enemy-monitor-event small {
@@ -679,10 +685,14 @@ h2 {
 }
 
 .enemy-monitor-member {
-  grid-template-columns: minmax(130px, 0.8fr) minmax(180px, 1fr) minmax(78px, auto) minmax(90px, auto);
+  grid-template-columns: minmax(120px, 0.8fr) minmax(130px, 1fr) minmax(58px, auto) minmax(118px, auto);
   align-items: center;
   border-left-width: 1px;
   box-sizing: border-box;
+}
+
+.enemy-monitor-member div {
+  justify-content: flex-start;
 }
 
 .enemy-monitor-member:hover {
@@ -706,6 +716,7 @@ h2 {
 .enemy-monitor-member strong,
 .enemy-monitor-member small,
 .enemy-monitor-bsp-stat,
+.enemy-monitor-last-action,
 .enemy-monitor-state {
   min-width: 0;
 }
@@ -724,6 +735,18 @@ h2 {
   color: #64748b;
   font-size: 0.68rem;
   text-transform: uppercase;
+}
+
+.enemy-monitor-last-action {
+  justify-self: end;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.enemy-monitor-last-action.urgent {
+  color: #dc2626;
 }
 
 .enemy-monitor-state.hospital {
@@ -3754,6 +3777,22 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .enemy-monitor-health-chip.error {
   border-color: rgba(248, 113, 113, 0.4);
   background: rgba(127, 29, 29, 0.24);
+  color: #fca5a5;
+}
+
+:root[data-theme="dark"] .enemy-monitor-bsp-stat {
+  color: var(--text-main);
+}
+
+:root[data-theme="dark"] .enemy-monitor-bsp-stat small {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .enemy-monitor-last-action {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .enemy-monitor-last-action.urgent {
   color: #fca5a5;
 }
 
