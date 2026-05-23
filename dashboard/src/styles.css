@@ -295,8 +295,8 @@ h2 {
 .sidebar {
   position: sticky;
   top: 18px;
-  display: grid;
-  grid-template-rows: auto auto minmax(140px, 1fr) auto auto;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   max-height: calc(100vh - 36px);
   overflow: hidden;
@@ -318,11 +318,10 @@ h2 {
 }
 
 .sidebar-group-header {
-  display: grid;
-  gap: 6px;
+  display: block;
 }
 
-.sidebar-group-header-controls {
+.sidebar-wars-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -331,7 +330,7 @@ h2 {
   padding: 0 4px;
 }
 
-.sidebar-group-header-controls > span {
+.sidebar-wars-controls > span {
   flex: 0 0 auto;
   color: #94a3b8;
   font-size: 0.76rem;
@@ -377,17 +376,14 @@ h2 {
 .sidebar-wars-panel {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
 
 .sidebar-wars-panel .sidebar-group-header {
   flex: 0 0 auto;
-  padding-bottom: 2px;
-}
-
-.sidebar-wars-panel .sidebar-group-header-controls {
-  align-items: center;
+  padding-bottom: 8px;
 }
 
 .sidebar-wars-panel .war-type-select {
@@ -3633,7 +3629,6 @@ tbody tr:not(.attack-row):hover td {
 
   .sidebar {
     position: static;
-    grid-template-rows: none;
     max-height: none;
     overflow: visible;
   }

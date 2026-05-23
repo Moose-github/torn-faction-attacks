@@ -45,7 +45,12 @@ export function Sidebar({
   isAdmin: boolean;
   onWarSelect: (name: string) => void;
 }) {
-  const [collapsedGroups, setCollapsedGroups] = React.useState<Partial<Record<SidebarGroupId, boolean>>>({});
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Record<SidebarGroupId, boolean>>({
+    members: true,
+    recordedWars: true,
+    miscellaneous: true,
+    admin: true,
+  });
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
   const miscellaneousActive = view === "miscellaneous" || view === "diceGame";
@@ -112,16 +117,20 @@ export function Sidebar({
           active={recordedWarsActive}
           collapsed={collapsedGroups.recordedWars ?? false}
           onToggle={() => toggleGroup("recordedWars")}
-          aside={isLoadingWars ? "Loading" : `${wars.length}`}
-          control={<WarTypeSelect value={warType} onChange={onWarTypeChange} />}
         />
         {collapsedGroups.recordedWars ? null : (
-          <WarNav
-            view={view}
-            wars={wars}
-            selectedWarName={selectedWarName}
-            onSelect={onWarSelect}
-          />
+          <>
+            <div className="sidebar-wars-controls">
+              <WarTypeSelect value={warType} onChange={onWarTypeChange} />
+              <span>{isLoadingWars ? "Loading" : `${wars.length}`}</span>
+            </div>
+            <WarNav
+              view={view}
+              wars={wars}
+              selectedWarName={selectedWarName}
+              onSelect={onWarSelect}
+            />
+          </>
         )}
       </section>
 
@@ -207,15 +216,11 @@ function SidebarGroupHeader({
   active,
   collapsed,
   onToggle,
-  aside,
-  control,
 }: {
   title: string;
   active: boolean;
   collapsed: boolean;
   onToggle: () => void;
-  aside?: string;
-  control?: React.ReactNode;
 }) {
   return (
     <div className="sidebar-group-header">
@@ -228,10 +233,6 @@ function SidebarGroupHeader({
         <span>{title}</span>
         {collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
       </button>
-      <div className="sidebar-group-header-controls">
-        {control}
-        {aside ? <span>{aside}</span> : null}
-      </div>
     </div>
   );
 }
@@ -283,7 +284,7 @@ function WarNav({
   selectedWarName,
   onSelect,
 }: {
-  view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "tradeScout" | "warPayouts" | "diceGame" | "admin";
+  view: AppView;
   wars: WarSummary[];
   selectedWarName: string | null;
   onSelect: (name: string) => void;
