@@ -364,14 +364,17 @@ function calculatePushPressureScore(values: {
   const activeClusterScore = Math.max(0, values.recentlyActiveCount - activeClusterThreshold);
   const baselineScore =
     values.activityAboveBaseline === null ? 0 : Math.max(0, Math.floor(values.activityAboveBaseline));
+  const currentActivityScore = Math.max(activeClusterScore, baselineScore);
+  const mobilizationScore = Math.max(
+    Math.max(0, values.onlineDelta10m),
+    Math.max(0, values.recentlyActiveDelta10m),
+    values.offlineIdleToOnlineCount * 2,
+  );
 
   return (
-    Math.max(0, values.onlineDelta10m) +
-    Math.max(0, values.recentlyActiveDelta10m) +
-    values.offlineIdleToOnlineCount * 2 +
+    mobilizationScore +
     values.enemyAttacksLast5m * 3 +
-    activeClusterScore +
-    baselineScore
+    currentActivityScore
   );
 }
 
@@ -432,17 +435,29 @@ function formatEnemyPushAlertMessage(
 
 function enemyPushAlertReasons(snapshot: EnemyPushSnapshotInput): string {
   const reasons: string[] = [];
+  const mobilizationSignals = [
+    {
+      score: Math.max(0, snapshot.online_delta_10m),
+      label: `+${snapshot.online_delta_10m} online in 10m`,
+    },
+    {
+      score: Math.max(0, snapshot.recently_active_delta_10m),
+      label: `+${snapshot.recently_active_delta_10m} recently active vs 10m ago`,
+    },
+    {
+      score: snapshot.offline_idle_to_online_count * 2,
+      label: `${snapshot.offline_idle_to_online_count} Offline/Idle -> Online`,
+    },
+  ];
+  const strongestMobilization = mobilizationSignals
+    .filter((signal) => signal.score > 0)
+    .sort((left, right) => right.score - left.score)[0];
+
   if (snapshot.enemy_attacks_last_5m > 0) {
     reasons.push(`${snapshot.enemy_attacks_last_5m} enemy attacks in 5m`);
   }
-  if (snapshot.online_delta_10m > 0) {
-    reasons.push(`+${snapshot.online_delta_10m} online in 10m`);
-  }
-  if (snapshot.offline_idle_to_online_count > 0) {
-    reasons.push(`${snapshot.offline_idle_to_online_count} Offline/Idle -> Online`);
-  }
-  if (snapshot.recently_active_delta_10m > 0) {
-    reasons.push(`+${snapshot.recently_active_delta_10m} recently active vs 10m ago`);
+  if (strongestMobilization) {
+    reasons.push(strongestMobilization.label);
   }
   return reasons.length > 0 ? `Signals: ${reasons.join("; ")}.` : "";
 }

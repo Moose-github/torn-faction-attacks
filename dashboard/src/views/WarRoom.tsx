@@ -629,12 +629,25 @@ function EnemyPushPressurePanel({
 }) {
   const latest = data?.latest ?? null;
   const history = data?.history ?? [];
+  const nowSeconds = Math.floor(useCurrentTime() / 1000);
   const aside = isLoading
     ? "Loading"
     : latest
-      ? `${pushPressureLevelLabel(latest.pressure_level)} Â· ${formatRelativeTime(latest.bucket_start)}`
+      ? `${pushPressureLevelLabel(latest.pressure_level)} - ${formatRelativeTime(latest.bucket_start)}`
       : "No samples";
-  const reasons = latest ? pushPressureReasons(latest) : [];
+  const contributions = latest ? pushPressureContributions(latest) : [];
+  const positiveContributions = contributions.filter((contribution) => contribution.score > 0);
+  const breakdownScore = contributions.reduce((total, contribution) => total + contribution.score, 0);
+  const buildUpContributions = contributions.filter((contribution) => contribution.kind === "build-up");
+  const attackContributions = contributions.filter((contribution) => contribution.kind === "active-attack");
+  const sampleAgeSeconds = latest ? Math.max(0, nowSeconds - latest.bucket_start) : null;
+  const sampleFreshness = sampleAgeSeconds === null
+    ? null
+    : sampleAgeSeconds <= 180
+      ? "Fresh"
+      : sampleAgeSeconds <= 300
+        ? "Aging"
+        : "Stale";
 
   return (
     <CollapsiblePanel
@@ -649,11 +662,15 @@ function EnemyPushPressurePanel({
           <div className={`push-pressure-status ${pushPressureTone(latest.pressure_level)}`}>
             <div>
               <span>Current pressure</span>
-              <strong>{pushPressureLevelLabel(latest.pressure_level)}</strong>
+              <strong title={pushPressureLevelTooltip(latest.pressure_level, latest.pressure_score, latest.enemy_attacks_last_5m)}>
+                {pushPressureLevelLabel(latest.pressure_level)}
+              </strong>
             </div>
             <div>
               <span>Score</span>
-              <strong>{formatNumber(latest.pressure_score)}</strong>
+              <strong title={`Stored score ${formatNumber(latest.pressure_score)}; visible breakdown total ${formatNumber(breakdownScore)}.`}>
+                {formatNumber(latest.pressure_score)}
+              </strong>
             </div>
             <div>
               <span>Online</span>
@@ -667,11 +684,37 @@ function EnemyPushPressurePanel({
               <span>Enemy attacks 5m</span>
               <strong>{formatNumber(latest.enemy_attacks_last_5m)}</strong>
             </div>
+            <div>
+              <span>Sample</span>
+              <strong title={`Sample bucket started ${formatRelativeTime(latest.bucket_start)}. Samples older than 3 minutes are aging; older than 5 minutes are stale.`}>
+                {sampleFreshness}
+              </strong>
+            </div>
           </div>
-          {reasons.length > 0 ? (
-            <div className="push-pressure-reasons">
-              {reasons.map((reason) => (
-                <span key={reason}>{reason}</span>
+          <div className="push-pressure-breakdown">
+            <div className="push-pressure-breakdown-header">
+              <strong>Score breakdown</strong>
+              <span title="The pressure score is the sum of these contribution scores. Current activity uses the stronger of cluster activity and baseline activity, so those two do not double count.">
+                {formatNumber(breakdownScore)} calculated
+              </span>
+            </div>
+            <PushPressureContributionGroup
+              title="Build-up signals"
+              description="Login movement and unusual current activity before attacks begin."
+              contributions={buildUpContributions}
+            />
+            <PushPressureContributionGroup
+              title="Active attack signal"
+              description="Recent enemy attacks are treated separately because they indicate the push may already be happening."
+              contributions={attackContributions}
+            />
+          </div>
+          {positiveContributions.length > 0 ? (
+            <div className="push-pressure-reasons" aria-label="Active pressure contributors">
+              {positiveContributions.map((contribution) => (
+                <span key={contribution.key} title={contribution.tooltip}>
+                  {contribution.reason}
+                </span>
               ))}
             </div>
           ) : (
@@ -724,28 +767,151 @@ function PushPressureSparkline({
   );
 }
 
-function pushPressureReasons(latest: EnemyPushPressureResponse["latest"]): string[] {
+type PushPressureContribution = {
+  key: string;
+  kind: "build-up" | "active-attack";
+  label: string;
+  score: number;
+  detail: string;
+  reason: string;
+  tooltip: string;
+};
+
+function PushPressureContributionGroup({
+  title,
+  description,
+  contributions,
+}: {
+  title: string;
+  description: string;
+  contributions: PushPressureContribution[];
+}) {
+  const score = contributions.reduce((total, contribution) => total + contribution.score, 0);
+
+  return (
+    <section className="push-pressure-contribution-group">
+      <div className="push-pressure-contribution-group-header">
+        <div>
+          <strong>{title}</strong>
+          <small>{description}</small>
+        </div>
+        <span title={`Total contribution from ${title.toLowerCase()}: ${formatNumber(score)}.`}>
+          {score > 0 ? `+${formatNumber(score)}` : "0"}
+        </span>
+      </div>
+      <div className="push-pressure-contribution-list">
+        {contributions.map((contribution) => (
+          <div
+            key={contribution.key}
+            className={contribution.score > 0 ? "push-pressure-contribution active" : "push-pressure-contribution"}
+            title={contribution.tooltip}
+          >
+            <span>{contribution.label}</span>
+            <strong>{contribution.score > 0 ? `+${formatNumber(contribution.score)}` : "0"}</strong>
+            <small>{contribution.detail}</small>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function pushPressureContributions(latest: EnemyPushPressureResponse["latest"]): PushPressureContribution[] {
   if (!latest) {
     return [];
   }
 
-  const reasons: string[] = [];
-  if (latest.online_delta_10m > 0) {
-    reasons.push(`+${formatNumber(latest.online_delta_10m)} online in 10m`);
+  const onlineDeltaScore = Math.max(0, latest.online_delta_10m);
+  const recentlyActiveDeltaScore = Math.max(0, latest.recently_active_delta_10m);
+  const movedOnlineScore = latest.offline_idle_to_online_count * 2;
+  const mobilizationScore = Math.max(onlineDeltaScore, recentlyActiveDeltaScore, movedOnlineScore);
+  const mobilizationSource =
+    mobilizationScore === movedOnlineScore && movedOnlineScore > 0
+      ? "moved-online"
+      : mobilizationScore === recentlyActiveDeltaScore && recentlyActiveDeltaScore > 0
+        ? "recent-activity"
+        : "online";
+  const enemyAttackScore = latest.enemy_attacks_last_5m * 3;
+  const activeClusterThreshold = Math.max(4, Math.ceil(latest.total_members * 0.12));
+  const activeClusterScore = Math.max(0, latest.recently_active_count - activeClusterThreshold);
+  const baselineScore =
+    latest.activity_above_baseline === null ? 0 : Math.max(0, Math.floor(latest.activity_above_baseline));
+  const currentActivityScore = Math.max(activeClusterScore, baselineScore);
+  const currentActivitySource =
+    baselineScore >= activeClusterScore && latest.activity_above_baseline !== null
+      ? "baseline"
+      : "cluster";
+  const baselineDetail = latest.baseline_active_count === null
+    ? "No time-slot baseline yet"
+    : `${formatNumber(Math.round(latest.activity_above_baseline ?? 0))} above usual ${formatNumber(Math.round(latest.baseline_active_count))}`;
+
+  return [
+    {
+      key: "mobilization",
+      kind: "build-up",
+      label: "Mobilization",
+      score: mobilizationScore,
+      detail: mobilizationDetail(mobilizationSource, latest),
+      reason: mobilizationReason(mobilizationSource, latest, mobilizationScore),
+      tooltip: `Score = max(online change, recent activity change, moved online). Online change = ${formatNumber(onlineDeltaScore)} from delta ${signedFormat(latest.online_delta_10m)}. Recent activity change = ${formatNumber(recentlyActiveDeltaScore)} from delta ${signedFormat(latest.recently_active_delta_10m)}. Moved online = ${formatNumber(latest.offline_idle_to_online_count)} x 2 = ${formatNumber(movedOnlineScore)}. Used ${formatNumber(mobilizationScore)}.`,
+    },
+    {
+      key: "current-activity",
+      kind: "build-up",
+      label: "Current activity",
+      score: currentActivityScore,
+      detail: currentActivitySource === "baseline"
+        ? baselineDetail
+        : `${formatNumber(latest.recently_active_count)} active; threshold ${formatNumber(activeClusterThreshold)}`,
+      reason: currentActivitySource === "baseline"
+        ? `${formatNumber(Math.round(latest.activity_above_baseline ?? 0))} above usual time-slot activity`
+        : `${formatNumber(latest.recently_active_count)} active in last 5m`,
+      tooltip: `Score = max(active cluster score, baseline score). Active cluster score = max(0, ${formatNumber(latest.recently_active_count)} active - threshold ${formatNumber(activeClusterThreshold)}) = ${formatNumber(activeClusterScore)}. Baseline score = ${latest.activity_above_baseline === null ? "0 because no baseline exists" : `max(0, floor(${formatNumber(latest.activity_above_baseline)} above baseline)) = ${formatNumber(baselineScore)}`}. Used ${currentActivitySource} score: ${formatNumber(currentActivityScore)}.`,
+    },
+    {
+      key: "enemy-attacks",
+      kind: "active-attack",
+      label: "Enemy attacks",
+      score: enemyAttackScore,
+      detail: `${formatNumber(latest.enemy_attacks_last_5m)} x 3`,
+      reason: `${formatNumber(latest.enemy_attacks_last_5m)} enemy attacks in last 5m`,
+      tooltip: `Score = enemy attacks against us in the last 5 minutes x 3. ${formatNumber(latest.enemy_attacks_last_5m)} attacks x 3 = ${formatNumber(enemyAttackScore)}. Level is forced to Happening currently at 5+ attacks, or at 2+ attacks when score is at least 10.`,
+    },
+  ];
+}
+
+function mobilizationDetail(
+  source: "online" | "recent-activity" | "moved-online",
+  latest: NonNullable<EnemyPushPressureResponse["latest"]>,
+): string {
+  if (source === "moved-online") {
+    return `${formatNumber(latest.offline_idle_to_online_count)} moved online x 2`;
   }
-  if (latest.offline_idle_to_online_count > 0) {
-    reasons.push(`${formatNumber(latest.offline_idle_to_online_count)} moved Offline/Idle -> Online`);
+  if (source === "recent-activity") {
+    return `${signedFormat(latest.recently_active_delta_10m)} active 5m vs 10m ago`;
   }
-  if (latest.recently_active_delta_10m > 0) {
-    reasons.push(`+${formatNumber(latest.recently_active_delta_10m)} active in 5m vs 10m ago`);
+  return `${signedFormat(latest.online_delta_10m)} online vs 10m ago`;
+}
+
+function mobilizationReason(
+  source: "online" | "recent-activity" | "moved-online",
+  latest: NonNullable<EnemyPushPressureResponse["latest"]>,
+  score: number,
+): string {
+  if (source === "moved-online") {
+    return `${formatNumber(latest.offline_idle_to_online_count)} moved Offline/Idle -> Online`;
   }
-  if (latest.activity_above_baseline !== null && latest.activity_above_baseline > 0) {
-    reasons.push(`${formatNumber(Math.round(latest.activity_above_baseline))} above usual time-slot activity`);
+  if (source === "recent-activity") {
+    return `+${formatNumber(score)} active in 5m vs 10m ago`;
   }
-  if (latest.enemy_attacks_last_5m > 0) {
-    reasons.push(`${formatNumber(latest.enemy_attacks_last_5m)} enemy attacks in last 5m`);
+  return `+${formatNumber(score)} online in 10m`;
+}
+
+function signedFormat(value: number): string {
+  if (value > 0) {
+    return `+${formatNumber(value)}`;
   }
-  return reasons;
+  return formatNumber(value);
 }
 
 function pushPressureLevelLabel(level: string): string {
@@ -759,6 +925,20 @@ function pushPressureLevelLabel(level: string): string {
     return "Building";
   }
   return "Quiet";
+}
+
+function pushPressureLevelTooltip(level: string, score: number, enemyAttacksLast5m: number): string {
+  const current = `Current score: ${formatNumber(score)}. Enemy attacks in last 5m: ${formatNumber(enemyAttacksLast5m)}.`;
+  if (level === "underway") {
+    return `${current} Happening currently triggers when enemy attacks in 5m are at least 5, or when attacks are at least 2 and score is at least 10.`;
+  }
+  if (level === "likely") {
+    return `${current} Likely soon triggers when score is at least 16 and the active-attack rule has not already marked it as happening.`;
+  }
+  if (level === "building") {
+    return `${current} Building triggers when score is at least 7 and below likely/active-attack thresholds.`;
+  }
+  return `${current} Quiet means score is below 7 and active-attack thresholds are not met.`;
 }
 
 function pushPressureTone(level: string): string {
