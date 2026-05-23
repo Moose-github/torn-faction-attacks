@@ -6,6 +6,23 @@ const DEFAULT_RECENT_ATTACK_LIMIT = 10;
 const MAX_RECENT_ATTACK_LIMIT = 25;
 const DEFAULT_RECENT_ATTACK_WINDOW_SECONDS = 5 * 60;
 const MAX_RECENT_ATTACK_WINDOW_SECONDS = 60 * 60;
+const RECENT_ATTACK_SELECT_COLUMNS = `
+  id,
+  started,
+  ended,
+  attacker_id,
+  attacker_name,
+  attacker_faction_id,
+  attacker_faction_name,
+  defender_id,
+  defender_name,
+  defender_faction_id,
+  defender_faction_name,
+  result,
+  respect_gain,
+  respect_loss,
+  chain
+`;
 
 type RecentFactionAttackRow = {
   id: number;
@@ -30,39 +47,54 @@ export async function getRecentFactionAttacks(url: URL, env: Env): Promise<Respo
   const windowSeconds = parseWindowSeconds(url.searchParams.get("window_seconds"));
   const since = nowSeconds() - windowSeconds;
 
-  const rows = await env.DB.prepare(
-    `
-    SELECT
-      id,
-      started,
-      ended,
-      attacker_id,
-      attacker_name,
-      attacker_faction_id,
-      attacker_faction_name,
-      defender_id,
-      defender_name,
-      defender_faction_id,
-      defender_faction_name,
-      result,
-      respect_gain,
-      respect_loss,
-      chain
-    FROM attacks
-    WHERE started IS NOT NULL
-      AND started >= ?
-      AND (attacker_faction_id = ? OR defender_faction_id = ?)
-    ORDER BY started DESC, id DESC
-    LIMIT ?
-    `,
-  )
-    .bind(since, HOME_FACTION_ID, HOME_FACTION_ID, limit)
-    .all();
+  const [outgoingRows, incomingRows] = await Promise.all([
+    env.DB.prepare(
+      `
+      SELECT ${RECENT_ATTACK_SELECT_COLUMNS}
+      FROM attacks
+      WHERE attacker_faction_id = ?
+        AND started IS NOT NULL
+        AND started >= ?
+      ORDER BY started DESC, id DESC
+      LIMIT ?
+      `,
+    )
+      .bind(HOME_FACTION_ID, since, limit)
+      .all(),
+    env.DB.prepare(
+      `
+      SELECT ${RECENT_ATTACK_SELECT_COLUMNS}
+      FROM attacks
+      WHERE defender_faction_id = ?
+        AND started IS NOT NULL
+        AND started >= ?
+      ORDER BY started DESC, id DESC
+      LIMIT ?
+      `,
+    )
+      .bind(HOME_FACTION_ID, since, limit)
+      .all(),
+  ]);
 
-  const attacks = ((rows.results ?? []) as RecentFactionAttackRow[]).map((attack) => ({
-    ...attack,
-    direction: attack.attacker_faction_id === HOME_FACTION_ID ? "outgoing" : "incoming",
-  }));
+  const rowsById = new Map<number, RecentFactionAttackRow>();
+  for (const attack of [
+    ...((outgoingRows.results ?? []) as RecentFactionAttackRow[]),
+    ...((incomingRows.results ?? []) as RecentFactionAttackRow[]),
+  ]) {
+    rowsById.set(attack.id, attack);
+  }
+
+  const attacks = [...rowsById.values()]
+    .sort((left, right) => {
+      const startedDiff = (right.started ?? 0) - (left.started ?? 0);
+      if (startedDiff !== 0) return startedDiff;
+      return right.id - left.id;
+    })
+    .slice(0, limit)
+    .map((attack) => ({
+      ...attack,
+      direction: attack.attacker_faction_id === HOME_FACTION_ID ? "outgoing" : "incoming",
+    }));
 
   return json({
     ok: true,
