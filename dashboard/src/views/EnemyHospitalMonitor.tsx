@@ -105,6 +105,8 @@ const DEFAULT_ALERT_PREFERENCES: AlertPreferences = {
   4: { sound: false, flash: false },
 };
 
+let monitorAlertAudioContext: AudioContext | null = null;
+
 type MonitorTarget = {
   id: number;
   name: string;
@@ -128,7 +130,7 @@ export function EnemyHospitalMonitor({
   const [alertVolume, setAlertVolume] = React.useState(() => initialAlertVolume());
   const [alertsMuted, setAlertsMuted] = React.useState(() => initialAlertsMuted());
   const [alertPreferences, setAlertPreferences] = React.useState(() => initialAlertPreferences());
-  const [alertFlashId, setAlertFlashId] = React.useState(0);
+  const [alertFlash, setAlertFlash] = React.useState<{ id: number; priority: AlertPriority } | null>(null);
   const [cachedEnemyStats, setCachedEnemyStats] = React.useState<Map<number, EnemyFactionMember>>(new Map());
   const [clockSync, setClockSync] = React.useState<ClockSyncState | null>(null);
   const [lastMessageReceivedAtMs, setLastMessageReceivedAtMs] = React.useState<number | null>(null);
@@ -164,7 +166,7 @@ export function EnemyHospitalMonitor({
     setCachedEnemyStats(new Map());
     setClockSync(null);
     setLastMessageReceivedAtMs(null);
-    setAlertFlashId(0);
+    setAlertFlash(null);
     hasSeenInitialAlertsRef.current = false;
     seenAlertKeysRef.current = new Set();
   }, [monitorTarget?.id, monitorTarget?.enemyFactionId]);
@@ -267,6 +269,24 @@ export function EnemyHospitalMonitor({
     };
   }, [monitorTarget]);
 
+  React.useEffect(() => {
+    if (!monitorTarget) return;
+
+    const primeOnce = () => {
+      primeMonitorAlertAudio();
+      window.removeEventListener("pointerdown", primeOnce);
+      window.removeEventListener("keydown", primeOnce);
+    };
+
+    window.addEventListener("pointerdown", primeOnce);
+    window.addEventListener("keydown", primeOnce);
+
+    return () => {
+      window.removeEventListener("pointerdown", primeOnce);
+      window.removeEventListener("keydown", primeOnce);
+    };
+  }, [monitorTarget]);
+
   const visibleEvents = sortLiveMonitorEvents(activeMonitorEvents(events, members, Math.floor(nowMs / 1000)));
 
   React.useEffect(() => {
@@ -283,8 +303,9 @@ export function EnemyHospitalMonitor({
       if (!alertsMuted && shouldNotifyForChannel(newEvents, alertPreferences, "sound")) {
         playMonitorAlertChime(alertVolume);
       }
-      if (shouldNotifyForChannel(newEvents, alertPreferences, "flash")) {
-        setAlertFlashId((current) => current + 1);
+      const flashPriority = highestPriorityForChannel(newEvents, alertPreferences, "flash");
+      if (flashPriority !== null) {
+        setAlertFlash((current) => ({ id: (current?.id ?? 0) + 1, priority: flashPriority }));
       }
     }
 
@@ -336,11 +357,16 @@ export function EnemyHospitalMonitor({
   const sortedMembers = [...members].sort((left, right) =>
     compareMonitorMembers(left, right, nowMs),
   );
+  const forcedTopMembers = sortedMembers.filter((member) => memberAlertSortRank(member, nowMs) === 0);
+  const standardMembers = sortedMembers.filter((member) => memberAlertSortRank(member, nowMs) !== 0);
+  const shouldShowMemberSeparator = forcedTopMembers.length > 0 && standardMembers.length > 0;
   const tornTiming = monitorTiming(status, nowMs, clockSync, lastMessageReceivedAtMs);
 
   return (
     <>
-      {alertFlashId > 0 ? <div key={alertFlashId} className="enemy-monitor-alert-flash" /> : null}
+      {alertFlash ? (
+        <div key={alertFlash.id} className={`enemy-monitor-alert-flash priority-${alertFlash.priority}`} />
+      ) : null}
       <section className="hero-panel compact-hero-panel enemy-monitor-hero">
         <div>
           <p className="eyebrow">Enemy hospital monitor</p>
@@ -426,7 +452,7 @@ export function EnemyHospitalMonitor({
         <section className="panel enemy-monitor-events-panel">
           <PanelHeader title="Live alerts" aside={`${visibleEvents.length}`} icon={<Activity size={18} />} />
           {visibleEvents.length === 0 ? (
-            <EmptyState text="No hospital events detected this session" />
+            <EmptyState text="No active live alerts" />
           ) : (
             <div className="enemy-monitor-event-list">
               {visibleEvents.map((event) => (
@@ -442,7 +468,22 @@ export function EnemyHospitalMonitor({
             <EmptyState text="Waiting for baseline poll" />
           ) : (
             <div className="enemy-monitor-member-list">
-              {sortedMembers.map((member) => (
+              {forcedTopMembers.map((member) => (
+                <React.Fragment key={member.id}>
+                  <MemberStatusRow
+                    member={member}
+                    cachedStats={cachedEnemyStats.get(member.id) ?? null}
+                    nowMs={nowMs}
+                    alertPriority={alertPriorityByMemberId.get(member.id) ?? null}
+                  />
+                </React.Fragment>
+              ))}
+              {shouldShowMemberSeparator ? (
+                <div className="enemy-monitor-member-separator">
+                  <span>Other enemies</span>
+                </div>
+              ) : null}
+              {standardMembers.map((member) => (
                 <MemberStatusRow
                   key={member.id}
                   member={member}
@@ -506,17 +547,24 @@ function MonitorSettingsCard({
   const [isOpen, setIsOpen] = React.useState(false);
 
   function updateValue(nextValue: number) {
+    primeMonitorAlertAudio();
     onVolumeChange(nextValue);
     window.localStorage.setItem(ALERT_VOLUME_STORAGE_KEY, String(nextValue));
   }
 
+  function testChime() {
+    playMonitorAlertChime(volume);
+  }
+
   function toggleMuted() {
+    primeMonitorAlertAudio();
     const nextMuted = !muted;
     onMutedChange(nextMuted);
     window.localStorage.setItem(ALERT_MUTED_STORAGE_KEY, nextMuted ? "1" : "0");
   }
 
   function toggleAlertPreference(priority: AlertPriority, channel: AlertChannel) {
+    primeMonitorAlertAudio();
     const nextPreferences = {
       ...alertPreferences,
       [priority]: {
@@ -549,7 +597,10 @@ function MonitorSettingsCard({
           className={isOpen ? "icon-button active" : "icon-button"}
           aria-label="Open monitor settings"
           title="Open monitor settings"
-          onClick={() => setIsOpen((current) => !current)}
+          onClick={() => {
+            primeMonitorAlertAudio();
+            setIsOpen((current) => !current);
+          }}
         >
           <Settings size={18} />
         </button>
@@ -572,6 +623,15 @@ function MonitorSettingsCard({
               onChange={(event) => updateValue(Number(event.target.value))}
             />
           </label>
+          <button
+            type="button"
+            className="enemy-monitor-test-chime-button"
+            disabled={muted || volume <= 0}
+            onClick={testChime}
+          >
+            <Volume2 size={15} />
+            Test chime
+          </button>
           <div className="enemy-monitor-alert-rules" aria-label="Alert notification rules">
             <div className="enemy-monitor-alert-rules-header">
               <span>Notify by</span>
@@ -1046,6 +1106,18 @@ function shouldNotifyForChannel(
   return events.some((event) => preferences[event.priority][channel]);
 }
 
+function highestPriorityForChannel(
+  events: MonitorEvent[],
+  preferences: AlertPreferences,
+  channel: AlertChannel,
+): AlertPriority | null {
+  const priorities = events
+    .filter((event) => preferences[event.priority][channel])
+    .map((event) => event.priority);
+  if (priorities.length === 0) return null;
+  return Math.min(...priorities) as AlertPriority;
+}
+
 function priorityTitle(priority: AlertPriority): string {
   switch (priority) {
     case 1:
@@ -1062,12 +1134,21 @@ function priorityTitle(priority: AlertPriority): string {
 function playMonitorAlertChime(volume: number): void {
   if (volume <= 0) return;
 
-  const AudioContextConstructor =
-    window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioContextConstructor) return;
+  const audioContext = getMonitorAlertAudioContext();
+  if (!audioContext) return;
 
+  if (audioContext.state === "suspended") {
+    void audioContext.resume().then(() => {
+      startMonitorAlertChime(audioContext, volume);
+    });
+    return;
+  }
+
+  startMonitorAlertChime(audioContext, volume);
+}
+
+function startMonitorAlertChime(audioContext: AudioContext, volume: number): void {
   try {
-    const audioContext = new AudioContextConstructor();
     const oscillator = audioContext.createOscillator();
     const gain = audioContext.createGain();
     const now = audioContext.currentTime;
@@ -1085,11 +1166,31 @@ function playMonitorAlertChime(volume: number): void {
     gain.connect(audioContext.destination);
     oscillator.start(now);
     oscillator.stop(now + 0.24);
-    oscillator.onended = () => {
-      void audioContext.close();
-    };
   } catch {
-    // Browsers may block audio until the page has received a user gesture.
+    // Browsers may still block audio if the page has not received a usable gesture.
+  }
+}
+
+function primeMonitorAlertAudio(): void {
+  const audioContext = getMonitorAlertAudioContext();
+  if (!audioContext || audioContext.state !== "suspended") return;
+  void audioContext.resume();
+}
+
+function getMonitorAlertAudioContext(): AudioContext | null {
+  if (monitorAlertAudioContext && monitorAlertAudioContext.state !== "closed") {
+    return monitorAlertAudioContext;
+  }
+
+  const AudioContextConstructor =
+    window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextConstructor) return null;
+
+  try {
+    monitorAlertAudioContext = new AudioContextConstructor();
+    return monitorAlertAudioContext;
+  } catch {
+    return null;
   }
 }
 
