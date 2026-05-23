@@ -51,93 +51,20 @@ import {
   MemberAttackSort,
   MemberSort,
 } from "./utils/members";
+import {
+  isAdminOnlyView,
+  parseAppRoute,
+  pathForView,
+} from "./routes";
+import type { AppView } from "./routes";
 import "./styles.css";
 
 const ACTIVE_WAR_REFRESH_MS = 5 * 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
 const PRACTICAL_FINISH_REFRESH_MS = 15 * 60_000;
 const CHAIN_BONUS_REFRESH_MS = 15 * 60_000;
-type AppView =
-  | "war"
-  | "warRoom"
-  | "hospitalMonitor"
-  | "members"
-  | "lifestyle"
-  | "miscellaneous"
-  | "tradeScout"
-  | "warPayouts"
-  | "diceGame"
-  | "admin";
-
-const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
-  warRoom: "/war-room",
-  hospitalMonitor: "/enemy-hospital-monitor",
-  members: "/members",
-  lifestyle: "/daily-averages",
-  miscellaneous: "/miscellaneous",
-  tradeScout: "/trade-scout",
-  warPayouts: "/war-payouts",
-  diceGame: "/dice-game",
-  admin: "/admin",
-};
-
-type AppRoute = {
-  view: AppView;
-  warName: string | null;
-};
-
 type ThemeMode = "light" | "dark";
 const THEME_STORAGE_KEY = "buttgrass-theme";
-
-function parseAppRoute(pathname: string): AppRoute {
-  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
-  const lowerPath = normalizedPath.toLowerCase();
-
-  if (lowerPath.startsWith("/wars/")) {
-    const rawWarName = normalizedPath.slice("/wars/".length);
-    return {
-      view: "war",
-      warName: safeDecodePathPart(rawWarName),
-    };
-  }
-
-  const matchedPage = Object.entries(PAGE_PATHS).find(([, path]) => path === lowerPath);
-  if (matchedPage) {
-    return {
-      view: matchedPage[0] as AppView,
-      warName: null,
-    };
-  }
-
-  return {
-    view: "war",
-    warName: null,
-  };
-}
-
-function safeDecodePathPart(value: string): string | null {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return null;
-  }
-}
-
-function pathForView(view: AppView, warName?: string | null): string {
-  if (view === "war") {
-    return warName ? `/wars/${encodeURIComponent(warName)}` : "/";
-  }
-
-  return PAGE_PATHS[view];
-}
-
-function isAdminOnlyView(view: AppView): boolean {
-  return view === "admin" || view === "tradeScout" || view === "warPayouts";
-}
 
 function initialThemeMode(): ThemeMode {
   const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);

@@ -36,10 +36,10 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     run: (env) => runIngestion(env),
   },
   {
-    label: "Cron enemy tracking and maintenance",
+    label: "Cron enemy tracking maintenance window",
     cadence: "15m",
     category: "maintenance",
-    purpose: "Refresh enemy member tracking, reuse the sample for heatmaps, and run maintenance tasks.",
+    purpose: "Refresh enemy tracking, pass any fetched enemy members to heatmap sampling, and run independent maintenance tasks.",
     shouldRun: (minute) => minute % 15 === 0,
     run: (env, scheduledTime) => runEnemyTrackingAndMaintenance(env, scheduledTime),
   },
@@ -78,7 +78,7 @@ export function buildCronPlan(env: Env, scheduledTime: number): CronJob[] {
 }
 
 async function runEnemyTrackingAndMaintenance(env: Env, scheduledTime: number): Promise<void> {
-  const heatmapMembersByFaction = new Map<number, TornFactionMember[]>();
+  const prefetchedHeatmapMembersByFaction = new Map<number, TornFactionMember[]>();
 
   try {
     const tick = await runEnemyScoutingCronTick(env, {
@@ -87,12 +87,12 @@ async function runEnemyTrackingAndMaintenance(env: Env, scheduledTime: number): 
       includeMembers: true,
     });
     if (tick.tracking.factionId && tick.tracking.members) {
-      heatmapMembersByFaction.set(tick.tracking.factionId, tick.tracking.members);
+      prefetchedHeatmapMembersByFaction.set(tick.tracking.factionId, tick.tracking.members);
     }
   } catch (err: any) {
     console.error("Cron enemy scouting maintenance tick failed:", err?.message || err);
     console.error(err);
   }
 
-  await runScheduledMaintenance(env, { heatmapMembersByFaction });
+  await runScheduledMaintenance(env, { prefetchedHeatmapMembersByFaction });
 }

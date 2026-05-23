@@ -4,6 +4,9 @@ import { WarSummary, WarType } from "../api";
 import { EmptyState } from "./Common";
 import { formatDate } from "../utils/format";
 import { displayWarStatus } from "../utils/members";
+import type { AppView } from "../routes";
+
+type SidebarGroupId = "members" | "recordedWars" | "miscellaneous" | "admin";
 
 export function Sidebar({
   warType,
@@ -26,8 +29,8 @@ export function Sidebar({
 }: {
   warType: WarType;
   onWarTypeChange: (value: WarType) => void;
-  view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "tradeScout" | "warPayouts" | "diceGame" | "admin";
-  onViewChange: (view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "tradeScout" | "warPayouts" | "diceGame" | "admin") => void;
+  view: AppView;
+  onViewChange: (view: AppView) => void;
   wars: WarSummary[];
   selectedWarName: string | null;
   isLoadingWars: boolean;
@@ -42,7 +45,7 @@ export function Sidebar({
   isAdmin: boolean;
   onWarSelect: (name: string) => void;
 }) {
-  const [collapsedGroups, setCollapsedGroups] = React.useState<Record<string, boolean>>({});
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Partial<Record<SidebarGroupId, boolean>>>({});
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
   const miscellaneousActive = view === "miscellaneous" || view === "diceGame";
@@ -59,7 +62,7 @@ export function Sidebar({
     });
   }, [adminActive, membersActive, miscellaneousActive, recordedWarsActive]);
 
-  function toggleGroup(group: string) {
+  function toggleGroup(group: SidebarGroupId) {
     setCollapsedGroups((current) => ({
       ...current,
       [group]: !current[group],

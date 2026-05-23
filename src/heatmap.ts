@@ -1,5 +1,4 @@
 import { HOME_FACTION_ID } from "./constants";
-import { revokeSessionsForFormerFactionMembers } from "./auth";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember, WarRow } from "./types";
@@ -190,15 +189,6 @@ async function sampleFactionActivity(
 
   const members = prefetchedMembers ?? await fetchTornFactionMembers(env, factionId);
   const activeCount = countRecentlyActiveMembers(members, sampledAt);
-  if (factionId === HOME_FACTION_ID) {
-    const revokedSessions = await revokeSessionsForFormerFactionMembers(
-      env,
-      members.map((member) => member.id),
-    );
-    if (revokedSessions > 0) {
-      console.log(`Revoked ${revokedSessions} auth session(s) for former faction members`);
-    }
-  }
   if (updateRevivable) {
     const revivableMetrics = await updateCachedRevivableMembers(env, factionId, members);
     metrics.writeStatements += revivableMetrics.writeStatements;

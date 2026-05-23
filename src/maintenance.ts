@@ -26,6 +26,10 @@ type MaintenanceTaskLog = MaintenanceTaskMetrics & {
   error: string | null;
 };
 
+type ScheduledMaintenanceOptions = {
+  prefetchedHeatmapMembersByFaction?: Map<number, TornFactionMember[]>;
+};
+
 const METRICS_RETENTION_SECONDS = 14 * 24 * 60 * 60;
 const METRICS_RETENTION_STATE_NAME = "scheduled_metrics_retention";
 const MEMBER_STAT_CORRECTION_INTERVAL_SECONDS = 60 * 60;
@@ -34,45 +38,11 @@ const NOOP_MAINTENANCE_METRIC_INTERVAL_SECONDS = 60 * 60;
 
 export async function runScheduledMaintenance(
   env: Env,
-  options: { heatmapMembersByFaction?: Map<number, TornFactionMember[]> } = {},
+  options: ScheduledMaintenanceOptions = {},
 ): Promise<void> {
   const runId = crypto.randomUUID();
   const startedAt = nowSeconds();
-  const tasks: MaintenanceTask[] = [
-    {
-      name: "home faction membership",
-      run: async () => {
-        const result = await syncHomeFactionMembershipAndSessions(env);
-        return {
-          writeStatements: result.writeStatements,
-          changedRows: result.changedRows,
-          details: result,
-        };
-      },
-    },
-    {
-      name: "heatmap sampling",
-      run: () =>
-        sampleFactionActivityHeatmaps(env, {
-          membersByFaction: options.heatmapMembersByFaction,
-        }),
-    },
-    {
-      name: "missing ranked war reports",
-      run: async () => {
-        const result = await syncMissingRankedWarReports(env);
-        return {
-          writeStatements: result.writeOperations,
-          changedRows: result.writeOperations,
-          details: result,
-        };
-      },
-    },
-    {
-      name: "member stat correction",
-      run: () => runMemberStatCorrectionIfDue(env),
-    },
-  ];
+  const tasks = buildScheduledMaintenanceTasks(env, options);
 
   const results = await Promise.all(tasks.map((task) => runMaintenanceTask(task)));
   const retentionResult = await runMaintenanceTask({
@@ -91,6 +61,47 @@ export async function runScheduledMaintenance(
   if (await shouldWriteMaintenanceRunMetric(env, startedAt, loggedResults)) {
     await writeMaintenanceRunMetric(env, runId, startedAt, loggedResults);
   }
+}
+
+function buildScheduledMaintenanceTasks(
+  env: Env,
+  options: ScheduledMaintenanceOptions,
+): MaintenanceTask[] {
+  return [
+    {
+      name: "home faction membership",
+      run: async () => {
+        const result = await syncHomeFactionMembershipAndSessions(env);
+        return {
+          writeStatements: result.writeStatements,
+          changedRows: result.changedRows,
+          details: result,
+        };
+      },
+    },
+    {
+      name: "heatmap sampling",
+      run: () =>
+        sampleFactionActivityHeatmaps(env, {
+          membersByFaction: options.prefetchedHeatmapMembersByFaction,
+        }),
+    },
+    {
+      name: "missing ranked war reports",
+      run: async () => {
+        const result = await syncMissingRankedWarReports(env);
+        return {
+          writeStatements: result.writeOperations,
+          changedRows: result.writeOperations,
+          details: result,
+        };
+      },
+    },
+    {
+      name: "member stat correction",
+      run: () => runMemberStatCorrectionIfDue(env),
+    },
+  ];
 }
 
 export async function getLatestMaintenanceRun(env: Env): Promise<Response> {
