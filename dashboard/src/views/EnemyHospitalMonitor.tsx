@@ -2,7 +2,7 @@ import React from "react";
 import { Activity, KeyRound, Settings, ShieldAlert, TestTube2, UsersRound, Volume2, VolumeX } from "lucide-react";
 import { createMonitorTicket, EnemyFactionMember, getEnemyScouting, MONITOR_WORKER_URL, WarSummary } from "../api";
 import { EmptyState, MetricCard, PanelHeader } from "../components/Common";
-import { formatLongDateTime, formatNumber } from "../utils/format";
+import { formatLongDateTime, formatNumber, formatTime } from "../utils/format";
 
 type MonitorConnectionState = "idle" | "connecting" | "open" | "closed" | "error";
 
@@ -483,6 +483,11 @@ export function EnemyHospitalMonitor({
             <EmptyState text="Waiting for baseline poll" />
           ) : (
             <div className="enemy-monitor-member-list">
+              {forcedTopMembers.length > 0 ? (
+                <div className="enemy-monitor-member-separator">
+                  <span>Online or recently active</span>
+                </div>
+              ) : null}
               {forcedTopMembers.map((member) => (
                 <React.Fragment key={member.id}>
                   <MemberStatusRow
@@ -784,6 +789,7 @@ function MemberStatusRow({
   nowMs: number;
   alertPriority: MonitorEvent["priority"] | null;
 }) {
+  const tornReturn = travelReturnToTorn(member, cachedStats, nowMs);
   return (
     <a
       className={memberTileClass(member, nowMs, alertPriority)}
@@ -794,8 +800,13 @@ function MemberStatusRow({
       <div>
         <strong>{member.name}</strong>
       </div>
-      <span className={`enemy-monitor-state ${stateClass(member.state)}`}>
-        {memberStatusLabel(member, nowMs)}
+      <span className={`enemy-monitor-state ${stateClass(member.state)}${tornReturn ? " has-return-countdown" : ""}`}>
+        <span>{memberStatusLabel(member, nowMs)}</span>
+        {tornReturn ? (
+          <small title={tornReturn.title}>
+            Torn in {tornReturn.countdown}
+          </small>
+        ) : null}
       </span>
       <span className="enemy-monitor-bsp-stat" title={bspBattlestatsTitle(cachedStats)}>
         {cachedStats?.bsp_battlestats == null ? "-" : formatNumber(cachedStats.bsp_battlestats)}
@@ -1099,6 +1110,62 @@ function lastActionClass(member: MemberMonitorSnapshot, nowMs: number): string {
   return isUrgentLastAction(member, nowMs) ? "enemy-monitor-last-action urgent" : "enemy-monitor-last-action";
 }
 
+function travelReturnToTorn(
+  liveMember: MemberMonitorSnapshot,
+  cachedMember: EnemyFactionMember | null,
+  nowMs: number,
+): { countdown: string; title: string } | null {
+  if (
+    liveMember.state !== "Traveling" ||
+    !cachedMember ||
+    cachedMember.status_state !== "Traveling" ||
+    !isTornDestination(cachedMember.travel_destination)
+  ) {
+    return null;
+  }
+
+  const arrivalAt = exactTravelArrivalAt(cachedMember);
+  if (!arrivalAt) {
+    return null;
+  }
+
+  return {
+    countdown: travelReturnCountdownLabel(arrivalAt, nowMs),
+    title: `Expected return to Torn at ${formatTime(arrivalAt)}. Uses the travel tracker's exact arrival estimate.`,
+  };
+}
+
+function exactTravelArrivalAt(member: EnemyFactionMember): number | null {
+  const earliest = member.estimated_arrival_earliest ?? null;
+  const latest = member.estimated_arrival_latest ?? null;
+  if (earliest && latest && earliest === latest) {
+    return earliest;
+  }
+
+  return member.estimated_arrival_at ?? null;
+}
+
+function isTornDestination(destination: string | null | undefined): boolean {
+  return typeof destination === "string" && destination.trim().toLowerCase() === "torn";
+}
+
+function travelReturnCountdownLabel(arrivalAt: number, nowMs: number): string {
+  const remainingSeconds = Math.ceil((arrivalAt * 1000 - nowMs) / 1000);
+  if (remainingSeconds <= 0) return "due";
+
+  if (remainingSeconds < 10 * 60) {
+    const minutes = Math.floor(remainingSeconds / 60);
+    const seconds = remainingSeconds % 60;
+    return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+  }
+
+  const hours = Math.floor(remainingSeconds / 3600);
+  const minutes = Math.ceil((remainingSeconds % 3600) / 60);
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${Math.max(1, minutes)}m`;
+}
+
 function memberTileClass(
   member: MemberMonitorSnapshot,
   nowMs: number,
@@ -1373,7 +1440,10 @@ function hospitalTimeRemainingLabel(until: number, nowMs: number): string {
 }
 
 function cleanHospitalDescription(description: string | null): string {
-  const cleaned = description?.replace(/^In hospital for\s*/i, "").trim();
+  const cleaned = description
+    ?.replace(/^In hospital for\s*/i, "")
+    .replace(/^In an? (.+?) hospital for\s*/i, "$1 hospital ")
+    .trim();
   return cleaned || "Hospital";
 }
 

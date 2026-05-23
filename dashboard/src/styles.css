@@ -1426,6 +1426,20 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.enemy-monitor-state.has-return-countdown {
+  display: grid;
+  gap: 2px;
+  border-radius: 8px;
+  line-height: 1.08;
+}
+
+.enemy-monitor-state.has-return-countdown small {
+  color: #1d4ed8;
+  font-size: 0.68rem;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
 .enemy-monitor-member div,
 .enemy-monitor-member strong,
 .enemy-monitor-member small,
@@ -5277,6 +5291,10 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .enemy-monitor-alert-rules-header span:not(:first-child) {
   background: var(--panel-active-bg);
   color: var(--text-main);
+}
+
+:root[data-theme="dark"] .enemy-monitor-state.has-return-countdown small {
+  color: #93c5fd;
 }
 
 :root[data-theme="dark"] .enemy-monitor-settings-field,
