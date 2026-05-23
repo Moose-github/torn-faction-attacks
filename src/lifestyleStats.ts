@@ -309,6 +309,7 @@ async function resetDailyLifestylePersonalStatsIfNeeded(
       SELECT member_id
       FROM home_faction_members
       WHERE faction_id = ?
+        AND is_current = 1
     )
     `,
   )
@@ -345,9 +346,12 @@ async function markDailyLifestyleRefreshCompleteIfDone(
     FROM home_faction_members members
     LEFT JOIN member_lifestyle_stats stats
       ON stats.member_id = members.member_id
-    WHERE stats.updated_at IS NULL
-      OR stats.updated_at < ?
-      OR stats.error IS NOT NULL
+    WHERE members.is_current = 1
+      AND (
+        stats.updated_at IS NULL
+        OR stats.updated_at < ?
+        OR stats.error IS NOT NULL
+      )
     LIMIT 1
     `,
   )
@@ -381,9 +385,10 @@ async function syncHomeFactionMemberList(env: Env): Promise<void> {
           position,
           days_in_faction,
           is_revivable,
+          is_current,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
@@ -391,6 +396,7 @@ async function syncHomeFactionMemberList(env: Env): Promise<void> {
           position = excluded.position,
           days_in_faction = excluded.days_in_faction,
           is_revivable = excluded.is_revivable,
+          is_current = 1,
           updated_at = excluded.updated_at
         `,
       ).bind(
@@ -405,7 +411,30 @@ async function syncHomeFactionMemberList(env: Env): Promise<void> {
     ),
   );
 
+  await markDepartedHomeFactionMembers(env, members);
   await removeDepartedLifestyleMembers(env, members);
+}
+
+async function markDepartedHomeFactionMembers(
+  env: Env,
+  members: TornFactionMember[],
+): Promise<void> {
+  const ids = members.map((member) => member.id).filter((id) => Number.isInteger(id) && id > 0);
+  if (ids.length === 0) {
+    return;
+  }
+
+  await env.DB.prepare(
+    `
+    UPDATE home_faction_members
+    SET is_current = 0,
+        updated_at = unixepoch()
+    WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
+      AND is_current != 0
+    `,
+  )
+    .bind(...ids)
+    .run();
 }
 
 async function removeDepartedLifestyleMembers(
@@ -435,8 +464,15 @@ async function readLifestyleRefreshCandidates(
 ): Promise<LifestyleMemberRow[]> {
   const staleCutoff = staleBefore ?? nowSeconds() - REFRESH_STALE_SECONDS;
   const where = force
-    ? ""
-    : "WHERE stats.updated_at IS NULL OR stats.updated_at < ? OR stats.error IS NOT NULL";
+    ? "WHERE members.is_current = 1"
+    : `
+      WHERE members.is_current = 1
+        AND (
+          stats.updated_at IS NULL
+          OR stats.updated_at < ?
+          OR stats.error IS NOT NULL
+        )
+    `;
   const query = `
     SELECT
       members.member_id,
@@ -621,6 +657,7 @@ async function readHomeMembersById(env: Env): Promise<Map<number, LifestyleMembe
     SELECT member_id, name, level, position, updated_at
     FROM home_faction_members
     WHERE faction_id = ?
+      AND is_current = 1
     `,
   )
     .bind(HOME_FACTION_ID)

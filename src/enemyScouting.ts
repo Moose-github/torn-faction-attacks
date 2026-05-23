@@ -358,6 +358,7 @@ export async function readHomeScouting(env: Env): Promise<EnemyFactionMemberRow[
     SELECT *
     FROM home_faction_members
     WHERE faction_id = ?
+      AND is_current = 1
     ORDER BY ff_battlestats DESC NULLS LAST, level DESC, name ASC
     `,
   )
@@ -503,9 +504,10 @@ async function refreshHomeFactionMembers(env: Env): Promise<void> {
           position,
           days_in_faction,
           is_revivable,
+          is_current,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
@@ -513,6 +515,7 @@ async function refreshHomeFactionMembers(env: Env): Promise<void> {
           position = excluded.position,
           days_in_faction = excluded.days_in_faction,
           is_revivable = excluded.is_revivable,
+          is_current = 1,
           updated_at = excluded.updated_at
         `,
       ).bind(
@@ -527,16 +530,38 @@ async function refreshHomeFactionMembers(env: Env): Promise<void> {
     ),
   );
 
+  await markDepartedHomeFactionMembers(env, members);
+
   const rows = (await env.DB.prepare(
     `
     SELECT *
     FROM home_faction_members
     WHERE ff_battlestats IS NULL
+      AND is_current = 1
     ORDER BY level DESC, name ASC
     `,
   ).all()).results as EnemyFactionMemberRow[] | undefined;
 
   await refreshMissingFfBattlestats(env, rows ?? [], "home_faction_members");
+}
+
+async function markDepartedHomeFactionMembers(env: Env, members: TornFactionMember[]): Promise<void> {
+  const ids = members.map((member) => member.id).filter((id) => Number.isInteger(id) && id > 0);
+  if (ids.length === 0) {
+    return;
+  }
+
+  await env.DB.prepare(
+    `
+    UPDATE home_faction_members
+    SET is_current = 0,
+        updated_at = unixepoch()
+    WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
+      AND is_current != 0
+    `,
+  )
+    .bind(...ids)
+    .run();
 }
 
 export async function refreshEnemyFactionMemberStatuses(

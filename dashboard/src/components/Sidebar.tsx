@@ -13,11 +13,11 @@ export function Sidebar({
   selectedWarName,
   isLoadingWars,
   warRoomIcon,
-  hospitalMonitorIcon,
   memberIcon,
   lifestyleIcon,
   miscIcon,
   tradeScoutIcon,
+  warPayoutsIcon,
   diceGameIcon,
   adminIcon,
   isAdmin,
@@ -25,17 +25,17 @@ export function Sidebar({
 }: {
   warType: WarType;
   onWarTypeChange: (value: WarType) => void;
-  view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "tradeScout" | "diceGame" | "admin";
-  onViewChange: (view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "tradeScout" | "diceGame" | "admin") => void;
+  view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "tradeScout" | "warPayouts" | "diceGame" | "admin";
+  onViewChange: (view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "tradeScout" | "warPayouts" | "diceGame" | "admin") => void;
   wars: WarSummary[];
   selectedWarName: string | null;
   isLoadingWars: boolean;
   warRoomIcon: React.ReactNode;
-  hospitalMonitorIcon: React.ReactNode;
   memberIcon: React.ReactNode;
   lifestyleIcon: React.ReactNode;
   miscIcon: React.ReactNode;
   tradeScoutIcon: React.ReactNode;
+  warPayoutsIcon: React.ReactNode;
   diceGameIcon: React.ReactNode;
   adminIcon: React.ReactNode;
   isAdmin: boolean;
@@ -49,12 +49,6 @@ export function Sidebar({
           icon={warRoomIcon}
           label="War room"
           onClick={() => onViewChange("warRoom")}
-        />
-        <SidebarLink
-          active={view === "hospitalMonitor"}
-          icon={hospitalMonitorIcon}
-          label="Hospital monitor"
-          onClick={() => onViewChange("hospitalMonitor")}
         />
         <SidebarLink
           active={view === "members"}
@@ -75,19 +69,11 @@ export function Sidebar({
           onClick={() => onViewChange("miscellaneous")}
         />
         <SidebarLink
-          active={view === "tradeScout"}
-          icon={tradeScoutIcon}
-          label="Trade scout"
-          onClick={() => onViewChange("tradeScout")}
+          active={view === "diceGame"}
+          icon={diceGameIcon}
+          label="Dice Game"
+          onClick={() => onViewChange("diceGame")}
         />
-        {isAdmin ? (
-          <SidebarLink
-            active={view === "admin"}
-            icon={adminIcon}
-            label="Admin controls"
-            onClick={() => onViewChange("admin")}
-          />
-        ) : null}
       </section>
 
       <section className="panel sidebar-panel sidebar-wars-panel">
@@ -104,14 +90,29 @@ export function Sidebar({
         />
       </section>
 
-      <section className="panel sidebar-panel sidebar-dice-panel">
-        <SidebarLink
-          active={view === "diceGame"}
-          icon={diceGameIcon}
-          label="Dice Game"
-          onClick={() => onViewChange("diceGame")}
-        />
-      </section>
+      {isAdmin ? (
+        <section className="panel sidebar-panel sidebar-admin-panel">
+          <PanelHeader title="Admin" />
+          <SidebarLink
+            active={view === "warPayouts"}
+            icon={warPayoutsIcon}
+            label="War payouts"
+            onClick={() => onViewChange("warPayouts")}
+          />
+          <SidebarLink
+            active={view === "tradeScout"}
+            icon={tradeScoutIcon}
+            label="Trade scout"
+            onClick={() => onViewChange("tradeScout")}
+          />
+          <SidebarLink
+            active={view === "admin"}
+            icon={adminIcon}
+            label="Admin controls"
+            onClick={() => onViewChange("admin")}
+          />
+        </section>
+      ) : null}
     </aside>
   );
 }
@@ -163,7 +164,7 @@ function WarNav({
   selectedWarName,
   onSelect,
 }: {
-  view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "tradeScout" | "diceGame" | "admin";
+  view: "war" | "warRoom" | "hospitalMonitor" | "members" | "lifestyle" | "miscellaneous" | "tradeScout" | "warPayouts" | "diceGame" | "admin";
   wars: WarSummary[];
   selectedWarName: string | null;
   onSelect: (name: string) => void;

@@ -696,8 +696,9 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
   if (warType instanceof Response) {
     return warType;
   }
+  const currentMembersOnly = url.searchParams.get("current_members") === "1";
 
-  const overall = await env.DB.prepare(
+  const overall = (await env.DB.prepare(
     `
     SELECT
       COUNT(*) AS total_wars,
@@ -715,13 +716,14 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     `,
   )
     .bind(warType, warType)
-    .first();
+    .first()) as Record<string, number | null> | null;
 
   const members = await env.DB.prepare(
     `
     SELECT
       wms.member_id,
       MAX(wms.member_name) AS member_name,
+      COALESCE(MAX(h.is_current), 0) AS is_current_member,
       COUNT(DISTINCT wms.war_id) AS wars_participated,
       COALESCE(SUM(wms.attacks_vs_enemy_total), 0) AS attacks_vs_enemy_total,
       COALESCE(SUM(wms.attacks_vs_enemy_successful), 0) AS attacks_vs_enemy_successful,
@@ -763,22 +765,57 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       MAX(wms.last_action_at) AS last_seen_at
     FROM war_member_stats wms
     JOIN wars w ON w.id = wms.war_id
+    LEFT JOIN home_faction_members h ON h.member_id = wms.member_id
     WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
+      AND (? = 0 OR COALESCE(h.is_current, 0) = 1)
     GROUP BY wms.member_id
     ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, attacks_vs_enemy_total DESC
     `,
   )
-    .bind(warType, warType)
+    .bind(warType, warType, currentMembersOnly ? 1 : 0)
     .all();
 
-  const memberRows = members.results ?? [];
+  const memberRows = (members.results ?? []) as Array<Record<string, any>>;
+  const responseOverall = currentMembersOnly && overall
+    ? overallForFilteredMembers(overall, memberRows)
+    : overall;
 
   return json({
     ok: true,
     war_type: warType,
-    overall,
+    current_members_only: currentMembersOnly,
+    overall: responseOverall,
     members: memberRows,
   });
+}
+
+function overallForFilteredMembers(
+  overall: Record<string, number | null>,
+  members: Array<Record<string, any>>,
+): Record<string, number | null> {
+  return {
+    ...overall,
+    attacks_vs_enemy_total: sumMemberRows(members, "attacks_vs_enemy_total"),
+    outside_hits: sumMemberRows(members, "outside_hits"),
+    total_respect_gain: sumMemberRows(members, "respect_gained"),
+    total_respect_gain_raw: sumMemberRows(members, "respect_gained_raw"),
+    total_respect_lost: sumMemberRows(members, "respect_lost"),
+    total_respect_lost_raw: sumMemberRows(members, "respect_lost_raw"),
+    latest_attack_started: members.reduce<number | null>((latest, member) => {
+      const value = Number(member.last_seen_at);
+      if (!Number.isFinite(value) || value <= 0) {
+        return latest;
+      }
+      return latest === null ? value : Math.max(latest, value);
+    }, null),
+  };
+}
+
+function sumMemberRows(members: Array<Record<string, any>>, key: string): number {
+  return members.reduce((total, member) => {
+    const value = Number(member[key] ?? 0);
+    return total + (Number.isFinite(value) ? value : 0);
+  }, 0);
 }
 
 function parseBucketMinutes(value: string | null): number {

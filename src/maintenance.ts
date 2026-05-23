@@ -1,4 +1,5 @@
 import { sampleFactionActivityHeatmaps } from "./heatmap";
+import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
@@ -38,6 +39,17 @@ export async function runScheduledMaintenance(
   const runId = crypto.randomUUID();
   const startedAt = nowSeconds();
   const tasks: MaintenanceTask[] = [
+    {
+      name: "home faction membership",
+      run: async () => {
+        const result = await syncHomeFactionMembershipAndSessions(env);
+        return {
+          writeStatements: result.writeStatements,
+          changedRows: result.changedRows,
+          details: result,
+        };
+      },
+    },
     {
       name: "heatmap sampling",
       run: () =>

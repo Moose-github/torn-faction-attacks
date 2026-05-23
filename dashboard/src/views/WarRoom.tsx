@@ -382,21 +382,13 @@ export function WarRoom({
         <WarStartCountdown
           war={selectedWar}
         />
-        {isWarLive ? (
-          <button
-            type="button"
-            className="panel-action-button war-room-monitor-link"
-            onClick={onOpenHospitalMonitor}
-          >
-            <Siren size={15} />
-            Hospital monitor
-          </button>
-        ) : null}
       </section>
 
       <section className="content-grid">
         {isMemberTrackingActive ? (
           <>
+            <HospitalMonitorLinkPanel onOpenHospitalMonitor={onOpenHospitalMonitor} />
+
             <EnemyStatusSummaryPanel
               members={enemyScouting?.members ?? []}
               statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
@@ -538,8 +530,35 @@ function LiveTrackingInactivePanel({
       onToggle={onToggle}
       className="live-tracking-inactive-panel"
     >
-      <EmptyState text="Push pressure, travel tracking, revivable members and Enemy status are not currently being gathered. Collection starts two hours before official war start and stops at practical finish." />
+      <EmptyState text="Push pressure, travel tracking, revivable members, Enemy status and Hospital monitor are not currently being gathered. Collection starts two hours before official war start and stops at practical finish." />
     </CollapsiblePanel>
+  );
+}
+
+function HospitalMonitorLinkPanel({
+  onOpenHospitalMonitor,
+}: {
+  onOpenHospitalMonitor: () => void;
+}) {
+  return (
+    <section className="panel war-room-hospital-monitor-panel">
+      <PanelHeader
+        icon={<Siren size={18} />}
+        title="Hospital monitor"
+        aside="Live"
+      />
+      <p className="panel-description">
+        Watch enemy hospital status in real time while live enemy tracking is active.
+      </p>
+      <button
+        type="button"
+        className="panel-action-button war-room-monitor-link"
+        onClick={onOpenHospitalMonitor}
+      >
+        <Siren size={15} />
+        Open monitor
+      </button>
+    </section>
   );
 }
 

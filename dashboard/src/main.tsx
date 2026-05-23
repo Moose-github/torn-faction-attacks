@@ -2,8 +2,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import {
   BarChart3,
+  CircleDollarSign,
   Dices,
-  Siren,
   LogIn,
   Moon,
   Pill,
@@ -65,6 +65,7 @@ type AppView =
   | "lifestyle"
   | "miscellaneous"
   | "tradeScout"
+  | "warPayouts"
   | "diceGame"
   | "admin";
 
@@ -75,6 +76,7 @@ const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   lifestyle: "/daily-averages",
   miscellaneous: "/miscellaneous",
   tradeScout: "/trade-scout",
+  warPayouts: "/war-payouts",
   diceGame: "/dice-game",
   admin: "/admin",
 };
@@ -133,6 +135,10 @@ function pathForView(view: AppView, warName?: string | null): string {
   return PAGE_PATHS[view];
 }
 
+function isAdminOnlyView(view: AppView): boolean {
+  return view === "admin" || view === "tradeScout" || view === "warPayouts";
+}
+
 function initialThemeMode(): ThemeMode {
   const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
   if (storedTheme === "light" || storedTheme === "dark") {
@@ -156,6 +162,9 @@ const Miscellaneous = React.lazy(() =>
 );
 const TradeScout = React.lazy(() =>
   import("./views/TradeScout").then((module) => ({ default: module.TradeScout })),
+);
+const WarPayouts = React.lazy(() =>
+  import("./views/WarPayouts").then((module) => ({ default: module.WarPayouts })),
 );
 
 function App() {
@@ -491,7 +500,7 @@ function App() {
   ]);
 
   React.useEffect(() => {
-    if (view === "admin" && !isAdmin) {
+    if (isAdminOnlyView(view) && !isAdmin) {
       goToPath(pathForView("war", selectedWarName), true);
       setView("war");
     }
@@ -654,7 +663,7 @@ function App() {
   }
 
   function changeView(nextView: AppView) {
-    if (nextView === "admin" && !isAdmin) {
+    if (isAdminOnlyView(nextView) && !isAdmin) {
       return;
     }
 
@@ -741,11 +750,11 @@ function App() {
           selectedWarName={selectedWarName}
           isLoadingWars={isLoadingWars}
           warRoomIcon={<Radar size={18} />}
-          hospitalMonitorIcon={<Siren size={18} />}
           memberIcon={<BarChart3 size={18} />}
           lifestyleIcon={<Pill size={18} />}
           miscIcon={<Target size={18} />}
           tradeScoutIcon={<ShoppingCart size={18} />}
+          warPayoutsIcon={<CircleDollarSign size={18} />}
           diceGameIcon={<Dices size={18} />}
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
@@ -767,11 +776,15 @@ function App() {
             </LazyPage>
           ) : view === "miscellaneous" ? (
             <LazyPage>
-              <Miscellaneous isAdmin={isAdmin} />
+              <Miscellaneous />
             </LazyPage>
           ) : view === "tradeScout" ? (
             <LazyPage>
               <TradeScout isAdmin={isAdmin} />
+            </LazyPage>
+          ) : view === "warPayouts" ? (
+            <LazyPage>
+              <WarPayouts />
             </LazyPage>
           ) : view === "members" ? (
             <MembersOverview isAdmin={isAdmin} />

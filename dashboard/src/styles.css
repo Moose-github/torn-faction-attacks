@@ -504,6 +504,10 @@ h2 {
   min-height: 34px;
 }
 
+.war-room-hospital-monitor-panel .war-room-monitor-link {
+  align-self: start;
+}
+
 .enemy-monitor-hero {
   align-items: center;
 }
@@ -2593,6 +2597,19 @@ h2 {
   color: #475569;
   font-size: 0.82rem;
   font-weight: 800;
+}
+
+.member-performance-filter-card .member-current-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.member-current-filter input {
+  width: 16px;
+  min-height: 16px;
+  margin: 0;
 }
 
 .lifestyle-period-card strong {

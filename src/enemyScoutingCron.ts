@@ -327,6 +327,7 @@ async function refreshMissingFfscouterEstimatesForContext(
     SELECT *
     FROM home_faction_members
     WHERE ff_battlestats IS NULL
+      AND is_current = 1
     ORDER BY level DESC, name ASC
     `,
   ).all()).results as EnemyFactionMemberRow[] | undefined;

@@ -52,11 +52,13 @@ export type MemberStats = {
   first_seen_at: number | null;
   last_seen_at: number | null;
   added_from_report?: number;
+  is_current_member?: number;
 };
 
 export type StatsResponse = {
   ok: boolean;
   war_type: Exclude<WarType, "all"> | null;
+  current_members_only?: boolean;
   overall: OverallStats;
   members: MemberStats[];
 };
@@ -797,8 +799,19 @@ export async function refreshAuthSession(): Promise<AuthSession | null> {
   }
 }
 
-export async function getStats(warType: WarType): Promise<StatsResponse> {
-  return getJson<StatsResponse>(`/api/stats${queryForWarType(warType)}`);
+export async function getStats(
+  warType: WarType,
+  options: { currentMembersOnly?: boolean } = {},
+): Promise<StatsResponse> {
+  const params = new URLSearchParams();
+  if (warType !== "all") {
+    params.set("war_type", warType);
+  }
+  if (options.currentMembersOnly) {
+    params.set("current_members", "1");
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return getJson<StatsResponse>(`/api/stats${suffix}`);
 }
 
 export async function getWars(warType: WarType): Promise<WarsResponse> {

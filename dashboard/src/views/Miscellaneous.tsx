@@ -8,7 +8,7 @@ import {
   WarDetailResponse,
   WarSummary,
 } from "../api";
-import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
+import { EmptyState, PanelHeader } from "../components/Common";
 import { detailNumber, formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
 import { displayMember, memberDefendsLost } from "../utils/members";
 
@@ -127,11 +127,10 @@ const DEFAULT_FLAT_PAYMENT_RULES: FlatPaymentRule[] = [
   { id: "flat-friendly-hosps", metric: "friendly_hosps", amount: "2000000" },
 ];
 
-export function Miscellaneous({ isAdmin }: { isAdmin: boolean }) {
+export function Miscellaneous() {
   const [data, setData] = React.useState<MiscellaneousResponse | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [isPayoutCollapsed, setIsPayoutCollapsed] = React.useState(true);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -178,18 +177,6 @@ export function Miscellaneous({ isAdmin }: { isAdmin: boolean }) {
           <p>Useful tools and live information that do not fit cleanly into the main war views.</p>
         </div>
       </section>
-
-      {isAdmin ? (
-        <CollapsiblePanel
-          title="War payout calculator (WIP)"
-          control={<span className="status-pill admin-only-pill">Admin only</span>}
-          collapsed={isPayoutCollapsed}
-          onToggle={() => setIsPayoutCollapsed((current) => !current)}
-          className="table-panel payout-calculator-panel"
-        >
-          <WarPayoutCalculator />
-        </CollapsiblePanel>
-      ) : null}
 
       <section className="panel table-panel">
         <PanelHeader
@@ -249,7 +236,7 @@ export function Miscellaneous({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-function WarPayoutCalculator() {
+export function WarPayoutCalculator() {
   const [wars, setWars] = React.useState<WarSummary[]>([]);
   const [selectedWarName, setSelectedWarName] = React.useState("");
   const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
