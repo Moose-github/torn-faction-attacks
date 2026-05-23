@@ -1022,6 +1022,10 @@ h2 {
   align-self: start;
 }
 
+.war-room-hospital-monitor-panel {
+  grid-column: 1 / -1;
+}
+
 .enemy-monitor-hero {
   align-items: center;
 }

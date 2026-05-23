@@ -950,7 +950,9 @@ function buildMemberStatusSnapshot(
     };
   }
 
-  const startedAfter = previousPollAt ?? previous?.status_updated_at ?? null;
+  const startedAfter = previous
+    ? previousPollAt ?? previous.status_updated_at ?? null
+    : null;
   const startedBefore = fetchedAt;
   const tripType = resolveTravelTripType(
     parsedTravel.flightLocation,

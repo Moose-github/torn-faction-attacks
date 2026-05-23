@@ -166,6 +166,10 @@ function renderArrivalRange(member: EnemyFactionMember, nowSeconds: number): Rea
 }
 
 function formatArrivalRange(member: EnemyFactionMember): string {
+  if (!hasKnownDepartureWindow(member)) {
+    return "Unknown";
+  }
+
   const earliest = member.estimated_arrival_earliest ?? null;
   const latest = member.estimated_arrival_latest ?? null;
   if (earliest && latest) {
@@ -200,7 +204,7 @@ function formatDepartureWindow(member: EnemyFactionMember): string {
   }
 
   if (startedBefore) {
-    return `By ${formatTime(startedBefore)}`;
+    return "Unknown";
   }
 
   return "Unknown";
@@ -263,13 +267,19 @@ function formatTravelStartWindow(member: EnemyFactionMember): string {
   }
 
   if (member.travel_started_before) {
-    return `Travel first seen by ${formatTime(member.travel_started_before)}`;
+    return `Already traveling when first seen at ${formatTime(member.travel_started_before)}; departure happened before tracking observed this trip.`;
   }
 
   return member.status_description ?? "Travel timing unknown";
 }
 
 function formatArrivalTooltip(member: EnemyFactionMember, nowSeconds: number): string {
+  if (!hasKnownDepartureWindow(member)) {
+    return member.travel_started_before
+      ? `Arrival cannot be estimated because this trip was already in progress when first seen at ${formatTime(member.travel_started_before)}.`
+      : "Arrival cannot be estimated because the departure time is unknown.";
+  }
+
   if (isAmbiguousAirliner(member)) {
     const possibleArrivals = formatAmbiguousAirlinerArrivalTooltip(member, nowSeconds);
     if (possibleArrivals) {
@@ -291,6 +301,10 @@ function formatAmbiguousAirlinerArrivalTooltip(member: EnemyFactionMember, nowSe
 
 function isAmbiguousAirliner(member: EnemyFactionMember): boolean {
   return member.travel_type === "Business Class/Standard";
+}
+
+function hasKnownDepartureWindow(member: EnemyFactionMember): boolean {
+  return Boolean(member.travel_started_after && member.travel_started_before);
 }
 
 function renderTravelType(member: EnemyFactionMember, nowSeconds: number): React.ReactNode {

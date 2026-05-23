@@ -387,7 +387,10 @@ export function WarRoom({
       <section className="content-grid">
         {isMemberTrackingActive ? (
           <>
-            <HospitalMonitorLinkPanel onOpenHospitalMonitor={onOpenHospitalMonitor} />
+            <HospitalMonitorLinkPanel
+              isWarLive={isWarLive}
+              onOpenHospitalMonitor={onOpenHospitalMonitor}
+            />
 
             <EnemyStatusSummaryPanel
               members={enemyScouting?.members ?? []}
@@ -536,8 +539,10 @@ function LiveTrackingInactivePanel({
 }
 
 function HospitalMonitorLinkPanel({
+  isWarLive,
   onOpenHospitalMonitor,
 }: {
+  isWarLive: boolean;
   onOpenHospitalMonitor: () => void;
 }) {
   return (
@@ -545,18 +550,21 @@ function HospitalMonitorLinkPanel({
       <PanelHeader
         icon={<Siren size={18} />}
         title="Hospital monitor"
-        aside="Live"
+        aside={isWarLive ? "Live" : "No active war"}
       />
       <p className="panel-description">
-        Watch enemy hospital status in real time while live enemy tracking is active.
+        {isWarLive
+          ? "Watch enemy hospital status in real time while live enemy tracking is active."
+          : "Hospital monitoring becomes live when the selected war is active."}
       </p>
       <button
         type="button"
         className="panel-action-button war-room-monitor-link"
         onClick={onOpenHospitalMonitor}
+        disabled={!isWarLive}
       >
         <Siren size={15} />
-        Open monitor
+        {isWarLive ? "Open monitor" : "Monitor unavailable"}
       </button>
     </section>
   );

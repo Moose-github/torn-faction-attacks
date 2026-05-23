@@ -53,6 +53,10 @@ const HIGHLIGHT_METRIC_ORDER = [
   "mugs_yesterday",
   "mugs_7d",
 ];
+const HIGHLIGHT_PERIODS = [
+  { key: "yesterday", label: "24h stats" },
+  { key: "last_7_completed_days", label: "Last 7 completed days" },
+] as const;
 
 type DashboardHomeProps = {
   activeWar: WarSummary | null;
@@ -420,13 +424,14 @@ function MemberHighlightsPanel({
   rotation: number;
 }) {
   const groups = buildHighlightGroups(achievements);
+  const activePeriod = HIGHLIGHT_PERIODS[rotation % HIGHLIGHT_PERIODS.length];
 
   return (
     <section className="panel dashboard-highlights-panel">
       <PanelHeader
         icon={<Trophy size={17} />}
         title="Member highlights"
-        aside={loaded ? "Top 3 podiums" : "Loading"}
+        aside={loaded ? `Top 3 podiums | ${activePeriod.label}` : "Loading"}
       />
       {!loaded ? (
         <EmptyState text="Loading member highlights" />
@@ -434,11 +439,12 @@ function MemberHighlightsPanel({
         <EmptyState text="No member highlights available yet" />
       ) : (
         <div className="dashboard-highlight-grid">
-          {groups.map((group, groupIndex) => (
+          {groups.map((group) => (
             <MemberHighlightTile
               key={group.key}
               group={group}
-              metricIndex={(rotation + groupIndex) % group.metrics.length}
+              periodKey={activePeriod.key}
+              periodLabel={activePeriod.label}
             />
           ))}
         </div>
@@ -449,23 +455,25 @@ function MemberHighlightsPanel({
 
 function MemberHighlightTile({
   group,
-  metricIndex,
+  periodKey,
+  periodLabel,
 }: {
   group: HighlightGroup;
-  metricIndex: number;
+  periodKey: HighlightPeriodKey;
+  periodLabel: string;
 }) {
-  const metric = group.metrics[metricIndex] ?? group.metrics[0];
+  const metric = group.metrics.find((candidate) => candidate.periodKey === periodKey) ?? null;
 
   return (
     <article className="dashboard-highlight-tile">
       <div className="dashboard-highlight-heading">
         <span>{group.label}</span>
-        <strong>{metric.title}</strong>
-        <small>{formatAchievementPeriod(metric.rows[0])}</small>
+        <strong>{metric?.title ?? `${group.label} ${periodLabel.toLowerCase()}`}</strong>
+        <small>{metric ? formatAchievementPeriod(metric.rows[0]) : periodLabel}</small>
       </div>
       <div className="dashboard-podium-list">
-        {metric.rows.length === 0 ? (
-          <EmptyState text="No podium yet" />
+        {!metric || metric.rows.length === 0 ? (
+          <EmptyState text="No podium for this period" />
         ) : (
           metric.rows.map((row) => (
             <div key={`${row.metric_key}-${row.rank}`} className={`dashboard-podium-row rank-${row.rank}`}>
@@ -501,10 +509,13 @@ type HighlightGroup = {
   label: string;
   metrics: Array<{
     key: string;
+    periodKey: HighlightPeriodKey;
     title: string;
     rows: MemberAchievementSummary[];
   }>;
 };
+
+type HighlightPeriodKey = (typeof HIGHLIGHT_PERIODS)[number]["key"];
 
 function buildHighlightGroups(achievements: MemberAchievementSummary[]): HighlightGroup[] {
   return HIGHLIGHT_GROUPS.map((group) => {
@@ -521,6 +532,7 @@ function buildHighlightGroups(achievements: MemberAchievementSummary[]): Highlig
           .sort((left, right) => left.rank - right.rank);
         return {
           key: metricKey,
+          periodKey: rows[0]?.period_key as HighlightPeriodKey,
           title: rows[0]?.metric_title ?? metricKey,
           rows,
         };
