@@ -87,6 +87,7 @@ type ClockSyncState = {
 };
 
 const MAX_VISIBLE_EVENTS = 40;
+const TIMER_ALERT_COOLDOWN_SECONDS = 15 * 60;
 const TEST_WAR_ID = 999_999_001;
 const ALERT_VOLUME_STORAGE_KEY = "enemyHospitalMonitorAlertVolume";
 const ALERT_MUTED_STORAGE_KEY = "enemyHospitalMonitorAlertMuted";
@@ -207,7 +208,7 @@ export function EnemyHospitalMonitor({
           setLastMessageReceivedAtMs(receivedAtMs);
           setStatus(message.status);
           setMembers(message.members);
-          setEvents((current) => activeMonitorEvents(current, message.members));
+          setEvents((current) => activeMonitorEvents(current, message.members, Math.floor(receivedAtMs / 1000)));
         } else if (message.type === "status") {
           setLastMessageReceivedAtMs(receivedAtMs);
           setStatus(message.status);
@@ -287,9 +288,11 @@ export function EnemyHospitalMonitor({
   }
 
   const hospitalizedMembers = members.filter((member) => member.state === "Hospital").length;
-  const sortedMembers = [...members].sort(compareMonitorMembers);
-  const visibleEvents = activeMonitorEvents(events, members);
+  const visibleEvents = sortLiveMonitorEvents(activeMonitorEvents(events, members, Math.floor(nowMs / 1000)));
   const alertPriorityByMemberId = memberAlertPriorities(visibleEvents);
+  const sortedMembers = [...members].sort((left, right) =>
+    compareMonitorMembers(left, right, nowMs),
+  );
   const tornTiming = monitorTiming(status, nowMs, clockSync, lastMessageReceivedAtMs);
 
   return (
@@ -381,7 +384,7 @@ export function EnemyHospitalMonitor({
           ) : (
             <div className="enemy-monitor-event-list">
               {visibleEvents.map((event) => (
-                <MonitorEventRow key={eventKey(event)} event={event} />
+                <MonitorEventRow key={eventKey(event)} event={event} nowMs={nowMs} />
               ))}
             </div>
           )}
@@ -560,7 +563,9 @@ function LocalMonitorTestPanel({
   );
 }
 
-function MonitorEventRow({ event }: { event: MonitorEvent }) {
+function MonitorEventRow({ event, nowMs }: { event: MonitorEvent; nowMs: number }) {
+  const timerCooldownLabel = timerAlertCooldownLabel(event, nowMs);
+
   return (
     <a
       className={`enemy-monitor-event priority-${event.priority}`}
@@ -574,6 +579,7 @@ function MonitorEventRow({ event }: { event: MonitorEvent }) {
       </div>
       <p>{eventDetail(event)}</p>
       <small>{formatLongDateTime(event.observedAt)}</small>
+      {timerCooldownLabel ? <small className="enemy-monitor-event-cooldown">{timerCooldownLabel}</small> : null}
     </a>
   );
 }
@@ -605,7 +611,7 @@ function MemberStatusRow({
       <span className="enemy-monitor-bsp-stat" title={bspBattlestatsTitle(cachedStats)}>
         {cachedStats?.bsp_battlestats == null ? "-" : formatNumber(cachedStats.bsp_battlestats)}
       </span>
-      <span className="enemy-monitor-last-action">{lastActionLabel(member)}</span>
+      <span className={lastActionClass(member, nowMs)}>{lastActionLabel(member)}</span>
     </a>
   );
 }
@@ -644,7 +650,15 @@ function parseMonitorMessage(data: unknown): MonitorMessage | null {
   }
 }
 
-function compareMonitorMembers(left: MemberMonitorSnapshot, right: MemberMonitorSnapshot): number {
+function compareMonitorMembers(
+  left: MemberMonitorSnapshot,
+  right: MemberMonitorSnapshot,
+  nowMs: number,
+): number {
+  const leftAlertRank = memberAlertSortRank(left, nowMs);
+  const rightAlertRank = memberAlertSortRank(right, nowMs);
+  if (leftAlertRank !== rightAlertRank) return leftAlertRank - rightAlertRank;
+
   const leftRank = memberStatusSortRank(left);
   const rightRank = memberStatusSortRank(right);
   if (leftRank !== rightRank) return leftRank - rightRank;
@@ -656,22 +670,42 @@ function compareMonitorMembers(left: MemberMonitorSnapshot, right: MemberMonitor
   return left.name.localeCompare(right.name);
 }
 
-function activeMonitorEvents(events: MonitorEvent[], members: MemberMonitorSnapshot[]): MonitorEvent[] {
-  if (members.length === 0) {
-    return events;
+function memberAlertSortRank(member: MemberMonitorSnapshot, nowMs: number): number {
+  if (isUrgentLastAction(member, nowMs)) {
+    return 0;
   }
+  return 1;
+}
 
+function activeMonitorEvents(
+  events: MonitorEvent[],
+  members: MemberMonitorSnapshot[],
+  nowSecondsValue: number,
+): MonitorEvent[] {
   const membersById = new Map(members.map((member) => [member.id, member]));
   const activeEvents = events.filter((event) => {
+    if (event.type === "hospital_timer_decreased") {
+      return timerAlertCooldownRemainingSeconds(event, nowSecondsValue) > 0;
+    }
+    if (members.length === 0) {
+      return true;
+    }
     const member = membersById.get(event.memberId);
     if (!member) {
       return false;
     }
-    return event.type === "hospital_timer_decreased"
-      ? member.state === "Hospital"
-      : member.state !== "Hospital";
+    return member.state !== "Hospital";
   });
   return activeEvents.length === events.length ? events : activeEvents;
+}
+
+function sortLiveMonitorEvents(events: MonitorEvent[]): MonitorEvent[] {
+  return [...events].sort((left, right) => {
+    if (left.priority !== right.priority) {
+      return left.priority - right.priority;
+    }
+    return right.observedAt - left.observedAt;
+  });
 }
 
 function memberAlertPriorities(events: MonitorEvent[]): Map<number, MonitorEvent["priority"]> {
@@ -819,6 +853,10 @@ function lastActionLabel(member: MemberMonitorSnapshot): string {
   return member.lastActionStatus === "Online" ? "Online" : (member.lastActionRelative ?? "No activity");
 }
 
+function lastActionClass(member: MemberMonitorSnapshot, nowMs: number): string {
+  return isUrgentLastAction(member, nowMs) ? "enemy-monitor-last-action urgent" : "enemy-monitor-last-action";
+}
+
 function memberTileClass(
   member: MemberMonitorSnapshot,
   nowMs: number,
@@ -900,6 +938,29 @@ function eventDetail(event: MonitorEvent): string {
   return event.lastActionRelative
     ? `${event.lastActionStatus ?? "Last action"} ${event.lastActionRelative}`
     : event.currentDescription ?? "Released from hospital";
+}
+
+function timerAlertCooldownLabel(event: MonitorEvent, nowMs: number): string | null {
+  if (event.type !== "hospital_timer_decreased") {
+    return null;
+  }
+
+  const remainingSeconds = timerAlertCooldownRemainingSeconds(event, Math.floor(nowMs / 1000));
+  return `Cooldown ${formatShortDuration(remainingSeconds)}`;
+}
+
+function timerAlertCooldownRemainingSeconds(event: MonitorEvent, nowSecondsValue: number): number {
+  return Math.max(0, event.observedAt + TIMER_ALERT_COOLDOWN_SECONDS - nowSecondsValue);
+}
+
+function formatShortDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.ceil(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  if (minutes > 0) {
+    return `${minutes}m ${remainder}s`;
+  }
+  return `${remainder}s`;
 }
 
 function eventKey(event: MonitorEvent): string {
