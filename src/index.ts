@@ -28,6 +28,7 @@ import {
   getMemberLifestyleStats,
   refreshMemberLifestyleStatsFromRequest,
 } from "./lifestyleStats";
+import { listMemberAchievementSummaries } from "./memberAchievements";
 import { getMiscellaneousData } from "./miscellaneous";
 import { getDiceGameState, rollDiceGame, sendXanaxToDiceGame } from "./diceGame";
 import { sendDiscordMessageFromRequest } from "./discord";
@@ -258,6 +259,10 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
       if (cooldownError) return cooldownError;
       return refreshMemberLifestyleStatsFromRequest(request, env);
     });
+  }
+
+  if (matchesRoute(url, request, "/api/member-achievements", "GET")) {
+    return cachedMemberGet(routeContext, 55, () => listMemberAchievementSummaries(env));
   }
 
   if (matchesRoute(url, request, "/api/miscellaneous", "GET")) {

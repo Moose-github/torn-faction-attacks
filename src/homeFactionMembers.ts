@@ -55,6 +55,13 @@ export async function syncHomeFactionMembershipAndSessions(
           is_revivable = excluded.is_revivable,
           is_current = 1,
           updated_at = excluded.updated_at
+        WHERE home_faction_members.faction_id IS NOT excluded.faction_id
+          OR home_faction_members.name IS NOT excluded.name
+          OR home_faction_members.level IS NOT excluded.level
+          OR home_faction_members.position IS NOT excluded.position
+          OR home_faction_members.days_in_faction IS NOT excluded.days_in_faction
+          OR home_faction_members.is_revivable IS NOT excluded.is_revivable
+          OR home_faction_members.is_current IS NOT 1
         `,
       ).bind(
         member.id,

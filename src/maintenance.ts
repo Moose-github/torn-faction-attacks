@@ -1,6 +1,7 @@
 import { sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
+import { refreshMemberAchievementSummariesIfStale } from "./memberAchievements";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember } from "./types";
@@ -100,6 +101,10 @@ function buildScheduledMaintenanceTasks(
     {
       name: "member stat correction",
       run: () => runMemberStatCorrectionIfDue(env),
+    },
+    {
+      name: "member achievements",
+      run: () => refreshMemberAchievementSummariesIfStale(env),
     },
   ];
 }
@@ -255,6 +260,10 @@ function shouldLogMaintenanceTask(result: MaintenanceTaskLog): boolean {
 
   if (result.name === "heatmap sampling") {
     return result.writeStatements > 1 || result.changedRows > 1;
+  }
+
+  if (result.name === "home faction membership") {
+    return result.changedRows > 0;
   }
 
   return true;

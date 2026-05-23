@@ -3,22 +3,27 @@ import {
   Activity,
   ArrowDownLeft,
   ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
   Clock3,
   Radar,
   ShieldCheck,
   Swords,
+  Trophy,
   Users,
 } from "lucide-react";
 import {
   getLatestIngestionRun,
   getLatestMaintenanceRun,
   getHomeFactionMemberSummary,
+  getMemberAchievements,
   getRecentFactionAttacks,
   getTradeWatchlists,
   HomeFactionMemberSummary,
   IngestionRun,
   MaintenanceRun,
   MaintenanceTask,
+  MemberAchievementSummary,
   RecentFactionAttack,
   TradeWatchlist,
   WarSummary,
@@ -33,6 +38,21 @@ const RECENT_ATTACK_WINDOW_SECONDS = 5 * 60;
 const RECENT_ATTACK_REFRESH_MS = 30_000;
 const ATTACK_POLLING_RATE_LABEL = "Every 5 minutes";
 const ATTACK_POLLING_DETAIL = "Worker wakes every minute; attack import runs on the 5-minute gate.";
+const HIGHLIGHT_ROTATE_MS = 6_000;
+const HIGHLIGHT_REFRESH_MS = 5 * 60_000;
+const HIGHLIGHT_GROUPS = [
+  { key: "xanax", label: "Xanax" },
+  { key: "gym_energy", label: "Gym energy" },
+  { key: "mugs", label: "Mugs" },
+] as const;
+const HIGHLIGHT_METRIC_ORDER = [
+  "xanax_yesterday",
+  "xanax_average_7d",
+  "gymenergy_yesterday",
+  "gymenergy_average_7d",
+  "mugs_yesterday",
+  "mugs_7d",
+];
 
 type DashboardHomeProps = {
   activeWar: WarSummary | null;
@@ -58,8 +78,12 @@ export function DashboardHome({
   const [maintenanceTasks, setMaintenanceTasks] = React.useState<MaintenanceTask[]>([]);
   const [watchlists, setWatchlists] = React.useState<TradeWatchlist[]>([]);
   const [memberSummary, setMemberSummary] = React.useState<HomeFactionMemberSummary | null>(null);
+  const [memberAchievements, setMemberAchievements] = React.useState<MemberAchievementSummary[]>([]);
+  const [memberAchievementsLoaded, setMemberAchievementsLoaded] = React.useState(false);
+  const [highlightRotation, setHighlightRotation] = React.useState(0);
   const [recentAttacks, setRecentAttacks] = React.useState<RecentFactionAttack[]>([]);
   const [recentAttacksLoaded, setRecentAttacksLoaded] = React.useState(false);
+  const [adminPanelCollapsed, setAdminPanelCollapsed] = React.useState(true);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -75,6 +99,33 @@ export function DashboardHome({
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadMemberAchievements() {
+      const response = await getMemberAchievements().catch(() => null);
+      if (!cancelled) {
+        setMemberAchievements(response?.achievements ?? []);
+        setMemberAchievementsLoaded(true);
+      }
+    }
+
+    loadMemberAchievements();
+    const timer = window.setInterval(loadMemberAchievements, HIGHLIGHT_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const timer = window.setInterval(
+      () => setHighlightRotation((current) => current + 1),
+      HIGHLIGHT_ROTATE_MS,
+    );
+    return () => window.clearInterval(timer);
   }, []);
 
   React.useEffect(() => {
@@ -155,7 +206,7 @@ export function DashboardHome({
         <div>
           <p className="eyebrow">Dashboard</p>
           <h2>Faction command centre</h2>
-          <p>Live war status, member signals, maintenance health, and the next places worth checking.</p>
+          <p>Live war status, member signals, recent attacks, and the next places worth checking.</p>
         </div>
       </section>
 
@@ -222,39 +273,86 @@ export function DashboardHome({
         </DashboardCard>
       </section>
 
-      <section className={isAdmin ? "dashboard-home-lower-grid" : "dashboard-home-lower-grid member-only"}>
-        <DashboardCard
-          icon={<Activity size={17} />}
-          title="Maintenance health"
-          status={isAdmin ? maintenanceRunStatus(maintenanceRun) : "Admin only"}
-          tone={maintenanceRun?.status === "error" ? "danger" : maintenanceRun ? "good" : "quiet"}
-          actionLabel={isAdmin ? "Open admin controls" : undefined}
-          onAction={isAdmin ? () => onOpenView("admin") : undefined}
-        >
-          <div className="dashboard-card-metrics">
-            <MetricLine label="Ingestion" value={isAdmin ? ingestionStatus(ingestionRun) : "Hidden for members"} />
-            <MetricLine label="15m maintenance" value={isAdmin ? maintenanceRunStatus(maintenanceRun) : "Hidden for members"} />
-            <MetricLine label="Tasks logged" value={isAdmin ? formatNumber(maintenanceTasks.length) : "-"} />
-          </div>
-        </DashboardCard>
+      <MemberHighlightsPanel
+        achievements={memberAchievements}
+        loaded={memberAchievementsLoaded}
+        rotation={highlightRotation}
+      />
 
-        {isAdmin ? (
-          <DashboardCard
-            icon={<ShieldCheck size={17} />}
-            title="Admin attention"
-            status={missingReports + tradeScansDue > 0 ? `${missingReports + tradeScansDue} to check` : "Clear"}
-            tone={missingReports + tradeScansDue > 0 ? "warn" : "good"}
-            actionLabel="Open admin"
-            onAction={() => onOpenView("admin")}
-          >
-            <div className="dashboard-card-metrics">
-              <MetricLine label="Missing reports" value={formatNumber(missingReports)} />
-              <MetricLine label="Trade scans due" value={formatNumber(tradeScansDue)} />
-              <MetricLine label="Watchlists" value={formatNumber(watchlists.length)} />
-            </div>
-          </DashboardCard>
-        ) : null}
-      </section>
+      {isAdmin ? (
+        <section className="panel dashboard-admin-panel">
+          <div className="panel-header collapsible-header dashboard-admin-header">
+            <button
+              type="button"
+              className="collapse-button"
+              onClick={() => setAdminPanelCollapsed((current) => !current)}
+              aria-expanded={!adminPanelCollapsed}
+            >
+              <span>{adminPanelCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</span>
+              <strong>Admin operations</strong>
+            </button>
+            <span className="dashboard-admin-badge">
+              <ShieldCheck size={14} />
+              Admin only
+            </span>
+          </div>
+          {adminPanelCollapsed ? null : (
+            <>
+              <p className="panel-description dashboard-admin-description">
+                Operational health, admin attention items, and internal activity are only visible to admin logins.
+              </p>
+              <section className="dashboard-home-lower-grid dashboard-admin-grid">
+                <DashboardCard
+                  icon={<Activity size={17} />}
+                  title="Maintenance health"
+                  status={maintenanceRunStatus(maintenanceRun)}
+                  tone={maintenanceRun?.status === "error" ? "danger" : maintenanceRun ? "good" : "quiet"}
+                  actionLabel="Open admin controls"
+                  onAction={() => onOpenView("admin")}
+                >
+                  <div className="dashboard-card-metrics">
+                    <MetricLine label="Ingestion" value={ingestionStatus(ingestionRun)} />
+                    <MetricLine label="15m maintenance" value={maintenanceRunStatus(maintenanceRun)} />
+                    <MetricLine label="Tasks logged" value={formatNumber(maintenanceTasks.length)} />
+                  </div>
+                </DashboardCard>
+
+                <DashboardCard
+                  icon={<ShieldCheck size={17} />}
+                  title="Admin attention"
+                  status={missingReports + tradeScansDue > 0 ? `${missingReports + tradeScansDue} to check` : "Clear"}
+                  tone={missingReports + tradeScansDue > 0 ? "warn" : "good"}
+                  actionLabel="Open admin"
+                  onAction={() => onOpenView("admin")}
+                >
+                  <div className="dashboard-card-metrics">
+                    <MetricLine label="Missing reports" value={formatNumber(missingReports)} />
+                    <MetricLine label="Trade scans due" value={formatNumber(tradeScansDue)} />
+                    <MetricLine label="Watchlists" value={formatNumber(watchlists.length)} />
+                  </div>
+                </DashboardCard>
+              </section>
+
+              <section className="dashboard-activity-panel dashboard-admin-activity-panel">
+                <PanelHeader icon={<Clock3 size={17} />} title="Recent activity" />
+                {events.length === 0 ? (
+                  <EmptyState text="No recent activity yet" />
+                ) : (
+                  <div className="dashboard-event-list">
+                    {events.map((event) => (
+                      <div key={`${event.label}-${event.time ?? event.detail}`} className="dashboard-event-row">
+                        <span>{event.time ? formatRelativeTime(event.time) : "-"}</span>
+                        <strong>{event.label}</strong>
+                        <small>{event.detail}</small>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
+        </section>
+      ) : null}
 
       <section className="panel dashboard-activity-panel dashboard-attacks-panel">
         <PanelHeader
@@ -280,22 +378,6 @@ export function DashboardHome({
         )}
       </section>
 
-      <section className="panel dashboard-activity-panel">
-        <PanelHeader icon={<Clock3 size={17} />} title="Recent activity" />
-        {events.length === 0 ? (
-          <EmptyState text="No recent activity yet" />
-        ) : (
-          <div className="dashboard-event-list">
-            {events.map((event) => (
-              <div key={`${event.label}-${event.time ?? event.detail}`} className="dashboard-event-row">
-                <span>{event.time ? formatRelativeTime(event.time) : "-"}</span>
-                <strong>{event.label}</strong>
-                <small>{event.detail}</small>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
     </>
   );
 }
@@ -328,6 +410,76 @@ function RecentAttackRow({ attack }: { attack: RecentFactionAttack }) {
   );
 }
 
+function MemberHighlightsPanel({
+  achievements,
+  loaded,
+  rotation,
+}: {
+  achievements: MemberAchievementSummary[];
+  loaded: boolean;
+  rotation: number;
+}) {
+  const groups = buildHighlightGroups(achievements);
+
+  return (
+    <section className="panel dashboard-highlights-panel">
+      <PanelHeader
+        icon={<Trophy size={17} />}
+        title="Member highlights"
+        aside={loaded ? "Top 3 podiums" : "Loading"}
+      />
+      {!loaded ? (
+        <EmptyState text="Loading member highlights" />
+      ) : groups.length === 0 ? (
+        <EmptyState text="No member highlights available yet" />
+      ) : (
+        <div className="dashboard-highlight-grid">
+          {groups.map((group, groupIndex) => (
+            <MemberHighlightTile
+              key={group.key}
+              group={group}
+              metricIndex={(rotation + groupIndex) % group.metrics.length}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MemberHighlightTile({
+  group,
+  metricIndex,
+}: {
+  group: HighlightGroup;
+  metricIndex: number;
+}) {
+  const metric = group.metrics[metricIndex] ?? group.metrics[0];
+
+  return (
+    <article className="dashboard-highlight-tile">
+      <div className="dashboard-highlight-heading">
+        <span>{group.label}</span>
+        <strong>{metric.title}</strong>
+        <small>{formatAchievementPeriod(metric.rows[0])}</small>
+      </div>
+      <div className="dashboard-podium-list">
+        {metric.rows.length === 0 ? (
+          <EmptyState text="No podium yet" />
+        ) : (
+          metric.rows.map((row) => (
+            <div key={`${row.metric_key}-${row.rank}`} className={`dashboard-podium-row rank-${row.rank}`}>
+              <span className="dashboard-rank-chip">{row.rank}</span>
+              <strong>{row.member_name ?? `#${row.member_id}`}</strong>
+              <small>{formatAchievementValue(row)}</small>
+            </div>
+          ))
+        )}
+      </div>
+    </article>
+  );
+}
+
 function displayAttackName(name: string | null, id: number | null): string {
   if (name) {
     return name;
@@ -342,6 +494,70 @@ function formatRespect(value: number | null): string {
   }
 
   return `${formatNumber(value)} respect`;
+}
+
+type HighlightGroup = {
+  key: string;
+  label: string;
+  metrics: Array<{
+    key: string;
+    title: string;
+    rows: MemberAchievementSummary[];
+  }>;
+};
+
+function buildHighlightGroups(achievements: MemberAchievementSummary[]): HighlightGroup[] {
+  return HIGHLIGHT_GROUPS.map((group) => {
+    const groupRows = achievements.filter((achievement) => achievement.metric_group === group.key);
+    const metricKeys = Array.from(new Set(groupRows.map((achievement) => achievement.metric_key)))
+      .sort((left, right) => HIGHLIGHT_METRIC_ORDER.indexOf(left) - HIGHLIGHT_METRIC_ORDER.indexOf(right));
+
+    return {
+      key: group.key,
+      label: group.label,
+      metrics: metricKeys.map((metricKey) => {
+        const rows = groupRows
+          .filter((achievement) => achievement.metric_key === metricKey)
+          .sort((left, right) => left.rank - right.rank);
+        return {
+          key: metricKey,
+          title: rows[0]?.metric_title ?? metricKey,
+          rows,
+        };
+      }),
+    };
+  }).filter((group) => group.metrics.length > 0);
+}
+
+function formatAchievementPeriod(row: MemberAchievementSummary | undefined): string {
+  if (!row) {
+    return "-";
+  }
+
+  if (row.period_start_date === row.period_end_date) {
+    return formatDateKey(row.period_start_date);
+  }
+
+  return `${formatDateKey(row.period_start_date)} - ${formatDateKey(row.period_end_date)}`;
+}
+
+function formatAchievementValue(row: MemberAchievementSummary): string {
+  const unit = row.unit;
+  const value = unit.includes("/day") ? formatNumber(row.value) : formatNumber(Math.round(row.value));
+  return `${value} ${unit}`;
+}
+
+function formatDateKey(dateKey: string): string {
+  const timestamp = Date.parse(`${dateKey}T00:00:00.000Z`);
+  if (Number.isNaN(timestamp)) {
+    return dateKey;
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+  }).format(new Date(timestamp));
 }
 
 function DashboardCard({

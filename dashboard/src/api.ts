@@ -589,6 +589,28 @@ export type MemberLifestyleRefreshResponse = {
   };
 };
 
+export type MemberAchievementSummary = {
+  metric_key: string;
+  metric_group: string;
+  metric_title: string;
+  period_key: string;
+  rank: number;
+  member_id: number;
+  member_name: string | null;
+  value: number;
+  unit: string;
+  period_start_date: string;
+  period_end_date: string;
+  source_snapshot_date: string | null;
+  detail_json: string | null;
+  computed_at: number;
+};
+
+export type MemberAchievementsResponse = {
+  ok: boolean;
+  achievements: MemberAchievementSummary[];
+};
+
 export type ShopliftingObstacle = {
   title: string;
   disabled: boolean;
@@ -1084,6 +1106,10 @@ export async function refreshMemberLifestyleStats(
 
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   return postJson<MemberLifestyleRefreshResponse>(`/api/member-lifestyle-stats/refresh${suffix}`);
+}
+
+export async function getMemberAchievements(): Promise<MemberAchievementsResponse> {
+  return getJson<MemberAchievementsResponse>("/api/member-achievements");
 }
 
 export async function getMiscellaneousData(): Promise<MiscellaneousResponse> {
