@@ -365,7 +365,7 @@ export function EnemyHospitalMonitor({
   const hospitalizedMembers = members.filter((member) => member.state === "Hospital").length;
   const alertPriorityByMemberId = memberAlertPriorities(visibleEvents);
   const sortedMembers = [...members].sort((left, right) =>
-    compareMonitorMembers(left, right, nowMs),
+    compareMonitorMembers(left, right, nowMs, cachedEnemyStats),
   );
   const forcedTopMembers = sortedMembers.filter((member) => memberAlertSortRank(member, nowMs) === 0);
   const standardMembers = sortedMembers.filter((member) => memberAlertSortRank(member, nowMs) !== 0);
@@ -854,17 +854,20 @@ function compareMonitorMembers(
   left: MemberMonitorSnapshot,
   right: MemberMonitorSnapshot,
   nowMs: number,
+  cachedStats: Map<number, EnemyFactionMember>,
 ): number {
   const leftAlertRank = memberAlertSortRank(left, nowMs);
   const rightAlertRank = memberAlertSortRank(right, nowMs);
   if (leftAlertRank !== rightAlertRank) return leftAlertRank - rightAlertRank;
 
-  const leftRank = memberStatusSortRank(left);
-  const rightRank = memberStatusSortRank(right);
+  const leftCachedStats = cachedStats.get(left.id) ?? null;
+  const rightCachedStats = cachedStats.get(right.id) ?? null;
+  const leftRank = memberStatusSortRank(left, leftCachedStats);
+  const rightRank = memberStatusSortRank(right, rightCachedStats);
   if (leftRank !== rightRank) return leftRank - rightRank;
 
-  const leftUntil = left.until ?? Number.MAX_SAFE_INTEGER;
-  const rightUntil = right.until ?? Number.MAX_SAFE_INTEGER;
+  const leftUntil = memberSortTimestamp(left, leftCachedStats);
+  const rightUntil = memberSortTimestamp(right, rightCachedStats);
   if (leftUntil !== rightUntil) return leftUntil - rightUntil;
 
   return left.name.localeCompare(right.name);
@@ -1073,10 +1076,21 @@ function formatTimingMs(value: number | null | undefined): string {
   return `${rounded}ms`;
 }
 
-function memberStatusSortRank(member: MemberMonitorSnapshot): number {
+function memberStatusSortRank(
+  member: MemberMonitorSnapshot,
+  cachedMember: EnemyFactionMember | null,
+): number {
   if (member.state === "Okay") return 0;
   if (member.state === "Hospital") return 1;
+  if (exactTravelReturnToTornAt(member, cachedMember)) return 1;
   return 2;
+}
+
+function memberSortTimestamp(
+  member: MemberMonitorSnapshot,
+  cachedMember: EnemyFactionMember | null,
+): number {
+  return member.until ?? exactTravelReturnToTornAt(member, cachedMember) ?? Number.MAX_SAFE_INTEGER;
 }
 
 function keyHealthValue(status: MonitorStatus | null): string {
@@ -1115,6 +1129,21 @@ function travelReturnToTorn(
   cachedMember: EnemyFactionMember | null,
   nowMs: number,
 ): { countdown: string; title: string } | null {
+  const arrivalAt = exactTravelReturnToTornAt(liveMember, cachedMember);
+  if (!arrivalAt) {
+    return null;
+  }
+
+  return {
+    countdown: travelReturnCountdownLabel(arrivalAt, nowMs),
+    title: `Expected return to Torn at ${formatTime(arrivalAt)}. Uses the travel tracker's exact arrival estimate.`,
+  };
+}
+
+function exactTravelReturnToTornAt(
+  liveMember: MemberMonitorSnapshot,
+  cachedMember: EnemyFactionMember | null,
+): number | null {
   if (
     liveMember.state !== "Traveling" ||
     !cachedMember ||
@@ -1124,15 +1153,7 @@ function travelReturnToTorn(
     return null;
   }
 
-  const arrivalAt = exactTravelArrivalAt(cachedMember);
-  if (!arrivalAt) {
-    return null;
-  }
-
-  return {
-    countdown: travelReturnCountdownLabel(arrivalAt, nowMs),
-    title: `Expected return to Torn at ${formatTime(arrivalAt)}. Uses the travel tracker's exact arrival estimate.`,
-  };
+  return exactTravelArrivalAt(cachedMember);
 }
 
 function exactTravelArrivalAt(member: EnemyFactionMember): number | null {
