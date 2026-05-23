@@ -207,6 +207,7 @@ export function EnemyHospitalMonitor({
           setLastMessageReceivedAtMs(receivedAtMs);
           setStatus(message.status);
           setMembers(message.members);
+          setEvents((current) => activeMonitorEvents(current, message.members));
         } else if (message.type === "status") {
           setLastMessageReceivedAtMs(receivedAtMs);
           setStatus(message.status);
@@ -287,6 +288,7 @@ export function EnemyHospitalMonitor({
 
   const hospitalizedMembers = members.filter((member) => member.state === "Hospital").length;
   const sortedMembers = [...members].sort(compareMonitorMembers);
+  const visibleEvents = activeMonitorEvents(events, members);
   const tornTiming = monitorTiming(status, nowMs, clockSync, lastMessageReceivedAtMs);
 
   return (
@@ -361,6 +363,7 @@ export function EnemyHospitalMonitor({
           icon={<UsersRound size={17} />}
           detail={status?.hasBaseline ? "Baseline active" : "Baseline pending"}
         />
+        <AlertKeyCard />
         <MonitorSettingsCard
           volume={alertVolume}
           muted={alertsMuted}
@@ -371,12 +374,12 @@ export function EnemyHospitalMonitor({
 
       <section className="content-grid enemy-monitor-grid">
         <section className="panel enemy-monitor-events-panel">
-          <PanelHeader title="Live alerts" aside={`${events.length}`} icon={<Activity size={18} />} />
-          {events.length === 0 ? (
+          <PanelHeader title="Live alerts" aside={`${visibleEvents.length}`} icon={<Activity size={18} />} />
+          {visibleEvents.length === 0 ? (
             <EmptyState text="No hospital events detected this session" />
           ) : (
             <div className="enemy-monitor-event-list">
-              {events.map((event) => (
+              {visibleEvents.map((event) => (
                 <MonitorEventRow key={eventKey(event)} event={event} />
               ))}
             </div>
@@ -402,6 +405,35 @@ export function EnemyHospitalMonitor({
         </section>
       </section>
     </>
+  );
+}
+
+function AlertKeyCard() {
+  return (
+    <article className="metric-card enemy-monitor-alert-key-card">
+      <div className="panel-kicker">
+        <Activity size={17} />
+        <span>Alert key</span>
+      </div>
+      <div className="enemy-monitor-alert-key">
+        <span title="Priority 1: early hospital exit">
+          <i className="priority-1" />
+          Early
+        </span>
+        <span title="Priority 2: expected exit and recently active">
+          <i className="priority-2" />
+          Active
+        </span>
+        <span title="Priority 3: hospital timer moved earlier">
+          <i className="priority-3" />
+          Timer
+        </span>
+        <span title="Priority 4: expected exit while offline">
+          <i className="priority-4" />
+          Offline
+        </span>
+      </div>
+    </article>
   );
 }
 
@@ -567,7 +599,6 @@ function MemberStatusRow({
         {memberStatusLabel(member, nowMs)}
       </span>
       <span className="enemy-monitor-bsp-stat" title={bspBattlestatsTitle(cachedStats)}>
-        <small>BSP</small>
         {cachedStats?.bsp_battlestats == null ? "-" : formatNumber(cachedStats.bsp_battlestats)}
       </span>
       <span className={lastActionClass(member, nowMs)}>{lastActionLabel(member)}</span>
@@ -619,6 +650,19 @@ function compareMonitorMembers(left: MemberMonitorSnapshot, right: MemberMonitor
   if (leftUntil !== rightUntil) return leftUntil - rightUntil;
 
   return left.name.localeCompare(right.name);
+}
+
+function activeMonitorEvents(events: MonitorEvent[], members: MemberMonitorSnapshot[]): MonitorEvent[] {
+  if (members.length === 0) {
+    return events;
+  }
+
+  const membersById = new Map(members.map((member) => [member.id, member]));
+  const activeEvents = events.filter((event) => {
+    const member = membersById.get(event.memberId);
+    return member ? member.state !== "Hospital" : false;
+  });
+  return activeEvents.length === events.length ? events : activeEvents;
 }
 
 function connectionLabel(state: MonitorConnectionState): string {
