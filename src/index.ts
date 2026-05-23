@@ -3,6 +3,7 @@ import {
   getCurrentAuthSession,
   grantAdminAccess,
   listAdminUsers,
+  readAuthenticatedUserId,
   requireAdmin,
   requireMember,
 } from "./auth";
@@ -45,6 +46,14 @@ import {
 } from "./responseCache";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
+import {
+  createTradeWatchlist,
+  deleteTradeWatchlist,
+  getTradeOpportunities,
+  listTradeWatchlists,
+  scanTradeWatchlist,
+  updateTradeWatchlist,
+} from "./tradeScout";
 import { Env } from "./types";
 import { corsHeaders, json, nowSeconds, parseLimit } from "./utils";
 import {
@@ -112,6 +121,7 @@ async function routeApiRequest(routeContext: RouteContext): Promise<RouteResult>
   return (
     (await routePublicApi(routeContext)) ??
     (await routeAdminApi(routeContext)) ??
+    (await routeTradeApi(routeContext)) ??
     (await routeMemberUtilityApi(routeContext)) ??
     (await routeWarCommands(routeContext)) ??
     (await routeWarReads(routeContext))
@@ -184,6 +194,45 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 
   if (matchesRoute(url, request, "/api/attacks/window", "POST")) {
     return withAdmin(routeContext, () => getAttackWindow(request, env));
+  }
+
+  return null;
+}
+
+async function routeTradeApi(routeContext: RouteContext): Promise<RouteResult> {
+  const { request, env, url } = routeContext;
+
+  if (matchesRoute(url, request, "/api/trade/watchlists", "GET")) {
+    return withMember(routeContext, () => listTradeWatchlists(env));
+  }
+
+  if (matchesRoute(url, request, "/api/trade/watchlists", "POST")) {
+    return withAdmin(routeContext, () => createTradeWatchlist(request, env));
+  }
+
+  const watchlistId = tradeWatchlistIdFromPath(url.pathname);
+  if (watchlistId !== null && request.method === "PUT") {
+    return withAdmin(routeContext, () => updateTradeWatchlist(request, env, watchlistId));
+  }
+
+  if (watchlistId !== null && request.method === "DELETE") {
+    return withAdmin(routeContext, () => deleteTradeWatchlist(env, watchlistId));
+  }
+
+  const scanWatchlistId = tradeWatchlistScanIdFromPath(url.pathname);
+  if (scanWatchlistId !== null && request.method === "POST") {
+    return withMember(routeContext, async () =>
+      scanTradeWatchlist(
+        request,
+        env,
+        scanWatchlistId,
+        await readAuthenticatedUserId(request, env),
+      ),
+    );
+  }
+
+  if (matchesRoute(url, request, "/api/trade/opportunities", "GET")) {
+    return withMember(routeContext, () => getTradeOpportunities(url, env));
   }
 
   return null;
@@ -511,6 +560,16 @@ async function getRecentAttacks(url: URL, env: Env): Promise<Response> {
 
 function matchesRoute(url: URL, request: Request, pathname: string, method?: string): boolean {
   return url.pathname === pathname && (!method || request.method === method);
+}
+
+function tradeWatchlistIdFromPath(pathname: string): number | null {
+  const match = /^\/api\/trade\/watchlists\/(\d+)$/.exec(pathname);
+  return match ? Number(match[1]) : null;
+}
+
+function tradeWatchlistScanIdFromPath(pathname: string): number | null {
+  const match = /^\/api\/trade\/watchlists\/(\d+)\/scan$/.exec(pathname);
+  return match ? Number(match[1]) : null;
 }
 
 function isTornWarReportFetchRoute(url: URL, request: Request): boolean {

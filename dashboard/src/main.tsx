@@ -8,6 +8,7 @@ import {
   Moon,
   Pill,
   Radar,
+  ShoppingCart,
   ShieldCheck,
   Sun,
   Target,
@@ -63,6 +64,7 @@ type AppView =
   | "members"
   | "lifestyle"
   | "miscellaneous"
+  | "tradeScout"
   | "diceGame"
   | "admin";
 
@@ -72,6 +74,7 @@ const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   members: "/members",
   lifestyle: "/daily-averages",
   miscellaneous: "/miscellaneous",
+  tradeScout: "/trade-scout",
   diceGame: "/dice-game",
   admin: "/admin",
 };
@@ -150,6 +153,9 @@ const LifestyleStats = React.lazy(() =>
 );
 const Miscellaneous = React.lazy(() =>
   import("./views/Miscellaneous").then((module) => ({ default: module.Miscellaneous })),
+);
+const TradeScout = React.lazy(() =>
+  import("./views/TradeScout").then((module) => ({ default: module.TradeScout })),
 );
 
 function App() {
@@ -739,6 +745,7 @@ function App() {
           memberIcon={<BarChart3 size={18} />}
           lifestyleIcon={<Pill size={18} />}
           miscIcon={<Target size={18} />}
+          tradeScoutIcon={<ShoppingCart size={18} />}
           diceGameIcon={<Dices size={18} />}
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
@@ -761,6 +768,10 @@ function App() {
           ) : view === "miscellaneous" ? (
             <LazyPage>
               <Miscellaneous isAdmin={isAdmin} />
+            </LazyPage>
+          ) : view === "tradeScout" ? (
+            <LazyPage>
+              <TradeScout isAdmin={isAdmin} />
             </LazyPage>
           ) : view === "members" ? (
             <MembersOverview isAdmin={isAdmin} />

@@ -215,6 +215,11 @@ export async function requireMember(request: Request, env: Env): Promise<Respons
   return null;
 }
 
+export async function readAuthenticatedUserId(request: Request, env: Env): Promise<number | null> {
+  const session = await readAuthSession(request, env);
+  return session?.id ?? null;
+}
+
 export async function revokeSessionsForFormerFactionMembers(
   env: Env,
   currentMemberIds: Iterable<number>,

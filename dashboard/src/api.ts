@@ -668,6 +668,84 @@ export type MonitorTicketResponse = {
   expires_at: number;
 };
 
+export type TradeItemSource = "weav3r" | "weav3r_verified" | "torn";
+
+export type TradeSnapshotSummary = {
+  id: string;
+  scanned_at: number;
+  scanned_by_torn_user_id: number | null;
+  status: string;
+  error: string | null;
+  opportunity_count: number;
+};
+
+export type TradeWatchlist = {
+  id: number;
+  name: string;
+  item_ids: number[];
+  item_source: TradeItemSource;
+  min_profit: number;
+  min_roi_percent: number;
+  min_quantity: number;
+  market_fee_percent: number;
+  created_at: number;
+  updated_at: number;
+  latest_snapshot: TradeSnapshotSummary | null;
+};
+
+export type TradeOpportunity = {
+  id: string;
+  snapshot_id: string;
+  watchlist_id: number;
+  item_id: number;
+  item_name: string | null;
+  source: string;
+  listing_price: number;
+  resale_price: number;
+  profit: number;
+  roi_percent: number;
+  quantity: number;
+  bulk_profit: number;
+  needed_quantity: number | null;
+  seller_id: number | null;
+  seller_name: string | null;
+  reference_label: string | null;
+  raw_json: string | null;
+  created_at: number;
+};
+
+export type TradeWatchlistPayload = {
+  name: string;
+  item_ids: number[];
+  item_source: TradeItemSource;
+  min_profit: number;
+  min_roi_percent: number;
+  min_quantity: number;
+  market_fee_percent: number;
+};
+
+export type TradeWatchlistsResponse = {
+  ok: boolean;
+  watchlists: TradeWatchlist[];
+};
+
+export type TradeWatchlistResponse = {
+  ok: boolean;
+  watchlist: TradeWatchlist;
+};
+
+export type TradeOpportunitiesResponse = {
+  ok: boolean;
+  snapshot: TradeSnapshotSummary | null;
+  opportunities: TradeOpportunity[];
+};
+
+export type TradeScanResponse = {
+  ok: boolean;
+  snapshot: TradeSnapshotSummary | null;
+  opportunities: TradeOpportunity[];
+};
+
 const AUTH_TOKEN_STORAGE_KEY = "tornFactionAuthToken";
 const AUTH_SESSION_STORAGE_KEY = "tornFactionAuthSession";
 
@@ -915,6 +993,37 @@ export async function createMonitorTicket(warId: number): Promise<MonitorTicketR
   });
 }
 
+export async function getTradeWatchlists(): Promise<TradeWatchlistsResponse> {
+  return getJson<TradeWatchlistsResponse>("/api/trade/watchlists");
+}
+
+export async function createTradeWatchlist(payload: TradeWatchlistPayload): Promise<TradeWatchlistResponse> {
+  return postJson<TradeWatchlistResponse>("/api/trade/watchlists", payload);
+}
+
+export async function updateTradeWatchlist(
+  id: number,
+  payload: TradeWatchlistPayload,
+): Promise<TradeWatchlistResponse> {
+  return putJson<TradeWatchlistResponse>(`/api/trade/watchlists/${encodeURIComponent(String(id))}`, payload);
+}
+
+export async function deleteTradeWatchlist(id: number): Promise<unknown> {
+  return deleteJson(`/api/trade/watchlists/${encodeURIComponent(String(id))}`);
+}
+
+export async function scanTradeWatchlist(id: number, tornKey: string): Promise<TradeScanResponse> {
+  return postJson<TradeScanResponse>(`/api/trade/watchlists/${encodeURIComponent(String(id))}/scan`, {
+    torn_key: tornKey,
+  });
+}
+
+export async function getTradeOpportunities(watchlistId: number): Promise<TradeOpportunitiesResponse> {
+  return getJson<TradeOpportunitiesResponse>(
+    `/api/trade/opportunities?watchlist_id=${encodeURIComponent(String(watchlistId))}`,
+  );
+}
+
 export async function getDiceGame(): Promise<DiceGameResponse> {
   return getJson<DiceGameResponse>("/api/dice-game");
 }
@@ -1069,6 +1178,44 @@ async function postJson<T = unknown>(
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
+    headers:
+      body === undefined
+        ? authHeaders(includeAuth)
+        : { "Content-Type": "application/json", ...authHeaders(includeAuth) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await response.json();
+
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error ?? `Request failed: ${response.status}`);
+  }
+
+  return data as T;
+}
+
+async function putJson<T = unknown>(
+  path: string,
+  body: unknown,
+  includeAuth = true,
+): Promise<T> {
+  return writeJson<T>("PUT", path, body, includeAuth);
+}
+
+async function deleteJson<T = unknown>(
+  path: string,
+  includeAuth = true,
+): Promise<T> {
+  return writeJson<T>("DELETE", path, undefined, includeAuth);
+}
+
+async function writeJson<T = unknown>(
+  method: "PUT" | "DELETE",
+  path: string,
+  body: unknown,
+  includeAuth: boolean,
+): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
     headers:
       body === undefined
         ? authHeaders(includeAuth)

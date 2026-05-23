@@ -2347,6 +2347,10 @@ h2 {
 }
 
 .panel-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 30px;
   padding: 0 10px;
   border: 1px solid #cbd5e1;
@@ -2361,6 +2365,33 @@ h2 {
 .panel-action-button:hover {
   border-color: #2563eb;
   color: #1d4ed8;
+}
+
+.panel-action-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.panel-action-button.primary-action {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.panel-action-button.primary-action:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: #fff;
+}
+
+.spinning-icon {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .lifestyle-refresh-note {
@@ -3004,6 +3035,150 @@ h2 {
   margin-bottom: 16px;
 }
 
+.trade-scout-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.trade-scout-sidebar,
+.trade-scout-main {
+  display: grid;
+  gap: 16px;
+}
+
+.trade-scout-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.trade-scout-key-panel,
+.trade-scout-watchlists-panel,
+.trade-scout-action-panel,
+.trade-scout-form-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.trade-scout-key-panel label,
+.trade-scout-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.trade-scout-watchlist-list {
+  display: grid;
+  gap: 8px;
+}
+
+.trade-scout-watchlist-list button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--panel-bg-solid);
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: left;
+}
+
+.trade-scout-watchlist-list button:hover,
+.trade-scout-watchlist-list button.selected {
+  border-color: var(--accent);
+  background: var(--panel-active-bg);
+}
+
+.trade-scout-watchlist-list strong {
+  color: var(--text-strong);
+  font-size: 0.92rem;
+}
+
+.trade-scout-watchlist-list span,
+.trade-scout-watchlist-list small {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.trade-scout-actions,
+.trade-scout-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.trade-scout-selected-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trade-scout-selected-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-faint);
+  border-radius: 999px;
+  background: var(--panel-muted-bg);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.trade-scout-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.trade-scout-items-field,
+.trade-scout-form-actions {
+  grid-column: 1 / -1;
+}
+
+.trade-scout-table td strong,
+.trade-scout-table td small,
+.trade-scout-table td a {
+  display: block;
+}
+
+.trade-scout-table td small {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.trade-scout-table td a {
+  color: var(--accent-strong);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.trade-scout-table td a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.positive {
+  color: #15803d;
+  font-weight: 850;
+}
+
+.negative {
+  color: #b91c1c;
+  font-weight: 850;
+}
+
 .table-scroll {
   overflow-x: auto;
   border: 1px solid #e2e8f0;
@@ -3349,6 +3524,9 @@ tbody tr:not(.attack-row):hover td {
   .payout-controls.compact,
   .payout-summary-grid,
   .payout-section-header,
+  .trade-scout-layout,
+  .trade-scout-summary-grid,
+  .trade-scout-form,
   .dashboard-layout {
     grid-template-columns: 1fr;
   }
@@ -3492,6 +3670,18 @@ tbody tr:not(.attack-row):hover td {
   border-color: var(--accent);
   background: var(--panel-hover-bg);
   color: var(--accent-strong);
+}
+
+:root[data-theme="dark"] .panel-action-button.primary-action {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #07111f;
+}
+
+:root[data-theme="dark"] .panel-action-button.primary-action:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: #07111f;
 }
 
 :root[data-theme="dark"] .sidebar-link.active,
