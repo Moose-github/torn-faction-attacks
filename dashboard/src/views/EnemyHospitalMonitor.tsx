@@ -91,6 +91,19 @@ const TIMER_ALERT_COOLDOWN_SECONDS = 15 * 60;
 const TEST_WAR_ID = 999_999_001;
 const ALERT_VOLUME_STORAGE_KEY = "enemyHospitalMonitorAlertVolume";
 const ALERT_MUTED_STORAGE_KEY = "enemyHospitalMonitorAlertMuted";
+const ALERT_PREFERENCES_STORAGE_KEY = "enemyHospitalMonitorAlertPreferences";
+const ALERT_PRIORITIES = [1, 2, 3, 4] as const;
+
+type AlertPriority = MonitorEvent["priority"];
+type AlertChannel = "sound" | "flash";
+type AlertPreferences = Record<AlertPriority, Record<AlertChannel, boolean>>;
+
+const DEFAULT_ALERT_PREFERENCES: AlertPreferences = {
+  1: { sound: true, flash: true },
+  2: { sound: true, flash: false },
+  3: { sound: false, flash: false },
+  4: { sound: false, flash: false },
+};
 
 type MonitorTarget = {
   id: number;
@@ -114,9 +127,13 @@ export function EnemyHospitalMonitor({
   const [testTarget, setTestTarget] = React.useState<MonitorTarget | null>(null);
   const [alertVolume, setAlertVolume] = React.useState(() => initialAlertVolume());
   const [alertsMuted, setAlertsMuted] = React.useState(() => initialAlertsMuted());
+  const [alertPreferences, setAlertPreferences] = React.useState(() => initialAlertPreferences());
+  const [alertFlashId, setAlertFlashId] = React.useState(0);
   const [cachedEnemyStats, setCachedEnemyStats] = React.useState<Map<number, EnemyFactionMember>>(new Map());
   const [clockSync, setClockSync] = React.useState<ClockSyncState | null>(null);
   const [lastMessageReceivedAtMs, setLastMessageReceivedAtMs] = React.useState<number | null>(null);
+  const hasSeenInitialAlertsRef = React.useRef(false);
+  const seenAlertKeysRef = React.useRef<Set<string>>(new Set());
   const nowMs = useNowMs(250);
 
   const isLocalTestAvailable = isLocalhost();
@@ -147,6 +164,9 @@ export function EnemyHospitalMonitor({
     setCachedEnemyStats(new Map());
     setClockSync(null);
     setLastMessageReceivedAtMs(null);
+    setAlertFlashId(0);
+    hasSeenInitialAlertsRef.current = false;
+    seenAlertKeysRef.current = new Set();
   }, [monitorTarget?.id, monitorTarget?.enemyFactionId]);
 
   React.useEffect(() => {
@@ -247,6 +267,30 @@ export function EnemyHospitalMonitor({
     };
   }, [monitorTarget]);
 
+  const visibleEvents = sortLiveMonitorEvents(activeMonitorEvents(events, members, Math.floor(nowMs / 1000)));
+
+  React.useEffect(() => {
+    const visibleKeys = visibleEvents.map(eventKey);
+
+    if (!hasSeenInitialAlertsRef.current) {
+      hasSeenInitialAlertsRef.current = true;
+      seenAlertKeysRef.current = new Set(visibleKeys);
+      return;
+    }
+
+    const newEvents = visibleEvents.filter((event) => !seenAlertKeysRef.current.has(eventKey(event)));
+    if (newEvents.length > 0) {
+      if (!alertsMuted && shouldNotifyForChannel(newEvents, alertPreferences, "sound")) {
+        playMonitorAlertChime(alertVolume);
+      }
+      if (shouldNotifyForChannel(newEvents, alertPreferences, "flash")) {
+        setAlertFlashId((current) => current + 1);
+      }
+    }
+
+    seenAlertKeysRef.current = new Set([...seenAlertKeysRef.current, ...visibleKeys]);
+  }, [alertPreferences, alertVolume, alertsMuted, visibleEvents]);
+
   function startTestMonitor(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const enemyFactionId = Number(testFactionIdInput);
@@ -288,7 +332,6 @@ export function EnemyHospitalMonitor({
   }
 
   const hospitalizedMembers = members.filter((member) => member.state === "Hospital").length;
-  const visibleEvents = sortLiveMonitorEvents(activeMonitorEvents(events, members, Math.floor(nowMs / 1000)));
   const alertPriorityByMemberId = memberAlertPriorities(visibleEvents);
   const sortedMembers = [...members].sort((left, right) =>
     compareMonitorMembers(left, right, nowMs),
@@ -297,6 +340,7 @@ export function EnemyHospitalMonitor({
 
   return (
     <>
+      {alertFlashId > 0 ? <div key={alertFlashId} className="enemy-monitor-alert-flash" /> : null}
       <section className="hero-panel compact-hero-panel enemy-monitor-hero">
         <div>
           <p className="eyebrow">Enemy hospital monitor</p>
@@ -371,8 +415,10 @@ export function EnemyHospitalMonitor({
         <MonitorSettingsCard
           volume={alertVolume}
           muted={alertsMuted}
+          alertPreferences={alertPreferences}
           onVolumeChange={setAlertVolume}
           onMutedChange={setAlertsMuted}
+          onAlertPreferencesChange={setAlertPreferences}
         />
       </section>
 
@@ -445,13 +491,17 @@ function AlertKeyCard() {
 function MonitorSettingsCard({
   volume,
   muted,
+  alertPreferences,
   onVolumeChange,
   onMutedChange,
+  onAlertPreferencesChange,
 }: {
   volume: number;
   muted: boolean;
+  alertPreferences: AlertPreferences;
   onVolumeChange: (value: number) => void;
   onMutedChange: (value: boolean) => void;
+  onAlertPreferencesChange: (value: AlertPreferences) => void;
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -464,6 +514,18 @@ function MonitorSettingsCard({
     const nextMuted = !muted;
     onMutedChange(nextMuted);
     window.localStorage.setItem(ALERT_MUTED_STORAGE_KEY, nextMuted ? "1" : "0");
+  }
+
+  function toggleAlertPreference(priority: AlertPriority, channel: AlertChannel) {
+    const nextPreferences = {
+      ...alertPreferences,
+      [priority]: {
+        ...alertPreferences[priority],
+        [channel]: !alertPreferences[priority][channel],
+      },
+    };
+    onAlertPreferencesChange(nextPreferences);
+    window.localStorage.setItem(ALERT_PREFERENCES_STORAGE_KEY, JSON.stringify(nextPreferences));
   }
 
   return (
@@ -510,21 +572,63 @@ function MonitorSettingsCard({
               onChange={(event) => updateValue(Number(event.target.value))}
             />
           </label>
-          <label className="enemy-monitor-settings-option disabled">
-            <input type="checkbox" disabled />
-            Flash urgent alerts
-          </label>
+          <div className="enemy-monitor-alert-rules" aria-label="Alert notification rules">
+            <div className="enemy-monitor-alert-rules-header">
+              <span>Notify by</span>
+              {ALERT_PRIORITIES.map((priority) => (
+                <span key={priority} title={priorityTitle(priority)}>
+                  P{priority}
+                </span>
+              ))}
+            </div>
+            <AlertPreferenceRow
+              label="Chime"
+              channel="sound"
+              preferences={alertPreferences}
+              onToggle={toggleAlertPreference}
+            />
+            <AlertPreferenceRow
+              label="Flash"
+              channel="flash"
+              preferences={alertPreferences}
+              onToggle={toggleAlertPreference}
+            />
+          </div>
           <label className="enemy-monitor-settings-option disabled">
             <input type="checkbox" disabled />
             Browser notifications
           </label>
-          <label className="enemy-monitor-settings-option disabled">
-            <input type="checkbox" disabled />
-            Auto-open attack links
-          </label>
         </div>
       ) : null}
     </article>
+  );
+}
+
+function AlertPreferenceRow({
+  label,
+  channel,
+  preferences,
+  onToggle,
+}: {
+  label: string;
+  channel: AlertChannel;
+  preferences: AlertPreferences;
+  onToggle: (priority: AlertPriority, channel: AlertChannel) => void;
+}) {
+  return (
+    <div className="enemy-monitor-alert-rules-row">
+      <span>{label}</span>
+      {ALERT_PRIORITIES.map((priority) => (
+        <label key={priority} title={`${label} for ${priorityTitle(priority)}`}>
+          <input
+            type="checkbox"
+            checked={preferences[priority][channel]}
+            onChange={() => onToggle(priority, channel)}
+            aria-label={`${label} for ${priorityTitle(priority)}`}
+          />
+        </label>
+      ))}
+    </div>
   );
 }
 
@@ -902,6 +1006,91 @@ function initialAlertVolume(): number {
 
 function initialAlertsMuted(): boolean {
   return window.localStorage.getItem(ALERT_MUTED_STORAGE_KEY) === "1";
+}
+
+function initialAlertPreferences(): AlertPreferences {
+  const stored = window.localStorage.getItem(ALERT_PREFERENCES_STORAGE_KEY);
+  if (!stored) return DEFAULT_ALERT_PREFERENCES;
+
+  try {
+    return normalizeAlertPreferences(JSON.parse(stored));
+  } catch {
+    return DEFAULT_ALERT_PREFERENCES;
+  }
+}
+
+function normalizeAlertPreferences(value: unknown): AlertPreferences {
+  if (!value || typeof value !== "object") return DEFAULT_ALERT_PREFERENCES;
+  const source = value as Partial<Record<AlertPriority, Partial<Record<AlertChannel, unknown>>>>;
+
+  return ALERT_PRIORITIES.reduce((preferences, priority) => {
+    preferences[priority] = {
+      sound:
+        typeof source[priority]?.sound === "boolean"
+          ? source[priority].sound
+          : DEFAULT_ALERT_PREFERENCES[priority].sound,
+      flash:
+        typeof source[priority]?.flash === "boolean"
+          ? source[priority].flash
+          : DEFAULT_ALERT_PREFERENCES[priority].flash,
+    };
+    return preferences;
+  }, {} as AlertPreferences);
+}
+
+function shouldNotifyForChannel(
+  events: MonitorEvent[],
+  preferences: AlertPreferences,
+  channel: AlertChannel,
+): boolean {
+  return events.some((event) => preferences[event.priority][channel]);
+}
+
+function priorityTitle(priority: AlertPriority): string {
+  switch (priority) {
+    case 1:
+      return "Priority 1: early hospital exit";
+    case 2:
+      return "Priority 2: expected exit and recently active";
+    case 3:
+      return "Priority 3: hospital timer moved earlier";
+    case 4:
+      return "Priority 4: expected exit while offline";
+  }
+}
+
+function playMonitorAlertChime(volume: number): void {
+  if (volume <= 0) return;
+
+  const AudioContextConstructor =
+    window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextConstructor) return;
+
+  try {
+    const audioContext = new AudioContextConstructor();
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    const now = audioContext.currentTime;
+    const peakVolume = Math.max(0.001, Math.min(0.18, (volume / 100) * 0.18));
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, now);
+    oscillator.frequency.exponentialRampToValueAtTime(1175, now + 0.08);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(peakVolume, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.24);
+    oscillator.onended = () => {
+      void audioContext.close();
+    };
+  } catch {
+    // Browsers may block audio until the page has received a user gesture.
+  }
 }
 
 function useNowMs(intervalMs: number): number {
