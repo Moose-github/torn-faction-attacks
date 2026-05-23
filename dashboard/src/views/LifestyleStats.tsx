@@ -120,7 +120,7 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
       <section className="hero-panel compact-hero-panel">
         <div>
           <p className="eyebrow">Public personal stats</p>
-          <h2>Daily Averages (WIP)</h2>
+          <h2>Daily stats</h2>
           <p>Averaged daily activity from daily snapshots. Made using Torn personal stats and faction contributors.</p>
         </div>
       </section>

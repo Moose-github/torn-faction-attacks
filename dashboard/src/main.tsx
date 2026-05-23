@@ -700,7 +700,7 @@ function App() {
           <h1>Buttgrass Dashboard</h1>
         </div>
         <div className="topbar-actions">
-          <RefreshCountdowns />
+          {authSession ? <RefreshCountdowns /> : null}
           {authSession ? (
             <span
               className="access-level-pill"

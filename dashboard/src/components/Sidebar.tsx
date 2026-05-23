@@ -1,6 +1,7 @@
 import React from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { WarSummary, WarType } from "../api";
-import { EmptyState, PanelHeader } from "./Common";
+import { EmptyState } from "./Common";
 import { formatDate } from "../utils/format";
 import { displayWarStatus } from "../utils/members";
 
@@ -41,6 +42,30 @@ export function Sidebar({
   isAdmin: boolean;
   onWarSelect: (name: string) => void;
 }) {
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Record<string, boolean>>({});
+  const membersActive = view === "members" || view === "lifestyle";
+  const recordedWarsActive = view === "war";
+  const miscellaneousActive = view === "miscellaneous" || view === "diceGame";
+  const adminActive = view === "warPayouts" || view === "tradeScout" || view === "admin";
+
+  React.useEffect(() => {
+    setCollapsedGroups((current) => {
+      const next = { ...current };
+      if (membersActive) next.members = false;
+      if (recordedWarsActive) next.recordedWars = false;
+      if (miscellaneousActive) next.miscellaneous = false;
+      if (adminActive) next.admin = false;
+      return next;
+    });
+  }, [adminActive, membersActive, miscellaneousActive, recordedWarsActive]);
+
+  function toggleGroup(group: string) {
+    setCollapsedGroups((current) => ({
+      ...current,
+      [group]: !current[group],
+    }));
+  }
+
   return (
     <aside className="sidebar">
       <section className="panel sidebar-panel sidebar-pages-panel">
@@ -50,6 +75,14 @@ export function Sidebar({
           label="War room"
           onClick={() => onViewChange("warRoom")}
         />
+      </section>
+
+      <SidebarGroup
+        title="Members"
+        active={membersActive}
+        collapsed={collapsedGroups.members ?? false}
+        onToggle={() => toggleGroup("members")}
+      >
         <SidebarLink
           active={view === "members"}
           icon={memberIcon}
@@ -59,9 +92,42 @@ export function Sidebar({
         <SidebarLink
           active={view === "lifestyle"}
           icon={lifestyleIcon}
-          label="Daily Averages"
+          label="Daily stats"
           onClick={() => onViewChange("lifestyle")}
         />
+      </SidebarGroup>
+
+      <section
+        className={
+          recordedWarsActive
+            ? "panel sidebar-panel sidebar-wars-panel active"
+            : "panel sidebar-panel sidebar-wars-panel"
+        }
+      >
+        <SidebarGroupHeader
+          title="Recorded wars"
+          active={recordedWarsActive}
+          collapsed={collapsedGroups.recordedWars ?? false}
+          onToggle={() => toggleGroup("recordedWars")}
+          aside={isLoadingWars ? "Loading" : `${wars.length}`}
+          control={<WarTypeSelect value={warType} onChange={onWarTypeChange} />}
+        />
+        {collapsedGroups.recordedWars ? null : (
+          <WarNav
+            view={view}
+            wars={wars}
+            selectedWarName={selectedWarName}
+            onSelect={onWarSelect}
+          />
+        )}
+      </section>
+
+      <SidebarGroup
+        title="Miscellaneous"
+        active={miscellaneousActive}
+        collapsed={collapsedGroups.miscellaneous ?? false}
+        onToggle={() => toggleGroup("miscellaneous")}
+      >
         <SidebarLink
           active={view === "miscellaneous"}
           icon={miscIcon}
@@ -74,25 +140,15 @@ export function Sidebar({
           label="Dice Game"
           onClick={() => onViewChange("diceGame")}
         />
-      </section>
-
-      <section className="panel sidebar-panel sidebar-wars-panel">
-        <PanelHeader
-          title="Recorded wars"
-          aside={isLoadingWars ? "Loading" : `${wars.length}`}
-          control={<WarTypeSelect value={warType} onChange={onWarTypeChange} />}
-        />
-        <WarNav
-          view={view}
-          wars={wars}
-          selectedWarName={selectedWarName}
-          onSelect={onWarSelect}
-        />
-      </section>
+      </SidebarGroup>
 
       {isAdmin ? (
-        <section className="panel sidebar-panel sidebar-admin-panel">
-          <PanelHeader title="Admin" />
+        <SidebarGroup
+          title="Admin"
+          active={adminActive}
+          collapsed={collapsedGroups.admin ?? false}
+          onToggle={() => toggleGroup("admin")}
+        >
           <SidebarLink
             active={view === "warPayouts"}
             icon={warPayoutsIcon}
@@ -111,9 +167,69 @@ export function Sidebar({
             label="Admin controls"
             onClick={() => onViewChange("admin")}
           />
-        </section>
+        </SidebarGroup>
       ) : null}
     </aside>
+  );
+}
+
+function SidebarGroup({
+  title,
+  active,
+  collapsed,
+  onToggle,
+  children,
+}: {
+  title: string;
+  active: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={active ? "panel sidebar-panel sidebar-group active" : "panel sidebar-panel sidebar-group"}>
+      <SidebarGroupHeader
+        title={title}
+        active={active}
+        collapsed={collapsed}
+        onToggle={onToggle}
+      />
+      {collapsed ? null : <div className="sidebar-group-links">{children}</div>}
+    </section>
+  );
+}
+
+function SidebarGroupHeader({
+  title,
+  active,
+  collapsed,
+  onToggle,
+  aside,
+  control,
+}: {
+  title: string;
+  active: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+  aside?: string;
+  control?: React.ReactNode;
+}) {
+  return (
+    <div className="sidebar-group-header">
+      <button
+        type="button"
+        className={active ? "sidebar-group-toggle active" : "sidebar-group-toggle"}
+        aria-expanded={!collapsed}
+        onClick={onToggle}
+      >
+        <span>{title}</span>
+        {collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+      </button>
+      <div className="sidebar-group-header-controls">
+        {control}
+        {aside ? <span>{aside}</span> : null}
+      </div>
+    </div>
   );
 }
 
