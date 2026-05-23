@@ -1,6 +1,8 @@
 import React from "react";
 import {
   Activity,
+  ArrowDownLeft,
+  ArrowUpRight,
   Clock3,
   Radar,
   ShieldCheck,
@@ -10,12 +12,15 @@ import {
 import {
   getLatestIngestionRun,
   getLatestMaintenanceRun,
+  getHomeFactionMemberSummary,
+  getRecentFactionAttacks,
   getTradeWatchlists,
+  HomeFactionMemberSummary,
   IngestionRun,
   MaintenanceRun,
   MaintenanceTask,
+  RecentFactionAttack,
   TradeWatchlist,
-  WarDetailResponse,
   WarSummary,
 } from "../api";
 import { EmptyState, PanelHeader } from "../components/Common";
@@ -23,12 +28,17 @@ import { formatDate, formatNumber, formatRelativeTime } from "../utils/format";
 import { displayWarStatus } from "../utils/members";
 import type { AppView } from "../routes";
 
+const RECENT_ATTACK_LIMIT = 10;
+const RECENT_ATTACK_WINDOW_SECONDS = 5 * 60;
+const RECENT_ATTACK_REFRESH_MS = 30_000;
+const ATTACK_POLLING_RATE_LABEL = "Every 5 minutes";
+const ATTACK_POLLING_DETAIL = "Worker wakes every minute; attack import runs on the 5-minute gate.";
+
 type DashboardHomeProps = {
   activeWar: WarSummary | null;
   isAdmin: boolean;
   isLoadingWars: boolean;
   selectedWar: WarSummary | null;
-  warDetail: WarDetailResponse | null;
   wars: WarSummary[];
   onOpenView: (view: AppView) => void;
   onOpenWar: (warName: string) => void;
@@ -39,7 +49,6 @@ export function DashboardHome({
   isAdmin,
   isLoadingWars,
   selectedWar,
-  warDetail,
   wars,
   onOpenView,
   onOpenWar,
@@ -48,6 +57,47 @@ export function DashboardHome({
   const [maintenanceRun, setMaintenanceRun] = React.useState<MaintenanceRun | null>(null);
   const [maintenanceTasks, setMaintenanceTasks] = React.useState<MaintenanceTask[]>([]);
   const [watchlists, setWatchlists] = React.useState<TradeWatchlist[]>([]);
+  const [memberSummary, setMemberSummary] = React.useState<HomeFactionMemberSummary | null>(null);
+  const [recentAttacks, setRecentAttacks] = React.useState<RecentFactionAttack[]>([]);
+  const [recentAttacksLoaded, setRecentAttacksLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadMemberSummary() {
+      const summary = await getHomeFactionMemberSummary().catch(() => null);
+      if (!cancelled) {
+        setMemberSummary(summary);
+      }
+    }
+
+    loadMemberSummary();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadRecentAttacks() {
+      const response = await getRecentFactionAttacks({
+        limit: RECENT_ATTACK_LIMIT,
+        windowSeconds: RECENT_ATTACK_WINDOW_SECONDS,
+      }).catch(() => null);
+      if (!cancelled) {
+        setRecentAttacks(response?.attacks ?? []);
+        setRecentAttacksLoaded(true);
+      }
+    }
+
+    loadRecentAttacks();
+    const timer = window.setInterval(loadRecentAttacks, RECENT_ATTACK_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   React.useEffect(() => {
     if (!isAdmin) {
@@ -84,8 +134,6 @@ export function DashboardHome({
   }, [isAdmin]);
 
   const primaryWar = activeWar ?? selectedWar ?? wars[0] ?? null;
-  const memberRows = warDetail?.members ?? [];
-  const currentMembers = memberRows.filter((member) => member.is_current_member !== 0).length;
   const missingReports = wars.filter((war) => war.status === "ended" && !war.torn_report_fetched_at).length;
   const tradeScansDue = watchlists.filter((watchlist) => {
     const scannedAt = watchlist.latest_snapshot?.scanned_at ?? 0;
@@ -158,20 +206,17 @@ export function DashboardHome({
         <DashboardCard
           icon={<Users size={17} />}
           title="Members"
-          status={memberRows.length > 0 ? `${currentMembers || memberRows.length} tracked` : "No selected war"}
-          tone={memberRows.length > 0 ? "good" : "quiet"}
-          actionLabel="View members"
+          status={memberSummary ? `${formatNumber(memberSummary.current_members)} current` : "Loading roster"}
+          tone={memberSummary && memberSummary.current_members > 0 ? "good" : "quiet"}
+          actionLabel="View performance"
           onAction={() => onOpenView("members")}
         >
           <div className="dashboard-card-metrics">
-            <MetricLine label="War members" value={memberRows.length > 0 ? formatNumber(memberRows.length) : "-"} />
+            <MetricLine label="Current members" value={memberSummary ? formatNumber(memberSummary.current_members) : "-"} />
+            <MetricLine label="Revivable" value={memberSummary ? formatNumber(memberSummary.revivable_members) : "-"} />
             <MetricLine
-              label="Successful hits"
-              value={formatNumber(memberRows.reduce((total, member) => total + member.attacks_vs_enemy_successful, 0))}
-            />
-            <MetricLine
-              label="Latest attack"
-              value={formatRelativeTime(primaryWar?.last_attack_at ?? null)}
+              label="Roster updated"
+              value={formatRelativeTime(memberSummary?.updated_at ?? null)}
             />
           </div>
         </DashboardCard>
@@ -211,6 +256,30 @@ export function DashboardHome({
         ) : null}
       </section>
 
+      <section className="panel dashboard-activity-panel dashboard-attacks-panel">
+        <PanelHeader
+          icon={<Swords size={17} />}
+          title="Recent attacks"
+          aside={`Last 5 minutes, max ${RECENT_ATTACK_LIMIT}`}
+        />
+        <div className="dashboard-attack-info">
+          <span>Attack polling</span>
+          <strong>{ATTACK_POLLING_RATE_LABEL}</strong>
+          <small>{ATTACK_POLLING_DETAIL}</small>
+        </div>
+        {!recentAttacksLoaded ? (
+          <EmptyState text="Loading recent attacks" />
+        ) : recentAttacks.length === 0 ? (
+          <EmptyState text="No incoming or outgoing attacks in the last 5 minutes" />
+        ) : (
+          <div className="dashboard-attack-list">
+            {recentAttacks.map((attack) => (
+              <RecentAttackRow key={attack.id} attack={attack} />
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="panel dashboard-activity-panel">
         <PanelHeader icon={<Clock3 size={17} />} title="Recent activity" />
         {events.length === 0 ? (
@@ -229,6 +298,50 @@ export function DashboardHome({
       </section>
     </>
   );
+}
+
+function RecentAttackRow({ attack }: { attack: RecentFactionAttack }) {
+  const isOutgoing = attack.direction === "outgoing";
+  const actor = isOutgoing
+    ? displayAttackName(attack.attacker_name, attack.attacker_id)
+    : displayAttackName(attack.defender_name, attack.defender_id);
+  const target = isOutgoing
+    ? displayAttackName(attack.defender_name, attack.defender_id)
+    : displayAttackName(attack.attacker_name, attack.attacker_id);
+
+  return (
+    <div className={`dashboard-attack-row ${attack.direction}`}>
+      <span className="dashboard-attack-time">{formatRelativeTime(attack.started)}</span>
+      <span className="dashboard-attack-direction">
+        {isOutgoing ? <ArrowUpRight size={14} /> : <ArrowDownLeft size={14} />}
+        {isOutgoing ? "Outgoing" : "Incoming"}
+      </span>
+      <span className="dashboard-attack-main">
+        <strong>{actor}</strong>
+        <small>{isOutgoing ? "attacked" : "was hit by"} {target}</small>
+      </span>
+      <span className="dashboard-attack-result">
+        <strong>{attack.result ?? "Unknown"}</strong>
+        <small>{formatRespect(attack.respect_gain)}</small>
+      </span>
+    </div>
+  );
+}
+
+function displayAttackName(name: string | null, id: number | null): string {
+  if (name) {
+    return name;
+  }
+
+  return id ? `#${id}` : "Unknown";
+}
+
+function formatRespect(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "0 respect";
+  }
+
+  return `${formatNumber(value)} respect`;
 }
 
 function DashboardCard({

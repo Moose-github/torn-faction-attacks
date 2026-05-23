@@ -20,7 +20,9 @@ import {
   getScoutingComparisonForWar,
   refreshEnemyScoutingForWar,
 } from "./enemyScouting";
+import { getRecentFactionAttacks } from "./factionAttacks";
 import { getWarActivityHeatmap } from "./heatmap";
+import { getCurrentHomeFactionMemberSummary } from "./homeFactionMembers";
 import { getLatestIngestionRun, runIngestion } from "./ingestion";
 import {
   getMemberLifestyleStats,
@@ -260,6 +262,14 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
 
   if (matchesRoute(url, request, "/api/miscellaneous", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getMiscellaneousData(env));
+  }
+
+  if (matchesRoute(url, request, "/api/home-faction-members/summary", "GET")) {
+    return cachedMemberGet(routeContext, 55, () => getCurrentHomeFactionMemberSummary(env));
+  }
+
+  if (matchesRoute(url, request, "/api/faction-attacks/recent", "GET")) {
+    return cachedMemberGet(routeContext, 15, () => getRecentFactionAttacks(url, env));
   }
 
   if (matchesRoute(url, request, "/api/monitor-ticket", "POST")) {

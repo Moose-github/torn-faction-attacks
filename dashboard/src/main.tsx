@@ -698,7 +698,6 @@ function App() {
               isAdmin={isAdmin}
               isLoadingWars={isLoadingWars}
               selectedWar={selectedWar}
-              warDetail={warDetail}
               wars={wars}
               onOpenView={changeView}
               onOpenWar={selectWar}

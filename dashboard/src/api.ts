@@ -63,6 +63,44 @@ export type StatsResponse = {
   members: MemberStats[];
 };
 
+export type HomeFactionMemberSummary = {
+  ok: boolean;
+  faction_id: number;
+  current_members: number;
+  revivable_members: number;
+  stat_estimates: number;
+  networth_estimates: number;
+  updated_at: number | null;
+};
+
+export type RecentFactionAttack = {
+  id: number;
+  started: number | null;
+  ended: number | null;
+  attacker_id: number | null;
+  attacker_name: string | null;
+  attacker_faction_id: number | null;
+  attacker_faction_name: string | null;
+  defender_id: number | null;
+  defender_name: string | null;
+  defender_faction_id: number | null;
+  defender_faction_name: string | null;
+  result: string | null;
+  respect_gain: number | null;
+  respect_loss: number | null;
+  chain: number | null;
+  direction: "incoming" | "outgoing";
+};
+
+export type RecentFactionAttacksResponse = {
+  ok: boolean;
+  faction_id: number;
+  window_seconds: number;
+  limit: number;
+  since: number;
+  attacks: RecentFactionAttack[];
+};
+
 export type WarSummary = {
   id: number;
   name: string;
@@ -842,6 +880,24 @@ export async function getStats(
   }
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   return getJson<StatsResponse>(`/api/stats${suffix}`);
+}
+
+export async function getHomeFactionMemberSummary(): Promise<HomeFactionMemberSummary> {
+  return getJson<HomeFactionMemberSummary>("/api/home-faction-members/summary");
+}
+
+export async function getRecentFactionAttacks(
+  options: { limit?: number; windowSeconds?: number } = {},
+): Promise<RecentFactionAttacksResponse> {
+  const params = new URLSearchParams();
+  if (options.limit) {
+    params.set("limit", String(options.limit));
+  }
+  if (options.windowSeconds) {
+    params.set("window_seconds", String(options.windowSeconds));
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return getJson<RecentFactionAttacksResponse>(`/api/faction-attacks/recent${suffix}`);
 }
 
 export async function getWars(warType: WarType): Promise<WarsResponse> {

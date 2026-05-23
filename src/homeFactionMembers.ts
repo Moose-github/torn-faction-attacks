@@ -2,7 +2,7 @@ import { revokeSessionsForFormerFactionMembers } from "./auth";
 import { HOME_FACTION_ID } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { Env, TornFactionMember } from "./types";
-import { boolToInt, d1Changes, finiteNumber } from "./utils";
+import { boolToInt, d1Changes, finiteNumber, json } from "./utils";
 
 export type HomeFactionMembershipSyncMetrics = {
   writeStatements: number;
@@ -83,6 +83,40 @@ export async function syncHomeFactionMembershipAndSessions(
     revokedSessions,
     markedDepartedRows,
   };
+}
+
+export async function getCurrentHomeFactionMemberSummary(env: Env): Promise<Response> {
+  const row = (await env.DB.prepare(
+    `
+    SELECT
+      COUNT(*) AS current_members,
+      COALESCE(SUM(CASE WHEN is_revivable = 1 THEN 1 ELSE 0 END), 0) AS revivable_members,
+      COALESCE(SUM(CASE WHEN ff_battlestats IS NOT NULL THEN 1 ELSE 0 END), 0) AS stat_estimates,
+      COALESCE(SUM(CASE WHEN networth IS NOT NULL THEN 1 ELSE 0 END), 0) AS networth_estimates,
+      MAX(updated_at) AS updated_at
+    FROM home_faction_members
+    WHERE faction_id = ?
+      AND is_current = 1
+    `,
+  )
+    .bind(HOME_FACTION_ID)
+    .first()) as {
+      current_members?: number | null;
+      revivable_members?: number | null;
+      stat_estimates?: number | null;
+      networth_estimates?: number | null;
+      updated_at?: number | null;
+    } | null;
+
+  return json({
+    ok: true,
+    faction_id: HOME_FACTION_ID,
+    current_members: Number(row?.current_members ?? 0),
+    revivable_members: Number(row?.revivable_members ?? 0),
+    stat_estimates: Number(row?.stat_estimates ?? 0),
+    networth_estimates: Number(row?.networth_estimates ?? 0),
+    updated_at: row?.updated_at ?? null,
+  });
 }
 
 async function markDepartedHomeFactionMembers(
