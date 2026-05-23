@@ -8,7 +8,7 @@ export const LOL_MANAGER_BATTLESTATS_API_BASE_URL = "http://www.lol-manager.com/
 export const TORN_KEY_INFO_API_URL = "https://api.torn.com/v2/key/info";
 export const LIMIT = 100;
 export const OVERLAP_SECONDS = 60;
-export const AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60;
+export const AUTH_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 export const WAR_TYPES = ["real", "termed", "event"] as const;
 
 // Hardcoded for now to keep the reporting model focused on your faction.
