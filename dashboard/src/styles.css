@@ -1366,6 +1366,20 @@ h2 {
   font-weight: 750;
 }
 
+.enemy-monitor-event .enemy-monitor-event-timer-summary {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid rgba(220, 38, 38, 0.28);
+  border-radius: 8px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 0.8rem;
+  font-weight: 950;
+  line-height: 1.25;
+}
+
 .enemy-monitor-member {
   grid-template-columns: minmax(120px, 0.8fr) minmax(130px, 1fr) minmax(58px, auto) minmax(118px, auto);
   align-items: center;
@@ -5067,6 +5081,12 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .lifestyle-date-range-note,
 :root[data-theme="dark"] .admin-header-controls {
   color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .enemy-monitor-event .enemy-monitor-event-timer-summary {
+  border-color: rgba(248, 113, 113, 0.36);
+  background: rgba(127, 29, 29, 0.26);
+  color: #fca5a5;
 }
 
 :root[data-theme="dark"] .enemy-status-badge {

@@ -98,6 +98,14 @@ type AlertPriority = MonitorEvent["priority"];
 type AlertChannel = "sound" | "flash";
 type AlertPreferences = Record<AlertPriority, Record<AlertChannel, boolean>>;
 
+type TimerReductionSummary = {
+  count: number;
+  totalDecreaseSeconds: number;
+  latestDecreaseSeconds: number;
+  firstObservedAt: number;
+  latestObservedAt: number;
+};
+
 const DEFAULT_ALERT_PREFERENCES: AlertPreferences = {
   1: { sound: true, flash: true },
   2: { sound: true, flash: false },
@@ -287,7 +295,9 @@ export function EnemyHospitalMonitor({
     };
   }, [monitorTarget]);
 
-  const visibleEvents = sortLiveMonitorEvents(activeMonitorEvents(events, members, Math.floor(nowMs / 1000)));
+  const activeEvents = activeMonitorEvents(events, members, Math.floor(nowMs / 1000));
+  const visibleEvents = sortLiveMonitorEvents(bestLiveMonitorEventsByMember(activeEvents));
+  const timerReductionSummaries = timerReductionSummariesByMember(activeEvents);
 
   React.useEffect(() => {
     const visibleKeys = visibleEvents.map(eventKey);
@@ -456,7 +466,12 @@ export function EnemyHospitalMonitor({
           ) : (
             <div className="enemy-monitor-event-list">
               {visibleEvents.map((event) => (
-                <MonitorEventRow key={eventKey(event)} event={event} nowMs={nowMs} />
+                <MonitorEventRow
+                  key={eventKey(event)}
+                  event={event}
+                  nowMs={nowMs}
+                  timerReductionSummary={timerReductionSummaries.get(event.memberId) ?? null}
+                />
               ))}
             </div>
           )}
@@ -727,8 +742,17 @@ function LocalMonitorTestPanel({
   );
 }
 
-function MonitorEventRow({ event, nowMs }: { event: MonitorEvent; nowMs: number }) {
+function MonitorEventRow({
+  event,
+  nowMs,
+  timerReductionSummary,
+}: {
+  event: MonitorEvent;
+  nowMs: number;
+  timerReductionSummary: TimerReductionSummary | null;
+}) {
   const timerCooldownLabel = timerAlertCooldownLabel(event, nowMs);
+  const timerSummaryLabel = timerReductionSummaryLabel(event, timerReductionSummary);
 
   return (
     <a
@@ -742,6 +766,7 @@ function MonitorEventRow({ event, nowMs }: { event: MonitorEvent; nowMs: number 
         <span>{eventTitle(event.type)}</span>
       </div>
       <p>{eventDetail(event)}</p>
+      {timerSummaryLabel ? <p className="enemy-monitor-event-timer-summary">{timerSummaryLabel}</p> : null}
       <small>{formatLongDateTime(event.observedAt)}</small>
       {timerCooldownLabel ? <small className="enemy-monitor-event-cooldown">{timerCooldownLabel}</small> : null}
     </a>
@@ -848,28 +873,81 @@ function activeMonitorEvents(
 ): MonitorEvent[] {
   const membersById = new Map(members.map((member) => [member.id, member]));
   const activeEvents = events.filter((event) => {
-    if (event.type === "hospital_timer_decreased") {
-      return timerAlertCooldownRemainingSeconds(event, nowSecondsValue) > 0;
-    }
     if (members.length === 0) {
-      return true;
+      return event.type === "hospital_timer_decreased"
+        ? timerAlertCooldownRemainingSeconds(event, nowSecondsValue) > 0
+        : true;
     }
     const member = membersById.get(event.memberId);
     if (!member) {
       return false;
+    }
+    if (isTravelState(member.state)) {
+      return false;
+    }
+    if (event.type === "hospital_timer_decreased") {
+      return timerAlertCooldownRemainingSeconds(event, nowSecondsValue) > 0;
     }
     return member.state !== "Hospital";
   });
   return activeEvents.length === events.length ? events : activeEvents;
 }
 
+function isTravelState(state: string | null): boolean {
+  return state === "Traveling" || state === "Abroad";
+}
+
 function sortLiveMonitorEvents(events: MonitorEvent[]): MonitorEvent[] {
   return [...events].sort((left, right) => {
-    if (left.priority !== right.priority) {
-      return left.priority - right.priority;
-    }
-    return right.observedAt - left.observedAt;
+    return compareLiveMonitorEvents(left, right);
   });
+}
+
+function bestLiveMonitorEventsByMember(events: MonitorEvent[]): MonitorEvent[] {
+  const bestEvents = new Map<number, MonitorEvent>();
+  for (const event of events) {
+    const current = bestEvents.get(event.memberId);
+    if (!current || compareLiveMonitorEvents(event, current) < 0) {
+      bestEvents.set(event.memberId, event);
+    }
+  }
+  return [...bestEvents.values()];
+}
+
+function timerReductionSummariesByMember(events: MonitorEvent[]): Map<number, TimerReductionSummary> {
+  const summaries = new Map<number, TimerReductionSummary>();
+  for (const event of events) {
+    if (event.type !== "hospital_timer_decreased") continue;
+
+    const decreaseSeconds = event.decreaseSeconds ?? 0;
+    const current = summaries.get(event.memberId);
+    if (!current) {
+      summaries.set(event.memberId, {
+        count: 1,
+        totalDecreaseSeconds: decreaseSeconds,
+        latestDecreaseSeconds: decreaseSeconds,
+        firstObservedAt: event.observedAt,
+        latestObservedAt: event.observedAt,
+      });
+      continue;
+    }
+
+    current.count += 1;
+    current.totalDecreaseSeconds += decreaseSeconds;
+    current.firstObservedAt = Math.min(current.firstObservedAt, event.observedAt);
+    if (event.observedAt >= current.latestObservedAt) {
+      current.latestObservedAt = event.observedAt;
+      current.latestDecreaseSeconds = decreaseSeconds;
+    }
+  }
+  return summaries;
+}
+
+function compareLiveMonitorEvents(left: MonitorEvent, right: MonitorEvent): number {
+  if (left.priority !== right.priority) {
+    return left.priority - right.priority;
+  }
+  return right.observedAt - left.observedAt;
 }
 
 function memberAlertPriorities(events: MonitorEvent[]): Map<number, MonitorEvent["priority"]> {
@@ -1230,6 +1308,17 @@ function eventDetail(event: MonitorEvent): string {
     : event.currentDescription ?? "Released from hospital";
 }
 
+function timerReductionSummaryLabel(
+  event: MonitorEvent,
+  summary: TimerReductionSummary | null,
+): string | null {
+  if (!summary || summary.count < 2) return null;
+
+  const spanSeconds = Math.max(0, summary.latestObservedAt - summary.firstObservedAt);
+  const prefix = event.type === "hospital_timer_decreased" ? "" : "Also: ";
+  return `${prefix}${summary.count} timer reductions in ${formatShortDuration(spanSeconds)} · total ${formatShortDuration(summary.totalDecreaseSeconds)} earlier · latest ${formatShortDuration(summary.latestDecreaseSeconds)}`;
+}
+
 function timerAlertCooldownLabel(event: MonitorEvent, nowMs: number): string | null {
   if (event.type !== "hospital_timer_decreased") {
     return null;
@@ -1291,7 +1380,7 @@ function cleanHospitalDescription(description: string | null): string {
 function stateClass(state: string | null): string {
   if (state === "Hospital") return "hospital";
   if (state === "Okay") return "okay";
-  if (state === "Traveling" || state === "Abroad") return "travel";
+  if (isTravelState(state)) return "travel";
   return "other";
 }
 
