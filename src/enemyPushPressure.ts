@@ -11,6 +11,11 @@ const PUSH_REFERENCE_WINDOW_SECONDS = 10 * 60;
 const PUSH_HISTORY_SECONDS = 24 * 60 * 60;
 const HEATMAP_INTERVAL_MINUTES = 15;
 const PUSH_ALERT_USER_MENTION = "<@327916221330620436>";
+const PUSH_ALERT_ONLINE_MEMBER_LIMIT = 15;
+const PUSH_UNDERWAY_ATTACK_COUNT_THRESHOLD = 6;
+const PUSH_UNDERWAY_ATTACK_SIGNAL_COUNT_THRESHOLD = 3;
+const PUSH_UNDERWAY_ATTACK_SIGNAL_SCORE_THRESHOLD = 13;
+const PUSH_LIKELY_SCORE_THRESHOLD = 20;
 export const PUSH_ALERT_STATE_PREFIX = "enemy_push_alert";
 
 type EnemyPushSnapshotRow = {
@@ -228,6 +233,7 @@ export async function sendEnemyPushAlerts(
   warId: number,
   warName: string,
   snapshot: EnemyPushSnapshotInput,
+  members: TornFactionMember[] = [],
 ): Promise<void> {
   const likelyStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:likely`;
   const underwayStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:underway`;
@@ -239,7 +245,7 @@ export async function sendEnemyPushAlerts(
       env,
       underwayStateName,
       setAlertStates,
-      formatEnemyPushAlertMessage("underway", warName, snapshot),
+      formatEnemyPushAlertMessage("underway", warName, snapshot, members),
       snapshot.bucket_start,
     );
     return;
@@ -251,7 +257,7 @@ export async function sendEnemyPushAlerts(
       env,
       likelyStateName,
       setAlertStates,
-      formatEnemyPushAlertMessage("likely", warName, snapshot),
+      formatEnemyPushAlertMessage("likely", warName, snapshot, members),
       snapshot.bucket_start,
     );
     return;
@@ -379,10 +385,16 @@ function calculatePushPressureScore(values: {
 }
 
 function pushPressureLevel(score: number, enemyAttacksLast5m: number): string {
-  if (enemyAttacksLast5m >= 5 || (enemyAttacksLast5m >= 2 && score >= 10)) {
+  if (
+    enemyAttacksLast5m >= PUSH_UNDERWAY_ATTACK_COUNT_THRESHOLD ||
+    (
+      enemyAttacksLast5m >= PUSH_UNDERWAY_ATTACK_SIGNAL_COUNT_THRESHOLD &&
+      score >= PUSH_UNDERWAY_ATTACK_SIGNAL_SCORE_THRESHOLD
+    )
+  ) {
     return "underway";
   }
-  if (score >= 16) {
+  if (score >= PUSH_LIKELY_SCORE_THRESHOLD) {
     return "likely";
   }
   if (score >= 7) {
@@ -424,13 +436,15 @@ function formatEnemyPushAlertMessage(
   alertType: "likely" | "underway",
   warName: string,
   snapshot: EnemyPushSnapshotInput,
+  members: TornFactionMember[],
 ): string {
   const headline =
     alertType === "underway"
       ? `WIP enemy push alert: push appears to be happening currently for ${warName}.`
       : `WIP enemy push alert: push is likely happening soon for ${warName}.`;
   const reasons = enemyPushAlertReasons(snapshot);
-  return `${PUSH_ALERT_USER_MENTION} ${headline} Score ${snapshot.pressure_score}.${reasons ? ` ${reasons}` : ""}`;
+  const onlineMembers = formatOnlineMembersForAlert(members);
+  return `${PUSH_ALERT_USER_MENTION} ${headline} Score ${snapshot.pressure_score}.${reasons ? ` ${reasons}` : ""} ${onlineMembers}`;
 }
 
 function enemyPushAlertReasons(snapshot: EnemyPushSnapshotInput): string {
@@ -474,6 +488,27 @@ function normalizeLastActionStatus(value: unknown): "online" | "idle" | "offline
     return "offline";
   }
   return "other";
+}
+
+function formatOnlineMembersForAlert(members: TornFactionMember[]): string {
+  const onlineMembers = members
+    .filter((member) => normalizeLastActionStatus(member.last_action?.status) === "online")
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  if (onlineMembers.length === 0) {
+    return "Online now: none.";
+  }
+
+  const visibleMembers = onlineMembers
+    .slice(0, PUSH_ALERT_ONLINE_MEMBER_LIMIT)
+    .map((member) => `${discordSafeMemberName(member.name)} (${member.id})`);
+  const remaining = onlineMembers.length - visibleMembers.length;
+  const suffix = remaining > 0 ? `, +${remaining} more` : "";
+  return `Online now (${onlineMembers.length}): ${visibleMembers.join(", ")}${suffix}.`;
+}
+
+function discordSafeMemberName(name: string): string {
+  return name.replace(/\s+/g, " ").replace(/@/g, "(at)").trim() || "Unknown";
 }
 
 function activityHeatmapInterval(timestamp: number): number {

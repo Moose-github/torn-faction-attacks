@@ -608,7 +608,7 @@ export async function refreshEnemyFactionMemberStatuses(
   }
 
   await markEnemyScoutingStatusChecked(env, warId, fetchedAt);
-  await sendEnemyPushAlerts(env, warId, warName, pushSnapshot).catch((err) => {
+  await sendEnemyPushAlerts(env, warId, warName, pushSnapshot, members).catch((err) => {
     console.warn(`Enemy push Discord alert failed for war ${warId}:`, err?.message || err);
   });
 

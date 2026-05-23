@@ -1150,7 +1150,7 @@ function pushPressureContributions(latest: EnemyPushPressureResponse["latest"]):
       score: enemyAttackScore,
       detail: `${formatNumber(latest.enemy_attacks_last_5m)} x 3`,
       reason: `${formatNumber(latest.enemy_attacks_last_5m)} enemy attacks in last 5m`,
-      tooltip: `Score = enemy attacks against us in the last 5 minutes x 3. ${formatNumber(latest.enemy_attacks_last_5m)} attacks x 3 = ${formatNumber(enemyAttackScore)}. Level is forced to Happening currently at 5+ attacks, or at 2+ attacks when score is at least 10.`,
+      tooltip: `Score = enemy attacks against us in the last 5 minutes x 3. ${formatNumber(latest.enemy_attacks_last_5m)} attacks x 3 = ${formatNumber(enemyAttackScore)}. Level is forced to Happening currently at 6+ attacks, or at 3+ attacks when score is at least 13.`,
     },
   ];
 }
@@ -1205,10 +1205,10 @@ function pushPressureLevelLabel(level: string): string {
 function pushPressureLevelTooltip(level: string, score: number, enemyAttacksLast5m: number): string {
   const current = `Current score: ${formatNumber(score)}. Enemy attacks in last 5m: ${formatNumber(enemyAttacksLast5m)}.`;
   if (level === "underway") {
-    return `${current} Happening currently triggers when enemy attacks in 5m are at least 5, or when attacks are at least 2 and score is at least 10.`;
+    return `${current} Happening currently triggers when enemy attacks in 5m are at least 6, or when attacks are at least 3 and score is at least 13.`;
   }
   if (level === "likely") {
-    return `${current} Likely soon triggers when score is at least 16 and the active-attack rule has not already marked it as happening.`;
+    return `${current} Likely soon triggers when score is at least 20 and the active-attack rule has not already marked it as happening.`;
   }
   if (level === "building") {
     return `${current} Building triggers when score is at least 7 and below likely/active-attack thresholds.`;
