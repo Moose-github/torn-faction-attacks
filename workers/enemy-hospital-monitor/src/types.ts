@@ -2,9 +2,11 @@ import type { EnemyHospitalMonitor } from "./EnemyHospitalMonitor";
 
 export type MonitorEnv = {
   ENEMY_HOSPITAL_MONITOR: DurableObjectNamespace<EnemyHospitalMonitor>;
-  MONITOR_TORN_API_KEY_1: string;
-  MONITOR_TORN_API_KEY_2: string;
-  MONITOR_TICKET_SECRET?: string;
+  TORN_API_KEY_POOL_1?: string | SecretsStoreSecret;
+  TORN_API_KEY_POOL_2?: string | SecretsStoreSecret;
+  MONITOR_TORN_API_KEY_1?: string;
+  MONITOR_TORN_API_KEY_2?: string;
+  MONITOR_TICKET_SECRET?: string | SecretsStoreSecret;
 };
 
 export type ActiveWarConfig = {

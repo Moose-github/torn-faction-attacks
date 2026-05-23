@@ -33,6 +33,7 @@ import {
   resetEnemyStatsImageFromRequest,
 } from "./enemyScoutingCron";
 import { getLatestMaintenanceRun } from "./maintenance";
+import { createMonitorTicket } from "./monitorTickets";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "./reports";
 import {
   cachedGetJson,
@@ -210,6 +211,10 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
 
   if (matchesRoute(url, request, "/api/miscellaneous", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getMiscellaneousData(env));
+  }
+
+  if (matchesRoute(url, request, "/api/monitor-ticket", "POST")) {
+    return withMember(routeContext, () => createMonitorTicket(request, env));
   }
 
   if (matchesRoute(url, request, "/api/dice-game", "GET")) {

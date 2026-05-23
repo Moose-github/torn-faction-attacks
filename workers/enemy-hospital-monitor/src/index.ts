@@ -3,6 +3,8 @@ import type { ActiveWarConfig, MonitorEnv } from "./types";
 
 export { EnemyHospitalMonitor };
 
+const MONITOR_TICKET_SCOPE = "enemy-hospital-monitor";
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
@@ -24,11 +26,11 @@ export default {
     }
 
     if (url.pathname === "/ws" && request.method === "GET") {
-      const authError = await requireMonitorTicket(url, env);
-      if (authError) return authError;
-
       const activeWar = activeWarFromUrl(url);
       if (activeWar instanceof Response) return activeWar;
+
+      const authError = await requireMonitorTicket(url, env, activeWar);
+      if (authError) return authError;
 
       return monitor.fetch(requestWithPath(request, "/ws", activeWar));
     }
@@ -66,27 +68,37 @@ function activeWarFromUrl(url: URL): ActiveWarConfig | Response {
   return { warId, warName, enemyFactionId, tornWarId: tornWarId ?? null };
 }
 
-async function requireMonitorTicket(url: URL, env: MonitorEnv): Promise<Response | null> {
-  if (!env.MONITOR_TICKET_SECRET) {
-    return null;
+async function requireMonitorTicket(
+  url: URL,
+  env: MonitorEnv,
+  activeWar: ActiveWarConfig,
+): Promise<Response | null> {
+  const secret = await readMonitorTicketSecret(env.MONITOR_TICKET_SECRET);
+  if (!secret) {
+    return json({ ok: false, error: "Monitor ticket secret is not configured" }, 503);
   }
-
   const ticket = url.searchParams.get("ticket");
   if (!ticket) {
     return json({ ok: false, error: "Missing monitor ticket" }, 401);
   }
 
-  const valid = await verifyTicket(ticket, env.MONITOR_TICKET_SECRET);
-  return valid ? null : json({ ok: false, error: "Invalid monitor ticket" }, 401);
+  const payload = await verifyTicket(ticket, secret);
+  if (!payload || !ticketMatchesActiveWar(payload, activeWar)) {
+    return json({ ok: false, error: "Invalid monitor ticket" }, 401);
+  }
+
+  return null;
 }
 
-async function verifyTicket(ticket: string, secret: string): Promise<boolean> {
-  const [payload, signature] = ticket.split(".");
-  if (!payload || !signature) return false;
+async function verifyTicket(ticket: string, secret: string): Promise<MonitorTicketPayload | null> {
+  const parts = ticket.split(".");
+  if (parts.length !== 2) return null;
+  const [payload, signature] = parts;
+  if (!payload || !signature) return null;
 
-  const data = parseBase64UrlJson<{ exp?: number }>(payload);
-  if (!data || typeof data.exp !== "number" || data.exp < Math.floor(Date.now() / 1000)) {
-    return false;
+  const data = parseBase64UrlJson<MonitorTicketPayload>(payload);
+  if (!isValidTicketPayload(data)) {
+    return null;
   }
 
   const key = await crypto.subtle.importKey(
@@ -97,7 +109,39 @@ async function verifyTicket(ticket: string, secret: string): Promise<boolean> {
     ["sign"],
   );
   const expected = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  return timingSafeEqual(signature, base64UrlEncode(expected));
+  return timingSafeEqual(signature, base64UrlEncode(expected)) ? data : null;
+}
+
+async function readMonitorTicketSecret(binding: MonitorEnv["MONITOR_TICKET_SECRET"]): Promise<string | null> {
+  try {
+    const value = typeof binding === "string" ? binding : await binding?.get();
+    const trimmed = value?.trim() ?? "";
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isValidTicketPayload(value: MonitorTicketPayload | null): value is MonitorTicketPayload {
+  return Boolean(
+    value &&
+      value.scope === MONITOR_TICKET_SCOPE &&
+      Number.isInteger(value.warId) &&
+      value.warId > 0 &&
+      Number.isInteger(value.enemyFactionId) &&
+      value.enemyFactionId > 0 &&
+      (value.tornWarId === null || (Number.isInteger(value.tornWarId) && value.tornWarId > 0)) &&
+      Number.isInteger(value.exp) &&
+      value.exp >= Math.floor(Date.now() / 1000),
+  );
+}
+
+function ticketMatchesActiveWar(payload: MonitorTicketPayload, activeWar: ActiveWarConfig): boolean {
+  return (
+    payload.warId === activeWar.warId &&
+    payload.enemyFactionId === activeWar.enemyFactionId &&
+    payload.tornWarId === (activeWar.tornWarId ?? null)
+  );
 }
 
 function parseBase64UrlJson<T>(value: string): T | null {
@@ -145,3 +189,11 @@ function requestWithPath(request: Request, path: string, activeWar?: ActiveWarCo
 function json(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: CORS_HEADERS });
 }
+
+type MonitorTicketPayload = {
+  scope: typeof MONITOR_TICKET_SCOPE;
+  warId: number;
+  enemyFactionId: number;
+  tornWarId: number | null;
+  exp: number;
+};

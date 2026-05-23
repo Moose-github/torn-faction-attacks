@@ -245,7 +245,7 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     enemyFactionId: number,
     keyAlias: MonitorKeyAlias,
   ): Promise<{ members: TornFactionMember[]; responseTimeMs: number; finishedAtMs: number }> {
-    const key = keyAlias === "monitor-1" ? this.env.MONITOR_TORN_API_KEY_1 : this.env.MONITOR_TORN_API_KEY_2;
+    const key = await this.readTornApiKey(keyAlias);
     const url = new URL(`https://api.torn.com/v2/faction/${enemyFactionId}/members`);
     url.searchParams.set("striptags", "true");
     url.searchParams.set("timestamp", String(Date.now()));
@@ -283,6 +283,19 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
       responseTimeMs: finishedAtMs - startedAtMs,
       finishedAtMs,
     };
+  }
+
+  private async readTornApiKey(keyAlias: MonitorKeyAlias): Promise<string> {
+    const binding = keyAlias === "monitor-1" ? this.env.TORN_API_KEY_POOL_1 : this.env.TORN_API_KEY_POOL_2;
+    const fallback = keyAlias === "monitor-1" ? this.env.MONITOR_TORN_API_KEY_1 : this.env.MONITOR_TORN_API_KEY_2;
+    const value = typeof binding === "string" ? binding : await binding?.get();
+    const key = value?.trim() || fallback?.trim();
+
+    if (!key) {
+      throw new TornApiError(`Torn API key ${keyAlias} is not configured`);
+    }
+
+    return key;
   }
 
   private handleMembers(members: TornFactionMember[], observedAt: number): void {

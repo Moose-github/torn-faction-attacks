@@ -4,6 +4,7 @@ export interface Env {
   BSP_TORN_API_KEY?: string;
   FFSCOUTER_API_KEY?: string;
   DISCORD_WEBHOOK_URL?: string;
+  MONITOR_TICKET_SECRET?: string | SecretsStoreSecret;
 }
 
 export type TornAttackResponse = {

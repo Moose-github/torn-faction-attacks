@@ -6,20 +6,38 @@ The Worker uses one named Durable Object, `active-war`, as the live coordinator.
 
 ## Setup
 
-Set the two monitor Torn API keys as Worker secrets:
+Set the two Torn API keys as account-level Secrets Store secrets. These names are intentionally generic so other Workers can reuse the same account secrets later:
 
 ```sh
-npx wrangler secret put MONITOR_TORN_API_KEY_1 --config wrangler.jsonc
-npx wrangler secret put MONITOR_TORN_API_KEY_2 --config wrangler.jsonc
+npx wrangler secrets-store secret create a65cbe2569df4bbf8723b8911a5bdc67 --name TORN_API_KEY_POOL_1 --scopes workers --remote
+npx wrangler secrets-store secret create a65cbe2569df4bbf8723b8911a5bdc67 --name TORN_API_KEY_POOL_2 --scopes workers --remote
 ```
 
-Optional, for signed WebSocket tickets:
+Set the shared monitor ticket signing secret. Prefer Cloudflare Secrets Store and bind the same account-level secret to both this Worker and the main app Worker:
 
-```sh
-npx wrangler secret put MONITOR_TICKET_SECRET --config wrangler.jsonc
+```jsonc
+"secrets_store_secrets": [
+  {
+    "binding": "MONITOR_TICKET_SECRET",
+    "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
+    "secret_name": "MONITOR_TICKET_SECRET"
+  },
+  {
+    "binding": "TORN_API_KEY_POOL_1",
+    "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
+    "secret_name": "TORN_API_KEY_POOL_1"
+  },
+  {
+    "binding": "TORN_API_KEY_POOL_2",
+    "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
+    "secret_name": "TORN_API_KEY_POOL_2"
+  }
+]
 ```
 
-If `MONITOR_TICKET_SECRET` is unset, `/ws` accepts connections without a ticket. That is useful during early local testing only; production should set the secret and have the main app mint short-lived member tickets.
+For local development, use matching values in this Worker's `.dev.vars` file or create local Secrets Store secrets without `--remote`. The old `MONITOR_TORN_API_KEY_1` and `MONITOR_TORN_API_KEY_2` names are still accepted as a temporary local fallback.
+
+The monitor fails closed when `MONITOR_TICKET_SECRET` is missing. The main app mints short-lived member tickets, and this Worker verifies the ticket before opening `/ws`.
 
 ## Commands
 

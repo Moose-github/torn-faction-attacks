@@ -662,6 +662,12 @@ export type AuthSession = {
   user: AuthUser;
 };
 
+export type MonitorTicketResponse = {
+  ok: boolean;
+  ticket: string;
+  expires_at: number;
+};
+
 const AUTH_TOKEN_STORAGE_KEY = "tornFactionAuthToken";
 const AUTH_SESSION_STORAGE_KEY = "tornFactionAuthSession";
 
@@ -901,6 +907,12 @@ export async function refreshMemberLifestyleStats(
 
 export async function getMiscellaneousData(): Promise<MiscellaneousResponse> {
   return getJson<MiscellaneousResponse>("/api/miscellaneous");
+}
+
+export async function createMonitorTicket(warId: number): Promise<MonitorTicketResponse> {
+  return postJson<MonitorTicketResponse>("/api/monitor-ticket", {
+    war_id: warId,
+  });
 }
 
 export async function getDiceGame(): Promise<DiceGameResponse> {

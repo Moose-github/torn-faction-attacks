@@ -54,6 +54,7 @@ The Worker expects:
 - A secret named `TORN_API_KEY`
 - Optional: a secret named `BSP_TORN_API_KEY` for BSP stat predictions
 - Optional: a secret named `FFSCOUTER_API_KEY` for enemy stat estimates
+- A shared secret named `MONITOR_TICKET_SECRET` for signing enemy hospital monitor WebSocket tickets
 
 Set the Torn API key with:
 
@@ -71,6 +72,18 @@ Set the FFScouter key with:
 
 ```bash
 npx wrangler secret put FFSCOUTER_API_KEY
+```
+
+`MONITOR_TICKET_SECRET` should be the same value used by the dedicated enemy hospital monitor Worker. Prefer Cloudflare Secrets Store for this shared secret so both Workers bind to the same account-level value:
+
+```jsonc
+"secrets_store_secrets": [
+  {
+    "binding": "MONITOR_TICKET_SECRET",
+    "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
+    "secret_name": "MONITOR_TICKET_SECRET"
+  }
+]
 ```
 
 The home faction is currently configured in `src/constants.ts`:

@@ -17,6 +17,23 @@
       "new_sqlite_classes": ["EnemyHospitalMonitor"]
     }
   ],
+  "secrets_store_secrets": [
+    {
+      "binding": "MONITOR_TICKET_SECRET",
+      "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
+      "secret_name": "MONITOR_TICKET_SECRET"
+    },
+    {
+      "binding": "TORN_API_KEY_POOL_1",
+      "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
+      "secret_name": "TORN_API_KEY_POOL_1"
+    },
+    {
+      "binding": "TORN_API_KEY_POOL_2",
+      "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
+      "secret_name": "TORN_API_KEY_POOL_2"
+    }
+  ],
   "observability": {
     "enabled": true
   }

@@ -1,6 +1,6 @@
 import React from "react";
 import { Activity, KeyRound, Settings, ShieldAlert, TestTube2, UsersRound, Volume2, VolumeX } from "lucide-react";
-import { EnemyFactionMember, getEnemyScouting, MONITOR_WORKER_URL, WarSummary } from "../api";
+import { createMonitorTicket, EnemyFactionMember, getEnemyScouting, MONITOR_WORKER_URL, WarSummary } from "../api";
 import { EmptyState, MetricCard, PanelHeader } from "../components/Common";
 import { formatLongDateTime, formatNumber } from "../utils/format";
 
@@ -126,7 +126,17 @@ export function EnemyHospitalMonitor({
       activeWar.official_end_time === null &&
       activeWar.practical_finish_time === null,
   );
-  const monitorTarget = canMonitor && activeWar ? monitorTargetFromWar(activeWar) : testTarget;
+  const monitorTarget = React.useMemo(
+    () => (canMonitor && activeWar ? monitorTargetFromWar(activeWar) : testTarget),
+    [
+      activeWar?.enemy_faction_id,
+      activeWar?.id,
+      activeWar?.name,
+      activeWar?.torn_war_id,
+      canMonitor,
+      testTarget,
+    ],
+  );
 
   React.useEffect(() => {
     setEvents([]);
@@ -162,59 +172,76 @@ export function EnemyHospitalMonitor({
       return;
     }
 
-    const socketUrl = monitorSocketUrl(monitorTarget);
-    const socket = new WebSocket(socketUrl);
+    let cancelled = false;
+    let socket: WebSocket | null = null;
     let clockSyncTimer: number | null = null;
     setConnectionState("connecting");
     setSocketError(null);
 
     function sendClockSyncPing() {
-      if (socket.readyState !== WebSocket.OPEN) return;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
       socket.send(JSON.stringify({ type: "ping", clientSentAtMs: Date.now() }));
     }
 
-    socket.addEventListener("open", () => {
-      setConnectionState("open");
-      sendClockSyncPing();
-      clockSyncTimer = window.setInterval(sendClockSyncPing, 5_000);
-    });
+    async function connect() {
+      const target = monitorTarget;
+      if (!target) return;
 
-    socket.addEventListener("message", (event) => {
-      const receivedAtMs = Date.now();
-      const message = parseMonitorMessage(event.data);
-      if (!message) return;
+      const ticket = target.testMode ? null : (await createMonitorTicket(target.id)).ticket;
+      if (cancelled) return;
 
-      if (message.type === "snapshot") {
-        setLastMessageReceivedAtMs(receivedAtMs);
-        setStatus(message.status);
-        setMembers(message.members);
-      } else if (message.type === "status") {
-        setLastMessageReceivedAtMs(receivedAtMs);
-        setStatus(message.status);
-      } else if (message.type === "monitor_event") {
-        setEvents((current) => [message.event, ...current].slice(0, MAX_VISIBLE_EVENTS));
-      } else if (message.type === "error") {
-        setSocketError(message.error);
-      } else if (message.type === "pong" && typeof message.nowMs === "number" && typeof message.clientSentAtMs === "number") {
-        const rttMs = Math.max(0, receivedAtMs - message.clientSentAtMs);
-        const midpointMs = message.clientSentAtMs + rttMs / 2;
-        const offsetMs = midpointMs - message.nowMs;
-        setClockSync((current) => (!current || rttMs <= current.rttMs ? { offsetMs, rttMs } : current));
-      }
-    });
+      socket = new WebSocket(monitorSocketUrl(target, ticket));
 
-    socket.addEventListener("close", () => {
-      setConnectionState("closed");
-    });
+      socket.addEventListener("open", () => {
+        setConnectionState("open");
+        sendClockSyncPing();
+        clockSyncTimer = window.setInterval(sendClockSyncPing, 5_000);
+      });
 
-    socket.addEventListener("error", () => {
+      socket.addEventListener("message", (event) => {
+        const receivedAtMs = Date.now();
+        const message = parseMonitorMessage(event.data);
+        if (!message) return;
+
+        if (message.type === "snapshot") {
+          setLastMessageReceivedAtMs(receivedAtMs);
+          setStatus(message.status);
+          setMembers(message.members);
+        } else if (message.type === "status") {
+          setLastMessageReceivedAtMs(receivedAtMs);
+          setStatus(message.status);
+        } else if (message.type === "monitor_event") {
+          setEvents((current) => [message.event, ...current].slice(0, MAX_VISIBLE_EVENTS));
+        } else if (message.type === "error") {
+          setSocketError(message.error);
+        } else if (message.type === "pong" && typeof message.nowMs === "number" && typeof message.clientSentAtMs === "number") {
+          const rttMs = Math.max(0, receivedAtMs - message.clientSentAtMs);
+          const midpointMs = message.clientSentAtMs + rttMs / 2;
+          const offsetMs = midpointMs - message.nowMs;
+          setClockSync((current) => (!current || rttMs <= current.rttMs ? { offsetMs, rttMs } : current));
+        }
+      });
+
+      socket.addEventListener("close", () => {
+        setConnectionState("closed");
+      });
+
+      socket.addEventListener("error", () => {
+        setConnectionState("error");
+        setSocketError("WebSocket connection failed");
+      });
+    }
+
+    connect().catch((err) => {
+      if (cancelled) return;
       setConnectionState("error");
-      setSocketError("WebSocket connection failed");
+      setSocketError(err instanceof Error ? err.message : String(err));
     });
 
     return () => {
+      cancelled = true;
       if (clockSyncTimer !== null) window.clearInterval(clockSyncTimer);
-      socket.close(1000, "Monitor page closed");
+      socket?.close(1000, "Monitor page closed");
     };
   }, [monitorTarget]);
 
@@ -548,7 +575,7 @@ function MemberStatusRow({
   );
 }
 
-function monitorSocketUrl(target: MonitorTarget): string {
+function monitorSocketUrl(target: MonitorTarget, ticket: string | null): string {
   const url = new URL("/ws", MONITOR_WORKER_URL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("warId", String(target.id));
@@ -556,6 +583,9 @@ function monitorSocketUrl(target: MonitorTarget): string {
   url.searchParams.set("enemyFactionId", String(target.enemyFactionId));
   if (target.tornWarId) {
     url.searchParams.set("tornWarId", String(target.tornWarId));
+  }
+  if (ticket) {
+    url.searchParams.set("ticket", ticket);
   }
   return url.toString();
 }
