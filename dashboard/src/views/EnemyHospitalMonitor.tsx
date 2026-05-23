@@ -289,6 +289,7 @@ export function EnemyHospitalMonitor({
   const hospitalizedMembers = members.filter((member) => member.state === "Hospital").length;
   const sortedMembers = [...members].sort(compareMonitorMembers);
   const visibleEvents = activeMonitorEvents(events, members);
+  const alertPriorityByMemberId = memberAlertPriorities(visibleEvents);
   const tornTiming = monitorTiming(status, nowMs, clockSync, lastMessageReceivedAtMs);
 
   return (
@@ -398,6 +399,7 @@ export function EnemyHospitalMonitor({
                   member={member}
                   cachedStats={cachedEnemyStats.get(member.id) ?? null}
                   nowMs={nowMs}
+                  alertPriority={alertPriorityByMemberId.get(member.id) ?? null}
                 />
               ))}
             </div>
@@ -580,14 +582,16 @@ function MemberStatusRow({
   member,
   cachedStats,
   nowMs,
+  alertPriority,
 }: {
   member: MemberMonitorSnapshot;
   cachedStats: EnemyFactionMember | null;
   nowMs: number;
+  alertPriority: MonitorEvent["priority"] | null;
 }) {
   return (
     <a
-      className="enemy-monitor-member"
+      className={memberTileClass(member, nowMs, alertPriority)}
       href={attackUrl(member.id)}
       target="_blank"
       rel="noreferrer"
@@ -601,7 +605,7 @@ function MemberStatusRow({
       <span className="enemy-monitor-bsp-stat" title={bspBattlestatsTitle(cachedStats)}>
         {cachedStats?.bsp_battlestats == null ? "-" : formatNumber(cachedStats.bsp_battlestats)}
       </span>
-      <span className={lastActionClass(member, nowMs)}>{lastActionLabel(member)}</span>
+      <span className="enemy-monitor-last-action">{lastActionLabel(member)}</span>
     </a>
   );
 }
@@ -660,9 +664,25 @@ function activeMonitorEvents(events: MonitorEvent[], members: MemberMonitorSnaps
   const membersById = new Map(members.map((member) => [member.id, member]));
   const activeEvents = events.filter((event) => {
     const member = membersById.get(event.memberId);
-    return member ? member.state !== "Hospital" : false;
+    if (!member) {
+      return false;
+    }
+    return event.type === "hospital_timer_decreased"
+      ? member.state === "Hospital"
+      : member.state !== "Hospital";
   });
   return activeEvents.length === events.length ? events : activeEvents;
+}
+
+function memberAlertPriorities(events: MonitorEvent[]): Map<number, MonitorEvent["priority"]> {
+  const priorities = new Map<number, MonitorEvent["priority"]>();
+  for (const event of events) {
+    const current = priorities.get(event.memberId);
+    if (!current || event.priority < current) {
+      priorities.set(event.memberId, event.priority);
+    }
+  }
+  return priorities;
 }
 
 function connectionLabel(state: MonitorConnectionState): string {
@@ -799,8 +819,19 @@ function lastActionLabel(member: MemberMonitorSnapshot): string {
   return member.lastActionStatus === "Online" ? "Online" : (member.lastActionRelative ?? "No activity");
 }
 
-function lastActionClass(member: MemberMonitorSnapshot, nowMs: number): string {
-  return isUrgentLastAction(member, nowMs) ? "enemy-monitor-last-action urgent" : "enemy-monitor-last-action";
+function memberTileClass(
+  member: MemberMonitorSnapshot,
+  nowMs: number,
+  alertPriority: MonitorEvent["priority"] | null,
+): string {
+  const classes = ["enemy-monitor-member"];
+  if (isUrgentLastAction(member, nowMs)) {
+    classes.push("recently-active");
+  }
+  if (alertPriority === 3) {
+    classes.push("priority-3");
+  }
+  return classes.join(" ");
 }
 
 function isUrgentLastAction(member: MemberMonitorSnapshot, nowMs: number): boolean {
@@ -887,6 +918,12 @@ function memberStatusLabel(member: MemberMonitorSnapshot, nowMs: number): string
 function hospitalTimeRemainingLabel(until: number, nowMs: number): string {
   const remainingSeconds = Math.ceil((until * 1000 - nowMs) / 1000);
   if (remainingSeconds <= 0) return "Due now";
+
+  if (remainingSeconds < 10 * 60) {
+    const minutes = Math.floor(remainingSeconds / 60);
+    const seconds = remainingSeconds % 60;
+    return minutes > 0 ? `${minutes} mins ${seconds}s` : `${seconds}s`;
+  }
 
   const hours = Math.floor(remainingSeconds / 3600);
   const minutes = Math.ceil((remainingSeconds % 3600) / 60);

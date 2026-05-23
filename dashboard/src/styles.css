@@ -1298,6 +1298,17 @@ h2 {
   box-sizing: border-box;
 }
 
+.enemy-monitor-member.recently-active {
+  border-color: rgba(220, 38, 38, 0.62);
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.12);
+}
+
+.enemy-monitor-member.priority-3 {
+  border-color: rgba(202, 138, 4, 0.64);
+  background: #fffbeb;
+  box-shadow: 0 0 0 1px rgba(202, 138, 4, 0.12);
+}
+
 .enemy-monitor-member div {
   justify-content: flex-start;
 }
@@ -1305,6 +1316,16 @@ h2 {
 .enemy-monitor-member:hover {
   border-color: #93c5fd;
   background: #f8fafc;
+}
+
+.enemy-monitor-member.recently-active:hover {
+  border-color: rgba(220, 38, 38, 0.72);
+  background: #fff7f7;
+}
+
+.enemy-monitor-member.priority-3:hover {
+  border-color: rgba(202, 138, 4, 0.74);
+  background: #fef3c7;
 }
 
 .enemy-monitor-state {
@@ -1350,10 +1371,6 @@ h2 {
   font-size: 0.78rem;
   font-weight: 800;
   white-space: nowrap;
-}
-
-.enemy-monitor-last-action.urgent {
-  color: #dc2626;
 }
 
 .enemy-monitor-state.hospital {
@@ -4977,8 +4994,25 @@ tbody tr:not(.attack-row):hover td {
   color: var(--text-muted);
 }
 
-:root[data-theme="dark"] .enemy-monitor-last-action.urgent {
-  color: #fca5a5;
+:root[data-theme="dark"] .enemy-monitor-member.recently-active {
+  border-color: rgba(248, 113, 113, 0.72);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.16);
+}
+
+:root[data-theme="dark"] .enemy-monitor-member.priority-3 {
+  border-color: rgba(250, 204, 21, 0.64);
+  background: rgba(146, 64, 14, 0.24);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.14);
+}
+
+:root[data-theme="dark"] .enemy-monitor-member.recently-active:hover {
+  border-color: rgba(248, 113, 113, 0.82);
+  background: rgba(127, 29, 29, 0.18);
+}
+
+:root[data-theme="dark"] .enemy-monitor-member.priority-3:hover {
+  border-color: rgba(250, 204, 21, 0.76);
+  background: rgba(146, 64, 14, 0.32);
 }
 
 :root[data-theme="dark"] .enemy-monitor-settings-actions .icon-button {
