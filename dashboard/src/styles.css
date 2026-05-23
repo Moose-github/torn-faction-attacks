@@ -1031,6 +1031,45 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.war-room-tracking-status-panel {
+  grid-column: 1 / -1;
+}
+
+.tracking-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.tracking-status-item {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.tracking-status-item span {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+
+.tracking-status-item strong {
+  color: #172033;
+  font-size: 0.94rem;
+  line-height: 1.15;
+}
+
+.tracking-status-item small {
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
 .enemy-monitor-hero {
   align-items: center;
 }
@@ -1982,6 +2021,59 @@ h2 {
   color: #516172;
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.panel-header > .freshness-meta,
+.freshness-meta {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #475569;
+}
+
+.freshness-meta > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.74rem;
+  font-weight: 850;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.freshness-meta.live > span:first-child {
+  border-color: rgba(37, 99, 235, 0.24);
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.freshness-meta.fresh > span:first-child {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.freshness-meta.paused > span:first-child,
+.freshness-meta.quiet > span:first-child {
+  border-color: rgba(100, 116, 139, 0.28);
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.freshness-meta.stale > span:first-child {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: #fffbeb;
+  color: #b45309;
 }
 
 .collapsible-header {
@@ -4311,6 +4403,7 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .enemy-status-summary-item,
 :root[data-theme="dark"] .enemy-monitor-event,
 :root[data-theme="dark"] .enemy-monitor-member,
+:root[data-theme="dark"] .tracking-status-item,
 :root[data-theme="dark"] .push-pressure-status > div,
 :root[data-theme="dark"] .payout-summary-item,
 :root[data-theme="dark"] .revivable-list,
@@ -4563,6 +4656,43 @@ tbody tr:not(.attack-row):hover td {
   color: var(--text-muted);
 }
 
+:root[data-theme="dark"] .panel-header > .freshness-meta,
+:root[data-theme="dark"] .freshness-meta {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .freshness-meta > span {
+  border-color: var(--border-faint);
+  background: var(--panel-muted-bg);
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .freshness-meta.live > span:first-child {
+  border-color: rgba(96, 165, 250, 0.34);
+  background: rgba(37, 99, 235, 0.22);
+  color: #bfdbfe;
+}
+
+:root[data-theme="dark"] .freshness-meta.fresh > span:first-child {
+  border-color: rgba(74, 222, 128, 0.34);
+  background: rgba(22, 101, 52, 0.24);
+  color: #86efac;
+}
+
+:root[data-theme="dark"] .freshness-meta.paused > span:first-child,
+:root[data-theme="dark"] .freshness-meta.quiet > span:first-child {
+  border-color: var(--border-solid);
+  background: var(--panel-muted-bg);
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .freshness-meta.stale > span:first-child {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(146, 64, 14, 0.22);
+  color: #fbbf24;
+}
+
 :root[data-theme="dark"] .admin-only-pill {
   border-color: rgba(96, 165, 250, 0.34);
   background: rgba(37, 99, 235, 0.2);
@@ -4620,13 +4750,16 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .push-pressure-breakdown-header strong,
 :root[data-theme="dark"] .push-pressure-contribution-group-header strong,
-:root[data-theme="dark"] .push-pressure-contribution strong {
+:root[data-theme="dark"] .push-pressure-contribution strong,
+:root[data-theme="dark"] .tracking-status-item strong {
   color: var(--text-strong);
 }
 
 :root[data-theme="dark"] .push-pressure-breakdown-header span,
 :root[data-theme="dark"] .push-pressure-contribution-group-header small,
-:root[data-theme="dark"] .push-pressure-contribution small {
+:root[data-theme="dark"] .push-pressure-contribution small,
+:root[data-theme="dark"] .tracking-status-item span,
+:root[data-theme="dark"] .tracking-status-item small {
   color: var(--text-muted);
 }
 

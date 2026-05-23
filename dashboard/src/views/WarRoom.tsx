@@ -20,7 +20,7 @@ import {
   FactionActivityHeatmap,
   ScoutingComparisonChart,
 } from "../components/Charts";
-import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
+import { CollapsiblePanel, EmptyState, FreshnessMeta, FreshnessTone, PanelHeader } from "../components/Common";
 import { EnemyScoutingPanel } from "../components/EnemyScouting";
 import { EnemyTravelPanel } from "../components/EnemyTravelPanel";
 import { formatLongDateTime, formatNumber, formatRelativeTime, formatTime } from "../utils/format";
@@ -30,6 +30,8 @@ import { ScoutingComparisonMetric } from "../../../shared/scoutingBuckets";
 const WAR_ROOM_HEATMAP_REFRESH_MS = 15 * 60_000;
 const WAR_ROOM_LIVE_SCOUTING_REFRESH_MS = 60_000;
 const WAR_ROOM_PUSH_HISTORY_REFRESH_MS = 5 * 60_000;
+
+type TrackingMode = "live" | "pre-live" | "inactive";
 
 export function WarRoom({
   selectedWar,
@@ -72,6 +74,11 @@ export function WarRoom({
     ? isWarRoomMemberTrackingActive(selectedWar, Math.floor(now / 1000))
     : false;
   const isActivityHeatmapsOpen = collapsedPanels.activityHeatmaps === false;
+  const trackingMode: TrackingMode = isWarLive ? "live" : isMemberTrackingActive ? "pre-live" : "inactive";
+  const trackingFreshness = trackingFreshnessForMode(trackingMode);
+  const statusCheckedAt = enemyScouting?.summary.status_checked_at ?? null;
+  const latestHeatmapSampledAt = getLatestHeatmapSampledAt(activityHeatmap);
+  const pushPressureSampledAt = pushPressure?.latest?.bucket_start ?? null;
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -391,17 +398,34 @@ export function WarRoom({
       </section>
 
       <section className="content-grid">
+        <TrackingStatusPanel
+          war={selectedWar}
+          mode={trackingMode}
+          enemyStatusCheckedAt={statusCheckedAt}
+          pushPressureSampledAt={pushPressureSampledAt}
+          heatmapSampledAt={latestHeatmapSampledAt}
+          heatmapOpen={isActivityHeatmapsOpen}
+        />
+
         {isMemberTrackingActive ? (
           <>
             <HospitalMonitorLinkPanel
               isWarLive={isWarLive}
               onOpenHospitalMonitor={onOpenHospitalMonitor}
+              trackingState={trackingFreshness.hospitalState}
+              trackingCadence={trackingFreshness.hospitalCadence}
+              trackingTone={trackingFreshness.hospitalTone}
+              trackingDetail={trackingFreshness.hospitalDetail}
             />
 
             <EnemyStatusSummaryPanel
               members={enemyScouting?.members ?? []}
-              statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
+              statusCheckedAt={statusCheckedAt}
               isLoading={isLoadingEnemyScouting}
+              trackingState={trackingFreshness.state}
+              trackingCadence={trackingFreshness.enemyCadence}
+              trackingTone={trackingFreshness.tone}
+              trackingDetail={trackingFreshness.enemyDetail}
             />
 
             <EnemyPushPressurePanel
@@ -409,6 +433,10 @@ export function WarRoom({
               isLoading={isLoadingPushPressure}
               collapsed={collapsedPanels.enemyPushPressure ?? false}
               onToggle={() => togglePanel("enemyPushPressure")}
+              trackingState={trackingFreshness.state}
+              trackingCadence={trackingFreshness.pushCadence}
+              trackingTone={trackingFreshness.tone}
+              trackingDetail={trackingFreshness.pushDetail}
             />
 
             <RevivableMembersPanel
@@ -421,10 +449,14 @@ export function WarRoom({
 
             <EnemyTravelPanel
               members={enemyScouting?.members ?? []}
-              statusCheckedAt={enemyScouting?.summary.status_checked_at ?? null}
+              statusCheckedAt={statusCheckedAt}
               isLoading={isLoadingEnemyScouting}
               collapsed={collapsedPanels.enemyTravel ?? false}
               onToggle={() => togglePanel("enemyTravel")}
+              trackingState={trackingFreshness.state}
+              trackingCadence={trackingFreshness.enemyCadence}
+              trackingTone={trackingFreshness.tone}
+              trackingDetail={trackingFreshness.enemyDetail}
             />
           </>
         ) : null}
@@ -480,7 +512,15 @@ export function WarRoom({
 
         <CollapsiblePanel
           title="Activity heatmaps"
-          aside={isLoadingActivityHeatmap ? "Loading" : "15 minute samples"}
+          control={
+            <FreshnessMeta
+              state={isLoadingActivityHeatmap ? "Loading" : trackingFreshness.heatmapState}
+              updatedAt={latestHeatmapSampledAt}
+              cadence={trackingFreshness.heatmapCadence}
+              detail={trackingFreshness.heatmapDetail}
+              tone={trackingFreshness.heatmapTone}
+            />
+          }
           collapsed={collapsedPanels.activityHeatmaps ?? false}
           onToggle={() => togglePanel("activityHeatmaps")}
           className="heatmap-panel"
@@ -544,19 +584,223 @@ function LiveTrackingInactivePanel({
   );
 }
 
+function TrackingStatusPanel({
+  war,
+  mode,
+  enemyStatusCheckedAt,
+  pushPressureSampledAt,
+  heatmapSampledAt,
+  heatmapOpen,
+}: {
+  war: WarSummary;
+  mode: TrackingMode;
+  enemyStatusCheckedAt: number | null;
+  pushPressureSampledAt: number | null;
+  heatmapSampledAt: number | null;
+  heatmapOpen: boolean;
+}) {
+  const freshness = trackingFreshnessForMode(mode);
+  const windowLabel = formatTrackingWindow(war, mode);
+
+  return (
+    <section className="panel war-room-tracking-status-panel">
+      <PanelHeader
+        title="Tracking cadence"
+        control={
+          <FreshnessMeta
+            state={freshness.state}
+            cadence={freshness.summaryCadence}
+            detail="Shows how often War Room data is gathered or refreshed for the selected war."
+            tone={freshness.tone}
+          />
+        }
+      />
+      <p className="panel-description">{windowLabel}</p>
+      <div className="tracking-status-grid">
+        <TrackingStatusItem
+          label="Enemy status and travel"
+          value={freshness.enemyCadence}
+          updatedAt={enemyStatusCheckedAt}
+          detail={freshness.enemyDetail}
+        />
+        <TrackingStatusItem
+          label="Push pressure"
+          value={freshness.pushCadence}
+          updatedAt={pushPressureSampledAt}
+          detail={freshness.pushDetail}
+        />
+        <TrackingStatusItem
+          label="Activity heatmaps"
+          value={heatmapOpen ? freshness.heatmapCadence : "Loads when opened"}
+          updatedAt={heatmapSampledAt}
+          detail={heatmapOpen ? freshness.heatmapDetail : "Heatmaps are lazy-loaded and refresh every 15 minutes while open during live tracking."}
+        />
+        <TrackingStatusItem
+          label="Hospital monitor"
+          value={freshness.hospitalCadence}
+          updatedAt={undefined}
+          detail={freshness.hospitalDetail}
+        />
+      </div>
+    </section>
+  );
+}
+
+function TrackingStatusItem({
+  label,
+  value,
+  updatedAt,
+  detail,
+}: {
+  label: string;
+  value: string;
+  updatedAt?: number | null;
+  detail: string;
+}) {
+  return (
+    <div className="tracking-status-item" title={detail}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {updatedAt === undefined ? null : (
+        <small>{updatedAt ? `Updated ${formatRelativeTime(updatedAt)}` : "Not updated yet"}</small>
+      )}
+    </div>
+  );
+}
+
+type TrackingFreshness = {
+  state: string;
+  tone: FreshnessTone;
+  summaryCadence: string;
+  enemyCadence: string;
+  enemyDetail: string;
+  pushCadence: string;
+  pushDetail: string;
+  heatmapState: string;
+  heatmapTone: FreshnessTone;
+  heatmapCadence: string;
+  heatmapDetail: string;
+  hospitalState: string;
+  hospitalTone: FreshnessTone;
+  hospitalCadence: string;
+  hospitalDetail: string;
+};
+
+function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
+  if (mode === "live") {
+    return {
+      state: "Live",
+      tone: "live",
+      summaryCadence: "1m live",
+      enemyCadence: "Every 1m",
+      enemyDetail: "Enemy status and travel are gathered by the worker every minute while the war is live. This page also refreshes the visible cache every minute.",
+      pushCadence: "1m / 5m history",
+      pushDetail: "Latest push pressure is refreshed every minute while live. The 24 hour pressure history is refreshed every 5 minutes.",
+      heatmapState: "Sampling",
+      heatmapTone: "live",
+      heatmapCadence: "Every 15m",
+      heatmapDetail: "Activity heatmaps sample Torn last-action data every 15 minutes during the tracking window and refresh here every 15 minutes while open.",
+      hospitalState: "Live",
+      hospitalTone: "live",
+      hospitalCadence: "Real time",
+      hospitalDetail: "The Hospital monitor uses its own live Durable Object polling while the selected war is active.",
+    };
+  }
+
+  if (mode === "pre-live") {
+    return {
+      state: "Pre-live",
+      tone: "fresh",
+      summaryCadence: "5m pre-live",
+      enemyCadence: "Every 5m",
+      enemyDetail: "Enemy status and travel are gathered every 5 minutes before the war becomes live.",
+      pushCadence: "Every 5m",
+      pushDetail: "Push pressure samples are fed by the same pre-live enemy tracking cadence.",
+      heatmapState: "Sampling",
+      heatmapTone: "fresh",
+      heatmapCadence: "Every 15m",
+      heatmapDetail: "Activity heatmaps are sampled by the 15 minute maintenance tick during the tracking window.",
+      hospitalState: "Waiting",
+      hospitalTone: "paused",
+      hospitalCadence: "Starts live",
+      hospitalDetail: "Hospital monitoring becomes available when the selected war is active.",
+    };
+  }
+
+  return {
+    state: "Paused",
+    tone: "paused",
+    summaryCadence: "Not gathering",
+    enemyCadence: "Paused",
+    enemyDetail: "Enemy status and travel are not currently gathered for this war.",
+    pushCadence: "Paused",
+    pushDetail: "Push pressure is not currently sampled for this war.",
+    heatmapState: "Paused",
+    heatmapTone: "paused",
+    heatmapCadence: "Paused",
+    heatmapDetail: "Activity heatmaps are not sampled outside the tracking window.",
+    hospitalState: "Paused",
+    hospitalTone: "paused",
+    hospitalCadence: "Inactive",
+    hospitalDetail: "Hospital monitoring is only available while the selected war is active.",
+  };
+}
+
+function formatTrackingWindow(war: WarSummary, mode: TrackingMode): string {
+  if (mode === "live") {
+    return "Live tracking is active. Fast-changing enemy status, travel, and push pressure are refreshed every minute, while heavier history and heatmap views refresh less often.";
+  }
+
+  const officialStart = war.official_start_time ?? war.practical_start_time;
+  const trackingStart = officialStart - 2 * 60 * 60;
+  if (mode === "pre-live") {
+    return `Pre-live tracking is active. It began at ${formatLongDateTime(trackingStart)} and will switch to the one minute live cadence when the war starts.`;
+  }
+
+  const finishTime = war.practical_finish_time ?? war.official_end_time ?? null;
+  if (finishTime) {
+    return `Live enemy tracking is paused because this war has finished. It stopped at practical finish: ${formatLongDateTime(finishTime)}.`;
+  }
+
+  return `Live enemy tracking has not started yet. It starts two hours before official start: ${formatLongDateTime(trackingStart)}.`;
+}
+
+function getLatestHeatmapSampledAt(activityHeatmap: FactionActivityHeatmapResponse | null): number | null {
+  if (!activityHeatmap || activityHeatmap.rows.length === 0) {
+    return null;
+  }
+
+  return Math.max(...activityHeatmap.rows.map((row) => row.sampled_at));
+}
+
 function HospitalMonitorLinkPanel({
   isWarLive,
   onOpenHospitalMonitor,
+  trackingState,
+  trackingCadence,
+  trackingTone,
+  trackingDetail,
 }: {
   isWarLive: boolean;
   onOpenHospitalMonitor: () => void;
+  trackingState: string;
+  trackingCadence: string;
+  trackingTone: FreshnessTone;
+  trackingDetail: string;
 }) {
   return (
     <section className="panel war-room-hospital-monitor-panel">
       <PanelHeader
         icon={<Siren size={18} />}
         title="Hospital monitor"
-        aside={isWarLive ? "Live" : "No active war"}
+        control={
+          <FreshnessMeta
+            state={trackingState}
+            cadence={trackingCadence}
+            detail={trackingDetail}
+            tone={trackingTone}
+          />
+        }
       />
       <p className="panel-description">
         {isWarLive
@@ -580,17 +824,35 @@ function EnemyStatusSummaryPanel({
   members,
   statusCheckedAt,
   isLoading,
+  trackingState,
+  trackingCadence,
+  trackingTone,
+  trackingDetail,
 }: {
   members: EnemyFactionMember[];
   statusCheckedAt: number | null;
   isLoading: boolean;
+  trackingState: string;
+  trackingCadence: string;
+  trackingTone: FreshnessTone;
+  trackingDetail: string;
 }) {
   const summary = summarizeEnemyStatuses(members);
-  const checkedLabel = statusCheckedAt ? `Checked ${formatRelativeTime(statusCheckedAt)}` : "Not checked";
 
   return (
     <section className="panel enemy-status-summary-panel">
-      <PanelHeader title="Enemy status summary" aside={isLoading ? "Loading" : checkedLabel} />
+      <PanelHeader
+        title="Enemy status summary"
+        control={
+          <FreshnessMeta
+            state={isLoading ? "Loading" : trackingState}
+            updatedAt={statusCheckedAt}
+            cadence={trackingCadence}
+            detail={trackingDetail}
+            tone={trackingTone}
+          />
+        }
+      />
       <div className="enemy-status-summary-grid">
         <StatusSummaryItem label="Okay" value={summary.okay} />
         <StatusSummaryItem label="Traveling" value={summary.traveling} tone="traveling" />
@@ -627,20 +889,23 @@ function EnemyPushPressurePanel({
   isLoading,
   collapsed,
   onToggle,
+  trackingState,
+  trackingCadence,
+  trackingTone,
+  trackingDetail,
 }: {
   data: EnemyPushPressureResponse | null;
   isLoading: boolean;
   collapsed: boolean;
   onToggle: () => void;
+  trackingState: string;
+  trackingCadence: string;
+  trackingTone: FreshnessTone;
+  trackingDetail: string;
 }) {
   const latest = data?.latest ?? null;
   const history = data?.history ?? [];
   const nowSeconds = Math.floor(useCurrentTime() / 1000);
-  const aside = isLoading
-    ? "Loading"
-    : latest
-      ? `${pushPressureLevelLabel(latest.pressure_level)} - ${formatRelativeTime(latest.bucket_start)}`
-      : "No samples";
   const contributions = latest ? pushPressureContributions(latest) : [];
   const positiveContributions = contributions.filter((contribution) => contribution.score > 0);
   const breakdownScore = contributions.reduce((total, contribution) => total + contribution.score, 0);
@@ -659,7 +924,15 @@ function EnemyPushPressurePanel({
   return (
     <CollapsiblePanel
       title="Enemy push pressure (WIP)"
-      aside={aside}
+      control={
+        <FreshnessMeta
+          state={isLoading ? "Loading" : trackingState}
+          updatedAt={latest?.bucket_start ?? null}
+          cadence={trackingCadence}
+          detail={latest ? `${trackingDetail} Latest pressure: ${pushPressureLevelLabel(latest.pressure_level)}.` : trackingDetail}
+          tone={trackingTone}
+        />
+      }
       collapsed={collapsed}
       onToggle={onToggle}
       className="enemy-push-pressure-panel"

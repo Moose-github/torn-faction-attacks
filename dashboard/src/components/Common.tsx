@@ -1,6 +1,6 @@
 import React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { formatNumber } from "../utils/format";
+import { formatNumber, formatRelativeTime } from "../utils/format";
 
 export function MetricCard({
   label,
@@ -86,6 +86,36 @@ export function CollapsiblePanel({
       </div>
       {collapsed ? null : children}
     </section>
+  );
+}
+
+export type FreshnessTone = "live" | "fresh" | "paused" | "stale" | "quiet";
+
+export function FreshnessMeta({
+  state,
+  updatedAt,
+  cadence,
+  detail,
+  tone = "fresh",
+}: {
+  state: string;
+  updatedAt?: number | null;
+  cadence?: string;
+  detail?: string;
+  tone?: FreshnessTone;
+}) {
+  const updatedLabel = updatedAt === undefined
+    ? null
+    : updatedAt
+      ? `Updated ${formatRelativeTime(updatedAt)}`
+      : "Not updated";
+
+  return (
+    <span className={`freshness-meta ${tone}`} title={detail}>
+      <span>{state}</span>
+      {updatedLabel ? <span>{updatedLabel}</span> : null}
+      {cadence ? <span>{cadence}</span> : null}
+    </span>
   );
 }
 

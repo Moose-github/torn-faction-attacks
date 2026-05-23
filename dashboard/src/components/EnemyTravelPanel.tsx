@@ -1,7 +1,7 @@
 import React from "react";
 import { Plane } from "lucide-react";
 import { EnemyFactionMember } from "../api";
-import { CollapsiblePanel, EmptyState } from "./Common";
+import { CollapsiblePanel, EmptyState, FreshnessMeta, FreshnessTone } from "./Common";
 import { formatRelativeTime, formatTime } from "../utils/format";
 
 const BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS = 5 * 60;
@@ -11,12 +11,20 @@ export function EnemyTravelPanel({
   isLoading,
   collapsed,
   onToggle,
+  trackingState,
+  trackingCadence,
+  trackingTone,
+  trackingDetail,
 }: {
   members: EnemyFactionMember[];
   statusCheckedAt: number | null;
   isLoading: boolean;
   collapsed: boolean;
   onToggle: () => void;
+  trackingState: string;
+  trackingCadence: string;
+  trackingTone: FreshnessTone;
+  trackingDetail: string;
 }) {
   const nowSeconds = Math.floor(useCurrentTime() / 1000);
   const travelers = members
@@ -36,7 +44,15 @@ export function EnemyTravelPanel({
   return (
     <CollapsiblePanel
       title="Enemy travel tracker"
-      aside={isLoading ? "Loading" : travelSummary}
+      control={
+        <FreshnessMeta
+          state={isLoading ? "Loading" : trackingState}
+          updatedAt={statusCheckedAt}
+          cadence={trackingCadence}
+          detail={`${trackingDetail} ${travelSummary}.`}
+          tone={trackingTone}
+        />
+      }
       collapsed={collapsed}
       onToggle={onToggle}
       className="enemy-travel-panel table-panel"
