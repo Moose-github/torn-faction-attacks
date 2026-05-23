@@ -23,6 +23,7 @@ import {
   refreshAuthSession,
   refreshMemberLifestyleStats,
   resetEnemyStatsImageLatches,
+  restartLiveEnemyTracking,
   relinkAttacks,
   runIngestion,
   sendDiscordMessage,
@@ -75,6 +76,7 @@ export function AdminControls() {
   const [adminGrantForm, setAdminGrantForm] = React.useState({ tornUserId: "" });
   const [discordForm, setDiscordForm] = React.useState({ message: "" });
   const [rebuildWarId, setRebuildWarId] = React.useState("");
+  const [restartTrackingWarId, setRestartTrackingWarId] = React.useState("");
   const [statsImagePreviewType, setStatsImagePreviewType] =
     React.useState<EnemyStatsImagePreviewType>("comparison");
   const [attackWindowForm, setAttackWindowForm] = React.useState({
@@ -158,6 +160,19 @@ export function AdminControls() {
         ? convertWarFormTimeMode(warToForm(currentOfficialWar), adminTimeMode)
         : current,
     );
+    setRestartTrackingWarId((current) => {
+      const currentStillValid = loadedWars.some(
+        (war) => String(war.id) === current && war.enemy_faction_id !== null,
+      );
+      if (currentStillValid) {
+        return current;
+      }
+
+      const firstTrackingWar =
+        loadedWars.find((war) => isCurrentOfficialWar(war) && war.enemy_faction_id !== null) ??
+        loadedWars.find((war) => war.enemy_faction_id !== null);
+      return firstTrackingWar ? String(firstTrackingWar.id) : "";
+    });
 
     const firstHistoricalWar = loadedWars.find(isHistoricalOfficialWar);
     const selectedHistoricalWar =
@@ -827,6 +842,41 @@ export function AdminControls() {
               >
                 {isBusy === "Reset stats image latches" ? "Working" : "Reset Discord stats image"}
               </button>
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const warId = Number(restartTrackingWarId);
+                  runAdminAction("Restart live enemy tracking", () => restartLiveEnemyTracking(warId));
+                }}
+              >
+                <label className="admin-form-wide">
+                  <span>Restart travel/status tracker</span>
+                  <select
+                    value={restartTrackingWarId}
+                    onChange={(event) => setRestartTrackingWarId(event.target.value)}
+                  >
+                    <option value="">Select a war</option>
+                    {wars
+                      .filter((war) => war.enemy_faction_id !== null)
+                      .map((war) => (
+                        <option key={war.id} value={war.id}>
+                          #{war.id} {war.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <p className="panel-description admin-form-wide">
+                  Clears cached enemy status, travel timing, push-pressure samples, and the last scouting check for the selected war.
+                </p>
+                <button
+                  type="submit"
+                  className="admin-button admin-form-wide"
+                  disabled={isBusy !== null || !restartTrackingWarId}
+                >
+                  {isBusy === "Restart live enemy tracking" ? "Working" : "Restart live enemy tracking"}
+                </button>
+              </form>
               <form
                 className="admin-form"
                 onSubmit={(event) => {

@@ -378,6 +378,12 @@ export function WarRoom({
               {formatLongDateTime(selectedWar.official_start_time ?? selectedWar.practical_start_time)}
             </strong>
           </p>
+          {selectedWar.official_start_time !== null &&
+          selectedWar.official_start_time !== selectedWar.practical_start_time ? (
+            <p>
+              Practical start: <strong>{formatLongDateTime(selectedWar.practical_start_time)}</strong>
+            </p>
+          ) : null}
         </div>
         <WarStartCountdown
           war={selectedWar}
@@ -639,7 +645,8 @@ function EnemyPushPressurePanel({
   const positiveContributions = contributions.filter((contribution) => contribution.score > 0);
   const breakdownScore = contributions.reduce((total, contribution) => total + contribution.score, 0);
   const buildUpContributions = contributions.filter((contribution) => contribution.kind === "build-up");
-  const attackContributions = contributions.filter((contribution) => contribution.kind === "active-attack");
+  const buildUpScore = buildUpContributions.reduce((total, contribution) => total + contribution.score, 0);
+  const attackContribution = contributions.find((contribution) => contribution.kind === "active-attack") ?? null;
   const sampleAgeSeconds = latest ? Math.max(0, nowSeconds - latest.bucket_start) : null;
   const sampleFreshness = sampleAgeSeconds === null
     ? null
@@ -673,16 +680,16 @@ function EnemyPushPressurePanel({
               </strong>
             </div>
             <div>
-              <span>Online</span>
-              <strong>{formatNumber(latest.online_count)}</strong>
+              <span>Build-up score</span>
+              <strong title={`Mobilization plus current-activity signals. Online now: ${formatNumber(latest.online_count)}. Active in last 5m: ${formatNumber(latest.recently_active_count)}.`}>
+                {buildUpScore > 0 ? `+${formatNumber(buildUpScore)}` : "0"}
+              </strong>
             </div>
             <div>
-              <span>Active 5m</span>
-              <strong>{formatNumber(latest.recently_active_count)}</strong>
-            </div>
-            <div>
-              <span>Enemy attacks 5m</span>
-              <strong>{formatNumber(latest.enemy_attacks_last_5m)}</strong>
+              <span>Attack score</span>
+              <strong title={attackContribution?.tooltip}>
+                {attackContribution && attackContribution.score > 0 ? `+${formatNumber(attackContribution.score)}` : "0"}
+              </strong>
             </div>
             <div>
               <span>Sample</span>
@@ -702,11 +709,6 @@ function EnemyPushPressurePanel({
               title="Build-up signals"
               description="Login movement and unusual current activity before attacks begin."
               contributions={buildUpContributions}
-            />
-            <PushPressureContributionGroup
-              title="Active attack signal"
-              description="Recent enemy attacks are treated separately because they indicate the push may already be happening."
-              contributions={attackContributions}
             />
           </div>
           {positiveContributions.length > 0 ? (

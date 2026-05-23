@@ -724,6 +724,63 @@ export async function clearLiveEnemyTrackingData(
     return { writeStatements: 0, changedRows: 0 };
   }
 
+  const cleared = await clearLiveEnemyTrackingRows(env, warId, factionId);
+  await upsertSyncTimestamp(env, stateName, nowSeconds(), warId);
+
+  return {
+    writeStatements: cleared.writeStatements + 1,
+    changedRows: cleared.changedRows + 1,
+  };
+}
+
+export async function restartLiveEnemyTrackingFromRequest(request: Request, env: Env): Promise<Response> {
+  const body = (await request.json().catch(() => ({}))) as { war_id?: unknown };
+  const warId = Number(body.war_id);
+  if (!Number.isInteger(warId) || warId <= 0) {
+    return json({ ok: false, error: "A valid war_id is required", code: "INVALID_WAR_ID" }, 400);
+  }
+
+  const war = (await env.DB.prepare(
+    `
+    SELECT id, name, enemy_faction_id
+    FROM wars
+    WHERE id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first()) as { id: number; name: string; enemy_faction_id: number | null } | null;
+
+  if (!war) {
+    return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+  }
+
+  if (war.enemy_faction_id === null) {
+    return json(
+      { ok: false, error: "Selected war has no enemy faction to restart", code: "NO_ENEMY_FACTION" },
+      400,
+    );
+  }
+
+  const result = await clearLiveEnemyTrackingRows(env, war.id, war.enemy_faction_id, {
+    resetWarCheckedAt: true,
+  });
+
+  return json({
+    ok: true,
+    war_id: war.id,
+    war_name: war.name,
+    enemy_faction_id: war.enemy_faction_id,
+    ...result,
+  });
+}
+
+async function clearLiveEnemyTrackingRows(
+  env: Env,
+  warId: number,
+  factionId: number,
+  options: { resetWarCheckedAt?: boolean } = {},
+): Promise<{ writeStatements: number; changedRows: number }> {
   const memberResult = await env.DB.prepare(
     `
     UPDATE enemy_faction_members
@@ -788,15 +845,25 @@ export async function clearLiveEnemyTrackingData(
     `${PUSH_ALERT_STATE_PREFIX}:${warId}:`,
   );
 
-  await upsertSyncTimestamp(env, stateName, nowSeconds(), warId);
+  const warCheckedResult = options.resetWarCheckedAt
+    ? await env.DB.prepare(
+        `
+        UPDATE wars
+        SET enemy_scouting_status_checked_at = NULL
+        WHERE id = ?
+        `,
+      )
+        .bind(warId)
+        .run()
+    : null;
 
   return {
-    writeStatements: 4,
+    writeStatements: options.resetWarCheckedAt ? 4 : 3,
     changedRows:
       d1Changes(memberResult) +
       d1Changes(pushSnapshotResult) +
       d1Changes(pushAlertResult) +
-      1,
+      d1Changes(warCheckedResult),
   };
 }
 

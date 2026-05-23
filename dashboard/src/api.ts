@@ -1077,6 +1077,10 @@ export async function previewEnemyStatsImage(type: EnemyStatsImagePreviewType): 
   };
 }
 
+export async function restartLiveEnemyTracking(warId: number): Promise<unknown> {
+  return postJson("/api/admin/live-enemy-tracking/restart", { war_id: warId });
+}
+
 export async function getMemberLifestyleStats(options: {
   startDate?: string;
   endDate?: string;

@@ -19,6 +19,7 @@ import {
   getEnemyScoutingForWar,
   getScoutingComparisonForWar,
   refreshEnemyScoutingForWar,
+  restartLiveEnemyTrackingFromRequest,
 } from "./enemyScouting";
 import { getRecentFactionAttacks } from "./factionAttacks";
 import { getWarActivityHeatmap } from "./heatmap";
@@ -185,6 +186,14 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 
   if (matchesRoute(url, request, "/api/admin/enemy-stats-image/preview", "GET")) {
     return withAdmin(routeContext, () => previewEnemyStatsImageFromRequest(url, env));
+  }
+
+  if (matchesRoute(url, request, "/api/admin/live-enemy-tracking/restart", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "restart_live_enemy_tracking", 30);
+      if (cooldownError) return cooldownError;
+      return restartLiveEnemyTrackingFromRequest(request, env);
+    });
   }
 
   if (matchesRoute(url, request, "/api/rebuild", "POST")) {

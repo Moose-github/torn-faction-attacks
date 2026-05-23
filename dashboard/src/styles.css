@@ -408,9 +408,10 @@ h2 {
 
 .dashboard-highlight-tile {
   display: grid;
+  grid-template-rows: 66px 1fr;
   gap: 12px;
   min-width: 0;
-  min-height: 196px;
+  min-height: 226px;
   padding: 14px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -420,7 +421,9 @@ h2 {
 .dashboard-highlight-heading {
   display: grid;
   gap: 4px;
+  align-content: start;
   min-width: 0;
+  min-height: 66px;
 }
 
 .dashboard-highlight-heading span {
@@ -447,7 +450,9 @@ h2 {
 .dashboard-podium-list {
   display: grid;
   align-content: start;
+  grid-template-rows: repeat(3, minmax(42px, auto));
   gap: 8px;
+  min-height: 142px;
 }
 
 .dashboard-podium-row {
