@@ -92,6 +92,7 @@ const TEST_WAR_ID = 999_999_001;
 const ALERT_VOLUME_STORAGE_KEY = "enemyHospitalMonitorAlertVolume";
 const ALERT_MUTED_STORAGE_KEY = "enemyHospitalMonitorAlertMuted";
 const ALERT_PREFERENCES_STORAGE_KEY = "enemyHospitalMonitorAlertPreferences";
+const HIDE_ABROAD_HOSPITALS_STORAGE_KEY = "enemyHospitalMonitorHideAbroadHospitals";
 const ALERT_PRIORITIES = [1, 2, 3, 4] as const;
 
 type AlertPriority = MonitorEvent["priority"];
@@ -138,6 +139,7 @@ export function EnemyHospitalMonitor({
   const [alertVolume, setAlertVolume] = React.useState(() => initialAlertVolume());
   const [alertsMuted, setAlertsMuted] = React.useState(() => initialAlertsMuted());
   const [alertPreferences, setAlertPreferences] = React.useState(() => initialAlertPreferences());
+  const [hideAbroadHospitals, setHideAbroadHospitals] = React.useState(() => initialHideAbroadHospitals());
   const [alertFlash, setAlertFlash] = React.useState<{ id: number; priority: AlertPriority } | null>(null);
   const [cachedEnemyStats, setCachedEnemyStats] = React.useState<Map<number, EnemyFactionMember>>(new Map());
   const [clockSync, setClockSync] = React.useState<ClockSyncState | null>(null);
@@ -364,7 +366,10 @@ export function EnemyHospitalMonitor({
 
   const hospitalizedMembers = members.filter((member) => member.state === "Hospital").length;
   const alertPriorityByMemberId = memberAlertPriorities(visibleEvents);
-  const sortedMembers = [...members].sort((left, right) =>
+  const displayedMembers = hideAbroadHospitals
+    ? members.filter((member) => !isAbroadHospitalized(member))
+    : members;
+  const sortedMembers = [...displayedMembers].sort((left, right) =>
     compareMonitorMembers(left, right, nowMs, cachedEnemyStats),
   );
   const forcedTopMembers = sortedMembers.filter((member) => memberAlertSortRank(member, nowMs) === 0);
@@ -452,9 +457,11 @@ export function EnemyHospitalMonitor({
           volume={alertVolume}
           muted={alertsMuted}
           alertPreferences={alertPreferences}
+          hideAbroadHospitals={hideAbroadHospitals}
           onVolumeChange={setAlertVolume}
           onMutedChange={setAlertsMuted}
           onAlertPreferencesChange={setAlertPreferences}
+          onHideAbroadHospitalsChange={setHideAbroadHospitals}
         />
       </section>
 
@@ -478,9 +485,12 @@ export function EnemyHospitalMonitor({
         </section>
 
         <section className="panel enemy-monitor-members-panel">
-          <PanelHeader title="Enemy status" aside={`${members.length}`} />
+          <PanelHeader
+            title="Enemy status"
+            aside={displayedMembers.length === members.length ? `${members.length}` : `${displayedMembers.length}/${members.length}`}
+          />
           {sortedMembers.length === 0 ? (
-            <EmptyState text="Waiting for baseline poll" />
+            <EmptyState text={members.length === 0 ? "Waiting for baseline poll" : "All observed enemies are hidden by settings"} />
           ) : (
             <div className="enemy-monitor-member-list">
               {forcedTopMembers.length > 0 ? (
@@ -553,16 +563,20 @@ function MonitorSettingsCard({
   volume,
   muted,
   alertPreferences,
+  hideAbroadHospitals,
   onVolumeChange,
   onMutedChange,
   onAlertPreferencesChange,
+  onHideAbroadHospitalsChange,
 }: {
   volume: number;
   muted: boolean;
   alertPreferences: AlertPreferences;
+  hideAbroadHospitals: boolean;
   onVolumeChange: (value: number) => void;
   onMutedChange: (value: boolean) => void;
   onAlertPreferencesChange: (value: AlertPreferences) => void;
+  onHideAbroadHospitalsChange: (value: boolean) => void;
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -594,6 +608,12 @@ function MonitorSettingsCard({
     };
     onAlertPreferencesChange(nextPreferences);
     window.localStorage.setItem(ALERT_PREFERENCES_STORAGE_KEY, JSON.stringify(nextPreferences));
+  }
+
+  function toggleHideAbroadHospitals() {
+    const nextValue = !hideAbroadHospitals;
+    onHideAbroadHospitalsChange(nextValue);
+    window.localStorage.setItem(HIDE_ABROAD_HOSPITALS_STORAGE_KEY, nextValue ? "1" : "0");
   }
 
   return (
@@ -677,6 +697,14 @@ function MonitorSettingsCard({
           <label className="enemy-monitor-settings-option disabled">
             <input type="checkbox" disabled />
             Browser notifications
+          </label>
+          <label className="enemy-monitor-settings-option">
+            <input
+              type="checkbox"
+              checked={hideAbroadHospitals}
+              onChange={toggleHideAbroadHospitals}
+            />
+            Hide enemies hospitalized abroad
           </label>
         </div>
       ) : null}
@@ -790,6 +818,7 @@ function MemberStatusRow({
   alertPriority: MonitorEvent["priority"] | null;
 }) {
   const tornReturn = travelReturnToTorn(member, cachedStats, nowMs);
+  const abroadHospital = hospitalAbroadInfo(member);
   return (
     <a
       className={memberTileClass(member, nowMs, alertPriority)}
@@ -800,8 +829,13 @@ function MemberStatusRow({
       <div>
         <strong>{member.name}</strong>
       </div>
-      <span className={`enemy-monitor-state ${stateClass(member.state)}${tornReturn ? " has-return-countdown" : ""}`}>
+      <span className={memberStateClass(member, tornReturn, abroadHospital)}>
         <span>{memberStatusLabel(member, nowMs)}</span>
+        {abroadHospital ? (
+          <small className="enemy-monitor-abroad-hospital" title={abroadHospital.title}>
+            {abroadHospital.label}
+          </small>
+        ) : null}
         {tornReturn ? (
           <small title={tornReturn.title}>
             Torn in {tornReturn.countdown}
@@ -1234,6 +1268,10 @@ function initialAlertsMuted(): boolean {
   return window.localStorage.getItem(ALERT_MUTED_STORAGE_KEY) === "1";
 }
 
+function initialHideAbroadHospitals(): boolean {
+  return window.localStorage.getItem(HIDE_ABROAD_HOSPITALS_STORAGE_KEY) === "1";
+}
+
 function initialAlertPreferences(): AlertPreferences {
   const stored = window.localStorage.getItem(ALERT_PREFERENCES_STORAGE_KEY);
   if (!stored) return DEFAULT_ALERT_PREFERENCES;
@@ -1441,6 +1479,46 @@ function memberStatusLabel(member: MemberMonitorSnapshot, nowMs: number): string
     return cleanHospitalDescription(member.description);
   }
   return member.description ?? member.state ?? "Unknown";
+}
+
+function memberStateClass(
+  member: MemberMonitorSnapshot,
+  tornReturn: ReturnType<typeof travelReturnToTorn>,
+  abroadHospital: ReturnType<typeof hospitalAbroadInfo>,
+): string {
+  const classes = ["enemy-monitor-state", stateClass(member.state)];
+  if (tornReturn) {
+    classes.push("has-return-countdown");
+  }
+  if (abroadHospital) {
+    classes.push("has-status-detail", "has-abroad-hospital");
+  }
+  return classes.join(" ");
+}
+
+function hospitalAbroadInfo(member: MemberMonitorSnapshot): { label: string; title: string } | null {
+  if (member.state !== "Hospital") {
+    return null;
+  }
+
+  const location = hospitalAbroadLocation(member.description) ?? hospitalAbroadLocation(member.details);
+  if (!location) {
+    return null;
+  }
+
+  return {
+    label: `Abroad: ${location}`,
+    title: `Torn reports this enemy as hospitalized abroad: ${member.description ?? member.details ?? location}`,
+  };
+}
+
+function isAbroadHospitalized(member: MemberMonitorSnapshot): boolean {
+  return hospitalAbroadInfo(member) !== null;
+}
+
+function hospitalAbroadLocation(description: string | null): string | null {
+  const location = description?.match(/^In an? (.+?) hospital(?:\s+for\b|$)/i)?.[1]?.trim();
+  return location ? `${location} hospital` : null;
 }
 
 function hospitalTimeRemainingLabel(until: number, nowMs: number): string {

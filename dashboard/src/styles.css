@@ -625,6 +625,17 @@ h2 {
   color: #64748b;
 }
 
+.dashboard-attack-warning {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
 .dashboard-attack-row {
   display: grid;
   grid-template-columns: 86px 112px minmax(0, 1fr) minmax(120px, auto);
@@ -1426,18 +1437,24 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-.enemy-monitor-state.has-return-countdown {
+.enemy-monitor-state.has-return-countdown,
+.enemy-monitor-state.has-status-detail {
   display: grid;
   gap: 2px;
   border-radius: 8px;
   line-height: 1.08;
 }
 
-.enemy-monitor-state.has-return-countdown small {
+.enemy-monitor-state.has-return-countdown small,
+.enemy-monitor-state.has-status-detail small {
   color: #1d4ed8;
   font-size: 0.68rem;
   font-weight: 950;
   white-space: nowrap;
+}
+
+.enemy-monitor-state.has-abroad-hospital .enemy-monitor-abroad-hospital {
+  color: #7c3aed;
 }
 
 .enemy-monitor-member div,
@@ -4756,6 +4773,12 @@ tbody tr:not(.attack-row):hover td {
   color: var(--accent-strong);
 }
 
+:root[data-theme="dark"] .dashboard-attack-warning {
+  border-color: rgba(251, 146, 60, 0.35);
+  background: rgba(124, 45, 18, 0.32);
+  color: #fdba74;
+}
+
 :root[data-theme="dark"] .dashboard-attack-row.outgoing .dashboard-attack-direction {
   background: var(--panel-active-bg);
   color: var(--accent-strong);
@@ -5295,6 +5318,10 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .enemy-monitor-state.has-return-countdown small {
   color: #93c5fd;
+}
+
+:root[data-theme="dark"] .enemy-monitor-state.has-abroad-hospital .enemy-monitor-abroad-hospital {
+  color: #c4b5fd;
 }
 
 :root[data-theme="dark"] .enemy-monitor-settings-field,

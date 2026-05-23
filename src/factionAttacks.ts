@@ -47,9 +47,8 @@ export async function getRecentFactionAttacks(url: URL, env: Env): Promise<Respo
   const windowSeconds = parseWindowSeconds(url.searchParams.get("window_seconds"));
   const since = nowSeconds() - windowSeconds;
 
-  const [outgoingRows, incomingRows] = await Promise.all([
-    env.DB.prepare(
-      `
+  const outgoingStatement = env.DB.prepare(
+    `
       SELECT ${RECENT_ATTACK_SELECT_COLUMNS}
       FROM attacks
       WHERE attacker_faction_id = ?
@@ -58,11 +57,9 @@ export async function getRecentFactionAttacks(url: URL, env: Env): Promise<Respo
       ORDER BY started DESC, id DESC
       LIMIT ?
       `,
-    )
-      .bind(HOME_FACTION_ID, since, limit)
-      .all(),
-    env.DB.prepare(
-      `
+  ).bind(HOME_FACTION_ID, since, limit);
+  const incomingStatement = env.DB.prepare(
+    `
       SELECT ${RECENT_ATTACK_SELECT_COLUMNS}
       FROM attacks
       WHERE defender_faction_id = ?
@@ -71,9 +68,11 @@ export async function getRecentFactionAttacks(url: URL, env: Env): Promise<Respo
       ORDER BY started DESC, id DESC
       LIMIT ?
       `,
-    )
-      .bind(HOME_FACTION_ID, since, limit)
-      .all(),
+  ).bind(HOME_FACTION_ID, since, limit);
+
+  const [outgoingRows, incomingRows] = await env.DB.batch<RecentFactionAttackRow>([
+    outgoingStatement,
+    incomingStatement,
   ]);
 
   const rowsById = new Map<number, RecentFactionAttackRow>();

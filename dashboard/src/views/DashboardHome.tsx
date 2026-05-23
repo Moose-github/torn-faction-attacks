@@ -87,6 +87,7 @@ export function DashboardHome({
   const [highlightRotation, setHighlightRotation] = React.useState(0);
   const [recentAttacks, setRecentAttacks] = React.useState<RecentFactionAttack[]>([]);
   const [recentAttacksLoaded, setRecentAttacksLoaded] = React.useState(false);
+  const [recentAttacksError, setRecentAttacksError] = React.useState<string | null>(null);
   const [adminPanelCollapsed, setAdminPanelCollapsed] = React.useState(true);
 
   React.useEffect(() => {
@@ -136,13 +137,21 @@ export function DashboardHome({
     let cancelled = false;
 
     async function loadRecentAttacks() {
-      const response = await getRecentFactionAttacks({
-        limit: RECENT_ATTACK_LIMIT,
-        windowSeconds: RECENT_ATTACK_WINDOW_SECONDS,
-      }).catch(() => null);
-      if (!cancelled) {
-        setRecentAttacks(response?.attacks ?? []);
-        setRecentAttacksLoaded(true);
+      try {
+        const response = await getRecentFactionAttacks({
+          limit: RECENT_ATTACK_LIMIT,
+          windowSeconds: RECENT_ATTACK_WINDOW_SECONDS,
+        });
+        if (!cancelled) {
+          setRecentAttacks(response.attacks);
+          setRecentAttacksError(null);
+          setRecentAttacksLoaded(true);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRecentAttacksError(error instanceof Error ? error.message : "Unable to load recent attacks");
+          setRecentAttacksLoaded(true);
+        }
       }
     }
 
@@ -371,14 +380,21 @@ export function DashboardHome({
         </div>
         {!recentAttacksLoaded ? (
           <EmptyState text="Loading recent attacks" />
+        ) : recentAttacksError && recentAttacks.length === 0 ? (
+          <EmptyState text={`Recent attacks unavailable: ${recentAttacksError}`} />
         ) : recentAttacks.length === 0 ? (
           <EmptyState text="No incoming or outgoing attacks in the last 5 minutes" />
         ) : (
-          <div className="dashboard-attack-list">
-            {recentAttacks.map((attack) => (
-              <RecentAttackRow key={attack.id} attack={attack} />
-            ))}
-          </div>
+          <>
+            {recentAttacksError ? (
+              <p className="dashboard-attack-warning">Refresh failed: {recentAttacksError}</p>
+            ) : null}
+            <div className="dashboard-attack-list">
+              {recentAttacks.map((attack) => (
+                <RecentAttackRow key={attack.id} attack={attack} />
+              ))}
+            </div>
+          </>
         )}
       </section>
 
