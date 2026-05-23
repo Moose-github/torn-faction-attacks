@@ -1,4 +1,5 @@
 export type AppView =
+  | "dashboard"
   | "war"
   | "warRoom"
   | "hospitalMonitor"
@@ -16,6 +17,7 @@ export type AppRoute = {
 };
 
 export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
+  dashboard: "/",
   warRoom: "/war-room",
   hospitalMonitor: "/enemy-hospital-monitor",
   members: "/members",
@@ -30,6 +32,13 @@ export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
 export function parseAppRoute(pathname: string): AppRoute {
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
   const lowerPath = normalizedPath.toLowerCase();
+
+  if (lowerPath === "/wars") {
+    return {
+      view: "war",
+      warName: null,
+    };
+  }
 
   if (lowerPath.startsWith("/wars/")) {
     const rawWarName = normalizedPath.slice("/wars/".length);
@@ -48,14 +57,14 @@ export function parseAppRoute(pathname: string): AppRoute {
   }
 
   return {
-    view: "war",
+    view: "dashboard",
     warName: null,
   };
 }
 
 export function pathForView(view: AppView, warName?: string | null): string {
   if (view === "war") {
-    return warName ? `/wars/${encodeURIComponent(warName)}` : "/";
+    return warName ? `/wars/${encodeURIComponent(warName)}` : "/wars";
   }
 
   return PAGE_PATHS[view];

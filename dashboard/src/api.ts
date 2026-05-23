@@ -459,6 +459,36 @@ export type IngestionRunResponse = {
   run: IngestionRun | null;
 };
 
+export type MaintenanceRun = {
+  id: string;
+  started_at: number;
+  finished_at: number | null;
+  status: string;
+  task_count: number;
+  write_statements: number;
+  changed_rows: number;
+  error: string | null;
+};
+
+export type MaintenanceTask = {
+  id: string;
+  run_id: string;
+  task_name: string;
+  started_at: number;
+  finished_at: number | null;
+  status: string;
+  write_statements: number;
+  changed_rows: number;
+  details: string | null;
+  error: string | null;
+};
+
+export type MaintenanceRunResponse = {
+  ok: boolean;
+  run: MaintenanceRun | null;
+  tasks: MaintenanceTask[];
+};
+
 export type MemberLifestyleStats = {
   member_id: number;
   member_name: string | null;
@@ -908,6 +938,10 @@ export async function rebuildStats(warId?: number): Promise<unknown> {
 
 export async function getLatestIngestionRun(): Promise<IngestionRunResponse> {
   return getJson<IngestionRunResponse>("/api/admin/ingestion-run", true);
+}
+
+export async function getLatestMaintenanceRun(): Promise<MaintenanceRunResponse> {
+  return getJson<MaintenanceRunResponse>("/api/admin/maintenance-run", true);
 }
 
 export async function listAdminUsers(): Promise<unknown> {

@@ -269,6 +269,170 @@ h2 {
   grid-template-columns: repeat(3, minmax(160px, 1fr));
 }
 
+.dashboard-home-header {
+  align-items: flex-start;
+}
+
+.dashboard-home-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.dashboard-home-lower-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.dashboard-home-lower-grid.member-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dashboard-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 224px;
+  padding: 16px;
+}
+
+.dashboard-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.dashboard-card-header > div {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.dashboard-card-header h3 {
+  margin: 0;
+  color: #162033;
+  font-size: 0.96rem;
+  line-height: 1.2;
+}
+
+.dashboard-card-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.dashboard-status-chip {
+  max-width: 150px;
+  padding: 5px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.dashboard-status-chip.good {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.dashboard-status-chip.warn,
+.dashboard-status-chip.hot {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.dashboard-status-chip.danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.dashboard-card-metrics {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-metric-line {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.7fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dashboard-metric-line span {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.dashboard-metric-line strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 0.84rem;
+  font-weight: 850;
+}
+
+.dashboard-card-action {
+  align-self: flex-start;
+  margin-top: auto;
+}
+
+.dashboard-activity-panel {
+  padding: 16px;
+}
+
+.dashboard-event-list {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-event-row {
+  display: grid;
+  grid-template-columns: 86px minmax(150px, 0.55fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dashboard-event-row span {
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.dashboard-event-row strong {
+  color: #172033;
+  font-size: 0.84rem;
+}
+
+.dashboard-event-row small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #64748b;
+}
+
 .dashboard-layout {
   display: grid;
   grid-template-columns: 318px minmax(0, 1fr);
@@ -297,12 +461,13 @@ h2 {
   top: 18px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   max-height: calc(100vh - 36px);
   overflow: hidden;
 }
 
 .sidebar-panel {
+  padding: 10px;
   backdrop-filter: blur(10px);
 }
 
@@ -314,7 +479,11 @@ h2 {
 .sidebar-group {
   display: grid;
   gap: 8px;
-  padding: 10px;
+}
+
+.sidebar-group.collapsed,
+.sidebar-wars-panel.collapsed {
+  padding: 7px 10px;
 }
 
 .sidebar-group-header {
@@ -343,8 +512,9 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 30px;
-  padding: 0 4px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 6px;
   border: 0;
   background: transparent;
   color: #64748b;
@@ -383,6 +553,9 @@ h2 {
 
 .sidebar-wars-panel .sidebar-group-header {
   flex: 0 0 auto;
+}
+
+.sidebar-wars-panel:not(.collapsed) .sidebar-group-header {
   padding-bottom: 8px;
 }
 
@@ -3602,6 +3775,9 @@ tbody tr:not(.attack-row):hover td {
   .status-grid,
   .admin-grid,
   .admin-event-grid,
+  .dashboard-home-grid,
+  .dashboard-home-lower-grid,
+  .dashboard-home-lower-grid.member-only,
   .dice-play-layout,
   .heatmap-stack,
   .revivable-grid,
@@ -3625,6 +3801,15 @@ tbody tr:not(.attack-row):hover td {
 
   .payout-add-control {
     justify-content: flex-start;
+  }
+
+  .dashboard-card {
+    min-height: auto;
+  }
+
+  .dashboard-event-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .sidebar {
@@ -3687,6 +3872,9 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] h3,
 :root[data-theme="dark"] strong,
 :root[data-theme="dark"] .hero-panel h2,
+:root[data-theme="dark"] .dashboard-card-header h3,
+:root[data-theme="dark"] .dashboard-metric-line strong,
+:root[data-theme="dark"] .dashboard-event-row strong,
 :root[data-theme="dark"] .war-room-countdown strong {
   color: var(--text-strong);
 }
@@ -3732,6 +3920,42 @@ tbody tr:not(.attack-row):hover td {
   border-color: var(--border-faint);
   background: var(--panel-muted-bg);
   color: var(--text-main);
+}
+
+:root[data-theme="dark"] .dashboard-card-icon {
+  border-color: var(--border-solid);
+  background: var(--panel-active-bg);
+  color: var(--accent-strong);
+}
+
+:root[data-theme="dark"] .dashboard-status-chip {
+  border-color: var(--border-solid);
+  background: var(--panel-bg-solid);
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .dashboard-status-chip.good {
+  border-color: rgba(74, 222, 128, 0.45);
+  background: rgba(22, 101, 52, 0.28);
+  color: #86efac;
+}
+
+:root[data-theme="dark"] .dashboard-status-chip.warn,
+:root[data-theme="dark"] .dashboard-status-chip.hot {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(146, 64, 14, 0.28);
+  color: #fbbf24;
+}
+
+:root[data-theme="dark"] .dashboard-status-chip.danger {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(127, 29, 29, 0.32);
+  color: #fca5a5;
+}
+
+:root[data-theme="dark"] .dashboard-event-row {
+  border-color: var(--border-faint);
+  background: var(--panel-muted-bg);
 }
 
 :root[data-theme="dark"] .sidebar-link,

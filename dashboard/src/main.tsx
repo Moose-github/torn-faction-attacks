@@ -4,6 +4,7 @@ import {
   BarChart3,
   CircleDollarSign,
   Dices,
+  House,
   LogIn,
   Moon,
   Pill,
@@ -44,6 +45,7 @@ import {
 } from "./components/Common";
 import { Sidebar } from "./components/Sidebar";
 import { MembersOverview } from "./views/MembersOverview";
+import { DashboardHome } from "./views/DashboardHome";
 import { WarDetailView } from "./views/WarDetailView";
 import { WarRoom } from "./views/WarRoom";
 import { EnemyHospitalMonitor } from "./views/EnemyHospitalMonitor";
@@ -428,10 +430,10 @@ function App() {
 
   React.useEffect(() => {
     if (isAdminOnlyView(view) && !isAdmin) {
-      goToPath(pathForView("war", selectedWarName), true);
-      setView("war");
+      goToPath(pathForView("dashboard"), true);
+      setView("dashboard");
     }
-  }, [isAdmin, selectedWarName, view]);
+  }, [isAdmin, view]);
 
   React.useEffect(() => {
     const termedOnlySorts = ["average_fair_fight", "member_respect_limit_percent"];
@@ -594,7 +596,7 @@ function App() {
       return;
     }
 
-    if (nextView === "warRoom" && wars[0]) {
+    if ((nextView === "dashboard" || nextView === "warRoom") && wars[0]) {
       setSelectedWarName(wars[0].name);
     }
 
@@ -613,9 +615,9 @@ function App() {
   function signOut() {
     clearStoredAuthSession();
     setAuthSession(null);
-    setView("war");
+    setView("dashboard");
     setRoutedWarName(null);
-    goToPath(pathForView("war"), true);
+    goToPath(pathForView("dashboard"), true);
     setError(null);
   }
 
@@ -676,6 +678,7 @@ function App() {
           wars={wars}
           selectedWarName={selectedWarName}
           isLoadingWars={isLoadingWars}
+          dashboardIcon={<House size={18} />}
           warRoomIcon={<Radar size={18} />}
           memberIcon={<BarChart3 size={18} />}
           lifestyleIcon={<Pill size={18} />}
@@ -689,7 +692,18 @@ function App() {
         />
 
         <section className="main-content">
-          {view === "admin" ? (
+          {view === "dashboard" ? (
+            <DashboardHome
+              activeWar={activeWar}
+              isAdmin={isAdmin}
+              isLoadingWars={isLoadingWars}
+              selectedWar={selectedWar}
+              warDetail={warDetail}
+              wars={wars}
+              onOpenView={changeView}
+              onOpenWar={selectWar}
+            />
+          ) : view === "admin" ? (
             <LazyPage>
               <AdminControls />
             </LazyPage>

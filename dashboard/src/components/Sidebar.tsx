@@ -16,6 +16,7 @@ export function Sidebar({
   wars,
   selectedWarName,
   isLoadingWars,
+  dashboardIcon,
   warRoomIcon,
   memberIcon,
   lifestyleIcon,
@@ -34,6 +35,7 @@ export function Sidebar({
   wars: WarSummary[];
   selectedWarName: string | null;
   isLoadingWars: boolean;
+  dashboardIcon: React.ReactNode;
   warRoomIcon: React.ReactNode;
   memberIcon: React.ReactNode;
   lifestyleIcon: React.ReactNode;
@@ -78,6 +80,12 @@ export function Sidebar({
     <aside className="sidebar">
       <section className="panel sidebar-panel sidebar-pages-panel">
         <SidebarLink
+          active={view === "dashboard"}
+          icon={dashboardIcon}
+          label="Dashboard"
+          onClick={() => onViewChange("dashboard")}
+        />
+        <SidebarLink
           active={view === "warRoom"}
           icon={warRoomIcon}
           label="War room"
@@ -106,11 +114,11 @@ export function Sidebar({
       </SidebarGroup>
 
       <section
-        className={
-          recordedWarsActive
-            ? "panel sidebar-panel sidebar-wars-panel active"
-            : "panel sidebar-panel sidebar-wars-panel"
-        }
+        className={[
+          "panel sidebar-panel sidebar-wars-panel",
+          recordedWarsActive ? "active" : "",
+          collapsedGroups.recordedWars ? "collapsed" : "",
+        ].filter(Boolean).join(" ")}
       >
         <SidebarGroupHeader
           title="Recorded wars"
@@ -199,7 +207,13 @@ function SidebarGroup({
   children: React.ReactNode;
 }) {
   return (
-    <section className={active ? "panel sidebar-panel sidebar-group active" : "panel sidebar-panel sidebar-group"}>
+    <section
+      className={[
+        "panel sidebar-panel sidebar-group",
+        active ? "active" : "",
+        collapsed ? "collapsed" : "",
+      ].filter(Boolean).join(" ")}
+    >
       <SidebarGroupHeader
         title={title}
         active={active}
