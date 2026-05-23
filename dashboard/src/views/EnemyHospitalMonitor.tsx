@@ -671,7 +671,7 @@ function compareMonitorMembers(
 }
 
 function memberAlertSortRank(member: MemberMonitorSnapshot, nowMs: number): number {
-  if (isUrgentLastAction(member, nowMs)) {
+  if (member.state === "Hospital" && isUrgentLastAction(member, nowMs)) {
     return 0;
   }
   return 1;
