@@ -27,7 +27,6 @@ import { getCurrentHomeFactionMemberSummary } from "./homeFactionMembers";
 import { getLatestIngestionRun, runIngestion } from "./ingestion";
 import {
   getMemberLifestyleStats,
-  refreshMemberLifestyleStatsFromRequest,
 } from "./lifestyleStats";
 import { listMemberAchievementSummaries } from "./memberAchievements";
 import { getMiscellaneousData } from "./miscellaneous";
@@ -260,14 +259,6 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
       () => getMemberLifestyleStats(url, env),
       [MEMBER_LIFESTYLE_CACHE_VERSION_NAME],
     );
-  }
-
-  if (matchesRoute(url, request, "/api/member-lifestyle-stats/refresh", "POST")) {
-    return withAdmin(routeContext, async () => {
-      const cooldownError = await requireActionCooldown(env, "member_lifestyle_stats_refresh", 30 * 60);
-      if (cooldownError) return cooldownError;
-      return refreshMemberLifestyleStatsFromRequest(request, env);
-    });
   }
 
   if (matchesRoute(url, request, "/api/member-achievements", "GET")) {

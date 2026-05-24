@@ -21,6 +21,7 @@ import {
   getTradeWatchlists,
   HomeFactionMemberSummary,
   IngestionRun,
+  DailyStatsAttention,
   MaintenanceRun,
   MaintenanceTask,
   MemberAchievementSummary,
@@ -80,6 +81,7 @@ export function DashboardHome({
   const [ingestionRun, setIngestionRun] = React.useState<IngestionRun | null>(null);
   const [maintenanceRun, setMaintenanceRun] = React.useState<MaintenanceRun | null>(null);
   const [maintenanceTasks, setMaintenanceTasks] = React.useState<MaintenanceTask[]>([]);
+  const [dailyStatsAttention, setDailyStatsAttention] = React.useState<DailyStatsAttention | null>(null);
   const [watchlists, setWatchlists] = React.useState<TradeWatchlist[]>([]);
   const [memberSummary, setMemberSummary] = React.useState<HomeFactionMemberSummary | null>(null);
   const [memberAchievements, setMemberAchievements] = React.useState<MemberAchievementSummary[]>([]);
@@ -168,6 +170,7 @@ export function DashboardHome({
       setIngestionRun(null);
       setMaintenanceRun(null);
       setMaintenanceTasks([]);
+      setDailyStatsAttention(null);
       setWatchlists([]);
       return;
     }
@@ -188,6 +191,7 @@ export function DashboardHome({
       setIngestionRun(ingestion?.run ?? null);
       setMaintenanceRun(maintenance?.run ?? null);
       setMaintenanceTasks(maintenance?.tasks ?? []);
+      setDailyStatsAttention(maintenance?.daily_stats_attention ?? null);
       setWatchlists(trade?.watchlists ?? []);
     }
 
@@ -203,6 +207,9 @@ export function DashboardHome({
     const scannedAt = watchlist.latest_snapshot?.scanned_at ?? 0;
     return scannedAt === 0 || scannedAt < Math.floor(Date.now() / 1000) - 6 * 60 * 60;
   }).length;
+  const dailyStatsAttentionCount =
+    (dailyStatsAttention?.stale_personalstats ?? 0) + (dailyStatsAttention?.missing_donator_days ?? 0);
+  const adminAttentionCount = missingReports + tradeScansDue + dailyStatsAttentionCount;
 
   const events = buildRecentEvents({
     activeWar,
@@ -333,14 +340,15 @@ export function DashboardHome({
                 <DashboardCard
                   icon={<ShieldCheck size={17} />}
                   title="Admin attention"
-                  status={missingReports + tradeScansDue > 0 ? `${missingReports + tradeScansDue} to check` : "Clear"}
-                  tone={missingReports + tradeScansDue > 0 ? "warn" : "good"}
+                  status={adminAttentionCount > 0 ? `${adminAttentionCount} to check` : "Clear"}
+                  tone={adminAttentionCount > 0 ? "warn" : "good"}
                   actionLabel="Open admin"
                   onAction={() => onOpenView("admin")}
                 >
                   <div className="dashboard-card-metrics">
                     <MetricLine label="Missing reports" value={formatNumber(missingReports)} />
                     <MetricLine label="Trade scans due" value={formatNumber(tradeScansDue)} />
+                    <MetricLine label="Daily stats stale" value={formatNumber(dailyStatsAttentionCount)} />
                     <MetricLine label="Watchlists" value={formatNumber(watchlists.length)} />
                   </div>
                 </DashboardCard>

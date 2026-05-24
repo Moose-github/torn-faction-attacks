@@ -521,10 +521,22 @@ export type MaintenanceTask = {
   error: string | null;
 };
 
+export type DailyStatsAttention = {
+  stale_personalstats: number;
+  missing_donator_days: number;
+  affected_members: Array<{
+    member_id: number;
+    member_name: string | null;
+    error: string | null;
+    updated_at: number | null;
+  }>;
+};
+
 export type MaintenanceRunResponse = {
   ok: boolean;
   run: MaintenanceRun | null;
   tasks: MaintenanceTask[];
+  daily_stats_attention?: DailyStatsAttention;
 };
 
 export type MemberLifestyleStats = {
@@ -575,18 +587,6 @@ export type MemberLifestyleStatsResponse = {
     oldest_updated_at: number | null;
   };
   members: MemberLifestyleStats[];
-};
-
-export type MemberLifestyleRefreshResponse = {
-  ok: boolean;
-  considered: number;
-  refreshed: number;
-  failed: number;
-  gym_contributors?: {
-    refreshed_stats: number;
-    updated_members: number;
-    error?: string;
-  };
 };
 
 export type MemberAchievementSummary = {
@@ -1095,21 +1095,6 @@ export async function getMemberLifestyleStats(options: {
 
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   return getJson<MemberLifestyleStatsResponse>(`/api/member-lifestyle-stats${suffix}`);
-}
-
-export async function refreshMemberLifestyleStats(
-  options: { limit?: number; force?: boolean } = {},
-): Promise<MemberLifestyleRefreshResponse> {
-  const params = new URLSearchParams();
-  if (options.limit !== undefined) {
-    params.set("limit", String(options.limit));
-  }
-  if (options.force) {
-    params.set("force", "true");
-  }
-
-  const suffix = params.size > 0 ? `?${params.toString()}` : "";
-  return postJson<MemberLifestyleRefreshResponse>(`/api/member-lifestyle-stats/refresh${suffix}`);
 }
 
 export async function getMemberAchievements(): Promise<MemberAchievementsResponse> {

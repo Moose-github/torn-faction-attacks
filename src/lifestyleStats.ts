@@ -1,12 +1,13 @@
 import { HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
 import { bumpMemberLifestyleCacheVersion } from "./cacheVersions";
+import { sendDiscordMessage } from "./discord";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { refreshMemberAchievementSummaries } from "./memberAchievements";
 import { fetchTornPersonalStats } from "./personalStats";
 import { claimDailyBatchGate } from "./scheduledGates";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember } from "./types";
-import { boolToInt, fetchWithTimeout, finiteNumber, json, nowSeconds, parseLimit } from "./utils";
+import { boolToInt, fetchWithTimeout, finiteNumber, json, nowSeconds } from "./utils";
 
 const LIFESTYLE_STAT_KEYS = [
   "xantaken",
@@ -14,6 +15,7 @@ const LIFESTYLE_STAT_KEYS = [
   "refills",
   "useractivity",
   "networth",
+  "daysbeendonator",
 ] as const;
 const TORN_LIFESTYLE_STAT_KEYS = [
   "xantaken",
@@ -21,6 +23,7 @@ const TORN_LIFESTYLE_STAT_KEYS = [
   "refills",
   "timeplayed",
   "networth",
+  "daysbeendonator",
 ] as const;
 const GYM_CONTRIBUTOR_STAT_KEYS = [
   "gymenergy",
@@ -41,6 +44,10 @@ const DAILY_GYM_COMPLETE_STATE_NAME = "member_gym_contributors_daily";
 const DAILY_LIFESTYLE_LOCK_SECONDS = 75;
 const DAILY_LIFESTYLE_LOCK_STATE_NAME = "member_lifestyle_stats_daily_lock";
 const DAILY_LIFESTYLE_RESET_STATE_NAME = "member_lifestyle_stats_daily_reset";
+const DAILY_LIFESTYLE_STALE_ALERT_STATE_NAME = "member_lifestyle_stats_stale_discord_alert";
+const DAILY_LIFESTYLE_STALE_ALERT_AFTER_SECONDS = 2 * 60 * 60;
+const STALE_PERSONALSTATS_ERROR_CODE = "STALE_PERSONALSTATS_UNCHANGED";
+const MISSING_DONATOR_DAYS_ERROR_CODE = "MISSING_DONATOR_DAYS";
 
 type LifestyleStatKey = (typeof LIFESTYLE_STAT_KEYS)[number];
 type GymContributorStatKey = (typeof GYM_CONTRIBUTOR_STAT_KEYS)[number];
@@ -86,6 +93,7 @@ type LifestyleSnapshotRow = {
   refills: number | null;
   useractivity: number | null;
   networth: number | null;
+  daysbeendonator: number | null;
   gymenergy: number | null;
   gymstrength: number | null;
   gymspeed: number | null;
@@ -99,11 +107,23 @@ type LifestyleSnapshotNumberKey =
   | "overdosed"
   | "refills"
   | "useractivity"
+  | "daysbeendonator"
   | "gymenergy"
   | "gymstrength"
   | "gymspeed"
   | "gymdefense"
   | "gymdexterity";
+
+export type DailyStatsAttention = {
+  stale_personalstats: number;
+  missing_donator_days: number;
+  affected_members: Array<{
+    member_id: number;
+    member_name: string | null;
+    error: string | null;
+    updated_at: number | null;
+  }>;
+};
 
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
   const availableRange = await readLifestyleSnapshotDateRange(env);
@@ -111,23 +131,27 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
   const snapshotRows = ((await env.DB.prepare(
     `
     SELECT
-      member_id,
-      snapshot_date,
-      member_name,
-      xantaken,
-      overdosed,
-      refills,
-      useractivity,
-      networth,
-      gymenergy,
-      gymstrength,
-      gymspeed,
-      gymdefense,
-      gymdexterity,
-      captured_at
-    FROM member_lifestyle_stat_snapshots
-    WHERE snapshot_date BETWEEN ? AND ?
-    ORDER BY member_id ASC, snapshot_date ASC
+      snapshots.member_id,
+      snapshots.snapshot_date,
+      snapshots.member_name,
+      snapshots.xantaken,
+      snapshots.overdosed,
+      snapshots.refills,
+      snapshots.useractivity,
+      snapshots.networth,
+      snapshots.daysbeendonator,
+      snapshots.gymenergy,
+      snapshots.gymstrength,
+      snapshots.gymspeed,
+      snapshots.gymdefense,
+      snapshots.gymdexterity,
+      snapshots.captured_at
+    FROM member_lifestyle_stat_snapshots snapshots
+    JOIN home_faction_members
+      ON home_faction_members.member_id = snapshots.member_id
+     AND home_faction_members.is_current = 1
+    WHERE snapshots.snapshot_date BETWEEN ? AND ?
+    ORDER BY snapshots.member_id ASC, snapshots.snapshot_date ASC
     `,
   )
     .bind(period.start_date, period.end_date)
@@ -142,41 +166,15 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
   });
 }
 
-export async function refreshMemberLifestyleStatsFromRequest(
-  request: Request,
-  env: Env,
-): Promise<Response> {
-  try {
-    const url = new URL(request.url);
-    const limit = parseLimit(url.searchParams.get("limit"), 10, MAX_MANUAL_PERSONAL_STATS_REFRESH);
-    const force = url.searchParams.get("force") === "true";
-    const result = await refreshMemberLifestyleStats(env, { limit, force });
-    const gymResult = await refreshGymContributorStats(env).catch((err: any) => ({
-      refreshed_stats: 0,
-      updated_members: 0,
-      error: err?.message || String(err),
-    }));
-
-    await writeLifestyleSnapshotForDate(env, utcDateKey(nowSeconds()));
-    await refreshMemberAchievementSummaries(env);
-    await bumpMemberLifestyleCacheVersion(env);
-
-    return json({ ok: true, ...result, gym_contributors: gymResult });
-  } catch (err: any) {
-    return json(
-      {
-        ok: false,
-        error: err?.message || String(err),
-        code: "LIFESTYLE_REFRESH_FAILED",
-      },
-      500,
-    );
-  }
-}
-
 export async function refreshMemberLifestyleStats(
   env: Env,
-  options: { limit?: number; force?: boolean; staleBefore?: number; homeMembersSynced?: boolean } = {},
+  options: {
+    limit?: number;
+    force?: boolean;
+    staleBefore?: number;
+    homeMembersSynced?: boolean;
+    compareSnapshotDate?: string;
+  } = {},
 ): Promise<{ considered: number; refreshed: number; failed: number }> {
   const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 10), MAX_MANUAL_PERSONAL_STATS_REFRESH));
   const force = options.force ?? false;
@@ -193,9 +191,19 @@ export async function refreshMemberLifestyleStats(
   for (const member of members) {
     try {
       const stats = await fetchMemberPersonalStats(env, member.member_id);
-      await upsertLifestyleStats(env, member, stats, null);
-      refreshedMemberIds.push(member.member_id);
-      refreshed += 1;
+      const dataQualityError = await personalStatsDataQualityError(
+        env,
+        member,
+        stats,
+        options.compareSnapshotDate,
+      );
+      await upsertLifestyleStats(env, member, stats, dataQualityError);
+      if (dataQualityError) {
+        failed += 1;
+      } else {
+        refreshedMemberIds.push(member.member_id);
+        refreshed += 1;
+      }
     } catch (err: any) {
       await upsertLifestyleStats(env, member, emptyLifestyleStats(), err?.message || String(err));
       failed += 1;
@@ -244,14 +252,17 @@ export async function refreshDailyMemberLifestyleStats(
     limit: options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT,
     staleBefore: refreshAt,
     homeMembersSynced: true,
+    compareSnapshotDate: utcDateKey(refreshAt - 24 * 60 * 60),
   });
   await refreshDailyGymContributorStats(env, refreshAt, { homeMembersSynced: true });
   const complete = await markDailyLifestyleRefreshCompleteIfDone(env, refreshAt);
   if (complete) {
     const snapshotDate = utcDateKey(refreshAt);
-    await writeLifestyleSnapshotForDate(env, snapshotDate);
+    await writeLifestyleSnapshotForDate(env, snapshotDate, { freshAfter: refreshAt });
     await refreshMemberAchievementSummaries(env, snapshotDate);
     await bumpMemberLifestyleCacheVersion(env);
+  } else {
+    await sendDailyStatsStaleDiscordAlertIfDue(env, refreshAt, now);
   }
 
   return { ...result, skipped: false };
@@ -286,6 +297,94 @@ async function readLifestyleSnapshotDateRange(
   };
 }
 
+export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttention> {
+  const rows = ((await env.DB.prepare(
+    `
+    SELECT
+      members.member_id,
+      COALESCE(stats.member_name, members.name) AS member_name,
+      stats.error,
+      stats.updated_at
+    FROM home_faction_members members
+    LEFT JOIN member_lifestyle_stats stats
+      ON stats.member_id = members.member_id
+    WHERE members.is_current = 1
+      AND (
+        stats.error LIKE ?
+        OR stats.error LIKE ?
+      )
+    ORDER BY members.name ASC
+    LIMIT 12
+    `,
+  )
+    .bind(`${STALE_PERSONALSTATS_ERROR_CODE}%`, `${MISSING_DONATOR_DAYS_ERROR_CODE}%`)
+    .all()).results ?? []) as DailyStatsAttention["affected_members"];
+
+  const counts = (await env.DB.prepare(
+    `
+    SELECT
+      SUM(CASE WHEN stats.error LIKE ? THEN 1 ELSE 0 END) AS stale_personalstats,
+      SUM(CASE WHEN stats.error LIKE ? THEN 1 ELSE 0 END) AS missing_donator_days
+    FROM home_faction_members members
+    LEFT JOIN member_lifestyle_stats stats
+      ON stats.member_id = members.member_id
+    WHERE members.is_current = 1
+    `,
+  )
+    .bind(`${STALE_PERSONALSTATS_ERROR_CODE}%`, `${MISSING_DONATOR_DAYS_ERROR_CODE}%`)
+    .first()) as { stale_personalstats: number | null; missing_donator_days: number | null } | null;
+
+  return {
+    stale_personalstats: counts?.stale_personalstats ?? 0,
+    missing_donator_days: counts?.missing_donator_days ?? 0,
+    affected_members: rows,
+  };
+}
+
+async function sendDailyStatsStaleDiscordAlertIfDue(
+  env: Env,
+  refreshAt: number,
+  now: number,
+): Promise<void> {
+  if (now < refreshAt + DAILY_LIFESTYLE_STALE_ALERT_AFTER_SECONDS) {
+    return;
+  }
+
+  if ((await readSyncTimestamp(env, DAILY_LIFESTYLE_STALE_ALERT_STATE_NAME)) >= refreshAt) {
+    return;
+  }
+
+  const attention = await getDailyStatsAttention(env);
+  const total = attention.stale_personalstats + attention.missing_donator_days;
+  if (total <= 0) {
+    return;
+  }
+
+  const snapshotDate = utcDateKey(refreshAt);
+  const sampleMembers = attention.affected_members
+    .slice(0, 6)
+    .map((member) => `${member.member_name ?? member.member_id}`)
+    .join(", ");
+  const extra = total > attention.affected_members.length ? ` and ${total - attention.affected_members.length} more` : "";
+  const message =
+    `Daily stats stale alert for ${snapshotDate}: ${total} current member(s) still have unresolved personalstats after 2 hours. ` +
+    `Stale unchanged: ${attention.stale_personalstats}. Missing daysbeendonator: ${attention.missing_donator_days}.` +
+    (sampleMembers ? ` Members: ${sampleMembers}${extra}.` : "");
+
+  if (!env.DISCORD_WEBHOOK_URL) {
+    console.warn(`Daily stats stale alert not sent; DISCORD_WEBHOOK_URL is not configured. ${message}`);
+    await upsertSyncTimestamp(env, DAILY_LIFESTYLE_STALE_ALERT_STATE_NAME, refreshAt, null);
+    return;
+  }
+
+  try {
+    await sendDiscordMessage(env, message);
+    await upsertSyncTimestamp(env, DAILY_LIFESTYLE_STALE_ALERT_STATE_NAME, refreshAt, null);
+  } catch (err: any) {
+    console.warn("Unable to send daily stats stale Discord alert:", err?.message || err);
+  }
+}
+
 async function resetDailyLifestylePersonalStatsIfNeeded(
   env: Env,
   refreshAt: number,
@@ -307,6 +406,7 @@ async function resetDailyLifestylePersonalStatsIfNeeded(
       refills = NULL,
       useractivity = NULL,
       networth = NULL,
+      daysbeendonator = NULL,
       updated_at = NULL,
       error = NULL
     WHERE member_id IN (
@@ -503,6 +603,57 @@ async function fetchMemberPersonalStats(env: Env, memberId: number): Promise<Lif
   return extractLifestyleStats(await fetchTornPersonalStats(env, memberId, TORN_LIFESTYLE_STAT_KEYS));
 }
 
+async function personalStatsDataQualityError(
+  env: Env,
+  member: LifestyleMemberRow,
+  stats: LifestyleStats,
+  compareSnapshotDate: string | undefined,
+): Promise<string | null> {
+  if (stats.daysbeendonator === null) {
+    return `${MISSING_DONATOR_DAYS_ERROR_CODE}: daysbeendonator was not returned`;
+  }
+
+  if (!compareSnapshotDate) {
+    return null;
+  }
+
+  const previous = await readLifestyleSnapshotForMember(env, member.member_id, compareSnapshotDate);
+  if (!previous) {
+    return null;
+  }
+
+  const unchanged = LIFESTYLE_STAT_KEYS.every((key) => stats[key] === previous[key]);
+  if (!unchanged) {
+    return null;
+  }
+
+  return `${STALE_PERSONALSTATS_ERROR_CODE}: all requested personalstats match ${compareSnapshotDate}`;
+}
+
+async function readLifestyleSnapshotForMember(
+  env: Env,
+  memberId: number,
+  snapshotDate: string,
+): Promise<Pick<LifestyleSnapshotRow, LifestyleStatKey> | null> {
+  return (await env.DB.prepare(
+    `
+    SELECT
+      xantaken,
+      overdosed,
+      refills,
+      useractivity,
+      networth,
+      daysbeendonator
+    FROM member_lifestyle_stat_snapshots
+    WHERE member_id = ?
+      AND snapshot_date = ?
+    LIMIT 1
+    `,
+  )
+    .bind(memberId, snapshotDate)
+    .first()) as Pick<LifestyleSnapshotRow, LifestyleStatKey> | null;
+}
+
 async function upsertLifestyleStats(
   env: Env,
   member: LifestyleMemberRow,
@@ -521,10 +672,11 @@ async function upsertLifestyleStats(
       refills,
       useractivity,
       networth,
+      daysbeendonator,
       updated_at,
       error
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN unixepoch() ELSE NULL END, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN unixepoch() ELSE NULL END, ?)
     ON CONFLICT(member_id) DO UPDATE SET
       member_name = excluded.member_name,
       level = excluded.level,
@@ -534,6 +686,7 @@ async function upsertLifestyleStats(
       refills = COALESCE(excluded.refills, member_lifestyle_stats.refills),
       useractivity = COALESCE(excluded.useractivity, member_lifestyle_stats.useractivity),
       networth = COALESCE(excluded.networth, member_lifestyle_stats.networth),
+      daysbeendonator = COALESCE(excluded.daysbeendonator, member_lifestyle_stats.daysbeendonator),
       updated_at = CASE
         WHEN excluded.error IS NULL THEN excluded.updated_at
         ELSE member_lifestyle_stats.updated_at
@@ -551,6 +704,7 @@ async function upsertLifestyleStats(
       stats.refills,
       stats.useractivity,
       stats.networth,
+      stats.daysbeendonator,
       error,
       error,
     )
@@ -711,7 +865,12 @@ async function syncHomeFactionMemberNetworth(env: Env, memberIds: number[]): Pro
     .run();
 }
 
-async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Promise<void> {
+async function writeLifestyleSnapshotForDate(
+  env: Env,
+  snapshotDate: string,
+  options: { freshAfter?: number } = {},
+): Promise<void> {
+  const freshAfter = options.freshAfter ?? null;
   await env.DB.prepare(
     `
     INSERT INTO member_lifestyle_stat_snapshots (
@@ -723,6 +882,7 @@ async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Pr
       refills,
       useractivity,
       networth,
+      daysbeendonator,
       gymenergy,
       gymstrength,
       gymspeed,
@@ -731,22 +891,27 @@ async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Pr
       captured_at
     )
     SELECT
-      member_id,
+      stats.member_id,
       ?,
-      member_name,
-      xantaken,
-      overdosed,
-      refills,
-      useractivity,
-      networth,
-      gymenergy,
-      gymstrength,
-      gymspeed,
-      gymdefense,
-      gymdexterity,
+      stats.member_name,
+      stats.xantaken,
+      stats.overdosed,
+      stats.refills,
+      stats.useractivity,
+      stats.networth,
+      stats.daysbeendonator,
+      stats.gymenergy,
+      stats.gymstrength,
+      stats.gymspeed,
+      stats.gymdefense,
+      stats.gymdexterity,
       unixepoch()
-    FROM member_lifestyle_stats
-    WHERE updated_at IS NOT NULL
+    FROM member_lifestyle_stats stats
+    JOIN home_faction_members members
+      ON members.member_id = stats.member_id
+     AND members.is_current = 1
+    WHERE stats.updated_at IS NOT NULL
+      AND (? IS NULL OR stats.updated_at >= ?)
     ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
       member_name = excluded.member_name,
       xantaken = excluded.xantaken,
@@ -754,6 +919,7 @@ async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Pr
       refills = excluded.refills,
       useractivity = excluded.useractivity,
       networth = excluded.networth,
+      daysbeendonator = excluded.daysbeendonator,
       gymenergy = excluded.gymenergy,
       gymstrength = excluded.gymstrength,
       gymspeed = excluded.gymspeed,
@@ -762,7 +928,7 @@ async function writeLifestyleSnapshotForDate(env: Env, snapshotDate: string): Pr
       captured_at = excluded.captured_at
     `,
   )
-    .bind(snapshotDate)
+    .bind(snapshotDate, freshAfter, freshAfter)
     .run();
 }
 

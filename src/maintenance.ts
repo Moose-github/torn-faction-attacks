@@ -1,6 +1,7 @@
 import { sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
+import { getDailyStatsAttention } from "./lifestyleStats";
 import { refreshMemberAchievementSummariesIfStale } from "./memberAchievements";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
@@ -125,7 +126,7 @@ export async function getLatestMaintenanceRun(env: Env): Promise<Response> {
     });
 
   if (!run) {
-    return json({ ok: true, run: null, tasks: [] });
+    return json({ ok: true, run: null, tasks: [], daily_stats_attention: await getDailyStatsAttention(env) });
   }
 
   const tasks = await env.DB.prepare(
@@ -143,7 +144,12 @@ export async function getLatestMaintenanceRun(env: Env): Promise<Response> {
       return { results: [] };
     });
 
-  return json({ ok: true, run, tasks: tasks.results ?? [] });
+  return json({
+    ok: true,
+    run,
+    tasks: tasks.results ?? [],
+    daily_stats_attention: await getDailyStatsAttention(env),
+  });
 }
 
 async function runMaintenanceTask(task: MaintenanceTask): Promise<MaintenanceTaskLog> {

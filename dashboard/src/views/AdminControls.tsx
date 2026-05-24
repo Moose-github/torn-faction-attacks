@@ -21,7 +21,6 @@ import {
   pullAttackWindow,
   rebuildStats,
   refreshAuthSession,
-  refreshMemberLifestyleStats,
   resetEnemyStatsImageLatches,
   restartLiveEnemyTracking,
   relinkAttacks,
@@ -32,7 +31,6 @@ import {
   WarType,
 } from "../api";
 import { CollapsiblePanel, PanelHeader } from "../components/Common";
-import { formatNumber } from "../utils/format";
 
 export function AdminControls() {
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
@@ -817,21 +815,6 @@ export function AdminControls() {
                   {isBusy === "Rebuild stats" ? "Working" : rebuildWarId ? "Rebuild selected war" : "Rebuild all stats"}
                 </button>
               </form>
-              <button
-                type="button"
-                className="admin-button"
-                disabled={isBusy !== null}
-                onClick={() =>
-                  runAdminAction("Refresh personalstats", () =>
-                    refreshMemberLifestyleStats({ limit: 10, force: true }).then((response) => ({
-                      ...response,
-                      message: formatLifestyleRefreshResult(response),
-                    })),
-                  )
-                }
-              >
-                {isBusy === "Refresh personalstats" ? "Working" : "Refresh 10 personalstats"}
-              </button>
               <button
                 type="button"
                 className="admin-button"
@@ -1972,25 +1955,6 @@ function formatDuration(start: number | null, finish: number | null): string {
 
   const seconds = durationMs / 1000;
   return seconds < 60 ? `${seconds.toFixed(1)}s` : `${(seconds / 60).toFixed(1)}m`;
-}
-
-function formatLifestyleRefreshResult(response: {
-  refreshed: number;
-  failed: number;
-  gym_contributors?: {
-    updated_members: number;
-    error?: string;
-  };
-}): string {
-  return `Refreshed ${formatNumber(response.refreshed)} personalstats${
-    response.failed ? `, ${formatNumber(response.failed)} failed` : ""
-  }${
-    response.gym_contributors
-      ? response.gym_contributors.error
-        ? `; gym refresh failed: ${response.gym_contributors.error}`
-        : `; gym stats for ${formatNumber(response.gym_contributors.updated_members)} members`
-      : ""
-  }`;
 }
 
 function dateTimeLocalFromSeconds(timestamp: number): string {
