@@ -840,7 +840,7 @@ function MonitorEventRow({
     >
       <div>
         <strong>{event.name}</strong>
-        <span>{eventTitle(event.type)}</span>
+        <span>{eventTitle(event)}</span>
       </div>
       <p>{eventDetail(event)}</p>
       {timerSummaryLabel ? <p className="enemy-monitor-event-timer-summary">{timerSummaryLabel}</p> : null}
@@ -1493,10 +1493,10 @@ function useNowMs(intervalMs: number): number {
   return now;
 }
 
-function eventTitle(type: MonitorEventType): string {
-  switch (type) {
+function eventTitle(event: MonitorEvent): string {
+  switch (event.type) {
     case "hospital_exit_early":
-      return "Early hospital exit";
+      return event.priority === 2 ? "Early exit, inactive" : "Early hospital exit";
     case "hospital_exit_expected_online":
       return "Expected exit, active";
     case "hospital_timer_decreased":
