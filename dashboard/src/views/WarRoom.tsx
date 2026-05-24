@@ -80,7 +80,7 @@ export function WarRoom({
   const trackingFreshness = trackingFreshnessForMode(trackingMode);
   const statusCheckedAt = enemyScouting?.summary.status_checked_at ?? null;
   const latestHeatmapSampledAt = getLatestHeatmapSampledAt(activityHeatmap);
-  const pushPressureSampledAt = pushPressure?.latest?.bucket_start ?? null;
+  const pushPressureUpdatedAt = pushPressure?.latest?.created_at ?? null;
   const latestRevivableUpdatedAt = getLatestMemberUpdatedAt([
     ...(scoutingComparison?.home.members ?? []),
     ...(scoutingComparison?.enemy.members ?? []),
@@ -434,7 +434,7 @@ export function WarRoom({
           war={selectedWar}
           mode={trackingMode}
           enemyStatusCheckedAt={statusCheckedAt}
-          pushPressureSampledAt={pushPressureSampledAt}
+          pushPressureUpdatedAt={pushPressureUpdatedAt}
           heatmapSampledAt={latestHeatmapSampledAt}
           revivableUpdatedAt={latestRevivableUpdatedAt}
           heatmapOpen={isActivityHeatmapsOpen}
@@ -626,7 +626,7 @@ function TrackingStatusPanel({
   war,
   mode,
   enemyStatusCheckedAt,
-  pushPressureSampledAt,
+  pushPressureUpdatedAt,
   heatmapSampledAt,
   revivableUpdatedAt,
   heatmapOpen,
@@ -634,7 +634,7 @@ function TrackingStatusPanel({
   war: WarSummary;
   mode: TrackingMode;
   enemyStatusCheckedAt: number | null;
-  pushPressureSampledAt: number | null;
+  pushPressureUpdatedAt: number | null;
   heatmapSampledAt: number | null;
   revivableUpdatedAt: number | null;
   heatmapOpen: boolean;
@@ -666,7 +666,7 @@ function TrackingStatusPanel({
         <TrackingStatusItem
           label="Push pressure"
           value={freshness.pushCadence}
-          updatedAt={pushPressureSampledAt}
+          updatedAt={pushPressureUpdatedAt}
           detail={freshness.pushDetail}
         />
         <TrackingStatusItem
@@ -982,12 +982,12 @@ function EnemyPushPressurePanel({
   const buildUpContributions = contributions.filter((contribution) => contribution.kind === "build-up");
   const buildUpScore = buildUpContributions.reduce((total, contribution) => total + contribution.score, 0);
   const attackContribution = contributions.find((contribution) => contribution.kind === "active-attack") ?? null;
-  const sampleAgeSeconds = latest ? Math.max(0, nowSeconds - latest.bucket_start) : null;
-  const sampleFreshness = sampleAgeSeconds === null
+  const updatedAgeSeconds = latest ? Math.max(0, nowSeconds - latest.created_at) : null;
+  const updateFreshness = updatedAgeSeconds === null
     ? null
-    : sampleAgeSeconds <= 180
+    : updatedAgeSeconds <= 180
       ? "Fresh"
-      : sampleAgeSeconds <= 300
+      : updatedAgeSeconds <= 300
         ? "Aging"
         : "Stale";
 
@@ -997,7 +997,7 @@ function EnemyPushPressurePanel({
       control={
         <FreshnessMeta
           state={isLoading ? "Loading" : trackingState}
-          updatedAt={latest?.bucket_start ?? null}
+          updatedAt={latest?.created_at ?? null}
           cadence={trackingCadence}
           detail={latest ? `${trackingDetail} Latest pressure: ${pushPressureLevelLabel(latest.pressure_level)}.` : trackingDetail}
           tone={trackingTone}
@@ -1036,8 +1036,8 @@ function EnemyPushPressurePanel({
             </div>
             <div>
               <span>Sample</span>
-              <strong title={`Sample bucket started ${formatRelativeTime(latest.bucket_start)}. Samples older than 3 minutes are aging; older than 5 minutes are stale.`}>
-                {sampleFreshness}
+              <strong title={`Last calculated ${formatRelativeTime(latest.created_at)}. Pressure bucket started ${formatRelativeTime(latest.bucket_start)} for history/reference alignment. Updates older than 3 minutes are aging; older than 5 minutes are stale.`}>
+                {updateFreshness}
               </strong>
             </div>
           </div>

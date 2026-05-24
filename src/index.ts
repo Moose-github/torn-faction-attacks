@@ -506,7 +506,7 @@ async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
 function enemyPushPressureTtlSeconds(url: URL): CacheTtl {
   return url.searchParams.get("include_history") === "0"
     ? warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55)
-    : warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS);
+    : warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55);
 }
 
 function warNameFromSubroute(url: URL): string {
