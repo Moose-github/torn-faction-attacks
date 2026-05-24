@@ -265,7 +265,7 @@ export function DashboardHome({
           status={activeWar?.enemy_faction_id ? "Live tracking available" : "Inactive"}
           tone={activeWar?.enemy_faction_id ? "good" : "quiet"}
           actionLabel={activeWar?.enemy_faction_id ? "Open tracking" : "Open War room"}
-          onAction={() => onOpenView("warRoom")}
+          onAction={() => onOpenView(activeWar?.enemy_faction_id ? "hospitalMonitor" : "warRoom")}
         >
           <div className="dashboard-card-metrics">
             <MetricLine label="Enemy faction" value={activeWar?.enemy_faction_id ? String(activeWar.enemy_faction_id) : "-"} />
