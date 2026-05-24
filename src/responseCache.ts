@@ -18,6 +18,7 @@ const memoryResponseCache = new Map<string, MemoryCacheEntry>();
 const MAX_MEMORY_CACHE_ENTRIES = 100;
 const PRACTICAL_FINISH_CACHE_TTL_SECONDS = 15 * 60;
 export const OFFICIAL_END_CACHE_TTL_SECONDS = 24 * 60 * 60;
+const CLIENT_CACHE_CONTROL = "private, no-store";
 
 export async function cachedGetJson(
   request: Request,
@@ -59,7 +60,7 @@ export async function cachedGetJson(
     return withCacheHeaders(new Response(body, loaded), "BYPASS", "none");
   }
 
-  const response = responseForCache(loaded, body, ttlSeconds, "MISS", "none");
+  const response = responseForClient(loaded, body, ttlSeconds, "MISS", "none");
   const cacheResponse = responseForCache(loaded, body, ttlSeconds, "HIT", "edge");
   rememberResponse(cacheKey.url, cacheResponse, body, now + ttlSeconds);
   ctx.waitUntil(caches.default.put(cacheKey, cacheResponse.clone()).catch(() => undefined));
@@ -152,14 +153,46 @@ function responseForCache(
   return response;
 }
 
+function responseForClient(
+  source: Response,
+  body: string,
+  ttlSeconds: number,
+  cacheStatus: "HIT" | "MISS" | "BYPASS",
+  cacheSource: string,
+): Response {
+  return withClientCacheHeaders(
+    new Response(body, source),
+    cacheStatus,
+    cacheSource,
+    ttlSeconds,
+  );
+}
+
 function withCacheHeaders(
   source: Response,
   cacheStatus: "HIT" | "MISS" | "BYPASS",
   cacheSource: string,
 ): Response {
   const response = new Response(source.body, source);
+  const ttlSeconds = Number(response.headers.get("X-Cache-TTL") ?? 0);
+  return withClientCacheHeaders(response, cacheStatus, cacheSource, ttlSeconds);
+}
+
+function withClientCacheHeaders(
+  response: Response,
+  cacheStatus: "HIT" | "MISS" | "BYPASS",
+  cacheSource: string,
+  ttlSeconds: number,
+): Response {
+  response.headers.set("Cache-Control", CLIENT_CACHE_CONTROL);
   response.headers.set("X-Cache", cacheStatus);
   response.headers.set("X-Cache-Source", cacheSource);
+  if (ttlSeconds > 0) {
+    response.headers.set("X-Cache-TTL", String(ttlSeconds));
+  } else {
+    response.headers.delete("X-Cache-TTL");
+  }
+  response.headers.delete("Set-Cookie");
   return response;
 }
 
@@ -195,7 +228,12 @@ function cachedResponseFromEntry(
   });
   response.headers.set("X-Cache", cacheStatus);
   response.headers.set("X-Cache-Source", cacheSource);
-  return response;
+  return withClientCacheHeaders(
+    response,
+    cacheStatus,
+    cacheSource,
+    Math.max(1, entry.expiresAt - nowSeconds()),
+  );
 }
 
 function safeJsonParse(body: string): any {

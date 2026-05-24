@@ -115,11 +115,6 @@ export async function listMemberAchievementSummaries(env: Env): Promise<Response
       detail_json,
       computed_at
     FROM member_achievement_summaries
-    WHERE source_snapshot_date IN (
-      SELECT DISTINCT snapshot_date
-      FROM member_lifestyle_stat_snapshots
-      WHERE daysbeendonator IS NOT NULL
-    )
     ORDER BY metric_group ASC, metric_key ASC, rank ASC
     `,
   ).all();
@@ -263,8 +258,6 @@ async function rankedLifestyleRows(
     JOIN home_faction_members members
       ON members.member_id = end_snapshot.member_id
     WHERE end_snapshot.snapshot_date = ?
-      AND start_snapshot.daysbeendonator IS NOT NULL
-      AND end_snapshot.daysbeendonator IS NOT NULL
       AND members.faction_id = ?
       AND members.is_current = 1
     `,
@@ -341,7 +334,6 @@ async function readLatestSnapshotDate(env: Env): Promise<string | null> {
     `
     SELECT MAX(snapshot_date) AS snapshot_date
     FROM member_lifestyle_stat_snapshots
-    WHERE daysbeendonator IS NOT NULL
     `,
   ).first()) as { snapshot_date: string | null } | null;
 
@@ -353,7 +345,6 @@ async function readAvailableSnapshotDates(env: Env): Promise<Set<string>> {
     `
     SELECT DISTINCT snapshot_date
     FROM member_lifestyle_stat_snapshots
-    WHERE daysbeendonator IS NOT NULL
     `,
   ).all()).results ?? []) as Array<{ snapshot_date: string }>;
 
