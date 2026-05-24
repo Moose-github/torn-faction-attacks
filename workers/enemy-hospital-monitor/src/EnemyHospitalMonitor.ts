@@ -319,11 +319,8 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     this.snapshots = currentSnapshots;
     this.hasBaseline = true;
 
-    const urgent = events.filter((event) => event.type === "hospital_exit_early");
-    const secondary = events.filter((event) => event.type !== "hospital_exit_early");
-
-    urgent.forEach((event) => this.broadcast({ type: "monitor_event", event }));
-    secondary.forEach((event) => this.broadcast({ type: "monitor_event", event }));
+    const orderedEvents = [...events].sort((left, right) => left.priority - right.priority);
+    orderedEvents.forEach((event) => this.broadcast({ type: "monitor_event", event }));
     this.broadcast({ type: "snapshot", status: this.status(), members: [...this.snapshots.values()] });
   }
 
@@ -407,86 +404,109 @@ function classifyEvent(
   observedAt: number,
   emittedEvents: Set<string>,
 ): MonitorEvent | null {
-  if (previous.state !== "Hospital" || previous.until === null) {
+  if (previous.until === null) {
     return null;
   }
 
-  let event: MonitorEvent | null = null;
-
-  if (current.state !== "Hospital") {
-    if (previous.until > observedAt) {
-      event = {
-        type: "hospital_exit_early",
-        priority: isRecentlyActive(current, observedAt) ? 1 : 2,
-        memberId: current.id,
-        name: current.name,
-        observedAt,
-        previousUntil: previous.until,
-        currentUntil: current.until,
-        secondsEarly: previous.until - observedAt,
-        previousDetails: previous.details,
-        currentDescription: current.description,
-        lastActionStatus: current.lastActionStatus,
-        lastActionTimestamp: current.lastActionTimestamp,
-        lastActionRelative: current.lastActionRelative,
-      };
-    } else if (isRecentlyActive(current, observedAt)) {
-      event = {
-        type: "hospital_exit_expected_online",
-        priority: 2,
-        memberId: current.id,
-        name: current.name,
-        observedAt,
-        previousUntil: previous.until,
-        currentUntil: current.until,
-        previousDetails: previous.details,
-        currentDescription: current.description,
-        lastActionStatus: current.lastActionStatus,
-        lastActionTimestamp: current.lastActionTimestamp,
-        lastActionRelative: current.lastActionRelative,
-      };
-    } else {
-      event = {
-        type: "hospital_exit_expected_offline",
-        priority: 4,
-        memberId: current.id,
-        name: current.name,
-        observedAt,
-        previousUntil: previous.until,
-        currentUntil: current.until,
-        previousDetails: previous.details,
-        currentDescription: current.description,
-        lastActionStatus: current.lastActionStatus,
-        lastActionTimestamp: current.lastActionTimestamp,
-        lastActionRelative: current.lastActionRelative,
-      };
-    }
-  } else if (
-    current.until !== null &&
-    current.until < previous.until - TIMER_DECREASE_GRACE_SECONDS
-  ) {
-    event = {
-      type: "hospital_timer_decreased",
-      priority: 3,
-      memberId: current.id,
-      name: current.name,
-      observedAt,
-      previousUntil: previous.until,
-      currentUntil: current.until,
-      decreaseSeconds: previous.until - current.until,
-      previousDetails: previous.details,
-      currentDescription: current.description,
-      lastActionStatus: current.lastActionStatus,
-      lastActionTimestamp: current.lastActionTimestamp,
-      lastActionRelative: current.lastActionRelative,
-    };
-  }
+  const event =
+    previous.state === "Hospital"
+      ? classifyHospitalEvent(previous, current, observedAt)
+      : classifyTravelEvent(previous, current, observedAt);
 
   if (!event || emittedEvents.has(eventDedupeKey(event))) {
     return null;
   }
 
   return event;
+}
+
+function classifyHospitalEvent(
+  previous: MemberMonitorSnapshot,
+  current: MemberMonitorSnapshot,
+  observedAt: number,
+): MonitorEvent | null {
+  if (current.state !== "Hospital") {
+    const isActive = isRecentlyActive(current, observedAt);
+    if (previous.until !== null && previous.until > observedAt) {
+      return buildMonitorEvent(
+        "hospital_exit_early",
+        isActive ? 1 : 2,
+        previous,
+        current,
+        observedAt,
+        { secondsEarly: previous.until - observedAt },
+      );
+    }
+
+    return buildMonitorEvent(
+      isActive ? "hospital_exit_expected_online" : "hospital_exit_expected_offline",
+      isActive ? 2 : 4,
+      previous,
+      current,
+      observedAt,
+    );
+  }
+
+  if (
+    previous.until !== null &&
+    current.until !== null &&
+    current.until < previous.until - TIMER_DECREASE_GRACE_SECONDS
+  ) {
+    return buildMonitorEvent(
+      "hospital_timer_decreased",
+      3,
+      previous,
+      current,
+      observedAt,
+      { decreaseSeconds: previous.until - current.until },
+    );
+  }
+
+  return null;
+}
+
+function classifyTravelEvent(
+  previous: MemberMonitorSnapshot,
+  current: MemberMonitorSnapshot,
+  observedAt: number,
+): MonitorEvent | null {
+  if (previous.state !== "Traveling" || current.state !== "Okay") {
+    return null;
+  }
+
+  const isActive = isRecentlyActive(current, observedAt);
+  return buildMonitorEvent(
+    isActive ? "travel_return_expected_online" : "travel_return_expected_offline",
+    isActive ? 2 : 4,
+    previous,
+    current,
+    observedAt,
+  );
+}
+
+function buildMonitorEvent(
+  type: MonitorEvent["type"],
+  priority: MonitorEvent["priority"],
+  previous: MemberMonitorSnapshot,
+  current: MemberMonitorSnapshot,
+  observedAt: number,
+  extra: Partial<Pick<MonitorEvent, "secondsEarly" | "decreaseSeconds">> = {},
+): MonitorEvent {
+  return {
+    type,
+    priority,
+    memberId: current.id,
+    name: current.name,
+    observedAt,
+    previousUntil: previous.until,
+    currentUntil: current.until,
+    previousDetails: previous.details,
+    currentDescription: current.description,
+    lastActionStatus: current.lastActionStatus,
+    lastActionTimestamp: current.lastActionTimestamp,
+    lastActionRelative: current.lastActionRelative,
+    ...extra,
+  };
 }
 
 function eventDedupeKey(event: MonitorEvent): string {

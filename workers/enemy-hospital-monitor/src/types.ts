@@ -62,7 +62,9 @@ export type MonitorEventType =
   | "hospital_exit_early"
   | "hospital_exit_expected_online"
   | "hospital_timer_decreased"
-  | "hospital_exit_expected_offline";
+  | "hospital_exit_expected_offline"
+  | "travel_return_expected_online"
+  | "travel_return_expected_offline";
 
 export type MonitorEvent = {
   type: MonitorEventType;

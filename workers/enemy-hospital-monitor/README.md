@@ -63,6 +63,8 @@ hospital_exit_early
 hospital_exit_expected_online
 hospital_timer_decreased
 hospital_exit_expected_offline
+travel_return_expected_online
+travel_return_expected_offline
 ```
 
-Early exits are broadcast immediately. Timer decreases use a small grace threshold because they are watch signals, not immediate action signals.
+Early exits are broadcast immediately. Timer decreases use a small grace threshold because they are watch signals, not immediate action signals. Travel returns emit only expected online/offline watch alerts; travel has no early-reduction alert path.

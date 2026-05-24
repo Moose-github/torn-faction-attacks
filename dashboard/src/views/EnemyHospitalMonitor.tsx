@@ -55,7 +55,9 @@ type MonitorEventType =
   | "hospital_exit_early"
   | "hospital_exit_expected_online"
   | "hospital_timer_decreased"
-  | "hospital_exit_expected_offline";
+  | "hospital_exit_expected_offline"
+  | "travel_return_expected_online"
+  | "travel_return_expected_offline";
 
 type MonitorEvent = {
   type: MonitorEventType;
@@ -94,6 +96,7 @@ const ALERT_MUTED_STORAGE_KEY = "enemyHospitalMonitorAlertMuted";
 const ALERT_PREFERENCES_STORAGE_KEY = "enemyHospitalMonitorAlertPreferences";
 const HIDE_ABROAD_HOSPITALS_STORAGE_KEY = "enemyHospitalMonitorHideAbroadHospitals";
 const SORT_ACTIVE_ENEMIES_TOP_STORAGE_KEY = "enemyHospitalMonitorSortActiveEnemiesTop";
+const TRAVEL_ALERTS_ENABLED_STORAGE_KEY = "enemyHospitalMonitorTravelAlertsEnabled";
 const ALERT_PRIORITIES = [1, 2, 3, 4] as const;
 
 type AlertPriority = MonitorEvent["priority"];
@@ -142,6 +145,7 @@ export function EnemyHospitalMonitor({
   const [alertPreferences, setAlertPreferences] = React.useState(() => initialAlertPreferences());
   const [hideAbroadHospitals, setHideAbroadHospitals] = React.useState(() => initialHideAbroadHospitals());
   const [sortActiveEnemiesTop, setSortActiveEnemiesTop] = React.useState(() => initialSortActiveEnemiesTop());
+  const [travelAlertsEnabled, setTravelAlertsEnabled] = React.useState(() => initialTravelAlertsEnabled());
   const [alertFlash, setAlertFlash] = React.useState<{ id: number; priority: AlertPriority } | null>(null);
   const [cachedEnemyStats, setCachedEnemyStats] = React.useState<Map<number, EnemyFactionMember>>(new Map());
   const [clockSync, setClockSync] = React.useState<ClockSyncState | null>(null);
@@ -242,7 +246,9 @@ export function EnemyHospitalMonitor({
           setLastMessageReceivedAtMs(receivedAtMs);
           setStatus(message.status);
           setMembers(message.members);
-          setEvents((current) => activeMonitorEvents(current, message.members, Math.floor(receivedAtMs / 1000)));
+          setEvents((current) =>
+            activeMonitorEvents(current, message.members, Math.floor(receivedAtMs / 1000), true),
+          );
         } else if (message.type === "status") {
           setLastMessageReceivedAtMs(receivedAtMs);
           setStatus(message.status);
@@ -299,7 +305,7 @@ export function EnemyHospitalMonitor({
     };
   }, [monitorTarget]);
 
-  const activeEvents = activeMonitorEvents(events, members, Math.floor(nowMs / 1000));
+  const activeEvents = activeMonitorEvents(events, members, Math.floor(nowMs / 1000), travelAlertsEnabled);
   const visibleEvents = sortLiveMonitorEvents(bestLiveMonitorEventsByMember(activeEvents));
   const timerReductionSummaries = timerReductionSummariesByMember(activeEvents);
 
@@ -465,11 +471,13 @@ export function EnemyHospitalMonitor({
           alertPreferences={alertPreferences}
           hideAbroadHospitals={hideAbroadHospitals}
           sortActiveEnemiesTop={sortActiveEnemiesTop}
+          travelAlertsEnabled={travelAlertsEnabled}
           onVolumeChange={setAlertVolume}
           onMutedChange={setAlertsMuted}
           onAlertPreferencesChange={setAlertPreferences}
           onHideAbroadHospitalsChange={setHideAbroadHospitals}
           onSortActiveEnemiesTopChange={setSortActiveEnemiesTop}
+          onTravelAlertsEnabledChange={setTravelAlertsEnabled}
         />
       </section>
 
@@ -550,7 +558,7 @@ function AlertKeyCard() {
           <i className="priority-1" />
           Early
         </span>
-        <span title="Priority 2: expected active exit or early inactive exit">
+        <span title="Priority 2: expected active exit, early inactive exit, or active travel return">
           <i className="priority-2" />
           Watch
         </span>
@@ -558,7 +566,7 @@ function AlertKeyCard() {
           <i className="priority-3" />
           Timer
         </span>
-        <span title="Priority 4: expected exit while offline">
+        <span title="Priority 4: expected exit or travel return while offline">
           <i className="priority-4" />
           Offline
         </span>
@@ -573,26 +581,30 @@ function MonitorSettingsCard({
   alertPreferences,
   hideAbroadHospitals,
   sortActiveEnemiesTop,
+  travelAlertsEnabled,
   onVolumeChange,
   onMutedChange,
   onAlertPreferencesChange,
   onHideAbroadHospitalsChange,
   onSortActiveEnemiesTopChange,
+  onTravelAlertsEnabledChange,
 }: {
   volume: number;
   muted: boolean;
   alertPreferences: AlertPreferences;
   hideAbroadHospitals: boolean;
   sortActiveEnemiesTop: boolean;
+  travelAlertsEnabled: boolean;
   onVolumeChange: (value: number) => void;
   onMutedChange: (value: boolean) => void;
   onAlertPreferencesChange: (value: AlertPreferences) => void;
   onHideAbroadHospitalsChange: (value: boolean) => void;
   onSortActiveEnemiesTopChange: (value: boolean) => void;
+  onTravelAlertsEnabledChange: (value: boolean) => void;
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
 
-  function updateValue(nextValue: number) {
+  function updateVolume(nextValue: number) {
     primeMonitorAlertAudio();
     onVolumeChange(nextValue);
     window.localStorage.setItem(ALERT_VOLUME_STORAGE_KEY, String(nextValue));
@@ -604,9 +616,7 @@ function MonitorSettingsCard({
 
   function toggleMuted() {
     primeMonitorAlertAudio();
-    const nextMuted = !muted;
-    onMutedChange(nextMuted);
-    window.localStorage.setItem(ALERT_MUTED_STORAGE_KEY, nextMuted ? "1" : "0");
+    toggleStoredBoolean(muted, onMutedChange, ALERT_MUTED_STORAGE_KEY);
   }
 
   function toggleAlertPreference(priority: AlertPriority, channel: AlertChannel) {
@@ -623,15 +633,15 @@ function MonitorSettingsCard({
   }
 
   function toggleHideAbroadHospitals() {
-    const nextValue = !hideAbroadHospitals;
-    onHideAbroadHospitalsChange(nextValue);
-    window.localStorage.setItem(HIDE_ABROAD_HOSPITALS_STORAGE_KEY, nextValue ? "1" : "0");
+    toggleStoredBoolean(hideAbroadHospitals, onHideAbroadHospitalsChange, HIDE_ABROAD_HOSPITALS_STORAGE_KEY);
   }
 
   function toggleSortActiveEnemiesTop() {
-    const nextValue = !sortActiveEnemiesTop;
-    onSortActiveEnemiesTopChange(nextValue);
-    window.localStorage.setItem(SORT_ACTIVE_ENEMIES_TOP_STORAGE_KEY, nextValue ? "1" : "0");
+    toggleStoredBoolean(sortActiveEnemiesTop, onSortActiveEnemiesTopChange, SORT_ACTIVE_ENEMIES_TOP_STORAGE_KEY);
+  }
+
+  function toggleTravelAlertsEnabled() {
+    toggleStoredBoolean(travelAlertsEnabled, onTravelAlertsEnabledChange, TRAVEL_ALERTS_ENABLED_STORAGE_KEY);
   }
 
   return (
@@ -678,7 +688,7 @@ function MonitorSettingsCard({
               value={volume}
               aria-label="Alert volume"
               disabled={muted}
-              onChange={(event) => updateValue(Number(event.target.value))}
+              onChange={(event) => updateVolume(Number(event.target.value))}
             />
           </label>
           <button
@@ -731,6 +741,14 @@ function MonitorSettingsCard({
               onChange={toggleSortActiveEnemiesTop}
             />
             Move online or recently active enemies to top
+          </label>
+          <label className="enemy-monitor-settings-option">
+            <input
+              type="checkbox"
+              checked={travelAlertsEnabled}
+              onChange={toggleTravelAlertsEnabled}
+            />
+            Travel return alerts
           </label>
         </div>
       ) : null}
@@ -947,9 +965,13 @@ function activeMonitorEvents(
   events: MonitorEvent[],
   members: MemberMonitorSnapshot[],
   nowSecondsValue: number,
+  travelAlertsEnabled: boolean,
 ): MonitorEvent[] {
   const membersById = new Map(members.map((member) => [member.id, member]));
   const activeEvents = events.filter((event) => {
+    if (!travelAlertsEnabled && isTravelReturnEvent(event)) {
+      return false;
+    }
     if (members.length === 0) {
       return event.type === "hospital_timer_decreased"
         ? timerAlertCooldownRemainingSeconds(event, nowSecondsValue) > 0
@@ -965,9 +987,16 @@ function activeMonitorEvents(
     if (event.type === "hospital_timer_decreased") {
       return timerAlertCooldownRemainingSeconds(event, nowSecondsValue) > 0;
     }
+    if (isTravelReturnEvent(event)) {
+      return member.state === "Okay";
+    }
     return member.state !== "Hospital";
   });
   return activeEvents.length === events.length ? events : activeEvents;
+}
+
+function isTravelReturnEvent(event: MonitorEvent): boolean {
+  return event.type === "travel_return_expected_online" || event.type === "travel_return_expected_offline";
 }
 
 function isTravelState(state: string | null): boolean {
@@ -1294,15 +1323,37 @@ function initialAlertVolume(): number {
 }
 
 function initialAlertsMuted(): boolean {
-  return window.localStorage.getItem(ALERT_MUTED_STORAGE_KEY) === "1";
+  return storedBooleanSetting(ALERT_MUTED_STORAGE_KEY, false);
 }
 
 function initialHideAbroadHospitals(): boolean {
-  return window.localStorage.getItem(HIDE_ABROAD_HOSPITALS_STORAGE_KEY) === "1";
+  return storedBooleanSetting(HIDE_ABROAD_HOSPITALS_STORAGE_KEY, false);
 }
 
 function initialSortActiveEnemiesTop(): boolean {
-  return window.localStorage.getItem(SORT_ACTIVE_ENEMIES_TOP_STORAGE_KEY) !== "0";
+  return storedBooleanSetting(SORT_ACTIVE_ENEMIES_TOP_STORAGE_KEY, true);
+}
+
+function initialTravelAlertsEnabled(): boolean {
+  return storedBooleanSetting(TRAVEL_ALERTS_ENABLED_STORAGE_KEY, true);
+}
+
+function toggleStoredBoolean(
+  currentValue: boolean,
+  onChange: (value: boolean) => void,
+  storageKey: string,
+): void {
+  const nextValue = !currentValue;
+  onChange(nextValue);
+  window.localStorage.setItem(storageKey, nextValue ? "1" : "0");
+}
+
+function storedBooleanSetting(storageKey: string, defaultValue: boolean): boolean {
+  const stored = window.localStorage.getItem(storageKey);
+  if (stored === null) {
+    return defaultValue;
+  }
+  return stored === "1";
 }
 
 function initialAlertPreferences(): AlertPreferences {
@@ -1360,11 +1411,11 @@ function priorityTitle(priority: AlertPriority): string {
     case 1:
       return "Priority 1: early hospital exit";
     case 2:
-      return "Priority 2: expected active exit or early inactive exit";
+      return "Priority 2: expected active exit, early inactive exit, or active travel return";
     case 3:
       return "Priority 3: hospital timer moved earlier";
     case 4:
-      return "Priority 4: expected exit while offline";
+      return "Priority 4: expected exit or travel return while offline";
   }
 }
 
@@ -1452,6 +1503,10 @@ function eventTitle(type: MonitorEventType): string {
       return "Timer moved earlier";
     case "hospital_exit_expected_offline":
       return "Expected exit, offline";
+    case "travel_return_expected_online":
+      return "Travel return, active";
+    case "travel_return_expected_offline":
+      return "Travel return, offline";
   }
 }
 
@@ -1463,6 +1518,10 @@ function eventDetail(event: MonitorEvent): string {
   }
   if (event.type === "hospital_timer_decreased") {
     return `Timer decreased by ${event.decreaseSeconds ?? 0}s`;
+  }
+  if (isTravelReturnEvent(event)) {
+    const activity = eventActivityLabel(event);
+    return activity ? `Returned from travel | ${activity}` : "Returned from travel";
   }
   return eventActivityLabel(event) ?? event.currentDescription ?? "Released from hospital";
 }
