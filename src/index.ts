@@ -49,6 +49,7 @@ import {
 } from "./responseCache";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
+import { createMemberSuggestion, listMemberSuggestionsForAdmin } from "./suggestions";
 import {
   createTradeWatchlist,
   deleteTradeWatchlist,
@@ -195,6 +196,10 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
     });
   }
 
+  if (matchesRoute(url, request, "/api/admin/suggestions", "GET")) {
+    return withAdmin(routeContext, () => listMemberSuggestionsForAdmin(url, env));
+  }
+
   if (matchesRoute(url, request, "/api/rebuild", "POST")) {
     return withAdmin(routeContext, () => rebuildStatsFromRequest(request, env));
   }
@@ -275,6 +280,18 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
 
   if (matchesRoute(url, request, "/api/faction-attacks/recent", "GET")) {
     return cachedMemberGet(routeContext, 15, () => getRecentFactionAttacks(url, env));
+  }
+
+  if (matchesRoute(url, request, "/api/suggestions", "POST")) {
+    return withMember(routeContext, async () => {
+      const userId = await readAuthenticatedUserId(request, env);
+      if (!userId) {
+        return json({ ok: false, error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+      }
+      const cooldownError = await requireActionCooldown(env, `member_suggestion:${userId}`, 60);
+      if (cooldownError) return cooldownError;
+      return createMemberSuggestion(request, env, userId);
+    });
   }
 
   if (matchesRoute(url, request, "/api/monitor-ticket", "POST")) {

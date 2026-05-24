@@ -612,6 +612,25 @@ export type MemberAchievementsResponse = {
   achievements: MemberAchievementSummary[];
 };
 
+export type MemberSuggestion = {
+  id: number;
+  torn_user_id: number;
+  member_name: string | null;
+  suggestion: string;
+  created_at: number;
+};
+
+export type MemberSuggestionResponse = {
+  ok: boolean;
+  suggestion: MemberSuggestion;
+};
+
+export type AdminSuggestionsResponse = {
+  ok: boolean;
+  total_suggestions: number;
+  suggestions: MemberSuggestion[];
+};
+
 export type ShopliftingObstacle = {
   title: string;
   disabled: boolean;
@@ -1082,6 +1101,13 @@ export async function restartLiveEnemyTracking(warId: number): Promise<unknown> 
   return postJson("/api/admin/live-enemy-tracking/restart", { war_id: warId });
 }
 
+export async function getAdminSuggestions(limit = 12): Promise<AdminSuggestionsResponse> {
+  return getJson<AdminSuggestionsResponse>(
+    `/api/admin/suggestions?limit=${encodeURIComponent(String(limit))}`,
+    true,
+  );
+}
+
 export async function getMemberLifestyleStats(options: {
   startDate?: string;
   endDate?: string;
@@ -1100,6 +1126,10 @@ export async function getMemberLifestyleStats(options: {
 
 export async function getMemberAchievements(): Promise<MemberAchievementsResponse> {
   return getJson<MemberAchievementsResponse>("/api/member-achievements");
+}
+
+export async function submitMemberSuggestion(suggestion: string): Promise<MemberSuggestionResponse> {
+  return postJson<MemberSuggestionResponse>("/api/suggestions", { suggestion });
 }
 
 export async function getMiscellaneousData(): Promise<MiscellaneousResponse> {

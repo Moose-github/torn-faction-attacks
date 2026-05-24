@@ -7,7 +7,9 @@ import {
   ChevronRight,
   Clock3,
   ExternalLink,
+  MessageSquare,
   Radar,
+  Send,
   Swords,
   ShieldCheck,
   Trophy,
@@ -16,6 +18,7 @@ import {
 import {
   getLatestIngestionRun,
   getLatestMaintenanceRun,
+  getAdminSuggestions,
   getHomeFactionMemberSummary,
   getMemberAchievements,
   getRecentFactionAttacks,
@@ -26,7 +29,9 @@ import {
   MaintenanceRun,
   MaintenanceTask,
   MemberAchievementSummary,
+  MemberSuggestion,
   RecentFactionAttack,
+  submitMemberSuggestion,
   TradeWatchlist,
   WarSummary,
 } from "../api";
@@ -83,6 +88,8 @@ export function DashboardHome({
   const [maintenanceTasks, setMaintenanceTasks] = React.useState<MaintenanceTask[]>([]);
   const [dailyStatsAttention, setDailyStatsAttention] = React.useState<DailyStatsAttention | null>(null);
   const [watchlists, setWatchlists] = React.useState<TradeWatchlist[]>([]);
+  const [suggestions, setSuggestions] = React.useState<MemberSuggestion[]>([]);
+  const [totalSuggestions, setTotalSuggestions] = React.useState(0);
   const [memberSummary, setMemberSummary] = React.useState<HomeFactionMemberSummary | null>(null);
   const [memberAchievements, setMemberAchievements] = React.useState<MemberAchievementSummary[]>([]);
   const [memberAchievementsLoaded, setMemberAchievementsLoaded] = React.useState(false);
@@ -171,16 +178,19 @@ export function DashboardHome({
       setMaintenanceTasks([]);
       setDailyStatsAttention(null);
       setWatchlists([]);
+      setSuggestions([]);
+      setTotalSuggestions(0);
       return;
     }
 
     let cancelled = false;
 
     async function loadAdminHealth() {
-      const [ingestion, maintenance, trade] = await Promise.all([
+      const [ingestion, maintenance, trade, suggestionsResponse] = await Promise.all([
         getLatestIngestionRun().catch(() => null),
         getLatestMaintenanceRun().catch(() => null),
         getTradeWatchlists().catch(() => null),
+        getAdminSuggestions().catch(() => null),
       ]);
 
       if (cancelled) {
@@ -192,6 +202,8 @@ export function DashboardHome({
       setMaintenanceTasks(maintenance?.tasks ?? []);
       setDailyStatsAttention(maintenance?.daily_stats_attention ?? null);
       setWatchlists(trade?.watchlists ?? []);
+      setSuggestions(suggestionsResponse?.suggestions ?? []);
+      setTotalSuggestions(suggestionsResponse?.total_suggestions ?? 0);
     }
 
     loadAdminHealth();
@@ -294,6 +306,15 @@ export function DashboardHome({
         rotation={highlightRotation}
       />
 
+      <SuggestionBox
+        onSubmitted={(suggestion) => {
+          if (isAdmin) {
+            setSuggestions((current) => [suggestion, ...current].slice(0, 12));
+            setTotalSuggestions((current) => current + 1);
+          }
+        }}
+      />
+
       {isAdmin ? (
         <section className="panel dashboard-admin-panel">
           <div className="panel-header collapsible-header dashboard-admin-header">
@@ -346,6 +367,11 @@ export function DashboardHome({
                   </div>
                 </DashboardCard>
               </section>
+
+              <AdminSuggestionsPanel
+                suggestions={suggestions}
+                totalSuggestions={totalSuggestions}
+              />
 
               <section className="dashboard-activity-panel dashboard-admin-activity-panel">
                 <PanelHeader icon={<Clock3 size={17} />} title="Recent activity" />
@@ -452,6 +478,103 @@ function RecentAttackRow({ attack }: { attack: RecentFactionAttack }) {
         ) : null}
       </span>
     </div>
+  );
+}
+
+function SuggestionBox({
+  onSubmitted,
+}: {
+  onSubmitted: (suggestion: MemberSuggestion) => void;
+}) {
+  const [suggestion, setSuggestion] = React.useState("");
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [notice, setNotice] = React.useState<{ tone: "good" | "error"; text: string } | null>(null);
+  const remaining = 1200 - suggestion.length;
+  const canSubmit = suggestion.trim().length >= 3 && remaining >= 0 && !isSubmitting;
+
+  async function submitSuggestion(event: React.FormEvent) {
+    event.preventDefault();
+    const trimmed = suggestion.trim();
+    if (trimmed.length < 3) {
+      setNotice({ tone: "error", text: "Add a little more detail first." });
+      return;
+    }
+
+    setIsSubmitting(true);
+    setNotice(null);
+    try {
+      const response = await submitMemberSuggestion(trimmed);
+      setSuggestion("");
+      setNotice({ tone: "good", text: "Suggestion sent. Thank you." });
+      onSubmitted(response.suggestion);
+    } catch (error) {
+      setNotice({
+        tone: "error",
+        text: error instanceof Error ? error.message : "Suggestion could not be sent.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="panel dashboard-suggestion-panel">
+      <PanelHeader icon={<MessageSquare size={17} />} title="Suggestions" />
+      <form className="dashboard-suggestion-form" onSubmit={submitSuggestion}>
+        <label>
+          <span>Send an idea, bug, or quality-of-life request</span>
+          <textarea
+            value={suggestion}
+            maxLength={1200}
+            placeholder="What should be added or improved?"
+            onChange={(event) => setSuggestion(event.target.value)}
+          />
+        </label>
+        <div className="dashboard-suggestion-actions">
+          <small className={remaining < 0 ? "danger" : undefined}>{formatNumber(Math.max(0, remaining))} characters left</small>
+          <button type="submit" className="panel-action-button primary-action" disabled={!canSubmit}>
+            <Send size={14} />
+            {isSubmitting ? "Sending" : "Send suggestion"}
+          </button>
+        </div>
+        {notice ? (
+          <p className={notice.tone === "good" ? "dashboard-suggestion-success" : "form-error"}>{notice.text}</p>
+        ) : null}
+      </form>
+    </section>
+  );
+}
+
+function AdminSuggestionsPanel({
+  suggestions,
+  totalSuggestions,
+}: {
+  suggestions: MemberSuggestion[];
+  totalSuggestions: number;
+}) {
+  return (
+    <section className="dashboard-admin-suggestions-panel">
+      <PanelHeader
+        icon={<MessageSquare size={17} />}
+        title="Member suggestions"
+        aside={totalSuggestions > suggestions.length ? `${suggestions.length} of ${totalSuggestions}` : `${suggestions.length}`}
+      />
+      {suggestions.length === 0 ? (
+        <EmptyState text="No suggestions yet" />
+      ) : (
+        <div className="dashboard-suggestion-list">
+          {suggestions.map((suggestion) => (
+            <article key={suggestion.id} className="dashboard-suggestion-row">
+              <div>
+                <strong>{suggestion.member_name ?? `#${suggestion.torn_user_id}`}</strong>
+                <span>{formatRelativeTime(suggestion.created_at)}</span>
+              </div>
+              <p>{suggestion.suggestion}</p>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -417,6 +417,52 @@ h2 {
   margin-top: auto;
 }
 
+.dashboard-suggestion-panel {
+  margin-bottom: 16px;
+  padding: 16px;
+}
+
+.dashboard-suggestion-form {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-suggestion-form label {
+  display: grid;
+  gap: 8px;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.dashboard-suggestion-form textarea {
+  min-height: 112px;
+}
+
+.dashboard-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dashboard-suggestion-actions small {
+  color: #64748b;
+  font-weight: 800;
+}
+
+.dashboard-suggestion-actions small.danger {
+  color: #991b1b;
+}
+
+.dashboard-suggestion-success {
+  margin: 2px 0 0;
+  color: #166534;
+  font-size: 0.88rem;
+  font-weight: 850;
+}
+
 .dashboard-highlights-panel {
   margin-bottom: 16px;
   padding: 16px;
@@ -567,6 +613,53 @@ h2 {
 
 .dashboard-admin-activity-panel {
   padding: 0;
+}
+
+.dashboard-admin-suggestions-panel {
+  margin-bottom: 16px;
+  padding: 0;
+}
+
+.dashboard-suggestion-list {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-suggestion-row {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.dashboard-suggestion-row > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dashboard-suggestion-row strong {
+  color: #172033;
+  font-size: 0.86rem;
+}
+
+.dashboard-suggestion-row span {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.dashboard-suggestion-row p {
+  margin: 0;
+  color: #334155;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-activity-panel {
@@ -4948,6 +5041,7 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .hero-panel h2,
 :root[data-theme="dark"] .dashboard-card-header h3,
 :root[data-theme="dark"] .dashboard-metric-line strong,
+:root[data-theme="dark"] .dashboard-suggestion-row strong,
 :root[data-theme="dark"] .dashboard-event-row strong,
 :root[data-theme="dark"] .war-room-countdown strong {
   color: var(--text-strong);
@@ -4964,6 +5058,8 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .api-key-use-notice dt,
 :root[data-theme="dark"] .admin-form label,
 :root[data-theme="dark"] .auth-form label,
+:root[data-theme="dark"] .dashboard-suggestion-form label,
+:root[data-theme="dark"] .dashboard-suggestion-row span,
 :root[data-theme="dark"] .live-tracking-inactive-panel p {
   color: var(--text-muted);
 }
@@ -4995,6 +5091,19 @@ tbody tr:not(.attack-row):hover td {
   border-color: var(--border-faint);
   background: var(--panel-muted-bg);
   color: var(--text-main);
+}
+
+:root[data-theme="dark"] .dashboard-suggestion-row {
+  border-color: var(--border-faint);
+  background: var(--panel-muted-bg);
+}
+
+:root[data-theme="dark"] .dashboard-suggestion-row p {
+  color: var(--text-main);
+}
+
+:root[data-theme="dark"] .dashboard-suggestion-success {
+  color: #86efac;
 }
 
 :root[data-theme="dark"] .dashboard-card-icon {
