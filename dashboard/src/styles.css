@@ -254,6 +254,27 @@ h2 {
   letter-spacing: 0;
 }
 
+.data-wip-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid #fde68a;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.68rem;
+  font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.hero-panel h2 .data-wip-badge {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
 .status-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -4180,12 +4201,14 @@ h2 {
   grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+  min-width: 0;
 }
 
 .trade-scout-sidebar,
 .trade-scout-main {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .trade-scout-summary-grid {
@@ -4200,12 +4223,14 @@ h2 {
 .trade-scout-form-panel {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .trade-scout-key-panel label,
 .trade-scout-form label {
   display: grid;
   gap: 6px;
+  min-width: 0;
   color: var(--text-muted);
   font-size: 0.82rem;
   font-weight: 800;
@@ -4236,12 +4261,16 @@ h2 {
 }
 
 .trade-scout-watchlist-list strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--text-strong);
   font-size: 0.92rem;
 }
 
 .trade-scout-watchlist-list span,
 .trade-scout-watchlist-list small {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--text-muted);
   font-size: 0.78rem;
   font-weight: 750;
@@ -4259,11 +4288,14 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 
 .trade-scout-selected-meta span {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
+  min-width: 0;
   min-height: 26px;
   padding: 3px 8px;
   border: 1px solid var(--border-faint);
@@ -4272,6 +4304,8 @@ h2 {
   color: var(--text-muted);
   font-size: 0.78rem;
   font-weight: 800;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .trade-scout-form {
@@ -4289,6 +4323,8 @@ h2 {
 .trade-scout-table td small,
 .trade-scout-table td a {
   display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .trade-scout-table td small {
@@ -4902,6 +4938,12 @@ tbody tr:not(.attack-row):hover td {
   border-color: var(--border-solid);
   background: var(--panel-active-bg);
   color: var(--accent-strong);
+}
+
+:root[data-theme="dark"] .data-wip-badge {
+  border-color: rgba(251, 191, 36, 0.42);
+  background: rgba(146, 64, 14, 0.26);
+  color: #fcd34d;
 }
 
 :root[data-theme="dark"] .dashboard-attack-row {

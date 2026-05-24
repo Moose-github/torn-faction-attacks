@@ -151,6 +151,7 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
       ON home_faction_members.member_id = snapshots.member_id
      AND home_faction_members.is_current = 1
     WHERE snapshots.snapshot_date BETWEEN ? AND ?
+      AND snapshots.daysbeendonator IS NOT NULL
     ORDER BY snapshots.member_id ASC, snapshots.snapshot_date ASC
     `,
   )
@@ -284,6 +285,7 @@ async function readLifestyleSnapshotDateRange(
       MIN(snapshot_date) AS start_date,
       MAX(snapshot_date) AS end_date
     FROM member_lifestyle_stat_snapshots
+    WHERE daysbeendonator IS NOT NULL
     `,
   ).first()) as { start_date: string | null; end_date: string | null } | null;
 

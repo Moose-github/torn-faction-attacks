@@ -55,8 +55,8 @@ export function Sidebar({
   });
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
-  const miscellaneousActive = view === "miscellaneous" || view === "diceGame";
-  const adminActive = view === "warPayouts" || view === "tradeScout" || view === "admin";
+  const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout";
+  const adminActive = view === "warPayouts" || view === "admin";
 
   React.useEffect(() => {
     setCollapsedGroups((current) => {
@@ -160,6 +160,12 @@ export function Sidebar({
           label="Dice Game"
           onClick={() => onViewChange("diceGame")}
         />
+        <SidebarLink
+          active={view === "tradeScout"}
+          icon={tradeScoutIcon}
+          label="Trade scout"
+          onClick={() => onViewChange("tradeScout")}
+        />
       </SidebarGroup>
 
       {isAdmin ? (
@@ -174,12 +180,6 @@ export function Sidebar({
             icon={warPayoutsIcon}
             label="War payouts"
             onClick={() => onViewChange("warPayouts")}
-          />
-          <SidebarLink
-            active={view === "tradeScout"}
-            icon={tradeScoutIcon}
-            label="Trade scout"
-            onClick={() => onViewChange("tradeScout")}
           />
           <SidebarLink
             active={view === "admin"}

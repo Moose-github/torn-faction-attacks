@@ -71,7 +71,7 @@ export function pathForView(view: AppView, warName?: string | null): string {
 }
 
 export function isAdminOnlyView(view: AppView): boolean {
-  return view === "admin" || view === "tradeScout" || view === "warPayouts";
+  return view === "admin" || view === "warPayouts";
 }
 
 function safeDecodePathPart(value: string): string | null {

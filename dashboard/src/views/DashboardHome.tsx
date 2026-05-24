@@ -452,11 +452,19 @@ function MemberHighlightsPanel({
 
   return (
     <section className="panel dashboard-highlights-panel">
-      <PanelHeader
-        icon={<Trophy size={17} />}
-        title="Member highlights"
-        aside={loaded ? `Top 3 podiums | ${activePeriod.label}` : "Loading"}
-      />
+      <div className="panel-header">
+        <h2>
+          <Trophy size={17} />
+          Member highlights
+          <span
+            className="data-wip-badge"
+            title="Member highlight snapshots are quarantined while the guarded data rebuilds."
+          >
+            WIP
+          </span>
+        </h2>
+        <span>{loaded ? `Top 3 podiums | ${activePeriod.label}` : "Loading"}</span>
+      </div>
       {!loaded ? (
         <EmptyState text="Loading member highlights" />
       ) : groups.length === 0 ? (

@@ -282,7 +282,15 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
       <section className="hero-panel compact-hero-panel">
         <div>
           <p className="eyebrow">Trade scout</p>
-          <h2>Trade scout</h2>
+          <h2>
+            Trade scout
+            <span
+              className="data-wip-badge"
+              title="Trade Scout is still being shaped and should be treated as work in progress."
+            >
+              WIP
+            </span>
+          </h2>
           <p>Shared item watchlists with member-run scans and saved opportunity snapshots.</p>
         </div>
       </section>
