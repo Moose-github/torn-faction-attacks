@@ -50,7 +50,7 @@ const HIGHLIGHT_METRIC_ORDER = [
   "xanax_yesterday",
   "xanax_average_7d",
   "gymenergy_yesterday",
-  "gymenergy_average_7d",
+  "gymenergy_7d",
   "mugs_yesterday",
   "mugs_7d",
 ];

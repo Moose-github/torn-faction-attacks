@@ -3,6 +3,7 @@ import { Env } from "./types";
 import { d1Changes, json, nowSeconds } from "./utils";
 
 const ACHIEVEMENT_TOP_RANKS = 3;
+const ACHIEVEMENT_DETAIL_VERSION = 2;
 const ACHIEVEMENT_METRICS = [
   {
     metricKey: "xanax_yesterday",
@@ -13,6 +14,7 @@ const ACHIEVEMENT_METRICS = [
     source: "lifestyle",
     field: "xantaken",
     days: 1,
+    valueKind: "total",
   },
   {
     metricKey: "xanax_average_7d",
@@ -23,6 +25,7 @@ const ACHIEVEMENT_METRICS = [
     source: "lifestyle",
     field: "xantaken",
     days: 7,
+    valueKind: "daily_average",
   },
   {
     metricKey: "gymenergy_yesterday",
@@ -33,16 +36,18 @@ const ACHIEVEMENT_METRICS = [
     source: "lifestyle",
     field: "gymenergy",
     days: 1,
+    valueKind: "total",
   },
   {
-    metricKey: "gymenergy_average_7d",
+    metricKey: "gymenergy_7d",
     metricGroup: "gym_energy",
-    metricTitle: "Highest average Gym energy over last 7 completed days",
+    metricTitle: "Most Gym energy over last 7 completed days",
     periodKey: "last_7_completed_days",
-    unit: "energy/day",
+    unit: "energy",
     source: "lifestyle",
     field: "gymenergy",
     days: 7,
+    valueKind: "total",
   },
   {
     metricKey: "mugs_yesterday",
@@ -52,6 +57,7 @@ const ACHIEVEMENT_METRICS = [
     unit: "mugs",
     source: "attacks",
     days: 1,
+    valueKind: "total",
   },
   {
     metricKey: "mugs_7d",
@@ -61,6 +67,7 @@ const ACHIEVEMENT_METRICS = [
     unit: "mugs",
     source: "attacks",
     days: 7,
+    valueKind: "total",
   },
 ] as const;
 
@@ -133,23 +140,25 @@ export async function refreshMemberAchievementSummariesIfStale(
     return { writeStatements: 0, changedRows: 0, skipped: true, reason: "no lifestyle snapshots" };
   }
 
-  if (await summariesAreCurrent(env, latestSnapshotDate)) {
+  const availableDates = await readAvailableSnapshotDates(env);
+  if (await summariesAreCurrent(env, latestSnapshotDate, availableDates)) {
     return { writeStatements: 0, changedRows: 0, skipped: true, reason: "already current" };
   }
 
-  return refreshMemberAchievementSummaries(env, latestSnapshotDate);
+  return refreshMemberAchievementSummaries(env, latestSnapshotDate, availableDates);
 }
 
 export async function refreshMemberAchievementSummaries(
   env: Env,
   latestSnapshotDate?: string,
+  knownAvailableDates?: Set<string>,
 ): Promise<{ writeStatements: number; changedRows: number; skipped: boolean; reason?: string }> {
   const sourceSnapshotDate = latestSnapshotDate ?? await readLatestSnapshotDate(env);
   if (!sourceSnapshotDate) {
     return { writeStatements: 0, changedRows: 0, skipped: true, reason: "no lifestyle snapshots" };
   }
 
-  const availableDates = await readAvailableSnapshotDates(env);
+  const availableDates = knownAvailableDates ?? await readAvailableSnapshotDates(env);
   const rows: AchievementRow[] = [];
   const computedAt = nowSeconds();
 
@@ -182,7 +191,12 @@ export async function refreshMemberAchievementSummaries(
         periodStartDate: period.startDate,
         periodEndDate: period.endDate,
         sourceSnapshotDate,
-        detailJson: JSON.stringify({ days: metric.days, baseline_date: baselineDate }),
+        detailJson: JSON.stringify({
+          days: metric.days,
+          baseline_date: baselineDate,
+          value_kind: metric.valueKind,
+          version: ACHIEVEMENT_DETAIL_VERSION,
+        }),
         computedAt,
       })),
     );
@@ -271,7 +285,7 @@ async function rankedLifestyleRows(
         return null;
       }
       const delta = Math.max(0, Number(row.end_value) - Number(row.start_value));
-      const value = metric.days > 1 && metric.periodKey.includes("average")
+      const value = metric.valueKind === "daily_average"
         ? delta / metric.days
         : delta;
       return {
@@ -351,8 +365,12 @@ async function readAvailableSnapshotDates(env: Env): Promise<Set<string>> {
   return new Set(rows.map((row) => row.snapshot_date));
 }
 
-async function summariesAreCurrent(env: Env, latestSnapshotDate: string): Promise<boolean> {
-  const row = (await env.DB.prepare(
+async function summariesAreCurrent(
+  env: Env,
+  latestSnapshotDate: string,
+  availableDates: Set<string>,
+): Promise<boolean> {
+  const staleRow = (await env.DB.prepare(
     `
     SELECT COUNT(*) AS stale_count
     FROM member_achievement_summaries
@@ -363,14 +381,54 @@ async function summariesAreCurrent(env: Env, latestSnapshotDate: string): Promis
     .bind(latestSnapshotDate)
     .first()) as { stale_count: number | null } | null;
 
-  const countRow = (await env.DB.prepare(
-    `
-    SELECT COUNT(*) AS summary_count
-    FROM member_achievement_summaries
-    `,
-  ).first()) as { summary_count: number | null } | null;
+  if (Number(staleRow?.stale_count ?? 0) > 0) {
+    return false;
+  }
 
-  return Number(countRow?.summary_count ?? 0) > 0 && Number(row?.stale_count ?? 0) === 0;
+  const rows = ((await env.DB.prepare(
+    `
+    SELECT metric_key, detail_json
+    FROM member_achievement_summaries
+    WHERE source_snapshot_date = ?
+    `,
+  )
+    .bind(latestSnapshotDate)
+    .all()).results ?? []) as Array<{ metric_key: string; detail_json: string | null }>;
+
+  const expectedMetricKeys = expectedMetricKeysForSnapshot(latestSnapshotDate, availableDates);
+  if (expectedMetricKeys.length === 0) {
+    return rows.length === 0;
+  }
+  if (rows.length === 0) {
+    return false;
+  }
+  const presentMetricKeys = new Set(rows.map((row) => row.metric_key));
+  for (const metricKey of expectedMetricKeys) {
+    if (!presentMetricKeys.has(metricKey)) {
+      return false;
+    }
+  }
+
+  return rows.every((row) => achievementDetailVersion(row.detail_json) === ACHIEVEMENT_DETAIL_VERSION);
+}
+
+function expectedMetricKeysForSnapshot(sourceSnapshotDate: string, availableDates: Set<string>): string[] {
+  return ACHIEVEMENT_METRICS.filter((metric) =>
+    availableDates.has(shiftUtcDate(sourceSnapshotDate, -metric.days)),
+  ).map((metric) => metric.metricKey);
+}
+
+function achievementDetailVersion(detailJson: string | null): number | null {
+  if (!detailJson) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(detailJson) as { version?: unknown };
+    return typeof parsed.version === "number" ? parsed.version : null;
+  } catch {
+    return null;
+  }
 }
 
 function shiftUtcDate(dateKey: string, days: number): string {
