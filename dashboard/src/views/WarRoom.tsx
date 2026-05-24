@@ -30,6 +30,8 @@ import { ScoutingComparisonMetric } from "../../../shared/scoutingBuckets";
 const WAR_ROOM_HEATMAP_REFRESH_MS = 15 * 60_000;
 const WAR_ROOM_LIVE_SCOUTING_REFRESH_MS = 60_000;
 const WAR_ROOM_PUSH_HISTORY_REFRESH_MS = 5 * 60_000;
+const WAR_ROOM_LIVE_REVIVABLE_REFRESH_MS = 60_000;
+const WAR_ROOM_PRELIVE_REVIVABLE_REFRESH_MS = 5 * 60_000;
 
 type TrackingMode = "live" | "pre-live" | "inactive";
 
@@ -280,6 +282,32 @@ export function WarRoom({
     selectedWar?.id,
     selectedWarName,
   ]);
+
+  React.useEffect(() => {
+    if (!selectedWarName || !canLoadScouting || !isMemberTrackingActive) {
+      return;
+    }
+
+    let cancelled = false;
+    const refreshMs = isWarLive ? WAR_ROOM_LIVE_REVIVABLE_REFRESH_MS : WAR_ROOM_PRELIVE_REVIVABLE_REFRESH_MS;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await getScoutingComparison(selectedWarName);
+        if (!cancelled) {
+          setScoutingComparison(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setScoutingComparison(null);
+        }
+      }
+    }, refreshMs);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [canLoadScouting, isMemberTrackingActive, isWarLive, selectedWarName]);
 
   React.useEffect(() => {
     if (!selectedWarName || !canLoadScouting || !isWarLive) {

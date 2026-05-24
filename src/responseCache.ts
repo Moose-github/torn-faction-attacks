@@ -1,6 +1,7 @@
 import { nowSeconds } from "./utils";
 import { readSyncTimestamp } from "./syncState";
 import { Env } from "./types";
+import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
 
 export type CacheTtl =
   | number
@@ -102,6 +103,11 @@ export function warDataTtlSeconds(
 }
 
 export function scoutingComparisonTtlSeconds(data: any): number {
+  const war = data?.war ?? data;
+  if (isWarRoomMemberTrackingActive(war, nowSeconds())) {
+    return warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55)(data);
+  }
+
   if (data?.comparison_stats_complete === true) {
     return OFFICIAL_END_CACHE_TTL_SECONDS;
   }
