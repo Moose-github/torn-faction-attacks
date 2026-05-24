@@ -203,13 +203,9 @@ export function DashboardHome({
 
   const primaryWar = activeWar ?? selectedWar ?? wars[0] ?? null;
   const missingReports = wars.filter((war) => war.status === "ended" && !war.torn_report_fetched_at).length;
-  const tradeScansDue = watchlists.filter((watchlist) => {
-    const scannedAt = watchlist.latest_snapshot?.scanned_at ?? 0;
-    return scannedAt === 0 || scannedAt < Math.floor(Date.now() / 1000) - 6 * 60 * 60;
-  }).length;
   const dailyStatsAttentionCount =
     (dailyStatsAttention?.stale_personalstats ?? 0) + (dailyStatsAttention?.missing_donator_days ?? 0);
-  const adminAttentionCount = missingReports + tradeScansDue + dailyStatsAttentionCount;
+  const adminAttentionCount = missingReports + dailyStatsAttentionCount;
 
   const events = buildRecentEvents({
     activeWar,
@@ -347,9 +343,7 @@ export function DashboardHome({
                 >
                   <div className="dashboard-card-metrics">
                     <MetricLine label="Missing reports" value={formatNumber(missingReports)} />
-                    <MetricLine label="Trade scans due" value={formatNumber(tradeScansDue)} />
                     <MetricLine label="Daily stats stale" value={formatNumber(dailyStatsAttentionCount)} />
-                    <MetricLine label="Watchlists" value={formatNumber(watchlists.length)} />
                   </div>
                 </DashboardCard>
               </section>
