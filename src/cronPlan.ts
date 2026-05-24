@@ -3,6 +3,7 @@ import { runIngestion } from "./ingestion";
 import { refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
 import { refreshTornShoplifting } from "./miscellaneous";
+import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { Env, TornFactionMember } from "./types";
 
 export type CronJob = {
@@ -34,6 +35,14 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     purpose: "Import recent attacks every minute during active wars, otherwise keep the 5-minute schedule.",
     shouldRun: () => true,
     run: (env, scheduledTime) => runIngestion(env, "cron", { scheduledTime }),
+  },
+  {
+    label: "Cron hourly exact war summaries",
+    cadence: "1h active",
+    category: "attacks",
+    purpose: "Rebuild active war summaries from raw attacks hourly so chain-bonus adjustments catch up outside the minute path.",
+    shouldRun: (minute) => minute === 0,
+    run: (env) => rebuildOpenWarMemberStatsFromRaw(env),
   },
   {
     label: "Cron enemy tracking maintenance window",
