@@ -1,8 +1,19 @@
 import React from "react";
-import { Activity, KeyRound, Settings, ShieldAlert, TestTube2, UsersRound, Volume2, VolumeX } from "lucide-react";
+import {
+  Activity,
+  ArrowDown,
+  ArrowUp,
+  KeyRound,
+  Settings,
+  ShieldAlert,
+  TestTube2,
+  UsersRound,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { createMonitorTicket, EnemyFactionMember, getEnemyScouting, MONITOR_WORKER_URL, WarSummary } from "../api";
 import { EmptyState, MetricCard, PanelHeader } from "../components/Common";
-import { formatLongDateTime, formatNumber, formatTime } from "../utils/format";
+import { formatLongDateTime, formatNetworth, formatNumber, formatTime } from "../utils/format";
 
 type MonitorConnectionState = "idle" | "connecting" | "open" | "closed" | "error";
 
@@ -97,11 +108,18 @@ const ALERT_PREFERENCES_STORAGE_KEY = "enemyHospitalMonitorAlertPreferences";
 const HIDE_ABROAD_HOSPITALS_STORAGE_KEY = "enemyHospitalMonitorHideAbroadHospitals";
 const SORT_ACTIVE_ENEMIES_TOP_STORAGE_KEY = "enemyHospitalMonitorSortActiveEnemiesTop";
 const TRAVEL_ALERTS_ENABLED_STORAGE_KEY = "enemyHospitalMonitorTravelAlertsEnabled";
+const ENEMY_STATUS_COLUMNS_STORAGE_KEY = "enemyHospitalMonitorStatusColumns";
+const COMPACT_BATTLE_STATS_STORAGE_KEY = "enemyHospitalMonitorCompactBattleStats";
 const ALERT_PRIORITIES = [1, 2, 3, 4] as const;
 
 type AlertPriority = MonitorEvent["priority"];
 type AlertChannel = "sound" | "flash";
 type AlertPreferences = Record<AlertPriority, Record<AlertChannel, boolean>>;
+type EnemyStatusColumnId = (typeof ENEMY_STATUS_COLUMNS)[number]["id"];
+type EnemyStatusColumnPreferences = {
+  order: EnemyStatusColumnId[];
+  visible: Record<EnemyStatusColumnId, boolean>;
+};
 
 type TimerReductionSummary = {
   count: number;
@@ -116,6 +134,25 @@ const DEFAULT_ALERT_PREFERENCES: AlertPreferences = {
   2: { sound: true, flash: false },
   3: { sound: false, flash: false },
   4: { sound: false, flash: false },
+};
+
+const ENEMY_STATUS_COLUMNS = [
+  { id: "name", label: "Name", track: "minmax(120px, 0.8fr)", defaultVisible: true },
+  { id: "status", label: "Hosp / travel", track: "minmax(130px, 1fr)", defaultVisible: true },
+  { id: "battleStats", label: "Battlestats", track: "minmax(58px, auto)", defaultVisible: true },
+  { id: "lastAction", label: "Last action", track: "minmax(118px, auto)", defaultVisible: true },
+  { id: "level", label: "Level", track: "minmax(48px, auto)", defaultVisible: false },
+  { id: "revivable", label: "Revivable", track: "minmax(78px, auto)", defaultVisible: false },
+  { id: "networth", label: "Networth", track: "minmax(78px, auto)", defaultVisible: false },
+  { id: "position", label: "Position", track: "minmax(96px, 0.8fr)", defaultVisible: false },
+] as const;
+
+const DEFAULT_ENEMY_STATUS_COLUMN_PREFERENCES: EnemyStatusColumnPreferences = {
+  order: ENEMY_STATUS_COLUMNS.map((column) => column.id),
+  visible: ENEMY_STATUS_COLUMNS.reduce(
+    (visible, column) => ({ ...visible, [column.id]: column.defaultVisible }),
+    {} as Record<EnemyStatusColumnId, boolean>,
+  ),
 };
 
 let monitorAlertAudioContext: AudioContext | null = null;
@@ -146,6 +183,8 @@ export function EnemyHospitalMonitor({
   const [hideAbroadHospitals, setHideAbroadHospitals] = React.useState(() => initialHideAbroadHospitals());
   const [sortActiveEnemiesTop, setSortActiveEnemiesTop] = React.useState(() => initialSortActiveEnemiesTop());
   const [travelAlertsEnabled, setTravelAlertsEnabled] = React.useState(() => initialTravelAlertsEnabled());
+  const [statusColumnPreferences, setStatusColumnPreferences] = React.useState(() => initialEnemyStatusColumns());
+  const [compactBattleStats, setCompactBattleStats] = React.useState(() => initialCompactBattleStats());
   const [alertFlash, setAlertFlash] = React.useState<{ id: number; priority: AlertPriority } | null>(null);
   const [cachedEnemyStats, setCachedEnemyStats] = React.useState<Map<number, EnemyFactionMember>>(new Map());
   const [clockSync, setClockSync] = React.useState<ClockSyncState | null>(null);
@@ -472,34 +511,20 @@ export function EnemyHospitalMonitor({
           hideAbroadHospitals={hideAbroadHospitals}
           sortActiveEnemiesTop={sortActiveEnemiesTop}
           travelAlertsEnabled={travelAlertsEnabled}
+          statusColumnPreferences={statusColumnPreferences}
+          compactBattleStats={compactBattleStats}
           onVolumeChange={setAlertVolume}
           onMutedChange={setAlertsMuted}
           onAlertPreferencesChange={setAlertPreferences}
           onHideAbroadHospitalsChange={setHideAbroadHospitals}
           onSortActiveEnemiesTopChange={setSortActiveEnemiesTop}
           onTravelAlertsEnabledChange={setTravelAlertsEnabled}
+          onStatusColumnPreferencesChange={setStatusColumnPreferences}
+          onCompactBattleStatsChange={setCompactBattleStats}
         />
       </section>
 
       <section className="content-grid enemy-monitor-grid">
-        <section className="panel enemy-monitor-events-panel">
-          <PanelHeader title="Live alerts" aside={`${visibleEvents.length}`} icon={<Activity size={18} />} />
-          {visibleEvents.length === 0 ? (
-            <EmptyState text="No active live alerts" />
-          ) : (
-            <div className="enemy-monitor-event-list">
-              {visibleEvents.map((event) => (
-                <MonitorEventRow
-                  key={eventKey(event)}
-                  event={event}
-                  nowMs={nowMs}
-                  timerReductionSummary={timerReductionSummaries.get(event.memberId) ?? null}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-
         <section className="panel enemy-monitor-members-panel">
           <PanelHeader
             title="Enemy status"
@@ -521,6 +546,8 @@ export function EnemyHospitalMonitor({
                     cachedStats={cachedEnemyStats.get(member.id) ?? null}
                     nowMs={nowMs}
                     alertPriority={alertPriorityByMemberId.get(member.id) ?? null}
+                    statusColumnPreferences={statusColumnPreferences}
+                    compactBattleStats={compactBattleStats}
                   />
                 </React.Fragment>
               ))}
@@ -536,6 +563,26 @@ export function EnemyHospitalMonitor({
                   cachedStats={cachedEnemyStats.get(member.id) ?? null}
                   nowMs={nowMs}
                   alertPriority={alertPriorityByMemberId.get(member.id) ?? null}
+                  statusColumnPreferences={statusColumnPreferences}
+                  compactBattleStats={compactBattleStats}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="panel enemy-monitor-events-panel">
+          <PanelHeader title="Live alerts" aside={`${visibleEvents.length}`} icon={<Activity size={18} />} />
+          {visibleEvents.length === 0 ? (
+            <EmptyState text="No active live alerts" />
+          ) : (
+            <div className="enemy-monitor-event-list">
+              {visibleEvents.map((event) => (
+                <MonitorEventRow
+                  key={eventKey(event)}
+                  event={event}
+                  nowMs={nowMs}
+                  timerReductionSummary={timerReductionSummaries.get(event.memberId) ?? null}
                 />
               ))}
             </div>
@@ -582,12 +629,16 @@ function MonitorSettingsCard({
   hideAbroadHospitals,
   sortActiveEnemiesTop,
   travelAlertsEnabled,
+  statusColumnPreferences,
+  compactBattleStats,
   onVolumeChange,
   onMutedChange,
   onAlertPreferencesChange,
   onHideAbroadHospitalsChange,
   onSortActiveEnemiesTopChange,
   onTravelAlertsEnabledChange,
+  onStatusColumnPreferencesChange,
+  onCompactBattleStatsChange,
 }: {
   volume: number;
   muted: boolean;
@@ -595,14 +646,21 @@ function MonitorSettingsCard({
   hideAbroadHospitals: boolean;
   sortActiveEnemiesTop: boolean;
   travelAlertsEnabled: boolean;
+  statusColumnPreferences: EnemyStatusColumnPreferences;
+  compactBattleStats: boolean;
   onVolumeChange: (value: number) => void;
   onMutedChange: (value: boolean) => void;
   onAlertPreferencesChange: (value: AlertPreferences) => void;
   onHideAbroadHospitalsChange: (value: boolean) => void;
   onSortActiveEnemiesTopChange: (value: boolean) => void;
   onTravelAlertsEnabledChange: (value: boolean) => void;
+  onStatusColumnPreferencesChange: (value: EnemyStatusColumnPreferences) => void;
+  onCompactBattleStatsChange: (value: boolean) => void;
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
+  const visibleStatusColumnCount = statusColumnPreferences.order.filter(
+    (columnId) => statusColumnPreferences.visible[columnId],
+  ).length;
 
   function updateVolume(nextValue: number) {
     primeMonitorAlertAudio();
@@ -642,6 +700,41 @@ function MonitorSettingsCard({
 
   function toggleTravelAlertsEnabled() {
     toggleStoredBoolean(travelAlertsEnabled, onTravelAlertsEnabledChange, TRAVEL_ALERTS_ENABLED_STORAGE_KEY);
+  }
+
+  function toggleCompactBattleStats() {
+    toggleStoredBoolean(compactBattleStats, onCompactBattleStatsChange, COMPACT_BATTLE_STATS_STORAGE_KEY);
+  }
+
+  function updateStatusColumnPreferences(nextPreferences: EnemyStatusColumnPreferences) {
+    const normalizedPreferences = normalizeEnemyStatusColumnPreferences(nextPreferences);
+    onStatusColumnPreferencesChange(normalizedPreferences);
+    window.localStorage.setItem(ENEMY_STATUS_COLUMNS_STORAGE_KEY, JSON.stringify(normalizedPreferences));
+  }
+
+  function toggleStatusColumn(columnId: EnemyStatusColumnId) {
+    if (statusColumnPreferences.visible[columnId] && visibleStatusColumnCount <= 1) return;
+
+    updateStatusColumnPreferences({
+      ...statusColumnPreferences,
+      visible: {
+        ...statusColumnPreferences.visible,
+        [columnId]: !statusColumnPreferences.visible[columnId],
+      },
+    });
+  }
+
+  function moveStatusColumn(columnId: EnemyStatusColumnId, direction: -1 | 1) {
+    const currentIndex = statusColumnPreferences.order.indexOf(columnId);
+    const nextIndex = currentIndex + direction;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= statusColumnPreferences.order.length) return;
+
+    const nextOrder = [...statusColumnPreferences.order];
+    [nextOrder[currentIndex], nextOrder[nextIndex]] = [nextOrder[nextIndex], nextOrder[currentIndex]];
+    updateStatusColumnPreferences({
+      ...statusColumnPreferences,
+      order: nextOrder,
+    });
   }
 
   return (
@@ -750,6 +843,58 @@ function MonitorSettingsCard({
             />
             Travel return alerts
           </label>
+          <label className="enemy-monitor-settings-option">
+            <input
+              type="checkbox"
+              checked={compactBattleStats}
+              onChange={toggleCompactBattleStats}
+            />
+            Compact battlestats
+          </label>
+          <div className="enemy-monitor-column-settings" aria-label="Enemy status columns">
+            <div className="enemy-monitor-column-settings-header">
+              <span>Enemy status columns</span>
+              <small>Shown</small>
+            </div>
+            {statusColumnPreferences.order.map((columnId, index) => {
+              const column = enemyStatusColumn(columnId);
+              const isVisible = statusColumnPreferences.visible[columnId];
+              return (
+                <div key={columnId} className="enemy-monitor-column-settings-row">
+                  <div className="enemy-monitor-column-order-actions">
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      aria-label={`Move ${column.label} column earlier`}
+                      title={`Move ${column.label} earlier`}
+                      onClick={() => moveStatusColumn(columnId, -1)}
+                    >
+                      <ArrowUp size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === statusColumnPreferences.order.length - 1}
+                      aria-label={`Move ${column.label} column later`}
+                      title={`Move ${column.label} later`}
+                      onClick={() => moveStatusColumn(columnId, 1)}
+                    >
+                      <ArrowDown size={14} />
+                    </button>
+                  </div>
+                  <span>{column.label}</span>
+                  <label title={isVisible && visibleStatusColumnCount <= 1 ? "At least one column must stay visible" : undefined}>
+                    <input
+                      type="checkbox"
+                      checked={isVisible}
+                      disabled={isVisible && visibleStatusColumnCount <= 1}
+                      onChange={() => toggleStatusColumn(columnId)}
+                      aria-label={`Show ${column.label} column`}
+                    />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : null}
     </article>
@@ -855,43 +1000,103 @@ function MemberStatusRow({
   cachedStats,
   nowMs,
   alertPriority,
+  statusColumnPreferences,
+  compactBattleStats,
 }: {
   member: MemberMonitorSnapshot;
   cachedStats: EnemyFactionMember | null;
   nowMs: number;
   alertPriority: MonitorEvent["priority"] | null;
+  statusColumnPreferences: EnemyStatusColumnPreferences;
+  compactBattleStats: boolean;
 }) {
   const tornReturn = travelReturnToTorn(member, cachedStats, nowMs);
   const abroadHospital = hospitalAbroadInfo(member);
+  const visibleColumns = statusColumnPreferences.order.filter((columnId) => statusColumnPreferences.visible[columnId]);
   return (
     <a
       className={memberTileClass(member, nowMs, alertPriority)}
+      style={enemyStatusColumnStyle(visibleColumns)}
       href={attackUrl(member.id)}
       target="_blank"
       rel="noreferrer"
     >
-      <div>
-        <strong>{member.name}</strong>
-      </div>
-      <span className={memberStateClass(member, tornReturn, abroadHospital)}>
-        <span>{memberStatusLabel(member, nowMs)}</span>
-        {abroadHospital ? (
-          <small className="enemy-monitor-abroad-hospital" title={abroadHospital.title}>
-            {abroadHospital.label}
-          </small>
-        ) : null}
-        {tornReturn ? (
-          <small title={tornReturn.title}>
-            Torn in {tornReturn.countdown}
-          </small>
-        ) : null}
-      </span>
-      <span className="enemy-monitor-bsp-stat" title={bspBattlestatsTitle(cachedStats)}>
-        {cachedStats?.bsp_battlestats == null ? "-" : formatNumber(cachedStats.bsp_battlestats)}
-      </span>
-      <span className={lastActionClass(member, nowMs)}>{lastActionLabel(member)}</span>
+      {visibleColumns.map((columnId) =>
+        memberStatusColumn(columnId, member, cachedStats, nowMs, tornReturn, abroadHospital, compactBattleStats),
+      )}
     </a>
   );
+}
+
+function memberStatusColumn(
+  columnId: EnemyStatusColumnId,
+  member: MemberMonitorSnapshot,
+  cachedStats: EnemyFactionMember | null,
+  nowMs: number,
+  tornReturn: ReturnType<typeof travelReturnToTorn>,
+  abroadHospital: ReturnType<typeof hospitalAbroadInfo>,
+  compactBattleStats: boolean,
+): React.ReactNode {
+  switch (columnId) {
+    case "name":
+      return (
+        <div key={columnId} className="enemy-monitor-member-column enemy-monitor-member-column-name">
+          <strong>{member.name}</strong>
+        </div>
+      );
+    case "status":
+      return (
+        <span key={columnId} className={memberStateClass(member, tornReturn, abroadHospital)}>
+          <span>{memberStatusLabel(member, nowMs)}</span>
+          {abroadHospital ? (
+            <small className="enemy-monitor-abroad-hospital" title={abroadHospital.title}>
+              {abroadHospital.label}
+            </small>
+          ) : null}
+          {tornReturn ? (
+            <small title={tornReturn.title}>
+              Torn in {tornReturn.countdown}
+            </small>
+          ) : null}
+        </span>
+      );
+    case "battleStats":
+      return (
+        <span key={columnId} className="enemy-monitor-bsp-stat" title={bspBattlestatsTitle(cachedStats)}>
+          {battleStatsLabel(cachedStats?.bsp_battlestats ?? null, compactBattleStats)}
+        </span>
+      );
+    case "lastAction":
+      return (
+        <span key={columnId} className={lastActionClass(member, nowMs)}>
+          {lastActionLabel(member)}
+        </span>
+      );
+    case "level":
+      return (
+        <span key={columnId} className="enemy-monitor-member-metric" title={levelTitle(member, cachedStats)}>
+          {member.level ?? cachedStats?.level ?? "-"}
+        </span>
+      );
+    case "revivable":
+      return (
+        <span key={columnId} className={revivableColumnClass(cachedStats)} title={revivableTitle(cachedStats)}>
+          {revivableLabel(cachedStats)}
+        </span>
+      );
+    case "networth":
+      return (
+        <span key={columnId} className="enemy-monitor-member-metric" title={networthTitle(cachedStats)}>
+          {formatNetworth(cachedStats?.networth)}
+        </span>
+      );
+    case "position":
+      return (
+        <span key={columnId} className="enemy-monitor-member-position" title={positionTitle(cachedStats)}>
+          {cachedStats?.position ?? "-"}
+        </span>
+      );
+  }
 }
 
 function monitorSocketUrl(target: MonitorTarget, ticket: string | null): string {
@@ -1205,7 +1410,66 @@ function bspBattlestatsTitle(member: EnemyFactionMember | null): string {
   if (!member) return "No cached enemy scouting row for this player.";
   if (member.bsp_battlestats == null) return "No cached BSP battle stats for this player.";
   const updated = member.bsp_battlestats_updated_at ? formatLongDateTime(member.bsp_battlestats_updated_at) : "unknown time";
-  return `Cached BSP battle stats. Updated ${updated}.`;
+  return `Exact BSP battle stats: ${formatNumber(member.bsp_battlestats)}. Updated ${updated}.`;
+}
+
+function battleStatsLabel(value: number | null, compact: boolean): string {
+  if (value === null) return "-";
+  return compact ? formatCompactBattleStats(value) : formatNumber(value);
+}
+
+function formatCompactBattleStats(value: number): string {
+  if (value >= 1_000_000_000_000) {
+    return `${formatFixedCompact(value / 1_000_000_000_000)}t`;
+  }
+  if (value >= 1_000_000_000) {
+    return `${formatFixedCompact(value / 1_000_000_000)}b`;
+  }
+  if (value >= 1_000_000) {
+    return `${formatFixedCompact(value / 1_000_000)}m`;
+  }
+  return formatNumber(value);
+}
+
+function formatFixedCompact(value: number): string {
+  return new Intl.NumberFormat("en-GB", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function levelTitle(
+  liveMember: MemberMonitorSnapshot,
+  cachedMember: EnemyFactionMember | null,
+): string {
+  const level = liveMember.level ?? cachedMember?.level ?? null;
+  return level === null ? "No level loaded for this player." : `Level ${formatNumber(level)}.`;
+}
+
+function revivableColumnClass(member: EnemyFactionMember | null): string {
+  return member?.is_revivable ? "enemy-monitor-member-metric positive" : "enemy-monitor-member-metric muted";
+}
+
+function revivableLabel(member: EnemyFactionMember | null): string {
+  if (!member || member.is_revivable === null) return "-";
+  return member.is_revivable ? "Yes" : "No";
+}
+
+function revivableTitle(member: EnemyFactionMember | null): string {
+  if (!member || member.is_revivable === null) return "No revivable status loaded for this player.";
+  return member.is_revivable ? "Torn currently marks this player as revivable." : "Torn currently marks this player as not revivable.";
+}
+
+function networthTitle(member: EnemyFactionMember | null): string {
+  if (!member) return "No cached enemy scouting row for this player.";
+  const updated = member.networth_updated_at ? formatLongDateTime(member.networth_updated_at) : "unknown time";
+  if (member.networth === null) return `No cached networth for this player. Updated ${updated}.`;
+  return `Exact networth: ${formatNumber(member.networth)}. Updated ${updated}.`;
+}
+
+function positionTitle(member: EnemyFactionMember | null): string {
+  if (!member) return "No cached enemy scouting row for this player.";
+  return member.position ? `Faction position: ${member.position}.` : "No faction position loaded for this player.";
 }
 
 function lastActionLabel(member: MemberMonitorSnapshot): string {
@@ -1313,6 +1577,17 @@ function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+function enemyStatusColumn(columnId: EnemyStatusColumnId) {
+  return ENEMY_STATUS_COLUMNS.find((column) => column.id === columnId) ?? ENEMY_STATUS_COLUMNS[0];
+}
+
+function enemyStatusColumnStyle(columnIds: EnemyStatusColumnId[]): React.CSSProperties {
+  const columns = columnIds.length > 0 ? columnIds : DEFAULT_ENEMY_STATUS_COLUMN_PREFERENCES.order;
+  return {
+    "--enemy-monitor-member-columns": columns.map((columnId) => enemyStatusColumn(columnId).track).join(" "),
+  } as React.CSSProperties;
+}
+
 function initialAlertVolume(): number {
   const stored = Number(window.localStorage.getItem(ALERT_VOLUME_STORAGE_KEY));
   if (Number.isFinite(stored) && stored >= 0 && stored <= 100) {
@@ -1338,6 +1613,21 @@ function initialTravelAlertsEnabled(): boolean {
   return storedBooleanSetting(TRAVEL_ALERTS_ENABLED_STORAGE_KEY, true);
 }
 
+function initialCompactBattleStats(): boolean {
+  return storedBooleanSetting(COMPACT_BATTLE_STATS_STORAGE_KEY, true);
+}
+
+function initialEnemyStatusColumns(): EnemyStatusColumnPreferences {
+  const stored = window.localStorage.getItem(ENEMY_STATUS_COLUMNS_STORAGE_KEY);
+  if (!stored) return DEFAULT_ENEMY_STATUS_COLUMN_PREFERENCES;
+
+  try {
+    return normalizeEnemyStatusColumnPreferences(JSON.parse(stored));
+  } catch {
+    return DEFAULT_ENEMY_STATUS_COLUMN_PREFERENCES;
+  }
+}
+
 function toggleStoredBoolean(
   currentValue: boolean,
   onChange: (value: boolean) => void,
@@ -1354,6 +1644,38 @@ function storedBooleanSetting(storageKey: string, defaultValue: boolean): boolea
     return defaultValue;
   }
   return stored === "1";
+}
+
+function normalizeEnemyStatusColumnPreferences(value: unknown): EnemyStatusColumnPreferences {
+  if (!value || typeof value !== "object") return DEFAULT_ENEMY_STATUS_COLUMN_PREFERENCES;
+
+  const maybePreferences = value as Partial<EnemyStatusColumnPreferences>;
+  const knownColumnIds = new Set<EnemyStatusColumnId>(ENEMY_STATUS_COLUMNS.map((column) => column.id));
+  const storedOrder = Array.isArray(maybePreferences.order) ? maybePreferences.order : [];
+  const order = [
+    ...storedOrder.filter(
+      (columnId): columnId is EnemyStatusColumnId =>
+        typeof columnId === "string" && knownColumnIds.has(columnId as EnemyStatusColumnId),
+    ),
+    ...ENEMY_STATUS_COLUMNS.map((column) => column.id).filter((columnId) => !storedOrder.includes(columnId)),
+  ];
+  const visibleSource =
+    maybePreferences.visible && typeof maybePreferences.visible === "object"
+      ? (maybePreferences.visible as Record<string, unknown>)
+      : {};
+  const visible = ENEMY_STATUS_COLUMNS.reduce(
+    (nextVisible, column) => ({
+      ...nextVisible,
+      [column.id]: typeof visibleSource[column.id] === "boolean" ? visibleSource[column.id] : column.defaultVisible,
+    }),
+    {} as Record<EnemyStatusColumnId, boolean>,
+  );
+
+  if (!order.some((columnId) => visible[columnId])) {
+    visible.name = true;
+  }
+
+  return { order, visible };
 }
 
 function initialAlertPreferences(): AlertPreferences {

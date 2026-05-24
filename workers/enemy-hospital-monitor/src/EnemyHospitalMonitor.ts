@@ -534,10 +534,11 @@ function snapshotFromMember(member: TornFactionMember, observedAt: number): Memb
 }
 
 function isRecentlyActive(member: MemberMonitorSnapshot, observedAt: number): boolean {
-  return (
-    member.lastActionStatus === "Online" ||
-    (member.lastActionTimestamp !== null && member.lastActionTimestamp >= observedAt - RECENT_ACTION_SECONDS)
-  );
+  if (member.lastActionTimestamp !== null) {
+    return member.lastActionTimestamp >= observedAt - RECENT_ACTION_SECONDS;
+  }
+
+  return member.lastActionStatus === "Online";
 }
 
 function activeWarFromUrl(url: URL): ActiveWarConfig | Response {

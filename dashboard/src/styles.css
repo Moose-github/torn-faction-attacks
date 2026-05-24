@@ -1392,7 +1392,10 @@ h2 {
 }
 
 .enemy-monitor-member {
-  grid-template-columns: minmax(120px, 0.8fr) minmax(130px, 1fr) minmax(58px, auto) minmax(118px, auto);
+  grid-template-columns: var(
+    --enemy-monitor-member-columns,
+    minmax(120px, 0.8fr) minmax(130px, 1fr) minmax(58px, auto) minmax(118px, auto)
+  );
   align-items: center;
   border-left-width: 1px;
   box-sizing: border-box;
@@ -1480,6 +1483,33 @@ h2 {
   color: #64748b;
   font-size: 0.68rem;
   text-transform: uppercase;
+}
+
+.enemy-monitor-member-metric,
+.enemy-monitor-member-position {
+  min-width: 0;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.enemy-monitor-member-metric {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.enemy-monitor-member-metric.positive {
+  color: #047857;
+}
+
+.enemy-monitor-member-metric.muted {
+  color: #64748b;
+}
+
+.enemy-monitor-member-position {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .enemy-monitor-last-action {
@@ -1677,6 +1707,86 @@ h2 {
 
 .enemy-monitor-settings-option.disabled {
   color: #94a3b8;
+}
+
+.enemy-monitor-column-settings {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.enemy-monitor-column-settings-header,
+.enemy-monitor-column-settings-row {
+  display: grid;
+  grid-template-columns: 66px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 8px;
+}
+
+.enemy-monitor-column-settings-header {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.enemy-monitor-column-settings-header span {
+  grid-column: 1 / span 2;
+}
+
+.enemy-monitor-column-settings-header small {
+  justify-self: center;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.enemy-monitor-column-settings-row > span {
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.enemy-monitor-column-order-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.enemy-monitor-column-order-actions button {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.enemy-monitor-column-order-actions button:hover:not(:disabled) {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.enemy-monitor-column-order-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.enemy-monitor-column-settings-row label {
+  display: inline-grid;
+  min-height: 28px;
+  place-items: center;
+}
+
+.enemy-monitor-column-settings-row input {
+  min-height: 0;
+  accent-color: #2563eb;
 }
 
 .enemy-monitor-test-panel,
@@ -5306,8 +5416,15 @@ tbody tr:not(.attack-row):hover td {
   background: var(--panel-muted-bg);
 }
 
+:root[data-theme="dark"] .enemy-monitor-column-settings {
+  border-color: var(--border-faint);
+  background: var(--panel-muted-bg);
+}
+
 :root[data-theme="dark"] .enemy-monitor-alert-rules-header,
-:root[data-theme="dark"] .enemy-monitor-alert-rules-row > span {
+:root[data-theme="dark"] .enemy-monitor-alert-rules-row > span,
+:root[data-theme="dark"] .enemy-monitor-column-settings-header,
+:root[data-theme="dark"] .enemy-monitor-column-settings-row > span {
   color: var(--text-muted);
 }
 
@@ -5316,12 +5433,37 @@ tbody tr:not(.attack-row):hover td {
   color: var(--text-main);
 }
 
+:root[data-theme="dark"] .enemy-monitor-column-order-actions button {
+  border-color: var(--border-solid);
+  background: var(--panel-muted-bg);
+  color: var(--text-main);
+}
+
+:root[data-theme="dark"] .enemy-monitor-column-order-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--panel-active-bg);
+  color: var(--accent-strong);
+}
+
 :root[data-theme="dark"] .enemy-monitor-state.has-return-countdown small {
   color: #93c5fd;
 }
 
 :root[data-theme="dark"] .enemy-monitor-state.has-abroad-hospital .enemy-monitor-abroad-hospital {
   color: #c4b5fd;
+}
+
+:root[data-theme="dark"] .enemy-monitor-member-metric,
+:root[data-theme="dark"] .enemy-monitor-member-position {
+  color: var(--text-main);
+}
+
+:root[data-theme="dark"] .enemy-monitor-member-metric.positive {
+  color: #86efac;
+}
+
+:root[data-theme="dark"] .enemy-monitor-member-metric.muted {
+  color: var(--text-muted);
 }
 
 :root[data-theme="dark"] .enemy-monitor-settings-field,
