@@ -93,6 +93,7 @@ const ALERT_VOLUME_STORAGE_KEY = "enemyHospitalMonitorAlertVolume";
 const ALERT_MUTED_STORAGE_KEY = "enemyHospitalMonitorAlertMuted";
 const ALERT_PREFERENCES_STORAGE_KEY = "enemyHospitalMonitorAlertPreferences";
 const HIDE_ABROAD_HOSPITALS_STORAGE_KEY = "enemyHospitalMonitorHideAbroadHospitals";
+const SORT_ACTIVE_ENEMIES_TOP_STORAGE_KEY = "enemyHospitalMonitorSortActiveEnemiesTop";
 const ALERT_PRIORITIES = [1, 2, 3, 4] as const;
 
 type AlertPriority = MonitorEvent["priority"];
@@ -140,6 +141,7 @@ export function EnemyHospitalMonitor({
   const [alertsMuted, setAlertsMuted] = React.useState(() => initialAlertsMuted());
   const [alertPreferences, setAlertPreferences] = React.useState(() => initialAlertPreferences());
   const [hideAbroadHospitals, setHideAbroadHospitals] = React.useState(() => initialHideAbroadHospitals());
+  const [sortActiveEnemiesTop, setSortActiveEnemiesTop] = React.useState(() => initialSortActiveEnemiesTop());
   const [alertFlash, setAlertFlash] = React.useState<{ id: number; priority: AlertPriority } | null>(null);
   const [cachedEnemyStats, setCachedEnemyStats] = React.useState<Map<number, EnemyFactionMember>>(new Map());
   const [clockSync, setClockSync] = React.useState<ClockSyncState | null>(null);
@@ -370,10 +372,14 @@ export function EnemyHospitalMonitor({
     ? members.filter((member) => !isAbroadHospitalized(member))
     : members;
   const sortedMembers = [...displayedMembers].sort((left, right) =>
-    compareMonitorMembers(left, right, nowMs, cachedEnemyStats),
+    compareMonitorMembers(left, right, nowMs, cachedEnemyStats, sortActiveEnemiesTop),
   );
-  const forcedTopMembers = sortedMembers.filter((member) => memberAlertSortRank(member, nowMs) === 0);
-  const standardMembers = sortedMembers.filter((member) => memberAlertSortRank(member, nowMs) !== 0);
+  const forcedTopMembers = sortActiveEnemiesTop
+    ? sortedMembers.filter((member) => memberAlertSortRank(member, nowMs) === 0)
+    : [];
+  const standardMembers = sortActiveEnemiesTop
+    ? sortedMembers.filter((member) => memberAlertSortRank(member, nowMs) !== 0)
+    : sortedMembers;
   const shouldShowMemberSeparator = forcedTopMembers.length > 0 && standardMembers.length > 0;
   const tornTiming = monitorTiming(status, nowMs, clockSync, lastMessageReceivedAtMs);
 
@@ -458,10 +464,12 @@ export function EnemyHospitalMonitor({
           muted={alertsMuted}
           alertPreferences={alertPreferences}
           hideAbroadHospitals={hideAbroadHospitals}
+          sortActiveEnemiesTop={sortActiveEnemiesTop}
           onVolumeChange={setAlertVolume}
           onMutedChange={setAlertsMuted}
           onAlertPreferencesChange={setAlertPreferences}
           onHideAbroadHospitalsChange={setHideAbroadHospitals}
+          onSortActiveEnemiesTopChange={setSortActiveEnemiesTop}
         />
       </section>
 
@@ -564,19 +572,23 @@ function MonitorSettingsCard({
   muted,
   alertPreferences,
   hideAbroadHospitals,
+  sortActiveEnemiesTop,
   onVolumeChange,
   onMutedChange,
   onAlertPreferencesChange,
   onHideAbroadHospitalsChange,
+  onSortActiveEnemiesTopChange,
 }: {
   volume: number;
   muted: boolean;
   alertPreferences: AlertPreferences;
   hideAbroadHospitals: boolean;
+  sortActiveEnemiesTop: boolean;
   onVolumeChange: (value: number) => void;
   onMutedChange: (value: boolean) => void;
   onAlertPreferencesChange: (value: AlertPreferences) => void;
   onHideAbroadHospitalsChange: (value: boolean) => void;
+  onSortActiveEnemiesTopChange: (value: boolean) => void;
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -614,6 +626,12 @@ function MonitorSettingsCard({
     const nextValue = !hideAbroadHospitals;
     onHideAbroadHospitalsChange(nextValue);
     window.localStorage.setItem(HIDE_ABROAD_HOSPITALS_STORAGE_KEY, nextValue ? "1" : "0");
+  }
+
+  function toggleSortActiveEnemiesTop() {
+    const nextValue = !sortActiveEnemiesTop;
+    onSortActiveEnemiesTopChange(nextValue);
+    window.localStorage.setItem(SORT_ACTIVE_ENEMIES_TOP_STORAGE_KEY, nextValue ? "1" : "0");
   }
 
   return (
@@ -705,6 +723,14 @@ function MonitorSettingsCard({
               onChange={toggleHideAbroadHospitals}
             />
             Hide enemies hospitalized abroad
+          </label>
+          <label className="enemy-monitor-settings-option">
+            <input
+              type="checkbox"
+              checked={sortActiveEnemiesTop}
+              onChange={toggleSortActiveEnemiesTop}
+            />
+            Move online or recently active enemies to top
           </label>
         </div>
       ) : null}
@@ -889,10 +915,13 @@ function compareMonitorMembers(
   right: MemberMonitorSnapshot,
   nowMs: number,
   cachedStats: Map<number, EnemyFactionMember>,
+  sortActiveEnemiesTop: boolean,
 ): number {
-  const leftAlertRank = memberAlertSortRank(left, nowMs);
-  const rightAlertRank = memberAlertSortRank(right, nowMs);
-  if (leftAlertRank !== rightAlertRank) return leftAlertRank - rightAlertRank;
+  if (sortActiveEnemiesTop) {
+    const leftAlertRank = memberAlertSortRank(left, nowMs);
+    const rightAlertRank = memberAlertSortRank(right, nowMs);
+    if (leftAlertRank !== rightAlertRank) return leftAlertRank - rightAlertRank;
+  }
 
   const leftCachedStats = cachedStats.get(left.id) ?? null;
   const rightCachedStats = cachedStats.get(right.id) ?? null;
@@ -1270,6 +1299,10 @@ function initialAlertsMuted(): boolean {
 
 function initialHideAbroadHospitals(): boolean {
   return window.localStorage.getItem(HIDE_ABROAD_HOSPITALS_STORAGE_KEY) === "1";
+}
+
+function initialSortActiveEnemiesTop(): boolean {
+  return window.localStorage.getItem(SORT_ACTIVE_ENEMIES_TOP_STORAGE_KEY) !== "0";
 }
 
 function initialAlertPreferences(): AlertPreferences {
