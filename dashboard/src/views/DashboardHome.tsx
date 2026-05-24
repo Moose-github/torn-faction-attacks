@@ -6,9 +6,10 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
+  ExternalLink,
   Radar,
-  ShieldCheck,
   Swords,
+  ShieldCheck,
   Trophy,
   Users,
 } from "lucide-react";
@@ -35,7 +36,6 @@ import { displayWarStatus } from "../utils/members";
 import type { AppView } from "../routes";
 
 const RECENT_ATTACK_LIMIT = 10;
-const RECENT_ATTACK_WINDOW_SECONDS = 5 * 60;
 const RECENT_ATTACK_REFRESH_MS = 30_000;
 const ATTACK_POLLING_RATE_LABEL = "Every 1 minute while active";
 const ATTACK_POLLING_DETAIL = "Falls back to the 5-minute gate when no live war is being tracked.";
@@ -142,7 +142,6 @@ export function DashboardHome({
       try {
         const response = await getRecentFactionAttacks({
           limit: RECENT_ATTACK_LIMIT,
-          windowSeconds: RECENT_ATTACK_WINDOW_SECONDS,
         });
         if (!cancelled) {
           setRecentAttacks(response.attacks);
@@ -373,7 +372,7 @@ export function DashboardHome({
         <PanelHeader
           icon={<Swords size={17} />}
           title="Recent attacks"
-          aside={`Last 5 minutes, max ${RECENT_ATTACK_LIMIT}`}
+          aside={`Latest ${RECENT_ATTACK_LIMIT}`}
         />
         <div className="dashboard-attack-info">
           <span>Attack polling</span>
@@ -385,7 +384,7 @@ export function DashboardHome({
         ) : recentAttacksError && recentAttacks.length === 0 ? (
           <EmptyState text={`Recent attacks unavailable: ${recentAttacksError}`} />
         ) : recentAttacks.length === 0 ? (
-          <EmptyState text="No incoming or outgoing attacks in the last 5 minutes" />
+          <EmptyState text="No incoming or outgoing attacks cached yet" />
         ) : (
           <>
             {recentAttacksError ? (
@@ -427,6 +426,30 @@ function RecentAttackRow({ attack }: { attack: RecentFactionAttack }) {
       <span className="dashboard-attack-result">
         <strong>{attack.result ?? "Unknown"}</strong>
         <small>{formatRespect(attack.respect_gain)}</small>
+      </span>
+      <span className="dashboard-attack-actions" aria-label="Attack links">
+        {attack.code ? (
+          <a
+            href={`https://www.torn.com/loader.php?sid=attackLog&ID=${encodeURIComponent(attack.code)}`}
+            target="_blank"
+            rel="noreferrer"
+            title="Open attack log"
+            aria-label="Open attack log"
+          >
+            <ExternalLink size={14} />
+          </a>
+        ) : null}
+        {!isOutgoing && attack.attacker_id ? (
+          <a
+            href={`https://www.torn.com/page.php?sid=attack&user2ID=${encodeURIComponent(String(attack.attacker_id))}`}
+            target="_blank"
+            rel="noreferrer"
+            title={`Attack ${attack.attacker_name ?? `#${attack.attacker_id}`}`}
+            aria-label={`Attack ${attack.attacker_name ?? `#${attack.attacker_id}`}`}
+          >
+            <Swords size={14} />
+          </a>
+        ) : null}
       </span>
     </div>
   );

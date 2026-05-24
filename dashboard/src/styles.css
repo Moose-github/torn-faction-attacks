@@ -660,7 +660,7 @@ h2 {
 
 .dashboard-attack-row {
   display: grid;
-  grid-template-columns: 86px 112px minmax(0, 1fr) minmax(120px, auto);
+  grid-template-columns: 86px 112px minmax(0, 1fr) minmax(120px, auto) auto;
   align-items: center;
   gap: 12px;
   min-height: 48px;
@@ -724,6 +724,31 @@ h2 {
 .dashboard-attack-result {
   justify-items: end;
   text-align: right;
+}
+
+.dashboard-attack-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.dashboard-attack-actions a {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  text-decoration: none;
+}
+
+.dashboard-attack-actions a:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .dashboard-layout {
@@ -4814,6 +4839,10 @@ tbody tr:not(.attack-row):hover td {
     text-align: left;
   }
 
+  .dashboard-attack-actions {
+    justify-content: flex-start;
+  }
+
   .dashboard-attack-info {
     grid-template-columns: 1fr;
   }
@@ -5050,6 +5079,18 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .dashboard-attack-row.incoming .dashboard-attack-direction {
   background: rgba(127, 29, 29, 0.32);
   color: #fca5a5;
+}
+
+:root[data-theme="dark"] .dashboard-attack-actions a {
+  border-color: var(--border-faint);
+  background: var(--panel-bg);
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .dashboard-attack-actions a:hover {
+  border-color: rgba(96, 165, 250, 0.42);
+  background: var(--panel-active-bg);
+  color: var(--accent-strong);
 }
 
 :root[data-theme="dark"] .sidebar-link,

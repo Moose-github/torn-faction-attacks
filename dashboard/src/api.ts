@@ -75,6 +75,7 @@ export type HomeFactionMemberSummary = {
 
 export type RecentFactionAttack = {
   id: number;
+  code: string | null;
   started: number | null;
   ended: number | null;
   attacker_id: number | null;
@@ -95,9 +96,9 @@ export type RecentFactionAttack = {
 export type RecentFactionAttacksResponse = {
   ok: boolean;
   faction_id: number;
-  window_seconds: number;
+  window_seconds: number | null;
   limit: number;
-  since: number;
+  since: number | null;
   attacks: RecentFactionAttack[];
 };
 
