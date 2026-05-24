@@ -135,6 +135,7 @@ input:disabled {
   width: min(1480px, 100%);
   margin: 0 auto;
   padding: 24px 28px 32px;
+  overflow-x: clip;
 }
 
 .topbar {
@@ -730,9 +731,14 @@ h2 {
   grid-template-columns: 318px minmax(0, 1fr);
   gap: 18px;
   align-items: start;
+  min-width: 0;
 }
 
 .main-content {
+  min-width: 0;
+}
+
+.main-content > * {
   min-width: 0;
 }
 
@@ -2351,6 +2357,7 @@ h2 {
 .panel,
 .status-panel,
 .metric-card {
+  min-width: 0;
   border: 1px solid rgba(137, 151, 170, 0.28);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.96);
@@ -4198,7 +4205,7 @@ h2 {
 
 .trade-scout-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
   min-width: 0;
@@ -4208,6 +4215,10 @@ h2 {
 .trade-scout-main {
   display: grid;
   gap: 16px;
+  min-width: 0;
+}
+
+.trade-scout-main > * {
   min-width: 0;
 }
 
@@ -4239,6 +4250,9 @@ h2 {
 .trade-scout-watchlist-list {
   display: grid;
   gap: 8px;
+  max-height: 430px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .trade-scout-watchlist-list button {
@@ -4282,6 +4296,7 @@ h2 {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .trade-scout-selected-meta {
@@ -4312,6 +4327,7 @@ h2 {
   display: grid;
   grid-template-columns: repeat(3, minmax(150px, 1fr));
   gap: 12px;
+  min-width: 0;
 }
 
 .trade-scout-items-field,
@@ -4345,6 +4361,27 @@ h2 {
   text-underline-offset: 4px;
 }
 
+@media (max-width: 1280px) {
+  .trade-scout-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-scout-sidebar {
+    grid-template-columns: minmax(220px, 0.7fr) minmax(280px, 1.3fr);
+  }
+
+  .trade-scout-watchlist-list {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    max-height: 280px;
+  }
+}
+
+@media (max-width: 760px) {
+  .trade-scout-sidebar {
+    grid-template-columns: 1fr;
+  }
+}
+
 .positive {
   color: #15803d;
   font-weight: 850;
@@ -4356,6 +4393,8 @@ h2 {
 }
 
 .table-scroll {
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
