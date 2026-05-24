@@ -97,24 +97,44 @@ export function FreshnessMeta({
   cadence,
   detail,
   tone = "fresh",
+  onClick,
 }: {
   state: string;
   updatedAt?: number | null;
   cadence?: string;
   detail?: string;
   tone?: FreshnessTone;
+  onClick?: () => void;
 }) {
   const updatedLabel = updatedAt === undefined
     ? null
     : updatedAt
       ? `Updated ${formatRelativeTime(updatedAt)}`
       : "Not updated";
-
-  return (
-    <span className={`freshness-meta ${tone}`} title={detail}>
+  const content = (
+    <>
       <span>{state}</span>
       {updatedLabel ? <span>{updatedLabel}</span> : null}
       {cadence ? <span>{cadence}</span> : null}
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={`freshness-meta clickable ${tone}`}
+        title={detail ? `${detail} More information.` : "More information."}
+        onClick={onClick}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <span className={`freshness-meta ${tone}`} title={detail}>
+      {content}
     </span>
   );
 }

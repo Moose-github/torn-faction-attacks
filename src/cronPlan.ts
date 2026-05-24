@@ -29,11 +29,11 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   },
   {
     label: "Cron ingestion",
-    cadence: "5m",
+    cadence: "1m active / 5m otherwise",
     category: "attacks",
-    purpose: "Import recent attacks and keep active war attack data current.",
-    shouldRun: (minute) => minute % 5 === 0,
-    run: (env) => runIngestion(env),
+    purpose: "Import recent attacks every minute during active wars, otherwise keep the 5-minute schedule.",
+    shouldRun: () => true,
+    run: (env, scheduledTime) => runIngestion(env, "cron", { scheduledTime }),
   },
   {
     label: "Cron enemy tracking maintenance window",

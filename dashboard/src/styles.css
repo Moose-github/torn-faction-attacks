@@ -1075,37 +1075,55 @@ h2 {
 
 .tracking-status-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 10px;
-  margin-top: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
 }
 
 .tracking-status-item {
   display: grid;
-  gap: 5px;
+  align-content: start;
+  gap: 10px;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 14px;
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 8px;
   background: #f8fafc;
 }
 
+.tracking-status-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .tracking-status-item span {
   color: #64748b;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 850;
 }
 
 .tracking-status-item strong {
+  flex: 0 0 auto;
   color: #172033;
   font-size: 0.94rem;
   line-height: 1.15;
+  text-align: right;
 }
 
 .tracking-status-item small {
   color: #64748b;
-  font-size: 0.74rem;
+  font-size: 0.78rem;
   font-weight: 750;
+}
+
+.tracking-status-item p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.86rem;
+  font-weight: 650;
+  line-height: 1.45;
 }
 
 .enemy-monitor-hero {
@@ -2462,6 +2480,24 @@ h2 {
   border-radius: 0;
   background: transparent;
   color: #475569;
+}
+
+.freshness-meta.clickable {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.freshness-meta.clickable:hover > span,
+.freshness-meta.clickable:focus-visible > span {
+  border-color: rgba(37, 99, 235, 0.38);
+  background: #eef6ff;
+  color: #1d4ed8;
+}
+
+.freshness-meta.clickable:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 3px;
 }
 
 .freshness-meta > span {
@@ -5184,6 +5220,13 @@ tbody tr:not(.attack-row):hover td {
   color: var(--text-muted);
 }
 
+:root[data-theme="dark"] .freshness-meta.clickable:hover > span,
+:root[data-theme="dark"] .freshness-meta.clickable:focus-visible > span {
+  border-color: rgba(96, 165, 250, 0.46);
+  background: rgba(37, 99, 235, 0.26);
+  color: #bfdbfe;
+}
+
 :root[data-theme="dark"] .freshness-meta.live > span:first-child {
   border-color: rgba(96, 165, 250, 0.34);
   background: rgba(37, 99, 235, 0.22);
@@ -5275,7 +5318,8 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .push-pressure-contribution-group-header small,
 :root[data-theme="dark"] .push-pressure-contribution small,
 :root[data-theme="dark"] .tracking-status-item span,
-:root[data-theme="dark"] .tracking-status-item small {
+:root[data-theme="dark"] .tracking-status-item small,
+:root[data-theme="dark"] .tracking-status-item p {
   color: var(--text-muted);
 }
 

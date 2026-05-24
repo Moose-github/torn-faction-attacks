@@ -315,7 +315,7 @@ The Worker uses separate cron schedules for ingestion and heatmap sampling:
 }
 ```
 
-Every 5 minutes, the ingestion run:
+Every minute during an active unfinished war, and every 5 minutes otherwise, the ingestion run:
 
 1. Ensures sync state exists.
 2. Checks Torn's latest ranked war and creates a scheduled war if the faction is enlisted in a future war.

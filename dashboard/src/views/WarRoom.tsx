@@ -64,8 +64,10 @@ export function WarRoom({
   const [isLoadingPushPressure, setIsLoadingPushPressure] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({
     activityHeatmaps: true,
+    enemyPushPressure: true,
     revivableMembers: true,
   });
+  const trackingCadenceRef = React.useRef<HTMLElement | null>(null);
   const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
   const isWarLive =
     selectedWar?.status === "active" &&
@@ -91,6 +93,13 @@ export function WarRoom({
       ...current,
       [panel]: !current[panel],
     }));
+  }
+
+  function scrollToTrackingCadence() {
+    trackingCadenceRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
   }
 
   React.useEffect(() => {
@@ -430,27 +439,8 @@ export function WarRoom({
       </section>
 
       <section className="content-grid">
-        <TrackingStatusPanel
-          war={selectedWar}
-          mode={trackingMode}
-          enemyStatusCheckedAt={statusCheckedAt}
-          pushPressureUpdatedAt={pushPressureUpdatedAt}
-          heatmapSampledAt={latestHeatmapSampledAt}
-          revivableUpdatedAt={latestRevivableUpdatedAt}
-          heatmapOpen={isActivityHeatmapsOpen}
-        />
-
         {isMemberTrackingActive ? (
           <>
-            <HospitalMonitorLinkPanel
-              isWarLive={isWarLive}
-              onOpenHospitalMonitor={onOpenHospitalMonitor}
-              trackingState={trackingFreshness.hospitalState}
-              trackingCadence={trackingFreshness.hospitalCadence}
-              trackingTone={trackingFreshness.hospitalTone}
-              trackingDetail={trackingFreshness.hospitalDetail}
-            />
-
             <EnemyStatusSummaryPanel
               members={enemyScouting?.members ?? []}
               statusCheckedAt={statusCheckedAt}
@@ -459,17 +449,29 @@ export function WarRoom({
               trackingCadence={trackingFreshness.enemyCadence}
               trackingTone={trackingFreshness.tone}
               trackingDetail={trackingFreshness.enemyDetail}
+              onShowTrackingDetails={scrollToTrackingCadence}
+            />
+
+            <HospitalMonitorLinkPanel
+              isWarLive={isWarLive}
+              onOpenHospitalMonitor={onOpenHospitalMonitor}
+              trackingState={trackingFreshness.hospitalState}
+              trackingCadence={trackingFreshness.hospitalCadence}
+              trackingTone={trackingFreshness.hospitalTone}
+              trackingDetail={trackingFreshness.hospitalDetail}
+              onShowTrackingDetails={scrollToTrackingCadence}
             />
 
             <EnemyPushPressurePanel
               data={pushPressure}
               isLoading={isLoadingPushPressure}
-              collapsed={collapsedPanels.enemyPushPressure ?? false}
+              collapsed={collapsedPanels.enemyPushPressure ?? true}
               onToggle={() => togglePanel("enemyPushPressure")}
               trackingState={trackingFreshness.state}
               trackingCadence={trackingFreshness.pushCadence}
               trackingTone={trackingFreshness.tone}
               trackingDetail={trackingFreshness.pushDetail}
+              onShowTrackingDetails={scrollToTrackingCadence}
             />
 
             <RevivableMembersPanel
@@ -483,6 +485,7 @@ export function WarRoom({
               trackingCadence={trackingFreshness.revivableCadence}
               trackingTone={trackingFreshness.revivableTone}
               trackingDetail={trackingFreshness.revivableDetail}
+              onShowTrackingDetails={scrollToTrackingCadence}
             />
 
             <EnemyTravelPanel
@@ -495,6 +498,7 @@ export function WarRoom({
               trackingCadence={trackingFreshness.enemyCadence}
               trackingTone={trackingFreshness.tone}
               trackingDetail={trackingFreshness.enemyDetail}
+              onShowTrackingDetails={scrollToTrackingCadence}
             />
           </>
         ) : null}
@@ -557,6 +561,7 @@ export function WarRoom({
               cadence={trackingFreshness.heatmapCadence}
               detail={trackingFreshness.heatmapDetail}
               tone={trackingFreshness.heatmapTone}
+              onClick={scrollToTrackingCadence}
             />
           }
           collapsed={collapsedPanels.activityHeatmaps ?? false}
@@ -597,6 +602,17 @@ export function WarRoom({
           showStatusColumn={isMemberTrackingActive}
           onRefresh={refreshSelectedEnemyScouting}
         />
+
+        <TrackingStatusPanel
+          ref={trackingCadenceRef}
+          war={selectedWar}
+          mode={trackingMode}
+          enemyStatusCheckedAt={statusCheckedAt}
+          pushPressureUpdatedAt={pushPressureUpdatedAt}
+          heatmapSampledAt={latestHeatmapSampledAt}
+          revivableUpdatedAt={latestRevivableUpdatedAt}
+          heatmapOpen={isActivityHeatmapsOpen}
+        />
       </section>
     </>
   );
@@ -622,15 +638,7 @@ function LiveTrackingInactivePanel({
   );
 }
 
-function TrackingStatusPanel({
-  war,
-  mode,
-  enemyStatusCheckedAt,
-  pushPressureUpdatedAt,
-  heatmapSampledAt,
-  revivableUpdatedAt,
-  heatmapOpen,
-}: {
+const TrackingStatusPanel = React.forwardRef<HTMLElement, {
   war: WarSummary;
   mode: TrackingMode;
   enemyStatusCheckedAt: number | null;
@@ -638,12 +646,20 @@ function TrackingStatusPanel({
   heatmapSampledAt: number | null;
   revivableUpdatedAt: number | null;
   heatmapOpen: boolean;
-}) {
+}>(function TrackingStatusPanel({
+  war,
+  mode,
+  enemyStatusCheckedAt,
+  pushPressureUpdatedAt,
+  heatmapSampledAt,
+  revivableUpdatedAt,
+  heatmapOpen,
+}, ref) {
   const freshness = trackingFreshnessForMode(mode);
   const windowLabel = formatTrackingWindow(war, mode);
 
   return (
-    <section className="panel war-room-tracking-status-panel">
+    <section ref={ref} className="panel war-room-tracking-status-panel">
       <PanelHeader
         title="Tracking cadence"
         control={
@@ -655,7 +671,10 @@ function TrackingStatusPanel({
           />
         }
       />
-      <p className="panel-description">{windowLabel}</p>
+      <p className="panel-description">
+        {windowLabel} These rows expand the freshness pills above with the source, update cadence, and what each
+        timestamp means.
+      </p>
       <div className="tracking-status-grid">
         <TrackingStatusItem
           label="Enemy status and travel"
@@ -690,7 +709,7 @@ function TrackingStatusPanel({
       </div>
     </section>
   );
-}
+});
 
 function TrackingStatusItem({
   label,
@@ -703,13 +722,20 @@ function TrackingStatusItem({
   updatedAt?: number | null;
   detail: string;
 }) {
+  const updatedLabel = updatedAt === undefined
+    ? "Runs in its own live monitor"
+    : updatedAt
+      ? `Last updated ${formatRelativeTime(updatedAt)}`
+      : "No update cached yet";
+
   return (
-    <div className="tracking-status-item" title={detail}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {updatedAt === undefined ? null : (
-        <small>{updatedAt ? `Updated ${formatRelativeTime(updatedAt)}` : "Not updated yet"}</small>
-      )}
+    <div className="tracking-status-item">
+      <div className="tracking-status-item-header">
+        <span>{label}</span>
+        <strong>{value}</strong>
+      </div>
+      <small>{updatedLabel}</small>
+      <p>{detail}</p>
     </div>
   );
 }
@@ -850,6 +876,7 @@ function HospitalMonitorLinkPanel({
   trackingCadence,
   trackingTone,
   trackingDetail,
+  onShowTrackingDetails,
 }: {
   isWarLive: boolean;
   onOpenHospitalMonitor: () => void;
@@ -857,6 +884,7 @@ function HospitalMonitorLinkPanel({
   trackingCadence: string;
   trackingTone: FreshnessTone;
   trackingDetail: string;
+  onShowTrackingDetails: () => void;
 }) {
   return (
     <section className="panel war-room-hospital-monitor-panel">
@@ -869,6 +897,7 @@ function HospitalMonitorLinkPanel({
             cadence={trackingCadence}
             detail={trackingDetail}
             tone={trackingTone}
+            onClick={onShowTrackingDetails}
           />
         }
       />
@@ -898,6 +927,7 @@ function EnemyStatusSummaryPanel({
   trackingCadence,
   trackingTone,
   trackingDetail,
+  onShowTrackingDetails,
 }: {
   members: EnemyFactionMember[];
   statusCheckedAt: number | null;
@@ -906,6 +936,7 @@ function EnemyStatusSummaryPanel({
   trackingCadence: string;
   trackingTone: FreshnessTone;
   trackingDetail: string;
+  onShowTrackingDetails: () => void;
 }) {
   const summary = summarizeEnemyStatuses(members);
 
@@ -920,6 +951,7 @@ function EnemyStatusSummaryPanel({
             cadence={trackingCadence}
             detail={trackingDetail}
             tone={trackingTone}
+            onClick={onShowTrackingDetails}
           />
         }
       />
@@ -963,6 +995,7 @@ function EnemyPushPressurePanel({
   trackingCadence,
   trackingTone,
   trackingDetail,
+  onShowTrackingDetails,
 }: {
   data: EnemyPushPressureResponse | null;
   isLoading: boolean;
@@ -972,6 +1005,7 @@ function EnemyPushPressurePanel({
   trackingCadence: string;
   trackingTone: FreshnessTone;
   trackingDetail: string;
+  onShowTrackingDetails: () => void;
 }) {
   const latest = data?.latest ?? null;
   const history = data?.history ?? [];
@@ -1001,6 +1035,7 @@ function EnemyPushPressurePanel({
           cadence={trackingCadence}
           detail={latest ? `${trackingDetail} Latest pressure: ${pushPressureLevelLabel(latest.pressure_level)}.` : trackingDetail}
           tone={trackingTone}
+          onClick={onShowTrackingDetails}
         />
       }
       collapsed={collapsed}
@@ -1356,6 +1391,7 @@ function RevivableMembersPanel({
   trackingCadence,
   trackingTone,
   trackingDetail,
+  onShowTrackingDetails,
 }: {
   homeMembers: EnemyFactionMember[];
   enemyMembers: EnemyFactionMember[];
@@ -1367,6 +1403,7 @@ function RevivableMembersPanel({
   trackingCadence: string;
   trackingTone: FreshnessTone;
   trackingDetail: string;
+  onShowTrackingDetails: () => void;
 }) {
   const revivableCount = countRevivableMembers(homeMembers) + countRevivableMembers(enemyMembers);
 
@@ -1380,6 +1417,7 @@ function RevivableMembersPanel({
           cadence={trackingCadence}
           detail={trackingDetail}
           tone={trackingTone}
+          onClick={onShowTrackingDetails}
         />
       }
       collapsed={collapsed}

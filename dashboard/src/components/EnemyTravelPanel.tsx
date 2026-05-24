@@ -15,6 +15,7 @@ export function EnemyTravelPanel({
   trackingCadence,
   trackingTone,
   trackingDetail,
+  onShowTrackingDetails,
 }: {
   members: EnemyFactionMember[];
   statusCheckedAt: number | null;
@@ -25,6 +26,7 @@ export function EnemyTravelPanel({
   trackingCadence: string;
   trackingTone: FreshnessTone;
   trackingDetail: string;
+  onShowTrackingDetails?: () => void;
 }) {
   const nowSeconds = Math.floor(useCurrentTime() / 1000);
   const travelers = members
@@ -51,6 +53,7 @@ export function EnemyTravelPanel({
           cadence={trackingCadence}
           detail={`${trackingDetail} ${travelSummary}.`}
           tone={trackingTone}
+          onClick={onShowTrackingDetails}
         />
       }
       collapsed={collapsed}

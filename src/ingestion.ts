@@ -25,7 +25,7 @@ import {
   TornRankedWarFaction,
   TornRankedWarResponse,
 } from "./types";
-import { boolToInt, json, normalizeAttacks, nowSeconds } from "./utils";
+import { boolToInt, d1Changes, json, normalizeAttacks, nowSeconds } from "./utils";
 import {
   applyTornOfficialWarEnd,
   recordTermedWarPracticalFinish,
@@ -57,7 +57,15 @@ type IngestionRunMetrics = {
 
 const NOOP_CRON_INGESTION_METRIC_INTERVAL_SECONDS = 30 * 60;
 
-export async function runIngestion(env: Env, triggerSource = "cron"): Promise<void> {
+export async function runIngestion(
+  env: Env,
+  triggerSource = "cron",
+  options: { scheduledTime?: number } = {},
+): Promise<void> {
+  if (await shouldSkipCronIngestion(env, triggerSource, options.scheduledTime)) {
+    return;
+  }
+
   const metrics: IngestionRunMetrics = {
     id: crypto.randomUUID(),
     triggerSource,
@@ -138,7 +146,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
     let newestStarted = state?.last_started ?? 0;
     let persistedStarted = state?.last_started ?? 0;
     const ingestRunId = crypto.randomUUID();
-    let wroteAnyWarRows = false;
+    let newOrAssignedWarAttackCount = 0;
 
     while (true) {
       const data = await fetchAttacks(env, from);
@@ -152,6 +160,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
 
       metrics.sawRows = true;
       const statements: D1PreparedStatement[] = [];
+      const warWriteFlags: boolean[] = [];
       const existingAttackRows = await readExistingAttackRows(env, attacks.map((attack) => attack.id));
       let pageNewestStarted = newestStarted;
 
@@ -170,19 +179,21 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
         if (existingAttack) {
           if (warId !== null && existingAttack.war_id === null) {
             statements.push(buildLiveWarAssignmentStatement(env, ingestRunId, warId, attack.id));
-            wroteAnyWarRows = true;
+            warWriteFlags.push(true);
           }
           continue;
         }
 
         statements.push(buildLiveInsertStatement(env, ingestRunId, warId, attack));
-        if (warId !== null) {
-          wroteAnyWarRows = true;
-        }
+        warWriteFlags.push(warId !== null);
       }
 
       if (statements.length > 0) {
-        await env.DB.batch(statements);
+        const writeResults = await env.DB.batch(statements);
+        newOrAssignedWarAttackCount += writeResults.reduce(
+          (count, result, index) => count + (warWriteFlags[index] ? d1Changes(result) : 0),
+          0,
+        );
         metrics.wroteBatches += 1;
         metrics.attackWriteStatements += statements.length;
       }
@@ -209,7 +220,7 @@ export async function runIngestion(env: Env, triggerSource = "cron"): Promise<vo
       return;
     }
 
-    if (wroteAnyWarRows) {
+    if (newOrAssignedWarAttackCount > 0) {
       await applyIncrementalWarSummaries(env, ingestionWar.id, ingestRunId);
       metrics.statWriteOperations += 1;
       metrics.statsFinishedAt = nowSeconds();
@@ -254,6 +265,46 @@ type ActiveWarForIngestion = {
   official_home_score: number | null;
   official_enemy_score: number | null;
 };
+
+async function shouldSkipCronIngestion(
+  env: Env,
+  triggerSource: string,
+  scheduledTime?: number,
+): Promise<boolean> {
+  if (triggerSource !== "cron" || scheduledTime === undefined) {
+    return false;
+  }
+
+  const minute = new Date(scheduledTime).getUTCMinutes();
+  if (minute % 5 === 0) {
+    return false;
+  }
+
+  const state = await readSyncState(env, SOURCE_NAME);
+  if (!state?.active_war_id) {
+    return true;
+  }
+
+  return !(await hasLiveActiveWar(env, state.active_war_id));
+}
+
+async function hasLiveActiveWar(env: Env, warId: number): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `
+    SELECT id
+    FROM wars
+    WHERE id = ?
+      AND status = 'active'
+      AND official_end_time IS NULL
+      AND practical_finish_time IS NULL
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first();
+
+  return row !== null;
+}
 
 type AttackWindowStats = {
   matching_attack_count: number;

@@ -61,10 +61,9 @@ import {
 import type { AppView } from "./routes";
 import "./styles.css";
 
-const ACTIVE_WAR_REFRESH_MS = 5 * 60_000;
+const ACTIVE_WAR_REFRESH_MS = 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
 const PRACTICAL_FINISH_REFRESH_MS = 15 * 60_000;
-const CHAIN_BONUS_REFRESH_MS = 15 * 60_000;
 type ThemeMode = "light" | "dark";
 const THEME_STORAGE_KEY = "buttgrass-theme";
 
@@ -305,7 +304,7 @@ function App() {
       };
     }
 
-    const timer = window.setInterval(loadChainBonuses, CHAIN_BONUS_REFRESH_MS);
+    const timer = window.setInterval(loadChainBonuses, warSecondaryPanelRefreshInterval(selectedWar));
 
     return () => {
       cancelled = true;
@@ -411,7 +410,7 @@ function App() {
       };
     }
 
-    const refreshMs = warSecondaryPanelRefreshInterval(selectedWar);
+    const refreshMs = warMemberActivityHeatmapRefreshInterval(selectedWar);
     const timer = window.setInterval(loadMemberActivityHeatmap, refreshMs);
 
     return () => {
@@ -567,10 +566,19 @@ function App() {
     }
 
     loadMemberAttacks();
+    const refreshMs = selectedWar && isLiveWar(selectedWar) ? ACTIVE_WAR_REFRESH_MS : null;
+    if (refreshMs === null) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const timer = window.setInterval(loadMemberAttacks, refreshMs);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
-  }, [authSession, selectedWarName, selectedMember]);
+  }, [authSession, selectedMember, selectedWar?.id, selectedWar?.official_end_time, selectedWar?.practical_finish_time, selectedWar?.status, selectedWarName]);
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -871,14 +879,18 @@ function warPageRefreshInterval(war: WarSummary): number | null {
     return PRACTICAL_FINISH_REFRESH_MS;
   }
 
-  if (war.status === "active") {
-    return ACTIVE_WAR_REFRESH_MS;
-  }
-
-  return null;
+  return war.status === "active" ? SLOW_WAR_REFRESH_MS : null;
 }
 
 function warSecondaryPanelRefreshInterval(war: WarSummary): number {
+  if (war.practical_finish_time !== null) {
+    return PRACTICAL_FINISH_REFRESH_MS;
+  }
+
+  return isLiveWar(war) ? ACTIVE_WAR_REFRESH_MS : SLOW_WAR_REFRESH_MS;
+}
+
+function warMemberActivityHeatmapRefreshInterval(war: WarSummary): number {
   return war.practical_finish_time !== null ? PRACTICAL_FINISH_REFRESH_MS : SLOW_WAR_REFRESH_MS;
 }
 
@@ -896,6 +908,7 @@ function RefreshCountdowns() {
 
   return (
     <div className="refresh-countdowns" aria-label="Refresh countdowns">
+      <CountdownPill label="1 min" value={formatCountdown(nextBoundaryMs(now, 1))} />
       <CountdownPill label="5 min" value={formatCountdown(nextBoundaryMs(now, 5))} />
       <CountdownPill label="15 min" value={formatCountdown(nextBoundaryMs(now, 15))} />
     </div>

@@ -37,8 +37,8 @@ import type { AppView } from "../routes";
 const RECENT_ATTACK_LIMIT = 10;
 const RECENT_ATTACK_WINDOW_SECONDS = 5 * 60;
 const RECENT_ATTACK_REFRESH_MS = 30_000;
-const ATTACK_POLLING_RATE_LABEL = "Every 5 minutes";
-const ATTACK_POLLING_DETAIL = "Worker wakes every minute; attack import runs on the 5-minute gate.";
+const ATTACK_POLLING_RATE_LABEL = "Every 1 minute while active";
+const ATTACK_POLLING_DETAIL = "Falls back to the 5-minute gate when no live war is being tracked.";
 const HIGHLIGHT_ROTATE_MS = 6_000;
 const HIGHLIGHT_REFRESH_MS = 5 * 60_000;
 const HIGHLIGHT_GROUPS = [
