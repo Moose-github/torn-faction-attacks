@@ -79,6 +79,10 @@ export function WarRoom({
   const statusCheckedAt = enemyScouting?.summary.status_checked_at ?? null;
   const latestHeatmapSampledAt = getLatestHeatmapSampledAt(activityHeatmap);
   const pushPressureSampledAt = pushPressure?.latest?.bucket_start ?? null;
+  const latestRevivableUpdatedAt = getLatestMemberUpdatedAt([
+    ...(scoutingComparison?.home.members ?? []),
+    ...(scoutingComparison?.enemy.members ?? []),
+  ]);
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -404,6 +408,7 @@ export function WarRoom({
           enemyStatusCheckedAt={statusCheckedAt}
           pushPressureSampledAt={pushPressureSampledAt}
           heatmapSampledAt={latestHeatmapSampledAt}
+          revivableUpdatedAt={latestRevivableUpdatedAt}
           heatmapOpen={isActivityHeatmapsOpen}
         />
 
@@ -445,6 +450,11 @@ export function WarRoom({
               enemyName={selectedWar.name}
               collapsed={collapsedPanels.revivableMembers ?? true}
               onToggle={() => togglePanel("revivableMembers")}
+              updatedAt={latestRevivableUpdatedAt}
+              trackingState={trackingFreshness.revivableState}
+              trackingCadence={trackingFreshness.revivableCadence}
+              trackingTone={trackingFreshness.revivableTone}
+              trackingDetail={trackingFreshness.revivableDetail}
             />
 
             <EnemyTravelPanel
@@ -590,6 +600,7 @@ function TrackingStatusPanel({
   enemyStatusCheckedAt,
   pushPressureSampledAt,
   heatmapSampledAt,
+  revivableUpdatedAt,
   heatmapOpen,
 }: {
   war: WarSummary;
@@ -597,6 +608,7 @@ function TrackingStatusPanel({
   enemyStatusCheckedAt: number | null;
   pushPressureSampledAt: number | null;
   heatmapSampledAt: number | null;
+  revivableUpdatedAt: number | null;
   heatmapOpen: boolean;
 }) {
   const freshness = trackingFreshnessForMode(mode);
@@ -634,6 +646,12 @@ function TrackingStatusPanel({
           value={heatmapOpen ? freshness.heatmapCadence : "Loads when opened"}
           updatedAt={heatmapSampledAt}
           detail={heatmapOpen ? freshness.heatmapDetail : "Heatmaps are lazy-loaded and refresh every 15 minutes while open during live tracking."}
+        />
+        <TrackingStatusItem
+          label="Revivable members"
+          value={freshness.revivableCadence}
+          updatedAt={revivableUpdatedAt}
+          detail={freshness.revivableDetail}
         />
         <TrackingStatusItem
           label="Hospital monitor"
@@ -680,6 +698,10 @@ type TrackingFreshness = {
   heatmapTone: FreshnessTone;
   heatmapCadence: string;
   heatmapDetail: string;
+  revivableState: string;
+  revivableTone: FreshnessTone;
+  revivableCadence: string;
+  revivableDetail: string;
   hospitalState: string;
   hospitalTone: FreshnessTone;
   hospitalCadence: string;
@@ -700,6 +722,10 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       heatmapTone: "live",
       heatmapCadence: "Every 15m",
       heatmapDetail: "Activity heatmaps sample Torn last-action data every 15 minutes during the tracking window and refresh here every 15 minutes while open.",
+      revivableState: "Sampling",
+      revivableTone: "live",
+      revivableCadence: "Enemy 1m / Home 15m",
+      revivableDetail: "Enemy revivable flags piggyback on the enemy status and travel refresh every minute while live. Home revivable flags come from the 15 minute member sample.",
       hospitalState: "Live",
       hospitalTone: "live",
       hospitalCadence: "Real time",
@@ -720,6 +746,10 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       heatmapTone: "fresh",
       heatmapCadence: "Every 15m",
       heatmapDetail: "Activity heatmaps are sampled by the 15 minute maintenance tick during the tracking window.",
+      revivableState: "Sampling",
+      revivableTone: "fresh",
+      revivableCadence: "Enemy 5m / Home 15m",
+      revivableDetail: "Enemy revivable flags piggyback on the pre-live enemy status and travel refresh every 5 minutes. Home revivable flags come from the 15 minute member sample.",
       hospitalState: "Waiting",
       hospitalTone: "paused",
       hospitalCadence: "Starts live",
@@ -739,6 +769,10 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
     heatmapTone: "paused",
     heatmapCadence: "Paused",
     heatmapDetail: "Activity heatmaps are not sampled outside the tracking window.",
+    revivableState: "Paused",
+    revivableTone: "paused",
+    revivableCadence: "Paused",
+    revivableDetail: "Enemy and home revivable flags are not sampled outside the tracking window.",
     hospitalState: "Paused",
     hospitalTone: "paused",
     hospitalCadence: "Inactive",
@@ -771,6 +805,14 @@ function getLatestHeatmapSampledAt(activityHeatmap: FactionActivityHeatmapRespon
   }
 
   return Math.max(...activityHeatmap.rows.map((row) => row.sampled_at));
+}
+
+function getLatestMemberUpdatedAt(members: EnemyFactionMember[]): number | null {
+  const updatedAtValues = members
+    .map((member) => member.updated_at)
+    .filter((updatedAt) => Number.isFinite(updatedAt) && updatedAt > 0);
+
+  return updatedAtValues.length > 0 ? Math.max(...updatedAtValues) : null;
 }
 
 function HospitalMonitorLinkPanel({
@@ -1281,25 +1323,43 @@ function RevivableMembersPanel({
   enemyName,
   collapsed,
   onToggle,
+  updatedAt,
+  trackingState,
+  trackingCadence,
+  trackingTone,
+  trackingDetail,
 }: {
   homeMembers: EnemyFactionMember[];
   enemyMembers: EnemyFactionMember[];
   enemyName: string;
   collapsed: boolean;
   onToggle: () => void;
+  updatedAt: number | null;
+  trackingState: string;
+  trackingCadence: string;
+  trackingTone: FreshnessTone;
+  trackingDetail: string;
 }) {
   const revivableCount = countRevivableMembers(homeMembers) + countRevivableMembers(enemyMembers);
 
   return (
     <CollapsiblePanel
       title="Revivable members"
-      aside={`${revivableCount} revivable`}
+      control={
+        <FreshnessMeta
+          state={trackingState}
+          updatedAt={updatedAt}
+          cadence={trackingCadence}
+          detail={trackingDetail}
+          tone={trackingTone}
+        />
+      }
       collapsed={collapsed}
       onToggle={onToggle}
       className="revivable-panel"
     >
       <p className="panel-description">
-        Lists faction members currently marked revivable by Torn. This is gathered from two hours before official start until practical finish.
+        Lists faction members currently marked revivable by Torn. Enemy revivable status follows enemy tracking; home revivable status updates every 15 minutes. {formatNumber(revivableCount)} currently cached.
       </p>
       <div className="revivable-grid">
         <RevivableMemberList factionName="Buttgrass" members={homeMembers} />
