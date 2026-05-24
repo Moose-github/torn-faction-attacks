@@ -417,7 +417,7 @@ function classifyEvent(
     if (previous.until > observedAt) {
       event = {
         type: "hospital_exit_early",
-        priority: 1,
+        priority: isRecentlyActive(current, observedAt) ? 1 : 2,
         memberId: current.id,
         name: current.name,
         observedAt,

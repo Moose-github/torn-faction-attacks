@@ -546,13 +546,13 @@ function AlertKeyCard() {
         <span>Alert key</span>
       </div>
       <div className="enemy-monitor-alert-key">
-        <span title="Priority 1: early hospital exit">
+        <span title="Priority 1: early hospital exit while online or recently active">
           <i className="priority-1" />
           Early
         </span>
-        <span title="Priority 2: expected exit and recently active">
+        <span title="Priority 2: expected active exit or early inactive exit">
           <i className="priority-2" />
-          Active
+          Watch
         </span>
         <span title="Priority 3: hospital timer moved earlier">
           <i className="priority-3" />
@@ -1360,7 +1360,7 @@ function priorityTitle(priority: AlertPriority): string {
     case 1:
       return "Priority 1: early hospital exit";
     case 2:
-      return "Priority 2: expected exit and recently active";
+      return "Priority 2: expected active exit or early inactive exit";
     case 3:
       return "Priority 3: hospital timer moved earlier";
     case 4:
@@ -1457,14 +1457,21 @@ function eventTitle(type: MonitorEventType): string {
 
 function eventDetail(event: MonitorEvent): string {
   if (event.type === "hospital_exit_early") {
-    return `${event.secondsEarly ?? 0}s before expected release`;
+    const timing = `${event.secondsEarly ?? 0}s before expected release`;
+    const activity = eventActivityLabel(event);
+    return activity ? `${timing} | ${activity}` : timing;
   }
   if (event.type === "hospital_timer_decreased") {
     return `Timer decreased by ${event.decreaseSeconds ?? 0}s`;
   }
-  return event.lastActionRelative
-    ? `${event.lastActionStatus ?? "Last action"} ${event.lastActionRelative}`
-    : event.currentDescription ?? "Released from hospital";
+  return eventActivityLabel(event) ?? event.currentDescription ?? "Released from hospital";
+}
+
+function eventActivityLabel(event: MonitorEvent): string | null {
+  if (event.lastActionRelative) {
+    return `${event.lastActionStatus ?? "Last action"} ${event.lastActionRelative}`;
+  }
+  return event.lastActionStatus ?? null;
 }
 
 function timerReductionSummaryLabel(
