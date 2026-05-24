@@ -1394,7 +1394,7 @@ h2 {
 .enemy-monitor-member {
   grid-template-columns: var(
     --enemy-monitor-member-columns,
-    minmax(120px, 0.8fr) minmax(130px, 1fr) minmax(58px, auto) minmax(118px, auto)
+    minmax(120px, 1fr) minmax(130px, 1fr) minmax(72px, auto) minmax(118px, auto)
   );
   align-items: center;
   border-left-width: 1px;
@@ -1412,6 +1412,21 @@ h2 {
 
 .enemy-monitor-member div {
   justify-content: flex-start;
+}
+
+.enemy-monitor-member-column {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.enemy-monitor-member-column.text {
+  justify-self: start;
+  text-align: left;
+}
+
+.enemy-monitor-member-column.numeric {
+  justify-self: end;
+  text-align: right;
 }
 
 .enemy-monitor-member:hover {
@@ -1513,11 +1528,12 @@ h2 {
 }
 
 .enemy-monitor-last-action {
-  justify-self: end;
   color: #64748b;
   font-size: 0.78rem;
   font-weight: 800;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .enemy-monitor-last-action.urgent {
@@ -1614,6 +1630,21 @@ h2 {
   width: calc(100% + 16px);
   margin-inline: -8px;
   accent-color: #2563eb;
+}
+
+.enemy-monitor-settings-field select {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font: inherit;
+}
+
+.enemy-monitor-settings-field select:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .enemy-monitor-test-chime-button {
@@ -4697,6 +4728,11 @@ tbody tr:not(.attack-row):hover td {
     grid-template-columns: 1fr;
   }
 
+  .enemy-monitor-member-column.numeric {
+    justify-self: start;
+    text-align: left;
+  }
+
   .enemy-monitor-health-chips {
     justify-self: start;
   }
@@ -5473,6 +5509,12 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .enemy-monitor-settings-field strong {
   color: var(--text-strong);
+}
+
+:root[data-theme="dark"] .enemy-monitor-settings-field select {
+  border-color: var(--border-solid);
+  background: var(--panel-muted-bg);
+  color: var(--text-main);
 }
 
 :root[data-theme="dark"] .enemy-monitor-settings-option.disabled {

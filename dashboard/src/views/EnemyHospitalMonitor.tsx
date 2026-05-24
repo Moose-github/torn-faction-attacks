@@ -110,11 +110,13 @@ const SORT_ACTIVE_ENEMIES_TOP_STORAGE_KEY = "enemyHospitalMonitorSortActiveEnemi
 const TRAVEL_ALERTS_ENABLED_STORAGE_KEY = "enemyHospitalMonitorTravelAlertsEnabled";
 const ENEMY_STATUS_COLUMNS_STORAGE_KEY = "enemyHospitalMonitorStatusColumns";
 const COMPACT_BATTLE_STATS_STORAGE_KEY = "enemyHospitalMonitorCompactBattleStats";
+const ACTIVE_MEMBERS_SECTION_PLACEMENT_STORAGE_KEY = "enemyHospitalMonitorActiveMembersSectionPlacement";
 const ALERT_PRIORITIES = [1, 2, 3, 4] as const;
 
 type AlertPriority = MonitorEvent["priority"];
 type AlertChannel = "sound" | "flash";
 type AlertPreferences = Record<AlertPriority, Record<AlertChannel, boolean>>;
+type ActiveMembersSectionPlacement = "enemyStatus" | "liveAlerts";
 type EnemyStatusColumnId = (typeof ENEMY_STATUS_COLUMNS)[number]["id"];
 type EnemyStatusColumnPreferences = {
   order: EnemyStatusColumnId[];
@@ -137,14 +139,14 @@ const DEFAULT_ALERT_PREFERENCES: AlertPreferences = {
 };
 
 const ENEMY_STATUS_COLUMNS = [
-  { id: "name", label: "Name", track: "minmax(120px, 0.8fr)", defaultVisible: true },
+  { id: "name", label: "Name", track: "minmax(120px, 1fr)", defaultVisible: true },
   { id: "status", label: "Hosp / travel", track: "minmax(130px, 1fr)", defaultVisible: true },
-  { id: "battleStats", label: "Battlestats", track: "minmax(58px, auto)", defaultVisible: true },
+  { id: "battleStats", label: "Battlestats", track: "minmax(72px, auto)", defaultVisible: true },
   { id: "lastAction", label: "Last action", track: "minmax(118px, auto)", defaultVisible: true },
-  { id: "level", label: "Level", track: "minmax(48px, auto)", defaultVisible: false },
+  { id: "level", label: "Level", track: "minmax(52px, auto)", defaultVisible: false },
   { id: "revivable", label: "Revivable", track: "minmax(78px, auto)", defaultVisible: false },
-  { id: "networth", label: "Networth", track: "minmax(78px, auto)", defaultVisible: false },
-  { id: "position", label: "Position", track: "minmax(96px, 0.8fr)", defaultVisible: false },
+  { id: "networth", label: "Networth", track: "minmax(82px, auto)", defaultVisible: false },
+  { id: "position", label: "Position", track: "minmax(104px, 1fr)", defaultVisible: false },
 ] as const;
 
 const DEFAULT_ENEMY_STATUS_COLUMN_PREFERENCES: EnemyStatusColumnPreferences = {
@@ -185,6 +187,9 @@ export function EnemyHospitalMonitor({
   const [travelAlertsEnabled, setTravelAlertsEnabled] = React.useState(() => initialTravelAlertsEnabled());
   const [statusColumnPreferences, setStatusColumnPreferences] = React.useState(() => initialEnemyStatusColumns());
   const [compactBattleStats, setCompactBattleStats] = React.useState(() => initialCompactBattleStats());
+  const [activeMembersSectionPlacement, setActiveMembersSectionPlacement] = React.useState(
+    () => initialActiveMembersSectionPlacement(),
+  );
   const [alertFlash, setAlertFlash] = React.useState<{ id: number; priority: AlertPriority } | null>(null);
   const [cachedEnemyStats, setCachedEnemyStats] = React.useState<Map<number, EnemyFactionMember>>(new Map());
   const [clockSync, setClockSync] = React.useState<ClockSyncState | null>(null);
@@ -425,7 +430,12 @@ export function EnemyHospitalMonitor({
   const standardMembers = sortActiveEnemiesTop
     ? sortedMembers.filter((member) => memberAlertSortRank(member, nowMs) !== 0)
     : sortedMembers;
-  const shouldShowMemberSeparator = forcedTopMembers.length > 0 && standardMembers.length > 0;
+  const showForcedTopInEnemyStatus =
+    sortActiveEnemiesTop && activeMembersSectionPlacement === "enemyStatus" && forcedTopMembers.length > 0;
+  const showForcedTopInLiveAlerts =
+    sortActiveEnemiesTop && activeMembersSectionPlacement === "liveAlerts" && forcedTopMembers.length > 0;
+  const shouldShowMemberSeparator = showForcedTopInEnemyStatus && standardMembers.length > 0;
+  const enemyStatusMemberCount = showForcedTopInEnemyStatus ? sortedMembers.length : standardMembers.length;
   const tornTiming = monitorTiming(status, nowMs, clockSync, lastMessageReceivedAtMs);
 
   return (
@@ -513,6 +523,7 @@ export function EnemyHospitalMonitor({
           travelAlertsEnabled={travelAlertsEnabled}
           statusColumnPreferences={statusColumnPreferences}
           compactBattleStats={compactBattleStats}
+          activeMembersSectionPlacement={activeMembersSectionPlacement}
           onVolumeChange={setAlertVolume}
           onMutedChange={setAlertsMuted}
           onAlertPreferencesChange={setAlertPreferences}
@@ -521,6 +532,7 @@ export function EnemyHospitalMonitor({
           onTravelAlertsEnabledChange={setTravelAlertsEnabled}
           onStatusColumnPreferencesChange={setStatusColumnPreferences}
           onCompactBattleStatsChange={setCompactBattleStats}
+          onActiveMembersSectionPlacementChange={setActiveMembersSectionPlacement}
         />
       </section>
 
@@ -528,29 +540,30 @@ export function EnemyHospitalMonitor({
         <section className="panel enemy-monitor-members-panel">
           <PanelHeader
             title="Enemy status"
-            aside={displayedMembers.length === members.length ? `${members.length}` : `${displayedMembers.length}/${members.length}`}
+            aside={enemyStatusMemberCount === members.length ? `${members.length}` : `${enemyStatusMemberCount}/${members.length}`}
           />
-          {sortedMembers.length === 0 ? (
-            <EmptyState text={members.length === 0 ? "Waiting for baseline poll" : "All observed enemies are hidden by settings"} />
+          {enemyStatusMemberCount === 0 ? (
+            <EmptyState
+              text={
+                members.length === 0
+                  ? "Waiting for baseline poll"
+                  : showForcedTopInLiveAlerts && displayedMembers.length > 0
+                    ? "Online or recently active enemies are shown in Live alerts"
+                    : "All observed enemies are hidden by settings"
+              }
+            />
           ) : (
             <div className="enemy-monitor-member-list">
-              {forcedTopMembers.length > 0 ? (
-                <div className="enemy-monitor-member-separator">
-                  <span>Online or recently active</span>
-                </div>
+              {showForcedTopInEnemyStatus ? (
+                <OnlineActiveMembersSection
+                  members={forcedTopMembers}
+                  cachedEnemyStats={cachedEnemyStats}
+                  nowMs={nowMs}
+                  alertPriorityByMemberId={alertPriorityByMemberId}
+                  statusColumnPreferences={statusColumnPreferences}
+                  compactBattleStats={compactBattleStats}
+                />
               ) : null}
-              {forcedTopMembers.map((member) => (
-                <React.Fragment key={member.id}>
-                  <MemberStatusRow
-                    member={member}
-                    cachedStats={cachedEnemyStats.get(member.id) ?? null}
-                    nowMs={nowMs}
-                    alertPriority={alertPriorityByMemberId.get(member.id) ?? null}
-                    statusColumnPreferences={statusColumnPreferences}
-                    compactBattleStats={compactBattleStats}
-                  />
-                </React.Fragment>
-              ))}
               {shouldShowMemberSeparator ? (
                 <div className="enemy-monitor-member-separator">
                   <span>Other enemies</span>
@@ -573,7 +586,7 @@ export function EnemyHospitalMonitor({
 
         <section className="panel enemy-monitor-events-panel">
           <PanelHeader title="Live alerts" aside={`${visibleEvents.length}`} icon={<Activity size={18} />} />
-          {visibleEvents.length === 0 ? (
+          {visibleEvents.length === 0 && !showForcedTopInLiveAlerts ? (
             <EmptyState text="No active live alerts" />
           ) : (
             <div className="enemy-monitor-event-list">
@@ -585,6 +598,16 @@ export function EnemyHospitalMonitor({
                   timerReductionSummary={timerReductionSummaries.get(event.memberId) ?? null}
                 />
               ))}
+              {showForcedTopInLiveAlerts ? (
+                <OnlineActiveMembersSection
+                  members={forcedTopMembers}
+                  cachedEnemyStats={cachedEnemyStats}
+                  nowMs={nowMs}
+                  alertPriorityByMemberId={alertPriorityByMemberId}
+                  statusColumnPreferences={statusColumnPreferences}
+                  compactBattleStats={compactBattleStats}
+                />
+              ) : null}
             </div>
           )}
         </section>
@@ -631,6 +654,7 @@ function MonitorSettingsCard({
   travelAlertsEnabled,
   statusColumnPreferences,
   compactBattleStats,
+  activeMembersSectionPlacement,
   onVolumeChange,
   onMutedChange,
   onAlertPreferencesChange,
@@ -639,6 +663,7 @@ function MonitorSettingsCard({
   onTravelAlertsEnabledChange,
   onStatusColumnPreferencesChange,
   onCompactBattleStatsChange,
+  onActiveMembersSectionPlacementChange,
 }: {
   volume: number;
   muted: boolean;
@@ -648,6 +673,7 @@ function MonitorSettingsCard({
   travelAlertsEnabled: boolean;
   statusColumnPreferences: EnemyStatusColumnPreferences;
   compactBattleStats: boolean;
+  activeMembersSectionPlacement: ActiveMembersSectionPlacement;
   onVolumeChange: (value: number) => void;
   onMutedChange: (value: boolean) => void;
   onAlertPreferencesChange: (value: AlertPreferences) => void;
@@ -656,6 +682,7 @@ function MonitorSettingsCard({
   onTravelAlertsEnabledChange: (value: boolean) => void;
   onStatusColumnPreferencesChange: (value: EnemyStatusColumnPreferences) => void;
   onCompactBattleStatsChange: (value: boolean) => void;
+  onActiveMembersSectionPlacementChange: (value: ActiveMembersSectionPlacement) => void;
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const visibleStatusColumnCount = statusColumnPreferences.order.filter(
@@ -704,6 +731,11 @@ function MonitorSettingsCard({
 
   function toggleCompactBattleStats() {
     toggleStoredBoolean(compactBattleStats, onCompactBattleStatsChange, COMPACT_BATTLE_STATS_STORAGE_KEY);
+  }
+
+  function updateActiveMembersSectionPlacement(nextPlacement: ActiveMembersSectionPlacement) {
+    onActiveMembersSectionPlacementChange(nextPlacement);
+    window.localStorage.setItem(ACTIVE_MEMBERS_SECTION_PLACEMENT_STORAGE_KEY, nextPlacement);
   }
 
   function updateStatusColumnPreferences(nextPreferences: EnemyStatusColumnPreferences) {
@@ -834,6 +866,23 @@ function MonitorSettingsCard({
               onChange={toggleSortActiveEnemiesTop}
             />
             Move online or recently active enemies to top
+          </label>
+          <label className="enemy-monitor-settings-field">
+            <span>
+              Active section panel
+              <strong>{activeMembersSectionPlacement === "enemyStatus" ? "Enemy status" : "Live alerts"}</strong>
+            </span>
+            <select
+              value={activeMembersSectionPlacement}
+              disabled={!sortActiveEnemiesTop}
+              onChange={(event) =>
+                updateActiveMembersSectionPlacement(event.target.value as ActiveMembersSectionPlacement)
+              }
+              aria-label="Online or recently active section panel"
+            >
+              <option value="enemyStatus">Enemy status</option>
+              <option value="liveAlerts">Live alerts</option>
+            </select>
           </label>
           <label className="enemy-monitor-settings-option">
             <input
@@ -995,6 +1044,41 @@ function MonitorEventRow({
   );
 }
 
+function OnlineActiveMembersSection({
+  members,
+  cachedEnemyStats,
+  nowMs,
+  alertPriorityByMemberId,
+  statusColumnPreferences,
+  compactBattleStats,
+}: {
+  members: MemberMonitorSnapshot[];
+  cachedEnemyStats: Map<number, EnemyFactionMember>;
+  nowMs: number;
+  alertPriorityByMemberId: Map<number, MonitorEvent["priority"]>;
+  statusColumnPreferences: EnemyStatusColumnPreferences;
+  compactBattleStats: boolean;
+}) {
+  return (
+    <>
+      <div className="enemy-monitor-member-separator">
+        <span>Online or recently active</span>
+      </div>
+      {members.map((member) => (
+        <MemberStatusRow
+          key={member.id}
+          member={member}
+          cachedStats={cachedEnemyStats.get(member.id) ?? null}
+          nowMs={nowMs}
+          alertPriority={alertPriorityByMemberId.get(member.id) ?? null}
+          statusColumnPreferences={statusColumnPreferences}
+          compactBattleStats={compactBattleStats}
+        />
+      ))}
+    </>
+  );
+}
+
 function MemberStatusRow({
   member,
   cachedStats,
@@ -1040,13 +1124,13 @@ function memberStatusColumn(
   switch (columnId) {
     case "name":
       return (
-        <div key={columnId} className="enemy-monitor-member-column enemy-monitor-member-column-name">
+        <div key={columnId} className="enemy-monitor-member-column text">
           <strong>{member.name}</strong>
         </div>
       );
     case "status":
       return (
-        <span key={columnId} className={memberStateClass(member, tornReturn, abroadHospital)}>
+        <span key={columnId} className={`${memberStateClass(member, tornReturn, abroadHospital)} enemy-monitor-member-column text`}>
           <span>{memberStatusLabel(member, nowMs)}</span>
           {abroadHospital ? (
             <small className="enemy-monitor-abroad-hospital" title={abroadHospital.title}>
@@ -1062,37 +1146,37 @@ function memberStatusColumn(
       );
     case "battleStats":
       return (
-        <span key={columnId} className="enemy-monitor-bsp-stat" title={bspBattlestatsTitle(cachedStats)}>
+        <span key={columnId} className="enemy-monitor-bsp-stat enemy-monitor-member-column numeric" title={bspBattlestatsTitle(cachedStats)}>
           {battleStatsLabel(cachedStats?.bsp_battlestats ?? null, compactBattleStats)}
         </span>
       );
     case "lastAction":
       return (
-        <span key={columnId} className={lastActionClass(member, nowMs)}>
+        <span key={columnId} className={`${lastActionClass(member, nowMs)} enemy-monitor-member-column text`}>
           {lastActionLabel(member)}
         </span>
       );
     case "level":
       return (
-        <span key={columnId} className="enemy-monitor-member-metric" title={levelTitle(member, cachedStats)}>
+        <span key={columnId} className="enemy-monitor-member-metric enemy-monitor-member-column numeric" title={levelTitle(member, cachedStats)}>
           {member.level ?? cachedStats?.level ?? "-"}
         </span>
       );
     case "revivable":
       return (
-        <span key={columnId} className={revivableColumnClass(cachedStats)} title={revivableTitle(cachedStats)}>
+        <span key={columnId} className={`${revivableColumnClass(cachedStats)} enemy-monitor-member-column text`} title={revivableTitle(cachedStats)}>
           {revivableLabel(cachedStats)}
         </span>
       );
     case "networth":
       return (
-        <span key={columnId} className="enemy-monitor-member-metric" title={networthTitle(cachedStats)}>
+        <span key={columnId} className="enemy-monitor-member-metric enemy-monitor-member-column numeric" title={networthTitle(cachedStats)}>
           {formatNetworth(cachedStats?.networth)}
         </span>
       );
     case "position":
       return (
-        <span key={columnId} className="enemy-monitor-member-position" title={positionTitle(cachedStats)}>
+        <span key={columnId} className="enemy-monitor-member-position enemy-monitor-member-column text" title={positionTitle(cachedStats)}>
           {cachedStats?.position ?? "-"}
         </span>
       );
@@ -1615,6 +1699,11 @@ function initialTravelAlertsEnabled(): boolean {
 
 function initialCompactBattleStats(): boolean {
   return storedBooleanSetting(COMPACT_BATTLE_STATS_STORAGE_KEY, true);
+}
+
+function initialActiveMembersSectionPlacement(): ActiveMembersSectionPlacement {
+  const stored = window.localStorage.getItem(ACTIVE_MEMBERS_SECTION_PLACEMENT_STORAGE_KEY);
+  return stored === "enemyStatus" ? "enemyStatus" : "liveAlerts";
 }
 
 function initialEnemyStatusColumns(): EnemyStatusColumnPreferences {
