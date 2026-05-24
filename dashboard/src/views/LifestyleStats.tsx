@@ -5,6 +5,7 @@ import {
   MemberLifestyleStats,
 } from "../api";
 import { PanelHeader } from "../components/Common";
+import { StickyTable } from "../components/StickyTable";
 import { downloadCsv, sanitizeCsvFilename } from "../utils/csv";
 import { formatNetworth, formatNumber, formatRelativeTime } from "../utils/format";
 
@@ -292,66 +293,63 @@ function LifestyleTable({
   sort: LifestyleSort;
   onSortChange: (sort: LifestyleSort) => void;
 }) {
+  const renderHeader = () => (
+    <tr>
+      {[
+        "member_name",
+        "overdosed",
+        "average_xantaken",
+        "adjusted_average_xantaken",
+        "average_refills",
+        "average_useractivity",
+        "networth",
+        "average_gymenergy",
+        "average_gymstrength",
+        "average_gymspeed",
+        "average_gymdefense",
+        "average_gymdexterity",
+        "updated_at",
+      ].map((key) => (
+        <SortableHeader
+          key={key}
+          label={formatHeaderLabel(SORT_LABELS[key as LifestyleSortKey])}
+          sortKey={key as LifestyleSortKey}
+          sort={sort}
+          onSortChange={onSortChange}
+        />
+      ))}
+    </tr>
+  );
+
   return (
-    <div className="table-scroll">
-      <table className="lifestyle-table">
-        <thead>
-          <tr>
-            {[
-              "member_name",
-              "overdosed",
-              "average_xantaken",
-              "adjusted_average_xantaken",
-              "average_refills",
-              "average_useractivity",
-              "networth",
-              "average_gymenergy",
-              "average_gymstrength",
-              "average_gymspeed",
-              "average_gymdefense",
-              "average_gymdexterity",
-              "updated_at",
-            ].map((key) => (
-              <SortableHeader
-                key={key}
-                label={formatHeaderLabel(SORT_LABELS[key as LifestyleSortKey])}
-                sortKey={key as LifestyleSortKey}
-                sort={sort}
-                onSortChange={onSortChange}
-              />
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {members.map((member) => (
-            <tr key={member.member_id}>
-              <td>
-                <a
-                  className="member-link"
-                  href={`https://www.torn.com/profiles.php?XID=${member.member_id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {member.member_name ?? member.member_id}
-                </a>
-              </td>
-              <td>{cell(member.overdosed)}</td>
-              <td>{cell(member.average_xantaken)}</td>
-              <td>{cell(member.adjusted_average_xantaken)}</td>
-              <td>{cell(member.average_refills)}</td>
-              <td>{formatActivityAverage(member.average_useractivity)}</td>
-              <td title={networthTitle(member.networth)}>{formatNetworth(member.networth)}</td>
-              <td>{cell(member.average_gymenergy)}</td>
-              <td>{cell(member.average_gymstrength)}</td>
-              <td>{cell(member.average_gymspeed)}</td>
-              <td>{cell(member.average_gymdefense)}</td>
-              <td>{cell(member.average_gymdexterity)}</td>
-              <td>{formatRelativeTime(member.updated_at)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <StickyTable className="lifestyle-table" renderHeader={renderHeader}>
+      {members.map((member) => (
+        <tr key={member.member_id}>
+          <td>
+            <a
+              className="member-link"
+              href={`https://www.torn.com/profiles.php?XID=${member.member_id}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {member.member_name ?? member.member_id}
+            </a>
+          </td>
+          <td>{cell(member.overdosed)}</td>
+          <td>{cell(member.average_xantaken)}</td>
+          <td>{cell(member.adjusted_average_xantaken)}</td>
+          <td>{cell(member.average_refills)}</td>
+          <td>{formatActivityAverage(member.average_useractivity)}</td>
+          <td title={networthTitle(member.networth)}>{formatNetworth(member.networth)}</td>
+          <td>{cell(member.average_gymenergy)}</td>
+          <td>{cell(member.average_gymstrength)}</td>
+          <td>{cell(member.average_gymspeed)}</td>
+          <td>{cell(member.average_gymdefense)}</td>
+          <td>{cell(member.average_gymdexterity)}</td>
+          <td>{formatRelativeTime(member.updated_at)}</td>
+        </tr>
+      ))}
+    </StickyTable>
   );
 }
 

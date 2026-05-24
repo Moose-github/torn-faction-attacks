@@ -4462,6 +4462,38 @@ h2 {
   border-radius: 8px;
 }
 
+.sticky-table-frame {
+  position: relative;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.floating-table-header {
+  position: fixed;
+  top: 0;
+  z-index: 80;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: #f8fafc;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.14);
+}
+
+.floating-table-header-inner {
+  min-width: 100%;
+  will-change: transform;
+}
+
+.floating-table-header table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.floating-table-header th {
+  position: static;
+}
+
 table {
   width: 100%;
   min-width: 760px;
@@ -5162,6 +5194,7 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] th,
 :root[data-theme="dark"] td,
 :root[data-theme="dark"] .table-scroll,
+:root[data-theme="dark"] .floating-table-header,
 :root[data-theme="dark"] .payout-section-divider {
   border-color: var(--border-faint);
 }
@@ -5174,6 +5207,11 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] th {
   background: var(--panel-muted-bg);
   color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .floating-table-header {
+  background: var(--panel-muted-bg);
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.42);
 }
 
 :root[data-theme="dark"] tbody tr,

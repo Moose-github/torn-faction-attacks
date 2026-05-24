@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { MemberAttack, MemberStats } from "../api";
 import { EmptyState } from "./Common";
+import { StickyTable } from "./StickyTable";
 import { formatDate, formatNumber } from "../utils/format";
 import {
   classificationLabel,
@@ -33,151 +34,148 @@ export function MemberTable({
     return <EmptyState text="No members to show" />;
   }
 
+  const renderHeader = () => (
+    <tr>
+      <SortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={onSortChange} />
+      <SortableHeader label="Attacks" sortKey="attacks_vs_enemy_successful" sort={sort} onSortChange={onSortChange} />
+      <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
+      <SortableHeader label={<>Defends<br />lost</>} sortKey="defends_lost" sort={sort} onSortChange={onSortChange} />
+      <SortableHeader
+        label={<span title="Defends lost where the enemy result was not Hospitalized.">Non-hosp<br />defends lost</span>}
+        sortKey="defends_lost_non_hospitalized"
+        sort={sort}
+        onSortChange={onSortChange}
+      />
+      {showTermedColumns ? null : (
+        <SortableHeader label={<>Outside<br />hits</>} sortKey="outside_hits" sort={sort} onSortChange={onSortChange} />
+      )}
+      <SortableHeader
+        label={<span title="Adjusted respect, with chain bonus hits counted at the member's average hit value.">Respect<br />gained</span>}
+        sortKey="respect_gained"
+        sort={sort}
+        onSortChange={onSortChange}
+      />
+      <SortableHeader
+        label={<span title="Adjusted respect lost, with enemy chain bonus hits counted at the enemy attacker's average hit value.">Respect<br />lost</span>}
+        sortKey="respect_lost"
+        sort={sort}
+        onSortChange={onSortChange}
+      />
+      <SortableHeader
+        label={<span title="Adjusted respect lost from defends where the enemy result was not Hospitalized.">Non-hosp<br />respect lost</span>}
+        sortKey="respect_lost_non_hospitalized"
+        sort={sort}
+        onSortChange={onSortChange}
+      />
+      {showTermedColumns ? null : (
+        <SortableHeader
+          label={<>Respect<br />lost raw</>}
+          sortKey="respect_lost_raw"
+          sort={sort}
+          onSortChange={onSortChange}
+        />
+      )}
+      <SortableHeader label="Assists" sortKey="assists_vs_enemy" sort={sort} onSortChange={onSortChange} />
+      {showTermedColumns ? (
+        <>
+          {termedColumnVariant === "war" ? (
+            <SortableHeader label={<>Average<br />fair fight</>} sortKey="average_fair_fight" sort={sort} onSortChange={onSortChange} />
+          ) : null}
+          <SortableHeader label={<>Percent<br />limit</>} sortKey="member_respect_limit_percent" sort={sort} onSortChange={onSortChange} />
+        </>
+      ) : (
+        <>
+          <SortableHeader label={<>Average<br />fair fight</>} sortKey="average_fair_fight" sort={sort} onSortChange={onSortChange} />
+          <SortableHeader label={<>Friendly<br />hosps</>} sortKey="friendly_hosps" sort={sort} onSortChange={onSortChange} />
+          <SortableHeader label="Retaliations" sortKey="retaliations_vs_enemy" sort={sort} onSortChange={onSortChange} />
+        </>
+      )}
+    </tr>
+  );
+
   return (
-    <div className="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <SortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Attacks" sortKey="attacks_vs_enemy_successful" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label={<>Defends<br />lost</>} sortKey="defends_lost" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader
-              label={<span title="Defends lost where the enemy result was not Hospitalized.">Non-hosp<br />defends lost</span>}
-              sortKey="defends_lost_non_hospitalized"
-              sort={sort}
-              onSortChange={onSortChange}
-            />
-            {showTermedColumns ? null : (
-              <SortableHeader label={<>Outside<br />hits</>} sortKey="outside_hits" sort={sort} onSortChange={onSortChange} />
-            )}
-            <SortableHeader
-              label={<span title="Adjusted respect, with chain bonus hits counted at the member's average hit value.">Respect<br />gained</span>}
-              sortKey="respect_gained"
-              sort={sort}
-              onSortChange={onSortChange}
-            />
-            <SortableHeader
-              label={<span title="Adjusted respect lost, with enemy chain bonus hits counted at the enemy attacker's average hit value.">Respect<br />lost</span>}
-              sortKey="respect_lost"
-              sort={sort}
-              onSortChange={onSortChange}
-            />
-            <SortableHeader
-              label={<span title="Adjusted respect lost from defends where the enemy result was not Hospitalized.">Non-hosp<br />respect lost</span>}
-              sortKey="respect_lost_non_hospitalized"
-              sort={sort}
-              onSortChange={onSortChange}
-            />
-            {showTermedColumns ? null : (
-              <SortableHeader
-                label={<>Respect<br />lost raw</>}
-                sortKey="respect_lost_raw"
-                sort={sort}
-                onSortChange={onSortChange}
-              />
-            )}
-            <SortableHeader label="Assists" sortKey="assists_vs_enemy" sort={sort} onSortChange={onSortChange} />
-            {showTermedColumns ? (
-              <>
-                {termedColumnVariant === "war" ? (
-                  <SortableHeader label={<>Average<br />fair fight</>} sortKey="average_fair_fight" sort={sort} onSortChange={onSortChange} />
-                ) : null}
-                <SortableHeader label={<>Percent<br />limit</>} sortKey="member_respect_limit_percent" sort={sort} onSortChange={onSortChange} />
-              </>
+    <StickyTable renderHeader={renderHeader}>
+      {members.map((member) => (
+        <tr
+          key={member.member_id}
+          className={[
+            onMemberSelect ? "clickable-member-row" : "",
+            member.member_id === selectedMemberId ? "selected-member-row" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={onMemberSelect ? () => onMemberSelect(member) : undefined}
+        >
+          <td>
+            {onMemberSelect ? (
+              <button
+                type="button"
+                className="member-link"
+                title={`View ${displayMember(member)} attacks`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onMemberSelect(member);
+                }}
+              >
+                {displayMember(member)}
+              </button>
             ) : (
-              <>
-                <SortableHeader label={<>Average<br />fair fight</>} sortKey="average_fair_fight" sort={sort} onSortChange={onSortChange} />
-                <SortableHeader label={<>Friendly<br />hosps</>} sortKey="friendly_hosps" sort={sort} onSortChange={onSortChange} />
-                <SortableHeader label="Retaliations" sortKey="retaliations_vs_enemy" sort={sort} onSortChange={onSortChange} />
-              </>
+              displayMember(member)
             )}
-          </tr>
-        </thead>
-        <tbody>
-          {members.map((member) => (
-            <tr
-              key={member.member_id}
-              className={[
-                onMemberSelect ? "clickable-member-row" : "",
-                member.member_id === selectedMemberId ? "selected-member-row" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onClick={onMemberSelect ? () => onMemberSelect(member) : undefined}
-            >
-              <td>
-                {onMemberSelect ? (
-                  <button
-                    type="button"
-                    className="member-link"
-                    title={`View ${displayMember(member)} attacks`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onMemberSelect(member);
-                    }}
-                  >
-                    {displayMember(member)}
-                  </button>
-                ) : (
-                  displayMember(member)
-                )}
-              </td>
-              <td>
-                <AttackBreakdown member={member} />
-              </td>
-              <td>
-                <DefendBreakdown member={member} />
-              </td>
-              <td>{formatNumber(memberDefendsLost(member))}</td>
-              <td>{formatNumber(memberNonHospitalizedDefendsLost(member))}</td>
-              {showTermedColumns ? null : <td>{formatNumber(member.outside_hits)}</td>}
-              <td>
-                <RespectAdjustmentCell
-                  adjusted={member.respect_gained}
-                  raw={member.respect_gained_raw}
-                  chainHits={member.chain_bonus_hits_vs_enemy}
-                  chainHitValues={member.chain_bonus_hit_values_vs_enemy}
-                  chainHitDetails={member.chain_bonus_hit_details_vs_enemy}
-                  respectRemoved={member.chain_bonus_respect_removed}
-                  tooltipLabel="Respect gained"
-                  markerLabel="chain"
-                />
-              </td>
-              <td>
-                <RespectAdjustmentCell
-                  adjusted={member.respect_lost}
-                  raw={member.respect_lost_raw}
-                  chainHits={member.enemy_chain_bonus_hits_received}
-                  chainHitValues={member.enemy_chain_bonus_hit_values_received}
-                  chainHitDetails={member.enemy_chain_bonus_hit_details_received}
-                  respectRemoved={member.enemy_chain_bonus_respect_removed}
-                  tooltipLabel="Respect lost"
-                  markerLabel="chain"
-                />
-              </td>
-              <td>{formatNumber(memberNonHospitalizedRespectLost(member))}</td>
-              {showTermedColumns ? null : <td>{formatNumber(member.respect_lost_raw)}</td>}
-              <td>{formatNumber(member.assists_vs_enemy)}</td>
-              {showTermedColumns ? (
-                <>
-                  {termedColumnVariant === "war" ? (
-                    <td>{formatNullableNumber(member.average_fair_fight, 2)}</td>
-                  ) : null}
-                  <td>{formatNullablePercent(member.member_respect_limit_percent)}</td>
-                </>
-              ) : (
-                <>
-                  <td>{formatNullableNumber(member.average_fair_fight, 2)}</td>
-                  <td>{formatNumber(member.friendly_hosps)}</td>
-                  <td>{formatNumber(member.retaliations_vs_enemy)}</td>
-                </>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </td>
+          <td>
+            <AttackBreakdown member={member} />
+          </td>
+          <td>
+            <DefendBreakdown member={member} />
+          </td>
+          <td>{formatNumber(memberDefendsLost(member))}</td>
+          <td>{formatNumber(memberNonHospitalizedDefendsLost(member))}</td>
+          {showTermedColumns ? null : <td>{formatNumber(member.outside_hits)}</td>}
+          <td>
+            <RespectAdjustmentCell
+              adjusted={member.respect_gained}
+              raw={member.respect_gained_raw}
+              chainHits={member.chain_bonus_hits_vs_enemy}
+              chainHitValues={member.chain_bonus_hit_values_vs_enemy}
+              chainHitDetails={member.chain_bonus_hit_details_vs_enemy}
+              respectRemoved={member.chain_bonus_respect_removed}
+              tooltipLabel="Respect gained"
+              markerLabel="chain"
+            />
+          </td>
+          <td>
+            <RespectAdjustmentCell
+              adjusted={member.respect_lost}
+              raw={member.respect_lost_raw}
+              chainHits={member.enemy_chain_bonus_hits_received}
+              chainHitValues={member.enemy_chain_bonus_hit_values_received}
+              chainHitDetails={member.enemy_chain_bonus_hit_details_received}
+              respectRemoved={member.enemy_chain_bonus_respect_removed}
+              tooltipLabel="Respect lost"
+              markerLabel="chain"
+            />
+          </td>
+          <td>{formatNumber(memberNonHospitalizedRespectLost(member))}</td>
+          {showTermedColumns ? null : <td>{formatNumber(member.respect_lost_raw)}</td>}
+          <td>{formatNumber(member.assists_vs_enemy)}</td>
+          {showTermedColumns ? (
+            <>
+              {termedColumnVariant === "war" ? (
+                <td>{formatNullableNumber(member.average_fair_fight, 2)}</td>
+              ) : null}
+              <td>{formatNullablePercent(member.member_respect_limit_percent)}</td>
+            </>
+          ) : (
+            <>
+              <td>{formatNullableNumber(member.average_fair_fight, 2)}</td>
+              <td>{formatNumber(member.friendly_hosps)}</td>
+              <td>{formatNumber(member.retaliations_vs_enemy)}</td>
+            </>
+          )}
+        </tr>
+      ))}
+    </StickyTable>
   );
 }
 
@@ -262,35 +260,32 @@ export function MemberAttackList({
     return <EmptyState text="No attacks for this member" />;
   }
 
+  const renderHeader = () => (
+    <tr>
+      <SortableHeader label="Time" sortKey="started" sort={sort} onSortChange={onSortChange} />
+      <SortableHeader label="Type" sortKey="classification" sort={sort} onSortChange={onSortChange} />
+      <SortableHeader label="Attacker" sortKey="attacker_name" sort={sort} onSortChange={onSortChange} />
+      <SortableHeader label="Defender" sortKey="defender_name" sort={sort} onSortChange={onSortChange} />
+      <SortableHeader label="Defender faction" sortKey="defender_faction_id" sort={sort} onSortChange={onSortChange} />
+      <SortableHeader label="Result" sortKey="result" sort={sort} onSortChange={onSortChange} />
+      <SortableHeader label="Respect" sortKey="respect_gain" sort={sort} onSortChange={onSortChange} />
+    </tr>
+  );
+
   return (
-    <div className="table-scroll">
-      <table className="attack-log-table">
-        <thead>
-          <tr>
-            <SortableHeader label="Time" sortKey="started" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Type" sortKey="classification" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Attacker" sortKey="attacker_name" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Defender" sortKey="defender_name" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Defender faction" sortKey="defender_faction_id" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Result" sortKey="result" sort={sort} onSortChange={onSortChange} />
-            <SortableHeader label="Respect" sortKey="respect_gain" sort={sort} onSortChange={onSortChange} />
-          </tr>
-        </thead>
-        <tbody>
-          {attacks.map((attack) => (
-            <tr key={attack.id} className={`attack-row ${attack.classification}`}>
-              <td>{formatDate(attack.started)}</td>
-              <td>{classificationLabel(attack.classification)}</td>
-              <td>{attack.attacker_name ?? `#${attack.attacker_id ?? "-"}`}</td>
-              <td>{attack.defender_name ?? `#${attack.defender_id ?? "-"}`}</td>
-              <td>{attack.defender_faction_id ?? "-"}</td>
-              <td>{attack.result ?? "-"}</td>
-              <td>{formatNumber(attack.respect_gain ?? 0)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <StickyTable className="attack-log-table" renderHeader={renderHeader}>
+      {attacks.map((attack) => (
+        <tr key={attack.id} className={`attack-row ${attack.classification}`}>
+          <td>{formatDate(attack.started)}</td>
+          <td>{classificationLabel(attack.classification)}</td>
+          <td>{attack.attacker_name ?? `#${attack.attacker_id ?? "-"}`}</td>
+          <td>{attack.defender_name ?? `#${attack.defender_id ?? "-"}`}</td>
+          <td>{attack.defender_faction_id ?? "-"}</td>
+          <td>{attack.result ?? "-"}</td>
+          <td>{formatNumber(attack.respect_gain ?? 0)}</td>
+        </tr>
+      ))}
+    </StickyTable>
   );
 }
 
