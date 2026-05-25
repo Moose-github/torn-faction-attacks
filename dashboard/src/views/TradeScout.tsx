@@ -44,7 +44,7 @@ import {
   groupOpportunitiesByItem,
   itemSnapshotLabel,
   itemsWithoutVisibleOpportunities,
-  money,
+  formatMoney,
   opportunityQuality,
   parseItemIds,
   searchFreshness,
@@ -362,9 +362,9 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
     const text = [
       `${opportunity.item_name ?? `Item ${opportunity.item_id}`}`,
       `Seller: ${seller}`,
-      `Buy: ${money(opportunity.listing_price)}`,
-      `Reference: ${money(opportunity.resale_price)}`,
-      `Profit: ${money(opportunity.profit)} (${formatPercent(opportunity.roi_percent)})`,
+      `Buy: ${formatMoney(opportunity.listing_price)}`,
+      `Reference: ${formatMoney(opportunity.resale_price)}`,
+      `Profit: ${formatMoney(opportunity.profit)} (${formatPercent(opportunity.roi_percent)})`,
       opportunity.seller_id ? `Bazaar: ${bazaarUrl(opportunity.seller_id)}` : null,
     ].filter(Boolean).join("\n");
 
@@ -417,7 +417,7 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
           <MetricCard
             icon={<Download size={16} />}
             label="Best unit profit"
-            value={money(bestProfit)}
+            value={formatMoney(bestProfit)}
             detail={form.name.trim() || "-"}
           />
           <MetricCard
@@ -499,7 +499,7 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
               <div className="trade-scout-selected-meta">
                 <span>{currentSearch.item_ids.join(", ")}</span>
                 <span>{sourceLabel(currentSearch.item_source)}</span>
-                <span>Min profit {money(currentSearch.min_profit)}</span>
+                <span>Min profit {formatMoney(currentSearch.min_profit)}</span>
                 <span>Min ROI {currentSearch.min_roi_percent}%</span>
                 <span>{selectedWatchlist ? createdByLabel(selectedWatchlist) : "Unsaved search"}</span>
                 {scanFreshness ? <span className={`trade-scout-freshness ${scanFreshness.tone}`}>{scanFreshness.label}</span> : null}
@@ -751,18 +751,18 @@ function OpportunityTable({
             return (
               <tr key={opportunity.id}>
                 <td>{sellerCell(opportunity)}</td>
-                <td>{money(opportunity.listing_price)}</td>
+                <td>{formatMoney(opportunity.listing_price)}</td>
                 <td>
-                  <strong>{money(opportunity.resale_price)}</strong>
+                  <strong>{formatMoney(opportunity.resale_price)}</strong>
                   <small>{opportunity.reference_label ?? "-"}</small>
                   <small>{search ? `Fee model ${search.market_fee_percent}%` : "Fee model -"}</small>
                 </td>
                 <td className={opportunity.profit >= 0 ? "positive" : "negative"}>
-                  {money(opportunity.profit)}
+                  {formatMoney(opportunity.profit)}
                 </td>
                 <td>{formatNumber(opportunity.quantity)}</td>
                 <td className={opportunity.bulk_profit >= 0 ? "positive" : "negative"}>
-                  {money(opportunity.bulk_profit)}
+                  {formatMoney(opportunity.bulk_profit)}
                   {opportunity.needed_quantity ? <small>{opportunity.needed_quantity} needed</small> : null}
                 </td>
                 <td>{formatPercent(opportunity.roi_percent)}</td>

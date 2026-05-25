@@ -1,11 +1,12 @@
 import { HOME_FACTION_ID } from "./constants";
+import { warNameFromWarRoute } from "./routes";
 import { WAR_SELECT_COLUMNS } from "./sql";
 import { Env, WarRow } from "./types";
 import { corsHeaders, json, nowSeconds } from "./utils";
 
 export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response> {
   try {
-    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+    const name = warNameFromWarRoute(url);
 
     if (!name) {
       return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);

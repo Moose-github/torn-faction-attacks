@@ -1,8 +1,9 @@
 import { Env, WarRow } from "./types";
+import { warNameFromWarRoute } from "./routes";
 import { json } from "./utils";
 
 export async function readWarFromScoutingUrl(url: URL, env: Env): Promise<WarRow | Response> {
-  const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+  const name = warNameFromWarRoute(url);
 
   if (!name) {
     return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);

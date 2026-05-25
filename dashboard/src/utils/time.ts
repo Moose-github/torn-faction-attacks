@@ -1,6 +1,6 @@
 import React from "react";
 
-export function useCurrentTime(): number {
+export function useCurrentTimeMs(): number {
   const [now, setNow] = React.useState(() => Date.now());
 
   React.useEffect(() => {
@@ -11,7 +11,7 @@ export function useCurrentTime(): number {
   return now;
 }
 
-export function formatDuration(totalSeconds: number): string {
+export function formatCountdownDuration(totalSeconds: number): string {
   if (totalSeconds <= 0) {
     return "Started";
   }

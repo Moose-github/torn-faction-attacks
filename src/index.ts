@@ -52,10 +52,10 @@ import {
   isWarDetailRoute,
   isWarMemberAttacksRoute,
   isWarSubroute,
-  matchesRoute,
-  tradeWatchlistIdFromPath,
-  tradeWatchlistScanIdFromPath,
-  warNameFromSubroute,
+  matchesExactRoute,
+  tradeWatchlistIdFromDetailPath,
+  tradeWatchlistIdFromScanPath,
+  warNameFromWarRoute,
 } from "./routes";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
@@ -145,15 +145,15 @@ async function routeApiRequest(routeContext: RouteContext): Promise<RouteResult>
 }
 
 async function routePublicApi({ request, env, url }: RouteContext): Promise<RouteResult> {
-  if (matchesRoute(url, request, "/api/auth/torn", "POST")) {
+  if (matchesExactRoute(url, request, "/api/auth/torn", "POST")) {
     return authenticateWithTornKey(request, env);
   }
 
-  if (matchesRoute(url, request, "/api/auth/me", "GET")) {
+  if (matchesExactRoute(url, request, "/api/auth/me", "GET")) {
     return getCurrentAuthSession(request, env);
   }
 
-  if (matchesRoute(url, request, "/api/health")) {
+  if (matchesExactRoute(url, request, "/api/health")) {
     return json({ ok: true });
   }
 
@@ -163,7 +163,7 @@ async function routePublicApi({ request, env, url }: RouteContext): Promise<Rout
 async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, url } = routeContext;
 
-  if (matchesRoute(url, request, "/api/run", "POST")) {
+  if (matchesExactRoute(url, request, "/api/run", "POST")) {
     return withAdmin(routeContext, async () => {
       const cooldownError = await requireActionCooldown(env, "manual_ingestion", 5 * 60);
       if (cooldownError) return cooldownError;
@@ -172,35 +172,35 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
     });
   }
 
-  if (matchesRoute(url, request, "/api/admin/ingestion-run", "GET")) {
+  if (matchesExactRoute(url, request, "/api/admin/ingestion-run", "GET")) {
     return withAdmin(routeContext, () => getLatestIngestionRun(env));
   }
 
-  if (matchesRoute(url, request, "/api/admin/maintenance-run", "GET")) {
+  if (matchesExactRoute(url, request, "/api/admin/maintenance-run", "GET")) {
     return withAdmin(routeContext, () => getLatestMaintenanceRun(env));
   }
 
-  if (matchesRoute(url, request, "/api/admin/users", "GET")) {
+  if (matchesExactRoute(url, request, "/api/admin/users", "GET")) {
     return withAdmin(routeContext, () => listAdminUsers(env));
   }
 
-  if (matchesRoute(url, request, "/api/admin/users/grant", "POST")) {
+  if (matchesExactRoute(url, request, "/api/admin/users/grant", "POST")) {
     return withAdmin(routeContext, () => grantAdminAccess(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/admin/discord/message", "POST")) {
+  if (matchesExactRoute(url, request, "/api/admin/discord/message", "POST")) {
     return withAdmin(routeContext, () => sendDiscordMessageFromRequest(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/admin/enemy-stats-image/reset", "POST")) {
+  if (matchesExactRoute(url, request, "/api/admin/enemy-stats-image/reset", "POST")) {
     return withAdmin(routeContext, () => resetEnemyStatsImageFromRequest(env));
   }
 
-  if (matchesRoute(url, request, "/api/admin/enemy-stats-image/preview", "GET")) {
+  if (matchesExactRoute(url, request, "/api/admin/enemy-stats-image/preview", "GET")) {
     return withAdmin(routeContext, () => previewEnemyStatsImageFromRequest(url, env));
   }
 
-  if (matchesRoute(url, request, "/api/admin/live-enemy-tracking/restart", "POST")) {
+  if (matchesExactRoute(url, request, "/api/admin/live-enemy-tracking/restart", "POST")) {
     return withAdmin(routeContext, async () => {
       const cooldownError = await requireActionCooldown(env, "restart_live_enemy_tracking", 30);
       if (cooldownError) return cooldownError;
@@ -208,19 +208,19 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
     });
   }
 
-  if (matchesRoute(url, request, "/api/admin/suggestions", "GET")) {
+  if (matchesExactRoute(url, request, "/api/admin/suggestions", "GET")) {
     return withAdmin(routeContext, () => listMemberSuggestionsForAdmin(url, env));
   }
 
-  if (matchesRoute(url, request, "/api/rebuild", "POST")) {
+  if (matchesExactRoute(url, request, "/api/rebuild", "POST")) {
     return withAdmin(routeContext, () => rebuildStatsFromRequest(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/attacks")) {
+  if (matchesExactRoute(url, request, "/api/attacks")) {
     return withAdmin(routeContext, () => getRecentAttacks(url, env));
   }
 
-  if (matchesRoute(url, request, "/api/attacks/window", "POST")) {
+  if (matchesExactRoute(url, request, "/api/attacks/window", "POST")) {
     return withAdmin(routeContext, () => getAttackWindow(request, env));
   }
 
@@ -230,11 +230,11 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 async function routeTradeApi(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, url } = routeContext;
 
-  if (matchesRoute(url, request, "/api/trade/watchlists", "GET")) {
+  if (matchesExactRoute(url, request, "/api/trade/watchlists", "GET")) {
     return withMember(routeContext, () => listTradeWatchlists(env));
   }
 
-  if (matchesRoute(url, request, "/api/trade/watchlists", "POST")) {
+  if (matchesExactRoute(url, request, "/api/trade/watchlists", "POST")) {
     return withMember(routeContext, async () =>
       createTradeWatchlist(
         request,
@@ -244,32 +244,32 @@ async function routeTradeApi(routeContext: RouteContext): Promise<RouteResult> {
     );
   }
 
-  const watchlistId = tradeWatchlistIdFromPath(url.pathname);
-  if (watchlistId !== null && request.method === "PUT") {
-    return withAdmin(routeContext, () => updateTradeWatchlist(request, env, watchlistId));
+  const detailWatchlistId = tradeWatchlistIdFromDetailPath(url.pathname);
+  if (detailWatchlistId !== null && request.method === "PUT") {
+    return withAdmin(routeContext, () => updateTradeWatchlist(request, env, detailWatchlistId));
   }
 
-  if (watchlistId !== null && request.method === "DELETE") {
-    return withAdmin(routeContext, () => deleteTradeWatchlist(env, watchlistId));
+  if (detailWatchlistId !== null && request.method === "DELETE") {
+    return withAdmin(routeContext, () => deleteTradeWatchlist(env, detailWatchlistId));
   }
 
-  const scanWatchlistId = tradeWatchlistScanIdFromPath(url.pathname);
-  if (scanWatchlistId !== null && request.method === "POST") {
+  const watchlistIdToScan = tradeWatchlistIdFromScanPath(url.pathname);
+  if (watchlistIdToScan !== null && request.method === "POST") {
     return withMember(routeContext, async () =>
       scanTradeWatchlist(
         request,
         env,
-        scanWatchlistId,
+        watchlistIdToScan,
         await readAuthenticatedUserId(request, env),
       ),
     );
   }
 
-  if (matchesRoute(url, request, "/api/trade/search/opportunities", "POST")) {
+  if (matchesExactRoute(url, request, "/api/trade/search/opportunities", "POST")) {
     return withMember(routeContext, () => getTradeSearchOpportunities(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/trade/search/scan", "POST")) {
+  if (matchesExactRoute(url, request, "/api/trade/search/scan", "POST")) {
     return withMember(routeContext, async () =>
       scanTradeSearch(
         request,
@@ -279,7 +279,7 @@ async function routeTradeApi(routeContext: RouteContext): Promise<RouteResult> {
     );
   }
 
-  if (matchesRoute(url, request, "/api/trade/opportunities", "GET")) {
+  if (matchesExactRoute(url, request, "/api/trade/opportunities", "GET")) {
     return withMember(routeContext, () => getTradeOpportunities(url, env));
   }
 
@@ -289,7 +289,7 @@ async function routeTradeApi(routeContext: RouteContext): Promise<RouteResult> {
 async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, url } = routeContext;
 
-  if (matchesRoute(url, request, "/api/member-lifestyle-stats", "GET")) {
+  if (matchesExactRoute(url, request, "/api/member-lifestyle-stats", "GET")) {
     return cachedMemberGet(
       routeContext,
       OFFICIAL_END_CACHE_TTL_SECONDS,
@@ -298,23 +298,23 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
     );
   }
 
-  if (matchesRoute(url, request, "/api/member-achievements", "GET")) {
+  if (matchesExactRoute(url, request, "/api/member-achievements", "GET")) {
     return cachedMemberGet(routeContext, 55, () => listMemberAchievementSummaries(env));
   }
 
-  if (matchesRoute(url, request, "/api/miscellaneous", "GET")) {
+  if (matchesExactRoute(url, request, "/api/miscellaneous", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getMiscellaneousData(env));
   }
 
-  if (matchesRoute(url, request, "/api/home-faction-members/summary", "GET")) {
+  if (matchesExactRoute(url, request, "/api/home-faction-members/summary", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getCurrentHomeFactionMemberSummary(env));
   }
 
-  if (matchesRoute(url, request, "/api/faction-attacks/recent", "GET")) {
+  if (matchesExactRoute(url, request, "/api/faction-attacks/recent", "GET")) {
     return cachedMemberGet(routeContext, 15, () => getRecentFactionAttacks(url, env));
   }
 
-  if (matchesRoute(url, request, "/api/suggestions", "POST")) {
+  if (matchesExactRoute(url, request, "/api/suggestions", "POST")) {
     return withMember(routeContext, async () => {
       const userId = await readAuthenticatedUserId(request, env);
       if (!userId) {
@@ -326,23 +326,23 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
     });
   }
 
-  if (matchesRoute(url, request, "/api/monitor-ticket", "POST")) {
+  if (matchesExactRoute(url, request, "/api/monitor-ticket", "POST")) {
     return withMember(routeContext, () => createMonitorTicket(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/dice-game", "GET")) {
+  if (matchesExactRoute(url, request, "/api/dice-game", "GET")) {
     return withMember(routeContext, () => getDiceGameState(request, env, url));
   }
 
-  if (matchesRoute(url, request, "/api/dice-game/roll", "POST")) {
+  if (matchesExactRoute(url, request, "/api/dice-game/roll", "POST")) {
     return withMember(routeContext, () => rollDiceGame(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/dice-game/send-xanax", "POST")) {
+  if (matchesExactRoute(url, request, "/api/dice-game/send-xanax", "POST")) {
     return withMember(routeContext, () => sendXanaxToDiceGame(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/stats", "GET")) {
+  if (matchesExactRoute(url, request, "/api/stats", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getOverallStats(url, env));
   }
 
@@ -352,7 +352,7 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
 async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, url } = routeContext;
 
-  if (matchesRoute(url, request, "/api/wars", "POST")) {
+  if (matchesExactRoute(url, request, "/api/wars", "POST")) {
     return withAdmin(routeContext, () =>
       json(
         {
@@ -365,11 +365,11 @@ async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult
     );
   }
 
-  if (matchesRoute(url, request, "/api/wars/import", "POST")) {
+  if (matchesExactRoute(url, request, "/api/wars/import", "POST")) {
     return withAdmin(routeContext, () => importHistoricalWar(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/wars/import-event", "POST")) {
+  if (matchesExactRoute(url, request, "/api/wars/import-event", "POST")) {
     return withAdmin(routeContext, () =>
       json(
         {
@@ -382,11 +382,11 @@ async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult
     );
   }
 
-  if (matchesRoute(url, request, "/api/wars/import/preview", "POST")) {
+  if (matchesExactRoute(url, request, "/api/wars/import/preview", "POST")) {
     return withAdmin(routeContext, () => previewHistoricalWarImport(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/wars/import-event/preview", "POST")) {
+  if (matchesExactRoute(url, request, "/api/wars/import-event/preview", "POST")) {
     return withAdmin(routeContext, () =>
       json(
         {
@@ -399,11 +399,11 @@ async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult
     );
   }
 
-  if (matchesRoute(url, request, "/api/wars/update-official", "POST")) {
+  if (matchesExactRoute(url, request, "/api/wars/update-official", "POST")) {
     return withAdmin(routeContext, () => updateOfficialWar(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/wars/update-event", "POST")) {
+  if (matchesExactRoute(url, request, "/api/wars/update-event", "POST")) {
     return withAdmin(routeContext, () =>
       json(
         {
@@ -416,15 +416,15 @@ async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult
     );
   }
 
-  if (matchesRoute(url, request, "/api/wars/delete", "POST")) {
+  if (matchesExactRoute(url, request, "/api/wars/delete", "POST")) {
     return withAdmin(routeContext, () => deleteWar(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/wars/relink-attacks", "POST")) {
+  if (matchesExactRoute(url, request, "/api/wars/relink-attacks", "POST")) {
     return withAdmin(routeContext, () => relinkWarAttacks(request, env));
   }
 
-  if (matchesRoute(url, request, "/api/wars/end", "POST")) {
+  if (matchesExactRoute(url, request, "/api/wars/end", "POST")) {
     return withAdmin(routeContext, () => endActiveWar(request, env));
   }
 
@@ -450,11 +450,11 @@ async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult
 async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, url } = routeContext;
 
-  if (matchesRoute(url, request, "/api/wars", "GET")) {
+  if (matchesExactRoute(url, request, "/api/wars", "GET")) {
     return cachedMemberGet(routeContext, 55, () => listWars(url, env));
   }
 
-  const warVersionNames = warCacheVersionNames(warNameFromSubroute(url));
+  const warVersionNames = warCacheVersionNames(warNameFromWarRoute(url));
 
   if (isWarSubroute(url, request, "/report-discrepancies", "GET")) {
     return cachedMemberGet(
@@ -468,7 +468,7 @@ async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
   if (isWarSubroute(url, request, "/enemy-push-pressure", "GET")) {
     return cachedMemberGet(
       routeContext,
-      enemyPushPressureTtlSeconds(url),
+      warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55),
       () => getEnemyPushPressureForWar(url, env),
     );
   }
@@ -550,12 +550,6 @@ async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
   }
 
   return null;
-}
-
-function enemyPushPressureTtlSeconds(url: URL): CacheTtl {
-  return url.searchParams.get("include_history") === "0"
-    ? warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55)
-    : warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55);
 }
 
 async function withAdmin(routeContext: RouteContext, handler: RouteHandler): Promise<Response> {

@@ -215,7 +215,7 @@ export function opportunityQuality(
     return { label: "Low margin", detail: `${formatPercent(opportunity.roi_percent)} ROI`, tone: "warn" };
   }
 
-  return { label: "Good flip", detail: `${money(opportunity.profit)} unit profit`, tone: "good" };
+  return { label: "Good flip", detail: `${formatMoney(opportunity.profit)} unit profit`, tone: "good" };
 }
 
 export function createdByLabel(watchlist: TradeWatchlist): string {
@@ -294,7 +294,7 @@ export function sourceLabel(source: TradeItemSource): string {
   }
 }
 
-export function money(value: number): string {
+export function formatMoney(value: number): string {
   return `$${formatNumber(Math.round(value))}`;
 }
 

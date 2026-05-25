@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
+import { warNameFromWarRoute } from "./routes";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember, WarRow } from "./types";
 import { boolToInt, d1Changes, json, nowSeconds } from "./utils";
@@ -349,7 +350,7 @@ async function readLatestHeatmapWar(env: Env): Promise<HeatmapWar | null> {
 }
 
 async function readHeatmapWarFromUrl(url: URL, env: Env): Promise<HeatmapWar | Response> {
-  const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+  const name = warNameFromWarRoute(url);
   const warId = parseHeatmapWarId(url.searchParams.get("war_id"));
 
   if (!name) {

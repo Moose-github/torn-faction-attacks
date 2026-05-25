@@ -24,7 +24,7 @@ import { CollapsiblePanel, EmptyState, FreshnessMeta, FreshnessTone, PanelHeader
 import { EnemyScoutingPanel } from "../components/EnemyScouting";
 import { EnemyTravelPanel } from "../components/EnemyTravelPanel";
 import { formatLongDateTime, formatNumber, formatRelativeTime, formatTime } from "../utils/format";
-import { formatDuration, useCurrentTime } from "../utils/time";
+import { formatCountdownDuration, useCurrentTimeMs } from "../utils/time";
 import { isWarRoomMemberTrackingActive } from "../utils/warTracking";
 import { ScoutingComparisonMetric } from "../../../shared/scoutingBuckets";
 
@@ -74,9 +74,9 @@ export function WarRoom({
     selectedWar?.status === "active" &&
     selectedWar.official_end_time === null &&
     selectedWar.practical_finish_time === null;
-  const now = useCurrentTime();
+  const nowMs = useCurrentTimeMs();
   const isMemberTrackingActive = selectedWar
-    ? isWarRoomMemberTrackingActive(selectedWar, Math.floor(now / 1000))
+    ? isWarRoomMemberTrackingActive(selectedWar, Math.floor(nowMs / 1000))
     : false;
   const isActivityHeatmapsOpen = collapsedPanels.activityHeatmaps === false;
   const trackingMode: TrackingMode = isWarLive ? "live" : isMemberTrackingActive ? "pre-live" : "inactive";
@@ -995,7 +995,7 @@ function EnemyPushPressurePanel({
 }) {
   const latest = data?.latest ?? null;
   const history = data?.history ?? [];
-  const nowSeconds = Math.floor(useCurrentTime() / 1000);
+  const nowSeconds = Math.floor(useCurrentTimeMs() / 1000);
   const contributions = latest ? pushPressureContributions(latest) : [];
   const positiveContributions = contributions.filter((contribution) => contribution.score > 0);
   const breakdownScore = contributions.reduce((total, contribution) => total + contribution.score, 0);
@@ -1464,11 +1464,11 @@ function RevivableMemberList({
 }
 
 function WarStartCountdown({ war }: { war: WarSummary }) {
-  const now = useCurrentTime();
+  const nowMs = useCurrentTimeMs();
   const startTime = war.official_start_time ?? war.practical_start_time;
   const isEnded = war.official_end_time !== null || war.status === "ended";
   const endTime = war.official_end_time ?? war.practical_finish_time;
-  const remainingSeconds = Math.max(0, Number(startTime ?? 0) - Math.floor(now / 1000));
+  const remainingSeconds = Math.max(0, Number(startTime ?? 0) - Math.floor(nowMs / 1000));
 
   if (isEnded) {
     return (
@@ -1482,7 +1482,7 @@ function WarStartCountdown({ war }: { war: WarSummary }) {
   return (
     <div className="war-room-countdown">
       <span>Official start</span>
-      <strong>{startTime ? formatDuration(remainingSeconds) : "-"}</strong>
+      <strong>{startTime ? formatCountdownDuration(remainingSeconds) : "-"}</strong>
     </div>
   );
 }

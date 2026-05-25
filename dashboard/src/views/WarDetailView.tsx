@@ -27,7 +27,7 @@ import {
   formatWarDateRange,
 } from "../utils/format";
 import { downloadCsv, sanitizeCsvFilename } from "../utils/csv";
-import { formatDuration, useCurrentTime } from "../utils/time";
+import { formatCountdownDuration, useCurrentTimeMs } from "../utils/time";
 import {
   displayMember,
   displayWarStatus,
@@ -630,13 +630,13 @@ function UpcomingWarEmptyPanel({
   war: WarSummary;
   onOpenWarRoom: () => void;
 }) {
-  const now = useCurrentTime();
+  const nowMs = useCurrentTimeMs();
   const startTime = war.official_start_time ?? war.practical_start_time;
-  const remainingSeconds = Math.max(0, Number(startTime ?? 0) - Math.floor(now / 1000));
+  const remainingSeconds = Math.max(0, Number(startTime ?? 0) - Math.floor(nowMs / 1000));
 
   return (
     <section className="panel upcoming-war-panel">
-      <PanelHeader title="War starts in" aside={formatDuration(remainingSeconds)} />
+      <PanelHeader title="War starts in" aside={formatCountdownDuration(remainingSeconds)} />
       <p className="panel-description">
         Performance panels will appear once attacks or official report data exists. Use the War room for scouting,
         stat comparison, and activity heatmaps before the war starts.

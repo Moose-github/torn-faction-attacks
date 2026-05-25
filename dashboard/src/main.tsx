@@ -58,6 +58,7 @@ import {
   parseAppRoute,
   pathForView,
 } from "./routes";
+import { useCurrentTimeMs } from "./utils/time";
 import type { AppView } from "./routes";
 import "./styles.css";
 
@@ -904,13 +905,13 @@ function isLiveWar(war: WarSummary): boolean {
 }
 
 function RefreshCountdowns() {
-  const now = useCurrentTime();
+  const nowMs = useCurrentTimeMs();
 
   return (
     <div className="refresh-countdowns" aria-label="Refresh countdowns">
-      <CountdownPill label="1 min" value={formatCountdown(nextBoundaryMs(now, 1))} />
-      <CountdownPill label="5 min" value={formatCountdown(nextBoundaryMs(now, 5))} />
-      <CountdownPill label="15 min" value={formatCountdown(nextBoundaryMs(now, 15))} />
+      <CountdownPill label="1 min" value={formatCountdown(nextBoundaryMs(nowMs, 1))} />
+      <CountdownPill label="5 min" value={formatCountdown(nextBoundaryMs(nowMs, 5))} />
+      <CountdownPill label="15 min" value={formatCountdown(nextBoundaryMs(nowMs, 15))} />
     </div>
   );
 }
@@ -922,17 +923,6 @@ function CountdownPill({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
-}
-
-function useCurrentTime(): number {
-  const [now, setNow] = React.useState(() => Date.now());
-
-  React.useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  return now;
 }
 
 function nextBoundaryMs(now: number, intervalMinutes: number): number {
@@ -952,6 +942,3 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>,
 );
-
-
-

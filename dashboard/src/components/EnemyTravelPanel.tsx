@@ -3,6 +3,7 @@ import { Plane } from "lucide-react";
 import { EnemyFactionMember } from "../api";
 import { CollapsiblePanel, EmptyState, FreshnessMeta, FreshnessTone } from "./Common";
 import { formatRelativeTime, formatTime } from "../utils/format";
+import { useCurrentTimeMs } from "../utils/time";
 
 const BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS = 5 * 60;
 export function EnemyTravelPanel({
@@ -28,7 +29,7 @@ export function EnemyTravelPanel({
   trackingDetail: string;
   onShowTrackingDetails?: () => void;
 }) {
-  const nowSeconds = Math.floor(useCurrentTime() / 1000);
+  const nowSeconds = Math.floor(useCurrentTimeMs() / 1000);
   const travelers = members
     .filter((member) => member.status_state === "Traveling")
     .sort((a, b) => {
@@ -479,15 +480,4 @@ function StackedTravelOptions({ values }: { values: string[] }) {
 
 function formatTimeWindow(start: number, end: number): string {
   return start === end ? formatTime(start) : `${formatTime(start)}-${formatTime(end)}`;
-}
-
-function useCurrentTime(): number {
-  const [now, setNow] = React.useState(() => Date.now());
-
-  React.useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  return now;
 }

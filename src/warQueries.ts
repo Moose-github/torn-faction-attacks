@@ -12,6 +12,7 @@ import {
   WAR_SELECT_COLUMNS,
   WAR_SELECT_COLUMNS_WITH_ALIAS,
 } from "./sql";
+import { warNameFromWarRoute } from "./routes";
 import { Env, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 
@@ -54,7 +55,7 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
 
 export async function getWar(url: URL, env: Env): Promise<Response> {
   try {
-    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+    const name = warNameFromWarRoute(url);
 
     if (!name) {
       return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
@@ -116,7 +117,7 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
 
 export async function getWarChainBonusesForWar(url: URL, env: Env): Promise<Response> {
   try {
-    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+    const name = warNameFromWarRoute(url);
 
     if (!name) {
       return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
@@ -184,7 +185,7 @@ export async function getWarChainBonusesForWar(url: URL, env: Env): Promise<Resp
 
 export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
   try {
-    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+    const name = warNameFromWarRoute(url);
 
     if (!name) {
       return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
@@ -237,7 +238,7 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
 export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response> {
   try {
     const parts = url.pathname.split("/");
-    const name = decodeURIComponent(parts[3] ?? "").trim();
+    const name = warNameFromWarRoute(url);
     const memberId = Number(parts[5]);
 
     if (!name) {
@@ -337,7 +338,7 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
 
 export async function getWarActivity(url: URL, env: Env): Promise<Response> {
   try {
-    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+    const name = warNameFromWarRoute(url);
 
     if (!name) {
       return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
@@ -514,7 +515,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
 
 export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<Response> {
   try {
-    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+    const name = warNameFromWarRoute(url);
 
     if (!name) {
       return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);

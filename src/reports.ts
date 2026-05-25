@@ -6,6 +6,7 @@ import {
   RANKED_WAR_REPORT_API_BASE_URL,
 } from "./constants";
 import { bumpWarCacheVersion } from "./cacheVersions";
+import { warNameFromWarRoute } from "./routes";
 import { OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { Env, TornRankedWarReport, TornRankedWarReportResponse } from "./types";
 import { json, nowSeconds } from "./utils";
@@ -70,7 +71,7 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
 
 export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Response> {
   try {
-    const name = decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
+    const name = warNameFromWarRoute(url);
 
     if (!name) {
       return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
