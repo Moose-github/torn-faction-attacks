@@ -555,16 +555,7 @@ export function WarRoom({
 
         <CollapsiblePanel
           title="Activity heatmaps"
-          control={
-            <FreshnessMeta
-              state={isLoadingActivityHeatmap ? "Loading" : trackingFreshness.heatmapState}
-              updatedAt={latestHeatmapSampledAt}
-              cadence={trackingFreshness.heatmapCadence}
-              detail={trackingFreshness.heatmapDetail}
-              tone={trackingFreshness.heatmapTone}
-              onClick={scrollToTrackingCadence}
-            />
-          }
+          aside={isLoadingActivityHeatmap ? "Loading" : heatmapHeaderAside(trackingMode)}
           collapsed={collapsedPanels.activityHeatmaps ?? false}
           onToggle={() => togglePanel("activityHeatmaps")}
           className="heatmap-panel"
@@ -728,6 +719,10 @@ function TrackingStatusItem({
       <p>{detail}</p>
     </div>
   );
+}
+
+function heatmapHeaderAside(mode: TrackingMode): string {
+  return mode === "inactive" ? "View only" : "Every 15m";
 }
 
 type TrackingFreshness = {

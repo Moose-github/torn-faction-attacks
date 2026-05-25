@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, RefreshCw, Sword } from "lucide-react";
 import { EnemyFactionMember, EnemyScoutingResponse } from "../api";
 import { formatNetworth, formatNumber, formatRelativeTime } from "../utils/format";
 import { EmptyState, PanelHeader } from "./Common";
+import { StickyTable } from "./StickyTable";
 
 type EnemyScoutingSortKey =
   | "name"
@@ -46,6 +47,20 @@ export function EnemyScoutingPanel({
   }, [showStatusColumn, sort.key]);
 
   const members = sortEnemyScoutingMembers(scouting?.members ?? [], sort);
+  const renderHeader = () => (
+    <tr>
+      <SortableHeader label="Member" sortKey="name" sort={sort} onSortChange={setSort} />
+      {showStatusColumn ? (
+        <SortableHeader label="Status" sortKey="status" sort={sort} onSortChange={setSort} />
+      ) : null}
+      <SortableHeader label="Level" sortKey="level" sort={sort} onSortChange={setSort} />
+      <SortableHeader label="Position" sortKey="position" sort={sort} onSortChange={setSort} />
+      <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
+      <SortableHeader label="FF stats" sortKey="ff_battlestats" sort={sort} onSortChange={setSort} />
+      <SortableHeader label="BSP stats" sortKey="bsp_battlestats" sort={sort} onSortChange={setSort} />
+      <SortableHeader label="Networth" sortKey="networth" sort={sort} onSortChange={setSort} />
+    </tr>
+  );
 
   return (
     <section className="panel table-panel enemy-scouting-panel">
@@ -76,77 +91,57 @@ export function EnemyScoutingPanel({
       {members.length === 0 ? (
         <EmptyState text="No enemy scouting data available for this war" />
       ) : (
-        <>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <SortableHeader label="Member" sortKey="name" sort={sort} onSortChange={setSort} />
-                  {showStatusColumn ? (
-                    <SortableHeader label="Status" sortKey="status" sort={sort} onSortChange={setSort} />
-                  ) : null}
-                  <SortableHeader label="Level" sortKey="level" sort={sort} onSortChange={setSort} />
-                  <SortableHeader label="Position" sortKey="position" sort={sort} onSortChange={setSort} />
-                  <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
-                  <SortableHeader label="FF stats" sortKey="ff_battlestats" sort={sort} onSortChange={setSort} />
-                  <SortableHeader label="BSP stats" sortKey="bsp_battlestats" sort={sort} onSortChange={setSort} />
-                  <SortableHeader label="Networth" sortKey="networth" sort={sort} onSortChange={setSort} />
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((member) => (
-                  <tr key={member.member_id}>
-                    <td>
-                      <span className="enemy-member-actions">
-                        <a
-                          href={`https://www.torn.com/profiles.php?XID=${member.member_id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Open Torn profile"
-                        >
-                          {member.name}
-                        </a>
-                        <a
-                          className="enemy-attack-link"
-                          href={`https://www.torn.com/page.php?sid=attack&user2ID=${member.member_id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Attack on Torn"
-                          aria-label={`Attack ${member.name} on Torn`}
-                        >
-                          <Sword size={14} />
-                        </a>
-                      </span>
-                    </td>
-                    {showStatusColumn ? (
-                      <td title={enemyStatusTitle(member)}>
-                        <span className={`enemy-status-badge ${enemyStatusClass(member.status_state)}`}>
-                          {enemyStatusLabel(member)}
-                        </span>
-                      </td>
-                    ) : null}
-                    <td>{formatNumber(member.level ?? 0)}</td>
-                    <td>{member.position ?? "-"}</td>
-                    <td>{formatNumber(member.days_in_faction ?? 0)}</td>
-                    <td title={updatedTitle("FF battle stats", member.ff_battlestats_updated_at)}>
-                      {member.ff_battlestats === null
-                        ? "-"
-                        : formatNumber(member.ff_battlestats)}
-                    </td>
-                    <td title={bspBattlestatsTitle(member)}>
-                      {member.bsp_battlestats == null
-                        ? "-"
-                        : formatNumber(member.bsp_battlestats)}
-                    </td>
-                    <td title={networthTitle(member.networth, member.networth_updated_at)}>
-                      {formatNetworth(member.networth)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+        <StickyTable renderHeader={renderHeader}>
+          {members.map((member) => (
+            <tr key={member.member_id}>
+              <td>
+                <span className="enemy-member-actions">
+                  <a
+                    href={`https://www.torn.com/profiles.php?XID=${member.member_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Open Torn profile"
+                  >
+                    {member.name}
+                  </a>
+                  <a
+                    className="enemy-attack-link"
+                    href={`https://www.torn.com/page.php?sid=attack&user2ID=${member.member_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Attack on Torn"
+                    aria-label={`Attack ${member.name} on Torn`}
+                  >
+                    <Sword size={14} />
+                  </a>
+                </span>
+              </td>
+              {showStatusColumn ? (
+                <td title={enemyStatusTitle(member)}>
+                  <span className={`enemy-status-badge ${enemyStatusClass(member.status_state)}`}>
+                    {enemyStatusLabel(member)}
+                  </span>
+                </td>
+              ) : null}
+              <td>{formatNumber(member.level ?? 0)}</td>
+              <td>{member.position ?? "-"}</td>
+              <td>{formatNumber(member.days_in_faction ?? 0)}</td>
+              <td title={updatedTitle("FF battle stats", member.ff_battlestats_updated_at)}>
+                {member.ff_battlestats === null
+                  ? "-"
+                  : formatNumber(member.ff_battlestats)}
+              </td>
+              <td title={bspBattlestatsTitle(member)}>
+                {member.bsp_battlestats == null
+                  ? "-"
+                  : formatNumber(member.bsp_battlestats)}
+              </td>
+              <td title={networthTitle(member.networth, member.networth_updated_at)}>
+                {formatNetworth(member.networth)}
+              </td>
+            </tr>
+          ))}
+        </StickyTable>
       )}
     </section>
   );
