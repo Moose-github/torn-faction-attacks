@@ -978,6 +978,7 @@ h2 {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   flex: 0 0 auto;
+  height: min(48vh, 440px);
   max-height: min(48vh, 440px);
   min-height: 0;
   overflow: hidden;
@@ -985,6 +986,7 @@ h2 {
 
 .sidebar-wars-panel.collapsed {
   flex-basis: auto;
+  height: auto;
   max-height: none;
 }
 
@@ -1009,6 +1011,7 @@ h2 {
   display: grid;
   align-content: start;
   gap: 8px;
+  margin-top: 6px;
   min-height: 0;
   max-height: min(34vh, 340px);
   overflow-y: auto;
