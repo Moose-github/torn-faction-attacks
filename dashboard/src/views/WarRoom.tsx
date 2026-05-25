@@ -661,19 +661,9 @@ const TrackingStatusPanel = React.forwardRef<HTMLElement, {
 
   return (
     <section ref={ref} className="panel war-room-tracking-status-panel">
-      <PanelHeader
-        title="Tracking cadence"
-        control={
-          <FreshnessMeta
-            state={freshness.state}
-            cadence={freshness.summaryCadence}
-            detail="Shows how often the selected war's War room data is updated."
-            tone={freshness.tone}
-          />
-        }
-      />
+      <PanelHeader title="Tracking cadence" />
       <p className="panel-description">
-        {windowLabel} These rows explain what updates each panel and how fresh the displayed data is.
+        {windowLabel} These rows show how often each War room section can change for the selected war.
       </p>
       <div className="tracking-status-grid">
         <TrackingStatusItem
@@ -692,7 +682,7 @@ const TrackingStatusPanel = React.forwardRef<HTMLElement, {
           label="Activity heatmaps"
           value={heatmapOpen ? freshness.heatmapCadence : "Loads when opened"}
           updatedAt={heatmapSampledAt}
-          detail={heatmapOpen ? freshness.heatmapDetail : "Heatmaps load when opened and refresh every 15 minutes while live tracking is active."}
+          detail={heatmapOpen ? freshness.heatmapDetail : freshness.heatmapClosedDetail}
         />
         <TrackingStatusItem
           label="Revivable members"
@@ -743,7 +733,6 @@ function TrackingStatusItem({
 type TrackingFreshness = {
   state: string;
   tone: FreshnessTone;
-  summaryCadence: string;
   enemyCadence: string;
   enemyDetail: string;
   pushCadence: string;
@@ -752,6 +741,7 @@ type TrackingFreshness = {
   heatmapTone: FreshnessTone;
   heatmapCadence: string;
   heatmapDetail: string;
+  heatmapClosedDetail: string;
   revivableState: string;
   revivableTone: FreshnessTone;
   revivableCadence: string;
@@ -767,23 +757,23 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
     return {
       state: "Live",
       tone: "live",
-      summaryCadence: "1m live",
       enemyCadence: "Every 1m",
-      enemyDetail: "Enemy status and travel are updated about every minute while the war is live.",
+      enemyDetail: "Enemy status, travel, and return estimates update about every minute during an active war.",
       pushCadence: "1m / 5m history",
-      pushDetail: "Current push pressure refreshes about every minute while live. The 24 hour pressure history refreshes every 5 minutes.",
+      pushDetail: "The current score updates about every minute. The 24 hour history refreshes every 5 minutes.",
       heatmapState: "Sampling",
       heatmapTone: "live",
       heatmapCadence: "Every 15m",
-      heatmapDetail: "Activity heatmaps use Torn last-action data every 15 minutes during the tracking window and refresh here every 15 minutes while open.",
+      heatmapDetail: "Heatmaps use Torn last-action data and refresh every 15 minutes while this section is open.",
+      heatmapClosedDetail: "Heatmaps load when opened, then refresh every 15 minutes while live tracking is active.",
       revivableState: "Sampling",
       revivableTone: "live",
       revivableCadence: "Enemy 1m / Home 15m",
-      revivableDetail: "Enemy revivable flags update with enemy status about every minute while live. Home revivable flags update every 15 minutes.",
+      revivableDetail: "Enemy revivable status updates with enemy tracking. Home faction revivable status updates every 15 minutes.",
       hospitalState: "Live",
       hospitalTone: "live",
       hospitalCadence: "Real time",
-      hospitalDetail: "The Hospital monitor runs its own live checks while the selected war is active.",
+      hospitalDetail: "Hospital monitor checks run separately while the selected war is active.",
     };
   }
 
@@ -791,19 +781,19 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
     return {
       state: "Pre-war",
       tone: "fresh",
-      summaryCadence: "5m pre-war",
       enemyCadence: "Every 5m",
-      enemyDetail: "Enemy status and travel update every 5 minutes before the war becomes live.",
+      enemyDetail: "Enemy status, travel, and return estimates update every 5 minutes before the war starts.",
       pushCadence: "Every 5m",
-      pushDetail: "Push pressure updates on the same 5 minute pre-war cadence.",
+      pushDetail: "Push pressure follows the same 5 minute pre-war enemy tracking cadence.",
       heatmapState: "Sampling",
       heatmapTone: "fresh",
       heatmapCadence: "Every 15m",
-      heatmapDetail: "Activity heatmaps update every 15 minutes during the tracking window.",
+      heatmapDetail: "Heatmaps refresh every 15 minutes during the tracking window while this section is open.",
+      heatmapClosedDetail: "Heatmaps load when opened, then refresh every 15 minutes during the tracking window.",
       revivableState: "Sampling",
       revivableTone: "fresh",
       revivableCadence: "Enemy 5m / Home 15m",
-      revivableDetail: "Enemy revivable flags update with enemy status every 5 minutes before the war. Home revivable flags update every 15 minutes.",
+      revivableDetail: "Enemy revivable status updates with enemy tracking. Home faction revivable status updates every 15 minutes.",
       hospitalState: "Waiting",
       hospitalTone: "paused",
       hospitalCadence: "Starts live",
@@ -814,19 +804,19 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
   return {
     state: "Paused",
     tone: "paused",
-    summaryCadence: "Paused",
     enemyCadence: "Paused",
-    enemyDetail: "Enemy status and travel are not currently updating for this war.",
+    enemyDetail: "Enemy status, travel, and return estimates are not updating for this war right now.",
     pushCadence: "Paused",
-    pushDetail: "Push pressure is not currently updating for this war.",
+    pushDetail: "Push pressure is not updating for this war right now.",
     heatmapState: "Paused",
     heatmapTone: "paused",
-    heatmapCadence: "Paused",
-    heatmapDetail: "Activity heatmaps are not updated outside the tracking window.",
+    heatmapCadence: "Outside window",
+    heatmapDetail: "Heatmaps do not update outside the tracking window.",
+    heatmapClosedDetail: "Heatmaps are outside the tracking window and will not refresh if opened.",
     revivableState: "Paused",
     revivableTone: "paused",
     revivableCadence: "Paused",
-    revivableDetail: "Enemy and home revivable flags are not updated outside the tracking window.",
+    revivableDetail: "Enemy and home revivable status are not updating outside the tracking window.",
     hospitalState: "Paused",
     hospitalTone: "paused",
     hospitalCadence: "Inactive",
@@ -836,7 +826,7 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
 
 function formatTrackingWindow(war: WarSummary, mode: TrackingMode): string {
   if (mode === "live") {
-    return "Live tracking is active. Fast-changing enemy status, travel, and push pressure are refreshed every minute, while heavier history and heatmap views refresh less often.";
+    return "Live tracking is active. Fast-changing enemy status, travel, and push pressure update about every minute, while heavier history and heatmap views update less often.";
   }
 
   const officialStart = war.official_start_time ?? war.practical_start_time;
@@ -847,10 +837,10 @@ function formatTrackingWindow(war: WarSummary, mode: TrackingMode): string {
 
   const finishTime = war.practical_finish_time ?? war.official_end_time ?? null;
   if (finishTime) {
-    return `Live enemy tracking is paused because this war has finished. It stopped at practical finish: ${formatLongDateTime(finishTime)}.`;
+    return `Tracking is paused because this war has finished. It stopped at practical finish: ${formatLongDateTime(finishTime)}.`;
   }
 
-  return `Live enemy tracking has not started yet. It starts two hours before official start: ${formatLongDateTime(trackingStart)}.`;
+  return `Tracking has not started yet. It starts two hours before official start: ${formatLongDateTime(trackingStart)}.`;
 }
 
 function getLatestHeatmapSampledAt(activityHeatmap: FactionActivityHeatmapResponse | null): number | null {
