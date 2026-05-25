@@ -417,8 +417,8 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
       </section>
 
       <section className="trade-scout-layout">
-        <div className="trade-scout-sidebar">
-          <section className="panel trade-scout-key-panel">
+        <section className="trade-scout-summary-grid">
+          <section className="metric-card trade-scout-key-panel">
             <PanelHeader title="Scanner key" aside="Local" />
             <label>
               <span>Torn API key</span>
@@ -431,61 +431,57 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
               />
             </label>
           </section>
+          <MetricCard
+            icon={<Search size={16} />}
+            label="Opportunities"
+            value={formatNumber(filteredOpportunities.length)}
+            detail={`${profitableCount} profitable shown`}
+          />
+          <MetricCard
+            icon={<Download size={16} />}
+            label="Best unit profit"
+            value={money(bestProfit)}
+            detail={selectedWatchlist?.name ?? "-"}
+          />
+          <MetricCard
+            icon={<RefreshCw size={16} />}
+            label="Bulk candidates"
+            value={formatNumber(bulkCount)}
+            detail={scanFreshness ? scanFreshness.label : "No scan"}
+          />
+        </section>
 
-          <section className="panel trade-scout-watchlists-panel">
-            <PanelHeader
-              title="Watchlists"
-              aside={isLoading ? "Loading" : `${watchlists.length}`}
-            />
-            {watchlists.length === 0 ? (
-              <EmptyState text={isLoading ? "Loading watchlists" : "No watchlists yet"} />
-            ) : (
-              <div className="trade-scout-watchlist-list">
-                {watchlists.map((watchlist) => (
-                  <button
-                    key={watchlist.id}
-                    type="button"
-                    className={watchlist.id === selectedWatchlistId ? "selected" : ""}
-                    onClick={() => setSelectedWatchlistId(watchlist.id)}
-                  >
-                    <strong>{watchlist.name}</strong>
-                    <span>
-                      {watchlist.item_ids.length} items - {sourceLabel(watchlist.item_source)}
-                    </span>
-                    <small>{createdByLabel(watchlist)}</small>
-                    <small>
-                      {watchlist.latest_snapshot
-                        ? `Scanned ${formatRelativeTime(watchlist.latest_snapshot.scanned_at)}`
-                        : "Not scanned"}
-                    </small>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-
-        <div className="trade-scout-main">
-          <section className="trade-scout-summary-grid">
-            <MetricCard
-              icon={<Search size={16} />}
-              label="Opportunities"
-              value={formatNumber(filteredOpportunities.length)}
-              detail={`${profitableCount} profitable shown`}
-            />
-            <MetricCard
-              icon={<Download size={16} />}
-              label="Best unit profit"
-              value={money(bestProfit)}
-              detail={selectedWatchlist?.name ?? "-"}
-            />
-            <MetricCard
-              icon={<RefreshCw size={16} />}
-              label="Bulk candidates"
-              value={formatNumber(bulkCount)}
-              detail={scanFreshness ? scanFreshness.label : "No scan"}
-            />
-          </section>
+        <section className="panel trade-scout-watchlists-panel">
+          <PanelHeader
+            title="Watchlists"
+            aside={isLoading ? "Loading" : `${watchlists.length}`}
+          />
+          {watchlists.length === 0 ? (
+            <EmptyState text={isLoading ? "Loading watchlists" : "No watchlists yet"} />
+          ) : (
+            <div className="trade-scout-watchlist-list">
+              {watchlists.map((watchlist) => (
+                <button
+                  key={watchlist.id}
+                  type="button"
+                  className={watchlist.id === selectedWatchlistId ? "selected" : ""}
+                  onClick={() => setSelectedWatchlistId(watchlist.id)}
+                >
+                  <strong>{watchlist.name}</strong>
+                  <span>
+                    {watchlist.item_ids.length} items - {sourceLabel(watchlist.item_source)}
+                  </span>
+                  <small>{createdByLabel(watchlist)}</small>
+                  <small>
+                    {watchlist.latest_snapshot
+                      ? `Scanned ${formatRelativeTime(watchlist.latest_snapshot.scanned_at)}`
+                      : "Not scanned"}
+                  </small>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
 
           <section className="panel trade-scout-action-panel">
             <PanelHeader
@@ -734,7 +730,6 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
               </div>
             )}
           </section>
-        </div>
       </section>
     </>
   );
