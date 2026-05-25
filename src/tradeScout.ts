@@ -28,6 +28,18 @@ type TradeSnapshotSummary = {
   opportunity_count: number;
 };
 
+type TradeItemSnapshotSummary = {
+  id: string;
+  item_id: number;
+  item_name: string | null;
+  item_source: TradeItemSource;
+  scanned_at: number;
+  scanned_by_torn_user_id: number | null;
+  status: string;
+  error: string | null;
+  offer_count: number;
+};
+
 type TradeWatchlistRow = {
   id: number;
   name: string;
@@ -53,8 +65,12 @@ type TradeWatchlistListRow = TradeWatchlistRow & {
 };
 
 type TradeOpportunity = {
+  id?: string;
+  snapshot_id?: string;
+  watchlist_id?: number | null;
   item_id: number;
   item_name: string | null;
+  item_source?: TradeItemSource;
   source: string;
   listing_price: number;
   resale_price: number;
@@ -67,6 +83,7 @@ type TradeOpportunity = {
   seller_name: string | null;
   reference_label: string | null;
   raw_json: string | null;
+  created_at?: number;
 };
 
 type TradeOpportunityRow = TradeOpportunity & {
@@ -74,6 +91,62 @@ type TradeOpportunityRow = TradeOpportunity & {
   snapshot_id: string;
   watchlist_id: number;
   created_at: number;
+};
+
+type TradeItemSnapshotRow = {
+  id: string;
+  item_id: number;
+  item_source: string;
+  item_name: string | null;
+  scanned_by_torn_user_id: number | null;
+  scanned_at: number;
+  status: string;
+  error: string | null;
+  raw_json: string | null;
+  offer_count?: number | null;
+};
+
+type TradeItemOfferRow = {
+  id: string;
+  item_snapshot_id: string;
+  item_id: number;
+  item_name: string | null;
+  item_source: string;
+  source: string;
+  listing_price: number;
+  reference_price: number;
+  quantity: number;
+  fee_applies: number;
+  seller_id: number | null;
+  seller_name: string | null;
+  reference_label: string | null;
+  raw_json: string | null;
+  created_at: number;
+};
+
+type TradeSearchPayload = {
+  name?: string;
+  item_ids: number[];
+  item_source: TradeItemSource;
+  min_profit: number;
+  min_roi_percent: number;
+  min_quantity: number;
+  market_fee_percent: number;
+};
+
+type StoredTradeOffer = {
+  item_id: number;
+  item_name: string | null;
+  item_source: TradeItemSource;
+  source: string;
+  listing_price: number;
+  reference_price: number;
+  quantity: number;
+  fee_applies: boolean;
+  seller_id: number | null;
+  seller_name: string | null;
+  reference_label: string | null;
+  raw_json: string | null;
 };
 
 type NormalizedOffer = {
@@ -291,6 +364,61 @@ export async function getTradeOpportunities(url: URL, env: Env): Promise<Respons
   });
 }
 
+export async function getTradeSearchOpportunities(request: Request, env: Env): Promise<Response> {
+  const validated = await readSearchPayload(request, { requireName: false });
+  if ("response" in validated) {
+    return validated.response;
+  }
+
+  const result = await readDerivedTradeSearch(env, validated.payload);
+  return json({
+    ok: true,
+    ...result,
+  });
+}
+
+export async function scanTradeSearch(
+  request: Request,
+  env: Env,
+  scannedByTornUserId: number | null,
+): Promise<Response> {
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const tornKey = typeof body.torn_key === "string"
+    ? body.torn_key.trim()
+    : typeof body.tornKey === "string"
+      ? body.tornKey.trim()
+      : "";
+  if (!tornKey) {
+    return json({ ok: false, error: "Torn API key is required for a scan", code: "MISSING_TORN_KEY" }, 400);
+  }
+
+  const validated = validateTradeSearchPayload(body, { requireName: false });
+  if ("response" in validated) {
+    return validated.response;
+  }
+
+  const requestedItemId = Number(body.refresh_item_id ?? body.refreshItemId);
+  const itemIds = validId(requestedItemId)
+    ? validated.payload.item_ids.filter((itemId) => itemId === requestedItemId)
+    : validated.payload.item_ids;
+  if (itemIds.length === 0) {
+    return json({ ok: false, error: "Refresh item is not in the current search", code: "INVALID_REFRESH_ITEM" }, 400);
+  }
+
+  await scanAndSaveItems(env, {
+    itemIds,
+    itemSource: validated.payload.item_source,
+    scannedByTornUserId,
+    tornKey,
+  });
+
+  const result = await readDerivedTradeSearch(env, validated.payload);
+  return json({
+    ok: true,
+    ...result,
+  });
+}
+
 export async function scanTradeWatchlist(
   request: Request,
   env: Env,
@@ -387,6 +515,291 @@ async function scanWatchlistItems(watchlist: TradeWatchlist, tornKey: string): P
     })
     .sort((a, b) => b.profit - a.profit || b.bulk_profit - a.bulk_profit || a.listing_price - b.listing_price)
     .slice(0, MAX_SAVED_OPPORTUNITIES);
+}
+
+async function readDerivedTradeSearch(
+  env: Env,
+  payload: TradeSearchPayload,
+): Promise<{ snapshots: TradeItemSnapshotSummary[]; opportunities: TradeOpportunity[] }> {
+  const snapshots = await latestItemSnapshotsForSearch(env, payload.item_ids, payload.item_source);
+  const snapshotIds = snapshots.map((snapshot) => snapshot.id);
+  if (snapshotIds.length === 0) {
+    return { snapshots: [], opportunities: [] };
+  }
+
+  const placeholders = snapshotIds.map(() => "?").join(", ");
+  const rows = await env.DB.prepare(
+    `
+    SELECT *
+    FROM trade_item_offers
+    WHERE item_snapshot_id IN (${placeholders})
+    ORDER BY item_id ASC, listing_price ASC
+    `,
+  )
+    .bind(...snapshotIds)
+    .all<TradeItemOfferRow>();
+
+  const opportunities = (rows.results ?? [])
+    .map((offer) => opportunityFromStoredOffer(offer, payload))
+    .filter((row) => {
+      const passesUnit = row.profit >= payload.min_profit;
+      const passesBulk = row.profit > 0 && row.quantity > 1 && row.bulk_profit >= payload.min_profit;
+      return (
+        row.quantity >= payload.min_quantity &&
+        row.roi_percent >= payload.min_roi_percent &&
+        (passesUnit || passesBulk)
+      );
+    })
+    .sort((a, b) => b.profit - a.profit || b.bulk_profit - a.bulk_profit || a.listing_price - b.listing_price)
+    .slice(0, MAX_SAVED_OPPORTUNITIES);
+
+  return { snapshots, opportunities };
+}
+
+async function latestItemSnapshotsForSearch(
+  env: Env,
+  itemIds: number[],
+  itemSource: TradeItemSource,
+): Promise<TradeItemSnapshotSummary[]> {
+  const rows = await Promise.all(
+    itemIds.map((itemId) =>
+      env.DB.prepare(
+        `
+        SELECT
+          s.*,
+          (
+            SELECT COUNT(*)
+            FROM trade_item_offers o
+            WHERE o.item_snapshot_id = s.id
+          ) AS offer_count
+        FROM trade_item_snapshots s
+        WHERE s.item_id = ?
+          AND s.item_source = ?
+        ORDER BY s.scanned_at DESC
+        LIMIT 1
+        `,
+      )
+        .bind(itemId, itemSource)
+        .first<TradeItemSnapshotRow>(),
+    ),
+  );
+
+  return rows
+    .filter((row): row is TradeItemSnapshotRow => Boolean(row))
+    .map(mapTradeItemSnapshotRow);
+}
+
+async function scanAndSaveItems(
+  env: Env,
+  input: {
+    itemIds: number[];
+    itemSource: TradeItemSource;
+    scannedByTornUserId: number | null;
+    tornKey: string;
+  },
+): Promise<void> {
+  for (const itemId of input.itemIds) {
+    const snapshotId = crypto.randomUUID();
+    const scannedAt = nowSeconds();
+    try {
+      const result = await scanItemOffers(itemId, input.itemSource, input.tornKey);
+      await saveItemSnapshot(env, {
+        snapshotId,
+        itemId,
+        itemSource: input.itemSource,
+        itemName: result.itemName,
+        scannedByTornUserId: input.scannedByTornUserId,
+        scannedAt,
+        status: "ok",
+        error: null,
+        rawJson: result.rawJson,
+        offers: result.offers,
+      });
+    } catch (err: any) {
+      await saveItemSnapshot(env, {
+        snapshotId,
+        itemId,
+        itemSource: input.itemSource,
+        itemName: null,
+        scannedByTornUserId: input.scannedByTornUserId,
+        scannedAt,
+        status: "error",
+        error: String(err?.message ?? err),
+        rawJson: null,
+        offers: [],
+      });
+    }
+  }
+}
+
+async function scanItemOffers(
+  itemId: number,
+  itemSource: TradeItemSource,
+  tornKey: string,
+): Promise<{ itemName: string | null; rawJson: string | null; offers: StoredTradeOffer[] }> {
+  if (itemSource === "weav3r_verified") {
+    const [weav3rData, tornData] = await Promise.all([
+      fetchWeav3rJson(`/marketplace/${itemId}`),
+      fetchTornJson(`/market/${itemId}/itemmarket`, tornKey, { limit: "20", offset: "0" }),
+    ]);
+    const itemName = cleanString(weav3rData?.item_name);
+    return {
+      itemName,
+      rawJson: JSON.stringify({ weav3r: weav3rData, torn_itemmarket: tornData }),
+      offers: buildWeav3rStoredOffers(itemId, weav3rData, itemMarketReference(tornData)),
+    };
+  }
+
+  const tornData = await fetchTornJson(`/market/${itemId}`, tornKey, { selections: "itemmarket,bazaar" });
+  return {
+    itemName: cleanString(tornData?.item?.name ?? tornData?.name),
+    rawJson: JSON.stringify(tornData),
+    offers: buildTornStoredOffers(itemId, tornData),
+  };
+}
+
+function buildWeav3rStoredOffers(
+  itemId: number,
+  data: any,
+  verifiedReference: number | null,
+): StoredTradeOffer[] {
+  const listings: any[] = Array.isArray(data?.listings) ? data.listings : [];
+  const weav3rMarketPrice = finitePositiveNumber(data?.market_price);
+  const bazaarAverage = finitePositiveNumber(data?.bazaar_average);
+  const reference = verifiedReference && verifiedReference > 0 ? verifiedReference : weav3rMarketPrice;
+  if (!reference) {
+    return [];
+  }
+
+  const referenceLabel = verifiedReference && verifiedReference > 0
+    ? `Verified Torn 5-item Market price${bazaarAverage ? `; Bazaar avg ${bazaarAverage}` : ""}`
+    : "Weav3r market price";
+
+  return listings
+    .map((listing: any): NormalizedOffer => ({
+      price: Number(listing?.price ?? 0),
+      quantity: positiveInteger(listing?.quantity, 1),
+      playerId: positiveIntegerOrNull(listing?.player_id),
+      playerName: cleanString(listing?.player_name),
+      raw: listing,
+    }))
+    .filter((listing) => listing.price > 0)
+    .sort((a, b) => a.price - b.price)
+    .slice(0, 10)
+    .map((listing) => storedOfferFromListing({
+      itemId,
+      itemSource: "weav3r_verified",
+      itemName: cleanString(data?.item_name),
+      source: "Weav3r Bazaar",
+      listing,
+      reference,
+      feeApplies: true,
+      referenceLabel,
+    }));
+}
+
+function buildTornStoredOffers(itemId: number, data: any): StoredTradeOffer[] {
+  const marketOffers = normalizeOffers(data, "itemmarket");
+  const bazaarOffers = normalizeOffers(data, "bazaar");
+  const lowestMarket = priceAtCumulativeQuantity(marketOffers, 5);
+  const lowestBazaar = bazaarOffers[0]?.price ?? null;
+  const rows: StoredTradeOffer[] = [];
+
+  if (bazaarOffers[0] && lowestMarket) {
+    rows.push(storedOfferFromListing({
+      itemId,
+      itemSource: "torn",
+      itemName: cleanString(data?.item?.name ?? data?.name),
+      source: "Torn Bazaar",
+      listing: bazaarOffers[0],
+      reference: lowestMarket,
+      feeApplies: true,
+      referenceLabel: "Torn 5-item Market price",
+    }));
+  }
+
+  if (marketOffers[0] && lowestBazaar) {
+    rows.push(storedOfferFromListing({
+      itemId,
+      itemSource: "torn",
+      itemName: cleanString(data?.item?.name ?? data?.name),
+      source: "Torn Item Market",
+      listing: marketOffers[0],
+      reference: lowestBazaar,
+      feeApplies: false,
+      referenceLabel: "Lowest Torn Bazaar price",
+    }));
+  }
+
+  return rows;
+}
+
+function storedOfferFromListing({
+  itemId,
+  itemSource,
+  itemName,
+  source,
+  listing,
+  reference,
+  feeApplies,
+  referenceLabel,
+}: {
+  itemId: number;
+  itemSource: TradeItemSource;
+  itemName: string | null;
+  source: string;
+  listing: NormalizedOffer;
+  reference: number;
+  feeApplies: boolean;
+  referenceLabel: string;
+}): StoredTradeOffer {
+  return {
+    item_id: itemId,
+    item_name: itemName,
+    item_source: itemSource,
+    source,
+    listing_price: Math.round(listing.price),
+    reference_price: Math.round(reference),
+    quantity: Math.max(1, Math.floor(listing.quantity)),
+    fee_applies: feeApplies,
+    seller_id: listing.playerId,
+    seller_name: listing.playerName,
+    reference_label: referenceLabel,
+    raw_json: JSON.stringify(listing.raw ?? null),
+  };
+}
+
+function opportunityFromStoredOffer(offer: TradeItemOfferRow, search: TradeSearchPayload): TradeOpportunity {
+  const listingPrice = Math.round(Number(offer.listing_price));
+  const referencePrice = Math.round(Number(offer.reference_price));
+  const resale = resalePrice(referencePrice);
+  const feeRate = offer.fee_applies ? search.market_fee_percent / 100 : 0;
+  const profit = Math.round(resale * Math.max(0, 1 - feeRate) - listingPrice);
+  const quantity = Math.max(1, Math.floor(Number(offer.quantity)));
+  const bulkProfit = Math.round(profit * quantity);
+  const neededQuantity = profit > 0 ? Math.ceil(search.min_profit / profit) : null;
+
+  return {
+    id: offer.id,
+    snapshot_id: offer.item_snapshot_id,
+    watchlist_id: null,
+    item_id: Number(offer.item_id),
+    item_name: offer.item_name,
+    item_source: normalizeItemSource(offer.item_source) ?? search.item_source,
+    source: offer.source,
+    listing_price: listingPrice,
+    resale_price: resale,
+    profit,
+    roi_percent: listingPrice > 0 ? (profit / listingPrice) * 100 : 0,
+    quantity,
+    bulk_profit: bulkProfit,
+    needed_quantity: neededQuantity,
+    seller_id: offer.seller_id === null ? null : Number(offer.seller_id),
+    seller_name: offer.seller_name,
+    reference_label: resaleLabel(offer.reference_label ?? "Reference price", referencePrice, resale),
+    raw_json: offer.raw_json,
+    created_at: Number(offer.created_at),
+  };
 }
 
 function buildWeav3rRows(
@@ -627,9 +1040,34 @@ async function readWatchlistPayload(request: Request): Promise<
   | { response: Response }
 > {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  return validateTradeSearchPayload(body, { requireName: true }) as
+    | {
+      payload: Omit<
+        TradeWatchlist,
+        "id" | "created_by_torn_user_id" | "created_by_name" | "created_at" | "updated_at" | "latest_snapshot"
+      >;
+    }
+    | { response: Response };
+}
+
+async function readSearchPayload(
+  request: Request,
+  options: { requireName: boolean },
+): Promise<{ payload: TradeSearchPayload } | { response: Response }> {
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  return validateTradeSearchPayload(body, options);
+}
+
+function validateTradeSearchPayload(
+  body: Record<string, unknown>,
+  options: { requireName: boolean },
+): { payload: TradeSearchPayload } | { response: Response } {
   const name = cleanString(body.name);
-  if (!name || name.length > 80) {
-    return { response: json({ ok: false, error: "Watchlist name is required", code: "INVALID_NAME" }, 400) };
+  if (options.requireName && (!name || name.length > 80)) {
+    return { response: json({ ok: false, error: "Search template name is required", code: "INVALID_NAME" }, 400) };
+  }
+  if (name && name.length > 80) {
+    return { response: json({ ok: false, error: "Search template name must be 80 characters or fewer", code: "INVALID_NAME" }, 400) };
   }
 
   const itemIds = parseItemIds(body.item_ids ?? body.itemIds);
@@ -653,7 +1091,7 @@ async function readWatchlistPayload(request: Request): Promise<
 
   return {
     payload: {
-      name,
+      ...(name ? { name } : {}),
       item_ids: itemIds,
       item_source: itemSource,
       min_profit: boundedInteger(body.min_profit ?? body.minProfit, 0, 1_000_000_000, 25_000),
@@ -840,6 +1278,112 @@ async function saveScanSnapshot(
   for (let index = 0; index < statements.length; index += 50) {
     await env.DB.batch(statements.slice(index, index + 50));
   }
+}
+
+async function saveItemSnapshot(
+  env: Env,
+  input: {
+    snapshotId: string;
+    itemId: number;
+    itemSource: TradeItemSource;
+    itemName: string | null;
+    scannedByTornUserId: number | null;
+    scannedAt: number;
+    status: "ok" | "error";
+    error: string | null;
+    rawJson: string | null;
+    offers: StoredTradeOffer[];
+  },
+): Promise<void> {
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(
+      `
+      INSERT INTO trade_item_snapshots (
+        id,
+        item_id,
+        item_source,
+        item_name,
+        scanned_by_torn_user_id,
+        scanned_at,
+        status,
+        error,
+        raw_json
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    ).bind(
+      input.snapshotId,
+      input.itemId,
+      input.itemSource,
+      input.itemName,
+      input.scannedByTornUserId,
+      input.scannedAt,
+      input.status,
+      input.error,
+      input.rawJson,
+    ),
+  ];
+
+  input.offers.forEach((offer, index) => {
+    statements.push(
+      env.DB.prepare(
+        `
+        INSERT INTO trade_item_offers (
+          id,
+          item_snapshot_id,
+          item_id,
+          item_name,
+          item_source,
+          source,
+          listing_price,
+          reference_price,
+          quantity,
+          fee_applies,
+          seller_id,
+          seller_name,
+          reference_label,
+          raw_json,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      ).bind(
+        `${input.snapshotId}:${index}`,
+        input.snapshotId,
+        offer.item_id,
+        offer.item_name,
+        offer.item_source,
+        offer.source,
+        offer.listing_price,
+        offer.reference_price,
+        offer.quantity,
+        offer.fee_applies ? 1 : 0,
+        offer.seller_id,
+        offer.seller_name,
+        offer.reference_label,
+        offer.raw_json,
+        input.scannedAt,
+      ),
+    );
+  });
+
+  for (let index = 0; index < statements.length; index += 50) {
+    await env.DB.batch(statements.slice(index, index + 50));
+  }
+}
+
+function mapTradeItemSnapshotRow(row: TradeItemSnapshotRow): TradeItemSnapshotSummary {
+  return {
+    id: row.id,
+    item_id: Number(row.item_id),
+    item_name: row.item_name,
+    item_source: normalizeItemSource(row.item_source) ?? "weav3r_verified",
+    scanned_at: Number(row.scanned_at),
+    scanned_by_torn_user_id: row.scanned_by_torn_user_id === null ? null : Number(row.scanned_by_torn_user_id),
+    status: row.status,
+    error: row.error,
+    offer_count: Number(row.offer_count ?? 0),
+  };
 }
 
 function mapTradeWatchlistRow(row: TradeWatchlistListRow): TradeWatchlist {

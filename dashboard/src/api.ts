@@ -791,6 +791,18 @@ export type TradeSnapshotSummary = {
   opportunity_count: number;
 };
 
+export type TradeItemSnapshotSummary = {
+  id: string;
+  item_id: number;
+  item_name: string | null;
+  item_source: TradeItemSource;
+  scanned_at: number;
+  scanned_by_torn_user_id: number | null;
+  status: string;
+  error: string | null;
+  offer_count: number;
+};
+
 export type TradeWatchlist = {
   id: number;
   name: string;
@@ -810,9 +822,10 @@ export type TradeWatchlist = {
 export type TradeOpportunity = {
   id: string;
   snapshot_id: string;
-  watchlist_id: number;
+  watchlist_id: number | null;
   item_id: number;
   item_name: string | null;
+  item_source?: TradeItemSource;
   source: string;
   listing_price: number;
   resale_price: number;
@@ -829,7 +842,7 @@ export type TradeOpportunity = {
 };
 
 export type TradeWatchlistPayload = {
-  name: string;
+  name?: string;
   item_ids: number[];
   item_source: TradeItemSource;
   min_profit: number;
@@ -850,13 +863,15 @@ export type TradeWatchlistResponse = {
 
 export type TradeOpportunitiesResponse = {
   ok: boolean;
-  snapshot: TradeSnapshotSummary | null;
+  snapshot?: TradeSnapshotSummary | null;
+  snapshots?: TradeItemSnapshotSummary[];
   opportunities: TradeOpportunity[];
 };
 
 export type TradeScanResponse = {
   ok: boolean;
-  snapshot: TradeSnapshotSummary | null;
+  snapshot?: TradeSnapshotSummary | null;
+  snapshots?: TradeItemSnapshotSummary[];
   opportunities: TradeOpportunity[];
 };
 
@@ -1166,6 +1181,22 @@ export async function deleteTradeWatchlist(id: number): Promise<unknown> {
 export async function scanTradeWatchlist(id: number, tornKey: string): Promise<TradeScanResponse> {
   return postJson<TradeScanResponse>(`/api/trade/watchlists/${encodeURIComponent(String(id))}/scan`, {
     torn_key: tornKey,
+  });
+}
+
+export async function getTradeSearchOpportunities(payload: TradeWatchlistPayload): Promise<TradeOpportunitiesResponse> {
+  return postJson<TradeOpportunitiesResponse>("/api/trade/search/opportunities", payload);
+}
+
+export async function scanTradeSearch(
+  payload: TradeWatchlistPayload,
+  tornKey: string,
+  refreshItemId?: number,
+): Promise<TradeScanResponse> {
+  return postJson<TradeScanResponse>("/api/trade/search/scan", {
+    ...payload,
+    torn_key: tornKey,
+    ...(refreshItemId ? { refresh_item_id: refreshItemId } : {}),
   });
 }
 

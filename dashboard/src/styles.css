@@ -4708,6 +4708,43 @@ h2 {
   font-weight: 800;
 }
 
+.trade-opportunity-item-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.trade-opportunity-item-actions button,
+.trade-no-opportunity-list button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-faint);
+  border-radius: 7px;
+  background: var(--panel-muted-bg);
+  color: var(--accent-strong);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.trade-opportunity-item-actions button:hover,
+.trade-no-opportunity-list button:hover {
+  border-color: var(--accent);
+  background: var(--panel-active-bg);
+}
+
+.trade-opportunity-item-actions button:disabled,
+.trade-no-opportunity-list button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .trade-no-opportunity-list {
   display: flex;
   flex-wrap: wrap;
@@ -4726,6 +4763,13 @@ h2 {
   background: var(--panel-muted-bg);
   color: var(--text-muted);
   overflow-wrap: anywhere;
+}
+
+.trade-no-opportunity-list button {
+  width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-radius: 999px;
 }
 
 .trade-no-opportunity-list strong,

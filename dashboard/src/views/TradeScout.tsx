@@ -15,15 +15,15 @@ import {
 import {
   createTradeWatchlist,
   deleteTradeWatchlist,
-  getTradeOpportunities,
+  getTradeSearchOpportunities,
   getTradeWatchlists,
-  scanTradeWatchlist,
+  scanTradeSearch,
   updateTradeWatchlist,
 } from "../api";
 import type {
+  TradeItemSnapshotSummary,
   TradeItemSource,
   TradeOpportunity,
-  TradeSnapshotSummary,
   TradeWatchlist,
   TradeWatchlistPayload,
 } from "../api";
@@ -118,7 +118,7 @@ const EMPTY_FORM: WatchlistFormState = {
 export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
   const [watchlists, setWatchlists] = React.useState<TradeWatchlist[]>([]);
   const [selectedWatchlistId, setSelectedWatchlistId] = React.useState<number | null>(null);
-  const [snapshot, setSnapshot] = React.useState<TradeSnapshotSummary | null>(null);
+  const [snapshots, setSnapshots] = React.useState<TradeItemSnapshotSummary[]>([]);
   const [opportunities, setOpportunities] = React.useState<TradeOpportunity[]>([]);
   const [tornKey, setTornKey] = React.useState(() => window.localStorage.getItem(TORN_KEY_STORAGE_KEY) ?? "");
   const [form, setForm] = React.useState<WatchlistFormState>(EMPTY_FORM);
@@ -132,10 +132,15 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
   const [copiedOpportunityId, setCopiedOpportunityId] = React.useState<string | null>(null);
 
   const selectedWatchlist = watchlists.find((watchlist) => watchlist.id === selectedWatchlistId) ?? null;
-  const scanFreshness = snapshot ? snapshotFreshness(snapshot.scanned_at) : null;
+  const currentSearch = React.useMemo(() => formToSearchPayload(form), [form]);
+  const snapshotByItem = React.useMemo(
+    () => new Map(snapshots.map((snapshot) => [snapshot.item_id, snapshot])),
+    [snapshots],
+  );
+  const scanFreshness = currentSearch ? searchFreshness(currentSearch.item_ids, snapshotByItem) : null;
   const filteredOpportunities = React.useMemo(
-    () => filterAndSortOpportunities(opportunities, filters, snapshot),
-    [filters, opportunities, snapshot],
+    () => filterAndSortOpportunities(opportunities, filters, snapshotByItem),
+    [filters, opportunities, snapshotByItem],
   );
   const profitableCount = filteredOpportunities.filter((opportunity) => opportunity.profit > 0).length;
   const bestProfit = filteredOpportunities[0]?.profit ?? 0;
@@ -146,13 +151,27 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
     [filteredOpportunities],
   );
   const noOpportunityItems = React.useMemo(
-    () => itemsWithoutVisibleOpportunities(selectedWatchlist, opportunities, opportunityGroups),
-    [opportunities, opportunityGroups, selectedWatchlist],
+    () => itemsWithoutVisibleOpportunities(currentSearch?.item_ids ?? [], opportunities, opportunityGroups),
+    [currentSearch, opportunities, opportunityGroups],
   );
 
   React.useEffect(() => {
     window.localStorage.setItem(TORN_KEY_STORAGE_KEY, tornKey);
   }, [tornKey]);
+
+  React.useEffect(() => {
+    if (!currentSearch) {
+      setSnapshots([]);
+      setOpportunities([]);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadLatestForSearch(currentSearch);
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [currentSearch]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -166,11 +185,10 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
         if (cancelled) return;
 
         setWatchlists(response.watchlists);
-        setSelectedWatchlistId((current) =>
-          response.watchlists.some((watchlist) => watchlist.id === current)
-            ? current
-            : response.watchlists[0]?.id ?? null,
-        );
+        const nextTemplate = response.watchlists[0] ?? null;
+        if (nextTemplate) {
+          loadTemplate(nextTemplate);
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
@@ -188,44 +206,6 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
     };
   }, []);
 
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadOpportunities() {
-      if (!selectedWatchlistId) {
-        setSnapshot(null);
-        setOpportunities([]);
-        return;
-      }
-
-      setIsLoadingOpportunities(true);
-      setError(null);
-
-      try {
-        const response = await getTradeOpportunities(selectedWatchlistId);
-        if (!cancelled) {
-          setSnapshot(response.snapshot);
-          setOpportunities(response.opportunities);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-          setSnapshot(null);
-          setOpportunities([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingOpportunities(false);
-        }
-      }
-    }
-
-    loadOpportunities();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedWatchlistId]);
-
   function updateForm(patch: Partial<WatchlistFormState>) {
     setForm((current) => ({ ...current, ...patch }));
   }
@@ -236,6 +216,7 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
 
   function applyPreset(preset: WatchlistPreset) {
     setEditingId(null);
+    setSelectedWatchlistId(null);
     setForm({
       name: preset.name,
       itemIds: preset.itemIds.join(", "),
@@ -245,6 +226,19 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
       minQuantity: String(preset.minQuantity),
       marketFeePercent: "5",
     });
+    setSnapshots([]);
+    setOpportunities([]);
+  }
+
+  function loadTemplate(watchlist: TradeWatchlist) {
+    setSelectedWatchlistId(watchlist.id);
+    setEditingId(null);
+    const nextForm = formFromTemplate(watchlist);
+    setForm(nextForm);
+    const payload = formToSearchPayload(nextForm);
+    if (payload) {
+      void loadLatestForSearch(payload);
+    }
   }
 
   function startEdit(watchlist: TradeWatchlist) {
@@ -266,16 +260,39 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
   function cancelEdit() {
     setEditingId(null);
     setForm(EMPTY_FORM);
+    setSelectedWatchlistId(null);
+    setSnapshots([]);
+    setOpportunities([]);
+  }
+
+  async function loadLatestForSearch(payload = currentSearch) {
+    if (!payload) {
+      setSnapshots([]);
+      setOpportunities([]);
+      return;
+    }
+
+    setIsLoadingOpportunities(true);
+    setError(null);
+    try {
+      const response = await getTradeSearchOpportunities(payload);
+      setSnapshots(response.snapshots ?? []);
+      setOpportunities(response.opportunities);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSnapshots([]);
+      setOpportunities([]);
+    } finally {
+      setIsLoadingOpportunities(false);
+    }
   }
 
   async function refreshWatchlists(nextSelectedId = selectedWatchlistId) {
     const response = await getTradeWatchlists();
     setWatchlists(response.watchlists);
-    setSelectedWatchlistId(
-      response.watchlists.some((watchlist) => watchlist.id === nextSelectedId)
-        ? nextSelectedId
-        : response.watchlists[0]?.id ?? null,
-    );
+    if (nextSelectedId && response.watchlists.some((watchlist) => watchlist.id === nextSelectedId)) {
+      setSelectedWatchlistId(nextSelectedId);
+    }
   }
 
   async function saveWatchlist(event: React.FormEvent<HTMLFormElement>) {
@@ -325,7 +342,8 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
   }
 
   async function runScan() {
-    if (!selectedWatchlist) {
+    if (!currentSearch) {
+      setError("Add at least one valid Torn item ID before scanning.");
       return;
     }
     if (!tornKey.trim()) {
@@ -337,30 +355,50 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
     setError(null);
 
     try {
-      const response = await scanTradeWatchlist(selectedWatchlist.id, tornKey.trim());
-      setSnapshot(response.snapshot);
+      const response = await scanTradeSearch(currentSearch, tornKey.trim());
+      setSnapshots(response.snapshots ?? []);
       setOpportunities(response.opportunities);
-      await refreshWatchlists(selectedWatchlist.id);
+      await refreshWatchlists(selectedWatchlistId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-      await refreshWatchlists(selectedWatchlist.id);
-      const latest = await getTradeOpportunities(selectedWatchlist.id).catch(() => null);
-      if (latest) {
-        setSnapshot(latest.snapshot);
-        setOpportunities(latest.opportunities);
-      }
+      await refreshWatchlists(selectedWatchlistId);
+      await loadLatestForSearch(currentSearch);
+    } finally {
+      setIsScanning(false);
+    }
+  }
+
+  async function refreshItem(itemId: number) {
+    if (!currentSearch) {
+      setError("Add at least one valid Torn item ID before refreshing an item.");
+      return;
+    }
+    if (!tornKey.trim()) {
+      setError("Enter your Torn API key before refreshing an item.");
+      return;
+    }
+
+    setIsScanning(true);
+    setError(null);
+    try {
+      const response = await scanTradeSearch(currentSearch, tornKey.trim(), itemId);
+      setSnapshots(response.snapshots ?? []);
+      setOpportunities(response.opportunities);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      await loadLatestForSearch(currentSearch);
     } finally {
       setIsScanning(false);
     }
   }
 
   function exportCsv() {
-    if (!selectedWatchlist || filteredOpportunities.length === 0) {
+    if (filteredOpportunities.length === 0) {
       return;
     }
 
     downloadCsv(
-      `${sanitizeCsvFilename(selectedWatchlist.name)}-trade-scout.csv`,
+      `${sanitizeCsvFilename(form.name.trim() || "trade-search")}-trade-scout.csv`,
       [
         { label: "Item ID", value: (row) => row.item_id },
         { label: "Item", value: (row) => row.item_name ?? `Item ${row.item_id}` },
@@ -412,7 +450,7 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
               WIP
             </span>
           </h2>
-          <p>Shared item watchlists with member-run scans and saved opportunity snapshots.</p>
+          <p>Shared search templates with member-run item refreshes and reusable market snapshots.</p>
         </div>
       </section>
 
@@ -441,7 +479,7 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
             icon={<Download size={16} />}
             label="Best unit profit"
             value={money(bestProfit)}
-            detail={selectedWatchlist?.name ?? "-"}
+            detail={form.name.trim() || "-"}
           />
           <MetricCard
             icon={<RefreshCw size={16} />}
@@ -453,11 +491,11 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
 
         <section className="panel trade-scout-watchlists-panel">
           <PanelHeader
-            title="Watchlists"
+            title="Search templates"
             aside={isLoading ? "Loading" : `${watchlists.length}`}
           />
           {watchlists.length === 0 ? (
-            <EmptyState text={isLoading ? "Loading watchlists" : "No watchlists yet"} />
+            <EmptyState text={isLoading ? "Loading search templates" : "No search templates yet"} />
           ) : (
             <div className="trade-scout-watchlist-list">
               {watchlists.map((watchlist) => (
@@ -465,28 +503,24 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
                   key={watchlist.id}
                   type="button"
                   className={watchlist.id === selectedWatchlistId ? "selected" : ""}
-                  onClick={() => setSelectedWatchlistId(watchlist.id)}
+                  onClick={() => loadTemplate(watchlist)}
                 >
                   <strong>{watchlist.name}</strong>
                   <span>
                     {watchlist.item_ids.length} items - {sourceLabel(watchlist.item_source)}
                   </span>
                   <small>{createdByLabel(watchlist)}</small>
-                  <small>
-                    {watchlist.latest_snapshot
-                      ? `Scanned ${formatRelativeTime(watchlist.latest_snapshot.scanned_at)}`
-                      : "Not scanned"}
-                  </small>
+                  <small>Updated {formatRelativeTime(watchlist.updated_at)}</small>
                 </button>
               ))}
             </div>
           )}
         </section>
 
-          <section className="panel trade-scout-action-panel">
+        <section className="panel trade-scout-action-panel">
             <PanelHeader
-              title={selectedWatchlist?.name ?? "Selected watchlist"}
-              aside={snapshot ? snapshotStatus(snapshot) : "No snapshot"}
+              title={form.name.trim() || "Current search"}
+              aside={scanFreshness ? scanFreshness.label : "No item snapshots"}
               control={
                 <div className="trade-scout-actions">
                   {isAdmin && selectedWatchlist ? (
@@ -514,33 +548,32 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
                     type="button"
                     className="panel-action-button primary-action"
                     onClick={runScan}
-                    disabled={!selectedWatchlist || isScanning}
+                    disabled={!currentSearch || isScanning}
                   >
                     {isScanning ? <RefreshCw size={14} className="spinning-icon" /> : <Search size={14} />}
-                    {isScanning ? "Scanning" : "Scan"}
+                    {isScanning ? "Refreshing" : "Refresh all"}
                   </button>
                 </div>
               }
             />
-            {selectedWatchlist ? (
+            {currentSearch ? (
               <div className="trade-scout-selected-meta">
-                <span>{selectedWatchlist.item_ids.join(", ")}</span>
-                <span>{sourceLabel(selectedWatchlist.item_source)}</span>
-                <span>Min profit {money(selectedWatchlist.min_profit)}</span>
-                <span>Min ROI {selectedWatchlist.min_roi_percent}%</span>
-                <span>{createdByLabel(selectedWatchlist)}</span>
+                <span>{currentSearch.item_ids.join(", ")}</span>
+                <span>{sourceLabel(currentSearch.item_source)}</span>
+                <span>Min profit {money(currentSearch.min_profit)}</span>
+                <span>Min ROI {currentSearch.min_roi_percent}%</span>
+                <span>{selectedWatchlist ? createdByLabel(selectedWatchlist) : "Unsaved search"}</span>
                 {scanFreshness ? <span className={`trade-scout-freshness ${scanFreshness.tone}`}>{scanFreshness.label}</span> : null}
               </div>
             ) : (
-              <EmptyState text="Select or create a watchlist" />
+              <EmptyState text="Load a template or enter item IDs to start" />
             )}
-            {snapshot?.error ? <p className="form-error">{snapshot.error}</p> : null}
           </section>
 
-          <section className="panel trade-scout-form-panel">
+        <section className="panel trade-scout-form-panel">
             <PanelHeader
-              title={editingId ? "Edit watchlist" : "New watchlist"}
-              aside={editingId ? "Admin edit" : "Shared"}
+              title={editingId ? "Edit search template" : "Current search"}
+              aside={editingId ? "Admin edit" : selectedWatchlist ? "Loaded template" : "Unsaved"}
               control={editingId ? (
                 <button type="button" className="panel-action-button" onClick={cancelEdit}>
                   <X size={14} />
@@ -600,13 +633,13 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
               <div className="trade-scout-form-actions">
                 <button type="submit" className="panel-action-button primary-action" disabled={isSaving}>
                   {editingId ? <Save size={14} /> : <Plus size={14} />}
-                  {isSaving ? "Saving" : editingId ? "Save" : "Create shared list"}
+                  {isSaving ? "Saving" : editingId ? "Save" : "Save search template"}
                 </button>
               </div>
             </form>
           </section>
 
-          <section className="panel trade-scout-filter-panel">
+        <section className="panel trade-scout-filter-panel">
             <PanelHeader
               icon={<Filter size={16} />}
               title="Filters and sorting"
@@ -668,17 +701,17 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
             </div>
           </section>
 
-          <section className="panel table-panel">
+        <section className="panel table-panel">
             <PanelHeader
               title="Latest opportunities"
               aside={isLoadingOpportunities ? "Loading" : `${filteredOpportunities.length} of ${opportunities.length}`}
             />
-            {!snapshot ? (
+            {snapshots.length === 0 ? (
               <EmptyState
                 text={
                   isLoadingOpportunities
                     ? "Loading opportunities"
-                    : "Run a scan to populate this watchlist"
+                    : "Refresh the current search to populate item snapshots"
                 }
               />
             ) : (
@@ -693,14 +726,20 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
                       <div className="trade-opportunity-item-header">
                         <div>
                           <strong>{group.itemName}</strong>
-                          <span>Item {group.itemId}</span>
+                          <span>{itemSnapshotLabel(snapshotByItem.get(group.itemId))}</span>
                         </div>
-                        <small>{formatNumber(group.opportunities.length)} opportunities</small>
+                        <div className="trade-opportunity-item-actions">
+                          <small>{formatNumber(group.opportunities.length)} opportunities</small>
+                          <button type="button" onClick={() => refreshItem(group.itemId)} disabled={isScanning}>
+                            <RefreshCw size={13} className={isScanning ? "spinning-icon" : undefined} />
+                            Refresh item
+                          </button>
+                        </div>
                       </div>
                       <OpportunityTable
                         opportunities={group.opportunities}
-                        selectedWatchlist={selectedWatchlist}
-                        snapshot={snapshot}
+                        search={currentSearch}
+                        snapshotByItem={snapshotByItem}
                         copiedOpportunityId={copiedOpportunityId}
                         onCopyOpportunity={copyOpportunity}
                       />
@@ -721,7 +760,10 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
                       {noOpportunityItems.map((item) => (
                         <span key={item.id}>
                           <strong>{item.name}</strong>
-                          <small>{item.id}</small>
+                          <small>{itemSnapshotLabel(snapshotByItem.get(item.id))}</small>
+                          <button type="button" onClick={() => refreshItem(item.id)} disabled={isScanning}>
+                            <RefreshCw size={12} className={isScanning ? "spinning-icon" : undefined} />
+                          </button>
                         </span>
                       ))}
                     </div>
@@ -737,14 +779,14 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
 
 function OpportunityTable({
   opportunities,
-  selectedWatchlist,
-  snapshot,
+  search,
+  snapshotByItem,
   copiedOpportunityId,
   onCopyOpportunity,
 }: {
   opportunities: TradeOpportunity[];
-  selectedWatchlist: TradeWatchlist | null;
-  snapshot: TradeSnapshotSummary | null;
+  search: TradeWatchlistPayload | null;
+  snapshotByItem: Map<number, TradeItemSnapshotSummary>;
   copiedOpportunityId: string | null;
   onCopyOpportunity: (opportunity: TradeOpportunity) => void;
 }) {
@@ -766,7 +808,7 @@ function OpportunityTable({
         </thead>
         <tbody>
           {opportunities.map((opportunity) => {
-            const quality = opportunityQuality(opportunity, selectedWatchlist, snapshot);
+            const quality = opportunityQuality(opportunity, search, snapshotByItem.get(opportunity.item_id) ?? null);
             return (
               <tr key={opportunity.id}>
                 <td>{sellerCell(opportunity)}</td>
@@ -774,7 +816,7 @@ function OpportunityTable({
                 <td>
                   <strong>{money(opportunity.resale_price)}</strong>
                   <small>{opportunity.reference_label ?? "-"}</small>
-                  <small>{selectedWatchlist ? `Fee model ${selectedWatchlist.market_fee_percent}%` : "Fee model -"}</small>
+                  <small>{search ? `Fee model ${search.market_fee_percent}%` : "Fee model -"}</small>
                 </td>
                 <td className={opportunity.profit >= 0 ? "positive" : "negative"}>
                   {money(opportunity.profit)}
@@ -842,16 +884,16 @@ function groupOpportunitiesByItem(opportunities: TradeOpportunity[]): Array<{
 }
 
 function itemsWithoutVisibleOpportunities(
-  watchlist: TradeWatchlist | null,
+  itemIds: number[],
   allOpportunities: TradeOpportunity[],
   visibleGroups: Array<{ itemId: number }>,
 ): Array<{ id: number; name: string }> {
-  if (!watchlist) {
+  if (itemIds.length === 0) {
     return [];
   }
 
   const visibleItemIds = new Set(visibleGroups.map((group) => group.itemId));
-  return watchlist.item_ids
+  return itemIds
     .filter((itemId) => !visibleItemIds.has(itemId))
     .map((itemId) => ({
       id: itemId,
@@ -862,20 +904,16 @@ function itemsWithoutVisibleOpportunities(
 function filterAndSortOpportunities(
   opportunities: TradeOpportunity[],
   filters: TradeScoutFilters,
-  snapshot: TradeSnapshotSummary | null,
+  snapshotByItem: Map<number, TradeItemSnapshotSummary>,
 ): TradeOpportunity[] {
   const search = filters.search.trim().toLowerCase();
   const minProfit = optionalNumber(filters.minProfit);
   const minRoi = optionalNumber(filters.minRoi);
   const minQuantity = optionalNumber(filters.minQuantity);
-  const scanIsStale = snapshot ? nowSeconds() - snapshot.scanned_at > STALE_SCAN_SECONDS : false;
-
-  if (filters.hideStale && scanIsStale) {
-    return [];
-  }
-
   return opportunities
     .filter((opportunity) => {
+      const snapshot = snapshotByItem.get(opportunity.item_id) ?? null;
+      if (filters.hideStale && (!snapshot || nowSeconds() - snapshot.scanned_at > STALE_SCAN_SECONDS)) return false;
       if (filters.onlyProfitable && opportunity.profit <= 0) return false;
       if (minProfit !== null && opportunity.profit < minProfit) return false;
       if (minRoi !== null && opportunity.roi_percent < minRoi) return false;
@@ -923,10 +961,35 @@ function snapshotFreshness(scannedAt: number): { label: string; tone: "fresh" | 
   return { label: `Fresh - ${formatRelativeTime(scannedAt)}`, tone: "fresh" };
 }
 
+function searchFreshness(
+  itemIds: number[],
+  snapshotByItem: Map<number, TradeItemSnapshotSummary>,
+): { label: string; tone: "fresh" | "warm" | "stale" } {
+  const snapshots = itemIds.map((itemId) => snapshotByItem.get(itemId)).filter(Boolean) as TradeItemSnapshotSummary[];
+  if (snapshots.length === 0) {
+    return { label: "No item snapshots", tone: "stale" };
+  }
+  if (snapshots.length < itemIds.length) {
+    return { label: `${itemIds.length - snapshots.length} items unscanned`, tone: "stale" };
+  }
+  const oldest = Math.min(...snapshots.map((snapshot) => snapshot.scanned_at));
+  return snapshotFreshness(oldest);
+}
+
+function itemSnapshotLabel(snapshot: TradeItemSnapshotSummary | null | undefined): string {
+  if (!snapshot) {
+    return "Not scanned";
+  }
+  if (snapshot.status !== "ok") {
+    return `Scan failed ${formatRelativeTime(snapshot.scanned_at)}`;
+  }
+  return `Scanned ${formatRelativeTime(snapshot.scanned_at)}`;
+}
+
 function opportunityQuality(
   opportunity: TradeOpportunity,
-  watchlist: TradeWatchlist | null,
-  snapshot: TradeSnapshotSummary | null,
+  search: TradeWatchlistPayload | null,
+  snapshot: TradeItemSnapshotSummary | null,
 ): { label: string; detail: string; tone: "good" | "warn" | "muted" | "danger" } {
   if (snapshot && nowSeconds() - snapshot.scanned_at > STALE_SCAN_SECONDS) {
     return { label: "Needs price check", detail: "Scan is over 30m old", tone: "warn" };
@@ -936,7 +999,7 @@ function opportunityQuality(
     return { label: "No margin", detail: "Profit is currently negative", tone: "danger" };
   }
 
-  if (watchlist && opportunity.profit < watchlist.min_profit && opportunity.bulk_profit >= watchlist.min_profit) {
+  if (search && opportunity.profit < search.min_profit && opportunity.bulk_profit >= search.min_profit) {
     return { label: "Bulk only", detail: `${opportunity.needed_quantity ?? 1}+ needed`, tone: "muted" };
   }
 
@@ -961,10 +1024,34 @@ function bazaarUrl(sellerId: number): string {
   return `https://www.torn.com/bazaar.php?userId=${encodeURIComponent(String(sellerId))}#/`;
 }
 
+function formFromTemplate(watchlist: TradeWatchlist): WatchlistFormState {
+  return {
+    name: watchlist.name,
+    itemIds: watchlist.item_ids.join(", "),
+    itemSource: watchlist.item_source,
+    minProfit: String(watchlist.min_profit),
+    minRoiPercent: String(watchlist.min_roi_percent),
+    minQuantity: String(watchlist.min_quantity),
+    marketFeePercent: String(watchlist.market_fee_percent),
+  };
+}
+
 function formToPayload(form: WatchlistFormState): TradeWatchlistPayload | null {
+  const payload = formToSearchPayload(form);
+  if (!payload) {
+    return null;
+  }
+  const name = form.name.trim();
+  if (!name) {
+    return null;
+  }
+  return { ...payload, name };
+}
+
+function formToSearchPayload(form: WatchlistFormState): TradeWatchlistPayload | null {
   const itemIds = parseItemIds(form.itemIds);
   const name = form.name.trim();
-  if (!name || itemIds.length === 0) {
+  if (itemIds.length === 0) {
     return null;
   }
 
@@ -1015,11 +1102,6 @@ function sourceLabel(source: TradeItemSource): string {
     default:
       return source;
   }
-}
-
-function snapshotStatus(snapshot: TradeSnapshotSummary): string {
-  const prefix = snapshot.status === "ok" ? "Scanned" : "Failed";
-  return `${prefix} ${formatRelativeTime(snapshot.scanned_at)}`;
 }
 
 function sellerCell(opportunity: TradeOpportunity): React.ReactNode {

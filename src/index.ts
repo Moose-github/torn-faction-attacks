@@ -54,7 +54,9 @@ import {
   createTradeWatchlist,
   deleteTradeWatchlist,
   getTradeOpportunities,
+  getTradeSearchOpportunities,
   listTradeWatchlists,
+  scanTradeSearch,
   scanTradeWatchlist,
   updateTradeWatchlist,
 } from "./tradeScout";
@@ -248,6 +250,20 @@ async function routeTradeApi(routeContext: RouteContext): Promise<RouteResult> {
         request,
         env,
         scanWatchlistId,
+        await readAuthenticatedUserId(request, env),
+      ),
+    );
+  }
+
+  if (matchesRoute(url, request, "/api/trade/search/opportunities", "POST")) {
+    return withMember(routeContext, () => getTradeSearchOpportunities(request, env));
+  }
+
+  if (matchesRoute(url, request, "/api/trade/search/scan", "POST")) {
+    return withMember(routeContext, async () =>
+      scanTradeSearch(
+        request,
+        env,
         await readAuthenticatedUserId(request, env),
       ),
     );
