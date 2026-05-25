@@ -546,7 +546,7 @@ export function EnemyHospitalMonitor({
             <EmptyState
               text={
                 members.length === 0
-                  ? "Waiting for baseline poll"
+                  ? "Waiting for first update"
                   : showForcedTopInLiveAlerts && displayedMembers.length > 0
                     ? "Online or recently active enemies are shown in Live alerts"
                     : "All observed enemies are hidden by settings"
@@ -1402,7 +1402,7 @@ function tornHealthTone(status: MonitorStatus | null, timing: MonitorTiming): "o
 }
 
 function tornHealthTooltip(status: MonitorStatus | null, timing: MonitorTiming, clockSync: ClockSyncState | null): string {
-  if (status?.lastError) return `Latest Torn poll failed: ${status.lastError}`;
+  if (status?.lastError) return `Latest Torn check failed: ${status.lastError}`;
   if (!status?.hasBaseline) return "Waiting for the first successful Torn response to establish baseline.";
   if (timing.dataAgeMs === null) return "No successful Torn response recorded yet.";
 
@@ -1491,8 +1491,8 @@ function keyHealthDetail(status: MonitorStatus | null, socketError: string | nul
 }
 
 function bspBattlestatsTitle(member: EnemyFactionMember | null): string {
-  if (!member) return "No cached enemy scouting row for this player.";
-  if (member.bsp_battlestats == null) return "No cached BSP battle stats for this player.";
+  if (!member) return "No stored enemy scouting row for this player.";
+  if (member.bsp_battlestats == null) return "No stored BSP battle stats for this player.";
   const updated = member.bsp_battlestats_updated_at ? formatLongDateTime(member.bsp_battlestats_updated_at) : "unknown time";
   return `Exact BSP battle stats: ${formatNumber(member.bsp_battlestats)}. Updated ${updated}.`;
 }
@@ -1545,14 +1545,14 @@ function revivableTitle(member: EnemyFactionMember | null): string {
 }
 
 function networthTitle(member: EnemyFactionMember | null): string {
-  if (!member) return "No cached enemy scouting row for this player.";
+  if (!member) return "No stored enemy scouting row for this player.";
   const updated = member.networth_updated_at ? formatLongDateTime(member.networth_updated_at) : "unknown time";
-  if (member.networth === null) return `No cached networth for this player. Updated ${updated}.`;
+  if (member.networth === null) return `No stored networth for this player. Updated ${updated}.`;
   return `Exact networth: ${formatNumber(member.networth)}. Updated ${updated}.`;
 }
 
 function positionTitle(member: EnemyFactionMember | null): string {
-  if (!member) return "No cached enemy scouting row for this player.";
+  if (!member) return "No stored enemy scouting row for this player.";
   return member.position ? `Faction position: ${member.position}.` : "No faction position loaded for this player.";
 }
 

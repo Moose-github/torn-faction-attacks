@@ -630,7 +630,7 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={authSession ? "app-shell" : "app-shell app-shell-auth"}>
       <header className="topbar">
         <div>
           <p className="eyebrow">Buttgrass Inc</p>
@@ -918,6 +918,7 @@ function RefreshCountdowns() {
 function CountdownPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="countdown-pill" title={`Next ${label} refresh`}>
+      <span>{label}</span>
       <strong>{value}</strong>
     </div>
   );

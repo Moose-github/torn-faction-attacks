@@ -397,7 +397,8 @@ export function WarRoom({
   if (!selectedWar) {
     return (
       <section className="panel">
-        <EmptyState text="No war selected" />
+        <PanelHeader title="War room" />
+        <EmptyState text="Select a recorded war to open the War room" />
       </section>
     );
   }
@@ -406,7 +407,7 @@ export function WarRoom({
     return (
       <section className="panel">
         <PanelHeader title="War room" />
-        <EmptyState text="This war does not have an enemy faction to scout" />
+        <EmptyState text="This war does not have an enemy faction linked, so scouting and tracking are unavailable." />
       </section>
     );
   }
@@ -511,7 +512,7 @@ export function WarRoom({
           className="scouting-comparison-panel"
         >
           <p className="panel-description">
-            Compares cached faction member stats for Buttgrass and the enemy faction by member count in each range.
+            Compares the latest stored member stats for Buttgrass and the enemy faction by member count in each range.
           </p>
           <div className="panel-toggle-row" aria-label="Stats comparison metric">
             <button
@@ -569,7 +570,7 @@ export function WarRoom({
           className="heatmap-panel"
         >
           <p className="panel-description">
-            Shows average daily activity patterns from Torn member last-action timestamps, scaled by faction average.
+            Shows when each faction is usually active, based on Torn last-action times and scaled against faction average.
           </p>
           <div className="heatmap-stack">
             <FactionActivityHeatmap
@@ -628,12 +629,12 @@ function LiveTrackingInactivePanel({
   return (
     <CollapsiblePanel
       title="Live enemy tracking inactive"
-      aside="Not gathering"
+      aside="Paused"
       collapsed={collapsed}
       onToggle={onToggle}
       className="live-tracking-inactive-panel"
     >
-      <EmptyState text="Push pressure, travel tracking, revivable members, Enemy status and Hospital monitor are not currently being gathered. Collection starts two hours before official war start and stops at practical finish." />
+      <EmptyState text="Push pressure, travel tracking, revivable members, Enemy status, and Hospital monitor are paused. Tracking starts two hours before official war start and stops at practical finish." />
     </CollapsiblePanel>
   );
 }
@@ -666,14 +667,13 @@ const TrackingStatusPanel = React.forwardRef<HTMLElement, {
           <FreshnessMeta
             state={freshness.state}
             cadence={freshness.summaryCadence}
-            detail="Shows how often War Room data is gathered or refreshed for the selected war."
+            detail="Shows how often the selected war's War room data is updated."
             tone={freshness.tone}
           />
         }
       />
       <p className="panel-description">
-        {windowLabel} These rows expand the freshness pills above with the source, update cadence, and what each
-        timestamp means.
+        {windowLabel} These rows explain what updates each panel and how fresh the displayed data is.
       </p>
       <div className="tracking-status-grid">
         <TrackingStatusItem
@@ -692,7 +692,7 @@ const TrackingStatusPanel = React.forwardRef<HTMLElement, {
           label="Activity heatmaps"
           value={heatmapOpen ? freshness.heatmapCadence : "Loads when opened"}
           updatedAt={heatmapSampledAt}
-          detail={heatmapOpen ? freshness.heatmapDetail : "Heatmaps are lazy-loaded and refresh every 15 minutes while open during live tracking."}
+          detail={heatmapOpen ? freshness.heatmapDetail : "Heatmaps load when opened and refresh every 15 minutes while live tracking is active."}
         />
         <TrackingStatusItem
           label="Revivable members"
@@ -723,10 +723,10 @@ function TrackingStatusItem({
   detail: string;
 }) {
   const updatedLabel = updatedAt === undefined
-    ? "Runs in its own live monitor"
+    ? "Runs in the live monitor"
     : updatedAt
       ? `Last updated ${formatRelativeTime(updatedAt)}`
-      : "No update cached yet";
+      : "No update yet";
 
   return (
     <div className="tracking-status-item">
@@ -769,41 +769,41 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       tone: "live",
       summaryCadence: "1m live",
       enemyCadence: "Every 1m",
-      enemyDetail: "Enemy status and travel are gathered by the worker every minute while the war is live. This page also refreshes the visible cache every minute.",
+      enemyDetail: "Enemy status and travel are updated about every minute while the war is live.",
       pushCadence: "1m / 5m history",
-      pushDetail: "Latest push pressure is refreshed every minute while live. The 24 hour pressure history is refreshed every 5 minutes.",
+      pushDetail: "Current push pressure refreshes about every minute while live. The 24 hour pressure history refreshes every 5 minutes.",
       heatmapState: "Sampling",
       heatmapTone: "live",
       heatmapCadence: "Every 15m",
-      heatmapDetail: "Activity heatmaps sample Torn last-action data every 15 minutes during the tracking window and refresh here every 15 minutes while open.",
+      heatmapDetail: "Activity heatmaps use Torn last-action data every 15 minutes during the tracking window and refresh here every 15 minutes while open.",
       revivableState: "Sampling",
       revivableTone: "live",
       revivableCadence: "Enemy 1m / Home 15m",
-      revivableDetail: "Enemy revivable flags piggyback on the enemy status and travel refresh every minute while live. Home revivable flags come from the 15 minute member sample.",
+      revivableDetail: "Enemy revivable flags update with enemy status about every minute while live. Home revivable flags update every 15 minutes.",
       hospitalState: "Live",
       hospitalTone: "live",
       hospitalCadence: "Real time",
-      hospitalDetail: "The Hospital monitor uses its own live Durable Object polling while the selected war is active.",
+      hospitalDetail: "The Hospital monitor runs its own live checks while the selected war is active.",
     };
   }
 
   if (mode === "pre-live") {
     return {
-      state: "Pre-live",
+      state: "Pre-war",
       tone: "fresh",
-      summaryCadence: "5m pre-live",
+      summaryCadence: "5m pre-war",
       enemyCadence: "Every 5m",
-      enemyDetail: "Enemy status and travel are gathered every 5 minutes before the war becomes live.",
+      enemyDetail: "Enemy status and travel update every 5 minutes before the war becomes live.",
       pushCadence: "Every 5m",
-      pushDetail: "Push pressure samples are fed by the same pre-live enemy tracking cadence.",
+      pushDetail: "Push pressure updates on the same 5 minute pre-war cadence.",
       heatmapState: "Sampling",
       heatmapTone: "fresh",
       heatmapCadence: "Every 15m",
-      heatmapDetail: "Activity heatmaps are sampled by the 15 minute maintenance tick during the tracking window.",
+      heatmapDetail: "Activity heatmaps update every 15 minutes during the tracking window.",
       revivableState: "Sampling",
       revivableTone: "fresh",
       revivableCadence: "Enemy 5m / Home 15m",
-      revivableDetail: "Enemy revivable flags piggyback on the pre-live enemy status and travel refresh every 5 minutes. Home revivable flags come from the 15 minute member sample.",
+      revivableDetail: "Enemy revivable flags update with enemy status every 5 minutes before the war. Home revivable flags update every 15 minutes.",
       hospitalState: "Waiting",
       hospitalTone: "paused",
       hospitalCadence: "Starts live",
@@ -814,19 +814,19 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
   return {
     state: "Paused",
     tone: "paused",
-    summaryCadence: "Not gathering",
+    summaryCadence: "Paused",
     enemyCadence: "Paused",
-    enemyDetail: "Enemy status and travel are not currently gathered for this war.",
+    enemyDetail: "Enemy status and travel are not currently updating for this war.",
     pushCadence: "Paused",
-    pushDetail: "Push pressure is not currently sampled for this war.",
+    pushDetail: "Push pressure is not currently updating for this war.",
     heatmapState: "Paused",
     heatmapTone: "paused",
     heatmapCadence: "Paused",
-    heatmapDetail: "Activity heatmaps are not sampled outside the tracking window.",
+    heatmapDetail: "Activity heatmaps are not updated outside the tracking window.",
     revivableState: "Paused",
     revivableTone: "paused",
     revivableCadence: "Paused",
-    revivableDetail: "Enemy and home revivable flags are not sampled outside the tracking window.",
+    revivableDetail: "Enemy and home revivable flags are not updated outside the tracking window.",
     hospitalState: "Paused",
     hospitalTone: "paused",
     hospitalCadence: "Inactive",
@@ -842,7 +842,7 @@ function formatTrackingWindow(war: WarSummary, mode: TrackingMode): string {
   const officialStart = war.official_start_time ?? war.practical_start_time;
   const trackingStart = officialStart - 2 * 60 * 60;
   if (mode === "pre-live") {
-    return `Pre-live tracking is active. It began at ${formatLongDateTime(trackingStart)} and will switch to the one minute live cadence when the war starts.`;
+    return `Pre-war tracking is active. It began at ${formatLongDateTime(trackingStart)} and will switch to one minute updates when the war starts.`;
   }
 
   const finishTime = war.practical_finish_time ?? war.official_end_time ?? null;
@@ -903,7 +903,7 @@ function HospitalMonitorLinkPanel({
       />
       <p className="panel-description">
         {isWarLive
-          ? "Watch enemy hospital status in real time while live enemy tracking is active."
+          ? "Watch enemy hospital status in real time while the war is active."
           : "Hospital monitoring becomes live when the selected war is active."}
       </p>
       <button
@@ -1425,7 +1425,7 @@ function RevivableMembersPanel({
       className="revivable-panel"
     >
       <p className="panel-description">
-        Lists faction members currently marked revivable by Torn. Enemy revivable status follows enemy tracking; home revivable status updates every 15 minutes. {formatNumber(revivableCount)} currently cached.
+        Lists faction members currently marked revivable by Torn. Enemy revivable status follows enemy tracking; home revivable status updates every 15 minutes. {formatNumber(revivableCount)} currently shown.
       </p>
       <div className="revivable-grid">
         <RevivableMemberList factionName="Buttgrass" members={homeMembers} />
@@ -1457,7 +1457,7 @@ function RevivableMemberList({
         <span>{revivableMembers.length}</span>
       </div>
       {revivableMembers.length === 0 ? (
-        <p>No revivable members cached</p>
+        <p>No revivable members shown</p>
       ) : (
         <div className="revivable-members">
           {revivableMembers.map((member) => (

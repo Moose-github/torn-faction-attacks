@@ -70,11 +70,11 @@ export function EnemyScoutingPanel({
         }
       />
       <p className="panel-description">
-        Shows the cached enemy roster from Torn, FF stats, BSP stats, and networth where available.
+        Shows the latest stored enemy roster from Torn, with FF stats, BSP stats, and networth where available.
       </p>
 
       {members.length === 0 ? (
-        <EmptyState text="No enemy scouting data loaded for this war" />
+        <EmptyState text="No enemy scouting data available for this war" />
       ) : (
         <>
           <div className="table-scroll">

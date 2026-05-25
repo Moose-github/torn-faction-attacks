@@ -66,7 +66,7 @@ export function EnemyTravelPanel({
         Torn reports both Standard and Business Class flights as airliner, so those estimates are shown as a range.
       </p>
       {travelers.length === 0 && abroadMembers.length === 0 ? (
-        <EmptyState text="No enemy travelers or abroad members cached" />
+        <EmptyState text="No enemy travelers or abroad members shown" />
       ) : (
         <div className="enemy-travel-sections">
           {travelers.length > 0 ? (

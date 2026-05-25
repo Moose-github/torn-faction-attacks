@@ -42,8 +42,8 @@ import type { AppView } from "../routes";
 
 const RECENT_ATTACK_LIMIT = 10;
 const RECENT_ATTACK_REFRESH_MS = 30_000;
-const ATTACK_POLLING_RATE_LABEL = "Every 1 minute while active";
-const ATTACK_POLLING_DETAIL = "Falls back to the 5-minute gate when no live war is being tracked.";
+const ATTACK_POLLING_RATE_LABEL = "About every minute during active tracking";
+const ATTACK_POLLING_DETAIL = "When no live war is being tracked, attacks are checked less often.";
 const HIGHLIGHT_ROTATE_MS = 6_000;
 const HIGHLIGHT_REFRESH_MS = 5 * 60_000;
 const HIGHLIGHT_GROUPS = [
@@ -232,18 +232,18 @@ export function DashboardHome({
       <section className="hero-panel compact-hero-panel dashboard-home-header">
         <div>
           <p className="eyebrow">Dashboard</p>
-          <h2>Faction command centre</h2>
-          <p>Live war status, member signals, recent attacks, and the next places worth checking.</p>
+          <h2>Faction dashboard</h2>
+          <p>A quick view of current wars, member status, recent attacks, and useful next steps.</p>
         </div>
       </section>
 
       <section className="dashboard-home-grid">
         <DashboardCard
           icon={<Swords size={17} />}
-          title="Live war"
+          title="Current war"
           status={activeWar ? displayWarStatus(activeWar) : "No live war"}
           tone={activeWar ? "hot" : "quiet"}
-          actionLabel={activeWar ? "Open War room" : primaryWar ? "Open latest war" : undefined}
+          actionLabel={activeWar ? "Open war room" : primaryWar ? "Open latest war" : undefined}
           onAction={
             activeWar
               ? () => onOpenView("warRoom")
@@ -269,15 +269,15 @@ export function DashboardHome({
         <DashboardCard
           icon={<Radar size={17} />}
           title="Enemy tracking"
-          status={activeWar?.enemy_faction_id ? "Live tracking available" : "Inactive"}
+          status={activeWar?.enemy_faction_id ? "Tracking ready" : "Inactive"}
           tone={activeWar?.enemy_faction_id ? "good" : "quiet"}
-          actionLabel={activeWar?.enemy_faction_id ? "Open tracking" : "Open War room"}
+          actionLabel={activeWar?.enemy_faction_id ? "Open tracking" : "Open war room"}
           onAction={() => onOpenView(activeWar?.enemy_faction_id ? "hospitalMonitor" : "warRoom")}
         >
           <div className="dashboard-card-metrics">
             <MetricLine label="Enemy faction" value={activeWar?.enemy_faction_id ? String(activeWar.enemy_faction_id) : "-"} />
-            <MetricLine label="Scouting check" value={formatRelativeTime(activeWar?.enemy_scouting_status_checked_at ?? null)} />
-            <MetricLine label="Monitor" value={activeWar?.enemy_faction_id ? "Ready from War room" : "No active enemy"} />
+            <MetricLine label="Scouting updated" value={formatRelativeTime(activeWar?.enemy_scouting_status_checked_at ?? null)} />
+            <MetricLine label="Monitor" value={activeWar?.enemy_faction_id ? "Available in War room" : "No active target"} />
           </div>
         </DashboardCard>
 
@@ -286,7 +286,7 @@ export function DashboardHome({
           title="Members"
           status={memberSummary ? `${formatNumber(memberSummary.current_members)} current` : "Loading roster"}
           tone={memberSummary && memberSummary.current_members > 0 ? "good" : "quiet"}
-          actionLabel="View performance"
+          actionLabel="Open member stats"
           onAction={() => onOpenView("members")}
         >
           <div className="dashboard-card-metrics">
@@ -335,7 +335,7 @@ export function DashboardHome({
           {adminPanelCollapsed ? null : (
             <>
               <p className="panel-description dashboard-admin-description">
-                Operational health, admin attention items, and internal activity are only visible to admin logins.
+                Admin-only checks for data refreshes, stale stats, suggestions, and recent system activity.
               </p>
               <section className="dashboard-home-lower-grid dashboard-admin-grid">
                 <DashboardCard
@@ -401,7 +401,7 @@ export function DashboardHome({
           aside={`Latest ${RECENT_ATTACK_LIMIT}`}
         />
         <div className="dashboard-attack-info">
-          <span>Attack polling</span>
+          <span>Attack updates</span>
           <strong>{ATTACK_POLLING_RATE_LABEL}</strong>
           <small>{ATTACK_POLLING_DETAIL}</small>
         </div>
@@ -410,7 +410,7 @@ export function DashboardHome({
         ) : recentAttacksError && recentAttacks.length === 0 ? (
           <EmptyState text={`Recent attacks unavailable: ${recentAttacksError}`} />
         ) : recentAttacks.length === 0 ? (
-          <EmptyState text="No incoming or outgoing attacks cached yet" />
+          <EmptyState text="No recent incoming or outgoing attacks yet" />
         ) : (
           <>
             {recentAttacksError ? (
@@ -522,7 +522,7 @@ function SuggestionBox({
       <PanelHeader icon={<MessageSquare size={17} />} title="Suggestions" />
       <form className="dashboard-suggestion-form" onSubmit={submitSuggestion}>
         <label>
-          <span>Send an idea, bug, or quality-of-life request</span>
+          <span>Share an idea, bug, or quality-of-life request</span>
           <textarea
             value={suggestion}
             maxLength={1200}
@@ -598,12 +598,12 @@ function MemberHighlightsPanel({
           Member highlights
           <span
             className="data-wip-badge"
-            title="Member highlight snapshots are quarantined while the guarded data rebuilds."
+            title="Member highlights are marked WIP while we rebuild and verify the daily stats data."
           >
             WIP
           </span>
         </h2>
-        <span>{loaded ? `Top 3 podiums | ${activePeriod.label}` : "Loading"}</span>
+        <span>{loaded ? `Top 3 | ${activePeriod.label}` : "Loading"}</span>
       </div>
       {!loaded ? (
         <EmptyState text="Loading member highlights" />

@@ -138,6 +138,10 @@ input:disabled {
   overflow-x: clip;
 }
 
+.app-shell-auth {
+  width: min(640px, 100%);
+}
+
 .topbar {
   display: flex;
   align-items: flex-end;
@@ -175,6 +179,11 @@ input:disabled {
   color: var(--accent-strong);
 }
 
+.theme-toggle-button:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .access-level-pill {
   display: inline-flex;
   align-items: center;
@@ -190,12 +199,13 @@ input:disabled {
 }
 
 .refresh-countdowns {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 1px;
+  gap: 6px;
   margin-left: auto;
-  opacity: 0.34;
+  opacity: 0.62;
   transition: opacity 140ms ease;
 }
 
@@ -204,18 +214,30 @@ input:disabled {
 }
 
 .countdown-pill {
-  min-width: 34px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-align: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border-faint);
+  border-radius: 7px;
+  background: var(--panel-bg-solid);
+}
+
+.countdown-pill span {
+  color: var(--text-soft);
+  font-size: 0.62rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .countdown-pill strong {
-  color: #94a3b8;
-  font-size: 0.66rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 850;
   line-height: 1;
 }
 
@@ -918,11 +940,20 @@ h2 {
   justify-content: space-between;
   gap: 8px;
   min-height: 24px;
-  padding: 0 4px;
+  padding: 0 4px 2px;
 }
 
 .sidebar-wars-controls > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  min-width: 2.4em;
+  min-height: 24px;
+  padding: 2px 7px;
+  border: 1px solid var(--border-faint);
+  border-radius: 999px;
+  background: var(--panel-muted-bg);
   color: #94a3b8;
   font-size: 0.76rem;
   font-weight: 900;
@@ -978,8 +1009,8 @@ h2 {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   flex: 0 0 auto;
-  height: min(48vh, 440px);
-  max-height: min(48vh, 440px);
+  height: clamp(360px, 48vh, 440px);
+  max-height: clamp(360px, 48vh, 440px);
   min-height: 0;
   overflow: hidden;
 }
@@ -1011,11 +1042,12 @@ h2 {
   display: grid;
   align-content: start;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 4px;
   min-height: 0;
-  max-height: min(34vh, 340px);
+  max-height: none;
   overflow-y: auto;
-  padding-right: 0;
+  padding: 2px 3px 8px 0;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
@@ -1068,8 +1100,8 @@ h2 {
   align-items: center;
   align-self: start;
   width: 100%;
-  min-height: 62px;
-  padding: 10px;
+  min-height: 58px;
+  padding: 9px 10px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #fff;
@@ -4202,12 +4234,18 @@ h2 {
 
 .auth-panel {
   width: min(520px, 100%);
-  margin: 72px auto 0;
+  margin: 34px auto 0;
 }
 
 .auth-form {
   display: grid;
   gap: 14px;
+}
+
+.auth-form input,
+.auth-form .icon-text-button {
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .auth-form label {
@@ -4220,6 +4258,11 @@ h2 {
 
 .auth-form .icon-text-button {
   justify-content: center;
+}
+
+.auth-form .icon-text-button:disabled {
+  cursor: not-allowed;
+  opacity: 1;
 }
 
 .api-key-use-notice {
@@ -4366,6 +4409,11 @@ h2 {
   gap: 12px;
 }
 
+.trade-scout-summary-grid > .metric-card {
+  min-height: 126px;
+  align-content: start;
+}
+
 .trade-scout-key-panel,
 .trade-scout-watchlists-panel,
 .trade-scout-action-panel,
@@ -4374,6 +4422,14 @@ h2 {
   display: grid;
   gap: 12px;
   min-width: 0;
+}
+
+.trade-scout-key-panel .panel-header {
+  margin-bottom: 4px;
+}
+
+.trade-scout-key-panel input {
+  width: 100%;
 }
 
 .trade-scout-key-panel label,
@@ -4441,7 +4497,8 @@ h2 {
   gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding-bottom: 2px;
+  padding: 2px 2px 10px;
+  scrollbar-gutter: stable;
 }
 
 .trade-scout-watchlist-list button {
@@ -4486,6 +4543,14 @@ h2 {
   gap: 8px;
   justify-content: flex-end;
   min-width: 0;
+}
+
+.trade-scout-action-panel .panel-header {
+  align-items: flex-start;
+}
+
+.trade-scout-action-panel .panel-header h2 {
+  flex: 1 1 220px;
 }
 
 .trade-scout-selected-meta {
@@ -4566,7 +4631,7 @@ h2 {
 }
 
 .trade-scout-table {
-  min-width: 1040px;
+  min-width: 980px;
 }
 
 .trade-scout-table td strong,
@@ -4666,6 +4731,7 @@ h2 {
   display: grid;
   gap: 10px;
   min-width: 0;
+  overflow: hidden;
   padding: 12px;
   border: 1px solid var(--border-faint);
   border-radius: 8px;
@@ -4674,7 +4740,7 @@ h2 {
 
 .trade-opportunity-item-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
@@ -4703,9 +4769,15 @@ h2 {
 .trade-opportunity-item-actions {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.trade-opportunity-item-section .table-scroll {
+  border-color: var(--border-faint);
+  background: var(--panel-bg-solid);
 }
 
 .trade-opportunity-item-actions button,
@@ -4785,6 +4857,17 @@ h2 {
 
   .trade-scout-filter-grid {
     grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
+}
+
+@media (max-width: 1180px) {
+  .dashboard-home-grid,
+  .dashboard-highlight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-home-lower-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -5283,8 +5366,25 @@ tbody tr:not(.attack-row):hover td {
     font-size: 1.7rem;
   }
 
+  .app-shell-auth {
+    padding-inline: 18px;
+  }
+
+  .app-shell-auth .topbar {
+    margin-bottom: 18px;
+  }
+
   .war-type-select {
     width: 100%;
+  }
+
+  .auth-panel {
+    margin-top: 24px;
+  }
+
+  .api-key-use-notice div {
+    grid-template-columns: 1fr;
+    gap: 3px;
   }
 
   .admin-action-grid,
@@ -5514,6 +5614,7 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .war-nav button,
 :root[data-theme="dark"] .war-type-select,
 :root[data-theme="dark"] .panel-action-button,
+:root[data-theme="dark"] .theme-toggle-button,
 :root[data-theme="dark"] .icon-text-button,
 :root[data-theme="dark"] .admin-button,
 :root[data-theme="dark"] .toggle-chip,
@@ -5630,11 +5731,40 @@ tbody tr:not(.attack-row):hover td {
   color: var(--text-main);
 }
 
+:root[data-theme="dark"] .auth-form input {
+  background: var(--panel-muted-bg) !important;
+  background-color: var(--panel-muted-bg) !important;
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1000px var(--panel-muted-bg) !important;
+  -webkit-box-shadow: inset 0 0 0 1000px var(--panel-muted-bg) !important;
+}
+
+:root[data-theme="dark"] .auth-form input::placeholder {
+  color: var(--text-soft);
+}
+
+:root[data-theme="dark"] .auth-form input:-webkit-autofill,
+:root[data-theme="dark"] .auth-form input:-webkit-autofill:hover,
+:root[data-theme="dark"] .auth-form input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-strong);
+  box-shadow: 0 0 0 1000px var(--panel-muted-bg) inset !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--panel-muted-bg) inset !important;
+}
+
 :root[data-theme="dark"] input:disabled,
 :root[data-theme="dark"] select:disabled,
 :root[data-theme="dark"] textarea:disabled {
   background: var(--panel-muted-bg);
   color: var(--text-soft);
+}
+
+:root[data-theme="dark"] .auth-form .icon-text-button:disabled {
+  border-color: var(--border-faint);
+  background: rgba(20, 34, 56, 0.86) !important;
+  background-color: rgba(20, 34, 56, 0.86) !important;
+  box-shadow: inset 0 0 0 1000px rgba(20, 34, 56, 0.86) !important;
+  -webkit-box-shadow: inset 0 0 0 1000px rgba(20, 34, 56, 0.86) !important;
+  color: var(--text-soft) !important;
 }
 
 :root[data-theme="dark"] .empty-state {
