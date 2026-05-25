@@ -337,12 +337,9 @@ function WarNavButton({
       onClick={() => onSelect(war.name)}
     >
       <span className="war-nav-main">
-        <span className="war-nav-title-line">
-          <strong>{war.name}</strong>
-          <span className="war-nav-type">{war.war_type ?? "real"}</span>
-        </span>
+        <strong>{war.name}</strong>
         <small>
-          {displayWarStatus(war)} - {formatDate(war.practical_start_time)}
+          {displayWarStatus(war)} - {formatDate(war.practical_start_time)} - {(war.war_type ?? "real").toUpperCase()}
         </small>
       </span>
     </button>

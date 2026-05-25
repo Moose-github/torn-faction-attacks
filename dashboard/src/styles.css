@@ -1012,7 +1012,8 @@ h2 {
   min-height: 0;
   max-height: 100%;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 0;
+  scrollbar-width: thin;
 }
 
 .war-type-select {
@@ -1091,41 +1092,10 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-.war-nav-title-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-
 .war-nav-main strong {
   min-width: 0;
   overflow-wrap: anywhere;
   font-weight: 800;
-}
-
-.war-nav-type {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  min-width: 48px;
-  min-height: 22px;
-  padding: 2px 7px;
-  border: 1px solid #dbe3ed;
-  border-radius: 999px;
-  background: #eef2f7;
-  color: #334155;
-  font-size: 0.68rem;
-  font-weight: 900;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.war-nav button.selected .war-nav-type {
-  background: #2563eb;
-  color: #fff;
 }
 
 .war-nav small {
@@ -5538,7 +5508,6 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .sidebar-link,
 :root[data-theme="dark"] .war-nav button,
-:root[data-theme="dark"] .war-nav-type,
 :root[data-theme="dark"] .war-type-select,
 :root[data-theme="dark"] .panel-action-button,
 :root[data-theme="dark"] .icon-text-button,
@@ -5586,7 +5555,6 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .sidebar-link.active,
 :root[data-theme="dark"] .war-nav button.selected,
-:root[data-theme="dark"] .war-nav button.selected .war-nav-type,
 :root[data-theme="dark"] .toggle-chip.active,
 :root[data-theme="dark"] .member-activity-mode-button.active {
   border-color: var(--accent);
