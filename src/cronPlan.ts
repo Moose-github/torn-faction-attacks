@@ -3,6 +3,7 @@ import { runIngestion } from "./ingestion";
 import { refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
 import { refreshTornShoplifting } from "./miscellaneous";
+import { refreshTornStockHistoryBatch } from "./stockMarket";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { Env, TornFactionMember } from "./types";
 
@@ -51,6 +52,14 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     purpose: "Refresh enemy tracking, pass any fetched enemy members to heatmap sampling, and run independent maintenance tasks.",
     shouldRun: (minute) => minute % 15 === 0,
     run: (env, scheduledTime) => runEnemyTrackingAndMaintenance(env, scheduledTime),
+  },
+  {
+    label: "Cron Torn stock history",
+    cadence: "15m alternating batches",
+    category: "stocks",
+    purpose: "Refresh half of the Torn stock history endpoints so each stock gets one-minute history every 30 minutes.",
+    shouldRun: (minute) => minute % 15 === 0,
+    run: (env, scheduledTime) => refreshTornStockHistoryBatch(env, scheduledTime),
   },
   {
     label: "Cron enemy scouting tick",

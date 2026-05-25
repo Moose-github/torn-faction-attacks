@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Sun,
   Target,
+  TrendingUp,
   UserRound,
   Wrench,
 } from "lucide-react";
@@ -88,6 +89,9 @@ const LifestyleStats = React.lazy(() =>
 );
 const Miscellaneous = React.lazy(() =>
   import("./views/Miscellaneous").then((module) => ({ default: module.Miscellaneous })),
+);
+const StockMarketStatus = React.lazy(() =>
+  import("./views/StockMarketStatus").then((module) => ({ default: module.StockMarketStatus })),
 );
 const TradeScout = React.lazy(() =>
   import("./views/TradeScout").then((module) => ({ default: module.TradeScout })),
@@ -694,6 +698,7 @@ function App() {
           miscIcon={<Target size={18} />}
           tradeScoutIcon={<ShoppingCart size={18} />}
           warPayoutsIcon={<CircleDollarSign size={18} />}
+          stockMarketIcon={<TrendingUp size={18} />}
           diceGameIcon={<Dices size={18} />}
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
@@ -734,6 +739,10 @@ function App() {
           ) : view === "warPayouts" ? (
             <LazyPage>
               <WarPayouts />
+            </LazyPage>
+          ) : view === "stockMarketStatus" ? (
+            <LazyPage>
+              <StockMarketStatus />
             </LazyPage>
           ) : view === "members" ? (
             <MembersOverview isAdmin={isAdmin} />

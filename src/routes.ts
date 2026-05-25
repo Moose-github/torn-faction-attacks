@@ -31,6 +31,15 @@ export function isWarMemberAttacksRoute(url: URL, request: Request): boolean {
   );
 }
 
+export function stockIdFromHistoryRoute(url: URL, request: Request): number | null {
+  if (request.method !== "GET") {
+    return null;
+  }
+
+  const match = /^\/api\/stocks\/(\d+)\/history$/.exec(url.pathname);
+  return match ? Number(match[1]) : null;
+}
+
 export function isWarDetailRoute(url: URL, request: Request): boolean {
   return request.method === "GET" && url.pathname.startsWith("/api/wars/") && !url.pathname.endsWith("/attacks");
 }

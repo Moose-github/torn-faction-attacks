@@ -325,6 +325,10 @@ h2 {
   grid-template-columns: repeat(3, minmax(160px, 1fr));
 }
 
+.stock-status-grid {
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+}
+
 .dashboard-home-header {
   align-items: flex-start;
 }

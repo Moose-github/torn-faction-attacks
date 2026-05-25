@@ -53,10 +53,16 @@ import {
   isWarMemberAttacksRoute,
   isWarSubroute,
   matchesExactRoute,
+  stockIdFromHistoryRoute,
   tradeWatchlistIdFromDetailPath,
   tradeWatchlistIdFromScanPath,
   warNameFromWarRoute,
 } from "./routes";
+import {
+  getStockHistory,
+  getStockIngestionStatus,
+  getStocks,
+} from "./stockMarket";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { createMemberSuggestion, listMemberSuggestionsForAdmin } from "./suggestions";
@@ -178,6 +184,10 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 
   if (matchesExactRoute(url, request, "/api/admin/maintenance-run", "GET")) {
     return withAdmin(routeContext, () => getLatestMaintenanceRun(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/stocks/ingestion-status", "GET")) {
+    return withAdmin(routeContext, () => getStockIngestionStatus(env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/users", "GET")) {
@@ -308,6 +318,15 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
 
   if (matchesExactRoute(url, request, "/api/home-faction-members/summary", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getCurrentHomeFactionMemberSummary(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/stocks", "GET")) {
+    return cachedMemberGet(routeContext, 55, () => getStocks(env));
+  }
+
+  const stockHistoryId = stockIdFromHistoryRoute(url, request);
+  if (stockHistoryId !== null) {
+    return cachedMemberGet(routeContext, 55, () => getStockHistory(url, env, stockHistoryId));
   }
 
   if (matchesExactRoute(url, request, "/api/faction-attacks/recent", "GET")) {

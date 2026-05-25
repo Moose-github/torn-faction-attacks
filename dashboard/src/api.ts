@@ -540,6 +540,39 @@ export type MaintenanceRunResponse = {
   daily_stats_attention?: DailyStatsAttention;
 };
 
+export type StockIngestionRun = {
+  id: string;
+  batch_group: string;
+  started_at: number;
+  finished_at: number | null;
+  status: string;
+  stocks_attempted: number;
+  stocks_succeeded: number;
+  stocks_failed: number;
+  points_seen: number;
+  points_written: number;
+  recoverable_gap_count: number;
+  unrecoverable_gap_count: number;
+  error: string | null;
+  details_json: string | null;
+};
+
+export type StockCoverage = {
+  total_stocks: number;
+  stocks_with_snapshots: number;
+  oldest_snapshot_at: number | null;
+  newest_snapshot_at: number | null;
+  stale_stocks: number;
+};
+
+export type StockIngestionStatusResponse = {
+  ok: boolean;
+  latest_run: StockIngestionRun | null;
+  recent_runs: StockIngestionRun[];
+  coverage: StockCoverage;
+  last_error: string | null;
+};
+
 export type MemberLifestyleStats = {
   member_id: number;
   member_name: string | null;
@@ -1057,6 +1090,10 @@ export async function getLatestIngestionRun(): Promise<IngestionRunResponse> {
 
 export async function getLatestMaintenanceRun(): Promise<MaintenanceRunResponse> {
   return getJson<MaintenanceRunResponse>("/api/admin/maintenance-run", true);
+}
+
+export async function getStockIngestionStatus(): Promise<StockIngestionStatusResponse> {
+  return getJson<StockIngestionStatusResponse>("/api/admin/stocks/ingestion-status", true);
 }
 
 export async function listAdminUsers(): Promise<unknown> {
