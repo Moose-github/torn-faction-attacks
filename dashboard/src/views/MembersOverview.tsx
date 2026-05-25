@@ -17,7 +17,7 @@ import {
 
 export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
   const [warType, setWarType] = React.useState<WarType>("all");
-  const [currentMembersOnly, setCurrentMembersOnly] = React.useState(false);
+  const [includeFormerMembers, setIncludeFormerMembers] = React.useState(false);
   const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getStats>> | null>(null);
   const [sort, setSort] = React.useState<MemberSort>({
     key: "attacks_vs_enemy_successful",
@@ -34,7 +34,7 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
       setError(null);
 
       try {
-        const response = await getStats(warType, { currentMembersOnly });
+        const response = await getStats(warType, { currentMembersOnly: !includeFormerMembers });
         if (!cancelled) {
           setStats(response);
         }
@@ -53,7 +53,7 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [currentMembersOnly, warType]);
+  }, [includeFormerMembers, warType]);
 
   const members = sortMembers(stats?.members ?? [], sort);
 
@@ -66,7 +66,7 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
           <h2>Member performance</h2>
           <p>
             Combined member results across the selected record type
-            {currentMembersOnly ? " for current faction members." : "."}
+            {includeFormerMembers ? ", including members no longer in the faction." : " for current faction members."}
           </p>
         </div>
       </section>
@@ -104,10 +104,10 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
           <label className="member-current-filter">
             <input
               type="checkbox"
-              checked={currentMembersOnly}
-              onChange={(event) => setCurrentMembersOnly(event.target.checked)}
+              checked={includeFormerMembers}
+              onChange={(event) => setIncludeFormerMembers(event.target.checked)}
             />
-            <span>Current faction only</span>
+            <span>Show former members</span>
           </label>
         </section>
       </section>
@@ -133,7 +133,7 @@ export function MembersOverview({ isAdmin }: { isAdmin: boolean }) {
         />
         <p className="panel-description">
           Combines member performance across the selected record type so longer-term activity can be compared.
-          {currentMembersOnly ? " Departed members are hidden." : ""}
+          {includeFormerMembers ? " Former faction members are included." : " Former faction members are hidden."}
         </p>
         <MemberTable
           members={members}
