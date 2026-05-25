@@ -47,6 +47,16 @@ import {
   scoutingComparisonTtlSeconds,
   warDataTtlSeconds,
 } from "./responseCache";
+import {
+  isTornWarReportFetchRoute,
+  isWarDetailRoute,
+  isWarMemberAttacksRoute,
+  isWarSubroute,
+  matchesRoute,
+  tradeWatchlistIdFromPath,
+  tradeWatchlistScanIdFromPath,
+  warNameFromSubroute,
+} from "./routes";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { createMemberSuggestion, listMemberSuggestionsForAdmin } from "./suggestions";
@@ -548,10 +558,6 @@ function enemyPushPressureTtlSeconds(url: URL): CacheTtl {
     : warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55);
 }
 
-function warNameFromSubroute(url: URL): string {
-  return decodeURIComponent(url.pathname.split("/")[3] ?? "").trim();
-}
-
 async function withAdmin(routeContext: RouteContext, handler: RouteHandler): Promise<Response> {
   const authError = await requireAdmin(routeContext.request, routeContext.env);
   return authError ?? await handler();
@@ -610,41 +616,6 @@ async function getRecentAttacks(url: URL, env: Env): Promise<Response> {
     .all();
 
   return json(rows.results ?? []);
-}
-
-function matchesRoute(url: URL, request: Request, pathname: string, method?: string): boolean {
-  return url.pathname === pathname && (!method || request.method === method);
-}
-
-function tradeWatchlistIdFromPath(pathname: string): number | null {
-  const match = /^\/api\/trade\/watchlists\/(\d+)$/.exec(pathname);
-  return match ? Number(match[1]) : null;
-}
-
-function tradeWatchlistScanIdFromPath(pathname: string): number | null {
-  const match = /^\/api\/trade\/watchlists\/(\d+)\/scan$/.exec(pathname);
-  return match ? Number(match[1]) : null;
-}
-
-function isTornWarReportFetchRoute(url: URL, request: Request): boolean {
-  return request.method === "POST" && url.pathname.startsWith("/api/torn-wars/") && url.pathname.endsWith("/report/fetch");
-}
-
-function isWarSubroute(url: URL, request: Request, suffix: string, method: string): boolean {
-  return request.method === method && url.pathname.startsWith("/api/wars/") && url.pathname.endsWith(suffix);
-}
-
-function isWarMemberAttacksRoute(url: URL, request: Request): boolean {
-  return (
-    request.method === "GET" &&
-    url.pathname.startsWith("/api/wars/") &&
-    url.pathname.includes("/members/") &&
-    url.pathname.endsWith("/attacks")
-  );
-}
-
-function isWarDetailRoute(url: URL, request: Request): boolean {
-  return request.method === "GET" && url.pathname.startsWith("/api/wars/") && !url.pathname.endsWith("/attacks");
 }
 
 async function requireActionCooldown(

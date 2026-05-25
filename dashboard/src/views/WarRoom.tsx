@@ -24,6 +24,7 @@ import { CollapsiblePanel, EmptyState, FreshnessMeta, FreshnessTone, PanelHeader
 import { EnemyScoutingPanel } from "../components/EnemyScouting";
 import { EnemyTravelPanel } from "../components/EnemyTravelPanel";
 import { formatLongDateTime, formatNumber, formatRelativeTime, formatTime } from "../utils/format";
+import { formatDuration, useCurrentTime } from "../utils/time";
 import { isWarRoomMemberTrackingActive } from "../utils/warTracking";
 import { ScoutingComparisonMetric } from "../../../shared/scoutingBuckets";
 
@@ -1492,32 +1493,4 @@ function formatWarRoomType(war: WarSummary): string {
     : war.war_type === "event"
       ? "Event"
       : "Real war";
-}
-
-function useCurrentTime(): number {
-  const [now, setNow] = React.useState(() => Date.now());
-
-  React.useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  return now;
-}
-
-function formatDuration(totalSeconds: number): string {
-  if (totalSeconds <= 0) {
-    return "Started";
-  }
-
-  const days = Math.floor(totalSeconds / 86_400);
-  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (days > 0) {
-    return `${days}d ${hours}h ${minutes}m`;
-  }
-
-  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
