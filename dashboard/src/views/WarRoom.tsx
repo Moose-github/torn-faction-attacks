@@ -680,7 +680,7 @@ const TrackingStatusPanel = React.forwardRef<HTMLElement, {
         />
         <TrackingStatusItem
           label="Activity heatmaps"
-          value={heatmapOpen ? freshness.heatmapCadence : "Loads when opened"}
+          value={freshness.heatmapCadence}
           updatedAt={heatmapSampledAt}
           detail={heatmapOpen ? freshness.heatmapDetail : freshness.heatmapClosedDetail}
         />
@@ -758,7 +758,7 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       state: "Live",
       tone: "live",
       enemyCadence: "Every 1m",
-      enemyDetail: "Enemy status, travel, and return estimates update about every minute during an active war.",
+      enemyDetail: "Updates with live enemy tracking about every minute while the selected war is active.",
       pushCadence: "1m / 5m history",
       pushDetail: "The current score updates about every minute. The 24 hour history refreshes every 5 minutes.",
       heatmapState: "Sampling",
@@ -769,11 +769,11 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       revivableState: "Sampling",
       revivableTone: "live",
       revivableCadence: "Enemy 1m / Home 15m",
-      revivableDetail: "Enemy revivable status updates with enemy tracking. Home faction revivable status updates every 15 minutes.",
+      revivableDetail: "Enemy revivable status updates with live enemy tracking about every minute. Home faction revivable status updates every 15 minutes.",
       hospitalState: "Live",
       hospitalTone: "live",
       hospitalCadence: "Real time",
-      hospitalDetail: "Hospital monitor checks run separately while the selected war is active.",
+      hospitalDetail: "Runs with live enemy tracking while the selected war is active, using its own faster monitor checks.",
     };
   }
 
@@ -782,7 +782,7 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       state: "Pre-war",
       tone: "fresh",
       enemyCadence: "Every 5m",
-      enemyDetail: "Enemy status, travel, and return estimates update every 5 minutes before the war starts.",
+      enemyDetail: "Updates with pre-war enemy tracking every 5 minutes before the selected war starts.",
       pushCadence: "Every 5m",
       pushDetail: "Push pressure follows the same 5 minute pre-war enemy tracking cadence.",
       heatmapState: "Sampling",
@@ -793,11 +793,11 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       revivableState: "Sampling",
       revivableTone: "fresh",
       revivableCadence: "Enemy 5m / Home 15m",
-      revivableDetail: "Enemy revivable status updates with enemy tracking. Home faction revivable status updates every 15 minutes.",
+      revivableDetail: "Enemy revivable status updates with pre-war enemy tracking every 5 minutes. Home faction revivable status updates every 15 minutes.",
       hospitalState: "Waiting",
       hospitalTone: "paused",
       hospitalCadence: "Starts live",
-      hospitalDetail: "Hospital monitoring becomes available when the selected war is active.",
+      hospitalDetail: "Starts with live enemy tracking when the selected war becomes active.",
     };
   }
 
@@ -805,22 +805,22 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
     state: "Paused",
     tone: "paused",
     enemyCadence: "Paused",
-    enemyDetail: "Enemy status, travel, and return estimates are not updating for this war right now.",
+    enemyDetail: "Paused because enemy tracking is outside the selected war's tracking window.",
     pushCadence: "Paused",
     pushDetail: "Push pressure is not updating for this war right now.",
     heatmapState: "Paused",
     heatmapTone: "paused",
     heatmapCadence: "Outside window",
     heatmapDetail: "Heatmaps do not update outside the tracking window.",
-    heatmapClosedDetail: "Heatmaps are outside the tracking window and will not refresh if opened.",
+    heatmapClosedDetail: "Tracking has stopped. Heatmaps remain available to view until the next war tracking window starts.",
     revivableState: "Paused",
     revivableTone: "paused",
     revivableCadence: "Paused",
-    revivableDetail: "Enemy and home revivable status are not updating outside the tracking window.",
+    revivableDetail: "Paused because enemy tracking is outside the selected war's tracking window.",
     hospitalState: "Paused",
     hospitalTone: "paused",
     hospitalCadence: "Inactive",
-    hospitalDetail: "Hospital monitoring is only available while the selected war is active.",
+    hospitalDetail: "Paused because the Hospital monitor only runs while the selected war is active.",
   };
 }
 
