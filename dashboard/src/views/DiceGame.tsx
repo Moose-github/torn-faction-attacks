@@ -451,7 +451,15 @@ export function DiceGame() {
       <section className="hero-panel compact-hero-panel">
         <div>
           <p className="eyebrow">Definitely not gambling</p>
-          <h2>Dice Game</h2>
+          <h2>
+            Dice Game
+            <span
+              className="data-wip-badge dice-joke-badge"
+              title="This page is intentionally silly."
+            >
+              Joke
+            </span>
+          </h2>
           <p>Every roll is fair, every outcome is legit, and every refund request is immediately denied without appeal.</p>
         </div>
       </section>

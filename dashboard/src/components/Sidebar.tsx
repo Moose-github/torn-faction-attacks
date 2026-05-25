@@ -337,12 +337,14 @@ function WarNavButton({
       onClick={() => onSelect(war.name)}
     >
       <span className="war-nav-main">
-        <strong>{war.name}</strong>
+        <span className="war-nav-title-line">
+          <strong>{war.name}</strong>
+          <span className="war-nav-type">{war.war_type ?? "real"}</span>
+        </span>
         <small>
           {displayWarStatus(war)} - {formatDate(war.practical_start_time)}
         </small>
       </span>
-      <span className="war-nav-type">{war.war_type ?? "real"}</span>
     </button>
   );
 }
