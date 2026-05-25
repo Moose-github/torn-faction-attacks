@@ -1,7 +1,7 @@
 import { Env } from "./types";
 import { fetchWithTimeout, json, nowSeconds } from "./utils";
 
-type TradeItemSource = "weav3r" | "weav3r_verified" | "torn";
+type TradeItemSource = "weav3r_verified" | "torn";
 
 type TradeWatchlist = {
   id: number;
@@ -12,6 +12,8 @@ type TradeWatchlist = {
   min_roi_percent: number;
   min_quantity: number;
   market_fee_percent: number;
+  created_by_torn_user_id: number | null;
+  created_by_name: string | null;
   created_at: number;
   updated_at: number;
   latest_snapshot: TradeSnapshotSummary | null;
@@ -35,6 +37,8 @@ type TradeWatchlistRow = {
   min_roi_percent: number;
   min_quantity: number;
   market_fee_percent: number;
+  created_by_torn_user_id: number | null;
+  created_by_name: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -120,13 +124,18 @@ export async function listTradeWatchlists(env: Env): Promise<Response> {
   });
 }
 
-export async function createTradeWatchlist(request: Request, env: Env): Promise<Response> {
+export async function createTradeWatchlist(
+  request: Request,
+  env: Env,
+  createdByTornUserId: number | null,
+): Promise<Response> {
   const validated = await readWatchlistPayload(request);
   if ("response" in validated) {
     return validated.response;
   }
 
   const now = nowSeconds();
+  const createdByName = createdByTornUserId ? await readHomeMemberName(env, createdByTornUserId) : null;
   try {
     const result = await env.DB.prepare(
       `
@@ -138,10 +147,12 @@ export async function createTradeWatchlist(request: Request, env: Env): Promise<
         min_roi_percent,
         min_quantity,
         market_fee_percent,
+        created_by_torn_user_id,
+        created_by_name,
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
       .bind(
@@ -152,6 +163,8 @@ export async function createTradeWatchlist(request: Request, env: Env): Promise<
         validated.payload.min_roi_percent,
         validated.payload.min_quantity,
         validated.payload.market_fee_percent,
+        createdByTornUserId,
+        createdByName,
         now,
         now,
       )
@@ -350,10 +363,7 @@ async function scanWatchlistItems(watchlist: TradeWatchlist, tornKey: string): P
   const rows: TradeOpportunity[] = [];
 
   for (const itemId of watchlist.item_ids) {
-    if (watchlist.item_source === "weav3r") {
-      const data = await fetchWeav3rJson(`/marketplace/${itemId}`);
-      rows.push(...buildWeav3rRows(watchlist, itemId, data, null));
-    } else if (watchlist.item_source === "weav3r_verified") {
+    if (watchlist.item_source === "weav3r_verified") {
       const [weav3rData, tornData] = await Promise.all([
         fetchWeav3rJson(`/marketplace/${itemId}`),
         fetchTornJson(`/market/${itemId}/itemmarket`, tornKey, { limit: "20", offset: "0" }),
@@ -608,7 +618,12 @@ async function readUpstreamJson(response: Response): Promise<any> {
 }
 
 async function readWatchlistPayload(request: Request): Promise<
-  | { payload: Omit<TradeWatchlist, "id" | "created_at" | "updated_at" | "latest_snapshot"> }
+  | {
+    payload: Omit<
+      TradeWatchlist,
+      "id" | "created_by_torn_user_id" | "created_by_name" | "created_at" | "updated_at" | "latest_snapshot"
+    >;
+  }
   | { response: Response }
 > {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -671,6 +686,21 @@ async function readTradeWatchlist(env: Env, id: number): Promise<TradeWatchlist 
     latest_error: snapshot?.error ?? null,
     latest_opportunity_count: snapshot?.opportunity_count ?? null,
   });
+}
+
+async function readHomeMemberName(env: Env, tornUserId: number): Promise<string | null> {
+  const row = await env.DB.prepare(
+    `
+    SELECT name
+    FROM home_faction_members
+    WHERE member_id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(tornUserId)
+    .first<{ name: string | null }>();
+
+  return row?.name ?? null;
 }
 
 async function latestSnapshotForWatchlist(env: Env, watchlistId: number): Promise<TradeSnapshotSummary | null> {
@@ -822,6 +852,10 @@ function mapTradeWatchlistRow(row: TradeWatchlistListRow): TradeWatchlist {
     min_roi_percent: Number(row.min_roi_percent),
     min_quantity: Number(row.min_quantity),
     market_fee_percent: Number(row.market_fee_percent),
+    created_by_torn_user_id: row.created_by_torn_user_id === null || row.created_by_torn_user_id === undefined
+      ? null
+      : Number(row.created_by_torn_user_id),
+    created_by_name: row.created_by_name ?? null,
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
     latest_snapshot: row.latest_snapshot_id
@@ -861,7 +895,10 @@ function parseStoredItemIds(value: string): number[] {
 }
 
 function normalizeItemSource(value: unknown): TradeItemSource | null {
-  if (value === "weav3r" || value === "weav3r_verified" || value === "torn") {
+  if (value === "weav3r") {
+    return "weav3r_verified";
+  }
+  if (value === "weav3r_verified" || value === "torn") {
     return value;
   }
   return null;

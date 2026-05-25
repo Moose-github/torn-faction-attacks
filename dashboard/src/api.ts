@@ -780,7 +780,7 @@ export type MonitorTicketResponse = {
   expires_at: number;
 };
 
-export type TradeItemSource = "weav3r" | "weav3r_verified" | "torn";
+export type TradeItemSource = "weav3r_verified" | "torn";
 
 export type TradeSnapshotSummary = {
   id: string;
@@ -800,6 +800,8 @@ export type TradeWatchlist = {
   min_roi_percent: number;
   min_quantity: number;
   market_fee_percent: number;
+  created_by_torn_user_id: number | null;
+  created_by_name: string | null;
   created_at: number;
   updated_at: number;
   latest_snapshot: TradeSnapshotSummary | null;

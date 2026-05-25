@@ -223,7 +223,13 @@ async function routeTradeApi(routeContext: RouteContext): Promise<RouteResult> {
   }
 
   if (matchesRoute(url, request, "/api/trade/watchlists", "POST")) {
-    return withAdmin(routeContext, () => createTradeWatchlist(request, env));
+    return withMember(routeContext, async () =>
+      createTradeWatchlist(
+        request,
+        env,
+        await readAuthenticatedUserId(request, env),
+      ),
+    );
   }
 
   const watchlistId = tradeWatchlistIdFromPath(url.pathname);
