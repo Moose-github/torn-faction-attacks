@@ -4,6 +4,7 @@ import { refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
 import { refreshTornShoplifting } from "./miscellaneous";
 import { refreshTornStockHistoryBatch } from "./stockMarket";
+import { runLiveStockPaperBotTick } from "./stockPaperTrading";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { Env, TornFactionMember } from "./types";
 
@@ -57,9 +58,9 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     label: "Cron Torn stock history",
     cadence: "15m alternating batches",
     category: "stocks",
-    purpose: "Refresh half of the Torn stock history endpoints so each stock gets one-minute history every 30 minutes.",
+    purpose: "Refresh Torn stock history, then let the live paper bot evaluate the freshest snapshots.",
     shouldRun: (minute) => minute % 15 === 0,
-    run: (env, scheduledTime) => refreshTornStockHistoryBatch(env, scheduledTime),
+    run: (env, scheduledTime) => runStockHistoryAndPaperBot(env, scheduledTime),
   },
   {
     label: "Cron enemy scouting tick",
@@ -113,4 +114,9 @@ async function runEnemyTrackingAndMaintenance(env: Env, scheduledTime: number): 
   }
 
   await runScheduledMaintenance(env, { prefetchedHeatmapMembersByFaction });
+}
+
+async function runStockHistoryAndPaperBot(env: Env, scheduledTime: number): Promise<void> {
+  await refreshTornStockHistoryBatch(env, scheduledTime);
+  await runLiveStockPaperBotTick(env, scheduledTime);
 }

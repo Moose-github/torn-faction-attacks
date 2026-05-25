@@ -573,6 +573,149 @@ export type StockIngestionStatusResponse = {
   last_error: string | null;
 };
 
+export type StockPaperAccount = {
+  id: string;
+  name: string;
+  mode: string;
+  status: string;
+  strategy_key: string;
+  starting_cash: number;
+  cash_balance: number;
+  realized_pnl: number;
+  buy_fee_rate: number;
+  sell_fee_rate: number;
+  max_open_positions: number;
+  max_position_fraction: number;
+  min_cash_reserve_fraction: number;
+  last_decision_at: number | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type StockPaperPosition = {
+  account_id: string;
+  stock_id: number;
+  shares: number;
+  average_entry_price: number;
+  opened_at: number;
+  updated_at: number;
+  acronym: string | null;
+  name: string | null;
+  latest_price: number | null;
+  market_value: number;
+  unrealized_pnl: number;
+};
+
+export type StockPaperTrade = {
+  id: string;
+  account_id: string | null;
+  simulation_run_id: string | null;
+  stock_id: number;
+  acronym: string | null;
+  name: string | null;
+  side: "buy" | "sell";
+  shares: number;
+  price: number;
+  gross_value: number;
+  fee: number;
+  net_value: number;
+  realized_pnl: number | null;
+  executed_at: number;
+  reason: string;
+  score: number | null;
+};
+
+export type StockPaperEquitySnapshot = {
+  id: string;
+  account_id: string | null;
+  simulation_run_id: string | null;
+  observed_at: number;
+  cash_balance: number;
+  holdings_value: number;
+  total_equity: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  exposure_fraction: number;
+  created_at: number;
+};
+
+export type StockPaperSimulationRun = {
+  id: string;
+  strategy_key: string;
+  started_at: number;
+  finished_at: number | null;
+  simulation_start_at: number | null;
+  simulation_end_at: number | null;
+  status: string;
+  starting_cash: number;
+  final_equity: number | null;
+  return_percent: number | null;
+  max_drawdown_percent: number | null;
+  trade_count: number;
+  win_trade_count: number;
+  buy_fee_rate: number;
+  sell_fee_rate: number;
+  config_json: string | null;
+  error: string | null;
+};
+
+export type StockPaperSignal = {
+  stock_id: number;
+  acronym: string | null;
+  name: string | null;
+  observed_at: number;
+  price: number;
+  score: number;
+  expected_return: number;
+  rank: number;
+};
+
+export type StockPaperStatusResponse = {
+  ok: boolean;
+  account: StockPaperAccount | null;
+  positions: StockPaperPosition[];
+  latest_equity: StockPaperEquitySnapshot | null;
+  recent_trades: StockPaperTrade[];
+  latest_simulation: StockPaperSimulationRun | null;
+  latest_simulation_trades: StockPaperTrade[];
+  latest_signals: StockPaperSignal[];
+  defaults: {
+    starting_cash: number;
+    buy_fee_rate: number;
+    sell_fee_rate: number;
+    max_open_positions: number;
+    max_position_fraction: number;
+    min_cash_reserve_fraction: number;
+  };
+};
+
+export type StockPaperSimulationResponse = {
+  ok: boolean;
+  run: StockPaperSimulationRun;
+  trades: StockPaperTrade[];
+  equity: StockPaperEquitySnapshot[];
+  latest_signals: StockPaperSignal[];
+};
+
+export type StockSnapshotExportRow = {
+  stock_id: number;
+  observed_at: number;
+  price: number;
+};
+
+export type StockSnapshotExportResponse = {
+  ok: boolean;
+  snapshots: StockSnapshotExportRow[];
+  range: {
+    start_at: number;
+    end_at: number;
+  };
+  next_cursor: {
+    after_at: number;
+    after_stock_id: number;
+  } | null;
+};
+
 export type MemberLifestyleStats = {
   member_id: number;
   member_name: string | null;
@@ -1094,6 +1237,40 @@ export async function getLatestMaintenanceRun(): Promise<MaintenanceRunResponse>
 
 export async function getStockIngestionStatus(): Promise<StockIngestionStatusResponse> {
   return getJson<StockIngestionStatusResponse>("/api/admin/stocks/ingestion-status", true);
+}
+
+export async function getStockPaperStatus(): Promise<StockPaperStatusResponse> {
+  return getJson<StockPaperStatusResponse>("/api/admin/stocks/paper/status", true);
+}
+
+export async function simulateStockPaperBot(): Promise<StockPaperSimulationResponse> {
+  return postJson<StockPaperSimulationResponse>("/api/admin/stocks/paper/simulate");
+}
+
+export async function resetStockPaperAccount(): Promise<StockPaperStatusResponse> {
+  await postJson("/api/admin/stocks/paper/reset");
+  return getStockPaperStatus();
+}
+
+export async function exportStockSnapshots(options: {
+  startAt: number;
+  endAt: number;
+  afterAt?: number;
+  afterStockId?: number;
+  limit?: number;
+}): Promise<StockSnapshotExportResponse> {
+  const params = new URLSearchParams({
+    start_at: String(options.startAt),
+    end_at: String(options.endAt),
+    limit: String(options.limit ?? 20_000),
+  });
+  if (options.afterAt !== undefined) {
+    params.set("after_at", String(options.afterAt));
+  }
+  if (options.afterStockId !== undefined) {
+    params.set("after_stock_id", String(options.afterStockId));
+  }
+  return getJson<StockSnapshotExportResponse>(`/api/admin/stocks/export-snapshots?${params.toString()}`, true);
 }
 
 export async function listAdminUsers(): Promise<unknown> {

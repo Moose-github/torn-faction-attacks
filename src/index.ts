@@ -63,6 +63,14 @@ import {
   getStockIngestionStatus,
   getStocks,
 } from "./stockMarket";
+import {
+  exportStockSnapshots,
+  getStockPaperSimulations,
+  getStockPaperStatus,
+  getStockPaperTrades,
+  resetStockPaperAccount,
+  simulateStockPaperBotFromRequest,
+} from "./stockPaperTrading";
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { createMemberSuggestion, listMemberSuggestionsForAdmin } from "./suggestions";
@@ -188,6 +196,34 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 
   if (matchesExactRoute(url, request, "/api/admin/stocks/ingestion-status", "GET")) {
     return withAdmin(routeContext, () => getStockIngestionStatus(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/stocks/paper/status", "GET")) {
+    return withAdmin(routeContext, () => getStockPaperStatus(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/stocks/export-snapshots", "GET")) {
+    return withAdmin(routeContext, () => exportStockSnapshots(url, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/stocks/paper/simulate", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "stock_paper_simulation", 60 * 60);
+      if (cooldownError) return cooldownError;
+      return simulateStockPaperBotFromRequest(request, env);
+    });
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/stocks/paper/simulations", "GET")) {
+    return withAdmin(routeContext, () => getStockPaperSimulations(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/stocks/paper/trades", "GET")) {
+    return withAdmin(routeContext, () => getStockPaperTrades(url, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/stocks/paper/reset", "POST")) {
+    return withAdmin(routeContext, () => resetStockPaperAccount(env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/users", "GET")) {

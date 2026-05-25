@@ -329,6 +329,65 @@ h2 {
   grid-template-columns: repeat(3, minmax(160px, 1fr));
 }
 
+.stock-market-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 16px;
+  padding: 6px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
+  background: var(--panel-muted-bg);
+}
+
+.stock-market-tab {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.stock-market-tab:hover {
+  border-color: var(--border-solid);
+  color: var(--accent-strong);
+}
+
+.stock-market-tab.active {
+  border-color: var(--border-solid);
+  background: var(--panel-bg-solid);
+  color: var(--accent-strong);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.stock-backtest-intro .panel-description {
+  max-width: 860px;
+}
+
+.stock-backtest-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) repeat(4, minmax(160px, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.stock-backtest-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.stock-backtest-controls input {
+  width: 100%;
+}
+
 .dashboard-home-header {
   align-items: flex-start;
 }
@@ -3734,6 +3793,22 @@ h2 {
   color: #fff;
 }
 
+.panel-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.panel-action-button.secondary {
+  background: var(--panel-muted-bg);
+  color: var(--text-muted);
+}
+
+.paper-status-grid {
+  margin-bottom: 14px;
+}
+
 .spinning-icon {
   animation: spin 900ms linear infinite;
 }
@@ -5303,6 +5378,7 @@ tbody tr:not(.attack-row):hover td {
   .trade-scout-layout,
   .trade-scout-summary-grid,
   .trade-scout-form,
+  .stock-backtest-controls,
   .dashboard-layout {
     grid-template-columns: 1fr;
   }
