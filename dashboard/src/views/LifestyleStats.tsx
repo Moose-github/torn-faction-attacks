@@ -66,7 +66,7 @@ const LifestyleDailyChart = React.lazy(() =>
   import("../components/LifestyleDailyChart").then((module) => ({ default: module.LifestyleDailyChart })),
 );
 
-export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
+export function LifestyleStats({ currentUserId, isAdmin }: { currentUserId: number | null; isAdmin: boolean }) {
   const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getMemberLifestyleStats>> | null>(null);
   const [sort, setSort] = React.useState<LifestyleSort>({ key: "average_xantaken", direction: "desc" });
   const [period, setPeriod] = React.useState(() => currentMonthPeriod());
@@ -130,9 +130,9 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
 
-    setSelectedChartMemberIds(members.slice(0, DAILY_CHART_MEMBER_LIMIT).map((member) => member.member_id));
+    setSelectedChartMemberIds(defaultChartMemberIds(members, currentUserId));
     setChartDefaultsApplied(true);
-  }, [chartDefaultsApplied, chartExpanded, members]);
+  }, [chartDefaultsApplied, chartExpanded, currentUserId, members]);
 
   React.useEffect(() => {
     if (!chartExpanded || selectedChartMemberIds.length === 0) {
@@ -584,6 +584,24 @@ function sortLifestyleMembers(
 
     return (Number(leftValue) - Number(rightValue)) * direction;
   });
+}
+
+function defaultChartMemberIds(members: MemberLifestyleStats[], currentUserId: number | null): number[] {
+  const selected: number[] = [];
+  if (currentUserId !== null && members.some((member) => member.member_id === currentUserId)) {
+    selected.push(currentUserId);
+  }
+
+  for (const member of members) {
+    if (selected.length >= DAILY_CHART_MEMBER_LIMIT) {
+      break;
+    }
+    if (!selected.includes(member.member_id)) {
+      selected.push(member.member_id);
+    }
+  }
+
+  return selected;
 }
 
 function cell(value: number | null): string {

@@ -13,7 +13,7 @@ import {
   MemberLifestyleDailyMetric,
 } from "../api";
 import { EmptyState } from "./Common";
-import { formatNumber } from "../utils/format";
+import { formatNetworth, formatNumber } from "../utils/format";
 
 const CHART_COLORS = ["#2563eb", "#16a34a", "#dc2626", "#9333ea", "#f97316"];
 
@@ -69,7 +69,7 @@ export function LifestyleDailyChart({
             tick={{ fill: "var(--chart-axis)" }}
           />
           <YAxis
-            tickFormatter={(value) => formatNumber(Number(value))}
+            tickFormatter={(value) => formatChartValue(metric, Number(value))}
             tickLine={false}
             axisLine={false}
             width={58}
@@ -77,7 +77,7 @@ export function LifestyleDailyChart({
           />
           <Tooltip
             formatter={(value, name) => [
-              value === null ? "-" : formatNumber(Number(value)),
+              value === null ? "-" : formatChartValue(metric, Number(value)),
               name,
             ]}
             labelFormatter={(label) => `${label} | ${METRIC_UNITS[metric]}`}
@@ -131,6 +131,10 @@ function buildChartRows(series: MemberLifestyleDailyChartSeries[]): ChartRow[] {
 
 function seriesKey(memberId: number): string {
   return `member_${memberId}`;
+}
+
+function formatChartValue(metric: MemberLifestyleDailyMetric, value: number): string {
+  return metric === "networth" ? formatNetworth(value) : formatNumber(value);
 }
 
 function formatShortDate(date: string): string {

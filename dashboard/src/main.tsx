@@ -734,7 +734,7 @@ function App() {
             </LazyPage>
           ) : view === "lifestyle" ? (
             <LazyPage>
-              <LifestyleStats isAdmin={isAdmin} />
+              <LifestyleStats currentUserId={authSession.user.id} isAdmin={isAdmin} />
             </LazyPage>
           ) : view === "miscellaneous" ? (
             <LazyPage>
