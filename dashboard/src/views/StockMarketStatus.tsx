@@ -616,6 +616,7 @@ function StockTradesTable({ trades }: { trades: StockPaperStatusResponse["recent
             <th>Stock</th>
             <th>Shares</th>
             <th>Price</th>
+            <th>Value</th>
             <th>Fee</th>
             <th>P/L</th>
           </tr>
@@ -628,6 +629,7 @@ function StockTradesTable({ trades }: { trades: StockPaperStatusResponse["recent
               <td>{stockLabel(trade)}</td>
               <td>{formatNumber(trade.shares)}</td>
               <td>{formatMoney(trade.price)}</td>
+              <td>{formatMoney(trade.gross_value)}</td>
               <td>{formatMoney(trade.fee)}</td>
               <td>{trade.realized_pnl === null ? "-" : formatMoney(trade.realized_pnl)}</td>
             </tr>
