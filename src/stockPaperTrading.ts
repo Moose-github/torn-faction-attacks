@@ -138,7 +138,7 @@ type SimulationRun = {
 };
 
 const LIVE_ACCOUNT_ID = "stock-paper-live";
-const DEFAULT_STRATEGY_KEY = "momentum-relative-v1";
+const DEFAULT_STRATEGY_KEY = "momentum-relative-v2";
 const DEFAULT_STARTING_CASH = 1_000_000_000;
 const DEFAULT_BUY_FEE_RATE = 0;
 const DEFAULT_SELL_FEE_RATE = 0.001;
@@ -150,6 +150,9 @@ const LOOKBACK_SECONDS = 6 * 60 * 60;
 const DEFAULT_SIMULATION_SECONDS = 24 * 60 * 60;
 const MAX_SIMULATION_SECONDS = 24 * 60 * 60;
 const FRESH_SNAPSHOT_SECONDS = 45 * 60;
+const MIN_POSITION_HOLD_SECONDS = 60 * 60;
+const EXIT_RANK_THRESHOLD = 10;
+const MIN_NET_EXIT_RETURN = 0;
 
 const DEFAULT_CONFIG: StrategyConfig = {
   strategy_key: DEFAULT_STRATEGY_KEY,
@@ -456,8 +459,9 @@ function applyPaperDecision(options: {
     if (!price) {
       continue;
     }
-    if (!targetIds.has(position.stock_id) || !signal || signal.expected_return <= config.sell_fee_rate) {
-      trades.push(sellShares(state, position, position.shares, price, observedAt, "signal_exit", signal, config, accountId, simulationRunId, createdAt));
+    const exit = shouldExitPosition(position, signal, targetIds, price, observedAt, config);
+    if (exit.shouldExit) {
+      trades.push(sellShares(state, position, position.shares, price, observedAt, exit.reason, signal, config, accountId, simulationRunId, createdAt));
     }
   }
 
@@ -508,6 +512,46 @@ function applyPaperDecision(options: {
     snapshot: buildEquitySnapshot(state, prices, observedAt, accountId, simulationRunId, createdAt),
     signals,
   };
+}
+
+function shouldExitPosition(
+  position: PaperPosition,
+  signal: StockSignal | undefined,
+  targetIds: Set<number>,
+  price: number,
+  observedAt: number,
+  config: StrategyConfig,
+): { shouldExit: boolean; reason: string } {
+  if (targetIds.has(position.stock_id) && signal && signal.expected_return > config.sell_fee_rate) {
+    return { shouldExit: false, reason: "hold_target" };
+  }
+
+  const holdSeconds = observedAt - position.opened_at;
+  if (holdSeconds < MIN_POSITION_HOLD_SECONDS) {
+    return { shouldExit: false, reason: "min_hold" };
+  }
+
+  const netReturn = netReturnIfSold(position, price, config.sell_fee_rate);
+  if (netReturn >= MIN_NET_EXIT_RETURN) {
+    return { shouldExit: true, reason: "fee_covered_exit" };
+  }
+
+  const severeSignalDeterioration =
+    !signal ||
+    signal.expected_return <= -config.sell_fee_rate ||
+    signal.rank > EXIT_RANK_THRESHOLD;
+  if (severeSignalDeterioration) {
+    return { shouldExit: true, reason: "severe_signal_exit" };
+  }
+
+  return { shouldExit: false, reason: "hold_fee_buffer" };
+}
+
+function netReturnIfSold(position: PaperPosition, price: number, sellFeeRate: number): number {
+  const netSellPrice = price * (1 - sellFeeRate);
+  return position.average_entry_price > 0
+    ? netSellPrice / position.average_entry_price - 1
+    : 0;
 }
 
 function buyShares(

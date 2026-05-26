@@ -12,6 +12,7 @@ type Position = {
   stock_id: number;
   shares: number;
   average_entry_price: number;
+  opened_at: number;
 };
 
 type Signal = {
@@ -19,6 +20,7 @@ type Signal = {
   price: number;
   score: number;
   expected_return: number;
+  rank: number;
 };
 
 const BUY_FEE_RATE = 0;
@@ -28,6 +30,9 @@ const LOOKBACK_SECONDS = 6 * 60 * 60;
 const MAX_OPEN_POSITIONS = 5;
 const MAX_POSITION_FRACTION = 0.25;
 const MIN_CASH_RESERVE_FRACTION = 0.05;
+const MIN_POSITION_HOLD_SECONDS = 60 * 60;
+const EXIT_RANK_THRESHOLD = 10;
+const MIN_NET_EXIT_RETURN = 0;
 
 self.onmessage = (event: MessageEvent<BacktestRequest>) => {
   if (event.data.type !== "run") {
@@ -73,8 +78,9 @@ function runBacktest({ snapshots, startAt, endAt, startingCash }: BacktestReques
       const price = prices.get(position.stock_id);
       const signal = signalByStock.get(position.stock_id);
       if (!price) continue;
-      if (!targetIds.has(position.stock_id) || !signal || signal.expected_return <= SELL_FEE_RATE) {
-        const trade = sell(position, position.shares, price, decisionAt, "signal_exit");
+      const exit = shouldExit(position, signal, targetIds, price, decisionAt);
+      if (exit.shouldExit) {
+        const trade = sell(position, position.shares, price, decisionAt, exit.reason);
         trades.push(trade);
         cash += trade.shares * trade.price - trade.fee;
         realizedPnl += trade.realized_pnl ?? 0;
@@ -109,6 +115,7 @@ function runBacktest({ snapshots, startAt, endAt, startingCash }: BacktestReques
           stock_id: signal.stock_id,
           shares,
           average_entry_price: price,
+          opened_at: decisionAt,
         });
       }
       trades.push({ stock_id: signal.stock_id, side: "buy", shares, price, fee, realized_pnl: null, executed_at: decisionAt, reason: "target_entry" });
@@ -150,7 +157,7 @@ function groupSnapshots(snapshots: StockSnapshotExportRow[]): Map<number, StockS
 }
 
 function rankSignals(byStock: Map<number, StockSnapshotExportRow[]>, observedAt: number): Signal[] {
-  const rawSignals: Signal[] = [];
+  const rawSignals: Array<Omit<Signal, "rank">> = [];
   byStock.forEach((points, stockId) => {
     const current = priceAt(points, observedAt);
     const p30 = priceAt(points, observedAt - 30 * 60);
@@ -169,7 +176,8 @@ function rankSignals(byStock: Map<number, StockSnapshotExportRow[]>, observedAt:
   const averageScore = rawSignals.reduce((total, signal) => total + signal.score, 0) / Math.max(1, rawSignals.length);
   return rawSignals
     .map((signal) => ({ ...signal, expected_return: signal.score - averageScore - SELL_FEE_RATE }))
-    .sort((a, b) => b.expected_return - a.expected_return);
+    .sort((a, b) => b.expected_return - a.expected_return)
+    .map((signal, index) => ({ ...signal, rank: index + 1 }));
 }
 
 function latestPrices(byStock: Map<number, StockSnapshotExportRow[]>, observedAt: number): Map<number, number> {
@@ -203,6 +211,43 @@ function holdingsValue(positions: Map<number, Position>, prices: Map<number, num
     total += position.shares * (prices.get(position.stock_id) ?? 0);
   });
   return total;
+}
+
+function shouldExit(
+  position: Position,
+  signal: Signal | undefined,
+  targetIds: Set<number>,
+  price: number,
+  observedAt: number,
+): { shouldExit: boolean; reason: string } {
+  if (targetIds.has(position.stock_id) && signal && signal.expected_return > SELL_FEE_RATE) {
+    return { shouldExit: false, reason: "hold_target" };
+  }
+
+  if (observedAt - position.opened_at < MIN_POSITION_HOLD_SECONDS) {
+    return { shouldExit: false, reason: "min_hold" };
+  }
+
+  if (netReturnIfSold(position, price) >= MIN_NET_EXIT_RETURN) {
+    return { shouldExit: true, reason: "fee_covered_exit" };
+  }
+
+  const severeSignalDeterioration =
+    !signal ||
+    signal.expected_return <= -SELL_FEE_RATE ||
+    signal.rank > EXIT_RANK_THRESHOLD;
+  if (severeSignalDeterioration) {
+    return { shouldExit: true, reason: "severe_signal_exit" };
+  }
+
+  return { shouldExit: false, reason: "hold_fee_buffer" };
+}
+
+function netReturnIfSold(position: Position, price: number): number {
+  const netSellPrice = price * (1 - SELL_FEE_RATE);
+  return position.average_entry_price > 0
+    ? netSellPrice / position.average_entry_price - 1
+    : 0;
 }
 
 function sell(position: Position, shares: number, price: number, executedAt: number, reason: string) {
