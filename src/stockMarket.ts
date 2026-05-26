@@ -682,7 +682,7 @@ function normalizeStockMarketSnapshot(
   }
 
   const stockId = getPositiveInteger(value, ["id", "stock_id", "stockId"]) ?? fallbackId;
-  const price = priceFromValue(value);
+  const price = stockPriceFromValue(value);
   if (!stockId || price === null || price <= 0) {
     return null;
   }
@@ -691,9 +691,9 @@ function normalizeStockMarketSnapshot(
     stock_id: stockId,
     observed_at: observedAt,
     price,
-    market_cap: marketCapFromValue(value),
-    total_shares: finiteInteger(value.total_shares ?? value.totalShares),
-    investors: finiteInteger(value.investors ?? value.investor_count ?? value.investorCount),
+    market_cap: stockMarketCapFromValue(value),
+    total_shares: stockTotalSharesFromValue(value),
+    investors: stockInvestorsFromValue(value),
     raw_json: null,
     fetched_at: fetchedAt,
   };
@@ -728,14 +728,16 @@ function normalizeStockProfile(value: unknown, fallbackId: number | null, fetche
     return null;
   }
 
-  const benefit = isRecord(value.benefit) || Array.isArray(value.benefit) ? value.benefit : null;
+  const benefit = isRecord(value.benefit) || Array.isArray(value.benefit)
+    ? value.benefit
+    : (isRecord(value.bonus) || Array.isArray(value.bonus) ? value.bonus : null);
   return {
     stock_id: stockId,
     acronym: cleanString(value.acronym ?? value.ticker ?? value.symbol),
     name: cleanString(value.name),
-    current_price: finiteNumber(value.current_price ?? value.currentPrice ?? value.price),
-    market_cap: finiteInteger(value.market_cap ?? value.marketCap),
-    total_shares: finiteInteger(value.total_shares ?? value.totalShares),
+    current_price: stockPriceFromValue(value),
+    market_cap: stockMarketCapFromValue(value),
+    total_shares: stockTotalSharesFromValue(value),
     available_shares: finiteInteger(value.available_shares ?? value.availableShares),
     forecast: cleanString(value.forecast),
     demand: cleanString(value.demand),
@@ -806,9 +808,9 @@ function collectStockSnapshots(
       stockId,
       timestamp,
       price,
-      marketCapFromValue(value),
-      finiteInteger(value.total_shares ?? value.totalShares),
-      finiteInteger(value.investors ?? value.investor_count ?? value.investorCount),
+      stockMarketCapFromValue(value),
+      stockTotalSharesFromValue(value),
+      stockInvestorsFromValue(value),
       value,
       fetchedAt,
       byTimestamp,
@@ -903,8 +905,44 @@ function priceFromValue(value: Record<string, unknown>): number | null {
   );
 }
 
-function marketCapFromValue(value: Record<string, unknown>): number | null {
-  return finiteInteger(value.market_cap ?? value.marketCap ?? value.marketcap);
+function stockPriceFromValue(value: Record<string, unknown>): number | null {
+  const market = isRecord(value.market) ? value.market : null;
+  return priceFromValue(market ?? value) ?? priceFromValue(value);
+}
+
+function stockMarketCapFromValue(value: Record<string, unknown>): number | null {
+  const market = isRecord(value.market) ? value.market : null;
+  return finiteInteger(
+    value.market_cap ??
+      value.marketCap ??
+      value.marketcap ??
+      market?.cap ??
+      market?.market_cap ??
+      market?.marketCap,
+  );
+}
+
+function stockTotalSharesFromValue(value: Record<string, unknown>): number | null {
+  const market = isRecord(value.market) ? value.market : null;
+  return finiteInteger(
+    value.total_shares ??
+      value.totalShares ??
+      market?.shares ??
+      market?.total_shares ??
+      market?.totalShares,
+  );
+}
+
+function stockInvestorsFromValue(value: Record<string, unknown>): number | null {
+  const market = isRecord(value.market) ? value.market : null;
+  return finiteInteger(
+    value.investors ??
+      value.investor_count ??
+      value.investorCount ??
+      market?.investors ??
+      market?.investor_count ??
+      market?.investorCount,
+  );
 }
 
 function minuteFromScheduledTime(scheduledTime: number): number {
