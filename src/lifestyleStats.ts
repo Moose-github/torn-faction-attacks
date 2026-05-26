@@ -6,8 +6,9 @@ import { refreshMemberAchievementSummaries } from "./memberAchievements";
 import { fetchTornPersonalStats } from "./personalStats";
 import { claimDailyBatchGate } from "./scheduledGates";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
+import { trackedTornFetch } from "./tornApiUsage";
 import { Env, TornFactionMember } from "./types";
-import { boolToInt, fetchWithTimeout, finiteNumber, json, nowSeconds } from "./utils";
+import { boolToInt, finiteNumber, json, nowSeconds } from "./utils";
 
 const LIFESTYLE_STAT_KEYS = [
   "xantaken",
@@ -788,12 +789,16 @@ async function fetchFactionContributorStat(
   const url = new URL(`${TORN_FACTION_API_BASE_URL}/contributors`);
   url.searchParams.set("stat", stat);
 
-  const response = await fetchWithTimeout(url.toString(), {
+  const response = await trackedTornFetch(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
     },
-  }, LIFESTYLE_FETCH_TIMEOUT_MS);
+  }, {
+    feature: "lifestyle:contributors",
+    keySource: "env:TORN_API_KEY",
+    timeoutMs: LIFESTYLE_FETCH_TIMEOUT_MS,
+  });
 
   if (!response.ok) {
     throw new Error(`Torn faction contributors API error for ${stat}: ${response.status}`);

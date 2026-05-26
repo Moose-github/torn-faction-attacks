@@ -1,4 +1,5 @@
 import { Env } from "./types";
+import { trackedTornFetch } from "./tornApiUsage";
 import { fetchWithTimeout, json, nowSeconds } from "./utils";
 
 type TradeItemSource = "weav3r_verified" | "torn";
@@ -449,7 +450,7 @@ export async function scanTradeWatchlist(
   const scannedAt = nowSeconds();
 
   try {
-    const opportunities = await scanWatchlistItems(watchlist, tornKey);
+    const opportunities = await scanWatchlistItems(env, watchlist, tornKey);
     await saveScanSnapshot(env, {
       snapshotId,
       watchlist,
@@ -487,18 +488,18 @@ export async function scanTradeWatchlist(
   }
 }
 
-async function scanWatchlistItems(watchlist: TradeWatchlist, tornKey: string): Promise<TradeOpportunity[]> {
+async function scanWatchlistItems(env: Env, watchlist: TradeWatchlist, tornKey: string): Promise<TradeOpportunity[]> {
   const rows: TradeOpportunity[] = [];
 
   for (const itemId of watchlist.item_ids) {
     if (watchlist.item_source === "weav3r_verified") {
       const [weav3rData, tornData] = await Promise.all([
         fetchWeav3rJson(`/marketplace/${itemId}`),
-        fetchTornJson(`/market/${itemId}/itemmarket`, tornKey, { limit: "20", offset: "0" }),
+        fetchTornJson(env, `/market/${itemId}/itemmarket`, tornKey, { limit: "20", offset: "0" }),
       ]);
       rows.push(...buildWeav3rRows(watchlist, itemId, weav3rData, itemMarketReference(tornData)));
     } else {
-      const data = await fetchTornJson(`/market/${itemId}`, tornKey, { selections: "itemmarket,bazaar" });
+      const data = await fetchTornJson(env, `/market/${itemId}`, tornKey, { selections: "itemmarket,bazaar" });
       rows.push(...buildTornRows(watchlist, itemId, data));
     }
   }
@@ -602,7 +603,7 @@ async function scanAndSaveItems(
     const snapshotId = crypto.randomUUID();
     const scannedAt = nowSeconds();
     try {
-      const result = await scanItemOffers(itemId, input.itemSource, input.tornKey);
+      const result = await scanItemOffers(env, itemId, input.itemSource, input.tornKey);
       await saveItemSnapshot(env, {
         snapshotId,
         itemId,
@@ -633,6 +634,7 @@ async function scanAndSaveItems(
 }
 
 async function scanItemOffers(
+  env: Env,
   itemId: number,
   itemSource: TradeItemSource,
   tornKey: string,
@@ -640,7 +642,7 @@ async function scanItemOffers(
   if (itemSource === "weav3r_verified") {
     const [weav3rData, tornData] = await Promise.all([
       fetchWeav3rJson(`/marketplace/${itemId}`),
-      fetchTornJson(`/market/${itemId}/itemmarket`, tornKey, { limit: "20", offset: "0" }),
+      fetchTornJson(env, `/market/${itemId}/itemmarket`, tornKey, { limit: "20", offset: "0" }),
     ]);
     const itemName = cleanString(weav3rData?.item_name);
     return {
@@ -650,7 +652,7 @@ async function scanItemOffers(
     };
   }
 
-  const tornData = await fetchTornJson(`/market/${itemId}`, tornKey, { selections: "itemmarket,bazaar" });
+  const tornData = await fetchTornJson(env, `/market/${itemId}`, tornKey, { selections: "itemmarket,bazaar" });
   return {
     itemName: cleanString(tornData?.item?.name ?? tornData?.name),
     rawJson: JSON.stringify(tornData),
@@ -976,19 +978,23 @@ function resaleLabel(label: string, rawValue: number, adjustedValue: number): st
     : label;
 }
 
-async function fetchTornJson(endpoint: string, tornKey: string, params: Record<string, string> = {}): Promise<any> {
+async function fetchTornJson(env: Env, endpoint: string, tornKey: string, params: Record<string, string> = {}): Promise<any> {
   const url = new URL(`${TORN_API_BASE}${endpoint}`);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
 
-  const response = await fetchWithTimeout(url.toString(), {
+  const response = await trackedTornFetch(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${tornKey}`,
       "User-Agent": "buttgrass-trade-scout/1.0",
     },
-  }, REQUEST_TIMEOUT_MS);
+  }, {
+    feature: "trade-scout",
+    keySource: "member_supplied:trade_scout",
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  });
 
   const data = await readUpstreamJson(response);
   if (!response.ok) {

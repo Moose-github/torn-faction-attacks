@@ -540,6 +540,58 @@ export type MaintenanceRunResponse = {
   daily_stats_attention?: DailyStatsAttention;
 };
 
+export type TornApiUsageSummary = {
+  window_seconds: number;
+  requests: number;
+  errors: number;
+  rate_limited: number;
+  avg_duration_ms: number | null;
+  max_duration_ms?: number | null;
+  requests_per_minute?: number;
+};
+
+export type TornApiUsageFeature = {
+  feature: string;
+  requests: number;
+  errors: number;
+  rate_limited: number;
+  avg_duration_ms: number | null;
+  last_requested_at: number | null;
+};
+
+export type TornApiUsageEndpoint = {
+  endpoint: string;
+  requests: number;
+  errors: number;
+  rate_limited: number;
+  avg_duration_ms: number | null;
+  last_requested_at: number | null;
+};
+
+export type TornApiUsageCall = {
+  id: number;
+  requested_at: number;
+  feature: string;
+  key_source: string;
+  method: string;
+  endpoint: string;
+  status: number | null;
+  ok: boolean;
+  error: string | null;
+  duration_ms: number;
+  retry_attempt: number;
+};
+
+export type TornApiUsageResponse = {
+  ok: boolean;
+  window_seconds: number;
+  summary: TornApiUsageSummary;
+  windows: TornApiUsageSummary[];
+  by_feature: TornApiUsageFeature[];
+  by_endpoint: TornApiUsageEndpoint[];
+  recent_calls: TornApiUsageCall[];
+};
+
 export type StockIngestionRun = {
   id: string;
   batch_group: string;
@@ -1233,6 +1285,11 @@ export async function getLatestIngestionRun(): Promise<IngestionRunResponse> {
 
 export async function getLatestMaintenanceRun(): Promise<MaintenanceRunResponse> {
   return getJson<MaintenanceRunResponse>("/api/admin/maintenance-run", true);
+}
+
+export async function getTornApiUsage(windowSeconds = 60 * 60): Promise<TornApiUsageResponse> {
+  const params = new URLSearchParams({ window_seconds: String(windowSeconds) });
+  return getJson<TornApiUsageResponse>(`/api/admin/torn-api-usage?${params.toString()}`, true);
 }
 
 export async function getStockIngestionStatus(): Promise<StockIngestionStatusResponse> {

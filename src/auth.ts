@@ -3,6 +3,7 @@ import {
   HOME_FACTION_ID,
   TORN_KEY_INFO_API_URL,
 } from "./constants";
+import { trackedTornFetch } from "./tornApiUsage";
 import { Env } from "./types";
 import { json, nowSeconds } from "./utils";
 
@@ -39,7 +40,7 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
       return json({ ok: false, error: "Torn API key is required", code: "MISSING_TORN_KEY" }, 400);
     }
 
-    const keyInfo = await fetchTornKeyInfo(tornKey);
+    const keyInfo = await fetchTornKeyInfo(env, tornKey);
     const user = keyInfo.user;
 
     if (keyInfo.factionId !== HOME_FACTION_ID) {
@@ -317,11 +318,11 @@ function bearerToken(request: Request): string | null {
   return match?.[1]?.trim() || null;
 }
 
-async function fetchTornKeyInfo(tornKey: string): Promise<{
+async function fetchTornKeyInfo(env: Env, tornKey: string): Promise<{
   user: TornAuthUser;
   factionId: number | null;
 }> {
-  const data = await fetchTornJson(TORN_KEY_INFO_API_URL, tornKey);
+  const data = await fetchTornJson(env, TORN_KEY_INFO_API_URL, tornKey);
   const info = data.info ?? data;
   const userInfo = info.user ?? {};
   const accessInfo = info.access ?? {};
@@ -345,6 +346,7 @@ async function fetchTornKeyInfo(tornKey: string): Promise<{
 }
 
 async function fetchTornJson(
+  env: Env,
   baseUrl: string,
   tornKey: string,
   params: Record<string, string> = {},
@@ -353,11 +355,14 @@ async function fetchTornJson(
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
-  const response = await fetch(url.toString(), {
+  const response = await trackedTornFetch(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${tornKey}`,
     },
+  }, {
+    feature: "auth",
+    keySource: "member_supplied:auth",
   });
 
   if (!response.ok) {

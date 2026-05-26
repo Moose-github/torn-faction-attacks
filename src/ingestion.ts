@@ -25,6 +25,7 @@ import {
   TornRankedWarFaction,
   TornRankedWarResponse,
 } from "./types";
+import { trackedTornFetch } from "./tornApiUsage";
 import { boolToInt, d1Changes, json, normalizeAttacks, nowSeconds } from "./utils";
 import {
   applyTornOfficialWarEnd,
@@ -694,11 +695,14 @@ async function fetchAttacks(env: Env, from: number, to?: number): Promise<TornAt
   }
   url.searchParams.set("limit", String(LIMIT));
 
-  const response = await fetch(url.toString(), {
+  const response = await trackedTornFetch(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
     },
+  }, {
+    feature: "ingestion:attacks",
+    keySource: "env:TORN_API_KEY",
   });
 
   if (!response.ok) {
@@ -1114,11 +1118,14 @@ async function fetchLatestRankedWar(env: Env): Promise<TornRankedWar | null> {
   url.searchParams.set("limit", "1");
   url.searchParams.set("sort", "DESC");
 
-  const response = await fetch(url.toString(), {
+  const response = await trackedTornFetch(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
     },
+  }, {
+    feature: "ingestion:rankedwars",
+    keySource: "env:TORN_API_KEY",
   });
 
   if (!response.ok) {

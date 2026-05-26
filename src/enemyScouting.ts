@@ -23,6 +23,7 @@ import {
   isSyncLatchSet,
 } from "./syncLatches";
 import { hasSyncState, upsertSyncTimestamp } from "./syncState";
+import { trackedTornFetch } from "./tornApiUsage";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import {
   boolToInt,
@@ -1143,12 +1144,16 @@ export async function fetchTornFactionMembers(
   const url = new URL(`${TORN_FACTION_API_BASE_URL}/${factionId}/members`);
   url.searchParams.set("striptags", "false");
 
-  const response = await fetchWithTimeout(url.toString(), {
+  const response = await trackedTornFetch(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
     },
-  }, SCOUTING_FETCH_TIMEOUT_MS);
+  }, {
+    feature: "enemy-scouting:faction-members",
+    keySource: "env:TORN_API_KEY",
+    timeoutMs: SCOUTING_FETCH_TIMEOUT_MS,
+  });
 
   if (!response.ok) {
     throw new Error(`Torn faction members API error: ${response.status}`);

@@ -9,6 +9,7 @@ import {
   exportWarAttacksCsv,
   fetchTornWarReport,
   getLatestIngestionRun,
+  getTornApiUsage,
   getWars,
   getStoredAuthSession,
   grantAdminAccess,
@@ -27,10 +28,12 @@ import {
   runIngestion,
   sendDiscordMessage,
   updateOfficialWar,
+  TornApiUsageResponse,
   WarSummary,
   WarType,
 } from "../api";
 import { CollapsiblePanel, PanelHeader } from "../components/Common";
+import { formatNumber } from "../utils/format";
 
 export function AdminControls() {
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
@@ -91,6 +94,8 @@ export function AdminControls() {
   const [isRepairPanelCollapsed, setIsRepairPanelCollapsed] = React.useState(true);
   const [ingestionRun, setIngestionRun] = React.useState<IngestionRun | null>(null);
   const [isLoadingIngestionRun, setIsLoadingIngestionRun] = React.useState(false);
+  const [tornApiUsage, setTornApiUsage] = React.useState<TornApiUsageResponse | null>(null);
+  const [isLoadingTornApiUsage, setIsLoadingTornApiUsage] = React.useState(false);
   const adminTimeMode: AdminWarFormState["timeMode"] = useEpochTime ? "epoch" : "datetime";
 
   React.useEffect(() => {
@@ -224,6 +229,7 @@ export function AdminControls() {
     try {
       setResult(await action());
       await loadLatestIngestionRun();
+      await loadTornApiUsage();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -243,9 +249,21 @@ export function AdminControls() {
     }
   }
 
+  async function loadTornApiUsage() {
+    setIsLoadingTornApiUsage(true);
+    try {
+      setTornApiUsage(await getTornApiUsage());
+    } catch {
+      setTornApiUsage(null);
+    } finally {
+      setIsLoadingTornApiUsage(false);
+    }
+  }
+
   React.useEffect(() => {
     if (authSession?.access_level === "admin") {
       loadLatestIngestionRun();
+      loadTornApiUsage();
     }
   }, [authSession?.access_level]);
 
@@ -587,6 +605,66 @@ export function AdminControls() {
                 onClick={loadLatestIngestionRun}
               >
                 Refresh baseline
+              </button>
+            </section>
+
+            <section className="admin-tool-section admin-tool-section-wide">
+              <PanelHeader
+                title="Torn API usage"
+                aside={isLoadingTornApiUsage ? "Loading" : tornApiUsage ? "Last hour" : "No data"}
+              />
+              {tornApiUsage ? (
+                <>
+                  <div className="admin-metric-list">
+                    {tornApiUsage.windows.map((window) => (
+                      <MetricLine
+                        key={window.window_seconds}
+                        label={formatUsageWindow(window.window_seconds)}
+                        value={`${formatNumber(window.requests)} calls (${window.requests_per_minute ?? 0}/min)`}
+                      />
+                    ))}
+                    <MetricLine label="Errors in last hour" value={formatNumber(tornApiUsage.summary.errors)} />
+                    <MetricLine label="429s in last hour" value={formatNumber(tornApiUsage.summary.rate_limited)} />
+                    <MetricLine
+                      label="Average latency"
+                      value={tornApiUsage.summary.avg_duration_ms === null ? "-" : `${formatNumber(tornApiUsage.summary.avg_duration_ms)}ms`}
+                    />
+                  </div>
+                  {tornApiUsage.by_feature.length > 0 ? (
+                    <table className="stock-status-table">
+                      <thead>
+                        <tr>
+                          <th>Feature</th>
+                          <th>Calls</th>
+                          <th>Errors</th>
+                          <th>Last call</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tornApiUsage.by_feature.map((feature) => (
+                          <tr key={feature.feature}>
+                            <td>{feature.feature}</td>
+                            <td>{formatNumber(feature.requests)}</td>
+                            <td>{formatNumber(feature.errors)}</td>
+                            <td>{formatIngestionTime(feature.last_requested_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="panel-description">No Torn API calls have been recorded for the selected window.</p>
+                  )}
+                </>
+              ) : (
+                <p className="panel-description">Torn API usage starts recording after migration 0069 is applied.</p>
+              )}
+              <button
+                type="button"
+                className="admin-button"
+                disabled={isLoadingTornApiUsage}
+                onClick={loadTornApiUsage}
+              >
+                Refresh usage
               </button>
             </section>
 
@@ -1955,6 +2033,16 @@ function formatDuration(start: number | null, finish: number | null): string {
 
   const seconds = durationMs / 1000;
   return seconds < 60 ? `${seconds.toFixed(1)}s` : `${(seconds / 60).toFixed(1)}m`;
+}
+
+function formatUsageWindow(seconds: number): string {
+  if (seconds < 60 * 60) {
+    return `${Math.round(seconds / 60)}m`;
+  }
+  if (seconds < 24 * 60 * 60) {
+    return `${Math.round(seconds / (60 * 60))}h`;
+  }
+  return `${Math.round(seconds / (24 * 60 * 60))}d`;
 }
 
 function dateTimeLocalFromSeconds(timestamp: number): string {

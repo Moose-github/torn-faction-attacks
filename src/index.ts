@@ -74,6 +74,7 @@ import {
 import { rebuildDerivedStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { createMemberSuggestion, listMemberSuggestionsForAdmin } from "./suggestions";
+import { getTornApiUsage } from "./tornApiUsage";
 import {
   createTradeWatchlist,
   deleteTradeWatchlist,
@@ -192,6 +193,10 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 
   if (matchesExactRoute(url, request, "/api/admin/maintenance-run", "GET")) {
     return withAdmin(routeContext, () => getLatestMaintenanceRun(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/torn-api-usage", "GET")) {
+    return withAdmin(routeContext, () => getTornApiUsage(url, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/stocks/ingestion-status", "GET")) {

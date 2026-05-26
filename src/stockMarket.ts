@@ -1,6 +1,7 @@
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
+import { trackedTornFetch } from "./tornApiUsage";
 import { Env } from "./types";
-import { fetchWithTimeout, json, nowSeconds, parseLimit } from "./utils";
+import { json, nowSeconds, parseLimit } from "./utils";
 
 type StockProfile = {
   stock_id: number;
@@ -539,13 +540,17 @@ async function updateStockIngestionRun(env: Env, run: StockIngestionRun): Promis
 }
 
 async function fetchTornJson(endpoint: string, env: Env): Promise<unknown> {
-  const response = await fetchWithTimeout(`${TORN_API_BASE}${endpoint}`, {
+  const response = await trackedTornFetch(env, `${TORN_API_BASE}${endpoint}`, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
       "User-Agent": "buttgrass-stock-market/1.0",
     },
-  }, REQUEST_TIMEOUT_MS);
+  }, {
+    feature: "stock-market",
+    keySource: "env:TORN_API_KEY",
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  });
 
   const data = await readUpstreamJson(response);
   if (!response.ok) {

@@ -5,6 +5,7 @@ import {
   setSyncLatch,
 } from "./syncLatches";
 import { Env } from "./types";
+import { trackedTornFetch } from "./tornApiUsage";
 import { json, nowSeconds } from "./utils";
 
 const TORN_SHOPLIFTING_API_URL = "https://api.torn.com/v2/torn";
@@ -134,11 +135,14 @@ async function fetchTornShoplifting(env: Env): Promise<Record<string, TornShopli
   const url = new URL(TORN_SHOPLIFTING_API_URL);
   url.searchParams.set("selections", "shoplifting");
 
-  const response = await fetch(url.toString(), {
+  const response = await trackedTornFetch(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
     },
+  }, {
+    feature: "miscellaneous:shoplifting",
+    keySource: "env:TORN_API_KEY",
   });
 
   if (!response.ok) {

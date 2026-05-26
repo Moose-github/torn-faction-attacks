@@ -1,5 +1,6 @@
 import { Env } from "./types";
-import { fetchWithTimeout, finiteNumber } from "./utils";
+import { trackedTornFetch } from "./tornApiUsage";
+import { finiteNumber } from "./utils";
 
 const PERSONAL_STATS_API_BASE_URL = "https://api.torn.com/v2/user";
 const PERSONAL_STATS_FETCH_TIMEOUT_MS = 12000;
@@ -14,7 +15,7 @@ export async function fetchTornPersonalStats(
   const url = new URL(`${PERSONAL_STATS_API_BASE_URL}/${memberId}/personalstats`);
   url.searchParams.set("stat", statKeys.join(","));
 
-  const response = await fetchWithTransientRetry(url.toString(), {
+  const response = await fetchWithTransientRetry(env, url.toString(), {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
@@ -62,13 +63,18 @@ function extractPersonalStats(source: unknown): Record<string, number | null> {
   return stats;
 }
 
-async function fetchWithTransientRetry(input: string, init: RequestInit): Promise<Response> {
+async function fetchWithTransientRetry(env: Env, input: string, init: RequestInit): Promise<Response> {
   let lastResponse: Response | null = null;
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= PERSONAL_STATS_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
-      const response = await fetchWithTimeout(input, init, PERSONAL_STATS_FETCH_TIMEOUT_MS);
+      const response = await trackedTornFetch(env, input, init, {
+        feature: "personal-stats",
+        keySource: "env:TORN_API_KEY",
+        retryAttempt: attempt,
+        timeoutMs: PERSONAL_STATS_FETCH_TIMEOUT_MS,
+      });
       if (
         !TRANSIENT_TORN_STATUSES.has(response.status) ||
         attempt === PERSONAL_STATS_RETRY_DELAYS_MS.length
