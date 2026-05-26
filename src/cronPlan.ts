@@ -1,6 +1,6 @@
 import { runEnemyScoutingCronTick } from "./enemyScoutingCron";
 import { runIngestion } from "./ingestion";
-import { refreshDailyMemberLifestyleStats } from "./lifestyleStats";
+import { processMemberLifestyleRepairJobs, refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
 import { refreshTornShoplifting } from "./miscellaneous";
 import { refreshTornStockHistoryBatch, refreshTornStockMarketMinute } from "./stockMarket";
@@ -89,6 +89,14 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     purpose: "Fill daily lifestyle stat snapshots through the daily batch gate.",
     shouldRun: (minute) => minute % 5 !== 0,
     run: (env) => refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true }),
+  },
+  {
+    label: "Cron lifestyle repair",
+    cadence: "1m",
+    category: "daily",
+    purpose: "Process queued member lifestyle snapshot backfill and repair jobs using the API key pool.",
+    shouldRun: () => true,
+    run: (env) => processMemberLifestyleRepairJobs(env),
   },
 ];
 

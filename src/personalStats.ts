@@ -7,23 +7,57 @@ const PERSONAL_STATS_FETCH_TIMEOUT_MS = 12000;
 const PERSONAL_STATS_RETRY_DELAYS_MS = [750, 1500];
 const TRANSIENT_TORN_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
+export type TornPersonalStatValue = {
+  value: number | null;
+  timestamp: number | null;
+};
+
+export type TornPersonalStatsResponse = Record<string, TornPersonalStatValue>;
+
+export class TornPersonalStatsHttpError extends Error {
+  constructor(public readonly status: number) {
+    super(`Torn personalstats API error: ${status}`);
+  }
+}
+
 export async function fetchTornPersonalStats(
   env: Env,
   memberId: number,
   statKeys: readonly string[],
 ): Promise<Record<string, number | null>> {
+  const stats = await fetchTornPersonalStatsWithTimestamps(env, memberId, statKeys);
+  return Object.fromEntries(
+    Object.entries(stats).map(([key, stat]) => [key, stat.value]),
+  );
+}
+
+export async function fetchTornPersonalStatsWithTimestamps(
+  env: Env,
+  memberId: number,
+  statKeys: readonly string[],
+  options: {
+    timestamp?: number;
+    apiKey?: string;
+    keySource?: string;
+  } = {},
+): Promise<TornPersonalStatsResponse> {
   const url = new URL(`${PERSONAL_STATS_API_BASE_URL}/${memberId}/personalstats`);
   url.searchParams.set("stat", statKeys.join(","));
+  if (options.timestamp !== undefined) {
+    url.searchParams.set("timestamp", String(options.timestamp));
+  }
 
   const response = await fetchWithTransientRetry(env, url.toString(), {
     headers: {
       Accept: "application/json",
-      Authorization: `ApiKey ${env.TORN_API_KEY}`,
+      Authorization: `ApiKey ${options.apiKey ?? env.TORN_API_KEY}`,
     },
+  }, {
+    keySource: options.keySource ?? "env:TORN_API_KEY",
   });
 
   if (!response.ok) {
-    throw new Error(`Torn personalstats API error: ${response.status}`);
+    throw new TornPersonalStatsHttpError(response.status);
   }
 
   const data = (await response.json()) as any;
@@ -34,8 +68,8 @@ export async function fetchTornPersonalStats(
   return extractPersonalStats(data?.personalstats);
 }
 
-function extractPersonalStats(source: unknown): Record<string, number | null> {
-  const stats: Record<string, number | null> = {};
+function extractPersonalStats(source: unknown): TornPersonalStatsResponse {
+  const stats: TornPersonalStatsResponse = {};
   if (!source) {
     return stats;
   }
@@ -48,7 +82,10 @@ function extractPersonalStats(source: unknown): Record<string, number | null> {
 
       const name = String((item as { name?: unknown }).name ?? "");
       if (name) {
-        stats[name] = finiteNumber((item as { value?: unknown }).value);
+        stats[name] = {
+          value: finiteNumber((item as { value?: unknown }).value),
+          timestamp: finiteNumber((item as { timestamp?: unknown }).timestamp),
+        };
       }
     }
     return stats;
@@ -56,14 +93,29 @@ function extractPersonalStats(source: unknown): Record<string, number | null> {
 
   if (typeof source === "object") {
     for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
-      stats[key] = finiteNumber(value);
+      if (value && typeof value === "object" && "value" in value) {
+        stats[key] = {
+          value: finiteNumber((value as { value?: unknown }).value),
+          timestamp: finiteNumber((value as { timestamp?: unknown }).timestamp),
+        };
+      } else {
+        stats[key] = {
+          value: finiteNumber(value),
+          timestamp: null,
+        };
+      }
     }
   }
 
   return stats;
 }
 
-async function fetchWithTransientRetry(env: Env, input: string, init: RequestInit): Promise<Response> {
+async function fetchWithTransientRetry(
+  env: Env,
+  input: string,
+  init: RequestInit,
+  options: { keySource: string },
+): Promise<Response> {
   let lastResponse: Response | null = null;
   let lastError: unknown = null;
 
@@ -71,7 +123,7 @@ async function fetchWithTransientRetry(env: Env, input: string, init: RequestIni
     try {
       const response = await trackedTornFetch(env, input, init, {
         feature: "personal-stats",
-        keySource: "env:TORN_API_KEY",
+        keySource: options.keySource,
         retryAttempt: attempt,
         timeoutMs: PERSONAL_STATS_FETCH_TIMEOUT_MS,
       });

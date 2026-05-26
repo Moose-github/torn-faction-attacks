@@ -14,6 +14,24 @@ export function tradeWatchlistIdFromScanPath(pathname: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+export function memberLifestyleRepairJobIdFromRoute(url: URL, request: Request): string | null {
+  if (request.method !== "GET" && request.method !== "POST") {
+    return null;
+  }
+
+  const match = /^\/api\/admin\/member-lifestyle\/repair-jobs\/([^/]+)$/.exec(url.pathname);
+  return match ? decodeURIComponent(match[1]).trim() || null : null;
+}
+
+export function memberLifestyleRepairJobCancelIdFromRoute(url: URL, request: Request): string | null {
+  if (request.method !== "POST") {
+    return null;
+  }
+
+  const match = /^\/api\/admin\/member-lifestyle\/repair-jobs\/([^/]+)\/cancel$/.exec(url.pathname);
+  return match ? decodeURIComponent(match[1]).trim() || null : null;
+}
+
 export function isTornWarReportFetchRoute(url: URL, request: Request): boolean {
   return request.method === "POST" && url.pathname.startsWith("/api/torn-wars/") && url.pathname.endsWith("/report/fetch");
 }

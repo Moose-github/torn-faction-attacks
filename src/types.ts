@@ -1,6 +1,8 @@
 export interface Env {
   DB: D1Database;
   TORN_API_KEY: string;
+  TORN_API_KEY_POOL_1?: string | SecretsStoreSecret;
+  TORN_API_KEY_POOL_2?: string | SecretsStoreSecret;
   BSP_TORN_API_KEY?: string;
   FFSCOUTER_API_KEY?: string;
   DISCORD_WEBHOOK_URL?: string;

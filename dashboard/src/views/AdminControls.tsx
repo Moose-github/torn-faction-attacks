@@ -3,12 +3,15 @@ import {
   AdminWarPayload,
   AuthSession,
   authenticateTornKey,
+  cancelMemberLifestyleRepairJob,
   clearStoredAuthSession,
+  createMemberLifestyleRepairJob,
   deleteWar,
   EnemyStatsImagePreviewType,
   exportWarAttacksCsv,
   fetchTornWarReport,
   getLatestIngestionRun,
+  getMemberLifestyleRepairJobs,
   getTornApiUsage,
   getWars,
   getStoredAuthSession,
@@ -29,11 +32,12 @@ import {
   sendDiscordMessage,
   updateOfficialWar,
   TornApiUsageResponse,
+  MemberLifestyleRepairJob,
   WarSummary,
   WarType,
 } from "../api";
 import { CollapsiblePanel, PanelHeader } from "../components/Common";
-import { formatNumber } from "../utils/format";
+import { formatLongDateTime, formatNumber } from "../utils/format";
 
 export function AdminControls() {
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
@@ -87,6 +91,13 @@ export function AdminControls() {
     finishEpoch: String(Math.floor(Date.now() / 1000)),
     limit: "100",
   });
+  const [lifestyleRepairForm, setLifestyleRepairForm] = React.useState({
+    startDate: utcDateFromDaysAgo(7),
+    endDate: utcDateFromDaysAgo(0),
+    callsPerMinutePerKey: "35",
+  });
+  const [lifestyleRepairJobs, setLifestyleRepairJobs] = React.useState<MemberLifestyleRepairJob[]>([]);
+  const [isLoadingLifestyleRepairJobs, setIsLoadingLifestyleRepairJobs] = React.useState(false);
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -230,6 +241,7 @@ export function AdminControls() {
       setResult(await action());
       await loadLatestIngestionRun();
       await loadTornApiUsage();
+      await loadLifestyleRepairJobs();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -260,10 +272,23 @@ export function AdminControls() {
     }
   }
 
+  async function loadLifestyleRepairJobs() {
+    setIsLoadingLifestyleRepairJobs(true);
+    try {
+      const response = await getMemberLifestyleRepairJobs();
+      setLifestyleRepairJobs(response.jobs);
+    } catch {
+      setLifestyleRepairJobs([]);
+    } finally {
+      setIsLoadingLifestyleRepairJobs(false);
+    }
+  }
+
   React.useEffect(() => {
     if (authSession?.access_level === "admin") {
       loadLatestIngestionRun();
       loadTornApiUsage();
+      loadLifestyleRepairJobs();
     }
   }, [authSession?.access_level]);
 
@@ -893,6 +918,129 @@ export function AdminControls() {
                   {isBusy === "Rebuild stats" ? "Working" : rebuildWarId ? "Rebuild selected war" : "Rebuild all stats"}
                 </button>
               </form>
+              <CollapsiblePanel
+                title="Member lifestyle repair"
+                collapsed={isRepairPanelCollapsed}
+                onToggle={() => setIsRepairPanelCollapsed((current) => !current)}
+              >
+                <form
+                  className="admin-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    runAdminAction("Create lifestyle repair", () =>
+                      createMemberLifestyleRepairJob({
+                        start_date: lifestyleRepairForm.startDate,
+                        end_date: lifestyleRepairForm.endDate,
+                        calls_per_minute_per_key: Number(lifestyleRepairForm.callsPerMinutePerKey || 35),
+                      }),
+                    );
+                  }}
+                >
+                  <label>
+                    <span>Start date</span>
+                    <input
+                      type="date"
+                      value={lifestyleRepairForm.startDate}
+                      onChange={(event) =>
+                        setLifestyleRepairForm({ ...lifestyleRepairForm, startDate: event.target.value })
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>End date</span>
+                    <input
+                      type="date"
+                      value={lifestyleRepairForm.endDate}
+                      onChange={(event) =>
+                        setLifestyleRepairForm({ ...lifestyleRepairForm, endDate: event.target.value })
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>Calls/min/key</span>
+                    <input
+                      inputMode="numeric"
+                      value={lifestyleRepairForm.callsPerMinutePerKey}
+                      onChange={(event) =>
+                        setLifestyleRepairForm({ ...lifestyleRepairForm, callsPerMinutePerKey: event.target.value })
+                      }
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className="admin-button primary admin-form-wide"
+                    disabled={isBusy !== null}
+                  >
+                    {isBusy === "Create lifestyle repair" ? "Creating" : "Create repair job"}
+                  </button>
+                </form>
+                <div className="admin-inline-actions">
+                  <button
+                    type="button"
+                    className="admin-button"
+                    disabled={isBusy !== null || isLoadingLifestyleRepairJobs}
+                    onClick={loadLifestyleRepairJobs}
+                  >
+                    {isLoadingLifestyleRepairJobs ? "Loading" : "Refresh repair jobs"}
+                  </button>
+                </div>
+                {lifestyleRepairJobs.length > 0 ? (
+                  <div className="stock-status-table-wrap">
+                    <table className="stock-status-table">
+                      <thead>
+                        <tr>
+                          <th>Range</th>
+                          <th>Status</th>
+                          <th>Progress</th>
+                          <th>Keys</th>
+                          <th>Updated</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lifestyleRepairJobs.map((job) => (
+                          <tr key={job.id}>
+                            <td>
+                              {job.start_date} - {job.end_date}
+                            </td>
+                            <td>{job.status}</td>
+                            <td>
+                              {formatNumber(job.completed_items)} / {formatNumber(job.total_items)}
+                              {job.failed_items > 0 ? ` (${formatNumber(job.failed_items)} failed)` : ""}
+                            </td>
+                            <td>{formatNumber(job.active_key_count)}</td>
+                            <td>{formatLongDateTime(job.updated_at)}</td>
+                            <td>
+                              {job.status === "queued" || job.status === "running" ? (
+                                <button
+                                  type="button"
+                                  className="admin-button danger"
+                                  disabled={isBusy !== null}
+                                  onClick={() =>
+                                    runAdminAction("Cancel lifestyle repair", () =>
+                                      cancelMemberLifestyleRepairJob(job.id),
+                                    )
+                                  }
+                                >
+                                  Cancel
+                                </button>
+                              ) : (
+                                job.last_error ?? "-"
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="panel-description">
+                    No lifestyle repair jobs have been created yet.
+                  </p>
+                )}
+              </CollapsiblePanel>
               <button
                 type="button"
                 className="admin-button"
@@ -2049,6 +2197,11 @@ function dateTimeLocalFromSeconds(timestamp: number): string {
   const date = new Date(timestamp * 1000);
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return offsetDate.toISOString().slice(0, 16);
+}
+
+function utcDateFromDaysAgo(daysAgo: number): string {
+  const date = new Date(Date.now() - daysAgo * 86_400_000);
+  return date.toISOString().slice(0, 10);
 }
 
 

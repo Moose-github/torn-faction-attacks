@@ -592,6 +592,62 @@ export type TornApiUsageResponse = {
   recent_calls: TornApiUsageCall[];
 };
 
+export type MemberLifestyleRepairStatusCounts = {
+  pending: number;
+  running: number;
+  completed: number;
+  failed: number;
+  skipped: number;
+};
+
+export type MemberLifestyleRepairItem = {
+  id: string;
+  member_id: number;
+  member_name: string | null;
+  snapshot_date: string;
+  requested_at: number;
+  status: string;
+  attempts: number;
+  key_source: string | null;
+  returned_bucket_date: string | null;
+  error: string | null;
+  updated_at: number;
+};
+
+export type MemberLifestyleRepairJob = {
+  id: string;
+  status: string;
+  start_date: string;
+  end_date: string;
+  effective_start_date: string;
+  member_scope: string;
+  calls_per_minute_per_key: number;
+  include_primary_key: boolean;
+  active_key_count: number;
+  total_items: number;
+  completed_items: number;
+  failed_items: number;
+  skipped_items: number;
+  started_at: number | null;
+  finished_at: number | null;
+  created_at: number;
+  updated_at: number;
+  alert_sent_at: number | null;
+  last_error: string | null;
+  status_counts?: MemberLifestyleRepairStatusCounts;
+  recent_errors?: MemberLifestyleRepairItem[];
+};
+
+export type MemberLifestyleRepairJobsResponse = {
+  ok: boolean;
+  jobs: MemberLifestyleRepairJob[];
+};
+
+export type MemberLifestyleRepairJobResponse = {
+  ok: boolean;
+  job: MemberLifestyleRepairJob;
+};
+
 export type StockIngestionRun = {
   id: string;
   batch_group: string;
@@ -1295,6 +1351,24 @@ export async function getLatestMaintenanceRun(): Promise<MaintenanceRunResponse>
 export async function getTornApiUsage(windowSeconds = 60 * 60): Promise<TornApiUsageResponse> {
   const params = new URLSearchParams({ window_seconds: String(windowSeconds) });
   return getJson<TornApiUsageResponse>(`/api/admin/torn-api-usage?${params.toString()}`, true);
+}
+
+export async function getMemberLifestyleRepairJobs(): Promise<MemberLifestyleRepairJobsResponse> {
+  return getJson<MemberLifestyleRepairJobsResponse>("/api/admin/member-lifestyle/repair-jobs", true);
+}
+
+export async function createMemberLifestyleRepairJob(payload: {
+  start_date: string;
+  end_date: string;
+  calls_per_minute_per_key?: number;
+}): Promise<MemberLifestyleRepairJobResponse> {
+  return postJson<MemberLifestyleRepairJobResponse>("/api/admin/member-lifestyle/repair-jobs", payload);
+}
+
+export async function cancelMemberLifestyleRepairJob(id: string): Promise<MemberLifestyleRepairJobResponse> {
+  return postJson<MemberLifestyleRepairJobResponse>(
+    `/api/admin/member-lifestyle/repair-jobs/${encodeURIComponent(id)}/cancel`,
+  );
 }
 
 export async function getStockIngestionStatus(): Promise<StockIngestionStatusResponse> {

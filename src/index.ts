@@ -26,7 +26,11 @@ import { getWarActivityHeatmap } from "./heatmap";
 import { getCurrentHomeFactionMemberSummary } from "./homeFactionMembers";
 import { getLatestIngestionRun, runIngestion } from "./ingestion";
 import {
+  cancelMemberLifestyleRepairJob,
+  createMemberLifestyleRepairJob,
+  getMemberLifestyleRepairJob,
   getMemberLifestyleStats,
+  listMemberLifestyleRepairJobs,
 } from "./lifestyleStats";
 import { listMemberAchievementSummaries } from "./memberAchievements";
 import { getMiscellaneousData } from "./miscellaneous";
@@ -53,6 +57,8 @@ import {
   isWarMemberAttacksRoute,
   isWarSubroute,
   matchesExactRoute,
+  memberLifestyleRepairJobCancelIdFromRoute,
+  memberLifestyleRepairJobIdFromRoute,
   stockIdFromHistoryRoute,
   tradeWatchlistIdFromDetailPath,
   tradeWatchlistIdFromScanPath,
@@ -197,6 +203,24 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 
   if (matchesExactRoute(url, request, "/api/admin/torn-api-usage", "GET")) {
     return withAdmin(routeContext, () => getTornApiUsage(url, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/member-lifestyle/repair-jobs", "POST")) {
+    return withAdmin(routeContext, () => createMemberLifestyleRepairJob(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/member-lifestyle/repair-jobs", "GET")) {
+    return withAdmin(routeContext, () => listMemberLifestyleRepairJobs(env));
+  }
+
+  const lifestyleRepairJobId = memberLifestyleRepairJobIdFromRoute(url, request);
+  if (lifestyleRepairJobId !== null && request.method === "GET") {
+    return withAdmin(routeContext, () => getMemberLifestyleRepairJob(env, lifestyleRepairJobId));
+  }
+
+  const lifestyleRepairCancelJobId = memberLifestyleRepairJobCancelIdFromRoute(url, request);
+  if (lifestyleRepairCancelJobId !== null) {
+    return withAdmin(routeContext, () => cancelMemberLifestyleRepairJob(env, lifestyleRepairCancelJobId));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/stocks/ingestion-status", "GET")) {
