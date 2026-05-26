@@ -45,11 +45,7 @@ import {
   PanelHeader,
 } from "./components/Common";
 import { Sidebar } from "./components/Sidebar";
-import { MembersOverview } from "./views/MembersOverview";
 import { DashboardHome } from "./views/DashboardHome";
-import { WarDetailView } from "./views/WarDetailView";
-import { WarRoom } from "./views/WarRoom";
-import { EnemyHospitalMonitor } from "./views/EnemyHospitalMonitor";
 import {
   MemberAttackSort,
   MemberSort,
@@ -87,6 +83,9 @@ const DiceGame = React.lazy(() =>
 const LifestyleStats = React.lazy(() =>
   import("./views/LifestyleStats").then((module) => ({ default: module.LifestyleStats })),
 );
+const MembersOverview = React.lazy(() =>
+  import("./views/MembersOverview").then((module) => ({ default: module.MembersOverview })),
+);
 const Miscellaneous = React.lazy(() =>
   import("./views/Miscellaneous").then((module) => ({ default: module.Miscellaneous })),
 );
@@ -98,6 +97,15 @@ const TradeScout = React.lazy(() =>
 );
 const WarPayouts = React.lazy(() =>
   import("./views/WarPayouts").then((module) => ({ default: module.WarPayouts })),
+);
+const EnemyHospitalMonitor = React.lazy(() =>
+  import("./views/EnemyHospitalMonitor").then((module) => ({ default: module.EnemyHospitalMonitor })),
+);
+const WarDetailView = React.lazy(() =>
+  import("./views/WarDetailView").then((module) => ({ default: module.WarDetailView })),
+);
+const WarRoom = React.lazy(() =>
+  import("./views/WarRoom").then((module) => ({ default: module.WarRoom })),
 );
 
 function App() {
@@ -745,43 +753,52 @@ function App() {
               <StockMarketStatus />
             </LazyPage>
           ) : view === "members" ? (
-            <MembersOverview isAdmin={isAdmin} />
+            <LazyPage>
+              <MembersOverview isAdmin={isAdmin} />
+            </LazyPage>
           ) : view === "hospitalMonitor" ? (
-            <EnemyHospitalMonitor activeWar={activeWar} />
+            <LazyPage>
+              <EnemyHospitalMonitor activeWar={activeWar} />
+            </LazyPage>
           ) : view === "warRoom" ? (
-            <WarRoom
-              selectedWar={selectedWar}
-              selectedWarName={selectedWarName}
-              onError={setError}
-              onOpenHospitalMonitor={() => changeView("hospitalMonitor")}
-            />
+            <LazyPage>
+              <WarRoom
+                selectedWar={selectedWar}
+                selectedWarName={selectedWarName}
+                onError={setError}
+                onOpenHospitalMonitor={() => changeView("hospitalMonitor")}
+              />
+            </LazyPage>
           ) : selectedWar ? (
-            <WarDetailView
-              activityBuckets={activityBuckets}
-              chainBonuses={chainBonuses}
-              collapsedPanels={collapsedPanels}
-              factionActivityWindow={factionActivityWindow}
-              isAdmin={isAdmin}
-              isLoadingActivity={isLoadingActivity}
-              isLoadingDetail={isLoadingDetail}
-              isLoadingMemberActivityHeatmap={isLoadingMemberActivityHeatmap}
-              isLoadingMemberAttacks={isLoadingMemberAttacks}
-              isLoadingReportDiscrepancies={isLoadingReportDiscrepancies}
-              memberActivityHeatmap={memberActivityHeatmap}
-              memberAttackSort={memberAttackSort}
-              memberAttacks={memberAttacks}
-              memberSort={memberSort}
-              onMemberActivityWindowChange={setFactionActivityWindow}
-              onMemberAttackSortChange={setMemberAttackSort}
-              onMemberSelect={setSelectedMember}
-              onMemberSortChange={setMemberSort}
-              onOpenWarRoom={() => changeView("warRoom")}
-              onTogglePanel={togglePanel}
-              reportDiscrepancies={reportDiscrepancies}
-              selectedMember={selectedMember}
-              selectedWar={selectedWar}
-              warDetail={warDetail}
-            />          ) : (
+            <LazyPage>
+              <WarDetailView
+                activityBuckets={activityBuckets}
+                chainBonuses={chainBonuses}
+                collapsedPanels={collapsedPanels}
+                factionActivityWindow={factionActivityWindow}
+                isAdmin={isAdmin}
+                isLoadingActivity={isLoadingActivity}
+                isLoadingDetail={isLoadingDetail}
+                isLoadingMemberActivityHeatmap={isLoadingMemberActivityHeatmap}
+                isLoadingMemberAttacks={isLoadingMemberAttacks}
+                isLoadingReportDiscrepancies={isLoadingReportDiscrepancies}
+                memberActivityHeatmap={memberActivityHeatmap}
+                memberAttackSort={memberAttackSort}
+                memberAttacks={memberAttacks}
+                memberSort={memberSort}
+                onMemberActivityWindowChange={setFactionActivityWindow}
+                onMemberAttackSortChange={setMemberAttackSort}
+                onMemberSelect={setSelectedMember}
+                onMemberSortChange={setMemberSort}
+                onOpenWarRoom={() => changeView("warRoom")}
+                onTogglePanel={togglePanel}
+                reportDiscrepancies={reportDiscrepancies}
+                selectedMember={selectedMember}
+                selectedWar={selectedWar}
+                warDetail={warDetail}
+              />
+            </LazyPage>
+          ) : (
             <section className="panel">
               <EmptyState text="No wars to show" />
             </section>
