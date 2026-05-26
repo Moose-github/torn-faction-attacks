@@ -28,6 +28,7 @@ import { getLatestIngestionRun, runIngestion } from "./ingestion";
 import {
   cancelMemberLifestyleRepairJob,
   createMemberLifestyleRepairJob,
+  getMemberLifestyleDailyChart,
   getMemberLifestyleRepairJob,
   getMemberLifestyleStats,
   listMemberLifestyleRepairJobs,
@@ -363,6 +364,15 @@ async function routeTradeApi(routeContext: RouteContext): Promise<RouteResult> {
 
 async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, url } = routeContext;
+
+  if (matchesExactRoute(url, request, "/api/member-lifestyle-stats/daily", "GET")) {
+    return cachedMemberGet(
+      routeContext,
+      OFFICIAL_END_CACHE_TTL_SECONDS,
+      () => getMemberLifestyleDailyChart(url, env),
+      [MEMBER_LIFESTYLE_CACHE_VERSION_NAME],
+    );
+  }
 
   if (matchesExactRoute(url, request, "/api/member-lifestyle-stats", "GET")) {
     return cachedMemberGet(

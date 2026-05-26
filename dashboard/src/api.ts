@@ -870,6 +870,44 @@ export type MemberLifestyleStats = {
   updated_at: number | null;
 };
 
+export type MemberLifestyleDailyMetric =
+  | "xantaken"
+  | "overdosed"
+  | "refills"
+  | "useractivity"
+  | "gymenergy"
+  | "gymstrength"
+  | "gymspeed"
+  | "gymdefense"
+  | "gymdexterity"
+  | "networth";
+
+export type MemberLifestyleDailyChartPoint = {
+  date: string;
+  value: number | null;
+};
+
+export type MemberLifestyleDailyChartSeries = {
+  member_id: number;
+  member_name: string | null;
+  points: MemberLifestyleDailyChartPoint[];
+};
+
+export type MemberLifestyleDailyChartResponse = {
+  ok: boolean;
+  metric: MemberLifestyleDailyMetric;
+  period: {
+    start_date: string;
+    end_date: string;
+    available_start_date: string | null;
+    available_end_date: string | null;
+    days: number;
+    max_days: number;
+    capped: boolean;
+  };
+  series: MemberLifestyleDailyChartSeries[];
+};
+
 export type MemberLifestyleStatsResponse = {
   ok: boolean;
   period: {
@@ -1518,6 +1556,27 @@ export async function getMemberLifestyleStats(options: {
 
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   return getJson<MemberLifestyleStatsResponse>(`/api/member-lifestyle-stats${suffix}`);
+}
+
+export async function getMemberLifestyleDailyChart(options: {
+  startDate?: string;
+  endDate?: string;
+  metric: MemberLifestyleDailyMetric;
+  memberIds: number[];
+}): Promise<MemberLifestyleDailyChartResponse> {
+  const params = new URLSearchParams();
+  if (options.startDate) {
+    params.set("start_date", options.startDate);
+  }
+  if (options.endDate) {
+    params.set("end_date", options.endDate);
+  }
+  params.set("metric", options.metric);
+  for (const memberId of options.memberIds) {
+    params.append("member_id", String(memberId));
+  }
+
+  return getJson<MemberLifestyleDailyChartResponse>(`/api/member-lifestyle-stats/daily?${params.toString()}`);
 }
 
 export async function getMemberAchievements(): Promise<MemberAchievementsResponse> {

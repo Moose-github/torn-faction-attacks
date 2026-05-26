@@ -1,7 +1,10 @@
 import React from "react";
-import { Activity, ArrowDown, ArrowUp, Dumbbell, Pill } from "lucide-react";
+import { Activity, ArrowDown, ArrowUp, ChevronDown, ChevronRight, Dumbbell, Pill, X } from "lucide-react";
 import {
+  getMemberLifestyleDailyChart,
   getMemberLifestyleStats,
+  MemberLifestyleDailyChartResponse,
+  MemberLifestyleDailyMetric,
   MemberLifestyleStats,
 } from "../api";
 import { PanelHeader } from "../components/Common";
@@ -45,12 +48,38 @@ const SORT_LABELS: Record<LifestyleSortKey, string> = {
   updated_at: "Updated",
 };
 
+const DAILY_CHART_MEMBER_LIMIT = 5;
+const DAILY_CHART_METRICS: Array<{ key: MemberLifestyleDailyMetric; label: string }> = [
+  { key: "xantaken", label: "Xanax taken" },
+  { key: "overdosed", label: "Overdoses" },
+  { key: "refills", label: "Refills" },
+  { key: "useractivity", label: "Active hours" },
+  { key: "gymenergy", label: "Gym energy" },
+  { key: "gymstrength", label: "Gym strength" },
+  { key: "gymspeed", label: "Gym speed" },
+  { key: "gymdefense", label: "Gym defense" },
+  { key: "gymdexterity", label: "Gym dexterity" },
+  { key: "networth", label: "Networth" },
+];
+
+const LifestyleDailyChart = React.lazy(() =>
+  import("../components/LifestyleDailyChart").then((module) => ({ default: module.LifestyleDailyChart })),
+);
+
 export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
   const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getMemberLifestyleStats>> | null>(null);
   const [sort, setSort] = React.useState<LifestyleSort>({ key: "average_xantaken", direction: "desc" });
   const [period, setPeriod] = React.useState(() => currentMonthPeriod());
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [chartExpanded, setChartExpanded] = React.useState(false);
+  const [chartDefaultsApplied, setChartDefaultsApplied] = React.useState(false);
+  const [chartMetric, setChartMetric] = React.useState<MemberLifestyleDailyMetric>("xantaken");
+  const [selectedChartMemberIds, setSelectedChartMemberIds] = React.useState<number[]>([]);
+  const [pendingChartMemberId, setPendingChartMemberId] = React.useState("");
+  const [chartData, setChartData] = React.useState<MemberLifestyleDailyChartResponse | null>(null);
+  const [chartError, setChartError] = React.useState<string | null>(null);
+  const [isChartLoading, setIsChartLoading] = React.useState(false);
 
   const loadStats = React.useCallback(async () => {
     setIsLoading(true);
@@ -90,6 +119,60 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
   const availableStartDate = stats?.period.available_start_date ?? null;
   const availableEndDate = stats?.period.available_end_date ?? null;
   const hasAvailableRange = availableStartDate !== null && availableEndDate !== null;
+  const selectedChartMembers = selectedChartMemberIds
+    .map((memberId) => members.find((member) => member.member_id === memberId))
+    .filter((member): member is MemberLifestyleStats => Boolean(member));
+  const chartMemberOptions = members.filter((member) => !selectedChartMemberIds.includes(member.member_id));
+  const chartSelectionKey = selectedChartMemberIds.join(",");
+
+  React.useEffect(() => {
+    if (!chartExpanded || chartDefaultsApplied || members.length === 0) {
+      return;
+    }
+
+    setSelectedChartMemberIds(members.slice(0, DAILY_CHART_MEMBER_LIMIT).map((member) => member.member_id));
+    setChartDefaultsApplied(true);
+  }, [chartDefaultsApplied, chartExpanded, members]);
+
+  React.useEffect(() => {
+    if (!chartExpanded || selectedChartMemberIds.length === 0) {
+      setChartData(null);
+      setChartError(null);
+      setIsChartLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsChartLoading(true);
+    setChartError(null);
+
+    getMemberLifestyleDailyChart({
+      startDate: period.startDate,
+      endDate: period.endDate,
+      metric: chartMetric,
+      memberIds: selectedChartMemberIds,
+    })
+      .then((response) => {
+        if (!cancelled) {
+          setChartData(response);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setChartError(err instanceof Error ? err.message : String(err));
+          setChartData(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsChartLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chartExpanded, chartMetric, chartSelectionKey, period.startDate, period.endDate]);
 
   function updateStartDate(value: string) {
     setPeriod((current) => {
@@ -113,6 +196,26 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
       );
       return { startDate, endDate };
     });
+  }
+
+  function addChartMember() {
+    const memberId = Number(pendingChartMemberId);
+    if (
+      !Number.isInteger(memberId) ||
+      selectedChartMemberIds.includes(memberId) ||
+      selectedChartMemberIds.length >= DAILY_CHART_MEMBER_LIMIT
+    ) {
+      return;
+    }
+
+    setSelectedChartMemberIds((current) => [...current, memberId].slice(0, DAILY_CHART_MEMBER_LIMIT));
+    setPendingChartMemberId("");
+    setChartDefaultsApplied(true);
+  }
+
+  function removeChartMember(memberId: number) {
+    setSelectedChartMemberIds((current) => current.filter((candidate) => candidate !== memberId));
+    setChartDefaultsApplied(true);
   }
 
   return (
@@ -187,6 +290,88 @@ export function LifestyleStats({ isAdmin }: { isAdmin: boolean }) {
             <span className="lifestyle-date-range-note">No snapshot data available yet</span>
           )}
         </section>
+      </section>
+
+      <section className="panel lifestyle-daily-chart-panel">
+        <div className="panel-header collapsible-header">
+          <button
+            type="button"
+            className="collapse-button"
+            onClick={() => setChartExpanded((current) => !current)}
+            aria-expanded={chartExpanded}
+          >
+            <span>{chartExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
+            <strong>Daily member chart</strong>
+          </button>
+          <span>{chartExpanded ? `${selectedChartMemberIds.length} selected` : "Collapsed"}</span>
+        </div>
+        {chartExpanded ? (
+          <div className="lifestyle-daily-chart-content">
+            <div className="lifestyle-chart-controls">
+              <label>
+                <span>Metric</span>
+                <select
+                  value={chartMetric}
+                  onChange={(event) => setChartMetric(event.target.value as MemberLifestyleDailyMetric)}
+                >
+                  {DAILY_CHART_METRICS.map((metric) => (
+                    <option key={metric.key} value={metric.key}>
+                      {metric.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Add member</span>
+                <select
+                  value={pendingChartMemberId}
+                  disabled={selectedChartMemberIds.length >= DAILY_CHART_MEMBER_LIMIT || chartMemberOptions.length === 0}
+                  onChange={(event) => setPendingChartMemberId(event.target.value)}
+                >
+                  <option value="">Select member</option>
+                  {chartMemberOptions.map((member) => (
+                    <option key={member.member_id} value={member.member_id}>
+                      {member.member_name ?? `#${member.member_id}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="panel-action-button"
+                disabled={!pendingChartMemberId || selectedChartMemberIds.length >= DAILY_CHART_MEMBER_LIMIT}
+                onClick={addChartMember}
+              >
+                Add
+              </button>
+            </div>
+            <div className="lifestyle-chart-member-chips" aria-label="Selected chart members">
+              {selectedChartMembers.map((member) => (
+                <span key={member.member_id}>
+                  {member.member_name ?? `#${member.member_id}`}
+                  <button
+                    type="button"
+                    onClick={() => removeChartMember(member.member_id)}
+                    aria-label={`Remove ${member.member_name ?? member.member_id} from chart`}
+                  >
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
+              {selectedChartMemberIds.length >= DAILY_CHART_MEMBER_LIMIT ? (
+                <small>Maximum {DAILY_CHART_MEMBER_LIMIT} members</small>
+              ) : null}
+            </div>
+            {chartError ? <div className="error-panel">{chartError}</div> : null}
+            {isChartLoading ? (
+              <div className="lifestyle-chart-loading">Loading chart</div>
+            ) : (
+              <React.Suspense fallback={<div className="lifestyle-chart-loading">Loading chart</div>}>
+                <LifestyleDailyChart metric={chartMetric} series={chartData?.series ?? []} />
+              </React.Suspense>
+            )}
+          </div>
+        ) : null}
       </section>
 
       <section className="panel table-panel">

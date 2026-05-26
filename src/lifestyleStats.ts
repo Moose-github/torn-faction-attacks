@@ -138,6 +138,21 @@ type LifestyleSnapshotNumberKey =
   | "gymdefense"
   | "gymdexterity";
 
+type LifestyleDailyChartMetric = LifestyleSnapshotNumberKey | "networth";
+
+const LIFESTYLE_DAILY_CHART_METRICS = new Set<LifestyleDailyChartMetric>([
+  "xantaken",
+  "overdosed",
+  "refills",
+  "useractivity",
+  "gymenergy",
+  "gymstrength",
+  "gymspeed",
+  "gymdefense",
+  "gymdexterity",
+  "networth",
+]);
+
 export type DailyStatsAttention = {
   stale_personalstats: number;
   missing_donator_days: number;
@@ -245,6 +260,83 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
     period,
     summary: summarizeLifestylePeriodRows(rows),
     members: rows,
+  });
+}
+
+export async function getMemberLifestyleDailyChart(url: URL, env: Env): Promise<Response> {
+  const availableRange = await readLifestyleSnapshotDateRange(env);
+  const period = readLifestylePeriod(url, availableRange);
+  const metric = parseLifestyleDailyChartMetric(url.searchParams.get("metric"));
+  if (!metric) {
+    return json({ ok: false, error: "A valid metric is required", code: "INVALID_METRIC" }, 400);
+  }
+
+  const memberIds = parseLifestyleDailyChartMemberIds(url);
+  if (memberIds.length === 0) {
+    return json({ ok: false, error: "At least one member_id is required", code: "MISSING_MEMBER_IDS" }, 400);
+  }
+  if (memberIds.length > 5) {
+    return json({ ok: false, error: "Daily chart can compare at most 5 members", code: "TOO_MANY_MEMBERS" }, 400);
+  }
+
+  const homeMembers = await readHomeMembersById(env);
+  const chartMemberIds = memberIds.filter((memberId) => homeMembers.has(memberId));
+  if (chartMemberIds.length === 0) {
+    return json({
+      ok: true,
+      metric,
+      period,
+      series: [],
+    });
+  }
+
+  const boundaryDate = dateKeyFromMs(Date.parse(`${period.start_date}T00:00:00.000Z`) - 86_400_000);
+  const placeholders = chartMemberIds.map(() => "?").join(",");
+  const snapshotRows = ((await env.DB.prepare(
+    `
+    SELECT
+      snapshots.member_id,
+      snapshots.snapshot_date,
+      snapshots.member_name,
+      snapshots.xantaken,
+      snapshots.overdosed,
+      snapshots.refills,
+      snapshots.useractivity,
+      snapshots.networth,
+      snapshots.daysbeendonator,
+      snapshots.xantaken_timestamp,
+      snapshots.overdosed_timestamp,
+      snapshots.refills_timestamp,
+      snapshots.useractivity_timestamp,
+      snapshots.networth_timestamp,
+      snapshots.daysbeendonator_timestamp,
+      snapshots.personalstats_bucket_date,
+      snapshots.personalstats_requested_at,
+      snapshots.personalstats_key_source,
+      snapshots.gymenergy,
+      snapshots.gymstrength,
+      snapshots.gymspeed,
+      snapshots.gymdefense,
+      snapshots.gymdexterity,
+      snapshots.captured_at,
+      snapshots.validation_error
+    FROM member_lifestyle_stat_snapshots snapshots
+    JOIN home_faction_members members
+      ON members.member_id = snapshots.member_id
+     AND members.is_current = 1
+    WHERE snapshots.snapshot_date BETWEEN ? AND ?
+      AND snapshots.member_id IN (${placeholders})
+    ORDER BY snapshots.member_id ASC, snapshots.snapshot_date ASC
+    `,
+  )
+    .bind(boundaryDate, period.end_date, ...chartMemberIds)
+    .all()).results ?? []) as LifestyleSnapshotRow[];
+
+  return json({
+    ok: true,
+    metric,
+    period,
+    series: buildDailyChartSeries(snapshotRows, chartMemberIds, homeMembers, period.start_date, period.end_date, metric),
   });
 }
 
@@ -1819,6 +1911,59 @@ function summarizeLifestylePeriodRows(rows: LifestylePeriodRow[]) {
   };
 }
 
+function buildDailyChartSeries(
+  rows: LifestyleSnapshotRow[],
+  memberIds: number[],
+  homeMembers: Map<number, LifestyleMemberRow>,
+  startDate: string,
+  endDate: string,
+  metric: LifestyleDailyChartMetric,
+) {
+  const dates = enumerateDateRange(startDate, endDate);
+  const grouped = new Map<number, Map<string, LifestyleSnapshotRow>>();
+  for (const row of rows) {
+    const snapshotsByDate = grouped.get(row.member_id) ?? new Map<string, LifestyleSnapshotRow>();
+    snapshotsByDate.set(row.snapshot_date, row);
+    grouped.set(row.member_id, snapshotsByDate);
+  }
+
+  return memberIds.map((memberId) => {
+    const member = homeMembers.get(memberId);
+    const snapshotsByDate = grouped.get(memberId) ?? new Map<string, LifestyleSnapshotRow>();
+    return {
+      member_id: memberId,
+      member_name: member?.name ?? snapshotsByDate.get(endDate)?.member_name ?? null,
+      points: dates.map((date) => ({
+        date,
+        value: dailyChartValue(snapshotsByDate, date, metric),
+      })),
+    };
+  });
+}
+
+function dailyChartValue(
+  snapshotsByDate: Map<string, LifestyleSnapshotRow>,
+  date: string,
+  metric: LifestyleDailyChartMetric,
+): number | null {
+  const snapshot = snapshotsByDate.get(date);
+  if (!snapshot) {
+    return null;
+  }
+
+  if (metric === "networth") {
+    return snapshot.networth;
+  }
+
+  const previousDate = dateKeyFromMs(Date.parse(`${date}T00:00:00.000Z`) - 86_400_000);
+  const previousSnapshot = snapshotsByDate.get(previousDate);
+  if (!previousSnapshot) {
+    return null;
+  }
+
+  return delta(previousSnapshot[metric], snapshot[metric]);
+}
+
 function readLifestylePeriod(
   url: URL,
   availableRange: { start_date: string; end_date: string } | null = null,
@@ -1896,6 +2041,26 @@ function normalizeDateParam(value: string | null): string | null {
   }
 
   return Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)) ? null : value;
+}
+
+function parseLifestyleDailyChartMetric(value: string | null): LifestyleDailyChartMetric | null {
+  return value && LIFESTYLE_DAILY_CHART_METRICS.has(value as LifestyleDailyChartMetric)
+    ? value as LifestyleDailyChartMetric
+    : null;
+}
+
+function parseLifestyleDailyChartMemberIds(url: URL): number[] {
+  const values = [
+    ...url.searchParams.getAll("member_id"),
+    ...(url.searchParams.get("member_ids")?.split(",") ?? []),
+  ];
+  return Array.from(
+    new Set(
+      values
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isInteger(value) && value > 0),
+    ),
+  );
 }
 
 function averageDelta(start: number | null, finish: number | null, days: number): number {

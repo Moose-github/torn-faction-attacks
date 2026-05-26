@@ -4051,6 +4051,91 @@ h2 {
   min-height: 156px;
 }
 
+.lifestyle-daily-chart-panel {
+  margin-bottom: 16px;
+  padding: var(--space-panel-compact);
+}
+
+.lifestyle-daily-chart-content {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.lifestyle-chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: var(--panel-muted-bg);
+}
+
+.lifestyle-chart-controls label {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.lifestyle-chart-member-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.lifestyle-chart-member-chips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 230px;
+  padding: 5px 7px 5px 9px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.lifestyle-chart-member-chips button {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+  cursor: pointer;
+}
+
+.lifestyle-chart-member-chips small {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.lifestyle-daily-chart-wrap {
+  width: 100%;
+  height: 330px;
+}
+
+.lifestyle-chart-loading {
+  display: grid;
+  min-height: 260px;
+  place-items: center;
+  color: #64748b;
+  font-weight: 850;
+}
+
 .lifestyle-main-metric-label {
   display: block;
   margin-top: 6px;
@@ -5485,6 +5570,16 @@ tbody tr:not(.attack-row):hover td {
     justify-self: flex-start;
   }
 
+  .lifestyle-chart-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lifestyle-chart-controls label,
+  .lifestyle-chart-controls button {
+    width: 100%;
+  }
+
   .dashboard-event-row,
   .dashboard-attack-row {
     grid-template-columns: 1fr;
@@ -5770,6 +5865,28 @@ tbody tr:not(.attack-row):hover td {
   border-color: rgba(251, 191, 36, 0.42);
   background: rgba(146, 64, 14, 0.26);
   color: #fcd34d;
+}
+
+:root[data-theme="dark"] .lifestyle-chart-controls {
+  border-color: var(--border-faint);
+  background: var(--panel-muted-bg);
+}
+
+:root[data-theme="dark"] .lifestyle-chart-controls label,
+:root[data-theme="dark"] .lifestyle-chart-member-chips small,
+:root[data-theme="dark"] .lifestyle-chart-loading {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .lifestyle-chart-member-chips span {
+  border-color: var(--border-solid);
+  background: var(--panel-active-bg);
+  color: var(--accent-strong);
+}
+
+:root[data-theme="dark"] .lifestyle-chart-member-chips button {
+  background: rgba(96, 165, 250, 0.18);
+  color: var(--accent-strong);
 }
 
 :root[data-theme="dark"] .dice-joke-badge {
