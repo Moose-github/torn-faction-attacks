@@ -1,6 +1,5 @@
 import { HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
 import { bumpMemberLifestyleCacheVersion } from "./cacheVersions";
-import { sendDiscordMessage } from "./discord";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { refreshMemberAchievementSummaries } from "./memberAchievements";
 import {
@@ -49,8 +48,6 @@ const DAILY_GYM_COMPLETE_STATE_NAME = "member_gym_contributors_daily";
 const DAILY_LIFESTYLE_LOCK_SECONDS = 75;
 const DAILY_LIFESTYLE_LOCK_STATE_NAME = "member_lifestyle_stats_daily_lock";
 const DAILY_LIFESTYLE_RESET_STATE_NAME = "member_lifestyle_stats_daily_reset";
-const DAILY_LIFESTYLE_STALE_ALERT_STATE_NAME = "member_lifestyle_stats_stale_discord_alert";
-const DAILY_LIFESTYLE_STALE_ALERT_AFTER_SECONDS = 2 * 60 * 60;
 const OLD_PERSONALSTATS_BUCKET_ERROR_CODE = "OLD_PERSONALSTATS_BUCKET";
 const MISSING_DONATOR_DAYS_ERROR_CODE = "MISSING_DONATOR_DAYS";
 const DEFAULT_REPAIR_CALLS_PER_MINUTE_PER_KEY = 35;
@@ -346,8 +343,6 @@ export async function refreshDailyMemberLifestyleStats(
     await writeLifestyleSnapshotForDate(env, snapshotDate, { freshAfter: refreshAt });
     await refreshMemberAchievementSummaries(env, snapshotDate);
     await bumpMemberLifestyleCacheVersion(env);
-  } else {
-    await sendDailyStatsStaleDiscordAlertIfDue(env, refreshAt, now);
   }
 
   return { ...result, skipped: false };
@@ -1073,15 +1068,7 @@ async function sendRepairFailureAlertIfNeeded(env: Env, jobId: string): Promise<
     `Completed ${job.completed_items}/${job.total_items}; failed ${job.failed_items}.` +
     (job.last_error ? ` Last error: ${job.last_error}` : "");
 
-  if (env.DISCORD_WEBHOOK_URL) {
-    try {
-      await sendDiscordMessage(env, message);
-    } catch (err: any) {
-      console.warn("Unable to send lifestyle repair failure alert:", err?.message || err);
-    }
-  } else {
-    console.warn(message);
-  }
+  console.warn(message);
 
   const now = nowSeconds();
   await upsertSyncTimestamp(env, alertStateName, now, null);
@@ -1136,50 +1123,6 @@ function formatRepairItem(item: LifestyleRepairItemRow) {
     error: item.error,
     updated_at: item.updated_at,
   };
-}
-
-async function sendDailyStatsStaleDiscordAlertIfDue(
-  env: Env,
-  refreshAt: number,
-  now: number,
-): Promise<void> {
-  if (now < refreshAt + DAILY_LIFESTYLE_STALE_ALERT_AFTER_SECONDS) {
-    return;
-  }
-
-  if ((await readSyncTimestamp(env, DAILY_LIFESTYLE_STALE_ALERT_STATE_NAME)) >= refreshAt) {
-    return;
-  }
-
-  const attention = await getDailyStatsAttention(env);
-  const total = attention.stale_personalstats + attention.missing_donator_days;
-  if (total <= 0) {
-    return;
-  }
-
-  const snapshotDate = utcDateKey(refreshAt);
-  const sampleMembers = attention.affected_members
-    .slice(0, 6)
-    .map((member) => `${member.member_name ?? member.member_id}`)
-    .join(", ");
-  const extra = total > attention.affected_members.length ? ` and ${total - attention.affected_members.length} more` : "";
-  const message =
-    `Daily stats stale alert for ${snapshotDate}: ${total} current member(s) still have unresolved personalstats after 2 hours. ` +
-    `Old buckets: ${attention.stale_personalstats}. Missing daysbeendonator: ${attention.missing_donator_days}.` +
-    (sampleMembers ? ` Members: ${sampleMembers}${extra}.` : "");
-
-  if (!env.DISCORD_WEBHOOK_URL) {
-    console.warn(`Daily stats stale alert not sent; DISCORD_WEBHOOK_URL is not configured. ${message}`);
-    await upsertSyncTimestamp(env, DAILY_LIFESTYLE_STALE_ALERT_STATE_NAME, refreshAt, null);
-    return;
-  }
-
-  try {
-    await sendDiscordMessage(env, message);
-    await upsertSyncTimestamp(env, DAILY_LIFESTYLE_STALE_ALERT_STATE_NAME, refreshAt, null);
-  } catch (err: any) {
-    console.warn("Unable to send daily stats stale Discord alert:", err?.message || err);
-  }
 }
 
 async function resetDailyLifestylePersonalStatsIfNeeded(

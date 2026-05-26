@@ -1,6 +1,7 @@
 import React from "react";
 import {
   Activity,
+  AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
   ChevronDown,
@@ -42,6 +43,7 @@ import type { AppView } from "../routes";
 
 const RECENT_ATTACK_LIMIT = 10;
 const RECENT_ATTACK_REFRESH_MS = 30_000;
+const ADMIN_HEALTH_REFRESH_MS = 60_000;
 const ATTACK_POLLING_RATE_LABEL = "About every minute during active tracking";
 const ATTACK_POLLING_DETAIL = "When no live war is being tracked, attacks are checked less often.";
 const HIGHLIGHT_ROTATE_MS = 6_000;
@@ -207,8 +209,10 @@ export function DashboardHome({
     }
 
     loadAdminHealth();
+    const timer = window.setInterval(loadAdminHealth, ADMIN_HEALTH_REFRESH_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [isAdmin]);
 
@@ -236,6 +240,13 @@ export function DashboardHome({
           <p>A quick view of current wars, member status, recent attacks, and useful next steps.</p>
         </div>
       </section>
+
+      {isAdmin && dailyStatsAttentionCount > 0 ? (
+        <AdminDailyStatsAttentionAlert
+          attention={dailyStatsAttention}
+          onOpenAdmin={() => onOpenView("admin")}
+        />
+      ) : null}
 
       <section className="dashboard-home-grid">
         <DashboardCard
@@ -479,6 +490,66 @@ function RecentAttackRow({ attack }: { attack: RecentFactionAttack }) {
       </span>
     </div>
   );
+}
+
+function AdminDailyStatsAttentionAlert({
+  attention,
+  onOpenAdmin,
+}: {
+  attention: DailyStatsAttention | null;
+  onOpenAdmin: () => void;
+}) {
+  const staleCount = attention?.stale_personalstats ?? 0;
+  const missingDonatorDays = attention?.missing_donator_days ?? 0;
+  const total = staleCount + missingDonatorDays;
+  const affectedMembers = attention?.affected_members ?? [];
+
+  return (
+    <section className="dashboard-admin-alert" role="status" aria-live="polite">
+      <div className="dashboard-admin-alert-heading">
+        <span className="dashboard-admin-alert-icon">
+          <AlertTriangle size={18} />
+        </span>
+        <div>
+          <strong>Daily personal stats need attention</strong>
+          <p>
+            {formatNumber(total)} current member{total === 1 ? "" : "s"} still have unresolved daily personalstats.
+          </p>
+        </div>
+      </div>
+      <div className="dashboard-admin-alert-metrics">
+        <MetricLine label="Old Torn buckets" value={formatNumber(staleCount)} />
+        <MetricLine label="Missing donator days" value={formatNumber(missingDonatorDays)} />
+      </div>
+      {affectedMembers.length > 0 ? (
+        <div className="dashboard-admin-alert-members">
+          {affectedMembers.slice(0, 6).map((member) => (
+            <span key={member.member_id} title={member.error ?? undefined}>
+              {member.member_name ?? member.member_id}
+              <small>{dailyStatsErrorLabel(member.error)}</small>
+            </span>
+          ))}
+          {total > affectedMembers.length ? <span>+{formatNumber(total - affectedMembers.length)} more</span> : null}
+        </div>
+      ) : null}
+      <button type="button" className="panel-action-button" onClick={onOpenAdmin}>
+        Open repair tools
+      </button>
+    </section>
+  );
+}
+
+function dailyStatsErrorLabel(error: string | null): string {
+  if (!error) {
+    return "Unknown";
+  }
+  if (error.startsWith("OLD_PERSONALSTATS_BUCKET")) {
+    return "Old bucket";
+  }
+  if (error.startsWith("MISSING_DONATOR_DAYS")) {
+    return "Missing days";
+  }
+  return "Error";
 }
 
 function SuggestionBox({
