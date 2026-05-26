@@ -534,6 +534,9 @@ CREATE INDEX idx_stock_profiles_updated
 CREATE INDEX idx_stock_price_snapshots_observed
   ON stock_price_snapshots(observed_at DESC);
 
+CREATE INDEX idx_stock_price_snapshots_observed_stock
+  ON stock_price_snapshots(observed_at ASC, stock_id ASC);
+
 CREATE INDEX idx_stock_price_snapshots_stock_observed
   ON stock_price_snapshots(stock_id, observed_at DESC);
 

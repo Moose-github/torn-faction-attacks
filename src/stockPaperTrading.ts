@@ -179,7 +179,7 @@ export async function runLiveStockPaperBotTick(
     return { ok: true, skipped: true, reason: "Latest snapshot already evaluated", account };
   }
 
-  const market = await readMarketStocks(env, eligibleSnapshotAt - LOOKBACK_SECONDS, eligibleSnapshotAt);
+  const market = await readMarketStocksForDecision(env, eligibleSnapshotAt);
   if (market.length === 0) {
     return { ok: true, skipped: true, reason: "No market history available", account };
   }
@@ -317,7 +317,7 @@ export async function getStockPaperStatus(env: Env): Promise<Response> {
   const latestSimulation = await readLatestSimulationRun(env);
   const simulationTrades = latestSimulation ? await readRecentPaperTrades(env, null, latestSimulation.id, 20) : [];
   const latestSignals = account?.last_decision_at
-    ? rankStockPaperSignals(await readMarketStocks(env, account.last_decision_at - LOOKBACK_SECONDS, account.last_decision_at), account.last_decision_at, account)
+    ? rankStockPaperSignals(await readMarketStocksForDecision(env, account.last_decision_at), account.last_decision_at, account)
     : [];
 
   return json({
@@ -1147,25 +1147,51 @@ async function readMarketStocks(env: Env, startAt: number, endAt: number): Promi
     `
     SELECT
       s.stock_id,
-      p.acronym,
-      p.name,
       s.observed_at,
       s.price
     FROM stock_price_snapshots s
-    LEFT JOIN stock_profiles p ON p.stock_id = s.stock_id
     WHERE s.observed_at BETWEEN ? AND ?
-    ORDER BY s.stock_id ASC, s.observed_at ASC
+    ORDER BY s.observed_at ASC, s.stock_id ASC
     `,
   )
     .bind(startAt, endAt)
-    .all<MarketPoint & { acronym: string | null; name: string | null }>();
+    .all<MarketPoint>();
 
+  return marketStocksFromRows(rows.results ?? []);
+}
+
+async function readMarketStocksForDecision(env: Env, observedAt: number): Promise<MarketStock[]> {
+  const recentStartAt = observedAt - 60 * 60;
+  const anchor3h = observedAt - 3 * 60 * 60;
+  const anchor6h = observedAt - 6 * 60 * 60;
+  const rows = await env.DB.prepare(
+    `
+    SELECT stock_id, observed_at, price
+    FROM (
+      SELECT stock_id, observed_at, price
+      FROM stock_price_snapshots
+      WHERE observed_at BETWEEN ? AND ?
+      UNION ALL
+      SELECT stock_id, observed_at, price
+      FROM stock_price_snapshots
+      WHERE observed_at IN (?, ?)
+    )
+    ORDER BY observed_at ASC, stock_id ASC
+    `,
+  )
+    .bind(recentStartAt, observedAt, anchor3h, anchor6h)
+    .all<MarketPoint>();
+
+  return marketStocksFromRows(rows.results ?? []);
+}
+
+function marketStocksFromRows(rows: MarketPoint[]): MarketStock[] {
   const byStock = new Map<number, MarketStock>();
-  for (const row of rows.results ?? []) {
+  for (const row of rows) {
     const stock = byStock.get(row.stock_id) ?? {
       stock_id: row.stock_id,
-      acronym: row.acronym,
-      name: row.name,
+      acronym: null,
+      name: null,
       points: [],
     };
     stock.points.push({
