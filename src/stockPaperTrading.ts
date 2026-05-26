@@ -56,6 +56,14 @@ type StrategyConfig = Pick<
   | "min_cash_reserve_fraction"
 >;
 
+type PaperBotStrategy = "momentum" | "whale-flow";
+
+type PaperBotDefinition = StrategyConfig & {
+  id: string;
+  name: string;
+  strategy: PaperBotStrategy;
+};
+
 type StrategyState = {
   cash: number;
   realizedPnl: number;
@@ -75,6 +83,11 @@ type StockSignal = {
   momentum_3h: number;
   momentum_6h: number;
   volatility_1h: number;
+  flow_1m?: number;
+  flow_threshold?: number;
+  investor_change?: number;
+  share_pressure?: number;
+  market_cap_change?: number;
   rank: number;
 };
 
@@ -117,6 +130,27 @@ type DecisionResult = {
   signals: StockSignal[];
 };
 
+type PaperBotStatus = {
+  bot: {
+    id: string;
+    name: string;
+    strategy_key: string;
+    strategy: PaperBotStrategy;
+    default_starting_cash: number;
+  };
+  account: PaperAccount | null;
+  positions: Array<PaperPosition & {
+    acronym: string | null;
+    name: string | null;
+    latest_price: number | null;
+    market_value: number;
+    unrealized_pnl: number;
+  }>;
+  latest_equity: EquitySnapshot | null;
+  recent_trades: Array<PaperTrade & { acronym: string | null; name: string | null }>;
+  latest_signals: StockSignal[];
+};
+
 type SimulationRun = {
   id: string;
   strategy_key: string;
@@ -137,9 +171,12 @@ type SimulationRun = {
   error: string | null;
 };
 
-const LIVE_ACCOUNT_ID = "stock-paper-live";
+const MOMENTUM_ACCOUNT_ID = "stock-paper-live";
+const WHALE_FLOW_ACCOUNT_ID = "stock-paper-flow-live";
 const DEFAULT_STRATEGY_KEY = "momentum-relative-v2";
+const WHALE_FLOW_STRATEGY_KEY = "whale-flow-mimic-v1";
 const DEFAULT_STARTING_CASH = 1_000_000_000;
+const WHALE_FLOW_STARTING_CASH = 10_000_000_000;
 const DEFAULT_BUY_FEE_RATE = 0;
 const DEFAULT_SELL_FEE_RATE = 0.001;
 const DEFAULT_MAX_OPEN_POSITIONS = 5;
@@ -153,6 +190,11 @@ const FRESH_SNAPSHOT_SECONDS = 45 * 60;
 const MIN_POSITION_HOLD_SECONDS = 60 * 60;
 const EXIT_RANK_THRESHOLD = 10;
 const MIN_NET_EXIT_RETURN = 0;
+const WHALE_FLOW_MAX_TARGETS = 3;
+const WHALE_FLOW_BASELINE_SECONDS = 60 * 60;
+const WHALE_FLOW_MIN_SCORE = 0.001;
+const WHALE_FLOW_BASELINE_MULTIPLIER = 2;
+const WHALE_FLOW_STRONG_REVERSAL_SCORE = -0.0015;
 
 const DEFAULT_CONFIG: StrategyConfig = {
   strategy_key: DEFAULT_STRATEGY_KEY,
@@ -164,27 +206,67 @@ const DEFAULT_CONFIG: StrategyConfig = {
   min_cash_reserve_fraction: DEFAULT_MIN_CASH_RESERVE_FRACTION,
 };
 
+const PAPER_BOTS: PaperBotDefinition[] = [
+  {
+    id: MOMENTUM_ACCOUNT_ID,
+    name: "Momentum bot",
+    strategy: "momentum",
+    ...DEFAULT_CONFIG,
+  },
+  {
+    id: WHALE_FLOW_ACCOUNT_ID,
+    name: "Whale Flow bot",
+    strategy: "whale-flow",
+    strategy_key: WHALE_FLOW_STRATEGY_KEY,
+    starting_cash: WHALE_FLOW_STARTING_CASH,
+    buy_fee_rate: DEFAULT_BUY_FEE_RATE,
+    sell_fee_rate: DEFAULT_SELL_FEE_RATE,
+    max_open_positions: DEFAULT_MAX_OPEN_POSITIONS,
+    max_position_fraction: DEFAULT_MAX_POSITION_FRACTION,
+    min_cash_reserve_fraction: DEFAULT_MIN_CASH_RESERVE_FRACTION,
+  },
+];
+
 export async function runLiveStockPaperBotTick(
   env: Env,
   scheduledTime: number,
-): Promise<{ ok: true; skipped: boolean; reason?: string; account?: PaperAccount; snapshot?: EquitySnapshot; trades?: PaperTrade[] }> {
+): Promise<{ ok: true; results: Array<{ bot_id: string; skipped: boolean; reason?: string; account?: PaperAccount; snapshot?: EquitySnapshot; trades?: PaperTrade[] }> }> {
   const newestSnapshotAt = await readNewestStockSnapshotAt(env);
   const scheduledSeconds = Math.floor(scheduledTime / 1000);
   const eligibleSnapshotAt = newestSnapshotAt === null
     ? null
     : Math.floor(newestSnapshotAt / DECISION_INTERVAL_SECONDS) * DECISION_INTERVAL_SECONDS;
   if (!eligibleSnapshotAt || scheduledSeconds - eligibleSnapshotAt > FRESH_SNAPSHOT_SECONDS) {
-    return { ok: true, skipped: true, reason: "No fresh stock snapshots available" };
+    return {
+      ok: true,
+      results: PAPER_BOTS.map((bot) => ({
+        bot_id: bot.id,
+        skipped: true,
+        reason: "No fresh stock snapshots available",
+      })),
+    };
   }
 
-  const account = await ensureLivePaperAccount(env, nowSeconds());
+  const results: Array<{ bot_id: string; skipped: boolean; reason?: string; account?: PaperAccount; snapshot?: EquitySnapshot; trades?: PaperTrade[] }> = [];
+  for (const bot of PAPER_BOTS) {
+    results.push(await runLiveStockPaperBotForDefinition(env, bot, eligibleSnapshotAt));
+  }
+  return { ok: true, results };
+}
+
+async function runLiveStockPaperBotForDefinition(
+  env: Env,
+  bot: PaperBotDefinition,
+  eligibleSnapshotAt: number,
+): Promise<{ bot_id: string; skipped: boolean; reason?: string; account?: PaperAccount; snapshot?: EquitySnapshot; trades?: PaperTrade[] }> {
+  const account = await ensureLivePaperAccount(env, bot, nowSeconds());
   if (account.last_decision_at !== null && account.last_decision_at >= eligibleSnapshotAt) {
-    return { ok: true, skipped: true, reason: "Latest snapshot already evaluated", account };
+    return { bot_id: bot.id, skipped: true, reason: "Latest snapshot already evaluated", account };
   }
 
   const market = await readMarketStocksForDecision(env, eligibleSnapshotAt);
   if (market.length === 0) {
-    return { ok: true, skipped: true, reason: "No market history available", account };
+    return { bot_id: bot.id, skipped: true, reason: "No market history available", account };
   }
 
   const positions = await readAccountPositions(env, account.id);
@@ -197,6 +279,7 @@ export async function runLiveStockPaperBotTick(
     state,
     market,
     config: account,
+    strategy: bot.strategy,
     observedAt: eligibleSnapshotAt,
     accountId: account.id,
     simulationRunId: null,
@@ -204,7 +287,7 @@ export async function runLiveStockPaperBotTick(
   });
 
   await persistAccountDecision(env, account, state, result, eligibleSnapshotAt);
-  return { ok: true, skipped: false, account: { ...account, cash_balance: state.cash, realized_pnl: state.realizedPnl, last_decision_at: eligibleSnapshotAt }, snapshot: result.snapshot, trades: result.trades };
+  return { bot_id: bot.id, skipped: false, account: { ...account, cash_balance: state.cash, realized_pnl: state.realizedPnl, last_decision_at: eligibleSnapshotAt }, snapshot: result.snapshot, trades: result.trades };
 }
 
 export async function simulateStockPaperBotFromRequest(request: Request, env: Env): Promise<Response> {
@@ -275,6 +358,7 @@ export async function simulateStockPaperBotFromRequest(request: Request, env: En
         state,
         market,
         config: DEFAULT_CONFIG,
+        strategy: "momentum",
         observedAt: decisionAt,
         accountId: null,
         simulationRunId: run.id,
@@ -313,27 +397,47 @@ export async function simulateStockPaperBotFromRequest(request: Request, env: En
 }
 
 export async function getStockPaperStatus(env: Env): Promise<Response> {
-  const account = await readLivePaperAccount(env);
-  const positions = account ? await readAccountPositionsWithMarket(env, account.id) : [];
-  const latestEquity = account ? await readLatestAccountEquity(env, account.id) : null;
-  const recentTrades = account ? await readRecentPaperTrades(env, account.id, null, 20) : [];
+  const bots = await Promise.all(PAPER_BOTS.map((bot) => readPaperBotStatus(env, bot)));
+  const momentum = bots.find((bot) => bot.bot.id === MOMENTUM_ACCOUNT_ID) ?? bots[0] ?? null;
   const latestSimulation = await readLatestSimulationRun(env);
   const simulationTrades = latestSimulation ? await readRecentPaperTrades(env, null, latestSimulation.id, 20) : [];
-  const latestSignals = account?.last_decision_at
-    ? rankStockPaperSignals(await readMarketStocksForDecision(env, account.last_decision_at), account.last_decision_at, account)
-    : [];
 
   return json({
     ok: true,
+    bots,
+    account: momentum?.account ?? null,
+    positions: momentum?.positions ?? [],
+    latest_equity: momentum?.latest_equity ?? null,
+    recent_trades: momentum?.recent_trades ?? [],
+    latest_simulation: latestSimulation,
+    latest_simulation_trades: simulationTrades,
+    latest_signals: momentum?.latest_signals.slice(0, 5) ?? [],
+    defaults: DEFAULT_CONFIG,
+  });
+}
+
+async function readPaperBotStatus(env: Env, bot: PaperBotDefinition): Promise<PaperBotStatus> {
+  const account = await readLivePaperAccount(env, bot.id);
+  const positions = account ? await readAccountPositionsWithMarket(env, account.id) : [];
+  const latestEquity = account ? await readLatestAccountEquity(env, account.id) : null;
+  const recentTrades = account ? await readRecentPaperTrades(env, account.id, null, 20) : [];
+  const latestSignals = account?.last_decision_at
+    ? rankSignalsForStrategy(
+      await readMarketStocksForDecision(env, account.last_decision_at),
+      account.last_decision_at,
+      account,
+      bot.strategy,
+    )
+    : [];
+
+  return {
+    bot: publicBotDefinition(bot),
     account,
     positions,
     latest_equity: latestEquity,
     recent_trades: recentTrades,
-    latest_simulation: latestSimulation,
-    latest_simulation_trades: simulationTrades,
     latest_signals: latestSignals.slice(0, 5),
-    defaults: DEFAULT_CONFIG,
-  });
+  };
 }
 
 export async function getStockPaperSimulations(env: Env): Promise<Response> {
@@ -351,7 +455,8 @@ export async function getStockPaperSimulations(env: Env): Promise<Response> {
 
 export async function getStockPaperTrades(url: URL, env: Env): Promise<Response> {
   const limit = parseLimit(url.searchParams.get("limit"), 100, 250);
-  const trades = await readRecentPaperTrades(env, LIVE_ACCOUNT_ID, null, limit);
+  const bot = botDefinitionById(url.searchParams.get("bot_id")) ?? PAPER_BOTS[0];
+  const trades = await readRecentPaperTrades(env, bot.id, null, limit);
   return json({ ok: true, trades });
 }
 
@@ -399,15 +504,27 @@ export async function exportStockSnapshots(url: URL, env: Env): Promise<Response
   });
 }
 
-export async function resetStockPaperAccount(env: Env): Promise<Response> {
+export async function resetStockPaperAccount(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonBody(request);
+  const botId = typeof body.bot_id === "string" ? body.bot_id : MOMENTUM_ACCOUNT_ID;
+  const bot = botDefinitionById(botId);
+  if (!bot) {
+    return json({ ok: false, error: "Unknown paper bot", code: "UNKNOWN_PAPER_BOT" }, 400);
+  }
+
+  const startingCash = positiveCurrency(body.starting_cash) ?? bot.starting_cash;
+  if (startingCash <= 0) {
+    return json({ ok: false, error: "Starting cash must be positive", code: "INVALID_STARTING_CASH" }, 400);
+  }
+
   const now = nowSeconds();
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM stock_paper_positions WHERE account_id = ?").bind(LIVE_ACCOUNT_ID),
-    env.DB.prepare("DELETE FROM stock_paper_trades WHERE account_id = ?").bind(LIVE_ACCOUNT_ID),
-    env.DB.prepare("DELETE FROM stock_paper_equity_snapshots WHERE account_id = ?").bind(LIVE_ACCOUNT_ID),
+    env.DB.prepare("DELETE FROM stock_paper_positions WHERE account_id = ?").bind(bot.id),
+    env.DB.prepare("DELETE FROM stock_paper_trades WHERE account_id = ?").bind(bot.id),
+    env.DB.prepare("DELETE FROM stock_paper_equity_snapshots WHERE account_id = ?").bind(bot.id),
   ]);
-  const account = await upsertLivePaperAccount(env, now, DEFAULT_STARTING_CASH, 0, null);
-  return json({ ok: true, account });
+  const account = await upsertLivePaperAccount(env, bot, now, startingCash, startingCash, 0, null);
+  return json({ ok: true, account, bot: publicBotDefinition(bot) });
 }
 
 export function rankStockPaperSignals(
@@ -434,21 +551,49 @@ export function rankStockPaperSignals(
     .map((signal, index) => ({ ...signal, rank: index + 1 }));
 }
 
+export function rankWhaleFlowSignals(
+  market: MarketStock[],
+  observedAt: number,
+  config: Pick<StrategyConfig, "sell_fee_rate"> = DEFAULT_CONFIG,
+): StockSignal[] {
+  return market
+    .map((stock) => buildWhaleFlowSignal(stock, observedAt, config.sell_fee_rate))
+    .filter((signal): signal is Omit<StockSignal, "rank"> => Boolean(signal))
+    .sort((a, b) => b.expected_return - a.expected_return)
+    .map((signal, index) => ({ ...signal, rank: index + 1 }));
+}
+
+function rankSignalsForStrategy(
+  market: MarketStock[],
+  observedAt: number,
+  config: Pick<StrategyConfig, "sell_fee_rate">,
+  strategy: PaperBotStrategy,
+): StockSignal[] {
+  return strategy === "whale-flow"
+    ? rankWhaleFlowSignals(market, observedAt, config)
+    : rankStockPaperSignals(market, observedAt, config);
+}
+
 function applyPaperDecision(options: {
   state: StrategyState;
   market: MarketStock[];
   config: StrategyConfig;
+  strategy: PaperBotStrategy;
   observedAt: number;
   accountId: string | null;
   simulationRunId: string | null;
   createdAt: number;
 }): DecisionResult {
-  const { state, market, config, observedAt, accountId, simulationRunId, createdAt } = options;
-  const signals = rankStockPaperSignals(market, observedAt, config);
+  const { state, market, config, strategy, observedAt, accountId, simulationRunId, createdAt } = options;
+  const signals = rankSignalsForStrategy(market, observedAt, config, strategy);
   const prices = latestPricesByStock(market, observedAt);
+  const maxTargets = strategy === "whale-flow"
+    ? Math.min(config.max_open_positions, WHALE_FLOW_MAX_TARGETS)
+    : config.max_open_positions;
+  const minEntryReturn = strategy === "whale-flow" ? 0 : config.sell_fee_rate;
   const tradableSignals = signals
-    .filter((signal) => signal.expected_return > config.sell_fee_rate)
-    .slice(0, config.max_open_positions);
+    .filter((signal) => signal.expected_return > minEntryReturn)
+    .slice(0, maxTargets);
   const targetIds = new Set(tradableSignals.map((signal) => signal.stock_id));
   const signalByStock = new Map(signals.map((signal) => [signal.stock_id, signal]));
   const trades: PaperTrade[] = [];
@@ -459,7 +604,9 @@ function applyPaperDecision(options: {
     if (!price) {
       continue;
     }
-    const exit = shouldExitPosition(position, signal, targetIds, price, observedAt, config);
+    const exit = strategy === "whale-flow"
+      ? shouldExitWhaleFlowPosition(position, signal, targetIds, price, config)
+      : shouldExitPosition(position, signal, targetIds, price, observedAt, config);
     if (exit.shouldExit) {
       trades.push(sellShares(state, position, position.shares, price, observedAt, exit.reason, signal, config, accountId, simulationRunId, createdAt));
     }
@@ -552,6 +699,30 @@ function netReturnIfSold(position: PaperPosition, price: number, sellFeeRate: nu
   return position.average_entry_price > 0
     ? netSellPrice / position.average_entry_price - 1
     : 0;
+}
+
+function shouldExitWhaleFlowPosition(
+  position: PaperPosition,
+  signal: StockSignal | undefined,
+  targetIds: Set<number>,
+  price: number,
+  config: StrategyConfig,
+): { shouldExit: boolean; reason: string } {
+  if (targetIds.has(position.stock_id) && signal && signal.expected_return > 0) {
+    return { shouldExit: false, reason: "hold_whale_flow" };
+  }
+
+  if (signal && signal.score <= WHALE_FLOW_STRONG_REVERSAL_SCORE) {
+    return { shouldExit: true, reason: "strong_flow_reversal" };
+  }
+
+  const netReturn = netReturnIfSold(position, price, config.sell_fee_rate);
+  const signalFaded = !signal || signal.expected_return <= 0 || signal.rank > EXIT_RANK_THRESHOLD;
+  if (signalFaded && netReturn >= MIN_NET_EXIT_RETURN) {
+    return { shouldExit: true, reason: "fee_covered_flow_fade" };
+  }
+
+  return { shouldExit: false, reason: "hold_flow_buffer" };
 }
 
 function buyShares(
@@ -739,6 +910,117 @@ function buildStockSignal(stock: MarketStock, observedAt: number, sellFeeRate: n
     momentum_6h: momentum6h,
     volatility_1h: volatility1h,
   };
+}
+
+function buildWhaleFlowSignal(stock: MarketStock, observedAt: number, sellFeeRate: number): Omit<StockSignal, "rank"> | null {
+  const current = priceAtOrBefore(stock.points, observedAt);
+  const previous = priceAtOrBefore(stock.points, observedAt - 60);
+  if (!current || !previous) {
+    return null;
+  }
+
+  const currentFlow = whaleFlowScoreBetween(previous, current);
+  if (currentFlow === null) {
+    return null;
+  }
+
+  const baseline = whaleFlowBaseline(stock.points, observedAt - WHALE_FLOW_BASELINE_SECONDS, observedAt - 60);
+  const threshold = Math.max(
+    WHALE_FLOW_MIN_SCORE,
+    baseline.average + baseline.deviation * WHALE_FLOW_BASELINE_MULTIPLIER,
+  );
+  const expectedReturn = currentFlow.score - threshold - sellFeeRate;
+
+  return {
+    stock_id: stock.stock_id,
+    acronym: stock.acronym,
+    name: stock.name,
+    observed_at: current.observed_at,
+    price: current.price,
+    score: currentFlow.score,
+    expected_return: expectedReturn,
+    momentum_30m: 0,
+    momentum_1h: 0,
+    momentum_3h: 0,
+    momentum_6h: 0,
+    volatility_1h: volatilityBetween(stock.points, observedAt - 60 * 60, observedAt),
+    flow_1m: currentFlow.score,
+    flow_threshold: threshold,
+    investor_change: currentFlow.investorChange,
+    share_pressure: currentFlow.sharePressure,
+    market_cap_change: currentFlow.marketCapChange,
+  };
+}
+
+function whaleFlowScoreBetween(previous: MarketPoint, current: MarketPoint): {
+  score: number;
+  investorChange: number;
+  sharePressure: number;
+  marketCapChange: number;
+} | null {
+  const marketCapChange = percentChange(previous.market_cap, current.market_cap);
+  const sharePressure = inversePercentChange(previous.total_shares, current.total_shares);
+  const investorChange = percentChange(previous.investors, current.investors);
+  const priceChange = percentChange(previous.price, current.price) ?? 0;
+
+  if (marketCapChange === null && sharePressure === null && investorChange === null) {
+    return null;
+  }
+
+  const positiveMarketMove = Math.max(0, marketCapChange ?? 0);
+  const positiveSharePressure = Math.max(0, sharePressure ?? 0);
+  const positivePriceMove = Math.max(0, priceChange);
+  const crowdPenalty = Math.abs(investorChange ?? 0) * 0.75;
+  const score =
+    positiveMarketMove * 0.45 +
+    positiveSharePressure * 0.35 +
+    positivePriceMove * 0.2 -
+    crowdPenalty;
+
+  return {
+    score,
+    investorChange: investorChange ?? 0,
+    sharePressure: sharePressure ?? 0,
+    marketCapChange: marketCapChange ?? 0,
+  };
+}
+
+function whaleFlowBaseline(points: MarketPoint[], startAt: number, endAt: number): { average: number; deviation: number } {
+  const values: number[] = [];
+  let previous: MarketPoint | null = null;
+  for (const point of points) {
+    if (point.observed_at < startAt || point.observed_at > endAt) {
+      continue;
+    }
+    if (previous) {
+      const flow = whaleFlowScoreBetween(previous, point);
+      if (flow) {
+        values.push(Math.abs(flow.score));
+      }
+    }
+    previous = point;
+  }
+
+  if (values.length < 3) {
+    return { average: 0, deviation: 0 };
+  }
+  const average = values.reduce((total, value) => total + value, 0) / values.length;
+  const variance = values.reduce((total, value) => total + (value - average) ** 2, 0) / values.length;
+  return { average, deviation: Math.sqrt(variance) };
+}
+
+function percentChange(previous: unknown, current: unknown): number | null {
+  const previousNumber = Number(previous);
+  const currentNumber = Number(current);
+  if (!Number.isFinite(previousNumber) || !Number.isFinite(currentNumber) || previousNumber <= 0) {
+    return null;
+  }
+  return currentNumber / previousNumber - 1;
+}
+
+function inversePercentChange(previous: unknown, current: unknown): number | null {
+  const change = percentChange(previous, current);
+  return change === null ? null : -change;
 }
 
 function priceAtOrBefore(points: MarketPoint[], timestamp: number): MarketPoint | null {
@@ -998,14 +1280,30 @@ async function updateSimulationRun(env: Env, run: SimulationRun): Promise<void> 
     .run();
 }
 
-async function ensureLivePaperAccount(env: Env, now: number): Promise<PaperAccount> {
-  const account = await readLivePaperAccount(env);
-  return account ?? upsertLivePaperAccount(env, now, DEFAULT_STARTING_CASH, 0, null);
+function botDefinitionById(botId: unknown): PaperBotDefinition | null {
+  return PAPER_BOTS.find((bot) => bot.id === botId) ?? null;
+}
+
+function publicBotDefinition(bot: PaperBotDefinition): PaperBotStatus["bot"] {
+  return {
+    id: bot.id,
+    name: bot.name,
+    strategy_key: bot.strategy_key,
+    strategy: bot.strategy,
+    default_starting_cash: bot.starting_cash,
+  };
+}
+
+async function ensureLivePaperAccount(env: Env, bot: PaperBotDefinition, now: number): Promise<PaperAccount> {
+  const account = await readLivePaperAccount(env, bot.id);
+  return account ?? upsertLivePaperAccount(env, bot, now, bot.starting_cash, bot.starting_cash, 0, null);
 }
 
 async function upsertLivePaperAccount(
   env: Env,
+  bot: PaperBotDefinition,
   now: number,
+  startingCash: number,
   cashBalance: number,
   realizedPnl: number,
   lastDecisionAt: number | null,
@@ -1047,33 +1345,33 @@ async function upsertLivePaperAccount(
     `,
   )
     .bind(
-      LIVE_ACCOUNT_ID,
-      "Torn paper bot",
-      DEFAULT_STRATEGY_KEY,
-      DEFAULT_STARTING_CASH,
+      bot.id,
+      bot.name,
+      bot.strategy_key,
+      startingCash,
       cashBalance,
       realizedPnl,
-      DEFAULT_BUY_FEE_RATE,
-      DEFAULT_SELL_FEE_RATE,
-      DEFAULT_MAX_OPEN_POSITIONS,
-      DEFAULT_MAX_POSITION_FRACTION,
-      DEFAULT_MIN_CASH_RESERVE_FRACTION,
+      bot.buy_fee_rate,
+      bot.sell_fee_rate,
+      bot.max_open_positions,
+      bot.max_position_fraction,
+      bot.min_cash_reserve_fraction,
       lastDecisionAt,
       now,
       now,
     )
     .run();
 
-  const account = await readLivePaperAccount(env);
+  const account = await readLivePaperAccount(env, bot.id);
   if (!account) {
     throw new Error("Unable to create live paper account.");
   }
   return account;
 }
 
-async function readLivePaperAccount(env: Env): Promise<PaperAccount | null> {
+async function readLivePaperAccount(env: Env, accountId: string): Promise<PaperAccount | null> {
   return await env.DB.prepare("SELECT * FROM stock_paper_accounts WHERE id = ?")
-    .bind(LIVE_ACCOUNT_ID)
+    .bind(accountId)
     .first<PaperAccount>();
 }
 
@@ -1192,7 +1490,10 @@ async function readMarketStocks(env: Env, startAt: number, endAt: number): Promi
     SELECT
       s.stock_id,
       s.observed_at,
-      s.price
+      s.price,
+      s.market_cap,
+      s.total_shares,
+      s.investors
     FROM stock_price_snapshots s
     WHERE s.observed_at BETWEEN ? AND ?
     ORDER BY s.observed_at ASC, s.stock_id ASC
@@ -1210,13 +1511,13 @@ async function readMarketStocksForDecision(env: Env, observedAt: number): Promis
   const anchor6h = observedAt - 6 * 60 * 60;
   const rows = await env.DB.prepare(
     `
-    SELECT stock_id, observed_at, price
+    SELECT stock_id, observed_at, price, market_cap, total_shares, investors
     FROM (
-      SELECT stock_id, observed_at, price
+      SELECT stock_id, observed_at, price, market_cap, total_shares, investors
       FROM stock_price_snapshots
       WHERE observed_at BETWEEN ? AND ?
       UNION ALL
-      SELECT stock_id, observed_at, price
+      SELECT stock_id, observed_at, price, market_cap, total_shares, investors
       FROM stock_price_snapshots
       WHERE observed_at IN (?, ?)
     )
@@ -1242,6 +1543,9 @@ function marketStocksFromRows(rows: MarketPoint[]): MarketStock[] {
       stock_id: row.stock_id,
       observed_at: row.observed_at,
       price: row.price,
+      market_cap: row.market_cap,
+      total_shares: row.total_shares,
+      investors: row.investors,
     });
     byStock.set(row.stock_id, stock);
   }
@@ -1275,6 +1579,11 @@ function roundUpToInterval(timestamp: number): number {
 
 function positiveInteger(value: unknown): number | null {
   const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function positiveCurrency(value: unknown): number | null {
+  const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 

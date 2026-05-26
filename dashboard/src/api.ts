@@ -778,11 +778,32 @@ export type StockPaperSignal = {
   price: number;
   score: number;
   expected_return: number;
+  flow_1m?: number | null;
+  flow_threshold?: number | null;
+  investor_change?: number | null;
+  share_pressure?: number | null;
+  market_cap_change?: number | null;
   rank: number;
+};
+
+export type StockPaperBotSummary = {
+  bot: {
+    id: string;
+    name: string;
+    strategy_key: string;
+    strategy: string;
+    default_starting_cash: number;
+  };
+  account: StockPaperAccount | null;
+  positions: StockPaperPosition[];
+  latest_equity: StockPaperEquitySnapshot | null;
+  recent_trades: StockPaperTrade[];
+  latest_signals: StockPaperSignal[];
 };
 
 export type StockPaperStatusResponse = {
   ok: boolean;
+  bots: StockPaperBotSummary[];
   account: StockPaperAccount | null;
   positions: StockPaperPosition[];
   latest_equity: StockPaperEquitySnapshot | null;
@@ -1385,8 +1406,14 @@ export async function simulateStockPaperBot(): Promise<StockPaperSimulationRespo
   return postJson<StockPaperSimulationResponse>("/api/admin/stocks/paper/simulate");
 }
 
-export async function resetStockPaperAccount(): Promise<StockPaperStatusResponse> {
-  await postJson("/api/admin/stocks/paper/reset");
+export async function resetStockPaperAccount(options?: {
+  botId?: string;
+  startingCash?: number;
+}): Promise<StockPaperStatusResponse> {
+  await postJson("/api/admin/stocks/paper/reset", {
+    bot_id: options?.botId,
+    starting_cash: options?.startingCash,
+  });
   return getStockPaperStatus();
 }
 

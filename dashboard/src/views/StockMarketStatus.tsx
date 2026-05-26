@@ -6,6 +6,7 @@ import {
   resetStockPaperAccount,
   StockCoverage,
   StockIngestionStatusResponse,
+  StockPaperBotSummary,
   StockPaperStatusResponse,
   StockSnapshotExportRow,
 } from "../api";
@@ -19,7 +20,7 @@ import {
 } from "../utils/stockBacktestStorage";
 import { formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
 
-type StockMarketTab = "status" | "live" | "backtesting";
+type StockMarketTab = "status" | "momentum" | "whale" | "backtesting";
 
 type LocalBacktestResult = {
   started_at: number;
@@ -55,7 +56,9 @@ export function StockMarketStatus() {
   const [backtestDays, setBacktestDays] = React.useState(7);
   const [backtestResult, setBacktestResult] = React.useState<LocalBacktestResult | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
-  const [paperAction, setPaperAction] = React.useState<"reset" | null>(null);
+  const [paperAction, setPaperAction] = React.useState<string | null>(null);
+  const [resetAmounts, setResetAmounts] = React.useState<Record<string, string>>({});
+  const [paperMessage, setPaperMessage] = React.useState<string | null>(null);
   const [syncState, setSyncState] = React.useState<{ active: boolean; rows: number; message: string }>({
     active: false,
     rows: 0,
@@ -76,6 +79,14 @@ export function StockMarketStatus() {
       ]);
       setData(ingestion);
       setPaperData(paper);
+      setResetAmounts((current) => ({
+        ...Object.fromEntries(
+          paper.bots.map((bot) => [
+            bot.bot.id,
+            current[bot.bot.id] ?? String(Math.round(bot.account?.starting_cash ?? bot.bot.default_starting_cash)),
+          ]),
+        ),
+      }));
       setCacheMeta(meta);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -86,11 +97,15 @@ export function StockMarketStatus() {
     }
   }
 
-  async function resetPaperBot() {
-    setPaperAction("reset");
+  async function resetPaperBot(botId: string, amount: number) {
+    setPaperAction(botId);
     setError(null);
+    setPaperMessage(null);
     try {
-      setPaperData(await resetStockPaperAccount());
+      const next = await resetStockPaperAccount({ botId, startingCash: amount });
+      setPaperData(next);
+      const botName = next.bots.find((bot) => bot.bot.id === botId)?.bot.name ?? "Paper bot";
+      setPaperMessage(`${botName} reset to ${formatMoney(amount)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -178,12 +193,13 @@ export function StockMarketStatus() {
 
   const latestRun = data?.latest_run ?? null;
   const coverage = data?.coverage ?? emptyCoverage();
-  const account = paperData?.account ?? null;
-  const latestEquity = paperData?.latest_equity ?? null;
+  const momentumBot = paperData?.bots.find((bot) => bot.bot.id === "stock-paper-live") ?? null;
+  const whaleBot = paperData?.bots.find((bot) => bot.bot.id === "stock-paper-flow-live") ?? null;
 
   return (
     <>
       {error ? <div className="error-panel">{error}</div> : null}
+      {paperMessage ? <div className="dashboard-suggestion-success">{paperMessage}</div> : null}
 
       <section className="hero-panel compact-hero-panel">
         <div>
@@ -203,20 +219,31 @@ export function StockMarketStatus() {
 
       <div className="stock-market-tabs" role="tablist" aria-label="Stock market sections">
         <TabButton active={activeTab === "status"} onClick={() => setActiveTab("status")}>Status</TabButton>
-        <TabButton active={activeTab === "live"} onClick={() => setActiveTab("live")}>Live Paper Bot</TabButton>
+        <TabButton active={activeTab === "momentum"} onClick={() => setActiveTab("momentum")}>Momentum Bot</TabButton>
+        <TabButton active={activeTab === "whale"} onClick={() => setActiveTab("whale")}>Whale Flow Bot</TabButton>
         <TabButton active={activeTab === "backtesting"} onClick={() => setActiveTab("backtesting")}>Backtesting</TabButton>
       </div>
 
       {activeTab === "status" ? (
         <StatusTab data={data} latestRun={latestRun} coverage={coverage} isLoading={isLoading} />
-      ) : activeTab === "live" ? (
+      ) : activeTab === "momentum" ? (
         <LivePaperBotTab
-          paperData={paperData}
-          account={account}
-          latestEquity={latestEquity}
+          botStatus={momentumBot}
           coverage={coverage}
           isLoading={isLoading}
           paperAction={paperAction}
+          resetAmount={resetAmounts[momentumBot?.bot.id ?? "stock-paper-live"] ?? ""}
+          onResetAmountChange={(value) => momentumBot && setResetAmounts((current) => ({ ...current, [momentumBot.bot.id]: value }))}
+          onReset={resetPaperBot}
+        />
+      ) : activeTab === "whale" ? (
+        <LivePaperBotTab
+          botStatus={whaleBot}
+          coverage={coverage}
+          isLoading={isLoading}
+          paperAction={paperAction}
+          resetAmount={resetAmounts[whaleBot?.bot.id ?? "stock-paper-flow-live"] ?? ""}
+          onResetAmountChange={(value) => whaleBot && setResetAmounts((current) => ({ ...current, [whaleBot.bot.id]: value }))}
           onReset={resetPaperBot}
         />
       ) : (
@@ -342,37 +369,53 @@ function StatusTab({
 }
 
 function LivePaperBotTab({
-  paperData,
-  account,
-  latestEquity,
+  botStatus,
   coverage,
   isLoading,
   paperAction,
+  resetAmount,
+  onResetAmountChange,
   onReset,
 }: {
-  paperData: StockPaperStatusResponse | null;
-  account: StockPaperStatusResponse["account"];
-  latestEquity: StockPaperStatusResponse["latest_equity"];
+  botStatus: StockPaperBotSummary | null;
   coverage: StockCoverage;
   isLoading: boolean;
-  paperAction: "reset" | null;
-  onReset: () => void;
+  paperAction: string | null;
+  resetAmount: string;
+  onResetAmountChange: (value: string) => void;
+  onReset: (botId: string, amount: number) => void;
 }) {
+  const account = botStatus?.account ?? null;
+  const latestEquity = botStatus?.latest_equity ?? null;
+  const bot = botStatus?.bot ?? null;
+  const parsedResetAmount = Number(resetAmount);
+  const canReset = Boolean(bot) && Number.isFinite(parsedResetAmount) && parsedResetAmount > 0;
+
   return (
     <>
       <section className="panel">
         <PanelHeader
-          title="Live paper bot"
-          aside={account ? `${statusLabel(account.status)} | ${account.strategy_key}` : "Not started"}
+          title={bot?.name ?? "Paper bot"}
+          aside={account ? `${statusLabel(account.status)} | ${account.strategy_key}` : bot?.strategy_key ?? "Not started"}
         />
-        <div className="panel-actions-row stock-paper-actions">
+        <div className="stock-backtest-controls">
+          <label>
+            <span>Reset bankroll</span>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={resetAmount}
+              onChange={(event) => onResetAmountChange(event.target.value)}
+            />
+          </label>
           <button
             type="button"
             className="panel-action-button secondary"
-            disabled={isLoading || paperAction !== null}
-            onClick={onReset}
+            disabled={isLoading || paperAction !== null || !canReset || !bot}
+            onClick={() => bot && onReset(bot.id, parsedResetAmount)}
           >
-            {paperAction === "reset" ? "Resetting" : "Reset paper account"}
+            {paperAction === bot?.id ? "Resetting" : "Reset bot"}
           </button>
         </div>
 
@@ -380,17 +423,17 @@ function LivePaperBotTab({
           <StatusMetric
             label="Total equity"
             value={formatMoney(latestEquity?.total_equity ?? account?.cash_balance ?? null)}
-            detail={formatReturn(latestEquity?.total_equity ?? account?.cash_balance ?? null, account?.starting_cash ?? paperData?.defaults.starting_cash)}
+            detail={formatReturn(latestEquity?.total_equity ?? account?.cash_balance ?? null, account?.starting_cash ?? bot?.default_starting_cash)}
           />
           <StatusMetric
             label="Cash"
             value={formatMoney(latestEquity?.cash_balance ?? account?.cash_balance ?? null)}
-            detail={`Reserve ${formatPercent(account?.min_cash_reserve_fraction ?? paperData?.defaults.min_cash_reserve_fraction ?? 0.05)}`}
+            detail={`Reserve ${formatPercent(account?.min_cash_reserve_fraction ?? 0.05)}`}
           />
           <StatusMetric
             label="Holdings"
             value={formatMoney(latestEquity?.holdings_value ?? 0)}
-            detail={`${formatNumber(paperData?.positions.length ?? 0)} open positions`}
+            detail={`${formatNumber(botStatus?.positions.length ?? 0)} open positions`}
           />
         </section>
 
@@ -411,20 +454,20 @@ function LivePaperBotTab({
       </section>
 
       <section className="panel table-panel">
-        <PanelHeader title="Current paper positions" aside={`${formatNumber(paperData?.positions.length ?? 0)} open`} />
-        {!paperData || paperData.positions.length === 0 ? (
+        <PanelHeader title="Current paper positions" aside={`${formatNumber(botStatus?.positions.length ?? 0)} open`} />
+        {!botStatus || botStatus.positions.length === 0 ? (
           <EmptyState text={isLoading ? "Loading positions" : "No simulated holdings"} />
         ) : (
-          <StockPositionsTable paperData={paperData} />
+          <StockPositionsTable positions={botStatus.positions} />
         )}
       </section>
 
       <section className="panel table-panel">
-        <PanelHeader title="Recent paper trades" aside={`${formatNumber(paperData?.recent_trades.length ?? 0)} shown`} />
-        {!paperData || paperData.recent_trades.length === 0 ? (
+        <PanelHeader title="Recent paper trades" aside={`${formatNumber(botStatus?.recent_trades.length ?? 0)} shown`} />
+        {!botStatus || botStatus.recent_trades.length === 0 ? (
           <EmptyState text={isLoading ? "Loading paper trades" : "No simulated trades yet"} />
         ) : (
-          <StockTradesTable trades={paperData.recent_trades} />
+          <StockTradesTable trades={botStatus.recent_trades} />
         )}
       </section>
     </>
@@ -574,7 +617,7 @@ function BacktestingTab({
   );
 }
 
-function StockPositionsTable({ paperData }: { paperData: StockPaperStatusResponse }) {
+function StockPositionsTable({ positions }: { positions: StockPaperBotSummary["positions"] }) {
   return (
     <div className="table-scroll">
       <table className="stock-status-table">
@@ -589,7 +632,7 @@ function StockPositionsTable({ paperData }: { paperData: StockPaperStatusRespons
           </tr>
         </thead>
         <tbody>
-          {paperData.positions.map((position) => (
+          {positions.map((position) => (
             <tr key={position.stock_id}>
               <td>{stockLabel(position)}</td>
               <td>{formatNumber(position.shares)}</td>

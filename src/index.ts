@@ -252,7 +252,7 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
   }
 
   if (matchesExactRoute(url, request, "/api/admin/stocks/paper/reset", "POST")) {
-    return withAdmin(routeContext, () => resetStockPaperAccount(env));
+    return withAdmin(routeContext, () => resetStockPaperAccount(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/users", "GET")) {
