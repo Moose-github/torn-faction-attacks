@@ -22,6 +22,9 @@ type StockSnapshot = {
   stock_id: number;
   observed_at: number;
   price: number;
+  market_cap: number | null;
+  total_shares: number | null;
+  investors: number | null;
   raw_json: string | null;
   fetched_at: number;
 };
@@ -56,18 +59,15 @@ const REQUEST_TIMEOUT_MS = 12_000;
 const STOCK_PROFILE_REFRESH_STATE = "stock_market_profiles_refreshed";
 const PROFILE_REFRESH_SECONDS = 24 * 60 * 60;
 const STOCK_HISTORY_WINDOW_SECONDS = 60 * 60;
-const STALE_STOCK_SECONDS = 45 * 60;
+const STALE_STOCK_SECONDS = 5 * 60;
 const DEFAULT_STOCK_IDS = Array.from({ length: 35 }, (_, index) => index + 1);
+const PRIMARY_STOCK_CADENCE = "1m all-stocks";
+const RECOVERY_STOCK_CADENCE = "30m stale-stock history fallback";
 
-export async function refreshTornStockHistoryBatch(
-  env: Env,
-  scheduledTime: number,
-): Promise<StockIngestionRun> {
-  const startedAt = nowSeconds();
-  const runId = crypto.randomUUID();
-  const run: StockIngestionRun = {
-    id: runId,
-    batch_group: "pending",
+function createStockIngestionRun(batchGroup: string, startedAt: number): StockIngestionRun {
+  return {
+    id: crypto.randomUUID(),
+    batch_group: batchGroup,
     started_at: startedAt,
     finished_at: null,
     status: "running",
@@ -81,6 +81,61 @@ export async function refreshTornStockHistoryBatch(
     error: null,
     details_json: null,
   };
+}
+
+export async function refreshTornStockMarketMinute(
+  env: Env,
+  scheduledTime: number,
+): Promise<StockIngestionRun> {
+  const startedAt = nowSeconds();
+  const observedAt = minuteFromScheduledTime(scheduledTime);
+  const run = createStockIngestionRun("minute", startedAt);
+  await insertStockIngestionRun(env, run);
+
+  try {
+    const data = await fetchTornJson("/torn/stocks", env);
+    const profiles = normalizeStockProfiles(data, startedAt);
+    if (profiles.length === 0) {
+      throw new Error("Torn stocks response did not include stock profiles");
+    }
+
+    const snapshots = normalizeStockMarketSnapshots(data, observedAt, startedAt);
+    await saveStockProfiles(env, profiles);
+    const written = await saveStockSnapshots(env, snapshots);
+    await upsertSyncTimestamp(env, STOCK_PROFILE_REFRESH_STATE, startedAt, null);
+
+    run.stocks_attempted = profiles.length;
+    run.stocks_succeeded = snapshots.length;
+    run.stocks_failed = Math.max(0, profiles.length - snapshots.length);
+    run.points_seen = snapshots.length;
+    run.points_written = written;
+    run.details_json = JSON.stringify({
+      source: "all-stocks",
+      observed_at: observedAt,
+      profiles: profiles.length,
+      snapshots: snapshots.length,
+    });
+    run.status = snapshots.length === profiles.length ? "ok" : (snapshots.length > 0 ? "partial" : "error");
+    run.error = snapshots.length > 0 ? null : "Torn stocks response did not include snapshot prices";
+    run.finished_at = nowSeconds();
+    await updateStockIngestionRun(env, run);
+    return run;
+  } catch (err: any) {
+    run.finished_at = nowSeconds();
+    run.status = "error";
+    run.error = err?.message || String(err);
+    run.details_json = JSON.stringify({ source: "all-stocks" });
+    await updateStockIngestionRun(env, run);
+    return run;
+  }
+}
+
+export async function refreshTornStockHistoryBatch(
+  env: Env,
+  scheduledTime: number,
+): Promise<StockIngestionRun> {
+  const startedAt = nowSeconds();
+  const run = createStockIngestionRun("recovery", startedAt);
 
   await insertStockIngestionRun(env, run);
 
@@ -91,27 +146,31 @@ export async function refreshTornStockHistoryBatch(
     const stockIds = profiles.length > 0
       ? profiles.map((profile) => profile.stock_id).sort((a, b) => a - b)
       : DEFAULT_STOCK_IDS;
-    const batch = selectStockBatchForTime(stockIds, scheduledTime);
+    const latestByStock = await readLatestSnapshotTimes(env, stockIds);
+    const staleStockIds = stockIds.filter((stockId) => {
+      const latestObservedAt = latestByStock.get(stockId) ?? null;
+      if (latestObservedAt === null) {
+        return true;
+      }
+      const gapSeconds = Math.max(0, startedAt - latestObservedAt);
+      if (gapSeconds > STALE_STOCK_SECONDS) {
+        if (gapSeconds <= STOCK_HISTORY_WINDOW_SECONDS) {
+          run.recoverable_gap_count += 1;
+        } else {
+          run.unrecoverable_gap_count += 1;
+        }
+        return true;
+      }
+      return false;
+    });
+    const batch = selectRecoveryStockBatch(stockIds, staleStockIds, scheduledTime);
 
-    run.batch_group = batch.group;
+    run.batch_group = `recovery-${batch.group}`;
     run.stocks_attempted = batch.stockIds.length;
 
     await updateStockIngestionRun(env, run);
 
-    const latestByStock = await readLatestSnapshotTimes(env, batch.stockIds);
     for (const stockId of batch.stockIds) {
-      const latestObservedAt = latestByStock.get(stockId) ?? null;
-      if (latestObservedAt !== null) {
-        const gapSeconds = Math.max(0, startedAt - latestObservedAt);
-        if (gapSeconds > STALE_STOCK_SECONDS) {
-          if (gapSeconds <= STOCK_HISTORY_WINDOW_SECONDS) {
-            run.recoverable_gap_count += 1;
-          } else {
-            run.unrecoverable_gap_count += 1;
-          }
-        }
-      }
-
       try {
         const result = await fetchTornStockHistory(stockId, env);
         const profile = result.profile ?? minimalStockProfile(stockId, startedAt);
@@ -187,6 +246,9 @@ export async function getStocks(env: Env): Promise<Response> {
       p.*,
       s.observed_at AS latest_observed_at,
       s.price AS latest_snapshot_price,
+      s.market_cap AS latest_snapshot_market_cap,
+      s.total_shares AS latest_snapshot_total_shares,
+      s.investors AS latest_snapshot_investors,
       s.fetched_at AS latest_snapshot_fetched_at
     FROM stock_profiles p
     LEFT JOIN stock_price_snapshots s
@@ -214,7 +276,7 @@ export async function getStockHistory(url: URL, env: Env, stockId: number): Prom
   const limit = parseLimit(url.searchParams.get("limit"), 240, 1440);
   const rows = await env.DB.prepare(
     `
-    SELECT stock_id, observed_at, price, fetched_at
+    SELECT stock_id, observed_at, price, market_cap, total_shares, investors, fetched_at
     FROM stock_price_snapshots
     WHERE stock_id = ?
     ORDER BY observed_at DESC
@@ -266,15 +328,29 @@ export async function getStockIngestionStatus(env: Env): Promise<Response> {
     latest_run: latest ?? null,
     recent_runs: recent.results ?? [],
     coverage,
+    primary_cadence: PRIMARY_STOCK_CADENCE,
+    recovery_cadence: RECOVERY_STOCK_CADENCE,
     last_error: lastError?.error ?? null,
   });
+}
+
+export function selectRecoveryStockBatch(
+  allStockIds: number[],
+  staleStockIds: number[],
+  scheduledTime: number,
+): { group: "A" | "B" | "all"; stockIds: number[] } {
+  const maxPerRun = Math.ceil(Math.max(allStockIds.length, DEFAULT_STOCK_IDS.length) / 2);
+  if (staleStockIds.length <= maxPerRun) {
+    return { group: "all", stockIds: staleStockIds };
+  }
+  return selectStockBatchForTime(staleStockIds, scheduledTime);
 }
 
 export function selectStockBatchForTime(
   stockIds: number[],
   scheduledTime: number,
 ): { group: "A" | "B"; stockIds: number[] } {
-  const slot = Math.floor(scheduledTime / (15 * 60 * 1000));
+  const slot = Math.floor(scheduledTime / (30 * 60 * 1000));
   const groupIndex = slot % 2;
   return {
     group: groupIndex === 0 ? "A" : "B",
@@ -434,12 +510,18 @@ async function saveStockSnapshots(env: Env, snapshots: StockSnapshot[]): Promise
         stock_id,
         observed_at,
         price,
+        market_cap,
+        total_shares,
+        investors,
         raw_json,
         fetched_at
       )
-      VALUES (?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(stock_id, observed_at) DO UPDATE SET
         price = excluded.price,
+        market_cap = COALESCE(excluded.market_cap, stock_price_snapshots.market_cap),
+        total_shares = COALESCE(excluded.total_shares, stock_price_snapshots.total_shares),
+        investors = COALESCE(excluded.investors, stock_price_snapshots.investors),
         raw_json = excluded.raw_json,
         fetched_at = excluded.fetched_at
       `,
@@ -447,6 +529,9 @@ async function saveStockSnapshots(env: Env, snapshots: StockSnapshot[]): Promise
       snapshot.stock_id,
       snapshot.observed_at,
       snapshot.price,
+      snapshot.market_cap,
+      snapshot.total_shares,
+      snapshot.investors,
       snapshot.raw_json,
       snapshot.fetched_at,
     )
@@ -579,6 +664,41 @@ function normalizeStockProfiles(data: unknown, fetchedAt: number): StockProfile[
     .filter((profile): profile is StockProfile => Boolean(profile));
 }
 
+function normalizeStockMarketSnapshots(data: unknown, observedAt: number, fetchedAt: number): StockSnapshot[] {
+  const container = isRecord(data) ? data.stocks : null;
+  return entriesFromContainer(container)
+    .map(([key, value]) => normalizeStockMarketSnapshot(value, numericKey(key), observedAt, fetchedAt))
+    .filter((snapshot): snapshot is StockSnapshot => Boolean(snapshot));
+}
+
+function normalizeStockMarketSnapshot(
+  value: unknown,
+  fallbackId: number | null,
+  observedAt: number,
+  fetchedAt: number,
+): StockSnapshot | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const stockId = getPositiveInteger(value, ["id", "stock_id", "stockId"]) ?? fallbackId;
+  const price = priceFromValue(value);
+  if (!stockId || price === null || price <= 0) {
+    return null;
+  }
+
+  return {
+    stock_id: stockId,
+    observed_at: observedAt,
+    price,
+    market_cap: marketCapFromValue(value),
+    total_shares: finiteInteger(value.total_shares ?? value.totalShares),
+    investors: finiteInteger(value.investors ?? value.investor_count ?? value.investorCount),
+    raw_json: null,
+    fetched_at: fetchedAt,
+  };
+}
+
 function normalizeSingleStockProfile(data: unknown, stockId: number, fetchedAt: number): StockProfile | null {
   if (!isRecord(data)) {
     return null;
@@ -661,14 +781,14 @@ function collectStockSnapshots(
   }
 
   if (typeof value === "number" && keyTimestamp !== null) {
-    addSnapshot(stockId, keyTimestamp, value, value, fetchedAt, byTimestamp);
+    addSnapshot(stockId, keyTimestamp, value, null, null, null, value, fetchedAt, byTimestamp);
     return;
   }
 
   if (Array.isArray(value)) {
     const tuple = tupleSnapshot(value);
     if (tuple) {
-      addSnapshot(stockId, tuple.timestamp, tuple.price, value, fetchedAt, byTimestamp);
+      addSnapshot(stockId, tuple.timestamp, tuple.price, null, null, null, value, fetchedAt, byTimestamp);
       return;
     }
     value.forEach((item) => collectStockSnapshots(item, stockId, fetchedAt, byTimestamp, depth + 1));
@@ -682,7 +802,17 @@ function collectStockSnapshots(
   const timestamp = timestampFromValue(value) ?? keyTimestamp;
   const price = priceFromValue(value);
   if (timestamp !== null && price !== null) {
-    addSnapshot(stockId, timestamp, price, value, fetchedAt, byTimestamp);
+    addSnapshot(
+      stockId,
+      timestamp,
+      price,
+      marketCapFromValue(value),
+      finiteInteger(value.total_shares ?? value.totalShares),
+      finiteInteger(value.investors ?? value.investor_count ?? value.investorCount),
+      value,
+      fetchedAt,
+      byTimestamp,
+    );
   }
 
   for (const [key, nested] of Object.entries(value)) {
@@ -697,6 +827,9 @@ function addSnapshot(
   stockId: number,
   timestamp: number,
   price: number,
+  marketCap: number | null,
+  totalShares: number | null,
+  investors: number | null,
   raw: unknown,
   fetchedAt: number,
   byTimestamp: Map<number, StockSnapshot>,
@@ -714,6 +847,9 @@ function addSnapshot(
     stock_id: stockId,
     observed_at: observedAt,
     price,
+    market_cap: marketCap,
+    total_shares: totalShares,
+    investors,
     raw_json: JSON.stringify(raw),
     fetched_at: fetchedAt,
   });
@@ -765,6 +901,14 @@ function priceFromValue(value: Record<string, unknown>): number | null {
       value.value ??
       value.y,
   );
+}
+
+function marketCapFromValue(value: Record<string, unknown>): number | null {
+  return finiteInteger(value.market_cap ?? value.marketCap ?? value.marketcap);
+}
+
+function minuteFromScheduledTime(scheduledTime: number): number {
+  return Math.floor(Math.floor(scheduledTime / 1000) / 60) * 60;
 }
 
 function tupleSnapshot(value: unknown[]): { timestamp: number; price: number } | null {

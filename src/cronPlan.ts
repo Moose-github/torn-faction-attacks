@@ -3,7 +3,7 @@ import { runIngestion } from "./ingestion";
 import { refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
 import { refreshTornShoplifting } from "./miscellaneous";
-import { refreshTornStockHistoryBatch } from "./stockMarket";
+import { refreshTornStockHistoryBatch, refreshTornStockMarketMinute } from "./stockMarket";
 import { runLiveStockPaperBotTick } from "./stockPaperTrading";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { Env, TornFactionMember } from "./types";
@@ -55,12 +55,20 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     run: (env, scheduledTime) => runEnemyTrackingAndMaintenance(env, scheduledTime),
   },
   {
-    label: "Cron Torn stock history",
-    cadence: "15m alternating batches",
+    label: "Cron Torn stock market",
+    cadence: "1m all-stocks",
     category: "stocks",
-    purpose: "Refresh Torn stock history, then let the live paper bot evaluate the freshest snapshots.",
-    shouldRun: (minute) => minute % 15 === 0,
-    run: (env, scheduledTime) => runStockHistoryAndPaperBot(env, scheduledTime),
+    purpose: "Refresh all Torn stock prices, market caps, shares, and investors every minute.",
+    shouldRun: () => true,
+    run: (env, scheduledTime) => runStockMarketAndPaperBot(env, scheduledTime),
+  },
+  {
+    label: "Cron Torn stock recovery",
+    cadence: "30m stale-stock history fallback",
+    category: "stocks",
+    purpose: "Use per-stock history only to recover stale or missing Torn stock snapshots.",
+    shouldRun: (minute) => minute % 30 === 0,
+    run: (env, scheduledTime) => refreshTornStockHistoryBatch(env, scheduledTime),
   },
   {
     label: "Cron enemy scouting tick",
@@ -116,7 +124,13 @@ async function runEnemyTrackingAndMaintenance(env: Env, scheduledTime: number): 
   await runScheduledMaintenance(env, { prefetchedHeatmapMembersByFaction });
 }
 
-async function runStockHistoryAndPaperBot(env: Env, scheduledTime: number): Promise<void> {
-  await refreshTornStockHistoryBatch(env, scheduledTime);
-  await runLiveStockPaperBotTick(env, scheduledTime);
+async function runStockMarketAndPaperBot(env: Env, scheduledTime: number): Promise<void> {
+  const run = await refreshTornStockMarketMinute(env, scheduledTime);
+  if (run.status !== "error" && shouldRunStockPaperBot(scheduledTime)) {
+    await runLiveStockPaperBotTick(env, scheduledTime);
+  }
+}
+
+function shouldRunStockPaperBot(scheduledTime: number): boolean {
+  return new Date(scheduledTime).getUTCMinutes() % 5 === 0;
 }

@@ -33,6 +33,9 @@ type MarketPoint = {
   stock_id: number;
   observed_at: number;
   price: number;
+  market_cap?: number | null;
+  total_shares?: number | null;
+  investors?: number | null;
 };
 
 type MarketStock = {
@@ -142,7 +145,7 @@ const DEFAULT_SELL_FEE_RATE = 0.001;
 const DEFAULT_MAX_OPEN_POSITIONS = 5;
 const DEFAULT_MAX_POSITION_FRACTION = 0.25;
 const DEFAULT_MIN_CASH_RESERVE_FRACTION = 0.05;
-const DECISION_INTERVAL_SECONDS = 30 * 60;
+const DECISION_INTERVAL_SECONDS = 5 * 60;
 const LOOKBACK_SECONDS = 6 * 60 * 60;
 const DEFAULT_SIMULATION_SECONDS = 24 * 60 * 60;
 const MAX_SIMULATION_SECONDS = 24 * 60 * 60;
@@ -164,16 +167,19 @@ export async function runLiveStockPaperBotTick(
 ): Promise<{ ok: true; skipped: boolean; reason?: string; account?: PaperAccount; snapshot?: EquitySnapshot; trades?: PaperTrade[] }> {
   const newestSnapshotAt = await readNewestStockSnapshotAt(env);
   const scheduledSeconds = Math.floor(scheduledTime / 1000);
-  if (!newestSnapshotAt || scheduledSeconds - newestSnapshotAt > FRESH_SNAPSHOT_SECONDS) {
+  const eligibleSnapshotAt = newestSnapshotAt === null
+    ? null
+    : Math.floor(newestSnapshotAt / DECISION_INTERVAL_SECONDS) * DECISION_INTERVAL_SECONDS;
+  if (!eligibleSnapshotAt || scheduledSeconds - eligibleSnapshotAt > FRESH_SNAPSHOT_SECONDS) {
     return { ok: true, skipped: true, reason: "No fresh stock snapshots available" };
   }
 
   const account = await ensureLivePaperAccount(env, nowSeconds());
-  if (account.last_decision_at !== null && account.last_decision_at >= newestSnapshotAt) {
+  if (account.last_decision_at !== null && account.last_decision_at >= eligibleSnapshotAt) {
     return { ok: true, skipped: true, reason: "Latest snapshot already evaluated", account };
   }
 
-  const market = await readMarketStocks(env, newestSnapshotAt - LOOKBACK_SECONDS, newestSnapshotAt);
+  const market = await readMarketStocks(env, eligibleSnapshotAt - LOOKBACK_SECONDS, eligibleSnapshotAt);
   if (market.length === 0) {
     return { ok: true, skipped: true, reason: "No market history available", account };
   }
@@ -188,14 +194,14 @@ export async function runLiveStockPaperBotTick(
     state,
     market,
     config: account,
-    observedAt: newestSnapshotAt,
+    observedAt: eligibleSnapshotAt,
     accountId: account.id,
     simulationRunId: null,
     createdAt: nowSeconds(),
   });
 
-  await persistAccountDecision(env, account, state, result, newestSnapshotAt);
-  return { ok: true, skipped: false, account: { ...account, cash_balance: state.cash, realized_pnl: state.realizedPnl, last_decision_at: newestSnapshotAt }, snapshot: result.snapshot, trades: result.trades };
+  await persistAccountDecision(env, account, state, result, eligibleSnapshotAt);
+  return { ok: true, skipped: false, account: { ...account, cash_balance: state.cash, realized_pnl: state.realizedPnl, last_decision_at: eligibleSnapshotAt }, snapshot: result.snapshot, trades: result.trades };
 }
 
 export async function simulateStockPaperBotFromRequest(request: Request, env: Env): Promise<Response> {
@@ -367,7 +373,7 @@ export async function exportStockSnapshots(url: URL, env: Env): Promise<Response
 
   const rows = await env.DB.prepare(
     `
-    SELECT s.stock_id, s.observed_at, s.price
+    SELECT s.stock_id, s.observed_at, s.price, s.market_cap, s.total_shares, s.investors
     FROM stock_price_snapshots s
     WHERE s.observed_at BETWEEN ? AND ?
     ${cursorWhere}

@@ -214,6 +214,7 @@ export function StockMarketStatus() {
           paperData={paperData}
           account={account}
           latestEquity={latestEquity}
+          coverage={coverage}
           isLoading={isLoading}
           paperAction={paperAction}
           onReset={resetPaperBot}
@@ -292,6 +293,8 @@ function StatusTab({
       <section className="panel">
         <PanelHeader title="Coverage" aside={coverage.newest_snapshot_at ? `Updated ${formatRelativeTime(coverage.newest_snapshot_at)}` : "No data"} />
         <div className="admin-metric-list">
+          <MetricLine label="Primary cadence" value={data?.primary_cadence ?? "1m all-stocks"} />
+          <MetricLine label="Recovery cadence" value={data?.recovery_cadence ?? "30m stale-stock history fallback"} />
           <MetricLine label="Total stocks" value={formatNumber(coverage.total_stocks)} />
           <MetricLine label="Stocks with snapshots" value={formatNumber(coverage.stocks_with_snapshots)} />
           <MetricLine label="Stale stocks" value={formatNumber(coverage.stale_stocks)} />
@@ -342,6 +345,7 @@ function LivePaperBotTab({
   paperData,
   account,
   latestEquity,
+  coverage,
   isLoading,
   paperAction,
   onReset,
@@ -349,6 +353,7 @@ function LivePaperBotTab({
   paperData: StockPaperStatusResponse | null;
   account: StockPaperStatusResponse["account"];
   latestEquity: StockPaperStatusResponse["latest_equity"];
+  coverage: StockCoverage;
   isLoading: boolean;
   paperAction: "reset" | null;
   onReset: () => void;
@@ -395,6 +400,8 @@ function LivePaperBotTab({
           <div className="admin-metric-list">
             <MetricLine label="Starting bankroll" value={formatMoney(account.starting_cash)} />
             <MetricLine label="Last decision" value={formatLongDateTime(account.last_decision_at)} />
+            <MetricLine label="Latest stock snapshot" value={formatLongDateTime(coverage.newest_snapshot_at)} />
+            <MetricLine label="Decision cadence" value="5m" />
             <MetricLine label="Buy fee" value={formatPercent(account.buy_fee_rate)} />
             <MetricLine label="Sell fee" value={formatPercent(account.sell_fee_rate)} />
             <MetricLine label="Max open positions" value={formatNumber(account.max_open_positions)} />

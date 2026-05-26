@@ -622,6 +622,8 @@ export type StockIngestionStatusResponse = {
   latest_run: StockIngestionRun | null;
   recent_runs: StockIngestionRun[];
   coverage: StockCoverage;
+  primary_cadence: string;
+  recovery_cadence: string;
   last_error: string | null;
 };
 
@@ -753,6 +755,9 @@ export type StockSnapshotExportRow = {
   stock_id: number;
   observed_at: number;
   price: number;
+  market_cap: number | null;
+  total_shares: number | null;
+  investors: number | null;
 };
 
 export type StockSnapshotExportResponse = {
