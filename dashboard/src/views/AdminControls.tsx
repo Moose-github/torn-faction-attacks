@@ -94,6 +94,7 @@ export function AdminControls() {
   const [lifestyleRepairForm, setLifestyleRepairForm] = React.useState({
     startDate: utcDateFromDaysAgo(7),
     endDate: utcDateFromDaysAgo(0),
+    memberId: "",
     callsPerMinutePerKey: "35",
   });
   const [lifestyleRepairJobs, setLifestyleRepairJobs] = React.useState<MemberLifestyleRepairJob[]>([]);
@@ -876,6 +877,143 @@ export function AdminControls() {
               </form>
             </section>
 
+            <section className="admin-tool-section admin-tool-section-wide">
+              <PanelHeader title="Member lifestyle repair" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runAdminAction("Create lifestyle repair", () =>
+                    createMemberLifestyleRepairJob({
+                      start_date: lifestyleRepairForm.startDate,
+                      end_date: lifestyleRepairForm.endDate,
+                      calls_per_minute_per_key: Number(lifestyleRepairForm.callsPerMinutePerKey || 35),
+                      member_id: lifestyleRepairForm.memberId.trim()
+                        ? Number(lifestyleRepairForm.memberId.trim())
+                        : undefined,
+                    }),
+                  );
+                }}
+              >
+                <label>
+                  <span>Start date</span>
+                  <input
+                    type="date"
+                    value={lifestyleRepairForm.startDate}
+                    onChange={(event) =>
+                      setLifestyleRepairForm({ ...lifestyleRepairForm, startDate: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+                <label>
+                  <span>End date</span>
+                  <input
+                    type="date"
+                    value={lifestyleRepairForm.endDate}
+                    onChange={(event) =>
+                      setLifestyleRepairForm({ ...lifestyleRepairForm, endDate: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Member ID</span>
+                  <input
+                    inputMode="numeric"
+                    placeholder="All current members"
+                    value={lifestyleRepairForm.memberId}
+                    onChange={(event) =>
+                      setLifestyleRepairForm({ ...lifestyleRepairForm, memberId: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Calls/min/key</span>
+                  <input
+                    inputMode="numeric"
+                    value={lifestyleRepairForm.callsPerMinutePerKey}
+                    onChange={(event) =>
+                      setLifestyleRepairForm({ ...lifestyleRepairForm, callsPerMinutePerKey: event.target.value })
+                    }
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="admin-button primary admin-form-wide"
+                  disabled={isBusy !== null}
+                >
+                  {isBusy === "Create lifestyle repair" ? "Creating" : "Create repair job"}
+                </button>
+              </form>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-button"
+                  disabled={isBusy !== null || isLoadingLifestyleRepairJobs}
+                  onClick={loadLifestyleRepairJobs}
+                >
+                  {isLoadingLifestyleRepairJobs ? "Loading" : "Refresh repair jobs"}
+                </button>
+              </div>
+              {lifestyleRepairJobs.length > 0 ? (
+                <div className="stock-status-table-wrap">
+                  <table className="stock-status-table">
+                    <thead>
+                      <tr>
+                        <th>Range</th>
+                        <th>Status</th>
+                        <th>Member</th>
+                        <th>Progress</th>
+                        <th>Keys</th>
+                        <th>Updated</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lifestyleRepairJobs.map((job) => (
+                        <tr key={job.id}>
+                          <td>
+                            {job.start_date} - {job.end_date}
+                          </td>
+                          <td>{job.status}</td>
+                          <td>{job.member_id ?? "All current"}</td>
+                          <td>
+                            {formatNumber(job.completed_items)} / {formatNumber(job.total_items)}
+                            {job.failed_items > 0 ? ` (${formatNumber(job.failed_items)} failed)` : ""}
+                          </td>
+                          <td>{formatNumber(job.active_key_count)}</td>
+                          <td>{formatLongDateTime(job.updated_at)}</td>
+                          <td>
+                            {job.status === "queued" || job.status === "running" ? (
+                              <button
+                                type="button"
+                                className="admin-button danger"
+                                disabled={isBusy !== null}
+                                onClick={() =>
+                                  runAdminAction("Cancel lifestyle repair", () =>
+                                    cancelMemberLifestyleRepairJob(job.id),
+                                  )
+                                }
+                              >
+                                Cancel
+                              </button>
+                            ) : (
+                              job.last_error ?? "-"
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="panel-description">
+                  No lifestyle repair jobs have been created yet.
+                </p>
+              )}
+            </section>
+
             <section className="admin-tool-section">
               <PanelHeader title="Maintenance" />
               <button
@@ -918,129 +1056,6 @@ export function AdminControls() {
                   {isBusy === "Rebuild stats" ? "Working" : rebuildWarId ? "Rebuild selected war" : "Rebuild all stats"}
                 </button>
               </form>
-              <CollapsiblePanel
-                title="Member lifestyle repair"
-                collapsed={isRepairPanelCollapsed}
-                onToggle={() => setIsRepairPanelCollapsed((current) => !current)}
-              >
-                <form
-                  className="admin-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    runAdminAction("Create lifestyle repair", () =>
-                      createMemberLifestyleRepairJob({
-                        start_date: lifestyleRepairForm.startDate,
-                        end_date: lifestyleRepairForm.endDate,
-                        calls_per_minute_per_key: Number(lifestyleRepairForm.callsPerMinutePerKey || 35),
-                      }),
-                    );
-                  }}
-                >
-                  <label>
-                    <span>Start date</span>
-                    <input
-                      type="date"
-                      value={lifestyleRepairForm.startDate}
-                      onChange={(event) =>
-                        setLifestyleRepairForm({ ...lifestyleRepairForm, startDate: event.target.value })
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>End date</span>
-                    <input
-                      type="date"
-                      value={lifestyleRepairForm.endDate}
-                      onChange={(event) =>
-                        setLifestyleRepairForm({ ...lifestyleRepairForm, endDate: event.target.value })
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>Calls/min/key</span>
-                    <input
-                      inputMode="numeric"
-                      value={lifestyleRepairForm.callsPerMinutePerKey}
-                      onChange={(event) =>
-                        setLifestyleRepairForm({ ...lifestyleRepairForm, callsPerMinutePerKey: event.target.value })
-                      }
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    className="admin-button primary admin-form-wide"
-                    disabled={isBusy !== null}
-                  >
-                    {isBusy === "Create lifestyle repair" ? "Creating" : "Create repair job"}
-                  </button>
-                </form>
-                <div className="admin-inline-actions">
-                  <button
-                    type="button"
-                    className="admin-button"
-                    disabled={isBusy !== null || isLoadingLifestyleRepairJobs}
-                    onClick={loadLifestyleRepairJobs}
-                  >
-                    {isLoadingLifestyleRepairJobs ? "Loading" : "Refresh repair jobs"}
-                  </button>
-                </div>
-                {lifestyleRepairJobs.length > 0 ? (
-                  <div className="stock-status-table-wrap">
-                    <table className="stock-status-table">
-                      <thead>
-                        <tr>
-                          <th>Range</th>
-                          <th>Status</th>
-                          <th>Progress</th>
-                          <th>Keys</th>
-                          <th>Updated</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lifestyleRepairJobs.map((job) => (
-                          <tr key={job.id}>
-                            <td>
-                              {job.start_date} - {job.end_date}
-                            </td>
-                            <td>{job.status}</td>
-                            <td>
-                              {formatNumber(job.completed_items)} / {formatNumber(job.total_items)}
-                              {job.failed_items > 0 ? ` (${formatNumber(job.failed_items)} failed)` : ""}
-                            </td>
-                            <td>{formatNumber(job.active_key_count)}</td>
-                            <td>{formatLongDateTime(job.updated_at)}</td>
-                            <td>
-                              {job.status === "queued" || job.status === "running" ? (
-                                <button
-                                  type="button"
-                                  className="admin-button danger"
-                                  disabled={isBusy !== null}
-                                  onClick={() =>
-                                    runAdminAction("Cancel lifestyle repair", () =>
-                                      cancelMemberLifestyleRepairJob(job.id),
-                                    )
-                                  }
-                                >
-                                  Cancel
-                                </button>
-                              ) : (
-                                job.last_error ?? "-"
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="panel-description">
-                    No lifestyle repair jobs have been created yet.
-                  </p>
-                )}
-              </CollapsiblePanel>
               <button
                 type="button"
                 className="admin-button"

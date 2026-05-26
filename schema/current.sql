@@ -304,6 +304,7 @@ CREATE TABLE member_lifestyle_repair_jobs (
   end_date TEXT NOT NULL,
   effective_start_date TEXT NOT NULL,
   member_scope TEXT NOT NULL DEFAULT 'current',
+  member_id INTEGER,
   calls_per_minute_per_key INTEGER NOT NULL DEFAULT 35,
   include_primary_key INTEGER NOT NULL DEFAULT 1,
   active_key_count INTEGER NOT NULL DEFAULT 0,

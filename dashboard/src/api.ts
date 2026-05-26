@@ -621,6 +621,7 @@ export type MemberLifestyleRepairJob = {
   end_date: string;
   effective_start_date: string;
   member_scope: string;
+  member_id: number | null;
   calls_per_minute_per_key: number;
   include_primary_key: boolean;
   active_key_count: number;
@@ -1361,6 +1362,7 @@ export async function createMemberLifestyleRepairJob(payload: {
   start_date: string;
   end_date: string;
   calls_per_minute_per_key?: number;
+  member_id?: number;
 }): Promise<MemberLifestyleRepairJobResponse> {
   return postJson<MemberLifestyleRepairJobResponse>("/api/admin/member-lifestyle/repair-jobs", payload);
 }

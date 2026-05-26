@@ -162,6 +162,7 @@ type LifestyleRepairJobRow = {
   end_date: string;
   effective_start_date: string;
   member_scope: "current";
+  member_id: number | null;
   calls_per_minute_per_key: number;
   include_primary_key: number;
   active_key_count: number;
@@ -430,6 +431,7 @@ export async function createMemberLifestyleRepairJob(request: Request, env: Env)
     start_date?: unknown;
     end_date?: unknown;
     calls_per_minute_per_key?: unknown;
+    member_id?: unknown;
   };
   const startDate = normalizeDateParam(typeof body.start_date === "string" ? body.start_date : null);
   const endDate = normalizeDateParam(typeof body.end_date === "string" ? body.end_date : null);
@@ -450,8 +452,18 @@ export async function createMemberLifestyleRepairJob(request: Request, env: Env)
   }
 
   await syncHomeFactionMemberList(env);
-  const members = await readHomeMembersById(env);
-  if (members.size === 0) {
+  const homeMembers = await readHomeMembersById(env);
+  const memberId = parseOptionalPositiveInteger(body.member_id);
+  if (memberId !== null && !homeMembers.has(memberId)) {
+    return json(
+      { ok: false, error: "Member is not a current faction member", code: "MEMBER_NOT_CURRENT" },
+      400,
+    );
+  }
+  const members = memberId === null
+    ? Array.from(homeMembers.values())
+    : [homeMembers.get(memberId)!];
+  if (members.length === 0) {
     return json({ ok: false, error: "No current faction members found", code: "NO_CURRENT_MEMBERS" }, 400);
   }
 
@@ -469,21 +481,23 @@ export async function createMemberLifestyleRepairJob(request: Request, env: Env)
         end_date,
         effective_start_date,
         member_scope,
+        member_id,
         calls_per_minute_per_key,
         include_primary_key,
         total_items,
         created_at,
         updated_at
       )
-      VALUES (?, 'queued', ?, ?, ?, 'current', ?, 1, ?, ?, ?)
+      VALUES (?, 'queued', ?, ?, ?, 'current', ?, ?, 1, ?, ?, ?)
       `,
     ).bind(
       id,
       startDate,
       endDate,
       dates[0],
+      memberId,
       callsPerMinutePerKey,
-      members.size * dates.length,
+      members.length * dates.length,
       now,
       now,
     ),
@@ -491,7 +505,7 @@ export async function createMemberLifestyleRepairJob(request: Request, env: Env)
 
   for (const date of dates) {
     const requestedAt = timestampForDailyPoll(date);
-    for (const member of members.values()) {
+    for (const member of members) {
       statements.push(
         env.DB.prepare(
           `
@@ -1091,6 +1105,7 @@ function formatRepairJob(job: LifestyleRepairJobRow) {
     end_date: job.end_date,
     effective_start_date: job.effective_start_date,
     member_scope: job.member_scope,
+    member_id: job.member_id,
     calls_per_minute_per_key: job.calls_per_minute_per_key,
     include_primary_key: Boolean(job.include_primary_key),
     active_key_count: job.active_key_count,
@@ -2189,6 +2204,14 @@ function clampRepairCallsPerKey(value: unknown): number {
     return DEFAULT_REPAIR_CALLS_PER_MINUTE_PER_KEY;
   }
   return Math.max(1, Math.min(35, Math.floor(parsed)));
+}
+
+function parseOptionalPositiveInteger(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function repairKeyPauseStateName(keySource: string): string {
