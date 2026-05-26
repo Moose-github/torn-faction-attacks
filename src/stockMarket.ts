@@ -392,40 +392,50 @@ async function readLatestSnapshotTimes(env: Env, stockIds: number[]): Promise<Ma
     return new Map();
   }
 
-  const placeholders = stockIds.map(() => "?").join(", ");
-  const rows = await env.DB.prepare(
-    `
-    SELECT stock_id, MAX(observed_at) AS latest_observed_at
-    FROM stock_price_snapshots
-    WHERE stock_id IN (${placeholders})
-    GROUP BY stock_id
-    `,
-  )
-    .bind(...stockIds)
-    .all<{ stock_id: number; latest_observed_at: number | null }>();
-
-  return new Map(
-    (rows.results ?? [])
-      .filter((row) => row.latest_observed_at !== null)
-      .map((row) => [Number(row.stock_id), Number(row.latest_observed_at)]),
+  const statements = stockIds.map((stockId) =>
+    env.DB.prepare(
+      `
+      SELECT observed_at
+      FROM stock_price_snapshots
+      WHERE stock_id = ?
+      ORDER BY observed_at DESC
+      LIMIT 1
+      `,
+    ).bind(stockId),
   );
+  const results = await env.DB.batch(statements);
+  const latestByStock = new Map<number, number>();
+  results.forEach((result, index) => {
+    const row = (result.results?.[0] ?? null) as { observed_at?: number | null } | null;
+    if (row?.observed_at !== null && row?.observed_at !== undefined) {
+      latestByStock.set(stockIds[index], Number(row.observed_at));
+    }
+  });
+  return latestByStock;
 }
 
 async function readStockCoverage(env: Env, now: number): Promise<StockCoverageRow> {
   const row = await env.DB.prepare(
     `
+    WITH latest AS (
+      SELECT
+        p.stock_id,
+        (
+          SELECT observed_at
+          FROM stock_price_snapshots
+          WHERE stock_id = p.stock_id
+          ORDER BY observed_at DESC
+          LIMIT 1
+        ) AS latest_observed_at
+      FROM stock_profiles p
+    )
     SELECT
       COUNT(*) AS total_stocks,
-      COUNT(s.latest_observed_at) AS stocks_with_snapshots,
-      MIN(s.latest_observed_at) AS oldest_snapshot_at,
-      MAX(s.latest_observed_at) AS newest_snapshot_at,
-      SUM(CASE WHEN s.latest_observed_at IS NULL OR s.latest_observed_at < ? THEN 1 ELSE 0 END) AS stale_stocks
-    FROM stock_profiles p
-    LEFT JOIN (
-      SELECT stock_id, MAX(observed_at) AS latest_observed_at
-      FROM stock_price_snapshots
-      GROUP BY stock_id
-    ) s ON s.stock_id = p.stock_id
+      COUNT(latest_observed_at) AS stocks_with_snapshots,
+      MIN(latest_observed_at) AS oldest_snapshot_at,
+      MAX(latest_observed_at) AS newest_snapshot_at,
+      SUM(CASE WHEN latest_observed_at IS NULL OR latest_observed_at < ? THEN 1 ELSE 0 END) AS stale_stocks
+    FROM latest
     `,
   )
     .bind(now - STALE_STOCK_SECONDS)
