@@ -2379,7 +2379,8 @@ function adjustedAverageXanax(rows: LifestyleSnapshotRow[]): number {
     return 0;
   }
 
-  return delta(xanaxEndpoints.first.xantaken, xanaxEndpoints.last.xantaken) / adjustedDays;
+  const adjustedXanax = Math.max(0, delta(xanaxEndpoints.first.xantaken, xanaxEndpoints.last.xantaken) - overdoses);
+  return adjustedXanax / adjustedDays;
 }
 
 function latestNonNullValue(rows: LifestyleSnapshotRow[], key: LifestyleStatKey): number | null {
