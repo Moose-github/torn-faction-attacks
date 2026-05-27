@@ -11,7 +11,7 @@ import { claimDailyBatchGate } from "./scheduledGates";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { trackedTornFetch } from "./tornApiUsage";
 import { Env, TornFactionMember } from "./types";
-import { boolToInt, finiteNumber, json, nowSeconds } from "./utils";
+import { boolToInt, d1Changes, finiteNumber, json, nowSeconds } from "./utils";
 
 const LIFESTYLE_STAT_KEYS = [
   "xantaken",
@@ -145,6 +145,7 @@ type LifestyleSnapshotNumberKey =
   | "gymdexterity";
 
 type LifestyleDailyChartMetric = LifestyleSnapshotNumberKey | "networth";
+type LifestyleSnapshotReadyColumn = "personal_ready" | "gym_ready" | "fully_ready";
 
 const LIFESTYLE_DAILY_CHART_METRICS = new Set<LifestyleDailyChartMetric>([
   "xantaken",
@@ -222,7 +223,7 @@ type RepairKey = {
 };
 
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
-  const availableRange = await readLifestyleSnapshotDateRange(env);
+  const availableRange = await readLifestyleSnapshotDateRange(env, "fully_ready");
   const period = readLifestylePeriod(url, availableRange);
   const snapshotRows = ((await env.DB.prepare(
     `
@@ -279,12 +280,13 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
 }
 
 export async function getMemberLifestyleDailyChart(url: URL, env: Env): Promise<Response> {
-  const availableRange = await readLifestyleSnapshotDateRange(env);
-  const period = readLifestylePeriod(url, availableRange);
   const metric = parseLifestyleDailyChartMetric(url.searchParams.get("metric"));
   if (!metric) {
     return json({ ok: false, error: "A valid metric is required", code: "INVALID_METRIC" }, 400);
   }
+  const readyColumn = lifestyleMetricReadyColumn(metric);
+  const availableRange = await readLifestyleSnapshotDateRange(env, readyColumn);
+  const period = readLifestylePeriod(url, availableRange);
 
   const memberIds = parseLifestyleDailyChartMemberIds(url);
   if (memberIds.length === 0) {
@@ -307,7 +309,6 @@ export async function getMemberLifestyleDailyChart(url: URL, env: Env): Promise<
 
   const boundaryDate = dateKeyFromMs(Date.parse(`${period.start_date}T00:00:00.000Z`) - 86_400_000);
   const placeholders = chartMemberIds.map(() => "?").join(",");
-  const readyColumn = lifestyleMetricReadyColumn(metric);
   const snapshotRows = ((await env.DB.prepare(
     `
     SELECT
@@ -478,6 +479,7 @@ async function isDailyLifestyleRefreshComplete(
 
 async function readLifestyleSnapshotDateRange(
   env: Env,
+  readyColumn?: LifestyleSnapshotReadyColumn,
 ): Promise<{ start_date: string; end_date: string } | null> {
   const row = (await env.DB.prepare(
     `
@@ -485,6 +487,7 @@ async function readLifestyleSnapshotDateRange(
       MIN(snapshot_date) AS start_date,
       MAX(snapshot_date) AS end_date
     FROM member_lifestyle_stat_snapshots
+    ${readyColumn ? `WHERE ${readyColumn} = 1` : ""}
     `,
   ).first()) as { start_date: string | null; end_date: string | null } | null;
 
@@ -865,6 +868,7 @@ export async function processMemberLifestyleRepairJobs(env: Env): Promise<{
   let changedRows = 1;
   let writeStatements = 1;
   const affectedDates = new Set<string>();
+  const autoSkippedItemIds = new Set<string>();
   let keyIndex = 0;
   const activeKeys = [...keys];
   const startedAt = Date.now();
@@ -875,6 +879,9 @@ export async function processMemberLifestyleRepairJobs(env: Env): Promise<{
     }
     if (activeKeys.length === 0) {
       break;
+    }
+    if (autoSkippedItemIds.has(item.id)) {
+      continue;
     }
 
     const key = activeKeys[keyIndex % activeKeys.length];
@@ -888,11 +895,13 @@ export async function processMemberLifestyleRepairJobs(env: Env): Promise<{
     } else if (result.status === "failed") {
       failed += 1;
     } else if (result.status === "skipped") {
-      skipped += 1;
-      affectedDates.add(item.snapshot_date);
+      skipped += result.skippedItems;
     }
-    if (result.affectedSnapshotDate) {
-      affectedDates.add(result.affectedSnapshotDate);
+    for (const date of result.affectedSnapshotDates) {
+      affectedDates.add(date);
+    }
+    for (const skippedItemId of result.skippedItemIds) {
+      autoSkippedItemIds.add(skippedItemId);
     }
 
     if (result.rateLimited) {
@@ -935,7 +944,9 @@ async function processRepairItem(
   writeStatements: number;
   changedRows: number;
   rateLimited: boolean;
-  affectedSnapshotDate: string | null;
+  affectedSnapshotDates: string[];
+  skippedItems: number;
+  skippedItemIds: string[];
 }> {
   const now = nowSeconds();
   await env.DB.prepare(
@@ -963,25 +974,36 @@ async function processRepairItem(
     });
     if (validationError) {
       await markRepairItemFailed(env, item, stats.personalstats_bucket_date, validationError);
-      return { status: "failed", writeStatements: 2, changedRows: 2, rateLimited: false, affectedSnapshotDate: null };
+      return {
+        status: "failed",
+        writeStatements: 2,
+        changedRows: 2,
+        rateLimited: false,
+        affectedSnapshotDates: [],
+        skippedItems: 0,
+        skippedItemIds: [],
+      };
     }
 
     const returnedBucketDate = stats.personalstats_bucket_date!;
     await upsertLifestyleSnapshotForRepair(env, item, stats, returnedBucketDate);
     if (returnedBucketDate !== item.snapshot_date) {
-      await clearRequestedSnapshotPersonalStats(env, item);
+      const clearedRows = await clearSnapshotPersonalStatsForDate(env, item.member_id, item.snapshot_date);
       await markRepairItemSkipped(
         env,
         item,
         returnedBucketDate,
         null,
       );
+      const laterSkipped = await skipLaterUnavailableRepairItems(env, item, returnedBucketDate);
       return {
         status: "skipped",
-        writeStatements: 4,
-        changedRows: 4,
+        writeStatements: 4 + laterSkipped.writeStatements,
+        changedRows: 3 + clearedRows + laterSkipped.changedRows,
         rateLimited: false,
-        affectedSnapshotDate: returnedBucketDate,
+        affectedSnapshotDates: [returnedBucketDate, item.snapshot_date, ...laterSkipped.affectedSnapshotDates],
+        skippedItems: 1 + laterSkipped.skippedItems,
+        skippedItemIds: laterSkipped.skippedItemIds,
       };
     }
 
@@ -1004,16 +1026,34 @@ async function processRepairItem(
       writeStatements: 3,
       changedRows: 3,
       rateLimited: false,
-      affectedSnapshotDate: returnedBucketDate,
+      affectedSnapshotDates: [returnedBucketDate],
+      skippedItems: 0,
+      skippedItemIds: [],
     };
   } catch (err: any) {
     const rateLimited = err instanceof TornPersonalStatsHttpError && err.status === 429;
     if (rateLimited) {
       await markRepairItemPending(env, item, err.message);
-      return { status: "pending", writeStatements: 2, changedRows: 2, rateLimited, affectedSnapshotDate: null };
+      return {
+        status: "pending",
+        writeStatements: 2,
+        changedRows: 2,
+        rateLimited,
+        affectedSnapshotDates: [],
+        skippedItems: 0,
+        skippedItemIds: [],
+      };
     }
     await markRepairItemFailed(env, item, null, err?.message || String(err));
-    return { status: "failed", writeStatements: 2, changedRows: 2, rateLimited, affectedSnapshotDate: null };
+    return {
+      status: "failed",
+      writeStatements: 2,
+      changedRows: 2,
+      rateLimited,
+      affectedSnapshotDates: [],
+      skippedItems: 0,
+      skippedItemIds: [],
+    };
   }
 }
 
@@ -1093,11 +1133,108 @@ async function upsertLifestyleSnapshotForRepair(
   }, stats);
 }
 
-async function clearRequestedSnapshotPersonalStats(
+async function skipLaterUnavailableRepairItems(
   env: Env,
   item: LifestyleRepairItemRow,
-): Promise<void> {
-  await env.DB.prepare(
+  returnedBucketDate: string,
+): Promise<{
+  skippedItems: number;
+  affectedSnapshotDates: string[];
+  skippedItemIds: string[];
+  writeStatements: number;
+  changedRows: number;
+}> {
+  const repeatedBucket = await env.DB.prepare(
+    `
+    SELECT id
+    FROM member_lifestyle_repair_items
+    WHERE job_id = ?
+      AND member_id = ?
+      AND snapshot_date < ?
+      AND returned_bucket_date = ?
+      AND status IN ('completed', 'skipped')
+    LIMIT 1
+    `,
+  )
+    .bind(item.job_id, item.member_id, item.snapshot_date, returnedBucketDate)
+    .first();
+
+  if (!repeatedBucket) {
+    return {
+      skippedItems: 0,
+      affectedSnapshotDates: [],
+      skippedItemIds: [],
+      writeStatements: 0,
+      changedRows: 0,
+    };
+  }
+
+  const rows = ((await env.DB.prepare(
+    `
+    SELECT id, snapshot_date
+    FROM member_lifestyle_repair_items
+    WHERE job_id = ?
+      AND member_id = ?
+      AND status = 'pending'
+      AND snapshot_date > ?
+    ORDER BY snapshot_date ASC
+    `,
+  )
+    .bind(item.job_id, item.member_id, item.snapshot_date)
+    .all()).results ?? []) as Array<{ id: string; snapshot_date: string }>;
+
+  if (rows.length === 0) {
+    return {
+      skippedItems: 0,
+      affectedSnapshotDates: [],
+      skippedItemIds: [],
+      writeStatements: 0,
+      changedRows: 0,
+    };
+  }
+
+  let writeStatements = 0;
+  let changedRows = 0;
+  const affectedSnapshotDates = rows.map((row) => row.snapshot_date);
+
+  for (const row of rows) {
+    changedRows += await clearSnapshotPersonalStatsForDate(env, item.member_id, row.snapshot_date);
+    writeStatements += 1;
+  }
+
+  const now = nowSeconds();
+  const ids = rows.map((row) => row.id);
+  const result = await env.DB.prepare(
+    `
+    UPDATE member_lifestyle_repair_items
+    SET status = 'skipped',
+        returned_bucket_date = ?,
+        error = NULL,
+        finished_at = ?,
+        updated_at = ?
+    WHERE id IN (${ids.map(() => "?").join(",")})
+    `,
+  )
+    .bind(returnedBucketDate, now, now, ...ids)
+    .run();
+  writeStatements += 1;
+  changedRows += d1Changes(result);
+
+  return {
+    skippedItems: rows.length,
+    affectedSnapshotDates,
+    skippedItemIds: ids,
+    writeStatements,
+    changedRows,
+  };
+}
+
+async function clearSnapshotPersonalStatsForDate(
+  env: Env,
+  memberId: number,
+  snapshotDate: string,
+): Promise<number> {
+  const result = await env.DB.prepare(
     `
     UPDATE member_lifestyle_stat_snapshots
     SET
@@ -1142,8 +1279,10 @@ async function clearRequestedSnapshotPersonalStats(
       )
     `,
   )
-    .bind(item.member_id, item.snapshot_date, item.snapshot_date)
+    .bind(memberId, snapshotDate, snapshotDate)
     .run();
+
+  return d1Changes(result);
 }
 
 async function upsertLifestyleSnapshotPersonalStats(
