@@ -861,6 +861,7 @@ export async function processMemberLifestyleRepairJobs(env: Env): Promise<{
   let processed = 0;
   let completed = 0;
   let failed = 0;
+  let skipped = 0;
   let changedRows = 1;
   let writeStatements = 1;
   const affectedDates = new Set<string>();
@@ -884,9 +885,13 @@ export async function processMemberLifestyleRepairJobs(env: Env): Promise<{
     changedRows += result.changedRows;
     if (result.status === "completed") {
       completed += 1;
-      affectedDates.add(item.snapshot_date);
     } else if (result.status === "failed") {
       failed += 1;
+    } else if (result.status === "skipped") {
+      skipped += 1;
+    }
+    if (result.affectedSnapshotDate) {
+      affectedDates.add(result.affectedSnapshotDate);
     }
 
     if (result.rateLimited) {
@@ -914,6 +919,7 @@ export async function processMemberLifestyleRepairJobs(env: Env): Promise<{
       processed,
       completed,
       failed,
+      skipped,
       active_keys: keys.length,
     },
   };
@@ -923,7 +929,13 @@ async function processRepairItem(
   env: Env,
   item: LifestyleRepairItemRow,
   key: RepairKey,
-): Promise<{ status: RepairItemStatus; writeStatements: number; changedRows: number; rateLimited: boolean }> {
+): Promise<{
+  status: RepairItemStatus;
+  writeStatements: number;
+  changedRows: number;
+  rateLimited: boolean;
+  affectedSnapshotDate: string | null;
+}> {
   const now = nowSeconds();
   await env.DB.prepare(
     `
@@ -945,13 +957,32 @@ async function processRepairItem(
       apiKey: key.key,
       keySource: key.keySource,
     });
-    const validationError = personalStatsDataQualityError(stats, item.snapshot_date);
+    const validationError = personalStatsDataQualityError(stats, item.snapshot_date, {
+      allowBucketLag: true,
+    });
     if (validationError) {
       await markRepairItemFailed(env, item, stats.personalstats_bucket_date, validationError);
-      return { status: "failed", writeStatements: 2, changedRows: 2, rateLimited: false };
+      return { status: "failed", writeStatements: 2, changedRows: 2, rateLimited: false, affectedSnapshotDate: null };
     }
 
-    await upsertLifestyleSnapshotForRepair(env, item, stats);
+    const returnedBucketDate = stats.personalstats_bucket_date!;
+    await upsertLifestyleSnapshotForRepair(env, item, stats, returnedBucketDate);
+    if (returnedBucketDate !== item.snapshot_date) {
+      await markRepairItemSkipped(
+        env,
+        item,
+        returnedBucketDate,
+        null,
+      );
+      return {
+        status: "skipped",
+        writeStatements: 3,
+        changedRows: 3,
+        rateLimited: false,
+        affectedSnapshotDate: returnedBucketDate,
+      };
+    }
+
     await env.DB.prepare(
       `
       UPDATE member_lifestyle_repair_items
@@ -966,15 +997,21 @@ async function processRepairItem(
       .bind(stats.personalstats_bucket_date, nowSeconds(), nowSeconds(), item.id)
       .run();
 
-    return { status: "completed", writeStatements: 3, changedRows: 3, rateLimited: false };
+    return {
+      status: "completed",
+      writeStatements: 3,
+      changedRows: 3,
+      rateLimited: false,
+      affectedSnapshotDate: returnedBucketDate,
+    };
   } catch (err: any) {
     const rateLimited = err instanceof TornPersonalStatsHttpError && err.status === 429;
     if (rateLimited) {
       await markRepairItemPending(env, item, err.message);
-      return { status: "pending", writeStatements: 2, changedRows: 2, rateLimited };
+      return { status: "pending", writeStatements: 2, changedRows: 2, rateLimited, affectedSnapshotDate: null };
     }
     await markRepairItemFailed(env, item, null, err?.message || String(err));
-    return { status: "failed", writeStatements: 2, changedRows: 2, rateLimited };
+    return { status: "failed", writeStatements: 2, changedRows: 2, rateLimited, affectedSnapshotDate: null };
   }
 }
 
@@ -1019,15 +1056,38 @@ async function markRepairItemFailed(
     .run();
 }
 
+async function markRepairItemSkipped(
+  env: Env,
+  item: LifestyleRepairItemRow,
+  returnedBucketDate: string,
+  reason: string | null,
+): Promise<void> {
+  const now = nowSeconds();
+  await env.DB.prepare(
+    `
+    UPDATE member_lifestyle_repair_items
+    SET status = 'skipped',
+        returned_bucket_date = ?,
+        error = ?,
+        finished_at = ?,
+        updated_at = ?
+    WHERE id = ?
+    `,
+  )
+    .bind(returnedBucketDate, reason, now, now, item.id)
+    .run();
+}
+
 async function upsertLifestyleSnapshotForRepair(
   env: Env,
   item: LifestyleRepairItemRow,
   stats: TimedLifestyleStats,
+  snapshotDate: string,
 ): Promise<void> {
   await upsertLifestyleSnapshotPersonalStats(env, {
     member_id: item.member_id,
     member_name: item.member_name,
-    snapshot_date: item.snapshot_date,
+    snapshot_date: snapshotDate,
   }, stats);
 }
 
