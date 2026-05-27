@@ -511,9 +511,9 @@ function AdminDailyStatsAttentionAlert({
           <AlertTriangle size={18} />
         </span>
         <div>
-          <strong>Daily personal stats need attention</strong>
+          <strong>Daily personal stats waiting on Torn</strong>
           <p>
-            {formatNumber(total)} current member{total === 1 ? "" : "s"} still have unresolved daily personalstats.
+            {formatNumber(total)} current member{total === 1 ? "" : "s"} returned old or incomplete daily personalstats.
           </p>
         </div>
       </div>

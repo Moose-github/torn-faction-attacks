@@ -1473,7 +1473,7 @@ async function readLifestyleRefreshCandidates(
     LEFT JOIN member_personal_stats_current stats
       ON stats.member_id = members.member_id
     ${where}
-    ORDER BY stats.personal_captured_at ASC NULLS FIRST, members.name ASC
+    ORDER BY stats.personalstats_requested_at ASC NULLS FIRST, stats.personal_captured_at ASC NULLS FIRST, members.name ASC
     LIMIT ?
   `;
   const statement = env.DB.prepare(query);
