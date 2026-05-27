@@ -94,29 +94,39 @@ export async function refreshTornStockMarketMinute(
 
   try {
     const data = await fetchTornJson("/torn/stocks", env);
-    const profiles = normalizeStockProfiles(data, startedAt);
-    if (profiles.length === 0) {
-      throw new Error("Torn stocks response did not include stock profiles");
+    const snapshots = normalizeStockMarketSnapshots(data, observedAt, startedAt);
+    if (snapshots.length === 0) {
+      throw new Error("Torn stocks response did not include snapshot prices");
     }
 
-    const snapshots = normalizeStockMarketSnapshots(data, observedAt, startedAt);
-    await saveStockProfiles(env, profiles);
-    const written = await saveStockSnapshots(env, snapshots);
-    await upsertSyncTimestamp(env, STOCK_PROFILE_REFRESH_STATE, startedAt, null);
+    const shouldSaveProfiles = await shouldSaveMinuteStockProfiles(env, startedAt);
+    let profilesSaved = 0;
+    if (shouldSaveProfiles) {
+      const profiles = normalizeStockProfiles(data, startedAt);
+      if (profiles.length === 0) {
+        throw new Error("Torn stocks response did not include stock profiles");
+      }
+      await saveStockProfiles(env, profiles);
+      await upsertSyncTimestamp(env, STOCK_PROFILE_REFRESH_STATE, startedAt, null);
+      profilesSaved = profiles.length;
+    }
 
-    run.stocks_attempted = profiles.length;
+    const written = await saveStockSnapshots(env, snapshots);
+
+    run.stocks_attempted = Math.max(snapshots.length, profilesSaved);
     run.stocks_succeeded = snapshots.length;
-    run.stocks_failed = Math.max(0, profiles.length - snapshots.length);
+    run.stocks_failed = Math.max(0, run.stocks_attempted - snapshots.length);
     run.points_seen = snapshots.length;
     run.points_written = written;
     run.details_json = JSON.stringify({
       source: "all-stocks",
       observed_at: observedAt,
-      profiles: profiles.length,
+      profiles_saved: profilesSaved,
+      profile_refresh: shouldSaveProfiles,
       snapshots: snapshots.length,
     });
-    run.status = snapshots.length === profiles.length ? "ok" : (snapshots.length > 0 ? "partial" : "error");
-    run.error = snapshots.length > 0 ? null : "Torn stocks response did not include snapshot prices";
+    run.status = run.stocks_failed > 0 ? "partial" : "ok";
+    run.error = null;
     run.finished_at = nowSeconds();
     await updateStockIngestionRun(env, run);
     return run;
@@ -505,6 +515,16 @@ async function saveStockProfiles(env: Env, profiles: StockProfile[]): Promise<vo
   for (let index = 0; index < statements.length; index += 50) {
     await env.DB.batch(statements.slice(index, index + 50));
   }
+}
+
+async function shouldSaveMinuteStockProfiles(env: Env, now: number): Promise<boolean> {
+  const lastRefresh = await readSyncTimestamp(env, STOCK_PROFILE_REFRESH_STATE);
+  if (lastRefresh === 0 || now - lastRefresh >= PROFILE_REFRESH_SECONDS) {
+    return true;
+  }
+
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM stock_profiles").first<{ count: number }>();
+  return Number(row?.count ?? 0) === 0;
 }
 
 async function saveStockSnapshots(env: Env, snapshots: StockSnapshot[]): Promise<number> {

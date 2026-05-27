@@ -247,9 +247,21 @@ export async function runLiveStockPaperBotTick(
     };
   }
 
+  const market = await readMarketStocksForDecision(env, eligibleSnapshotAt);
+  if (market.length === 0) {
+    return {
+      ok: true,
+      results: PAPER_BOTS.map((bot) => ({
+        bot_id: bot.id,
+        skipped: true,
+        reason: "No market history available",
+      })),
+    };
+  }
+
   const results: Array<{ bot_id: string; skipped: boolean; reason?: string; account?: PaperAccount; snapshot?: EquitySnapshot; trades?: PaperTrade[] }> = [];
   for (const bot of PAPER_BOTS) {
-    results.push(await runLiveStockPaperBotForDefinition(env, bot, eligibleSnapshotAt));
+    results.push(await runLiveStockPaperBotForDefinition(env, bot, eligibleSnapshotAt, market));
   }
   return { ok: true, results };
 }
@@ -258,15 +270,11 @@ async function runLiveStockPaperBotForDefinition(
   env: Env,
   bot: PaperBotDefinition,
   eligibleSnapshotAt: number,
+  market: MarketStock[],
 ): Promise<{ bot_id: string; skipped: boolean; reason?: string; account?: PaperAccount; snapshot?: EquitySnapshot; trades?: PaperTrade[] }> {
   const account = await ensureLivePaperAccount(env, bot, nowSeconds());
   if (account.last_decision_at !== null && account.last_decision_at >= eligibleSnapshotAt) {
     return { bot_id: bot.id, skipped: true, reason: "Latest snapshot already evaluated", account };
-  }
-
-  const market = await readMarketStocksForDecision(env, eligibleSnapshotAt);
-  if (market.length === 0) {
-    return { bot_id: bot.id, skipped: true, reason: "No market history available", account };
   }
 
   const positions = await readAccountPositions(env, account.id);
@@ -1066,7 +1074,9 @@ async function persistAccountDecision(
   decisionAt: number,
 ): Promise<void> {
   await savePaperTrades(env, result.trades);
-  await replaceAccountPositions(env, account.id, [...state.positions.values()]);
+  if (result.trades.length > 0) {
+    await replaceAccountPositions(env, account.id, [...state.positions.values()]);
+  }
   await saveEquitySnapshots(env, [result.snapshot]);
   await env.DB.prepare(
     `
