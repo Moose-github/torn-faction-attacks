@@ -20,7 +20,7 @@ import {
 } from "../utils/stockBacktestStorage";
 import { formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
 
-type StockMarketTab = "status" | "momentum" | "whale" | "backtesting";
+type StockMarketTab = "status" | "momentum" | "whale" | "copy" | "backtesting";
 
 type LocalBacktestResult = {
   started_at: number;
@@ -195,6 +195,7 @@ export function StockMarketStatus() {
   const coverage = data?.coverage ?? emptyCoverage();
   const momentumBot = paperData?.bots.find((bot) => bot.bot.id === "stock-paper-live") ?? null;
   const whaleBot = paperData?.bots.find((bot) => bot.bot.id === "stock-paper-flow-live") ?? null;
+  const copyBot = paperData?.bots.find((bot) => bot.bot.id === "stock-paper-matzstonks-live") ?? null;
 
   return (
     <>
@@ -221,6 +222,7 @@ export function StockMarketStatus() {
         <TabButton active={activeTab === "status"} onClick={() => setActiveTab("status")}>Status</TabButton>
         <TabButton active={activeTab === "momentum"} onClick={() => setActiveTab("momentum")}>Momentum Bot</TabButton>
         <TabButton active={activeTab === "whale"} onClick={() => setActiveTab("whale")}>Whale Flow Bot</TabButton>
+        <TabButton active={activeTab === "copy"} onClick={() => setActiveTab("copy")}>MatzStonks Bot</TabButton>
         <TabButton active={activeTab === "backtesting"} onClick={() => setActiveTab("backtesting")}>Backtesting</TabButton>
       </div>
 
@@ -244,6 +246,16 @@ export function StockMarketStatus() {
           paperAction={paperAction}
           resetAmount={resetAmounts[whaleBot?.bot.id ?? "stock-paper-flow-live"] ?? ""}
           onResetAmountChange={(value) => whaleBot && setResetAmounts((current) => ({ ...current, [whaleBot.bot.id]: value }))}
+          onReset={resetPaperBot}
+        />
+      ) : activeTab === "copy" ? (
+        <LivePaperBotTab
+          botStatus={copyBot}
+          coverage={coverage}
+          isLoading={isLoading}
+          paperAction={paperAction}
+          resetAmount={resetAmounts[copyBot?.bot.id ?? "stock-paper-matzstonks-live"] ?? ""}
+          onResetAmountChange={(value) => copyBot && setResetAmounts((current) => ({ ...current, [copyBot.bot.id]: value }))}
           onReset={resetPaperBot}
         />
       ) : (
@@ -470,6 +482,17 @@ function LivePaperBotTab({
           <StockTradesTable trades={botStatus.recent_trades} />
         )}
       </section>
+
+      {bot?.strategy === "copy-movement" ? (
+        <section className="panel table-panel">
+          <PanelHeader title="Recent copy movement events" aside={`${formatNumber(botStatus?.recent_copy_events.length ?? 0)} shown`} />
+          {!botStatus || botStatus.recent_copy_events.length === 0 ? (
+            <EmptyState text={isLoading ? "Loading copy movement events" : "No inferred MatzStonks movement events yet"} />
+          ) : (
+            <CopyMovementEventsTable events={botStatus.recent_copy_events} />
+          )}
+        </section>
+      ) : null}
     </>
   );
 }
@@ -683,6 +706,41 @@ function StockTradesTable({ trades }: { trades: StockPaperStatusResponse["recent
   );
 }
 
+function CopyMovementEventsTable({ events }: { events: StockPaperBotSummary["recent_copy_events"] }) {
+  return (
+    <div className="table-scroll">
+      <table className="stock-status-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Source</th>
+            <th>Side</th>
+            <th>Stock</th>
+            <th>Price</th>
+            <th>Move</th>
+            <th>Status</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((event) => (
+            <tr key={event.id}>
+              <td>{formatLongDateTime(event.observed_at)}</td>
+              <td>{event.source_player_name}</td>
+              <td>{statusLabel(event.side)}</td>
+              <td>Stock {event.stock_id}</td>
+              <td>{formatMoneyFixed(event.price)}</td>
+              <td>{formatSignedPercent((event.price_change ?? 0) * 100)}</td>
+              <td>{statusLabel(event.status)}</td>
+              <td>{copyMovementReasonLabel(event.reason)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button type="button" className={`stock-market-tab ${active ? "active" : ""}`} onClick={onClick}>
@@ -753,7 +811,12 @@ function statusLabel(value: string): string {
   if (!value) {
     return "-";
   }
-  return value.charAt(0).toUpperCase() + value.slice(1);
+  const spaced = value.replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function copyMovementReasonLabel(value: string): string {
+  return statusLabel(value);
 }
 
 function formatDuration(start: number | null, finish: number | null): string {

@@ -781,12 +781,42 @@ export type StockPaperSignal = {
   price: number;
   score: number;
   expected_return: number;
+  copy_side?: "buy" | "sell";
+  copy_source_player_id?: number;
+  copy_source_player_name?: string;
+  copy_activity_status?: string | null;
+  copy_activity_timestamp?: number | null;
+  copy_reason?: string;
+  copy_window_start_at?: number;
   flow_1m?: number | null;
   flow_threshold?: number | null;
   investor_change?: number | null;
   share_pressure?: number | null;
   market_cap_change?: number | null;
   rank: number;
+};
+
+export type StockCopyMovementEvent = {
+  id: string;
+  source_player_id: number;
+  source_player_name: string;
+  activity_status: string | null;
+  activity_timestamp: number | null;
+  observed_at: number;
+  window_start_at: number;
+  stock_id: number;
+  side: "buy" | "sell";
+  price: number;
+  strength: number;
+  price_change: number | null;
+  investor_change: number | null;
+  share_pressure: number | null;
+  market_cap_change: number | null;
+  status: "executed" | "skipped" | "ignored";
+  reason: string;
+  paper_trade_id: string | null;
+  details_json: string | null;
+  created_at: number;
 };
 
 export type StockPaperBotSummary = {
@@ -802,6 +832,7 @@ export type StockPaperBotSummary = {
   latest_equity: StockPaperEquitySnapshot | null;
   recent_trades: StockPaperTrade[];
   latest_signals: StockPaperSignal[];
+  recent_copy_events: StockCopyMovementEvent[];
 };
 
 export type StockPaperStatusResponse = {
