@@ -694,9 +694,6 @@ CREATE INDEX idx_enemy_faction_members_faction
 CREATE INDEX idx_enemy_faction_members_ranked
   ON enemy_faction_members(faction_id, ff_battlestats DESC, level DESC, name);
 
-CREATE INDEX idx_enemy_push_activity_snapshots_war_bucket
-  ON enemy_push_activity_snapshots(war_id, bucket_start);
-
 CREATE INDEX idx_faction_activity_heatmap_faction_sampled
   ON faction_activity_heatmap(faction_id, sampled_at);
 
@@ -766,9 +763,6 @@ CREATE INDEX idx_scheduled_maintenance_runs_started
 CREATE INDEX idx_scheduled_maintenance_tasks_run
   ON scheduled_maintenance_tasks(run_id);
 
-CREATE INDEX idx_stock_copy_movement_events_source_time
-  ON stock_copy_movement_events(source_player_id, observed_at DESC);
-
 CREATE INDEX idx_stock_copy_movement_events_status_time
   ON stock_copy_movement_events(status, observed_at DESC);
 
@@ -793,14 +787,8 @@ CREATE INDEX idx_stock_paper_trades_account_time
 CREATE INDEX idx_stock_paper_trades_simulation_time
   ON stock_paper_trades(simulation_run_id, executed_at DESC);
 
-CREATE INDEX idx_stock_price_snapshots_observed
-  ON stock_price_snapshots(observed_at DESC);
-
 CREATE INDEX idx_stock_price_snapshots_observed_stock
   ON stock_price_snapshots(observed_at ASC, stock_id ASC);
-
-CREATE INDEX idx_stock_price_snapshots_stock_observed
-  ON stock_price_snapshots(stock_id, observed_at DESC);
 
 CREATE INDEX idx_stock_profiles_updated
   ON stock_profiles(updated_at DESC);
@@ -838,20 +826,11 @@ CREATE INDEX idx_trade_watchlists_updated_at
 CREATE INDEX idx_war_member_activity_buckets_war_bucket
   ON war_member_activity_buckets(war_id, bucket_start);
 
-CREATE INDEX idx_war_member_activity_buckets_war_member
-  ON war_member_activity_buckets(war_id, member_id);
-
-CREATE INDEX idx_war_member_stats_war
-    ON war_member_stats(war_id);
-
 CREATE INDEX idx_wars_lower_name
   ON wars(LOWER(name));
 
 CREATE INDEX idx_wars_status_practical_start
   ON wars(status, practical_start_time DESC);
-
-CREATE INDEX idx_wars_torn_war_id
-    ON wars(torn_war_id);
 
 CREATE UNIQUE INDEX idx_wars_torn_war_id_unique
   ON wars(torn_war_id)
