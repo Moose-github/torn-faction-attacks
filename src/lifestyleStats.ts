@@ -889,6 +889,7 @@ export async function processMemberLifestyleRepairJobs(env: Env): Promise<{
       failed += 1;
     } else if (result.status === "skipped") {
       skipped += 1;
+      affectedDates.add(item.snapshot_date);
     }
     if (result.affectedSnapshotDate) {
       affectedDates.add(result.affectedSnapshotDate);
@@ -968,6 +969,7 @@ async function processRepairItem(
     const returnedBucketDate = stats.personalstats_bucket_date!;
     await upsertLifestyleSnapshotForRepair(env, item, stats, returnedBucketDate);
     if (returnedBucketDate !== item.snapshot_date) {
+      await clearRequestedSnapshotPersonalStats(env, item);
       await markRepairItemSkipped(
         env,
         item,
@@ -976,8 +978,8 @@ async function processRepairItem(
       );
       return {
         status: "skipped",
-        writeStatements: 3,
-        changedRows: 3,
+        writeStatements: 4,
+        changedRows: 4,
         rateLimited: false,
         affectedSnapshotDate: returnedBucketDate,
       };
@@ -1089,6 +1091,59 @@ async function upsertLifestyleSnapshotForRepair(
     member_name: item.member_name,
     snapshot_date: snapshotDate,
   }, stats);
+}
+
+async function clearRequestedSnapshotPersonalStats(
+  env: Env,
+  item: LifestyleRepairItemRow,
+): Promise<void> {
+  await env.DB.prepare(
+    `
+    UPDATE member_lifestyle_stat_snapshots
+    SET
+      xantaken = NULL,
+      overdosed = NULL,
+      refills = NULL,
+      useractivity = NULL,
+      networth = NULL,
+      daysbeendonator = NULL,
+      xantaken_timestamp = NULL,
+      overdosed_timestamp = NULL,
+      refills_timestamp = NULL,
+      useractivity_timestamp = NULL,
+      networth_timestamp = NULL,
+      daysbeendonator_timestamp = NULL,
+      personalstats_bucket_date = NULL,
+      personalstats_requested_at = NULL,
+      personalstats_key_source = NULL,
+      validation_error = NULL,
+      personal_captured_at = NULL,
+      personal_ready = 0,
+      fully_ready = 0,
+      captured_at = unixepoch()
+    WHERE member_id = ?
+      AND snapshot_date = ?
+      AND (
+        personalstats_bucket_date IS NULL
+        OR personalstats_bucket_date != ?
+      )
+      AND (
+        personal_ready != 0
+        OR personal_captured_at IS NOT NULL
+        OR personalstats_bucket_date IS NOT NULL
+        OR personalstats_requested_at IS NOT NULL
+        OR validation_error IS NOT NULL
+        OR xantaken IS NOT NULL
+        OR overdosed IS NOT NULL
+        OR refills IS NOT NULL
+        OR useractivity IS NOT NULL
+        OR networth IS NOT NULL
+        OR daysbeendonator IS NOT NULL
+      )
+    `,
+  )
+    .bind(item.member_id, item.snapshot_date, item.snapshot_date)
+    .run();
 }
 
 async function upsertLifestyleSnapshotPersonalStats(
