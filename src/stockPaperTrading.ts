@@ -1,5 +1,6 @@
 import { Env } from "./types";
-import { json, nowSeconds, parseLimit } from "./utils";
+import { trackedTornFetch } from "./tornApiUsage";
+import { cleanText, finiteNumber, json, nowSeconds, parseLimit } from "./utils";
 
 type PaperAccount = {
   id: string;
@@ -56,7 +57,7 @@ type StrategyConfig = Pick<
   | "min_cash_reserve_fraction"
 >;
 
-type PaperBotStrategy = "momentum" | "whale-flow";
+type PaperBotStrategy = "momentum" | "whale-flow" | "copy-movement";
 
 type PaperBotDefinition = StrategyConfig & {
   id: string;
@@ -88,6 +89,13 @@ type StockSignal = {
   investor_change?: number;
   share_pressure?: number;
   market_cap_change?: number;
+  copy_side?: "buy" | "sell";
+  copy_source_player_id?: number;
+  copy_source_player_name?: string;
+  copy_activity_status?: string | null;
+  copy_activity_timestamp?: number | null;
+  copy_reason?: string;
+  copy_window_start_at?: number;
   rank: number;
 };
 
@@ -128,6 +136,40 @@ type DecisionResult = {
   trades: PaperTrade[];
   snapshot: EquitySnapshot;
   signals: StockSignal[];
+  copyEvents?: CopyMovementEvent[];
+};
+
+type CopyMovementActivity = {
+  source_player_id: number;
+  source_player_name: string;
+  status: string | null;
+  timestamp: number | null;
+  relative: string | null;
+  active: boolean;
+  raw_json: unknown;
+};
+
+type CopyMovementEvent = {
+  id: string;
+  source_player_id: number;
+  source_player_name: string;
+  activity_status: string | null;
+  activity_timestamp: number | null;
+  observed_at: number;
+  window_start_at: number;
+  stock_id: number;
+  side: "buy" | "sell";
+  price: number;
+  strength: number;
+  price_change: number | null;
+  investor_change: number | null;
+  share_pressure: number | null;
+  market_cap_change: number | null;
+  status: "executed" | "skipped" | "ignored";
+  reason: string;
+  paper_trade_id: string | null;
+  details_json: string | null;
+  created_at: number;
 };
 
 type PaperBotStatus = {
@@ -149,6 +191,7 @@ type PaperBotStatus = {
   latest_equity: EquitySnapshot | null;
   recent_trades: Array<PaperTrade & { acronym: string | null; name: string | null }>;
   latest_signals: StockSignal[];
+  recent_copy_events: CopyMovementEvent[];
 };
 
 type SimulationRun = {
@@ -173,8 +216,10 @@ type SimulationRun = {
 
 const MOMENTUM_ACCOUNT_ID = "stock-paper-live";
 const WHALE_FLOW_ACCOUNT_ID = "stock-paper-flow-live";
+const COPY_MOVEMENT_ACCOUNT_ID = "stock-paper-matzstonks-live";
 const DEFAULT_STRATEGY_KEY = "momentum-relative-v2";
 const WHALE_FLOW_STRATEGY_KEY = "whale-flow-mimic-v1";
+const COPY_MOVEMENT_STRATEGY_KEY = "copy-movement-matzstonks-v1";
 const DEFAULT_STARTING_CASH = 1_000_000_000;
 const WHALE_FLOW_STARTING_CASH = 10_000_000_000;
 const DEFAULT_BUY_FEE_RATE = 0;
@@ -195,6 +240,15 @@ const WHALE_FLOW_BASELINE_SECONDS = 60 * 60;
 const WHALE_FLOW_MIN_SCORE = 0.001;
 const WHALE_FLOW_BASELINE_MULTIPLIER = 2;
 const WHALE_FLOW_STRONG_REVERSAL_SCORE = -0.0015;
+const COPY_MOVEMENT_SOURCE_PLAYER_ID = 2566807;
+const COPY_MOVEMENT_SOURCE_PLAYER_NAME = "MatzStonks";
+const COPY_MOVEMENT_TORN_API_BASE = "https://api.torn.com/v2";
+const COPY_MOVEMENT_ACTIVITY_TIMEOUT_MS = 12_000;
+const COPY_MOVEMENT_ACTIVITY_RECENT_SECONDS = 10 * 60;
+const COPY_MOVEMENT_WINDOW_SECONDS = 10 * 60;
+const COPY_MOVEMENT_MAX_EVENTS_PER_TICK = 3;
+const COPY_MOVEMENT_MIN_STRENGTH = 0.004;
+const COPY_MOVEMENT_MIN_ABS_PRICE_CHANGE = 0.0015;
 
 const DEFAULT_CONFIG: StrategyConfig = {
   strategy_key: DEFAULT_STRATEGY_KEY,
@@ -218,6 +272,18 @@ const PAPER_BOTS: PaperBotDefinition[] = [
     name: "Whale Flow bot",
     strategy: "whale-flow",
     strategy_key: WHALE_FLOW_STRATEGY_KEY,
+    starting_cash: WHALE_FLOW_STARTING_CASH,
+    buy_fee_rate: DEFAULT_BUY_FEE_RATE,
+    sell_fee_rate: DEFAULT_SELL_FEE_RATE,
+    max_open_positions: DEFAULT_MAX_OPEN_POSITIONS,
+    max_position_fraction: DEFAULT_MAX_POSITION_FRACTION,
+    min_cash_reserve_fraction: DEFAULT_MIN_CASH_RESERVE_FRACTION,
+  },
+  {
+    id: COPY_MOVEMENT_ACCOUNT_ID,
+    name: "MatzStonks copy bot",
+    strategy: "copy-movement",
+    strategy_key: COPY_MOVEMENT_STRATEGY_KEY,
     starting_cash: WHALE_FLOW_STARTING_CASH,
     buy_fee_rate: DEFAULT_BUY_FEE_RATE,
     sell_fee_rate: DEFAULT_SELL_FEE_RATE,
@@ -283,16 +349,31 @@ async function runLiveStockPaperBotForDefinition(
     realizedPnl: account.realized_pnl,
     positions: new Map(positions.map((position) => [position.stock_id, { ...position }])),
   };
-  const result = applyPaperDecision({
-    state,
-    market,
-    config: account,
-    strategy: bot.strategy,
-    observedAt: eligibleSnapshotAt,
-    accountId: account.id,
-    simulationRunId: null,
-    createdAt: nowSeconds(),
-  });
+  let result: DecisionResult;
+  try {
+    result = bot.strategy === "copy-movement"
+      ? await applyCopyMovementDecision({
+        env,
+        state,
+        market,
+        config: account,
+        observedAt: eligibleSnapshotAt,
+        accountId: account.id,
+        createdAt: nowSeconds(),
+      })
+      : applyPaperDecision({
+        state,
+        market,
+        config: account,
+        strategy: bot.strategy,
+        observedAt: eligibleSnapshotAt,
+        accountId: account.id,
+        simulationRunId: null,
+        createdAt: nowSeconds(),
+      });
+  } catch (err: any) {
+    return { bot_id: bot.id, skipped: true, reason: err?.message || String(err), account };
+  }
 
   await persistAccountDecision(env, account, state, result, eligibleSnapshotAt);
   return { bot_id: bot.id, skipped: false, account: { ...account, cash_balance: state.cash, realized_pnl: state.realizedPnl, last_decision_at: eligibleSnapshotAt }, snapshot: result.snapshot, trades: result.trades };
@@ -429,7 +510,12 @@ async function readPaperBotStatus(env: Env, bot: PaperBotDefinition): Promise<Pa
   const positions = account ? await readAccountPositionsWithMarket(env, account.id) : [];
   const latestEquity = account ? await readLatestAccountEquity(env, account.id) : null;
   const recentTrades = account ? await readRecentPaperTrades(env, account.id, null, 20) : [];
-  const latestSignals = account?.last_decision_at
+  const recentCopyEvents = bot.strategy === "copy-movement"
+    ? await readRecentCopyMovementEvents(env, COPY_MOVEMENT_SOURCE_PLAYER_ID, 20)
+    : [];
+  const latestSignals = bot.strategy === "copy-movement"
+    ? copyMovementSignalsFromEvents(recentCopyEvents).slice(0, 5)
+    : account?.last_decision_at
     ? rankSignalsForStrategy(
       await readMarketStocksForDecision(env, account.last_decision_at),
       account.last_decision_at,
@@ -445,6 +531,7 @@ async function readPaperBotStatus(env: Env, bot: PaperBotDefinition): Promise<Pa
     latest_equity: latestEquity,
     recent_trades: recentTrades,
     latest_signals: latestSignals.slice(0, 5),
+    recent_copy_events: recentCopyEvents,
   };
 }
 
@@ -526,11 +613,17 @@ export async function resetStockPaperAccount(request: Request, env: Env): Promis
   }
 
   const now = nowSeconds();
-  await env.DB.batch([
+  const resetStatements = [
     env.DB.prepare("DELETE FROM stock_paper_positions WHERE account_id = ?").bind(bot.id),
     env.DB.prepare("DELETE FROM stock_paper_trades WHERE account_id = ?").bind(bot.id),
     env.DB.prepare("DELETE FROM stock_paper_equity_snapshots WHERE account_id = ?").bind(bot.id),
-  ]);
+  ];
+  if (bot.strategy === "copy-movement") {
+    resetStatements.push(
+      env.DB.prepare("DELETE FROM stock_copy_movement_events WHERE source_player_id = ?").bind(COPY_MOVEMENT_SOURCE_PLAYER_ID),
+    );
+  }
+  await env.DB.batch(resetStatements);
   const account = await upsertLivePaperAccount(env, bot, now, startingCash, startingCash, 0, null);
   return json({ ok: true, account, bot: publicBotDefinition(bot) });
 }
@@ -577,9 +670,107 @@ function rankSignalsForStrategy(
   config: Pick<StrategyConfig, "sell_fee_rate">,
   strategy: PaperBotStrategy,
 ): StockSignal[] {
+  if (strategy === "copy-movement") {
+    return [];
+  }
   return strategy === "whale-flow"
     ? rankWhaleFlowSignals(market, observedAt, config)
     : rankStockPaperSignals(market, observedAt, config);
+}
+
+async function applyCopyMovementDecision(options: {
+  env: Env;
+  state: StrategyState;
+  market: MarketStock[];
+  config: StrategyConfig;
+  observedAt: number;
+  accountId: string;
+  createdAt: number;
+}): Promise<DecisionResult> {
+  const { env, state, market, config, observedAt, accountId, createdAt } = options;
+  const prices = latestPricesByStock(market, observedAt);
+  const activity = await fetchCopyMovementActivity(env, COPY_MOVEMENT_SOURCE_PLAYER_ID, COPY_MOVEMENT_SOURCE_PLAYER_NAME, observedAt);
+  const signals = activity.active
+    ? buildCopyMovementSignals(market, observedAt, config, activity)
+    : [];
+  const existingKeys = signals.length > 0
+    ? await readExistingCopyMovementEventKeys(env, COPY_MOVEMENT_SOURCE_PLAYER_ID, observedAt)
+    : new Set<string>();
+  const trades: PaperTrade[] = [];
+  const copyEvents: CopyMovementEvent[] = [];
+
+  let equity = computeEquity(state, prices).total;
+  for (const signal of signals) {
+    const key = copyMovementEventKey(signal.stock_id, signal.copy_side ?? "buy");
+    if (existingKeys.has(key)) {
+      continue;
+    }
+
+    const event = copyMovementEventFromSignal(signal, activity, observedAt, createdAt);
+    const price = prices.get(signal.stock_id);
+    if (!price) {
+      event.status = "skipped";
+      event.reason = "missing_latest_price";
+      copyEvents.push(event);
+      continue;
+    }
+
+    if (signal.copy_side === "sell") {
+      const position = state.positions.get(signal.stock_id);
+      if (!position || position.shares <= 0) {
+        event.status = "ignored";
+        event.reason = "no_position_to_sell";
+        copyEvents.push(event);
+        continue;
+      }
+
+      const trade = sellShares(state, position, position.shares, price, observedAt, "copy_movement_sell", signal, config, accountId, null, createdAt);
+      event.status = "executed";
+      event.reason = "copied_directional_sell";
+      event.paper_trade_id = trade.id;
+      trades.push(trade);
+      copyEvents.push(event);
+      equity = computeEquity(state, prices).total;
+      continue;
+    }
+
+    const currentPosition = state.positions.get(signal.stock_id);
+    if (!currentPosition && state.positions.size >= config.max_open_positions) {
+      event.status = "skipped";
+      event.reason = "max_open_positions";
+      copyEvents.push(event);
+      continue;
+    }
+
+    const currentValue = (currentPosition?.shares ?? 0) * price;
+    const targetValue = equity * config.max_position_fraction;
+    const reserveCash = equity * config.min_cash_reserve_fraction;
+    const spendableCash = Math.max(0, state.cash - reserveCash);
+    const desiredSpend = Math.max(0, targetValue - currentValue);
+    const grossSpend = Math.min(spendableCash, desiredSpend);
+    const shares = Math.floor(grossSpend / price);
+    if (shares <= 0) {
+      event.status = "skipped";
+      event.reason = "position_or_cash_cap";
+      copyEvents.push(event);
+      continue;
+    }
+
+    const trade = buyShares(state, signal.stock_id, shares, price, observedAt, "copy_movement_buy", signal, config, accountId, null, createdAt);
+    event.status = "executed";
+    event.reason = "copied_directional_buy";
+    event.paper_trade_id = trade.id;
+    trades.push(trade);
+    copyEvents.push(event);
+    equity = computeEquity(state, prices).total;
+  }
+
+  return {
+    trades,
+    snapshot: buildEquitySnapshot(state, prices, observedAt, accountId, null, createdAt),
+    signals,
+    copyEvents,
+  };
 }
 
 function applyPaperDecision(options: {
@@ -707,6 +898,171 @@ function netReturnIfSold(position: PaperPosition, price: number, sellFeeRate: nu
   return position.average_entry_price > 0
     ? netSellPrice / position.average_entry_price - 1
     : 0;
+}
+
+async function fetchCopyMovementActivity(
+  env: Env,
+  playerId: number,
+  playerName: string,
+  observedAt: number,
+): Promise<CopyMovementActivity> {
+  const url = new URL(`${COPY_MOVEMENT_TORN_API_BASE}/user/${encodeURIComponent(String(playerId))}/basic`);
+  const response = await trackedTornFetch(env, url, {
+    headers: {
+      Accept: "application/json",
+      Authorization: `ApiKey ${env.TORN_API_KEY}`,
+      "User-Agent": "buttgrass-stock-copy-movement/1.0",
+    },
+  }, {
+    feature: "stock-copy-movement:activity",
+    keySource: "env:TORN_API_KEY",
+    timeoutMs: COPY_MOVEMENT_ACTIVITY_TIMEOUT_MS,
+  });
+
+  const data = await readCopyMovementJson(response);
+  if (!response.ok) {
+    throw new Error(`Torn copy movement activity API error: ${response.status}`);
+  }
+  if (isRecord(data) && isRecord(data.error)) {
+    throw new Error(String(data.error.error ?? data.error.message ?? "Torn copy movement activity API error"));
+  }
+
+  const profile = isRecord(data) && isRecord(data.profile) ? data.profile : data;
+  const lastAction = isRecord(profile) && isRecord(profile.last_action) ? profile.last_action : null;
+  const status = cleanText(lastAction?.status);
+  const timestamp = finiteNumber(lastAction?.timestamp);
+  const relative = cleanText(lastAction?.relative);
+  const normalizedStatus = status?.toLowerCase() ?? null;
+  const active =
+    normalizedStatus === "online" ||
+    normalizedStatus === "idle" ||
+    (timestamp !== null && observedAt - timestamp <= COPY_MOVEMENT_ACTIVITY_RECENT_SECONDS);
+
+  return {
+    source_player_id: playerId,
+    source_player_name: playerName,
+    status,
+    timestamp,
+    relative,
+    active,
+    raw_json: data,
+  };
+}
+
+async function readCopyMovementJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return { raw: await response.text().catch(() => "") };
+  }
+}
+
+function buildCopyMovementSignals(
+  market: MarketStock[],
+  observedAt: number,
+  config: Pick<StrategyConfig, "sell_fee_rate">,
+  activity: CopyMovementActivity,
+): StockSignal[] {
+  const windowStartAt = observedAt - COPY_MOVEMENT_WINDOW_SECONDS;
+  const rawSignals: StockSignal[] = [];
+
+  for (const stock of market) {
+    const current = priceAtOrBefore(stock.points, observedAt);
+    const previous = priceAtOrBefore(stock.points, windowStartAt);
+    if (!current || !previous || current.observed_at <= previous.observed_at) {
+      continue;
+    }
+
+    const priceChange = percentChange(previous.price, current.price);
+    if (priceChange === null) {
+      continue;
+    }
+
+    const flow = whaleFlowScoreBetween(previous, current);
+    const buyStrength = Math.max(0, priceChange) * 0.55 + Math.max(0, flow?.score ?? 0) * 0.45;
+    const sellStrength =
+      Math.max(0, -priceChange) * 0.65 +
+      Math.max(0, -(flow?.marketCapChange ?? 0)) * 0.25 +
+      Math.max(0, -(flow?.sharePressure ?? 0)) * 0.1;
+    const side = buyStrength > sellStrength * 1.25 ? "buy" : sellStrength > buyStrength * 1.25 ? "sell" : null;
+    const strength = side === "buy" ? buyStrength : side === "sell" ? sellStrength : 0;
+
+    if (
+      !side ||
+      strength < COPY_MOVEMENT_MIN_STRENGTH ||
+      Math.abs(priceChange) < COPY_MOVEMENT_MIN_ABS_PRICE_CHANGE
+    ) {
+      continue;
+    }
+
+    rawSignals.push({
+      stock_id: stock.stock_id,
+      acronym: stock.acronym,
+      name: stock.name,
+      observed_at: current.observed_at,
+      price: current.price,
+      score: strength,
+      expected_return: Math.max(0, strength - config.sell_fee_rate),
+      momentum_30m: priceChange,
+      momentum_1h: 0,
+      momentum_3h: 0,
+      momentum_6h: 0,
+      volatility_1h: volatilityBetween(stock.points, windowStartAt, observedAt),
+      flow_1m: flow?.score,
+      investor_change: flow?.investorChange,
+      share_pressure: flow?.sharePressure,
+      market_cap_change: flow?.marketCapChange,
+      copy_side: side,
+      copy_source_player_id: activity.source_player_id,
+      copy_source_player_name: activity.source_player_name,
+      copy_activity_status: activity.status,
+      copy_activity_timestamp: activity.timestamp,
+      copy_reason: "activity_correlated_outlier",
+      copy_window_start_at: windowStartAt,
+      rank: 0,
+    });
+  }
+
+  return rawSignals
+    .sort((a, b) => b.expected_return - a.expected_return)
+    .slice(0, COPY_MOVEMENT_MAX_EVENTS_PER_TICK)
+    .map((signal, index) => ({ ...signal, rank: index + 1 }));
+}
+
+function copyMovementEventFromSignal(
+  signal: StockSignal,
+  activity: CopyMovementActivity,
+  observedAt: number,
+  createdAt: number,
+): CopyMovementEvent {
+  const details = {
+    signal,
+    activity_relative: activity.relative,
+    active: activity.active,
+  };
+
+  return {
+    id: crypto.randomUUID(),
+    source_player_id: activity.source_player_id,
+    source_player_name: activity.source_player_name,
+    activity_status: activity.status,
+    activity_timestamp: activity.timestamp,
+    observed_at: observedAt,
+    window_start_at: signal.copy_window_start_at ?? observedAt - COPY_MOVEMENT_WINDOW_SECONDS,
+    stock_id: signal.stock_id,
+    side: signal.copy_side ?? "buy",
+    price: signal.price,
+    strength: signal.score,
+    price_change: signal.momentum_30m,
+    investor_change: signal.investor_change ?? null,
+    share_pressure: signal.share_pressure ?? null,
+    market_cap_change: signal.market_cap_change ?? null,
+    status: "ignored",
+    reason: signal.copy_reason ?? "activity_correlated_outlier",
+    paper_trade_id: null,
+    details_json: JSON.stringify(details),
+    created_at: createdAt,
+  };
 }
 
 function shouldExitWhaleFlowPosition(
@@ -1074,6 +1430,9 @@ async function persistAccountDecision(
   decisionAt: number,
 ): Promise<void> {
   await savePaperTrades(env, result.trades);
+  if (result.copyEvents?.length) {
+    await saveCopyMovementEvents(env, result.copyEvents);
+  }
   if (result.trades.length > 0) {
     await replaceAccountPositions(env, account.id, [...state.positions.values()]);
   }
@@ -1087,6 +1446,29 @@ async function persistAccountDecision(
   )
     .bind(state.cash, state.realizedPnl, decisionAt, nowSeconds(), account.id)
     .run();
+}
+
+async function readExistingCopyMovementEventKeys(
+  env: Env,
+  sourcePlayerId: number,
+  observedAt: number,
+): Promise<Set<string>> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT stock_id, side
+    FROM stock_copy_movement_events
+    WHERE source_player_id = ?
+      AND observed_at = ?
+    `,
+  )
+    .bind(sourcePlayerId, observedAt)
+    .all<{ stock_id: number; side: "buy" | "sell" }>();
+
+  return new Set((rows.results ?? []).map((row) => copyMovementEventKey(Number(row.stock_id), row.side)));
+}
+
+function copyMovementEventKey(stockId: number, side: "buy" | "sell"): string {
+  return `${stockId}:${side}`;
 }
 
 async function savePaperTrades(env: Env, trades: PaperTrade[]): Promise<void> {
@@ -1130,6 +1512,63 @@ async function savePaperTrades(env: Env, trades: PaperTrade[]): Promise<void> {
       trade.score,
       trade.details_json,
       trade.created_at,
+    )
+  );
+
+  for (let index = 0; index < statements.length; index += 50) {
+    await env.DB.batch(statements.slice(index, index + 50));
+  }
+}
+
+async function saveCopyMovementEvents(env: Env, events: CopyMovementEvent[]): Promise<void> {
+  const statements = events.map((event) =>
+    env.DB.prepare(
+      `
+      INSERT OR IGNORE INTO stock_copy_movement_events (
+        id,
+        source_player_id,
+        source_player_name,
+        activity_status,
+        activity_timestamp,
+        observed_at,
+        window_start_at,
+        stock_id,
+        side,
+        price,
+        strength,
+        price_change,
+        investor_change,
+        share_pressure,
+        market_cap_change,
+        status,
+        reason,
+        paper_trade_id,
+        details_json,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    ).bind(
+      event.id,
+      event.source_player_id,
+      event.source_player_name,
+      event.activity_status,
+      event.activity_timestamp,
+      event.observed_at,
+      event.window_start_at,
+      event.stock_id,
+      event.side,
+      event.price,
+      event.strength,
+      event.price_change,
+      event.investor_change,
+      event.share_pressure,
+      event.market_cap_change,
+      event.status,
+      event.reason,
+      event.paper_trade_id,
+      event.details_json,
+      event.created_at,
     )
   );
 
@@ -1481,6 +1920,54 @@ async function readRecentPaperTrades(
     .all<PaperTrade & { acronym: string | null; name: string | null }>();
 
   return rows.results ?? [];
+}
+
+async function readRecentCopyMovementEvents(
+  env: Env,
+  sourcePlayerId: number,
+  limit: number,
+): Promise<CopyMovementEvent[]> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT *
+    FROM stock_copy_movement_events
+    WHERE source_player_id = ?
+    ORDER BY observed_at DESC, created_at DESC
+    LIMIT ?
+    `,
+  )
+    .bind(sourcePlayerId, limit)
+    .all<CopyMovementEvent>();
+
+  return rows.results ?? [];
+}
+
+function copyMovementSignalsFromEvents(events: CopyMovementEvent[]): StockSignal[] {
+  return events.map((event, index) => ({
+    stock_id: event.stock_id,
+    acronym: null,
+    name: null,
+    observed_at: event.observed_at,
+    price: event.price,
+    score: event.strength,
+    expected_return: event.strength,
+    momentum_30m: event.price_change ?? 0,
+    momentum_1h: 0,
+    momentum_3h: 0,
+    momentum_6h: 0,
+    volatility_1h: 0,
+    investor_change: event.investor_change ?? undefined,
+    share_pressure: event.share_pressure ?? undefined,
+    market_cap_change: event.market_cap_change ?? undefined,
+    copy_side: event.side,
+    copy_source_player_id: event.source_player_id,
+    copy_source_player_name: event.source_player_name,
+    copy_activity_status: event.activity_status,
+    copy_activity_timestamp: event.activity_timestamp,
+    copy_reason: event.reason,
+    copy_window_start_at: event.window_start_at,
+    rank: index + 1,
+  }));
 }
 
 async function readLatestSimulationRun(env: Env): Promise<SimulationRun | null> {
