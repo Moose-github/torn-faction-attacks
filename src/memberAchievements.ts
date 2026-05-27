@@ -272,6 +272,8 @@ async function rankedLifestyleRows(
     JOIN home_faction_members members
       ON members.member_id = end_snapshot.member_id
     WHERE end_snapshot.snapshot_date = ?
+      AND end_snapshot.fully_ready = 1
+      AND start_snapshot.fully_ready = 1
       AND members.faction_id = ?
       AND members.is_current = 1
     `,
@@ -348,6 +350,7 @@ async function readLatestSnapshotDate(env: Env): Promise<string | null> {
     `
     SELECT MAX(snapshot_date) AS snapshot_date
     FROM member_lifestyle_stat_snapshots
+    WHERE fully_ready = 1
     `,
   ).first()) as { snapshot_date: string | null } | null;
 
@@ -359,6 +362,7 @@ async function readAvailableSnapshotDates(env: Env): Promise<Set<string>> {
     `
     SELECT DISTINCT snapshot_date
     FROM member_lifestyle_stat_snapshots
+    WHERE fully_ready = 1
     `,
   ).all()).results ?? []) as Array<{ snapshot_date: string }>;
 

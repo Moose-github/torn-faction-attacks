@@ -268,6 +268,45 @@ CREATE TABLE member_lifestyle_stats (
   error TEXT
 );
 
+CREATE TABLE member_personal_stats_current (
+  member_id INTEGER PRIMARY KEY,
+  member_name TEXT,
+  level INTEGER,
+  position TEXT,
+  xantaken INTEGER,
+  overdosed INTEGER,
+  refills INTEGER,
+  useractivity INTEGER,
+  networth INTEGER,
+  daysbeendonator INTEGER,
+  xantaken_timestamp INTEGER,
+  overdosed_timestamp INTEGER,
+  refills_timestamp INTEGER,
+  useractivity_timestamp INTEGER,
+  networth_timestamp INTEGER,
+  daysbeendonator_timestamp INTEGER,
+  personalstats_bucket_date TEXT,
+  personalstats_requested_at INTEGER,
+  personalstats_key_source TEXT,
+  personal_captured_at INTEGER,
+  validation_error TEXT,
+  error TEXT
+);
+
+CREATE TABLE member_gym_stats_current (
+  member_id INTEGER PRIMARY KEY,
+  member_name TEXT,
+  level INTEGER,
+  position TEXT,
+  gymenergy INTEGER,
+  gymstrength INTEGER,
+  gymspeed INTEGER,
+  gymdefense INTEGER,
+  gymdexterity INTEGER,
+  gym_captured_at INTEGER,
+  gym_error TEXT
+);
+
 CREATE TABLE member_lifestyle_stat_snapshots (
   member_id INTEGER NOT NULL,
   snapshot_date TEXT NOT NULL,
@@ -293,6 +332,11 @@ CREATE TABLE member_lifestyle_stat_snapshots (
   gymspeed INTEGER,
   gymdefense INTEGER,
   gymdexterity INTEGER,
+  personal_captured_at INTEGER,
+  gym_captured_at INTEGER,
+  personal_ready INTEGER NOT NULL DEFAULT 0,
+  gym_ready INTEGER NOT NULL DEFAULT 0,
+  fully_ready INTEGER NOT NULL DEFAULT 0,
   captured_at INTEGER NOT NULL,
   PRIMARY KEY (member_id, snapshot_date)
 );
@@ -586,11 +630,29 @@ CREATE INDEX idx_member_lifestyle_stats_updated
 CREATE INDEX idx_member_lifestyle_stats_bucket_date
   ON member_lifestyle_stats(personalstats_bucket_date);
 
+CREATE INDEX idx_member_personal_stats_current_captured
+  ON member_personal_stats_current(personal_captured_at);
+
+CREATE INDEX idx_member_personal_stats_current_bucket
+  ON member_personal_stats_current(personalstats_bucket_date);
+
+CREATE INDEX idx_member_gym_stats_current_captured
+  ON member_gym_stats_current(gym_captured_at);
+
 CREATE INDEX idx_member_lifestyle_snapshots_date
   ON member_lifestyle_stat_snapshots(snapshot_date);
 
 CREATE INDEX idx_member_lifestyle_snapshots_bucket_date
   ON member_lifestyle_stat_snapshots(personalstats_bucket_date);
+
+CREATE INDEX idx_member_lifestyle_snapshots_personal_ready
+  ON member_lifestyle_stat_snapshots(snapshot_date, personal_ready);
+
+CREATE INDEX idx_member_lifestyle_snapshots_gym_ready
+  ON member_lifestyle_stat_snapshots(snapshot_date, gym_ready);
+
+CREATE INDEX idx_member_lifestyle_snapshots_fully_ready
+  ON member_lifestyle_stat_snapshots(snapshot_date, fully_ready);
 
 CREATE INDEX idx_member_lifestyle_repair_jobs_status
   ON member_lifestyle_repair_jobs(status, updated_at);

@@ -74,7 +74,7 @@ type LifestyleMemberRow = {
   name: string;
   level: number | null;
   position: string | null;
-  updated_at: number | null;
+  personal_captured_at: number | null;
 };
 
 type LifestylePeriodRow = {
@@ -122,6 +122,11 @@ type LifestyleSnapshotRow = {
   gymspeed: number | null;
   gymdefense: number | null;
   gymdexterity: number | null;
+  personal_captured_at: number | null;
+  gym_captured_at: number | null;
+  personal_ready: number;
+  gym_ready: number;
+  fully_ready: number;
   captured_at: number;
   validation_error: string | null;
 };
@@ -241,6 +246,11 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
       snapshots.gymspeed,
       snapshots.gymdefense,
       snapshots.gymdexterity,
+      snapshots.personal_captured_at,
+      snapshots.gym_captured_at,
+      snapshots.personal_ready,
+      snapshots.gym_ready,
+      snapshots.fully_ready,
       snapshots.captured_at,
       snapshots.validation_error
     FROM member_lifestyle_stat_snapshots snapshots
@@ -248,6 +258,7 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
       ON home_faction_members.member_id = snapshots.member_id
      AND home_faction_members.is_current = 1
     WHERE snapshots.snapshot_date BETWEEN ? AND ?
+      AND snapshots.fully_ready = 1
     ORDER BY snapshots.member_id ASC, snapshots.snapshot_date ASC
     `,
   )
@@ -292,6 +303,7 @@ export async function getMemberLifestyleDailyChart(url: URL, env: Env): Promise<
 
   const boundaryDate = dateKeyFromMs(Date.parse(`${period.start_date}T00:00:00.000Z`) - 86_400_000);
   const placeholders = chartMemberIds.map(() => "?").join(",");
+  const readyColumn = lifestyleMetricReadyColumn(metric);
   const snapshotRows = ((await env.DB.prepare(
     `
     SELECT
@@ -318,6 +330,11 @@ export async function getMemberLifestyleDailyChart(url: URL, env: Env): Promise<
       snapshots.gymspeed,
       snapshots.gymdefense,
       snapshots.gymdexterity,
+      snapshots.personal_captured_at,
+      snapshots.gym_captured_at,
+      snapshots.personal_ready,
+      snapshots.gym_ready,
+      snapshots.fully_ready,
       snapshots.captured_at,
       snapshots.validation_error
     FROM member_lifestyle_stat_snapshots snapshots
@@ -326,6 +343,7 @@ export async function getMemberLifestyleDailyChart(url: URL, env: Env): Promise<
      AND members.is_current = 1
     WHERE snapshots.snapshot_date BETWEEN ? AND ?
       AND snapshots.member_id IN (${placeholders})
+      AND snapshots.${readyColumn} = 1
     ORDER BY snapshots.member_id ASC, snapshots.snapshot_date ASC
     `,
   )
@@ -429,13 +447,13 @@ export async function refreshDailyMemberLifestyleStats(
     requestedAt: refreshAt,
   });
   await refreshDailyGymContributorStats(env, refreshAt, { homeMembersSynced: true });
+  const snapshotDate = utcDateKey(refreshAt);
+  await writeLifestyleSnapshotForDate(env, snapshotDate, { freshAfter: refreshAt });
   const complete = await markDailyLifestyleRefreshCompleteIfDone(env, refreshAt);
   if (complete) {
-    const snapshotDate = utcDateKey(refreshAt);
-    await writeLifestyleSnapshotForDate(env, snapshotDate, { freshAfter: refreshAt });
     await refreshMemberAchievementSummaries(env, snapshotDate);
-    await bumpMemberLifestyleCacheVersion(env);
   }
+  await bumpMemberLifestyleCacheVersion(env);
 
   return { ...result, skipped: false };
 }
@@ -475,30 +493,37 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
     SELECT
       members.member_id,
       COALESCE(stats.member_name, members.name) AS member_name,
-      stats.error,
-      stats.updated_at
+      COALESCE(stats.validation_error, stats.error) AS error,
+      stats.personal_captured_at AS updated_at
     FROM home_faction_members members
-    LEFT JOIN member_lifestyle_stats stats
+    LEFT JOIN member_personal_stats_current stats
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
       AND (
-        stats.error LIKE ?
+        stats.validation_error LIKE ?
+        OR stats.validation_error LIKE ?
+        OR stats.error LIKE ?
         OR stats.error LIKE ?
       )
     ORDER BY members.name ASC
     LIMIT 12
     `,
   )
-    .bind(`${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`, `${MISSING_DONATOR_DAYS_ERROR_CODE}%`)
+    .bind(
+      `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
+      `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
+      `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
+      `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
+    )
     .all()).results ?? []) as DailyStatsAttention["affected_members"];
 
   const counts = (await env.DB.prepare(
     `
     SELECT
-      SUM(CASE WHEN stats.error LIKE ? THEN 1 ELSE 0 END) AS stale_personalstats,
-      SUM(CASE WHEN stats.error LIKE ? THEN 1 ELSE 0 END) AS missing_donator_days
+      SUM(CASE WHEN COALESCE(stats.validation_error, stats.error) LIKE ? THEN 1 ELSE 0 END) AS stale_personalstats,
+      SUM(CASE WHEN COALESCE(stats.validation_error, stats.error) LIKE ? THEN 1 ELSE 0 END) AS missing_donator_days
     FROM home_faction_members members
-    LEFT JOIN member_lifestyle_stats stats
+    LEFT JOIN member_personal_stats_current stats
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
     `,
@@ -978,9 +1003,12 @@ async function upsertLifestyleSnapshotForRepair(
       personalstats_requested_at,
       personalstats_key_source,
       validation_error,
+      personal_captured_at,
+      personal_ready,
+      fully_ready,
       captured_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, unixepoch(), 1, 0, unixepoch())
     ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
       member_name = excluded.member_name,
       xantaken = excluded.xantaken,
@@ -999,6 +1027,9 @@ async function upsertLifestyleSnapshotForRepair(
       personalstats_requested_at = excluded.personalstats_requested_at,
       personalstats_key_source = excluded.personalstats_key_source,
       validation_error = NULL,
+      personal_captured_at = excluded.personal_captured_at,
+      personal_ready = 1,
+      fully_ready = CASE WHEN member_lifestyle_stat_snapshots.gym_ready = 1 THEN 1 ELSE 0 END,
       captured_at = excluded.captured_at
     `,
   )
@@ -1231,7 +1262,7 @@ async function resetDailyLifestylePersonalStatsIfNeeded(
   }
   await env.DB.prepare(
     `
-    UPDATE member_lifestyle_stats
+    UPDATE member_personal_stats_current
     SET
       xantaken = NULL,
       overdosed = NULL,
@@ -1248,7 +1279,8 @@ async function resetDailyLifestylePersonalStatsIfNeeded(
       personalstats_bucket_date = NULL,
       personalstats_requested_at = NULL,
       personalstats_key_source = NULL,
-      updated_at = NULL,
+      personal_captured_at = NULL,
+      validation_error = NULL,
       error = NULL
     WHERE member_id IN (
       SELECT member_id
@@ -1289,13 +1321,14 @@ async function markDailyLifestyleRefreshCompleteIfDone(
     `
     SELECT members.member_id
     FROM home_faction_members members
-    LEFT JOIN member_lifestyle_stats stats
+    LEFT JOIN member_personal_stats_current stats
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
       AND (
-        stats.updated_at IS NULL
-        OR stats.updated_at < ?
+        stats.personal_captured_at IS NULL
+        OR stats.personal_captured_at < ?
         OR stats.error IS NOT NULL
+        OR stats.validation_error IS NOT NULL
         OR stats.personalstats_bucket_date != ?
       )
     LIMIT 1
@@ -1359,7 +1392,6 @@ async function syncHomeFactionMemberList(env: Env): Promise<void> {
 
   await markDepartedHomeFactionMembers(env, members);
   await removeDepartedLifestyleMembers(env, members);
-  await removeDepartedLifestyleSnapshots(env, members);
 }
 
 async function markDepartedHomeFactionMembers(
@@ -1395,7 +1427,16 @@ async function removeDepartedLifestyleMembers(
 
   await env.DB.prepare(
     `
-    DELETE FROM member_lifestyle_stats
+    DELETE FROM member_personal_stats_current
+    WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
+    `,
+  )
+    .bind(...ids)
+    .run();
+
+  await env.DB.prepare(
+    `
+    DELETE FROM member_gym_stats_current
     WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
     `,
   )
@@ -1415,9 +1456,10 @@ async function readLifestyleRefreshCandidates(
     : `
       WHERE members.is_current = 1
         AND (
-          stats.updated_at IS NULL
-          OR stats.updated_at < ?
+          stats.personal_captured_at IS NULL
+          OR stats.personal_captured_at < ?
           OR stats.error IS NOT NULL
+          OR stats.validation_error IS NOT NULL
         )
     `;
   const query = `
@@ -1426,12 +1468,12 @@ async function readLifestyleRefreshCandidates(
       members.name,
       members.level,
       members.position,
-      stats.updated_at
+      stats.personal_captured_at
     FROM home_faction_members members
-    LEFT JOIN member_lifestyle_stats stats
+    LEFT JOIN member_personal_stats_current stats
       ON stats.member_id = members.member_id
     ${where}
-    ORDER BY stats.updated_at ASC NULLS FIRST, members.name ASC
+    ORDER BY stats.personal_captured_at ASC NULLS FIRST, members.name ASC
     LIMIT ?
   `;
   const statement = env.DB.prepare(query);
@@ -1495,7 +1537,7 @@ async function upsertLifestyleStats(
 ): Promise<void> {
   await env.DB.prepare(
     `
-    INSERT INTO member_lifestyle_stats (
+    INSERT INTO member_personal_stats_current (
       member_id,
       member_name,
       level,
@@ -1515,33 +1557,35 @@ async function upsertLifestyleStats(
       personalstats_bucket_date,
       personalstats_requested_at,
       personalstats_key_source,
-      updated_at,
+      personal_captured_at,
+      validation_error,
       error
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN unixepoch() ELSE NULL END, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN unixepoch() ELSE NULL END, ?, NULL)
     ON CONFLICT(member_id) DO UPDATE SET
       member_name = excluded.member_name,
       level = excluded.level,
       position = excluded.position,
-      xantaken = COALESCE(excluded.xantaken, member_lifestyle_stats.xantaken),
-      overdosed = COALESCE(excluded.overdosed, member_lifestyle_stats.overdosed),
-      refills = COALESCE(excluded.refills, member_lifestyle_stats.refills),
-      useractivity = COALESCE(excluded.useractivity, member_lifestyle_stats.useractivity),
-      networth = COALESCE(excluded.networth, member_lifestyle_stats.networth),
-      daysbeendonator = COALESCE(excluded.daysbeendonator, member_lifestyle_stats.daysbeendonator),
-      xantaken_timestamp = COALESCE(excluded.xantaken_timestamp, member_lifestyle_stats.xantaken_timestamp),
-      overdosed_timestamp = COALESCE(excluded.overdosed_timestamp, member_lifestyle_stats.overdosed_timestamp),
-      refills_timestamp = COALESCE(excluded.refills_timestamp, member_lifestyle_stats.refills_timestamp),
-      useractivity_timestamp = COALESCE(excluded.useractivity_timestamp, member_lifestyle_stats.useractivity_timestamp),
-      networth_timestamp = COALESCE(excluded.networth_timestamp, member_lifestyle_stats.networth_timestamp),
-      daysbeendonator_timestamp = COALESCE(excluded.daysbeendonator_timestamp, member_lifestyle_stats.daysbeendonator_timestamp),
+      xantaken = COALESCE(excluded.xantaken, member_personal_stats_current.xantaken),
+      overdosed = COALESCE(excluded.overdosed, member_personal_stats_current.overdosed),
+      refills = COALESCE(excluded.refills, member_personal_stats_current.refills),
+      useractivity = COALESCE(excluded.useractivity, member_personal_stats_current.useractivity),
+      networth = COALESCE(excluded.networth, member_personal_stats_current.networth),
+      daysbeendonator = COALESCE(excluded.daysbeendonator, member_personal_stats_current.daysbeendonator),
+      xantaken_timestamp = COALESCE(excluded.xantaken_timestamp, member_personal_stats_current.xantaken_timestamp),
+      overdosed_timestamp = COALESCE(excluded.overdosed_timestamp, member_personal_stats_current.overdosed_timestamp),
+      refills_timestamp = COALESCE(excluded.refills_timestamp, member_personal_stats_current.refills_timestamp),
+      useractivity_timestamp = COALESCE(excluded.useractivity_timestamp, member_personal_stats_current.useractivity_timestamp),
+      networth_timestamp = COALESCE(excluded.networth_timestamp, member_personal_stats_current.networth_timestamp),
+      daysbeendonator_timestamp = COALESCE(excluded.daysbeendonator_timestamp, member_personal_stats_current.daysbeendonator_timestamp),
       personalstats_bucket_date = excluded.personalstats_bucket_date,
       personalstats_requested_at = excluded.personalstats_requested_at,
       personalstats_key_source = excluded.personalstats_key_source,
-      updated_at = CASE
-        WHEN excluded.error IS NULL THEN excluded.updated_at
-        ELSE member_lifestyle_stats.updated_at
+      personal_captured_at = CASE
+        WHEN excluded.validation_error IS NULL THEN excluded.personal_captured_at
+        ELSE member_personal_stats_current.personal_captured_at
       END,
+      validation_error = excluded.validation_error,
       error = excluded.error
     `,
   )
@@ -1568,25 +1612,6 @@ async function upsertLifestyleStats(
       error,
       error,
     )
-    .run();
-}
-
-async function removeDepartedLifestyleSnapshots(
-  env: Env,
-  members: TornFactionMember[],
-): Promise<void> {
-  const ids = members.map((member) => member.id).filter((id) => Number.isInteger(id) && id > 0);
-  if (ids.length === 0) {
-    return;
-  }
-
-  await env.DB.prepare(
-    `
-    DELETE FROM member_lifestyle_stat_snapshots
-    WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
-    `,
-  )
-    .bind(...ids)
     .run();
 }
 
@@ -1617,7 +1642,7 @@ async function refreshGymContributorStats(
     const member = homeMembers.get(memberId);
     return env.DB.prepare(
       `
-      INSERT INTO member_lifestyle_stats (
+      INSERT INTO member_gym_stats_current (
         member_id,
         member_name,
         level,
@@ -1627,18 +1652,21 @@ async function refreshGymContributorStats(
         gymspeed,
         gymdefense,
         gymdexterity,
-        error
+        gym_captured_at,
+        gym_error
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), NULL)
       ON CONFLICT(member_id) DO UPDATE SET
-        member_name = COALESCE(excluded.member_name, member_lifestyle_stats.member_name),
-        level = COALESCE(excluded.level, member_lifestyle_stats.level),
-        position = COALESCE(excluded.position, member_lifestyle_stats.position),
-        gymenergy = COALESCE(excluded.gymenergy, member_lifestyle_stats.gymenergy),
-        gymstrength = COALESCE(excluded.gymstrength, member_lifestyle_stats.gymstrength),
-        gymspeed = COALESCE(excluded.gymspeed, member_lifestyle_stats.gymspeed),
-        gymdefense = COALESCE(excluded.gymdefense, member_lifestyle_stats.gymdefense),
-        gymdexterity = COALESCE(excluded.gymdexterity, member_lifestyle_stats.gymdexterity)
+        member_name = COALESCE(excluded.member_name, member_gym_stats_current.member_name),
+        level = COALESCE(excluded.level, member_gym_stats_current.level),
+        position = COALESCE(excluded.position, member_gym_stats_current.position),
+        gymenergy = COALESCE(excluded.gymenergy, member_gym_stats_current.gymenergy),
+        gymstrength = COALESCE(excluded.gymstrength, member_gym_stats_current.gymstrength),
+        gymspeed = COALESCE(excluded.gymspeed, member_gym_stats_current.gymspeed),
+        gymdefense = COALESCE(excluded.gymdefense, member_gym_stats_current.gymdefense),
+        gymdexterity = COALESCE(excluded.gymdexterity, member_gym_stats_current.gymdexterity),
+        gym_captured_at = excluded.gym_captured_at,
+        gym_error = excluded.gym_error
       `,
     ).bind(
       memberId,
@@ -1695,7 +1723,7 @@ async function fetchFactionContributorStat(
 async function readHomeMembersById(env: Env): Promise<Map<number, LifestyleMemberRow>> {
   const rows = ((await env.DB.prepare(
     `
-    SELECT member_id, name, level, position, updated_at
+    SELECT member_id, name, level, position, updated_at AS personal_captured_at
     FROM home_faction_members
     WHERE faction_id = ?
       AND is_current = 1
@@ -1720,26 +1748,26 @@ async function syncHomeFactionMemberNetworth(env: Env, memberIds: number[]): Pro
     SET
       networth = (
         SELECT stats.networth
-        FROM member_lifestyle_stats stats
+        FROM member_personal_stats_current stats
         WHERE stats.member_id = home_faction_members.member_id
       ),
       networth_updated_at = (
-        SELECT stats.updated_at
-        FROM member_lifestyle_stats stats
+        SELECT stats.personal_captured_at
+        FROM member_personal_stats_current stats
         WHERE stats.member_id = home_faction_members.member_id
       ),
       updated_at = unixepoch()
     WHERE member_id IN (${placeholders})
       AND EXISTS (
         SELECT 1
-        FROM member_lifestyle_stats stats
+        FROM member_personal_stats_current stats
         WHERE stats.member_id = home_faction_members.member_id
           AND stats.networth IS NOT NULL
           AND (
             home_faction_members.networth IS NULL
             OR home_faction_members.networth != stats.networth
             OR home_faction_members.networth_updated_at IS NULL
-            OR home_faction_members.networth_updated_at != stats.updated_at
+            OR home_faction_members.networth_updated_at != stats.personal_captured_at
           )
       )
     `,
@@ -1756,6 +1784,58 @@ async function writeLifestyleSnapshotForDate(
   const freshAfter = options.freshAfter ?? null;
   await env.DB.prepare(
     `
+    WITH source AS (
+      SELECT
+        members.member_id,
+        ? AS snapshot_date,
+        COALESCE(personal.member_name, gym.member_name, members.name) AS member_name,
+        personal.xantaken,
+        personal.overdosed,
+        personal.refills,
+        personal.useractivity,
+        personal.networth,
+        personal.daysbeendonator,
+        personal.xantaken_timestamp,
+        personal.overdosed_timestamp,
+        personal.refills_timestamp,
+        personal.useractivity_timestamp,
+        personal.networth_timestamp,
+        personal.daysbeendonator_timestamp,
+        personal.personalstats_bucket_date,
+        personal.personalstats_requested_at,
+        personal.personalstats_key_source,
+        COALESCE(personal.validation_error, personal.error) AS validation_error,
+        gym.gymenergy,
+        gym.gymstrength,
+        gym.gymspeed,
+        gym.gymdefense,
+        gym.gymdexterity,
+        personal.personal_captured_at,
+        gym.gym_captured_at,
+        CASE
+          WHEN personal.personal_captured_at IS NOT NULL
+            AND (? IS NULL OR personal.personal_captured_at >= ?)
+            AND personal.error IS NULL
+            AND personal.validation_error IS NULL
+            AND personal.personalstats_bucket_date = ?
+          THEN 1
+          ELSE 0
+        END AS personal_ready,
+        CASE
+          WHEN gym.gym_captured_at IS NOT NULL
+            AND (? IS NULL OR gym.gym_captured_at >= ?)
+            AND gym.gym_error IS NULL
+          THEN 1
+          ELSE 0
+        END AS gym_ready
+      FROM home_faction_members members
+      LEFT JOIN member_personal_stats_current personal
+        ON personal.member_id = members.member_id
+      LEFT JOIN member_gym_stats_current gym
+        ON gym.member_id = members.member_id
+      WHERE members.faction_id = ?
+        AND members.is_current = 1
+    )
     INSERT INTO member_lifestyle_stat_snapshots (
       member_id,
       snapshot_date,
@@ -1781,69 +1861,87 @@ async function writeLifestyleSnapshotForDate(
       gymspeed,
       gymdefense,
       gymdexterity,
+      personal_captured_at,
+      gym_captured_at,
+      personal_ready,
+      gym_ready,
+      fully_ready,
       captured_at
     )
     SELECT
-      stats.member_id,
-      ?,
-      stats.member_name,
-      stats.xantaken,
-      stats.overdosed,
-      stats.refills,
-      stats.useractivity,
-      stats.networth,
-      stats.daysbeendonator,
-      stats.xantaken_timestamp,
-      stats.overdosed_timestamp,
-      stats.refills_timestamp,
-      stats.useractivity_timestamp,
-      stats.networth_timestamp,
-      stats.daysbeendonator_timestamp,
-      stats.personalstats_bucket_date,
-      stats.personalstats_requested_at,
-      stats.personalstats_key_source,
-      stats.error,
-      stats.gymenergy,
-      stats.gymstrength,
-      stats.gymspeed,
-      stats.gymdefense,
-      stats.gymdexterity,
+      member_id,
+      snapshot_date,
+      member_name,
+      CASE WHEN personal_ready = 1 THEN xantaken ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN overdosed ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN refills ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN useractivity ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN networth ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN daysbeendonator ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN xantaken_timestamp ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN overdosed_timestamp ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN refills_timestamp ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN useractivity_timestamp ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN networth_timestamp ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN daysbeendonator_timestamp ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN personalstats_bucket_date ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN personalstats_requested_at ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN personalstats_key_source ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN NULL ELSE validation_error END,
+      CASE WHEN gym_ready = 1 THEN gymenergy ELSE NULL END,
+      CASE WHEN gym_ready = 1 THEN gymstrength ELSE NULL END,
+      CASE WHEN gym_ready = 1 THEN gymspeed ELSE NULL END,
+      CASE WHEN gym_ready = 1 THEN gymdefense ELSE NULL END,
+      CASE WHEN gym_ready = 1 THEN gymdexterity ELSE NULL END,
+      CASE WHEN personal_ready = 1 THEN personal_captured_at ELSE NULL END,
+      CASE WHEN gym_ready = 1 THEN gym_captured_at ELSE NULL END,
+      personal_ready,
+      gym_ready,
+      CASE WHEN personal_ready = 1 AND gym_ready = 1 THEN 1 ELSE 0 END,
       unixepoch()
-    FROM member_lifestyle_stats stats
-    JOIN home_faction_members members
-      ON members.member_id = stats.member_id
-     AND members.is_current = 1
-    WHERE stats.updated_at IS NOT NULL
-      AND (? IS NULL OR stats.updated_at >= ?)
-      AND stats.error IS NULL
-      AND stats.personalstats_bucket_date = ?
+    FROM source
+    WHERE 1 = 1
     ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
       member_name = excluded.member_name,
-      xantaken = excluded.xantaken,
-      overdosed = excluded.overdosed,
-      refills = excluded.refills,
-      useractivity = excluded.useractivity,
-      networth = excluded.networth,
-      daysbeendonator = excluded.daysbeendonator,
-      xantaken_timestamp = excluded.xantaken_timestamp,
-      overdosed_timestamp = excluded.overdosed_timestamp,
-      refills_timestamp = excluded.refills_timestamp,
-      useractivity_timestamp = excluded.useractivity_timestamp,
-      networth_timestamp = excluded.networth_timestamp,
-      daysbeendonator_timestamp = excluded.daysbeendonator_timestamp,
-      personalstats_bucket_date = excluded.personalstats_bucket_date,
-      personalstats_requested_at = excluded.personalstats_requested_at,
-      personalstats_key_source = excluded.personalstats_key_source,
-      validation_error = excluded.validation_error,
-      gymenergy = excluded.gymenergy,
-      gymstrength = excluded.gymstrength,
-      gymspeed = excluded.gymspeed,
-      gymdefense = excluded.gymdefense,
-      gymdexterity = excluded.gymdexterity,
+      xantaken = CASE WHEN excluded.personal_ready = 1 THEN excluded.xantaken ELSE member_lifestyle_stat_snapshots.xantaken END,
+      overdosed = CASE WHEN excluded.personal_ready = 1 THEN excluded.overdosed ELSE member_lifestyle_stat_snapshots.overdosed END,
+      refills = CASE WHEN excluded.personal_ready = 1 THEN excluded.refills ELSE member_lifestyle_stat_snapshots.refills END,
+      useractivity = CASE WHEN excluded.personal_ready = 1 THEN excluded.useractivity ELSE member_lifestyle_stat_snapshots.useractivity END,
+      networth = CASE WHEN excluded.personal_ready = 1 THEN excluded.networth ELSE member_lifestyle_stat_snapshots.networth END,
+      daysbeendonator = CASE WHEN excluded.personal_ready = 1 THEN excluded.daysbeendonator ELSE member_lifestyle_stat_snapshots.daysbeendonator END,
+      xantaken_timestamp = CASE WHEN excluded.personal_ready = 1 THEN excluded.xantaken_timestamp ELSE member_lifestyle_stat_snapshots.xantaken_timestamp END,
+      overdosed_timestamp = CASE WHEN excluded.personal_ready = 1 THEN excluded.overdosed_timestamp ELSE member_lifestyle_stat_snapshots.overdosed_timestamp END,
+      refills_timestamp = CASE WHEN excluded.personal_ready = 1 THEN excluded.refills_timestamp ELSE member_lifestyle_stat_snapshots.refills_timestamp END,
+      useractivity_timestamp = CASE WHEN excluded.personal_ready = 1 THEN excluded.useractivity_timestamp ELSE member_lifestyle_stat_snapshots.useractivity_timestamp END,
+      networth_timestamp = CASE WHEN excluded.personal_ready = 1 THEN excluded.networth_timestamp ELSE member_lifestyle_stat_snapshots.networth_timestamp END,
+      daysbeendonator_timestamp = CASE WHEN excluded.personal_ready = 1 THEN excluded.daysbeendonator_timestamp ELSE member_lifestyle_stat_snapshots.daysbeendonator_timestamp END,
+      personalstats_bucket_date = CASE WHEN excluded.personal_ready = 1 THEN excluded.personalstats_bucket_date ELSE member_lifestyle_stat_snapshots.personalstats_bucket_date END,
+      personalstats_requested_at = CASE WHEN excluded.personal_ready = 1 THEN excluded.personalstats_requested_at ELSE member_lifestyle_stat_snapshots.personalstats_requested_at END,
+      personalstats_key_source = CASE WHEN excluded.personal_ready = 1 THEN excluded.personalstats_key_source ELSE member_lifestyle_stat_snapshots.personalstats_key_source END,
+      validation_error = CASE
+        WHEN excluded.personal_ready = 1 THEN NULL
+        WHEN member_lifestyle_stat_snapshots.personal_ready = 1 THEN member_lifestyle_stat_snapshots.validation_error
+        ELSE COALESCE(excluded.validation_error, member_lifestyle_stat_snapshots.validation_error)
+      END,
+      gymenergy = CASE WHEN excluded.gym_ready = 1 THEN excluded.gymenergy ELSE member_lifestyle_stat_snapshots.gymenergy END,
+      gymstrength = CASE WHEN excluded.gym_ready = 1 THEN excluded.gymstrength ELSE member_lifestyle_stat_snapshots.gymstrength END,
+      gymspeed = CASE WHEN excluded.gym_ready = 1 THEN excluded.gymspeed ELSE member_lifestyle_stat_snapshots.gymspeed END,
+      gymdefense = CASE WHEN excluded.gym_ready = 1 THEN excluded.gymdefense ELSE member_lifestyle_stat_snapshots.gymdefense END,
+      gymdexterity = CASE WHEN excluded.gym_ready = 1 THEN excluded.gymdexterity ELSE member_lifestyle_stat_snapshots.gymdexterity END,
+      personal_captured_at = CASE WHEN excluded.personal_ready = 1 THEN excluded.personal_captured_at ELSE member_lifestyle_stat_snapshots.personal_captured_at END,
+      gym_captured_at = CASE WHEN excluded.gym_ready = 1 THEN excluded.gym_captured_at ELSE member_lifestyle_stat_snapshots.gym_captured_at END,
+      personal_ready = CASE WHEN excluded.personal_ready = 1 THEN 1 ELSE member_lifestyle_stat_snapshots.personal_ready END,
+      gym_ready = CASE WHEN excluded.gym_ready = 1 THEN 1 ELSE member_lifestyle_stat_snapshots.gym_ready END,
+      fully_ready = CASE
+        WHEN (CASE WHEN excluded.personal_ready = 1 THEN 1 ELSE member_lifestyle_stat_snapshots.personal_ready END) = 1
+          AND (CASE WHEN excluded.gym_ready = 1 THEN 1 ELSE member_lifestyle_stat_snapshots.gym_ready END) = 1
+        THEN 1
+        ELSE 0
+      END,
       captured_at = excluded.captured_at
     `,
   )
-    .bind(snapshotDate, freshAfter, freshAfter, snapshotDate)
+    .bind(snapshotDate, freshAfter, freshAfter, snapshotDate, freshAfter, freshAfter, HOME_FACTION_ID)
     .run();
 }
 
@@ -2047,6 +2145,12 @@ function parseLifestyleDailyChartMetric(value: string | null): LifestyleDailyCha
   return value && LIFESTYLE_DAILY_CHART_METRICS.has(value as LifestyleDailyChartMetric)
     ? value as LifestyleDailyChartMetric
     : null;
+}
+
+function lifestyleMetricReadyColumn(metric: LifestyleDailyChartMetric): "personal_ready" | "gym_ready" {
+  return GYM_CONTRIBUTOR_STAT_KEYS.includes(metric as GymContributorStatKey)
+    ? "gym_ready"
+    : "personal_ready";
 }
 
 function parseLifestyleDailyChartMemberIds(url: URL): number[] {
