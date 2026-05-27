@@ -239,35 +239,6 @@ CREATE TABLE faction_activity_heatmap (
   PRIMARY KEY (faction_id, date, interval_index)
 );
 
-CREATE TABLE member_lifestyle_stats (
-  member_id INTEGER PRIMARY KEY,
-  member_name TEXT,
-  level INTEGER,
-  position TEXT,
-  xantaken INTEGER,
-  overdosed INTEGER,
-  refills INTEGER,
-  useractivity INTEGER,
-  networth INTEGER,
-  daysbeendonator INTEGER,
-  xantaken_timestamp INTEGER,
-  overdosed_timestamp INTEGER,
-  refills_timestamp INTEGER,
-  useractivity_timestamp INTEGER,
-  networth_timestamp INTEGER,
-  daysbeendonator_timestamp INTEGER,
-  personalstats_bucket_date TEXT,
-  personalstats_requested_at INTEGER,
-  personalstats_key_source TEXT,
-  gymenergy INTEGER,
-  gymstrength INTEGER,
-  gymspeed INTEGER,
-  gymdefense INTEGER,
-  gymdexterity INTEGER,
-  updated_at INTEGER,
-  error TEXT
-);
-
 CREATE TABLE member_personal_stats_current (
   member_id INTEGER PRIMARY KEY,
   member_name TEXT,
@@ -623,12 +594,6 @@ CREATE INDEX idx_faction_activity_heatmap_sampled
 
 CREATE INDEX idx_faction_activity_heatmap_faction_sampled
   ON faction_activity_heatmap(faction_id, sampled_at);
-
-CREATE INDEX idx_member_lifestyle_stats_updated
-  ON member_lifestyle_stats(updated_at);
-
-CREATE INDEX idx_member_lifestyle_stats_bucket_date
-  ON member_lifestyle_stats(personalstats_bucket_date);
 
 CREATE INDEX idx_member_personal_stats_current_captured
   ON member_personal_stats_current(personal_captured_at);
