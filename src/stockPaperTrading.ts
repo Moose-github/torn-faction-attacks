@@ -233,8 +233,9 @@ const DEFAULT_SIMULATION_SECONDS = 24 * 60 * 60;
 const MAX_SIMULATION_SECONDS = 24 * 60 * 60;
 const FRESH_SNAPSHOT_SECONDS = 45 * 60;
 const MIN_POSITION_HOLD_SECONDS = 60 * 60;
-const EXIT_RANK_THRESHOLD = 10;
-const MIN_NET_EXIT_RETURN = 0;
+const TAKE_PROFIT_NET_RETURN = 0.0025;
+const STOP_LOSS_NET_RETURN = -0.015;
+const STALE_POSITION_SECONDS = 6 * 60 * 60;
 const WHALE_FLOW_MAX_TARGETS = 3;
 const WHALE_FLOW_BASELINE_SECONDS = 60 * 60;
 const WHALE_FLOW_MIN_SCORE = 0.001;
@@ -804,7 +805,7 @@ function applyPaperDecision(options: {
       continue;
     }
     const exit = strategy === "whale-flow"
-      ? shouldExitWhaleFlowPosition(position, signal, targetIds, price, config)
+      ? shouldExitWhaleFlowPosition(position, signal, targetIds, price, config, observedAt)
       : shouldExitPosition(position, signal, targetIds, price, observedAt, config);
     if (exit.shouldExit) {
       trades.push(sellShares(state, position, position.shares, price, observedAt, exit.reason, signal, config, accountId, simulationRunId, createdAt));
@@ -868,29 +869,29 @@ function shouldExitPosition(
   observedAt: number,
   config: StrategyConfig,
 ): { shouldExit: boolean; reason: string } {
-  if (targetIds.has(position.stock_id) && signal && signal.expected_return > config.sell_fee_rate) {
-    return { shouldExit: false, reason: "hold_target" };
-  }
-
   const holdSeconds = observedAt - position.opened_at;
   if (holdSeconds < MIN_POSITION_HOLD_SECONDS) {
     return { shouldExit: false, reason: "min_hold" };
   }
 
   const netReturn = netReturnIfSold(position, price, config.sell_fee_rate);
-  if (netReturn >= MIN_NET_EXIT_RETURN) {
-    return { shouldExit: true, reason: "fee_covered_exit" };
+  if (netReturn >= TAKE_PROFIT_NET_RETURN) {
+    return { shouldExit: true, reason: "take_profit_exit" };
   }
 
-  const severeSignalDeterioration =
-    !signal ||
-    signal.expected_return <= -config.sell_fee_rate ||
-    signal.rank > EXIT_RANK_THRESHOLD;
-  if (severeSignalDeterioration) {
-    return { shouldExit: true, reason: "severe_signal_exit" };
+  if (netReturn <= STOP_LOSS_NET_RETURN) {
+    return { shouldExit: true, reason: "stop_loss_exit" };
   }
 
-  return { shouldExit: false, reason: "hold_fee_buffer" };
+  if (targetIds.has(position.stock_id) && signal && signal.expected_return > config.sell_fee_rate) {
+    return { shouldExit: false, reason: "hold_target" };
+  }
+
+  if (holdSeconds >= STALE_POSITION_SECONDS) {
+    return { shouldExit: true, reason: "stale_position_exit" };
+  }
+
+  return { shouldExit: false, reason: "hold_wait_for_exit_threshold" };
 }
 
 function netReturnIfSold(position: PaperPosition, price: number, sellFeeRate: number): number {
@@ -1071,7 +1072,22 @@ function shouldExitWhaleFlowPosition(
   targetIds: Set<number>,
   price: number,
   config: StrategyConfig,
+  observedAt: number,
 ): { shouldExit: boolean; reason: string } {
+  const holdSeconds = observedAt - position.opened_at;
+  if (holdSeconds < MIN_POSITION_HOLD_SECONDS) {
+    return { shouldExit: false, reason: "min_hold" };
+  }
+
+  const netReturn = netReturnIfSold(position, price, config.sell_fee_rate);
+  if (netReturn >= TAKE_PROFIT_NET_RETURN) {
+    return { shouldExit: true, reason: "take_profit_exit" };
+  }
+
+  if (netReturn <= STOP_LOSS_NET_RETURN) {
+    return { shouldExit: true, reason: "stop_loss_exit" };
+  }
+
   if (targetIds.has(position.stock_id) && signal && signal.expected_return > 0) {
     return { shouldExit: false, reason: "hold_whale_flow" };
   }
@@ -1080,13 +1096,11 @@ function shouldExitWhaleFlowPosition(
     return { shouldExit: true, reason: "strong_flow_reversal" };
   }
 
-  const netReturn = netReturnIfSold(position, price, config.sell_fee_rate);
-  const signalFaded = !signal || signal.expected_return <= 0 || signal.rank > EXIT_RANK_THRESHOLD;
-  if (signalFaded && netReturn >= MIN_NET_EXIT_RETURN) {
-    return { shouldExit: true, reason: "fee_covered_flow_fade" };
+  if (holdSeconds >= STALE_POSITION_SECONDS) {
+    return { shouldExit: true, reason: "stale_position_exit" };
   }
 
-  return { shouldExit: false, reason: "hold_flow_buffer" };
+  return { shouldExit: false, reason: "hold_wait_for_exit_threshold" };
 }
 
 function buyShares(
@@ -1325,20 +1339,18 @@ function whaleFlowScoreBetween(previous: MarketPoint, current: MarketPoint): {
   const marketCapChange = percentChange(previous.market_cap, current.market_cap);
   const sharePressure = inversePercentChange(previous.total_shares, current.total_shares);
   const investorChange = percentChange(previous.investors, current.investors);
-  const priceChange = percentChange(previous.price, current.price) ?? 0;
+  const priceChange = percentChange(previous.price, current.price);
 
-  if (marketCapChange === null && sharePressure === null && investorChange === null) {
+  if (sharePressure === null && priceChange === null && investorChange === null) {
     return null;
   }
 
-  const positiveMarketMove = Math.max(0, marketCapChange ?? 0);
   const positiveSharePressure = Math.max(0, sharePressure ?? 0);
-  const positivePriceMove = Math.max(0, priceChange);
+  const positivePriceMove = Math.max(0, priceChange ?? 0);
   const crowdPenalty = Math.abs(investorChange ?? 0) * 0.75;
   const score =
-    positiveMarketMove * 0.45 +
-    positiveSharePressure * 0.35 +
-    positivePriceMove * 0.2 -
+    positiveSharePressure * 0.65 +
+    positivePriceMove * 0.35 -
     crowdPenalty;
 
   return {

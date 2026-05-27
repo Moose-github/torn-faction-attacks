@@ -31,8 +31,9 @@ const MAX_OPEN_POSITIONS = 5;
 const MAX_POSITION_FRACTION = 0.25;
 const MIN_CASH_RESERVE_FRACTION = 0.05;
 const MIN_POSITION_HOLD_SECONDS = 60 * 60;
-const EXIT_RANK_THRESHOLD = 10;
-const MIN_NET_EXIT_RETURN = 0;
+const TAKE_PROFIT_NET_RETURN = 0.0025;
+const STOP_LOSS_NET_RETURN = -0.015;
+const STALE_POSITION_SECONDS = 6 * 60 * 60;
 
 self.onmessage = (event: MessageEvent<BacktestRequest>) => {
   if (event.data.type !== "run") {
@@ -220,27 +221,29 @@ function shouldExit(
   price: number,
   observedAt: number,
 ): { shouldExit: boolean; reason: string } {
+  const holdSeconds = observedAt - position.opened_at;
+  if (holdSeconds < MIN_POSITION_HOLD_SECONDS) {
+    return { shouldExit: false, reason: "min_hold" };
+  }
+
+  const netReturn = netReturnIfSold(position, price);
+  if (netReturn >= TAKE_PROFIT_NET_RETURN) {
+    return { shouldExit: true, reason: "take_profit_exit" };
+  }
+
+  if (netReturn <= STOP_LOSS_NET_RETURN) {
+    return { shouldExit: true, reason: "stop_loss_exit" };
+  }
+
   if (targetIds.has(position.stock_id) && signal && signal.expected_return > SELL_FEE_RATE) {
     return { shouldExit: false, reason: "hold_target" };
   }
 
-  if (observedAt - position.opened_at < MIN_POSITION_HOLD_SECONDS) {
-    return { shouldExit: false, reason: "min_hold" };
+  if (holdSeconds >= STALE_POSITION_SECONDS) {
+    return { shouldExit: true, reason: "stale_position_exit" };
   }
 
-  if (netReturnIfSold(position, price) >= MIN_NET_EXIT_RETURN) {
-    return { shouldExit: true, reason: "fee_covered_exit" };
-  }
-
-  const severeSignalDeterioration =
-    !signal ||
-    signal.expected_return <= -SELL_FEE_RATE ||
-    signal.rank > EXIT_RANK_THRESHOLD;
-  if (severeSignalDeterioration) {
-    return { shouldExit: true, reason: "severe_signal_exit" };
-  }
-
-  return { shouldExit: false, reason: "hold_fee_buffer" };
+  return { shouldExit: false, reason: "hold_wait_for_exit_threshold" };
 }
 
 function netReturnIfSold(position: Position, price: number): number {
