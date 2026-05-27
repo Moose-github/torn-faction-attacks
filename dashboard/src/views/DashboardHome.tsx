@@ -221,6 +221,7 @@ export function DashboardHome({
   const dailyStatsAttentionCount =
     (dailyStatsAttention?.stale_personalstats ?? 0) + (dailyStatsAttention?.missing_donator_days ?? 0);
   const adminAttentionCount = missingReports + dailyStatsAttentionCount;
+  const personalstatsLag = formatPersonalstatsLag(dailyStatsAttention);
 
   const events = buildRecentEvents({
     activeWar,
@@ -374,7 +375,8 @@ export function DashboardHome({
                 >
                   <div className="dashboard-card-metrics">
                     <MetricLine label="Missing reports" value={formatNumber(missingReports)} />
-                    <MetricLine label="Daily stats stale" value={formatNumber(dailyStatsAttentionCount)} />
+                    <MetricLine label="Personalstats lag" value={personalstatsLag} />
+                    <MetricLine label="Daily stat errors" value={formatNumber(dailyStatsAttentionCount)} />
                   </div>
                 </DashboardCard>
               </section>
@@ -511,15 +513,16 @@ function AdminDailyStatsAttentionAlert({
           <AlertTriangle size={18} />
         </span>
         <div>
-          <strong>Daily personal stats waiting on Torn</strong>
+          <strong>Daily personal stats need attention</strong>
           <p>
-            {formatNumber(total)} current member{total === 1 ? "" : "s"} returned old or incomplete daily personalstats.
+            {formatNumber(total)} current member{total === 1 ? "" : "s"} returned incomplete or errored daily personalstats.
           </p>
         </div>
       </div>
       <div className="dashboard-admin-alert-metrics">
-        <MetricLine label="Old Torn buckets" value={formatNumber(staleCount)} />
+        <MetricLine label="Other errors" value={formatNumber(staleCount)} />
         <MetricLine label="Missing donator days" value={formatNumber(missingDonatorDays)} />
+        <MetricLine label="Latest Torn bucket" value={attention?.latest_personalstats_bucket_date ?? "-"} />
       </div>
       {affectedMembers.length > 0 ? (
         <div className="dashboard-admin-alert-members">
@@ -544,12 +547,24 @@ function dailyStatsErrorLabel(error: string | null): string {
     return "Unknown";
   }
   if (error.startsWith("OLD_PERSONALSTATS_BUCKET")) {
-    return "Old bucket";
+    return "Bucket lag";
+  }
+  if (error.startsWith("MISSING_PERSONALSTATS_BUCKET")) {
+    return "Missing bucket";
   }
   if (error.startsWith("MISSING_DONATOR_DAYS")) {
     return "Missing days";
   }
   return "Error";
+}
+
+function formatPersonalstatsLag(attention: DailyStatsAttention | null): string {
+  if (!attention?.latest_personalstats_bucket_date) {
+    return "-";
+  }
+  const lag = attention.personalstats_lag_days;
+  const suffix = lag === null ? "" : ` (${lag}d)`;
+  return `${attention.latest_personalstats_bucket_date}${suffix}`;
 }
 
 function SuggestionBox({

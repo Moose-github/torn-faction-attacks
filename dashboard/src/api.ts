@@ -525,6 +525,9 @@ export type MaintenanceTask = {
 export type DailyStatsAttention = {
   stale_personalstats: number;
   missing_donator_days: number;
+  personalstats_target_date: string | null;
+  latest_personalstats_bucket_date: string | null;
+  personalstats_lag_days: number | null;
   affected_members: Array<{
     member_id: number;
     member_name: string | null;

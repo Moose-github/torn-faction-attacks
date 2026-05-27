@@ -49,6 +49,7 @@ const DAILY_LIFESTYLE_LOCK_SECONDS = 75;
 const DAILY_LIFESTYLE_LOCK_STATE_NAME = "member_lifestyle_stats_daily_lock";
 const DAILY_LIFESTYLE_RESET_STATE_NAME = "member_lifestyle_stats_daily_reset";
 const OLD_PERSONALSTATS_BUCKET_ERROR_CODE = "OLD_PERSONALSTATS_BUCKET";
+const MISSING_PERSONALSTATS_BUCKET_ERROR_CODE = "MISSING_PERSONALSTATS_BUCKET";
 const MISSING_DONATOR_DAYS_ERROR_CODE = "MISSING_DONATOR_DAYS";
 const DEFAULT_REPAIR_CALLS_PER_MINUTE_PER_KEY = 35;
 const MAX_REPAIR_DATE_RANGE_DAYS = 120;
@@ -161,6 +162,9 @@ const LIFESTYLE_DAILY_CHART_METRICS = new Set<LifestyleDailyChartMetric>([
 export type DailyStatsAttention = {
   stale_personalstats: number;
   missing_donator_days: number;
+  personalstats_target_date: string | null;
+  latest_personalstats_bucket_date: string | null;
+  personalstats_lag_days: number | null;
   affected_members: Array<{
     member_id: number;
     member_name: string | null;
@@ -387,11 +391,18 @@ export async function refreshMemberLifestyleStats(
         requestedAt: options.requestedAt,
         keySource: "env:TORN_API_KEY",
       });
-      const dataQualityError = personalStatsDataQualityError(stats, options.targetSnapshotDate);
+      const dataQualityError = personalStatsDataQualityError(stats, options.targetSnapshotDate, {
+        allowBucketLag: true,
+      });
       await upsertLifestyleStats(env, member, stats, dataQualityError);
       if (dataQualityError) {
         failed += 1;
       } else {
+        await upsertLifestyleSnapshotPersonalStats(env, {
+          member_id: member.member_id,
+          member_name: member.name,
+          snapshot_date: stats.personalstats_bucket_date!,
+        }, stats);
         refreshedMemberIds.push(member.member_id);
         refreshed += 1;
       }
@@ -451,7 +462,7 @@ export async function refreshDailyMemberLifestyleStats(
   await writeLifestyleSnapshotForDate(env, snapshotDate, { freshAfter: refreshAt });
   const complete = await markDailyLifestyleRefreshCompleteIfDone(env, refreshAt);
   if (complete) {
-    await refreshMemberAchievementSummaries(env, snapshotDate);
+    await refreshMemberAchievementSummaries(env);
   }
   await bumpMemberLifestyleCacheVersion(env);
 
@@ -488,6 +499,24 @@ async function readLifestyleSnapshotDateRange(
 }
 
 export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttention> {
+  const now = nowSeconds();
+  const refreshAt = dailyRefreshReadyAt(now);
+  const targetDate = refreshAt === null ? null : utcDateKey(refreshAt);
+  const latestBucketRow = (await env.DB.prepare(
+    `
+    SELECT MAX(snapshots.snapshot_date) AS snapshot_date
+    FROM member_lifestyle_stat_snapshots snapshots
+    JOIN home_faction_members members
+      ON members.member_id = snapshots.member_id
+     AND members.is_current = 1
+    WHERE snapshots.personal_ready = 1
+    `,
+  ).first()) as { snapshot_date: string | null } | null;
+  const latestBucketDate = latestBucketRow?.snapshot_date ?? null;
+  const lagDays = targetDate && latestBucketDate
+    ? calendarDateDiffDays(latestBucketDate, targetDate)
+    : null;
+
   const rows = ((await env.DB.prepare(
     `
     SELECT
@@ -500,17 +529,18 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
       AND (
-        stats.validation_error LIKE ?
-        OR stats.validation_error LIKE ?
-        OR stats.error LIKE ?
-        OR stats.error LIKE ?
+        COALESCE(stats.validation_error, stats.error) LIKE ?
+        OR (
+          COALESCE(stats.validation_error, stats.error) IS NOT NULL
+          AND COALESCE(stats.validation_error, stats.error) NOT LIKE ?
+          AND COALESCE(stats.validation_error, stats.error) NOT LIKE ?
+        )
       )
     ORDER BY members.name ASC
     LIMIT 12
     `,
   )
     .bind(
-      `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
       `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
       `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
       `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
@@ -520,7 +550,13 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
   const counts = (await env.DB.prepare(
     `
     SELECT
-      SUM(CASE WHEN COALESCE(stats.validation_error, stats.error) LIKE ? THEN 1 ELSE 0 END) AS stale_personalstats,
+      SUM(CASE
+        WHEN COALESCE(stats.validation_error, stats.error) IS NOT NULL
+          AND COALESCE(stats.validation_error, stats.error) NOT LIKE ?
+          AND COALESCE(stats.validation_error, stats.error) NOT LIKE ?
+        THEN 1
+        ELSE 0
+      END) AS stale_personalstats,
       SUM(CASE WHEN COALESCE(stats.validation_error, stats.error) LIKE ? THEN 1 ELSE 0 END) AS missing_donator_days
     FROM home_faction_members members
     LEFT JOIN member_personal_stats_current stats
@@ -528,12 +564,19 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
     WHERE members.is_current = 1
     `,
   )
-    .bind(`${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`, `${MISSING_DONATOR_DAYS_ERROR_CODE}%`)
+    .bind(
+      `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
+      `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
+      `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
+    )
     .first()) as { stale_personalstats: number | null; missing_donator_days: number | null } | null;
 
   return {
     stale_personalstats: counts?.stale_personalstats ?? 0,
     missing_donator_days: counts?.missing_donator_days ?? 0,
+    personalstats_target_date: targetDate,
+    latest_personalstats_bucket_date: latestBucketDate,
+    personalstats_lag_days: lagDays,
     affected_members: rows,
   };
 }
@@ -981,6 +1024,18 @@ async function upsertLifestyleSnapshotForRepair(
   item: LifestyleRepairItemRow,
   stats: TimedLifestyleStats,
 ): Promise<void> {
+  await upsertLifestyleSnapshotPersonalStats(env, {
+    member_id: item.member_id,
+    member_name: item.member_name,
+    snapshot_date: item.snapshot_date,
+  }, stats);
+}
+
+async function upsertLifestyleSnapshotPersonalStats(
+  env: Env,
+  target: { member_id: number; member_name: string | null; snapshot_date: string },
+  stats: TimedLifestyleStats,
+): Promise<void> {
   await env.DB.prepare(
     `
     INSERT INTO member_lifestyle_stat_snapshots (
@@ -1034,9 +1089,9 @@ async function upsertLifestyleSnapshotForRepair(
     `,
   )
     .bind(
-      item.member_id,
-      item.snapshot_date,
-      item.member_name,
+      target.member_id,
+      target.snapshot_date,
+      target.member_name,
       stats.xantaken,
       stats.overdosed,
       stats.refills,
@@ -1325,16 +1380,15 @@ async function markDailyLifestyleRefreshCompleteIfDone(
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
       AND (
-        stats.personal_captured_at IS NULL
-        OR stats.personal_captured_at < ?
+        stats.personalstats_requested_at IS NULL
+        OR stats.personalstats_requested_at < ?
         OR stats.error IS NOT NULL
         OR stats.validation_error IS NOT NULL
-        OR stats.personalstats_bucket_date != ?
       )
     LIMIT 1
     `,
   )
-    .bind(refreshAt, utcDateKey(refreshAt))
+    .bind(refreshAt)
     .first();
 
   if (remaining) {
@@ -1509,6 +1563,7 @@ async function fetchMemberPersonalStats(
 function personalStatsDataQualityError(
   stats: TimedLifestyleStats,
   targetSnapshotDate: string | undefined,
+  options: { allowBucketLag?: boolean } = {},
 ): string | null {
   if (stats.daysbeendonator === null) {
     return `${MISSING_DONATOR_DAYS_ERROR_CODE}: daysbeendonator was not returned`;
@@ -1519,10 +1574,10 @@ function personalStatsDataQualityError(
   }
 
   if (!stats.personalstats_bucket_date) {
-    return `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}: daysbeendonator timestamp was not returned for ${targetSnapshotDate}`;
+    return `${MISSING_PERSONALSTATS_BUCKET_ERROR_CODE}: daysbeendonator timestamp was not returned for ${targetSnapshotDate}`;
   }
 
-  if (stats.personalstats_bucket_date !== targetSnapshotDate) {
+  if (!options.allowBucketLag && stats.personalstats_bucket_date !== targetSnapshotDate) {
     return `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}: expected ${targetSnapshotDate}, received ${stats.personalstats_bucket_date}`;
   }
 
@@ -1920,8 +1975,9 @@ async function writeLifestyleSnapshotForDate(
       personalstats_key_source = CASE WHEN excluded.personal_ready = 1 THEN excluded.personalstats_key_source ELSE member_lifestyle_stat_snapshots.personalstats_key_source END,
       validation_error = CASE
         WHEN excluded.personal_ready = 1 THEN NULL
+        WHEN excluded.validation_error IS NOT NULL THEN excluded.validation_error
         WHEN member_lifestyle_stat_snapshots.personal_ready = 1 THEN member_lifestyle_stat_snapshots.validation_error
-        ELSE COALESCE(excluded.validation_error, member_lifestyle_stat_snapshots.validation_error)
+        ELSE NULL
       END,
       gymenergy = CASE WHEN excluded.gym_ready = 1 THEN excluded.gymenergy ELSE member_lifestyle_stat_snapshots.gymenergy END,
       gymstrength = CASE WHEN excluded.gym_ready = 1 THEN excluded.gymstrength ELSE member_lifestyle_stat_snapshots.gymstrength END,
@@ -2254,9 +2310,13 @@ function average(values: number[]): number {
 }
 
 function dateDiffDays(startDate: string, endDate: string): number {
+  return Math.max(1, calendarDateDiffDays(startDate, endDate));
+}
+
+function calendarDateDiffDays(startDate: string, endDate: string): number {
   const start = Date.parse(`${startDate}T00:00:00.000Z`);
   const end = Date.parse(`${endDate}T00:00:00.000Z`);
-  return Math.max(1, Math.round((end - start) / 86_400_000));
+  return Math.max(0, Math.round((end - start) / 86_400_000));
 }
 
 function extractLifestyleStats(
