@@ -587,21 +587,11 @@ function sortLifestyleMembers(
 }
 
 function defaultChartMemberIds(members: MemberLifestyleStats[], currentUserId: number | null): number[] {
-  const selected: number[] = [];
   if (currentUserId !== null && members.some((member) => member.member_id === currentUserId)) {
-    selected.push(currentUserId);
+    return [currentUserId];
   }
 
-  for (const member of members) {
-    if (selected.length >= DAILY_CHART_MEMBER_LIMIT) {
-      break;
-    }
-    if (!selected.includes(member.member_id)) {
-      selected.push(member.member_id);
-    }
-  }
-
-  return selected;
+  return members[0] ? [members[0].member_id] : [];
 }
 
 function cell(value: number | null): string {
