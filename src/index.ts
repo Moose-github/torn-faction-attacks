@@ -32,6 +32,7 @@ import {
   getMemberLifestyleRepairJob,
   getMemberLifestyleStats,
   listMemberLifestyleRepairJobs,
+  refreshDailyMemberLifestyleStats,
 } from "./lifestyleStats";
 import { listMemberAchievementSummaries } from "./memberAchievements";
 import { getMiscellaneousData } from "./miscellaneous";
@@ -204,6 +205,15 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 
   if (matchesExactRoute(url, request, "/api/admin/torn-api-usage", "GET")) {
     return withAdmin(routeContext, () => getTornApiUsage(url, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/member-lifestyle/import-now", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "manual_member_lifestyle_import", 60);
+      if (cooldownError) return cooldownError;
+      const result = await refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: false });
+      return json({ ok: true, ...result });
+    });
   }
 
   if (matchesExactRoute(url, request, "/api/admin/member-lifestyle/repair-jobs", "POST")) {
