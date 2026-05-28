@@ -10,7 +10,6 @@ import {
   CircleDollarSign,
   ExternalLink,
   MessageSquare,
-  Pill,
   Radar,
   Send,
   Swords,
@@ -72,7 +71,6 @@ const HIGHLIGHT_PERIODS = [
 
 type DashboardHomeProps = {
   activeWar: WarSummary | null;
-  currentUserId: number;
   isAdmin: boolean;
   isLoadingWars: boolean;
   selectedWar: WarSummary | null;
@@ -83,7 +81,6 @@ type DashboardHomeProps = {
 
 export function DashboardHome({
   activeWar,
-  currentUserId,
   isAdmin,
   isLoadingWars,
   selectedWar,
@@ -169,7 +166,7 @@ export function DashboardHome({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [currentUserId]);
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -279,7 +276,6 @@ export function DashboardHome({
       <XanaxCompetitionSpotlight
         competition={xanaxCompetition}
         loaded={xanaxCompetitionLoaded}
-        onOpenLifestyle={() => onOpenView("lifestyle")}
       />
 
       <section className="dashboard-home-grid">
@@ -603,16 +599,14 @@ function formatPersonalstatsLag(attention: DailyStatsAttention | null): string {
 function XanaxCompetitionSpotlight({
   competition,
   loaded,
-  onOpenLifestyle,
 }: {
   competition: XanaxCompetitionResponse | null;
   loaded: boolean;
-  onOpenLifestyle: () => void;
 }) {
   if (!loaded) {
     return (
       <section className="panel xanax-competition-panel">
-        <PanelHeader icon={<Pill size={17} />} title="Monthly Xanax prize" aside="Loading" />
+        <PanelHeader icon={<CircleDollarSign size={17} />} title="Monthly Xanax prize" aside="Loading" />
         <EmptyState text="Loading competition progress" />
       </section>
     );
@@ -622,14 +616,12 @@ function XanaxCompetitionSpotlight({
     return null;
   }
 
-  const progress = competition.current_user_progress;
-  const contenders = competition.leaderboard.slice(0, 5);
-  const progressPercent = Math.min(100, ((progress?.monthly_xanax ?? 0) / 100) * 100);
+  const contenders = competition.leaderboard.slice(0, 3);
 
   return (
     <section className="panel xanax-competition-panel">
-      <div className="xanax-competition-hero">
-        <div className="xanax-competition-prize">
+      <div className="xanax-competition-compact">
+        <div className="xanax-competition-summary">
           <span className="dashboard-card-icon xanax-competition-icon">
             <CircleDollarSign size={18} />
           </span>
@@ -637,48 +629,20 @@ function XanaxCompetitionSpotlight({
             <span>Monthly Xanax prize</span>
             <strong>{formatPrize(competition.settings.current_prize)}</strong>
             <small>
+              100 Xanax this month
               {competition.settings.rollover_count > 0
-                ? `${formatNumber(competition.settings.rollover_count)} rollover${competition.settings.rollover_count === 1 ? "" : "s"} included`
-                : "10mil base pot ready to claim"}
+                ? ` | ${formatNumber(competition.settings.rollover_count)} rollover${competition.settings.rollover_count === 1 ? "" : "s"}`
+                : ""}
+              {competition.latest_snapshot_date
+                ? ` | Updated ${formatDateKey(competition.latest_snapshot_date)}`
+                : ""}
             </small>
           </div>
-        </div>
-        <div className="xanax-competition-target">
-          <span>Target</span>
-          <strong>100 Xanax this month</strong>
-          <small>
-            {competition.latest_snapshot_date
-              ? `Updated ${formatDateKey(competition.latest_snapshot_date)}`
-              : "Waiting for monthly snapshots"}
-          </small>
-        </div>
-      </div>
-
-      <div className="xanax-competition-body">
-        <div className="xanax-progress-card">
-          <div className="xanax-progress-heading">
-            <span>Your progress</span>
-            <strong>{progress ? `${formatNumber(progress.monthly_xanax)} / 100` : "- / 100"}</strong>
-          </div>
-          <div className="xanax-progress-track" aria-hidden="true">
-            <span style={{ width: `${progressPercent}%` }} />
-          </div>
-          <small>
-            {progress?.eligible
-              ? "Eligible to claim. Give an admin a nudge."
-              : progress
-                ? `${formatNumber(progress.remaining)} Xanax to go`
-                : "No progress found for your account yet"}
-          </small>
-          <button type="button" className="panel-action-button" onClick={onOpenLifestyle}>
-            <Pill size={14} />
-            Open lifestyle stats
-          </button>
         </div>
 
         <div className="xanax-leaderboard">
           <div className="xanax-leaderboard-header">
-            <span>Top contenders</span>
+            <span>Top 3 contenders</span>
             <small>{competition.settings.month_key}</small>
           </div>
           {contenders.length === 0 ? (
@@ -950,11 +914,7 @@ function formatAchievementValue(row: MemberAchievementSummary): string {
 }
 
 function formatPrize(value: number): string {
-  if (value >= 1_000_000) {
-    return `${formatNumber(value / 1_000_000)}mil`;
-  }
-
-  return `$${formatNumber(value)}`;
+  return formatNumber(Math.round(value));
 }
 
 function formatDateKey(dateKey: string): string {

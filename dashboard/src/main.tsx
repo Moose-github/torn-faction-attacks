@@ -717,7 +717,6 @@ function App() {
           {view === "dashboard" ? (
             <DashboardHome
               activeWar={activeWar}
-              currentUserId={authSession.user.id}
               isAdmin={isAdmin}
               isLoadingWars={isLoadingWars}
               selectedWar={selectedWar}
