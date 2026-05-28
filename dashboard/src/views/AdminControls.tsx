@@ -2385,7 +2385,7 @@ function formatUsageWindow(seconds: number): string {
 
 function formatPrize(value: number): string {
   if (value >= 1_000_000) {
-    return `${formatNumber(value / 1_000_000)}mil`;
+    return `$${formatNumber(value / 1_000_000)}mil`;
   }
 
   return `$${formatNumber(value)}`;

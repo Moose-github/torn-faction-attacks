@@ -69,6 +69,7 @@ const HIGHLIGHT_PERIODS = [
   { key: "last_7_completed_days", label: "Last 7 completed days" },
 ] as const;
 const TORN_XANAX_IMAGE_URL = "https://www.torn.com/images/items/206/medium@2x.png";
+const XANAX_RAIN_PARTICLES = Array.from({ length: 14 }, (_, index) => index);
 
 type DashboardHomeProps = {
   activeWar: WarSummary | null;
@@ -277,6 +278,7 @@ export function DashboardHome({
       <section className="dashboard-feature-grid">
         <XanaxCompetitionSpotlight
           competition={xanaxCompetition}
+          canTestRain={isAdmin}
           loaded={xanaxCompetitionLoaded}
         />
         <CurrentWarCard
@@ -600,7 +602,8 @@ function CurrentWarCard({
 
   return (
     <DashboardCard
-      icon={<Swords size={17} />}
+      className="current-war-card"
+      icon={<Swords size={20} />}
       title={title}
       status={status}
       tone={tone}
@@ -695,12 +698,36 @@ function DashboardPlaceholderCard() {
 }
 
 function XanaxCompetitionSpotlight({
+  canTestRain,
   competition,
   loaded,
 }: {
+  canTestRain: boolean;
   competition: XanaxCompetitionResponse | null;
   loaded: boolean;
 }) {
+  const [isRaining, setIsRaining] = React.useState(false);
+  const rainPlayedRef = React.useRef(false);
+  const leaderXanax = competition?.leaderboard[0]?.monthly_xanax ?? 0;
+  const shouldPlayRain = loaded && Boolean(competition?.settings.enabled) && leaderXanax > 100;
+
+  React.useEffect(() => {
+    if (!shouldPlayRain || rainPlayedRef.current) {
+      return;
+    }
+
+    rainPlayedRef.current = true;
+    setIsRaining(true);
+    const timer = window.setTimeout(() => setIsRaining(false), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [shouldPlayRain]);
+
+  function playRain() {
+    setIsRaining(false);
+    window.setTimeout(() => setIsRaining(true), 0);
+    window.setTimeout(() => setIsRaining(false), 3_000);
+  }
+
   if (!loaded) {
     return (
       <section className="panel xanax-competition-panel">
@@ -718,6 +745,13 @@ function XanaxCompetitionSpotlight({
 
   return (
     <section className="panel xanax-competition-panel">
+      {isRaining ? (
+        <div className="xanax-rain" aria-hidden="true">
+          {XANAX_RAIN_PARTICLES.map((particle) => (
+            <img key={particle} src={TORN_XANAX_IMAGE_URL} alt="" />
+          ))}
+        </div>
+      ) : null}
       <div className="xanax-competition-compact">
         <div className="xanax-competition-summary">
           <div>
@@ -725,9 +759,6 @@ function XanaxCompetitionSpotlight({
             <strong>{formatPrize(competition.settings.current_prize)}</strong>
             <small>
               100 Xanax this month
-              {competition.settings.rollover_count > 0
-                ? ` | ${formatNumber(competition.settings.rollover_count)} rollover${competition.settings.rollover_count === 1 ? "" : "s"}`
-                : ""}
               {competition.latest_snapshot_date
                 ? ` | Updated ${formatDateKey(competition.latest_snapshot_date)}`
                 : ""}
@@ -739,6 +770,7 @@ function XanaxCompetitionSpotlight({
             alt="Xanax"
             loading="lazy"
             decoding="async"
+            onClick={canTestRain ? playRain : undefined}
           />
         </div>
 
@@ -1019,7 +1051,7 @@ function formatAchievementValue(row: MemberAchievementSummary): string {
 }
 
 function formatPrize(value: number): string {
-  return formatNumber(Math.round(value));
+  return `$${formatNumber(Math.round(value))}`;
 }
 
 function formatDateKey(dateKey: string): string {
@@ -1036,6 +1068,7 @@ function formatDateKey(dateKey: string): string {
 }
 
 function DashboardCard({
+  className,
   icon,
   title,
   status,
@@ -1044,6 +1077,7 @@ function DashboardCard({
   onAction,
   children,
 }: {
+  className?: string;
   icon: React.ReactNode;
   title: string;
   status: string;
@@ -1053,7 +1087,7 @@ function DashboardCard({
   children: React.ReactNode;
 }) {
   return (
-    <article className="panel dashboard-card">
+    <article className={`panel dashboard-card${className ? ` ${className}` : ""}`}>
       <div className="dashboard-card-header">
         <div>
           <span className="dashboard-card-icon">{icon}</span>

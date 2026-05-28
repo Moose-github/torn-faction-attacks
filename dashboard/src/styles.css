@@ -415,13 +415,83 @@ h2 {
   min-height: auto;
 }
 
+.dashboard-feature-grid .current-war-card {
+  min-height: 100%;
+  padding: 16px;
+  gap: 16px;
+}
+
+.current-war-card .dashboard-card-header {
+  align-items: center;
+  gap: 14px;
+}
+
+.current-war-card .dashboard-card-header > div {
+  gap: 10px;
+}
+
+.current-war-card .dashboard-card-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.current-war-card .dashboard-card-header h3 {
+  font-size: 1.12rem;
+}
+
+.current-war-card .dashboard-status-chip {
+  max-width: 220px;
+  padding: 7px 11px;
+  font-size: 0.78rem;
+}
+
+.current-war-card .dashboard-card-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.current-war-card .dashboard-metric-line {
+  display: flex;
+  min-height: 62px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-md);
+  background: rgba(248, 250, 252, 0.78);
+}
+
+.current-war-card .dashboard-metric-line:first-child {
+  grid-column: 1 / -1;
+}
+
+.current-war-card .dashboard-metric-line span {
+  font-size: 0.74rem;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.current-war-card .dashboard-metric-line strong {
+  font-size: 0.96rem;
+  line-height: 1.18;
+}
+
+.current-war-card .dashboard-card-action {
+  min-height: 34px;
+  padding: 0 13px;
+}
+
 .dashboard-feature-grid .xanax-competition-compact {
   grid-template-columns: 1fr;
 }
 
 .xanax-competition-panel {
+  position: relative;
   display: grid;
   gap: 10px;
+  overflow: hidden;
   margin-bottom: 16px;
   padding: 12px 14px;
   border-color: #a7f3d0;
@@ -431,10 +501,63 @@ h2 {
 }
 
 .xanax-competition-compact {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
   gap: 12px;
   align-items: center;
+}
+
+.xanax-rain {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.xanax-rain img {
+  position: absolute;
+  top: -54px;
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  opacity: 0;
+  filter: drop-shadow(0 7px 9px rgba(15, 23, 42, 0.2));
+  animation: xanax-rain-fall 2.75s ease-in forwards;
+}
+
+.xanax-rain img:nth-child(1) { left: 4%; --x-drift: 18px; --x-rotation: 150deg; animation-delay: 0.02s; }
+.xanax-rain img:nth-child(2) { left: 12%; --x-drift: -12px; --x-rotation: -130deg; animation-delay: 0.22s; }
+.xanax-rain img:nth-child(3) { left: 20%; --x-drift: 24px; --x-rotation: 180deg; animation-delay: 0.08s; }
+.xanax-rain img:nth-child(4) { left: 28%; --x-drift: -20px; --x-rotation: -170deg; animation-delay: 0.36s; }
+.xanax-rain img:nth-child(5) { left: 36%; --x-drift: 14px; --x-rotation: 120deg; animation-delay: 0.16s; }
+.xanax-rain img:nth-child(6) { left: 44%; --x-drift: -18px; --x-rotation: -150deg; animation-delay: 0.46s; }
+.xanax-rain img:nth-child(7) { left: 52%; --x-drift: 22px; --x-rotation: 160deg; animation-delay: 0.04s; }
+.xanax-rain img:nth-child(8) { left: 60%; --x-drift: -10px; --x-rotation: -120deg; animation-delay: 0.28s; }
+.xanax-rain img:nth-child(9) { left: 68%; --x-drift: 16px; --x-rotation: 140deg; animation-delay: 0.12s; }
+.xanax-rain img:nth-child(10) { left: 76%; --x-drift: -24px; --x-rotation: -180deg; animation-delay: 0.4s; }
+.xanax-rain img:nth-child(11) { left: 84%; --x-drift: 12px; --x-rotation: 130deg; animation-delay: 0.2s; }
+.xanax-rain img:nth-child(12) { left: 92%; --x-drift: -18px; --x-rotation: -160deg; animation-delay: 0.34s; }
+.xanax-rain img:nth-child(13) { left: 16%; --x-drift: 28px; --x-rotation: 190deg; animation-delay: 0.58s; }
+.xanax-rain img:nth-child(14) { left: 72%; --x-drift: -28px; --x-rotation: -190deg; animation-delay: 0.54s; }
+
+@keyframes xanax-rain-fall {
+  0% {
+    transform: translate3d(0, -20px, 0) rotate(-20deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.95;
+  }
+  82% {
+    opacity: 0.95;
+  }
+  100% {
+    transform: translate3d(var(--x-drift), 250px, 0) rotate(var(--x-rotation));
+    opacity: 0;
+  }
 }
 
 .xanax-competition-summary {
@@ -1759,7 +1882,8 @@ h2 {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .enemy-monitor-alert-flash {
+  .enemy-monitor-alert-flash,
+  .xanax-rain img {
     animation-duration: 1ms;
   }
 }
@@ -5773,6 +5897,14 @@ tbody tr:not(.attack-row):hover td {
     min-height: auto;
   }
 
+  .current-war-card .dashboard-card-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .current-war-card .dashboard-metric-line:first-child {
+    grid-column: auto;
+  }
+
   .dashboard-admin-alert {
     grid-template-columns: 1fr;
     align-items: stretch;
@@ -6020,6 +6152,11 @@ tbody tr:not(.attack-row):hover td {
   border-color: var(--border-solid);
   background: var(--panel-active-bg);
   color: var(--accent-strong);
+}
+
+:root[data-theme="dark"] .current-war-card .dashboard-metric-line {
+  border-color: var(--border-faint);
+  background: var(--panel-muted-bg);
 }
 
 :root[data-theme="dark"] .enemy-monitor-event.priority-1 {
