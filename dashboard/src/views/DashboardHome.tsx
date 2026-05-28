@@ -273,40 +273,21 @@ export function DashboardHome({
         />
       ) : null}
 
-      <XanaxCompetitionSpotlight
-        competition={xanaxCompetition}
-        loaded={xanaxCompetitionLoaded}
-      />
+      <section className="dashboard-feature-grid">
+        <XanaxCompetitionSpotlight
+          competition={xanaxCompetition}
+          loaded={xanaxCompetitionLoaded}
+        />
+        <CurrentWarCard
+          activeWar={activeWar}
+          isLoadingWars={isLoadingWars}
+          primaryWar={primaryWar}
+          onOpenView={onOpenView}
+          onOpenWar={onOpenWar}
+        />
+      </section>
 
       <section className="dashboard-home-grid">
-        <DashboardCard
-          icon={<Swords size={17} />}
-          title="Current war"
-          status={activeWar ? displayWarStatus(activeWar) : "No live war"}
-          tone={activeWar ? "hot" : "quiet"}
-          actionLabel={activeWar ? "Open war room" : primaryWar ? "Open latest war" : undefined}
-          onAction={
-            activeWar
-              ? () => onOpenView("warRoom")
-              : primaryWar
-                ? () => onOpenWar(primaryWar.name)
-                : undefined
-          }
-        >
-          {primaryWar ? (
-            <div className="dashboard-card-metrics">
-              <MetricLine label="War" value={primaryWar.name} />
-              <MetricLine
-                label="Score"
-                value={`${formatNumber(primaryWar.official_home_score ?? 0)} - ${formatNumber(primaryWar.official_enemy_score ?? 0)}`}
-              />
-              <MetricLine label="Started" value={formatDate(primaryWar.practical_start_time)} />
-            </div>
-          ) : (
-            <EmptyState text={isLoadingWars ? "Loading wars" : "No wars recorded"} />
-          )}
-        </DashboardCard>
-
         <DashboardCard
           icon={<Radar size={17} />}
           title="Enemy tracking"
@@ -339,6 +320,8 @@ export function DashboardHome({
             />
           </div>
         </DashboardCard>
+
+        <DashboardPlaceholderCard />
       </section>
 
       <MemberHighlightsPanel
@@ -594,6 +577,120 @@ function formatPersonalstatsLag(attention: DailyStatsAttention | null): string {
   const lag = attention.personalstats_lag_days;
   const suffix = lag === null ? "" : ` (${lag}d)`;
   return `${attention.latest_personalstats_bucket_date}${suffix}`;
+}
+
+function CurrentWarCard({
+  activeWar,
+  isLoadingWars,
+  primaryWar,
+  onOpenView,
+  onOpenWar,
+}: {
+  activeWar: WarSummary | null;
+  isLoadingWars: boolean;
+  primaryWar: WarSummary | null;
+  onOpenView: (view: AppView) => void;
+  onOpenWar: (warName: string) => void;
+}) {
+  const title = primaryWar ? currentWarTileTitle(primaryWar) : "Current war";
+  const status = primaryWar ? displayWarStatus(primaryWar) : "No live war";
+  const tone = currentWarTileTone(primaryWar);
+  const timing = primaryWar ? currentWarTiming(primaryWar) : null;
+
+  return (
+    <DashboardCard
+      icon={<Swords size={17} />}
+      title={title}
+      status={status}
+      tone={tone}
+      actionLabel={activeWar ? "Open war room" : primaryWar ? "Open latest war" : undefined}
+      onAction={
+        activeWar
+          ? () => onOpenView("warRoom")
+          : primaryWar
+            ? () => onOpenWar(primaryWar.name)
+            : undefined
+      }
+    >
+      {primaryWar ? (
+        <div className="dashboard-card-metrics">
+          <MetricLine label="War" value={primaryWar.name} />
+          <MetricLine
+            label="Score"
+            value={`${formatNumber(primaryWar.official_home_score ?? 0)} - ${formatNumber(primaryWar.official_enemy_score ?? 0)}`}
+          />
+          <MetricLine label="Type" value={warTypeLabel(primaryWar.war_type)} />
+          {timing ? <MetricLine label={timing.label} value={formatDate(timing.timestamp)} /> : null}
+        </div>
+      ) : (
+        <EmptyState text={isLoadingWars ? "Loading wars" : "No wars recorded"} />
+      )}
+    </DashboardCard>
+  );
+}
+
+function currentWarTileTitle(war: WarSummary): string {
+  if (war.status === "scheduled") {
+    return "Upcoming war";
+  }
+
+  if (!warEnded(war)) {
+    return "Current war";
+  }
+
+  return "Last war";
+}
+
+function currentWarTileTone(war: WarSummary | null): "good" | "warn" | "danger" | "hot" | "quiet" {
+  if (!war) {
+    return "quiet";
+  }
+  if (war.status === "scheduled") {
+    return "warn";
+  }
+  return warEnded(war) ? "quiet" : "hot";
+}
+
+function currentWarTiming(war: WarSummary): { label: string; timestamp: number | null } {
+  if (war.status === "scheduled") {
+    return { label: "Starting", timestamp: war.official_start_time ?? war.practical_start_time };
+  }
+
+  if (warEnded(war)) {
+    return { label: "Finished", timestamp: war.official_end_time ?? war.practical_finish_time };
+  }
+
+  return { label: "Started", timestamp: war.official_start_time ?? war.practical_start_time };
+}
+
+function warEnded(war: WarSummary): boolean {
+  return Boolean(war.official_end_time ?? war.practical_finish_time) || war.status === "ended";
+}
+
+function warTypeLabel(warType: WarSummary["war_type"]): string {
+  if (warType === "real") {
+    return "Real";
+  }
+  if (warType === "termed") {
+    return "Termed";
+  }
+  if (warType === "event") {
+    return "Event";
+  }
+  return "-";
+}
+
+function DashboardPlaceholderCard() {
+  return (
+    <DashboardCard
+      icon={<Clock3 size={17} />}
+      title="Coming soon"
+      status="Placeholder"
+      tone="quiet"
+    >
+      <EmptyState text="Dashboard tile placeholder" />
+    </DashboardCard>
+  );
 }
 
 function XanaxCompetitionSpotlight({

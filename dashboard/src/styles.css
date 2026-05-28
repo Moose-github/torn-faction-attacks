@@ -399,6 +399,26 @@ h2 {
   margin-bottom: 16px;
 }
 
+.dashboard-feature-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+  gap: 16px;
+  align-items: stretch;
+  margin-bottom: 16px;
+}
+
+.dashboard-feature-grid > .panel {
+  margin-bottom: 0;
+}
+
+.dashboard-feature-grid .dashboard-card {
+  min-height: auto;
+}
+
+.dashboard-feature-grid .xanax-competition-compact {
+  grid-template-columns: 1fr;
+}
+
 .xanax-competition-panel {
   display: grid;
   gap: 10px;
@@ -5694,6 +5714,7 @@ tbody tr:not(.attack-row):hover td {
   .admin-grid,
   .admin-event-grid,
   .dashboard-home-grid,
+  .dashboard-feature-grid,
   .dashboard-home-lower-grid,
   .dashboard-home-lower-grid.member-only,
   .dashboard-highlight-grid,
