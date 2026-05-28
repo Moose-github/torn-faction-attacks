@@ -401,7 +401,7 @@ h2 {
 
 .dashboard-feature-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: stretch;
   margin-bottom: 16px;
@@ -440,8 +440,9 @@ h2 {
 .xanax-competition-summary {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   min-width: 0;
-  gap: 10px;
+  gap: 14px;
 }
 
 .xanax-competition-summary > div {
@@ -513,6 +514,26 @@ h2 {
 .xanax-leader-row.eligible {
   border-color: #86efac;
   background: #f0fdf4;
+}
+
+.xanax-leader-row.rank-1 {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.xanax-leader-row.rank-1 .dashboard-rank-chip {
+  background: #facc15;
+  color: #422006;
+}
+
+.xanax-leader-row.rank-2 .dashboard-rank-chip {
+  background: #cbd5e1;
+  color: #0f172a;
+}
+
+.xanax-leader-row.rank-3 .dashboard-rank-chip {
+  background: #fdba74;
+  color: #431407;
 }
 
 .xanax-leader-row strong {
@@ -5940,6 +5961,26 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .xanax-leader-row.eligible {
   border-color: rgba(34, 197, 94, 0.42);
   background: rgba(22, 101, 52, 0.2);
+}
+
+:root[data-theme="dark"] .xanax-leader-row.rank-1 {
+  border-color: rgba(250, 204, 21, 0.48);
+  background: rgba(146, 64, 14, 0.22);
+}
+
+:root[data-theme="dark"] .xanax-leader-row.rank-1 .dashboard-rank-chip {
+  background: #facc15;
+  color: #422006;
+}
+
+:root[data-theme="dark"] .xanax-leader-row.rank-2 .dashboard-rank-chip {
+  background: #cbd5e1;
+  color: #0f172a;
+}
+
+:root[data-theme="dark"] .xanax-leader-row.rank-3 .dashboard-rank-chip {
+  background: #fdba74;
+  color: #431407;
 }
 
 :root[data-theme="dark"] .admin-result-panel pre,

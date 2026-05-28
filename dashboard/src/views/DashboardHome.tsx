@@ -720,13 +720,6 @@ function XanaxCompetitionSpotlight({
     <section className="panel xanax-competition-panel">
       <div className="xanax-competition-compact">
         <div className="xanax-competition-summary">
-          <img
-            className="xanax-competition-image"
-            src={TORN_XANAX_IMAGE_URL}
-            alt="Xanax"
-            loading="lazy"
-            decoding="async"
-          />
           <div>
             <span>Monthly Xanax prize</span>
             <strong>{formatPrize(competition.settings.current_prize)}</strong>
@@ -740,6 +733,13 @@ function XanaxCompetitionSpotlight({
                 : ""}
             </small>
           </div>
+          <img
+            className="xanax-competition-image"
+            src={TORN_XANAX_IMAGE_URL}
+            alt="Xanax"
+            loading="lazy"
+            decoding="async"
+          />
         </div>
 
         <div className="xanax-leaderboard">
@@ -751,7 +751,10 @@ function XanaxCompetitionSpotlight({
             <EmptyState text="No contenders yet" />
           ) : (
             contenders.map((row) => (
-              <div key={row.member_id} className={row.eligible ? "xanax-leader-row eligible" : "xanax-leader-row"}>
+              <div
+                key={row.member_id}
+                className={`${row.eligible ? "xanax-leader-row eligible" : "xanax-leader-row"} rank-${row.rank}`}
+              >
                 <span className="dashboard-rank-chip">{row.rank}</span>
                 <strong>{row.member_name ?? `#${row.member_id}`}</strong>
                 <small>{formatNumber(row.monthly_xanax)} Xanax</small>
