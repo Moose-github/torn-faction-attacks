@@ -7,6 +7,7 @@ import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember } from "./types";
 import { d1Changes, json, nowSeconds } from "./utils";
+import { reconcileXanaxCompetitionRollover } from "./xanaxCompetition";
 
 type MaintenanceTaskMetrics = {
   writeStatements: number;
@@ -106,6 +107,10 @@ function buildScheduledMaintenanceTasks(
     {
       name: "member achievements",
       run: () => refreshMemberAchievementSummariesIfStale(env),
+    },
+    {
+      name: "xanax competition rollover",
+      run: () => reconcileXanaxCompetitionRollover(env),
     },
   ];
 }

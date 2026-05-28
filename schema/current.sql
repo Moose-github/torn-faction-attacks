@@ -507,6 +507,26 @@ CREATE TABLE sync_state (
     active_war_id INTEGER
 );
 
+CREATE TABLE xanax_competition_claims (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  month_key TEXT NOT NULL UNIQUE,
+  member_id INTEGER NOT NULL,
+  member_name TEXT,
+  xantaken INTEGER NOT NULL DEFAULT 0,
+  prize_paid INTEGER NOT NULL,
+  claimed_by_torn_user_id INTEGER,
+  claimed_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE TABLE xanax_competition_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL DEFAULT 1,
+  base_prize INTEGER NOT NULL DEFAULT 10000000,
+  rollover_count INTEGER NOT NULL DEFAULT 0,
+  last_rollover_month_key TEXT,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE torn_api_call_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   requested_at INTEGER NOT NULL,
@@ -873,3 +893,6 @@ CREATE UNIQUE INDEX idx_wars_torn_war_id_unique
 
 CREATE INDEX idx_wars_war_type
     ON wars(war_type);
+
+CREATE INDEX idx_xanax_competition_claims_claimed
+  ON xanax_competition_claims(claimed_at DESC);

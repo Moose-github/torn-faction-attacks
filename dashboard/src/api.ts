@@ -995,6 +995,48 @@ export type MemberAchievementsResponse = {
   achievements: MemberAchievementSummary[];
 };
 
+export type XanaxCompetitionProgress = {
+  rank: number;
+  member_id: number;
+  member_name: string | null;
+  monthly_xanax: number;
+  remaining: number;
+  eligible: boolean;
+  latest_snapshot_date: string | null;
+};
+
+export type XanaxCompetitionSettings = {
+  enabled: boolean;
+  base_prize: number;
+  rollover_count: number;
+  current_prize: number;
+  month_key: string;
+};
+
+export type XanaxCompetitionClaim = {
+  id: number;
+  month_key: string;
+  member_id: number;
+  member_name: string | null;
+  xantaken: number;
+  prize_paid: number;
+  claimed_by_torn_user_id: number | null;
+  claimed_at: number;
+};
+
+export type XanaxCompetitionResponse = {
+  ok: boolean;
+  settings: XanaxCompetitionSettings;
+  current_user_progress: XanaxCompetitionProgress | null;
+  leaderboard: XanaxCompetitionProgress[];
+  latest_snapshot_date: string | null;
+  updated_at: number;
+};
+
+export type AdminXanaxCompetitionResponse = XanaxCompetitionResponse & {
+  claims: XanaxCompetitionClaim[];
+};
+
 export type MemberSuggestion = {
   id: number;
   torn_user_id: number;
@@ -1615,6 +1657,30 @@ export async function getMemberLifestyleDailyChart(options: {
 
 export async function getMemberAchievements(): Promise<MemberAchievementsResponse> {
   return getJson<MemberAchievementsResponse>("/api/member-achievements");
+}
+
+export async function getXanaxCompetition(): Promise<XanaxCompetitionResponse> {
+  return getJson<XanaxCompetitionResponse>("/api/xanax-competition");
+}
+
+export async function getAdminXanaxCompetition(): Promise<AdminXanaxCompetitionResponse> {
+  return getJson<AdminXanaxCompetitionResponse>("/api/admin/xanax-competition", true);
+}
+
+export async function updateAdminXanaxCompetitionSettings(payload: {
+  enabled: boolean;
+  base_prize: number;
+  rollover_count: number;
+}): Promise<AdminXanaxCompetitionResponse> {
+  return postJson<AdminXanaxCompetitionResponse>("/api/admin/xanax-competition", payload);
+}
+
+export async function recordAdminXanaxCompetitionClaim(payload: {
+  member_id: number;
+  month_key?: string;
+  prize_paid?: number;
+}): Promise<AdminXanaxCompetitionResponse> {
+  return postJson<AdminXanaxCompetitionResponse>("/api/admin/xanax-competition", payload);
 }
 
 export async function submitMemberSuggestion(suggestion: string): Promise<MemberSuggestionResponse> {

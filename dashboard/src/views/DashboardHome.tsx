@@ -7,8 +7,10 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
+  CircleDollarSign,
   ExternalLink,
   MessageSquare,
+  Pill,
   Radar,
   Send,
   Swords,
@@ -24,6 +26,7 @@ import {
   getMemberAchievements,
   getRecentFactionAttacks,
   getTradeWatchlists,
+  getXanaxCompetition,
   HomeFactionMemberSummary,
   IngestionRun,
   DailyStatsAttention,
@@ -35,6 +38,7 @@ import {
   submitMemberSuggestion,
   TradeWatchlist,
   WarSummary,
+  XanaxCompetitionResponse,
 } from "../api";
 import { EmptyState, PanelHeader } from "../components/Common";
 import { formatDate, formatNumber, formatRelativeTime } from "../utils/format";
@@ -68,6 +72,7 @@ const HIGHLIGHT_PERIODS = [
 
 type DashboardHomeProps = {
   activeWar: WarSummary | null;
+  currentUserId: number;
   isAdmin: boolean;
   isLoadingWars: boolean;
   selectedWar: WarSummary | null;
@@ -78,6 +83,7 @@ type DashboardHomeProps = {
 
 export function DashboardHome({
   activeWar,
+  currentUserId,
   isAdmin,
   isLoadingWars,
   selectedWar,
@@ -95,6 +101,8 @@ export function DashboardHome({
   const [memberSummary, setMemberSummary] = React.useState<HomeFactionMemberSummary | null>(null);
   const [memberAchievements, setMemberAchievements] = React.useState<MemberAchievementSummary[]>([]);
   const [memberAchievementsLoaded, setMemberAchievementsLoaded] = React.useState(false);
+  const [xanaxCompetition, setXanaxCompetition] = React.useState<XanaxCompetitionResponse | null>(null);
+  const [xanaxCompetitionLoaded, setXanaxCompetitionLoaded] = React.useState(false);
   const [highlightRotation, setHighlightRotation] = React.useState(0);
   const [recentAttacks, setRecentAttacks] = React.useState<RecentFactionAttack[]>([]);
   const [recentAttacksLoaded, setRecentAttacksLoaded] = React.useState(false);
@@ -143,6 +151,25 @@ export function DashboardHome({
     );
     return () => window.clearInterval(timer);
   }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadXanaxCompetition() {
+      const response = await getXanaxCompetition().catch(() => null);
+      if (!cancelled) {
+        setXanaxCompetition(response);
+        setXanaxCompetitionLoaded(true);
+      }
+    }
+
+    loadXanaxCompetition();
+    const timer = window.setInterval(loadXanaxCompetition, HIGHLIGHT_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [currentUserId]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -248,6 +275,12 @@ export function DashboardHome({
           onOpenAdmin={() => onOpenView("admin")}
         />
       ) : null}
+
+      <XanaxCompetitionSpotlight
+        competition={xanaxCompetition}
+        loaded={xanaxCompetitionLoaded}
+        onOpenLifestyle={() => onOpenView("lifestyle")}
+      />
 
       <section className="dashboard-home-grid">
         <DashboardCard
@@ -567,6 +600,105 @@ function formatPersonalstatsLag(attention: DailyStatsAttention | null): string {
   return `${attention.latest_personalstats_bucket_date}${suffix}`;
 }
 
+function XanaxCompetitionSpotlight({
+  competition,
+  loaded,
+  onOpenLifestyle,
+}: {
+  competition: XanaxCompetitionResponse | null;
+  loaded: boolean;
+  onOpenLifestyle: () => void;
+}) {
+  if (!loaded) {
+    return (
+      <section className="panel xanax-competition-panel">
+        <PanelHeader icon={<Pill size={17} />} title="Monthly Xanax prize" aside="Loading" />
+        <EmptyState text="Loading competition progress" />
+      </section>
+    );
+  }
+
+  if (!competition || !competition.settings.enabled) {
+    return null;
+  }
+
+  const progress = competition.current_user_progress;
+  const contenders = competition.leaderboard.slice(0, 5);
+  const progressPercent = Math.min(100, ((progress?.monthly_xanax ?? 0) / 100) * 100);
+
+  return (
+    <section className="panel xanax-competition-panel">
+      <div className="xanax-competition-hero">
+        <div className="xanax-competition-prize">
+          <span className="dashboard-card-icon xanax-competition-icon">
+            <CircleDollarSign size={18} />
+          </span>
+          <div>
+            <span>Monthly Xanax prize</span>
+            <strong>{formatPrize(competition.settings.current_prize)}</strong>
+            <small>
+              {competition.settings.rollover_count > 0
+                ? `${formatNumber(competition.settings.rollover_count)} rollover${competition.settings.rollover_count === 1 ? "" : "s"} included`
+                : "10mil base pot ready to claim"}
+            </small>
+          </div>
+        </div>
+        <div className="xanax-competition-target">
+          <span>Target</span>
+          <strong>100 Xanax this month</strong>
+          <small>
+            {competition.latest_snapshot_date
+              ? `Updated ${formatDateKey(competition.latest_snapshot_date)}`
+              : "Waiting for monthly snapshots"}
+          </small>
+        </div>
+      </div>
+
+      <div className="xanax-competition-body">
+        <div className="xanax-progress-card">
+          <div className="xanax-progress-heading">
+            <span>Your progress</span>
+            <strong>{progress ? `${formatNumber(progress.monthly_xanax)} / 100` : "- / 100"}</strong>
+          </div>
+          <div className="xanax-progress-track" aria-hidden="true">
+            <span style={{ width: `${progressPercent}%` }} />
+          </div>
+          <small>
+            {progress?.eligible
+              ? "Eligible to claim. Give an admin a nudge."
+              : progress
+                ? `${formatNumber(progress.remaining)} Xanax to go`
+                : "No progress found for your account yet"}
+          </small>
+          <button type="button" className="panel-action-button" onClick={onOpenLifestyle}>
+            <Pill size={14} />
+            Open lifestyle stats
+          </button>
+        </div>
+
+        <div className="xanax-leaderboard">
+          <div className="xanax-leaderboard-header">
+            <span>Top contenders</span>
+            <small>{competition.settings.month_key}</small>
+          </div>
+          {contenders.length === 0 ? (
+            <EmptyState text="No contenders yet" />
+          ) : (
+            contenders.map((row) => (
+              <div key={row.member_id} className={row.eligible ? "xanax-leader-row eligible" : "xanax-leader-row"}>
+                <span className="dashboard-rank-chip">{row.rank}</span>
+                <strong>{row.member_name ?? `#${row.member_id}`}</strong>
+                <small>{formatNumber(row.monthly_xanax)} Xanax</small>
+                {row.eligible ? <em>Eligible</em> : null}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function SuggestionBox({
   onSubmitted,
 }: {
@@ -815,6 +947,14 @@ function formatAchievementValue(row: MemberAchievementSummary): string {
   const unit = row.unit;
   const value = unit.includes("/day") ? formatNumber(row.value) : formatNumber(Math.round(row.value));
   return `${value} ${unit}`;
+}
+
+function formatPrize(value: number): string {
+  if (value >= 1_000_000) {
+    return `${formatNumber(value / 1_000_000)}mil`;
+  }
+
+  return `$${formatNumber(value)}`;
 }
 
 function formatDateKey(dateKey: string): string {

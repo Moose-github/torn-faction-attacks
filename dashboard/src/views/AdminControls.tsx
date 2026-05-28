@@ -11,6 +11,7 @@ import {
   exportWarAttacksCsv,
   fetchTornWarReport,
   getLatestIngestionRun,
+  getAdminXanaxCompetition,
   getMemberLifestyleRepairJobs,
   getTornApiUsage,
   getWars,
@@ -23,6 +24,7 @@ import {
   previewImportWar,
   previewRelinkAttacks,
   pullAttackWindow,
+  recordAdminXanaxCompetitionClaim,
   rebuildStats,
   refreshAuthSession,
   resetEnemyStatsImageLatches,
@@ -30,8 +32,10 @@ import {
   relinkAttacks,
   runIngestion,
   sendDiscordMessage,
+  updateAdminXanaxCompetitionSettings,
   updateOfficialWar,
   TornApiUsageResponse,
+  AdminXanaxCompetitionResponse,
   MemberLifestyleRepairJob,
   WarSummary,
   WarType,
@@ -80,6 +84,19 @@ export function AdminControls() {
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [adminGrantForm, setAdminGrantForm] = React.useState({ tornUserId: "" });
   const [discordForm, setDiscordForm] = React.useState({ message: "" });
+  const [xanaxCompetition, setXanaxCompetition] =
+    React.useState<AdminXanaxCompetitionResponse | null>(null);
+  const [isLoadingXanaxCompetition, setIsLoadingXanaxCompetition] = React.useState(false);
+  const [xanaxSettingsForm, setXanaxSettingsForm] = React.useState({
+    enabled: true,
+    basePrize: "10000000",
+    rolloverCount: "0",
+  });
+  const [xanaxClaimForm, setXanaxClaimForm] = React.useState({
+    memberId: "",
+    monthKey: currentMonthKey(),
+    prizePaid: "",
+  });
   const [rebuildWarId, setRebuildWarId] = React.useState("");
   const [restartTrackingWarId, setRestartTrackingWarId] = React.useState("");
   const [statsImagePreviewType, setStatsImagePreviewType] =
@@ -243,6 +260,7 @@ export function AdminControls() {
       await loadLatestIngestionRun();
       await loadTornApiUsage();
       await loadLifestyleRepairJobs();
+      await loadXanaxCompetition();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -285,11 +303,34 @@ export function AdminControls() {
     }
   }
 
+  async function loadXanaxCompetition() {
+    setIsLoadingXanaxCompetition(true);
+    try {
+      const response = await getAdminXanaxCompetition();
+      setXanaxCompetition(response);
+      setXanaxSettingsForm({
+        enabled: response.settings.enabled,
+        basePrize: String(response.settings.base_prize),
+        rolloverCount: String(response.settings.rollover_count),
+      });
+      setXanaxClaimForm((current) => ({
+        ...current,
+        monthKey: current.monthKey || response.settings.month_key,
+        prizePaid: current.prizePaid || String(response.settings.current_prize),
+      }));
+    } catch {
+      setXanaxCompetition(null);
+    } finally {
+      setIsLoadingXanaxCompetition(false);
+    }
+  }
+
   React.useEffect(() => {
     if (authSession?.access_level === "admin") {
       loadLatestIngestionRun();
       loadTornApiUsage();
       loadLifestyleRepairJobs();
+      loadXanaxCompetition();
     }
   }, [authSession?.access_level]);
 
@@ -429,6 +470,140 @@ export function AdminControls() {
               {isBusy === "Send Discord message" ? "Sending" : "Send to Discord"}
             </button>
           </form>
+        </section>
+
+        <section className="panel admin-panel-xanax-competition">
+          <PanelHeader
+            title="Xanax competition"
+            aside={isLoadingXanaxCompetition ? "Loading" : xanaxCompetition ? formatPrize(xanaxCompetition.settings.current_prize) : "Unavailable"}
+          />
+          <form
+            className="admin-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Update Xanax competition", () =>
+                updateAdminXanaxCompetitionSettings({
+                  enabled: xanaxSettingsForm.enabled,
+                  base_prize: Number(xanaxSettingsForm.basePrize),
+                  rollover_count: Number(xanaxSettingsForm.rolloverCount),
+                }),
+              );
+            }}
+          >
+            <label className="checkbox-row admin-form-wide">
+              <input
+                type="checkbox"
+                checked={xanaxSettingsForm.enabled}
+                onChange={(event) => setXanaxSettingsForm((current) => ({ ...current, enabled: event.target.checked }))}
+              />
+              <span>Competition enabled</span>
+            </label>
+            <label>
+              <span>Base prize</span>
+              <input
+                inputMode="numeric"
+                value={xanaxSettingsForm.basePrize}
+                onChange={(event) => setXanaxSettingsForm((current) => ({ ...current, basePrize: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>Rollovers</span>
+              <input
+                inputMode="numeric"
+                value={xanaxSettingsForm.rolloverCount}
+                onChange={(event) => setXanaxSettingsForm((current) => ({ ...current, rolloverCount: event.target.value }))}
+              />
+            </label>
+            <button
+              type="submit"
+              className="admin-button primary admin-form-wide"
+              disabled={isBusy !== null}
+            >
+              {isBusy === "Update Xanax competition" ? "Saving" : "Save competition settings"}
+            </button>
+          </form>
+
+          <form
+            className="admin-form admin-subform"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Record Xanax claim", () =>
+                recordAdminXanaxCompetitionClaim({
+                  member_id: Number(xanaxClaimForm.memberId),
+                  month_key: xanaxClaimForm.monthKey.trim() || undefined,
+                  prize_paid: xanaxClaimForm.prizePaid.trim()
+                    ? Number(xanaxClaimForm.prizePaid)
+                    : undefined,
+                }),
+              );
+            }}
+          >
+            <label>
+              <span>Claiming member</span>
+              <select
+                value={xanaxClaimForm.memberId}
+                onChange={(event) => setXanaxClaimForm((current) => ({ ...current, memberId: event.target.value }))}
+              >
+                <option value="">Select eligible member</option>
+                {(xanaxCompetition?.leaderboard ?? [])
+                  .filter((row) => row.eligible)
+                  .map((row) => (
+                    <option key={row.member_id} value={row.member_id}>
+                      {row.member_name ?? `#${row.member_id}`} ({formatNumber(row.monthly_xanax)})
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label>
+              <span>Month</span>
+              <input
+                value={xanaxClaimForm.monthKey}
+                placeholder="YYYY-MM"
+                onChange={(event) => setXanaxClaimForm((current) => ({ ...current, monthKey: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>Prize paid</span>
+              <input
+                inputMode="numeric"
+                value={xanaxClaimForm.prizePaid}
+                onChange={(event) => setXanaxClaimForm((current) => ({ ...current, prizePaid: event.target.value }))}
+              />
+            </label>
+            <button
+              type="submit"
+              className="admin-button primary admin-form-wide"
+              disabled={isBusy !== null || xanaxClaimForm.memberId.trim().length === 0}
+            >
+              {isBusy === "Record Xanax claim" ? "Recording" : "Record claim"}
+            </button>
+          </form>
+
+          <div className="admin-xanax-summary">
+            <MetricLine
+              label="Current month"
+              value={xanaxCompetition?.settings.month_key ?? currentMonthKey()}
+            />
+            <MetricLine
+              label="Eligible now"
+              value={formatNumber((xanaxCompetition?.leaderboard ?? []).filter((row) => row.eligible).length)}
+            />
+            <MetricLine
+              label="Latest data"
+              value={xanaxCompetition?.latest_snapshot_date ?? "-"}
+            />
+          </div>
+          {(xanaxCompetition?.claims ?? []).length > 0 ? (
+            <div className="admin-xanax-claims">
+              {xanaxCompetition!.claims.slice(0, 4).map((claim) => (
+                <div key={claim.id}>
+                  <strong>{claim.member_name ?? `#${claim.member_id}`}</strong>
+                  <span>{claim.month_key} | {formatPrize(claim.prize_paid)}</span>
+                  <small>{formatLongDateTime(claim.claimed_at)}</small>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </section>
 
         {currentOfficialWar ? (
@@ -2206,6 +2381,18 @@ function formatUsageWindow(seconds: number): string {
     return `${Math.round(seconds / (60 * 60))}h`;
   }
   return `${Math.round(seconds / (24 * 60 * 60))}d`;
+}
+
+function formatPrize(value: number): string {
+  if (value >= 1_000_000) {
+    return `${formatNumber(value / 1_000_000)}mil`;
+  }
+
+  return `$${formatNumber(value)}`;
+}
+
+function currentMonthKey(): string {
+  return new Date().toISOString().slice(0, 7);
 }
 
 function dateTimeLocalFromSeconds(timestamp: number): string {

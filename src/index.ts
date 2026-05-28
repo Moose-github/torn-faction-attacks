@@ -96,6 +96,11 @@ import {
 import { Env } from "./types";
 import { corsHeaders, json, nowSeconds, parseLimit } from "./utils";
 import {
+  getAdminXanaxCompetition,
+  getXanaxCompetition,
+  updateAdminXanaxCompetition,
+} from "./xanaxCompetition";
+import {
   deleteWar,
   endActiveWar,
   getAttackWindow,
@@ -298,6 +303,20 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
     return withAdmin(routeContext, () => listMemberSuggestionsForAdmin(url, env));
   }
 
+  if (matchesExactRoute(url, request, "/api/admin/xanax-competition", "GET")) {
+    return withAdmin(routeContext, () => getAdminXanaxCompetition(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/xanax-competition", "POST")) {
+    return withAdmin(routeContext, async () =>
+      updateAdminXanaxCompetition(
+        request,
+        env,
+        await readAuthenticatedUserId(request, env),
+      ),
+    );
+  }
+
   if (matchesExactRoute(url, request, "/api/rebuild", "POST")) {
     return withAdmin(routeContext, () => rebuildStatsFromRequest(request, env));
   }
@@ -403,6 +422,12 @@ async function routeMemberUtilityApi(routeContext: RouteContext): Promise<RouteR
 
   if (matchesExactRoute(url, request, "/api/home-faction-members/summary", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getCurrentHomeFactionMemberSummary(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/xanax-competition", "GET")) {
+    return withMember(routeContext, async () =>
+      getXanaxCompetition(env, await readAuthenticatedUserId(request, env)),
+    );
   }
 
   if (matchesExactRoute(url, request, "/api/stocks", "GET")) {
