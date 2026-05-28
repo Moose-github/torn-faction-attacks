@@ -36,21 +36,21 @@ const GYM_CONTRIBUTOR_STAT_KEYS = [
   "gymdefense",
   "gymdexterity",
 ] as const;
-const REFRESH_STALE_SECONDS = 24 * 60 * 60;
 const LIFESTYLE_FETCH_TIMEOUT_MS = 12000;
 const DAILY_REFRESH_AFTER_UTC_HOUR = 0;
 const DAILY_REFRESH_AFTER_UTC_MINUTE = 10;
 const MAX_LIFESTYLE_PERIOD_DAYS = 90;
-const MAX_MANUAL_PERSONAL_STATS_REFRESH = 40;
 const DAILY_LIFESTYLE_REFRESH_LIMIT = 40;
-const DAILY_LIFESTYLE_COMPLETE_STATE_NAME = "member_personal_stats_current_daily";
+const EXPIRED_PERSONAL_STATS_RETRY_LIMIT = 5;
+const DAILY_LIFESTYLE_COMPLETE_STATE_NAME = "member_personal_stats_recent_daily";
 const DAILY_GYM_COMPLETE_STATE_NAME = "member_gym_stats_current_daily";
 const DAILY_LIFESTYLE_LOCK_SECONDS = 75;
-const DAILY_LIFESTYLE_LOCK_STATE_NAME = "member_personal_stats_current_daily_lock";
-const DAILY_LIFESTYLE_RESET_STATE_NAME = "member_personal_stats_current_daily_reset";
+const DAILY_LIFESTYLE_LOCK_STATE_NAME = "member_personal_stats_recent_daily_lock";
 const OLD_PERSONALSTATS_BUCKET_ERROR_CODE = "OLD_PERSONALSTATS_BUCKET";
 const MISSING_PERSONALSTATS_BUCKET_ERROR_CODE = "MISSING_PERSONALSTATS_BUCKET";
 const MISSING_DONATOR_DAYS_ERROR_CODE = "MISSING_DONATOR_DAYS";
+const RETRY_EXPIRED_PERSONALSTATS_ERROR_CODE = "RETRY_EXPIRED_PERSONALSTATS";
+const PERSONALSTATS_BUCKET_MISMATCH_ERROR_CODE = "PERSONALSTATS_BUCKET_MISMATCH";
 const DEFAULT_REPAIR_CALLS_PER_MINUTE_PER_KEY = 35;
 const MAX_REPAIR_DATE_RANGE_DAYS = 120;
 const REPAIR_JOB_PROCESS_LIMIT_SECONDS = 45;
@@ -147,6 +147,7 @@ type LifestyleSnapshotNumberKey =
 type LifestyleDailyChartMetric = LifestyleSnapshotNumberKey | "networth";
 type LifestyleSnapshotReadyColumn = "personal_ready" | "gym_ready" | "fully_ready";
 type LifestyleSnapshotReadyFilter = LifestyleSnapshotReadyColumn | "any_ready";
+type PersonalStatsRecentStatus = "pending" | "completed" | "retry_expired" | "failed";
 
 const LIFESTYLE_DAILY_CHART_METRICS = new Set<LifestyleDailyChartMetric>([
   "xantaken",
@@ -221,6 +222,19 @@ type LifestyleRepairItemRow = {
 type RepairKey = {
   key: string;
   keySource: string;
+};
+
+type PersonalStatsRecentRow = {
+  member_id: number;
+  snapshot_date: string;
+  member_name: string | null;
+  level: number | null;
+  position: string | null;
+  requested_at: number;
+  attempted_at: number | null;
+  personal_captured_at: number | null;
+  status: PersonalStatsRecentStatus;
+  error: string | null;
 };
 
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
@@ -368,48 +382,80 @@ export async function refreshMemberLifestyleStats(
   env: Env,
   options: {
     limit?: number;
-    force?: boolean;
-    staleBefore?: number;
     homeMembersSynced?: boolean;
-    targetSnapshotDate?: string;
-    requestedAt?: number;
+    activeDates?: string[];
   } = {},
 ): Promise<{ considered: number; refreshed: number; failed: number }> {
-  const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 10), MAX_MANUAL_PERSONAL_STATS_REFRESH));
-  const force = options.force ?? false;
+  const limit = Math.max(1, Math.min(Math.floor(options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT), DAILY_LIFESTYLE_REFRESH_LIMIT));
+  const activeDates = options.activeDates ?? recentCompletedPersonalStatsDates(nowSeconds());
 
   if (!options.homeMembersSynced) {
     await syncHomeFactionMemberList(env);
   }
 
-  const members = await readLifestyleRefreshCandidates(env, limit, force, options.staleBefore);
+  await preparePersonalStatsRecentQueue(env, activeDates);
+  const members = await readPersonalStatsRecentCandidates(env, activeDates, limit);
   const refreshedMemberIds: number[] = [];
   let refreshed = 0;
   let failed = 0;
 
-  for (const member of members) {
+  for (const queueRow of members) {
     try {
-      const stats = await fetchMemberPersonalStats(env, member.member_id, {
-        requestedAt: options.requestedAt,
+      const stats = await fetchMemberPersonalStats(env, queueRow.member_id, {
+        requestedAt: queueRow.requested_at,
         keySource: "env:TORN_API_KEY",
       });
-      const dataQualityError = personalStatsDataQualityError(stats, options.targetSnapshotDate, {
+      const dataQualityError = personalStatsDataQualityError(stats, queueRow.snapshot_date, {
         allowBucketLag: true,
       });
-      await upsertLifestyleStats(env, member, stats, dataQualityError);
       if (dataQualityError) {
+        await markPersonalStatsRecentAttempt(env, queueRow, dataQualityError, "failed");
+        failed += 1;
+        continue;
+      }
+
+      const returnedBucketDate = stats.personalstats_bucket_date!;
+      if (returnedBucketDate === queueRow.snapshot_date) {
+        await completePersonalStatsRecentRow(env, queueRow, returnedBucketDate, stats);
+        await upsertLifestyleSnapshotPersonalStats(env, {
+          member_id: queueRow.member_id,
+          member_name: queueRow.member_name,
+          snapshot_date: returnedBucketDate,
+        }, stats);
+        await upsertLifestyleStats(env, personalStatsRecentRowToMember(queueRow), stats, null);
+        refreshedMemberIds.push(queueRow.member_id);
+        refreshed += 1;
+        continue;
+      }
+
+      if (activeDates.includes(returnedBucketDate)) {
+        await completePersonalStatsRecentRow(env, queueRow, returnedBucketDate, stats);
+        await upsertLifestyleSnapshotPersonalStats(env, {
+          member_id: queueRow.member_id,
+          member_name: queueRow.member_name,
+          snapshot_date: returnedBucketDate,
+        }, stats);
+        await upsertLifestyleStats(env, personalStatsRecentRowToMember(queueRow), stats, null);
+        await markPersonalStatsRecentAttempt(
+          env,
+          queueRow,
+          `${PERSONALSTATS_BUCKET_MISMATCH_ERROR_CODE}: requested ${queueRow.snapshot_date}, received ${returnedBucketDate}`,
+          queueRow.status === "retry_expired" ? "retry_expired" : "pending",
+        );
+        refreshedMemberIds.push(queueRow.member_id);
+        refreshed += 1;
         failed += 1;
       } else {
-        await upsertLifestyleSnapshotPersonalStats(env, {
-          member_id: member.member_id,
-          member_name: member.name,
-          snapshot_date: stats.personalstats_bucket_date!,
-        }, stats);
-        refreshedMemberIds.push(member.member_id);
-        refreshed += 1;
+        await markPersonalStatsRecentAttempt(
+          env,
+          queueRow,
+          `${PERSONALSTATS_BUCKET_MISMATCH_ERROR_CODE}: requested ${queueRow.snapshot_date}, received ${returnedBucketDate}`,
+          queueRow.status === "retry_expired" ? "retry_expired" : "pending",
+        );
+        failed += 1;
       }
     } catch (err: any) {
-      await upsertLifestyleStats(env, member, emptyTimedLifestyleStats(), err?.message || String(err));
+      await markPersonalStatsRecentAttempt(env, queueRow, err?.message || String(err), "failed");
       failed += 1;
     }
   }
@@ -433,49 +479,54 @@ export async function refreshDailyMemberLifestyleStats(
     return { considered: 0, refreshed: 0, failed: 0, skipped: true };
   }
 
+  await syncHomeFactionMemberList(env);
+  const activeDates = recentCompletedPersonalStatsDates(now);
+  await preparePersonalStatsRecentQueue(env, activeDates);
+  const targetSnapshotDate = activeDates[activeDates.length - 1];
+  const targetCompleteAt = timestampForDailyPoll(targetSnapshotDate);
+  let result = { considered: 0, refreshed: 0, failed: 0 };
+  let shouldRunPersonalBatch = true;
+  let personalCompletionAlreadyRecorded = false;
+
   if (options.useLock) {
     const gate = await claimDailyBatchGate(env, {
       completeStateName: DAILY_LIFESTYLE_COMPLETE_STATE_NAME,
-      completeAfter: refreshAt,
+      completeAfter: targetCompleteAt,
       lockStateName: DAILY_LIFESTYLE_LOCK_STATE_NAME,
       now,
       lockSeconds: DAILY_LIFESTYLE_LOCK_SECONDS,
     });
 
-    if (gate.completed || !gate.locked) {
+    if (gate.completed) {
+      shouldRunPersonalBatch = false;
+      personalCompletionAlreadyRecorded = true;
+    } else if (!gate.locked) {
       return { considered: 0, refreshed: 0, failed: 0, skipped: true };
     }
-  } else if (await isDailyLifestyleRefreshComplete(env, refreshAt)) {
-    return { considered: 0, refreshed: 0, failed: 0, skipped: true };
+  } else if (await isPersonalStatsDateComplete(env, targetSnapshotDate)) {
+    shouldRunPersonalBatch = false;
+    personalCompletionAlreadyRecorded = true;
   }
 
-  await syncHomeFactionMemberList(env);
-  await resetDailyLifestylePersonalStatsIfNeeded(env, refreshAt, { homeMembersSynced: true });
-
-  const result = await refreshMemberLifestyleStats(env, {
-    limit: options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT,
-    staleBefore: refreshAt,
-    homeMembersSynced: true,
-    targetSnapshotDate: utcDateKey(refreshAt),
-    requestedAt: refreshAt,
-  });
+  if (shouldRunPersonalBatch) {
+    result = await refreshMemberLifestyleStats(env, {
+      limit: options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT,
+      homeMembersSynced: true,
+      activeDates,
+    });
+  }
   await refreshDailyGymContributorStats(env, refreshAt, { homeMembersSynced: true });
   const snapshotDate = utcDateKey(refreshAt);
   await writeLifestyleSnapshotForDate(env, snapshotDate, { freshAfter: refreshAt });
-  const complete = await markDailyLifestyleRefreshCompleteIfDone(env, refreshAt);
+  const complete = personalCompletionAlreadyRecorded
+    ? false
+    : await markDailyLifestyleRefreshCompleteIfDone(env, targetSnapshotDate);
   if (complete) {
-    await refreshMemberAchievementSummaries(env);
+    await refreshMemberAchievementSummaries(env, targetSnapshotDate);
   }
   await bumpMemberLifestyleCacheVersion(env);
 
   return { ...result, skipped: false };
-}
-
-async function isDailyLifestyleRefreshComplete(
-  env: Env,
-  refreshAt: number,
-): Promise<boolean> {
-  return (await readSyncTimestamp(env, DAILY_LIFESTYLE_COMPLETE_STATE_NAME)) >= refreshAt;
 }
 
 async function readLifestyleSnapshotDateRange(
@@ -516,8 +567,7 @@ function lifestyleSnapshotReadyWhere(readyFilter?: LifestyleSnapshotReadyFilter)
 
 export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttention> {
   const now = nowSeconds();
-  const refreshAt = dailyRefreshReadyAt(now);
-  const targetDate = refreshAt === null ? null : utcDateKey(refreshAt);
+  const targetDate = recentCompletedPersonalStatsDates(now).at(-1) ?? null;
   const latestBucketRow = (await env.DB.prepare(
     `
     SELECT MAX(snapshots.snapshot_date) AS snapshot_date
@@ -538,21 +588,22 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
     SELECT
       members.member_id,
       COALESCE(stats.member_name, members.name) AS member_name,
-      COALESCE(stats.validation_error, stats.error) AS error,
-      stats.personal_captured_at AS updated_at
+      stats.error AS error,
+      stats.updated_at AS updated_at
     FROM home_faction_members members
-    LEFT JOIN member_personal_stats_current stats
+    JOIN member_personal_stats_recent stats
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
       AND (
-        COALESCE(stats.validation_error, stats.error) LIKE ?
+        stats.status = 'retry_expired'
+        OR stats.error LIKE ?
         OR (
-          COALESCE(stats.validation_error, stats.error) IS NOT NULL
-          AND COALESCE(stats.validation_error, stats.error) NOT LIKE ?
-          AND COALESCE(stats.validation_error, stats.error) NOT LIKE ?
+          stats.error IS NOT NULL
+          AND stats.error NOT LIKE ?
+          AND stats.error NOT LIKE ?
         )
       )
-    ORDER BY members.name ASC
+    ORDER BY stats.snapshot_date ASC, members.name ASC
     LIMIT 12
     `,
   )
@@ -567,15 +618,18 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
     `
     SELECT
       SUM(CASE
-        WHEN COALESCE(stats.validation_error, stats.error) IS NOT NULL
-          AND COALESCE(stats.validation_error, stats.error) NOT LIKE ?
-          AND COALESCE(stats.validation_error, stats.error) NOT LIKE ?
+        WHEN stats.status = 'retry_expired'
+          OR (
+            stats.error IS NOT NULL
+            AND stats.error NOT LIKE ?
+            AND stats.error NOT LIKE ?
+          )
         THEN 1
         ELSE 0
       END) AS stale_personalstats,
-      SUM(CASE WHEN COALESCE(stats.validation_error, stats.error) LIKE ? THEN 1 ELSE 0 END) AS missing_donator_days
+      SUM(CASE WHEN stats.error LIKE ? THEN 1 ELSE 0 END) AS missing_donator_days
     FROM home_faction_members members
-    LEFT JOIN member_personal_stats_current stats
+    JOIN member_personal_stats_recent stats
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
     `,
@@ -1570,56 +1624,6 @@ function formatRepairItem(item: LifestyleRepairItemRow) {
   };
 }
 
-async function resetDailyLifestylePersonalStatsIfNeeded(
-  env: Env,
-  refreshAt: number,
-  options: { homeMembersSynced?: boolean } = {},
-): Promise<boolean> {
-  if ((await readSyncTimestamp(env, DAILY_LIFESTYLE_RESET_STATE_NAME)) >= refreshAt) {
-    return false;
-  }
-
-  if (!options.homeMembersSynced) {
-    await syncHomeFactionMemberList(env);
-  }
-  await env.DB.prepare(
-    `
-    UPDATE member_personal_stats_current
-    SET
-      xantaken = NULL,
-      overdosed = NULL,
-      refills = NULL,
-      useractivity = NULL,
-      networth = NULL,
-      daysbeendonator = NULL,
-      xantaken_timestamp = NULL,
-      overdosed_timestamp = NULL,
-      refills_timestamp = NULL,
-      useractivity_timestamp = NULL,
-      networth_timestamp = NULL,
-      daysbeendonator_timestamp = NULL,
-      personalstats_bucket_date = NULL,
-      personalstats_requested_at = NULL,
-      personalstats_key_source = NULL,
-      personal_captured_at = NULL,
-      validation_error = NULL,
-      error = NULL
-    WHERE member_id IN (
-      SELECT member_id
-      FROM home_faction_members
-      WHERE faction_id = ?
-        AND is_current = 1
-    )
-    `,
-  )
-    .bind(HOME_FACTION_ID)
-    .run();
-
-  await upsertSyncTimestamp(env, DAILY_LIFESTYLE_RESET_STATE_NAME, refreshAt, null);
-
-  return true;
-}
-
 async function refreshDailyGymContributorStats(
   env: Env,
   refreshAt: number,
@@ -1637,32 +1641,18 @@ async function refreshDailyGymContributorStats(
 
 async function markDailyLifestyleRefreshCompleteIfDone(
   env: Env,
-  refreshAt: number,
+  targetSnapshotDate: string,
 ): Promise<boolean> {
-  const remaining = await env.DB.prepare(
-    `
-    SELECT members.member_id
-    FROM home_faction_members members
-    LEFT JOIN member_personal_stats_current stats
-      ON stats.member_id = members.member_id
-    WHERE members.is_current = 1
-      AND (
-        stats.personalstats_requested_at IS NULL
-        OR stats.personalstats_requested_at < ?
-        OR stats.error IS NOT NULL
-        OR stats.validation_error IS NOT NULL
-      )
-    LIMIT 1
-    `,
-  )
-    .bind(refreshAt)
-    .first();
-
-  if (remaining) {
+  if (!(await isPersonalStatsDateComplete(env, targetSnapshotDate))) {
     return false;
   }
 
-  await upsertSyncTimestamp(env, DAILY_LIFESTYLE_COMPLETE_STATE_NAME, refreshAt, null);
+  await upsertSyncTimestamp(
+    env,
+    DAILY_LIFESTYLE_COMPLETE_STATE_NAME,
+    timestampForDailyPoll(targetSnapshotDate),
+    null,
+  );
 
   return true;
 }
@@ -1757,6 +1747,15 @@ async function removeDepartedLifestyleMembers(
 
   await env.DB.prepare(
     `
+    DELETE FROM member_personal_stats_recent
+    WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
+    `,
+  )
+    .bind(...ids)
+    .run();
+
+  await env.DB.prepare(
+    `
     DELETE FROM member_gym_stats_current
     WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
     `,
@@ -1765,44 +1764,281 @@ async function removeDepartedLifestyleMembers(
     .run();
 }
 
-async function readLifestyleRefreshCandidates(
+async function preparePersonalStatsRecentQueue(env: Env, activeDates: string[]): Promise<void> {
+  await seedPersonalStatsRecentQueue(env, activeDates);
+  await hydratePersonalStatsRecentQueueFromSnapshots(env, activeDates);
+  await prunePersonalStatsRecentQueue(env, activeDates);
+}
+
+async function seedPersonalStatsRecentQueue(env: Env, activeDates: string[]): Promise<void> {
+  if (activeDates.length === 0) {
+    return;
+  }
+
+  const statements = activeDates.map((snapshotDate) =>
+    env.DB.prepare(
+      `
+      INSERT INTO member_personal_stats_recent (
+        member_id,
+        snapshot_date,
+        member_name,
+        level,
+        position,
+        requested_at,
+        status,
+        updated_at
+      )
+      SELECT
+        member_id,
+        ?,
+        name,
+        level,
+        position,
+        ?,
+        'pending',
+        unixepoch()
+      FROM home_faction_members
+      WHERE faction_id = ?
+        AND is_current = 1
+      ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
+        member_name = excluded.member_name,
+        level = excluded.level,
+        position = excluded.position,
+        requested_at = excluded.requested_at,
+        status = CASE
+          WHEN member_personal_stats_recent.personal_captured_at IS NULL
+            AND member_personal_stats_recent.status = 'failed'
+          THEN 'pending'
+          ELSE member_personal_stats_recent.status
+        END
+      `,
+    ).bind(snapshotDate, timestampForDailyPoll(snapshotDate), HOME_FACTION_ID),
+  );
+
+  await env.DB.batch(statements);
+}
+
+async function hydratePersonalStatsRecentQueueFromSnapshots(
   env: Env,
-  limit: number,
-  force: boolean,
-  staleBefore?: number,
-): Promise<LifestyleMemberRow[]> {
-  const staleCutoff = staleBefore ?? nowSeconds() - REFRESH_STALE_SECONDS;
-  const where = force
-    ? "WHERE members.is_current = 1"
-    : `
-      WHERE members.is_current = 1
-        AND (
-          stats.personal_captured_at IS NULL
-          OR stats.personal_captured_at < ?
-          OR stats.error IS NOT NULL
-          OR stats.validation_error IS NOT NULL
-        )
-    `;
-  const query = `
+  activeDates: string[],
+): Promise<void> {
+  if (activeDates.length === 0) {
+    return;
+  }
+
+  await env.DB.prepare(
+    `
+    INSERT INTO member_personal_stats_recent (
+      member_id,
+      snapshot_date,
+      member_name,
+      level,
+      position,
+      xantaken,
+      overdosed,
+      refills,
+      useractivity,
+      networth,
+      daysbeendonator,
+      xantaken_timestamp,
+      overdosed_timestamp,
+      refills_timestamp,
+      useractivity_timestamp,
+      networth_timestamp,
+      daysbeendonator_timestamp,
+      personalstats_bucket_date,
+      requested_at,
+      attempted_at,
+      personalstats_key_source,
+      personal_captured_at,
+      status,
+      error,
+      updated_at
+    )
     SELECT
-      members.member_id,
-      members.name,
+      snapshots.member_id,
+      snapshots.snapshot_date,
+      COALESCE(snapshots.member_name, members.name),
       members.level,
       members.position,
-      stats.personal_captured_at
-    FROM home_faction_members members
-    LEFT JOIN member_personal_stats_current stats
-      ON stats.member_id = members.member_id
-    ${where}
-    ORDER BY stats.personalstats_requested_at ASC NULLS FIRST, stats.personal_captured_at ASC NULLS FIRST, members.name ASC
-    LIMIT ?
-  `;
-  const statement = env.DB.prepare(query);
-  const rows = force
-    ? await statement.bind(limit).all()
-    : await statement.bind(staleCutoff, limit).all();
+      snapshots.xantaken,
+      snapshots.overdosed,
+      snapshots.refills,
+      snapshots.useractivity,
+      snapshots.networth,
+      snapshots.daysbeendonator,
+      snapshots.xantaken_timestamp,
+      snapshots.overdosed_timestamp,
+      snapshots.refills_timestamp,
+      snapshots.useractivity_timestamp,
+      snapshots.networth_timestamp,
+      snapshots.daysbeendonator_timestamp,
+      snapshots.personalstats_bucket_date,
+      COALESCE(
+        snapshots.personalstats_requested_at,
+        CAST(strftime('%s', snapshots.snapshot_date || ' 00:10:00') AS INTEGER)
+      ),
+      snapshots.personal_captured_at,
+      snapshots.personalstats_key_source,
+      snapshots.personal_captured_at,
+      'completed',
+      NULL,
+      unixepoch()
+    FROM member_lifestyle_stat_snapshots snapshots
+    JOIN home_faction_members members
+      ON members.member_id = snapshots.member_id
+     AND members.faction_id = ?
+     AND members.is_current = 1
+    WHERE snapshots.snapshot_date IN (${activeDates.map(() => "?").join(",")})
+      AND snapshots.personal_ready = 1
+    ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
+      member_name = excluded.member_name,
+      level = excluded.level,
+      position = excluded.position,
+      xantaken = excluded.xantaken,
+      overdosed = excluded.overdosed,
+      refills = excluded.refills,
+      useractivity = excluded.useractivity,
+      networth = excluded.networth,
+      daysbeendonator = excluded.daysbeendonator,
+      xantaken_timestamp = excluded.xantaken_timestamp,
+      overdosed_timestamp = excluded.overdosed_timestamp,
+      refills_timestamp = excluded.refills_timestamp,
+      useractivity_timestamp = excluded.useractivity_timestamp,
+      networth_timestamp = excluded.networth_timestamp,
+      daysbeendonator_timestamp = excluded.daysbeendonator_timestamp,
+      personalstats_bucket_date = excluded.personalstats_bucket_date,
+      attempted_at = excluded.attempted_at,
+      personalstats_key_source = excluded.personalstats_key_source,
+      personal_captured_at = excluded.personal_captured_at,
+      status = 'completed',
+      error = NULL,
+      updated_at = excluded.updated_at
+    `,
+  )
+    .bind(HOME_FACTION_ID, ...activeDates)
+    .run();
+}
 
-  return (rows.results ?? []) as LifestyleMemberRow[];
+async function prunePersonalStatsRecentQueue(env: Env, activeDates: string[]): Promise<void> {
+  if (activeDates.length === 0) {
+    return;
+  }
+
+  const placeholders = activeDates.map(() => "?").join(",");
+  await env.DB.prepare(
+    `
+    UPDATE member_personal_stats_recent
+    SET status = 'retry_expired',
+        error = COALESCE(error, ?),
+        updated_at = unixepoch()
+    WHERE snapshot_date NOT IN (${placeholders})
+      AND personal_captured_at IS NULL
+      AND status != 'retry_expired'
+    `,
+  )
+    .bind(`${RETRY_EXPIRED_PERSONALSTATS_ERROR_CODE}: no data before row aged out`, ...activeDates)
+    .run();
+
+  await env.DB.prepare(
+    `
+    DELETE FROM member_personal_stats_recent
+    WHERE snapshot_date NOT IN (${placeholders})
+      AND personal_captured_at IS NOT NULL
+    `,
+  )
+    .bind(...activeDates)
+    .run();
+}
+
+async function readPersonalStatsRecentCandidates(
+  env: Env,
+  activeDates: string[],
+  limit: number,
+): Promise<PersonalStatsRecentRow[]> {
+  const expiredLimit = Math.min(EXPIRED_PERSONAL_STATS_RETRY_LIMIT, limit);
+  const activeLimit = Math.max(0, limit - expiredLimit);
+  const activeRows = activeLimit === 0 || activeDates.length === 0
+    ? []
+    : ((await env.DB.prepare(
+      `
+      SELECT
+        recent.member_id,
+        recent.snapshot_date,
+        recent.member_name,
+        recent.level,
+        recent.position,
+        recent.requested_at,
+        recent.attempted_at,
+        recent.personal_captured_at,
+        recent.status,
+        recent.error
+      FROM member_personal_stats_recent recent
+      JOIN home_faction_members members
+        ON members.member_id = recent.member_id
+       AND members.faction_id = ?
+       AND members.is_current = 1
+      WHERE recent.snapshot_date IN (${activeDates.map(() => "?").join(",")})
+        AND recent.personal_captured_at IS NULL
+        AND recent.status != 'retry_expired'
+      ORDER BY recent.snapshot_date ASC, recent.attempted_at ASC NULLS FIRST, recent.member_name ASC
+      LIMIT ?
+      `,
+    )
+      .bind(HOME_FACTION_ID, ...activeDates, activeLimit)
+      .all()).results ?? []) as PersonalStatsRecentRow[];
+
+  const expiredRows = expiredLimit === 0
+    ? []
+    : ((await env.DB.prepare(
+      `
+      SELECT
+        recent.member_id,
+        recent.snapshot_date,
+        recent.member_name,
+        recent.level,
+        recent.position,
+        recent.requested_at,
+        recent.attempted_at,
+        recent.personal_captured_at,
+        recent.status,
+        recent.error
+      FROM member_personal_stats_recent recent
+      JOIN home_faction_members members
+        ON members.member_id = recent.member_id
+       AND members.faction_id = ?
+       AND members.is_current = 1
+      WHERE recent.personal_captured_at IS NULL
+        AND recent.status = 'retry_expired'
+      ORDER BY recent.snapshot_date ASC, recent.attempted_at ASC NULLS FIRST, recent.member_name ASC
+      LIMIT ?
+      `,
+    )
+      .bind(HOME_FACTION_ID, expiredLimit)
+      .all()).results ?? []) as PersonalStatsRecentRow[];
+
+  return [...activeRows, ...expiredRows];
+}
+
+async function isPersonalStatsDateComplete(env: Env, targetSnapshotDate: string): Promise<boolean> {
+  const remaining = await env.DB.prepare(
+    `
+    SELECT members.member_id
+    FROM home_faction_members members
+    LEFT JOIN member_lifestyle_stat_snapshots snapshots
+      ON snapshots.member_id = members.member_id
+     AND snapshots.snapshot_date = ?
+     AND snapshots.personal_ready = 1
+    WHERE members.faction_id = ?
+      AND members.is_current = 1
+      AND snapshots.member_id IS NULL
+    LIMIT 1
+    `,
+  )
+    .bind(targetSnapshotDate, HOME_FACTION_ID)
+    .first();
+
+  return remaining === null;
 }
 
 async function fetchMemberPersonalStats(
@@ -1849,6 +2085,125 @@ function personalStatsDataQualityError(
   }
 
   return null;
+}
+
+function personalStatsRecentRowToMember(row: PersonalStatsRecentRow): LifestyleMemberRow {
+  return {
+    member_id: row.member_id,
+    name: row.member_name ?? String(row.member_id),
+    level: row.level,
+    position: row.position,
+    personal_captured_at: row.personal_captured_at,
+  };
+}
+
+async function markPersonalStatsRecentAttempt(
+  env: Env,
+  row: PersonalStatsRecentRow,
+  error: string,
+  status: PersonalStatsRecentStatus,
+): Promise<void> {
+  const nextStatus = row.status === "retry_expired" ? "retry_expired" : status;
+  await env.DB.prepare(
+    `
+    UPDATE member_personal_stats_recent
+    SET attempted_at = unixepoch(),
+        status = ?,
+        error = ?,
+        updated_at = unixepoch()
+    WHERE member_id = ?
+      AND snapshot_date = ?
+    `,
+  )
+    .bind(nextStatus, error, row.member_id, row.snapshot_date)
+    .run();
+}
+
+async function completePersonalStatsRecentRow(
+  env: Env,
+  row: PersonalStatsRecentRow,
+  snapshotDate: string,
+  stats: TimedLifestyleStats,
+): Promise<void> {
+  await env.DB.prepare(
+    `
+    INSERT INTO member_personal_stats_recent (
+      member_id,
+      snapshot_date,
+      member_name,
+      level,
+      position,
+      xantaken,
+      overdosed,
+      refills,
+      useractivity,
+      networth,
+      daysbeendonator,
+      xantaken_timestamp,
+      overdosed_timestamp,
+      refills_timestamp,
+      useractivity_timestamp,
+      networth_timestamp,
+      daysbeendonator_timestamp,
+      personalstats_bucket_date,
+      requested_at,
+      attempted_at,
+      personalstats_key_source,
+      personal_captured_at,
+      status,
+      error,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), ?, unixepoch(), 'completed', NULL, unixepoch())
+    ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
+      member_name = excluded.member_name,
+      level = excluded.level,
+      position = excluded.position,
+      xantaken = excluded.xantaken,
+      overdosed = excluded.overdosed,
+      refills = excluded.refills,
+      useractivity = excluded.useractivity,
+      networth = excluded.networth,
+      daysbeendonator = excluded.daysbeendonator,
+      xantaken_timestamp = excluded.xantaken_timestamp,
+      overdosed_timestamp = excluded.overdosed_timestamp,
+      refills_timestamp = excluded.refills_timestamp,
+      useractivity_timestamp = excluded.useractivity_timestamp,
+      networth_timestamp = excluded.networth_timestamp,
+      daysbeendonator_timestamp = excluded.daysbeendonator_timestamp,
+      personalstats_bucket_date = excluded.personalstats_bucket_date,
+      requested_at = excluded.requested_at,
+      attempted_at = excluded.attempted_at,
+      personalstats_key_source = excluded.personalstats_key_source,
+      personal_captured_at = excluded.personal_captured_at,
+      status = 'completed',
+      error = NULL,
+      updated_at = excluded.updated_at
+    `,
+  )
+    .bind(
+      row.member_id,
+      snapshotDate,
+      row.member_name,
+      row.level,
+      row.position,
+      stats.xantaken,
+      stats.overdosed,
+      stats.refills,
+      stats.useractivity,
+      stats.networth,
+      stats.daysbeendonator,
+      stats.xantaken_timestamp,
+      stats.overdosed_timestamp,
+      stats.refills_timestamp,
+      stats.useractivity_timestamp,
+      stats.networth_timestamp,
+      stats.daysbeendonator_timestamp,
+      stats.personalstats_bucket_date,
+      timestampForDailyPoll(snapshotDate),
+      stats.personalstats_key_source,
+    )
+    .run();
 }
 
 async function upsertLifestyleStats(
@@ -2124,9 +2479,9 @@ async function writeLifestyleSnapshotForDate(
         personal.networth_timestamp,
         personal.daysbeendonator_timestamp,
         personal.personalstats_bucket_date,
-        personal.personalstats_requested_at,
+        personal.requested_at AS personalstats_requested_at,
         personal.personalstats_key_source,
-        COALESCE(personal.validation_error, personal.error) AS validation_error,
+        personal.error AS validation_error,
         gym.gymenergy,
         gym.gymstrength,
         gym.gymspeed,
@@ -2138,7 +2493,6 @@ async function writeLifestyleSnapshotForDate(
           WHEN personal.personal_captured_at IS NOT NULL
             AND (? IS NULL OR personal.personal_captured_at >= ?)
             AND personal.error IS NULL
-            AND personal.validation_error IS NULL
             AND personal.personalstats_bucket_date = ?
           THEN 1
           ELSE 0
@@ -2151,8 +2505,9 @@ async function writeLifestyleSnapshotForDate(
           ELSE 0
         END AS gym_ready
       FROM home_faction_members members
-      LEFT JOIN member_personal_stats_current personal
+      LEFT JOIN member_personal_stats_recent personal
         ON personal.member_id = members.member_id
+       AND personal.snapshot_date = ?
       LEFT JOIN member_gym_stats_current gym
         ON gym.member_id = members.member_id
       WHERE members.faction_id = ?
@@ -2264,7 +2619,7 @@ async function writeLifestyleSnapshotForDate(
       captured_at = excluded.captured_at
     `,
   )
-    .bind(snapshotDate, freshAfter, freshAfter, snapshotDate, freshAfter, freshAfter, HOME_FACTION_ID)
+    .bind(snapshotDate, freshAfter, freshAfter, snapshotDate, snapshotDate, freshAfter, freshAfter, HOME_FACTION_ID)
     .run();
 }
 
@@ -2713,6 +3068,15 @@ function dailyRefreshReadyAt(timestamp: number): number | null {
   );
 
   return timestamp * 1000 >= readyAt ? Math.floor(readyAt / 1000) : null;
+}
+
+function recentCompletedPersonalStatsDates(timestamp: number): string[] {
+  const date = new Date(timestamp * 1000);
+  const todayStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  return [
+    dateKeyFromMs(todayStart - 2 * 86_400_000),
+    dateKeyFromMs(todayStart - 86_400_000),
+  ];
 }
 
 function timestampForDailyPoll(date: string): number {

@@ -17,7 +17,7 @@ export type CronJob = {
 };
 
 type CronJobDefinition = Omit<CronJob, "run"> & {
-  shouldRun: (minute: number) => boolean;
+  shouldRun: (date: Date) => boolean;
   run: (env: Env, scheduledTime: number) => Promise<unknown>;
 };
 
@@ -43,7 +43,7 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     cadence: "1h active",
     category: "attacks",
     purpose: "Rebuild active war summaries from raw attacks hourly so chain-bonus adjustments catch up outside the minute path.",
-    shouldRun: (minute) => minute === 0,
+    shouldRun: (date) => date.getUTCMinutes() === 0,
     run: (env) => rebuildOpenWarMemberStatsFromRaw(env),
   },
   {
@@ -51,7 +51,7 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     cadence: "15m",
     category: "maintenance",
     purpose: "Refresh enemy tracking, pass any fetched enemy members to heatmap sampling, and run independent maintenance tasks.",
-    shouldRun: (minute) => minute % 15 === 0,
+    shouldRun: (date) => date.getUTCMinutes() % 15 === 0,
     run: (env, scheduledTime) => runEnemyTrackingAndMaintenance(env, scheduledTime),
   },
   {
@@ -67,7 +67,7 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     cadence: "30m stale-stock history fallback",
     category: "stocks",
     purpose: "Use per-stock history only to recover stale or missing Torn stock snapshots.",
-    shouldRun: (minute) => minute % 30 === 0,
+    shouldRun: (date) => date.getUTCMinutes() % 30 === 0,
     run: (env, scheduledTime) => refreshTornStockHistoryBatch(env, scheduledTime),
   },
   {
@@ -75,7 +75,7 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     cadence: "1m live / 5m pre-live, excluding 15m",
     category: "enemy-tracking",
     purpose: "Refresh enemy tracking on the war-room cadence and fill scouting stats using shared current-war and latch reads.",
-    shouldRun: (minute) => minute % 15 !== 0,
+    shouldRun: (date) => date.getUTCMinutes() % 15 !== 0,
     run: (env, scheduledTime) =>
       runEnemyScoutingCronTick(env, {
         trackingSchedule: "war-room",
@@ -84,10 +84,12 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   },
   {
     label: "Cron lifestyle stats",
-    cadence: "1m excluding 5m",
+    cadence: "4x daily at 00:10/06:10/12:10/18:10 UTC",
     category: "daily",
-    purpose: "Fill daily lifestyle stat snapshots through the daily batch gate.",
-    shouldRun: (minute) => minute % 5 !== 0,
+    purpose: "Fill recent personal stats queue and daily lifestyle stat snapshots through the daily batch gate.",
+    shouldRun: (date) =>
+      date.getUTCMinutes() === 10 &&
+      [0, 6, 12, 18].includes(date.getUTCHours()),
     run: (env) => refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true }),
   },
   {
@@ -101,9 +103,9 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
 ];
 
 export function buildCronPlan(env: Env, scheduledTime: number): CronJob[] {
-  const minute = new Date(scheduledTime).getUTCMinutes();
+  const date = new Date(scheduledTime);
 
-  return CRON_JOB_DEFINITIONS.filter((job) => job.shouldRun(minute)).map((job) => ({
+  return CRON_JOB_DEFINITIONS.filter((job) => job.shouldRun(date)).map((job) => ({
     label: job.label,
     cadence: job.cadence,
     category: job.category,
