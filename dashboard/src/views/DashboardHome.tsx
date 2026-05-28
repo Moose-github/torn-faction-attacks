@@ -69,7 +69,8 @@ const HIGHLIGHT_PERIODS = [
   { key: "last_7_completed_days", label: "Last 7 completed days" },
 ] as const;
 const TORN_XANAX_IMAGE_URL = "https://www.torn.com/images/items/206/medium@2x.png";
-const XANAX_RAIN_PARTICLES = Array.from({ length: 14 }, (_, index) => index);
+const XANAX_RAIN_DURATION_MS = 5_000;
+const XANAX_RAIN_PARTICLES = Array.from({ length: 24 }, (_, index) => index);
 
 type DashboardHomeProps = {
   activeWar: WarSummary | null;
@@ -718,14 +719,14 @@ function XanaxCompetitionSpotlight({
 
     rainPlayedRef.current = true;
     setIsRaining(true);
-    const timer = window.setTimeout(() => setIsRaining(false), 3_000);
+    const timer = window.setTimeout(() => setIsRaining(false), XANAX_RAIN_DURATION_MS);
     return () => window.clearTimeout(timer);
   }, [shouldPlayRain]);
 
   function playRain() {
     setIsRaining(false);
     window.setTimeout(() => setIsRaining(true), 0);
-    window.setTimeout(() => setIsRaining(false), 3_000);
+    window.setTimeout(() => setIsRaining(false), XANAX_RAIN_DURATION_MS);
   }
 
   if (!loaded) {

@@ -446,36 +446,22 @@ h2 {
 }
 
 .current-war-card .dashboard-card-metrics {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
 .current-war-card .dashboard-metric-line {
-  display: flex;
-  min-height: 62px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 5px;
-  padding: 10px 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: var(--radius-md);
-  background: rgba(248, 250, 252, 0.78);
-}
-
-.current-war-card .dashboard-metric-line:first-child {
-  grid-column: 1 / -1;
+  grid-template-columns: minmax(112px, 0.58fr) minmax(0, 1fr);
+  gap: 14px;
 }
 
 .current-war-card .dashboard-metric-line span {
-  font-size: 0.74rem;
-  line-height: 1.1;
-  text-transform: uppercase;
+  font-size: 0.86rem;
+  line-height: 1.2;
 }
 
 .current-war-card .dashboard-metric-line strong {
-  font-size: 0.96rem;
-  line-height: 1.18;
+  font-size: 1rem;
+  line-height: 1.22;
 }
 
 .current-war-card .dashboard-card-action {
@@ -525,23 +511,33 @@ h2 {
   object-fit: contain;
   opacity: 0;
   filter: drop-shadow(0 7px 9px rgba(15, 23, 42, 0.2));
-  animation: xanax-rain-fall 2.75s ease-in forwards;
+  animation: xanax-rain-fall 2.35s ease-in forwards;
 }
 
 .xanax-rain img:nth-child(1) { left: 4%; --x-drift: 18px; --x-rotation: 150deg; animation-delay: 0.02s; }
 .xanax-rain img:nth-child(2) { left: 12%; --x-drift: -12px; --x-rotation: -130deg; animation-delay: 0.22s; }
 .xanax-rain img:nth-child(3) { left: 20%; --x-drift: 24px; --x-rotation: 180deg; animation-delay: 0.08s; }
-.xanax-rain img:nth-child(4) { left: 28%; --x-drift: -20px; --x-rotation: -170deg; animation-delay: 0.36s; }
+.xanax-rain img:nth-child(4) { left: 28%; --x-drift: -20px; --x-rotation: -170deg; animation-delay: 0.42s; }
 .xanax-rain img:nth-child(5) { left: 36%; --x-drift: 14px; --x-rotation: 120deg; animation-delay: 0.16s; }
-.xanax-rain img:nth-child(6) { left: 44%; --x-drift: -18px; --x-rotation: -150deg; animation-delay: 0.46s; }
+.xanax-rain img:nth-child(6) { left: 44%; --x-drift: -18px; --x-rotation: -150deg; animation-delay: 0.68s; }
 .xanax-rain img:nth-child(7) { left: 52%; --x-drift: 22px; --x-rotation: 160deg; animation-delay: 0.04s; }
-.xanax-rain img:nth-child(8) { left: 60%; --x-drift: -10px; --x-rotation: -120deg; animation-delay: 0.28s; }
-.xanax-rain img:nth-child(9) { left: 68%; --x-drift: 16px; --x-rotation: 140deg; animation-delay: 0.12s; }
-.xanax-rain img:nth-child(10) { left: 76%; --x-drift: -24px; --x-rotation: -180deg; animation-delay: 0.4s; }
-.xanax-rain img:nth-child(11) { left: 84%; --x-drift: 12px; --x-rotation: 130deg; animation-delay: 0.2s; }
-.xanax-rain img:nth-child(12) { left: 92%; --x-drift: -18px; --x-rotation: -160deg; animation-delay: 0.34s; }
-.xanax-rain img:nth-child(13) { left: 16%; --x-drift: 28px; --x-rotation: 190deg; animation-delay: 0.58s; }
-.xanax-rain img:nth-child(14) { left: 72%; --x-drift: -28px; --x-rotation: -190deg; animation-delay: 0.54s; }
+.xanax-rain img:nth-child(8) { left: 60%; --x-drift: -10px; --x-rotation: -120deg; animation-delay: 0.88s; }
+.xanax-rain img:nth-child(9) { left: 68%; --x-drift: 16px; --x-rotation: 140deg; animation-delay: 0.3s; }
+.xanax-rain img:nth-child(10) { left: 76%; --x-drift: -24px; --x-rotation: -180deg; animation-delay: 1.06s; }
+.xanax-rain img:nth-child(11) { left: 84%; --x-drift: 12px; --x-rotation: 130deg; animation-delay: 0.54s; }
+.xanax-rain img:nth-child(12) { left: 92%; --x-drift: -18px; --x-rotation: -160deg; animation-delay: 1.24s; }
+.xanax-rain img:nth-child(13) { left: 16%; --x-drift: 28px; --x-rotation: 190deg; animation-delay: 0.76s; }
+.xanax-rain img:nth-child(14) { left: 72%; --x-drift: -28px; --x-rotation: -190deg; animation-delay: 1.42s; }
+.xanax-rain img:nth-child(15) { left: 8%; --x-drift: -16px; --x-rotation: -150deg; animation-delay: 1.58s; }
+.xanax-rain img:nth-child(16) { left: 24%; --x-drift: 20px; --x-rotation: 170deg; animation-delay: 1.34s; }
+.xanax-rain img:nth-child(17) { left: 40%; --x-drift: -14px; --x-rotation: -120deg; animation-delay: 1.78s; }
+.xanax-rain img:nth-child(18) { left: 56%; --x-drift: 26px; --x-rotation: 190deg; animation-delay: 1.52s; }
+.xanax-rain img:nth-child(19) { left: 88%; --x-drift: -22px; --x-rotation: -170deg; animation-delay: 1.94s; }
+.xanax-rain img:nth-child(20) { left: 32%; --x-drift: 12px; --x-rotation: 130deg; animation-delay: 2.12s; }
+.xanax-rain img:nth-child(21) { left: 48%; --x-drift: -24px; --x-rotation: -185deg; animation-delay: 2.28s; }
+.xanax-rain img:nth-child(22) { left: 64%; --x-drift: 18px; --x-rotation: 150deg; animation-delay: 2.04s; }
+.xanax-rain img:nth-child(23) { left: 80%; --x-drift: -12px; --x-rotation: -140deg; animation-delay: 2.46s; }
+.xanax-rain img:nth-child(24) { left: 96%; --x-drift: -30px; --x-rotation: -210deg; animation-delay: 2.62s; }
 
 @keyframes xanax-rain-fall {
   0% {
@@ -551,12 +547,9 @@ h2 {
   12% {
     opacity: 0.95;
   }
-  82% {
-    opacity: 0.95;
-  }
   100% {
-    transform: translate3d(var(--x-drift), 250px, 0) rotate(var(--x-rotation));
-    opacity: 0;
+    transform: translate3d(var(--x-drift), 520px, 0) rotate(var(--x-rotation));
+    opacity: 0.95;
   }
 }
 
@@ -5897,14 +5890,6 @@ tbody tr:not(.attack-row):hover td {
     min-height: auto;
   }
 
-  .current-war-card .dashboard-card-metrics {
-    grid-template-columns: 1fr;
-  }
-
-  .current-war-card .dashboard-metric-line:first-child {
-    grid-column: auto;
-  }
-
   .dashboard-admin-alert {
     grid-template-columns: 1fr;
     align-items: stretch;
@@ -6152,11 +6137,6 @@ tbody tr:not(.attack-row):hover td {
   border-color: var(--border-solid);
   background: var(--panel-active-bg);
   color: var(--accent-strong);
-}
-
-:root[data-theme="dark"] .current-war-card .dashboard-metric-line {
-  border-color: var(--border-faint);
-  background: var(--panel-muted-bg);
 }
 
 :root[data-theme="dark"] .enemy-monitor-event.priority-1 {
