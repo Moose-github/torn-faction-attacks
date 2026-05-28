@@ -68,6 +68,7 @@ const HIGHLIGHT_PERIODS = [
   { key: "yesterday", label: "24h stats" },
   { key: "last_7_completed_days", label: "Last 7 completed days" },
 ] as const;
+const TORN_XANAX_IMAGE_URL = "https://www.torn.com/images/items/206/medium@2x.png";
 
 type DashboardHomeProps = {
   activeWar: WarSummary | null;
@@ -719,9 +720,13 @@ function XanaxCompetitionSpotlight({
     <section className="panel xanax-competition-panel">
       <div className="xanax-competition-compact">
         <div className="xanax-competition-summary">
-          <span className="dashboard-card-icon xanax-competition-icon">
-            <CircleDollarSign size={18} />
-          </span>
+          <img
+            className="xanax-competition-image"
+            src={TORN_XANAX_IMAGE_URL}
+            alt="Xanax"
+            loading="lazy"
+            decoding="async"
+          />
           <div>
             <span>Monthly Xanax prize</span>
             <strong>{formatPrize(competition.settings.current_prize)}</strong>
