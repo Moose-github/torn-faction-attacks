@@ -146,6 +146,7 @@ type LifestyleSnapshotNumberKey =
 
 type LifestyleDailyChartMetric = LifestyleSnapshotNumberKey | "networth";
 type LifestyleSnapshotReadyColumn = "personal_ready" | "gym_ready" | "fully_ready";
+type LifestyleSnapshotReadyFilter = LifestyleSnapshotReadyColumn | "any_ready";
 
 const LIFESTYLE_DAILY_CHART_METRICS = new Set<LifestyleDailyChartMetric>([
   "xantaken",
@@ -223,7 +224,7 @@ type RepairKey = {
 };
 
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
-  const availableRange = await readLifestyleSnapshotDateRange(env, "fully_ready");
+  const availableRange = await readLifestyleSnapshotDateRange(env, "any_ready");
   const period = readLifestylePeriod(url, availableRange);
   const snapshotRows = ((await env.DB.prepare(
     `
@@ -263,7 +264,7 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
       ON home_faction_members.member_id = snapshots.member_id
      AND home_faction_members.is_current = 1
     WHERE snapshots.snapshot_date BETWEEN ? AND ?
-      AND snapshots.fully_ready = 1
+      AND (snapshots.personal_ready = 1 OR snapshots.gym_ready = 1)
     ORDER BY snapshots.member_id ASC, snapshots.snapshot_date ASC
     `,
   )
@@ -479,7 +480,7 @@ async function isDailyLifestyleRefreshComplete(
 
 async function readLifestyleSnapshotDateRange(
   env: Env,
-  readyColumn?: LifestyleSnapshotReadyColumn,
+  readyFilter?: LifestyleSnapshotReadyFilter,
 ): Promise<{ start_date: string; end_date: string } | null> {
   const row = (await env.DB.prepare(
     `
@@ -487,7 +488,7 @@ async function readLifestyleSnapshotDateRange(
       MIN(snapshot_date) AS start_date,
       MAX(snapshot_date) AS end_date
     FROM member_lifestyle_stat_snapshots
-    ${readyColumn ? `WHERE ${readyColumn} = 1` : ""}
+    ${lifestyleSnapshotReadyWhere(readyFilter)}
     `,
   ).first()) as { start_date: string | null; end_date: string | null } | null;
 
@@ -499,6 +500,18 @@ async function readLifestyleSnapshotDateRange(
     start_date: row.start_date,
     end_date: row.end_date,
   };
+}
+
+function lifestyleSnapshotReadyWhere(readyFilter?: LifestyleSnapshotReadyFilter): string {
+  if (!readyFilter) {
+    return "";
+  }
+
+  if (readyFilter === "any_ready") {
+    return "WHERE personal_ready = 1 OR gym_ready = 1";
+  }
+
+  return `WHERE ${readyFilter} = 1`;
 }
 
 export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttention> {

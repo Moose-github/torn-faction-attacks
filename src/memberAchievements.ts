@@ -258,6 +258,7 @@ async function rankedLifestyleRows(
   baselineDate: string,
   sourceSnapshotDate: string,
 ): Promise<MugRow[]> {
+  const readyColumn = lifestyleReadyColumnForMetric(metric);
   const rows = ((await env.DB.prepare(
     `
     SELECT
@@ -272,8 +273,8 @@ async function rankedLifestyleRows(
     JOIN home_faction_members members
       ON members.member_id = end_snapshot.member_id
     WHERE end_snapshot.snapshot_date = ?
-      AND end_snapshot.fully_ready = 1
-      AND start_snapshot.fully_ready = 1
+      AND end_snapshot.${readyColumn} = 1
+      AND start_snapshot.${readyColumn} = 1
       AND members.faction_id = ?
       AND members.is_current = 1
     `,
@@ -298,6 +299,12 @@ async function rankedLifestyleRows(
     })
     .filter((row): row is MugRow => row !== null && row.value > 0)
     .sort(compareRankedRows);
+}
+
+function lifestyleReadyColumnForMetric(
+  metric: Extract<AchievementMetric, { source: "lifestyle" }>,
+): "personal_ready" | "gym_ready" {
+  return metric.field.startsWith("gym") ? "gym_ready" : "personal_ready";
 }
 
 async function rankedMugRows(
