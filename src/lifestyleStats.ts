@@ -429,21 +429,28 @@ export async function refreshMemberLifestyleStats(
       }
 
       if (activeDates.includes(returnedBucketDate)) {
-        await completePersonalStatsRecentRow(env, queueRow, returnedBucketDate, stats);
-        await upsertLifestyleSnapshotPersonalStats(env, {
-          member_id: queueRow.member_id,
-          member_name: queueRow.member_name,
-          snapshot_date: returnedBucketDate,
-        }, stats);
-        await upsertLifestyleStats(env, personalStatsRecentRowToMember(queueRow), stats, null);
+        const returnedDateComplete = await isPersonalStatsRecentMemberDateComplete(
+          env,
+          queueRow.member_id,
+          returnedBucketDate,
+        );
+        if (!returnedDateComplete) {
+          await completePersonalStatsRecentRow(env, queueRow, returnedBucketDate, stats);
+          await upsertLifestyleSnapshotPersonalStats(env, {
+            member_id: queueRow.member_id,
+            member_name: queueRow.member_name,
+            snapshot_date: returnedBucketDate,
+          }, stats);
+          await upsertLifestyleStats(env, personalStatsRecentRowToMember(queueRow), stats, null);
+          refreshedMemberIds.push(queueRow.member_id);
+          refreshed += 1;
+        }
         await markPersonalStatsRecentAttempt(
           env,
           queueRow,
           `${PERSONALSTATS_BUCKET_MISMATCH_ERROR_CODE}: requested ${queueRow.snapshot_date}, received ${returnedBucketDate}`,
           queueRow.status === "retry_expired" ? "retry_expired" : "pending",
         );
-        refreshedMemberIds.push(queueRow.member_id);
-        refreshed += 1;
         failed += 1;
       } else {
         await markPersonalStatsRecentAttempt(
@@ -2039,6 +2046,27 @@ async function isPersonalStatsDateComplete(env: Env, targetSnapshotDate: string)
     .first();
 
   return remaining === null;
+}
+
+async function isPersonalStatsRecentMemberDateComplete(
+  env: Env,
+  memberId: number,
+  snapshotDate: string,
+): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `
+    SELECT 1
+    FROM member_personal_stats_recent
+    WHERE member_id = ?
+      AND snapshot_date = ?
+      AND personal_captured_at IS NOT NULL
+    LIMIT 1
+    `,
+  )
+    .bind(memberId, snapshotDate)
+    .first();
+
+  return row !== null;
 }
 
 async function fetchMemberPersonalStats(
