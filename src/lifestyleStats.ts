@@ -574,7 +574,9 @@ function lifestyleSnapshotReadyWhere(readyFilter?: LifestyleSnapshotReadyFilter)
 
 export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttention> {
   const now = nowSeconds();
-  const targetDate = recentCompletedPersonalStatsDates(now).at(-1) ?? null;
+  const activeDates = recentCompletedPersonalStatsDates(now);
+  const targetDate = activeDates.at(-1) ?? null;
+  const activeDatePlaceholders = activeDates.map(() => "?").join(",");
   const latestBucketRow = (await env.DB.prepare(
     `
     SELECT MAX(snapshots.snapshot_date) AS snapshot_date
@@ -603,11 +605,16 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
     WHERE members.is_current = 1
       AND (
         stats.status = 'retry_expired'
-        OR stats.error LIKE ?
         OR (
-          stats.error IS NOT NULL
-          AND stats.error NOT LIKE ?
-          AND stats.error NOT LIKE ?
+          stats.snapshot_date NOT IN (${activeDatePlaceholders})
+          AND (
+            stats.error LIKE ?
+            OR (
+              stats.error IS NOT NULL
+              AND stats.error NOT LIKE ?
+              AND stats.error NOT LIKE ?
+            )
+          )
         )
       )
     ORDER BY stats.snapshot_date ASC, members.name ASC
@@ -615,6 +622,7 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
     `,
   )
     .bind(
+      ...activeDates,
       `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
       `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
       `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
@@ -627,14 +635,20 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
       SUM(CASE
         WHEN stats.status = 'retry_expired'
           OR (
-            stats.error IS NOT NULL
+            stats.snapshot_date NOT IN (${activeDatePlaceholders})
+            AND stats.error IS NOT NULL
             AND stats.error NOT LIKE ?
             AND stats.error NOT LIKE ?
           )
         THEN 1
         ELSE 0
       END) AS stale_personalstats,
-      SUM(CASE WHEN stats.error LIKE ? THEN 1 ELSE 0 END) AS missing_donator_days
+      SUM(CASE
+        WHEN stats.snapshot_date NOT IN (${activeDatePlaceholders})
+          AND stats.error LIKE ?
+        THEN 1
+        ELSE 0
+      END) AS missing_donator_days
     FROM home_faction_members members
     JOIN member_personal_stats_recent stats
       ON stats.member_id = members.member_id
@@ -642,8 +656,10 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
     `,
   )
     .bind(
+      ...activeDates,
       `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
       `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
+      ...activeDates,
       `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
     )
     .first()) as { stale_personalstats: number | null; missing_donator_days: number | null } | null;
