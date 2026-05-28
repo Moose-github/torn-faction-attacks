@@ -103,6 +103,12 @@ type MugRow = {
   value: number;
 };
 
+type AvailableAchievementDates = {
+  fully: Set<string>;
+  gym: Set<string>;
+  personal: Set<string>;
+};
+
 export async function listMemberAchievementSummaries(env: Env): Promise<Response> {
   const rows = await env.DB.prepare(
     `
@@ -151,7 +157,7 @@ export async function refreshMemberAchievementSummariesIfStale(
 export async function refreshMemberAchievementSummaries(
   env: Env,
   latestSnapshotDate?: string,
-  knownAvailableDates?: Set<string>,
+  knownAvailableDates?: AvailableAchievementDates,
 ): Promise<{ writeStatements: number; changedRows: number; skipped: boolean; reason?: string }> {
   const sourceSnapshotDate = latestSnapshotDate ?? await readLatestSnapshotDate(env);
   if (!sourceSnapshotDate) {
@@ -164,7 +170,7 @@ export async function refreshMemberAchievementSummaries(
 
   for (const metric of ACHIEVEMENT_METRICS) {
     const baselineDate = shiftUtcDate(sourceSnapshotDate, -metric.days);
-    if (!availableDates.has(baselineDate)) {
+    if (!metricHasAvailableWindow(metric, availableDates, baselineDate, sourceSnapshotDate)) {
       continue;
     }
 
@@ -364,22 +370,38 @@ async function readLatestSnapshotDate(env: Env): Promise<string | null> {
   return row?.snapshot_date ?? null;
 }
 
-async function readAvailableSnapshotDates(env: Env): Promise<Set<string>> {
+async function readAvailableSnapshotDates(env: Env): Promise<AvailableAchievementDates> {
   const rows = ((await env.DB.prepare(
     `
-    SELECT DISTINCT snapshot_date
+    SELECT
+      snapshot_date,
+      MAX(personal_ready) AS personal_ready,
+      MAX(gym_ready) AS gym_ready,
+      MAX(fully_ready) AS fully_ready
     FROM member_lifestyle_stat_snapshots
-    WHERE fully_ready = 1
+    WHERE personal_ready = 1
+       OR gym_ready = 1
+       OR fully_ready = 1
+    GROUP BY snapshot_date
     `,
-  ).all()).results ?? []) as Array<{ snapshot_date: string }>;
+  ).all()).results ?? []) as Array<{
+    snapshot_date: string;
+    personal_ready: number | null;
+    gym_ready: number | null;
+    fully_ready: number | null;
+  }>;
 
-  return new Set(rows.map((row) => row.snapshot_date));
+  return {
+    fully: new Set(rows.filter((row) => Number(row.fully_ready) > 0).map((row) => row.snapshot_date)),
+    gym: new Set(rows.filter((row) => Number(row.gym_ready) > 0).map((row) => row.snapshot_date)),
+    personal: new Set(rows.filter((row) => Number(row.personal_ready) > 0).map((row) => row.snapshot_date)),
+  };
 }
 
 async function summariesAreCurrent(
   env: Env,
   latestSnapshotDate: string,
-  availableDates: Set<string>,
+  availableDates: AvailableAchievementDates,
 ): Promise<boolean> {
   const staleRow = (await env.DB.prepare(
     `
@@ -423,10 +445,24 @@ async function summariesAreCurrent(
   return rows.every((row) => achievementDetailVersion(row.detail_json) === ACHIEVEMENT_DETAIL_VERSION);
 }
 
-function expectedMetricKeysForSnapshot(sourceSnapshotDate: string, availableDates: Set<string>): string[] {
+function expectedMetricKeysForSnapshot(sourceSnapshotDate: string, availableDates: AvailableAchievementDates): string[] {
   return ACHIEVEMENT_METRICS.filter((metric) =>
-    availableDates.has(shiftUtcDate(sourceSnapshotDate, -metric.days)),
+    metricHasAvailableWindow(metric, availableDates, shiftUtcDate(sourceSnapshotDate, -metric.days), sourceSnapshotDate),
   ).map((metric) => metric.metricKey);
+}
+
+function metricHasAvailableWindow(
+  metric: AchievementMetric,
+  availableDates: AvailableAchievementDates,
+  baselineDate: string,
+  sourceSnapshotDate: string,
+): boolean {
+  if (metric.source === "attacks") {
+    return true;
+  }
+
+  const readyDates = metric.field.startsWith("gym") ? availableDates.gym : availableDates.personal;
+  return readyDates.has(baselineDate) && readyDates.has(sourceSnapshotDate);
 }
 
 function achievementDetailVersion(detailJson: string | null): number | null {
