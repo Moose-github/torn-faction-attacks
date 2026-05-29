@@ -66,23 +66,17 @@ export async function getAdminXanaxCompetition(env: Env): Promise<Response> {
 }
 
 export async function previewXanaxCompetitionImage(env: Env): Promise<Response> {
-  const state = await buildCompetitionState(env, {
-    currentUserId: null,
-    includeClaims: false,
-  });
+  const settings = serializeSettings(await ensureCompetitionSettings(env), currentMonthKey());
   const png = await renderXanaxCompetitionReminderPng({
-    enabled: state.settings.enabled,
-    monthKey: state.settings.month_key,
-    currentPrize: state.settings.current_prize,
-    latestSnapshotDate: state.latest_snapshot_date,
-    leaderboard: state.leaderboard,
+    monthKey: settings.month_key,
+    currentPrize: settings.current_prize,
   });
 
   return new Response(png, {
     headers: {
       ...corsHeaders,
       "Content-Type": "image/png",
-      "Content-Disposition": `inline; filename="xanax-competition-${state.settings.month_key}.png"`,
+      "Content-Disposition": `inline; filename="xanax-competition-${settings.month_key}.png"`,
       "Cache-Control": "no-store",
     },
   });
