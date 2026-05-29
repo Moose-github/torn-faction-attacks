@@ -34,34 +34,34 @@ function buildXanaxCompetitionReminderSvg({
     "</defs>",
     `<rect width="${width}" height="${height}" rx="28" fill="#f8fafc"/>`,
     renderXanaxSprinkles(xanaxImageDataUri),
-    `<rect x="32" y="32" width="1044" height="96" rx="20" fill="#0f172a"/>`,
-    svgText(62, 89, "Xanax Competition", {
+    `<rect x="64" y="32" width="980" height="96" rx="20" fill="#0f172a"/>`,
+    svgText(94, 89, "Xanax Competition", {
       size: 42,
       weight: 800,
       fill: "#ffffff",
     }),
-    svgText(566, 89, monthLabel, {
+    svgText(568, 89, monthLabel, {
       size: 20,
       weight: 800,
       fill: "#cbd5e1",
     }),
-    `<rect x="34" y="158" width="1042" height="222" rx="24" fill="#111827"/>`,
-    `<rect x="34" y="318" width="1042" height="62" rx="24" fill="#020617" opacity="0.22"/>`,
-    `<rect x="34" y="318" width="1042" height="31" fill="#020617" opacity="0.22"/>`,
-    svgText(78, 214, "This month's prize", { size: 30, weight: 800, fill: "#e5e7eb" }),
-    svgText(78, 318, formatMoney(currentPrize), {
+    `<rect x="64" y="158" width="980" height="222" rx="24" fill="#111827"/>`,
+    `<rect x="64" y="318" width="980" height="62" rx="24" fill="#020617" opacity="0.22"/>`,
+    `<rect x="64" y="318" width="980" height="31" fill="#020617" opacity="0.22"/>`,
+    svgText(108, 214, "This month's prize", { size: 30, weight: 800, fill: "#e5e7eb" }),
+    svgText(108, 318, formatMoney(currentPrize), {
       size: 100,
       weight: 800,
       fill: "#fbbf24",
       maxLength: 18,
     }),
-    `<rect x="34" y="410" width="1042" height="86" rx="18" fill="#ffffff" stroke="#94a3b8" stroke-width="2"/>`,
-    svgText(68, 446, `Monthly challenge: take ${XANAX_TARGET} Xanax during the month.`, {
+    `<rect x="64" y="410" width="980" height="86" rx="18" fill="#ffffff" stroke="#94a3b8" stroke-width="2"/>`,
+    svgText(98, 446, `Monthly challenge: take ${XANAX_TARGET} Xanax during the month.`, {
       size: 18,
       weight: 800,
       fill: "#0f172a",
     }),
-    svgText(68, 474, "If unclaimed, the prize rolls over by $10,000,000 every month until it is claimed.", {
+    svgText(98, 474, "If unclaimed, the prize rolls over by $10,000,000 every month until it is claimed.", {
       size: 17,
       fill: "#475569",
     }),
