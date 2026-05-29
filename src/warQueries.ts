@@ -16,6 +16,14 @@ import { warNameFromWarRoute } from "./routes";
 import { Env, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 
+const REPORTABLE_HOME_MEMBER_FILTER_SQL = "COALESCE(h.report_exempt, 0) = 0";
+const CURRENT_HOME_MEMBER_FILTER_SQL = "COALESCE(h.is_current, 0) = 1";
+type ReportableHomeMemberJoinTarget = "wms.member_id" | "buckets.member_id";
+
+function reportableHomeMemberJoinSql(memberIdColumn: ReportableHomeMemberJoinTarget): string {
+  return `LEFT JOIN home_faction_members h ON h.member_id = ${memberIdColumn}`;
+}
+
 export async function listWars(url: URL, env: Env): Promise<Response> {
   try {
     const warType = parseWarTypeQuery(url);
@@ -98,9 +106,9 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
           ELSE NULL
         END AS member_respect_limit_percent
       FROM war_member_stats wms
-      LEFT JOIN home_faction_members h ON h.member_id = wms.member_id
+      ${reportableHomeMemberJoinSql("wms.member_id")}
       WHERE wms.war_id = ?
-        AND COALESCE(h.report_exempt, 0) = 0
+        AND ${REPORTABLE_HOME_MEMBER_FILTER_SQL}
       ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, attacks_vs_enemy_total DESC
       `,
     )
@@ -579,9 +587,9 @@ export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<R
         wms.respect_gained,
         wms.respect_lost
       FROM war_member_stats wms
-      LEFT JOIN home_faction_members h ON h.member_id = wms.member_id
+      ${reportableHomeMemberJoinSql("wms.member_id")}
       WHERE wms.war_id = ?
-        AND COALESCE(h.report_exempt, 0) = 0
+        AND ${REPORTABLE_HOME_MEMBER_FILTER_SQL}
       ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, member_name ASC
       `,
     )
@@ -602,10 +610,10 @@ export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<R
           buckets.respect_gained,
           buckets.respect_lost
         FROM war_member_activity_buckets buckets
-        LEFT JOIN home_faction_members h ON h.member_id = buckets.member_id
+        ${reportableHomeMemberJoinSql("buckets.member_id")}
         WHERE buckets.war_id = ?
           AND buckets.bucket_start BETWEEN ? AND ?
-          AND COALESCE(h.report_exempt, 0) = 0
+          AND ${REPORTABLE_HOME_MEMBER_FILTER_SQL}
         ORDER BY buckets.bucket_start ASC, buckets.member_id ASC
         `,
       )
@@ -773,10 +781,10 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       MAX(wms.last_action_at) AS last_seen_at
     FROM war_member_stats wms
     JOIN wars w ON w.id = wms.war_id
-    LEFT JOIN home_faction_members h ON h.member_id = wms.member_id
+    ${reportableHomeMemberJoinSql("wms.member_id")}
     WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
-      AND (? = 0 OR COALESCE(h.is_current, 0) = 1)
-      AND COALESCE(h.report_exempt, 0) = 0
+      AND (? = 0 OR ${CURRENT_HOME_MEMBER_FILTER_SQL})
+      AND ${REPORTABLE_HOME_MEMBER_FILTER_SQL}
     GROUP BY wms.member_id
     ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, attacks_vs_enemy_total DESC
     `,
