@@ -35,12 +35,12 @@ function buildXanaxCompetitionReminderSvg({
     `<rect width="${width}" height="${height}" rx="28" fill="#f8fafc"/>`,
     renderXanaxSprinkles(xanaxImageDataUri),
     `<rect x="32" y="32" width="1044" height="96" rx="20" fill="#0f172a"/>`,
-    svgText(258, 86, "Xanax Competition", {
+    svgText(62, 89, "Xanax Competition", {
       size: 42,
       weight: 800,
       fill: "#ffffff",
     }),
-    svgText(762, 86, monthLabel, {
+    svgText(566, 89, monthLabel, {
       size: 20,
       weight: 800,
       fill: "#cbd5e1",
@@ -48,7 +48,7 @@ function buildXanaxCompetitionReminderSvg({
     `<rect x="34" y="158" width="1042" height="222" rx="24" fill="#111827"/>`,
     `<rect x="34" y="318" width="1042" height="62" rx="24" fill="#020617" opacity="0.22"/>`,
     `<rect x="34" y="318" width="1042" height="31" fill="#020617" opacity="0.22"/>`,
-    svgText(78, 214, "This months prize", { size: 30, weight: 800, fill: "#e5e7eb" }),
+    svgText(78, 214, "This month's prize", { size: 30, weight: 800, fill: "#e5e7eb" }),
     svgText(78, 318, formatMoney(currentPrize), {
       size: 100,
       weight: 800,
