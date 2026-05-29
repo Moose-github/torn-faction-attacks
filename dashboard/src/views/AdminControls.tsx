@@ -24,6 +24,7 @@ import {
   previewEnemyStatsImage,
   previewImportWar,
   previewRelinkAttacks,
+  previewXanaxCompetitionImage,
   pullAttackWindow,
   recordAdminXanaxCompetitionClaim,
   rebuildStats,
@@ -553,6 +554,16 @@ export function AdminControls() {
               disabled={isBusy !== null}
             >
               {isBusy === "Update Xanax competition" ? "Saving" : "Save competition settings"}
+            </button>
+            <button
+              type="button"
+              className="admin-button admin-form-wide"
+              disabled={isBusy !== null}
+              onClick={() =>
+                runAdminAction("Preview Xanax competition image", () => previewXanaxCompetitionImage())
+              }
+            >
+              {isBusy === "Preview Xanax competition image" ? "Opening" : "Preview competition image"}
             </button>
           </form>
 

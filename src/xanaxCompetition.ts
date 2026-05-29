@@ -1,6 +1,7 @@
 import { HOME_FACTION_ID } from "./constants";
 import { Env } from "./types";
-import { d1Changes, json, nowSeconds } from "./utils";
+import { corsHeaders, d1Changes, json, nowSeconds } from "./utils";
+import { renderXanaxCompetitionReminderPng } from "./xanaxCompetitionImageRenderer";
 
 const SETTINGS_ID = 1;
 const DEFAULT_BASE_PRIZE = 10_000_000;
@@ -62,6 +63,29 @@ export async function getAdminXanaxCompetition(env: Env): Promise<Response> {
     includeClaims: true,
   });
   return json(state);
+}
+
+export async function previewXanaxCompetitionImage(env: Env): Promise<Response> {
+  const state = await buildCompetitionState(env, {
+    currentUserId: null,
+    includeClaims: false,
+  });
+  const png = await renderXanaxCompetitionReminderPng({
+    enabled: state.settings.enabled,
+    monthKey: state.settings.month_key,
+    currentPrize: state.settings.current_prize,
+    latestSnapshotDate: state.latest_snapshot_date,
+    leaderboard: state.leaderboard,
+  });
+
+  return new Response(png, {
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "image/png",
+      "Content-Disposition": `inline; filename="xanax-competition-${state.settings.month_key}.png"`,
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 export async function updateAdminXanaxCompetition(

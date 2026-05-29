@@ -1643,6 +1643,45 @@ export async function previewEnemyStatsImage(type: EnemyStatsImagePreviewType): 
   };
 }
 
+export async function previewXanaxCompetitionImage(): Promise<unknown> {
+  const previewWindow = window.open("", "_blank");
+  if (!previewWindow) {
+    throw new Error("Preview popup was blocked by the browser");
+  }
+  previewWindow.document.title = "Loading Xanax competition image";
+  previewWindow.document.body.textContent = "Loading preview...";
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/admin/xanax-competition/image`,
+    { headers: authHeaders(true) },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    let message = `Request failed: ${response.status}`;
+    try {
+      const data = JSON.parse(text);
+      message = data.error ?? message;
+    } catch {
+      if (text.trim()) {
+        message = text;
+      }
+    }
+    previewWindow.document.body.textContent = message;
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const previewUrl = window.URL.createObjectURL(blob);
+  previewWindow.location.href = previewUrl;
+  window.setTimeout(() => window.URL.revokeObjectURL(previewUrl), 300_000);
+  return {
+    ok: true,
+    opened: true,
+    preview: "xanax-competition",
+  };
+}
+
 export async function restartLiveEnemyTracking(warId: number): Promise<unknown> {
   return postJson("/api/admin/live-enemy-tracking/restart", { war_id: warId });
 }

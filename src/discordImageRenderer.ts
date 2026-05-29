@@ -37,7 +37,7 @@ export async function renderEnemyMemberStatsTablePng({
   return renderSvgToPng(buildEnemyMemberStatsTableSvg({ enemyName, enemyMembers }));
 }
 
-async function renderSvgToPng(svg: string): Promise<Uint8Array> {
+export async function renderSvgToPng(svg: string): Promise<Uint8Array> {
   if (!resvgInitPromise) {
     resvgInitPromise = initWasm(resvgWasm);
   }

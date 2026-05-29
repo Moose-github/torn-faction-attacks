@@ -102,6 +102,7 @@ import { corsHeaders, json, nowSeconds, parseLimit } from "./utils";
 import {
   getAdminXanaxCompetition,
   getXanaxCompetition,
+  previewXanaxCompetitionImage,
   updateAdminXanaxCompetition,
 } from "./xanaxCompetition";
 import {
@@ -317,6 +318,10 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 
   if (matchesExactRoute(url, request, "/api/admin/xanax-competition", "GET")) {
     return withAdmin(routeContext, () => getAdminXanaxCompetition(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/xanax-competition/image", "GET")) {
+    return withAdmin(routeContext, () => previewXanaxCompetitionImage(env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/xanax-competition", "POST")) {
