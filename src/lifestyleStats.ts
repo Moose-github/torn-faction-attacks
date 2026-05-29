@@ -581,13 +581,15 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
   const activeDatePlaceholders = activeDates.map(() => "?").join(",");
   const latestBucketRow = (await env.DB.prepare(
     `
-    SELECT MAX(snapshots.snapshot_date) AS snapshot_date
+    SELECT snapshots.snapshot_date AS snapshot_date
     FROM member_lifestyle_stat_snapshots snapshots
     JOIN home_faction_members members
       ON members.member_id = snapshots.member_id
      AND members.is_current = 1
      AND members.report_exempt = 0
     WHERE snapshots.personal_ready = 1
+    ORDER BY snapshots.snapshot_date DESC
+    LIMIT 1
     `,
   ).first()) as { snapshot_date: string | null } | null;
   const latestBucketDate = latestBucketRow?.snapshot_date ?? null;

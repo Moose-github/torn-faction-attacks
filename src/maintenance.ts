@@ -34,6 +34,7 @@ type ScheduledMaintenanceOptions = {
 };
 
 const METRICS_RETENTION_SECONDS = 14 * 24 * 60 * 60;
+const TORN_API_CALL_LOG_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const METRICS_RETENTION_STATE_NAME = "scheduled_metrics_retention";
 const MEMBER_STAT_CORRECTION_INTERVAL_SECONDS = 60 * 60;
 const MEMBER_STAT_CORRECTION_STATE_NAME = "open_war_member_stats_rebuild";
@@ -380,26 +381,40 @@ async function cleanupOldMetrics(env: Env): Promise<MaintenanceTaskMetrics> {
   )
     .bind(cutoff)
     .run();
+  const tornApiCallLogCutoff = now - TORN_API_CALL_LOG_RETENTION_SECONDS;
+  const tornApiCallLogDelete = await env.DB.prepare(
+    `
+    DELETE FROM torn_api_call_log
+    WHERE requested_at < ?
+    `,
+  )
+    .bind(tornApiCallLogCutoff)
+    .run();
 
   await upsertSyncTimestamp(env, METRICS_RETENTION_STATE_NAME, now);
 
   const deletedMaintenanceTasks = d1Changes(taskDelete);
   const deletedMaintenanceRuns = d1Changes(maintenanceDelete);
   const deletedIngestionRuns = d1Changes(ingestionDelete);
+  const deletedTornApiCallLogs = d1Changes(tornApiCallLogDelete);
 
   return {
-    writeStatements: 4,
+    writeStatements: 5,
     changedRows:
       deletedMaintenanceTasks +
       deletedMaintenanceRuns +
       deletedIngestionRuns +
+      deletedTornApiCallLogs +
       1,
     details: {
       cutoff,
       retention_days: 14,
+      torn_api_call_log_cutoff: tornApiCallLogCutoff,
+      torn_api_call_log_retention_days: 7,
       deleted_maintenance_tasks: deletedMaintenanceTasks,
       deleted_maintenance_runs: deletedMaintenanceRuns,
       deleted_ingestion_runs: deletedIngestionRuns,
+      deleted_torn_api_call_logs: deletedTornApiCallLogs,
     },
   };
 }

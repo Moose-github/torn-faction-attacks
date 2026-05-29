@@ -194,7 +194,7 @@ async function routePublicApi({ request, env, url }: RouteContext): Promise<Rout
 }
 
 async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
-  const { request, env, url } = routeContext;
+  const { request, env, ctx, url } = routeContext;
 
   if (matchesExactRoute(url, request, "/api/run", "POST")) {
     return withAdmin(routeContext, async () => {
@@ -214,7 +214,9 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
   }
 
   if (matchesExactRoute(url, request, "/api/admin/torn-api-usage", "GET")) {
-    return withAdmin(routeContext, () => getTornApiUsage(url, env));
+    return withAdmin(routeContext, () =>
+      cachedGetJson(request, ctx, 60, () => getTornApiUsage(url, env)),
+    );
   }
 
   if (matchesExactRoute(url, request, "/api/admin/member-lifestyle/import-now", "POST")) {

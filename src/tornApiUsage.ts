@@ -101,14 +101,17 @@ export async function getTornApiUsage(url: URL, env: Env): Promise<Response> {
   const windowSeconds = parseLimit(url.searchParams.get("window_seconds"), 60 * 60, 7 * 24 * 60 * 60);
   const limit = parseLimit(url.searchParams.get("limit"), 25, 100);
   const now = nowSeconds();
+  const uniqueWindowSeconds = Array.from(new Set([...DEFAULT_USAGE_WINDOWS_SECONDS, windowSeconds]));
+  const windowRows = await Promise.all(
+    uniqueWindowSeconds.map((seconds) => readUsageSummaryForWindow(env, now, seconds)),
+  );
+  const windowsBySeconds = new Map(windowRows.map((row) => [row.window_seconds, row]));
+  const summary = windowsBySeconds.get(windowSeconds) ?? await readUsageSummaryForWindow(env, now, windowSeconds);
+  const windows = DEFAULT_USAGE_WINDOWS_SECONDS.map((seconds) => windowsBySeconds.get(seconds)!)
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
   const since = now - windowSeconds;
 
-  const windows = await Promise.all(
-    DEFAULT_USAGE_WINDOWS_SECONDS.map((seconds) => readUsageSummaryForWindow(env, now, seconds)),
-  );
-
-  const [summary, byFeature, byEndpoint, recentCalls] = await Promise.all([
-    readUsageSummaryForWindow(env, now, windowSeconds),
+  const [byFeature, byEndpoint, recentCalls] = await Promise.all([
     env.DB.prepare(
       `
       SELECT
