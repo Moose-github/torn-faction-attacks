@@ -7,6 +7,9 @@ const SETTINGS_ID = 1;
 const DEFAULT_BASE_PRIZE = 10_000_000;
 const XANAX_TARGET = 100;
 const LEADERBOARD_LIMIT = 10;
+const TORN_XANAX_IMAGE_URL = "https://www.torn.com/images/items/206/medium@2x.png";
+
+let xanaxImageDataUriPromise: Promise<string | null> | null = null;
 
 type CompetitionSettingsRow = {
   id: number;
@@ -70,6 +73,7 @@ export async function previewXanaxCompetitionImage(env: Env): Promise<Response> 
   const png = await renderXanaxCompetitionReminderPng({
     monthKey: settings.month_key,
     currentPrize: settings.current_prize,
+    xanaxImageDataUri: await getXanaxImageDataUri(),
   });
 
   return new Response(png, {
@@ -80,6 +84,36 @@ export async function previewXanaxCompetitionImage(env: Env): Promise<Response> 
       "Cache-Control": "no-store",
     },
   });
+}
+
+async function getXanaxImageDataUri(): Promise<string | null> {
+  if (!xanaxImageDataUriPromise) {
+    xanaxImageDataUriPromise = fetchXanaxImageDataUri();
+  }
+  return xanaxImageDataUriPromise;
+}
+
+async function fetchXanaxImageDataUri(): Promise<string | null> {
+  try {
+    const response = await fetch(TORN_XANAX_IMAGE_URL);
+    if (!response.ok) {
+      return null;
+    }
+    const contentType = response.headers.get("Content-Type") ?? "image/png";
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return `data:${contentType};base64,${base64Encode(bytes)}`;
+  } catch {
+    return null;
+  }
+}
+
+function base64Encode(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
 }
 
 export async function updateAdminXanaxCompetition(
