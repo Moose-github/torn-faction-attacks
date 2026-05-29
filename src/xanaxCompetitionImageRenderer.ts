@@ -35,12 +35,12 @@ function buildXanaxCompetitionReminderSvg({
     `<rect width="${width}" height="${height}" rx="28" fill="#f8fafc"/>`,
     renderXanaxSprinkles(xanaxImageDataUri),
     `<rect x="32" y="32" width="1044" height="96" rx="20" fill="#0f172a"/>`,
-    svgText(62, 76, "Xanax Competition", {
+    svgText(258, 86, "Xanax Competition", {
       size: 42,
       weight: 800,
       fill: "#ffffff",
     }),
-    svgText(64, 106, monthLabel, {
+    svgText(762, 86, monthLabel, {
       size: 20,
       weight: 800,
       fill: "#cbd5e1",
@@ -48,14 +48,14 @@ function buildXanaxCompetitionReminderSvg({
     `<rect x="34" y="158" width="1042" height="222" rx="24" fill="#111827"/>`,
     `<rect x="34" y="318" width="1042" height="62" rx="24" fill="#020617" opacity="0.22"/>`,
     `<rect x="34" y="318" width="1042" height="31" fill="#020617" opacity="0.22"/>`,
-    svgText(78, 214, "Prize if won this month", { size: 30, weight: 800, fill: "#e5e7eb" }),
+    svgText(78, 214, "This months prize", { size: 30, weight: 800, fill: "#e5e7eb" }),
     svgText(78, 318, formatMoney(currentPrize), {
       size: 100,
       weight: 800,
       fill: "#fbbf24",
       maxLength: 18,
     }),
-    `<rect x="34" y="410" width="1042" height="86" rx="18" fill="#ffffff" stroke="#dbe4ee"/>`,
+    `<rect x="34" y="410" width="1042" height="86" rx="18" fill="#ffffff" stroke="#94a3b8" stroke-width="2"/>`,
     svgText(68, 446, `Monthly challenge: take ${XANAX_TARGET} Xanax during the month.`, {
       size: 18,
       weight: 800,
@@ -73,12 +73,24 @@ function renderXanaxSprinkles(xanaxImageDataUri: string | null | undefined): str
   const sprinkles = [
     { x: 18, y: 74, size: 76, rotation: -18, opacity: 0.5 },
     { x: 1090, y: 88, size: 74, rotation: 16, opacity: 0.48 },
-    { x: 166, y: 144, size: 62, rotation: 18, opacity: 0.42 },
-    { x: 956, y: 146, size: 64, rotation: -14, opacity: 0.42 },
-    { x: 104, y: 398, size: 70, rotation: -16, opacity: 0.46 },
-    { x: 1008, y: 398, size: 70, rotation: 14, opacity: 0.46 },
-    { x: 150, y: 522, size: 64, rotation: 20, opacity: 0.42 },
-    { x: 958, y: 522, size: 66, rotation: -20, opacity: 0.42 },
+    { x: 86, y: 144, size: 54, rotation: -12, opacity: 0.42 },
+    { x: 166, y: 144, size: 62, rotation: 18, opacity: 0.44 },
+    { x: 316, y: 144, size: 50, rotation: -18, opacity: 0.34 },
+    { x: 782, y: 144, size: 52, rotation: 16, opacity: 0.34 },
+    { x: 956, y: 146, size: 64, rotation: -14, opacity: 0.44 },
+    { x: 1040, y: 144, size: 54, rotation: 18, opacity: 0.42 },
+    { x: 18, y: 282, size: 68, rotation: 12, opacity: 0.36 },
+    { x: 1090, y: 282, size: 70, rotation: -16, opacity: 0.36 },
+    { x: 104, y: 398, size: 70, rotation: -16, opacity: 0.48 },
+    { x: 244, y: 396, size: 54, rotation: 14, opacity: 0.34 },
+    { x: 862, y: 396, size: 54, rotation: -18, opacity: 0.34 },
+    { x: 1008, y: 398, size: 70, rotation: 14, opacity: 0.48 },
+    { x: 78, y: 522, size: 54, rotation: -18, opacity: 0.34 },
+    { x: 150, y: 522, size: 64, rotation: 20, opacity: 0.44 },
+    { x: 326, y: 520, size: 48, rotation: -12, opacity: 0.3 },
+    { x: 782, y: 520, size: 48, rotation: 12, opacity: 0.3 },
+    { x: 958, y: 522, size: 66, rotation: -20, opacity: 0.44 },
+    { x: 1032, y: 522, size: 54, rotation: 18, opacity: 0.34 },
   ];
 
   return sprinkles
