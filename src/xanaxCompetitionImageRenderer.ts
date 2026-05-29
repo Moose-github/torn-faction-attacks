@@ -70,12 +70,14 @@ function buildXanaxCompetitionReminderSvg({
 
 function renderXanaxSprinkles(xanaxImageDataUri: string | null | undefined): string {
   const sprinkles = [
-    { x: 944, y: 20, size: 72, rotation: -14, opacity: 0.14 },
-    { x: 1010, y: 126, size: 58, rotation: 18, opacity: 0.11 },
-    { x: 106, y: 396, size: 62, rotation: -16, opacity: 0.13 },
-    { x: 934, y: 392, size: 64, rotation: 14, opacity: 0.12 },
-    { x: 132, y: 500, size: 54, rotation: 20, opacity: 0.1 },
-    { x: 974, y: 498, size: 56, rotation: -20, opacity: 0.1 },
+    { x: 18, y: 74, size: 70, rotation: -18, opacity: 0.28 },
+    { x: 1090, y: 88, size: 68, rotation: 16, opacity: 0.26 },
+    { x: 166, y: 144, size: 56, rotation: 18, opacity: 0.22 },
+    { x: 956, y: 146, size: 58, rotation: -14, opacity: 0.22 },
+    { x: 104, y: 398, size: 64, rotation: -16, opacity: 0.24 },
+    { x: 1008, y: 398, size: 64, rotation: 14, opacity: 0.24 },
+    { x: 150, y: 522, size: 58, rotation: 20, opacity: 0.22 },
+    { x: 958, y: 522, size: 60, rotation: -20, opacity: 0.22 },
   ];
 
   return sprinkles
