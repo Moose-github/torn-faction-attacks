@@ -1,5 +1,5 @@
 import { revokeSessionsForFormerFactionMembers } from "./auth";
-import { bumpMemberLifestyleCacheVersion } from "./cacheVersions";
+import { bumpGlobalWarCacheVersion, bumpMemberLifestyleCacheVersion } from "./cacheVersions";
 import { HOME_FACTION_ID } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { Env, TornFactionMember } from "./types";
@@ -215,7 +215,10 @@ export async function updateHomeFactionReportExemption(request: Request, env: En
     .bind(reportExempt ? 1 : 0, reportExempt ? reason : null, memberId, HOME_FACTION_ID)
     .run();
 
-  await bumpMemberLifestyleCacheVersion(env);
+  await Promise.all([
+    bumpMemberLifestyleCacheVersion(env),
+    bumpGlobalWarCacheVersion(env),
+  ]);
   return listHomeFactionReportExemptions(env);
 }
 

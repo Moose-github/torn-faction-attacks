@@ -98,7 +98,9 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
           ELSE NULL
         END AS member_respect_limit_percent
       FROM war_member_stats wms
+      LEFT JOIN home_faction_members h ON h.member_id = wms.member_id
       WHERE wms.war_id = ?
+        AND COALESCE(h.report_exempt, 0) = 0
       ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, attacks_vs_enemy_total DESC
       `,
     )
@@ -567,17 +569,19 @@ export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<R
     const members = await env.DB.prepare(
       `
       SELECT
-        member_id,
-        member_name,
-        attacks_vs_enemy_successful,
-        outside_hits,
-        defends_total,
-        defends_won,
-        defends_other,
-        respect_gained,
-        respect_lost
-      FROM war_member_stats
-      WHERE war_id = ?
+        wms.member_id,
+        wms.member_name,
+        wms.attacks_vs_enemy_successful,
+        wms.outside_hits,
+        wms.defends_total,
+        wms.defends_won,
+        wms.defends_other,
+        wms.respect_gained,
+        wms.respect_lost
+      FROM war_member_stats wms
+      LEFT JOIN home_faction_members h ON h.member_id = wms.member_id
+      WHERE wms.war_id = ?
+        AND COALESCE(h.report_exempt, 0) = 0
       ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, member_name ASC
       `,
     )
@@ -589,18 +593,20 @@ export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<R
       : await env.DB.prepare(
         `
         SELECT
-          war_id,
-          member_id,
-          bucket_start,
-          attacks_successful,
-          outside_hits,
-          defends_lost,
-          respect_gained,
-          respect_lost
-        FROM war_member_activity_buckets
-        WHERE war_id = ?
-          AND bucket_start BETWEEN ? AND ?
-        ORDER BY bucket_start ASC, member_id ASC
+          buckets.war_id,
+          buckets.member_id,
+          buckets.bucket_start,
+          buckets.attacks_successful,
+          buckets.outside_hits,
+          buckets.defends_lost,
+          buckets.respect_gained,
+          buckets.respect_lost
+        FROM war_member_activity_buckets buckets
+        LEFT JOIN home_faction_members h ON h.member_id = buckets.member_id
+        WHERE buckets.war_id = ?
+          AND buckets.bucket_start BETWEEN ? AND ?
+          AND COALESCE(h.report_exempt, 0) = 0
+        ORDER BY buckets.bucket_start ASC, buckets.member_id ASC
         `,
       )
         .bind(war.id, startBucket, finishBucket)
