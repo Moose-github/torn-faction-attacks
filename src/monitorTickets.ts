@@ -1,3 +1,4 @@
+import { positiveIntegerOrNull, readJsonObject } from "./backend/request";
 import { Env, WarRow } from "./types";
 import { json, nowSeconds } from "./utils";
 
@@ -13,10 +14,10 @@ type MonitorTicketPayload = {
 };
 
 export async function createMonitorTicket(request: Request, env: Env): Promise<Response> {
-  const body = (await request.json().catch(() => ({}))) as { war_id?: unknown };
-  const warId = Number(body.war_id);
+  const body = await readJsonObject(request);
+  const warId = positiveIntegerOrNull(body.war_id);
 
-  if (!Number.isInteger(warId) || warId <= 0) {
+  if (warId === null) {
     return json({ ok: false, error: "A valid war_id is required", code: "INVALID_WAR_ID" }, 400);
   }
 

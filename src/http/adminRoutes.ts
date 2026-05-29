@@ -1,3 +1,4 @@
+import { positiveIntegerOrNull, readJsonObject } from "../backend/request";
 import { grantAdminAccess, listAdminUsers, readAuthenticatedUserId } from "../auth";
 import { bumpGlobalWarCacheVersion, bumpWarCacheVersionById } from "../cacheVersions";
 import { sendDiscordMessageFromRequest } from "../discord";
@@ -206,11 +207,11 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 }
 
 async function rebuildStatsFromRequest(request: Request, env: Env): Promise<Response> {
-  const body = (await request.json().catch(() => ({}))) as { war_id?: unknown };
+  const body = await readJsonObject(request);
   const warId = body.war_id === undefined || body.war_id === null || body.war_id === ""
     ? undefined
-    : Number(body.war_id);
-  if (warId !== undefined && (!Number.isInteger(warId) || warId <= 0)) {
+    : positiveIntegerOrNull(body.war_id) ?? Number.NaN;
+  if (warId !== undefined && !Number.isInteger(warId)) {
     return json({ ok: false, error: "Invalid war_id", code: "INVALID_WAR_ID" }, 400);
   }
 

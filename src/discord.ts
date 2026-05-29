@@ -1,3 +1,4 @@
+import { cleanString, readJsonObject } from "./backend/request";
 import { Env } from "./types";
 import { json } from "./utils";
 
@@ -16,8 +17,8 @@ export async function sendDiscordMessageFromRequest(request: Request, env: Env):
     );
   }
 
-  const body = (await request.json().catch(() => ({}))) as { message?: unknown };
-  const message = typeof body.message === "string" ? body.message.trim() : "";
+  const body = await readJsonObject(request);
+  const message = cleanString(body.message) ?? "";
   if (!message) {
     return json({ ok: false, error: "Message is required", code: "MISSING_MESSAGE" }, 400);
   }

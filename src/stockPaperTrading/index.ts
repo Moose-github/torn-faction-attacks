@@ -1,6 +1,12 @@
 import { Env } from "../types";
 import { trackedTornFetch } from "../tornApiUsage";
 import { cleanText, finiteNumber, json, nowSeconds, parseLimit } from "../utils";
+import {
+  isRecord,
+  positiveCurrencyOrNull as positiveCurrency,
+  positiveIntegerOrNull as positiveInteger,
+  readJsonObject,
+} from "../backend/request";
 
 import {
   COPY_MOVEMENT_ACTIVITY_RECENT_SECONDS,
@@ -140,7 +146,7 @@ async function runLiveStockPaperBotForDefinition(
 }
 
 export async function simulateStockPaperBotFromRequest(request: Request, env: Env): Promise<Response> {
-  const body = await readJsonBody(request);
+  const body = await readJsonObject(request);
   const newest = await readNewestStockSnapshotAt(env);
   const oldest = await readOldestStockSnapshotAt(env);
   const startedAt = nowSeconds();
@@ -360,7 +366,7 @@ export async function exportStockSnapshots(url: URL, env: Env): Promise<Response
 }
 
 export async function resetStockPaperAccount(request: Request, env: Env): Promise<Response> {
-  const body = await readJsonBody(request);
+  const body = await readJsonObject(request);
   const botId = typeof body.bot_id === "string" ? body.bot_id : MOMENTUM_ACCOUNT_ID;
   const bot = botDefinitionById(botId);
   if (!bot) {
@@ -1833,28 +1839,6 @@ async function readOldestStockSnapshotAt(env: Env): Promise<number | null> {
   return row?.observed_at === null || row?.observed_at === undefined ? null : Number(row.observed_at);
 }
 
-async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
-  if (!request.headers.get("content-type")?.includes("application/json")) {
-    return {};
-  }
-  const body = await request.json().catch(() => ({}));
-  return isRecord(body) ? body : {};
-}
-
 function roundUpToInterval(timestamp: number): number {
   return Math.ceil(timestamp / DECISION_INTERVAL_SECONDS) * DECISION_INTERVAL_SECONDS;
-}
-
-function positiveInteger(value: unknown): number | null {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function positiveCurrency(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

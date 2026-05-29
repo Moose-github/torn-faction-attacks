@@ -1,6 +1,16 @@
 import { Env } from "../types";
 import { trackedTornFetch } from "../tornApiUsage";
 import { fetchWithTimeout, json, nowSeconds } from "../utils";
+import {
+  boundedInteger,
+  boundedNumber,
+  cleanString,
+  finitePositiveNumber,
+  positiveInteger,
+  positiveIntegerOrNull,
+  readJsonObject,
+  validPositiveId as validId,
+} from "../backend/request";
 
 import {
   MAX_SAVED_OPPORTUNITIES,
@@ -244,7 +254,7 @@ export async function scanTradeSearch(
   env: Env,
   scannedByTornUserId: number | null,
 ): Promise<Response> {
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const body = await readJsonObject(request);
   const tornKey = typeof body.torn_key === "string"
     ? body.torn_key.trim()
     : typeof body.tornKey === "string"
@@ -291,7 +301,7 @@ export async function scanTradeWatchlist(
     return json({ ok: false, error: "Invalid watchlist ID", code: "INVALID_WATCHLIST_ID" }, 400);
   }
 
-  const body = (await request.json().catch(() => ({}))) as { torn_key?: unknown; tornKey?: unknown };
+  const body = await readJsonObject(request);
   const tornKey = typeof body.torn_key === "string"
     ? body.torn_key.trim()
     : typeof body.tornKey === "string"
@@ -906,7 +916,7 @@ async function readWatchlistPayload(request: Request): Promise<
   }
   | { response: Response }
 > {
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const body = await readJsonObject(request);
   return validateTradeSearchPayload(body, { requireName: true }) as
     | {
       payload: Omit<
@@ -921,7 +931,7 @@ async function readSearchPayload(
   request: Request,
   options: { requireName: boolean },
 ): Promise<{ payload: TradeSearchPayload } | { response: Response }> {
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const body = await readJsonObject(request);
   return validateTradeSearchPayload(body, options);
 }
 
@@ -1313,37 +1323,4 @@ function normalizeItemSource(value: unknown): TradeItemSource | null {
     return value;
   }
   return null;
-}
-
-function boundedInteger(value: unknown, min: number, max: number, fallback: number): number {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
-}
-
-function boundedNumber(value: unknown, min: number, max: number, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
-}
-
-function positiveInteger(value: unknown, fallback: number): number {
-  const parsed = Math.floor(Number(value));
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function positiveIntegerOrNull(value: unknown): number | null {
-  const parsed = Math.floor(Number(value));
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function finitePositiveNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function cleanString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function validId(value: number): boolean {
-  return Number.isInteger(value) && value > 0;
 }

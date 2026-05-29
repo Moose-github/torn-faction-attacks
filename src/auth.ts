@@ -1,3 +1,4 @@
+import { positiveIntegerOrNull, readJsonObject } from "./backend/request";
 import {
   AUTH_SESSION_TTL_SECONDS,
   HOME_FACTION_ID,
@@ -151,10 +152,10 @@ export async function listAdminUsers(env: Env): Promise<Response> {
 }
 
 export async function grantAdminAccess(request: Request, env: Env): Promise<Response> {
-  const body = (await request.json().catch(() => ({}))) as { torn_user_id?: unknown };
-  const tornUserId = Number(body.torn_user_id);
+  const body = await readJsonObject(request);
+  const tornUserId = positiveIntegerOrNull(body.torn_user_id);
 
-  if (!Number.isInteger(tornUserId) || tornUserId <= 0) {
+  if (tornUserId === null) {
     return json(
       {
         ok: false,
