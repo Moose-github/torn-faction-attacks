@@ -738,8 +738,22 @@ function XanaxCompetitionSpotlight({
     );
   }
 
-  if (!competition || !competition.settings.enabled) {
-    return null;
+  if (!competition) {
+    return (
+      <section className="panel xanax-competition-panel">
+        <PanelHeader icon={<CircleDollarSign size={17} />} title="Monthly Xanax prize" aside="Unavailable" />
+        <EmptyState text="Competition progress unavailable" />
+      </section>
+    );
+  }
+
+  if (!competition.settings.enabled) {
+    return (
+      <section className="panel xanax-competition-panel">
+        <PanelHeader icon={<CircleDollarSign size={17} />} title="Monthly Xanax prize" aside="Disabled" />
+        <EmptyState text="Competition is currently disabled" />
+      </section>
+    );
   }
 
   const contenders = competition.leaderboard.slice(0, 3);
