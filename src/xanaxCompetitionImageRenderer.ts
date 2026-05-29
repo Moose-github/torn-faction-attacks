@@ -34,10 +34,6 @@ function buildXanaxCompetitionReminderSvg({
     "<stop offset=\"0%\" stop-color=\"#fde68a\"/>",
     "<stop offset=\"100%\" stop-color=\"#f59e0b\"/>",
     "</linearGradient>",
-    "<linearGradient id=\"bar\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\">",
-    "<stop offset=\"0%\" stop-color=\"#22c55e\"/>",
-    "<stop offset=\"100%\" stop-color=\"#38bdf8\"/>",
-    "</linearGradient>",
     "</defs>",
     `<rect width="${width}" height="${height}" fill="url(#bg)"/>`,
     `<path d="M760 0 L1200 0 L1200 166 L900 166 Z" fill="#38bdf8" opacity="0.12"/>`,
@@ -55,22 +51,22 @@ function buildXanaxCompetitionReminderSvg({
       weight: 800,
       fill: "#cbd5e1",
     }),
-    `<rect x="80" y="206" width="1042" height="286" rx="24" fill="#111827"/>`,
-    `<path d="M80 400 H1122 V492 H80 Z" fill="#020617" opacity="0.28"/>`,
-    svgText(124, 270, "Prize if won this month", { size: 30, weight: 800, fill: "#e5e7eb" }),
-    svgText(124, 388, formatMoney(currentPrize), {
-      size: 108,
+    `<rect x="80" y="206" width="1042" height="250" rx="24" fill="#111827"/>`,
+    `<path d="M80 382 H1122 V456 H80 Z" fill="#020617" opacity="0.28"/>`,
+    svgText(124, 264, "Prize if won this month", { size: 30, weight: 800, fill: "#e5e7eb" }),
+    svgText(124, 374, formatMoney(currentPrize), {
+      size: 104,
       weight: 800,
       fill: "#fbbf24",
       maxLength: 18,
     }),
-    `<rect x="80" y="526" width="1042" height="70" rx="18" fill="#ffffff" stroke="#dbe4ee"/>`,
-    svgText(114, 554, `Monthly challenge: take ${XANAX_TARGET} Xanax during the month.`, {
+    `<rect x="80" y="488" width="1042" height="86" rx="18" fill="#ffffff" stroke="#dbe4ee"/>`,
+    svgText(114, 524, `Monthly challenge: take ${XANAX_TARGET} Xanax during the month.`, {
       size: 18,
       weight: 800,
       fill: "#0f172a",
     }),
-    svgText(114, 580, "If unclaimed, the prize rolls over by $10,000,000 every month until it is claimed.", {
+    svgText(114, 552, "If unclaimed, the prize rolls over by $10,000,000 every month until it is claimed.", {
       size: 17,
       fill: "#475569",
     }),
