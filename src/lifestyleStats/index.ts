@@ -1,241 +1,68 @@
-import { HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "./constants";
-import { bumpMemberLifestyleCacheVersion } from "./cacheVersions";
-import { fetchTornFactionMembers } from "./enemyScouting";
-import { refreshMemberAchievementSummaries } from "./memberAchievements";
+import { HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "../constants";
+import { bumpMemberLifestyleCacheVersion } from "../cacheVersions";
+import { fetchTornFactionMembers } from "../enemyScouting";
+import { refreshMemberAchievementSummaries } from "../memberAchievements";
 import {
   fetchTornPersonalStatsWithTimestamps,
   TornPersonalStatsHttpError,
   TornPersonalStatsResponse,
-} from "./personalStats";
-import { claimDailyBatchGate } from "./scheduledGates";
-import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
-import { trackedTornFetch } from "./tornApiUsage";
-import { Env, TornFactionMember } from "./types";
-import { boolToInt, d1Changes, finiteNumber, json, nowSeconds } from "./utils";
+} from "../personalStats";
+import { claimDailyBatchGate } from "../scheduledGates";
+import { readSyncTimestamp, upsertSyncTimestamp } from "../syncState";
+import { trackedTornFetch } from "../tornApiUsage";
+import { Env, TornFactionMember } from "../types";
+import { boolToInt, d1Changes, finiteNumber, json, nowSeconds } from "../utils";
 
-const LIFESTYLE_STAT_KEYS = [
-  "xantaken",
-  "overdosed",
-  "refills",
-  "useractivity",
-  "networth",
-  "daysbeendonator",
-] as const;
-const TORN_LIFESTYLE_STAT_KEYS = [
-  "xantaken",
-  "overdosed",
-  "refills",
-  "timeplayed",
-  "networth",
-  "daysbeendonator",
-] as const;
-const GYM_CONTRIBUTOR_STAT_KEYS = [
-  "gymenergy",
-  "gymstrength",
-  "gymspeed",
-  "gymdefense",
-  "gymdexterity",
-] as const;
-const LIFESTYLE_FETCH_TIMEOUT_MS = 12000;
-const DAILY_REFRESH_AFTER_UTC_HOUR = 0;
-const DAILY_REFRESH_AFTER_UTC_MINUTE = 10;
-const MAX_LIFESTYLE_PERIOD_DAYS = 90;
-const DAILY_LIFESTYLE_REFRESH_LIMIT = 40;
-const EXPIRED_PERSONAL_STATS_RETRY_LIMIT = 5;
-const DAILY_LIFESTYLE_COMPLETE_STATE_NAME = "member_personal_stats_recent_daily";
-const DAILY_GYM_COMPLETE_STATE_NAME = "member_gym_stats_current_daily";
-const DAILY_LIFESTYLE_LOCK_SECONDS = 75;
-const DAILY_LIFESTYLE_LOCK_STATE_NAME = "member_personal_stats_recent_daily_lock";
-const OLD_PERSONALSTATS_BUCKET_ERROR_CODE = "OLD_PERSONALSTATS_BUCKET";
-const MISSING_PERSONALSTATS_BUCKET_ERROR_CODE = "MISSING_PERSONALSTATS_BUCKET";
-const MISSING_DONATOR_DAYS_ERROR_CODE = "MISSING_DONATOR_DAYS";
-const RETRY_EXPIRED_PERSONALSTATS_ERROR_CODE = "RETRY_EXPIRED_PERSONALSTATS";
-const PERSONALSTATS_BUCKET_MISMATCH_ERROR_CODE = "PERSONALSTATS_BUCKET_MISMATCH";
-const DEFAULT_REPAIR_CALLS_PER_MINUTE_PER_KEY = 35;
-const MAX_REPAIR_DATE_RANGE_DAYS = 120;
-const REPAIR_JOB_PROCESS_LIMIT_SECONDS = 45;
-const REPAIR_KEY_PAUSE_PREFIX = "member_lifestyle_repair_key_pause";
-const REPAIR_FAILURE_ALERT_PREFIX = "member_lifestyle_repair_failure_alert";
-
-type LifestyleStatKey = (typeof LIFESTYLE_STAT_KEYS)[number];
-type GymContributorStatKey = (typeof GYM_CONTRIBUTOR_STAT_KEYS)[number];
-type LifestyleTimestampKey = `${LifestyleStatKey}_timestamp`;
-
-type LifestyleStats = Record<LifestyleStatKey, number | null>;
-type LifestyleStatTimestamps = Record<LifestyleTimestampKey, number | null>;
-type TimedLifestyleStats = LifestyleStats & LifestyleStatTimestamps & {
-  personalstats_bucket_date: string | null;
-  personalstats_requested_at: number | null;
-  personalstats_key_source: string | null;
-};
-type GymContributorStats = Record<GymContributorStatKey, number | null>;
-
-type LifestyleMemberRow = {
-  member_id: number;
-  name: string;
-  level: number | null;
-  position: string | null;
-  personal_captured_at: number | null;
-};
-
-type LifestylePeriodRow = {
-  member_id: number;
-  member_name: string | null;
-  overdosed: number;
-  total_xantaken: number;
-  average_xantaken: number;
-  adjusted_average_xantaken: number;
-  average_refills: number;
-  average_useractivity: number;
-  networth: number | null;
-  total_gymenergy: number;
-  average_gymenergy: number;
-  average_gymstrength: number;
-  average_gymspeed: number;
-  average_gymdefense: number;
-  average_gymdexterity: number;
-  first_snapshot_date: string | null;
-  last_snapshot_date: string | null;
-  updated_at: number | null;
-};
-
-type LifestyleSnapshotRow = {
-  member_id: number;
-  snapshot_date: string;
-  member_name: string | null;
-  xantaken: number | null;
-  overdosed: number | null;
-  refills: number | null;
-  useractivity: number | null;
-  networth: number | null;
-  daysbeendonator: number | null;
-  xantaken_timestamp: number | null;
-  overdosed_timestamp: number | null;
-  refills_timestamp: number | null;
-  useractivity_timestamp: number | null;
-  networth_timestamp: number | null;
-  daysbeendonator_timestamp: number | null;
-  personalstats_bucket_date: string | null;
-  personalstats_requested_at: number | null;
-  personalstats_key_source: string | null;
-  gymenergy: number | null;
-  gymstrength: number | null;
-  gymspeed: number | null;
-  gymdefense: number | null;
-  gymdexterity: number | null;
-  personal_captured_at: number | null;
-  gym_captured_at: number | null;
-  personal_ready: number;
-  gym_ready: number;
-  fully_ready: number;
-  captured_at: number;
-  validation_error: string | null;
-};
-
-type LifestyleSnapshotNumberKey =
-  | "xantaken"
-  | "overdosed"
-  | "refills"
-  | "useractivity"
-  | "daysbeendonator"
-  | "gymenergy"
-  | "gymstrength"
-  | "gymspeed"
-  | "gymdefense"
-  | "gymdexterity";
-
-type LifestyleDailyChartMetric = LifestyleSnapshotNumberKey | "networth";
-type LifestyleSnapshotReadyColumn = "personal_ready" | "gym_ready" | "fully_ready";
-type LifestyleSnapshotReadyFilter = LifestyleSnapshotReadyColumn | "any_ready";
-type PersonalStatsRecentStatus = "pending" | "completed" | "retry_expired" | "failed";
-
-const LIFESTYLE_DAILY_CHART_METRICS = new Set<LifestyleDailyChartMetric>([
-  "xantaken",
-  "overdosed",
-  "refills",
-  "useractivity",
-  "gymenergy",
-  "gymstrength",
-  "gymspeed",
-  "gymdefense",
-  "gymdexterity",
-  "networth",
-]);
-
-export type DailyStatsAttention = {
-  stale_personalstats: number;
-  missing_donator_days: number;
-  personalstats_target_date: string | null;
-  latest_personalstats_bucket_date: string | null;
-  personalstats_lag_days: number | null;
-  affected_members: Array<{
-    member_id: number;
-    member_name: string | null;
-    error: string | null;
-    updated_at: number | null;
-  }>;
-};
-
-type RepairJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
-type RepairItemStatus = "pending" | "running" | "completed" | "failed" | "skipped";
-
-type LifestyleRepairJobRow = {
-  id: string;
-  status: RepairJobStatus;
-  start_date: string;
-  end_date: string;
-  effective_start_date: string;
-  member_scope: "current";
-  member_id: number | null;
-  calls_per_minute_per_key: number;
-  include_primary_key: number;
-  active_key_count: number;
-  total_items: number;
-  completed_items: number;
-  failed_items: number;
-  skipped_items: number;
-  started_at: number | null;
-  finished_at: number | null;
-  created_at: number;
-  updated_at: number;
-  alert_sent_at: number | null;
-  last_error: string | null;
-};
-
-type LifestyleRepairItemRow = {
-  id: string;
-  job_id: string;
-  member_id: number;
-  member_name: string | null;
-  snapshot_date: string;
-  requested_at: number;
-  status: RepairItemStatus;
-  attempts: number;
-  key_source: string | null;
-  returned_bucket_date: string | null;
-  error: string | null;
-  started_at: number | null;
-  finished_at: number | null;
-  updated_at: number;
-};
-
-type RepairKey = {
-  key: string;
-  keySource: string;
-};
-
-type PersonalStatsRecentRow = {
-  member_id: number;
-  snapshot_date: string;
-  member_name: string | null;
-  level: number | null;
-  position: string | null;
-  requested_at: number;
-  attempted_at: number | null;
-  personal_captured_at: number | null;
-  status: PersonalStatsRecentStatus;
-  error: string | null;
-};
+import {
+  DAILY_GYM_COMPLETE_STATE_NAME,
+  DAILY_LIFESTYLE_COMPLETE_STATE_NAME,
+  DAILY_LIFESTYLE_LOCK_SECONDS,
+  DAILY_LIFESTYLE_LOCK_STATE_NAME,
+  DAILY_LIFESTYLE_REFRESH_LIMIT,
+  DAILY_REFRESH_AFTER_UTC_HOUR,
+  DAILY_REFRESH_AFTER_UTC_MINUTE,
+  DEFAULT_REPAIR_CALLS_PER_MINUTE_PER_KEY,
+  EXPIRED_PERSONAL_STATS_RETRY_LIMIT,
+  GYM_CONTRIBUTOR_STAT_KEYS,
+  LIFESTYLE_DAILY_CHART_METRICS,
+  LIFESTYLE_FETCH_TIMEOUT_MS,
+  LIFESTYLE_STAT_KEYS,
+  MAX_LIFESTYLE_PERIOD_DAYS,
+  MAX_REPAIR_DATE_RANGE_DAYS,
+  MISSING_DONATOR_DAYS_ERROR_CODE,
+  MISSING_PERSONALSTATS_BUCKET_ERROR_CODE,
+  OLD_PERSONALSTATS_BUCKET_ERROR_CODE,
+  PERSONALSTATS_BUCKET_MISMATCH_ERROR_CODE,
+  REPAIR_FAILURE_ALERT_PREFIX,
+  REPAIR_JOB_PROCESS_LIMIT_SECONDS,
+  REPAIR_KEY_PAUSE_PREFIX,
+  RETRY_EXPIRED_PERSONALSTATS_ERROR_CODE,
+  TORN_LIFESTYLE_STAT_KEYS,
+} from "./model";
+import type {
+  DailyStatsAttention,
+  GymContributorStats,
+  GymContributorStatKey,
+  LifestyleDailyChartMetric,
+  LifestyleMemberRow,
+  LifestylePeriodRow,
+  LifestyleRepairItemRow,
+  LifestyleRepairJobRow,
+  LifestyleSnapshotNumberKey,
+  LifestyleSnapshotReadyFilter,
+  LifestyleSnapshotRow,
+  LifestyleStatKey,
+  LifestyleStats,
+  LifestyleStatTimestamps,
+  LifestyleTimestampKey,
+  PersonalStatsRecentRow,
+  PersonalStatsRecentStatus,
+  RepairItemStatus,
+  RepairJobStatus,
+  RepairKey,
+  TimedLifestyleStats,
+} from "./model";
+export type { DailyStatsAttention } from "./model";
 
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
   const availableRange = await readLifestyleSnapshotDateRange(env, "any_ready");
