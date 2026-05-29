@@ -46,7 +46,8 @@ function buildXanaxCompetitionReminderSvg({
       fill: "#cbd5e1",
     }),
     `<rect x="34" y="158" width="1042" height="222" rx="24" fill="#111827"/>`,
-    `<path d="M34 318 H1076 V380 H34 Z" fill="#020617" opacity="0.28"/>`,
+    `<rect x="34" y="318" width="1042" height="62" rx="24" fill="#020617" opacity="0.22"/>`,
+    `<rect x="34" y="318" width="1042" height="31" fill="#020617" opacity="0.22"/>`,
     svgText(78, 214, "Prize if won this month", { size: 30, weight: 800, fill: "#e5e7eb" }),
     svgText(78, 318, formatMoney(currentPrize), {
       size: 100,
@@ -70,14 +71,14 @@ function buildXanaxCompetitionReminderSvg({
 
 function renderXanaxSprinkles(xanaxImageDataUri: string | null | undefined): string {
   const sprinkles = [
-    { x: 18, y: 74, size: 70, rotation: -18, opacity: 0.28 },
-    { x: 1090, y: 88, size: 68, rotation: 16, opacity: 0.26 },
-    { x: 166, y: 144, size: 56, rotation: 18, opacity: 0.22 },
-    { x: 956, y: 146, size: 58, rotation: -14, opacity: 0.22 },
-    { x: 104, y: 398, size: 64, rotation: -16, opacity: 0.24 },
-    { x: 1008, y: 398, size: 64, rotation: 14, opacity: 0.24 },
-    { x: 150, y: 522, size: 58, rotation: 20, opacity: 0.22 },
-    { x: 958, y: 522, size: 60, rotation: -20, opacity: 0.22 },
+    { x: 18, y: 74, size: 76, rotation: -18, opacity: 0.5 },
+    { x: 1090, y: 88, size: 74, rotation: 16, opacity: 0.48 },
+    { x: 166, y: 144, size: 62, rotation: 18, opacity: 0.42 },
+    { x: 956, y: 146, size: 64, rotation: -14, opacity: 0.42 },
+    { x: 104, y: 398, size: 70, rotation: -16, opacity: 0.46 },
+    { x: 1008, y: 398, size: 70, rotation: 14, opacity: 0.46 },
+    { x: 150, y: 522, size: 64, rotation: 20, opacity: 0.42 },
+    { x: 958, y: 522, size: 66, rotation: -20, opacity: 0.42 },
   ];
 
   return sprinkles
