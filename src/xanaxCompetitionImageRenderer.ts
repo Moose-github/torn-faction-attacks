@@ -18,79 +18,51 @@ function buildXanaxCompetitionReminderSvg({
   monthKey,
   currentPrize,
 }: XanaxCompetitionImageData): string {
-  const width = 1200;
-  const height = 675;
+  const width = 1108;
+  const height = 591;
   const monthLabel = formatMonthLabel(monthKey);
 
   return [
     `<svg xmlns="${SVG_NS}" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
     "<defs>",
-    "<linearGradient id=\"bg\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\">",
-    "<stop offset=\"0%\" stop-color=\"#092f3f\"/>",
-    "<stop offset=\"45%\" stop-color=\"#124e5f\"/>",
-    "<stop offset=\"100%\" stop-color=\"#172554\"/>",
-    "</linearGradient>",
     "<linearGradient id=\"gold\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\">",
     "<stop offset=\"0%\" stop-color=\"#fde68a\"/>",
     "<stop offset=\"100%\" stop-color=\"#f59e0b\"/>",
     "</linearGradient>",
     "</defs>",
-    `<rect width="${width}" height="${height}" fill="url(#bg)"/>`,
-    `<path d="M760 0 L1200 0 L1200 166 L900 166 Z" fill="#38bdf8" opacity="0.12"/>`,
-    `<path d="M0 546 L350 546 L260 675 L0 675 Z" fill="#f59e0b" opacity="0.12"/>`,
-    renderCapsules(),
-    `<rect x="46" y="42" width="1108" height="591" rx="28" fill="#f8fafc" opacity="0.96"/>`,
-    `<rect x="78" y="76" width="1044" height="96" rx="20" fill="#0f172a"/>`,
-    svgText(108, 120, "Xanax Competition", {
+    `<rect width="${width}" height="${height}" rx="28" fill="#f8fafc"/>`,
+    `<rect x="32" y="34" width="1044" height="96" rx="20" fill="#0f172a"/>`,
+    svgText(62, 78, "Xanax Competition", {
       size: 42,
       weight: 800,
       fill: "#ffffff",
     }),
-    svgText(110, 150, monthLabel, {
+    svgText(64, 108, monthLabel, {
       size: 20,
       weight: 800,
       fill: "#cbd5e1",
     }),
-    `<rect x="80" y="206" width="1042" height="250" rx="24" fill="#111827"/>`,
-    `<path d="M80 382 H1122 V456 H80 Z" fill="#020617" opacity="0.28"/>`,
-    svgText(124, 264, "Prize if won this month", { size: 30, weight: 800, fill: "#e5e7eb" }),
-    svgText(124, 374, formatMoney(currentPrize), {
+    `<rect x="34" y="164" width="1042" height="250" rx="24" fill="#111827"/>`,
+    `<path d="M34 340 H1076 V414 H34 Z" fill="#020617" opacity="0.28"/>`,
+    svgText(78, 222, "Prize if won this month", { size: 30, weight: 800, fill: "#e5e7eb" }),
+    svgText(78, 332, formatMoney(currentPrize), {
       size: 104,
       weight: 800,
       fill: "#fbbf24",
       maxLength: 18,
     }),
-    `<rect x="80" y="488" width="1042" height="86" rx="18" fill="#ffffff" stroke="#dbe4ee"/>`,
-    svgText(114, 524, `Monthly challenge: take ${XANAX_TARGET} Xanax during the month.`, {
+    `<rect x="34" y="446" width="1042" height="86" rx="18" fill="#ffffff" stroke="#dbe4ee"/>`,
+    svgText(68, 482, `Monthly challenge: take ${XANAX_TARGET} Xanax during the month.`, {
       size: 18,
       weight: 800,
       fill: "#0f172a",
     }),
-    svgText(114, 552, "If unclaimed, the prize rolls over by $10,000,000 every month until it is claimed.", {
+    svgText(68, 510, "If unclaimed, the prize rolls over by $10,000,000 every month until it is claimed.", {
       size: 17,
       fill: "#475569",
     }),
     "</svg>",
   ].join("");
-}
-
-function renderCapsules(): string {
-  const capsules = [
-    { x: 1002, y: 70, rotation: -14, fill: "#93c5fd" },
-    { x: 1056, y: 174, rotation: 18, fill: "#5eead4" },
-    { x: 130, y: 606, rotation: 16, fill: "#fde68a" },
-    { x: 224, y: 584, rotation: -18, fill: "#67e8f9" },
-  ];
-
-  return capsules
-    .map(
-      (capsule) =>
-        `<g transform="translate(${capsule.x} ${capsule.y}) rotate(${capsule.rotation})">` +
-        `<rect x="-32" y="-11" width="64" height="22" rx="11" fill="${capsule.fill}" opacity="0.4"/>` +
-        `<line x1="0" y1="-10" x2="0" y2="10" stroke="#f8fafc" stroke-width="2" opacity="0.7"/>` +
-        "</g>",
-    )
-    .join("");
 }
 
 function svgText(
