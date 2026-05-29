@@ -43,9 +43,9 @@ import {
   MemberLifestyleRepairJob,
   WarSummary,
   WarType,
-} from "../api";
-import { CollapsiblePanel, PanelHeader } from "../components/Common";
-import { formatLongDateTime, formatNumber } from "../utils/format";
+} from "../../api";
+import { CollapsiblePanel, PanelHeader } from "../../components/Common";
+import { formatLongDateTime, formatNumber } from "../../utils/format";
 
 export function AdminControls() {
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>

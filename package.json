@@ -23,11 +23,15 @@
 	"private": true,
 	"scripts": {
 		"cf-typegen": "wrangler types",
-		"check": "tsc && wrangler deploy --dry-run",
+		"check": "npm run check:worker && npm run check:dashboard",
+		"check:all": "npm run schema:check && npm run test && npm run check",
+		"check:dashboard": "npm --prefix dashboard run build",
+		"check:worker": "tsc && wrangler deploy --dry-run",
 		"deploy": "wrangler deploy",
 		"dev": "npm run seedLocalD1 && wrangler dev",
 		"migrate:local": "wrangler d1 migrations apply DB --local",
 		"migrate:remote": "wrangler d1 migrations apply DB --remote",
+		"schema:check": "node scripts/schema-tools.mjs",
 		"seedLocalD1": "wrangler d1 migrations apply DB --local",
 		"test": "vitest run"
 	},
