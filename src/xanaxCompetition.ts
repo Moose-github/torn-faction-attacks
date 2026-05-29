@@ -366,6 +366,7 @@ async function readCompetitionProgress(
       )
     WHERE members.faction_id = ?
       AND members.is_current = 1
+      AND members.report_exempt = 0
     `,
   )
     .bind(startDate, nextStartDate, startDate, startDate, nextStartDate, HOME_FACTION_ID)

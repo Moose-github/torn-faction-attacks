@@ -725,6 +725,7 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
       wms.member_id,
       MAX(wms.member_name) AS member_name,
       COALESCE(MAX(h.is_current), 0) AS is_current_member,
+      COALESCE(MAX(h.report_exempt), 0) AS report_exempt,
       COUNT(DISTINCT wms.war_id) AS wars_participated,
       COALESCE(SUM(wms.attacks_vs_enemy_total), 0) AS attacks_vs_enemy_total,
       COALESCE(SUM(wms.attacks_vs_enemy_successful), 0) AS attacks_vs_enemy_successful,
@@ -769,6 +770,7 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     LEFT JOIN home_faction_members h ON h.member_id = wms.member_id
     WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
       AND (? = 0 OR COALESCE(h.is_current, 0) = 1)
+      AND COALESCE(h.report_exempt, 0) = 0
     GROUP BY wms.member_id
     ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, attacks_vs_enemy_total DESC
     `,

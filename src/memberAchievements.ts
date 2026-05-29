@@ -283,6 +283,7 @@ async function rankedLifestyleRows(
       AND start_snapshot.${readyColumn} = 1
       AND members.faction_id = ?
       AND members.is_current = 1
+      AND members.report_exempt = 0
     `,
   )
     .bind(baselineDate, sourceSnapshotDate, HOME_FACTION_ID)
@@ -329,6 +330,7 @@ async function rankedMugRows(
       ON members.member_id = attacks.attacker_id
      AND members.faction_id = ?
      AND members.is_current = 1
+     AND members.report_exempt = 0
     WHERE attacks.started >= ?
       AND attacks.started < ?
       AND attacks.attacker_faction_id = ?

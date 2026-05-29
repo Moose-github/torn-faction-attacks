@@ -277,6 +277,7 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
     JOIN home_faction_members
       ON home_faction_members.member_id = snapshots.member_id
      AND home_faction_members.is_current = 1
+     AND home_faction_members.report_exempt = 0
     WHERE snapshots.snapshot_date BETWEEN ? AND ?
       AND (snapshots.personal_ready = 1 OR snapshots.gym_ready = 1)
     ORDER BY snapshots.member_id ASC, snapshots.snapshot_date ASC
@@ -361,6 +362,7 @@ export async function getMemberLifestyleDailyChart(url: URL, env: Env): Promise<
     JOIN home_faction_members members
       ON members.member_id = snapshots.member_id
      AND members.is_current = 1
+     AND members.report_exempt = 0
     WHERE snapshots.snapshot_date BETWEEN ? AND ?
       AND snapshots.member_id IN (${placeholders})
       AND snapshots.${readyColumn} = 1
@@ -584,6 +586,7 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
     JOIN home_faction_members members
       ON members.member_id = snapshots.member_id
      AND members.is_current = 1
+     AND members.report_exempt = 0
     WHERE snapshots.personal_ready = 1
     `,
   ).first()) as { snapshot_date: string | null } | null;
@@ -603,6 +606,7 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
     JOIN member_personal_stats_recent stats
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
+      AND members.report_exempt = 0
       AND (
         stats.status = 'retry_expired'
         OR (
@@ -653,6 +657,7 @@ export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttent
     JOIN member_personal_stats_recent stats
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
+      AND members.report_exempt = 0
     `,
   )
     .bind(
@@ -1823,6 +1828,7 @@ async function seedPersonalStatsRecentQueue(env: Env, activeDates: string[]): Pr
       FROM home_faction_members
       WHERE faction_id = ?
         AND is_current = 1
+        AND report_exempt = 0
       ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
         member_name = excluded.member_name,
         level = excluded.level,
@@ -1912,6 +1918,7 @@ async function hydratePersonalStatsRecentQueueFromSnapshots(
       ON members.member_id = snapshots.member_id
      AND members.faction_id = ?
      AND members.is_current = 1
+     AND members.report_exempt = 0
     WHERE snapshots.snapshot_date IN (${activeDates.map(() => "?").join(",")})
       AND snapshots.personal_ready = 1
     ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
@@ -2001,6 +2008,7 @@ async function readPersonalStatsRecentCandidates(
         ON members.member_id = recent.member_id
        AND members.faction_id = ?
        AND members.is_current = 1
+       AND members.report_exempt = 0
       WHERE recent.snapshot_date IN (${activeDates.map(() => "?").join(",")})
         AND recent.personal_captured_at IS NULL
         AND recent.status != 'retry_expired'
@@ -2031,6 +2039,7 @@ async function readPersonalStatsRecentCandidates(
         ON members.member_id = recent.member_id
        AND members.faction_id = ?
        AND members.is_current = 1
+       AND members.report_exempt = 0
       WHERE recent.personal_captured_at IS NULL
         AND recent.status = 'retry_expired'
       ORDER BY recent.snapshot_date ASC, recent.attempted_at ASC NULLS FIRST, recent.member_name ASC
@@ -2054,6 +2063,7 @@ async function isPersonalStatsDateComplete(env: Env, targetSnapshotDate: string)
      AND snapshots.personal_ready = 1
     WHERE members.faction_id = ?
       AND members.is_current = 1
+      AND members.report_exempt = 0
       AND snapshots.member_id IS NULL
     LIMIT 1
     `,
@@ -2358,7 +2368,7 @@ async function refreshGymContributorStats(
     return { refreshed_stats: GYM_CONTRIBUTOR_STAT_KEYS.length, updated_members: 0 };
   }
 
-  const homeMembers = await readHomeMembersById(env);
+  const homeMembers = await readHomeMembersById(env, { includeReportExempt: true });
   const statements = Array.from(contributorStats.entries()).map(([memberId, stats]) => {
     const member = homeMembers.get(memberId);
     return env.DB.prepare(
@@ -2441,16 +2451,20 @@ async function fetchFactionContributorStat(
   return extractContributorValues(data?.contributors, stat);
 }
 
-async function readHomeMembersById(env: Env): Promise<Map<number, LifestyleMemberRow>> {
+async function readHomeMembersById(
+  env: Env,
+  options: { includeReportExempt?: boolean } = {},
+): Promise<Map<number, LifestyleMemberRow>> {
   const rows = ((await env.DB.prepare(
     `
     SELECT member_id, name, level, position, updated_at AS personal_captured_at
     FROM home_faction_members
     WHERE faction_id = ?
       AND is_current = 1
+      AND (? = 1 OR report_exempt = 0)
     `,
   )
-    .bind(HOME_FACTION_ID)
+    .bind(HOME_FACTION_ID, options.includeReportExempt ? 1 : 0)
     .all()).results ?? []) as LifestyleMemberRow[];
 
   return new Map(rows.map((row) => [row.member_id, row]));
@@ -2556,6 +2570,7 @@ async function writeLifestyleSnapshotForDate(
         ON gym.member_id = members.member_id
       WHERE members.faction_id = ?
         AND members.is_current = 1
+        AND members.report_exempt = 0
     )
     INSERT INTO member_lifestyle_stat_snapshots (
       member_id,

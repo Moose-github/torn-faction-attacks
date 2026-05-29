@@ -142,7 +142,7 @@ CREATE TABLE home_faction_members (
   ff_battlestats INTEGER,
   ff_battlestats_updated_at INTEGER,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-, networth INTEGER, networth_updated_at INTEGER, bsp_battlestats INTEGER, bsp_battlestats_updated_at INTEGER, is_current INTEGER NOT NULL DEFAULT 1);
+, networth INTEGER, networth_updated_at INTEGER, bsp_battlestats INTEGER, bsp_battlestats_updated_at INTEGER, is_current INTEGER NOT NULL DEFAULT 1, report_exempt INTEGER NOT NULL DEFAULT 0, report_exempt_reason TEXT, report_exempt_updated_at INTEGER);
 
 CREATE TABLE ingestion_runs (
   id TEXT PRIMARY KEY,
@@ -757,6 +757,9 @@ CREATE INDEX idx_home_faction_members_faction
 
 CREATE INDEX idx_home_faction_members_ranked
   ON home_faction_members(faction_id, ff_battlestats DESC, level DESC, name);
+
+CREATE INDEX idx_home_faction_members_reportable
+  ON home_faction_members(faction_id, is_current, report_exempt, member_id);
 
 CREATE INDEX idx_ingestion_runs_started
   ON ingestion_runs(started_at DESC);

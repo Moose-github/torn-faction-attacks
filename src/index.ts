@@ -23,7 +23,11 @@ import {
 } from "./enemyScouting";
 import { getRecentFactionAttacks } from "./factionAttacks";
 import { getWarActivityHeatmap } from "./heatmap";
-import { getCurrentHomeFactionMemberSummary } from "./homeFactionMembers";
+import {
+  getCurrentHomeFactionMemberSummary,
+  listHomeFactionReportExemptions,
+  updateHomeFactionReportExemption,
+} from "./homeFactionMembers";
 import { getLatestIngestionRun, runIngestion } from "./ingestion";
 import {
   cancelMemberLifestyleRepairJob,
@@ -227,6 +231,14 @@ async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
 
   if (matchesExactRoute(url, request, "/api/admin/member-lifestyle/repair-jobs", "GET")) {
     return withAdmin(routeContext, () => listMemberLifestyleRepairJobs(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/home-faction-members/report-exemptions", "GET")) {
+    return withAdmin(routeContext, () => listHomeFactionReportExemptions(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/home-faction-members/report-exemptions", "POST")) {
+    return withAdmin(routeContext, () => updateHomeFactionReportExemption(request, env));
   }
 
   const lifestyleRepairJobId = memberLifestyleRepairJobIdFromRoute(url, request);

@@ -67,10 +67,28 @@ export type HomeFactionMemberSummary = {
   ok: boolean;
   faction_id: number;
   current_members: number;
+  reportable_members: number;
+  report_exempt_members: number;
   revivable_members: number;
   stat_estimates: number;
   networth_estimates: number;
   updated_at: number | null;
+};
+
+export type HomeFactionReportExemptionMember = {
+  member_id: number;
+  name: string;
+  position: string | null;
+  is_current: number;
+  report_exempt: number;
+  report_exempt_reason: string | null;
+  report_exempt_updated_at: number | null;
+};
+
+export type HomeFactionReportExemptionsResponse = {
+  ok: boolean;
+  faction_id: number;
+  members: HomeFactionReportExemptionMember[];
 };
 
 export type RecentFactionAttack = {
@@ -1370,6 +1388,13 @@ export async function getHomeFactionMemberSummary(): Promise<HomeFactionMemberSu
   return getJson<HomeFactionMemberSummary>("/api/home-faction-members/summary");
 }
 
+export async function getHomeFactionReportExemptions(): Promise<HomeFactionReportExemptionsResponse> {
+  return getJson<HomeFactionReportExemptionsResponse>(
+    "/api/admin/home-faction-members/report-exemptions",
+    true,
+  );
+}
+
 export async function getRecentFactionAttacks(
   options: { limit?: number; windowSeconds?: number } = {},
 ): Promise<RecentFactionAttacksResponse> {
@@ -1491,6 +1516,17 @@ export async function getTornApiUsage(windowSeconds = 60 * 60): Promise<TornApiU
 
 export async function getMemberLifestyleRepairJobs(): Promise<MemberLifestyleRepairJobsResponse> {
   return getJson<MemberLifestyleRepairJobsResponse>("/api/admin/member-lifestyle/repair-jobs", true);
+}
+
+export async function updateHomeFactionReportExemption(payload: {
+  member_id: number;
+  report_exempt: boolean;
+  reason?: string;
+}): Promise<HomeFactionReportExemptionsResponse> {
+  return postJson<HomeFactionReportExemptionsResponse>(
+    "/api/admin/home-faction-members/report-exemptions",
+    payload,
+  );
 }
 
 export async function createMemberLifestyleRepairJob(payload: {

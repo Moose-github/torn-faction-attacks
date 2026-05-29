@@ -12,6 +12,7 @@ import {
   fetchTornWarReport,
   getLatestIngestionRun,
   getAdminXanaxCompetition,
+  getHomeFactionReportExemptions,
   getMemberLifestyleRepairJobs,
   getTornApiUsage,
   getWars,
@@ -33,9 +34,11 @@ import {
   runIngestion,
   sendDiscordMessage,
   updateAdminXanaxCompetitionSettings,
+  updateHomeFactionReportExemption,
   updateOfficialWar,
   TornApiUsageResponse,
   AdminXanaxCompetitionResponse,
+  HomeFactionReportExemptionMember,
   MemberLifestyleRepairJob,
   WarSummary,
   WarType,
@@ -116,6 +119,12 @@ export function AdminControls() {
   });
   const [lifestyleRepairJobs, setLifestyleRepairJobs] = React.useState<MemberLifestyleRepairJob[]>([]);
   const [isLoadingLifestyleRepairJobs, setIsLoadingLifestyleRepairJobs] = React.useState(false);
+  const [reportExemptionMembers, setReportExemptionMembers] = React.useState<HomeFactionReportExemptionMember[]>([]);
+  const [isLoadingReportExemptions, setIsLoadingReportExemptions] = React.useState(false);
+  const [reportExemptionForm, setReportExemptionForm] = React.useState({
+    memberId: "",
+    reason: "Memorial account",
+  });
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -260,6 +269,7 @@ export function AdminControls() {
       await loadLatestIngestionRun();
       await loadTornApiUsage();
       await loadLifestyleRepairJobs();
+      await loadReportExemptions();
       await loadXanaxCompetition();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -303,6 +313,29 @@ export function AdminControls() {
     }
   }
 
+  async function loadReportExemptions() {
+    setIsLoadingReportExemptions(true);
+    try {
+      const response = await getHomeFactionReportExemptions();
+      setReportExemptionMembers(response.members);
+      const availableMemberIds = new Set(
+        response.members
+          .filter((member) => member.is_current === 1 && member.report_exempt === 0)
+          .map((member) => String(member.member_id)),
+      );
+      setReportExemptionForm((current) => ({
+        ...current,
+        memberId: availableMemberIds.has(current.memberId)
+          ? current.memberId
+          : String(response.members.find((member) => member.is_current === 1 && member.report_exempt === 0)?.member_id ?? ""),
+      }));
+    } catch {
+      setReportExemptionMembers([]);
+    } finally {
+      setIsLoadingReportExemptions(false);
+    }
+  }
+
   async function loadXanaxCompetition() {
     setIsLoadingXanaxCompetition(true);
     try {
@@ -330,6 +363,7 @@ export function AdminControls() {
       loadLatestIngestionRun();
       loadTornApiUsage();
       loadLifestyleRepairJobs();
+      loadReportExemptions();
       loadXanaxCompetition();
     }
   }, [authSession?.access_level]);
@@ -338,6 +372,10 @@ export function AdminControls() {
   const officialWars = wars.filter(isOfficialWar);
   const currentOfficialWar = officialWars.find(isCurrentOfficialWar) ?? null;
   const historicalOfficialWars = officialWars.filter(isHistoricalOfficialWar);
+  const currentReportableMembers = reportExemptionMembers.filter(
+    (member) => member.is_current === 1 && member.report_exempt === 0,
+  );
+  const exemptReportMembers = reportExemptionMembers.filter((member) => member.report_exempt === 1);
 
   return (
     <>
@@ -1185,6 +1223,117 @@ export function AdminControls() {
               ) : (
                 <p className="panel-description">
                   No lifestyle repair jobs have been created yet.
+                </p>
+              )}
+            </section>
+
+            <section className="admin-tool-section admin-tool-section-wide">
+              <PanelHeader title="Report exemptions" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const memberId = Number(reportExemptionForm.memberId);
+                  runAdminAction("Add report exemption", () =>
+                    updateHomeFactionReportExemption({
+                      member_id: memberId,
+                      report_exempt: true,
+                      reason: reportExemptionForm.reason.trim() || undefined,
+                    }),
+                  );
+                }}
+              >
+                <label>
+                  <span>Member</span>
+                  <select
+                    value={reportExemptionForm.memberId}
+                    onChange={(event) =>
+                      setReportExemptionForm({ ...reportExemptionForm, memberId: event.target.value })
+                    }
+                    required
+                  >
+                    <option value="">Select member</option>
+                    {currentReportableMembers.map((member) => (
+                      <option key={member.member_id} value={member.member_id}>
+                        {member.name} [{member.member_id}]
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Reason</span>
+                  <input
+                    value={reportExemptionForm.reason}
+                    maxLength={240}
+                    onChange={(event) =>
+                      setReportExemptionForm({ ...reportExemptionForm, reason: event.target.value })
+                    }
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="admin-button primary admin-form-wide"
+                  disabled={isBusy !== null || !reportExemptionForm.memberId}
+                >
+                  {isBusy === "Add report exemption" ? "Saving" : "Exclude from reports"}
+                </button>
+              </form>
+              <div className="admin-inline-actions">
+                <button
+                  type="button"
+                  className="admin-button"
+                  disabled={isBusy !== null || isLoadingReportExemptions}
+                  onClick={loadReportExemptions}
+                >
+                  {isLoadingReportExemptions ? "Loading" : "Refresh exemptions"}
+                </button>
+              </div>
+              {exemptReportMembers.length > 0 ? (
+                <div className="stock-status-table-wrap">
+                  <table className="stock-status-table">
+                    <thead>
+                      <tr>
+                        <th>Member</th>
+                        <th>Status</th>
+                        <th>Reason</th>
+                        <th>Updated</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {exemptReportMembers.map((member) => (
+                        <tr key={member.member_id}>
+                          <td>
+                            {member.name} [{member.member_id}]
+                          </td>
+                          <td>{member.is_current === 1 ? "Current" : "Former"}</td>
+                          <td>{member.report_exempt_reason ?? "-"}</td>
+                          <td>{formatLongDateTime(member.report_exempt_updated_at)}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="admin-button"
+                              disabled={isBusy !== null}
+                              onClick={() =>
+                                runAdminAction("Remove report exemption", () =>
+                                  updateHomeFactionReportExemption({
+                                    member_id: member.member_id,
+                                    report_exempt: false,
+                                  }),
+                                )
+                              }
+                            >
+                              Include
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="panel-description">
+                  No members are currently excluded from reports.
                 </p>
               )}
             </section>
