@@ -480,6 +480,9 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       id?: unknown;
       practical_start_time?: unknown;
       practical_finish_time?: unknown;
+      war_type?: unknown;
+      faction_respect_limit?: unknown;
+      member_respect_limit?: unknown;
     };
 
     const warId = Number(body.id);
@@ -514,11 +517,36 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       );
     }
 
+    const warType = parseWarType(body.war_type, existing.war_type ?? "real");
+    if (warType === "event") {
+      return json(
+        { ok: false, error: "Current and historical war edits only support real or termed wars", code: "INVALID_WAR_TYPE" },
+        400,
+      );
+    }
+
     const practicalStartTime = Number(body.practical_start_time);
     const practicalFinishTime = parseOptionalInteger(
       body.practical_finish_time,
       "practical_finish_time",
     );
+    const factionRespectLimit = parseOptionalNonNegativeNumber(
+      body.faction_respect_limit,
+      "faction_respect_limit",
+    );
+    const memberRespectLimit = parseOptionalNonNegativeNumber(
+      body.member_respect_limit,
+      "member_respect_limit",
+    );
+    const validationError = validateTermedWarFields(
+      warType,
+      0,
+      factionRespectLimit,
+      memberRespectLimit,
+    );
+    if (validationError) {
+      return validationError;
+    }
 
     if (!Number.isInteger(practicalStartTime) || practicalStartTime < 0) {
       return json({ ok: false, error: "Invalid practical_start_time", code: "INVALID_START_TIME" }, 400);
@@ -540,6 +568,9 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       practicalStartTime,
       practicalFinishTime,
       enemyFactionId: existing.enemy_faction_id,
+      warType,
+      factionRespectLimit,
+      memberRespectLimit,
     });
 
     return json({ ok: true, war });

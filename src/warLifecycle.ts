@@ -97,19 +97,48 @@ export async function setWarPracticalWindow(
     practicalStartTime: number;
     practicalFinishTime: number | null;
     enemyFactionId: number | null;
+    warType?: string;
+    factionRespectLimit?: number | null;
+    memberRespectLimit?: number | null;
   },
 ): Promise<WarRow | null> {
+  const warTypeAssignment = options.warType === undefined
+    ? ""
+    : `,
+        war_type = ?,
+        auto_end_enabled = CASE WHEN ? = 'termed' THEN auto_end_enabled ELSE 0 END,
+        faction_respect_limit = CASE WHEN ? = 'termed' THEN ? ELSE NULL END,
+        member_respect_limit = CASE WHEN ? = 'termed' THEN ? ELSE NULL END`;
+  const bindValues: Array<number | string | null> = [
+    options.practicalStartTime,
+    options.practicalFinishTime,
+  ];
+
+  if (options.warType !== undefined) {
+    bindValues.push(
+      options.warType,
+      options.warType,
+      options.warType,
+      options.factionRespectLimit ?? null,
+      options.warType,
+      options.memberRespectLimit ?? null,
+    );
+  }
+
+  bindValues.push(options.warId);
+
   const war = (await env.DB.prepare(
     `
     UPDATE wars
     SET practical_start_time = ?,
         practical_finish_time = ?
+        ${warTypeAssignment}
     WHERE id = ?
     RETURNING
       ${WAR_RETURNING_COLUMNS}
     `,
   )
-    .bind(options.practicalStartTime, options.practicalFinishTime, options.warId)
+    .bind(...bindValues)
     .first()) as WarRow | null;
 
   if (options.practicalFinishTime !== null && options.practicalFinishTime < nowSeconds()) {

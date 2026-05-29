@@ -680,17 +680,29 @@ export function AdminControls() {
                 form={currentWarEditForm}
                 onChange={setCurrentWarEditForm}
                 practicalOnly
+                allowedWarTypes={["real", "termed"]}
               />
               <button
-                type="submit"
-                className="admin-button primary admin-form-wide"
+                type="button"
+                className="admin-button"
                 disabled={isBusy !== null}
+                onClick={() => {
+                  const now = Math.floor(Date.now() / 1000);
+                  setCurrentWarEditForm((current) => {
+                    const next = {
+                      ...current,
+                      startTime: dateTimeLocalFromSeconds(now),
+                      startEpoch: String(now),
+                    };
+                    return convertWarFormTimeMode(next, adminTimeMode);
+                  });
+                }}
               >
-                Confirm changes
+                Set practical start now
               </button>
               <button
                 type="button"
-                className="admin-button admin-form-wide"
+                className="admin-button"
                 disabled={isBusy !== null}
                 onClick={() => {
                   const now = Math.floor(Date.now() / 1000);
@@ -704,7 +716,14 @@ export function AdminControls() {
                   });
                 }}
               >
-                Set practical finish time to now
+                Set practical finish now
+              </button>
+              <button
+                type="submit"
+                className="admin-button primary admin-form-wide"
+                disabled={isBusy !== null}
+              >
+                Confirm changes
               </button>
             </form>
           </section>
@@ -771,6 +790,7 @@ export function AdminControls() {
                   form={historicalWarEditForm}
                   onChange={setHistoricalWarEditForm}
                   practicalOnly
+                  allowedWarTypes={["real", "termed"]}
                 />
                 <button
                   type="submit"
@@ -1840,6 +1860,37 @@ function WarFields({
     return (
       <>
         <label>
+          <span>War type</span>
+          <select value={form.warType} onChange={(event) => update("warType", event.target.value as Exclude<WarType, "all">)}>
+            {warTypeOptions.map((warType) => (
+              <option value={warType} key={warType}>
+                {warTypeLabel(warType)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="admin-form-spacer" aria-hidden="true" />
+        {canUseTermFields ? (
+          <>
+            <label>
+              <span>Faction score goal</span>
+              <input
+                inputMode="decimal"
+                value={form.factionRespectLimit}
+                onChange={(event) => update("factionRespectLimit", event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Member score goal</span>
+              <input
+                inputMode="decimal"
+                value={form.memberRespectLimit}
+                onChange={(event) => update("memberRespectLimit", event.target.value)}
+              />
+            </label>
+          </>
+        ) : null}
+        <label>
           <span>Practical start time</span>
           {form.timeMode === "epoch" ? (
             <input inputMode="numeric" value={form.startEpoch} onChange={(event) => update("startEpoch", event.target.value)} required />
@@ -2134,12 +2185,19 @@ function exportBoundaryTime(
 }
 
 function toPracticalWarEditPayload(id: number, form: AdminWarFormState): AdminWarPayload {
-  return {
+  const payload: AdminWarPayload = {
     id,
     war_type: form.warType,
     practical_start_time: secondsFromFormTime(form, "start"),
     practical_finish_time: optionalSecondsFromFormTime(form, "finish"),
   };
+
+  if (form.warType === "termed") {
+    setOptionalNumber(payload, "faction_respect_limit", form.factionRespectLimit);
+    setOptionalNumber(payload, "member_respect_limit", form.memberRespectLimit);
+  }
+
+  return payload;
 }
 
 function toRelinkPayload(form: { tornWarId: string; name: string; fetchMissing: boolean }): {
