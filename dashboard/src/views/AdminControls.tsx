@@ -120,7 +120,6 @@ export function AdminControls() {
   const [lifestyleRepairJobs, setLifestyleRepairJobs] = React.useState<MemberLifestyleRepairJob[]>([]);
   const [isLoadingLifestyleRepairJobs, setIsLoadingLifestyleRepairJobs] = React.useState(false);
   const [reportExemptionMembers, setReportExemptionMembers] = React.useState<HomeFactionReportExemptionMember[]>([]);
-  const [isLoadingReportExemptions, setIsLoadingReportExemptions] = React.useState(false);
   const [reportExemptionForm, setReportExemptionForm] = React.useState({
     memberId: "",
     reason: "Memorial account",
@@ -314,7 +313,6 @@ export function AdminControls() {
   }
 
   async function loadReportExemptions() {
-    setIsLoadingReportExemptions(true);
     try {
       const response = await getHomeFactionReportExemptions();
       setReportExemptionMembers(response.members);
@@ -331,8 +329,6 @@ export function AdminControls() {
       }));
     } catch {
       setReportExemptionMembers([]);
-    } finally {
-      setIsLoadingReportExemptions(false);
     }
   }
 
@@ -375,7 +371,6 @@ export function AdminControls() {
   const currentReportableMembers = reportExemptionMembers.filter(
     (member) => member.is_current === 1 && member.report_exempt === 0,
   );
-  const exemptReportMembers = reportExemptionMembers.filter((member) => member.report_exempt === 1);
 
   return (
     <>
@@ -1227,7 +1222,7 @@ export function AdminControls() {
               )}
             </section>
 
-            <section className="admin-tool-section admin-tool-section-wide">
+            <section className="admin-tool-section">
               <PanelHeader title="Report exemptions" />
               <form
                 className="admin-form"
@@ -1278,64 +1273,6 @@ export function AdminControls() {
                   {isBusy === "Add report exemption" ? "Saving" : "Exclude from reports"}
                 </button>
               </form>
-              <div className="admin-inline-actions">
-                <button
-                  type="button"
-                  className="admin-button"
-                  disabled={isBusy !== null || isLoadingReportExemptions}
-                  onClick={loadReportExemptions}
-                >
-                  {isLoadingReportExemptions ? "Loading" : "Refresh exemptions"}
-                </button>
-              </div>
-              {exemptReportMembers.length > 0 ? (
-                <div className="stock-status-table-wrap">
-                  <table className="stock-status-table">
-                    <thead>
-                      <tr>
-                        <th>Member</th>
-                        <th>Status</th>
-                        <th>Reason</th>
-                        <th>Updated</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {exemptReportMembers.map((member) => (
-                        <tr key={member.member_id}>
-                          <td>
-                            {member.name} [{member.member_id}]
-                          </td>
-                          <td>{member.is_current === 1 ? "Current" : "Former"}</td>
-                          <td>{member.report_exempt_reason ?? "-"}</td>
-                          <td>{formatLongDateTime(member.report_exempt_updated_at)}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="admin-button"
-                              disabled={isBusy !== null}
-                              onClick={() =>
-                                runAdminAction("Remove report exemption", () =>
-                                  updateHomeFactionReportExemption({
-                                    member_id: member.member_id,
-                                    report_exempt: false,
-                                  }),
-                                )
-                              }
-                            >
-                              Include
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="panel-description">
-                  No members are currently excluded from reports.
-                </p>
-              )}
             </section>
 
             <section className="admin-tool-section">
