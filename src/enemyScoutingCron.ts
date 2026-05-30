@@ -264,7 +264,7 @@ async function refreshCurrentEnemyMemberTrackingForWar(
     war.name,
     war.enemy_faction_id,
     war.enemy_scouting_status_checked_at,
-    { includeMembers: options.includeMembers },
+    { includeMembers: options.includeMembers, warType: war.war_type },
   );
 }
 

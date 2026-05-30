@@ -11,7 +11,6 @@ const PUSH_REFERENCE_WINDOW_SECONDS = 10 * 60;
 const PUSH_HISTORY_SECONDS = 24 * 60 * 60;
 const HEATMAP_INTERVAL_MINUTES = 15;
 const PUSH_ALERT_USER_MENTION = "<@327916221330620436>";
-const PUSH_ALERT_ONLINE_MEMBER_LIMIT = 15;
 const PUSH_UNDERWAY_ATTACK_COUNT_THRESHOLD = 6;
 const PUSH_UNDERWAY_ATTACK_SIGNAL_COUNT_THRESHOLD = 3;
 const PUSH_UNDERWAY_ATTACK_SIGNAL_SCORE_THRESHOLD = 13;
@@ -234,7 +233,15 @@ export async function sendEnemyPushAlerts(
   warName: string,
   snapshot: EnemyPushSnapshotInput,
   members: TornFactionMember[] = [],
+  options: { warType?: string | null } = {},
 ): Promise<void> {
+  const warType = options.warType === undefined
+    ? await readEnemyPushAlertWarType(env, warId)
+    : options.warType;
+  if (normalizeWarType(warType) === "termed") {
+    return;
+  }
+
   const likelyStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:likely`;
   const underwayStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:underway`;
   const setAlertStates = await readSetSyncLatches(env, [likelyStateName, underwayStateName]);
@@ -278,6 +285,21 @@ async function readLatestEnemyPushSnapshot(env: Env, warId: number): Promise<Ene
   )
     .bind(warId)
     .first()) as EnemyPushSnapshotRow | null;
+}
+
+async function readEnemyPushAlertWarType(env: Env, warId: number): Promise<string | null> {
+  const row = (await env.DB.prepare(
+    `
+    SELECT war_type
+    FROM wars
+    WHERE id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first()) as { war_type: string | null } | null;
+
+  return row?.war_type ?? null;
 }
 
 async function readEnemyPushHistory(env: Env, warId: number): Promise<EnemyPushSnapshotRow[]> {
@@ -403,6 +425,10 @@ function pushPressureLevel(score: number, enemyAttacksLast5m: number): string {
   return "quiet";
 }
 
+function normalizeWarType(value: string | null): string {
+  return (value ?? "real").trim().toLowerCase();
+}
+
 async function sendEnemyPushAlertIfNeeded(
   env: Env,
   stateName: string,
@@ -491,24 +517,12 @@ function normalizeLastActionStatus(value: unknown): "online" | "idle" | "offline
 }
 
 function formatOnlineMembersForAlert(members: TornFactionMember[]): string {
-  const onlineMembers = members
-    .filter((member) => normalizeLastActionStatus(member.last_action?.status) === "online")
-    .sort((left, right) => left.name.localeCompare(right.name));
-
-  if (onlineMembers.length === 0) {
+  const onlineCount = members.filter((member) => normalizeLastActionStatus(member.last_action?.status) === "online").length;
+  if (onlineCount === 0) {
     return "Online now: none.";
   }
 
-  const visibleMembers = onlineMembers
-    .slice(0, PUSH_ALERT_ONLINE_MEMBER_LIMIT)
-    .map((member) => `${discordSafeMemberName(member.name)} (${member.id})`);
-  const remaining = onlineMembers.length - visibleMembers.length;
-  const suffix = remaining > 0 ? `, +${remaining} more` : "";
-  return `Online now (${onlineMembers.length}): ${visibleMembers.join(", ")}${suffix}.`;
-}
-
-function discordSafeMemberName(name: string): string {
-  return name.replace(/\s+/g, " ").replace(/@/g, "(at)").trim() || "Unknown";
+  return `Online now: ${onlineCount}.`;
 }
 
 function activityHeatmapInterval(timestamp: number): number {

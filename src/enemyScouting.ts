@@ -158,6 +158,7 @@ export type CurrentScoutingWar = {
   id: number;
   name: string;
   enemy_faction_id: number;
+  war_type: string | null;
   practical_start_time: number;
   practical_finish_time: number | null;
   official_start_time: number | null;
@@ -263,6 +264,7 @@ export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Re
       war.name,
       enemyFactionId,
       war.enemy_scouting_status_checked_at,
+      { warType: war.war_type },
     );
     const refreshedRows = await readEnemyScouting(env, enemyFactionId);
     await refreshMissingFfBattlestats(env, refreshedRows);
@@ -323,6 +325,7 @@ export async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingW
       id,
       name,
       enemy_faction_id,
+      war_type,
       practical_start_time,
       practical_finish_time,
       official_start_time,
@@ -573,7 +576,7 @@ export async function refreshEnemyFactionMemberStatuses(
   warName: string,
   factionId: number,
   previousPollAt: number | null,
-  options: { members?: TornFactionMember[]; includeMembers?: boolean } = {},
+  options: { members?: TornFactionMember[]; includeMembers?: boolean; warType?: string | null } = {},
 ): Promise<EnemyMemberTrackingRefreshMetrics> {
   const fetchedAt = nowSeconds();
   const members = options.members ?? await fetchTornFactionMembers(env, factionId);
@@ -611,7 +614,7 @@ export async function refreshEnemyFactionMemberStatuses(
   }
 
   await markEnemyScoutingStatusChecked(env, warId, fetchedAt);
-  await sendEnemyPushAlerts(env, warId, warName, pushSnapshot, members).catch((err) => {
+  await sendEnemyPushAlerts(env, warId, warName, pushSnapshot, members, { warType: options.warType }).catch((err) => {
     console.warn(`Enemy push Discord alert failed for war ${warId}:`, err?.message || err);
   });
 
