@@ -6,6 +6,7 @@ import {
 } from "../constants";
 import { DEFENSE_ACTION_WINDOW_SQL, OUTGOING_ACTION_WINDOW_SQL } from "../sql";
 import { Env } from "../types";
+import { d1Changes } from "../utils";
 import { ATTACK_MEMBER_STAT_MERGE_SQL, DEFEND_MEMBER_STAT_MERGE_SQL } from "./sqlFragments";
 import { rebuildWarSummaryFromMemberStats } from "./warSummary";
 
@@ -45,6 +46,42 @@ export async function rebuildOpenWarMemberStatsFromRaw(env: Env): Promise<{ wars
 
   return {
     wars_rebuilt: wars.length,
+  };
+}
+
+export async function refreshOpenWarChainBonusAdjustmentsFromRaw(env: Env): Promise<{
+  wars_checked: number;
+  wars_updated: number;
+  stat_rows_updated: number;
+}> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT id
+    FROM wars
+    WHERE status = 'active'
+      AND finalized_at IS NULL
+      AND practical_finish_time IS NULL
+    ORDER BY practical_start_time ASC, id ASC
+    `,
+  ).all();
+
+  const wars = (rows.results ?? []) as { id: number }[];
+  let warsUpdated = 0;
+  let statRowsUpdated = 0;
+
+  for (const war of wars) {
+    const updated = await refreshWarChainBonusAdjustmentsFromRaw(env, war.id);
+    if (updated > 0) {
+      warsUpdated += 1;
+      statRowsUpdated += updated;
+      await rebuildWarSummaryFromMemberStats(env, war.id);
+    }
+  }
+
+  return {
+    wars_checked: wars.length,
+    wars_updated: warsUpdated,
+    stat_rows_updated: statRowsUpdated,
   };
 }
 
@@ -164,6 +201,284 @@ export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Pro
   await upsertWarMemberAttackStats(env, warId);
   await upsertWarMemberDefendStats(env, warId);
   await upsertWarMemberActivityBuckets(env, warId);
+}
+
+async function refreshWarChainBonusAdjustmentsFromRaw(env: Env, warId: number): Promise<number> {
+  const outgoing = await refreshWarOutgoingChainBonusAdjustmentsFromRaw(env, warId);
+  const defending = await refreshWarDefendChainBonusAdjustmentsFromRaw(env, warId);
+  return outgoing + defending;
+}
+
+async function refreshWarOutgoingChainBonusAdjustmentsFromRaw(
+  env: Env,
+  warId: number,
+): Promise<number> {
+  const result = await env.DB.prepare(
+    `
+    WITH chain_members AS (
+      SELECT DISTINCT a.attacker_id AS member_id
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND a.attacker_id IS NOT NULL
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+    ),
+    member_averages AS (
+      SELECT
+        a.attacker_id AS member_id,
+        AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      JOIN chain_members cm ON cm.member_id = a.attacker_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+      GROUP BY a.attacker_id
+    ),
+    war_average AS (
+      SELECT AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+    )
+    INSERT INTO war_member_stats (
+      war_id,
+      member_id,
+      member_name,
+      respect_gained,
+      respect_gained_raw,
+      chain_bonus_hits_vs_enemy,
+      chain_bonus_respect_removed,
+      chain_bonus_hit_values_vs_enemy,
+      chain_bonus_hit_details_vs_enemy
+    )
+    SELECT
+      a.war_id,
+      a.attacker_id,
+      MAX(a.attacker_name),
+      COALESCE(SUM(CASE
+        WHEN w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id
+        THEN CASE
+          WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+           AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
+          ELSE a.respect_gain
+        END
+        ELSE 0
+      END), 0) AS respect_gained,
+      COALESCE(SUM(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+        THEN a.respect_gain
+        ELSE 0
+      END), 0) AS respect_gained_raw,
+      SUM(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN 1
+        ELSE 0
+      END) AS chain_bonus_hits_vs_enemy,
+      COALESCE(SUM(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
+        ELSE 0
+      END), 0) AS chain_bonus_respect_removed,
+      COALESCE(GROUP_CONCAT(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.chain
+        ELSE NULL
+      END, ', '), '') AS chain_bonus_hit_values_vs_enemy,
+      COALESCE(GROUP_CONCAT(CASE
+        WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+         AND a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.chain || ' - ' || printf('%g', ROUND(COALESCE(ma.avg_respect, wa.avg_respect, 0), 1)) || ' respect'
+        ELSE NULL
+      END, char(10)), '') AS chain_bonus_hit_details_vs_enemy
+    FROM attacks a
+    JOIN wars w ON w.id = a.war_id
+    JOIN chain_members cm ON cm.member_id = a.attacker_id
+    JOIN war_member_stats existing ON existing.war_id = a.war_id AND existing.member_id = a.attacker_id
+    LEFT JOIN member_averages ma ON ma.member_id = a.attacker_id
+    LEFT JOIN war_average wa ON 1 = 1
+    WHERE a.war_id = ?
+      AND a.attacker_faction_id = ${HOME_FACTION_ID}
+      AND a.attacker_id IS NOT NULL
+      AND ${OUTGOING_ACTION_WINDOW_SQL}
+    GROUP BY a.war_id, a.attacker_id
+    ON CONFLICT(war_id, member_id) DO UPDATE SET
+      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
+      respect_gained = excluded.respect_gained,
+      respect_gained_raw = excluded.respect_gained_raw,
+      chain_bonus_hits_vs_enemy = excluded.chain_bonus_hits_vs_enemy,
+      chain_bonus_respect_removed = excluded.chain_bonus_respect_removed,
+      chain_bonus_hit_values_vs_enemy = excluded.chain_bonus_hit_values_vs_enemy,
+      chain_bonus_hit_details_vs_enemy = excluded.chain_bonus_hit_details_vs_enemy
+    `,
+  )
+    .bind(warId, warId, warId, warId)
+    .run();
+
+  return d1Changes(result);
+}
+
+async function refreshWarDefendChainBonusAdjustmentsFromRaw(
+  env: Env,
+  warId: number,
+): Promise<number> {
+  const result = await env.DB.prepare(
+    `
+    WITH chain_defenders AS (
+      SELECT DISTINCT a.defender_id AS member_id
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_id IS NOT NULL
+        AND w.enemy_faction_id IS NOT NULL
+        AND a.attacker_faction_id = w.enemy_faction_id
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
+    ),
+    member_averages AS (
+      SELECT
+        a.attacker_id,
+        AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_id IS NOT NULL
+        AND w.enemy_faction_id IS NOT NULL
+        AND a.attacker_faction_id = w.enemy_faction_id
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
+      GROUP BY a.attacker_id
+    ),
+    war_average AS (
+      SELECT AVG(a.respect_gain) AS avg_respect
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.defender_faction_id = ${HOME_FACTION_ID}
+        AND a.defender_id IS NOT NULL
+        AND w.enemy_faction_id IS NOT NULL
+        AND a.attacker_faction_id = w.enemy_faction_id
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
+    )
+    INSERT INTO war_member_stats (
+      war_id,
+      member_id,
+      member_name,
+      respect_lost,
+      respect_lost_non_hospitalized,
+      respect_lost_raw,
+      enemy_chain_bonus_hits_received,
+      enemy_chain_bonus_respect_removed,
+      enemy_chain_bonus_hit_values_received,
+      enemy_chain_bonus_hit_details_received
+    )
+    SELECT
+      a.war_id,
+      a.defender_id,
+      MAX(a.defender_name),
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+        THEN CASE
+          WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
+          ELSE a.respect_gain
+        END
+        ELSE 0
+      END), 0) AS respect_lost,
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.result != 'Hospitalized'
+        THEN CASE
+          WHEN a.chain IN (${CHAIN_BONUS_HITS_SQL})
+          THEN COALESCE(ma.avg_respect, wa.avg_respect, 0)
+          ELSE a.respect_gain
+        END
+        ELSE 0
+      END), 0) AS respect_lost_non_hospitalized,
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+        THEN a.respect_gain
+        ELSE 0
+      END), 0) AS respect_lost_raw,
+      SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN 1
+        ELSE 0
+      END) AS enemy_chain_bonus_hits_received,
+      COALESCE(SUM(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.respect_gain - COALESCE(ma.avg_respect, wa.avg_respect, 0)
+        ELSE 0
+      END), 0) AS enemy_chain_bonus_respect_removed,
+      COALESCE(GROUP_CONCAT(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.chain
+        ELSE NULL
+      END, ', '), '') AS enemy_chain_bonus_hit_values_received,
+      COALESCE(GROUP_CONCAT(CASE
+        WHEN a.result IN (${POSITIVE_RESULTS_SQL})
+         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+        THEN a.chain || ' - ' || printf('%g', ROUND(COALESCE(ma.avg_respect, wa.avg_respect, 0), 1)) || ' respect'
+        ELSE NULL
+      END, char(10)), '') AS enemy_chain_bonus_hit_details_received
+    FROM attacks a
+    JOIN wars w ON w.id = a.war_id
+    JOIN chain_defenders cd ON cd.member_id = a.defender_id
+    JOIN war_member_stats existing ON existing.war_id = a.war_id AND existing.member_id = a.defender_id
+    LEFT JOIN member_averages ma ON ma.attacker_id = a.attacker_id
+    LEFT JOIN war_average wa ON 1 = 1
+    WHERE a.war_id = ?
+      AND a.defender_faction_id = ${HOME_FACTION_ID}
+      AND a.defender_id IS NOT NULL
+      AND w.enemy_faction_id IS NOT NULL
+      AND a.attacker_faction_id = w.enemy_faction_id
+      AND ${DEFENSE_ACTION_WINDOW_SQL}
+    GROUP BY a.war_id, a.defender_id
+    ON CONFLICT(war_id, member_id) DO UPDATE SET
+      member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
+      respect_lost = excluded.respect_lost,
+      respect_lost_non_hospitalized = excluded.respect_lost_non_hospitalized,
+      respect_lost_raw = excluded.respect_lost_raw,
+      enemy_chain_bonus_hits_received = excluded.enemy_chain_bonus_hits_received,
+      enemy_chain_bonus_respect_removed = excluded.enemy_chain_bonus_respect_removed,
+      enemy_chain_bonus_hit_values_received = excluded.enemy_chain_bonus_hit_values_received,
+      enemy_chain_bonus_hit_details_received = excluded.enemy_chain_bonus_hit_details_received
+    `,
+  )
+    .bind(warId, warId, warId, warId)
+    .run();
+
+  return d1Changes(result);
 }
 
 async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<void> {

@@ -3,7 +3,10 @@ import { runIngestion } from "./ingestion";
 import { processMemberLifestyleRepairJobs, refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
 import { refreshTornShoplifting } from "./miscellaneous";
-import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
+import {
+  rebuildOpenWarMemberStatsFromRaw,
+  refreshOpenWarChainBonusAdjustmentsFromRaw,
+} from "./summaries";
 import { Env, TornFactionMember } from "./types";
 
 export type CronJob = {
@@ -43,6 +46,14 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     purpose: "Rebuild active war summaries from raw attacks hourly so chain-bonus adjustments catch up outside the minute path.",
     shouldRun: (date) => date.getUTCMinutes() === 0,
     run: (env) => rebuildOpenWarMemberStatsFromRaw(env),
+  },
+  {
+    label: "Cron targeted chain bonus correction",
+    cadence: "15m active, excluding hourly rebuild",
+    category: "attacks",
+    purpose: "Refresh chain-bonus adjusted respect for only members with chain bonuses between hourly exact summary rebuilds.",
+    shouldRun: (date) => date.getUTCMinutes() % 15 === 0 && date.getUTCMinutes() !== 0,
+    run: (env) => refreshOpenWarChainBonusAdjustmentsFromRaw(env),
   },
   {
     label: "Cron enemy tracking maintenance window",
