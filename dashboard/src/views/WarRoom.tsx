@@ -6,6 +6,8 @@ import {
   EnemyPushPressureResponse,
   EnemyScoutingResponse,
   FactionActivityHeatmapResponse,
+  ChainWatchResponse,
+  getChainWatch,
   getEnemyPushPressure,
   getStoredAuthSession,
   getEnemyScouting,
@@ -14,6 +16,7 @@ import {
   refreshAuthSession,
   refreshEnemyScouting,
   ScoutingComparisonResponse,
+  updateChainWatch,
   WarSummary,
 } from "../api";
 import {
@@ -34,6 +37,7 @@ const WAR_ROOM_LIVE_SCOUTING_REFRESH_MS = 60_000;
 const WAR_ROOM_PUSH_HISTORY_REFRESH_MS = 5 * 60_000;
 const WAR_ROOM_LIVE_REVIVABLE_REFRESH_MS = 60_000;
 const WAR_ROOM_PRELIVE_REVIVABLE_REFRESH_MS = 5 * 60_000;
+const WAR_ROOM_CHAIN_WATCH_REFRESH_MS = 15_000;
 
 type TrackingMode = "live" | "pre-live" | "inactive";
 
@@ -64,6 +68,9 @@ export function WarRoom({
   const [isLoadingActivityHeatmap, setIsLoadingActivityHeatmap] = React.useState(false);
   const [pushPressure, setPushPressure] = React.useState<EnemyPushPressureResponse | null>(null);
   const [isLoadingPushPressure, setIsLoadingPushPressure] = React.useState(false);
+  const [chainWatch, setChainWatch] = React.useState<ChainWatchResponse | null>(null);
+  const [isLoadingChainWatch, setIsLoadingChainWatch] = React.useState(false);
+  const [isTogglingChainWatch, setIsTogglingChainWatch] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({
     activityHeatmaps: true,
     enemyPushPressure: true,
@@ -152,6 +159,64 @@ export function WarRoom({
       cancelled = true;
     };
   }, [canLoadScouting, selectedWarName]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadChainWatch() {
+      if (!selectedWarName || !selectedWar) {
+        setChainWatch(null);
+        return;
+      }
+
+      setIsLoadingChainWatch(true);
+
+      try {
+        const response = await getChainWatch(selectedWarName);
+        if (!cancelled) {
+          setChainWatch(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setChainWatch(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingChainWatch(false);
+        }
+      }
+    }
+
+    loadChainWatch();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWar?.id, selectedWarName]);
+
+  React.useEffect(() => {
+    if (!selectedWarName || !selectedWar || !isWarLive) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await getChainWatch(selectedWarName);
+        if (!cancelled) {
+          setChainWatch(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setChainWatch(null);
+        }
+      }
+    }, WAR_ROOM_CHAIN_WATCH_REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isWarLive, selectedWar?.id, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -405,6 +470,24 @@ export function WarRoom({
     );
   }
 
+  async function toggleChainWatch() {
+    if (!selectedWarName || !chainWatch) {
+      return;
+    }
+
+    setIsTogglingChainWatch(true);
+    onError(null);
+
+    try {
+      const response = await updateChainWatch(selectedWarName, chainWatch.state?.enabled !== 1);
+      setChainWatch(response);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsTogglingChainWatch(false);
+    }
+  }
+
   if (!canLoadScouting) {
     return (
       <section className="panel">
@@ -605,6 +688,15 @@ export function WarRoom({
           onToggle={() => togglePanel("enemyHitTrends")}
         />
 
+        <ChainWatchPanel
+          data={chainWatch}
+          nowMs={nowMs}
+          isLoading={isLoadingChainWatch}
+          canToggle={canRefreshEnemyScouting}
+          isToggling={isTogglingChainWatch}
+          onToggle={toggleChainWatch}
+        />
+
         <TrackingStatusPanel
           ref={trackingCadenceRef}
           war={selectedWar}
@@ -638,6 +730,135 @@ function LiveTrackingInactivePanel({
       <EmptyState text="Push pressure, travel tracking, revivable members, Enemy status, and Hospital monitor are paused. Tracking starts two hours before official war start and stops at practical finish." />
     </CollapsiblePanel>
   );
+}
+
+function ChainWatchPanel({
+  data,
+  nowMs,
+  isLoading,
+  canToggle,
+  isToggling,
+  onToggle,
+}: {
+  data: ChainWatchResponse | null;
+  nowMs: number;
+  isLoading: boolean;
+  canToggle: boolean;
+  isToggling: boolean;
+  onToggle: () => void;
+}) {
+  const state = data?.state ?? null;
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const remainingSeconds = state?.timeout_at ? Math.max(0, state.timeout_at - nowSeconds) : null;
+  const enabled = state?.enabled === 1;
+  const sourceLabel = chainWatchSourceLabel(state?.source ?? null);
+  const alertEligible = data?.computed.alert_eligible ?? false;
+  const status = isLoading
+    ? "Loading"
+    : !state
+      ? "No state"
+      : enabled
+        ? remainingSeconds === 0
+          ? "Dropped"
+          : "Watching"
+        : "Disabled";
+  const tone: FreshnessTone = !enabled
+    ? "paused"
+    : remainingSeconds === 0
+      ? "stale"
+      : alertEligible
+        ? "live"
+        : "fresh";
+
+  return (
+    <section className="panel chain-watch-panel">
+      <PanelHeader
+        title="Chain Watch"
+        control={
+          <FreshnessMeta
+            state={status}
+            updatedAt={state?.last_checked_at ?? null}
+            cadence={sourceLabel}
+            detail="Tracks our faction chain timeout during active wars."
+            tone={tone}
+          />
+        }
+      />
+      <div className="chain-watch-grid">
+        <div className="chain-watch-primary">
+          <span>Current chain</span>
+          <strong>{state?.current_chain !== null && state?.current_chain !== undefined ? formatNumber(state.current_chain) : "-"}</strong>
+        </div>
+        <div className="chain-watch-primary">
+          <span>Time left</span>
+          <strong>{remainingSeconds === null ? "-" : remainingSeconds <= 0 ? "Dropped" : formatCountdownDuration(remainingSeconds)}</strong>
+        </div>
+        <ChainWatchDetail label="Next check" value={state?.scheduled_alarm_at ? formatLongDateTime(state.scheduled_alarm_at) : "-"} />
+        <ChainWatchDetail label="Last hit" value={formatChainWatchLastHit(state)} />
+        <ChainWatchDetail label="Alert eligible" value={alertEligible ? "Above 100" : "No"} />
+        <ChainWatchDetail label="Last alert" value={formatChainWatchLastAlert(state)} />
+      </div>
+      {state?.last_error ? <p className="chain-watch-error">{state.last_error}</p> : null}
+      {canToggle ? (
+        <button
+          type="button"
+          className="panel-action-button chain-watch-toggle"
+          onClick={onToggle}
+          disabled={isToggling || isLoading || !state}
+        >
+          {isToggling ? "Saving" : enabled ? "Disable Chain Watch" : "Enable Chain Watch"}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function ChainWatchDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="chain-watch-detail">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function chainWatchSourceLabel(source: string | null | undefined): string {
+  if (source === "live_confirm") {
+    return "Live confirm";
+  }
+  if (source === "stale") {
+    return "Stored stale";
+  }
+  if (source === "dropped") {
+    return "Dropped";
+  }
+  return "Stored attacks";
+}
+
+function formatChainWatchLastHit(state: ChainWatchResponse["state"] | null): string {
+  if (!state?.last_hit_at) {
+    return "-";
+  }
+
+  const attacker = state.last_hit_attacker_name ?? "Unknown";
+  const defender = state.last_hit_defender_name ?? "Unknown";
+  return `${attacker} v ${defender}`;
+}
+
+function formatChainWatchLastAlert(state: ChainWatchResponse["state"] | null): string {
+  if (!state) {
+    return "-";
+  }
+  if (state.drop_sent_at) {
+    return `Dropped ${formatRelativeTime(state.drop_sent_at)}`;
+  }
+  if (state.warning_30_sent_at) {
+    return `30s ${formatRelativeTime(state.warning_30_sent_at)}`;
+  }
+  if (state.warning_60_sent_at) {
+    return `60s ${formatRelativeTime(state.warning_60_sent_at)}`;
+  }
+  return "-";
 }
 
 const TrackingStatusPanel = React.forwardRef<HTMLElement, {

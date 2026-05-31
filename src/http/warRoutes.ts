@@ -1,4 +1,8 @@
 import { warCacheVersionNames } from "../cacheVersions";
+import {
+  getChainWatchForWar,
+  updateChainWatchForWar,
+} from "../chainWatch";
 import { getEnemyPushPressureForWar } from "../enemyPushPressure";
 import {
   getEnemyScoutingForWar,
@@ -140,6 +144,10 @@ export async function routeWarCommands(routeContext: RouteContext): Promise<Rout
     });
   }
 
+  if (isWarSubroute(url, request, "/chain-watch", "POST")) {
+    return withAdmin(routeContext, () => updateChainWatchForWar(request, url, env));
+  }
+
   return null;
 }
 
@@ -227,6 +235,14 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
       warDataTtlSeconds(15 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
       () => getWarChainBonusesForWar(url, env),
       warVersionNames,
+    );
+  }
+
+  if (isWarSubroute(url, request, "/chain-watch", "GET")) {
+    return cachedMemberGet(
+      routeContext,
+      15,
+      () => getChainWatchForWar(url, env),
     );
   }
 

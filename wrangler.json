@@ -6,6 +6,20 @@
   "triggers": {
     "crons": ["* * * * *"]
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHAIN_WATCH_ALARMS",
+        "class_name": "ChainWatchAlarm"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ChainWatchAlarm"]
+    }
+  ],
   "rules": [
     {
       "type": "Data",

@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID, SOURCE_NAME } from "./constants";
 import { bumpWarCacheVersionById } from "./cacheVersions";
+import { ensureChainWatchEnabledForWar } from "./chainWatch";
 import { clearLiveEnemyTrackingData } from "./enemyScouting";
 import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
 import { WAR_RETURNING_COLUMNS } from "./sql";
@@ -22,6 +23,7 @@ export async function startWarTracking(
     .run();
 
   await setCurrentWarState(env, options.warId, options.startedAt);
+  await ensureChainWatchEnabledForWar(env, options.warId);
   await backfillWarAssignments(env, options.warId, options.startedAt);
   await refreshWarDerivedStats(env, options.warId);
 }

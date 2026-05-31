@@ -1,4 +1,5 @@
 import { buildCronPlan } from "./cronPlan";
+export { ChainWatchAlarm } from "./chainWatchAlarm";
 import { routeAdminApi } from "./http/adminRoutes";
 import { RouteContext, RouteResult } from "./http/context";
 import { routeMemberUtilityApi } from "./http/memberRoutes";

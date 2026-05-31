@@ -176,7 +176,7 @@ export type WarDetailResponse = {
   members: MemberStats[];
 };
 
-export type WarChainBonusesResponse = {
+export type WarChainBonusesResponse = {
   ok: boolean;
   war: {
     id: number;
@@ -443,6 +443,49 @@ export type EnemyHitStatHealth = {
 
   retryable: number;
 
+};
+
+export type ChainWatchState = {
+  war_id: number;
+  enabled: number;
+  source: "stored" | "live_confirm" | "stale" | "dropped";
+  current_chain: number | null;
+  reset_at: number | null;
+  timeout_at: number | null;
+  last_hit_id: number | null;
+  last_hit_at: number | null;
+  last_hit_attacker_name: string | null;
+  last_hit_defender_name: string | null;
+  last_hit_result: string | null;
+  scheduled_alarm_stage: "warning_60" | "warning_30" | "drop" | null;
+  scheduled_alarm_at: number | null;
+  warning_60_sent_at: number | null;
+  warning_30_sent_at: number | null;
+  drop_sent_at: number | null;
+  alert_chain: number | null;
+  alert_reset_at: number | null;
+  last_checked_at: number | null;
+  last_error: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type ChainWatchResponse = {
+  ok: boolean;
+  war: {
+    id: number;
+    name: string;
+    status: string;
+    practical_finish_time: number | null;
+    official_end_time: number | null;
+  };
+  state: ChainWatchState | null;
+  computed: {
+    active: boolean;
+    alert_eligible: boolean;
+    remaining_seconds: number | null;
+    dropped: boolean;
+  };
 };
 
 

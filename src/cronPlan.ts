@@ -1,5 +1,6 @@
 import { runEnemyScoutingCronTick } from "./enemyScoutingCron";
 import { runIngestion } from "./ingestion";
+import { runChainWatchCron } from "./chainWatch";
 import { processMemberLifestyleRepairJobs, refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
 import { refreshTornShoplifting } from "./miscellaneous";
@@ -35,9 +36,12 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     label: "Cron ingestion",
     cadence: "1m active / 5m otherwise",
     category: "attacks",
-    purpose: "Import recent attacks every minute during active wars, otherwise keep the 5-minute schedule.",
+    purpose: "Import recent attacks every minute during active wars, then refresh Chain Watch state and alarms.",
     shouldRun: () => true,
-    run: (env, scheduledTime) => runIngestion(env, "cron", { scheduledTime }),
+    run: async (env, scheduledTime) => {
+      await runIngestion(env, "cron", { scheduledTime });
+      await runChainWatchCron(env, scheduledTime);
+    },
   },
   {
     label: "Cron hourly exact war summaries",

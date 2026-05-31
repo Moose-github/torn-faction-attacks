@@ -1,5 +1,5 @@
 import { API_BASE_URL, authHeaders, filenameFromContentDisposition, getJson, postJson } from "./client";
-import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarDetailResponse, WarMemberActivityHeatmapResponse, WarsResponse, WarType } from "./types";
+import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarDetailResponse, WarMemberActivityHeatmapResponse, WarsResponse, WarType } from "./types";
 
 export async function getStats(
   warType: WarType,
@@ -60,10 +60,32 @@ export async function getWarMemberActivityHeatmap(
   );
 }
 
-export async function getWarChainBonuses(warName: string): Promise<WarChainBonusesResponse> {
+export async function getWarChainBonuses(warName: string): Promise<WarChainBonusesResponse> {
   return getJson<WarChainBonusesResponse>(
     `/api/wars/${encodeURIComponent(warName)}/chain-bonuses`,
   );
+}
+
+export async function getChainWatch(warName: string): Promise<ChainWatchResponse> {
+
+  return getJson<ChainWatchResponse>(
+
+    `/api/wars/${encodeURIComponent(warName)}/chain-watch`,
+
+  );
+
+}
+
+export async function updateChainWatch(warName: string, enabled: boolean): Promise<ChainWatchResponse> {
+
+  return postJson<ChainWatchResponse>(
+
+    `/api/wars/${encodeURIComponent(warName)}/chain-watch`,
+
+    { enabled },
+
+  );
+
 }
 
 export async function getWarReportDiscrepancies(

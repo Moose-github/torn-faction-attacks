@@ -1,5 +1,6 @@
 export interface Env {
   DB: D1Database;
+  CHAIN_WATCH_ALARMS: DurableObjectNamespace;
   TORN_API_KEY: string;
   TORN_API_KEY_POOL_1?: string | SecretsStoreSecret;
   TORN_API_KEY_POOL_2?: string | SecretsStoreSecret;
