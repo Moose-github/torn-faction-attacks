@@ -840,6 +840,12 @@ async function upsertWarMemberActivityBuckets(
           ELSE 0
         END) AS attacks_successful,
         SUM(CASE
+          WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+           AND a.result = 'Assist'
+          THEN 1
+          ELSE 0
+        END) AS assists_vs_enemy,
+        SUM(CASE
           WHEN w.enemy_faction_id IS NOT NULL
            AND (
              a.defender_faction_id IS NULL
@@ -853,6 +859,8 @@ async function upsertWarMemberActivityBuckets(
           ELSE 0
         END) AS outside_hits,
         0 AS defends_lost,
+        0 AS defends_won,
+        0 AS defends_other,
         COALESCE(SUM(CASE
           WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
            AND a.result IN (${POSITIVE_RESULTS_SQL})
@@ -875,6 +883,7 @@ async function upsertWarMemberActivityBuckets(
         AND ${OUTGOING_ACTION_WINDOW_SQL}
       GROUP BY a.war_id, a.attacker_id, bucket_start
       HAVING attacks_successful > 0
+        OR assists_vs_enemy > 0
         OR outside_hits > 0
         OR respect_gained > 0
 
@@ -885,12 +894,27 @@ async function upsertWarMemberActivityBuckets(
         a.defender_id AS member_id,
         CAST((a.started / ?) AS INTEGER) * ? AS bucket_start,
         0 AS attacks_successful,
+        0 AS assists_vs_enemy,
         0 AS outside_hits,
         SUM(CASE
           WHEN a.result IN (${POSITIVE_RESULTS_SQL})
           THEN 1
           ELSE 0
         END) AS defends_lost,
+        SUM(CASE
+          WHEN a.result IN (${DEFEND_WON_RESULTS_SQL})
+          THEN 1
+          ELSE 0
+        END) AS defends_won,
+        SUM(CASE
+          WHEN a.result IS NULL
+            OR (
+              a.result NOT IN (${POSITIVE_RESULTS_SQL})
+              AND a.result NOT IN (${DEFEND_WON_RESULTS_SQL})
+            )
+          THEN 1
+          ELSE 0
+        END) AS defends_other,
         0 AS respect_gained,
         COALESCE(SUM(CASE
           WHEN a.result IN (${POSITIVE_RESULTS_SQL})
@@ -914,6 +938,8 @@ async function upsertWarMemberActivityBuckets(
         AND ${DEFENSE_ACTION_WINDOW_SQL}
       GROUP BY a.war_id, a.defender_id, bucket_start
       HAVING defends_lost > 0
+        OR defends_won > 0
+        OR defends_other > 0
         OR respect_lost > 0
     ),
     grouped_rows AS (
@@ -922,8 +948,11 @@ async function upsertWarMemberActivityBuckets(
         member_id,
         bucket_start,
         SUM(attacks_successful) AS attacks_successful,
+        SUM(assists_vs_enemy) AS assists_vs_enemy,
         SUM(outside_hits) AS outside_hits,
         SUM(defends_lost) AS defends_lost,
+        SUM(defends_won) AS defends_won,
+        SUM(defends_other) AS defends_other,
         SUM(respect_gained) AS respect_gained,
         SUM(respect_lost) AS respect_lost
       FROM bucket_rows
@@ -934,8 +963,11 @@ async function upsertWarMemberActivityBuckets(
       member_id,
       bucket_start,
       attacks_successful,
+      assists_vs_enemy,
       outside_hits,
       defends_lost,
+      defends_won,
+      defends_other,
       respect_gained,
       respect_lost
     )
@@ -944,16 +976,22 @@ async function upsertWarMemberActivityBuckets(
       member_id,
       bucket_start,
       attacks_successful,
+      assists_vs_enemy,
       outside_hits,
       defends_lost,
+      defends_won,
+      defends_other,
       respect_gained,
       respect_lost
     FROM grouped_rows
     WHERE true
     ON CONFLICT(war_id, member_id, bucket_start) DO UPDATE SET
       attacks_successful = war_member_activity_buckets.attacks_successful + excluded.attacks_successful,
+      assists_vs_enemy = war_member_activity_buckets.assists_vs_enemy + excluded.assists_vs_enemy,
       outside_hits = war_member_activity_buckets.outside_hits + excluded.outside_hits,
       defends_lost = war_member_activity_buckets.defends_lost + excluded.defends_lost,
+      defends_won = war_member_activity_buckets.defends_won + excluded.defends_won,
+      defends_other = war_member_activity_buckets.defends_other + excluded.defends_other,
       respect_gained = war_member_activity_buckets.respect_gained + excluded.respect_gained,
       respect_lost = war_member_activity_buckets.respect_lost + excluded.respect_lost
     `,
@@ -1012,6 +1050,12 @@ async function upsertIngestedWarMemberActivityBuckets(
           ELSE 0
         END) AS attacks_successful,
         SUM(CASE
+          WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+           AND a.result = 'Assist'
+          THEN 1
+          ELSE 0
+        END) AS assists_vs_enemy,
+        SUM(CASE
           WHEN w.enemy_faction_id IS NOT NULL
            AND (
              a.defender_faction_id IS NULL
@@ -1025,6 +1069,8 @@ async function upsertIngestedWarMemberActivityBuckets(
           ELSE 0
         END) AS outside_hits,
         0 AS defends_lost,
+        0 AS defends_won,
+        0 AS defends_other,
         COALESCE(SUM(CASE
           WHEN (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
            AND a.result IN (${POSITIVE_RESULTS_SQL})
@@ -1048,6 +1094,7 @@ async function upsertIngestedWarMemberActivityBuckets(
         AND ${OUTGOING_ACTION_WINDOW_SQL}
       GROUP BY a.war_id, a.attacker_id, bucket_start
       HAVING attacks_successful > 0
+        OR assists_vs_enemy > 0
         OR outside_hits > 0
         OR respect_gained > 0
 
@@ -1058,12 +1105,27 @@ async function upsertIngestedWarMemberActivityBuckets(
         a.defender_id AS member_id,
         CAST((a.started / ?) AS INTEGER) * ? AS bucket_start,
         0 AS attacks_successful,
+        0 AS assists_vs_enemy,
         0 AS outside_hits,
         SUM(CASE
           WHEN a.result IN (${POSITIVE_RESULTS_SQL})
           THEN 1
           ELSE 0
         END) AS defends_lost,
+        SUM(CASE
+          WHEN a.result IN (${DEFEND_WON_RESULTS_SQL})
+          THEN 1
+          ELSE 0
+        END) AS defends_won,
+        SUM(CASE
+          WHEN a.result IS NULL
+            OR (
+              a.result NOT IN (${POSITIVE_RESULTS_SQL})
+              AND a.result NOT IN (${DEFEND_WON_RESULTS_SQL})
+            )
+          THEN 1
+          ELSE 0
+        END) AS defends_other,
         0 AS respect_gained,
         COALESCE(SUM(CASE
           WHEN a.result IN (${POSITIVE_RESULTS_SQL})
@@ -1087,6 +1149,8 @@ async function upsertIngestedWarMemberActivityBuckets(
         AND ${DEFENSE_ACTION_WINDOW_SQL}
       GROUP BY a.war_id, a.defender_id, bucket_start
       HAVING defends_lost > 0
+        OR defends_won > 0
+        OR defends_other > 0
         OR respect_lost > 0
     ),
     grouped_rows AS (
@@ -1095,8 +1159,11 @@ async function upsertIngestedWarMemberActivityBuckets(
         member_id,
         bucket_start,
         SUM(attacks_successful) AS attacks_successful,
+        SUM(assists_vs_enemy) AS assists_vs_enemy,
         SUM(outside_hits) AS outside_hits,
         SUM(defends_lost) AS defends_lost,
+        SUM(defends_won) AS defends_won,
+        SUM(defends_other) AS defends_other,
         SUM(respect_gained) AS respect_gained,
         SUM(respect_lost) AS respect_lost
       FROM bucket_rows
@@ -1107,8 +1174,11 @@ async function upsertIngestedWarMemberActivityBuckets(
       member_id,
       bucket_start,
       attacks_successful,
+      assists_vs_enemy,
       outside_hits,
       defends_lost,
+      defends_won,
+      defends_other,
       respect_gained,
       respect_lost
     )
@@ -1117,16 +1187,22 @@ async function upsertIngestedWarMemberActivityBuckets(
       member_id,
       bucket_start,
       attacks_successful,
+      assists_vs_enemy,
       outside_hits,
       defends_lost,
+      defends_won,
+      defends_other,
       respect_gained,
       respect_lost
     FROM grouped_rows
     WHERE true
     ON CONFLICT(war_id, member_id, bucket_start) DO UPDATE SET
       attacks_successful = war_member_activity_buckets.attacks_successful + excluded.attacks_successful,
+      assists_vs_enemy = war_member_activity_buckets.assists_vs_enemy + excluded.assists_vs_enemy,
       outside_hits = war_member_activity_buckets.outside_hits + excluded.outside_hits,
       defends_lost = war_member_activity_buckets.defends_lost + excluded.defends_lost,
+      defends_won = war_member_activity_buckets.defends_won + excluded.defends_won,
+      defends_other = war_member_activity_buckets.defends_other + excluded.defends_other,
       respect_gained = war_member_activity_buckets.respect_gained + excluded.respect_gained,
       respect_lost = war_member_activity_buckets.respect_lost + excluded.respect_lost
     `,

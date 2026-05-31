@@ -115,8 +115,14 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
     const officialStartTime = war.official_start_time ?? war.practical_start_time;
     const officialEndTime = war.official_end_time;
 
-    const groups = {
-      after_practical_finish: await getDiscrepancyGroup(
+    const [
+      afterPracticalFinish,
+      uncountedEnemyResults,
+      chainBonusAdjustments,
+      outsideOfficialWindow,
+      memberReportComparison,
+    ] = await Promise.all([
+      getDiscrepancyGroup(
         env,
         war.id,
         `
@@ -139,7 +145,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
           war.enemy_faction_id,
         ],
       ),
-      uncounted_enemy_results: await getDiscrepancyGroup(
+      getDiscrepancyGroup(
         env,
         war.id,
         `
@@ -161,8 +167,8 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         `,
         [war.enemy_faction_id, war.enemy_faction_id, war.practical_start_time, war.practical_start_time, war.practical_finish_time, war.practical_finish_time],
       ),
-      chain_bonus_adjustments: await getChainBonusAdjustmentGroup(env, war.id),
-      outside_official_window: await getDiscrepancyGroup(
+      getChainBonusAdjustmentGroup(env, war.id),
+      getDiscrepancyGroup(
         env,
         war.id,
         `
@@ -178,6 +184,21 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         `,
         [officialStartTime, officialEndTime, officialEndTime],
       ),
+      getMemberReportComparison(
+        env,
+        war.id,
+        war.torn_war_id,
+        war.enemy_faction_id,
+        officialStartTime,
+        officialEndTime,
+      ),
+    ]);
+
+    const groups = {
+      after_practical_finish: afterPracticalFinish,
+      uncounted_enemy_results: uncountedEnemyResults,
+      chain_bonus_adjustments: chainBonusAdjustments,
+      outside_official_window: outsideOfficialWindow,
     };
 
     return json({
@@ -193,14 +214,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         war_type: war.war_type ?? "real",
       },
       groups,
-      member_report_comparison: await getMemberReportComparison(
-        env,
-        war.id,
-        war.torn_war_id,
-        war.enemy_faction_id,
-        officialStartTime,
-        officialEndTime,
-      ),
+      member_report_comparison: memberReportComparison,
     });
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
@@ -358,7 +372,7 @@ export async function getWarChainBonuses(
     LIMIT ?
     `,
   )
-    .bind(warId, warId, warId, limit)
+    .bind(warId, warId, warId, warId, limit)
     .all();
 
   return rows.results ?? [];
@@ -374,49 +388,73 @@ async function getDiscrepancyGroup(
   respect_gain: number;
   attacks: unknown[];
 }> {
-  const countRow = (await env.DB.prepare(
+  const rows = await env.DB.prepare(
     `
+    WITH filtered_attacks AS (
+      SELECT
+        a.id,
+        a.started,
+        a.attacker_id,
+        a.attacker_name,
+        a.attacker_faction_id,
+        a.attacker_faction_name,
+        a.defender_id,
+        a.defender_name,
+        a.defender_faction_id,
+        a.defender_faction_name,
+        a.result,
+        a.respect_gain,
+        a.respect_loss
+      FROM attacks a
+      WHERE a.war_id = ?
+        AND ${conditionSql}
+    ),
+    totals AS (
+      SELECT
+        COUNT(*) AS count,
+        COALESCE(SUM(respect_gain), 0) AS respect_gain
+      FROM filtered_attacks
+    ),
+    sample_rows AS (
+      SELECT *
+      FROM filtered_attacks
+      ORDER BY started ASC
+      LIMIT 20
+    )
     SELECT
-      COUNT(*) AS count,
-      COALESCE(SUM(a.respect_gain), 0) AS respect_gain
-    FROM attacks a
-    WHERE a.war_id = ?
-      AND ${conditionSql}
-    `,
-  )
-    .bind(warId, ...conditionBinds)
-    .first()) as { count: number | null; respect_gain: number | null } | null;
-
-  const sampleRows = await env.DB.prepare(
-    `
-    SELECT
-      a.id,
-      a.started,
-      a.attacker_id,
-      a.attacker_name,
-      a.attacker_faction_id,
-      a.attacker_faction_name,
-      a.defender_id,
-      a.defender_name,
-      a.defender_faction_id,
-      a.defender_faction_name,
-      a.result,
-      a.respect_gain,
-      a.respect_loss
-    FROM attacks a
-    WHERE a.war_id = ?
-      AND ${conditionSql}
-    ORDER BY a.started ASC
-    LIMIT 20
+      totals.count,
+      totals.respect_gain AS total_respect_gain,
+      sample_rows.*
+    FROM totals
+    LEFT JOIN sample_rows ON true
     `,
   )
     .bind(warId, ...conditionBinds)
     .all();
 
+  const resultRows = rows.results ?? [];
+  const firstRow = resultRows[0] as { count?: number | null; total_respect_gain?: number | null } | undefined;
+
   return {
-    count: Number(countRow?.count ?? 0),
-    respect_gain: Number(countRow?.respect_gain ?? 0),
-    attacks: sampleRows.results ?? [],
+    count: Number(firstRow?.count ?? 0),
+    respect_gain: Number(firstRow?.total_respect_gain ?? 0),
+    attacks: resultRows
+      .filter((row: any) => row.id !== null && row.id !== undefined)
+      .map((row: any) => ({
+        id: row.id,
+        started: row.started,
+        attacker_id: row.attacker_id,
+        attacker_name: row.attacker_name,
+        attacker_faction_id: row.attacker_faction_id,
+        attacker_faction_name: row.attacker_faction_name,
+        defender_id: row.defender_id,
+        defender_name: row.defender_name,
+        defender_faction_id: row.defender_faction_id,
+        defender_faction_name: row.defender_faction_name,
+        result: row.result,
+        respect_gain: row.respect_gain,
+        respect_loss: row.respect_loss,
+      })),
   };
 }
 
@@ -572,50 +610,85 @@ async function getChainBonusAdjustmentGroup(
   respect_gain: number;
   attacks: unknown[];
 }> {
-  const countRow = (await env.DB.prepare(
+  const rows = await env.DB.prepare(
     `
     WITH chain_adjustments AS (
       ${chainBonusAdjustmentSelectSql()}
+    ),
+    totals AS (
+      SELECT
+        COUNT(*) AS count,
+        COALESCE(SUM(respect_removed), 0) AS respect_gain
+      FROM chain_adjustments
+    ),
+    sample_rows AS (
+      SELECT *
+      FROM chain_adjustments
+      ORDER BY chain DESC, started ASC
+      LIMIT 20
     )
     SELECT
-      COUNT(*) AS count,
-      COALESCE(SUM(respect_removed), 0) AS respect_gain
-    FROM chain_adjustments
+      totals.count,
+      totals.respect_gain AS total_respect_gain,
+      sample_rows.*
+    FROM totals
+    LEFT JOIN sample_rows ON true
     `,
   )
-    .bind(warId, warId, warId)
-    .first()) as { count: number | null; respect_gain: number | null } | null;
-
-  const sampleRows = await env.DB.prepare(
-    `
-    WITH chain_adjustments AS (
-      ${chainBonusAdjustmentSelectSql()}
-    )
-    SELECT *
-    FROM chain_adjustments
-    ORDER BY chain DESC, started ASC
-    LIMIT 20
-    `,
-  )
-    .bind(warId, warId, warId)
+    .bind(warId, warId, warId, warId)
     .all();
 
+  const resultRows = rows.results ?? [];
+  const firstRow = resultRows[0] as { count?: number | null; total_respect_gain?: number | null } | undefined;
+
   return {
-    count: Number(countRow?.count ?? 0),
-    respect_gain: Number(countRow?.respect_gain ?? 0),
-    attacks: sampleRows.results ?? [],
+    count: Number(firstRow?.count ?? 0),
+    respect_gain: Number(firstRow?.total_respect_gain ?? 0),
+    attacks: resultRows
+      .filter((row: any) => row.id !== null && row.id !== undefined)
+      .map((row: any) => ({
+        id: row.id,
+        started: row.started,
+        attacker_id: row.attacker_id,
+        attacker_name: row.attacker_name,
+        attacker_faction_id: row.attacker_faction_id,
+        attacker_faction_name: row.attacker_faction_name,
+        defender_id: row.defender_id,
+        defender_name: row.defender_name,
+        defender_faction_id: row.defender_faction_id,
+        defender_faction_name: row.defender_faction_name,
+        result: row.result,
+        chain: row.chain,
+        respect_gain: row.respect_gain,
+        respect_loss: row.respect_loss,
+        adjusted_respect_gain: row.adjusted_respect_gain,
+        respect_removed: row.respect_removed,
+      })),
   };
 }
 
 function chainBonusAdjustmentSelectSql(): string {
   return `
-    WITH member_averages AS (
+    WITH chain_members AS (
+      SELECT DISTINCT a.attacker_id
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.attacker_faction_id = ${HOME_FACTION_ID}
+        AND a.attacker_id IS NOT NULL
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
+        AND a.result IN (${POSITIVE_RESULTS_SQL})
+        AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+    ),
+    member_averages AS (
       SELECT
         a.war_id,
         a.attacker_id,
         AVG(a.respect_gain) AS avg_respect
       FROM attacks a
       JOIN wars w ON w.id = a.war_id
+      JOIN chain_members cm ON cm.attacker_id = a.attacker_id
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND a.attacker_id IS NOT NULL
@@ -659,6 +732,7 @@ function chainBonusAdjustmentSelectSql(): string {
     LEFT JOIN war_average wa ON 1 = 1
     WHERE a.war_id = ?
       AND a.attacker_faction_id = ${HOME_FACTION_ID}
+      AND a.attacker_id IN (SELECT attacker_id FROM chain_members)
       AND ${OUTGOING_ACTION_WINDOW_SQL}
       AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
       AND a.result IN (${POSITIVE_RESULTS_SQL})

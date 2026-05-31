@@ -285,6 +285,8 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
 
     const rows = await env.DB.prepare(
       `
+      SELECT *
+      FROM (
       SELECT
         a.id,
         a.started,
@@ -304,20 +306,37 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
       FROM attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
-        AND (
-          (
-            a.attacker_id = ?
-            AND ${OUTGOING_ACTION_WINDOW_SQL}
-          )
-          OR (
-            a.defender_id = ?
-            AND ${DEFENSE_ACTION_WINDOW_SQL}
-          )
+        AND a.attacker_id = ?
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
+
+      UNION ALL
+
+      SELECT
+        a.id,
+        a.started,
+        a.ended,
+        a.attacker_id,
+        a.attacker_name,
+        a.attacker_faction_id,
+        a.attacker_faction_name,
+        a.defender_id,
+        a.defender_name,
+        a.defender_faction_id,
+        a.defender_faction_name,
+        a.result,
+        a.respect_gain,
+        a.respect_loss,
+        a.m_retaliation
+      FROM attacks a
+      JOIN wars w ON w.id = a.war_id
+      WHERE a.war_id = ?
+        AND a.defender_id = ?
+        AND ${DEFENSE_ACTION_WINDOW_SQL}
       )
-      ORDER BY a.started DESC
+      ORDER BY started DESC
       `,
     )
-      .bind(war.id, memberId, memberId)
+      .bind(war.id, memberId, war.id, memberId)
       .all();
 
     const attacks = (rows.results ?? []).map((attack: any) => ({
@@ -395,98 +414,127 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
     }
 
-    const rows = await env.DB.prepare(
-      `
-      SELECT
-        CAST((a.started / ?) AS INTEGER) * ? AS bucket_start,
-        SUM(CASE
-          WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
-           AND (? IS NULL OR a.defender_faction_id = ?)
-           AND a.result IN (${POSITIVE_RESULTS_SQL})
-           AND ${outgoingWindowSql}
-          THEN 1
-          ELSE 0
-        END) AS enemy_success,
-        SUM(CASE
-          WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
-           AND (? IS NULL OR a.defender_faction_id = ?)
-           AND a.result = 'Assist'
-           AND ${outgoingWindowSql}
-          THEN 1
-          ELSE 0
-        END) AS enemy_assist,
-        SUM(CASE
-          WHEN ? IS NOT NULL
-           AND a.attacker_faction_id = ${HOME_FACTION_ID}
-           AND ${outgoingWindowSql}
-           AND (a.defender_faction_id IS NULL OR a.defender_faction_id != ?)
-           AND NOT (
-             a.defender_faction_id = ${HOME_FACTION_ID}
-             AND a.result = 'Hospitalized'
-           )
-          THEN 1
-          ELSE 0
-        END) AS outside,
-        SUM(CASE
-          WHEN ? IS NOT NULL
-           AND a.attacker_faction_id = ?
-           AND a.defender_faction_id = ${HOME_FACTION_ID}
-           AND a.result IN (${POSITIVE_RESULTS_SQL})
-           AND ${DEFENSE_ACTION_WINDOW_SQL}
-          THEN 1
-          ELSE 0
-        END) AS defend_lost,
-        SUM(CASE
-          WHEN ? IS NOT NULL
-           AND a.attacker_faction_id = ?
-           AND a.defender_faction_id = ${HOME_FACTION_ID}
-            AND a.result IN (${DEFEND_WON_RESULTS_SQL})
-            AND ${DEFENSE_ACTION_WINDOW_SQL}
-          THEN 1
-          ELSE 0
-        END) AS defend_won,
-        SUM(CASE
-          WHEN ? IS NOT NULL
-           AND a.attacker_faction_id = ?
-           AND a.defender_faction_id = ${HOME_FACTION_ID}
-           AND (
-             a.result IS NULL
-             OR (
-               a.result NOT IN (${POSITIVE_RESULTS_SQL})
-               AND a.result NOT IN (${DEFEND_WON_RESULTS_SQL})
-             )
-           )
-           AND ${DEFENSE_ACTION_WINDOW_SQL}
-          THEN 1
-          ELSE 0
-        END) AS defend_other
-      FROM attacks a
-      JOIN wars w ON w.id = a.war_id
-      WHERE a.war_id = ?
-        AND a.started IS NOT NULL
-        AND ${activityWindowSql}
-      GROUP BY bucket_start
-      ORDER BY bucket_start ASC
-      `,
-    )
-      .bind(
-        bucketSeconds,
-        bucketSeconds,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.enemy_faction_id,
-        war.id,
+    const canUseMaterializedBuckets = windowMode === "practical" && bucketSeconds % (15 * 60) === 0;
+    const rows = canUseMaterializedBuckets
+      ? await env.DB.prepare(
+        `
+        SELECT
+          CAST((bucket_start / ?) AS INTEGER) * ? AS bucket_start,
+          COALESCE(SUM(attacks_successful), 0) AS enemy_success,
+          COALESCE(SUM(assists_vs_enemy), 0) AS enemy_assist,
+          COALESCE(SUM(outside_hits), 0) AS outside,
+          COALESCE(SUM(defends_lost), 0) AS defend_lost,
+          COALESCE(SUM(defends_won), 0) AS defend_won,
+          COALESCE(SUM(defends_other), 0) AS defend_other
+        FROM war_member_activity_buckets
+        WHERE war_id = ?
+          AND bucket_start BETWEEN ? AND ?
+        GROUP BY CAST((bucket_start / ?) AS INTEGER) * ?
+        ORDER BY bucket_start ASC
+        `,
       )
-      .all();
+        .bind(
+          bucketSeconds,
+          bucketSeconds,
+          war.id,
+          Math.floor(war.practical_start_time / bucketSeconds) * bucketSeconds,
+          Math.floor((war.practical_finish_time ?? nowSeconds()) / bucketSeconds) * bucketSeconds,
+          bucketSeconds,
+          bucketSeconds,
+        )
+        .all()
+      : await env.DB.prepare(
+        `
+        SELECT
+          CAST((a.started / ?) AS INTEGER) * ? AS bucket_start,
+          SUM(CASE
+            WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+             AND (? IS NULL OR a.defender_faction_id = ?)
+             AND a.result IN (${POSITIVE_RESULTS_SQL})
+             AND ${outgoingWindowSql}
+            THEN 1
+            ELSE 0
+          END) AS enemy_success,
+          SUM(CASE
+            WHEN a.attacker_faction_id = ${HOME_FACTION_ID}
+             AND (? IS NULL OR a.defender_faction_id = ?)
+             AND a.result = 'Assist'
+             AND ${outgoingWindowSql}
+            THEN 1
+            ELSE 0
+          END) AS enemy_assist,
+          SUM(CASE
+            WHEN ? IS NOT NULL
+             AND a.attacker_faction_id = ${HOME_FACTION_ID}
+             AND ${outgoingWindowSql}
+             AND (a.defender_faction_id IS NULL OR a.defender_faction_id != ?)
+             AND NOT (
+               a.defender_faction_id = ${HOME_FACTION_ID}
+               AND a.result = 'Hospitalized'
+             )
+            THEN 1
+            ELSE 0
+          END) AS outside,
+          SUM(CASE
+            WHEN ? IS NOT NULL
+             AND a.attacker_faction_id = ?
+             AND a.defender_faction_id = ${HOME_FACTION_ID}
+             AND a.result IN (${POSITIVE_RESULTS_SQL})
+             AND ${DEFENSE_ACTION_WINDOW_SQL}
+            THEN 1
+            ELSE 0
+          END) AS defend_lost,
+          SUM(CASE
+            WHEN ? IS NOT NULL
+             AND a.attacker_faction_id = ?
+             AND a.defender_faction_id = ${HOME_FACTION_ID}
+              AND a.result IN (${DEFEND_WON_RESULTS_SQL})
+              AND ${DEFENSE_ACTION_WINDOW_SQL}
+            THEN 1
+            ELSE 0
+          END) AS defend_won,
+          SUM(CASE
+            WHEN ? IS NOT NULL
+             AND a.attacker_faction_id = ?
+             AND a.defender_faction_id = ${HOME_FACTION_ID}
+             AND (
+               a.result IS NULL
+               OR (
+                 a.result NOT IN (${POSITIVE_RESULTS_SQL})
+                 AND a.result NOT IN (${DEFEND_WON_RESULTS_SQL})
+               )
+             )
+             AND ${DEFENSE_ACTION_WINDOW_SQL}
+            THEN 1
+            ELSE 0
+          END) AS defend_other
+        FROM attacks a
+        JOIN wars w ON w.id = a.war_id
+        WHERE a.war_id = ?
+          AND a.started IS NOT NULL
+          AND ${activityWindowSql}
+        GROUP BY bucket_start
+        ORDER BY bucket_start ASC
+        `,
+      )
+        .bind(
+          bucketSeconds,
+          bucketSeconds,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.enemy_faction_id,
+          war.id,
+        )
+        .all();
 
     const rawBuckets = (rows.results ?? []).map((row: any) => ({
       bucket_start: Number(row.bucket_start),
@@ -605,8 +653,11 @@ export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<R
           buckets.member_id,
           buckets.bucket_start,
           buckets.attacks_successful,
+          buckets.assists_vs_enemy,
           buckets.outside_hits,
           buckets.defends_lost,
+          buckets.defends_won,
+          buckets.defends_other,
           buckets.respect_gained,
           buckets.respect_lost
         FROM war_member_activity_buckets buckets
