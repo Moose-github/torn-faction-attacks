@@ -481,6 +481,7 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       practical_start_time?: unknown;
       practical_finish_time?: unknown;
       war_type?: unknown;
+      auto_end_enabled?: unknown;
       faction_respect_limit?: unknown;
       member_respect_limit?: unknown;
     };
@@ -538,9 +539,10 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       body.member_respect_limit,
       "member_respect_limit",
     );
+    const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
     const validationError = validateTermedWarFields(
       warType,
-      0,
+      autoEndEnabled,
       factionRespectLimit,
       memberRespectLimit,
     );
@@ -569,6 +571,7 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       practicalFinishTime,
       enemyFactionId: existing.enemy_faction_id,
       warType,
+      autoEndEnabled,
       factionRespectLimit,
       memberRespectLimit,
     });

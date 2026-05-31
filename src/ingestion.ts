@@ -6,6 +6,7 @@ import {
   RANKED_WARS_API_URL,
   SOURCE_NAME,
 } from "./constants";
+import { sendDiscordMessage } from "./discord";
 import { fetchEnemyScoutingOnceForWar } from "./enemyScouting";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
@@ -57,6 +58,26 @@ type IngestionRunMetrics = {
 };
 
 const NOOP_CRON_INGESTION_METRIC_INTERVAL_SECONDS = 30 * 60;
+
+export type TermedWarCrossingAttackRow = {
+  id: number;
+  started: number | null;
+  ended: number | null;
+  attacker_name?: string | null;
+  defender_name?: string | null;
+  respect_gain: number | null;
+};
+
+export type WarWindowForAttackAssignment = {
+  practical_start_time: number;
+  practical_finish_time: number | null;
+  official_end_time: number | null;
+};
+
+export type AttackTiming = {
+  started?: number | null;
+  ended?: number | null;
+};
 
 export async function runIngestion(
   env: Env,
@@ -169,10 +190,7 @@ export async function runIngestion(
         pageNewestStarted = Math.max(pageNewestStarted, attack.started ?? 0);
 
         const warId =
-          ingestionWar &&
-          attack.started != null &&
-          attack.started >= ingestionWar.practical_start_time &&
-          (ingestionWar.official_end_time === null || attack.started <= ingestionWar.official_end_time)
+          ingestionWar && attackFallsWithinLiveWarWindow(attack, ingestionWar)
             ? ingestionWar.id
             : null;
 
@@ -457,6 +475,7 @@ async function scanAttackWindow(
 
     for (const attack of attacks) {
       const attackStarted = attack.started ?? 0;
+      const attackFinishedAt = attackFinishedTimestamp(attack);
       pageNewestStarted = Math.max(pageNewestStarted, attackStarted);
 
       if (attackStarted < startedAt) {
@@ -465,6 +484,10 @@ async function scanAttackWindow(
 
       if (attackStarted > endedAt) {
         pageReachedBeyondWindow = true;
+        continue;
+      }
+
+      if (attackFinishedAt !== null && attackFinishedAt > endedAt) {
         continue;
       }
 
@@ -754,14 +777,194 @@ async function autoEndTermedWarIfLimitReached(
     return false;
   }
 
+  const crossingAttack = await readTermedWarLimitCrossingAttack(env, activeWar);
+  const finishAt = attackFinishedTimestamp(crossingAttack ?? {}) ?? nowSeconds();
+
   await recordTermedWarPracticalFinish(env, {
     warId: activeWar.id,
-    finishAt: nowSeconds(),
+    finishAt,
     enemyFactionId: activeWar.enemy_faction_id,
     tornWarId: rankedWar.id,
     preserveExistingFinish: true,
   });
+  await sendTermedWarAutoEndDiscordMessage(env, {
+    currentScore: homeFaction.score,
+    targetScore: activeWar.faction_respect_limit,
+    finishAt,
+    crossingAttack,
+  });
   return true;
+}
+
+export function attackFallsWithinLiveWarWindow(
+  attack: AttackTiming,
+  war: WarWindowForAttackAssignment,
+): boolean {
+  if (attack.started == null || attack.started < war.practical_start_time) {
+    return false;
+  }
+
+  const attackFinishedAt = attackFinishedTimestamp(attack);
+  if (attackFinishedAt === null) {
+    return false;
+  }
+
+  if (war.practical_finish_time !== null && attackFinishedAt > war.practical_finish_time) {
+    return false;
+  }
+
+  if (war.official_end_time !== null && attackFinishedAt > war.official_end_time) {
+    return false;
+  }
+
+  return true;
+}
+
+export function findTermedWarLimitCrossingAttackTime(
+  rows: TermedWarCrossingAttackRow[],
+  factionRespectLimit: number,
+): number | null {
+  const attack = findTermedWarLimitCrossingAttack(rows, factionRespectLimit);
+
+  return attack ? attackFinishedTimestamp(attack) : null;
+}
+
+export function findTermedWarLimitCrossingAttack(
+  rows: TermedWarCrossingAttackRow[],
+  factionRespectLimit: number,
+): TermedWarCrossingAttackRow | null {
+  let cumulativeRespect = 0;
+
+  for (const row of rows) {
+    const attackFinishedAt = attackFinishedTimestamp(row);
+    if (attackFinishedAt === null) {
+      continue;
+    }
+
+    cumulativeRespect += Number(row.respect_gain ?? 0);
+    if (cumulativeRespect >= factionRespectLimit) {
+      return row;
+    }
+  }
+
+  return null;
+}
+
+async function readTermedWarLimitCrossingAttack(
+  env: Env,
+  activeWar: ActiveWarForIngestion,
+): Promise<TermedWarCrossingAttackRow | null> {
+  if (activeWar.faction_respect_limit === null || activeWar.enemy_faction_id === null) {
+    return null;
+  }
+
+  const rows = ((await env.DB.prepare(
+    `
+    SELECT id, started, ended, attacker_name, defender_name, respect_gain
+    FROM attacks
+    WHERE war_id = ?
+      AND attacker_faction_id = ?
+      AND defender_faction_id = ?
+      AND respect_gain > 0
+      AND COALESCE(ended, started) IS NOT NULL
+    ORDER BY COALESCE(ended, started) ASC, id ASC
+    `,
+  )
+    .bind(activeWar.id, HOME_FACTION_ID, activeWar.enemy_faction_id)
+    .all()).results ?? []) as TermedWarCrossingAttackRow[];
+
+  return findTermedWarLimitCrossingAttack(rows, activeWar.faction_respect_limit);
+}
+
+function attackFinishedTimestamp(attack: AttackTiming): number | null {
+  return attack.ended ?? attack.started ?? null;
+}
+
+export function buildTermedWarAutoEndDiscordMessage(options: {
+  currentScore: number;
+  targetScore: number;
+  finishAt: number;
+  crossingAttack: Pick<TermedWarCrossingAttackRow, "attacker_name" | "defender_name"> | null;
+}): string {
+  return [
+    `Score limit reached: ${formatScore(options.currentScore)}/${formatScore(options.targetScore)}`,
+    `Last attack: ${formatAttackPair(options.crossingAttack)}`,
+    `Finish time: ${formatDiscordDateTime(options.finishAt)}`,
+  ].join("\n");
+}
+
+async function sendTermedWarAutoEndDiscordMessage(
+  env: Env,
+  options: {
+    currentScore: number;
+    targetScore: number;
+    finishAt: number;
+    crossingAttack: TermedWarCrossingAttackRow | null;
+  },
+): Promise<void> {
+  if (!env.DISCORD_WEBHOOK_URL) {
+    return;
+  }
+
+  try {
+    await sendDiscordMessage(env, buildTermedWarAutoEndDiscordMessage(options));
+  } catch (err: any) {
+    console.warn("Unable to send termed war auto-end Discord message:", err?.message || err);
+  }
+}
+
+function formatAttackPair(
+  attack: Pick<TermedWarCrossingAttackRow, "attacker_name" | "defender_name"> | null,
+): string {
+  const attacker = cleanDiscordLineText(attack?.attacker_name) ?? "Unknown attacker";
+  const defender = cleanDiscordLineText(attack?.defender_name) ?? "Unknown defender";
+
+  return `${attacker} v ${defender}`;
+}
+
+function formatScore(value: number): string {
+  return new Intl.NumberFormat("en-GB", { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatDiscordDateTime(timestamp: number): string {
+  const date = new Date(timestamp * 1000);
+  const day = date.getUTCDate();
+  const month = new Intl.DateTimeFormat("en-GB", {
+    month: "long",
+    timeZone: "UTC",
+  }).format(date);
+  const time = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(date);
+
+  return `${day}${ordinalSuffix(day)} ${month} ${date.getUTCFullYear()} ${time} UTC`;
+}
+
+function ordinalSuffix(day: number): string {
+  if (day >= 11 && day <= 13) {
+    return "th";
+  }
+
+  switch (day % 10) {
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
+  }
+}
+
+function cleanDiscordLineText(value: string | null | undefined): string | null {
+  const cleaned = value?.replace(/\s+/g, " ").trim();
+
+  return cleaned || null;
 }
 
 async function syncRankedWarScores(

@@ -132,8 +132,8 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
           OR a.defender_faction_id != ${HOME_FACTION_ID}
         )
         AND a.result IN (${POSITIVE_RESULTS_SQL})
-        AND (? IS NOT NULL AND a.started > ?)
-        AND (? IS NULL OR a.started <= ?)
+        AND (? IS NOT NULL AND COALESCE(a.ended, a.started) > ?)
+        AND (? IS NULL OR COALESCE(a.ended, a.started) <= ?)
         AND (? IS NULL OR a.defender_faction_id = ?)
         `,
         [
@@ -163,7 +163,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
           )
         )
         AND (? IS NULL OR a.started >= ?)
-        AND (? IS NULL OR a.started <= ?)
+        AND (? IS NULL OR COALESCE(a.ended, a.started) <= ?)
         `,
         [war.enemy_faction_id, war.enemy_faction_id, war.practical_start_time, war.practical_start_time, war.practical_finish_time, war.practical_finish_time],
       ),
@@ -179,7 +179,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         )
         AND (
           a.started < ?
-          OR (? IS NOT NULL AND a.started > ?)
+          OR (? IS NOT NULL AND COALESCE(a.ended, a.started) > ?)
         )
         `,
         [officialStartTime, officialEndTime, officialEndTime],
@@ -523,7 +523,7 @@ async function getMemberReportComparison(
       AND (? IS NULL OR a.defender_faction_id = ?)
       AND a.result IN (${POSITIVE_RESULTS_SQL})
       AND a.started >= ?
-      AND a.started <= ?
+      AND COALESCE(a.ended, a.started) <= ?
       AND a.attacker_id IS NOT NULL
     GROUP BY a.attacker_id
     `,

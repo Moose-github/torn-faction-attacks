@@ -85,6 +85,11 @@ export async function recordTermedWarPracticalFinish(
     .bind(...bindValues)
     .run();
 
+  const practicalFinishTime = await readWarPracticalFinishTime(env, options.warId);
+  if (practicalFinishTime !== null) {
+    await unassignWarAttacksAfterPracticalFinish(env, options.warId, practicalFinishTime);
+  }
+
   await stopLiveEnemyTracking(env, options.warId, options.enemyFactionId);
   await refreshWarDerivedStats(env, options.warId);
   await bumpWarCacheVersionById(env, options.warId);
@@ -98,6 +103,7 @@ export async function setWarPracticalWindow(
     practicalFinishTime: number | null;
     enemyFactionId: number | null;
     warType?: string;
+    autoEndEnabled?: number;
     factionRespectLimit?: number | null;
     memberRespectLimit?: number | null;
   },
@@ -106,7 +112,7 @@ export async function setWarPracticalWindow(
     ? ""
     : `,
         war_type = ?,
-        auto_end_enabled = CASE WHEN ? = 'termed' THEN auto_end_enabled ELSE 0 END,
+        auto_end_enabled = CASE WHEN ? = 'termed' THEN ? ELSE 0 END,
         faction_respect_limit = CASE WHEN ? = 'termed' THEN ? ELSE NULL END,
         member_respect_limit = CASE WHEN ? = 'termed' THEN ? ELSE NULL END`;
   const bindValues: Array<number | string | null> = [
@@ -118,6 +124,7 @@ export async function setWarPracticalWindow(
     bindValues.push(
       options.warType,
       options.warType,
+      options.autoEndEnabled ?? 0,
       options.warType,
       options.factionRespectLimit ?? null,
       options.warType,
@@ -254,6 +261,38 @@ async function backfillWarAssignments(
     `,
   )
     .bind(warId, startedAt, HOME_FACTION_ID, HOME_FACTION_ID)
+    .run();
+}
+
+async function readWarPracticalFinishTime(env: Env, warId: number): Promise<number | null> {
+  const row = (await env.DB.prepare(
+    `
+    SELECT practical_finish_time
+    FROM wars
+    WHERE id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first()) as { practical_finish_time: number | null } | null;
+
+  return row?.practical_finish_time ?? null;
+}
+
+async function unassignWarAttacksAfterPracticalFinish(
+  env: Env,
+  warId: number,
+  practicalFinishTime: number,
+): Promise<void> {
+  await env.DB.prepare(
+    `
+    UPDATE attacks
+    SET war_id = NULL
+    WHERE war_id = ?
+      AND COALESCE(ended, started) > ?
+    `,
+  )
+    .bind(warId, practicalFinishTime)
     .run();
 }
 

@@ -36,7 +36,10 @@ export const OUTGOING_ACTION_WINDOW_SQL = `
     a.started IS NULL
     OR (
       a.started >= w.practical_start_time
-      AND (w.practical_finish_time IS NULL OR a.started <= w.practical_finish_time)
+      AND (
+        w.practical_finish_time IS NULL
+        OR COALESCE(a.ended, a.started) <= w.practical_finish_time
+      )
     )
   )
 `;
@@ -48,19 +51,26 @@ export const DEFENSE_ACTION_WINDOW_SQL = `
       a.started >= COALESCE(w.official_start_time, w.practical_start_time)
       AND (
         w.official_end_time IS NOT NULL
-        AND a.started <= w.official_end_time
+        AND COALESCE(a.ended, a.started) <= w.official_end_time
       )
     )
     OR (
       w.official_end_time IS NULL
       AND w.status = 'active'
       AND a.started >= COALESCE(w.official_start_time, w.practical_start_time)
+      AND (
+        w.practical_finish_time IS NULL
+        OR COALESCE(a.ended, a.started) <= w.practical_finish_time
+      )
     )
     OR (
       w.official_end_time IS NULL
       AND w.status != 'active'
       AND a.started >= COALESCE(w.official_start_time, w.practical_start_time)
-      AND (w.practical_finish_time IS NULL OR a.started <= w.practical_finish_time)
+      AND (
+        w.practical_finish_time IS NULL
+        OR COALESCE(a.ended, a.started) <= w.practical_finish_time
+      )
     )
   )
 `;

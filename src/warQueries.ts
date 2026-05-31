@@ -913,19 +913,28 @@ const OFFICIAL_OUTGOING_ACTION_WINDOW_SQL = `
     a.started IS NULL
     OR (
       a.started >= COALESCE(w.official_start_time, w.practical_start_time)
-      AND (w.official_end_time IS NULL OR a.started <= w.official_end_time)
+      AND (
+        w.official_end_time IS NULL
+        OR COALESCE(a.ended, a.started) <= w.official_end_time
+      )
     )
   )
 `;
 
 const PRACTICAL_ACTIVITY_WINDOW_SQL = `
   a.started >= w.practical_start_time
-  AND (w.practical_finish_time IS NULL OR a.started <= w.practical_finish_time)
+  AND (
+    w.practical_finish_time IS NULL
+    OR COALESCE(a.ended, a.started) <= w.practical_finish_time
+  )
 `;
 
 const OFFICIAL_ACTIVITY_WINDOW_SQL = `
   a.started >= COALESCE(w.official_start_time, w.practical_start_time)
-  AND (w.official_end_time IS NULL OR a.started <= w.official_end_time)
+  AND (
+    w.official_end_time IS NULL
+    OR COALESCE(a.ended, a.started) <= w.official_end_time
+  )
 `;
 
 function classifyMemberAttack(

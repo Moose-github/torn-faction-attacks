@@ -2204,6 +2204,7 @@ function toPracticalWarEditPayload(id: number, form: AdminWarFormState): AdminWa
   };
 
   if (form.warType === "termed") {
+    payload.auto_end_enabled = form.autoEndEnabled;
     setOptionalNumber(payload, "faction_respect_limit", form.factionRespectLimit);
     setOptionalNumber(payload, "member_respect_limit", form.memberRespectLimit);
   }

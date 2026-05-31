@@ -63,7 +63,7 @@ export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response>
       return windowRange;
     }
 
-    const conditions = ["a.started >= ?", "a.started <= ?"];
+    const conditions = ["a.started >= ?", "COALESCE(a.ended, a.started) <= ?"];
     const binds: unknown[] = [windowRange.start, windowRange.finish];
 
     if (linkedStatus === "linked") {
