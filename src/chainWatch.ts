@@ -19,6 +19,7 @@ export const CHAIN_WATCH_ALERT_MIN_CHAIN = 100;
 
 const CHAIN_WATCH_MAX_ERROR_LENGTH = 240;
 const CHAIN_WATCH_ALARM_NAME_PREFIX = "chain-watch";
+const CHAIN_WATCH_LIVE_TIMEOUT_DRIFT_SECONDS = 5;
 
 type ChainWatchSource = "stored" | "live_confirm" | "stale" | "dropped";
 type ChainWatchAlarmStage = "warning_60" | "warning_30" | "drop";
@@ -425,12 +426,23 @@ async function sendWarningIfDue(
   stage: "warning_60" | "warning_30",
   sentAt: number,
 ): Promise<void> {
+  const warningColumn = stage === "warning_60" ? "warning_60_sent_at" : "warning_30_sent_at";
   if (
     state.timeout_at === null ||
     state.timeout_at <= sentAt ||
     !chainWatchAlertEligible(state.current_chain) ||
-    (stage === "warning_60" && state.warning_60_sent_at !== null) ||
-    (stage === "warning_30" && state.warning_30_sent_at !== null)
+    state[warningColumn] !== null
+  ) {
+    return;
+  }
+
+  const confirmedState = await confirmChainWatchWarningWithLiveChain(env, state, sentAt);
+  if (
+    confirmedState === null ||
+    confirmedState.timeout_at === null ||
+    confirmedState.timeout_at <= sentAt ||
+    !chainWatchAlertEligible(confirmedState.current_chain) ||
+    confirmedState[warningColumn] !== null
   ) {
     return;
   }
@@ -439,16 +451,16 @@ async function sendWarningIfDue(
     env,
     chainWatchWarningMessage({
       stage,
-      currentChain: Number(state.current_chain),
-      timeoutAt: state.timeout_at,
-      lastHit: state,
+      currentChain: Number(confirmedState.current_chain),
+      timeoutAt: confirmedState.timeout_at,
+      lastHit: confirmedState,
     }),
   );
 
   await env.DB.prepare(
     `
     UPDATE chain_watch_state
-    SET ${stage === "warning_60" ? "warning_60_sent_at" : "warning_30_sent_at"} = ?,
+    SET ${warningColumn} = ?,
         alert_chain = ?,
         alert_reset_at = ?,
         scheduled_alarm_stage = NULL,
@@ -458,8 +470,64 @@ async function sendWarningIfDue(
     WHERE war_id = ?
     `,
   )
-    .bind(sentAt, state.current_chain, state.reset_at, sentAt, state.war_id)
+    .bind(sentAt, confirmedState.current_chain, confirmedState.reset_at, sentAt, confirmedState.war_id)
     .run();
+}
+
+async function confirmChainWatchWarningWithLiveChain(
+  env: Env,
+  state: ChainWatchStateRow,
+  checkedAt: number,
+): Promise<ChainWatchStateRow | null> {
+  const live = await readTornChain(env, checkedAt).catch((err: any) => ({
+    error: err?.message || String(err),
+    chain: null,
+  }));
+
+  if (live.error) {
+    await updateChainWatchLiveCheckStatus(env, state.war_id, checkedAt, "stale", live.error);
+    return state;
+  }
+
+  if (!live.chain?.active) {
+    await saveLiveChainWarningObservation(env, state, {
+      source: "dropped",
+      currentChain: live.chain?.current ?? 0,
+      resetAt: null,
+      timeoutAt: checkedAt,
+      lastHit: null,
+      lastError: null,
+    }, checkedAt);
+    return null;
+  }
+
+  if (live.chain.timeoutAt === null) {
+    return await updateChainWatchLiveCheckStatus(env, state.war_id, checkedAt, "live_confirm", null);
+  }
+
+  const liveResetAt = Math.max(0, live.chain.timeoutAt - CHAIN_WATCH_TIMEOUT_SECONDS);
+  const timeoutMovedLater =
+    state.timeout_at !== null &&
+    live.chain.timeoutAt > state.timeout_at + CHAIN_WATCH_LIVE_TIMEOUT_DRIFT_SECONDS;
+  const timeoutDiffers =
+    state.timeout_at === null ||
+    Math.abs(live.chain.timeoutAt - state.timeout_at) > CHAIN_WATCH_LIVE_TIMEOUT_DRIFT_SECONDS;
+  const chainDiffers = live.chain.current !== Number(state.current_chain ?? 0);
+
+  if (timeoutDiffers || chainDiffers) {
+    const updated = await saveLiveChainWarningObservation(env, state, {
+      source: "live_confirm",
+      currentChain: live.chain.current,
+      resetAt: liveResetAt,
+      timeoutAt: live.chain.timeoutAt,
+      lastHit: null,
+      lastError: null,
+    }, checkedAt);
+
+    return timeoutMovedLater ? null : updated;
+  }
+
+  return await updateChainWatchLiveCheckStatus(env, state.war_id, checkedAt, "live_confirm", null);
 }
 
 async function sendDroppedIfDue(
@@ -502,6 +570,46 @@ async function sendDroppedIfDue(
   )
     .bind(sentAt, sentAt, state.war_id)
     .run();
+}
+
+async function updateChainWatchLiveCheckStatus(
+  env: Env,
+  warId: number,
+  checkedAt: number,
+  source: ChainWatchSource,
+  error: string | null,
+): Promise<ChainWatchStateRow> {
+  const row = (await env.DB.prepare(
+    `
+    UPDATE chain_watch_state
+    SET source = ?,
+        last_checked_at = ?,
+        last_error = ?,
+        updated_at = ?
+    WHERE war_id = ?
+    RETURNING *
+    `,
+  )
+    .bind(source, checkedAt, truncateChainWatchError(error), checkedAt, warId)
+    .first()) as ChainWatchStateRow | null;
+
+  if (!row) {
+    throw new Error("Failed to update chain watch live check status");
+  }
+
+  return row;
+}
+
+async function saveLiveChainWarningObservation(
+  env: Env,
+  state: ChainWatchStateRow,
+  observation: ChainWatchObservation,
+  checkedAt: number,
+): Promise<ChainWatchStateRow> {
+  return await saveChainWatchObservation(env, state.war_id, state, {
+    ...observation,
+    lastHit: observation.lastHit ?? chainWatchStateAsAttackRow(state),
+  }, checkedAt);
 }
 
 async function scheduleChainWatchAlarmForState(
@@ -637,6 +745,24 @@ async function saveChainWatchObservation(
   }
 
   return row;
+}
+
+function chainWatchStateAsAttackRow(state: ChainWatchStateRow): ChainWatchAttackRow | null {
+  if (state.last_hit_id === null && state.last_hit_at === null) {
+    return null;
+  }
+
+  return {
+    id: state.last_hit_id ?? 0,
+    started: state.last_hit_at,
+    ended: state.last_hit_at,
+    attacker_faction_id: HOME_FACTION_ID,
+    defender_faction_id: null,
+    attacker_name: state.last_hit_attacker_name,
+    defender_name: state.last_hit_defender_name,
+    result: state.last_hit_result,
+    chain: state.current_chain,
+  };
 }
 
 async function readLatestQualifyingChainHit(
