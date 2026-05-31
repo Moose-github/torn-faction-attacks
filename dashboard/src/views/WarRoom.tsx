@@ -548,14 +548,6 @@ export function WarRoom({
           />
         </CollapsiblePanel>
 
-        <EnemyHitTrendWatchPanel
-          trends={scoutingComparison?.hit_stats?.trends ?? []}
-          health={scoutingComparison?.hit_stats?.health ?? null}
-          isLoading={isLoadingScoutingComparison}
-          collapsed={collapsedPanels.enemyHitTrends ?? false}
-          onToggle={() => togglePanel("enemyHitTrends")}
-        />
-
         {!isMemberTrackingActive ? (
           <LiveTrackingInactivePanel
             collapsed={collapsedPanels.liveTrackingInactive ?? true}
@@ -603,6 +595,14 @@ export function WarRoom({
           canRefresh={canRefreshEnemyScouting}
           showStatusColumn={isMemberTrackingActive}
           onRefresh={refreshSelectedEnemyScouting}
+        />
+
+        <EnemyHitTrendWatchPanel
+          trends={scoutingComparison?.hit_stats?.trends ?? []}
+          health={scoutingComparison?.hit_stats?.health ?? null}
+          isLoading={isLoadingScoutingComparison}
+          collapsed={collapsedPanels.enemyHitTrends ?? false}
+          onToggle={() => togglePanel("enemyHitTrends")}
         />
 
         <TrackingStatusPanel

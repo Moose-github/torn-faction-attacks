@@ -123,7 +123,7 @@ export function AdminControls() {
   const [reportExemptionMembers, setReportExemptionMembers] = React.useState<HomeFactionReportExemptionMember[]>([]);
   const [reportExemptionForm, setReportExemptionForm] = React.useState({
     memberId: "",
-    reason: "Memorial account",
+    reason: "",
   });
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
@@ -1869,7 +1869,18 @@ function WarFields({
             ))}
           </select>
         </label>
-        <div className="admin-form-spacer" aria-hidden="true" />
+        {canUseTermFields ? (
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.autoEndEnabled}
+              onChange={(event) => update("autoEndEnabled", event.target.checked)}
+            />
+            <span>Auto-end termed war</span>
+          </label>
+        ) : (
+          <div className="admin-form-spacer" aria-hidden="true" />
+        )}
         {canUseTermFields ? (
           <>
             <label>

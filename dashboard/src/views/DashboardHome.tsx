@@ -1199,7 +1199,7 @@ function buildRecentEvents({
     maintenanceRun
       ? {
           label: "15m maintenance",
-          detail: `${maintenanceRun.status}, ${maintenanceRun.changed_rows} row changes`,
+          detail: maintenanceRunDetail(maintenanceRun, maintenanceTasks),
           time: maintenanceRun.finished_at ?? maintenanceRun.started_at,
         }
       : null,
@@ -1213,4 +1213,20 @@ function buildRecentEvents({
     .filter((event): event is { label: string; detail: string; time: number | null } => event !== null)
     .sort((a, b) => Number(b.time ?? 0) - Number(a.time ?? 0))
     .slice(0, 6);
+}
+
+function maintenanceRunDetail(run: MaintenanceRun, tasks: MaintenanceTask[]): string {
+  const changedRows = rowChangeLabel(run.changed_rows);
+  if (run.status !== "error") {
+    return `${run.status}, ${changedRows}`;
+  }
+
+  const failedTask = tasks.find((task) => task.status === "error") ?? null;
+  const failureLabel = failedTask ? failedTask.task_name : "maintenance task";
+  const successfulChanges = run.changed_rows > 0 ? `. ${changedRows} from completed tasks` : "";
+  return `Failed: ${failureLabel}${successfulChanges}`;
+}
+
+function rowChangeLabel(count: number): string {
+  return `${formatNumber(count)} ${count === 1 ? "row change" : "row changes"}`;
 }
