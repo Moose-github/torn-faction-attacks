@@ -1,3 +1,4 @@
+import { readAvailableEnemyNetworthKeys } from "./enemyNetworth";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { trackedTornFetch } from "./tornApiUsage";
 import { Env } from "./types";
@@ -655,15 +656,20 @@ async function updateStockIngestionRun(env: Env, run: StockIngestionRun): Promis
 }
 
 async function fetchTornJson(endpoint: string, env: Env): Promise<unknown> {
+  const key = (await readAvailableEnemyNetworthKeys(env, nowSeconds()))[0];
+  if (!key) {
+    throw new Error("No Torn API key available for stock market refresh");
+  }
+
   const response = await trackedTornFetch(env, `${TORN_API_BASE}${endpoint}`, {
     headers: {
       Accept: "application/json",
-      Authorization: `ApiKey ${env.TORN_API_KEY}`,
+      Authorization: `ApiKey ${key.key}`,
       "User-Agent": "buttgrass-stock-market/1.0",
     },
   }, {
     feature: "stock-market",
-    keySource: "env:TORN_API_KEY",
+    keySource: key.keySource,
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
 
