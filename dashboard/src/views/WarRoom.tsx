@@ -73,6 +73,7 @@ export function WarRoom({
   const [isTogglingChainWatch, setIsTogglingChainWatch] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({
     activityHeatmaps: true,
+    enemyHitTrends: true,
     enemyPushPressure: true,
     revivableMembers: true,
   });
@@ -684,7 +685,7 @@ export function WarRoom({
           trends={scoutingComparison?.hit_stats?.trends ?? []}
           health={scoutingComparison?.hit_stats?.health ?? null}
           isLoading={isLoadingScoutingComparison}
-          collapsed={collapsedPanels.enemyHitTrends ?? false}
+          collapsed={collapsedPanels.enemyHitTrends ?? true}
           onToggle={() => togglePanel("enemyHitTrends")}
         />
 
@@ -1148,7 +1149,6 @@ function EnemyHitTrendWatchPanel({
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const visibleTrends = trends.slice(0, 12);
   const aside = isLoading
     ? "Loading"
     : health
@@ -1163,6 +1163,9 @@ function EnemyHitTrendWatchPanel({
       onToggle={onToggle}
       className="enemy-hit-trends-panel"
     >
+      <p className="panel-description">
+        Uses current and previous Wednesday hit-stat snapshots to estimate who is likely to push, retaliate, or lean on guns, melee, and temps.
+      </p>
       {health ? (
         <div className="enemy-hit-trend-health" aria-label="Enemy hit trend fill status">
           <span title="Historical hit-stat snapshots loaded">
@@ -1179,7 +1182,7 @@ function EnemyHitTrendWatchPanel({
           </span>
         </div>
       ) : null}
-      {visibleTrends.length === 0 ? (
+      {trends.length === 0 ? (
         <EmptyState text={isLoading ? "Loading hit trends" : "Hit trend data is still filling"} />
       ) : (
         <div className="enemy-hit-trend-list" role="table" aria-label="Enemy members to watch">
@@ -1196,7 +1199,7 @@ function EnemyHitTrendWatchPanel({
             </span>
             <span role="columnheader">Temp/wk</span>
           </div>
-          {visibleTrends.map((trend) => (
+          {trends.map((trend) => (
             <div className="enemy-hit-trend-row" role="row" key={trend.member_id}>
               <span role="cell">
                 <a
