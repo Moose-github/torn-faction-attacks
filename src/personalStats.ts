@@ -73,7 +73,7 @@ export async function fetchTornPersonalStatsWithTimestamps(
   return extractPersonalStats(data?.personalstats);
 }
 
-function extractPersonalStats(source: unknown): TornPersonalStatsResponse {
+export function extractPersonalStats(source: unknown): TornPersonalStatsResponse {
   const stats: TornPersonalStatsResponse = {};
   if (!source) {
     return stats;

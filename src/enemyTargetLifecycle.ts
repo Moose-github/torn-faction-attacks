@@ -7,6 +7,7 @@ export type EnemyTargetLifecycleMetrics = {
   writeStatements: number;
   changedRows: number;
   enemyRosterRowsDeleted: number;
+  enemyHitStatRowsDeleted: number;
   homeComparisonStatsRowsCleared: number;
   enemyHeatmapRowsDeleted: number;
   fillCompletionLatchesCleared: number;
@@ -21,6 +22,7 @@ type EnemyTargetMatchedOptions = {
 
 const BSP_FILL_COMPLETE_STATE_PREFIX = "enemy_target_bsp_fill_complete";
 const ENEMY_NETWORTH_FILL_COMPLETE_STATE_PREFIX = "enemy_target_networth_fill_complete";
+const ENEMY_HIT_STATS_FILL_COMPLETE_STATE_PREFIX = "enemy_target_hit_stats_fill_complete";
 const FF_FILL_COMPLETE_STATE_PREFIX = "enemy_target_ff_fill_complete";
 const COMPARISON_STATS_COMPLETE_STATE_PREFIX = "enemy_target_comparison_stats_complete";
 const STATS_IMAGE_PENDING_STATE_PREFIX = "enemy_target_stats_image_pending";
@@ -72,6 +74,12 @@ export async function handleEnemyTargetMatched(
     metrics.writeStatements += 1;
     metrics.changedRows += changes;
     metrics.enemyRosterRowsDeleted += changes;
+
+    const hitStatsResult = await env.DB.prepare(`DELETE FROM enemy_hit_stat_snapshots`).run();
+    const hitStatsChanges = d1Changes(hitStatsResult);
+    metrics.writeStatements += 1;
+    metrics.changedRows += hitStatsChanges;
+    metrics.enemyHitStatRowsDeleted += hitStatsChanges;
   }
 
   if (options.clearHomeComparisonStats) {
@@ -115,7 +123,7 @@ export async function handleEnemyTargetMatched(
       env,
       enemyTargetStatsImageSentLatchName(options.warId, nextFactionId),
     );
-    metrics.writeStatements += 6;
+    metrics.writeStatements += 7;
     metrics.changedRows += latchChanges;
     metrics.changedRows += 1 + d1Changes(sentClear);
     metrics.fillCompletionLatchesCleared += latchChanges;
@@ -137,6 +145,13 @@ export function enemyTargetNetworthFillCompleteLatchName(
   enemyFactionId: number,
 ): string {
   return `${ENEMY_NETWORTH_FILL_COMPLETE_STATE_PREFIX}:${warId}:${enemyFactionId}`;
+}
+
+export function enemyTargetHitStatsFillCompleteLatchName(
+  warId: number,
+  enemyFactionId: number,
+): string {
+  return `${ENEMY_HIT_STATS_FILL_COMPLETE_STATE_PREFIX}:${warId}:${enemyFactionId}`;
 }
 
 export function enemyTargetComparisonStatsCompleteLatchName(
@@ -162,6 +177,7 @@ function emptyEnemyTargetLifecycleMetrics(): EnemyTargetLifecycleMetrics {
     writeStatements: 0,
     changedRows: 0,
     enemyRosterRowsDeleted: 0,
+    enemyHitStatRowsDeleted: 0,
     homeComparisonStatsRowsCleared: 0,
     enemyHeatmapRowsDeleted: 0,
     fillCompletionLatchesCleared: 0,
@@ -175,6 +191,7 @@ function addEnemyTargetLifecycleMetrics(
   target.writeStatements += source.writeStatements;
   target.changedRows += source.changedRows;
   target.enemyRosterRowsDeleted += source.enemyRosterRowsDeleted;
+  target.enemyHitStatRowsDeleted += source.enemyHitStatRowsDeleted;
   target.homeComparisonStatsRowsCleared += source.homeComparisonStatsRowsCleared;
   target.enemyHeatmapRowsDeleted += source.enemyHeatmapRowsDeleted;
   target.fillCompletionLatchesCleared += source.fillCompletionLatchesCleared;
@@ -189,6 +206,7 @@ async function clearEnemyTargetFillCompletionLatches(
     clearSyncLatch(env, enemyTargetBspFillCompleteLatchName(warId, enemyFactionId)),
     clearSyncLatch(env, enemyTargetFfFillCompleteLatchName(warId, enemyFactionId)),
     clearSyncLatch(env, enemyTargetNetworthFillCompleteLatchName(warId, enemyFactionId)),
+    clearSyncLatch(env, enemyTargetHitStatsFillCompleteLatchName(warId, enemyFactionId)),
     clearSyncLatch(env, enemyTargetComparisonStatsCompleteLatchName(warId, enemyFactionId)),
   ]);
 

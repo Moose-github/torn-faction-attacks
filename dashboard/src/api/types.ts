@@ -407,7 +407,15 @@ export type EnemyScoutingResponse = {
 
 export type ScoutingComparisonResponse = {
   ok: boolean;
-  comparison_stats_complete?: boolean;
+  comparison_stats_complete?: boolean;
+
+  hit_stats?: {
+
+    health: EnemyHitStatHealth;
+
+    trends: EnemyHitStatTrend[];
+
+  };
   war: {
     id: number;
     name: string;
@@ -423,7 +431,53 @@ export type ScoutingComparisonResponse = {
   };
 };
 
-export type ReportDiscrepancyGroup = {
+export type EnemyHitStatHealth = {
+
+  total: number;
+
+  completed: number;
+
+  pending: number;
+
+  failed: number;
+
+  retryable: number;
+
+};
+
+
+
+export type EnemyHitStatTrend = {
+
+  member_id: number;
+
+  member_name: string;
+
+  priority: "high" | "medium" | "low";
+
+  snapshot_count: number;
+
+  oldest_snapshot_date: string;
+
+  latest_snapshot_date: string;
+
+  weeks: number;
+
+  rankedwarhits_per_week: number;
+
+  retals_per_week: number;
+
+  temphits_per_week: number;
+
+  meleehits_per_week: number;
+
+  gunhits_per_week: number;
+
+};
+
+
+
+export type ReportDiscrepancyGroup = {
   count: number;
   respect_gain: number;
   attacks: Array<Pick<

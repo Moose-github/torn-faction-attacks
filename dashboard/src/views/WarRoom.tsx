@@ -2,6 +2,7 @@ import React from "react";
 import { Siren } from "lucide-react";
 import {
   EnemyFactionMember,
+  EnemyHitStatTrend,
   EnemyPushPressureResponse,
   EnemyScoutingResponse,
   FactionActivityHeatmapResponse,
@@ -547,6 +548,14 @@ export function WarRoom({
           />
         </CollapsiblePanel>
 
+        <EnemyHitTrendWatchPanel
+          trends={scoutingComparison?.hit_stats?.trends ?? []}
+          health={scoutingComparison?.hit_stats?.health ?? null}
+          isLoading={isLoadingScoutingComparison}
+          collapsed={collapsedPanels.enemyHitTrends ?? false}
+          onToggle={() => togglePanel("enemyHitTrends")}
+        />
+
         {!isMemberTrackingActive ? (
           <LiveTrackingInactivePanel
             collapsed={collapsedPanels.liveTrackingInactive ?? true}
@@ -903,6 +912,117 @@ function HospitalMonitorLinkPanel({
       </button>
     </section>
   );
+}
+
+function EnemyHitTrendWatchPanel({
+  trends,
+  health,
+  isLoading,
+  collapsed,
+  onToggle,
+}: {
+  trends: EnemyHitStatTrend[];
+  health: NonNullable<ScoutingComparisonResponse["hit_stats"]>["health"] | null;
+  isLoading: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const visibleTrends = trends.slice(0, 12);
+  const aside = isLoading
+    ? "Loading"
+    : health
+      ? `${formatNumber(health.completed)}/${formatNumber(health.total)} snapshots`
+      : "Pending";
+
+  return (
+    <CollapsiblePanel
+      title="Members to watch"
+      aside={aside}
+      collapsed={collapsed}
+      onToggle={onToggle}
+      className="enemy-hit-trends-panel"
+    >
+      {health ? (
+        <div className="enemy-hit-trend-health" aria-label="Enemy hit trend fill status">
+          <span title="Historical hit-stat snapshots loaded">
+            Loaded {formatNumber(health.completed)}
+          </span>
+          <span title="Historical hit-stat snapshots still waiting for fetch">
+            Pending {formatNumber(health.pending)}
+          </span>
+          <span title="Historical hit-stat snapshots still retryable before the retry cap">
+            Retryable {formatNumber(health.retryable)}
+          </span>
+          <span title="Historical hit-stat snapshots that reached the retry cap">
+            Failed {formatNumber(health.failed)}
+          </span>
+        </div>
+      ) : null}
+      {visibleTrends.length === 0 ? (
+        <EmptyState text={isLoading ? "Loading hit trends" : "Hit trend data is still filling"} />
+      ) : (
+        <div className="enemy-hit-trend-list" role="table" aria-label="Enemy members to watch">
+          <div className="enemy-hit-trend-row header" role="row">
+            <span role="columnheader">Member</span>
+            <span role="columnheader">Priority</span>
+            <span role="columnheader">Ranked/wk</span>
+            <span role="columnheader">Retals/wk</span>
+            <span role="columnheader" title="Gun hits = attack hits minus melee hits and temp hits">
+              Gun/wk
+            </span>
+            <span role="columnheader" title="Melee hits = piercing, slashing, clubbing, mechanical, and hand-to-hand hits">
+              Melee/wk
+            </span>
+            <span role="columnheader">Temp/wk</span>
+          </div>
+          {visibleTrends.map((trend) => (
+            <div className="enemy-hit-trend-row" role="row" key={trend.member_id}>
+              <span role="cell">
+                <a
+                  href={`https://www.torn.com/profiles.php?XID=${trend.member_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={`Open ${trend.member_name} on Torn. Trend uses ${formatNumber(trend.snapshot_count)} snapshots from ${trend.oldest_snapshot_date} to ${trend.latest_snapshot_date}.`}
+                >
+                  {trend.member_name}
+                </a>
+              </span>
+              <span role="cell">
+                <span className={`watch-priority-badge ${trend.priority}`}>
+                  {watchPriorityLabel(trend.priority)}
+                </span>
+              </span>
+              <span role="cell">{formatTrendRate(trend.rankedwarhits_per_week)}</span>
+              <span role="cell">{formatTrendRate(trend.retals_per_week)}</span>
+              <span role="cell">{formatTrendRate(trend.gunhits_per_week)}</span>
+              <span role="cell">{formatTrendRate(trend.meleehits_per_week)}</span>
+              <span role="cell">{formatTrendRate(trend.temphits_per_week)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </CollapsiblePanel>
+  );
+}
+
+function watchPriorityLabel(priority: EnemyHitStatTrend["priority"]): string {
+  if (priority === "high") {
+    return "High";
+  }
+  if (priority === "medium") {
+    return "Medium";
+  }
+  return "Low";
+}
+
+function formatTrendRate(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  if (Math.abs(value) >= 10) {
+    return formatNumber(Math.round(value));
+  }
+  return value.toFixed(1);
 }
 
 function EnemyStatusSummaryPanel({

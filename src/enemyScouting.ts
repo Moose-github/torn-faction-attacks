@@ -12,6 +12,11 @@ import {
   enemyTargetNetworthFillCompleteLatchName,
   handleEnemyTargetMatched,
 } from "./enemyTargetLifecycle";
+import {
+  readEnemyHitStatHealth,
+  readEnemyHitStatTrends,
+  seedEnemyHitStatSnapshots,
+} from "./enemyHitStats";
 import { ENEMY_NETWORTH_MAX_ATTEMPTS } from "./enemyNetworth";
 import {
   buildEnemyPushSnapshot,
@@ -201,10 +206,12 @@ export async function getScoutingComparisonForWar(url: URL, env: Env): Promise<R
   }
 
   const enemyFactionId = war.enemy_faction_id as number;
-  const [homeMembers, enemyMembers, comparisonStatsComplete] = await Promise.all([
+  const [homeMembers, enemyMembers, comparisonStatsComplete, hitStatHealth, hitStatTrends] = await Promise.all([
     readHomeScouting(env),
     readEnemyScouting(env, enemyFactionId),
     isEnemyTargetComparisonStatsCompleteForWar(env, war.id, enemyFactionId),
+    readEnemyHitStatHealth(env, war.id, enemyFactionId),
+    readEnemyHitStatTrends(env, war.id, enemyFactionId),
   ]);
 
   return json({
@@ -228,6 +235,10 @@ export async function getScoutingComparisonForWar(url: URL, env: Env): Promise<R
       members: enemyMembers,
     },
     comparison_stats_complete: comparisonStatsComplete,
+    hit_stats: {
+      health: hitStatHealth,
+      trends: hitStatTrends,
+    },
   });
 }
 
@@ -495,6 +506,7 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
   );
 
   const rows = await readEnemyScouting(env, factionId);
+  await seedEnemyHitStatSnapshots(env, warId, factionId, rows, fetchedAt);
   await refreshMissingFfBattlestats(env, rows);
   return true;
 }

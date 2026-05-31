@@ -8,10 +8,16 @@ import {
   enemyTargetBspFillCompleteLatchName,
   enemyTargetComparisonStatsCompleteLatchName,
   enemyTargetFfFillCompleteLatchName,
+  enemyTargetHitStatsFillCompleteLatchName,
   enemyTargetNetworthFillCompleteLatchName,
   enemyTargetStatsImagePendingLatchName,
   enemyTargetStatsImageSentLatchName,
 } from "./enemyTargetLifecycle";
+import {
+  ENEMY_HIT_STAT_PER_KEY_LIMIT,
+  refreshMissingEnemyHitStats,
+  type EnemyHitStatsRefreshMetrics,
+} from "./enemyHitStats";
 import {
   ENEMY_NETWORTH_MAX_ATTEMPTS,
   ENEMY_NETWORTH_PER_KEY_LIMIT,
@@ -59,6 +65,7 @@ type EnemyTargetStateNames = {
   ff: string;
   bsp: string;
   networth: string;
+  hitStats: string;
   comparisonStatsComplete: string;
   statsImagePending: string;
   statsImageSent: string;
@@ -83,6 +90,7 @@ export type EnemyScoutingCronTickMetrics = {
   tracking: EnemyMemberTrackingRefreshMetrics;
   ff: FfscouterRefreshMetrics;
   networth: ScoutingNetworthRefreshMetrics;
+  hitStats: EnemyHitStatsRefreshMetrics;
   bsp: BspBattlestatRefreshMetrics;
   image: EnemyStatsImageSendResult;
 };
@@ -96,6 +104,7 @@ export async function runEnemyScoutingCronTick(
     includeMembers?: boolean;
     bspLimit?: number;
     networthLimit?: number;
+    hitStatsLimit?: number;
   } = {},
 ): Promise<EnemyScoutingCronTickMetrics> {
   const war = await readCurrentScoutingWar(env);
@@ -145,6 +154,16 @@ export async function runEnemyScoutingCronTick(
     }
 
     await markEnemyTargetComparisonStatsCompleteIfReady(env, context);
+  }
+
+  if (!activeLatches.has(stateNames.hitStats)) {
+    metrics.hitStats = await refreshMissingEnemyHitStats(env, {
+      warId: war.id,
+      enemyFactionId: war.enemy_faction_id,
+      completeLatchName: stateNames.hitStats,
+      activeLatches,
+      limit: options.hitStatsLimit ?? ENEMY_HIT_STAT_PER_KEY_LIMIT,
+    });
   }
 
   metrics.image = await sendPendingEnemyStatsComparisonImageForContext(env, context);
@@ -960,6 +979,7 @@ function buildEnemyTargetStateNames(warId: number, enemyFactionId: number): Enem
     ff: enemyTargetFfFillCompleteLatchName(warId, enemyFactionId),
     bsp: enemyTargetBspFillCompleteLatchName(warId, enemyFactionId),
     networth: enemyTargetNetworthFillCompleteLatchName(warId, enemyFactionId),
+    hitStats: enemyTargetHitStatsFillCompleteLatchName(warId, enemyFactionId),
     comparisonStatsComplete: enemyTargetComparisonStatsCompleteLatchName(warId, enemyFactionId),
     statsImagePending: enemyTargetStatsImagePendingLatchName(warId, enemyFactionId),
     statsImageSent: enemyTargetStatsImageSentLatchName(warId, enemyFactionId),
@@ -977,8 +997,22 @@ function emptyEnemyScoutingCronTickMetrics(): EnemyScoutingCronTickMetrics {
     tracking: emptyEnemyMemberTrackingRefreshMetrics(),
     ff: emptyFfscouterRefreshMetrics(),
     networth: emptyScoutingNetworthRefreshMetrics(),
+    hitStats: emptyEnemyHitStatsRefreshMetrics(),
     bsp: emptyBspBattlestatRefreshMetrics(),
     image: { sent: false, skipped: true, reason: "not checked" },
+  };
+}
+
+function emptyEnemyHitStatsRefreshMetrics(): EnemyHitStatsRefreshMetrics {
+  return {
+    writeStatements: 0,
+    changedRows: 0,
+    candidates: 0,
+    updated: 0,
+    failed: 0,
+    rateLimited: 0,
+    activeKeys: 0,
+    skipped: true,
   };
 }
 
