@@ -3,8 +3,6 @@ import { runIngestion } from "./ingestion";
 import { processMemberLifestyleRepairJobs, refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
 import { refreshTornShoplifting } from "./miscellaneous";
-import { refreshTornStockHistoryBatch, refreshTornStockMarketMinute } from "./stockMarket";
-import { runLiveStockPaperBotTick } from "./stockPaperTrading";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { Env, TornFactionMember } from "./types";
 
@@ -53,22 +51,6 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     purpose: "Refresh enemy tracking, pass any fetched enemy members to heatmap sampling, and run independent maintenance tasks.",
     shouldRun: (date) => date.getUTCMinutes() % 15 === 0,
     run: (env, scheduledTime) => runEnemyTrackingAndMaintenance(env, scheduledTime),
-  },
-  {
-    label: "Cron Torn stock market",
-    cadence: "1m all-stocks",
-    category: "stocks",
-    purpose: "Refresh all Torn stock prices, market caps, shares, and investors every minute.",
-    shouldRun: () => true,
-    run: (env, scheduledTime) => runStockMarketAndPaperBot(env, scheduledTime),
-  },
-  {
-    label: "Cron Torn stock recovery",
-    cadence: "30m stale-stock history fallback",
-    category: "stocks",
-    purpose: "Use per-stock history only to recover stale or missing Torn stock snapshots.",
-    shouldRun: (date) => date.getUTCMinutes() % 30 === 0,
-    run: (env, scheduledTime) => refreshTornStockHistoryBatch(env, scheduledTime),
   },
   {
     label: "Cron enemy scouting tick",
@@ -132,15 +114,4 @@ async function runEnemyTrackingAndMaintenance(env: Env, scheduledTime: number): 
   }
 
   await runScheduledMaintenance(env, { prefetchedHeatmapMembersByFaction });
-}
-
-async function runStockMarketAndPaperBot(env: Env, scheduledTime: number): Promise<void> {
-  const run = await refreshTornStockMarketMinute(env, scheduledTime);
-  if (run.status !== "error" && shouldRunStockPaperBot(scheduledTime)) {
-    await runLiveStockPaperBotTick(env, scheduledTime);
-  }
-}
-
-function shouldRunStockPaperBot(scheduledTime: number): boolean {
-  return new Date(scheduledTime).getUTCMinutes() % 5 === 0;
 }

@@ -1,0 +1,31 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "torn-stock-market",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-10-08",
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "954da4c5-24ab-40d1-83d0-6dcc782d3668",
+      "database_name": "torn_attacks_db"
+    }
+  ],
+  "secrets_store_secrets": [
+    {
+      "binding": "TORN_API_KEY_POOL_1",
+      "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
+      "secret_name": "TORN_API_KEY_POOL_1"
+    },
+    {
+      "binding": "TORN_API_KEY_POOL_2",
+      "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
+      "secret_name": "TORN_API_KEY_POOL_2"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

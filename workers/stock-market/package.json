@@ -1,0 +1,15 @@
+{
+  "name": "stock-market-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && wrangler deploy --dry-run --config wrangler.jsonc",
+    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "dev": "wrangler dev --config wrangler.jsonc",
+    "types": "wrangler types --config wrangler.jsonc"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "wrangler": "4.56.0"
+  }
+}
