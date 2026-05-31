@@ -144,6 +144,7 @@ export async function refreshTornStockMarketMinute(
 export async function refreshTornStockHistoryBatch(
   env: Env,
   scheduledTime: number,
+  options: { forceAll?: boolean } = {},
 ): Promise<StockIngestionRun> {
   const startedAt = nowSeconds();
   const run = createStockIngestionRun("recovery", startedAt);
@@ -158,7 +159,7 @@ export async function refreshTornStockHistoryBatch(
       ? profiles.map((profile) => profile.stock_id).sort((a, b) => a - b)
       : DEFAULT_STOCK_IDS;
     const latestByStock = await readLatestSnapshotTimes(env, stockIds);
-    const staleStockIds = stockIds.filter((stockId) => {
+    const staleStockIds = options.forceAll ? stockIds : stockIds.filter((stockId) => {
       const latestObservedAt = latestByStock.get(stockId) ?? null;
       if (latestObservedAt === null) {
         return true;
@@ -174,7 +175,9 @@ export async function refreshTornStockHistoryBatch(
       }
       return false;
     });
-    const batch = selectRecoveryStockBatch(stockIds, staleStockIds, scheduledTime);
+    const batch = options.forceAll
+      ? { group: "all" as const, stockIds }
+      : selectRecoveryStockBatch(stockIds, staleStockIds, scheduledTime);
 
     run.batch_group = `recovery-${batch.group}`;
     run.stocks_attempted = batch.stockIds.length;

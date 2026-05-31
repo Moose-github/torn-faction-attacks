@@ -125,7 +125,7 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
     return withAdmin(routeContext, async () => {
       const cooldownError = await requireActionCooldown(env, "manual_stock_recovery", 5 * 60);
       if (cooldownError) return cooldownError;
-      const run = await refreshTornStockHistoryBatch(env, Date.now());
+      const run = await refreshTornStockHistoryBatch(env, Date.now(), { forceAll: true });
       return json({ ok: true, run });
     });
   }
