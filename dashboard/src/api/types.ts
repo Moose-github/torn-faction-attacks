@@ -510,6 +510,8 @@ export type EnemyHitStatTrend = {
 
   retals_per_week: number;
 
+  specialammoused_per_week: number;
+
   temphits_per_week: number;
 
   meleehits_per_week: number;
@@ -539,6 +541,8 @@ export type EnemyHitStatTrendSnapshot = {
   rankedwarhits: number | null;
 
   retals: number | null;
+
+  specialammoused: number | null;
 
 };
 

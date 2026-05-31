@@ -140,6 +140,42 @@ describe("enemy hit stat snapshots", () => {
       ["Low", "low", 4],
     ]);
   });
+
+  it("includes special ammo weekly trend and snapshot tooltip data", () => {
+    const week = 7 * 24 * 60 * 60;
+    const trends = buildEnemyHitStatTrends([
+      snapshotRow({
+        requested_at: 1000,
+        snapshot_date: "2026-05-06",
+        rankedwarhits: 10,
+        retals: 1,
+        specialammoused: 20,
+      }),
+      snapshotRow({
+        requested_at: 1000 + week,
+        snapshot_date: "2026-05-13",
+        rankedwarhits: 15,
+        retals: 3,
+        specialammoused: 34,
+      }),
+    ]);
+
+    expect(trends[0].specialammoused_per_week).toBe(14);
+    expect(trends[0].snapshots).toEqual([
+      {
+        snapshot_date: "2026-05-06",
+        rankedwarhits: 10,
+        retals: 1,
+        specialammoused: 20,
+      },
+      {
+        snapshot_date: "2026-05-13",
+        rankedwarhits: 15,
+        retals: 3,
+        specialammoused: 34,
+      },
+    ]);
+  });
 });
 
 function snapshotRow(overrides: Partial<EnemyHitStatSnapshotRow>): EnemyHitStatSnapshotRow {

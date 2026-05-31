@@ -122,6 +122,7 @@ export type EnemyHitStatTrend = {
   weeks: number;
   rankedwarhits_per_week: number;
   retals_per_week: number;
+  specialammoused_per_week: number;
   temphits_per_week: number;
   meleehits_per_week: number;
   gunhits_per_week: number;
@@ -138,6 +139,7 @@ export type EnemyHitStatTrendSnapshot = {
   snapshot_date: string;
   rankedwarhits: number | null;
   retals: number | null;
+  specialammoused: number | null;
 };
 
 export function enemyHitStatSnapshotTargets(detectedAt: number): EnemyHitStatSnapshotTarget[] {
@@ -367,6 +369,7 @@ export function buildEnemyHitStatTrends(
       weeks,
       rankedwarhits_per_week: weeklyDelta(latest.rankedwarhits, oldest.rankedwarhits, weeks),
       retals_per_week: weeklyDelta(latest.retals, oldest.retals, weeks),
+      specialammoused_per_week: weeklyDelta(latest.specialammoused, oldest.specialammoused, weeks),
       temphits_per_week: weeklyDelta(latest.temphits, oldest.temphits, weeks),
       meleehits_per_week: weeklyDelta(latestMeleeHits, oldestMeleeHits, weeks),
       gunhits_per_week: weeklyDelta(latestGunHits, oldestGunHits, weeks),
@@ -380,6 +383,7 @@ export function buildEnemyHitStatTrends(
         snapshot_date: row.snapshot_date,
         rankedwarhits: row.rankedwarhits,
         retals: row.retals,
+        specialammoused: row.specialammoused,
       })),
     };
     trend.priority = hitStatWatchPriority(trend);

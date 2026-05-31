@@ -1172,6 +1172,12 @@ function EnemyHitTrendWatchPanel({
       />
       <EnemyHitTrendSortableHeader label="Retals/wk" sortKey="retals_per_week" sort={sort} onSortChange={setSort} />
       <EnemyHitTrendSortableHeader
+        label="Special Ammo/wk"
+        sortKey="specialammoused_per_week"
+        sort={sort}
+        onSortChange={setSort}
+      />
+      <EnemyHitTrendSortableHeader
         label="Gun/Melee/Temp"
         sortKey="hit_mix_per_week"
         sort={sort}
@@ -1229,14 +1235,25 @@ function EnemyHitTrendWatchPanel({
                   {watchPriorityLabel(trend.priority)}
                 </span>
               </td>
-              <td title={hitStatSnapshotTitle(trend, "rankedwarhits")}>
-                {formatTrendRate(trend.rankedwarhits_per_week)}
+              <td>
+                <TrendTooltipValue title={hitStatSnapshotTitle(trend, "rankedwarhits")}>
+                  {formatTrendRate(trend.rankedwarhits_per_week)}
+                </TrendTooltipValue>
               </td>
-              <td title={hitStatSnapshotTitle(trend, "retals")}>
-                {formatTrendRate(trend.retals_per_week)}
+              <td>
+                <TrendTooltipValue title={hitStatSnapshotTitle(trend, "retals")}>
+                  {formatTrendRate(trend.retals_per_week)}
+                </TrendTooltipValue>
               </td>
-              <td title={hitTypeRatioTitle(trend)}>
-                {formatHitTypeRatio(trend)}
+              <td>
+                <TrendTooltipValue title={hitStatSnapshotTitle(trend, "specialammoused")}>
+                  {formatTrendRate(trend.specialammoused_per_week)}
+                </TrendTooltipValue>
+              </td>
+              <td>
+                <TrendTooltipValue title={hitTypeRatioTitle(trend)}>
+                  {formatHitTypeRatio(trend)}
+                </TrendTooltipValue>
               </td>
             </tr>
           ))}
@@ -1251,6 +1268,7 @@ type EnemyHitTrendSortKey =
   | "priority"
   | "rankedwarhits_per_week"
   | "retals_per_week"
+  | "specialammoused_per_week"
   | "hit_mix_per_week";
 
 type EnemyHitTrendSort = {
@@ -1285,6 +1303,11 @@ function sortEnemyHitTrends(trends: EnemyHitStatTrend[], sort: EnemyHitTrendSort
       const retalComparison = right.retals_per_week - left.retals_per_week;
       if (retalComparison !== 0) {
         return retalComparison;
+      }
+
+      const specialAmmoComparison = right.specialammoused_per_week - left.specialammoused_per_week;
+      if (specialAmmoComparison !== 0) {
+        return specialAmmoComparison;
       }
     }
 
@@ -1353,6 +1376,24 @@ function EnemyHitTrendSortableHeader({
   );
 }
 
+function TrendTooltipValue({
+  children,
+  title,
+}: {
+  children: React.ReactNode;
+  title: string | undefined;
+}) {
+  if (!title) {
+    return <>{children}</>;
+  }
+
+  return (
+    <span className="tooltip-value" title={title}>
+      {children}
+    </span>
+  );
+}
+
 function watchPriorityLabel(priority: EnemyHitStatTrend["priority"]): string {
   if (priority === "high") {
     return "High";
@@ -1417,7 +1458,7 @@ function hitTypeRatioTitle(trend: EnemyHitStatTrend): string | undefined {
 
 function hitStatSnapshotTitle(
   trend: EnemyHitStatTrend,
-  stat: "rankedwarhits" | "retals",
+  stat: "rankedwarhits" | "retals" | "specialammoused",
 ): string | undefined {
   const snapshots = trend.snapshots?.filter((snapshot) => Number.isFinite(snapshot[stat])) ?? [];
   if (snapshots.length === 0) {
