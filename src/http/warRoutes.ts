@@ -199,6 +199,7 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
       routeContext,
       scoutingComparisonTtlSeconds,
       () => getScoutingComparisonForWar(url, env),
+      warVersionNames,
     );
   }
 

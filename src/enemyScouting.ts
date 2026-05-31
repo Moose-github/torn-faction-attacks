@@ -4,6 +4,7 @@ import {
   LOL_MANAGER_BATTLESTATS_API_BASE_URL,
   TORN_FACTION_API_BASE_URL,
 } from "./constants";
+import { bumpWarCacheVersion } from "./cacheVersions";
 import {
   canInitializeEnemyTarget,
   enemyTargetBspFillCompleteLatchName,
@@ -342,6 +343,7 @@ export async function refreshEnemyHitStatsForWar(url: URL, env: Env): Promise<Re
     readEnemyHitStatHealth(env, war.id, enemyFactionId),
     readEnemyHitStatTrends(env, war.id, enemyFactionId),
   ]);
+  await bumpWarCacheVersion(env, war.name);
 
   return json({
     ok: true,
