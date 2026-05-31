@@ -26,7 +26,7 @@ import {
   memberLifestyleRepairJobCancelIdFromRoute,
   memberLifestyleRepairJobIdFromRoute,
 } from "../routes";
-import { getStockIngestionStatus } from "../stockMarket";
+import { getStockIngestionStatus, refreshTornStockHistoryBatch } from "../stockMarket";
 import {
   exportStockSnapshots,
   getStockPaperSimulations,
@@ -119,6 +119,15 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/stocks/export-snapshots", "GET")) {
     return withAdmin(routeContext, () => exportStockSnapshots(url, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/stocks/recover-now", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "manual_stock_recovery", 5 * 60);
+      if (cooldownError) return cooldownError;
+      const run = await refreshTornStockHistoryBatch(env, Date.now());
+      return json({ ok: true, run });
+    });
   }
 
   if (matchesExactRoute(url, request, "/api/admin/stocks/paper/simulate", "POST")) {
