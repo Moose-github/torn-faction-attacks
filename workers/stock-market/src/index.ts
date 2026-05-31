@@ -19,17 +19,13 @@ export default {
 
 async function runStockCron(env: Env, scheduledTime: number): Promise<void> {
   const run = await refreshTornStockMarketMinute(env, scheduledTime);
-  if (run.status !== "error" && shouldRunPaperBot(scheduledTime)) {
+  if (run.status !== "error") {
     await runLiveStockPaperBotTick(env, scheduledTime);
   }
 
   if (shouldRunStockRecovery(scheduledTime)) {
     await refreshTornStockHistoryBatch(env, scheduledTime);
   }
-}
-
-function shouldRunPaperBot(scheduledTime: number): boolean {
-  return new Date(scheduledTime).getUTCMinutes() % 5 === 0;
 }
 
 function shouldRunStockRecovery(scheduledTime: number): boolean {
