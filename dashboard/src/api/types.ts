@@ -516,6 +516,30 @@ export type EnemyHitStatTrend = {
 
   gunhits_per_week: number;
 
+  oldest_temphits: number;
+
+  oldest_meleehits: number;
+
+  oldest_gunhits: number;
+
+  latest_temphits: number;
+
+  latest_meleehits: number;
+
+  latest_gunhits: number;
+
+  snapshots: EnemyHitStatTrendSnapshot[];
+
+};
+
+export type EnemyHitStatTrendSnapshot = {
+
+  snapshot_date: string;
+
+  rankedwarhits: number | null;
+
+  retals: number | null;
+
 };
 
 

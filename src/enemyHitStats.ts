@@ -125,6 +125,19 @@ export type EnemyHitStatTrend = {
   temphits_per_week: number;
   meleehits_per_week: number;
   gunhits_per_week: number;
+  oldest_temphits: number;
+  oldest_meleehits: number;
+  oldest_gunhits: number;
+  latest_temphits: number;
+  latest_meleehits: number;
+  latest_gunhits: number;
+  snapshots: EnemyHitStatTrendSnapshot[];
+};
+
+export type EnemyHitStatTrendSnapshot = {
+  snapshot_date: string;
+  rankedwarhits: number | null;
+  retals: number | null;
 };
 
 export function enemyHitStatSnapshotTargets(detectedAt: number): EnemyHitStatSnapshotTarget[] {
@@ -339,6 +352,10 @@ export function buildEnemyHitStatTrends(
 
     const oldest = ordered[0];
     const latest = ordered[ordered.length - 1];
+    const oldestMeleeHits = meleeHits(oldest);
+    const latestMeleeHits = meleeHits(latest);
+    const oldestGunHits = gunHits(oldest);
+    const latestGunHits = gunHits(latest);
     const weeks = Math.max(1, (Number(latest.requested_at) - Number(oldest.requested_at)) / SECONDS_PER_WEEK);
     const trend = {
       member_id: latest.member_id,
@@ -351,8 +368,19 @@ export function buildEnemyHitStatTrends(
       rankedwarhits_per_week: weeklyDelta(latest.rankedwarhits, oldest.rankedwarhits, weeks),
       retals_per_week: weeklyDelta(latest.retals, oldest.retals, weeks),
       temphits_per_week: weeklyDelta(latest.temphits, oldest.temphits, weeks),
-      meleehits_per_week: weeklyDelta(meleeHits(latest), meleeHits(oldest), weeks),
-      gunhits_per_week: weeklyDelta(gunHits(latest), gunHits(oldest), weeks),
+      meleehits_per_week: weeklyDelta(latestMeleeHits, oldestMeleeHits, weeks),
+      gunhits_per_week: weeklyDelta(latestGunHits, oldestGunHits, weeks),
+      oldest_temphits: Number(oldest.temphits ?? 0),
+      oldest_meleehits: oldestMeleeHits,
+      oldest_gunhits: oldestGunHits,
+      latest_temphits: Number(latest.temphits ?? 0),
+      latest_meleehits: latestMeleeHits,
+      latest_gunhits: latestGunHits,
+      snapshots: ordered.map((row) => ({
+        snapshot_date: row.snapshot_date,
+        rankedwarhits: row.rankedwarhits,
+        retals: row.retals,
+      })),
     };
     trend.priority = hitStatWatchPriority(trend);
     trends.push(trend);

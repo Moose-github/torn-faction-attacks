@@ -1,5 +1,5 @@
 import React from "react";
-import { Siren } from "lucide-react";
+import { ArrowDown, ArrowUp, Siren } from "lucide-react";
 import {
   EnemyFactionMember,
   EnemyHitStatTrend,
@@ -27,6 +27,7 @@ import {
 import { CollapsiblePanel, EmptyState, FreshnessMeta, FreshnessTone, PanelHeader } from "../components/Common";
 import { EnemyScoutingPanel } from "../components/EnemyScouting";
 import { EnemyTravelPanel } from "../components/EnemyTravelPanel";
+import { StickyTable } from "../components/StickyTable";
 import { formatLongDateTime, formatNumber, formatRelativeTime, formatTime } from "../utils/format";
 import { formatCountdownDuration, useCurrentTimeMs } from "../utils/time";
 import { isWarRoomMemberTrackingActive } from "../utils/warTracking";
@@ -1149,11 +1150,36 @@ function EnemyHitTrendWatchPanel({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const [sort, setSort] = React.useState<EnemyHitTrendSort>({
+    key: "priority",
+    direction: "desc",
+  });
   const aside = isLoading
     ? "Loading"
     : health
       ? `${formatNumber(health.completed)}/${formatNumber(health.total)} snapshots`
       : "Pending";
+  const sortedTrends = React.useMemo(() => sortEnemyHitTrends(trends, sort), [trends, sort]);
+  const renderHeader = () => (
+    <tr>
+      <EnemyHitTrendSortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={setSort} />
+      <EnemyHitTrendSortableHeader label="Priority" sortKey="priority" sort={sort} onSortChange={setSort} />
+      <EnemyHitTrendSortableHeader
+        label="Ranked Hits/wk"
+        sortKey="rankedwarhits_per_week"
+        sort={sort}
+        onSortChange={setSort}
+      />
+      <EnemyHitTrendSortableHeader label="Retals/wk" sortKey="retals_per_week" sort={sort} onSortChange={setSort} />
+      <EnemyHitTrendSortableHeader
+        label="Gun/Melee/Temp"
+        sortKey="hit_mix_per_week"
+        sort={sort}
+        onSortChange={setSort}
+        title="Gun hits = attack hits minus melee hits and temp hits. Melee hits = piercing, slashing, clubbing, mechanical, and hand-to-hand hits. Sorting uses total gun, melee, and temp activity."
+      />
+    </tr>
+  );
 
   return (
     <CollapsiblePanel
@@ -1164,7 +1190,7 @@ function EnemyHitTrendWatchPanel({
       className="enemy-hit-trends-panel"
     >
       <p className="panel-description">
-        Uses current and previous Wednesday hit-stat snapshots to estimate who is likely to push, retaliate, or lean on guns, melee, and temps.
+        Uses current and 4 previous weekly snapshots to show averaged enemy stats.
       </p>
       {health ? (
         <div className="enemy-hit-trend-health" aria-label="Enemy hit trend fill status">
@@ -1185,23 +1211,10 @@ function EnemyHitTrendWatchPanel({
       {trends.length === 0 ? (
         <EmptyState text={isLoading ? "Loading hit trends" : "Hit trend data is still filling"} />
       ) : (
-        <div className="enemy-hit-trend-list" role="table" aria-label="Enemy members to watch">
-          <div className="enemy-hit-trend-row header" role="row">
-            <span role="columnheader">Member</span>
-            <span role="columnheader">Priority</span>
-            <span role="columnheader">Ranked/wk</span>
-            <span role="columnheader">Retals/wk</span>
-            <span role="columnheader" title="Gun hits = attack hits minus melee hits and temp hits">
-              Gun/wk
-            </span>
-            <span role="columnheader" title="Melee hits = piercing, slashing, clubbing, mechanical, and hand-to-hand hits">
-              Melee/wk
-            </span>
-            <span role="columnheader">Temp/wk</span>
-          </div>
-          {trends.map((trend) => (
-            <div className="enemy-hit-trend-row" role="row" key={trend.member_id}>
-              <span role="cell">
+        <StickyTable className="enemy-hit-trend-table" renderHeader={renderHeader}>
+          {sortedTrends.map((trend) => (
+            <tr key={trend.member_id}>
+              <td>
                 <a
                   href={`https://www.torn.com/profiles.php?XID=${trend.member_id}`}
                   target="_blank"
@@ -1210,22 +1223,133 @@ function EnemyHitTrendWatchPanel({
                 >
                   {trend.member_name}
                 </a>
-              </span>
-              <span role="cell">
+              </td>
+              <td>
                 <span className={`watch-priority-badge ${trend.priority}`}>
                   {watchPriorityLabel(trend.priority)}
                 </span>
-              </span>
-              <span role="cell">{formatTrendRate(trend.rankedwarhits_per_week)}</span>
-              <span role="cell">{formatTrendRate(trend.retals_per_week)}</span>
-              <span role="cell">{formatTrendRate(trend.gunhits_per_week)}</span>
-              <span role="cell">{formatTrendRate(trend.meleehits_per_week)}</span>
-              <span role="cell">{formatTrendRate(trend.temphits_per_week)}</span>
-            </div>
+              </td>
+              <td title={hitStatSnapshotTitle(trend, "rankedwarhits")}>
+                {formatTrendRate(trend.rankedwarhits_per_week)}
+              </td>
+              <td title={hitStatSnapshotTitle(trend, "retals")}>
+                {formatTrendRate(trend.retals_per_week)}
+              </td>
+              <td title={hitTypeRatioTitle(trend)}>
+                {formatHitTypeRatio(trend)}
+              </td>
+            </tr>
           ))}
-        </div>
+        </StickyTable>
       )}
     </CollapsiblePanel>
+  );
+}
+
+type EnemyHitTrendSortKey =
+  | "member_name"
+  | "priority"
+  | "rankedwarhits_per_week"
+  | "retals_per_week"
+  | "hit_mix_per_week";
+
+type EnemyHitTrendSort = {
+  key: EnemyHitTrendSortKey;
+  direction: "asc" | "desc";
+};
+
+function sortEnemyHitTrends(trends: EnemyHitStatTrend[], sort: EnemyHitTrendSort): EnemyHitStatTrend[] {
+  const direction = sort.direction === "desc" ? -1 : 1;
+
+  return [...trends].sort((left, right) => {
+    const leftValue = enemyHitTrendSortValue(left, sort.key);
+    const rightValue = enemyHitTrendSortValue(right, sort.key);
+    let comparison = 0;
+
+    if (typeof leftValue === "string" || typeof rightValue === "string") {
+      comparison = String(leftValue).localeCompare(String(rightValue));
+    } else {
+      comparison = leftValue - rightValue;
+    }
+
+    if (comparison !== 0) {
+      return comparison * direction;
+    }
+
+    if (sort.key === "priority") {
+      const rankedComparison = right.rankedwarhits_per_week - left.rankedwarhits_per_week;
+      if (rankedComparison !== 0) {
+        return rankedComparison;
+      }
+
+      const retalComparison = right.retals_per_week - left.retals_per_week;
+      if (retalComparison !== 0) {
+        return retalComparison;
+      }
+    }
+
+    return left.member_name.localeCompare(right.member_name);
+  });
+}
+
+function enemyHitTrendSortValue(
+  trend: EnemyHitStatTrend,
+  key: EnemyHitTrendSortKey,
+): string | number {
+  if (key === "member_name") {
+    return trend.member_name.toLowerCase();
+  }
+
+  if (key === "priority") {
+    return enemyHitTrendPriorityValue(trend.priority);
+  }
+
+  if (key === "hit_mix_per_week") {
+    return trend.gunhits_per_week + trend.meleehits_per_week + trend.temphits_per_week;
+  }
+
+  return Number(trend[key] ?? 0);
+}
+
+function enemyHitTrendPriorityValue(priority: EnemyHitStatTrend["priority"]): number {
+  if (priority === "high") {
+    return 3;
+  }
+  if (priority === "medium") {
+    return 2;
+  }
+  return 1;
+}
+
+function EnemyHitTrendSortableHeader({
+  label,
+  sortKey,
+  sort,
+  onSortChange,
+  title,
+}: {
+  label: React.ReactNode;
+  sortKey: EnemyHitTrendSortKey;
+  sort: EnemyHitTrendSort;
+  onSortChange: (sort: EnemyHitTrendSort) => void;
+  title?: string;
+}) {
+  const isActive = sort.key === sortKey;
+  const nextDirection = isActive && sort.direction === "desc" ? "asc" : "desc";
+
+  return (
+    <th title={title}>
+      <button
+        type="button"
+        className={isActive ? "sort-button active" : "sort-button"}
+        onClick={() => onSortChange({ key: sortKey, direction: nextDirection })}
+      >
+        {label}
+        {isActive ? (
+          sort.direction === "desc" ? <ArrowDown size={14} /> : <ArrowUp size={14} />
+        ) : null}
+      </button>
+    </th>
   );
 }
 
@@ -1247,6 +1371,62 @@ function formatTrendRate(value: number): string {
     return formatNumber(Math.round(value));
   }
   return value.toFixed(1);
+}
+
+function formatHitTypeRatio(trend: Pick<
+  EnemyHitStatTrend,
+  "gunhits_per_week" | "meleehits_per_week" | "temphits_per_week"
+>): string {
+  return [
+    trend.gunhits_per_week,
+    trend.meleehits_per_week,
+    trend.temphits_per_week,
+  ].map(formatTrendRate).join("/");
+}
+
+function hitTypeRatioTitle(trend: EnemyHitStatTrend): string | undefined {
+  const values = [
+    trend.oldest_gunhits,
+    trend.oldest_meleehits,
+    trend.oldest_temphits,
+    trend.latest_gunhits,
+    trend.latest_meleehits,
+    trend.latest_temphits,
+  ];
+  if (!values.every(Number.isFinite)) {
+    return undefined;
+  }
+
+  const oldest = [
+    trend.oldest_gunhits,
+    trend.oldest_meleehits,
+    trend.oldest_temphits,
+  ].map(formatNumber).join("/");
+  const latest = [
+    trend.latest_gunhits,
+    trend.latest_meleehits,
+    trend.latest_temphits,
+  ].map(formatNumber).join("/");
+
+  return [
+    `Average per week: ${formatHitTypeRatio(trend)}`,
+    `${trend.oldest_snapshot_date}: ${oldest}`,
+    `${trend.latest_snapshot_date}: ${latest}`,
+  ].join("\n");
+}
+
+function hitStatSnapshotTitle(
+  trend: EnemyHitStatTrend,
+  stat: "rankedwarhits" | "retals",
+): string | undefined {
+  const snapshots = trend.snapshots?.filter((snapshot) => Number.isFinite(snapshot[stat])) ?? [];
+  if (snapshots.length === 0) {
+    return undefined;
+  }
+
+  return snapshots
+    .map((snapshot) => `${snapshot.snapshot_date}: ${formatNumber(Number(snapshot[stat]))}`)
+    .join("\n");
 }
 
 function EnemyStatusSummaryPanel({

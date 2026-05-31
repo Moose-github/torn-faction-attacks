@@ -3029,37 +3029,18 @@ h2 {
   background: var(--panel-muted-bg);
 }
 
-.enemy-hit-trend-list {
-  display: grid;
-  gap: 6px;
-  overflow-x: auto;
+.enemy-hit-trend-table {
+  min-width: 720px;
 }
 
-.enemy-hit-trend-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) minmax(72px, 0.55fr) repeat(5, minmax(78px, 0.5fr));
-  min-width: 760px;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  background: var(--panel-muted-bg);
-  font-size: 0.86rem;
-}
-
-.enemy-hit-trend-row.header {
-  border: none;
-  padding-block: 0;
-  color: var(--text-muted);
-  background: transparent;
-  font-size: 0.76rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.enemy-hit-trend-row span:not(:first-child) {
+.enemy-hit-trend-table td:not(:first-child),
+.enemy-hit-trend-table th:not(:first-child) {
   text-align: right;
+}
+
+.enemy-hit-trend-table th:not(:first-child) .sort-button {
+  justify-content: flex-end;
+  width: 100%;
 }
 
 .watch-priority-badge {
