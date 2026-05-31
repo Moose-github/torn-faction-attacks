@@ -9,12 +9,15 @@ import {
   enemyTargetBspFillCompleteLatchName,
   enemyTargetComparisonStatsCompleteLatchName,
   enemyTargetFfFillCompleteLatchName,
+  enemyTargetHitStatsFillCompleteLatchName,
   enemyTargetNetworthFillCompleteLatchName,
   handleEnemyTargetMatched,
 } from "./enemyTargetLifecycle";
 import {
+  ENEMY_HIT_STAT_PER_KEY_LIMIT,
   readEnemyHitStatHealth,
   readEnemyHitStatTrends,
+  refreshMissingEnemyHitStats,
   seedEnemyHitStatSnapshots,
 } from "./enemyHitStats";
 import { ENEMY_NETWORTH_MAX_ATTEMPTS } from "./enemyNetworth";
@@ -26,6 +29,7 @@ import {
 } from "./enemyPushPressure";
 import {
   clearSyncLatchesByPrefix,
+  clearSyncLatch,
   isSyncLatchSet,
 } from "./syncLatches";
 import { hasSyncState, upsertSyncTimestamp } from "./syncState";
@@ -296,6 +300,63 @@ export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Re
 
   const scouting = await readEnemyScouting(env, enemyFactionId);
   return jsonEnemyScouting(war, scouting, refreshed);
+}
+
+export async function refreshEnemyHitStatsForWar(url: URL, env: Env): Promise<Response> {
+  const war = await readWarFromScoutingUrl(url, env);
+  if (war instanceof Response) {
+    return war;
+  }
+
+  const enemyFactionId = war.enemy_faction_id as number;
+  let scouting = await readEnemyScouting(env, enemyFactionId);
+  let enemyRosterRefreshed = false;
+
+  if (scouting.length === 0) {
+    enemyRosterRefreshed = await replaceEnemyFactionMembers(env, war.id, enemyFactionId);
+    scouting = await readEnemyScouting(env, enemyFactionId);
+  }
+
+  if (scouting.length === 0) {
+    return json(
+      {
+        ok: false,
+        error: "No enemy scouting members are available to seed hit trends",
+        code: "NO_ENEMY_SCOUTING_MEMBERS",
+      },
+      409,
+    );
+  }
+
+  const now = nowSeconds();
+  const completeLatchName = enemyTargetHitStatsFillCompleteLatchName(war.id, enemyFactionId);
+  const clearResult = await clearSyncLatch(env, completeLatchName);
+  const seed = await seedEnemyHitStatSnapshots(env, war.id, enemyFactionId, scouting, now);
+  const refresh = await refreshMissingEnemyHitStats(env, {
+    warId: war.id,
+    enemyFactionId,
+    completeLatchName,
+    limit: ENEMY_HIT_STAT_PER_KEY_LIMIT,
+  });
+  const [health, trends] = await Promise.all([
+    readEnemyHitStatHealth(env, war.id, enemyFactionId),
+    readEnemyHitStatTrends(env, war.id, enemyFactionId),
+  ]);
+
+  return json({
+    ok: true,
+    war: {
+      id: war.id,
+      name: war.name,
+      enemy_faction_id: enemyFactionId,
+    },
+    enemy_roster_refreshed: enemyRosterRefreshed,
+    latch_cleared: d1Changes(clearResult),
+    seed,
+    refresh,
+    health,
+    trends,
+  });
 }
 
 export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Promise<void> {

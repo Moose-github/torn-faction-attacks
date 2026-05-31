@@ -7,6 +7,7 @@ import { getEnemyPushPressureForWar } from "../enemyPushPressure";
 import {
   getEnemyScoutingForWar,
   getScoutingComparisonForWar,
+  refreshEnemyHitStatsForWar,
   refreshEnemyScoutingForWar,
 } from "../enemyScouting";
 import { getWarActivityHeatmap } from "../heatmap";
@@ -141,6 +142,14 @@ export async function routeWarCommands(routeContext: RouteContext): Promise<Rout
       const cooldownError = await requireActionCooldown(env, `enemy_scouting_refresh:${url.pathname}`, 15 * 60);
       if (cooldownError) return cooldownError;
       return refreshEnemyScoutingForWar(url, env);
+    });
+  }
+
+  if (isWarSubroute(url, request, "/enemy-hit-stats/refresh", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, `enemy_hit_stats_refresh:${url.pathname}`, 5 * 60);
+      if (cooldownError) return cooldownError;
+      return refreshEnemyHitStatsForWar(url, env);
     });
   }
 
