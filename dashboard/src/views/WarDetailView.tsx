@@ -460,6 +460,7 @@ export function WarDetailView({
                     sort={memberSort}
                     onSortChange={onMemberSortChange}
                     showTermedColumns={selectedWar.war_type === "termed"}
+                    showRowNumbers
                     selectedMemberId={selectedMember?.member_id ?? null}
                     onMemberSelect={onMemberSelect}
                   />

@@ -5658,6 +5658,26 @@ tbody tr:not(.attack-row):hover td {
   background: #dbeafe;
 }
 
+.member-row-number-heading,
+.member-row-number-cell {
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.member-row-number-heading {
+  font-size: 0.72rem;
+}
+
+.member-row-number-cell {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .attack-log-table .attack-row td {
   border-left: 0;
 }

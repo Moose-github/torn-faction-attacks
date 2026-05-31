@@ -19,6 +19,7 @@ export function MemberTable({
   onSortChange,
   showTermedColumns,
   termedColumnVariant = "war",
+  showRowNumbers,
   selectedMemberId,
   onMemberSelect,
 }: {
@@ -27,6 +28,7 @@ export function MemberTable({
   onSortChange: (sort: MemberSort) => void;
   showTermedColumns?: boolean;
   termedColumnVariant?: "war" | "overview";
+  showRowNumbers?: boolean;
   selectedMemberId?: number | null;
   onMemberSelect?: (member: MemberStats) => void;
 }) {
@@ -36,6 +38,7 @@ export function MemberTable({
 
   const renderHeader = () => (
     <tr>
+      {showRowNumbers ? <th className="member-row-number-heading" aria-label="Row number">#</th> : null}
       <SortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={onSortChange} />
       <SortableHeader label="Attacks" sortKey="attacks_vs_enemy_successful" sort={sort} onSortChange={onSortChange} />
       <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
@@ -95,7 +98,7 @@ export function MemberTable({
 
   return (
     <StickyTable renderHeader={renderHeader}>
-      {members.map((member) => (
+      {members.map((member, index) => (
         <tr
           key={member.member_id}
           className={[
@@ -106,6 +109,7 @@ export function MemberTable({
             .join(" ")}
           onClick={onMemberSelect ? () => onMemberSelect(member) : undefined}
         >
+          {showRowNumbers ? <td className="member-row-number-cell">{formatNumber(index + 1)}</td> : null}
           <td>
             {onMemberSelect ? (
               <button
