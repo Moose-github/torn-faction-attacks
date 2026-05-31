@@ -24,8 +24,13 @@ export async function fetchTornPersonalStats(
   env: Env,
   memberId: number,
   statKeys: readonly string[],
+  options: {
+    timestamp?: number;
+    apiKey?: string;
+    keySource?: string;
+  } = {},
 ): Promise<Record<string, number | null>> {
-  const stats = await fetchTornPersonalStatsWithTimestamps(env, memberId, statKeys);
+  const stats = await fetchTornPersonalStatsWithTimestamps(env, memberId, statKeys, options);
   return Object.fromEntries(
     Object.entries(stats).map(([key, stat]) => [key, stat.value]),
   );

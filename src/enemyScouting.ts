@@ -12,6 +12,7 @@ import {
   enemyTargetNetworthFillCompleteLatchName,
   handleEnemyTargetMatched,
 } from "./enemyTargetLifecycle";
+import { ENEMY_NETWORTH_MAX_ATTEMPTS } from "./enemyNetworth";
 import {
   buildEnemyPushSnapshot,
   PUSH_ALERT_STATE_PREFIX,
@@ -65,6 +66,10 @@ export type EnemyFactionMemberRow = {
   bsp_battlestats_updated_at: number | null;
   networth: number | null;
   networth_updated_at: number | null;
+  networth_attempted_at: number | null;
+  networth_attempt_count: number | null;
+  networth_error: string | null;
+  networth_key_source: string | null;
   status_state?: string | null;
   status_description?: string | null;
   last_action_status?: string | null;
@@ -145,6 +150,9 @@ export type ScoutingNetworthRefreshMetrics = {
   changedRows: number;
   candidates: number;
   updated: number;
+  failed: number;
+  rateLimited: number;
+  activeKeys: number;
   skipped: boolean;
 };
 
@@ -1310,6 +1318,13 @@ function jsonEnemyScouting(
 ): Response {
   const statsRows = rows.filter((row) => row.ff_battlestats !== null);
   const networthRows = rows.filter((row) => row.networth !== null);
+  const networthPendingRows = rows.filter((row) => row.networth_updated_at === null);
+  const networthFailedRows = networthPendingRows.filter(
+    (row) => Number(row.networth_attempt_count ?? 0) >= ENEMY_NETWORTH_MAX_ATTEMPTS,
+  );
+  const networthRetryableRows = networthPendingRows.filter(
+    (row) => Number(row.networth_attempt_count ?? 0) < ENEMY_NETWORTH_MAX_ATTEMPTS,
+  );
   const travelingRows = rows.filter((row) => row.status_state === "Traveling");
   const averageLevel =
     rows.length === 0
@@ -1339,6 +1354,9 @@ function jsonEnemyScouting(
       missing_ff_battlestats: rows.length - statsRows.length,
       stats_available: statsRows.length,
       networth_available: networthRows.length,
+      networth_pending: networthPendingRows.length,
+      networth_failed: networthFailedRows.length,
+      networth_retryable: networthRetryableRows.length,
       traveling: travelingRows.length,
       status_checked_at: war.enemy_scouting_status_checked_at,
     },

@@ -47,6 +47,7 @@ export function EnemyScoutingPanel({
   }, [showStatusColumn, sort.key]);
 
   const members = sortEnemyScoutingMembers(scouting?.members ?? [], sort);
+  const networthSummary = scouting?.summary;
   const renderHeader = () => (
     <tr>
       <SortableHeader label="Member" sortKey="name" sort={sort} onSortChange={setSort} />
@@ -87,6 +88,22 @@ export function EnemyScoutingPanel({
       <p className="panel-description">
         Shows the latest stored enemy roster from Torn, with FF stats, BSP stats, and networth where available.
       </p>
+      {networthSummary ? (
+        <div className="enemy-networth-summary" aria-label="Enemy networth fill status">
+          <span title="Enemy members with loaded networth">
+            Networth {formatNumber(networthSummary.networth_available)}
+          </span>
+          <span title="Enemy members still waiting for networth fetch">
+            Pending {formatNumber(networthSummary.networth_pending)}
+          </span>
+          <span title="Enemy members still retryable before the retry cap">
+            Retryable {formatNumber(networthSummary.networth_retryable)}
+          </span>
+          <span title="Enemy members that reached the networth retry cap">
+            Failed {formatNumber(networthSummary.networth_failed)}
+          </span>
+        </div>
+      ) : null}
 
       {members.length === 0 ? (
         <EmptyState text="No enemy scouting data available for this war" />
@@ -136,7 +153,7 @@ export function EnemyScoutingPanel({
                   ? "-"
                   : formatNumber(member.bsp_battlestats)}
               </td>
-              <td title={networthTitle(member.networth, member.networth_updated_at)}>
+              <td title={networthTitle(member)}>
                 {formatNetworth(member.networth)}
               </td>
             </tr>
@@ -151,12 +168,25 @@ function updatedTitle(label: string, updatedAt: number | null): string {
   return `${label} updated: ${formatRelativeTime(updatedAt)}`;
 }
 
-function networthTitle(networth: number | null, updatedAt: number | null): string {
-  if (networth === null) {
-    return updatedTitle("Networth", updatedAt);
+function networthTitle(member: EnemyFactionMember): string {
+  if (member.networth !== null) {
+    return `Exact networth: ${formatNumber(member.networth)}. ${updatedTitle("Networth", member.networth_updated_at)}`;
   }
 
-  return `Exact networth: ${formatNumber(networth)}. ${updatedTitle("Networth", updatedAt)}`;
+  if (member.networth_updated_at !== null) {
+    return `Networth checked and unavailable. ${updatedTitle("Networth", member.networth_updated_at)}`;
+  }
+
+  const attempts = member.networth_attempt_count ?? 0;
+  if (attempts >= 3) {
+    return `Networth failed after ${formatNumber(attempts)} attempts. ${member.networth_error ?? "No error stored"}`;
+  }
+
+  if (attempts > 0) {
+    return `Networth retry pending after ${formatNumber(attempts)} attempts. Last checked: ${formatRelativeTime(member.networth_attempted_at)}. ${member.networth_error ?? ""}`.trim();
+  }
+
+  return "Networth pending fetch";
 }
 
 function bspBattlestatsTitle(member: EnemyFactionMember): string {

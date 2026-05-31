@@ -12,7 +12,16 @@ import {
   enemyTargetStatsImagePendingLatchName,
   enemyTargetStatsImageSentLatchName,
 } from "./enemyTargetLifecycle";
-import { fetchTornPersonalStats } from "./personalStats";
+import {
+  ENEMY_NETWORTH_MAX_ATTEMPTS,
+  ENEMY_NETWORTH_PER_KEY_LIMIT,
+  enemyNetworthCandidateLimit,
+  partitionEnemyNetworthCandidates,
+  pauseEnemyNetworthKey,
+  readAvailableEnemyNetworthKeys,
+  type TornApiKey,
+} from "./enemyNetworth";
+import { fetchTornPersonalStats, TornPersonalStatsHttpError } from "./personalStats";
 import {
   clearSyncLatch,
   isSyncLatchSet,
@@ -41,8 +50,8 @@ import type {
 } from "./enemyScouting";
 
 const BSP_BATTLESTAT_REFRESH_LIMIT = 40;
-const NETWORTH_REFRESH_LIMIT = 40;
 const LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX = "enemy_live_tracking_cleared";
+const MAX_STORED_NETWORTH_ERROR_LENGTH = 240;
 
 type EnemyTrackingSchedule = "always" | "live" | "war-room";
 
@@ -123,7 +132,7 @@ export async function runEnemyScoutingCronTick(
 
     if (!activeLatches.has(stateNames.networth)) {
       metrics.networth = await refreshMissingEnemyScoutingNetworthForContext(env, {
-        limit: options.networthLimit ?? NETWORTH_REFRESH_LIMIT,
+        limit: options.networthLimit ?? ENEMY_NETWORTH_PER_KEY_LIMIT,
         context,
       });
     }
@@ -531,6 +540,9 @@ async function refreshMissingEnemyScoutingNetworthForContext(
     changedRows: 0,
     candidates: 0,
     updated: 0,
+    failed: 0,
+    rateLimited: 0,
+    activeKeys: 0,
     skipped: false,
   };
   const scoutingWar = options.context.war;
@@ -540,22 +552,26 @@ async function refreshMissingEnemyScoutingNetworthForContext(
     return { ...metrics, skipped: true };
   }
 
-  const limit = Math.max(
+  const perKeyLimit = Math.max(
     1,
-    Math.min(Math.floor(options.limit ?? NETWORTH_REFRESH_LIMIT), NETWORTH_REFRESH_LIMIT),
+    Math.min(Math.floor(options.limit ?? ENEMY_NETWORTH_PER_KEY_LIMIT), ENEMY_NETWORTH_PER_KEY_LIMIT),
   );
-  const rows = ((await env.DB.prepare(
-    `
-    SELECT *
-    FROM enemy_faction_members
-    WHERE faction_id = ?
-      AND networth_updated_at IS NULL
-    ORDER BY level DESC, name ASC
-    LIMIT ?
-    `,
-  )
-    .bind(scoutingWar.enemy_faction_id, limit)
-    .all()).results ?? []) as EnemyFactionMemberRow[];
+  const now = nowSeconds();
+  const activeKeys = await readAvailableEnemyNetworthKeys(env, now);
+  metrics.activeKeys = activeKeys.length;
+  if (activeKeys.length === 0) {
+    if (!(await hasRetryableEnemyNetworthRows(env, scoutingWar.enemy_faction_id))) {
+      await setSyncLatch(env, completeLatchName, nowSeconds());
+      options.context.activeLatches.add(completeLatchName);
+    }
+    return { ...metrics, skipped: true };
+  }
+
+  const rows = await readRetryableEnemyNetworthRows(
+    env,
+    scoutingWar.enemy_faction_id,
+    enemyNetworthCandidateLimit(activeKeys.length, perKeyLimit),
+  );
 
   metrics.candidates = rows.length;
   if (rows.length === 0) {
@@ -564,30 +580,166 @@ async function refreshMissingEnemyScoutingNetworthForContext(
     return metrics;
   }
 
-  for (const row of rows) {
-    const stats = await fetchTornPersonalStats(env, row.member_id, ["networth"]);
-    const networth = finiteNumber(stats.networth);
+  const batches = partitionEnemyNetworthCandidates(rows, activeKeys, perKeyLimit);
+  const results = await Promise.all(
+    batches.map((batch) => processEnemyNetworthBatch(env, scoutingWar.enemy_faction_id, batch.key, batch.rows)),
+  );
+  for (const result of results) {
+    metrics.writeStatements += result.writeStatements;
+    metrics.changedRows += result.changedRows;
+    metrics.updated += result.updated;
+    metrics.failed += result.failed;
+    metrics.rateLimited += result.rateLimited;
+  }
 
-    const result = await env.DB.prepare(
-      `
-      UPDATE enemy_faction_members
-      SET networth = ?,
-          networth_updated_at = unixepoch(),
-          updated_at = unixepoch()
-      WHERE faction_id = ?
-        AND member_id = ?
-        AND networth_updated_at IS NULL
-      `,
-    )
-      .bind(networth, scoutingWar.enemy_faction_id, row.member_id)
-      .run();
-    const changes = d1Changes(result);
-    metrics.writeStatements += 1;
-    metrics.changedRows += changes;
-    metrics.updated += changes;
+  if (!(await hasRetryableEnemyNetworthRows(env, scoutingWar.enemy_faction_id))) {
+    await setSyncLatch(env, completeLatchName, nowSeconds());
+    options.context.activeLatches.add(completeLatchName);
   }
 
   return metrics;
+}
+
+async function readRetryableEnemyNetworthRows(
+  env: Env,
+  enemyFactionId: number,
+  limit: number,
+): Promise<EnemyFactionMemberRow[]> {
+  return ((await env.DB.prepare(
+    `
+    SELECT *
+    FROM enemy_faction_members
+    WHERE faction_id = ?
+      AND networth_updated_at IS NULL
+      AND COALESCE(networth_attempt_count, 0) < ?
+    ORDER BY COALESCE(networth_attempted_at, 0) ASC, level DESC, name ASC
+    LIMIT ?
+    `,
+  )
+    .bind(enemyFactionId, ENEMY_NETWORTH_MAX_ATTEMPTS, limit)
+    .all()).results ?? []) as EnemyFactionMemberRow[];
+}
+
+async function hasRetryableEnemyNetworthRows(env: Env, enemyFactionId: number): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `
+    SELECT 1
+    FROM enemy_faction_members
+    WHERE faction_id = ?
+      AND networth_updated_at IS NULL
+      AND COALESCE(networth_attempt_count, 0) < ?
+    LIMIT 1
+    `,
+  )
+    .bind(enemyFactionId, ENEMY_NETWORTH_MAX_ATTEMPTS)
+    .first();
+
+  return row !== null;
+}
+
+async function processEnemyNetworthBatch(
+  env: Env,
+  enemyFactionId: number,
+  key: TornApiKey,
+  rows: EnemyFactionMemberRow[],
+): Promise<Pick<ScoutingNetworthRefreshMetrics, "writeStatements" | "changedRows" | "updated" | "failed" | "rateLimited">> {
+  const metrics = {
+    writeStatements: 0,
+    changedRows: 0,
+    updated: 0,
+    failed: 0,
+    rateLimited: 0,
+  };
+
+  for (const row of rows) {
+    try {
+      const stats = await fetchTornPersonalStats(env, row.member_id, ["networth"], {
+        apiKey: key.key,
+        keySource: key.keySource,
+      });
+      const networth = finiteNumber(stats.networth);
+      const result = await env.DB.prepare(
+        `
+        UPDATE enemy_faction_members
+        SET networth = ?,
+            networth_updated_at = unixepoch(),
+            networth_attempted_at = unixepoch(),
+            networth_error = NULL,
+            networth_key_source = ?,
+            updated_at = unixepoch()
+        WHERE faction_id = ?
+          AND member_id = ?
+          AND networth_updated_at IS NULL
+        `,
+      )
+        .bind(networth, key.keySource, enemyFactionId, row.member_id)
+        .run();
+      const changes = d1Changes(result);
+      metrics.writeStatements += 1;
+      metrics.changedRows += changes;
+      metrics.updated += changes;
+    } catch (err: any) {
+      if (err instanceof TornPersonalStatsHttpError && err.status === 429) {
+        await pauseEnemyNetworthKey(env, key.keySource, nowSeconds());
+        await markEnemyNetworthRateLimited(env, enemyFactionId, row, key.keySource, err.message);
+        metrics.writeStatements += 2;
+        metrics.rateLimited += 1;
+        break;
+      }
+
+      const result = await env.DB.prepare(
+        `
+        UPDATE enemy_faction_members
+        SET networth_attempted_at = unixepoch(),
+            networth_attempt_count = COALESCE(networth_attempt_count, 0) + 1,
+            networth_error = ?,
+            networth_key_source = ?,
+            updated_at = unixepoch()
+        WHERE faction_id = ?
+          AND member_id = ?
+          AND networth_updated_at IS NULL
+        `,
+      )
+        .bind(storedNetworthError(err), key.keySource, enemyFactionId, row.member_id)
+        .run();
+      const changes = d1Changes(result);
+      metrics.writeStatements += 1;
+      metrics.changedRows += changes;
+      metrics.failed += changes;
+    }
+  }
+
+  return metrics;
+}
+
+async function markEnemyNetworthRateLimited(
+  env: Env,
+  enemyFactionId: number,
+  row: EnemyFactionMemberRow,
+  keySource: string,
+  error: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `
+    UPDATE enemy_faction_members
+    SET networth_attempted_at = unixepoch(),
+        networth_error = ?,
+        networth_key_source = ?,
+        updated_at = unixepoch()
+    WHERE faction_id = ?
+      AND member_id = ?
+      AND networth_updated_at IS NULL
+    `,
+  )
+    .bind(storedNetworthError(error), keySource, enemyFactionId, row.member_id)
+    .run();
+}
+
+function storedNetworthError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.length > MAX_STORED_NETWORTH_ERROR_LENGTH
+    ? `${message.slice(0, MAX_STORED_NETWORTH_ERROR_LENGTH - 3)}...`
+    : message;
 }
 
 export async function sendPendingEnemyStatsComparisonImage(
@@ -869,6 +1021,9 @@ function emptyScoutingNetworthRefreshMetrics(): ScoutingNetworthRefreshMetrics {
     changedRows: 0,
     candidates: 0,
     updated: 0,
+    failed: 0,
+    rateLimited: 0,
+    activeKeys: 0,
     skipped: true,
   };
 }

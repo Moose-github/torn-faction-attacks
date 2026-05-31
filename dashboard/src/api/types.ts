@@ -341,7 +341,15 @@ export type EnemyFactionMember = {
   bsp_battlestats: number | null;
   bsp_battlestats_updated_at: number | null;
   networth: number | null;
-  networth_updated_at: number | null;
+  networth_updated_at: number | null;
+
+  networth_attempted_at: number | null;
+
+  networth_attempt_count: number | null;
+
+  networth_error: string | null;
+
+  networth_key_source: string | null;
   status_state?: string | null;
   status_description?: string | null;
   plane_image_type?: string | null;
@@ -384,7 +392,13 @@ export type EnemyScoutingResponse = {
     average_ff_battlestats: number | null;
     missing_ff_battlestats: number;
     stats_available: number;
-    networth_available: number;
+    networth_available: number;
+
+    networth_pending: number;
+
+    networth_failed: number;
+
+    networth_retryable: number;
     traveling: number;
     status_checked_at: number | null;
   };
