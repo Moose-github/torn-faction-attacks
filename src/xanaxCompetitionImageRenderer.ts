@@ -5,6 +5,8 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const XANAX_TARGET = 100;
 const IMAGE_WIDTH = 1108;
 const IMAGE_HEIGHT = 540;
+const OUTER_INSET = 8;
+const OUTER_RADIUS = 32;
 const GIF_FRAME_COUNT = 48;
 const GIF_DURATION_MS = 3840;
 
@@ -57,11 +59,11 @@ function buildXanaxCompetitionReminderSvg({
     "<stop offset=\"100%\" stop-color=\"#f59e0b\"/>",
     "</linearGradient>",
     "<clipPath id=\"outerClip\">",
-    `<rect width="${width}" height="${height}" rx="28"/>`,
+    `<rect x="${OUTER_INSET}" y="${OUTER_INSET}" width="${width - OUTER_INSET * 2}" height="${height - OUTER_INSET * 2}" rx="${OUTER_RADIUS}"/>`,
     "</clipPath>",
     "</defs>",
     "<g clip-path=\"url(#outerClip)\">",
-    `<rect width="${width}" height="${height}" fill="#f8fafc"/>`,
+    `<rect x="${OUTER_INSET}" y="${OUTER_INSET}" width="${width - OUTER_INSET * 2}" height="${height - OUTER_INSET * 2}" rx="${OUTER_RADIUS}" fill="#f8fafc"/>`,
     options.rainProgress === undefined
       ? renderXanaxSprinkles(xanaxImageDataUri)
       : renderXanaxRain(xanaxImageDataUri, options.rainProgress),
