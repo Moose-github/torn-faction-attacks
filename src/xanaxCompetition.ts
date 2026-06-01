@@ -1,4 +1,7 @@
 import { HOME_FACTION_ID } from "./constants";
+import { sendDiscordMessageWithAttachment } from "./discord";
+import { claimDailyBatchGate } from "./scheduledGates";
+import { upsertSyncTimestamp } from "./syncState";
 import { Env } from "./types";
 import { corsHeaders, d1Changes, json, nowSeconds } from "./utils";
 import { renderXanaxCompetitionReminderPng } from "./xanaxCompetitionImageRenderer";
@@ -8,6 +11,8 @@ const DEFAULT_BASE_PRIZE = 10_000_000;
 const XANAX_TARGET = 100;
 const LEADERBOARD_LIMIT = 10;
 const TORN_XANAX_IMAGE_URL = "https://www.torn.com/images/items/206/medium@2x.png";
+const MONTHLY_DISCORD_REMINDER_STATE_PREFIX = "xanax_competition_discord_reminder";
+const MONTHLY_DISCORD_REMINDER_LOCK_SECONDS = 90;
 
 let xanaxImageDataUriPromise: Promise<string | null> | null = null;
 
@@ -129,6 +134,7 @@ export async function updateAdminXanaxCompetition(
 
 export async function reconcileXanaxCompetitionRollover(
   env: Env,
+  monthKey = currentMonthKey(),
 ): Promise<{ writeStatements: number; changedRows: number; details: Record<string, unknown> }> {
   const settings = await ensureCompetitionSettings(env);
   if (settings.enabled !== 1) {
@@ -139,7 +145,7 @@ export async function reconcileXanaxCompetitionRollover(
     };
   }
 
-  const previousMonth = previousMonthKey(currentMonthKey());
+  const previousMonth = previousMonthKey(monthKey);
   if (settings.last_rollover_month_key && settings.last_rollover_month_key >= previousMonth) {
     return {
       writeStatements: 0,
@@ -189,6 +195,56 @@ export async function reconcileXanaxCompetitionRollover(
       previous_month: previousMonth,
     },
   };
+}
+
+export async function runMonthlyXanaxCompetitionDiscordReminder(
+  env: Env,
+  scheduledTime: number,
+): Promise<{ sent: boolean; skipped: boolean; reason?: string; monthKey: string }> {
+  const monthKey = monthKeyFromTimestamp(scheduledTime);
+  const scheduledAtSeconds = Math.floor(scheduledTime / 1000);
+  const completeStateName = `${MONTHLY_DISCORD_REMINDER_STATE_PREFIX}:complete:${monthKey}`;
+  const lockStateName = `${MONTHLY_DISCORD_REMINDER_STATE_PREFIX}:lock:${monthKey}`;
+  const gate = await claimDailyBatchGate(env, {
+    completeStateName,
+    lockStateName,
+    now: scheduledAtSeconds,
+    lockSeconds: MONTHLY_DISCORD_REMINDER_LOCK_SECONDS,
+  });
+
+  if (gate.completed) {
+    return { sent: false, skipped: true, reason: "already sent", monthKey };
+  }
+  if (!gate.locked) {
+    return { sent: false, skipped: true, reason: "locked", monthKey };
+  }
+
+  await reconcileXanaxCompetitionRollover(env, monthKey);
+
+  const settings = serializeSettings(await ensureCompetitionSettings(env), monthKey);
+  if (!settings.enabled) {
+    return { sent: false, skipped: true, reason: "competition disabled", monthKey };
+  }
+
+  const png = await renderXanaxCompetitionReminderPng({
+    monthKey: settings.month_key,
+    currentPrize: settings.current_prize,
+    xanaxImageDataUri: await getXanaxImageDataUri(),
+  });
+
+  await sendDiscordMessageWithAttachment(env, {
+    content: buildMonthlyXanaxCompetitionDiscordMessage(settings.current_prize),
+    filename: `xanax-competition-${settings.month_key}.png`,
+    mimeType: "image/png",
+    data: png,
+  });
+  await upsertSyncTimestamp(env, completeStateName, scheduledAtSeconds, null);
+
+  return { sent: true, skipped: false, monthKey };
+}
+
+export function buildMonthlyXanaxCompetitionDiscordMessage(currentPrize: number): string {
+  return `New month, new Xanax competition: the prize is ${formatMoney(currentPrize)}. Take ${XANAX_TARGET} Xanax this month to claim it.`;
 }
 
 async function buildCompetitionState(
@@ -512,6 +568,10 @@ function currentMonthKey(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
+function monthKeyFromTimestamp(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 7);
+}
+
 function previousMonthKey(monthKey: string): string {
   const date = new Date(`${monthKey}-01T00:00:00.000Z`);
   date.setUTCMonth(date.getUTCMonth() - 1);
@@ -538,4 +598,8 @@ function enumerateMonthKeysAfter(lastMonthKey: string | null, endMonthKey: strin
     cursor = nextMonthKey(cursor);
   }
   return months;
+}
+
+function formatMoney(value: number): string {
+  return `$${Math.max(0, Math.round(value)).toLocaleString("en-US")}`;
 }

@@ -9,6 +9,7 @@ import {
   refreshOpenWarChainBonusAdjustmentsFromRaw,
 } from "./summaries";
 import { Env, TornFactionMember } from "./types";
+import { runMonthlyXanaxCompetitionDiscordReminder } from "./xanaxCompetition";
 
 export type CronJob = {
   label: string;
@@ -90,6 +91,14 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     run: (env) => refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true }),
   },
   {
+    label: "Cron monthly Xanax competition Discord reminder",
+    cadence: "monthly at 00:10 UTC on the 1st",
+    category: "discord",
+    purpose: "Reconcile the Xanax competition rollover and send the monthly prize reminder image to Discord.",
+    shouldRun: shouldRunMonthlyXanaxCompetitionDiscordReminder,
+    run: (env, scheduledTime) => runMonthlyXanaxCompetitionDiscordReminder(env, scheduledTime),
+  },
+  {
     label: "Cron lifestyle repair",
     cadence: "1m",
     category: "daily",
@@ -109,6 +118,15 @@ export function buildCronPlan(env: Env, scheduledTime: number): CronJob[] {
     purpose: job.purpose,
     run: () => job.run(env, scheduledTime),
   }));
+}
+
+export function shouldRunMonthlyXanaxCompetitionDiscordReminder(date: Date): boolean {
+  return (
+    date.getUTCDate() === 1 &&
+    date.getUTCHours() === 0 &&
+    date.getUTCMinutes() >= 10 &&
+    date.getUTCMinutes() < 20
+  );
 }
 
 async function runEnemyTrackingAndMaintenance(env: Env, scheduledTime: number): Promise<void> {
