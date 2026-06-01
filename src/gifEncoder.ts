@@ -111,6 +111,7 @@ function lzwEncode(indexedPixels: Uint8Array, minCodeSize: number): Uint8Array {
   const endCode = clearCode + 1;
   let nextCode = endCode + 1;
   let codeSize = minCodeSize + 1;
+  let pendingCodeSizeIncrease = false;
   let dictionary = createLzwDictionary();
   const writer = new LzwBitWriter();
 
@@ -126,22 +127,30 @@ function lzwEncode(indexedPixels: Uint8Array, minCodeSize: number): Uint8Array {
     }
 
     writer.write(prefix, codeSize);
+    if (pendingCodeSizeIncrease) {
+      codeSize += 1;
+      pendingCodeSizeIncrease = false;
+    }
     if (nextCode < 4096) {
       dictionary.set(key, nextCode);
       nextCode += 1;
       if (nextCode === 1 << codeSize && codeSize < 12) {
-        codeSize += 1;
+        pendingCodeSizeIncrease = true;
       }
     } else {
       writer.write(clearCode, codeSize);
       dictionary = createLzwDictionary();
       nextCode = endCode + 1;
       codeSize = minCodeSize + 1;
+      pendingCodeSizeIncrease = false;
     }
     prefix = value;
   }
 
   writer.write(prefix, codeSize);
+  if (pendingCodeSizeIncrease) {
+    codeSize += 1;
+  }
   writer.write(endCode, codeSize);
   return writer.finish();
 }
