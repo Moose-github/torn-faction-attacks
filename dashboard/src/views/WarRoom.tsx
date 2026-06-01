@@ -74,6 +74,7 @@ export function WarRoom({
   const [isTogglingChainWatch, setIsTogglingChainWatch] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({
     activityHeatmaps: true,
+    chainWatch: true,
     enemyHitTrends: true,
     enemyPushPressure: true,
     revivableMembers: true,
@@ -696,7 +697,9 @@ export function WarRoom({
           isLoading={isLoadingChainWatch}
           canToggle={canRefreshEnemyScouting}
           isToggling={isTogglingChainWatch}
-          onToggle={toggleChainWatch}
+          collapsed={collapsedPanels.chainWatch ?? true}
+          onCollapseToggle={() => togglePanel("chainWatch")}
+          onEnabledToggle={toggleChainWatch}
         />
 
         <TrackingStatusPanel
@@ -740,14 +743,18 @@ function ChainWatchPanel({
   isLoading,
   canToggle,
   isToggling,
-  onToggle,
+  collapsed,
+  onCollapseToggle,
+  onEnabledToggle,
 }: {
   data: ChainWatchResponse | null;
   nowMs: number;
   isLoading: boolean;
   canToggle: boolean;
   isToggling: boolean;
-  onToggle: () => void;
+  collapsed: boolean;
+  onCollapseToggle: () => void;
+  onEnabledToggle: () => void;
 }) {
   const state = data?.state ?? null;
   const nowSeconds = Math.floor(nowMs / 1000);
@@ -773,19 +780,21 @@ function ChainWatchPanel({
         : "fresh";
 
   return (
-    <section className="panel chain-watch-panel">
-      <PanelHeader
-        title="Chain Watch"
-        control={
-          <FreshnessMeta
-            state={status}
-            updatedAt={state?.last_checked_at ?? null}
-            cadence={sourceLabel}
-            detail="Tracks our faction chain timeout during active wars."
-            tone={tone}
-          />
-        }
-      />
+    <CollapsiblePanel
+      title="Chain Watch"
+      collapsed={collapsed}
+      onToggle={onCollapseToggle}
+      className="chain-watch-panel"
+      control={
+        <FreshnessMeta
+          state={status}
+          updatedAt={state?.last_checked_at ?? null}
+          cadence={sourceLabel}
+          detail="Tracks our faction chain timeout during active wars."
+          tone={tone}
+        />
+      }
+    >
       <div className="chain-watch-grid">
         <div className="chain-watch-primary">
           <span>Current chain</span>
@@ -805,13 +814,13 @@ function ChainWatchPanel({
         <button
           type="button"
           className="panel-action-button chain-watch-toggle"
-          onClick={onToggle}
+          onClick={onEnabledToggle}
           disabled={isToggling || isLoading || !state}
         >
           {isToggling ? "Saving" : enabled ? "Disable Chain Watch" : "Enable Chain Watch"}
         </button>
       ) : null}
-    </section>
+    </CollapsiblePanel>
   );
 }
 
