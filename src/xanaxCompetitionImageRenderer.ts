@@ -5,8 +5,8 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const XANAX_TARGET = 100;
 const IMAGE_WIDTH = 1108;
 const IMAGE_HEIGHT = 540;
-const GIF_FRAME_COUNT = 36;
-const GIF_DURATION_MS = 3600;
+const GIF_FRAME_COUNT = 48;
+const GIF_DURATION_MS = 3840;
 
 export type XanaxCompetitionImageData = {
   monthKey: string;
@@ -33,7 +33,7 @@ export async function renderXanaxCompetitionReminderGif(
       height: image.height,
       pixels: image.pixels,
       delayMs: GIF_DURATION_MS / GIF_FRAME_COUNT,
-      matte: { red: 248, green: 250, blue: 252 },
+      matte: { red: 255, green: 255, blue: 255 },
     });
   }
   return encodeAnimatedGif(frames);
@@ -56,6 +56,7 @@ function buildXanaxCompetitionReminderSvg({
     "<stop offset=\"100%\" stop-color=\"#f59e0b\"/>",
     "</linearGradient>",
     "</defs>",
+    `<rect width="${width}" height="${height}" fill="#ffffff"/>`,
     `<rect width="${width}" height="${height}" rx="28" fill="#f8fafc"/>`,
     options.rainProgress === undefined
       ? renderXanaxSprinkles(xanaxImageDataUri)
