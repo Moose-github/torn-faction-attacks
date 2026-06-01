@@ -34,6 +34,7 @@ export async function renderXanaxCompetitionReminderGif(
       pixels: image.pixels,
       delayMs: GIF_DURATION_MS / GIF_FRAME_COUNT,
       matte: { red: 255, green: 255, blue: 255 },
+      transparentAlphaThreshold: 8,
     });
   }
   return encodeAnimatedGif(frames);
@@ -55,12 +56,16 @@ function buildXanaxCompetitionReminderSvg({
     "<stop offset=\"0%\" stop-color=\"#fde68a\"/>",
     "<stop offset=\"100%\" stop-color=\"#f59e0b\"/>",
     "</linearGradient>",
+    "<clipPath id=\"outerClip\">",
+    `<rect width="${width}" height="${height}" rx="28"/>`,
+    "</clipPath>",
     "</defs>",
-    `<rect width="${width}" height="${height}" fill="#ffffff"/>`,
-    `<rect width="${width}" height="${height}" rx="28" fill="#f8fafc"/>`,
+    "<g clip-path=\"url(#outerClip)\">",
+    `<rect width="${width}" height="${height}" fill="#f8fafc"/>`,
     options.rainProgress === undefined
       ? renderXanaxSprinkles(xanaxImageDataUri)
       : renderXanaxRain(xanaxImageDataUri, options.rainProgress),
+    "</g>",
     `<rect x="64" y="32" width="980" height="96" rx="20" fill="#0f172a"/>`,
     svgText(94, 89, "Xanax Competition", {
       size: 42,

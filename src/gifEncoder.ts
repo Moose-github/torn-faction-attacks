@@ -8,11 +8,13 @@ export type GifFrame = {
     green: number;
     blue: number;
   };
+  transparentAlphaThreshold?: number;
 };
 
 const GIF_COLOR_DEPTH = 8;
 const GIF_PALETTE_SIZE = 256;
 const GIF_LZW_MIN_CODE_SIZE = 8;
+const GIF_TRANSPARENT_INDEX = 255;
 
 export function encodeAnimatedGif(frames: GifFrame[], options: { loopCount?: number } = {}): Uint8Array {
   if (frames.length === 0) {
@@ -41,7 +43,12 @@ export function encodeAnimatedGif(frames: GifFrame[], options: { loopCount?: num
   writeLoopExtension(writer, options.loopCount ?? 0);
 
   for (const frame of frames) {
-    writeGraphicControlExtension(writer, Math.max(1, Math.round(frame.delayMs / 10)));
+    const hasTransparency = frame.transparentAlphaThreshold !== undefined;
+    writeGraphicControlExtension(
+      writer,
+      Math.max(1, Math.round(frame.delayMs / 10)),
+      hasTransparency ? GIF_TRANSPARENT_INDEX : null,
+    );
     writer.u8(0x2c);
     writer.u16(0);
     writer.u16(0);
@@ -67,13 +74,17 @@ function writeLoopExtension(writer: ByteWriter, loopCount: number): void {
   writer.u8(0);
 }
 
-function writeGraphicControlExtension(writer: ByteWriter, delayCs: number): void {
+function writeGraphicControlExtension(
+  writer: ByteWriter,
+  delayCs: number,
+  transparentIndex: number | null,
+): void {
   writer.u8(0x21);
   writer.u8(0xf9);
   writer.u8(4);
-  writer.u8(0x04);
+  writer.u8(transparentIndex === null ? 0x04 : 0x05);
   writer.u16(delayCs);
-  writer.u8(0);
+  writer.u8(transparentIndex ?? 0);
   writer.u8(0);
 }
 
@@ -89,9 +100,14 @@ function writeSubBlocks(writer: ByteWriter, data: Uint8Array): void {
 function indexFramePalette(frame: GifFrame): Uint8Array {
   const pixels = frame.pixels;
   const matte = frame.matte ?? { red: 248, green: 250, blue: 252 };
+  const transparentAlphaThreshold = frame.transparentAlphaThreshold;
   const indexed = new Uint8Array(pixels.length / 4);
   for (let source = 0, target = 0; source < pixels.length; source += 4, target += 1) {
     const alpha = pixels[source + 3];
+    if (transparentAlphaThreshold !== undefined && alpha <= transparentAlphaThreshold) {
+      indexed[target] = GIF_TRANSPARENT_INDEX;
+      continue;
+    }
     if (alpha === 255) {
       indexed[target] = paletteIndex(pixels[source], pixels[source + 1], pixels[source + 2]);
     } else {
@@ -113,7 +129,7 @@ function paletteIndex(red: number, green: number, blue: number): number {
   const max = Math.max(red, green, blue);
   const min = Math.min(red, green, blue);
   if (max - min <= 18) {
-    return 216 + clamp(Math.round(((red + green + blue) / 3 / 255) * 39), 0, 39);
+    return 216 + clamp(Math.round(((red + green + blue) / 3 / 255) * 38), 0, 38);
   }
 
   const redIndex = clamp(Math.round(red / 51), 0, 5);
@@ -135,13 +151,16 @@ function buildWebSafeAndGrayscalePalette(): Uint8Array {
       }
     }
   }
-  for (let gray = 0; gray < 40; gray += 1) {
-    const value = Math.round((gray / 39) * 255);
+  for (let gray = 0; gray < 39; gray += 1) {
+    const value = Math.round((gray / 38) * 255);
     palette[offset] = value;
     palette[offset + 1] = value;
     palette[offset + 2] = value;
     offset += 3;
   }
+  palette[GIF_TRANSPARENT_INDEX * 3] = 255;
+  palette[GIF_TRANSPARENT_INDEX * 3 + 1] = 255;
+  palette[GIF_TRANSPARENT_INDEX * 3 + 2] = 255;
   return palette;
 }
 
