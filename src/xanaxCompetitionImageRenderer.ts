@@ -1,7 +1,12 @@
-import { renderSvgToPng } from "./discordImageRenderer";
+import { renderSvgToPng, renderSvgToRgba } from "./discordImageRenderer";
+import { encodeAnimatedGif, GifFrame } from "./gifEncoder";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const XANAX_TARGET = 100;
+const IMAGE_WIDTH = 1108;
+const IMAGE_HEIGHT = 540;
+const GIF_FRAME_COUNT = 12;
+const GIF_DURATION_MS = 2400;
 
 export type XanaxCompetitionImageData = {
   monthKey: string;
@@ -15,13 +20,31 @@ export async function renderXanaxCompetitionReminderPng(
   return renderSvgToPng(buildXanaxCompetitionReminderSvg(data));
 }
 
+export async function renderXanaxCompetitionReminderGif(
+  data: XanaxCompetitionImageData,
+): Promise<Uint8Array> {
+  const frames: GifFrame[] = [];
+  for (let frameIndex = 0; frameIndex < GIF_FRAME_COUNT; frameIndex += 1) {
+    const image = await renderSvgToRgba(buildXanaxCompetitionReminderSvg(data, {
+      rainProgress: frameIndex / GIF_FRAME_COUNT,
+    }));
+    frames.push({
+      width: image.width,
+      height: image.height,
+      pixels: image.pixels,
+      delayMs: GIF_DURATION_MS / GIF_FRAME_COUNT,
+    });
+  }
+  return encodeAnimatedGif(frames);
+}
+
 function buildXanaxCompetitionReminderSvg({
   monthKey,
   currentPrize,
   xanaxImageDataUri,
-}: XanaxCompetitionImageData): string {
-  const width = 1108;
-  const height = 540;
+}: XanaxCompetitionImageData, options: { rainProgress?: number } = {}): string {
+  const width = IMAGE_WIDTH;
+  const height = IMAGE_HEIGHT;
   const monthLabel = formatMonthLabel(monthKey);
 
   return [
@@ -33,7 +56,9 @@ function buildXanaxCompetitionReminderSvg({
     "</linearGradient>",
     "</defs>",
     `<rect width="${width}" height="${height}" rx="28" fill="#f8fafc"/>`,
-    renderXanaxSprinkles(xanaxImageDataUri),
+    options.rainProgress === undefined
+      ? renderXanaxSprinkles(xanaxImageDataUri)
+      : renderXanaxRain(xanaxImageDataUri, options.rainProgress),
     `<rect x="64" y="32" width="980" height="96" rx="20" fill="#0f172a"/>`,
     svgText(94, 89, "Xanax Competition", {
       size: 42,
@@ -67,6 +92,45 @@ function buildXanaxCompetitionReminderSvg({
     }),
     "</svg>",
   ].join("");
+}
+
+function renderXanaxRain(xanaxImageDataUri: string | null | undefined, progress: number): string {
+  const fallSpan = IMAGE_HEIGHT + 180;
+  const pills = [
+    { x: 44, size: 58, offset: 0.03, drift: 18, rotation: -18, turns: 1.3, opacity: 0.52 },
+    { x: 128, size: 68, offset: 0.38, drift: -18, rotation: 12, turns: -1.1, opacity: 0.58 },
+    { x: 202, size: 50, offset: 0.14, drift: 26, rotation: -26, turns: 1.4, opacity: 0.45 },
+    { x: 286, size: 72, offset: 0.72, drift: -22, rotation: 24, turns: -1.3, opacity: 0.56 },
+    { x: 358, size: 56, offset: 0.29, drift: 16, rotation: -8, turns: 1.0, opacity: 0.46 },
+    { x: 438, size: 76, offset: 0.56, drift: -26, rotation: 18, turns: -1.5, opacity: 0.54 },
+    { x: 522, size: 62, offset: 0.08, drift: 24, rotation: -22, turns: 1.2, opacity: 0.5 },
+    { x: 596, size: 50, offset: 0.84, drift: -18, rotation: 10, turns: -1.0, opacity: 0.44 },
+    { x: 680, size: 70, offset: 0.23, drift: 20, rotation: -14, turns: 1.5, opacity: 0.57 },
+    { x: 758, size: 58, offset: 0.63, drift: -24, rotation: 26, turns: -1.2, opacity: 0.48 },
+    { x: 840, size: 74, offset: 0.46, drift: 18, rotation: -10, turns: 1.4, opacity: 0.55 },
+    { x: 918, size: 52, offset: 0.94, drift: -20, rotation: 16, turns: -1.1, opacity: 0.45 },
+    { x: 998, size: 66, offset: 0.18, drift: 26, rotation: -24, turns: 1.3, opacity: 0.53 },
+    { x: 1070, size: 56, offset: 0.78, drift: -16, rotation: 20, turns: -1.0, opacity: 0.49 },
+  ];
+
+  return pills
+    .map((pill) => {
+      const cycle = (progress + pill.offset) % 1;
+      const wave = Math.sin(cycle * Math.PI * 2);
+      const x = pill.x + wave * pill.drift;
+      const y = -90 + cycle * fallSpan;
+      const rotation = pill.rotation + cycle * 360 * pill.turns;
+      const transform = `translate(${round(x)} ${round(y)}) rotate(${round(rotation)})`;
+      if (xanaxImageDataUri) {
+        return [
+          `<g transform="${transform}" opacity="${pill.opacity}">`,
+          `<image href="${escapeXml(xanaxImageDataUri)}" x="${-pill.size / 2}" y="${-pill.size / 2}" width="${pill.size}" height="${pill.size}" preserveAspectRatio="xMidYMid meet"/>`,
+          "</g>",
+        ].join("");
+      }
+      return renderFallbackPill(transform, pill.size, pill.opacity);
+    })
+    .join("");
 }
 
 function renderXanaxSprinkles(xanaxImageDataUri: string | null | undefined): string {
@@ -103,14 +167,18 @@ function renderXanaxSprinkles(xanaxImageDataUri: string | null | undefined): str
           "</g>",
         ].join("");
       }
-      return [
-        `<g transform="${transform}" opacity="${sprinkle.opacity}">`,
-        `<rect x="${-sprinkle.size / 2}" y="${-sprinkle.size / 6}" width="${sprinkle.size}" height="${sprinkle.size / 3}" rx="${sprinkle.size / 6}" fill="#22c55e"/>`,
-        `<line x1="0" y1="${-sprinkle.size / 6}" x2="0" y2="${sprinkle.size / 6}" stroke="#f8fafc" stroke-width="2"/>`,
-        "</g>",
-      ].join("");
+      return renderFallbackPill(transform, sprinkle.size, sprinkle.opacity);
     })
     .join("");
+}
+
+function renderFallbackPill(transform: string, size: number, opacity: number): string {
+  return [
+    `<g transform="${transform}" opacity="${opacity}">`,
+    `<rect x="${-size / 2}" y="${-size / 6}" width="${size}" height="${size / 3}" rx="${size / 6}" fill="#22c55e"/>`,
+    `<line x1="0" y1="${-size / 6}" x2="0" y2="${size / 6}" stroke="#f8fafc" stroke-width="2"/>`,
+    "</g>",
+  ].join("");
 }
 
 function svgText(
@@ -157,4 +225,8 @@ function escapeXml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function round(value: number): number {
+  return Math.round(value * 10) / 10;
 }

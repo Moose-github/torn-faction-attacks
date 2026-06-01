@@ -15,6 +15,12 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 let resvgInitPromise: Promise<void> | null = null;
 
+export type RenderedRgbaImage = {
+  width: number;
+  height: number;
+  pixels: Uint8Array;
+};
+
 export async function renderStatsComparisonPng({
   enemyName,
   homeMembers,
@@ -38,6 +44,21 @@ export async function renderEnemyMemberStatsTablePng({
 }
 
 export async function renderSvgToPng(svg: string): Promise<Uint8Array> {
+  return renderSvg(svg, (image) => image.asPng());
+}
+
+export async function renderSvgToRgba(svg: string): Promise<RenderedRgbaImage> {
+  return renderSvg(svg, (image) => ({
+    width: image.width,
+    height: image.height,
+    pixels: new Uint8Array(image.pixels),
+  }));
+}
+
+async function renderSvg<T>(
+  svg: string,
+  readImage: (image: { width: number; height: number; pixels: Uint8Array; asPng(): Uint8Array }) => T,
+): Promise<T> {
   if (!resvgInitPromise) {
     resvgInitPromise = initWasm(resvgWasm);
   }
@@ -58,7 +79,7 @@ export async function renderSvgToPng(svg: string): Promise<Uint8Array> {
   try {
     const image = renderer.render();
     try {
-      return image.asPng();
+      return readImage(image);
     } finally {
       image.free();
     }

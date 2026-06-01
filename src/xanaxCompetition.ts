@@ -4,7 +4,7 @@ import { claimDailyBatchGate } from "./scheduledGates";
 import { upsertSyncTimestamp } from "./syncState";
 import { Env } from "./types";
 import { corsHeaders, d1Changes, json, nowSeconds } from "./utils";
-import { renderXanaxCompetitionReminderPng } from "./xanaxCompetitionImageRenderer";
+import { renderXanaxCompetitionReminderGif } from "./xanaxCompetitionImageRenderer";
 
 const SETTINGS_ID = 1;
 const DEFAULT_BASE_PRIZE = 10_000_000;
@@ -75,17 +75,17 @@ export async function getAdminXanaxCompetition(env: Env): Promise<Response> {
 
 export async function previewXanaxCompetitionImage(env: Env): Promise<Response> {
   const settings = serializeSettings(await ensureCompetitionSettings(env), currentMonthKey());
-  const png = await renderXanaxCompetitionReminderPng({
+  const gif = await renderXanaxCompetitionReminderGif({
     monthKey: settings.month_key,
     currentPrize: settings.current_prize,
     xanaxImageDataUri: await getXanaxImageDataUri(),
   });
 
-  return new Response(png, {
+  return new Response(gif, {
     headers: {
       ...corsHeaders,
-      "Content-Type": "image/png",
-      "Content-Disposition": `inline; filename="xanax-competition-${settings.month_key}.png"`,
+      "Content-Type": "image/gif",
+      "Content-Disposition": `inline; filename="xanax-competition-${settings.month_key}.gif"`,
       "Cache-Control": "no-store",
     },
   });
@@ -226,7 +226,7 @@ export async function runMonthlyXanaxCompetitionDiscordReminder(
     return { sent: false, skipped: true, reason: "competition disabled", monthKey };
   }
 
-  const png = await renderXanaxCompetitionReminderPng({
+  const gif = await renderXanaxCompetitionReminderGif({
     monthKey: settings.month_key,
     currentPrize: settings.current_prize,
     xanaxImageDataUri: await getXanaxImageDataUri(),
@@ -234,9 +234,9 @@ export async function runMonthlyXanaxCompetitionDiscordReminder(
 
   await sendDiscordMessageWithAttachment(env, {
     content: buildMonthlyXanaxCompetitionDiscordMessage(settings.current_prize),
-    filename: `xanax-competition-${settings.month_key}.png`,
-    mimeType: "image/png",
-    data: png,
+    filename: `xanax-competition-${settings.month_key}.gif`,
+    mimeType: "image/gif",
+    data: gif,
   });
   await upsertSyncTimestamp(env, completeStateName, scheduledAtSeconds, null);
 

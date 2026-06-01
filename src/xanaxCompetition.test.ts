@@ -6,7 +6,7 @@ const discordMock = vi.hoisted(() => ({
 }));
 
 const rendererMock = vi.hoisted(() => ({
-  renderXanaxCompetitionReminderPng: vi.fn(async () => new Uint8Array([1, 2, 3])),
+  renderXanaxCompetitionReminderGif: vi.fn(async () => new Uint8Array([1, 2, 3])),
 }));
 
 vi.mock("./discord", () => discordMock);
@@ -23,8 +23,8 @@ describe("monthly Xanax competition Discord reminder", () => {
     vi.setSystemTime(new Date("2026-06-01T00:10:00.000Z"));
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 404 })));
     discordMock.sendDiscordMessageWithAttachment.mockReset();
-    rendererMock.renderXanaxCompetitionReminderPng.mockClear();
-    rendererMock.renderXanaxCompetitionReminderPng.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    rendererMock.renderXanaxCompetitionReminderGif.mockClear();
+    rendererMock.renderXanaxCompetitionReminderGif.mockResolvedValue(new Uint8Array([1, 2, 3]));
   });
 
   afterEach(() => {
@@ -50,15 +50,15 @@ describe("monthly Xanax competition Discord reminder", () => {
       .toEqual({ sent: true, skipped: false, monthKey: "2026-06" });
 
     expect(fixture.settings.rollover_count).toBe(1);
-    expect(rendererMock.renderXanaxCompetitionReminderPng).toHaveBeenCalledWith({
+    expect(rendererMock.renderXanaxCompetitionReminderGif).toHaveBeenCalledWith({
       monthKey: "2026-06",
       currentPrize: 20_000_000,
       xanaxImageDataUri: null,
     });
     expect(discordMock.sendDiscordMessageWithAttachment).toHaveBeenCalledWith(fixture.env, {
       content: "New month, new Xanax competition: the prize is $20,000,000. Take 100 Xanax this month to claim it.",
-      filename: "xanax-competition-2026-06.png",
-      mimeType: "image/png",
+      filename: "xanax-competition-2026-06.gif",
+      mimeType: "image/gif",
       data: new Uint8Array([1, 2, 3]),
     });
     expect(fixture.operations.indexOf("rollover")).toBeLessThan(
