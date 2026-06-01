@@ -773,7 +773,7 @@ function XanaxCompetitionSpotlight({
             <span>Monthly Xanax prize</span>
             <strong>{formatPrize(competition.settings.current_prize)}</strong>
             <small>
-              100 Xanax this month
+              Take 100 Xanax in a month to win the prize.
               {competition.latest_snapshot_date
                 ? ` | Updated ${formatDateKey(competition.latest_snapshot_date)}`
                 : ""}
