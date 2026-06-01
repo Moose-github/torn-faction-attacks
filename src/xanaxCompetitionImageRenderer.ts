@@ -5,8 +5,8 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const XANAX_TARGET = 100;
 const IMAGE_WIDTH = 1108;
 const IMAGE_HEIGHT = 540;
-const GIF_FRAME_COUNT = 24;
-const GIF_DURATION_MS = 2400;
+const GIF_FRAME_COUNT = 36;
+const GIF_DURATION_MS = 3600;
 
 export type XanaxCompetitionImageData = {
   monthKey: string;
@@ -98,20 +98,20 @@ function buildXanaxCompetitionReminderSvg({
 function renderXanaxRain(xanaxImageDataUri: string | null | undefined, progress: number): string {
   const fallSpan = IMAGE_HEIGHT + 180;
   const pills = [
-    { x: 44, size: 58, offset: 0.03, drift: 18, rotation: -18, turns: 1.3, opacity: 0.82 },
-    { x: 128, size: 68, offset: 0.38, drift: -18, rotation: 12, turns: -1.1, opacity: 0.88 },
-    { x: 202, size: 50, offset: 0.14, drift: 26, rotation: -26, turns: 1.4, opacity: 0.78 },
-    { x: 286, size: 72, offset: 0.72, drift: -22, rotation: 24, turns: -1.3, opacity: 0.86 },
-    { x: 358, size: 56, offset: 0.29, drift: 16, rotation: -8, turns: 1.0, opacity: 0.8 },
-    { x: 438, size: 76, offset: 0.56, drift: -26, rotation: 18, turns: -1.5, opacity: 0.84 },
-    { x: 522, size: 62, offset: 0.08, drift: 24, rotation: -22, turns: 1.2, opacity: 0.82 },
-    { x: 596, size: 50, offset: 0.84, drift: -18, rotation: 10, turns: -1.0, opacity: 0.78 },
-    { x: 680, size: 70, offset: 0.23, drift: 20, rotation: -14, turns: 1.5, opacity: 0.87 },
-    { x: 758, size: 58, offset: 0.63, drift: -24, rotation: 26, turns: -1.2, opacity: 0.8 },
-    { x: 840, size: 74, offset: 0.46, drift: 18, rotation: -10, turns: 1.4, opacity: 0.85 },
-    { x: 918, size: 52, offset: 0.94, drift: -20, rotation: 16, turns: -1.1, opacity: 0.78 },
-    { x: 998, size: 66, offset: 0.18, drift: 26, rotation: -24, turns: 1.3, opacity: 0.83 },
-    { x: 1070, size: 56, offset: 0.78, drift: -16, rotation: 20, turns: -1.0, opacity: 0.8 },
+    { x: 44, size: 58, offset: 0.03, drift: 18, rotation: -18, turns: 1.3, opacity: 0.94 },
+    { x: 128, size: 68, offset: 0.38, drift: -18, rotation: 12, turns: -1.1, opacity: 0.98 },
+    { x: 202, size: 50, offset: 0.14, drift: 26, rotation: -26, turns: 1.4, opacity: 0.92 },
+    { x: 286, size: 72, offset: 0.72, drift: -22, rotation: 24, turns: -1.3, opacity: 0.98 },
+    { x: 358, size: 56, offset: 0.29, drift: 16, rotation: -8, turns: 1.0, opacity: 0.94 },
+    { x: 438, size: 76, offset: 0.56, drift: -26, rotation: 18, turns: -1.5, opacity: 0.98 },
+    { x: 522, size: 62, offset: 0.08, drift: 24, rotation: -22, turns: 1.2, opacity: 0.96 },
+    { x: 596, size: 50, offset: 0.84, drift: -18, rotation: 10, turns: -1.0, opacity: 0.92 },
+    { x: 680, size: 70, offset: 0.23, drift: 20, rotation: -14, turns: 1.5, opacity: 0.98 },
+    { x: 758, size: 58, offset: 0.63, drift: -24, rotation: 26, turns: -1.2, opacity: 0.94 },
+    { x: 840, size: 74, offset: 0.46, drift: 18, rotation: -10, turns: 1.4, opacity: 0.98 },
+    { x: 918, size: 52, offset: 0.94, drift: -20, rotation: 16, turns: -1.1, opacity: 0.92 },
+    { x: 998, size: 66, offset: 0.18, drift: 26, rotation: -24, turns: 1.3, opacity: 0.96 },
+    { x: 1070, size: 56, offset: 0.78, drift: -16, rotation: 20, turns: -1.0, opacity: 0.94 },
   ];
 
   return pills

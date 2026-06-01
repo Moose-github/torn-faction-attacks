@@ -37,7 +37,7 @@ export function encodeAnimatedGif(frames: GifFrame[], options: { loopCount?: num
   writer.u8(0x80 | ((GIF_COLOR_DEPTH - 1) << 4) | (GIF_COLOR_DEPTH - 1));
   writer.u8(0);
   writer.u8(0);
-  writer.bytes(buildRgb332Palette());
+  writer.bytes(buildWebSafeAndGrayscalePalette());
   writeLoopExtension(writer, options.loopCount ?? 0);
 
   for (const frame of frames) {
@@ -49,7 +49,7 @@ export function encodeAnimatedGif(frames: GifFrame[], options: { loopCount?: num
     writer.u16(height);
     writer.u8(0);
     writer.u8(GIF_LZW_MIN_CODE_SIZE);
-    writeSubBlocks(writer, lzwEncode(indexFrameRgb332(frame), GIF_LZW_MIN_CODE_SIZE));
+    writeSubBlocks(writer, lzwEncode(indexFramePalette(frame), GIF_LZW_MIN_CODE_SIZE));
   }
 
   writer.u8(0x3b);
@@ -86,16 +86,16 @@ function writeSubBlocks(writer: ByteWriter, data: Uint8Array): void {
   writer.u8(0);
 }
 
-function indexFrameRgb332(frame: GifFrame): Uint8Array {
+function indexFramePalette(frame: GifFrame): Uint8Array {
   const pixels = frame.pixels;
   const matte = frame.matte ?? { red: 248, green: 250, blue: 252 };
   const indexed = new Uint8Array(pixels.length / 4);
   for (let source = 0, target = 0; source < pixels.length; source += 4, target += 1) {
     const alpha = pixels[source + 3];
     if (alpha === 255) {
-      indexed[target] = rgb332Index(pixels[source], pixels[source + 1], pixels[source + 2]);
+      indexed[target] = paletteIndex(pixels[source], pixels[source + 1], pixels[source + 2]);
     } else {
-      indexed[target] = rgb332Index(
+      indexed[target] = paletteIndex(
         compositeChannel(pixels[source], matte.red, alpha),
         compositeChannel(pixels[source + 1], matte.green, alpha),
         compositeChannel(pixels[source + 2], matte.blue, alpha),
@@ -109,21 +109,44 @@ function compositeChannel(source: number, backdrop: number, alpha: number): numb
   return Math.round((source * alpha + backdrop * (255 - alpha)) / 255);
 }
 
-function rgb332Index(red: number, green: number, blue: number): number {
-  return ((red >> 5) << 5) | ((green >> 5) << 2) | (blue >> 6);
+function paletteIndex(red: number, green: number, blue: number): number {
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  if (max - min <= 18) {
+    return 216 + clamp(Math.round(((red + green + blue) / 3 / 255) * 39), 0, 39);
+  }
+
+  const redIndex = clamp(Math.round(red / 51), 0, 5);
+  const greenIndex = clamp(Math.round(green / 51), 0, 5);
+  const blueIndex = clamp(Math.round(blue / 51), 0, 5);
+  return redIndex * 36 + greenIndex * 6 + blueIndex;
 }
 
-function buildRgb332Palette(): Uint8Array {
+function buildWebSafeAndGrayscalePalette(): Uint8Array {
   const palette = new Uint8Array(GIF_PALETTE_SIZE * 3);
-  for (let index = 0; index < GIF_PALETTE_SIZE; index += 1) {
-    const red = (index >> 5) & 0x07;
-    const green = (index >> 2) & 0x07;
-    const blue = index & 0x03;
-    palette[index * 3] = Math.round((red / 7) * 255);
-    palette[index * 3 + 1] = Math.round((green / 7) * 255);
-    palette[index * 3 + 2] = Math.round((blue / 3) * 255);
+  let offset = 0;
+  for (let red = 0; red < 6; red += 1) {
+    for (let green = 0; green < 6; green += 1) {
+      for (let blue = 0; blue < 6; blue += 1) {
+        palette[offset] = red * 51;
+        palette[offset + 1] = green * 51;
+        palette[offset + 2] = blue * 51;
+        offset += 3;
+      }
+    }
+  }
+  for (let gray = 0; gray < 40; gray += 1) {
+    const value = Math.round((gray / 39) * 255);
+    palette[offset] = value;
+    palette[offset + 1] = value;
+    palette[offset + 2] = value;
+    offset += 3;
   }
   return palette;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 function lzwEncode(indexedPixels: Uint8Array, minCodeSize: number): Uint8Array {
