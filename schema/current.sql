@@ -337,7 +337,7 @@ CREATE TABLE member_personal_stats_recent (
   networth_timestamp INTEGER,
   daysbeendonator_timestamp INTEGER,
   personalstats_bucket_date TEXT,
-  requested_at INTEGER NOT NULL,
+  target_timestamp INTEGER NOT NULL,
   attempted_at INTEGER,
   personalstats_key_source TEXT,
   personal_captured_at INTEGER,

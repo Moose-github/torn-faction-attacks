@@ -215,7 +215,7 @@ export type PersonalStatsRecentRow = {
   member_name: string | null;
   level: number | null;
   position: string | null;
-  requested_at: number;
+  target_timestamp: number;
   attempted_at: number | null;
   personal_captured_at: number | null;
   status: PersonalStatsRecentStatus;

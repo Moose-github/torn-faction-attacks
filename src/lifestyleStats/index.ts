@@ -231,7 +231,7 @@ export async function refreshMemberLifestyleStats(
   for (const queueRow of members) {
     try {
       const stats = await fetchMemberPersonalStats(env, queueRow.member_id, {
-        requestedAt: queueRow.requested_at,
+        requestedAt: queueRow.target_timestamp,
         keySource: "env:TORN_API_KEY",
       });
       const dataQualityError = personalStatsDataQualityError(stats, queueRow.snapshot_date, {
@@ -1641,7 +1641,7 @@ async function seedPersonalStatsRecentQueue(env: Env, activeDates: string[]): Pr
         member_name,
         level,
         position,
-        requested_at,
+        target_timestamp,
         status,
         updated_at
       )
@@ -1662,7 +1662,7 @@ async function seedPersonalStatsRecentQueue(env: Env, activeDates: string[]): Pr
         member_name = excluded.member_name,
         level = excluded.level,
         position = excluded.position,
-        requested_at = excluded.requested_at,
+        target_timestamp = excluded.target_timestamp,
         status = CASE
           WHEN member_personal_stats_recent.personal_captured_at IS NULL
             AND member_personal_stats_recent.status = 'failed'
@@ -1705,7 +1705,7 @@ async function hydratePersonalStatsRecentQueueFromSnapshots(
       networth_timestamp,
       daysbeendonator_timestamp,
       personalstats_bucket_date,
-      requested_at,
+      target_timestamp,
       attempted_at,
       personalstats_key_source,
       personal_captured_at,
@@ -1734,7 +1734,7 @@ async function hydratePersonalStatsRecentQueueFromSnapshots(
       snapshots.personalstats_bucket_date,
       COALESCE(
         snapshots.personalstats_requested_at,
-        CAST(strftime('%s', snapshots.snapshot_date || ' 00:10:00') AS INTEGER)
+        CAST(strftime('%s', snapshots.snapshot_date || ' 00:00:00') AS INTEGER)
       ),
       snapshots.personal_captured_at,
       snapshots.personalstats_key_source,
@@ -1827,7 +1827,7 @@ async function readPersonalStatsRecentCandidates(
         recent.member_name,
         recent.level,
         recent.position,
-        recent.requested_at,
+        recent.target_timestamp,
         recent.attempted_at,
         recent.personal_captured_at,
         recent.status,
@@ -1858,7 +1858,7 @@ async function readPersonalStatsRecentCandidates(
         recent.member_name,
         recent.level,
         recent.position,
-        recent.requested_at,
+        recent.target_timestamp,
         recent.attempted_at,
         recent.personal_captured_at,
         recent.status,
@@ -2029,7 +2029,7 @@ async function completePersonalStatsRecentRow(
       networth_timestamp,
       daysbeendonator_timestamp,
       personalstats_bucket_date,
-      requested_at,
+      target_timestamp,
       attempted_at,
       personalstats_key_source,
       personal_captured_at,
@@ -2055,7 +2055,7 @@ async function completePersonalStatsRecentRow(
       networth_timestamp = excluded.networth_timestamp,
       daysbeendonator_timestamp = excluded.daysbeendonator_timestamp,
       personalstats_bucket_date = excluded.personalstats_bucket_date,
-      requested_at = excluded.requested_at,
+      target_timestamp = excluded.target_timestamp,
       attempted_at = excluded.attempted_at,
       personalstats_key_source = excluded.personalstats_key_source,
       personal_captured_at = excluded.personal_captured_at,
@@ -2366,7 +2366,7 @@ async function writeLifestyleSnapshotForDate(
         personal.networth_timestamp,
         personal.daysbeendonator_timestamp,
         personal.personalstats_bucket_date,
-        personal.requested_at AS personalstats_requested_at,
+        personal.target_timestamp AS personalstats_requested_at,
         personal.personalstats_key_source,
         personal.error AS validation_error,
         gym.gymenergy,
@@ -2968,7 +2968,7 @@ function recentCompletedPersonalStatsDates(timestamp: number): string[] {
 }
 
 function timestampForDailyPoll(date: string): number {
-  return Math.floor(Date.parse(`${date}T00:10:00.000Z`) / 1000);
+  return Math.floor(Date.parse(`${date}T00:00:00.000Z`) / 1000);
 }
 
 function utcDateKey(timestamp: number): string {
