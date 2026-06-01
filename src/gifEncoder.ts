@@ -3,6 +3,11 @@ export type GifFrame = {
   height: number;
   pixels: Uint8Array;
   delayMs: number;
+  matte?: {
+    red: number;
+    green: number;
+    blue: number;
+  };
 };
 
 const GIF_COLOR_DEPTH = 8;
@@ -44,7 +49,7 @@ export function encodeAnimatedGif(frames: GifFrame[], options: { loopCount?: num
     writer.u16(height);
     writer.u8(0);
     writer.u8(GIF_LZW_MIN_CODE_SIZE);
-    writeSubBlocks(writer, lzwEncode(indexFrameRgb332(frame.pixels), GIF_LZW_MIN_CODE_SIZE));
+    writeSubBlocks(writer, lzwEncode(indexFrameRgb332(frame), GIF_LZW_MIN_CODE_SIZE));
   }
 
   writer.u8(0x3b);
@@ -81,12 +86,27 @@ function writeSubBlocks(writer: ByteWriter, data: Uint8Array): void {
   writer.u8(0);
 }
 
-function indexFrameRgb332(pixels: Uint8Array): Uint8Array {
+function indexFrameRgb332(frame: GifFrame): Uint8Array {
+  const pixels = frame.pixels;
+  const matte = frame.matte ?? { red: 248, green: 250, blue: 252 };
   const indexed = new Uint8Array(pixels.length / 4);
   for (let source = 0, target = 0; source < pixels.length; source += 4, target += 1) {
-    indexed[target] = rgb332Index(pixels[source], pixels[source + 1], pixels[source + 2]);
+    const alpha = pixels[source + 3];
+    if (alpha === 255) {
+      indexed[target] = rgb332Index(pixels[source], pixels[source + 1], pixels[source + 2]);
+    } else {
+      indexed[target] = rgb332Index(
+        compositeChannel(pixels[source], matte.red, alpha),
+        compositeChannel(pixels[source + 1], matte.green, alpha),
+        compositeChannel(pixels[source + 2], matte.blue, alpha),
+      );
+    }
   }
   return indexed;
+}
+
+function compositeChannel(source: number, backdrop: number, alpha: number): number {
+  return Math.round((source * alpha + backdrop * (255 - alpha)) / 255);
 }
 
 function rgb332Index(red: number, green: number, blue: number): number {
