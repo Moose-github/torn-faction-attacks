@@ -90,12 +90,12 @@ function buildXanaxCompetitionReminderSvg({
       maxLength: 18,
     }),
     `<rect x="64" y="410" width="980" height="86" rx="18" fill="#ffffff" stroke="#94a3b8" stroke-width="2"/>`,
-    svgText(98, 446, `Monthly challenge: take ${XANAX_TARGET} Xanax during the month.`, {
+    svgText(98, 446, `Take ${XANAX_TARGET} Xanax in a month to win the prize.`, {
       size: 18,
       weight: 800,
       fill: "#0f172a",
     }),
-    svgText(98, 474, "If unclaimed, the prize rolls over by $10,000,000 every month until it is claimed.", {
+    svgText(98, 474, "$10,000,000 is added each month until the prize is claimed.", {
       size: 17,
       fill: "#475569",
     }),
