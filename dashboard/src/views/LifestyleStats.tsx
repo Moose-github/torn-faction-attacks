@@ -69,7 +69,7 @@ const LifestyleDailyChart = React.lazy(() =>
 export function LifestyleStats({ currentUserId, isAdmin }: { currentUserId: number | null; isAdmin: boolean }) {
   const [stats, setStats] = React.useState<Awaited<ReturnType<typeof getMemberLifestyleStats>> | null>(null);
   const [sort, setSort] = React.useState<LifestyleSort>({ key: "average_xantaken", direction: "desc" });
-  const [period, setPeriod] = React.useState(() => currentMonthPeriod());
+  const [period, setPeriod] = React.useState(() => previousThirtyDaysPeriod());
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [chartExpanded, setChartExpanded] = React.useState(false);
@@ -642,9 +642,10 @@ function formatHeaderLabel(label: string): React.ReactNode {
   );
 }
 
-function currentMonthPeriod(): { startDate: string; endDate: string } {
+function previousThirtyDaysPeriod(): { startDate: string; endDate: string } {
   const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const start = new Date(todayStart - 30 * 86_400_000);
 
   return {
     startDate: start.toISOString().slice(0, 10),
