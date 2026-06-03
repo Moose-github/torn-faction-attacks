@@ -975,13 +975,14 @@ function MemberHighlightTile({
   const headingPeriod = metric
     ? formatHighlightPeriodSubtitle(metric, periodLabel)
     : periodLabel;
+  const headingPeriodTitle = metric ? highlightPeriodTooltip(metric) : undefined;
 
   return (
     <article className="dashboard-highlight-tile">
       <div className="dashboard-highlight-heading">
         <span>{group.label}</span>
         <strong>{headingTitle}</strong>
-        <small>{headingPeriod}</small>
+        <small title={headingPeriodTitle}>{headingPeriod}</small>
       </div>
       <div className="dashboard-podium-list">
         {!metric || metric.rows.length === 0 ? (
@@ -1075,6 +1076,14 @@ function formatHighlightPeriodSubtitle(
   }
 
   return formatAchievementPeriod(metric.rows[0]);
+}
+
+function highlightPeriodTooltip(metric: HighlightGroup["metrics"][number]): string | undefined {
+  if (metric.periodKey === "last_7_completed_days") {
+    return "last complete 7-day period";
+  }
+
+  return undefined;
 }
 
 function formatAchievementPeriod(row: MemberAchievementSummary | undefined): string {

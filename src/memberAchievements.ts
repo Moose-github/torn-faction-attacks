@@ -3,7 +3,7 @@ import { Env } from "./types";
 import { d1Changes, json, nowSeconds } from "./utils";
 
 const ACHIEVEMENT_TOP_RANKS = 3;
-const ACHIEVEMENT_DETAIL_VERSION = 5;
+const ACHIEVEMENT_DETAIL_VERSION = 6;
 const ACHIEVEMENT_METRICS = [
   {
     metricKey: "xanax_yesterday",
@@ -19,7 +19,7 @@ const ACHIEVEMENT_METRICS = [
   {
     metricKey: "xanax_average_7d",
     metricGroup: "xanax",
-    metricTitle: "Highest average Xanax over last complete 7-day period",
+    metricTitle: "Highest average Xanax over 7 days",
     periodKey: "last_7_completed_days",
     unit: "xanax/day",
     source: "lifestyle",
@@ -41,7 +41,7 @@ const ACHIEVEMENT_METRICS = [
   {
     metricKey: "gymenergy_7d",
     metricGroup: "gym_energy",
-    metricTitle: "Most Gym energy over last complete 7-day period",
+    metricTitle: "Most Gym energy over 7 days",
     periodKey: "last_7_completed_days",
     unit: "energy",
     source: "lifestyle",
@@ -62,7 +62,7 @@ const ACHIEVEMENT_METRICS = [
   {
     metricKey: "mugs_7d",
     metricGroup: "mugs",
-    metricTitle: "Most mugs over last complete 7-day period",
+    metricTitle: "Most mugs over 7 days",
     periodKey: "last_7_completed_days",
     unit: "mugs",
     source: "attacks",
