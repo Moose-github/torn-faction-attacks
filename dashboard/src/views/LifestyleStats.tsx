@@ -78,6 +78,8 @@ export function LifestyleStats({ currentUserId, isAdmin }: { currentUserId: numb
   const [selectedChartMemberIds, setSelectedChartMemberIds] = React.useState<number[]>([]);
   const [pendingChartMemberId, setPendingChartMemberId] = React.useState("");
   const [chartData, setChartData] = React.useState<MemberLifestyleDailyChartResponse | null>(null);
+  const [overdoseChartData, setOverdoseChartData] =
+    React.useState<MemberLifestyleDailyChartResponse | null>(null);
   const [chartError, setChartError] = React.useState<string | null>(null);
   const [isChartLoading, setIsChartLoading] = React.useState(false);
 
@@ -137,6 +139,7 @@ export function LifestyleStats({ currentUserId, isAdmin }: { currentUserId: numb
   React.useEffect(() => {
     if (!chartExpanded || selectedChartMemberIds.length === 0) {
       setChartData(null);
+      setOverdoseChartData(null);
       setChartError(null);
       setIsChartLoading(false);
       return;
@@ -146,21 +149,33 @@ export function LifestyleStats({ currentUserId, isAdmin }: { currentUserId: numb
     setIsChartLoading(true);
     setChartError(null);
 
-    getMemberLifestyleDailyChart({
+    const chartRequest = getMemberLifestyleDailyChart({
       startDate: period.startDate,
       endDate: period.endDate,
       metric: chartMetric,
       memberIds: selectedChartMemberIds,
-    })
-      .then((response) => {
+    });
+    const overdoseRequest = chartMetric === "xantaken"
+      ? getMemberLifestyleDailyChart({
+          startDate: period.startDate,
+          endDate: period.endDate,
+          metric: "overdosed",
+          memberIds: selectedChartMemberIds,
+        })
+      : Promise.resolve(null);
+
+    Promise.all([chartRequest, overdoseRequest])
+      .then(([response, overdoseResponse]) => {
         if (!cancelled) {
           setChartData(response);
+          setOverdoseChartData(overdoseResponse);
         }
       })
       .catch((err) => {
         if (!cancelled) {
           setChartError(err instanceof Error ? err.message : String(err));
           setChartData(null);
+          setOverdoseChartData(null);
         }
       })
       .finally(() => {
@@ -367,7 +382,11 @@ export function LifestyleStats({ currentUserId, isAdmin }: { currentUserId: numb
               <div className="lifestyle-chart-loading">Loading chart</div>
             ) : (
               <React.Suspense fallback={<div className="lifestyle-chart-loading">Loading chart</div>}>
-                <LifestyleDailyChart metric={chartMetric} series={chartData?.series ?? []} />
+                <LifestyleDailyChart
+                  metric={chartMetric}
+                  series={chartData?.series ?? []}
+                  overdoseSeries={chartMetric === "xantaken" ? overdoseChartData?.series ?? [] : []}
+                />
               </React.Suspense>
             )}
           </div>
