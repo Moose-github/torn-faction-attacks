@@ -3,7 +3,7 @@ import { Env } from "./types";
 import { d1Changes, json, nowSeconds } from "./utils";
 
 const ACHIEVEMENT_TOP_RANKS = 3;
-const ACHIEVEMENT_DETAIL_VERSION = 4;
+const ACHIEVEMENT_DETAIL_VERSION = 5;
 const ACHIEVEMENT_METRICS = [
   {
     metricKey: "xanax_yesterday",
@@ -109,6 +109,8 @@ type AvailableAchievementDates = {
   personal: Set<string>;
 };
 
+type MetricSourceSnapshotDates = Map<string, string>;
+
 export async function listMemberAchievementSummaries(env: Env): Promise<Response> {
   const rows = await env.DB.prepare(
     `
@@ -141,34 +143,41 @@ export async function listMemberAchievementSummaries(env: Env): Promise<Response
 export async function refreshMemberAchievementSummariesIfStale(
   env: Env,
 ): Promise<{ writeStatements: number; changedRows: number; skipped: boolean; reason?: string }> {
-  const latestSnapshotDate = await readLatestSnapshotDate(env);
-  if (!latestSnapshotDate) {
-    return { writeStatements: 0, changedRows: 0, skipped: true, reason: "no lifestyle snapshots" };
+  const availableDates = await readAvailableSnapshotDates(env);
+  const sourceSnapshotDates = latestSnapshotDatesForMetrics(availableDates);
+  if (sourceSnapshotDates.size === 0) {
+    return { writeStatements: 0, changedRows: 0, skipped: true, reason: "no complete lifestyle snapshots" };
   }
 
-  const availableDates = await readAvailableSnapshotDates(env);
-  if (await summariesAreCurrent(env, latestSnapshotDate, availableDates)) {
+  if (await summariesAreCurrent(env, sourceSnapshotDates, availableDates)) {
     return { writeStatements: 0, changedRows: 0, skipped: true, reason: "already current" };
   }
 
-  return refreshMemberAchievementSummaries(env, latestSnapshotDate, availableDates);
+  return refreshMemberAchievementSummaries(env, sourceSnapshotDates, availableDates);
 }
 
 export async function refreshMemberAchievementSummaries(
   env: Env,
-  latestSnapshotDate?: string,
+  latestSnapshotDate?: string | MetricSourceSnapshotDates,
   knownAvailableDates?: AvailableAchievementDates,
 ): Promise<{ writeStatements: number; changedRows: number; skipped: boolean; reason?: string }> {
-  const sourceSnapshotDate = latestSnapshotDate ?? await readLatestSnapshotDate(env);
-  if (!sourceSnapshotDate) {
-    return { writeStatements: 0, changedRows: 0, skipped: true, reason: "no lifestyle snapshots" };
+  const availableDates = knownAvailableDates ?? await readAvailableSnapshotDates(env);
+  const sourceSnapshotDates = typeof latestSnapshotDate === "string"
+    ? fixedSnapshotDateForMetrics(latestSnapshotDate)
+    : latestSnapshotDate ?? latestSnapshotDatesForMetrics(availableDates);
+  if (sourceSnapshotDates.size === 0) {
+    return { writeStatements: 0, changedRows: 0, skipped: true, reason: "no complete lifestyle snapshots" };
   }
 
-  const availableDates = knownAvailableDates ?? await readAvailableSnapshotDates(env);
   const rows: AchievementRow[] = [];
   const computedAt = nowSeconds();
 
   for (const metric of ACHIEVEMENT_METRICS) {
+    const sourceSnapshotDate = sourceSnapshotDates.get(metric.metricKey);
+    if (!sourceSnapshotDate) {
+      continue;
+    }
+
     const baselineDate = shiftUtcDate(sourceSnapshotDate, -metric.days);
     if (!metricHasAvailableWindow(metric, availableDates, baselineDate, sourceSnapshotDate)) {
       continue;
@@ -360,32 +369,6 @@ function compareRankedRows(left: MugRow, right: MugRow): number {
   return (left.member_name ?? `#${left.member_id}`).localeCompare(right.member_name ?? `#${right.member_id}`);
 }
 
-async function readLatestSnapshotDate(env: Env): Promise<string | null> {
-  const row = (await env.DB.prepare(
-    `
-    SELECT MAX(candidate_dates.snapshot_date) AS snapshot_date
-    FROM (
-      SELECT DISTINCT snapshot_date
-      FROM member_lifestyle_stat_snapshots
-    ) candidate_dates
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM home_faction_members members
-      LEFT JOIN member_lifestyle_stat_snapshots snapshots
-        ON snapshots.member_id = members.member_id
-       AND snapshots.snapshot_date = candidate_dates.snapshot_date
-       AND snapshots.fully_ready = 1
-      WHERE members.faction_id = ?
-        AND members.is_current = 1
-        AND members.report_exempt = 0
-        AND snapshots.member_id IS NULL
-    )
-    `,
-  ).bind(HOME_FACTION_ID).first()) as { snapshot_date: string | null } | null;
-
-  return row?.snapshot_date ?? null;
-}
-
 async function readAvailableSnapshotDates(env: Env): Promise<AvailableAchievementDates> {
   const rows = ((await env.DB.prepare(
     `
@@ -449,57 +432,106 @@ async function readAvailableSnapshotDates(env: Env): Promise<AvailableAchievemen
   };
 }
 
-async function summariesAreCurrent(
-  env: Env,
-  latestSnapshotDate: string,
-  availableDates: AvailableAchievementDates,
-): Promise<boolean> {
-  const staleRow = (await env.DB.prepare(
-    `
-    SELECT COUNT(*) AS stale_count
-    FROM member_achievement_summaries
-    WHERE source_snapshot_date IS NULL
-      OR source_snapshot_date != ?
-    `,
-  )
-    .bind(latestSnapshotDate)
-    .first()) as { stale_count: number | null } | null;
+function latestSnapshotDatesForMetrics(availableDates: AvailableAchievementDates): MetricSourceSnapshotDates {
+  const sourceSnapshotDates: MetricSourceSnapshotDates = new Map();
+  for (const metric of ACHIEVEMENT_METRICS) {
+    const sourceSnapshotDate = latestDateFromSet(readyDatesForMetric(metric, availableDates));
+    if (!sourceSnapshotDate) {
+      continue;
+    }
 
-  if (Number(staleRow?.stale_count ?? 0) > 0) {
-    return false;
+    const baselineDate = shiftUtcDate(sourceSnapshotDate, -metric.days);
+    if (metricHasAvailableWindow(metric, availableDates, baselineDate, sourceSnapshotDate)) {
+      sourceSnapshotDates.set(metric.metricKey, sourceSnapshotDate);
+    }
+  }
+  return sourceSnapshotDates;
+}
+
+function fixedSnapshotDateForMetrics(sourceSnapshotDate: string): MetricSourceSnapshotDates {
+  return new Map(ACHIEVEMENT_METRICS.map((metric) => [metric.metricKey, sourceSnapshotDate]));
+}
+
+function readyDatesForMetric(
+  metric: AchievementMetric,
+  availableDates: AvailableAchievementDates,
+): Set<string> {
+  if (metric.source === "attacks") {
+    return availableDates.fully;
   }
 
+  return metric.field.startsWith("gym") ? availableDates.gym : availableDates.personal;
+}
+
+function latestDateFromSet(dates: Set<string>): string | null {
+  let latest: string | null = null;
+  for (const date of dates) {
+    if (latest === null || date > latest) {
+      latest = date;
+    }
+  }
+  return latest;
+}
+
+async function summariesAreCurrent(
+  env: Env,
+  sourceSnapshotDates: MetricSourceSnapshotDates,
+  availableDates: AvailableAchievementDates,
+): Promise<boolean> {
   const rows = ((await env.DB.prepare(
     `
-    SELECT metric_key, detail_json
+    SELECT metric_key, source_snapshot_date, detail_json
     FROM member_achievement_summaries
-    WHERE source_snapshot_date = ?
     `,
   )
-    .bind(latestSnapshotDate)
-    .all()).results ?? []) as Array<{ metric_key: string; detail_json: string | null }>;
+    .all()).results ?? []) as Array<{
+    metric_key: string;
+    source_snapshot_date: string | null;
+    detail_json: string | null;
+  }>;
 
-  const expectedMetricKeys = expectedMetricKeysForSnapshot(latestSnapshotDate, availableDates);
-  if (expectedMetricKeys.length === 0) {
+  const expectedMetricSources = expectedMetricSourcesForSnapshots(sourceSnapshotDates, availableDates);
+  if (expectedMetricSources.size === 0) {
     return rows.length === 0;
   }
   if (rows.length === 0) {
     return false;
   }
+
   const presentMetricKeys = new Set(rows.map((row) => row.metric_key));
-  for (const metricKey of expectedMetricKeys) {
+  for (const [metricKey] of expectedMetricSources) {
     if (!presentMetricKeys.has(metricKey)) {
       return false;
     }
   }
 
-  return rows.every((row) => achievementDetailVersion(row.detail_json) === ACHIEVEMENT_DETAIL_VERSION);
+  return rows.every((row) =>
+    expectedMetricSources.get(row.metric_key) === row.source_snapshot_date &&
+    achievementDetailVersion(row.detail_json) === ACHIEVEMENT_DETAIL_VERSION
+  );
 }
 
-function expectedMetricKeysForSnapshot(sourceSnapshotDate: string, availableDates: AvailableAchievementDates): string[] {
-  return ACHIEVEMENT_METRICS.filter((metric) =>
-    metricHasAvailableWindow(metric, availableDates, shiftUtcDate(sourceSnapshotDate, -metric.days), sourceSnapshotDate),
-  ).map((metric) => metric.metricKey);
+function expectedMetricSourcesForSnapshots(
+  sourceSnapshotDates: MetricSourceSnapshotDates,
+  availableDates: AvailableAchievementDates,
+): MetricSourceSnapshotDates {
+  const expectedMetricSources: MetricSourceSnapshotDates = new Map();
+  for (const metric of ACHIEVEMENT_METRICS) {
+    const sourceSnapshotDate = sourceSnapshotDates.get(metric.metricKey);
+    if (!sourceSnapshotDate) {
+      continue;
+    }
+
+    if (metricHasAvailableWindow(
+      metric,
+      availableDates,
+      shiftUtcDate(sourceSnapshotDate, -metric.days),
+      sourceSnapshotDate,
+    )) {
+      expectedMetricSources.set(metric.metricKey, sourceSnapshotDate);
+    }
+  }
+  return expectedMetricSources;
 }
 
 function metricHasAvailableWindow(

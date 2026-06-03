@@ -969,13 +969,19 @@ function MemberHighlightTile({
   periodLabel: string;
 }) {
   const metric = group.metrics.find((candidate) => candidate.periodKey === periodKey) ?? null;
+  const headingTitle = metric
+    ? formatHighlightTitle(metric, periodLabel)
+    : `${group.label} ${periodLabel.toLowerCase()}`;
+  const headingPeriod = metric
+    ? formatHighlightPeriodSubtitle(metric, periodLabel)
+    : periodLabel;
 
   return (
     <article className="dashboard-highlight-tile">
       <div className="dashboard-highlight-heading">
         <span>{group.label}</span>
-        <strong>{metric?.title ?? `${group.label} ${periodLabel.toLowerCase()}`}</strong>
-        <small>{metric ? formatAchievementPeriod(metric.rows[0]) : periodLabel}</small>
+        <strong>{headingTitle}</strong>
+        <small>{headingPeriod}</small>
       </div>
       <div className="dashboard-podium-list">
         {!metric || metric.rows.length === 0 ? (
@@ -1045,6 +1051,30 @@ function buildHighlightGroups(achievements: MemberAchievementSummary[]): Highlig
       }),
     };
   }).filter((group) => group.metrics.length > 0);
+}
+
+function formatHighlightTitle(metric: HighlightGroup["metrics"][number], periodLabel: string): string {
+  const row = metric.rows[0];
+  if (metric.periodKey === "yesterday" && row) {
+    return `${oneDayHighlightTitlePrefix(metric.title)} ${formatDateKey(row.period_start_date)}`;
+  }
+
+  return metric.title || periodLabel;
+}
+
+function oneDayHighlightTitlePrefix(title: string): string {
+  return title.replace(/\s+(?:on last completed day|yesterday)$/i, "");
+}
+
+function formatHighlightPeriodSubtitle(
+  metric: HighlightGroup["metrics"][number],
+  periodLabel: string,
+): string {
+  if (metric.periodKey === "yesterday") {
+    return periodLabel.toLowerCase();
+  }
+
+  return formatAchievementPeriod(metric.rows[0]);
 }
 
 function formatAchievementPeriod(row: MemberAchievementSummary | undefined): string {
