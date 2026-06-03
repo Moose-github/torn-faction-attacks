@@ -3,12 +3,12 @@ import { Env } from "./types";
 import { d1Changes, json, nowSeconds } from "./utils";
 
 const ACHIEVEMENT_TOP_RANKS = 3;
-const ACHIEVEMENT_DETAIL_VERSION = 2;
+const ACHIEVEMENT_DETAIL_VERSION = 4;
 const ACHIEVEMENT_METRICS = [
   {
     metricKey: "xanax_yesterday",
     metricGroup: "xanax",
-    metricTitle: "Most Xanax yesterday",
+    metricTitle: "Most Xanax on last completed day",
     periodKey: "yesterday",
     unit: "xanax",
     source: "lifestyle",
@@ -19,7 +19,7 @@ const ACHIEVEMENT_METRICS = [
   {
     metricKey: "xanax_average_7d",
     metricGroup: "xanax",
-    metricTitle: "Highest average Xanax over last 7 completed days",
+    metricTitle: "Highest average Xanax over last complete 7-day period",
     periodKey: "last_7_completed_days",
     unit: "xanax/day",
     source: "lifestyle",
@@ -30,7 +30,7 @@ const ACHIEVEMENT_METRICS = [
   {
     metricKey: "gymenergy_yesterday",
     metricGroup: "gym_energy",
-    metricTitle: "Most Gym energy yesterday",
+    metricTitle: "Most Gym energy on last completed day",
     periodKey: "yesterday",
     unit: "energy",
     source: "lifestyle",
@@ -41,7 +41,7 @@ const ACHIEVEMENT_METRICS = [
   {
     metricKey: "gymenergy_7d",
     metricGroup: "gym_energy",
-    metricTitle: "Most Gym energy over last 7 completed days",
+    metricTitle: "Most Gym energy over last complete 7-day period",
     periodKey: "last_7_completed_days",
     unit: "energy",
     source: "lifestyle",
@@ -52,7 +52,7 @@ const ACHIEVEMENT_METRICS = [
   {
     metricKey: "mugs_yesterday",
     metricGroup: "mugs",
-    metricTitle: "Most mugs yesterday",
+    metricTitle: "Most mugs on last completed day",
     periodKey: "yesterday",
     unit: "mugs",
     source: "attacks",
@@ -62,7 +62,7 @@ const ACHIEVEMENT_METRICS = [
   {
     metricKey: "mugs_7d",
     metricGroup: "mugs",
-    metricTitle: "Most mugs over last 7 completed days",
+    metricTitle: "Most mugs over last complete 7-day period",
     periodKey: "last_7_completed_days",
     unit: "mugs",
     source: "attacks",
@@ -363,11 +363,25 @@ function compareRankedRows(left: MugRow, right: MugRow): number {
 async function readLatestSnapshotDate(env: Env): Promise<string | null> {
   const row = (await env.DB.prepare(
     `
-    SELECT MAX(snapshot_date) AS snapshot_date
-    FROM member_lifestyle_stat_snapshots
-    WHERE fully_ready = 1
+    SELECT MAX(candidate_dates.snapshot_date) AS snapshot_date
+    FROM (
+      SELECT DISTINCT snapshot_date
+      FROM member_lifestyle_stat_snapshots
+    ) candidate_dates
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM home_faction_members members
+      LEFT JOIN member_lifestyle_stat_snapshots snapshots
+        ON snapshots.member_id = members.member_id
+       AND snapshots.snapshot_date = candidate_dates.snapshot_date
+       AND snapshots.fully_ready = 1
+      WHERE members.faction_id = ?
+        AND members.is_current = 1
+        AND members.report_exempt = 0
+        AND snapshots.member_id IS NULL
+    )
     `,
-  ).first()) as { snapshot_date: string | null } | null;
+  ).bind(HOME_FACTION_ID).first()) as { snapshot_date: string | null } | null;
 
   return row?.snapshot_date ?? null;
 }
@@ -375,18 +389,53 @@ async function readLatestSnapshotDate(env: Env): Promise<string | null> {
 async function readAvailableSnapshotDates(env: Env): Promise<AvailableAchievementDates> {
   const rows = ((await env.DB.prepare(
     `
+    WITH candidate_dates AS (
+      SELECT DISTINCT snapshot_date
+      FROM member_lifestyle_stat_snapshots
+    )
     SELECT
-      snapshot_date,
-      MAX(personal_ready) AS personal_ready,
-      MAX(gym_ready) AS gym_ready,
-      MAX(fully_ready) AS fully_ready
-    FROM member_lifestyle_stat_snapshots
-    WHERE personal_ready = 1
-       OR gym_ready = 1
-       OR fully_ready = 1
-    GROUP BY snapshot_date
+      candidate_dates.snapshot_date,
+      CASE WHEN NOT EXISTS (
+        SELECT 1
+        FROM home_faction_members members
+        LEFT JOIN member_lifestyle_stat_snapshots snapshots
+          ON snapshots.member_id = members.member_id
+         AND snapshots.snapshot_date = candidate_dates.snapshot_date
+         AND snapshots.personal_ready = 1
+        WHERE members.faction_id = ?
+          AND members.is_current = 1
+          AND members.report_exempt = 0
+          AND snapshots.member_id IS NULL
+      ) THEN 1 ELSE 0 END AS personal_ready,
+      CASE WHEN NOT EXISTS (
+        SELECT 1
+        FROM home_faction_members members
+        LEFT JOIN member_lifestyle_stat_snapshots snapshots
+          ON snapshots.member_id = members.member_id
+         AND snapshots.snapshot_date = candidate_dates.snapshot_date
+         AND snapshots.gym_ready = 1
+        WHERE members.faction_id = ?
+          AND members.is_current = 1
+          AND members.report_exempt = 0
+          AND snapshots.member_id IS NULL
+      ) THEN 1 ELSE 0 END AS gym_ready,
+      CASE WHEN NOT EXISTS (
+        SELECT 1
+        FROM home_faction_members members
+        LEFT JOIN member_lifestyle_stat_snapshots snapshots
+          ON snapshots.member_id = members.member_id
+         AND snapshots.snapshot_date = candidate_dates.snapshot_date
+         AND snapshots.fully_ready = 1
+        WHERE members.faction_id = ?
+          AND members.is_current = 1
+          AND members.report_exempt = 0
+          AND snapshots.member_id IS NULL
+      ) THEN 1 ELSE 0 END AS fully_ready
+    FROM candidate_dates
     `,
-  ).all()).results ?? []) as Array<{
+  )
+    .bind(HOME_FACTION_ID, HOME_FACTION_ID, HOME_FACTION_ID)
+    .all()).results ?? []) as Array<{
     snapshot_date: string;
     personal_ready: number | null;
     gym_ready: number | null;

@@ -930,10 +930,10 @@ h2 {
 
 .dashboard-highlight-tile {
   display: grid;
-  grid-template-rows: 66px 1fr;
+  grid-template-rows: 88px 1fr;
   gap: 12px;
   min-width: 0;
-  min-height: 226px;
+  min-height: 254px;
   padding: 14px;
   border: 1px solid #e2e8f0;
   border-radius: var(--radius-md);
@@ -945,7 +945,7 @@ h2 {
   gap: 4px;
   align-content: start;
   min-width: 0;
-  min-height: 66px;
+  min-height: 88px;
 }
 
 .dashboard-highlight-heading span {
@@ -972,9 +972,9 @@ h2 {
 .dashboard-podium-list {
   display: grid;
   align-content: start;
-  grid-template-rows: repeat(3, minmax(42px, auto));
+  grid-template-rows: repeat(3, 44px);
   gap: 8px;
-  min-height: 142px;
+  min-height: 148px;
 }
 
 .dashboard-podium-row {
@@ -982,7 +982,7 @@ h2 {
   grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  min-height: 38px;
+  min-height: 44px;
   padding: 7px 8px;
   border: 1px solid #e2e8f0;
   border-radius: var(--radius-md);
@@ -1024,7 +1024,9 @@ h2 {
 
 .dashboard-podium-row strong {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #172033;
   font-size: 0.84rem;
 }

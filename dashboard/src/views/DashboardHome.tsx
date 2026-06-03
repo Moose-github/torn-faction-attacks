@@ -65,8 +65,8 @@ const HIGHLIGHT_METRIC_ORDER = [
   "mugs_7d",
 ];
 const HIGHLIGHT_PERIODS = [
-  { key: "yesterday", label: "24h stats" },
-  { key: "last_7_completed_days", label: "Last 7 completed days" },
+  { key: "yesterday", label: "Last completed day" },
+  { key: "last_7_completed_days", label: "Last complete 7-day period" },
 ] as const;
 const TORN_XANAX_IMAGE_URL = "https://www.torn.com/images/items/206/medium@2x.png";
 const XANAX_RAIN_DURATION_MS = 5_000;

@@ -65,7 +65,7 @@ import type {
 export type { DailyStatsAttention } from "./model";
 
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
-  const availableRange = await readLifestyleSnapshotDateRange(env, "any_ready");
+  const availableRange = await readCompleteLifestyleSnapshotDateRange(env, "fully_ready");
   const period = readLifestylePeriod(url, availableRange);
   const snapshotRows = ((await env.DB.prepare(
     `
@@ -106,7 +106,7 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
      AND home_faction_members.is_current = 1
      AND home_faction_members.report_exempt = 0
     WHERE snapshots.snapshot_date BETWEEN ? AND ?
-      AND (snapshots.personal_ready = 1 OR snapshots.gym_ready = 1)
+      AND snapshots.fully_ready = 1
     ORDER BY snapshots.member_id ASC, snapshots.snapshot_date ASC
     `,
   )
@@ -128,7 +128,7 @@ export async function getMemberLifestyleDailyChart(url: URL, env: Env): Promise<
     return json({ ok: false, error: "A valid metric is required", code: "INVALID_METRIC" }, 400);
   }
   const readyColumn = lifestyleMetricReadyColumn(metric);
-  const availableRange = await readLifestyleSnapshotDateRange(env, readyColumn);
+  const availableRange = await readCompleteLifestyleSnapshotDateRange(env, readyColumn);
   const period = readLifestylePeriod(url, availableRange);
 
   const memberIds = parseLifestyleDailyChartMemberIds(url);
@@ -365,19 +365,34 @@ export async function refreshDailyMemberLifestyleStats(
   return { ...result, skipped: false };
 }
 
-async function readLifestyleSnapshotDateRange(
+async function readCompleteLifestyleSnapshotDateRange(
   env: Env,
-  readyFilter?: LifestyleSnapshotReadyFilter,
+  readyFilter: LifestyleSnapshotReadyFilter,
 ): Promise<{ start_date: string; end_date: string } | null> {
+  const readyCondition = lifestyleSnapshotReadyCondition("snapshots", readyFilter);
   const row = (await env.DB.prepare(
     `
     SELECT
-      MIN(snapshot_date) AS start_date,
-      MAX(snapshot_date) AS end_date
-    FROM member_lifestyle_stat_snapshots
-    ${lifestyleSnapshotReadyWhere(readyFilter)}
+      MIN(candidate_dates.snapshot_date) AS start_date,
+      MAX(candidate_dates.snapshot_date) AS end_date
+    FROM (
+      SELECT DISTINCT snapshot_date
+      FROM member_lifestyle_stat_snapshots
+    ) candidate_dates
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM home_faction_members members
+      LEFT JOIN member_lifestyle_stat_snapshots snapshots
+        ON snapshots.member_id = members.member_id
+       AND snapshots.snapshot_date = candidate_dates.snapshot_date
+       AND ${readyCondition}
+      WHERE members.faction_id = ?
+        AND members.is_current = 1
+        AND members.report_exempt = 0
+        AND snapshots.member_id IS NULL
+    )
     `,
-  ).first()) as { start_date: string | null; end_date: string | null } | null;
+  ).bind(HOME_FACTION_ID).first()) as { start_date: string | null; end_date: string | null } | null;
 
   if (!row?.start_date || !row.end_date) {
     return null;
@@ -389,16 +404,12 @@ async function readLifestyleSnapshotDateRange(
   };
 }
 
-function lifestyleSnapshotReadyWhere(readyFilter?: LifestyleSnapshotReadyFilter): string {
-  if (!readyFilter) {
-    return "";
-  }
-
+function lifestyleSnapshotReadyCondition(tableAlias: string, readyFilter: LifestyleSnapshotReadyFilter): string {
   if (readyFilter === "any_ready") {
-    return "WHERE personal_ready = 1 OR gym_ready = 1";
+    return `(${tableAlias}.personal_ready = 1 OR ${tableAlias}.gym_ready = 1)`;
   }
 
-  return `WHERE ${readyFilter} = 1`;
+  return `${tableAlias}.${readyFilter} = 1`;
 }
 
 export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttention> {
