@@ -11,6 +11,7 @@ import { listMemberAchievementSummaries } from "../memberAchievements";
 import { getMiscellaneousData } from "../miscellaneous";
 import { createMonitorTicket } from "../monitorTickets";
 import { OFFICIAL_END_CACHE_TTL_SECONDS } from "../responseCache";
+import { getRetaliationCheck } from "../retaliations";
 import { matchesExactRoute, stockIdFromHistoryRoute } from "../routes";
 import { getStockHistory, getStocks } from "../stockMarket";
 import { createMemberSuggestion } from "../suggestions";
@@ -75,6 +76,10 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
 
   if (matchesExactRoute(url, request, "/api/faction-attacks/recent", "GET")) {
     return cachedMemberGet(routeContext, 15, () => getRecentFactionAttacks(url, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/retaliations/check", "GET")) {
+    return withMember(routeContext, () => getRetaliationCheck(url, env));
   }
 
   if (matchesExactRoute(url, request, "/api/suggestions", "POST")) {

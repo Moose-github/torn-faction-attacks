@@ -79,6 +79,16 @@ export type AttackTiming = {
   ended?: number | null;
 };
 
+export type RecentAttackIngestionResult = {
+  fetched_pages: number;
+  fetched_attacks: number;
+  inserted_attacks: number;
+  from: number;
+  to: number;
+};
+
+const RECENT_ATTACK_LIGHT_SYNC_PAGE_LIMIT = 3;
+
 export async function runIngestion(
   env: Env,
   triggerSource = "cron",
@@ -733,6 +743,60 @@ async function fetchAttacks(env: Env, from: number, to?: number): Promise<TornAt
   }
 
   return response.json();
+}
+
+export async function ingestRecentFactionAttacks(
+  env: Env,
+  from: number,
+  to: number = nowSeconds(),
+): Promise<RecentAttackIngestionResult> {
+  const ingestRunId = `recent:${crypto.randomUUID()}`;
+  let nextFrom = Math.max(0, Math.floor(from));
+  const cappedTo = Math.max(nextFrom, Math.floor(to));
+  let fetchedPages = 0;
+  let fetchedAttacks = 0;
+  let insertedAttacks = 0;
+
+  while (fetchedPages < RECENT_ATTACK_LIGHT_SYNC_PAGE_LIMIT) {
+    const data = await fetchAttacks(env, nextFrom, cappedTo);
+    const attacks = normalizeAttacks(data.attacks);
+    fetchedPages += 1;
+    fetchedAttacks += attacks.length;
+
+    if (attacks.length === 0) {
+      break;
+    }
+
+    const existingAttackRows = await readExistingAttackRows(env, attacks.map((attack) => attack.id));
+    const statements: D1PreparedStatement[] = [];
+    let newestStarted = nextFrom;
+
+    for (const attack of attacks) {
+      newestStarted = Math.max(newestStarted, attack.started ?? nextFrom);
+      if (!existingAttackRows.has(attack.id)) {
+        statements.push(buildLiveInsertStatement(env, ingestRunId, null, attack));
+      }
+    }
+
+    if (statements.length > 0) {
+      const results = await env.DB.batch(statements);
+      insertedAttacks += results.reduce((sum, result) => sum + d1Changes(result), 0);
+    }
+
+    if (attacks.length < LIMIT || newestStarted >= cappedTo) {
+      break;
+    }
+
+    nextFrom = newestStarted + 1;
+  }
+
+  return {
+    fetched_pages: fetchedPages,
+    fetched_attacks: fetchedAttacks,
+    inserted_attacks: insertedAttacks,
+    from: Math.max(0, Math.floor(from)),
+    to: cappedTo,
+  };
 }
 
 async function autoEndTermedWarIfLimitReached(
