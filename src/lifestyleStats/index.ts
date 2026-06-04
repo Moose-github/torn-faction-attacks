@@ -72,6 +72,22 @@ const DAILY_GYM_HOT_RETRY_DELAY_SECONDS = 60;
 const DAILY_GYM_COLD_RETRY_DELAY_SECONDS = 15 * 60;
 const DAILY_GYM_RETRY_WINDOW_SECONDS = 6 * 60 * 60;
 
+type DailyGymStatsOptions = { homeMembersSynced?: boolean; now?: number };
+
+type DailyGymStatsResult = {
+  refreshed_stats: number;
+  updated_members: number;
+  skipped: boolean;
+  failed: boolean;
+  retry_at: number | null;
+};
+
+type DailyGymRetryContext = {
+  active: boolean;
+  retryAt: number;
+  failedAttempts: number;
+};
+
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
   const availableRange = await readCompleteLifestyleSnapshotDateRange(env, "fully_ready");
   const period = readLifestylePeriod(url, availableRange);
@@ -1503,35 +1519,21 @@ function formatRepairItem(item: LifestyleRepairItemRow) {
 
 export async function refreshDailyGymStats(
   env: Env,
-  options: { homeMembersSynced?: boolean; now?: number } = {},
-): Promise<{
-  refreshed_stats: number;
-  updated_members: number;
-  skipped: boolean;
-  failed: boolean;
-  retry_at: number | null;
-}> {
+  options: DailyGymStatsOptions = {},
+): Promise<DailyGymStatsResult> {
   const now = Math.floor(options.now ?? nowSeconds());
   const refreshAt = dailyRefreshReadyAt(now);
   if (refreshAt === null) {
-    return { refreshed_stats: 0, updated_members: 0, skipped: true, failed: false, retry_at: null };
+    return skippedDailyGymStatsResult();
   }
 
   if ((await readSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME)) >= refreshAt) {
-    return { refreshed_stats: 0, updated_members: 0, skipped: true, failed: false, retry_at: null };
+    return skippedDailyGymStatsResult();
   }
 
-  const retryState = await readSyncState(env, DAILY_GYM_RETRY_STATE_NAME);
-  const retryRefreshAt = await readSyncTimestamp(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME);
-  if (retryState && retryRefreshAt < refreshAt) {
-    await deleteSyncState(env, DAILY_GYM_RETRY_STATE_NAME);
-    await deleteSyncState(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME);
-  }
-  const activeRetryState = retryRefreshAt >= refreshAt ? retryState : null;
-  const retryAt = Number(activeRetryState?.last_started ?? 0);
-  const failedAttempts = Math.max(0, Number(activeRetryState?.active_war_id ?? 0));
-  if (retryAt > now) {
-    return { refreshed_stats: 0, updated_members: 0, skipped: true, failed: false, retry_at: retryAt };
+  const retry = await readDailyGymRetryContext(env, refreshAt);
+  if (retry.retryAt > now) {
+    return skippedDailyGymStatsResult(retry.retryAt);
   }
 
   const gate = await claimDailyBatchGate(env, {
@@ -1542,66 +1544,109 @@ export async function refreshDailyGymStats(
     lockSeconds: DAILY_LIFESTYLE_LOCK_SECONDS,
   });
   if (gate.completed || !gate.locked) {
-    return { refreshed_stats: 0, updated_members: 0, skipped: true, failed: false, retry_at: retryAt || null };
+    return skippedDailyGymStatsResult(retry.retryAt || null);
   }
-  if (activeRetryState && now >= gymRetryExpiresAt(refreshAt)) {
+  if (retry.active && hasGymRetryWindowExpired(refreshAt, now)) {
     await finalizeFailedDailyGymImport(env, refreshAt, options);
-    return { refreshed_stats: 0, updated_members: 0, skipped: false, failed: true, retry_at: null };
+    return failedDailyGymStatsResult();
   }
 
-  const fullImport = failedAttempts === 0 || failedAttempts > DAILY_GYM_HOT_RETRY_LIMIT;
+  const fullImport = shouldRunFullGymImport(retry.failedAttempts);
   const statKeys = fullImport
     ? GYM_CONTRIBUTOR_STAT_KEYS
     : await readMissingGymContributorStatKeys(env, refreshAt);
 
   try {
     const result = await refreshGymContributorStats(env, {
-      ...options,
       refreshAt,
       statKeys,
       resetImport: fullImport,
     });
-    if (!options.homeMembersSynced) {
-      await syncHomeFactionMemberList(env);
-    }
-    await writeLifestyleSnapshotForDate(env, utcDateKey(refreshAt), { freshAfter: refreshAt });
-    await bumpMemberLifestyleCacheVersion(env);
-    await upsertSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME, refreshAt, null);
-    await deleteSyncState(env, DAILY_GYM_FAILED_STATE_NAME);
-    await deleteSyncState(env, DAILY_GYM_RETRY_STATE_NAME);
-    await deleteSyncState(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME);
-    await deleteSyncState(env, DAILY_GYM_LOCK_STATE_NAME);
+    await completeDailyGymImport(env, refreshAt, options);
     return { ...result, skipped: false, failed: false, retry_at: null };
   } catch (err) {
-    if (now >= gymRetryExpiresAt(refreshAt)) {
+    if (hasGymRetryWindowExpired(refreshAt, now)) {
       await finalizeFailedDailyGymImport(env, refreshAt, options);
-      return { refreshed_stats: 0, updated_members: 0, skipped: false, failed: true, retry_at: null };
+      return failedDailyGymStatsResult();
     }
 
-    const nextAttempts = failedAttempts + 1;
-    const delaySeconds = nextAttempts <= DAILY_GYM_HOT_RETRY_LIMIT
-      ? DAILY_GYM_HOT_RETRY_DELAY_SECONDS
-      : DAILY_GYM_COLD_RETRY_DELAY_SECONDS;
-    const nextRetryAt = Math.min(now + delaySeconds, gymRetryExpiresAt(refreshAt));
-    await upsertSyncTimestamp(env, DAILY_GYM_RETRY_STATE_NAME, nextRetryAt, nextAttempts);
-    await upsertSyncTimestamp(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME, refreshAt, null);
-    await deleteSyncState(env, DAILY_GYM_LOCK_STATE_NAME);
+    await scheduleDailyGymRetry(env, refreshAt, now, retry.failedAttempts);
     throw err;
   }
+}
+
+function skippedDailyGymStatsResult(retryAt: number | null = null): DailyGymStatsResult {
+  return { refreshed_stats: 0, updated_members: 0, skipped: true, failed: false, retry_at: retryAt };
+}
+
+function failedDailyGymStatsResult(): DailyGymStatsResult {
+  return { refreshed_stats: 0, updated_members: 0, skipped: false, failed: true, retry_at: null };
+}
+
+async function readDailyGymRetryContext(env: Env, refreshAt: number): Promise<DailyGymRetryContext> {
+  const retryState = await readSyncState(env, DAILY_GYM_RETRY_STATE_NAME);
+  const retryRefreshAt = await readSyncTimestamp(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME);
+  if (retryState && retryRefreshAt < refreshAt) {
+    await clearDailyGymRetryState(env);
+    return { active: false, retryAt: 0, failedAttempts: 0 };
+  }
+
+  const active = retryState !== null && retryRefreshAt >= refreshAt;
+  return {
+    active,
+    retryAt: active ? Number(retryState?.last_started ?? 0) : 0,
+    failedAttempts: active ? Math.max(0, Number(retryState?.active_war_id ?? 0)) : 0,
+  };
+}
+
+function shouldRunFullGymImport(failedAttempts: number): boolean {
+  return failedAttempts === 0 || failedAttempts > DAILY_GYM_HOT_RETRY_LIMIT;
+}
+
+function hasGymRetryWindowExpired(refreshAt: number, now: number): boolean {
+  return now >= gymRetryExpiresAt(refreshAt);
 }
 
 function gymRetryExpiresAt(refreshAt: number): number {
   return refreshAt + DAILY_GYM_RETRY_WINDOW_SECONDS;
 }
 
+async function scheduleDailyGymRetry(
+  env: Env,
+  refreshAt: number,
+  now: number,
+  failedAttempts: number,
+): Promise<void> {
+  const nextAttempts = failedAttempts + 1;
+  const delaySeconds = nextAttempts <= DAILY_GYM_HOT_RETRY_LIMIT
+    ? DAILY_GYM_HOT_RETRY_DELAY_SECONDS
+    : DAILY_GYM_COLD_RETRY_DELAY_SECONDS;
+  const nextRetryAt = Math.min(now + delaySeconds, gymRetryExpiresAt(refreshAt));
+  await upsertSyncTimestamp(env, DAILY_GYM_RETRY_STATE_NAME, nextRetryAt, nextAttempts);
+  await upsertSyncTimestamp(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME, refreshAt, null);
+  await deleteSyncState(env, DAILY_GYM_LOCK_STATE_NAME);
+}
+
+async function completeDailyGymImport(
+  env: Env,
+  refreshAt: number,
+  options: Pick<DailyGymStatsOptions, "homeMembersSynced">,
+): Promise<void> {
+  await syncHomeMembersForDailyGymSnapshot(env, options);
+  await writeLifestyleSnapshotForDate(env, utcDateKey(refreshAt), { freshAfter: refreshAt });
+  await bumpMemberLifestyleCacheVersion(env);
+  await upsertSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME, refreshAt, null);
+  await deleteSyncState(env, DAILY_GYM_FAILED_STATE_NAME);
+  await clearDailyGymRetryState(env);
+  await deleteSyncState(env, DAILY_GYM_LOCK_STATE_NAME);
+}
+
 async function finalizeFailedDailyGymImport(
   env: Env,
   refreshAt: number,
-  options: { homeMembersSynced?: boolean },
+  options: Pick<DailyGymStatsOptions, "homeMembersSynced">,
 ): Promise<void> {
-  if (!options.homeMembersSynced) {
-    await syncHomeFactionMemberList(env);
-  }
+  await syncHomeMembersForDailyGymSnapshot(env, options);
   const snapshotDate = utcDateKey(refreshAt);
   const missingStats = await readMissingGymContributorStatKeys(env, refreshAt);
   await markGymContributorStatsPartialFailed(env, missingStats);
@@ -1609,9 +1654,22 @@ async function finalizeFailedDailyGymImport(
   await bumpMemberLifestyleCacheVersion(env);
   await upsertSyncTimestamp(env, DAILY_GYM_FAILED_STATE_NAME, refreshAt, null);
   await upsertSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME, refreshAt, null);
+  await clearDailyGymRetryState(env);
+  await deleteSyncState(env, DAILY_GYM_LOCK_STATE_NAME);
+}
+
+async function syncHomeMembersForDailyGymSnapshot(
+  env: Env,
+  options: Pick<DailyGymStatsOptions, "homeMembersSynced">,
+): Promise<void> {
+  if (!options.homeMembersSynced) {
+    await syncHomeFactionMemberList(env);
+  }
+}
+
+async function clearDailyGymRetryState(env: Env): Promise<void> {
   await deleteSyncState(env, DAILY_GYM_RETRY_STATE_NAME);
   await deleteSyncState(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME);
-  await deleteSyncState(env, DAILY_GYM_LOCK_STATE_NAME);
 }
 
 async function markDailyLifestyleRefreshCompleteIfDone(
@@ -2296,7 +2354,6 @@ async function upsertLifestyleStats(
 async function refreshGymContributorStats(
   env: Env,
   options: {
-    homeMembersSynced?: boolean;
     refreshAt: number;
     resetImport?: boolean;
     statKeys?: readonly GymContributorStatKey[];
