@@ -11,6 +11,7 @@ vi.mock("./chainWatch", () => ({
 }));
 vi.mock("./lifestyleStats", () => ({
   processMemberLifestyleRepairJobs: vi.fn(),
+  refreshDailyGymStats: vi.fn(),
   refreshDailyMemberLifestyleStats: vi.fn(),
 }));
 vi.mock("./maintenance", () => ({
@@ -35,6 +36,26 @@ import {
 import type { Env } from "./types";
 
 describe("monthly Xanax competition cron", () => {
+  it("keeps personal lifestyle imports on the four daily UTC slots", () => {
+    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 10, 0)).map((job) => job.label))
+      .toContain("Cron personal lifestyle stats");
+    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 6, 10, 0)).map((job) => job.label))
+      .toContain("Cron personal lifestyle stats");
+    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 12, 10, 0)).map((job) => job.label))
+      .toContain("Cron personal lifestyle stats");
+    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 18, 10, 0)).map((job) => job.label))
+      .toContain("Cron personal lifestyle stats");
+    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 15, 0)).map((job) => job.label))
+      .not.toContain("Cron personal lifestyle stats");
+  });
+
+  it("schedules gym lifestyle imports independently for daily and retry gating", () => {
+    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 10, 0)).map((job) => job.label))
+      .toContain("Cron gym lifestyle stats");
+    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 15, 0)).map((job) => job.label))
+      .toContain("Cron gym lifestyle stats");
+  });
+
   it("runs during the first-day 00:10 UTC retry window", () => {
     expect(shouldRunMonthlyXanaxCompetitionDiscordReminder(
       new Date(Date.UTC(2026, 5, 1, 0, 10, 0)),

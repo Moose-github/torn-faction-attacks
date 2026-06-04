@@ -17,6 +17,7 @@ import {
   createMemberLifestyleRepairJob,
   getMemberLifestyleRepairJob,
   listMemberLifestyleRepairJobs,
+  refreshDailyGymStats,
   refreshDailyMemberLifestyleStats,
 } from "../lifestyleStats";
 import { getLatestMaintenanceRun } from "../maintenance";
@@ -78,8 +79,9 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
     return withAdmin(routeContext, async () => {
       const cooldownError = await requireActionCooldown(env, "manual_member_lifestyle_import", 60);
       if (cooldownError) return cooldownError;
-      const result = await refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: false });
-      return json({ ok: true, ...result });
+      const personal = await refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: false });
+      const gym = await refreshDailyGymStats(env);
+      return json({ ok: true, ...personal, gym });
     });
   }
 

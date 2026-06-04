@@ -21,6 +21,7 @@ export const GYM_CONTRIBUTOR_STAT_KEYS = [
   "gymdefense",
   "gymdexterity",
 ] as const;
+export const GYM_CONTRIBUTOR_FETCH_TIMEOUT_MS = 5000;
 export const LIFESTYLE_FETCH_TIMEOUT_MS = 12000;
 export const DAILY_REFRESH_AFTER_UTC_HOUR = 0;
 export const DAILY_REFRESH_AFTER_UTC_MINUTE = 10;
@@ -29,6 +30,10 @@ export const DAILY_LIFESTYLE_REFRESH_LIMIT = 40;
 export const EXPIRED_PERSONAL_STATS_RETRY_LIMIT = 5;
 export const DAILY_LIFESTYLE_COMPLETE_STATE_NAME = "member_personal_stats_recent_daily";
 export const DAILY_GYM_COMPLETE_STATE_NAME = "member_gym_stats_current_daily";
+export const DAILY_GYM_LOCK_STATE_NAME = "member_gym_stats_current_daily_lock";
+export const DAILY_GYM_RETRY_STATE_NAME = "member_gym_stats_current_daily_retry";
+export const DAILY_GYM_RETRY_REFRESH_STATE_NAME = "member_gym_stats_current_daily_retry_refresh";
+export const DAILY_GYM_FAILED_STATE_NAME = "member_gym_stats_current_daily_failed";
 export const DAILY_LIFESTYLE_LOCK_SECONDS = 75;
 export const DAILY_LIFESTYLE_LOCK_STATE_NAME = "member_personal_stats_recent_daily_lock";
 export const OLD_PERSONALSTATS_BUCKET_ERROR_CODE = "OLD_PERSONALSTATS_BUCKET";
@@ -110,6 +115,7 @@ export type LifestyleSnapshotRow = {
   gymdexterity: number | null;
   personal_captured_at: number | null;
   gym_captured_at: number | null;
+  gym_error: string | null;
   personal_ready: number;
   gym_ready: number;
   fully_ready: number;

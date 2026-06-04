@@ -8,13 +8,17 @@ import {
   TornPersonalStatsResponse,
 } from "../personalStats";
 import { claimDailyBatchGate } from "../scheduledGates";
-import { readSyncTimestamp, upsertSyncTimestamp } from "../syncState";
+import { deleteSyncState, readSyncState, readSyncTimestamp, upsertSyncTimestamp } from "../syncState";
 import { trackedTornFetch } from "../tornApiUsage";
 import { Env, TornFactionMember } from "../types";
 import { boolToInt, d1Changes, finiteNumber, json, nowSeconds } from "../utils";
 
 import {
   DAILY_GYM_COMPLETE_STATE_NAME,
+  DAILY_GYM_FAILED_STATE_NAME,
+  DAILY_GYM_LOCK_STATE_NAME,
+  DAILY_GYM_RETRY_REFRESH_STATE_NAME,
+  DAILY_GYM_RETRY_STATE_NAME,
   DAILY_LIFESTYLE_COMPLETE_STATE_NAME,
   DAILY_LIFESTYLE_LOCK_SECONDS,
   DAILY_LIFESTYLE_LOCK_STATE_NAME,
@@ -23,9 +27,9 @@ import {
   DAILY_REFRESH_AFTER_UTC_MINUTE,
   DEFAULT_REPAIR_CALLS_PER_MINUTE_PER_KEY,
   EXPIRED_PERSONAL_STATS_RETRY_LIMIT,
+  GYM_CONTRIBUTOR_FETCH_TIMEOUT_MS,
   GYM_CONTRIBUTOR_STAT_KEYS,
   LIFESTYLE_DAILY_CHART_METRICS,
-  LIFESTYLE_FETCH_TIMEOUT_MS,
   LIFESTYLE_STAT_KEYS,
   MAX_LIFESTYLE_PERIOD_DAYS,
   MAX_REPAIR_DATE_RANGE_DAYS,
@@ -41,7 +45,6 @@ import {
 } from "./model";
 import type {
   DailyStatsAttention,
-  GymContributorStats,
   GymContributorStatKey,
   LifestyleDailyChartMetric,
   LifestyleMemberRow,
@@ -63,6 +66,11 @@ import type {
   TimedLifestyleStats,
 } from "./model";
 export type { DailyStatsAttention } from "./model";
+
+const DAILY_GYM_HOT_RETRY_LIMIT = 5;
+const DAILY_GYM_HOT_RETRY_DELAY_SECONDS = 60;
+const DAILY_GYM_COLD_RETRY_DELAY_SECONDS = 15 * 60;
+const DAILY_GYM_RETRY_WINDOW_SECONDS = 6 * 60 * 60;
 
 export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Response> {
   const availableRange = await readCompleteLifestyleSnapshotDateRange(env, "fully_ready");
@@ -95,6 +103,7 @@ export async function getMemberLifestyleStats(url: URL, env: Env): Promise<Respo
       snapshots.gymdexterity,
       snapshots.personal_captured_at,
       snapshots.gym_captured_at,
+      snapshots.gym_error,
       snapshots.personal_ready,
       snapshots.gym_ready,
       snapshots.fully_ready,
@@ -180,6 +189,7 @@ export async function getMemberLifestyleDailyChart(url: URL, env: Env): Promise<
       snapshots.gymdexterity,
       snapshots.personal_captured_at,
       snapshots.gym_captured_at,
+      snapshots.gym_error,
       snapshots.personal_ready,
       snapshots.gym_ready,
       snapshots.fully_ready,
@@ -351,7 +361,6 @@ export async function refreshDailyMemberLifestyleStats(
       activeDates,
     });
   }
-  await refreshDailyGymContributorStats(env, refreshAt, { homeMembersSynced: true });
   const snapshotDate = utcDateKey(refreshAt);
   await writeLifestyleSnapshotForDate(env, snapshotDate, { freshAfter: refreshAt });
   const complete = personalCompletionAlreadyRecorded
@@ -1492,19 +1501,117 @@ function formatRepairItem(item: LifestyleRepairItemRow) {
   };
 }
 
-async function refreshDailyGymContributorStats(
+export async function refreshDailyGymStats(
   env: Env,
-  refreshAt: number,
-  options: { homeMembersSynced?: boolean } = {},
-): Promise<{ refreshed_stats: number; updated_members: number; skipped: boolean }> {
-  if ((await readSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME)) >= refreshAt) {
-    return { refreshed_stats: 0, updated_members: 0, skipped: true };
+  options: { homeMembersSynced?: boolean; now?: number } = {},
+): Promise<{
+  refreshed_stats: number;
+  updated_members: number;
+  skipped: boolean;
+  failed: boolean;
+  retry_at: number | null;
+}> {
+  const now = Math.floor(options.now ?? nowSeconds());
+  const refreshAt = dailyRefreshReadyAt(now);
+  if (refreshAt === null) {
+    return { refreshed_stats: 0, updated_members: 0, skipped: true, failed: false, retry_at: null };
   }
 
-  const result = await refreshGymContributorStats(env, options);
-  await upsertSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME, refreshAt, null);
+  if ((await readSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME)) >= refreshAt) {
+    return { refreshed_stats: 0, updated_members: 0, skipped: true, failed: false, retry_at: null };
+  }
 
-  return { ...result, skipped: false };
+  const retryState = await readSyncState(env, DAILY_GYM_RETRY_STATE_NAME);
+  const retryRefreshAt = await readSyncTimestamp(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME);
+  if (retryState && retryRefreshAt < refreshAt) {
+    await deleteSyncState(env, DAILY_GYM_RETRY_STATE_NAME);
+    await deleteSyncState(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME);
+  }
+  const activeRetryState = retryRefreshAt >= refreshAt ? retryState : null;
+  const retryAt = Number(activeRetryState?.last_started ?? 0);
+  const failedAttempts = Math.max(0, Number(activeRetryState?.active_war_id ?? 0));
+  if (retryAt > now) {
+    return { refreshed_stats: 0, updated_members: 0, skipped: true, failed: false, retry_at: retryAt };
+  }
+
+  const gate = await claimDailyBatchGate(env, {
+    completeStateName: DAILY_GYM_COMPLETE_STATE_NAME,
+    completeAfter: refreshAt,
+    lockStateName: DAILY_GYM_LOCK_STATE_NAME,
+    now,
+    lockSeconds: DAILY_LIFESTYLE_LOCK_SECONDS,
+  });
+  if (gate.completed || !gate.locked) {
+    return { refreshed_stats: 0, updated_members: 0, skipped: true, failed: false, retry_at: retryAt || null };
+  }
+  if (activeRetryState && now >= gymRetryExpiresAt(refreshAt)) {
+    await finalizeFailedDailyGymImport(env, refreshAt, options);
+    return { refreshed_stats: 0, updated_members: 0, skipped: false, failed: true, retry_at: null };
+  }
+
+  const fullImport = failedAttempts === 0 || failedAttempts > DAILY_GYM_HOT_RETRY_LIMIT;
+  const statKeys = fullImport
+    ? GYM_CONTRIBUTOR_STAT_KEYS
+    : await readMissingGymContributorStatKeys(env, refreshAt);
+
+  try {
+    const result = await refreshGymContributorStats(env, {
+      ...options,
+      refreshAt,
+      statKeys,
+      resetImport: fullImport,
+    });
+    if (!options.homeMembersSynced) {
+      await syncHomeFactionMemberList(env);
+    }
+    await writeLifestyleSnapshotForDate(env, utcDateKey(refreshAt), { freshAfter: refreshAt });
+    await bumpMemberLifestyleCacheVersion(env);
+    await upsertSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME, refreshAt, null);
+    await deleteSyncState(env, DAILY_GYM_FAILED_STATE_NAME);
+    await deleteSyncState(env, DAILY_GYM_RETRY_STATE_NAME);
+    await deleteSyncState(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME);
+    await deleteSyncState(env, DAILY_GYM_LOCK_STATE_NAME);
+    return { ...result, skipped: false, failed: false, retry_at: null };
+  } catch (err) {
+    if (now >= gymRetryExpiresAt(refreshAt)) {
+      await finalizeFailedDailyGymImport(env, refreshAt, options);
+      return { refreshed_stats: 0, updated_members: 0, skipped: false, failed: true, retry_at: null };
+    }
+
+    const nextAttempts = failedAttempts + 1;
+    const delaySeconds = nextAttempts <= DAILY_GYM_HOT_RETRY_LIMIT
+      ? DAILY_GYM_HOT_RETRY_DELAY_SECONDS
+      : DAILY_GYM_COLD_RETRY_DELAY_SECONDS;
+    const nextRetryAt = Math.min(now + delaySeconds, gymRetryExpiresAt(refreshAt));
+    await upsertSyncTimestamp(env, DAILY_GYM_RETRY_STATE_NAME, nextRetryAt, nextAttempts);
+    await upsertSyncTimestamp(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME, refreshAt, null);
+    await deleteSyncState(env, DAILY_GYM_LOCK_STATE_NAME);
+    throw err;
+  }
+}
+
+function gymRetryExpiresAt(refreshAt: number): number {
+  return refreshAt + DAILY_GYM_RETRY_WINDOW_SECONDS;
+}
+
+async function finalizeFailedDailyGymImport(
+  env: Env,
+  refreshAt: number,
+  options: { homeMembersSynced?: boolean },
+): Promise<void> {
+  if (!options.homeMembersSynced) {
+    await syncHomeFactionMemberList(env);
+  }
+  const snapshotDate = utcDateKey(refreshAt);
+  const missingStats = await readMissingGymContributorStatKeys(env, refreshAt);
+  await markGymContributorStatsPartialFailed(env, missingStats);
+  await writeLifestyleSnapshotForDate(env, snapshotDate, { freshAfter: refreshAt, allowPartialGym: true });
+  await bumpMemberLifestyleCacheVersion(env);
+  await upsertSyncTimestamp(env, DAILY_GYM_FAILED_STATE_NAME, refreshAt, null);
+  await upsertSyncTimestamp(env, DAILY_GYM_COMPLETE_STATE_NAME, refreshAt, null);
+  await deleteSyncState(env, DAILY_GYM_RETRY_STATE_NAME);
+  await deleteSyncState(env, DAILY_GYM_RETRY_REFRESH_STATE_NAME);
+  await deleteSyncState(env, DAILY_GYM_LOCK_STATE_NAME);
 }
 
 async function markDailyLifestyleRefreshCompleteIfDone(
@@ -2188,75 +2295,191 @@ async function upsertLifestyleStats(
 
 async function refreshGymContributorStats(
   env: Env,
-  options: { homeMembersSynced?: boolean } = {},
+  options: {
+    homeMembersSynced?: boolean;
+    refreshAt: number;
+    resetImport?: boolean;
+    statKeys?: readonly GymContributorStatKey[];
+  },
 ): Promise<{ refreshed_stats: number; updated_members: number }> {
-  if (!options.homeMembersSynced) {
-    await syncHomeFactionMemberList(env);
+  if (options.resetImport) {
+    await resetGymContributorImportRows(env);
   }
 
-  const contributorStats = new Map<number, GymContributorStats>();
-  for (const stat of GYM_CONTRIBUTOR_STAT_KEYS) {
-    const contributors = await fetchFactionContributorStat(env, stat);
-    for (const [memberId, contributed] of contributors.entries()) {
-      const stats = contributorStats.get(memberId) ?? emptyGymContributorStats();
-      stats[stat] = contributed;
-      contributorStats.set(memberId, stats);
+  const statKeys = options.statKeys ?? GYM_CONTRIBUTOR_STAT_KEYS;
+  let allowInsert = options.resetImport || !(await hasCurrentGymContributorStatCompletions(env, options.refreshAt));
+  let refreshedStats = 0;
+  const failedStats: string[] = [];
+  for (const stat of statKeys) {
+    let contributors: Map<number, number>;
+    try {
+      contributors = await fetchFactionContributorStat(env, stat);
+    } catch (err) {
+      failedStats.push(`${stat}: ${errorMessage(err)}`);
+      continue;
     }
+    await upsertGymContributorStat(env, stat, contributors, { allowInsert });
+    await upsertSyncTimestamp(env, gymContributorStatCompleteStateName(stat), options.refreshAt, null);
+    allowInsert = false;
+    refreshedStats += 1;
   }
 
-  if (contributorStats.size === 0) {
-    return { refreshed_stats: GYM_CONTRIBUTOR_STAT_KEYS.length, updated_members: 0 };
+  const missingStats = await readMissingGymContributorStatKeys(env, options.refreshAt);
+  if (missingStats.length > 0) {
+    const details = failedStats.length > 0 ? ` (${failedStats.join("; ")})` : "";
+    throw new Error(`Gym contributor import incomplete: missing ${missingStats.join(", ")}${details}`);
   }
 
-  const homeMembers = await readHomeMembersById(env, { includeReportExempt: true });
-  const statements = Array.from(contributorStats.entries()).map(([memberId, stats]) => {
-    const member = homeMembers.get(memberId);
-    return env.DB.prepare(
+  await markGymContributorStatsComplete(env);
+  return {
+    refreshed_stats: refreshedStats,
+    updated_members: await countImportedGymContributorRows(env),
+  };
+}
+
+async function resetGymContributorImportRows(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `
+    UPDATE member_gym_stats_current
+    SET gymenergy = NULL,
+        gymstrength = NULL,
+        gymspeed = NULL,
+        gymdefense = NULL,
+        gymdexterity = NULL,
+        gym_captured_at = NULL,
+        gym_error = NULL
+    `,
+  )
+    .run();
+}
+
+async function upsertGymContributorStat(
+  env: Env,
+  stat: GymContributorStatKey,
+  contributors: Map<number, number>,
+  options: { allowInsert: boolean },
+): Promise<void> {
+  const statements = Array.from(contributors.entries()).map(([memberId, contributed]) =>
+    options.allowInsert
+      ? env.DB.prepare(
       `
       INSERT INTO member_gym_stats_current (
         member_id,
         member_name,
         level,
         position,
-        gymenergy,
-        gymstrength,
-        gymspeed,
-        gymdefense,
-        gymdexterity,
+        ${stat},
         gym_captured_at,
         gym_error
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), NULL)
+      VALUES (?, NULL, NULL, NULL, ?, NULL, NULL)
       ON CONFLICT(member_id) DO UPDATE SET
         member_name = COALESCE(excluded.member_name, member_gym_stats_current.member_name),
         level = COALESCE(excluded.level, member_gym_stats_current.level),
         position = COALESCE(excluded.position, member_gym_stats_current.position),
-        gymenergy = COALESCE(excluded.gymenergy, member_gym_stats_current.gymenergy),
-        gymstrength = COALESCE(excluded.gymstrength, member_gym_stats_current.gymstrength),
-        gymspeed = COALESCE(excluded.gymspeed, member_gym_stats_current.gymspeed),
-        gymdefense = COALESCE(excluded.gymdefense, member_gym_stats_current.gymdefense),
-        gymdexterity = COALESCE(excluded.gymdexterity, member_gym_stats_current.gymdexterity),
-        gym_captured_at = excluded.gym_captured_at,
-        gym_error = excluded.gym_error
+        ${stat} = excluded.${stat},
+        gym_captured_at = NULL,
+        gym_error = NULL
       `,
     ).bind(
       memberId,
-      member?.name ?? null,
-      member?.level ?? null,
-      member?.position ?? null,
-      stats.gymenergy,
-      stats.gymstrength,
-      stats.gymspeed,
-      stats.gymdefense,
-      stats.gymdexterity,
-    );
-  });
+      contributed,
+    )
+      : env.DB.prepare(
+        `
+        UPDATE member_gym_stats_current
+        SET ${stat} = ?,
+            gym_captured_at = NULL,
+            gym_error = NULL
+        WHERE member_id = ?
+        `,
+      ).bind(contributed, memberId),
+  );
 
-  await env.DB.batch(statements);
-  return {
-    refreshed_stats: GYM_CONTRIBUTOR_STAT_KEYS.length,
-    updated_members: contributorStats.size,
-  };
+  if (statements.length > 0) {
+    await env.DB.batch(statements);
+  }
+}
+
+async function readMissingGymContributorStatKeys(
+  env: Env,
+  refreshAt: number,
+): Promise<GymContributorStatKey[]> {
+  const missing: GymContributorStatKey[] = [];
+  for (const stat of GYM_CONTRIBUTOR_STAT_KEYS) {
+    if ((await readSyncTimestamp(env, gymContributorStatCompleteStateName(stat))) < refreshAt) {
+      missing.push(stat);
+    }
+  }
+  return missing;
+}
+
+async function hasCurrentGymContributorStatCompletions(env: Env, refreshAt: number): Promise<boolean> {
+  for (const stat of GYM_CONTRIBUTOR_STAT_KEYS) {
+    if ((await readSyncTimestamp(env, gymContributorStatCompleteStateName(stat))) >= refreshAt) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function countImportedGymContributorRows(env: Env): Promise<number> {
+  const row = await env.DB.prepare(
+    `
+    SELECT COUNT(*) AS count
+    FROM member_gym_stats_current
+    WHERE gymenergy IS NOT NULL
+       OR gymstrength IS NOT NULL
+       OR gymspeed IS NOT NULL
+       OR gymdefense IS NOT NULL
+       OR gymdexterity IS NOT NULL
+    `,
+  ).first<{ count: number | null }>();
+
+  return Number(row?.count ?? 0);
+}
+
+async function markGymContributorStatsComplete(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `
+    UPDATE member_gym_stats_current
+    SET gym_captured_at = unixepoch(),
+        gym_error = NULL
+    WHERE gymenergy IS NOT NULL
+       OR gymstrength IS NOT NULL
+       OR gymspeed IS NOT NULL
+       OR gymdefense IS NOT NULL
+       OR gymdexterity IS NOT NULL
+    `,
+  )
+    .run();
+}
+
+async function markGymContributorStatsPartialFailed(
+  env: Env,
+  missingStats: readonly GymContributorStatKey[],
+): Promise<void> {
+  const message = missingStats.length > 0
+    ? `Missing gym contributor stats: ${missingStats.join(", ")}`
+    : "Gym contributor import failed";
+  await env.DB.prepare(
+    `
+    UPDATE member_gym_stats_current
+    SET gym_captured_at = unixepoch(),
+        gym_error = ?
+    WHERE gymenergy IS NOT NULL
+       OR gymstrength IS NOT NULL
+       OR gymspeed IS NOT NULL
+       OR gymdefense IS NOT NULL
+       OR gymdexterity IS NOT NULL
+    `,
+  )
+    .bind(message)
+    .run();
+}
+
+function gymContributorStatCompleteStateName(stat: GymContributorStatKey): string {
+  return `${DAILY_GYM_COMPLETE_STATE_NAME}_${stat}`;
 }
 
 async function fetchFactionContributorStat(
@@ -2265,6 +2488,7 @@ async function fetchFactionContributorStat(
 ): Promise<Map<number, number>> {
   const url = new URL(`${TORN_FACTION_API_BASE_URL}/contributors`);
   url.searchParams.set("stat", stat);
+  url.searchParams.set("cat", "current");
 
   const response = await trackedTornFetch(env, url, {
     headers: {
@@ -2274,7 +2498,7 @@ async function fetchFactionContributorStat(
   }, {
     feature: "lifestyle:contributors",
     keySource: "env:TORN_API_KEY",
-    timeoutMs: LIFESTYLE_FETCH_TIMEOUT_MS,
+    timeoutMs: GYM_CONTRIBUTOR_FETCH_TIMEOUT_MS,
   });
 
   if (!response.ok) {
@@ -2354,9 +2578,10 @@ async function syncHomeFactionMemberNetworth(env: Env, memberIds: number[]): Pro
 async function writeLifestyleSnapshotForDate(
   env: Env,
   snapshotDate: string,
-  options: { freshAfter?: number } = {},
+  options: { freshAfter?: number; allowPartialGym?: boolean } = {},
 ): Promise<void> {
   const freshAfter = options.freshAfter ?? null;
+  const allowPartialGym = options.allowPartialGym ? 1 : 0;
   await env.DB.prepare(
     `
     WITH source AS (
@@ -2387,6 +2612,7 @@ async function writeLifestyleSnapshotForDate(
         gym.gymdexterity,
         personal.personal_captured_at,
         gym.gym_captured_at,
+        gym.gym_error,
         CASE
           WHEN personal.personal_captured_at IS NOT NULL
             AND (? IS NULL OR personal.personal_captured_at >= ?)
@@ -2398,7 +2624,7 @@ async function writeLifestyleSnapshotForDate(
         CASE
           WHEN gym.gym_captured_at IS NOT NULL
             AND (? IS NULL OR gym.gym_captured_at >= ?)
-            AND gym.gym_error IS NULL
+            AND (gym.gym_error IS NULL OR ? = 1)
           THEN 1
           ELSE 0
         END AS gym_ready
@@ -2439,6 +2665,7 @@ async function writeLifestyleSnapshotForDate(
       gymdexterity,
       personal_captured_at,
       gym_captured_at,
+      gym_error,
       personal_ready,
       gym_ready,
       fully_ready,
@@ -2471,9 +2698,10 @@ async function writeLifestyleSnapshotForDate(
       CASE WHEN gym_ready = 1 THEN gymdexterity ELSE NULL END,
       CASE WHEN personal_ready = 1 THEN personal_captured_at ELSE NULL END,
       CASE WHEN gym_ready = 1 THEN gym_captured_at ELSE NULL END,
+      CASE WHEN gym_ready = 1 THEN gym_error ELSE NULL END,
       personal_ready,
       gym_ready,
-      CASE WHEN personal_ready = 1 AND gym_ready = 1 THEN 1 ELSE 0 END,
+      CASE WHEN personal_ready = 1 AND gym_ready = 1 AND gym_error IS NULL THEN 1 ELSE 0 END,
       unixepoch()
     FROM source
     WHERE 1 = 1
@@ -2507,18 +2735,20 @@ async function writeLifestyleSnapshotForDate(
       gymdexterity = CASE WHEN excluded.gym_ready = 1 THEN excluded.gymdexterity ELSE member_lifestyle_stat_snapshots.gymdexterity END,
       personal_captured_at = CASE WHEN excluded.personal_ready = 1 THEN excluded.personal_captured_at ELSE member_lifestyle_stat_snapshots.personal_captured_at END,
       gym_captured_at = CASE WHEN excluded.gym_ready = 1 THEN excluded.gym_captured_at ELSE member_lifestyle_stat_snapshots.gym_captured_at END,
+      gym_error = CASE WHEN excluded.gym_ready = 1 THEN excluded.gym_error ELSE member_lifestyle_stat_snapshots.gym_error END,
       personal_ready = CASE WHEN excluded.personal_ready = 1 THEN 1 ELSE member_lifestyle_stat_snapshots.personal_ready END,
       gym_ready = CASE WHEN excluded.gym_ready = 1 THEN 1 ELSE member_lifestyle_stat_snapshots.gym_ready END,
       fully_ready = CASE
         WHEN (CASE WHEN excluded.personal_ready = 1 THEN 1 ELSE member_lifestyle_stat_snapshots.personal_ready END) = 1
           AND (CASE WHEN excluded.gym_ready = 1 THEN 1 ELSE member_lifestyle_stat_snapshots.gym_ready END) = 1
+          AND (CASE WHEN excluded.gym_ready = 1 THEN excluded.gym_error ELSE member_lifestyle_stat_snapshots.gym_error END) IS NULL
         THEN 1
         ELSE 0
       END,
       captured_at = excluded.captured_at
     `,
   )
-    .bind(snapshotDate, freshAfter, freshAfter, snapshotDate, snapshotDate, freshAfter, freshAfter, HOME_FACTION_ID)
+    .bind(snapshotDate, freshAfter, freshAfter, snapshotDate, freshAfter, freshAfter, allowPartialGym, snapshotDate, HOME_FACTION_ID)
     .run();
 }
 
@@ -2899,10 +3129,6 @@ function emptyTimedLifestyleStats(): TimedLifestyleStats {
   };
 }
 
-function emptyGymContributorStats(): GymContributorStats {
-  return Object.fromEntries(GYM_CONTRIBUTOR_STAT_KEYS.map((key) => [key, null])) as GymContributorStats;
-}
-
 function extractContributorValues(
   source: unknown,
   stat: GymContributorStatKey,
@@ -2953,6 +3179,10 @@ function addContributorValue(
   if (contributed !== null) {
     contributors.set(memberId, contributed);
   }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function dailyRefreshReadyAt(timestamp: number): number | null {

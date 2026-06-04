@@ -1,7 +1,7 @@
 import { runEnemyScoutingCronTick } from "./enemyScoutingCron";
 import { runIngestion } from "./ingestion";
 import { runChainWatchCron } from "./chainWatch";
-import { processMemberLifestyleRepairJobs, refreshDailyMemberLifestyleStats } from "./lifestyleStats";
+import { processMemberLifestyleRepairJobs, refreshDailyGymStats, refreshDailyMemberLifestyleStats } from "./lifestyleStats";
 import { runScheduledMaintenance } from "./maintenance";
 import { refreshTornShoplifting } from "./miscellaneous";
 import {
@@ -81,14 +81,26 @@ const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
       }),
   },
   {
-    label: "Cron lifestyle stats",
+    label: "Cron personal lifestyle stats",
     cadence: "4x daily at 00:10/06:10/12:10/18:10 UTC",
     category: "daily",
-    purpose: "Fill recent personal stats queue and daily lifestyle stat snapshots through the daily batch gate.",
+    purpose: "Fill recent personal stats queue and project daily lifestyle snapshots through the daily batch gate.",
     shouldRun: (date) =>
       date.getUTCMinutes() === 10 &&
       [0, 6, 12, 18].includes(date.getUTCHours()),
     run: (env) => refreshDailyMemberLifestyleStats(env, { limit: 40, useLock: true }),
+  },
+  {
+    label: "Cron gym lifestyle stats",
+    cadence: "daily at 00:10 UTC, then 1m for 5 retries and 15m thereafter for up to 6h after contributor failures",
+    category: "daily",
+    purpose: "Fetch daily faction gym contributor totals, retry failed contributor imports, and publish the snapshot without gym stats if the retry window expires.",
+    shouldRun: () => true,
+    run: (env, scheduledTime) =>
+      refreshDailyGymStats(env, {
+        homeMembersSynced: false,
+        now: Math.floor(scheduledTime / 1000),
+      }),
   },
   {
     label: "Cron monthly Xanax competition Discord reminder",
