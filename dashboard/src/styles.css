@@ -791,6 +791,222 @@ h2 {
   margin-top: auto;
 }
 
+.data-health-status-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.data-health-metric-card.good .panel-kicker,
+.data-health-status-chip.good {
+  color: #166534;
+}
+
+.data-health-metric-card.warn .panel-kicker,
+.data-health-status-chip.warn {
+  color: #92400e;
+}
+
+.data-health-metric-card.critical .panel-kicker,
+.data-health-status-chip.critical {
+  color: #991b1b;
+}
+
+.data-health-metric-card.unknown .panel-kicker,
+.data-health-status-chip.unknown {
+  color: #475569;
+}
+
+.data-health-subsystem-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.data-health-subsystem-tile {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.data-health-subsystem-tile.good {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.data-health-subsystem-tile.warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.data-health-subsystem-tile.critical {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.data-health-subsystem-tile > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.data-health-subsystem-tile strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 0.94rem;
+  font-weight: 950;
+}
+
+.data-health-subsystem-tile p {
+  margin: 0;
+  color: #334155;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.data-health-subsystem-tile small {
+  color: #64748b;
+  font-weight: 800;
+}
+
+.data-health-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 0.7rem;
+  font-weight: 950;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.data-health-status-chip.good {
+  border-color: #bbf7d0;
+  background: #dcfce7;
+}
+
+.data-health-status-chip.warn {
+  border-color: #fde68a;
+  background: #fef3c7;
+}
+
+.data-health-status-chip.critical {
+  border-color: #fecaca;
+  background: #fee2e2;
+}
+
+.data-health-status-chip.unknown {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+.data-health-tile-metrics,
+.data-health-api-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.data-health-issue-list {
+  display: grid;
+  gap: 10px;
+}
+
+.data-health-issue-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.data-health-issue-row.warn {
+  border-color: #fcd34d;
+}
+
+.data-health-issue-row.critical {
+  border-color: #fca5a5;
+}
+
+.data-health-issue-row strong {
+  display: block;
+  color: #172033;
+  font-size: 0.9rem;
+}
+
+.data-health-issue-row p {
+  margin: 2px 0;
+  color: #334155;
+  font-size: 0.84rem;
+}
+
+.data-health-issue-row small {
+  color: #64748b;
+  font-weight: 750;
+}
+
+.data-health-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.data-health-settings-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.data-health-settings-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.data-health-settings-form label > span {
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.data-health-settings-form label > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.data-health-settings-form input {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-md);
+  color: #172033;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.data-health-settings-form small {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+
+.data-health-settings-form .primary-action {
+  align-self: end;
+}
+
 .dashboard-admin-alert {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.8fr) auto;
@@ -5586,9 +5802,24 @@ h2 {
   .dashboard-home-lower-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .data-health-subsystem-grid,
+  .data-health-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 760px) {
+  .data-health-status-grid,
+  .data-health-settings-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .data-health-issue-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
   .trade-scout-summary-grid {
     grid-template-columns: 1fr;
   }

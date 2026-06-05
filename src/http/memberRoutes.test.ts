@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireMember } from "../auth";
+import { getDataHealthSummary } from "../dataHealth";
 import { getRetaliationCheck } from "../retaliations";
 import type { Env } from "../types";
 import { routeMemberUtilityApi } from "./memberRoutes";
@@ -7,6 +8,10 @@ import { routeMemberUtilityApi } from "./memberRoutes";
 vi.mock("../auth", () => ({
   readAuthenticatedUserId: vi.fn(),
   requireMember: vi.fn(),
+}));
+
+vi.mock("../dataHealth", () => ({
+  getDataHealthSummary: vi.fn(),
 }));
 
 vi.mock("../retaliations", () => ({
@@ -37,6 +42,11 @@ vi.mock("../miscellaneous", () => ({
 vi.mock("../monitorTickets", () => ({
   createMonitorTicket: vi.fn(),
 }));
+vi.mock("../responseCache", () => ({
+  cachedGetJson: vi.fn((_request, _ctx, _ttl, load) => load()),
+  cachedVersionedGetJson: vi.fn((_env, _request, _ctx, _ttl, _versions, load) => load()),
+  OFFICIAL_END_CACHE_TTL_SECONDS: 55,
+}));
 vi.mock("../stockMarket", () => ({
   getStockHistory: vi.fn(),
   getStocks: vi.fn(),
@@ -55,6 +65,7 @@ describe("member utility routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(requireMember).mockResolvedValue(null);
+    vi.mocked(getDataHealthSummary).mockResolvedValue(jsonResponse({ ok: true, route: "data-health" }));
     vi.mocked(getRetaliationCheck).mockResolvedValue(jsonResponse({ ok: true, route: "retaliations" }));
   });
 
@@ -81,6 +92,17 @@ describe("member utility routes", () => {
 
     expect(response?.status).toBe(401);
     expect(getRetaliationCheck).not.toHaveBeenCalled();
+  });
+
+  it("routes data health summary through member auth", async () => {
+    const response = await routeMemberUtilityApi(routeContext(
+      "https://worker.test/api/data-health/summary",
+    ));
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "data-health" });
+    expect(requireMember).toHaveBeenCalledOnce();
+    expect(getDataHealthSummary).toHaveBeenCalledOnce();
   });
 });
 

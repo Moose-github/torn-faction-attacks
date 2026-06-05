@@ -688,16 +688,116 @@ export type DailyStatsAttention = {
   }>;
 };
 
-export type MaintenanceRunResponse = {
-  ok: boolean;
-  run: MaintenanceRun | null;
-  tasks: MaintenanceTask[];
-  daily_stats_attention?: DailyStatsAttention;
-};
-
-export type TornApiUsageSummary = {
-  window_seconds: number;
-  requests: number;
+export type MaintenanceRunResponse = {
+  ok: boolean;
+  run: MaintenanceRun | null;
+  tasks: MaintenanceTask[];
+  daily_stats_attention?: DailyStatsAttention;
+};
+
+export type DataHealthStatus = "good" | "warn" | "critical" | "unknown";
+
+export type DataHealthSettings = {
+  ingestion_warn_seconds: number;
+  ingestion_critical_seconds: number;
+  maintenance_warn_seconds: number;
+  maintenance_critical_seconds: number;
+  daily_stats_lag_warn_days: number;
+  daily_stats_lag_critical_days: number;
+  stale_daily_members_warn: number;
+  stale_daily_members_critical: number;
+  api_error_rate_warn_percent: number;
+  api_error_rate_critical_percent: number;
+  api_rate_limited_warn: number;
+  api_rate_limited_critical: number;
+  stock_freshness_warn_seconds: number;
+  stock_freshness_critical_seconds: number;
+  stale_stocks_warn: number;
+  stale_stocks_critical: number;
+};
+
+export type DataHealthMetric = {
+  label: string;
+  value: string;
+  timestamp?: number | null;
+};
+
+export type DataHealthSubsystem = {
+  key: string;
+  label: string;
+  status: DataHealthStatus;
+  summary: string;
+  updated_at: number | null;
+  metrics: DataHealthMetric[];
+};
+
+export type DataHealthIssue = {
+  key: string;
+  subsystem: string;
+  status: Exclude<DataHealthStatus, "good">;
+  title: string;
+  detail: string;
+  action_view: AppViewName | null;
+  action_label: string | null;
+};
+
+export type DataHealthSummaryResponse = {
+  ok: boolean;
+  generated_at: number;
+  cache_seconds: number;
+  overall_status: DataHealthStatus;
+  subsystems: DataHealthSubsystem[];
+};
+
+export type AdminDataHealthResponse = DataHealthSummaryResponse & {
+  settings: DataHealthSettings;
+  issues: DataHealthIssue[];
+  details: {
+    ingestion_run: IngestionRun | null;
+    maintenance_run: MaintenanceRun | null;
+    maintenance_tasks: MaintenanceTask[];
+    daily_stats_attention: DailyStatsAttention;
+    roster: {
+      current_members: number;
+      reportable_members: number;
+      report_exempt_members: number;
+      revivable_members: number;
+      stat_estimates: number;
+      networth_estimates: number;
+      updated_at: number | null;
+    };
+    api_usage: TornApiUsageSummary;
+    api_features: TornApiUsageFeature[];
+    api_endpoints: TornApiUsageFeature[];
+    api_recent_calls: TornApiUsageCall[];
+    stock_run: StockIngestionRun | null;
+    stock_coverage: StockCoverage;
+    stock_last_error: string | null;
+    war_reports: {
+      missing_reports: number;
+      oldest_missing_finished_at: number | null;
+    };
+  };
+};
+
+type AppViewName =
+  | "dashboard"
+  | "war"
+  | "warRoom"
+  | "hospitalMonitor"
+  | "members"
+  | "lifestyle"
+  | "miscellaneous"
+  | "tradeScout"
+  | "warPayouts"
+  | "stockMarketStatus"
+  | "diceGame"
+  | "dataHealth"
+  | "admin";
+
+export type TornApiUsageSummary = {
+  window_seconds: number;
+  requests: number;
   errors: number;
   rate_limited: number;
   avg_duration_ms: number | null;

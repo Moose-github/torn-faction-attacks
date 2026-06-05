@@ -9,6 +9,7 @@ import {
   Clock3,
   CircleDollarSign,
   ExternalLink,
+  Gauge,
   MessageSquare,
   Radar,
   Send,
@@ -21,6 +22,7 @@ import {
   getLatestIngestionRun,
   getLatestMaintenanceRun,
   getAdminSuggestions,
+  getDataHealthSummary,
   getHomeFactionMemberSummary,
   getMemberAchievements,
   getRecentFactionAttacks,
@@ -29,6 +31,7 @@ import {
   HomeFactionMemberSummary,
   IngestionRun,
   DailyStatsAttention,
+  DataHealthSummaryResponse,
   MaintenanceRun,
   MaintenanceTask,
   MemberAchievementSummary,
@@ -47,6 +50,7 @@ import type { AppView } from "../routes";
 const RECENT_ATTACK_LIMIT = 10;
 const RECENT_ATTACK_REFRESH_MS = 30_000;
 const ADMIN_HEALTH_REFRESH_MS = 60_000;
+const DATA_HEALTH_REFRESH_MS = 60_000;
 const ATTACK_POLLING_RATE_LABEL = "About every minute during active tracking";
 const ATTACK_POLLING_DETAIL = "When no live war is being tracked, attacks are checked less often.";
 const HIGHLIGHT_ROTATE_MS = 6_000;
@@ -107,6 +111,8 @@ export function DashboardHome({
   const [recentAttacks, setRecentAttacks] = React.useState<RecentFactionAttack[]>([]);
   const [recentAttacksLoaded, setRecentAttacksLoaded] = React.useState(false);
   const [recentAttacksError, setRecentAttacksError] = React.useState<string | null>(null);
+  const [dataHealth, setDataHealth] = React.useState<DataHealthSummaryResponse | null>(null);
+  const [dataHealthLoaded, setDataHealthLoaded] = React.useState(false);
   const [adminPanelCollapsed, setAdminPanelCollapsed] = React.useState(true);
 
   React.useEffect(() => {
@@ -165,6 +171,25 @@ export function DashboardHome({
 
     loadXanaxCompetition();
     const timer = window.setInterval(loadXanaxCompetition, HIGHLIGHT_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadDataHealth() {
+      const response = await getDataHealthSummary().catch(() => null);
+      if (!cancelled) {
+        setDataHealth(response);
+        setDataHealthLoaded(true);
+      }
+    }
+
+    loadDataHealth();
+    const timer = window.setInterval(loadDataHealth, DATA_HEALTH_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -325,7 +350,12 @@ export function DashboardHome({
           </div>
         </DashboardCard>
 
-        <DashboardPlaceholderCard />
+        <DataHealthCard
+          data={dataHealth}
+          isAdmin={isAdmin}
+          loaded={dataHealthLoaded}
+          onOpenDataHealth={() => onOpenView("dataHealth")}
+        />
       </section>
 
       <MemberHighlightsPanel
@@ -685,17 +715,72 @@ function warTypeLabel(warType: WarSummary["war_type"]): string {
   return "-";
 }
 
-function DashboardPlaceholderCard() {
+function DataHealthCard({
+  data,
+  isAdmin,
+  loaded,
+  onOpenDataHealth,
+}: {
+  data: DataHealthSummaryResponse | null;
+  isAdmin: boolean;
+  loaded: boolean;
+  onOpenDataHealth: () => void;
+}) {
+  const attention = data?.subsystems
+    .filter((subsystem) => subsystem.status === "critical" || subsystem.status === "warn")
+    .slice(0, 3) ?? [];
+  const primaryMetrics = data?.subsystems.slice(0, 3) ?? [];
+
   return (
     <DashboardCard
-      icon={<Clock3 size={17} />}
-      title="Coming soon"
-      status="Placeholder"
-      tone="quiet"
+      icon={<Gauge size={17} />}
+      title="Data health"
+      status={!loaded ? "Loading" : data ? dataHealthStatusLabel(data.overall_status) : "Unavailable"}
+      tone={!loaded || !data ? "quiet" : dashboardToneForHealth(data.overall_status)}
+      actionLabel={isAdmin ? "Open command center" : undefined}
+      onAction={isAdmin ? onOpenDataHealth : undefined}
     >
-      <EmptyState text="Dashboard tile placeholder" />
+      {!loaded ? (
+        <EmptyState text="Loading data freshness" />
+      ) : !data ? (
+        <EmptyState text="Data health unavailable" />
+      ) : attention.length > 0 ? (
+        <div className="dashboard-card-metrics">
+          {attention.map((subsystem) => (
+            <MetricLine
+              key={subsystem.key}
+              label={subsystem.label}
+              value={`${dataHealthStatusLabel(subsystem.status)} - ${subsystem.summary}`}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="dashboard-card-metrics">
+          {primaryMetrics.map((subsystem) => (
+            <MetricLine
+              key={subsystem.key}
+              label={subsystem.label}
+              value={subsystem.updated_at ? formatRelativeTime(subsystem.updated_at) : subsystem.summary}
+            />
+          ))}
+        </div>
+      )}
     </DashboardCard>
   );
+}
+
+function dataHealthStatusLabel(status: DataHealthSummaryResponse["overall_status"]): string {
+  if (status === "critical") return "Critical";
+  if (status === "warn") return "Warning";
+  if (status === "good") return "Good";
+  return "Unknown";
+}
+
+function dashboardToneForHealth(status: DataHealthSummaryResponse["overall_status"]): "good" | "warn" | "danger" | "hot" | "quiet" {
+  if (status === "critical") return "danger";
+  if (status === "warn") return "warn";
+  if (status === "good") return "good";
+  return "quiet";
 }
 
 function XanaxCompetitionSpotlight({

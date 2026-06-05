@@ -7,3 +7,4 @@ export * from "./stocks";
 export * from "./lifestyle";
 export * from "./trade";
 export * from "./member";
+export * from "./dataHealth";

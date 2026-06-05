@@ -1,6 +1,10 @@
 import { positiveIntegerOrNull, readJsonObject } from "../backend/request";
 import { grantAdminAccess, listAdminUsers, readAuthenticatedUserId } from "../auth";
 import { bumpGlobalWarCacheVersion, bumpWarCacheVersionById } from "../cacheVersions";
+import {
+  getAdminDataHealth,
+  updateDataHealthSettingsFromRequest,
+} from "../dataHealth";
 import { sendDiscordMessageFromRequest } from "../discord";
 import {
   previewEnemyStatsImageFromRequest,
@@ -73,6 +77,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
     return withAdmin(routeContext, () =>
       cachedGetJson(request, ctx, 60, () => getTornApiUsage(url, env)),
     );
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/data-health", "GET")) {
+    return withAdmin(routeContext, () => getAdminDataHealth(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/data-health/settings", "POST")) {
+    return withAdmin(routeContext, () => updateDataHealthSettingsFromRequest(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/member-lifestyle/import-now", "POST")) {

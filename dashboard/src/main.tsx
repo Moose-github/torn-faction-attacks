@@ -4,6 +4,7 @@ import {
   BarChart3,
   CircleDollarSign,
   Dices,
+  Gauge,
   House,
   LogIn,
   Moon,
@@ -79,6 +80,9 @@ const AdminControls = React.lazy(() =>
 );
 const DiceGame = React.lazy(() =>
   import("./views/DiceGame").then((module) => ({ default: module.DiceGame })),
+);
+const DataHealthCommandCenter = React.lazy(() =>
+  import("./views/DataHealthCommandCenter").then((module) => ({ default: module.DataHealthCommandCenter })),
 );
 const LifestyleStats = React.lazy(() =>
   import("./views/LifestyleStats").then((module) => ({ default: module.LifestyleStats })),
@@ -707,6 +711,7 @@ function App() {
           tradeScoutIcon={<ShoppingCart size={18} />}
           warPayoutsIcon={<CircleDollarSign size={18} />}
           stockMarketIcon={<TrendingUp size={18} />}
+          dataHealthIcon={<Gauge size={18} />}
           diceGameIcon={<Dices size={18} />}
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
@@ -751,6 +756,10 @@ function App() {
           ) : view === "stockMarketStatus" ? (
             <LazyPage>
               <StockMarketStatus />
+            </LazyPage>
+          ) : view === "dataHealth" ? (
+            <LazyPage>
+              <DataHealthCommandCenter onOpenView={changeView} />
             </LazyPage>
           ) : view === "members" ? (
             <LazyPage>

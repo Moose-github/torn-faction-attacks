@@ -1,5 +1,6 @@
 import { readAuthenticatedUserId } from "../auth";
 import { MEMBER_LIFESTYLE_CACHE_VERSION_NAME } from "../cacheVersions";
+import { getDataHealthSummary } from "../dataHealth";
 import { getDiceGameState, rollDiceGame, sendXanaxToDiceGame } from "../diceGame";
 import { getRecentFactionAttacks } from "../factionAttacks";
 import { getCurrentHomeFactionMemberSummary } from "../homeFactionMembers";
@@ -57,6 +58,10 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
 
   if (matchesExactRoute(url, request, "/api/home-faction-members/summary", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getCurrentHomeFactionMemberSummary(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/data-health/summary", "GET")) {
+    return cachedMemberGet(routeContext, 30, () => getDataHealthSummary(env));
   }
 
   if (matchesExactRoute(url, request, "/api/xanax-competition", "GET")) {
