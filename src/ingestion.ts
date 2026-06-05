@@ -57,7 +57,7 @@ type IngestionRunMetrics = {
   error: string | null;
 };
 
-const NOOP_CRON_INGESTION_METRIC_INTERVAL_SECONDS = 30 * 60;
+const NOOP_CRON_INGESTION_METRIC_INTERVAL_SECONDS = 5 * 60;
 
 export type TermedWarCrossingAttackRow = {
   id: number;

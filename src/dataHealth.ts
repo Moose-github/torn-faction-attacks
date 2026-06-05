@@ -699,18 +699,29 @@ function ingestionSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const age = snapshot.now - (run.finished_at ?? run.started_at);
   const freshnessStatus = statusForAgeSeconds(age, snapshot.settings.ingestion_warn_seconds, snapshot.settings.ingestion_critical_seconds);
   const status = run.status === "error" ? "critical" : maxStatus(freshnessStatus, run.status === "running" ? "warn" : "good");
+  const completedAt = run.finished_at ?? run.started_at;
+  const staleThresholdSeconds = freshnessStatus === "critical"
+    ? snapshot.settings.ingestion_critical_seconds
+    : snapshot.settings.ingestion_warn_seconds;
+  const summary = run.status === "error"
+    ? "Latest attack ingestion failed"
+    : freshnessStatus !== "good"
+      ? `Last completed ingestion is older than ${formatDurationLabel(staleThresholdSeconds)}`
+      : run.status === "running"
+        ? "Attack ingestion is currently running"
+        : `${run.fetched_attacks} attacks fetched in latest run`;
+
   return {
     key: "ingestion",
     label: "Attack ingestion",
     status,
-    summary: run.status === "error"
-      ? "Latest attack ingestion failed"
-      : `${run.fetched_attacks} attacks fetched in latest run`,
-    updated_at: run.finished_at ?? run.started_at,
+    summary,
+    updated_at: completedAt,
     metrics: [
       { label: "Latest run", value: run.status, timestamp: run.started_at },
+      { label: "Last completed", value: "Recorded", timestamp: completedAt },
       { label: "Fetched attacks", value: String(run.fetched_attacks) },
-      { label: "Latest attack", value: formatTimestampMetric(snapshot.latestAttackStarted), timestamp: snapshot.latestAttackStarted },
+      { label: "Latest attack", value: snapshot.latestAttackStarted === null ? "-" : "Recorded", timestamp: snapshot.latestAttackStarted },
     ],
   };
 }
@@ -875,7 +886,17 @@ function issuesFromSnapshot(snapshot: DataHealthSnapshot, subsystems: DataHealth
 }
 
 function issueDetailForSubsystem(snapshot: DataHealthSnapshot, subsystem: DataHealthSubsystem): string {
-  if (subsystem.key === "ingestion" && snapshot.ingestion?.error) return snapshot.ingestion.error;
+  if (subsystem.key === "ingestion") {
+    if (snapshot.ingestion?.error) return snapshot.ingestion.error;
+    const completedAt = snapshot.ingestion?.finished_at ?? snapshot.ingestion?.started_at ?? null;
+    return [
+      `Last completed: ${formatTimestampLabel(completedAt)}`,
+      `warning target: ${formatDurationLabel(snapshot.settings.ingestion_warn_seconds)}`,
+      `critical target: ${formatDurationLabel(snapshot.settings.ingestion_critical_seconds)}`,
+      `fetched attacks: ${snapshot.ingestion?.fetched_attacks ?? 0}`,
+      `latest attack: ${formatTimestampLabel(snapshot.latestAttackStarted)}`,
+    ].join("; ");
+  }
   if (subsystem.key === "maintenance" && snapshot.maintenance?.error) return snapshot.maintenance.error;
   if (subsystem.key === "stock_data" && snapshot.stockRun?.error) return snapshot.stockRun.error;
   if (subsystem.key === "daily_stats") {
@@ -932,4 +953,16 @@ function nullableNumber(value: unknown): number | null {
 
 function formatTimestampMetric(timestamp: number | null): string {
   return timestamp === null ? "-" : String(timestamp);
+}
+
+function formatTimestampLabel(timestamp: number | null): string {
+  if (timestamp === null) return "-";
+  return new Date(timestamp * 1000).toISOString().replace("T", " ").replace(".000Z", " UTC");
+}
+
+function formatDurationLabel(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds >= 3600) return `${Math.round(seconds / 60)}m`;
+  return `${Math.round(seconds / 60)}m`;
 }
