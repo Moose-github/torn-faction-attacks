@@ -1,14 +1,176 @@
+import { HOME_FACTION_ID } from "../constants";
 import type { Env } from "../types";
 import {
   MISSING_DONATOR_DAYS_ERROR_CODE,
   OLD_PERSONALSTATS_BUCKET_ERROR_CODE,
 } from "./model";
-import type { DailyStatsAttention } from "./model";
+import type {
+  DailyStatsAttention,
+  LifestyleMemberRow,
+  LifestyleSnapshotReadyFilter,
+  LifestyleSnapshotRow,
+} from "./model";
+
+const LIFESTYLE_SNAPSHOT_COLUMNS = `
+  snapshots.member_id,
+  snapshots.snapshot_date,
+  snapshots.member_name,
+  snapshots.xantaken,
+  snapshots.overdosed,
+  snapshots.refills,
+  snapshots.useractivity,
+  snapshots.networth,
+  snapshots.daysbeendonator,
+  snapshots.xantaken_timestamp,
+  snapshots.overdosed_timestamp,
+  snapshots.refills_timestamp,
+  snapshots.useractivity_timestamp,
+  snapshots.networth_timestamp,
+  snapshots.daysbeendonator_timestamp,
+  snapshots.personalstats_bucket_date,
+  snapshots.personalstats_requested_at,
+  snapshots.personalstats_key_source,
+  snapshots.gymenergy,
+  snapshots.gymstrength,
+  snapshots.gymspeed,
+  snapshots.gymdefense,
+  snapshots.gymdexterity,
+  snapshots.personal_captured_at,
+  snapshots.gym_captured_at,
+  snapshots.gym_error,
+  snapshots.personal_ready,
+  snapshots.gym_ready,
+  snapshots.fully_ready,
+  snapshots.captured_at,
+  snapshots.validation_error
+`;
 
 export type DailyStatsAttentionCounts = Pick<
   DailyStatsAttention,
   "missing_donator_days" | "stale_personalstats"
 >;
+
+export async function readCompleteLifestyleSnapshotDateRange(
+  env: Env,
+  readyFilter: LifestyleSnapshotReadyFilter,
+): Promise<{ start_date: string; end_date: string } | null> {
+  const readyCondition = lifestyleSnapshotReadyCondition("snapshots", readyFilter);
+  const row = (await env.DB.prepare(
+    `
+    SELECT
+      MIN(candidate_dates.snapshot_date) AS start_date,
+      MAX(candidate_dates.snapshot_date) AS end_date
+    FROM (
+      SELECT DISTINCT snapshot_date
+      FROM member_lifestyle_stat_snapshots
+    ) candidate_dates
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM home_faction_members members
+      LEFT JOIN member_lifestyle_stat_snapshots snapshots
+        ON snapshots.member_id = members.member_id
+       AND snapshots.snapshot_date = candidate_dates.snapshot_date
+       AND ${readyCondition}
+      WHERE members.faction_id = ?
+        AND members.is_current = 1
+        AND members.report_exempt = 0
+        AND snapshots.member_id IS NULL
+    )
+    `,
+  ).bind(HOME_FACTION_ID).first()) as { start_date: string | null; end_date: string | null } | null;
+
+  if (!row?.start_date || !row.end_date) {
+    return null;
+  }
+
+  return {
+    start_date: row.start_date,
+    end_date: row.end_date,
+  };
+}
+
+export async function readLifestylePeriodSnapshotRows(
+  env: Env,
+  startDate: string,
+  endDate: string,
+): Promise<LifestyleSnapshotRow[]> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT ${LIFESTYLE_SNAPSHOT_COLUMNS}
+    FROM member_lifestyle_stat_snapshots snapshots
+    JOIN home_faction_members
+      ON home_faction_members.member_id = snapshots.member_id
+     AND home_faction_members.is_current = 1
+     AND home_faction_members.report_exempt = 0
+    WHERE snapshots.snapshot_date BETWEEN ? AND ?
+      AND snapshots.fully_ready = 1
+    ORDER BY snapshots.member_id ASC, snapshots.snapshot_date ASC
+    `,
+  )
+    .bind(startDate, endDate)
+    .all<LifestyleSnapshotRow>();
+
+  return rows.results ?? [];
+}
+
+export async function readLifestyleDailyChartSnapshotRows(
+  env: Env,
+  startDate: string,
+  endDate: string,
+  memberIds: number[],
+  readyColumn: "personal_ready" | "gym_ready",
+): Promise<LifestyleSnapshotRow[]> {
+  if (memberIds.length === 0) {
+    return [];
+  }
+
+  const placeholders = memberIds.map(() => "?").join(",");
+  const rows = await env.DB.prepare(
+    `
+    SELECT ${LIFESTYLE_SNAPSHOT_COLUMNS}
+    FROM member_lifestyle_stat_snapshots snapshots
+    JOIN home_faction_members members
+      ON members.member_id = snapshots.member_id
+     AND members.is_current = 1
+     AND members.report_exempt = 0
+    WHERE snapshots.snapshot_date BETWEEN ? AND ?
+      AND snapshots.member_id IN (${placeholders})
+      AND snapshots.${readyColumn} = 1
+    ORDER BY snapshots.member_id ASC, snapshots.snapshot_date ASC
+    `,
+  )
+    .bind(startDate, endDate, ...memberIds)
+    .all<LifestyleSnapshotRow>();
+
+  return rows.results ?? [];
+}
+
+function lifestyleSnapshotReadyCondition(tableAlias: string, readyFilter: LifestyleSnapshotReadyFilter): string {
+  if (readyFilter === "any_ready") {
+    return `(${tableAlias}.personal_ready = 1 OR ${tableAlias}.gym_ready = 1)`;
+  }
+
+  return `${tableAlias}.${readyFilter} = 1`;
+}
+
+export async function readHomeMembersById(
+  env: Env,
+  options: { includeReportExempt?: boolean } = {},
+): Promise<Map<number, LifestyleMemberRow>> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT member_id, name, level, position, updated_at AS personal_captured_at
+    FROM home_faction_members
+    WHERE faction_id = ?
+      AND is_current = 1
+      AND (? = 1 OR report_exempt = 0)
+    `,
+  )
+    .bind(HOME_FACTION_ID, options.includeReportExempt ? 1 : 0)
+    .all<LifestyleMemberRow>();
+
+  return new Map((rows.results ?? []).map((row) => [row.member_id, row]));
+}
 
 export async function readLatestPersonalStatsBucketDate(env: Env): Promise<string | null> {
   const latestBucketRow = (await env.DB.prepare(

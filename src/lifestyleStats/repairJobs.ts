@@ -29,7 +29,6 @@ import type {
   TimedLifestyleStats,
 } from "./model";
 import {
-  readHomeMembersById,
   syncHomeFactionMemberList,
   upsertLifestyleSnapshotPersonalStats,
 } from "./internal";
@@ -37,6 +36,7 @@ import {
   fetchMemberPersonalStats,
   personalStatsDataQualityError,
 } from "./dailyPersonal";
+import { readHomeMembersById } from "./queries";
 
 export async function createMemberLifestyleRepairJob(request: Request, env: Env): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as {

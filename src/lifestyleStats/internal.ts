@@ -3,7 +3,6 @@ import { fetchTornFactionMembers } from "../enemyScouting";
 import { Env, TornFactionMember } from "../types";
 import { boolToInt, finiteNumber } from "../utils";
 import type {
-  LifestyleMemberRow,
   TimedLifestyleStats,
 } from "./model";
 export { getDailyStatsAttention } from "./dailyAttention";
@@ -135,25 +134,6 @@ export async function syncHomeFactionMemberList(env: Env): Promise<void> {
 
   await markDepartedHomeFactionMembers(env, members);
   await removeDepartedLifestyleMembers(env, members);
-}
-
-export async function readHomeMembersById(
-  env: Env,
-  options: { includeReportExempt?: boolean } = {},
-): Promise<Map<number, LifestyleMemberRow>> {
-  const rows = ((await env.DB.prepare(
-    `
-    SELECT member_id, name, level, position, updated_at AS personal_captured_at
-    FROM home_faction_members
-    WHERE faction_id = ?
-      AND is_current = 1
-      AND (? = 1 OR report_exempt = 0)
-    `,
-  )
-    .bind(HOME_FACTION_ID, options.includeReportExempt ? 1 : 0)
-    .all()).results ?? []) as LifestyleMemberRow[];
-
-  return new Map(rows.map((row) => [row.member_id, row]));
 }
 
 async function markDepartedHomeFactionMembers(
