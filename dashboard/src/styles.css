@@ -845,6 +845,12 @@ h2 {
   color: #334155;
 }
 
+.data-health-metric-icon.empty {
+  border-color: transparent;
+  background: transparent;
+  color: transparent;
+}
+
 .data-health-metric-card.good .panel-kicker,
 .data-health-status-chip.good {
   color: #14532d;

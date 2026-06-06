@@ -176,11 +176,13 @@ function DataHealthOverview({
           label="Critical"
           value={formatNumber(criticalCount)}
           status={criticalCount > 0 ? "critical" : "good"}
+          showIcon={criticalCount > 0}
         />
         <HealthMetric
           label="Warnings"
           value={formatNumber(warnCount)}
           status={warnCount > 0 ? "warn" : "good"}
+          showIcon={warnCount > 0}
         />
       </section>
 
@@ -682,17 +684,23 @@ function HealthMetric({
   label,
   value,
   status,
+  showIcon = true,
 }: {
   label: string;
   value: string;
   status: DataHealthStatus;
+  showIcon?: boolean;
 }) {
   return (
     <section className={`metric-card data-health-metric-card ${status}`}>
       <div className="panel-kicker">
-        <span className={`data-health-metric-icon ${status}`}>
-          {status === "good" ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-        </span>
+        {showIcon ? (
+          <span className={`data-health-metric-icon ${status}`}>
+            {status === "good" ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+          </span>
+        ) : (
+          <span className="data-health-metric-icon empty" aria-hidden="true" />
+        )}
         <span>{label}</span>
       </div>
       <strong>{value}</strong>
