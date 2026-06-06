@@ -56,6 +56,11 @@ import {
   parseAppRoute,
   pathForView,
 } from "./routes";
+import {
+  initialThemeMode,
+  persistThemeMode,
+  type ThemeMode,
+} from "./app/theme";
 import { useCurrentTimeMs } from "./utils/time";
 import type { AppView } from "./routes";
 import "./styles.css";
@@ -63,17 +68,6 @@ import "./styles.css";
 const ACTIVE_WAR_REFRESH_MS = 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
 const PRACTICAL_FINISH_REFRESH_MS = 15 * 60_000;
-type ThemeMode = "light" | "dark";
-const THEME_STORAGE_KEY = "buttgrass-theme";
-
-function initialThemeMode(): ThemeMode {
-  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (storedTheme === "light" || storedTheme === "dark") {
-    return storedTheme;
-  }
-
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
 
 const AdminControls = React.lazy(() =>
   import("./views/AdminControls").then((module) => ({ default: module.AdminControls })),
@@ -166,8 +160,7 @@ function App() {
   }, [view]);
 
   React.useEffect(() => {
-    document.documentElement.dataset.theme = themeMode;
-    window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
+    persistThemeMode(themeMode);
   }, [themeMode]);
 
   React.useEffect(() => {
