@@ -688,6 +688,13 @@ export type DailyStatsAttention = {
   }>;
 };
 
+export type GymStatsHealth = {
+  target_date: string | null;
+  latest_gym_snapshot_date: string | null;
+  gym_lag_days: number | null;
+  stale_gym_members: number;
+};
+
 export type MaintenanceRunResponse = {
   ok: boolean;
   run: MaintenanceRun | null;
@@ -757,6 +764,7 @@ export type AdminDataHealthResponse = DataHealthSummaryResponse & {
     maintenance_run: MaintenanceRun | null;
     maintenance_tasks: MaintenanceTask[];
     daily_stats_attention: DailyStatsAttention;
+    gym_stats_health: GymStatsHealth;
     roster: {
       current_members: number;
       reportable_members: number;

@@ -286,13 +286,23 @@ function AdminDataHealthDiagnostics({
         />
         <DetailPanel
           icon={<BarChart3 size={17} />}
-          title="Daily stats"
+          title="Personal stats"
           rows={[
             ["Target date", data.details.daily_stats_attention.personalstats_target_date ?? "-"],
             ["Latest bucket", data.details.daily_stats_attention.latest_personalstats_bucket_date ?? "-"],
             ["Lag days", nullableNumber(data.details.daily_stats_attention.personalstats_lag_days)],
             ["Stale personalstats", formatNumber(data.details.daily_stats_attention.stale_personalstats)],
             ["Donator-day gaps", formatNumber(data.details.daily_stats_attention.missing_donator_days)],
+          ]}
+        />
+        <DetailPanel
+          icon={<Activity size={17} />}
+          title="Gym stats"
+          rows={[
+            ["Target date", data.details.gym_stats_health.target_date ?? "-"],
+            ["Latest snapshot", data.details.gym_stats_health.latest_gym_snapshot_date ?? "-"],
+            ["Lag days", nullableNumber(data.details.gym_stats_health.gym_lag_days)],
+            ["Stale members", formatNumber(data.details.gym_stats_health.stale_gym_members)],
           ]}
         />
         <DetailPanel
@@ -491,7 +501,8 @@ function displayMetricValue(value: string, timestamp: number | null | undefined)
 function subsystemDescription(key: string): string {
   if (key === "ingestion") return "Checks whether faction attack data is being imported on schedule.";
   if (key === "maintenance") return "Checks scheduled cleanup and repair jobs that keep derived data tidy.";
-  if (key === "daily_stats") return "Checks daily member stat snapshots used by reports and trend views.";
+  if (key === "personal_stats") return "Checks daily personal-stat snapshots used by reports and trend views.";
+  if (key === "gym_stats") return "Checks daily gym-stat snapshots used by member progress views.";
   if (key === "roster") return "Checks whether the current home roster and member metadata are present.";
   if (key === "torn_api") return "Checks recent Torn API failures and rate limits that can slow updates.";
   if (key === "stock_data") return "Checks stock profile and price snapshot freshness.";

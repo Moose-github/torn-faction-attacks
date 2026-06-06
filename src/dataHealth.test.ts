@@ -104,6 +104,43 @@ describe("data health severity", () => {
     expect(body.issues.find((issue) => issue.key === "maintenance")?.title)
       .toBe("Last completed maintenance is older than 45m");
   });
+
+  it("splits daily member stats into personal and gym subsystem tiles", async () => {
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 1,
+      missing_donator_days: 1,
+      personalstats_target_date: "2025-12-31",
+      latest_personalstats_bucket_date: "2025-12-30",
+      personalstats_lag_days: 1,
+      affected_members: [],
+    });
+
+    const response = await getAdminDataHealth(dataHealthEnv({
+      gymLatestDate: "2025-12-29",
+      staleGymMembers: 3,
+    }));
+    const body = await response.json() as {
+      subsystems: Array<{ key: string; summary: string; metrics: Array<{ label: string; value: string }> }>;
+      details: { gym_stats_health: { latest_gym_snapshot_date: string | null; stale_gym_members: number } };
+    };
+
+    expect(body.subsystems.some((subsystem) => subsystem.key === "daily_stats")).toBe(false);
+    expect(body.subsystems.find((subsystem) => subsystem.key === "personal_stats")).toMatchObject({
+      summary: "2 reportable members need personal stat attention",
+    });
+    expect(body.subsystems.find((subsystem) => subsystem.key === "gym_stats")).toMatchObject({
+      summary: "3 reportable members need gym snapshots",
+    });
+    expect(body.details.gym_stats_health).toMatchObject({
+      latest_gym_snapshot_date: "2025-12-29",
+      stale_gym_members: 3,
+    });
+
+    const rosterMetricLabels = body.subsystems
+      .find((subsystem) => subsystem.key === "roster")
+      ?.metrics.map((metric) => metric.label);
+    expect(rosterMetricLabels).toEqual(["Current", "Stat estimates", "Networth estimates"]);
+  });
 });
 
 function settingsEnv(settings: Record<string, unknown>, save: () => void): Env {
@@ -127,9 +164,13 @@ function settingsEnv(settings: Record<string, unknown>, save: () => void): Env {
 }
 
 function dataHealthEnv({
-  maintenanceRun,
+  maintenanceRun = successfulMaintenanceRun(),
+  gymLatestDate = "2025-12-31",
+  staleGymMembers = 0,
 }: {
-  maintenanceRun: Record<string, unknown>;
+  maintenanceRun?: Record<string, unknown>;
+  gymLatestDate?: string;
+  staleGymMembers?: number;
 }): Env {
   return {
     DB: {
@@ -139,7 +180,10 @@ function dataHealthEnv({
           bind() {
             return statement;
           },
-          first: async () => firstRowForDataHealthQuery(compactSql, maintenanceRun),
+          first: async () => firstRowForDataHealthQuery(compactSql, maintenanceRun, {
+            gymLatestDate,
+            staleGymMembers,
+          }),
           all: async () => ({ results: rowsForDataHealthQuery(compactSql) }),
           run: async () => ({ success: true }),
         };
@@ -152,6 +196,7 @@ function dataHealthEnv({
 function firstRowForDataHealthQuery(
   sql: string,
   maintenanceRun: Record<string, unknown>,
+  gymStats: { gymLatestDate: string; staleGymMembers: number },
 ): Record<string, unknown> | null {
   if (sql.includes("FROM data_health_settings")) return DEFAULT_DATA_HEALTH_SETTINGS;
   if (sql.includes("FROM ingestion_runs")) {
@@ -177,6 +222,12 @@ function firstRowForDataHealthQuery(
   }
   if (sql.includes("FROM attacks")) return { latest_attack_started: null };
   if (sql.includes("FROM scheduled_maintenance_runs")) return maintenanceRun;
+  if (sql.includes("FROM member_lifestyle_stat_snapshots snapshots") && sql.includes("snapshots.gym_ready = 1")) {
+    return { snapshot_date: gymStats.gymLatestDate };
+  }
+  if (sql.includes("stale_gym_members")) {
+    return { stale_gym_members: gymStats.staleGymMembers };
+  }
   if (sql.includes("FROM home_faction_members")) {
     return {
       current_members: 1,
@@ -214,6 +265,20 @@ function firstRowForDataHealthQuery(
     };
   }
   return null;
+}
+
+function successfulMaintenanceRun(): Record<string, unknown> {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    id: "maintenance-run-healthy",
+    started_at: now - 60,
+    finished_at: now - 30,
+    status: "success",
+    task_count: 3,
+    write_statements: 2,
+    changed_rows: 4,
+    error: null,
+  };
 }
 
 function rowsForDataHealthQuery(sql: string): Array<Record<string, unknown>> {

@@ -156,6 +156,13 @@ type WarReportHealthRow = {
   oldest_missing_finished_at: number | null;
 };
 
+type GymStatsHealthRow = {
+  target_date: string | null;
+  latest_gym_snapshot_date: string | null;
+  gym_lag_days: number | null;
+  stale_gym_members: number;
+};
+
 type DataHealthSnapshot = {
   now: number;
   settings: DataHealthSettings;
@@ -164,6 +171,7 @@ type DataHealthSnapshot = {
   maintenance: MaintenanceRunRow | null;
   maintenanceTasks: MaintenanceTaskRow[];
   dailyStats: Awaited<ReturnType<typeof getDailyStatsAttention>>;
+  gymStats: GymStatsHealthRow;
   roster: RosterHealthRow;
   apiUsage: ApiUsageHealthRow;
   apiFeatures: ApiUsageFeatureRow[];
@@ -232,6 +240,7 @@ export async function getAdminDataHealth(env: Env): Promise<Response> {
       maintenance_run: snapshot.maintenance,
       maintenance_tasks: snapshot.maintenanceTasks,
       daily_stats_attention: snapshot.dailyStats,
+      gym_stats_health: snapshot.gymStats,
       roster: snapshot.roster,
       api_usage: snapshot.apiUsage,
       api_features: snapshot.apiFeatures,
@@ -315,6 +324,7 @@ async function readDataHealthSnapshot(
     readStockLastError(env),
     readWarReportHealth(env),
   ]);
+  const gymStats = await readGymStatsHealth(env, dailyStats.personalstats_target_date);
 
   return {
     now,
@@ -324,6 +334,7 @@ async function readDataHealthSnapshot(
     maintenance: maintenance.run,
     maintenanceTasks: maintenance.tasks,
     dailyStats,
+    gymStats,
     roster,
     apiUsage,
     apiFeatures,
@@ -542,6 +553,47 @@ async function readRosterHealth(env: Env): Promise<RosterHealthRow> {
   };
 }
 
+async function readGymStatsHealth(env: Env, targetDate: string | null): Promise<GymStatsHealthRow> {
+  const latestRow = await env.DB.prepare(
+    `
+    SELECT snapshots.snapshot_date AS snapshot_date
+    FROM member_lifestyle_stat_snapshots snapshots
+    JOIN home_faction_members members
+      ON members.member_id = snapshots.member_id
+     AND members.faction_id = ?
+     AND members.is_current = 1
+     AND members.report_exempt = 0
+    WHERE snapshots.gym_ready = 1
+    ORDER BY snapshots.snapshot_date DESC
+    LIMIT 1
+    `,
+  ).bind(HOME_FACTION_ID).first<{ snapshot_date: string | null }>();
+  const latestGymSnapshotDate = latestRow?.snapshot_date ?? null;
+
+  const staleRow = targetDate
+    ? await env.DB.prepare(
+      `
+      SELECT COUNT(CASE WHEN snapshots.member_id IS NULL THEN 1 END) AS stale_gym_members
+      FROM home_faction_members members
+      LEFT JOIN member_lifestyle_stat_snapshots snapshots
+        ON snapshots.member_id = members.member_id
+       AND snapshots.snapshot_date = ?
+       AND snapshots.gym_ready = 1
+      WHERE members.faction_id = ?
+        AND members.is_current = 1
+        AND members.report_exempt = 0
+      `,
+    ).bind(targetDate, HOME_FACTION_ID).first<{ stale_gym_members: number | null }>()
+    : null;
+
+  return {
+    target_date: targetDate,
+    latest_gym_snapshot_date: latestGymSnapshotDate,
+    gym_lag_days: targetDate && latestGymSnapshotDate ? calendarDateDiffDays(latestGymSnapshotDate, targetDate) : null,
+    stale_gym_members: Number(staleRow?.stale_gym_members ?? 0),
+  };
+}
+
 async function readApiUsageHealth(env: Env, now: number): Promise<ApiUsageHealthRow> {
   const row = await env.DB.prepare(
     `
@@ -682,7 +734,8 @@ function subsystemsFromSnapshot(snapshot: DataHealthSnapshot): DataHealthSubsyst
   return [
     ingestionSubsystem(snapshot),
     maintenanceSubsystem(snapshot),
-    dailyStatsSubsystem(snapshot),
+    personalStatsSubsystem(snapshot),
+    gymStatsSubsystem(snapshot),
     rosterSubsystem(snapshot),
     apiSubsystem(snapshot),
     stockSubsystem(snapshot),
@@ -762,7 +815,7 @@ function maintenanceSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem
   };
 }
 
-function dailyStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
+function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const attention = snapshot.dailyStats;
   const lagStatus = attention.personalstats_lag_days === null
     ? "unknown"
@@ -779,15 +832,46 @@ function dailyStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem 
   );
   const status = maxStatus(lagStatus, countStatus);
   return {
-    key: "daily_stats",
-    label: "Daily member stats",
+    key: "personal_stats",
+    label: "Personal stats",
     status,
-    summary: affectedCount > 0 ? `${affectedCount} reportable members need attention` : "Daily personal stats are current",
+    summary: affectedCount > 0 ? `${affectedCount} reportable members need personal stat attention` : "Personal stats are current",
     updated_at: null,
     metrics: [
       { label: "Lag days", value: attention.personalstats_lag_days === null ? "-" : String(attention.personalstats_lag_days) },
       { label: "Stale stats", value: String(attention.stale_personalstats) },
       { label: "Donator-day gaps", value: String(attention.missing_donator_days) },
+    ],
+  };
+}
+
+function gymStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
+  const gymStats = snapshot.gymStats;
+  const lagStatus = gymStats.gym_lag_days === null
+    ? "unknown"
+    : statusForCount(
+      gymStats.gym_lag_days,
+      snapshot.settings.daily_stats_lag_warn_days,
+      snapshot.settings.daily_stats_lag_critical_days,
+    );
+  const countStatus = statusForCount(
+    gymStats.stale_gym_members,
+    snapshot.settings.stale_daily_members_warn,
+    snapshot.settings.stale_daily_members_critical,
+  );
+  const status = maxStatus(lagStatus, countStatus);
+  return {
+    key: "gym_stats",
+    label: "Gym stats",
+    status,
+    summary: gymStats.stale_gym_members > 0
+      ? `${gymStats.stale_gym_members} reportable members need gym snapshots`
+      : "Gym stats are current",
+    updated_at: null,
+    metrics: [
+      { label: "Lag days", value: gymStats.gym_lag_days === null ? "-" : String(gymStats.gym_lag_days) },
+      { label: "Stale members", value: String(gymStats.stale_gym_members) },
+      { label: "Latest snapshot", value: gymStats.latest_gym_snapshot_date ?? "-" },
     ],
   };
 }
@@ -802,8 +886,8 @@ function rosterSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
     updated_at: roster.updated_at,
     metrics: [
       { label: "Current", value: String(roster.current_members) },
-      { label: "Reportable", value: String(roster.reportable_members) },
-      { label: "Revivable", value: String(roster.revivable_members) },
+      { label: "Stat estimates", value: String(roster.stat_estimates) },
+      { label: "Networth estimates", value: String(roster.networth_estimates) },
     ],
   };
 }
@@ -911,15 +995,18 @@ function issueDetailForSubsystem(snapshot: DataHealthSnapshot, subsystem: DataHe
   }
   if (subsystem.key === "maintenance" && snapshot.maintenance?.error) return snapshot.maintenance.error;
   if (subsystem.key === "stock_data" && snapshot.stockRun?.error) return snapshot.stockRun.error;
-  if (subsystem.key === "daily_stats") {
+  if (subsystem.key === "personal_stats") {
     return `${snapshot.dailyStats.stale_personalstats} stale personalstats, ${snapshot.dailyStats.missing_donator_days} missing donator-day gaps`;
+  }
+  if (subsystem.key === "gym_stats") {
+    return `${snapshot.gymStats.stale_gym_members} stale gym snapshots; latest gym snapshot: ${snapshot.gymStats.latest_gym_snapshot_date ?? "-"}`;
   }
   return subsystem.metrics.map((metric) => `${metric.label}: ${metric.value}`).join("; ");
 }
 
 function actionForSubsystem(key: string): { view: string; label: string } | null {
   if (key === "stock_data") return { view: "stockMarketStatus", label: "Open stock market" };
-  if (key === "daily_stats" || key === "roster") return { view: "lifestyle", label: "Open daily stats" };
+  if (key === "personal_stats" || key === "gym_stats" || key === "roster") return { view: "lifestyle", label: "Open member stats" };
   if (key === "war_reports") return { view: "admin", label: "Open admin controls" };
   return { view: "admin", label: "Open admin controls" };
 }
@@ -961,6 +1048,20 @@ function positiveSetting(value: unknown, fallback: number): number {
 function nullableNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function calendarDateDiffDays(startDate: string, endDate: string): number {
+  const [startYear, startMonth, startDay] = startDate.split("-").map(Number);
+  const [endYear, endMonth, endDay] = endDate.split("-").map(Number);
+  if (
+    !Number.isFinite(startYear) || !Number.isFinite(startMonth) || !Number.isFinite(startDay) ||
+    !Number.isFinite(endYear) || !Number.isFinite(endMonth) || !Number.isFinite(endDay)
+  ) {
+    return 0;
+  }
+  const start = Date.UTC(startYear, startMonth - 1, startDay);
+  const end = Date.UTC(endYear, endMonth - 1, endDay);
+  return Math.floor((end - start) / 86_400_000);
 }
 
 function formatTimestampMetric(timestamp: number | null): string {
