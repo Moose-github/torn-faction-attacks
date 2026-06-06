@@ -989,24 +989,21 @@ h2 {
 }
 
 .data-health-tile-metrics .dashboard-metric-line,
-.data-health-api-grid .dashboard-metric-line,
-.data-health-detail-panel .dashboard-metric-line {
+.data-health-api-grid .dashboard-metric-line {
   grid-template-columns: minmax(128px, 0.72fr) minmax(0, 1fr);
   padding-top: 8px;
   border-top: 1px solid #e2e8f0;
 }
 
 .data-health-tile-metrics .dashboard-metric-line span,
-.data-health-api-grid .dashboard-metric-line span,
-.data-health-detail-panel .dashboard-metric-line span {
+.data-health-api-grid .dashboard-metric-line span {
   color: #334155;
   font-size: 0.82rem;
   font-weight: 900;
 }
 
 .data-health-tile-metrics .dashboard-metric-line strong,
-.data-health-api-grid .dashboard-metric-line strong,
-.data-health-detail-panel .dashboard-metric-line strong {
+.data-health-api-grid .dashboard-metric-line strong {
   color: #0f172a;
   font-size: 0.9rem;
   font-weight: 900;
@@ -1058,13 +1055,6 @@ h2 {
   font-size: 0.82rem;
   font-weight: 800;
   line-height: 1.4;
-}
-
-.data-health-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
 }
 
 .data-health-drilldown-grid {
@@ -6056,8 +6046,7 @@ h2 {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .data-health-subsystem-grid,
-  .data-health-detail-grid {
+  .data-health-subsystem-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -6747,7 +6736,6 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .data-health-metric-card strong,
 :root[data-theme="dark"] .data-health-tile-metrics .dashboard-metric-line strong,
 :root[data-theme="dark"] .data-health-api-grid .dashboard-metric-line strong,
-:root[data-theme="dark"] .data-health-detail-panel .dashboard-metric-line strong,
 :root[data-theme="dark"] .data-health-drilldown-metrics .dashboard-metric-line strong,
 :root[data-theme="dark"] .data-health-coverage-bars em,
 :root[data-theme="dark"] .data-health-table td:first-child,
@@ -6767,7 +6755,6 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .data-health-metric-card p,
 :root[data-theme="dark"] .data-health-tile-metrics .dashboard-metric-line span,
 :root[data-theme="dark"] .data-health-api-grid .dashboard-metric-line span,
-:root[data-theme="dark"] .data-health-detail-panel .dashboard-metric-line span,
 :root[data-theme="dark"] .data-health-drilldown-metrics .dashboard-metric-line span,
 :root[data-theme="dark"] .data-health-coverage-bars b,
 :root[data-theme="dark"] .data-health-settings-form label > span,
@@ -6777,8 +6764,7 @@ tbody tr:not(.attack-row):hover td {
 }
 
 :root[data-theme="dark"] .data-health-tile-metrics .dashboard-metric-line,
-:root[data-theme="dark"] .data-health-api-grid .dashboard-metric-line,
-:root[data-theme="dark"] .data-health-detail-panel .dashboard-metric-line {
+:root[data-theme="dark"] .data-health-api-grid .dashboard-metric-line {
   border-top-color: rgba(148, 163, 184, 0.25);
 }
 

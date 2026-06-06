@@ -1,11 +1,9 @@
 import React from "react";
 import {
-  Activity,
   AlertTriangle,
   BarChart3,
   CheckCircle2,
   Clock3,
-  Database,
   Gauge,
   Radar,
   ServerCog,
@@ -290,67 +288,6 @@ function AdminDataHealthDiagnostics({
             ))}
           </div>
         )}
-      </section>
-
-      <section className="data-health-detail-grid">
-        <DetailPanel
-          icon={<Activity size={17} />}
-          title="Ingestion"
-          rows={[
-            ["Status", data.details.ingestion_run?.status ?? "-"],
-            ["Started", formatDate(data.details.ingestion_run?.started_at ?? null)],
-            ["Finished", formatDate(data.details.ingestion_run?.finished_at ?? null)],
-            ["Fetched attacks", formatNumber(data.details.ingestion_run?.fetched_attacks ?? 0)],
-            ["Latest attack", formatDate(data.details.ingestion_run?.latest_attack_started ?? null)],
-            ["Error", data.details.ingestion_run?.error ?? "-"],
-          ]}
-        />
-        <DetailPanel
-          icon={<ServerCog size={17} />}
-          title="Maintenance"
-          rows={[
-            ["Status", data.details.maintenance_run?.status ?? "-"],
-            ["Started", formatDate(data.details.maintenance_run?.started_at ?? null)],
-            ["Finished", formatDate(data.details.maintenance_run?.finished_at ?? null)],
-            ["Tasks", formatNumber(data.details.maintenance_run?.task_count ?? 0)],
-            ["Changed rows", formatNumber(data.details.maintenance_run?.changed_rows ?? 0)],
-            ["Failed tasks", formatNumber(data.details.maintenance_tasks.filter((task) => task.status === "error").length)],
-          ]}
-        />
-        <DetailPanel
-          icon={<BarChart3 size={17} />}
-          title="Personal stats"
-          rows={[
-            ["Target date", data.details.daily_stats_attention.personalstats_target_date ?? "-"],
-            ["Latest bucket", data.details.daily_stats_attention.latest_personalstats_bucket_date ?? "-"],
-            ["Lag days", nullableNumber(data.details.daily_stats_attention.personalstats_lag_days)],
-            ["Stale personalstats", formatNumber(data.details.daily_stats_attention.stale_personalstats)],
-            ["Donator-day gaps", formatNumber(data.details.daily_stats_attention.missing_donator_days)],
-          ]}
-        />
-        <DetailPanel
-          icon={<Activity size={17} />}
-          title="Gym stats"
-          rows={[
-            ["Stat streams", `${data.details.gym_stats_health.completed_gym_stats.length}/5`],
-            ["Missing streams", gymStatStreamList(data.details.gym_stats_health.missing_gym_stats)],
-            ["Target date", data.details.gym_stats_health.target_date ?? "-"],
-            ["Published date", data.details.gym_stats_health.latest_gym_snapshot_date ?? "-"],
-            ["Lag days", nullableNumber(data.details.gym_stats_health.gym_lag_days)],
-            ["Members impacted", formatNumber(data.details.gym_stats_health.stale_gym_members)],
-          ]}
-        />
-        <DetailPanel
-          icon={<Database size={17} />}
-          title="Stock data"
-          rows={[
-            ["Latest run", data.details.stock_run?.status ?? "-"],
-            ["Newest snapshot", formatDate(data.details.stock_coverage.newest_snapshot_at)],
-            ["Coverage", `${formatNumber(data.details.stock_coverage.stocks_with_snapshots)}/${formatNumber(data.details.stock_coverage.total_stocks)}`],
-            ["Stale stocks", formatNumber(data.details.stock_coverage.stale_stocks)],
-            ["Last error", data.details.stock_last_error ?? "-"],
-          ]}
-        />
       </section>
 
       <section className="data-health-drilldown-grid">
@@ -744,27 +681,6 @@ function RadarIcon() {
   return <Radar size={17} />;
 }
 
-function DetailPanel({
-  icon,
-  title,
-  rows,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  rows: Array<[string, string]>;
-}) {
-  return (
-    <section className="panel data-health-detail-panel">
-      <PanelHeader icon={icon} title={title} />
-      <div className="admin-metric-list">
-        {rows.map(([label, value]) => (
-          <MetricLine key={`${title}-${label}`} label={label} value={value} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function HealthMetric({
   label,
   value,
@@ -822,18 +738,6 @@ function formatDate(timestamp: number | null): string {
 
 function nullableNumber(value: number | null): string {
   return value === null ? "-" : formatNumber(value);
-}
-
-function gymStatStreamList(stats: string[]): string {
-  if (stats.length === 0) return "None";
-  return stats.map((stat) => {
-    if (stat === "gymenergy") return "Energy";
-    if (stat === "gymstrength") return "Strength";
-    if (stat === "gymspeed") return "Speed";
-    if (stat === "gymdefense") return "Defense";
-    if (stat === "gymdexterity") return "Dexterity";
-    return stat;
-  }).join(", ");
 }
 
 function displayMetricValue(value: string, timestamp: number | null | undefined): string {
