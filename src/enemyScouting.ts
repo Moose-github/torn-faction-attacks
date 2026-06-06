@@ -57,49 +57,21 @@ import {
   TORN_LOCATION,
 } from "./enemyTravel";
 import { readWarFromScoutingUrl } from "./warRequest";
+import type { EnemyFactionMemberRow } from "./enemyScouting/model";
+import {
+  readEnemyScouting,
+  readHomeScouting,
+} from "./enemyScouting/queries";
+export {
+  readCurrentScoutingWar,
+  readEnemyScouting,
+  readHomeScouting,
+} from "./enemyScouting/queries";
+export type { CurrentScoutingWar, EnemyFactionMemberRow } from "./enemyScouting/model";
 
 const FFSCOUTER_BATCH_SIZE = 100;
 const SCOUTING_FETCH_TIMEOUT_MS = 15000;
 const LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX = "enemy_live_tracking_cleared";
-
-export type EnemyFactionMemberRow = {
-  member_id: number;
-  faction_id: number;
-  name: string;
-  level: number | null;
-  position: string | null;
-  days_in_faction: number | null;
-  is_revivable: number | null;
-  ff_battlestats: number | null;
-  ff_battlestats_updated_at: number | null;
-  bsp_battlestats: number | null;
-  bsp_battlestats_updated_at: number | null;
-  networth: number | null;
-  networth_updated_at: number | null;
-  networth_attempted_at: number | null;
-  networth_attempt_count: number | null;
-  networth_error: string | null;
-  networth_key_source: string | null;
-  status_state?: string | null;
-  status_description?: string | null;
-  last_action_status?: string | null;
-  last_action_timestamp?: number | null;
-  plane_image_type?: string | null;
-  travel_origin?: string | null;
-  travel_destination?: string | null;
-  travel_signature?: string | null;
-  travel_detected_at?: number | null;
-  travel_started_after?: number | null;
-  travel_started_before?: number | null;
-  estimated_arrival_at?: number | null;
-  estimated_arrival_earliest?: number | null;
-  estimated_arrival_latest?: number | null;
-  travel_trip_destination?: string | null;
-  travel_trip_type?: string | null;
-  travel_trip_inferred_at?: number | null;
-  status_updated_at?: number | null;
-  updated_at: number;
-};
 
 type FfBattlestatEstimate = {
   stats: number;
@@ -170,17 +142,6 @@ type EnemyScoutingWar = {
   id: number;
   enemy_faction_id: number | null;
   enemy_scouting_auto_attempted_at: number | null;
-};
-
-export type CurrentScoutingWar = {
-  id: number;
-  name: string;
-  enemy_faction_id: number;
-  war_type: string | null;
-  practical_start_time: number;
-  practical_finish_time: number | null;
-  official_start_time: number | null;
-  enemy_scouting_status_checked_at: number | null;
 };
 
 export type EnemyMemberTrackingRefreshMetrics = {
@@ -398,62 +359,6 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
         .run();
     }
   }
-}
-
-export async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingWar | null> {
-  return (await env.DB.prepare(
-    `
-    SELECT
-      id,
-      name,
-      enemy_faction_id,
-      war_type,
-      practical_start_time,
-      practical_finish_time,
-      official_start_time,
-      enemy_scouting_status_checked_at
-    FROM wars
-    WHERE enemy_faction_id IS NOT NULL
-      AND official_end_time IS NULL
-      AND COALESCE(war_type, 'real') != 'event'
-    ORDER BY practical_start_time DESC, id DESC
-    LIMIT 1
-    `,
-  ).first()) as CurrentScoutingWar | null;
-}
-
-export async function readEnemyScouting(
-  env: Env,
-  factionId: number,
-): Promise<EnemyFactionMemberRow[]> {
-  const rows = await env.DB.prepare(
-    `
-    SELECT *
-    FROM enemy_faction_members
-    WHERE faction_id = ?
-    ORDER BY ff_battlestats DESC NULLS LAST, level DESC, name ASC
-    `,
-  )
-    .bind(factionId)
-    .all();
-
-  return (rows.results ?? []) as EnemyFactionMemberRow[];
-}
-
-export async function readHomeScouting(env: Env): Promise<EnemyFactionMemberRow[]> {
-  const rows = await env.DB.prepare(
-    `
-    SELECT *
-    FROM home_faction_members
-    WHERE faction_id = ?
-      AND is_current = 1
-    ORDER BY ff_battlestats DESC NULLS LAST, level DESC, name ASC
-    `,
-  )
-    .bind(HOME_FACTION_ID)
-    .all();
-
-  return (rows.results ?? []) as EnemyFactionMemberRow[];
 }
 
 async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: number): Promise<boolean> {
