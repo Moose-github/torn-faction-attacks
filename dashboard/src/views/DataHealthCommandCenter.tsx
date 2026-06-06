@@ -152,8 +152,8 @@ function DataHealthOverview({
           <p className="eyebrow">Operations</p>
           <h2>Data health</h2>
           <p>
-            A quick read on whether the dashboard data is fresh enough to trust.
-            Warnings usually mean a feed is delayed; critical means admins should investigate.
+            Checks whether the dashboard has fresh data to show. Warnings mean some data may be late,
+            missing, or waiting on the next update.
           </p>
         </div>
         <button
@@ -171,19 +171,16 @@ function DataHealthOverview({
           label="Overall"
           value={statusLabel(visibleOverallStatus)}
           status={visibleOverallStatus}
-          detail="Highest severity across the shared subsystems below."
         />
         <HealthMetric
           label="Critical"
           value={formatNumber(criticalCount)}
           status={criticalCount > 0 ? "critical" : "good"}
-          detail="Checks that are failing, missing, or far outside their target freshness."
         />
         <HealthMetric
           label="Warnings"
           value={formatNumber(warnCount)}
           status={warnCount > 0 ? "warn" : "good"}
-          detail="Checks that are still usable but may be stale or degraded."
         />
       </section>
 
@@ -685,21 +682,20 @@ function HealthMetric({
   label,
   value,
   status,
-  detail,
 }: {
   label: string;
   value: string;
   status: DataHealthStatus;
-  detail: string;
 }) {
   return (
     <section className={`metric-card data-health-metric-card ${status}`}>
       <div className="panel-kicker">
-        {status === "good" ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+        <span className={`data-health-metric-icon ${status}`}>
+          {status === "good" ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+        </span>
         <span>{label}</span>
       </div>
       <strong>{value}</strong>
-      <p>{detail}</p>
     </section>
   );
 }

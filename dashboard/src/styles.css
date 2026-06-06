@@ -796,7 +796,7 @@ h2 {
 }
 
 .data-health-metric-card {
-  min-height: 126px;
+  min-height: 96px;
   border-width: 1.5px;
 }
 
@@ -806,17 +806,43 @@ h2 {
   line-height: 1.05;
 }
 
-.data-health-metric-card p {
-  margin: 0;
-  color: #475569;
-  font-size: 0.84rem;
-  font-weight: 750;
-  line-height: 1.42;
-}
-
 .data-health-metric-card .panel-kicker {
   color: #334155;
   font-size: 0.82rem;
+}
+
+.data-health-metric-icon {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.data-health-metric-icon.good {
+  border-color: #22c55e;
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.data-health-metric-icon.warn {
+  border-color: #f59e0b;
+  background: #fef3c7;
+  color: #78350f;
+}
+
+.data-health-metric-icon.critical {
+  border-color: #ef4444;
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.data-health-metric-icon.unknown {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  color: #334155;
 }
 
 .data-health-metric-card.good .panel-kicker,
@@ -6752,7 +6778,6 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .data-health-issue-row small,
 :root[data-theme="dark"] .data-health-coverage-row span,
 :root[data-theme="dark"] .data-health-coverage-row small,
-:root[data-theme="dark"] .data-health-metric-card p,
 :root[data-theme="dark"] .data-health-tile-metrics .dashboard-metric-line span,
 :root[data-theme="dark"] .data-health-api-grid .dashboard-metric-line span,
 :root[data-theme="dark"] .data-health-drilldown-metrics .dashboard-metric-line span,
@@ -6761,6 +6786,30 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .data-health-settings-form small,
 :root[data-theme="dark"] .data-health-metric-card .panel-kicker {
   color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .data-health-metric-icon.good {
+  border-color: rgba(34, 197, 94, 0.6);
+  background: rgba(34, 197, 94, 0.18);
+  color: #86efac;
+}
+
+:root[data-theme="dark"] .data-health-metric-icon.warn {
+  border-color: rgba(245, 158, 11, 0.62);
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+:root[data-theme="dark"] .data-health-metric-icon.critical {
+  border-color: rgba(248, 113, 113, 0.68);
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+:root[data-theme="dark"] .data-health-metric-icon.unknown {
+  border-color: var(--border-solid);
+  background: var(--panel-muted-bg);
+  color: var(--text-muted);
 }
 
 :root[data-theme="dark"] .data-health-tile-metrics .dashboard-metric-line,
