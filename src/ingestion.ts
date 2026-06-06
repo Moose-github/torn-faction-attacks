@@ -26,7 +26,7 @@ import {
   TornRankedWarFaction,
   TornRankedWarResponse,
 } from "./types";
-import { trackedTornFetch } from "./tornApiUsage";
+import { fetchTrackedTornJson } from "./external/torn";
 import { boolToInt, d1Changes, json, normalizeAttacks, nowSeconds } from "./utils";
 import {
   applyTornOfficialWarEnd,
@@ -728,7 +728,7 @@ async function fetchAttacks(env: Env, from: number, to?: number): Promise<TornAt
   }
   url.searchParams.set("limit", String(LIMIT));
 
-  const response = await trackedTornFetch(env, url, {
+  return fetchTrackedTornJson<TornAttackResponse>(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
@@ -736,13 +736,9 @@ async function fetchAttacks(env: Env, from: number, to?: number): Promise<TornAt
   }, {
     feature: "ingestion:attacks",
     keySource: "env:TORN_API_KEY",
+  }, {
+    service: "Torn attacks",
   });
-
-  if (!response.ok) {
-    throw new Error(`Torn API error: ${response.status}`);
-  }
-
-  return response.json();
 }
 
 export async function ingestRecentFactionAttacks(
@@ -1385,7 +1381,7 @@ async function fetchLatestRankedWar(env: Env): Promise<TornRankedWar | null> {
   url.searchParams.set("limit", "1");
   url.searchParams.set("sort", "DESC");
 
-  const response = await trackedTornFetch(env, url, {
+  const data = await fetchTrackedTornJson<TornRankedWarResponse>(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
@@ -1393,13 +1389,10 @@ async function fetchLatestRankedWar(env: Env): Promise<TornRankedWar | null> {
   }, {
     feature: "ingestion:rankedwars",
     keySource: "env:TORN_API_KEY",
+  }, {
+    service: "Torn ranked wars",
   });
 
-  if (!response.ok) {
-    throw new Error(`Torn ranked wars API error: ${response.status}`);
-  }
-
-  const data = (await response.json()) as TornRankedWarResponse;
   return data.rankedwars?.[0] ?? null;
 }
 

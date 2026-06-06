@@ -1,4 +1,5 @@
 import { cleanString, readJsonObject } from "./backend/request";
+import { postDiscordForm, postDiscordJson } from "./external/discord";
 import { Env } from "./types";
 import { json } from "./utils";
 
@@ -47,18 +48,7 @@ export async function sendDiscordMessage(
     throw new Error("DISCORD_WEBHOOK_URL is not configured");
   }
 
-  const response = await fetch(env.DISCORD_WEBHOOK_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(discordPayload(message, allowedMentions)),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Discord webhook failed: ${response.status}${text ? ` ${text}` : ""}`);
-  }
+  await postDiscordJson(env.DISCORD_WEBHOOK_URL, discordPayload(message, allowedMentions));
 }
 
 function discordPayload(content: string, allowedMentions?: DiscordAllowedMentions): {
@@ -133,13 +123,5 @@ export async function sendDiscordMessageWithAttachments(
     );
   });
 
-  const response = await fetch(env.DISCORD_WEBHOOK_URL, {
-    method: "POST",
-    body: form,
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Discord webhook failed: ${response.status}${text ? ` ${text}` : ""}`);
-  }
+  await postDiscordForm(env.DISCORD_WEBHOOK_URL, form);
 }

@@ -8,7 +8,7 @@ import {
 import { bumpWarCacheVersion } from "./cacheVersions";
 import { warNameFromWarRoute } from "./routes";
 import { OUTGOING_ACTION_WINDOW_SQL } from "./sql";
-import { trackedTornFetch } from "./tornApiUsage";
+import { fetchTrackedTornJson } from "./external/torn";
 import { Env, TornRankedWarReport, TornRankedWarReportResponse } from "./types";
 import { json, nowSeconds } from "./utils";
 
@@ -223,7 +223,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
 
 export async function fetchTornRankedWarReport(tornWarId: number, env: Env) {
   const url = new URL(`${RANKED_WAR_REPORT_API_BASE_URL}/${tornWarId}/rankedwarreport`);
-  const response = await trackedTornFetch(env, url, {
+  const data = await fetchTrackedTornJson<TornRankedWarReportResponse>(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
@@ -231,13 +231,10 @@ export async function fetchTornRankedWarReport(tornWarId: number, env: Env) {
   }, {
     feature: "ranked-war-report",
     keySource: "env:TORN_API_KEY",
+  }, {
+    service: "Torn ranked war report",
   });
 
-  if (!response.ok) {
-    throw new Error(`Torn ranked war report API error: ${response.status}`);
-  }
-
-  const data = (await response.json()) as TornRankedWarReportResponse;
   return data.rankedwarreport ?? null;
 }
 

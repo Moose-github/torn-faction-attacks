@@ -1,6 +1,7 @@
 import { HOME_FACTION_ID, TORN_FACTION_API_BASE_URL } from "../constants";
 import { bumpMemberLifestyleCacheVersion } from "../cacheVersions";
 import { fetchTornFactionMembers } from "../enemyScouting";
+import { fetchTrackedTornJson } from "../external/torn";
 import { refreshMemberAchievementSummaries } from "../memberAchievements";
 import {
   fetchTornPersonalStatsWithTimestamps,
@@ -9,7 +10,6 @@ import {
 } from "../personalStats";
 import { claimDailyBatchGate } from "../scheduledGates";
 import { deleteSyncState, readSyncState, readSyncTimestamp, upsertSyncTimestamp } from "../syncState";
-import { trackedTornFetch } from "../tornApiUsage";
 import { Env, TornFactionMember } from "../types";
 import { boolToInt, d1Changes, finiteNumber, json, nowSeconds } from "../utils";
 
@@ -2440,7 +2440,7 @@ async function fetchFactionContributorStat(
   url.searchParams.set("stat", stat);
   url.searchParams.set("cat", "current");
 
-  const response = await trackedTornFetch(env, url, {
+  const data = await fetchTrackedTornJson<any>(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
@@ -2449,18 +2449,9 @@ async function fetchFactionContributorStat(
     feature: "lifestyle:contributors",
     keySource: "env:TORN_API_KEY",
     timeoutMs: GYM_CONTRIBUTOR_FETCH_TIMEOUT_MS,
+  }, {
+    service: `Torn faction contributors ${stat}`,
   });
-
-  if (!response.ok) {
-    throw new Error(`Torn faction contributors API error for ${stat}: ${response.status}`);
-  }
-
-  const data = (await response.json()) as any;
-  if (data?.error) {
-    throw new Error(
-      data.error.error ?? data.error.message ?? `Torn faction contributors API error for ${stat}`,
-    );
-  }
 
   return extractContributorValues(data?.contributors, stat);
 }

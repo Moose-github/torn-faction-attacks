@@ -1,5 +1,5 @@
 import { Env } from "../types";
-import { trackedTornFetch } from "../tornApiUsage";
+import { fetchTrackedTornJson } from "../external/torn";
 import { cleanText, finiteNumber, json, nowSeconds, parseLimit } from "../utils";
 import {
   isRecord,
@@ -642,7 +642,7 @@ async function fetchCopyMovementActivity(
   observedAt: number,
 ): Promise<CopyMovementActivity> {
   const url = new URL(`${COPY_MOVEMENT_TORN_API_BASE}/user/${encodeURIComponent(String(playerId))}/basic`);
-  const response = await trackedTornFetch(env, url, {
+  const data = await fetchTrackedTornJson<unknown>(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
@@ -652,15 +652,9 @@ async function fetchCopyMovementActivity(
     feature: "stock-copy-movement:activity",
     keySource: "env:TORN_API_KEY",
     timeoutMs: COPY_MOVEMENT_ACTIVITY_TIMEOUT_MS,
+  }, {
+    service: "Torn copy movement activity",
   });
-
-  const data = await readCopyMovementJson(response);
-  if (!response.ok) {
-    throw new Error(`Torn copy movement activity API error: ${response.status}`);
-  }
-  if (isRecord(data) && isRecord(data.error)) {
-    throw new Error(String(data.error.error ?? data.error.message ?? "Torn copy movement activity API error"));
-  }
 
   const profile = isRecord(data) && isRecord(data.profile) ? data.profile : data;
   const lastAction = isRecord(profile) && isRecord(profile.last_action) ? profile.last_action : null;
@@ -682,14 +676,6 @@ async function fetchCopyMovementActivity(
     active,
     raw_json: data,
   };
-}
-
-async function readCopyMovementJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return { raw: await response.text().catch(() => "") };
-  }
 }
 
 function buildCopyMovementSignals(

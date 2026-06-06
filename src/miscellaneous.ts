@@ -4,8 +4,8 @@ import {
   readSetSyncLatches,
   setSyncLatch,
 } from "./syncLatches";
+import { fetchTrackedTornJson } from "./external/torn";
 import { Env } from "./types";
-import { trackedTornFetch } from "./tornApiUsage";
 import { json, nowSeconds } from "./utils";
 
 const TORN_SHOPLIFTING_API_URL = "https://api.torn.com/v2/torn";
@@ -135,7 +135,7 @@ async function fetchTornShoplifting(env: Env): Promise<Record<string, TornShopli
   const url = new URL(TORN_SHOPLIFTING_API_URL);
   url.searchParams.set("selections", "shoplifting");
 
-  const response = await trackedTornFetch(env, url, {
+  const data = await fetchTrackedTornJson<TornShopliftingResponse>(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
@@ -143,16 +143,9 @@ async function fetchTornShoplifting(env: Env): Promise<Record<string, TornShopli
   }, {
     feature: "miscellaneous:shoplifting",
     keySource: "env:TORN_API_KEY",
+  }, {
+    service: "Torn shoplifting",
   });
-
-  if (!response.ok) {
-    throw new Error(`Torn shoplifting API error: ${response.status}`);
-  }
-
-  const data = (await response.json()) as TornShopliftingResponse;
-  if (data.error) {
-    throw new Error(data.error.error ?? data.error.message ?? `Torn API error ${data.error.code ?? ""}`.trim());
-  }
 
   return normalizeShoplifting(data.shoplifting ?? {});
 }

@@ -5,9 +5,9 @@ import {
   TORN_FACTION_CHAIN_API_URL,
 } from "./constants";
 import { sendDiscordMessage } from "./discord";
+import { fetchTrackedTornJson } from "./external/torn";
 import { warNameFromWarRoute } from "./routes";
 import { WAR_SELECT_COLUMNS } from "./sql";
-import { trackedTornFetch } from "./tornApiUsage";
 import { Env, WarRow } from "./types";
 import { finiteNumber, json, nowSeconds } from "./utils";
 import { readJsonObject } from "./backend/request";
@@ -812,7 +812,7 @@ async function readTornChain(
   env: Env,
   now: number,
 ): Promise<{ chain: ParsedTornChain | null; error: string | null }> {
-  const response = await trackedTornFetch(
+  const data = await fetchTrackedTornJson<unknown>(
     env,
     TORN_FACTION_CHAIN_API_URL,
     {
@@ -826,13 +826,12 @@ async function readTornChain(
       keySource: "env:TORN_API_KEY",
       timeoutMs: 10_000,
     },
+    {
+      service: "Torn chain",
+    },
   );
 
-  if (!response.ok) {
-    throw new Error(`Torn chain API error: ${response.status}`);
-  }
-
-  return { chain: parseTornChainResponse(await response.json(), now), error: null };
+  return { chain: parseTornChainResponse(data, now), error: null };
 }
 
 async function sendChainWatchDiscordMessage(env: Env, message: string): Promise<void> {

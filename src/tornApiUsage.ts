@@ -1,7 +1,7 @@
 import { Env } from "./types";
 import { fetchWithTimeout, json, nowSeconds, parseLimit } from "./utils";
 
-type TornApiCallInput = {
+export type TornApiCallInput = {
   feature: string;
   keySource: string;
   retryAttempt?: number;

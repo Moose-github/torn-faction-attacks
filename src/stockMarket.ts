@@ -1,6 +1,6 @@
 import { readAvailableEnemyNetworthKeys } from "./enemyNetworth";
+import { fetchTrackedTornJson } from "./external/torn";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
-import { trackedTornFetch } from "./tornApiUsage";
 import { Env } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 
@@ -664,7 +664,7 @@ async function fetchTornJson(endpoint: string, env: Env): Promise<unknown> {
     throw new Error("No Torn API key available for stock market refresh");
   }
 
-  const response = await trackedTornFetch(env, `${TORN_API_BASE}${endpoint}`, {
+  return fetchTrackedTornJson<unknown>(env, `${TORN_API_BASE}${endpoint}`, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${key.key}`,
@@ -674,25 +674,9 @@ async function fetchTornJson(endpoint: string, env: Env): Promise<unknown> {
     feature: "stock-market",
     keySource: key.keySource,
     timeoutMs: REQUEST_TIMEOUT_MS,
+  }, {
+    service: "Torn stock",
   });
-
-  const data = await readUpstreamJson(response);
-  if (!response.ok) {
-    throw new Error(`Torn stock API error: ${response.status}`);
-  }
-  if (isRecord(data) && isRecord(data.error)) {
-    throw new Error(String(data.error.error ?? data.error.message ?? "Torn API error"));
-  }
-
-  return data;
-}
-
-async function readUpstreamJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return { raw: await response.text().catch(() => "") };
-  }
 }
 
 function normalizeStockProfiles(data: unknown, fetchedAt: number): StockProfile[] {

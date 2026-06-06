@@ -1,5 +1,9 @@
+import {
+  readExternalJson,
+  throwIfUpstreamError,
+} from "./external/http";
+import { fetchTrackedTornResponse } from "./external/torn";
 import { Env } from "./types";
-import { trackedTornFetch } from "./tornApiUsage";
 import { finiteNumber } from "./utils";
 
 const PERSONAL_STATS_API_BASE_URL = "https://api.torn.com/v2/user";
@@ -65,10 +69,8 @@ export async function fetchTornPersonalStatsWithTimestamps(
     throw new TornPersonalStatsHttpError(response.status);
   }
 
-  const data = (await response.json()) as any;
-  if (data?.error) {
-    throw new Error(data.error.error ?? data.error.message ?? "Torn personalstats API error");
-  }
+  const data = await readExternalJson<any>(response);
+  throwIfUpstreamError(data, "Torn personalstats");
 
   return extractPersonalStats(data?.personalstats);
 }
@@ -126,7 +128,7 @@ async function fetchWithTransientRetry(
 
   for (let attempt = 0; attempt <= PERSONAL_STATS_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
-      const response = await trackedTornFetch(env, input, init, {
+      const response = await fetchTrackedTornResponse(env, input, init, {
         feature: "personal-stats",
         keySource: options.keySource,
         retryAttempt: attempt,

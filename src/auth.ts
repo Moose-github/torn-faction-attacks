@@ -4,7 +4,7 @@ import {
   HOME_FACTION_ID,
   TORN_KEY_INFO_API_URL,
 } from "./constants";
-import { trackedTornFetch } from "./tornApiUsage";
+import { fetchTrackedTornJson } from "./external/torn";
 import { Env } from "./types";
 import { json, nowSeconds } from "./utils";
 
@@ -356,7 +356,8 @@ async function fetchTornJson(
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
-  const response = await trackedTornFetch(env, url, {
+
+  return fetchTrackedTornJson<any>(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${tornKey}`,
@@ -364,18 +365,9 @@ async function fetchTornJson(
   }, {
     feature: "auth",
     keySource: "member_supplied:auth",
+  }, {
+    service: "Torn auth",
   });
-
-  if (!response.ok) {
-    throw new Error(`Torn auth API error: ${response.status}`);
-  }
-
-  const data = (await response.json()) as any;
-  if (data?.error) {
-    throw new Error(data.error.error ?? data.error.message ?? "Torn API rejected the key");
-  }
-
-  return data;
 }
 
 function createSessionToken(): string {

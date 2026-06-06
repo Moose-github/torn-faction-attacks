@@ -158,4 +158,3 @@ export const MAX_WATCHLIST_ITEMS = 50;
 export const MAX_SAVED_OPPORTUNITIES = 250;
 export const REQUEST_TIMEOUT_MS = 12_000;
 export const TORN_API_BASE = "https://api.torn.com/v2";
-export const WEAV3R_API_BASE = "https://weav3r.dev/api";

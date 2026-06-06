@@ -1,6 +1,7 @@
 import { Env } from "../types";
-import { trackedTornFetch } from "../tornApiUsage";
-import { fetchWithTimeout, json, nowSeconds } from "../utils";
+import { fetchTrackedTornJson } from "../external/torn";
+import { fetchWeav3rJson as fetchWeav3rClientJson } from "../external/weav3r";
+import { json, nowSeconds } from "../utils";
 import {
   boundedInteger,
   boundedNumber,
@@ -17,7 +18,6 @@ import {
   MAX_WATCHLIST_ITEMS,
   REQUEST_TIMEOUT_MS,
   TORN_API_BASE,
-  WEAV3R_API_BASE,
 } from "./model";
 import type {
   NormalizedOffer,
@@ -855,7 +855,7 @@ async function fetchTornJson(env: Env, endpoint: string, tornKey: string, params
     url.searchParams.set(key, value);
   }
 
-  const response = await trackedTornFetch(env, url, {
+  return fetchTrackedTornJson<any>(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${tornKey}`,
@@ -866,45 +866,10 @@ async function fetchTornJson(env: Env, endpoint: string, tornKey: string, params
     keySource: "member_supplied:trade_scout",
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
-
-  const data = await readUpstreamJson(response);
-  if (!response.ok) {
-    throw new Error(`Torn request failed with HTTP ${response.status}`);
-  }
-  if (data?.error) {
-    throw new Error(`Torn API error: ${data.error.error ?? data.error.message ?? data.error}`);
-  }
-  return data;
 }
 
 async function fetchWeav3rJson(endpoint: string): Promise<any> {
-  if (!endpoint.startsWith("/") || endpoint.includes("..") || endpoint.includes("//")) {
-    throw new Error("Invalid Weav3r endpoint");
-  }
-
-  const response = await fetchWithTimeout(`${WEAV3R_API_BASE}${endpoint}`, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "buttgrass-trade-scout/1.0",
-    },
-  }, REQUEST_TIMEOUT_MS);
-
-  const data = await readUpstreamJson(response);
-  if (!response.ok) {
-    throw new Error(`Weav3r request failed with HTTP ${response.status}`);
-  }
-  if (data?.error) {
-    throw new Error(`Weav3r API error: ${data.message ?? data.error}`);
-  }
-  return data;
-}
-
-async function readUpstreamJson(response: Response): Promise<any> {
-  try {
-    return await response.json();
-  } catch {
-    return { raw: await response.text().catch(() => "") };
-  }
+  return fetchWeav3rClientJson(endpoint, REQUEST_TIMEOUT_MS);
 }
 
 async function readWatchlistPayload(request: Request): Promise<

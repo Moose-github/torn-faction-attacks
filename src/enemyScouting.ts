@@ -1,7 +1,5 @@
 import {
-  FFSCOUTER_STATS_API_URL,
   HOME_FACTION_ID,
-  LOL_MANAGER_BATTLESTATS_API_BASE_URL,
   TORN_FACTION_API_BASE_URL,
 } from "./constants";
 import { bumpWarCacheVersion } from "./cacheVersions";
@@ -34,13 +32,14 @@ import {
   isSyncLatchSet,
 } from "./syncLatches";
 import { hasSyncState, upsertSyncTimestamp } from "./syncState";
-import { trackedTornFetch } from "./tornApiUsage";
+import { fetchBspBattlestatJson } from "./external/bsp";
+import { fetchFfscouterStatsJson } from "./external/ffscouter";
+import { fetchTrackedTornJson } from "./external/torn";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import {
   boolToInt,
   cleanText,
   d1Changes,
-  fetchWithTimeout,
   finiteNumber,
   json,
   nowSeconds,
@@ -1135,7 +1134,7 @@ export async function fetchTornFactionMembers(
   const url = new URL(`${TORN_FACTION_API_BASE_URL}/${factionId}/members`);
   url.searchParams.set("striptags", "false");
 
-  const response = await trackedTornFetch(env, url, {
+  const data = await fetchTrackedTornJson<TornFactionMembersResponse>(env, url, {
     headers: {
       Accept: "application/json",
       Authorization: `ApiKey ${env.TORN_API_KEY}`,
@@ -1144,13 +1143,7 @@ export async function fetchTornFactionMembers(
     feature: "enemy-scouting:faction-members",
     keySource: "env:TORN_API_KEY",
     timeoutMs: SCOUTING_FETCH_TIMEOUT_MS,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Torn faction members API error: ${response.status}`);
-  }
-
-  const data = (await response.json()) as TornFactionMembersResponse;
+  }, { service: "Torn faction members" });
   return normalizeMembers(data.members);
 }
 
@@ -1162,19 +1155,9 @@ async function fetchFfscouterStats(
     return new Map();
   }
 
-  const url = new URL(FFSCOUTER_STATS_API_URL);
-  url.searchParams.set("key", env.FFSCOUTER_API_KEY);
-  url.searchParams.set("targets", memberIds.join(","));
-
-  const response = await fetchWithTimeout(url.toString(), {
-    headers: { Accept: "application/json" },
-  }, SCOUTING_FETCH_TIMEOUT_MS);
-
-  if (!response.ok) {
-    throw new Error(`FFScouter API error: ${response.status}`);
-  }
-
-  return extractFfBattlestatEstimates(await response.json());
+  return extractFfBattlestatEstimates(
+    await fetchFfscouterStatsJson(env.FFSCOUTER_API_KEY, memberIds, SCOUTING_FETCH_TIMEOUT_MS),
+  );
 }
 
 export async function fetchBspBattlestatPrediction(
@@ -1185,16 +1168,9 @@ export async function fetchBspBattlestatPrediction(
     throw new Error("BSP_TORN_API_KEY is not configured");
   }
 
-  const url = `${LOL_MANAGER_BATTLESTATS_API_BASE_URL}/${encodeURIComponent(env.BSP_TORN_API_KEY)}/${memberId}/9.4.2`;
-  const response = await fetchWithTimeout(url, {
-    headers: { Accept: "application/json" },
-  }, SCOUTING_FETCH_TIMEOUT_MS);
-
-  if (!response.ok) {
-    throw new Error(`BSP battlestats API error: ${response.status}`);
-  }
-
-  return parseBspBattlestatPrediction(await response.json());
+  return parseBspBattlestatPrediction(
+    await fetchBspBattlestatJson(env.BSP_TORN_API_KEY, memberId, SCOUTING_FETCH_TIMEOUT_MS),
+  );
 }
 
 function parseBspBattlestatPrediction(data: any): number | null {
