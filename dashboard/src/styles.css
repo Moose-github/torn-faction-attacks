@@ -910,6 +910,9 @@ h2 {
 
 .data-health-panel-description {
   max-width: 820px;
+  color: #475569;
+  font-size: 0.94rem;
+  line-height: 1.5;
 }
 
 .data-health-admin-header-meta {
@@ -1067,6 +1070,11 @@ h2 {
   min-width: 0;
 }
 
+.data-health-drilldown-panel .panel-header {
+  align-items: flex-start;
+  gap: 12px;
+}
+
 .data-health-drilldown-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1075,11 +1083,27 @@ h2 {
 }
 
 .data-health-drilldown-metrics .dashboard-metric-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
   min-width: 0;
-  padding: 10px;
-  border: 1px solid #e2e8f0;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
   border-radius: var(--radius-sm);
   background: #f8fafc;
+}
+
+.data-health-drilldown-metrics .dashboard-metric-line span {
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.data-health-drilldown-metrics .dashboard-metric-line strong {
+  color: #0f172a;
+  font-size: 1rem;
+  font-weight: 950;
+  line-height: 1.25;
 }
 
 .data-health-coverage-list {
@@ -1090,12 +1114,12 @@ h2 {
 
 .data-health-coverage-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.1fr) auto;
-  align-items: center;
-  gap: 12px;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.1fr);
+  align-items: start;
+  gap: 14px;
   min-width: 0;
-  padding: 12px;
-  border: 1px solid #dbe4ef;
+  padding: 14px;
+  border: 1px solid #cbd5e1;
   border-radius: var(--radius-md);
   background: #fff;
 }
@@ -1114,14 +1138,21 @@ h2 {
 
 .data-health-coverage-row strong {
   color: #0f172a;
-  font-size: 0.95rem;
+  font-size: 1rem;
+  line-height: 1.25;
 }
 
 .data-health-coverage-row span,
 .data-health-coverage-row small {
-  color: #475569;
-  font-size: 0.8rem;
+  color: #334155;
+  font-size: 0.84rem;
   font-weight: 850;
+  line-height: 1.4;
+}
+
+.data-health-coverage-row small {
+  grid-column: 1 / -1;
+  padding-top: 2px;
 }
 
 .data-health-coverage-bars {
@@ -1132,8 +1163,9 @@ h2 {
 
 .data-health-coverage-bars span {
   display: grid;
-  gap: 2px;
-  padding: 8px 9px;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
   border: 1px solid #cbd5e1;
   border-radius: var(--radius-sm);
   background: #f8fafc;
@@ -1147,13 +1179,32 @@ h2 {
 }
 
 .data-health-coverage-bars b {
-  font-size: 0.76rem;
+  color: #334155;
+  font-size: 0.78rem;
   font-weight: 950;
 }
 
 .data-health-coverage-bars em {
-  font-size: 0.92rem;
+  color: #0f172a;
+  font-size: 1.08rem;
   font-weight: 950;
+}
+
+.data-health-table th,
+.data-health-table td {
+  vertical-align: top;
+  line-height: 1.42;
+}
+
+.data-health-table td {
+  color: #1e293b;
+  font-size: 0.88rem;
+  font-weight: 750;
+}
+
+.data-health-table td:first-child {
+  color: #0f172a;
+  font-weight: 900;
 }
 
 .data-health-settings-form {
@@ -6660,7 +6711,8 @@ tbody tr:not(.attack-row):hover td {
 }
 
 :root[data-theme="dark"] .data-health-subsystem-tile,
-:root[data-theme="dark"] .data-health-issue-row {
+:root[data-theme="dark"] .data-health-issue-row,
+:root[data-theme="dark"] .data-health-coverage-row {
   background: rgba(15, 23, 42, 0.92);
   box-shadow: var(--shadow-panel);
 }
@@ -6684,10 +6736,14 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .data-health-subsystem-tile strong,
 :root[data-theme="dark"] .data-health-issue-row strong,
+:root[data-theme="dark"] .data-health-coverage-row strong,
 :root[data-theme="dark"] .data-health-metric-card strong,
 :root[data-theme="dark"] .data-health-tile-metrics .dashboard-metric-line strong,
 :root[data-theme="dark"] .data-health-api-grid .dashboard-metric-line strong,
 :root[data-theme="dark"] .data-health-detail-panel .dashboard-metric-line strong,
+:root[data-theme="dark"] .data-health-drilldown-metrics .dashboard-metric-line strong,
+:root[data-theme="dark"] .data-health-coverage-bars em,
+:root[data-theme="dark"] .data-health-table td:first-child,
 :root[data-theme="dark"] .data-health-settings-form input {
   color: var(--text-strong);
 }
@@ -6699,10 +6755,14 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .data-health-subsystem-tile small,
 :root[data-theme="dark"] .data-health-issue-row small,
+:root[data-theme="dark"] .data-health-coverage-row span,
+:root[data-theme="dark"] .data-health-coverage-row small,
 :root[data-theme="dark"] .data-health-metric-card p,
 :root[data-theme="dark"] .data-health-tile-metrics .dashboard-metric-line span,
 :root[data-theme="dark"] .data-health-api-grid .dashboard-metric-line span,
 :root[data-theme="dark"] .data-health-detail-panel .dashboard-metric-line span,
+:root[data-theme="dark"] .data-health-drilldown-metrics .dashboard-metric-line span,
+:root[data-theme="dark"] .data-health-coverage-bars b,
 :root[data-theme="dark"] .data-health-settings-form label > span,
 :root[data-theme="dark"] .data-health-settings-form small,
 :root[data-theme="dark"] .data-health-metric-card .panel-kicker {
@@ -6713,6 +6773,16 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .data-health-api-grid .dashboard-metric-line,
 :root[data-theme="dark"] .data-health-detail-panel .dashboard-metric-line {
   border-top-color: rgba(148, 163, 184, 0.25);
+}
+
+:root[data-theme="dark"] .data-health-drilldown-metrics .dashboard-metric-line,
+:root[data-theme="dark"] .data-health-coverage-bars span {
+  border-color: rgba(148, 163, 184, 0.32);
+  background: rgba(30, 41, 59, 0.72);
+}
+
+:root[data-theme="dark"] .data-health-table td {
+  color: #dbeafe;
 }
 
 :root[data-theme="dark"] .data-health-status-chip {

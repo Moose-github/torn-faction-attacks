@@ -557,11 +557,7 @@ function EnemyScoutingDrilldown({
                       <td>{nullableNumber(member.level)}</td>
                       <td>{member.status_state ?? "-"}</td>
                       <td>{missingEnemyFields(member)}</td>
-                      <td title={member.networth_error ?? undefined}>
-                        {member.networth === null
-                          ? `${formatNumber(member.networth_attempt_count ?? 0)} | ${formatDate(member.networth_attempted_at)}`
-                          : "-"}
-                      </td>
+                      <td title={member.networth_error ?? undefined}>{networthAttemptLabel(member)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -713,11 +709,25 @@ function FailedApiCallsTable({ calls }: { calls: TornApiUsageCall[] }) {
 
 function missingEnemyFields(member: EnemyScoutingGapRow): string {
   const fields = [
-    member.ff_battlestats === null ? "FF" : null,
-    member.bsp_battlestats === null ? "BSP" : null,
+    member.ff_battlestats === null ? "FF stats" : null,
+    member.bsp_battlestats === null ? "BSP stats" : null,
     member.networth === null ? "Networth" : null,
   ].filter((field): field is string => Boolean(field));
   return fields.length > 0 ? fields.join(", ") : "-";
+}
+
+function networthAttemptLabel(member: EnemyScoutingGapRow): string {
+  if (member.networth !== null) {
+    return "-";
+  }
+
+  const attempts = member.networth_attempt_count ?? 0;
+  const attemptedAt = member.networth_attempted_at ? formatDate(member.networth_attempted_at) : "not attempted";
+  if (attempts <= 0) {
+    return "Pending, not attempted";
+  }
+
+  return `${formatNumber(attempts)} ${attempts === 1 ? "attempt" : "attempts"}, ${attemptedAt}`;
 }
 
 function RadarIcon() {
