@@ -21,9 +21,13 @@ import {
   createMemberLifestyleRepairJob,
   getMemberLifestyleRepairJob,
   listMemberLifestyleRepairJobs,
+} from "../lifestyleStats/repairJobs";
+import {
   refreshDailyGymStats,
+} from "../lifestyleStats/dailyGym";
+import {
   refreshDailyMemberLifestyleStats,
-} from "../lifestyleStats";
+} from "../lifestyleStats/dailyPersonal";
 import { getLatestMaintenanceRun } from "../maintenance";
 import { cachedGetJson } from "../responseCache";
 import {

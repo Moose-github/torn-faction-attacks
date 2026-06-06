@@ -7,7 +7,7 @@ import { getCurrentHomeFactionMemberSummary } from "../homeFactionMembers";
 import {
   getMemberLifestyleDailyChart,
   getMemberLifestyleStats,
-} from "../lifestyleStats";
+} from "../lifestyleStats/reports";
 import { listMemberAchievementSummaries } from "../memberAchievements";
 import { getMiscellaneousData } from "../miscellaneous";
 import { createMonitorTicket } from "../monitorTickets";

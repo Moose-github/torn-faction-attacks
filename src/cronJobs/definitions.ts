@@ -3,9 +3,13 @@ import { runEnemyScoutingCronTick } from "../enemyScoutingCron";
 import { runIngestion } from "../ingestion";
 import {
   processMemberLifestyleRepairJobs,
+} from "../lifestyleStats/repairJobs";
+import {
   refreshDailyGymStats,
+} from "../lifestyleStats/dailyGym";
+import {
   refreshDailyMemberLifestyleStats,
-} from "../lifestyleStats";
+} from "../lifestyleStats/dailyPersonal";
 import { runScheduledMaintenance } from "../maintenance";
 import { refreshTornShoplifting } from "../miscellaneous";
 import {

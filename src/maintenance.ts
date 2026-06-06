@@ -1,7 +1,7 @@
 import { sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
-import { getDailyStatsAttention } from "./lifestyleStats";
+import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
 import { refreshMemberAchievementSummariesIfStale } from "./memberAchievements";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";

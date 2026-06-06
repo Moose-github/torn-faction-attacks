@@ -1,6 +1,6 @@
 import { readJsonObject } from "./backend/request";
 import { HOME_FACTION_ID } from "./constants";
-import { getDailyStatsAttention } from "./lifestyleStats";
+import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
 import {
   DAILY_GYM_COMPLETE_STATE_NAME,
   DAILY_REFRESH_AFTER_UTC_HOUR,

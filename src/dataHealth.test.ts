@@ -8,10 +8,10 @@ import {
   statusForPercent,
   updateDataHealthSettingsFromRequest,
 } from "./dataHealth";
-import { getDailyStatsAttention } from "./lifestyleStats";
+import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
 import type { Env } from "./types";
 
-vi.mock("./lifestyleStats", () => ({
+vi.mock("./lifestyleStats/dailyAttention", () => ({
   getDailyStatsAttention: vi.fn(),
 }));
 
