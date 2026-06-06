@@ -47,6 +47,7 @@ type DataHealthSubsystem = {
   status: DataHealthStatus;
   summary: string;
   updated_at: number | null;
+  updated_label?: string | null;
   metrics: DataHealthMetric[];
 };
 
@@ -837,6 +838,7 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
     status,
     summary: affectedCount > 0 ? `${affectedCount} reportable members need personal stat attention` : "Personal stats are current",
     updated_at: null,
+    updated_label: snapshotDateLabel(attention.latest_personalstats_bucket_date),
     metrics: [
       { label: "Lag days", value: attention.personalstats_lag_days === null ? "-" : String(attention.personalstats_lag_days) },
       { label: "Stale stats", value: String(attention.stale_personalstats) },
@@ -868,6 +870,7 @@ function gymStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
       ? `${gymStats.stale_gym_members} reportable members need gym snapshots`
       : "Gym stats are current",
     updated_at: null,
+    updated_label: snapshotDateLabel(gymStats.latest_gym_snapshot_date),
     metrics: [
       { label: "Lag days", value: gymStats.gym_lag_days === null ? "-" : String(gymStats.gym_lag_days) },
       { label: "Stale members", value: String(gymStats.stale_gym_members) },
@@ -1048,6 +1051,10 @@ function positiveSetting(value: unknown, fallback: number): number {
 function nullableNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function snapshotDateLabel(snapshotDate: string | null): string | null {
+  return snapshotDate ? `Latest snapshot ${snapshotDate}` : null;
 }
 
 function calendarDateDiffDays(startDate: string, endDate: string): number {

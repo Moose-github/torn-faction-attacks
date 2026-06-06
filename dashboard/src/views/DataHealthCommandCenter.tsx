@@ -401,7 +401,7 @@ function SubsystemTile({ subsystem }: { subsystem: DataHealthSubsystem }) {
       </div>
       <p>{subsystem.summary}</p>
       <small className="data-health-subsystem-description">{subsystemDescription(subsystem.key)}</small>
-      <small>{subsystem.updated_at ? `Last signal ${formatRelativeTime(subsystem.updated_at)}` : "No timestamp recorded"}</small>
+      <small>{subsystem.updated_label ?? (subsystem.updated_at ? `Last signal ${formatRelativeTime(subsystem.updated_at)}` : "No timestamp recorded")}</small>
       <div className="data-health-tile-metrics">
         {subsystem.metrics.map((metric) => (
           <MetricLine key={`${subsystem.key}-${metric.label}`} label={metric.label} value={displayMetricValue(metric.value, metric.timestamp)} />

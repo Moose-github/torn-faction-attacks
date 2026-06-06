@@ -120,16 +120,18 @@ describe("data health severity", () => {
       staleGymMembers: 3,
     }));
     const body = await response.json() as {
-      subsystems: Array<{ key: string; summary: string; metrics: Array<{ label: string; value: string }> }>;
+      subsystems: Array<{ key: string; summary: string; updated_label?: string | null; metrics: Array<{ label: string; value: string }> }>;
       details: { gym_stats_health: { latest_gym_snapshot_date: string | null; stale_gym_members: number } };
     };
 
     expect(body.subsystems.some((subsystem) => subsystem.key === "daily_stats")).toBe(false);
     expect(body.subsystems.find((subsystem) => subsystem.key === "personal_stats")).toMatchObject({
       summary: "2 reportable members need personal stat attention",
+      updated_label: "Latest snapshot 2025-12-30",
     });
     expect(body.subsystems.find((subsystem) => subsystem.key === "gym_stats")).toMatchObject({
       summary: "3 reportable members need gym snapshots",
+      updated_label: "Latest snapshot 2025-12-29",
     });
     expect(body.details.gym_stats_health).toMatchObject({
       latest_gym_snapshot_date: "2025-12-29",

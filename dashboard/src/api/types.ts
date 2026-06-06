@@ -735,6 +735,7 @@ export type DataHealthSubsystem = {
   status: DataHealthStatus;
   summary: string;
   updated_at: number | null;
+  updated_label?: string | null;
   metrics: DataHealthMetric[];
 };
 
