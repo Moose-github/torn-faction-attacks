@@ -195,10 +195,6 @@ function DataHealthOverview({
           title="Subsystems"
           aside={data ? `Generated ${formatRelativeTime(data.generated_at)}` : "Loading"}
         />
-        <p className="panel-description data-health-panel-description">
-          Each tile tracks one source of dashboard truth. Good means the latest signals are within target;
-          warning or critical means the tile summary explains what is late, missing, or failing.
-        </p>
         {subsystems.length === 0 ? (
           <EmptyState text={isLoading ? "Loading data health" : "No subsystem health available"} />
         ) : (
@@ -436,7 +432,6 @@ function SubsystemTile({ subsystem }: { subsystem: DataHealthSubsystem }) {
       </div>
       <p>{subsystem.summary}</p>
       <small className="data-health-subsystem-description">{subsystemDescription(subsystem.key)}</small>
-      <small>{subsystem.updated_label ?? (subsystem.updated_at ? `Last signal ${formatRelativeTime(subsystem.updated_at)}` : "No timestamp recorded")}</small>
       <div className="data-health-tile-metrics">
         {subsystem.metrics.map((metric) => (
           <MetricLine key={`${subsystem.key}-${metric.label}`} label={metric.label} value={displayMetricValue(metric.value, metric.timestamp)} />
