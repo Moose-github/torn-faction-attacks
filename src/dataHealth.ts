@@ -596,7 +596,7 @@ async function readRosterHealth(env: Env): Promise<RosterHealthRow> {
     `
     SELECT
       COUNT(CASE WHEN is_current = 1 THEN 1 END) AS current_members,
-      COUNT(CASE WHEN is_current = 1 AND name IS NOT NULL AND level IS NOT NULL AND position IS NOT NULL AND status_state IS NOT NULL THEN 1 END) AS profile_members,
+      COUNT(CASE WHEN is_current = 1 AND name IS NOT NULL AND level IS NOT NULL AND position IS NOT NULL THEN 1 END) AS profile_members,
       COUNT(CASE WHEN is_current = 1 AND report_exempt = 0 THEN 1 END) AS reportable_members,
       COUNT(CASE WHEN is_current = 1 AND report_exempt = 1 THEN 1 END) AS report_exempt_members,
       COUNT(CASE WHEN is_current = 1 AND is_revivable = 1 THEN 1 END) AS revivable_members,
@@ -1148,7 +1148,7 @@ function rosterSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
       {
         label: "Profile coverage",
         value: `${roster.profile_members}/${totalMembers}`,
-        title: "Current members with name, level, position, and status metadata.",
+        title: "Current members with name, level, and position metadata.",
       },
       { label: "Stats", value: `${roster.stat_estimates}/${totalMembers}` },
       { label: "Networth", value: `${roster.networth_estimates}/${totalMembers}` },
