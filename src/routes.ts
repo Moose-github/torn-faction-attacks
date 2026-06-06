@@ -1,4 +1,4 @@
-type HttpMethod = "DELETE" | "GET" | "POST" | "PUT";
+export type HttpMethod = "DELETE" | "GET" | "POST" | "PUT";
 
 export function matchesExactRoute(url: URL, request: Request, pathname: string, method?: HttpMethod): boolean {
   return url.pathname === pathname && (!method || request.method === method);

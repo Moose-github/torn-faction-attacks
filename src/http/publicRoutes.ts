@@ -1,20 +1,25 @@
 import { authenticateWithTornKey, getCurrentAuthSession } from "../auth";
-import { matchesExactRoute } from "../routes";
 import { json } from "../utils";
 import { RouteContext, RouteResult } from "./context";
+import { routeExact, type ExactRoute } from "./routeTable";
 
-export async function routePublicApi({ request, env, url }: RouteContext): Promise<RouteResult> {
-  if (matchesExactRoute(url, request, "/api/auth/torn", "POST")) {
-    return authenticateWithTornKey(request, env);
-  }
+const PUBLIC_ROUTES: ExactRoute[] = [
+  {
+    path: "/api/auth/torn",
+    method: "POST",
+    handle: ({ request, env }) => authenticateWithTornKey(request, env),
+  },
+  {
+    path: "/api/auth/me",
+    method: "GET",
+    handle: ({ request, env }) => getCurrentAuthSession(request, env),
+  },
+  {
+    path: "/api/health",
+    handle: () => json({ ok: true }),
+  },
+];
 
-  if (matchesExactRoute(url, request, "/api/auth/me", "GET")) {
-    return getCurrentAuthSession(request, env);
-  }
-
-  if (matchesExactRoute(url, request, "/api/health")) {
-    return json({ ok: true });
-  }
-
-  return null;
+export async function routePublicApi(routeContext: RouteContext): Promise<RouteResult> {
+  return routeExact(routeContext, PUBLIC_ROUTES);
 }
