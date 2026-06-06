@@ -145,7 +145,10 @@ function DataHealthOverview({
         <div>
           <p className="eyebrow">Operations</p>
           <h2>Data health</h2>
-          <p>Operational freshness, coverage, and API health across the dashboard.</p>
+          <p>
+            A quick read on whether the dashboard data is fresh enough to trust.
+            Warnings usually mean a feed is delayed; critical means admins should investigate.
+          </p>
         </div>
         <button
           type="button"
@@ -162,16 +165,19 @@ function DataHealthOverview({
           label="Overall"
           value={statusLabel(data?.overall_status ?? "unknown")}
           status={data?.overall_status ?? "unknown"}
+          detail="Highest severity across every subsystem below."
         />
         <HealthMetric
           label="Critical"
           value={formatNumber(criticalCount)}
           status={criticalCount > 0 ? "critical" : "good"}
+          detail="Checks that are failing, missing, or far outside their target freshness."
         />
         <HealthMetric
           label="Warnings"
           value={formatNumber(warnCount)}
           status={warnCount > 0 ? "warn" : "good"}
+          detail="Checks that are still usable but may be stale or degraded."
         />
       </section>
 
@@ -181,6 +187,10 @@ function DataHealthOverview({
           title="Subsystems"
           aside={data ? `Generated ${formatRelativeTime(data.generated_at)}` : "Loading"}
         />
+        <p className="panel-description data-health-panel-description">
+          Each tile tracks one source of dashboard truth. Good means the latest signals are within target;
+          warning or critical means the tile summary explains what is late, missing, or failing.
+        </p>
         {subsystems.length === 0 ? (
           <EmptyState text={isLoading ? "Loading data health" : "No subsystem health available"} />
         ) : (
@@ -218,6 +228,10 @@ function AdminDataHealthDiagnostics({
           title="Issues"
           aside={`${formatNumber(data.issues.length)} open`}
         />
+        <p className="panel-description data-health-panel-description">
+          Admin-only triage list for the checks that are not good. Use the detail text to decide whether this is
+          a transient delay or something that needs manual repair.
+        </p>
         {data.issues.length === 0 ? (
           <EmptyState text="No data health issues detected" />
         ) : (
@@ -296,6 +310,9 @@ function AdminDataHealthDiagnostics({
 
       <section className="panel data-health-api-panel">
         <PanelHeader icon={<Clock3 size={17} />} title="Torn API usage" aside="Last hour" />
+        <p className="panel-description data-health-panel-description">
+          Recent Torn API call volume and failures. Spikes in errors or 429s can explain stale downstream data.
+        </p>
         <div className="data-health-api-grid">
           <MetricLine label="Requests" value={formatNumber(data.details.api_usage.requests)} />
           <MetricLine label="Errors" value={formatNumber(data.details.api_usage.errors)} />
@@ -335,6 +352,10 @@ function AdminDataHealthDiagnostics({
 
       <section className="panel data-health-settings-panel">
         <PanelHeader icon={<Settings2 size={17} />} title="Health thresholds" aside="Global" />
+        <p className="panel-description data-health-panel-description">
+          Thresholds control when a check becomes a warning or critical. Lower values make the page more sensitive;
+          higher values tolerate longer delays before alerting.
+        </p>
         <form className="data-health-settings-form" onSubmit={onSaveSettings}>
           {SETTING_FIELDS.map((field) => (
             <label key={field.key}>
@@ -369,7 +390,8 @@ function SubsystemTile({ subsystem }: { subsystem: DataHealthSubsystem }) {
         <strong>{subsystem.label}</strong>
       </div>
       <p>{subsystem.summary}</p>
-      <small>{subsystem.updated_at ? `Updated ${formatRelativeTime(subsystem.updated_at)}` : "No timestamp"}</small>
+      <small className="data-health-subsystem-description">{subsystemDescription(subsystem.key)}</small>
+      <small>{subsystem.updated_at ? `Last signal ${formatRelativeTime(subsystem.updated_at)}` : "No timestamp recorded"}</small>
       <div className="data-health-tile-metrics">
         {subsystem.metrics.map((metric) => (
           <MetricLine key={`${subsystem.key}-${metric.label}`} label={metric.label} value={displayMetricValue(metric.value, metric.timestamp)} />
@@ -404,10 +426,12 @@ function HealthMetric({
   label,
   value,
   status,
+  detail,
 }: {
   label: string;
   value: string;
   status: DataHealthStatus;
+  detail: string;
 }) {
   return (
     <section className={`metric-card data-health-metric-card ${status}`}>
@@ -416,6 +440,7 @@ function HealthMetric({
         <span>{label}</span>
       </div>
       <strong>{value}</strong>
+      <p>{detail}</p>
     </section>
   );
 }
@@ -461,6 +486,17 @@ function displayMetricValue(value: string, timestamp: number | null | undefined)
     return formatRelativeTime(timestamp);
   }
   return value;
+}
+
+function subsystemDescription(key: string): string {
+  if (key === "ingestion") return "Checks whether faction attack data is being imported on schedule.";
+  if (key === "maintenance") return "Checks scheduled cleanup and repair jobs that keep derived data tidy.";
+  if (key === "daily_stats") return "Checks daily member stat snapshots used by reports and trend views.";
+  if (key === "roster") return "Checks whether the current home roster and member metadata are present.";
+  if (key === "torn_api") return "Checks recent Torn API failures and rate limits that can slow updates.";
+  if (key === "stock_data") return "Checks stock profile and price snapshot freshness.";
+  if (key === "war_reports") return "Checks ended wars that still need official Torn reports reconciled.";
+  return "Checks one dashboard data source for freshness and coverage.";
 }
 
 function isAdminDataHealthResponse(
