@@ -352,7 +352,6 @@ export function DashboardHome({
 
         <DataHealthCard
           data={dataHealth}
-          isAdmin={isAdmin}
           loaded={dataHealthLoaded}
           onOpenDataHealth={() => onOpenView("dataHealth")}
         />
@@ -717,12 +716,10 @@ function warTypeLabel(warType: WarSummary["war_type"]): string {
 
 function DataHealthCard({
   data,
-  isAdmin,
   loaded,
   onOpenDataHealth,
 }: {
   data: DataHealthSummaryResponse | null;
-  isAdmin: boolean;
   loaded: boolean;
   onOpenDataHealth: () => void;
 }) {
@@ -737,8 +734,8 @@ function DataHealthCard({
       title="Data health"
       status={!loaded ? "Loading" : data ? dataHealthStatusLabel(data.overall_status) : "Unavailable"}
       tone={!loaded || !data ? "quiet" : dashboardToneForHealth(data.overall_status)}
-      actionLabel={isAdmin ? "Open command center" : undefined}
-      onAction={isAdmin ? onOpenDataHealth : undefined}
+      actionLabel="Open overview"
+      onAction={onOpenDataHealth}
     >
       {!loaded ? (
         <EmptyState text="Loading data freshness" />

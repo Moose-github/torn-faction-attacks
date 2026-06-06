@@ -81,8 +81,8 @@ const AdminControls = React.lazy(() =>
 const DiceGame = React.lazy(() =>
   import("./views/DiceGame").then((module) => ({ default: module.DiceGame })),
 );
-const DataHealthCommandCenter = React.lazy(() =>
-  import("./views/DataHealthCommandCenter").then((module) => ({ default: module.DataHealthCommandCenter })),
+const DataHealthPage = React.lazy(() =>
+  import("./views/DataHealthCommandCenter").then((module) => ({ default: module.DataHealthPage })),
 );
 const LifestyleStats = React.lazy(() =>
   import("./views/LifestyleStats").then((module) => ({ default: module.LifestyleStats })),
@@ -759,7 +759,7 @@ function App() {
             </LazyPage>
           ) : view === "dataHealth" ? (
             <LazyPage>
-              <DataHealthCommandCenter onOpenView={changeView} />
+              <DataHealthPage isAdmin={isAdmin} onOpenView={changeView} />
             </LazyPage>
           ) : view === "members" ? (
             <LazyPage>

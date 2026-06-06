@@ -736,11 +736,23 @@ function maintenanceSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem
   const age = snapshot.now - (run.finished_at ?? run.started_at);
   const freshnessStatus = statusForAgeSeconds(age, snapshot.settings.maintenance_warn_seconds, snapshot.settings.maintenance_critical_seconds);
   const status = failedTasks > 0 || run.status === "error" ? "critical" : maxStatus(freshnessStatus, run.status === "running" ? "warn" : "good");
+  const staleThresholdSeconds = freshnessStatus === "critical"
+    ? snapshot.settings.maintenance_critical_seconds
+    : snapshot.settings.maintenance_warn_seconds;
+  const summary = failedTasks > 0
+    ? `${failedTasks} maintenance task failed`
+    : run.status === "error"
+      ? "Latest scheduled maintenance failed"
+      : freshnessStatus !== "good"
+        ? `Last completed maintenance is older than ${formatDurationLabel(staleThresholdSeconds)}`
+        : run.status === "running"
+          ? "Scheduled maintenance is currently running"
+          : `${run.task_count} tasks logged`;
   return {
     key: "maintenance",
     label: "Scheduled maintenance",
     status,
-    summary: failedTasks > 0 ? `${failedTasks} maintenance task failed` : `${run.task_count} tasks logged`,
+    summary,
     updated_at: run.finished_at ?? run.started_at,
     metrics: [
       { label: "Latest run", value: run.status, timestamp: run.started_at },

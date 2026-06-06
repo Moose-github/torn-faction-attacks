@@ -15,7 +15,9 @@ import {
   DataHealthSettings,
   DataHealthStatus,
   DataHealthSubsystem,
+  DataHealthSummaryResponse,
   getAdminDataHealth,
+  getDataHealthSummary,
   updateDataHealthSettings,
 } from "../api";
 import { EmptyState, PanelHeader } from "../components/Common";
@@ -24,6 +26,7 @@ import { formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/f
 
 type DataHealthCommandCenterProps = {
   onOpenView: (view: AppView) => void;
+  isAdmin: boolean;
 };
 
 const SETTING_FIELDS: Array<{
@@ -49,8 +52,8 @@ const SETTING_FIELDS: Array<{
   { key: "stale_stocks_critical", label: "Stale stocks critical count", unit: "stocks" },
 ];
 
-export function DataHealthCommandCenter({ onOpenView }: DataHealthCommandCenterProps) {
-  const [data, setData] = React.useState<AdminDataHealthResponse | null>(null);
+export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterProps) {
+  const [data, setData] = React.useState<AdminDataHealthResponse | DataHealthSummaryResponse | null>(null);
   const [settingsForm, setSettingsForm] = React.useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
@@ -61,9 +64,11 @@ export function DataHealthCommandCenter({ onOpenView }: DataHealthCommandCenterP
     setIsLoading(true);
     setError(null);
     try {
-      const response = await getAdminDataHealth();
+      const response = isAdmin ? await getAdminDataHealth() : await getDataHealthSummary();
       setData(response);
-      setSettingsForm(formFromSettings(response.settings));
+      if (isAdminDataHealthResponse(response)) {
+        setSettingsForm(formFromSettings(response.settings));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setData(null);
@@ -74,7 +79,7 @@ export function DataHealthCommandCenter({ onOpenView }: DataHealthCommandCenterP
 
   async function saveSettings(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!data) return;
+    if (!isAdminDataHealthResponse(data)) return;
     setIsSaving(true);
     setError(null);
     setNotice(null);
@@ -94,28 +99,59 @@ export function DataHealthCommandCenter({ onOpenView }: DataHealthCommandCenterP
 
   React.useEffect(() => {
     loadData();
-  }, []);
+  }, [isAdmin]);
 
-  const subsystems = data?.subsystems ?? [];
-  const criticalCount = subsystems.filter((subsystem) => subsystem.status === "critical").length;
-  const warnCount = subsystems.filter((subsystem) => subsystem.status === "warn").length;
+  const adminData = isAdminDataHealthResponse(data) ? data : null;
 
   return (
     <>
       {error ? <div className="error-panel">{error}</div> : null}
       {notice ? <div className="dashboard-suggestion-success">{notice}</div> : null}
 
+      <DataHealthOverview data={data} isLoading={isLoading} onRefresh={loadData} />
+
+      {adminData ? (
+        <AdminDataHealthDiagnostics
+          data={adminData}
+          isSaving={isSaving}
+          onOpenView={onOpenView}
+          onSaveSettings={saveSettings}
+          settingsForm={settingsForm}
+          setSettingsForm={setSettingsForm}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export const DataHealthCommandCenter = DataHealthPage;
+
+function DataHealthOverview({
+  data,
+  isLoading,
+  onRefresh,
+}: {
+  data: DataHealthSummaryResponse | null;
+  isLoading: boolean;
+  onRefresh: () => void;
+}) {
+  const subsystems = data?.subsystems ?? [];
+  const criticalCount = subsystems.filter((subsystem) => subsystem.status === "critical").length;
+  const warnCount = subsystems.filter((subsystem) => subsystem.status === "warn").length;
+
+  return (
+    <>
       <section className="hero-panel compact-hero-panel">
         <div>
-          <p className="eyebrow">Admin</p>
+          <p className="eyebrow">Operations</p>
           <h2>Data health</h2>
-          <p>Operational freshness, data coverage, and API health across the dashboard.</p>
+          <p>Operational freshness, coverage, and API health across the dashboard.</p>
         </div>
         <button
           type="button"
           className="panel-action-button"
           disabled={isLoading}
-          onClick={loadData}
+          onClick={onRefresh}
         >
           {isLoading ? "Refreshing" : "Refresh"}
         </button>
@@ -155,16 +191,34 @@ export function DataHealthCommandCenter({ onOpenView }: DataHealthCommandCenterP
           </div>
         )}
       </section>
+    </>
+  );
+}
 
+function AdminDataHealthDiagnostics({
+  data,
+  isSaving,
+  onOpenView,
+  onSaveSettings,
+  settingsForm,
+  setSettingsForm,
+}: {
+  data: AdminDataHealthResponse;
+  isSaving: boolean;
+  onOpenView: (view: AppView) => void;
+  onSaveSettings: (event: React.FormEvent<HTMLFormElement>) => void;
+  settingsForm: Record<string, string>;
+  setSettingsForm: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+}) {
+  return (
+    <>
       <section className="panel data-health-issues-panel">
         <PanelHeader
           icon={<AlertTriangle size={17} />}
           title="Issues"
-          aside={data ? `${formatNumber(data.issues.length)} open` : "Loading"}
+          aside={`${formatNumber(data.issues.length)} open`}
         />
-        {!data ? (
-          <EmptyState text="Loading issues" />
-        ) : data.issues.length === 0 ? (
+        {data.issues.length === 0 ? (
           <EmptyState text="No data health issues detected" />
         ) : (
           <div className="data-health-issue-list">
@@ -191,124 +245,118 @@ export function DataHealthCommandCenter({ onOpenView }: DataHealthCommandCenterP
         )}
       </section>
 
-      {data ? (
-        <section className="data-health-detail-grid">
-          <DetailPanel
-            icon={<Activity size={17} />}
-            title="Ingestion"
-            rows={[
-              ["Status", data.details.ingestion_run?.status ?? "-"],
-              ["Started", formatDate(data.details.ingestion_run?.started_at ?? null)],
-              ["Finished", formatDate(data.details.ingestion_run?.finished_at ?? null)],
-              ["Fetched attacks", formatNumber(data.details.ingestion_run?.fetched_attacks ?? 0)],
-              ["Latest attack", formatDate(data.details.ingestion_run?.latest_attack_started ?? null)],
-              ["Error", data.details.ingestion_run?.error ?? "-"],
-            ]}
-          />
-          <DetailPanel
-            icon={<ServerCog size={17} />}
-            title="Maintenance"
-            rows={[
-              ["Status", data.details.maintenance_run?.status ?? "-"],
-              ["Started", formatDate(data.details.maintenance_run?.started_at ?? null)],
-              ["Finished", formatDate(data.details.maintenance_run?.finished_at ?? null)],
-              ["Tasks", formatNumber(data.details.maintenance_run?.task_count ?? 0)],
-              ["Changed rows", formatNumber(data.details.maintenance_run?.changed_rows ?? 0)],
-              ["Failed tasks", formatNumber(data.details.maintenance_tasks.filter((task) => task.status === "error").length)],
-            ]}
-          />
-          <DetailPanel
-            icon={<BarChart3 size={17} />}
-            title="Daily stats"
-            rows={[
-              ["Target date", data.details.daily_stats_attention.personalstats_target_date ?? "-"],
-              ["Latest bucket", data.details.daily_stats_attention.latest_personalstats_bucket_date ?? "-"],
-              ["Lag days", nullableNumber(data.details.daily_stats_attention.personalstats_lag_days)],
-              ["Stale personalstats", formatNumber(data.details.daily_stats_attention.stale_personalstats)],
-              ["Donator-day gaps", formatNumber(data.details.daily_stats_attention.missing_donator_days)],
-            ]}
-          />
-          <DetailPanel
-            icon={<Database size={17} />}
-            title="Stock data"
-            rows={[
-              ["Latest run", data.details.stock_run?.status ?? "-"],
-              ["Newest snapshot", formatDate(data.details.stock_coverage.newest_snapshot_at)],
-              ["Coverage", `${formatNumber(data.details.stock_coverage.stocks_with_snapshots)}/${formatNumber(data.details.stock_coverage.total_stocks)}`],
-              ["Stale stocks", formatNumber(data.details.stock_coverage.stale_stocks)],
-              ["Last error", data.details.stock_last_error ?? "-"],
-            ]}
-          />
-        </section>
-      ) : null}
+      <section className="data-health-detail-grid">
+        <DetailPanel
+          icon={<Activity size={17} />}
+          title="Ingestion"
+          rows={[
+            ["Status", data.details.ingestion_run?.status ?? "-"],
+            ["Started", formatDate(data.details.ingestion_run?.started_at ?? null)],
+            ["Finished", formatDate(data.details.ingestion_run?.finished_at ?? null)],
+            ["Fetched attacks", formatNumber(data.details.ingestion_run?.fetched_attacks ?? 0)],
+            ["Latest attack", formatDate(data.details.ingestion_run?.latest_attack_started ?? null)],
+            ["Error", data.details.ingestion_run?.error ?? "-"],
+          ]}
+        />
+        <DetailPanel
+          icon={<ServerCog size={17} />}
+          title="Maintenance"
+          rows={[
+            ["Status", data.details.maintenance_run?.status ?? "-"],
+            ["Started", formatDate(data.details.maintenance_run?.started_at ?? null)],
+            ["Finished", formatDate(data.details.maintenance_run?.finished_at ?? null)],
+            ["Tasks", formatNumber(data.details.maintenance_run?.task_count ?? 0)],
+            ["Changed rows", formatNumber(data.details.maintenance_run?.changed_rows ?? 0)],
+            ["Failed tasks", formatNumber(data.details.maintenance_tasks.filter((task) => task.status === "error").length)],
+          ]}
+        />
+        <DetailPanel
+          icon={<BarChart3 size={17} />}
+          title="Daily stats"
+          rows={[
+            ["Target date", data.details.daily_stats_attention.personalstats_target_date ?? "-"],
+            ["Latest bucket", data.details.daily_stats_attention.latest_personalstats_bucket_date ?? "-"],
+            ["Lag days", nullableNumber(data.details.daily_stats_attention.personalstats_lag_days)],
+            ["Stale personalstats", formatNumber(data.details.daily_stats_attention.stale_personalstats)],
+            ["Donator-day gaps", formatNumber(data.details.daily_stats_attention.missing_donator_days)],
+          ]}
+        />
+        <DetailPanel
+          icon={<Database size={17} />}
+          title="Stock data"
+          rows={[
+            ["Latest run", data.details.stock_run?.status ?? "-"],
+            ["Newest snapshot", formatDate(data.details.stock_coverage.newest_snapshot_at)],
+            ["Coverage", `${formatNumber(data.details.stock_coverage.stocks_with_snapshots)}/${formatNumber(data.details.stock_coverage.total_stocks)}`],
+            ["Stale stocks", formatNumber(data.details.stock_coverage.stale_stocks)],
+            ["Last error", data.details.stock_last_error ?? "-"],
+          ]}
+        />
+      </section>
 
-      {data ? (
-        <section className="panel data-health-api-panel">
-          <PanelHeader icon={<Clock3 size={17} />} title="Torn API usage" aside="Last hour" />
-          <div className="data-health-api-grid">
-            <MetricLine label="Requests" value={formatNumber(data.details.api_usage.requests)} />
-            <MetricLine label="Errors" value={formatNumber(data.details.api_usage.errors)} />
-            <MetricLine label="429s" value={formatNumber(data.details.api_usage.rate_limited)} />
-            <MetricLine
-              label="Average latency"
-              value={data.details.api_usage.avg_duration_ms === null ? "-" : `${formatNumber(data.details.api_usage.avg_duration_ms)}ms`}
-            />
-          </div>
-          {data.details.api_features.length > 0 ? (
-            <table className="stock-status-table data-health-table">
-              <thead>
-                <tr>
-                  <th>Feature</th>
-                  <th>Calls</th>
-                  <th>Errors</th>
-                  <th>429s</th>
-                  <th>Last call</th>
+      <section className="panel data-health-api-panel">
+        <PanelHeader icon={<Clock3 size={17} />} title="Torn API usage" aside="Last hour" />
+        <div className="data-health-api-grid">
+          <MetricLine label="Requests" value={formatNumber(data.details.api_usage.requests)} />
+          <MetricLine label="Errors" value={formatNumber(data.details.api_usage.errors)} />
+          <MetricLine label="429s" value={formatNumber(data.details.api_usage.rate_limited)} />
+          <MetricLine
+            label="Average latency"
+            value={data.details.api_usage.avg_duration_ms === null ? "-" : `${formatNumber(data.details.api_usage.avg_duration_ms)}ms`}
+          />
+        </div>
+        {data.details.api_features.length > 0 ? (
+          <table className="stock-status-table data-health-table">
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th>Calls</th>
+                <th>Errors</th>
+                <th>429s</th>
+                <th>Last call</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.details.api_features.map((feature) => (
+                <tr key={feature.feature}>
+                  <td>{feature.feature}</td>
+                  <td>{formatNumber(feature.requests)}</td>
+                  <td>{formatNumber(feature.errors)}</td>
+                  <td>{formatNumber(feature.rate_limited)}</td>
+                  <td>{formatDate(feature.last_requested_at)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {data.details.api_features.map((feature) => (
-                  <tr key={feature.feature}>
-                    <td>{feature.feature}</td>
-                    <td>{formatNumber(feature.requests)}</td>
-                    <td>{formatNumber(feature.errors)}</td>
-                    <td>{formatNumber(feature.rate_limited)}</td>
-                    <td>{formatDate(feature.last_requested_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <EmptyState text="No Torn API calls recorded in the last hour" />
-          )}
-        </section>
-      ) : null}
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState text="No Torn API calls recorded in the last hour" />
+        )}
+      </section>
 
-      {data ? (
-        <section className="panel data-health-settings-panel">
-          <PanelHeader icon={<Settings2 size={17} />} title="Health thresholds" aside="Global" />
-          <form className="data-health-settings-form" onSubmit={saveSettings}>
-            {SETTING_FIELDS.map((field) => (
-              <label key={field.key}>
-                <span>{field.label}</span>
-                <div>
-                  <input
-                    inputMode="decimal"
-                    value={settingsForm[field.key] ?? ""}
-                    onChange={(event) => setSettingsForm((current) => ({
-                      ...current,
-                      [field.key]: event.target.value,
-                    }))}
-                  />
-                  <small>{field.unit}</small>
-                </div>
-              </label>
-            ))}
-            <button type="submit" className="panel-action-button primary-action" disabled={isSaving}>
-              {isSaving ? "Saving" : "Save thresholds"}
-            </button>
-          </form>
-        </section>
-      ) : null}
+      <section className="panel data-health-settings-panel">
+        <PanelHeader icon={<Settings2 size={17} />} title="Health thresholds" aside="Global" />
+        <form className="data-health-settings-form" onSubmit={onSaveSettings}>
+          {SETTING_FIELDS.map((field) => (
+            <label key={field.key}>
+              <span>{field.label}</span>
+              <div>
+                <input
+                  inputMode="decimal"
+                  value={settingsForm[field.key] ?? ""}
+                  onChange={(event) => setSettingsForm((current) => ({
+                    ...current,
+                    [field.key]: event.target.value,
+                  }))}
+                />
+                <small>{field.unit}</small>
+              </div>
+            </label>
+          ))}
+          <button type="submit" className="panel-action-button primary-action" disabled={isSaving}>
+            {isSaving ? "Saving" : "Save thresholds"}
+          </button>
+        </form>
+      </section>
     </>
   );
 }
@@ -413,4 +461,10 @@ function displayMetricValue(value: string, timestamp: number | null | undefined)
     return formatRelativeTime(timestamp);
   }
   return value;
+}
+
+function isAdminDataHealthResponse(
+  data: AdminDataHealthResponse | DataHealthSummaryResponse | null,
+): data is AdminDataHealthResponse {
+  return Boolean(data && "settings" in data && "details" in data);
 }

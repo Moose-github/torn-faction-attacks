@@ -1,12 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_DATA_HEALTH_SETTINGS,
+  getAdminDataHealth,
   statusForAgeSeconds,
   statusForCount,
   statusForPercent,
   updateDataHealthSettingsFromRequest,
 } from "./dataHealth";
+import { getDailyStatsAttention } from "./lifestyleStats";
 import type { Env } from "./types";
+
+vi.mock("./lifestyleStats", () => ({
+  getDailyStatsAttention: vi.fn(),
+}));
+
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.useRealTimers();
+});
 
 describe("data health severity", () => {
   it("uses balanced age defaults for warn and critical states", () => {
@@ -54,6 +65,45 @@ describe("data health severity", () => {
     });
     expect(save).not.toHaveBeenCalled();
   });
+
+  it("describes stale maintenance issues with the freshness reason", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const now = Math.floor(Date.now() / 1000);
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 0,
+      missing_donator_days: 0,
+      personalstats_target_date: "2025-12-31",
+      latest_personalstats_bucket_date: "2025-12-31",
+      personalstats_lag_days: 0,
+      affected_members: [],
+    });
+
+    const response = await getAdminDataHealth(dataHealthEnv({
+      maintenanceRun: {
+        id: "maintenance-run-1",
+        started_at: now - 3700,
+        finished_at: now - 3600,
+        status: "success",
+        task_count: 3,
+        write_statements: 2,
+        changed_rows: 4,
+        error: null,
+      },
+    }));
+    const body = await response.json() as {
+      subsystems: Array<{ key: string; status: string; summary: string }>;
+      issues: Array<{ key: string; title: string }>;
+    };
+
+    const maintenance = body.subsystems.find((subsystem) => subsystem.key === "maintenance");
+    expect(maintenance).toMatchObject({
+      status: "warn",
+      summary: "Last completed maintenance is older than 45m",
+    });
+    expect(body.issues.find((issue) => issue.key === "maintenance")?.title)
+      .toBe("Last completed maintenance is older than 45m");
+  });
 });
 
 function settingsEnv(settings: Record<string, unknown>, save: () => void): Env {
@@ -74,6 +124,103 @@ function settingsEnv(settings: Record<string, unknown>, save: () => void): Env {
       },
     },
   } as unknown as Env;
+}
+
+function dataHealthEnv({
+  maintenanceRun,
+}: {
+  maintenanceRun: Record<string, unknown>;
+}): Env {
+  return {
+    DB: {
+      prepare(sql: string) {
+        const compactSql = sql.replace(/\s+/g, " ").trim();
+        const statement = {
+          bind() {
+            return statement;
+          },
+          first: async () => firstRowForDataHealthQuery(compactSql, maintenanceRun),
+          all: async () => ({ results: rowsForDataHealthQuery(compactSql) }),
+          run: async () => ({ success: true }),
+        };
+        return statement;
+      },
+    },
+  } as unknown as Env;
+}
+
+function firstRowForDataHealthQuery(
+  sql: string,
+  maintenanceRun: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (sql.includes("FROM data_health_settings")) return DEFAULT_DATA_HEALTH_SETTINGS;
+  if (sql.includes("FROM ingestion_runs")) {
+    return {
+      id: "ingestion-run-1",
+      trigger_source: "cron",
+      started_at: Math.floor(Date.now() / 1000) - 60,
+      ranked_war_checked_at: null,
+      attacks_fetch_finished_at: null,
+      d1_writes_finished_at: null,
+      stats_finished_at: null,
+      report_finished_at: null,
+      finished_at: Math.floor(Date.now() / 1000) - 30,
+      latest_attack_started: null,
+      fetched_pages: 0,
+      fetched_attacks: 0,
+      wrote_batches: 0,
+      saw_rows: 0,
+      active_war_id: null,
+      status: "success",
+      error: null,
+    };
+  }
+  if (sql.includes("FROM attacks")) return { latest_attack_started: null };
+  if (sql.includes("FROM scheduled_maintenance_runs")) return maintenanceRun;
+  if (sql.includes("FROM home_faction_members")) {
+    return {
+      current_members: 1,
+      reportable_members: 1,
+      report_exempt_members: 0,
+      revivable_members: 1,
+      stat_estimates: 1,
+      networth_estimates: 1,
+      updated_at: Math.floor(Date.now() / 1000),
+    };
+  }
+  if (sql.includes("FROM torn_api_call_log") && sql.includes("COUNT(*) AS requests")) {
+    return {
+      requests: 1,
+      errors: 0,
+      rate_limited: 0,
+      avg_duration_ms: 100,
+      max_duration_ms: 100,
+    };
+  }
+  if (sql.includes("FROM stock_ingestion_runs")) return null;
+  if (sql.includes("FROM latest")) {
+    return {
+      total_stocks: 1,
+      stocks_with_snapshots: 1,
+      oldest_snapshot_at: Math.floor(Date.now() / 1000),
+      newest_snapshot_at: Math.floor(Date.now() / 1000),
+      stale_stocks: 0,
+    };
+  }
+  if (sql.includes("FROM wars")) {
+    return {
+      missing_reports: 0,
+      oldest_missing_finished_at: null,
+    };
+  }
+  return null;
+}
+
+function rowsForDataHealthQuery(sql: string): Array<Record<string, unknown>> {
+  if (sql.includes("FROM scheduled_maintenance_tasks")) return [];
+  if (sql.includes("GROUP BY")) return [];
+  if (sql.includes("FROM torn_api_call_log")) return [];
+  return [];
 }
 
 function jsonRequest(body: unknown): Request {
