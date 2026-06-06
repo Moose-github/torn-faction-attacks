@@ -164,6 +164,12 @@ type GymStatsHealthRow = {
   stale_gym_members: number;
 };
 
+type PersonalStatsCoverageRow = {
+  snapshot_date: string;
+  ready_members: number;
+  total_members: number;
+};
+
 type DataHealthSnapshot = {
   now: number;
   settings: DataHealthSettings;
@@ -172,6 +178,7 @@ type DataHealthSnapshot = {
   maintenance: MaintenanceRunRow | null;
   maintenanceTasks: MaintenanceTaskRow[];
   dailyStats: Awaited<ReturnType<typeof getDailyStatsAttention>>;
+  personalStatsCoverage: PersonalStatsCoverageRow[];
   gymStats: GymStatsHealthRow;
   roster: RosterHealthRow;
   apiUsage: ApiUsageHealthRow;
@@ -325,7 +332,10 @@ async function readDataHealthSnapshot(
     readStockLastError(env),
     readWarReportHealth(env),
   ]);
-  const gymStats = await readGymStatsHealth(env, dailyStats.personalstats_target_date);
+  const [personalStatsCoverage, gymStats] = await Promise.all([
+    readPersonalStatsCoverage(env, dailyStats.personalstats_target_date),
+    readGymStatsHealth(env, dailyStats.personalstats_target_date),
+  ]);
 
   return {
     now,
@@ -335,6 +345,7 @@ async function readDataHealthSnapshot(
     maintenance: maintenance.run,
     maintenanceTasks: maintenance.tasks,
     dailyStats,
+    personalStatsCoverage,
     gymStats,
     roster,
     apiUsage,
@@ -552,6 +563,42 @@ async function readRosterHealth(env: Env): Promise<RosterHealthRow> {
     networth_estimates: Number(row?.networth_estimates ?? 0),
     updated_at: nullableNumber(row?.updated_at),
   };
+}
+
+async function readPersonalStatsCoverage(env: Env, targetDate: string | null): Promise<PersonalStatsCoverageRow[]> {
+  const dates = recentPersonalStatsCoverageDates(targetDate);
+  if (dates.length !== 2) return [];
+
+  const rows = await env.DB.prepare(
+    `
+    WITH target_dates(snapshot_date) AS (
+      SELECT ? AS snapshot_date
+      UNION ALL
+      SELECT ? AS snapshot_date
+    )
+    SELECT
+      target_dates.snapshot_date AS snapshot_date,
+      COUNT(members.member_id) AS total_members,
+      COUNT(CASE WHEN snapshots.member_id IS NOT NULL THEN 1 END) AS ready_members
+    FROM target_dates
+    LEFT JOIN home_faction_members members
+      ON members.faction_id = ?
+     AND members.is_current = 1
+     AND members.report_exempt = 0
+    LEFT JOIN member_lifestyle_stat_snapshots snapshots
+      ON snapshots.member_id = members.member_id
+     AND snapshots.snapshot_date = target_dates.snapshot_date
+     AND snapshots.personal_ready = 1
+    GROUP BY target_dates.snapshot_date
+    ORDER BY target_dates.snapshot_date ASC
+    `,
+  ).bind(dates[0], dates[1], HOME_FACTION_ID).all<PersonalStatsCoverageRow>();
+
+  return (rows.results ?? []).map((row) => ({
+    snapshot_date: row.snapshot_date,
+    ready_members: Number(row.ready_members ?? 0),
+    total_members: Number(row.total_members ?? 0),
+  }));
 }
 
 async function readGymStatsHealth(env: Env, targetDate: string | null): Promise<GymStatsHealthRow> {
@@ -818,20 +865,32 @@ function maintenanceSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem
 
 function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const attention = snapshot.dailyStats;
-  const lagStatus = attention.personalstats_lag_days === null
+  const affectedCount = attention.stale_personalstats + attention.missing_donator_days;
+  const missingCoverage = snapshot.personalStatsCoverage.reduce(
+    (total, coverage) => total + Math.max(0, coverage.total_members - coverage.ready_members),
+    0,
+  );
+  const coverageStatus = snapshot.personalStatsCoverage.length === 0 || snapshot.personalStatsCoverage.every((coverage) => coverage.total_members === 0)
     ? "unknown"
     : statusForCount(
-      attention.personalstats_lag_days,
-      snapshot.settings.daily_stats_lag_warn_days,
-      snapshot.settings.daily_stats_lag_critical_days,
+      missingCoverage,
+      snapshot.settings.stale_daily_members_warn,
+      snapshot.settings.stale_daily_members_critical,
     );
-  const affectedCount = attention.stale_personalstats + attention.missing_donator_days;
   const countStatus = statusForCount(
     affectedCount,
     snapshot.settings.stale_daily_members_warn,
     snapshot.settings.stale_daily_members_critical,
   );
-  const status = maxStatus(lagStatus, countStatus);
+  const status = maxStatus(coverageStatus, countStatus);
+  const coverageMetrics = snapshot.personalStatsCoverage.map((coverage) => ({
+    label: coverage.snapshot_date,
+    value: `${coverage.ready_members}/${coverage.total_members}`,
+  }));
+  const outstandingMetric = {
+    label: attention.missing_donator_days > 0 ? "Outstanding" : "Stale",
+    value: String(affectedCount),
+  };
   return {
     key: "personal_stats",
     label: "Personal stats",
@@ -840,9 +899,8 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
     updated_at: null,
     updated_label: snapshotDateLabel(attention.latest_personalstats_bucket_date),
     metrics: [
-      { label: "Lag days", value: attention.personalstats_lag_days === null ? "-" : String(attention.personalstats_lag_days) },
-      { label: "Stale stats", value: String(attention.stale_personalstats) },
-      { label: "Donator-day gaps", value: String(attention.missing_donator_days) },
+      ...coverageMetrics,
+      outstandingMetric,
     ],
   };
 }
@@ -1057,6 +1115,18 @@ function snapshotDateLabel(snapshotDate: string | null): string | null {
   return snapshotDate ? `Latest snapshot ${snapshotDate}` : null;
 }
 
+function recentPersonalStatsCoverageDates(targetDate: string | null): string[] {
+  if (!targetDate) return [];
+  const previousDate = dateKeyFromOffset(targetDate, -1);
+  return previousDate ? [previousDate, targetDate] : [];
+}
+
+function dateKeyFromOffset(dateKey: string, dayOffset: number): string | null {
+  const parsed = Date.parse(`${dateKey}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed + dayOffset * 86_400_000).toISOString().slice(0, 10);
+}
+
 function calendarDateDiffDays(startDate: string, endDate: string): number {
   const [startYear, startMonth, startDay] = startDate.split("-").map(Number);
   const [endYear, endMonth, endDay] = endDate.split("-").map(Number);
@@ -1068,7 +1138,7 @@ function calendarDateDiffDays(startDate: string, endDate: string): number {
   }
   const start = Date.UTC(startYear, startMonth - 1, startDay);
   const end = Date.UTC(endYear, endMonth - 1, endDay);
-  return Math.floor((end - start) / 86_400_000);
+  return Math.max(0, Math.floor((end - start) / 86_400_000));
 }
 
 function formatTimestampMetric(timestamp: number | null): string {

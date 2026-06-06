@@ -108,16 +108,20 @@ describe("data health severity", () => {
   it("splits daily member stats into personal and gym subsystem tiles", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
       stale_personalstats: 1,
-      missing_donator_days: 1,
+      missing_donator_days: 0,
       personalstats_target_date: "2025-12-31",
-      latest_personalstats_bucket_date: "2025-12-30",
+      latest_personalstats_bucket_date: "2025-12-31",
       personalstats_lag_days: 1,
       affected_members: [],
     });
 
     const response = await getAdminDataHealth(dataHealthEnv({
-      gymLatestDate: "2025-12-29",
+      gymLatestDate: "2026-01-01",
       staleGymMembers: 3,
+      personalCoverage: [
+        { snapshot_date: "2025-12-30", ready_members: 55, total_members: 60 },
+        { snapshot_date: "2025-12-31", ready_members: 60, total_members: 60 },
+      ],
     }));
     const body = await response.json() as {
       subsystems: Array<{ key: string; summary: string; updated_label?: string | null; metrics: Array<{ label: string; value: string }> }>;
@@ -126,15 +130,25 @@ describe("data health severity", () => {
 
     expect(body.subsystems.some((subsystem) => subsystem.key === "daily_stats")).toBe(false);
     expect(body.subsystems.find((subsystem) => subsystem.key === "personal_stats")).toMatchObject({
-      summary: "2 reportable members need personal stat attention",
-      updated_label: "Latest snapshot 2025-12-30",
+      summary: "1 reportable members need personal stat attention",
+      updated_label: "Latest snapshot 2025-12-31",
+      metrics: [
+        { label: "2025-12-30", value: "55/60" },
+        { label: "2025-12-31", value: "60/60" },
+        { label: "Stale", value: "1" },
+      ],
     });
     expect(body.subsystems.find((subsystem) => subsystem.key === "gym_stats")).toMatchObject({
       summary: "3 reportable members need gym snapshots",
-      updated_label: "Latest snapshot 2025-12-29",
+      updated_label: "Latest snapshot 2026-01-01",
+      metrics: [
+        { label: "Lag days", value: "0" },
+        { label: "Stale members", value: "3" },
+        { label: "Latest snapshot", value: "2026-01-01" },
+      ],
     });
     expect(body.details.gym_stats_health).toMatchObject({
-      latest_gym_snapshot_date: "2025-12-29",
+      latest_gym_snapshot_date: "2026-01-01",
       stale_gym_members: 3,
     });
 
@@ -169,10 +183,15 @@ function dataHealthEnv({
   maintenanceRun = successfulMaintenanceRun(),
   gymLatestDate = "2025-12-31",
   staleGymMembers = 0,
+  personalCoverage = [
+    { snapshot_date: "2025-12-30", ready_members: 1, total_members: 1 },
+    { snapshot_date: "2025-12-31", ready_members: 1, total_members: 1 },
+  ],
 }: {
   maintenanceRun?: Record<string, unknown>;
   gymLatestDate?: string;
   staleGymMembers?: number;
+  personalCoverage?: Array<{ snapshot_date: string; ready_members: number; total_members: number }>;
 }): Env {
   return {
     DB: {
@@ -186,7 +205,7 @@ function dataHealthEnv({
             gymLatestDate,
             staleGymMembers,
           }),
-          all: async () => ({ results: rowsForDataHealthQuery(compactSql) }),
+          all: async () => ({ results: rowsForDataHealthQuery(compactSql, { personalCoverage }) }),
           run: async () => ({ success: true }),
         };
         return statement;
@@ -283,8 +302,12 @@ function successfulMaintenanceRun(): Record<string, unknown> {
   };
 }
 
-function rowsForDataHealthQuery(sql: string): Array<Record<string, unknown>> {
+function rowsForDataHealthQuery(
+  sql: string,
+  options: { personalCoverage: Array<{ snapshot_date: string; ready_members: number; total_members: number }> },
+): Array<Record<string, unknown>> {
   if (sql.includes("FROM scheduled_maintenance_tasks")) return [];
+  if (sql.includes("WITH target_dates")) return options.personalCoverage;
   if (sql.includes("GROUP BY")) return [];
   if (sql.includes("FROM torn_api_call_log")) return [];
   return [];
