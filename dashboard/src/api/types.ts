@@ -690,8 +690,11 @@ export type DailyStatsAttention = {
 
 export type GymStatsHealth = {
   target_date: string | null;
+  target_refresh_at: number | null;
   latest_gym_snapshot_date: string | null;
   gym_lag_days: number | null;
+  completed_gym_stats: string[];
+  missing_gym_stats: string[];
   stale_gym_members: number;
 };
 
@@ -727,6 +730,7 @@ export type DataHealthMetric = {
   label: string;
   value: string;
   timestamp?: number | null;
+  title?: string | null;
 };
 
 export type DataHealthSubsystem = {

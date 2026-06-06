@@ -1,6 +1,13 @@
 import { readJsonObject } from "./backend/request";
 import { HOME_FACTION_ID } from "./constants";
 import { getDailyStatsAttention } from "./lifestyleStats";
+import {
+  DAILY_GYM_COMPLETE_STATE_NAME,
+  DAILY_REFRESH_AFTER_UTC_HOUR,
+  DAILY_REFRESH_AFTER_UTC_MINUTE,
+  GYM_CONTRIBUTOR_STAT_KEYS,
+  GymContributorStatKey,
+} from "./lifestyleStats/model";
 import { Env } from "./types";
 import { json, nowSeconds } from "./utils";
 
@@ -39,6 +46,7 @@ type DataHealthMetric = {
   label: string;
   value: string;
   timestamp?: number | null;
+  title?: string | null;
 };
 
 type DataHealthSubsystem = {
@@ -102,6 +110,7 @@ type MaintenanceTaskRow = {
 
 type RosterHealthRow = {
   current_members: number;
+  profile_members: number;
   reportable_members: number;
   report_exempt_members: number;
   revivable_members: number;
@@ -159,8 +168,11 @@ type WarReportHealthRow = {
 
 type GymStatsHealthRow = {
   target_date: string | null;
+  target_refresh_at: number | null;
   latest_gym_snapshot_date: string | null;
   gym_lag_days: number | null;
+  completed_gym_stats: GymContributorStatKey[];
+  missing_gym_stats: GymContributorStatKey[];
   stale_gym_members: number;
 };
 
@@ -373,7 +385,7 @@ async function readDataHealthSnapshot(
   ]);
   const [personalStatsCoverage, gymStats] = await Promise.all([
     readPersonalStatsCoverage(env, dailyStats.personalstats_target_date),
-    readGymStatsHealth(env, dailyStats.personalstats_target_date),
+    readGymStatsHealth(env, dailyStats.personalstats_target_date, now),
   ]);
 
   return {
@@ -584,6 +596,7 @@ async function readRosterHealth(env: Env): Promise<RosterHealthRow> {
     `
     SELECT
       COUNT(CASE WHEN is_current = 1 THEN 1 END) AS current_members,
+      COUNT(CASE WHEN is_current = 1 AND name IS NOT NULL AND level IS NOT NULL AND position IS NOT NULL AND status_state IS NOT NULL THEN 1 END) AS profile_members,
       COUNT(CASE WHEN is_current = 1 AND report_exempt = 0 THEN 1 END) AS reportable_members,
       COUNT(CASE WHEN is_current = 1 AND report_exempt = 1 THEN 1 END) AS report_exempt_members,
       COUNT(CASE WHEN is_current = 1 AND is_revivable = 1 THEN 1 END) AS revivable_members,
@@ -597,6 +610,7 @@ async function readRosterHealth(env: Env): Promise<RosterHealthRow> {
 
   return {
     current_members: Number(row?.current_members ?? 0),
+    profile_members: Number(row?.profile_members ?? 0),
     reportable_members: Number(row?.reportable_members ?? 0),
     report_exempt_members: Number(row?.report_exempt_members ?? 0),
     revivable_members: Number(row?.revivable_members ?? 0),
@@ -642,7 +656,7 @@ async function readPersonalStatsCoverage(env: Env, targetDate: string | null): P
   }));
 }
 
-async function readGymStatsHealth(env: Env, targetDate: string | null): Promise<GymStatsHealthRow> {
+async function readGymStatsHealth(env: Env, targetDate: string | null, now: number): Promise<GymStatsHealthRow> {
   const latestRow = await env.DB.prepare(
     `
     SELECT snapshots.snapshot_date AS snapshot_date
@@ -658,6 +672,10 @@ async function readGymStatsHealth(env: Env, targetDate: string | null): Promise<
     `,
   ).bind(HOME_FACTION_ID).first<{ snapshot_date: string | null }>();
   const latestGymSnapshotDate = latestRow?.snapshot_date ?? null;
+  const targetRefreshAt = dailyGymRefreshReadyAt(now);
+  const streamStates = targetRefreshAt === null
+    ? { completedGymStats: [...GYM_CONTRIBUTOR_STAT_KEYS], missingGymStats: [] as GymContributorStatKey[] }
+    : await readGymStatStreamHealth(env, targetRefreshAt);
 
   const staleRow = targetDate
     ? await env.DB.prepare(
@@ -677,10 +695,38 @@ async function readGymStatsHealth(env: Env, targetDate: string | null): Promise<
 
   return {
     target_date: targetDate,
+    target_refresh_at: targetRefreshAt,
     latest_gym_snapshot_date: latestGymSnapshotDate,
     gym_lag_days: targetDate && latestGymSnapshotDate ? calendarDateDiffDays(latestGymSnapshotDate, targetDate) : null,
+    completed_gym_stats: streamStates.completedGymStats,
+    missing_gym_stats: streamStates.missingGymStats,
     stale_gym_members: Number(staleRow?.stale_gym_members ?? 0),
   };
+}
+
+async function readGymStatStreamHealth(
+  env: Env,
+  targetRefreshAt: number,
+): Promise<{ completedGymStats: GymContributorStatKey[]; missingGymStats: GymContributorStatKey[] }> {
+  const stateNames = GYM_CONTRIBUTOR_STAT_KEYS.map(gymContributorStatCompleteStateName);
+  const placeholders = stateNames.map(() => "?").join(", ");
+  const rows = await env.DB.prepare(
+    `
+    SELECT name, last_started
+    FROM sync_state
+    WHERE name IN (${placeholders})
+    `,
+  ).bind(...stateNames).all<{ name: string; last_started: number | null }>();
+  const completedStateNames = new Set(
+    (rows.results ?? [])
+      .filter((row) => Number(row.last_started ?? 0) >= targetRefreshAt)
+      .map((row) => row.name),
+  );
+  const completedGymStats = GYM_CONTRIBUTOR_STAT_KEYS.filter((stat) =>
+    completedStateNames.has(gymContributorStatCompleteStateName(stat)));
+  const missingGymStats = GYM_CONTRIBUTOR_STAT_KEYS.filter((stat) =>
+    !completedStateNames.has(gymContributorStatCompleteStateName(stat)));
+  return { completedGymStats, missingGymStats };
 }
 
 async function readApiUsageHealth(env: Env, now: number): Promise<ApiUsageHealthRow> {
@@ -922,10 +968,10 @@ async function readEnemyScoutingGaps(env: Env): Promise<EnemyScoutingGapRow[]> {
 function subsystemsFromSnapshot(snapshot: DataHealthSnapshot): DataHealthSubsystem[] {
   return [
     ingestionSubsystem(snapshot),
+    rosterSubsystem(snapshot),
     maintenanceSubsystem(snapshot),
     personalStatsSubsystem(snapshot),
     gymStatsSubsystem(snapshot),
-    rosterSubsystem(snapshot),
     apiSubsystem(snapshot),
     stockSubsystem(snapshot),
     warReportsSubsystem(snapshot),
@@ -960,10 +1006,13 @@ function ingestionSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
     summary,
     updated_at: completedAt,
     metrics: [
-      { label: "Latest run", value: run.status, timestamp: run.started_at },
-      { label: "Last completed", value: "Recorded", timestamp: completedAt },
+      { label: "Last completed", value: String(completedAt), timestamp: completedAt },
       { label: "Fetched attacks", value: String(run.fetched_attacks) },
-      { label: "Latest attack", value: snapshot.latestAttackStarted === null ? "-" : "Recorded", timestamp: snapshot.latestAttackStarted },
+      {
+        label: "Latest attack",
+        value: snapshot.latestAttackStarted === null ? "-" : String(snapshot.latestAttackStarted),
+        timestamp: snapshot.latestAttackStarted,
+      },
     ],
   };
 }
@@ -1021,14 +1070,15 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
     value: `${coverage.ready_members}/${coverage.total_members}`,
   }));
   const outstandingMetric = {
-    label: attention.missing_donator_days > 0 ? "Outstanding" : "Stale",
+    label: "Outstanding",
     value: String(affectedCount),
+    title: "Number of members missing personal stats from before the recent days.",
   };
   return {
     key: "personal_stats",
     label: "Personal stats",
     status,
-    summary: affectedCount > 0 ? `${affectedCount} reportable members need personal stat attention` : "Personal stats are current",
+    summary: affectedCount > 0 ? `${affectedCount} reportable members need personal stat attention` : "Personal stats are up to date",
     updated_at: null,
     metrics: [
       ...coverageMetrics,
@@ -1039,6 +1089,9 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
 
 function gymStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const gymStats = snapshot.gymStats;
+  const totalStreams = GYM_CONTRIBUTOR_STAT_KEYS.length;
+  const completedStreams = gymStats.completed_gym_stats.length;
+  const missingStreams = gymStats.missing_gym_stats.length;
   const lagStatus = gymStats.gym_lag_days === null
     ? "unknown"
     : statusForCount(
@@ -1046,41 +1099,59 @@ function gymStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
       snapshot.settings.daily_stats_lag_warn_days,
       snapshot.settings.daily_stats_lag_critical_days,
     );
-  const countStatus = statusForCount(
-    gymStats.stale_gym_members,
-    snapshot.settings.stale_daily_members_warn,
-    snapshot.settings.stale_daily_members_critical,
-  );
-  const status = maxStatus(lagStatus, countStatus);
+  const streamStatus = gymStats.target_refresh_at === null
+    ? "good"
+    : missingStreams === 0
+      ? "good"
+      : missingStreams === totalStreams
+        ? "critical"
+        : "warn";
+  const status = maxStatus(lagStatus, streamStatus);
+  const summary = missingStreams > 0
+    ? `${missingStreams} gym stat ${missingStreams === 1 ? "stream needs" : "streams need"} fetching`
+    : gymStats.gym_lag_days !== null && gymStats.gym_lag_days > 0
+      ? `Published gym stats are ${gymStats.gym_lag_days}d behind`
+      : "Gym contributor stats are up to date";
   return {
     key: "gym_stats",
     label: "Gym stats",
     status,
-    summary: gymStats.stale_gym_members > 0
-      ? `${gymStats.stale_gym_members} reportable members need gym snapshots`
-      : "Gym stats are current",
+    summary,
     updated_at: null,
-    updated_label: snapshotDateLabel(gymStats.latest_gym_snapshot_date),
+    updated_label: publishedDateLabel(gymStats.latest_gym_snapshot_date),
     metrics: [
-      { label: "Lag days", value: gymStats.gym_lag_days === null ? "-" : String(gymStats.gym_lag_days) },
-      { label: "Stale members", value: String(gymStats.stale_gym_members) },
-      { label: "Latest snapshot", value: gymStats.latest_gym_snapshot_date ?? "-" },
+      {
+        label: "Stat streams",
+        value: `${completedStreams}/${totalStreams}`,
+        title: `Completed gym stat streams: ${statStreamList(gymStats.completed_gym_stats)}.`,
+      },
+      {
+        label: "Missing streams",
+        value: String(missingStreams),
+        title: `Missing gym stat streams: ${statStreamList(gymStats.missing_gym_stats)}.`,
+      },
+      { label: "Published date", value: gymStats.latest_gym_snapshot_date ?? "-" },
     ],
   };
 }
 
 function rosterSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const roster = snapshot.roster;
+  const totalMembers = roster.current_members;
   return {
     key: "roster",
-    label: "Home roster",
+    label: "Faction Members",
     status: roster.current_members > 0 ? "good" : "unknown",
     summary: roster.current_members > 0 ? `${roster.current_members} current faction members` : "No current members found",
     updated_at: roster.updated_at,
     metrics: [
-      { label: "Current", value: String(roster.current_members) },
-      { label: "Stat estimates", value: String(roster.stat_estimates) },
-      { label: "Networth estimates", value: String(roster.networth_estimates) },
+      {
+        label: "Profile coverage",
+        value: `${roster.profile_members}/${totalMembers}`,
+        title: "Current members with name, level, position, and status metadata.",
+      },
+      { label: "Stats", value: `${roster.stat_estimates}/${totalMembers}` },
+      { label: "Networth", value: `${roster.networth_estimates}/${totalMembers}` },
     ],
   };
 }
@@ -1192,7 +1263,12 @@ function issueDetailForSubsystem(snapshot: DataHealthSnapshot, subsystem: DataHe
     return `${snapshot.dailyStats.stale_personalstats} stale personalstats, ${snapshot.dailyStats.missing_donator_days} missing donator-day gaps`;
   }
   if (subsystem.key === "gym_stats") {
-    return `${snapshot.gymStats.stale_gym_members} stale gym snapshots; latest gym snapshot: ${snapshot.gymStats.latest_gym_snapshot_date ?? "-"}`;
+    return [
+      `${snapshot.gymStats.missing_gym_stats.length} missing gym stat streams`,
+      `missing: ${statStreamList(snapshot.gymStats.missing_gym_stats)}`,
+      `members impacted in published snapshot: ${snapshot.gymStats.stale_gym_members}`,
+      `latest published date: ${snapshot.gymStats.latest_gym_snapshot_date ?? "-"}`,
+    ].join("; ");
   }
   return subsystem.metrics.map((metric) => `${metric.label}: ${metric.value}`).join("; ");
 }
@@ -1247,8 +1323,8 @@ function nullableNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function snapshotDateLabel(snapshotDate: string | null): string | null {
-  return snapshotDate ? `Latest snapshot ${snapshotDate}` : null;
+function publishedDateLabel(snapshotDate: string | null): string | null {
+  return snapshotDate ? `Published ${snapshotDate}` : null;
 }
 
 function recentPersonalStatsCoverageDates(targetDate: string | null): string[] {
@@ -1275,6 +1351,36 @@ function calendarDateDiffDays(startDate: string, endDate: string): number {
   const start = Date.UTC(startYear, startMonth - 1, startDay);
   const end = Date.UTC(endYear, endMonth - 1, endDay);
   return Math.max(0, Math.floor((end - start) / 86_400_000));
+}
+
+function dailyGymRefreshReadyAt(timestamp: number): number | null {
+  const date = new Date(timestamp * 1000);
+  const readyAt = Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    DAILY_REFRESH_AFTER_UTC_HOUR,
+    DAILY_REFRESH_AFTER_UTC_MINUTE,
+    0,
+  );
+
+  return timestamp * 1000 >= readyAt ? Math.floor(readyAt / 1000) : null;
+}
+
+function gymContributorStatCompleteStateName(stat: GymContributorStatKey): string {
+  return `${DAILY_GYM_COMPLETE_STATE_NAME}_${stat}`;
+}
+
+function statStreamList(stats: readonly GymContributorStatKey[]): string {
+  return stats.length > 0 ? stats.map(formatGymStatName).join(", ") : "none";
+}
+
+function formatGymStatName(stat: GymContributorStatKey): string {
+  if (stat === "gymenergy") return "energy";
+  if (stat === "gymstrength") return "strength";
+  if (stat === "gymspeed") return "speed";
+  if (stat === "gymdefense") return "defense";
+  return "dexterity";
 }
 
 function formatTimestampMetric(timestamp: number | null): string {

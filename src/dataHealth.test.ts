@@ -151,6 +151,7 @@ describe("data health severity", () => {
     const response = await getAdminDataHealth(dataHealthEnv({
       gymLatestDate: "2026-01-01",
       staleGymMembers: 3,
+      completedGymStats: ["gymenergy", "gymstrength", "gymspeed"],
       personalCoverage: [
         { snapshot_date: "2025-12-30", ready_members: 55, total_members: 60 },
         { snapshot_date: "2025-12-31", ready_members: 60, total_members: 60 },
@@ -158,7 +159,14 @@ describe("data health severity", () => {
     }));
     const body = await response.json() as {
       subsystems: Array<{ key: string; status: string; summary: string; updated_label?: string | null; metrics: Array<{ label: string; value: string }> }>;
-      details: { gym_stats_health: { latest_gym_snapshot_date: string | null; stale_gym_members: number } };
+      details: {
+        gym_stats_health: {
+          latest_gym_snapshot_date: string | null;
+          completed_gym_stats: string[];
+          missing_gym_stats: string[];
+          stale_gym_members: number;
+        };
+      };
     };
 
     expect(body.subsystems.some((subsystem) => subsystem.key === "daily_stats")).toBe(false);
@@ -168,29 +176,36 @@ describe("data health severity", () => {
       metrics: [
         { label: "2025-12-30", value: "55/60" },
         { label: "2025-12-31", value: "60/60" },
-        { label: "Stale", value: "1" },
+        { label: "Outstanding", value: "1" },
       ],
     });
     expect(body.subsystems.find((subsystem) => subsystem.key === "personal_stats"))
       .not.toHaveProperty("updated_label");
     expect(body.subsystems.find((subsystem) => subsystem.key === "gym_stats")).toMatchObject({
-      summary: "3 reportable members need gym snapshots",
-      updated_label: "Latest snapshot 2026-01-01",
+      summary: "2 gym stat streams need fetching",
+      updated_label: "Published 2026-01-01",
       metrics: [
-        { label: "Lag days", value: "0" },
-        { label: "Stale members", value: "3" },
-        { label: "Latest snapshot", value: "2026-01-01" },
+        { label: "Stat streams", value: "3/5" },
+        { label: "Missing streams", value: "2" },
+        { label: "Published date", value: "2026-01-01" },
       ],
     });
     expect(body.details.gym_stats_health).toMatchObject({
       latest_gym_snapshot_date: "2026-01-01",
+      completed_gym_stats: ["gymenergy", "gymstrength", "gymspeed"],
+      missing_gym_stats: ["gymdefense", "gymdexterity"],
       stale_gym_members: 3,
     });
 
-    const rosterMetricLabels = body.subsystems
-      .find((subsystem) => subsystem.key === "roster")
-      ?.metrics.map((metric) => metric.label);
-    expect(rosterMetricLabels).toEqual(["Current", "Stat estimates", "Networth estimates"]);
+    expect(body.subsystems.slice(0, 2).map((subsystem) => subsystem.key)).toEqual(["ingestion", "roster"]);
+    expect(body.subsystems.find((subsystem) => subsystem.key === "roster")).toMatchObject({
+      label: "Faction Members",
+      metrics: [
+        { label: "Profile coverage", value: "1/1" },
+        { label: "Stats", value: "1/1" },
+        { label: "Networth", value: "1/1" },
+      ],
+    });
   });
 
   it("bases personal stats severity on the oldest recent date only", async () => {
@@ -218,7 +233,7 @@ describe("data health severity", () => {
       metrics: [
         { label: "2025-12-30", value: "60/60" },
         { label: "2025-12-31", value: "55/60" },
-        { label: "Stale", value: "0" },
+        { label: "Outstanding", value: "0" },
       ],
     });
   });
@@ -247,6 +262,7 @@ function settingsEnv(settings: Record<string, unknown>, save: () => void): Env {
 function dataHealthEnv({
   maintenanceRun = successfulMaintenanceRun(),
   gymLatestDate = "2025-12-31",
+  completedGymStats = ["gymenergy", "gymstrength", "gymspeed", "gymdefense", "gymdexterity"],
   staleGymMembers = 0,
   personalCoverage = [
     { snapshot_date: "2025-12-30", ready_members: 1, total_members: 1 },
@@ -255,6 +271,7 @@ function dataHealthEnv({
 }: {
   maintenanceRun?: Record<string, unknown>;
   gymLatestDate?: string;
+  completedGymStats?: string[];
   staleGymMembers?: number;
   personalCoverage?: Array<{ snapshot_date: string; ready_members: number; total_members: number }>;
 }): Env {
@@ -270,7 +287,7 @@ function dataHealthEnv({
             gymLatestDate,
             staleGymMembers,
           }),
-          all: async () => ({ results: rowsForDataHealthQuery(compactSql, { personalCoverage }) }),
+          all: async () => ({ results: rowsForDataHealthQuery(compactSql, { completedGymStats, personalCoverage }) }),
           run: async () => ({ success: true }),
         };
         return statement;
@@ -317,6 +334,7 @@ function firstRowForDataHealthQuery(
   if (sql.includes("FROM home_faction_members")) {
     return {
       current_members: 1,
+      profile_members: 1,
       reportable_members: 1,
       report_exempt_members: 0,
       revivable_members: 1,
@@ -369,9 +387,18 @@ function successfulMaintenanceRun(): Record<string, unknown> {
 
 function rowsForDataHealthQuery(
   sql: string,
-  options: { personalCoverage: Array<{ snapshot_date: string; ready_members: number; total_members: number }> },
+  options: {
+    completedGymStats: string[];
+    personalCoverage: Array<{ snapshot_date: string; ready_members: number; total_members: number }>;
+  },
 ): Array<Record<string, unknown>> {
   if (sql.includes("FROM scheduled_maintenance_tasks")) return [];
+  if (sql.includes("FROM sync_state")) {
+    return options.completedGymStats.map((stat) => ({
+      name: `member_gym_stats_current_daily_${stat}`,
+      last_started: Math.floor(Date.now() / 1000),
+    }));
+  }
   if (sql.includes("WITH target_dates")) return options.personalCoverage;
   if (sql.includes("GROUP BY")) return [];
   if (sql.includes("FROM torn_api_call_log")) return [];

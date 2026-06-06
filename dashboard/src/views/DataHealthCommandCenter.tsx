@@ -324,10 +324,12 @@ function AdminDataHealthDiagnostics({
           icon={<Activity size={17} />}
           title="Gym stats"
           rows={[
+            ["Stat streams", `${data.details.gym_stats_health.completed_gym_stats.length}/5`],
+            ["Missing streams", gymStatStreamList(data.details.gym_stats_health.missing_gym_stats)],
             ["Target date", data.details.gym_stats_health.target_date ?? "-"],
-            ["Latest snapshot", data.details.gym_stats_health.latest_gym_snapshot_date ?? "-"],
+            ["Published date", data.details.gym_stats_health.latest_gym_snapshot_date ?? "-"],
             ["Lag days", nullableNumber(data.details.gym_stats_health.gym_lag_days)],
-            ["Stale members", formatNumber(data.details.gym_stats_health.stale_gym_members)],
+            ["Members impacted", formatNumber(data.details.gym_stats_health.stale_gym_members)],
           ]}
         />
         <DetailPanel
@@ -434,7 +436,12 @@ function SubsystemTile({ subsystem }: { subsystem: DataHealthSubsystem }) {
       <small className="data-health-subsystem-description">{subsystemDescription(subsystem.key)}</small>
       <div className="data-health-tile-metrics">
         {subsystem.metrics.map((metric) => (
-          <MetricLine key={`${subsystem.key}-${metric.label}`} label={metric.label} value={displayMetricValue(metric.value, metric.timestamp)} />
+          <MetricLine
+            key={`${subsystem.key}-${metric.label}`}
+            label={metric.label}
+            title={metric.title ?? undefined}
+            value={displayMetricValue(metric.value, metric.timestamp)}
+          />
         ))}
       </div>
     </article>
@@ -782,9 +789,9 @@ function AdminHeaderMeta({ aside }: { aside?: string }) {
   );
 }
 
-function MetricLine({ label, value }: { label: string; value: string }) {
+function MetricLine({ label, title, value }: { label: string; title?: string; value: string }) {
   return (
-    <div className="dashboard-metric-line">
+    <div className="dashboard-metric-line" title={title}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -818,6 +825,18 @@ function nullableNumber(value: number | null): string {
   return value === null ? "-" : formatNumber(value);
 }
 
+function gymStatStreamList(stats: string[]): string {
+  if (stats.length === 0) return "None";
+  return stats.map((stat) => {
+    if (stat === "gymenergy") return "Energy";
+    if (stat === "gymstrength") return "Strength";
+    if (stat === "gymspeed") return "Speed";
+    if (stat === "gymdefense") return "Defense";
+    if (stat === "gymdexterity") return "Dexterity";
+    return stat;
+  }).join(", ");
+}
+
 function displayMetricValue(value: string, timestamp: number | null | undefined): string {
   if (timestamp && value === String(timestamp)) {
     return formatRelativeTime(timestamp);
@@ -828,9 +847,9 @@ function displayMetricValue(value: string, timestamp: number | null | undefined)
 function subsystemDescription(key: string): string {
   if (key === "ingestion") return "Checks whether faction attack data is being imported on schedule.";
   if (key === "maintenance") return "Checks scheduled cleanup and repair jobs that keep derived data tidy.";
-  if (key === "personal_stats") return "Checks daily personal-stat snapshots used by reports and trend views.";
-  if (key === "gym_stats") return "Checks daily gym-stat snapshots used by member progress views.";
-  if (key === "roster") return "Checks whether the current home roster and member metadata are present.";
+  if (key === "personal_stats") return "Checks daily personal-stat snapshots.";
+  if (key === "gym_stats") return "Checks the five gym contributor stat streams.";
+  if (key === "roster") return "Checks current faction members data.";
   if (key === "torn_api") return "Checks recent Torn API failures and rate limits that can slow updates.";
   if (key === "stock_data") return "Checks stock profile and price snapshot freshness.";
   if (key === "war_reports") return "Checks ended wars that still need official Torn reports reconciled.";
