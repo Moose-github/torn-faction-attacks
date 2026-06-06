@@ -226,12 +226,20 @@ function AdminDataHealthDiagnostics({
 }) {
   const adminSubsystems = adminOnlySubsystems(data.subsystems);
   return (
-    <>
+    <section className="data-health-admin-section" aria-labelledby="data-health-admin-title">
+      <div className="data-health-section-header">
+        <div>
+          <p className="eyebrow">Admin</p>
+          <h2 id="data-health-admin-title">Admin Diagnostics</h2>
+        </div>
+        <span className="admin-only-pill data-health-section-pill">Admin</span>
+      </div>
+
       <section className="panel data-health-overview-panel">
         <PanelHeader
           icon={<ServerCog size={17} />}
           title="Admin subsystems"
-          control={<AdminHeaderMeta aside={`${formatNumber(adminSubsystems.length)} checks`} />}
+          aside={`${formatNumber(adminSubsystems.length)} checks`}
         />
         <p className="panel-description data-health-panel-description">
           Internal operations checks for admins. These can affect upkeep and reporting workflows, but are hidden from the member overview.
@@ -251,7 +259,7 @@ function AdminDataHealthDiagnostics({
         <PanelHeader
           icon={<AlertTriangle size={17} />}
           title="Issues"
-          control={<AdminHeaderMeta aside={`${formatNumber(data.issues.length)} open`} />}
+          aside={`${formatNumber(data.issues.length)} open`}
         />
         <p className="panel-description data-health-panel-description">
           Admin-only triage list for the checks that are not good. Use the detail text to decide whether this is
@@ -352,7 +360,7 @@ function AdminDataHealthDiagnostics({
       </section>
 
       <section className="panel data-health-api-panel">
-        <PanelHeader icon={<Clock3 size={17} />} title="Torn API usage" control={<AdminHeaderMeta aside="Last hour" />} />
+        <PanelHeader icon={<Clock3 size={17} />} title="Torn API usage" aside="Last hour" />
         <p className="panel-description data-health-panel-description">
           Recent Torn API call volume and failures. Spikes in errors or 429s can explain stale downstream data.
         </p>
@@ -394,7 +402,7 @@ function AdminDataHealthDiagnostics({
       </section>
 
       <section className="panel data-health-settings-panel">
-        <PanelHeader icon={<Settings2 size={17} />} title="Health thresholds" control={<AdminHeaderMeta aside="Global" />} />
+        <PanelHeader icon={<Settings2 size={17} />} title="Health thresholds" aside="Global" />
         <p className="panel-description data-health-panel-description">
           Thresholds control when a check becomes a warning or critical. Lower values make the page more sensitive;
           higher values tolerate longer delays before alerting.
@@ -421,7 +429,7 @@ function AdminDataHealthDiagnostics({
           </button>
         </form>
       </section>
-    </>
+    </section>
   );
 }
 
@@ -747,7 +755,7 @@ function DetailPanel({
 }) {
   return (
     <section className="panel data-health-detail-panel">
-      <PanelHeader icon={icon} title={title} control={<AdminHeaderMeta />} />
+      <PanelHeader icon={icon} title={title} />
       <div className="admin-metric-list">
         {rows.map(([label, value]) => (
           <MetricLine key={`${title}-${label}`} label={label} value={value} />
@@ -777,15 +785,6 @@ function HealthMetric({
       <strong>{value}</strong>
       <p>{detail}</p>
     </section>
-  );
-}
-
-function AdminHeaderMeta({ aside }: { aside?: string }) {
-  return (
-    <div className="data-health-admin-header-meta">
-      <span className="admin-only-pill">Admin</span>
-      {aside ? <span>{aside}</span> : null}
-    </div>
   );
 }
 
