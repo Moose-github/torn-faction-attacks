@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_DATA_HEALTH_SETTINGS,
   getAdminDataHealth,
+  getDataHealthSummary,
   statusForAgeSeconds,
   statusForCount,
   statusForPercent,
@@ -105,6 +106,38 @@ describe("data health severity", () => {
       .toBe("Last completed maintenance is older than 45m");
   });
 
+  it("hides admin-only subsystems from the member summary", async () => {
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 0,
+      missing_donator_days: 0,
+      personalstats_target_date: "2025-12-31",
+      latest_personalstats_bucket_date: "2025-12-31",
+      personalstats_lag_days: 0,
+      affected_members: [],
+    });
+
+    const response = await getDataHealthSummary(dataHealthEnv({
+      maintenanceRun: {
+        id: "maintenance-run-failed",
+        started_at: Math.floor(Date.now() / 1000) - 60,
+        finished_at: Math.floor(Date.now() / 1000) - 30,
+        status: "error",
+        task_count: 3,
+        write_statements: 2,
+        changed_rows: 4,
+        error: "maintenance failed",
+      },
+    }));
+    const body = await response.json() as {
+      overall_status: string;
+      subsystems: Array<{ key: string }>;
+    };
+
+    expect(body.subsystems.map((subsystem) => subsystem.key)).not.toContain("maintenance");
+    expect(body.subsystems.map((subsystem) => subsystem.key)).not.toContain("war_reports");
+    expect(body.overall_status).toBe("good");
+  });
+
   it("splits daily member stats into personal and gym subsystem tiles", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
       stale_personalstats: 1,
@@ -124,20 +157,22 @@ describe("data health severity", () => {
       ],
     }));
     const body = await response.json() as {
-      subsystems: Array<{ key: string; summary: string; updated_label?: string | null; metrics: Array<{ label: string; value: string }> }>;
+      subsystems: Array<{ key: string; status: string; summary: string; updated_label?: string | null; metrics: Array<{ label: string; value: string }> }>;
       details: { gym_stats_health: { latest_gym_snapshot_date: string | null; stale_gym_members: number } };
     };
 
     expect(body.subsystems.some((subsystem) => subsystem.key === "daily_stats")).toBe(false);
     expect(body.subsystems.find((subsystem) => subsystem.key === "personal_stats")).toMatchObject({
+      status: "critical",
       summary: "1 reportable members need personal stat attention",
-      updated_label: "Latest snapshot 2025-12-31",
       metrics: [
         { label: "2025-12-30", value: "55/60" },
         { label: "2025-12-31", value: "60/60" },
         { label: "Stale", value: "1" },
       ],
     });
+    expect(body.subsystems.find((subsystem) => subsystem.key === "personal_stats"))
+      .not.toHaveProperty("updated_label");
     expect(body.subsystems.find((subsystem) => subsystem.key === "gym_stats")).toMatchObject({
       summary: "3 reportable members need gym snapshots",
       updated_label: "Latest snapshot 2026-01-01",
@@ -156,6 +191,36 @@ describe("data health severity", () => {
       .find((subsystem) => subsystem.key === "roster")
       ?.metrics.map((metric) => metric.label);
     expect(rosterMetricLabels).toEqual(["Current", "Stat estimates", "Networth estimates"]);
+  });
+
+  it("bases personal stats severity on the oldest recent date only", async () => {
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 0,
+      missing_donator_days: 0,
+      personalstats_target_date: "2025-12-31",
+      latest_personalstats_bucket_date: "2025-12-31",
+      personalstats_lag_days: 0,
+      affected_members: [],
+    });
+
+    const response = await getAdminDataHealth(dataHealthEnv({
+      personalCoverage: [
+        { snapshot_date: "2025-12-30", ready_members: 60, total_members: 60 },
+        { snapshot_date: "2025-12-31", ready_members: 55, total_members: 60 },
+      ],
+    }));
+    const body = await response.json() as {
+      subsystems: Array<{ key: string; status: string; metrics: Array<{ label: string; value: string }> }>;
+    };
+
+    expect(body.subsystems.find((subsystem) => subsystem.key === "personal_stats")).toMatchObject({
+      status: "good",
+      metrics: [
+        { label: "2025-12-30", value: "60/60" },
+        { label: "2025-12-31", value: "55/60" },
+        { label: "Stale", value: "0" },
+      ],
+    });
   });
 });
 

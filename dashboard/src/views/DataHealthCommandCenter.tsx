@@ -52,6 +52,8 @@ const SETTING_FIELDS: Array<{
   { key: "stale_stocks_critical", label: "Stale stocks critical count", unit: "stocks" },
 ];
 
+const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "war_reports"]);
+
 export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterProps) {
   const [data, setData] = React.useState<AdminDataHealthResponse | DataHealthSummaryResponse | null>(null);
   const [settingsForm, setSettingsForm] = React.useState<Record<string, string>>({});
@@ -135,7 +137,8 @@ function DataHealthOverview({
   isLoading: boolean;
   onRefresh: () => void;
 }) {
-  const subsystems = data?.subsystems ?? [];
+  const subsystems = memberVisibleSubsystems(data?.subsystems ?? []);
+  const visibleOverallStatus = overallStatus(subsystems, data?.overall_status ?? "unknown");
   const criticalCount = subsystems.filter((subsystem) => subsystem.status === "critical").length;
   const warnCount = subsystems.filter((subsystem) => subsystem.status === "warn").length;
 
@@ -163,9 +166,9 @@ function DataHealthOverview({
       <section className="status-grid data-health-status-grid">
         <HealthMetric
           label="Overall"
-          value={statusLabel(data?.overall_status ?? "unknown")}
-          status={data?.overall_status ?? "unknown"}
-          detail="Highest severity across every subsystem below."
+          value={statusLabel(visibleOverallStatus)}
+          status={visibleOverallStatus}
+          detail="Highest severity across the shared subsystems below."
         />
         <HealthMetric
           label="Critical"
@@ -220,13 +223,34 @@ function AdminDataHealthDiagnostics({
   settingsForm: Record<string, string>;
   setSettingsForm: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }) {
+  const adminSubsystems = adminOnlySubsystems(data.subsystems);
   return (
     <>
+      <section className="panel data-health-overview-panel">
+        <PanelHeader
+          icon={<ServerCog size={17} />}
+          title="Admin subsystems"
+          control={<AdminHeaderMeta aside={`${formatNumber(adminSubsystems.length)} checks`} />}
+        />
+        <p className="panel-description data-health-panel-description">
+          Internal operations checks for admins. These can affect upkeep and reporting workflows, but are hidden from the member overview.
+        </p>
+        {adminSubsystems.length === 0 ? (
+          <EmptyState text="No admin subsystem health available" />
+        ) : (
+          <div className="data-health-subsystem-grid">
+            {adminSubsystems.map((subsystem) => (
+              <SubsystemTile key={subsystem.key} subsystem={subsystem} />
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="panel data-health-issues-panel">
         <PanelHeader
           icon={<AlertTriangle size={17} />}
           title="Issues"
-          aside={`${formatNumber(data.issues.length)} open`}
+          control={<AdminHeaderMeta aside={`${formatNumber(data.issues.length)} open`} />}
         />
         <p className="panel-description data-health-panel-description">
           Admin-only triage list for the checks that are not good. Use the detail text to decide whether this is
@@ -319,7 +343,7 @@ function AdminDataHealthDiagnostics({
       </section>
 
       <section className="panel data-health-api-panel">
-        <PanelHeader icon={<Clock3 size={17} />} title="Torn API usage" aside="Last hour" />
+        <PanelHeader icon={<Clock3 size={17} />} title="Torn API usage" control={<AdminHeaderMeta aside="Last hour" />} />
         <p className="panel-description data-health-panel-description">
           Recent Torn API call volume and failures. Spikes in errors or 429s can explain stale downstream data.
         </p>
@@ -361,7 +385,7 @@ function AdminDataHealthDiagnostics({
       </section>
 
       <section className="panel data-health-settings-panel">
-        <PanelHeader icon={<Settings2 size={17} />} title="Health thresholds" aside="Global" />
+        <PanelHeader icon={<Settings2 size={17} />} title="Health thresholds" control={<AdminHeaderMeta aside="Global" />} />
         <p className="panel-description data-health-panel-description">
           Thresholds control when a check becomes a warning or critical. Lower values make the page more sensitive;
           higher values tolerate longer delays before alerting.
@@ -422,7 +446,7 @@ function DetailPanel({
 }) {
   return (
     <section className="panel data-health-detail-panel">
-      <PanelHeader icon={icon} title={title} />
+      <PanelHeader icon={icon} title={title} control={<AdminHeaderMeta />} />
       <div className="admin-metric-list">
         {rows.map(([label, value]) => (
           <MetricLine key={`${title}-${label}`} label={label} value={value} />
@@ -452,6 +476,15 @@ function HealthMetric({
       <strong>{value}</strong>
       <p>{detail}</p>
     </section>
+  );
+}
+
+function AdminHeaderMeta({ aside }: { aside?: string }) {
+  return (
+    <div className="data-health-admin-header-meta">
+      <span className="admin-only-pill">Admin</span>
+      {aside ? <span>{aside}</span> : null}
+    </div>
   );
 }
 
@@ -508,6 +541,28 @@ function subsystemDescription(key: string): string {
   if (key === "stock_data") return "Checks stock profile and price snapshot freshness.";
   if (key === "war_reports") return "Checks ended wars that still need official Torn reports reconciled.";
   return "Checks one dashboard data source for freshness and coverage.";
+}
+
+function memberVisibleSubsystems(subsystems: DataHealthSubsystem[]): DataHealthSubsystem[] {
+  return subsystems.filter((subsystem) => !ADMIN_ONLY_SUBSYSTEM_KEYS.has(subsystem.key));
+}
+
+function adminOnlySubsystems(subsystems: DataHealthSubsystem[]): DataHealthSubsystem[] {
+  return subsystems.filter((subsystem) => ADMIN_ONLY_SUBSYSTEM_KEYS.has(subsystem.key));
+}
+
+function overallStatus(subsystems: DataHealthSubsystem[], fallback: DataHealthStatus): DataHealthStatus {
+  if (subsystems.length === 0) return fallback;
+  return subsystems.reduce<DataHealthStatus>((highest, subsystem) =>
+    statusRank(subsystem.status) > statusRank(highest) ? subsystem.status : highest,
+  "good");
+}
+
+function statusRank(status: DataHealthStatus): number {
+  if (status === "critical") return 3;
+  if (status === "warn") return 2;
+  if (status === "unknown") return 1;
+  return 0;
 }
 
 function isAdminDataHealthResponse(

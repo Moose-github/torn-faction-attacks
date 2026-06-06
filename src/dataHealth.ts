@@ -213,6 +213,7 @@ export const DEFAULT_DATA_HEALTH_SETTINGS: DataHealthSettings = {
 const SETTINGS_ID = 1;
 const API_USAGE_WINDOW_SECONDS = 60 * 60;
 const HEALTH_CACHE_TIME_SECONDS = 30;
+const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "war_reports"]);
 
 const STATUS_RANK: Record<DataHealthStatus, number> = {
   good: 0,
@@ -223,12 +224,13 @@ const STATUS_RANK: Record<DataHealthStatus, number> = {
 
 export async function getDataHealthSummary(env: Env): Promise<Response> {
   const snapshot = await readDataHealthSnapshot(env, { includeAdminDetail: false });
+  const subsystems = memberVisibleSubsystems(subsystemsFromSnapshot(snapshot));
   return json({
     ok: true,
     generated_at: snapshot.now,
     cache_seconds: HEALTH_CACHE_TIME_SECONDS,
-    overall_status: overallStatus(subsystemsFromSnapshot(snapshot)),
-    subsystems: sanitizeSubsystems(subsystemsFromSnapshot(snapshot)),
+    overall_status: overallStatus(subsystems),
+    subsystems: sanitizeSubsystems(subsystems),
   });
 }
 
@@ -866,23 +868,15 @@ function maintenanceSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem
 function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const attention = snapshot.dailyStats;
   const affectedCount = attention.stale_personalstats + attention.missing_donator_days;
-  const missingCoverage = snapshot.personalStatsCoverage.reduce(
-    (total, coverage) => total + Math.max(0, coverage.total_members - coverage.ready_members),
-    0,
-  );
-  const coverageStatus = snapshot.personalStatsCoverage.length === 0 || snapshot.personalStatsCoverage.every((coverage) => coverage.total_members === 0)
+  const oldestCoverage = snapshot.personalStatsCoverage[0] ?? null;
+  const oldestMissingCoverage = oldestCoverage ? Math.max(0, oldestCoverage.total_members - oldestCoverage.ready_members) : 0;
+  const status = !oldestCoverage || oldestCoverage.total_members === 0
     ? "unknown"
     : statusForCount(
-      missingCoverage,
+      oldestMissingCoverage,
       snapshot.settings.stale_daily_members_warn,
       snapshot.settings.stale_daily_members_critical,
     );
-  const countStatus = statusForCount(
-    affectedCount,
-    snapshot.settings.stale_daily_members_warn,
-    snapshot.settings.stale_daily_members_critical,
-  );
-  const status = maxStatus(coverageStatus, countStatus);
   const coverageMetrics = snapshot.personalStatsCoverage.map((coverage) => ({
     label: coverage.snapshot_date,
     value: `${coverage.ready_members}/${coverage.total_members}`,
@@ -897,7 +891,6 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
     status,
     summary: affectedCount > 0 ? `${affectedCount} reportable members need personal stat attention` : "Personal stats are current",
     updated_at: null,
-    updated_label: snapshotDateLabel(attention.latest_personalstats_bucket_date),
     metrics: [
       ...coverageMetrics,
       outstandingMetric,
@@ -1077,6 +1070,10 @@ function sanitizeSubsystems(subsystems: DataHealthSubsystem[]): DataHealthSubsys
     ...subsystem,
     metrics: subsystem.metrics.slice(0, 3),
   }));
+}
+
+function memberVisibleSubsystems(subsystems: DataHealthSubsystem[]): DataHealthSubsystem[] {
+  return subsystems.filter((subsystem) => !ADMIN_ONLY_SUBSYSTEM_KEYS.has(subsystem.key));
 }
 
 function unknownSubsystem(key: string, label: string, summary: string): DataHealthSubsystem {
