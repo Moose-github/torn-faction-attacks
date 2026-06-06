@@ -170,6 +170,35 @@ type PersonalStatsCoverageRow = {
   total_members: number;
 };
 
+type EnemyScoutingCoverageRow = {
+  faction_id: number;
+  war_names: string | null;
+  total_members: number;
+  ff_stats_available: number;
+  bsp_stats_available: number;
+  networth_available: number;
+  networth_pending: number;
+  networth_failed: number;
+  networth_retryable: number;
+  status_checked_at: number | null;
+  updated_at: number | null;
+};
+
+type EnemyScoutingGapRow = {
+  faction_id: number;
+  member_id: number;
+  name: string;
+  level: number | null;
+  status_state: string | null;
+  ff_battlestats: number | null;
+  bsp_battlestats: number | null;
+  networth: number | null;
+  networth_attempted_at: number | null;
+  networth_attempt_count: number | null;
+  networth_error: string | null;
+  updated_at: number | null;
+};
+
 type DataHealthSnapshot = {
   now: number;
   settings: DataHealthSettings;
@@ -189,6 +218,8 @@ type DataHealthSnapshot = {
   stockCoverage: StockCoverageRow;
   stockLastError: string | null;
   warReports: WarReportHealthRow;
+  enemyScoutingCoverage: EnemyScoutingCoverageRow[];
+  enemyScoutingGaps: EnemyScoutingGapRow[];
 };
 
 export const DEFAULT_DATA_HEALTH_SETTINGS: DataHealthSettings = {
@@ -260,6 +291,8 @@ export async function getAdminDataHealth(env: Env): Promise<Response> {
       stock_coverage: snapshot.stockCoverage,
       stock_last_error: snapshot.stockLastError,
       war_reports: snapshot.warReports,
+      enemy_scouting_coverage: snapshot.enemyScoutingCoverage,
+      enemy_scouting_gaps: snapshot.enemyScoutingGaps,
     },
   });
 }
@@ -319,6 +352,8 @@ async function readDataHealthSnapshot(
     stockCoverage,
     stockLastError,
     warReports,
+    enemyScoutingCoverage,
+    enemyScoutingGaps,
   ] = await Promise.all([
     readLatestIngestionRun(env),
     readLatestAttackStarted(env),
@@ -333,6 +368,8 @@ async function readDataHealthSnapshot(
     readStockCoverage(env, now, settings),
     readStockLastError(env),
     readWarReportHealth(env),
+    options.includeAdminDetail ? readEnemyScoutingCoverage(env) : Promise.resolve([]),
+    options.includeAdminDetail ? readEnemyScoutingGaps(env) : Promise.resolve([]),
   ]);
   const [personalStatsCoverage, gymStats] = await Promise.all([
     readPersonalStatsCoverage(env, dailyStats.personalstats_target_date),
@@ -358,6 +395,8 @@ async function readDataHealthSnapshot(
     stockCoverage,
     stockLastError,
     warReports,
+    enemyScoutingCoverage,
+    enemyScoutingGaps,
   };
 }
 
@@ -778,6 +817,106 @@ async function readWarReportHealth(env: Env): Promise<WarReportHealthRow> {
     missing_reports: Number(row?.missing_reports ?? 0),
     oldest_missing_finished_at: nullableNumber(row?.oldest_missing_finished_at),
   };
+}
+
+async function readEnemyScoutingCoverage(env: Env): Promise<EnemyScoutingCoverageRow[]> {
+  const rows = await env.DB.prepare(
+    `
+    WITH tracked_factions AS (
+      SELECT
+        enemy_faction_id AS faction_id,
+        GROUP_CONCAT(name, ', ') AS war_names,
+        MAX(enemy_scouting_status_checked_at) AS status_checked_at
+      FROM wars
+      WHERE enemy_faction_id IS NOT NULL
+        AND status IN ('active', 'scheduled')
+      GROUP BY enemy_faction_id
+    )
+    SELECT
+      tf.faction_id,
+      tf.war_names,
+      COUNT(m.member_id) AS total_members,
+      SUM(CASE WHEN m.ff_battlestats IS NOT NULL THEN 1 ELSE 0 END) AS ff_stats_available,
+      SUM(CASE WHEN m.bsp_battlestats IS NOT NULL THEN 1 ELSE 0 END) AS bsp_stats_available,
+      SUM(CASE WHEN m.networth IS NOT NULL THEN 1 ELSE 0 END) AS networth_available,
+      SUM(CASE WHEN m.networth IS NULL AND COALESCE(m.networth_attempt_count, 0) = 0 THEN 1 ELSE 0 END) AS networth_pending,
+      SUM(CASE WHEN m.networth IS NULL AND COALESCE(m.networth_attempt_count, 0) >= 3 THEN 1 ELSE 0 END) AS networth_failed,
+      SUM(CASE WHEN m.networth IS NULL AND COALESCE(m.networth_attempt_count, 0) BETWEEN 1 AND 2 THEN 1 ELSE 0 END) AS networth_retryable,
+      tf.status_checked_at,
+      MAX(m.updated_at) AS updated_at
+    FROM tracked_factions tf
+    LEFT JOIN enemy_faction_members m ON m.faction_id = tf.faction_id
+    GROUP BY tf.faction_id, tf.war_names, tf.status_checked_at
+    ORDER BY tf.status_checked_at DESC, tf.faction_id ASC
+    LIMIT 10
+    `,
+  ).all<Partial<EnemyScoutingCoverageRow>>();
+
+  return (rows.results ?? []).map((row) => ({
+    faction_id: Number(row.faction_id ?? 0),
+    war_names: row.war_names ?? null,
+    total_members: Number(row.total_members ?? 0),
+    ff_stats_available: Number(row.ff_stats_available ?? 0),
+    bsp_stats_available: Number(row.bsp_stats_available ?? 0),
+    networth_available: Number(row.networth_available ?? 0),
+    networth_pending: Number(row.networth_pending ?? 0),
+    networth_failed: Number(row.networth_failed ?? 0),
+    networth_retryable: Number(row.networth_retryable ?? 0),
+    status_checked_at: nullableNumber(row.status_checked_at),
+    updated_at: nullableNumber(row.updated_at),
+  }));
+}
+
+async function readEnemyScoutingGaps(env: Env): Promise<EnemyScoutingGapRow[]> {
+  const rows = await env.DB.prepare(
+    `
+    WITH tracked_factions AS (
+      SELECT DISTINCT enemy_faction_id AS faction_id
+      FROM wars
+      WHERE enemy_faction_id IS NOT NULL
+        AND status IN ('active', 'scheduled')
+    )
+    SELECT
+      m.faction_id,
+      m.member_id,
+      m.name,
+      m.level,
+      m.status_state,
+      m.ff_battlestats,
+      m.bsp_battlestats,
+      m.networth,
+      m.networth_attempted_at,
+      m.networth_attempt_count,
+      m.networth_error,
+      m.updated_at
+    FROM enemy_faction_members m
+    INNER JOIN tracked_factions tf ON tf.faction_id = m.faction_id
+    WHERE m.ff_battlestats IS NULL
+       OR m.bsp_battlestats IS NULL
+       OR m.networth IS NULL
+    ORDER BY
+      CASE WHEN m.networth IS NULL AND COALESCE(m.networth_attempt_count, 0) >= 3 THEN 0 ELSE 1 END,
+      CASE WHEN m.networth IS NULL AND COALESCE(m.networth_attempt_count, 0) BETWEEN 1 AND 2 THEN 0 ELSE 1 END,
+      COALESCE(m.level, 0) DESC,
+      m.name ASC
+    LIMIT 25
+    `,
+  ).all<EnemyScoutingGapRow>();
+
+  return (rows.results ?? []).map((row) => ({
+    faction_id: Number(row.faction_id),
+    member_id: Number(row.member_id),
+    name: row.name,
+    level: nullableNumber(row.level),
+    status_state: row.status_state ?? null,
+    ff_battlestats: nullableNumber(row.ff_battlestats),
+    bsp_battlestats: nullableNumber(row.bsp_battlestats),
+    networth: nullableNumber(row.networth),
+    networth_attempted_at: nullableNumber(row.networth_attempted_at),
+    networth_attempt_count: nullableNumber(row.networth_attempt_count),
+    networth_error: row.networth_error ?? null,
+    updated_at: nullableNumber(row.updated_at),
+  }));
 }
 
 function subsystemsFromSnapshot(snapshot: DataHealthSnapshot): DataHealthSubsystem[] {

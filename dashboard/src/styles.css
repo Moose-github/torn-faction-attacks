@@ -1057,6 +1057,105 @@ h2 {
   margin-bottom: 16px;
 }
 
+.data-health-drilldown-grid {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.data-health-drilldown-panel {
+  min-width: 0;
+}
+
+.data-health-drilldown-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.data-health-drilldown-metrics .dashboard-metric-line {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+}
+
+.data-health-coverage-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.data-health-coverage-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dbe4ef;
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.data-health-coverage-row > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.data-health-coverage-row strong,
+.data-health-coverage-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.data-health-coverage-row strong {
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+
+.data-health-coverage-row span,
+.data-health-coverage-row small {
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.data-health-coverage-bars {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.data-health-coverage-bars span {
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+}
+
+.data-health-coverage-bars b,
+.data-health-coverage-bars em {
+  color: #0f172a;
+  font-style: normal;
+  line-height: 1.1;
+}
+
+.data-health-coverage-bars b {
+  font-size: 0.76rem;
+  font-weight: 950;
+}
+
+.data-health-coverage-bars em {
+  font-size: 0.92rem;
+  font-weight: 950;
+}
+
 .data-health-settings-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5907,8 +6006,18 @@ h2 {
 
 @media (max-width: 760px) {
   .data-health-status-grid,
+  .data-health-drilldown-metrics,
   .data-health-settings-form {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .data-health-coverage-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .data-health-coverage-bars {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .data-health-issue-row {

@@ -786,7 +786,38 @@ export type AdminDataHealthResponse = DataHealthSummaryResponse & {
       missing_reports: number;
       oldest_missing_finished_at: number | null;
     };
+    enemy_scouting_coverage: EnemyScoutingCoverageRow[];
+    enemy_scouting_gaps: EnemyScoutingGapRow[];
   };
+};
+
+export type EnemyScoutingCoverageRow = {
+  faction_id: number;
+  war_names: string | null;
+  total_members: number;
+  ff_stats_available: number;
+  bsp_stats_available: number;
+  networth_available: number;
+  networth_pending: number;
+  networth_failed: number;
+  networth_retryable: number;
+  status_checked_at: number | null;
+  updated_at: number | null;
+};
+
+export type EnemyScoutingGapRow = {
+  faction_id: number;
+  member_id: number;
+  name: string;
+  level: number | null;
+  status_state: string | null;
+  ff_battlestats: number | null;
+  bsp_battlestats: number | null;
+  networth: number | null;
+  networth_attempted_at: number | null;
+  networth_attempt_count: number | null;
+  networth_error: string | null;
+  updated_at: number | null;
 };
 
 type AppViewName =

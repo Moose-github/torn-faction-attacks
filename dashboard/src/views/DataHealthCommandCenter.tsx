@@ -7,6 +7,7 @@ import {
   Clock3,
   Database,
   Gauge,
+  Radar,
   ServerCog,
   Settings2,
 } from "lucide-react";
@@ -16,8 +17,12 @@ import {
   DataHealthStatus,
   DataHealthSubsystem,
   DataHealthSummaryResponse,
+  EnemyScoutingCoverageRow,
+  EnemyScoutingGapRow,
   getAdminDataHealth,
   getDataHealthSummary,
+  MaintenanceTask,
+  TornApiUsageCall,
   updateDataHealthSettings,
 } from "../api";
 import { EmptyState, PanelHeader } from "../components/Common";
@@ -342,6 +347,12 @@ function AdminDataHealthDiagnostics({
         />
       </section>
 
+      <section className="data-health-drilldown-grid">
+        <DailyStatsDrilldown data={data} onOpenView={onOpenView} />
+        <EnemyScoutingDrilldown data={data} onOpenView={onOpenView} />
+        <ApiJobFailuresDrilldown data={data} onOpenView={onOpenView} />
+      </section>
+
       <section className="panel data-health-api-panel">
         <PanelHeader icon={<Clock3 size={17} />} title="Torn API usage" control={<AdminHeaderMeta aside="Last hour" />} />
         <p className="panel-description data-health-panel-description">
@@ -433,6 +444,284 @@ function SubsystemTile({ subsystem }: { subsystem: DataHealthSubsystem }) {
       </div>
     </article>
   );
+}
+
+function DailyStatsDrilldown({
+  data,
+  onOpenView,
+}: {
+  data: AdminDataHealthResponse;
+  onOpenView: (view: AppView) => void;
+}) {
+  const attention = data.details.daily_stats_attention;
+  const affectedMembers = attention.affected_members.slice(0, 12);
+  const affectedCount = attention.stale_personalstats + attention.missing_donator_days;
+
+  return (
+    <section className="panel table-panel data-health-drilldown-panel">
+      <PanelHeader
+        icon={<BarChart3 size={17} />}
+        title="Daily member stats"
+        aside={affectedCount > 0 ? `${formatNumber(affectedCount)} issues` : "Complete"}
+        control={
+          <button type="button" className="panel-action-button" onClick={() => onOpenView("lifestyle")}>
+            Open daily stats
+          </button>
+        }
+      />
+      <div className="data-health-drilldown-metrics">
+        <MetricLine label="Target date" value={attention.personalstats_target_date ?? "-"} />
+        <MetricLine label="Latest bucket" value={attention.latest_personalstats_bucket_date ?? "-"} />
+        <MetricLine label="Lag days" value={nullableNumber(attention.personalstats_lag_days)} />
+      </div>
+      {affectedMembers.length === 0 ? (
+        <EmptyState text="No stale daily stat members detected" />
+      ) : (
+        <div className="table-scroll">
+          <table className="stock-status-table data-health-table">
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Updated</th>
+                <th>Issue</th>
+              </tr>
+            </thead>
+            <tbody>
+              {affectedMembers.map((member) => (
+                <tr key={member.member_id}>
+                  <td>{member.member_name ?? `#${member.member_id}`}</td>
+                  <td>{formatDate(member.updated_at)}</td>
+                  <td>{member.error ?? "Stats stale or incomplete"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EnemyScoutingDrilldown({
+  data,
+  onOpenView,
+}: {
+  data: AdminDataHealthResponse;
+  onOpenView: (view: AppView) => void;
+}) {
+  const coverage = data.details.enemy_scouting_coverage;
+  const gaps = data.details.enemy_scouting_gaps;
+  const totalMissing = gaps.length;
+
+  return (
+    <section className="panel table-panel data-health-drilldown-panel">
+      <PanelHeader
+        icon={<RadarIcon />}
+        title="Enemy scouting coverage"
+        aside={coverage.length > 0 ? `${formatNumber(totalMissing)} member gaps` : "No tracked enemy"}
+        control={
+          <button type="button" className="panel-action-button" onClick={() => onOpenView("warRoom")}>
+            Open war room
+          </button>
+        }
+      />
+      {coverage.length === 0 ? (
+        <EmptyState text="No active or scheduled enemy faction is being tracked" />
+      ) : (
+        <>
+          <div className="data-health-coverage-list">
+            {coverage.map((row) => (
+              <EnemyCoverageSummary key={row.faction_id} row={row} />
+            ))}
+          </div>
+          {gaps.length === 0 ? (
+            <EmptyState text="Tracked enemy scouting coverage is complete" />
+          ) : (
+            <div className="table-scroll">
+              <table className="stock-status-table data-health-table">
+                <thead>
+                  <tr>
+                    <th>Member</th>
+                    <th>Faction</th>
+                    <th>Level</th>
+                    <th>Status</th>
+                    <th>Missing</th>
+                    <th>Networth attempts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gaps.map((member) => (
+                    <tr key={`${member.faction_id}-${member.member_id}`}>
+                      <td>{member.name}</td>
+                      <td>{formatNumber(member.faction_id)}</td>
+                      <td>{nullableNumber(member.level)}</td>
+                      <td>{member.status_state ?? "-"}</td>
+                      <td>{missingEnemyFields(member)}</td>
+                      <td title={member.networth_error ?? undefined}>
+                        {member.networth === null
+                          ? `${formatNumber(member.networth_attempt_count ?? 0)} | ${formatDate(member.networth_attempted_at)}`
+                          : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function EnemyCoverageSummary({ row }: { row: EnemyScoutingCoverageRow }) {
+  return (
+    <article className="data-health-coverage-row">
+      <div>
+        <strong>{row.war_names ?? `Faction ${row.faction_id}`}</strong>
+        <span>Faction {formatNumber(row.faction_id)} | Updated {formatDate(row.status_checked_at ?? row.updated_at)}</span>
+      </div>
+      <div className="data-health-coverage-bars">
+        <CoverageMetric label="FF" value={row.ff_stats_available} total={row.total_members} />
+        <CoverageMetric label="BSP" value={row.bsp_stats_available} total={row.total_members} />
+        <CoverageMetric label="Networth" value={row.networth_available} total={row.total_members} />
+      </div>
+      <small>
+        Pending {formatNumber(row.networth_pending)} | Retryable {formatNumber(row.networth_retryable)} | Failed {formatNumber(row.networth_failed)}
+      </small>
+    </article>
+  );
+}
+
+function CoverageMetric({
+  label,
+  value,
+  total,
+}: {
+  label: string;
+  value: number;
+  total: number;
+}) {
+  const percent = total <= 0 ? 0 : Math.round((value / total) * 100);
+  return (
+    <span title={`${formatNumber(value)} of ${formatNumber(total)} members`}>
+      <b>{label}</b>
+      <em>{formatNumber(percent)}%</em>
+    </span>
+  );
+}
+
+function ApiJobFailuresDrilldown({
+  data,
+  onOpenView,
+}: {
+  data: AdminDataHealthResponse;
+  onOpenView: (view: AppView) => void;
+}) {
+  const failedTasks = data.details.maintenance_tasks.filter((task) => task.status === "error");
+  const failedCalls = data.details.api_recent_calls
+    .filter((call) => !call.ok || Number(call.status ?? 0) >= 400)
+    .slice(0, 8);
+  const latestFailures = [
+    data.details.ingestion_run?.status === "error" ? "Ingestion" : null,
+    data.details.maintenance_run?.status === "error" ? "Maintenance" : null,
+    ...failedTasks.map((task) => task.task_name),
+  ].filter((value): value is string => Boolean(value));
+
+  return (
+    <section className="panel table-panel data-health-drilldown-panel">
+      <PanelHeader
+        icon={<ServerCog size={17} />}
+        title="API and job failures"
+        aside={latestFailures.length + failedCalls.length > 0 ? `${formatNumber(latestFailures.length + failedCalls.length)} shown` : "Clear"}
+        control={
+          <button type="button" className="panel-action-button" onClick={() => onOpenView("admin")}>
+            Open admin
+          </button>
+        }
+      />
+      <div className="data-health-drilldown-metrics">
+        <MetricLine label="Recent failed tasks" value={formatNumber(failedTasks.length)} />
+        <MetricLine label="API errors" value={formatNumber(data.details.api_usage.errors)} />
+        <MetricLine label="Rate limits" value={formatNumber(data.details.api_usage.rate_limited)} />
+      </div>
+      {latestFailures.length === 0 && failedCalls.length === 0 ? (
+        <EmptyState text="No recent failed jobs or API calls detected" />
+      ) : (
+        <>
+          {failedTasks.length > 0 ? <FailedTasksTable tasks={failedTasks} /> : null}
+          {failedCalls.length > 0 ? <FailedApiCallsTable calls={failedCalls} /> : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+function FailedTasksTable({ tasks }: { tasks: MaintenanceTask[] }) {
+  return (
+    <div className="table-scroll">
+      <table className="stock-status-table data-health-table">
+        <thead>
+          <tr>
+            <th>Task</th>
+            <th>Started</th>
+            <th>Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tasks.map((task) => (
+            <tr key={task.id}>
+              <td>{task.task_name}</td>
+              <td>{formatDate(task.started_at)}</td>
+              <td>{task.error ?? "Task failed"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FailedApiCallsTable({ calls }: { calls: TornApiUsageCall[] }) {
+  return (
+    <div className="table-scroll">
+      <table className="stock-status-table data-health-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Feature</th>
+            <th>Status</th>
+            <th>Endpoint</th>
+            <th>Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          {calls.map((call) => (
+            <tr key={call.id}>
+              <td>{formatDate(call.requested_at)}</td>
+              <td>{call.feature}</td>
+              <td>{call.status ?? "-"}</td>
+              <td>{call.endpoint}</td>
+              <td>{call.error ?? "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function missingEnemyFields(member: EnemyScoutingGapRow): string {
+  const fields = [
+    member.ff_battlestats === null ? "FF" : null,
+    member.bsp_battlestats === null ? "BSP" : null,
+    member.networth === null ? "Networth" : null,
+  ].filter((field): field is string => Boolean(field));
+  return fields.length > 0 ? fields.join(", ") : "-";
+}
+
+function RadarIcon() {
+  return <Radar size={17} />;
 }
 
 function DetailPanel({
