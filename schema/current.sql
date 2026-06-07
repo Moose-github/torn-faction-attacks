@@ -1,7 +1,9 @@
--- Current D1 schema snapshot.
+-- Canonical current D1 schema snapshot.
 --
--- This is documentation only. Cloudflare D1 migration history still lives in
--- migrations/ and should remain the source of truth for applied databases.
+-- Keep this file updated when adding migrations so the clean current-state
+-- schema is easy to review. Do not apply this file to existing databases:
+-- Cloudflare D1 migration history lives in migrations/ and remains the source
+-- of truth for deployed databases.
 
 CREATE TABLE admin_users (
   torn_user_id INTEGER PRIMARY KEY,

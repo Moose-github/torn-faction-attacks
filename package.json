@@ -33,7 +33,7 @@
 		"dev": "npm run seedLocalD1 && wrangler dev",
 		"migrate:local": "wrangler d1 migrations apply DB --local",
 		"migrate:remote": "wrangler d1 migrations apply DB --remote",
-		"schema:check": "node scripts/schema-tools.mjs",
+		"schema:check": "node scripts/schema-tools.mjs --strict",
 		"seedLocalD1": "wrangler d1 migrations apply DB --local",
 		"test": "vitest run"
 	},

@@ -9,6 +9,12 @@ const schemaPath = path.join(rootDir, "schema", "current.sql");
 const args = new Set(process.argv.slice(2));
 const strict = args.has("--strict");
 const showExplain = args.has("--explain");
+const knownDuplicatePrefixes = new Map([
+  [
+    "0069",
+    "Historical duplicate prefix already present in the D1 migration history; keep both files in place and use unique prefixes for all new migrations.",
+  ],
+]);
 const explainQueries = [
   "EXPLAIN QUERY PLAN SELECT * FROM stock_price_snapshots WHERE stock_id = ? AND observed_at <= ? ORDER BY observed_at DESC LIMIT 1;",
   "EXPLAIN QUERY PLAN SELECT * FROM stock_paper_trades WHERE account_id = ? ORDER BY executed_at DESC LIMIT 20;",
@@ -32,6 +38,7 @@ for (const file of migrationFiles) {
 }
 
 const duplicatePrefixes = [...prefixes.entries()].filter(([, files]) => files.length > 1);
+const unexpectedDuplicatePrefixes = duplicatePrefixes.filter(([prefix]) => !knownDuplicatePrefixes.has(prefix));
 const schemaSql = readFileSync(schemaPath, "utf8");
 const tables = [...schemaSql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`[]?([A-Za-z0-9_]+)/gi)]
   .map((match) => match[1])
@@ -48,11 +55,22 @@ console.log(`- indexes in schema/current.sql: ${indexes.length}`);
 
 if (duplicatePrefixes.length > 0) {
   console.log("");
-  console.log(strict ? "Duplicate migration prefixes:" : "Duplicate migration prefixes (warning):");
-  for (const [prefix, files] of duplicatePrefixes) {
+  const knownDuplicates = duplicatePrefixes.filter(([prefix]) => knownDuplicatePrefixes.has(prefix));
+  if (knownDuplicates.length > 0) {
+    console.log("Known historical duplicate migration prefixes:");
+    for (const [prefix, files] of knownDuplicates) {
+      console.log(`- ${prefix}: ${files.join(", ")}`);
+      console.log(`  ${knownDuplicatePrefixes.get(prefix)}`);
+    }
+  }
+  if (unexpectedDuplicatePrefixes.length > 0) {
+    console.log("");
+    console.log(strict ? "Duplicate migration prefixes:" : "Duplicate migration prefixes (warning):");
+  }
+  for (const [prefix, files] of unexpectedDuplicatePrefixes) {
     console.log(`- ${prefix}: ${files.join(", ")}`);
   }
-  if (!strict) {
+  if (!strict && unexpectedDuplicatePrefixes.length > 0) {
     console.log("- run with --strict to fail on duplicate migration prefixes");
   }
 }
@@ -65,6 +83,6 @@ if (showExplain) {
   }
 }
 
-if (strict && duplicatePrefixes.length > 0) {
+if (strict && unexpectedDuplicatePrefixes.length > 0) {
   process.exitCode = 1;
 }
