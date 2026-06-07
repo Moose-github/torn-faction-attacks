@@ -84,7 +84,7 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
   }
 
   if (matchesExactRoute(url, request, "/api/admin/data-health", "GET")) {
-    return withAdmin(routeContext, () => getAdminDataHealth(env));
+    return withAdmin(routeContext, () => getAdminDataHealth(url, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/data-health/settings", "POST")) {

@@ -780,6 +780,8 @@ export type AdminDataHealthResponse = DataHealthSummaryResponse & {
       updated_at: number | null;
     };
     api_usage: TornApiUsageSummary;
+    api_usage_window_seconds: number;
+    api_keys: TornApiUsageKey[];
     api_features: TornApiUsageFeature[];
     api_endpoints: TornApiUsageFeature[];
     api_recent_calls: TornApiUsageCall[];

@@ -9,7 +9,7 @@ import {
   GymContributorStatKey,
 } from "./lifestyleStats/model";
 import { Env } from "./types";
-import { json, nowSeconds } from "./utils";
+import { json, nowSeconds, parseLimit } from "./utils";
 
 export type DataHealthStatus = "good" | "warn" | "critical" | "unknown";
 
@@ -120,15 +120,26 @@ type RosterHealthRow = {
 };
 
 type ApiUsageHealthRow = {
+  window_seconds: number;
   requests: number;
   errors: number;
   rate_limited: number;
   avg_duration_ms: number | null;
   max_duration_ms: number | null;
+  requests_per_minute: number;
 };
 
 type ApiUsageFeatureRow = {
   feature: string;
+  requests: number;
+  errors: number;
+  rate_limited: number;
+  avg_duration_ms: number | null;
+  last_requested_at: number | null;
+};
+
+type ApiUsageKeyRow = {
+  key_source: string;
   requests: number;
   errors: number;
   rate_limited: number;
@@ -223,6 +234,9 @@ type DataHealthSnapshot = {
   gymStats: GymStatsHealthRow;
   roster: RosterHealthRow;
   apiUsage: ApiUsageHealthRow;
+  apiDetailUsage: ApiUsageHealthRow;
+  apiUsageWindowSeconds: number;
+  apiKeys: ApiUsageKeyRow[];
   apiFeatures: ApiUsageFeatureRow[];
   apiEndpoints: ApiUsageFeatureRow[];
   apiRecentCalls: unknown[];
@@ -255,6 +269,8 @@ export const DEFAULT_DATA_HEALTH_SETTINGS: DataHealthSettings = {
 
 const SETTINGS_ID = 1;
 const API_USAGE_WINDOW_SECONDS = 60 * 60;
+const DEFAULT_ADMIN_API_USAGE_WINDOW_SECONDS = 24 * 60 * 60;
+const MAX_ADMIN_API_USAGE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 const HEALTH_CACHE_TIME_SECONDS = 30;
 const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "war_reports"]);
 
@@ -277,8 +293,17 @@ export async function getDataHealthSummary(env: Env): Promise<Response> {
   });
 }
 
-export async function getAdminDataHealth(env: Env): Promise<Response> {
-  const snapshot = await readDataHealthSnapshot(env, { includeAdminDetail: true });
+export async function getAdminDataHealth(env: Env): Promise<Response>;
+export async function getAdminDataHealth(url: URL, env: Env): Promise<Response>;
+export async function getAdminDataHealth(urlOrEnv: URL | Env, maybeEnv?: Env): Promise<Response> {
+  const url = urlOrEnv instanceof URL ? urlOrEnv : null;
+  const env = maybeEnv ?? urlOrEnv as Env;
+  const apiUsageWindowSeconds = parseLimit(
+    url?.searchParams.get("window_seconds") ?? null,
+    DEFAULT_ADMIN_API_USAGE_WINDOW_SECONDS,
+    MAX_ADMIN_API_USAGE_WINDOW_SECONDS,
+  );
+  const snapshot = await readDataHealthSnapshot(env, { includeAdminDetail: true, apiUsageWindowSeconds });
   const subsystems = subsystemsFromSnapshot(snapshot);
   return json({
     ok: true,
@@ -295,7 +320,9 @@ export async function getAdminDataHealth(env: Env): Promise<Response> {
       daily_stats_attention: snapshot.dailyStats,
       gym_stats_health: snapshot.gymStats,
       roster: snapshot.roster,
-      api_usage: snapshot.apiUsage,
+      api_usage: snapshot.apiDetailUsage,
+      api_usage_window_seconds: snapshot.apiUsageWindowSeconds,
+      api_keys: snapshot.apiKeys,
       api_features: snapshot.apiFeatures,
       api_endpoints: snapshot.apiEndpoints,
       api_recent_calls: snapshot.apiRecentCalls,
@@ -345,10 +372,11 @@ export function statusForPercent(value: number, warnPercent: number, criticalPer
 
 async function readDataHealthSnapshot(
   env: Env,
-  options: { includeAdminDetail: boolean },
+  options: { includeAdminDetail: boolean; apiUsageWindowSeconds?: number },
 ): Promise<DataHealthSnapshot> {
   const now = nowSeconds();
   const settings = await readDataHealthSettings(env);
+  const apiUsageWindowSeconds = options.apiUsageWindowSeconds ?? API_USAGE_WINDOW_SECONDS;
 
   const [
     ingestion,
@@ -357,6 +385,8 @@ async function readDataHealthSnapshot(
     dailyStats,
     roster,
     apiUsage,
+    apiDetailUsage,
+    apiKeys,
     apiFeatures,
     apiEndpoints,
     apiRecentCalls,
@@ -372,9 +402,11 @@ async function readDataHealthSnapshot(
     readLatestMaintenance(env),
     getDailyStatsAttention(env),
     readRosterHealth(env),
-    readApiUsageHealth(env, now),
-    options.includeAdminDetail ? readApiUsageFeatures(env, now, "feature") : Promise.resolve([]),
-    options.includeAdminDetail ? readApiUsageFeatures(env, now, "endpoint") : Promise.resolve([]),
+    readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
+    options.includeAdminDetail ? readApiUsageHealth(env, now, apiUsageWindowSeconds) : readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
+    options.includeAdminDetail ? readApiUsageKeys(env, now, apiUsageWindowSeconds) : Promise.resolve([]),
+    options.includeAdminDetail ? readApiUsageFeatures(env, now, "feature", apiUsageWindowSeconds) : Promise.resolve([]),
+    options.includeAdminDetail ? readApiUsageFeatures(env, now, "endpoint", apiUsageWindowSeconds) : Promise.resolve([]),
     options.includeAdminDetail ? readRecentApiCalls(env) : Promise.resolve([]),
     readLatestStockRun(env),
     readStockCoverage(env, now, settings),
@@ -400,6 +432,9 @@ async function readDataHealthSnapshot(
     gymStats,
     roster,
     apiUsage,
+    apiDetailUsage,
+    apiUsageWindowSeconds,
+    apiKeys,
     apiFeatures,
     apiEndpoints,
     apiRecentCalls,
@@ -729,7 +764,7 @@ async function readGymStatStreamHealth(
   return { completedGymStats, missingGymStats };
 }
 
-async function readApiUsageHealth(env: Env, now: number): Promise<ApiUsageHealthRow> {
+async function readApiUsageHealth(env: Env, now: number, windowSeconds: number): Promise<ApiUsageHealthRow> {
   const row = await env.DB.prepare(
     `
     SELECT
@@ -741,13 +776,16 @@ async function readApiUsageHealth(env: Env, now: number): Promise<ApiUsageHealth
     FROM torn_api_call_log
     WHERE requested_at >= ?
     `,
-  ).bind(now - API_USAGE_WINDOW_SECONDS).first<ApiUsageHealthRow>();
+  ).bind(now - windowSeconds).first<ApiUsageHealthRow>();
+  const requests = Number(row?.requests ?? 0);
   return {
-    requests: Number(row?.requests ?? 0),
+    window_seconds: windowSeconds,
+    requests,
     errors: Number(row?.errors ?? 0),
     rate_limited: Number(row?.rate_limited ?? 0),
     avg_duration_ms: nullableNumber(row?.avg_duration_ms),
     max_duration_ms: nullableNumber(row?.max_duration_ms),
+    requests_per_minute: Number((requests / Math.max(1, windowSeconds / 60)).toFixed(2)),
   };
 }
 
@@ -755,6 +793,7 @@ async function readApiUsageFeatures(
   env: Env,
   now: number,
   groupBy: "feature" | "endpoint",
+  windowSeconds: number,
 ): Promise<ApiUsageFeatureRow[]> {
   const column = groupBy === "feature" ? "feature" : "endpoint";
   const rows = await env.DB.prepare(
@@ -772,7 +811,27 @@ async function readApiUsageFeatures(
     ORDER BY errors DESC, rate_limited DESC, requests DESC, ${column} ASC
     LIMIT 12
     `,
-  ).bind(now - API_USAGE_WINDOW_SECONDS).all<ApiUsageFeatureRow>();
+  ).bind(now - windowSeconds).all<ApiUsageFeatureRow>();
+  return rows.results ?? [];
+}
+
+async function readApiUsageKeys(env: Env, now: number, windowSeconds: number): Promise<ApiUsageKeyRow[]> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT
+      key_source,
+      COUNT(*) AS requests,
+      SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS errors,
+      SUM(CASE WHEN status = 429 THEN 1 ELSE 0 END) AS rate_limited,
+      AVG(duration_ms) AS avg_duration_ms,
+      MAX(requested_at) AS last_requested_at
+    FROM torn_api_call_log
+    WHERE requested_at >= ?
+    GROUP BY key_source
+    ORDER BY requests DESC, key_source ASC
+    LIMIT 12
+    `,
+  ).bind(now - windowSeconds).all<ApiUsageKeyRow>();
   return rows.results ?? [];
 }
 

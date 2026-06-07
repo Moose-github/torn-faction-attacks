@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   BarChart3,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock3,
   Gauge,
   Radar,
@@ -56,6 +58,11 @@ const SETTING_FIELDS: Array<{
 ];
 
 const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "war_reports"]);
+const API_USAGE_WINDOW_OPTIONS = [
+  { seconds: 60 * 60, label: "1h", summaryLabel: "1h" },
+  { seconds: 24 * 60 * 60, label: "1 day", summaryLabel: "1 day" },
+  { seconds: 7 * 24 * 60 * 60, label: "7 days", summaryLabel: "7 days" },
+] as const;
 
 export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterProps) {
   const [data, setData] = React.useState<AdminDataHealthResponse | DataHealthSummaryResponse | null>(null);
@@ -64,12 +71,14 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
   const [isSaving, setIsSaving] = React.useState(false);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [apiUsageWindowSeconds, setApiUsageWindowSeconds] = React.useState(24 * 60 * 60);
+  const [isApiFeatureTableCollapsed, setIsApiFeatureTableCollapsed] = React.useState(true);
 
-  async function loadData() {
+  async function loadData(windowSeconds = apiUsageWindowSeconds) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = isAdmin ? await getAdminDataHealth() : await getDataHealthSummary();
+      const response = isAdmin ? await getAdminDataHealth(windowSeconds) : await getDataHealthSummary();
       setData(response);
       if (isAdminDataHealthResponse(response)) {
         setSettingsForm(formFromSettings(response.settings));
@@ -91,7 +100,7 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
     try {
       const payload = settingsFromForm(settingsForm);
       await updateDataHealthSettings(payload);
-      const response = await getAdminDataHealth();
+      const response = await getAdminDataHealth(apiUsageWindowSeconds);
       setData(response);
       setSettingsForm(formFromSettings(response.settings));
       setNotice("Data health thresholds saved.");
@@ -106,6 +115,11 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
     loadData();
   }, [isAdmin]);
 
+  function handleApiUsageWindowChange(windowSeconds: number) {
+    setApiUsageWindowSeconds(windowSeconds);
+    loadData(windowSeconds);
+  }
+
   const adminData = isAdminDataHealthResponse(data) ? data : null;
 
   return (
@@ -118,7 +132,11 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
       {adminData ? (
         <AdminDataHealthDiagnostics
           data={adminData}
+          apiUsageWindowSeconds={apiUsageWindowSeconds}
+          isApiFeatureTableCollapsed={isApiFeatureTableCollapsed}
           isSaving={isSaving}
+          onApiFeatureTableToggle={() => setIsApiFeatureTableCollapsed((current) => !current)}
+          onApiUsageWindowChange={handleApiUsageWindowChange}
           onOpenView={onOpenView}
           onSaveSettings={saveSettings}
           settingsForm={settingsForm}
@@ -208,20 +226,31 @@ function DataHealthOverview({
 
 function AdminDataHealthDiagnostics({
   data,
+  apiUsageWindowSeconds,
+  isApiFeatureTableCollapsed,
   isSaving,
+  onApiFeatureTableToggle,
+  onApiUsageWindowChange,
   onOpenView,
   onSaveSettings,
   settingsForm,
   setSettingsForm,
 }: {
   data: AdminDataHealthResponse;
+  apiUsageWindowSeconds: number;
+  isApiFeatureTableCollapsed: boolean;
   isSaving: boolean;
+  onApiFeatureTableToggle: () => void;
+  onApiUsageWindowChange: (windowSeconds: number) => void;
   onOpenView: (view: AppView) => void;
   onSaveSettings: (event: React.FormEvent<HTMLFormElement>) => void;
   settingsForm: Record<string, string>;
   setSettingsForm: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }) {
   const adminSubsystems = adminOnlySubsystems(data.subsystems);
+  const apiUsageWindowLabel = formatApiUsageWindowSummaryLabel(
+    data.details.api_usage_window_seconds ?? data.details.api_usage.window_seconds ?? apiUsageWindowSeconds,
+  );
   return (
     <section className="data-health-admin-section" aria-labelledby="data-health-admin-title">
       <div className="data-health-section-header">
@@ -296,44 +325,111 @@ function AdminDataHealthDiagnostics({
       </section>
 
       <section className="panel data-health-api-panel">
-        <PanelHeader icon={<Clock3 size={17} />} title="Torn API usage" aside="Last hour" />
+        <PanelHeader
+          icon={<Clock3 size={17} />}
+          title="Torn API usage"
+          control={(
+            <div className="admin-usage-window-control">
+              <span>Last {apiUsageWindowLabel}</span>
+              <select
+                aria-label="Data health Torn API usage window"
+                value={apiUsageWindowSeconds}
+                onChange={(event) => onApiUsageWindowChange(Number(event.target.value))}
+              >
+                {API_USAGE_WINDOW_OPTIONS.map((option) => (
+                  <option key={option.seconds} value={option.seconds}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        />
         <p className="panel-description data-health-panel-description">
           Recent Torn API call volume and failures. Spikes in errors or 429s can explain stale downstream data.
         </p>
         <div className="data-health-api-grid">
-          <MetricLine label="Requests" value={formatNumber(data.details.api_usage.requests)} />
-          <MetricLine label="Errors" value={formatNumber(data.details.api_usage.errors)} />
-          <MetricLine label="429s" value={formatNumber(data.details.api_usage.rate_limited)} />
+          <MetricLine label={`Requests in last ${apiUsageWindowLabel}`} value={formatNumber(data.details.api_usage.requests)} />
+          <MetricLine label={`Errors in last ${apiUsageWindowLabel}`} value={formatNumber(data.details.api_usage.errors)} />
+          <MetricLine label={`429s in last ${apiUsageWindowLabel}`} value={formatNumber(data.details.api_usage.rate_limited)} />
           <MetricLine
             label="Average latency"
             value={data.details.api_usage.avg_duration_ms === null ? "-" : `${formatNumber(data.details.api_usage.avg_duration_ms)}ms`}
           />
         </div>
-        {data.details.api_features.length > 0 ? (
-          <table className="stock-status-table data-health-table">
-            <thead>
-              <tr>
-                <th>Feature</th>
-                <th>Calls</th>
-                <th>Errors</th>
-                <th>429s</th>
-                <th>Last call</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.details.api_features.map((feature) => (
-                <tr key={feature.feature}>
-                  <td>{feature.feature}</td>
-                  <td>{formatNumber(feature.requests)}</td>
-                  <td>{formatNumber(feature.errors)}</td>
-                  <td>{formatNumber(feature.rate_limited)}</td>
-                  <td>{formatDate(feature.last_requested_at)}</td>
+        {data.details.api_keys.length > 0 ? (
+          <>
+            <div className="admin-table-toggle-row">
+              <strong>Key breakdown</strong>
+              <span>Last {apiUsageWindowLabel}</span>
+            </div>
+            <table className="stock-status-table data-health-table">
+              <thead>
+                <tr>
+                  <th>Key</th>
+                  <th>Calls</th>
+                  <th>Errors</th>
+                  <th>429s</th>
+                  <th>Avg</th>
+                  <th>Last call</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.details.api_keys.map((key) => (
+                  <tr key={key.key_source}>
+                    <td title={key.key_source}>{formatTornApiKeySource(key.key_source)}</td>
+                    <td>{formatNumber(key.requests)}</td>
+                    <td>{formatNumber(key.errors)}</td>
+                    <td>{formatNumber(key.rate_limited)}</td>
+                    <td>{key.avg_duration_ms === null ? "-" : `${formatNumber(key.avg_duration_ms)}ms`}</td>
+                    <td>{formatDate(key.last_requested_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        ) : null}
+        {data.details.api_features.length > 0 ? (
+          <>
+            <div className="admin-table-toggle-row">
+              <button
+                type="button"
+                className="collapse-button"
+                aria-expanded={!isApiFeatureTableCollapsed}
+                onClick={onApiFeatureTableToggle}
+              >
+                <span>{isApiFeatureTableCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</span>
+                <strong>Feature breakdown</strong>
+              </button>
+              <span>{formatNumber(data.details.api_features.length)} features</span>
+            </div>
+            {isApiFeatureTableCollapsed ? null : (
+              <table className="stock-status-table data-health-table">
+                <thead>
+                  <tr>
+                    <th>Feature</th>
+                    <th>Calls</th>
+                    <th>Errors</th>
+                    <th>429s</th>
+                    <th>Last call</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.details.api_features.map((feature) => (
+                    <tr key={feature.feature}>
+                      <td>{feature.feature}</td>
+                      <td>{formatNumber(feature.requests)}</td>
+                      <td>{formatNumber(feature.errors)}</td>
+                      <td>{formatNumber(feature.rate_limited)}</td>
+                      <td>{formatDate(feature.last_requested_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
         ) : (
-          <EmptyState text="No Torn API calls recorded in the last hour" />
+          <EmptyState text={`No Torn API calls recorded in the last ${apiUsageWindowLabel}`} />
         )}
       </section>
 
@@ -738,6 +834,31 @@ function statusLabel(status: DataHealthStatus): string {
 
 function formatDate(timestamp: number | null): string {
   return timestamp ? formatLongDateTime(timestamp) : "-";
+}
+
+function formatApiUsageWindowSummaryLabel(seconds: number): string {
+  const configured = API_USAGE_WINDOW_OPTIONS.find((option) => option.seconds === seconds);
+  if (configured) return configured.summaryLabel;
+  if (seconds < 60 * 60) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 24 * 60 * 60) return `${Math.round(seconds / (60 * 60))}h`;
+  return `${Math.round(seconds / (24 * 60 * 60))}d`;
+}
+
+function formatTornApiKeySource(keySource: string): string {
+  switch (keySource) {
+    case "env:TORN_API_KEY":
+      return "Primary key";
+    case "secrets:TORN_API_KEY_POOL_1":
+      return "Pool key 1";
+    case "secrets:TORN_API_KEY_POOL_2":
+      return "Pool key 2";
+    case "member_supplied:auth":
+      return "Member auth key";
+    case "member_supplied:trade_scout":
+      return "Trade Scout member key";
+    default:
+      return keySource;
+  }
 }
 
 function nullableNumber(value: number | null): string {
