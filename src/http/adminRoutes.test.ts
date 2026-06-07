@@ -4,7 +4,7 @@ import {
   getAdminDataHealth,
   updateDataHealthSettingsFromRequest,
 } from "../dataHealth";
-import type { Env } from "../types";
+import { jsonResponse, routeContext } from "../testUtils/http";
 import { routeAdminApi } from "./adminRoutes";
 
 vi.mock("../auth", () => ({
@@ -111,21 +111,3 @@ describe("admin routes", () => {
     expect(getAdminDataHealth).not.toHaveBeenCalled();
   });
 });
-
-function routeContext(rawUrl: string, init?: RequestInit) {
-  const request = new Request(rawUrl, init);
-  const url = new URL(rawUrl);
-  return {
-    request,
-    env: {} as Env,
-    ctx: {} as ExecutionContext,
-    url,
-  };
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}

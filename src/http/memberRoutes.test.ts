@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireMember } from "../auth";
 import { getDataHealthSummary } from "../dataHealth";
 import { getRetaliationCheck } from "../retaliations";
-import type { Env } from "../types";
+import { jsonResponse, routeContext } from "../testUtils/http";
 import { routeMemberUtilityApi } from "./memberRoutes";
 
 vi.mock("../auth", () => ({
@@ -105,21 +105,3 @@ describe("member utility routes", () => {
     expect(getDataHealthSummary).toHaveBeenCalledOnce();
   });
 });
-
-function routeContext(rawUrl: string) {
-  const request = new Request(rawUrl);
-  const url = new URL(rawUrl);
-  return {
-    request,
-    env: {} as Env,
-    ctx: {} as ExecutionContext,
-    url,
-  };
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
