@@ -781,6 +781,8 @@ export type AdminDataHealthResponse = DataHealthSummaryResponse & {
     };
     api_usage: TornApiUsageSummary;
     api_usage_window_seconds: number;
+    api_key_health: TornApiUsageKey[];
+    api_key_health_window_seconds: number;
     api_keys: TornApiUsageKey[];
     api_features: TornApiUsageFeature[];
     api_endpoints: TornApiUsageFeature[];
@@ -876,6 +878,7 @@ export type TornApiUsageKey = {
   rate_limited: number;
   avg_duration_ms: number | null;
   last_requested_at: number | null;
+  calls_per_minute?: number;
 };
 
 export type TornApiUsageCall = {

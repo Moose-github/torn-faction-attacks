@@ -57,7 +57,7 @@ const SETTING_FIELDS: Array<{
   { key: "stale_stocks_critical", label: "Stale stocks critical count", unit: "stocks" },
 ];
 
-const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "war_reports"]);
+const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "key_health", "war_reports"]);
 const API_USAGE_WINDOW_OPTIONS = [
   { seconds: 60 * 60, label: "1h", summaryLabel: "1h" },
   { seconds: 24 * 60 * 60, label: "1 day", summaryLabel: "1 day" },
@@ -251,6 +251,7 @@ function AdminDataHealthDiagnostics({
   const apiUsageWindowLabel = formatApiUsageWindowSummaryLabel(
     data.details.api_usage_window_seconds ?? data.details.api_usage.window_seconds ?? apiUsageWindowSeconds,
   );
+  const keyHealthWindowLabel = formatApiUsageWindowSummaryLabel(data.details.api_key_health_window_seconds);
   return (
     <section className="data-health-admin-section" aria-labelledby="data-health-admin-title">
       <div className="data-health-section-header">
@@ -357,16 +358,17 @@ function AdminDataHealthDiagnostics({
             value={data.details.api_usage.avg_duration_ms === null ? "-" : `${formatNumber(data.details.api_usage.avg_duration_ms)}ms`}
           />
         </div>
-        {data.details.api_keys.length > 0 ? (
+        {data.details.api_key_health.length > 0 ? (
           <>
             <div className="admin-table-toggle-row">
-              <strong>Key breakdown</strong>
-              <span>Last {apiUsageWindowLabel}</span>
+              <strong>Key health</strong>
+              <span>Last {keyHealthWindowLabel}</span>
             </div>
             <table className="stock-status-table data-health-table">
               <thead>
                 <tr>
                   <th>Key</th>
+                  <th>Avg calls/min</th>
                   <th>Calls</th>
                   <th>Errors</th>
                   <th>429s</th>
@@ -375,9 +377,10 @@ function AdminDataHealthDiagnostics({
                 </tr>
               </thead>
               <tbody>
-                {data.details.api_keys.map((key) => (
+                {data.details.api_key_health.map((key) => (
                   <tr key={key.key_source}>
                     <td title={key.key_source}>{formatTornApiKeySource(key.key_source)}</td>
+                    <td>{formatRate(key.calls_per_minute ?? 0)}</td>
                     <td>{formatNumber(key.requests)}</td>
                     <td>{formatNumber(key.errors)}</td>
                     <td>{formatNumber(key.rate_limited)}</td>
@@ -865,6 +868,10 @@ function nullableNumber(value: number | null): string {
   return value === null ? "-" : formatNumber(value);
 }
 
+function formatRate(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(2) : "0.00";
+}
+
 function displayMetricValue(value: string, timestamp: number | null | undefined): string {
   if (timestamp && value === String(timestamp)) {
     return formatRelativeTime(timestamp);
@@ -879,6 +886,7 @@ function subsystemDescription(key: string): string {
   if (key === "gym_stats") return "Checks the five gym contributor stat streams.";
   if (key === "roster") return "Checks current faction members data.";
   if (key === "torn_api") return "Checks recent Torn API failures and rate limits that can slow updates.";
+  if (key === "key_health") return "Checks per-key Torn API call volume over the last 24 hours.";
   if (key === "stock_data") return "Checks stock profile and price snapshot freshness.";
   if (key === "war_reports") return "Checks ended wars that still need official Torn reports reconciled.";
   return "Checks one dashboard data source for freshness and coverage.";

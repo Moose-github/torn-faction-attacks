@@ -145,6 +145,7 @@ type ApiUsageKeyRow = {
   rate_limited: number;
   avg_duration_ms: number | null;
   last_requested_at: number | null;
+  calls_per_minute?: number;
 };
 
 type StockRunRow = {
@@ -236,6 +237,7 @@ type DataHealthSnapshot = {
   apiUsage: ApiUsageHealthRow;
   apiDetailUsage: ApiUsageHealthRow;
   apiUsageWindowSeconds: number;
+  apiKeyHealth: ApiUsageKeyRow[];
   apiKeys: ApiUsageKeyRow[];
   apiFeatures: ApiUsageFeatureRow[];
   apiEndpoints: ApiUsageFeatureRow[];
@@ -269,10 +271,11 @@ export const DEFAULT_DATA_HEALTH_SETTINGS: DataHealthSettings = {
 
 const SETTINGS_ID = 1;
 const API_USAGE_WINDOW_SECONDS = 60 * 60;
+const KEY_HEALTH_WINDOW_SECONDS = 24 * 60 * 60;
 const DEFAULT_ADMIN_API_USAGE_WINDOW_SECONDS = 24 * 60 * 60;
 const MAX_ADMIN_API_USAGE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 const HEALTH_CACHE_TIME_SECONDS = 30;
-const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "war_reports"]);
+const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "key_health", "war_reports"]);
 
 const STATUS_RANK: Record<DataHealthStatus, number> = {
   good: 0,
@@ -322,6 +325,8 @@ export async function getAdminDataHealth(urlOrEnv: URL | Env, maybeEnv?: Env): P
       roster: snapshot.roster,
       api_usage: snapshot.apiDetailUsage,
       api_usage_window_seconds: snapshot.apiUsageWindowSeconds,
+      api_key_health: snapshot.apiKeyHealth,
+      api_key_health_window_seconds: KEY_HEALTH_WINDOW_SECONDS,
       api_keys: snapshot.apiKeys,
       api_features: snapshot.apiFeatures,
       api_endpoints: snapshot.apiEndpoints,
@@ -386,6 +391,7 @@ async function readDataHealthSnapshot(
     roster,
     apiUsage,
     apiDetailUsage,
+    apiKeyHealth,
     apiKeys,
     apiFeatures,
     apiEndpoints,
@@ -404,6 +410,7 @@ async function readDataHealthSnapshot(
     readRosterHealth(env),
     readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
     options.includeAdminDetail ? readApiUsageHealth(env, now, apiUsageWindowSeconds) : readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
+    options.includeAdminDetail ? readApiUsageKeys(env, now, KEY_HEALTH_WINDOW_SECONDS) : Promise.resolve([]),
     options.includeAdminDetail ? readApiUsageKeys(env, now, apiUsageWindowSeconds) : Promise.resolve([]),
     options.includeAdminDetail ? readApiUsageFeatures(env, now, "feature", apiUsageWindowSeconds) : Promise.resolve([]),
     options.includeAdminDetail ? readApiUsageFeatures(env, now, "endpoint", apiUsageWindowSeconds) : Promise.resolve([]),
@@ -434,6 +441,7 @@ async function readDataHealthSnapshot(
     apiUsage,
     apiDetailUsage,
     apiUsageWindowSeconds,
+    apiKeyHealth,
     apiKeys,
     apiFeatures,
     apiEndpoints,
@@ -832,7 +840,15 @@ async function readApiUsageKeys(env: Env, now: number, windowSeconds: number): P
     LIMIT 12
     `,
   ).bind(now - windowSeconds).all<ApiUsageKeyRow>();
-  return rows.results ?? [];
+  const minutes = Math.max(1, windowSeconds / 60);
+  return (rows.results ?? []).map((row) => ({
+    ...row,
+    requests: Number(row.requests ?? 0),
+    errors: Number(row.errors ?? 0),
+    rate_limited: Number(row.rate_limited ?? 0),
+    avg_duration_ms: nullableNumber(row.avg_duration_ms),
+    calls_per_minute: Number((Number(row.requests ?? 0) / minutes).toFixed(2)),
+  }));
 }
 
 async function readRecentApiCalls(env: Env): Promise<unknown[]> {
@@ -1032,6 +1048,7 @@ function subsystemsFromSnapshot(snapshot: DataHealthSnapshot): DataHealthSubsyst
     personalStatsSubsystem(snapshot),
     gymStatsSubsystem(snapshot),
     apiSubsystem(snapshot),
+    keyHealthSubsystem(snapshot),
     stockSubsystem(snapshot),
     warReportsSubsystem(snapshot),
   ];
@@ -1245,6 +1262,30 @@ function apiSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   };
 }
 
+function keyHealthSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
+  const keys = snapshot.apiKeyHealth;
+  const totalCallsPerMinute = keys.reduce((sum, key) => sum + Number(key.calls_per_minute ?? 0), 0);
+  return {
+    key: "key_health",
+    label: "Key health",
+    status: keys.length > 0 ? "good" : "unknown",
+    summary: keys.length > 0
+      ? `${keys.length} keys averaged ${formatRate(totalCallsPerMinute)} calls/min over 24h`
+      : "No key calls recorded in the last 24h",
+    updated_at: keys.reduce<number | null>((latest, key) => {
+      const requestedAt = nullableNumber(key.last_requested_at);
+      return requestedAt === null ? latest : Math.max(latest ?? 0, requestedAt);
+    }, null),
+    metrics: keys.length > 0
+      ? keys.map((key) => ({
+        label: formatKeySourceLabel(key.key_source),
+        value: `${formatRate(Number(key.calls_per_minute ?? 0))}/min`,
+        title: `${key.key_source}: ${Number(key.requests ?? 0)} calls in the last 24h`,
+      }))
+      : [{ label: "Calls/min", value: "0/min" }],
+  };
+}
+
 function stockSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const coverage = snapshot.stockCoverage;
   const stockAge = coverage.newest_snapshot_at === null ? null : snapshot.now - coverage.newest_snapshot_at;
@@ -1380,6 +1421,27 @@ function positiveSetting(value: unknown, fallback: number): number {
 function nullableNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatRate(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(2) : "0.00";
+}
+
+function formatKeySourceLabel(keySource: string): string {
+  switch (keySource) {
+    case "env:TORN_API_KEY":
+      return "Primary key";
+    case "secrets:TORN_API_KEY_POOL_1":
+      return "Pool key 1";
+    case "secrets:TORN_API_KEY_POOL_2":
+      return "Pool key 2";
+    case "member_supplied:auth":
+      return "Member auth key";
+    case "member_supplied:trade_scout":
+      return "Trade Scout member key";
+    default:
+      return keySource;
+  }
 }
 
 function publishedDateLabel(snapshotDate: string | null): string | null {
