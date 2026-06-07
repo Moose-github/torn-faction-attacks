@@ -31,9 +31,9 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
   },
   {
     label: "Cron ingestion",
-    cadence: "1m active / 5m otherwise",
+    cadence: "1m",
     category: "attacks",
-    purpose: "Import recent attacks every minute during active wars, then refresh Chain Watch state and alarms.",
+    purpose: "Import recent attacks every minute, then refresh Chain Watch state and alarms.",
     shouldRun: () => true,
     run: async (env, scheduledTime) => {
       await runIngestion(env, "cron", { scheduledTime });

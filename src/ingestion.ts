@@ -92,12 +92,8 @@ const RECENT_ATTACK_LIGHT_SYNC_PAGE_LIMIT = 3;
 export async function runIngestion(
   env: Env,
   triggerSource = "cron",
-  options: { scheduledTime?: number } = {},
+  _options: { scheduledTime?: number } = {},
 ): Promise<void> {
-  if (await shouldSkipCronIngestion(env, triggerSource, options.scheduledTime)) {
-    return;
-  }
-
   const metrics: IngestionRunMetrics = {
     id: crypto.randomUUID(),
     triggerSource,
@@ -294,46 +290,6 @@ type ActiveWarForIngestion = {
   official_home_score: number | null;
   official_enemy_score: number | null;
 };
-
-async function shouldSkipCronIngestion(
-  env: Env,
-  triggerSource: string,
-  scheduledTime?: number,
-): Promise<boolean> {
-  if (triggerSource !== "cron" || scheduledTime === undefined) {
-    return false;
-  }
-
-  const minute = new Date(scheduledTime).getUTCMinutes();
-  if (minute % 5 === 0) {
-    return false;
-  }
-
-  const state = await readSyncState(env, SOURCE_NAME);
-  if (!state?.active_war_id) {
-    return true;
-  }
-
-  return !(await hasLiveActiveWar(env, state.active_war_id));
-}
-
-async function hasLiveActiveWar(env: Env, warId: number): Promise<boolean> {
-  const row = await env.DB.prepare(
-    `
-    SELECT id
-    FROM wars
-    WHERE id = ?
-      AND status = 'active'
-      AND official_end_time IS NULL
-      AND practical_finish_time IS NULL
-    LIMIT 1
-    `,
-  )
-    .bind(warId)
-    .first();
-
-  return row !== null;
-}
 
 type AttackWindowStats = {
   matching_attack_count: number;

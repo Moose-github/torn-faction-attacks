@@ -311,11 +311,11 @@ The Worker uses separate cron schedules for ingestion and heatmap sampling:
 
 ```json
 "triggers": {
-  "crons": ["*/5 * * * *", "*/15 * * * *"]
+  "crons": ["* * * * *"]
 }
 ```
 
-Every minute during an active unfinished war, and every 5 minutes otherwise, the ingestion run:
+Every minute, the ingestion run:
 
 1. Ensures sync state exists.
 2. Checks Torn's latest ranked war and creates a scheduled war if the faction is enlisted in a future war.
