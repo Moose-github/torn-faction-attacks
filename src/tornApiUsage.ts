@@ -35,6 +35,15 @@ type TornApiUsageEndpointRow = {
   last_requested_at: number | null;
 };
 
+type TornApiUsageKeyRow = {
+  key_source: string;
+  requests: number;
+  errors: number;
+  rate_limited: number;
+  avg_duration_ms: number | null;
+  last_requested_at: number | null;
+};
+
 type TornApiUsageCallRow = {
   id: number;
   requested_at: number;
@@ -111,7 +120,22 @@ export async function getTornApiUsage(url: URL, env: Env): Promise<Response> {
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
   const since = now - windowSeconds;
 
-  const [byFeature, byEndpoint, recentCalls] = await Promise.all([
+  const [byKey, byFeature, byEndpoint, recentCalls] = await Promise.all([
+    env.DB.prepare(
+      `
+      SELECT
+        key_source,
+        COUNT(*) AS requests,
+        SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS errors,
+        SUM(CASE WHEN status = 429 THEN 1 ELSE 0 END) AS rate_limited,
+        AVG(duration_ms) AS avg_duration_ms,
+        MAX(requested_at) AS last_requested_at
+      FROM torn_api_call_log
+      WHERE requested_at >= ?
+      GROUP BY key_source
+      ORDER BY requests DESC, key_source ASC
+      `,
+    ).bind(since).all<TornApiUsageKeyRow>(),
     env.DB.prepare(
       `
       SELECT
@@ -158,6 +182,7 @@ export async function getTornApiUsage(url: URL, env: Env): Promise<Response> {
     window_seconds: windowSeconds,
     summary,
     windows,
+    by_key: (byKey.results ?? []).map(mapKeyRow),
     by_feature: (byFeature.results ?? []).map(mapFeatureRow),
     by_endpoint: (byEndpoint.results ?? []).map(mapEndpointRow),
     recent_calls: (recentCalls.results ?? []).map(mapCallRow),
@@ -278,6 +303,17 @@ function mapFeatureRow(row: TornApiUsageFeatureRow) {
 function mapEndpointRow(row: TornApiUsageEndpointRow) {
   return {
     endpoint: row.endpoint,
+    requests: Number(row.requests ?? 0),
+    errors: Number(row.errors ?? 0),
+    rate_limited: Number(row.rate_limited ?? 0),
+    avg_duration_ms: nullableRoundedNumber(row.avg_duration_ms),
+    last_requested_at: row.last_requested_at,
+  };
+}
+
+function mapKeyRow(row: TornApiUsageKeyRow) {
+  return {
+    key_source: row.key_source,
     requests: Number(row.requests ?? 0),
     errors: Number(row.errors ?? 0),
     rate_limited: Number(row.rate_limited ?? 0),

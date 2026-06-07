@@ -858,18 +858,27 @@ export type TornApiUsageFeature = {
   last_requested_at: number | null;
 };
 
-export type TornApiUsageEndpoint = {
-  endpoint: string;
-  requests: number;
-  errors: number;
-  rate_limited: number;
-  avg_duration_ms: number | null;
-  last_requested_at: number | null;
-};
-
-export type TornApiUsageCall = {
-  id: number;
-  requested_at: number;
+export type TornApiUsageEndpoint = {
+  endpoint: string;
+  requests: number;
+  errors: number;
+  rate_limited: number;
+  avg_duration_ms: number | null;
+  last_requested_at: number | null;
+};
+
+export type TornApiUsageKey = {
+  key_source: string;
+  requests: number;
+  errors: number;
+  rate_limited: number;
+  avg_duration_ms: number | null;
+  last_requested_at: number | null;
+};
+
+export type TornApiUsageCall = {
+  id: number;
+  requested_at: number;
   feature: string;
   key_source: string;
   method: string;
@@ -883,12 +892,13 @@ export type TornApiUsageCall = {
 
 export type TornApiUsageResponse = {
   ok: boolean;
-  window_seconds: number;
-  summary: TornApiUsageSummary;
-  windows: TornApiUsageSummary[];
-  by_feature: TornApiUsageFeature[];
-  by_endpoint: TornApiUsageEndpoint[];
-  recent_calls: TornApiUsageCall[];
+  window_seconds: number;
+  summary: TornApiUsageSummary;
+  windows: TornApiUsageSummary[];
+  by_key: TornApiUsageKey[];
+  by_feature: TornApiUsageFeature[];
+  by_endpoint: TornApiUsageEndpoint[];
+  recent_calls: TornApiUsageCall[];
 };
 
 export type MemberLifestyleRepairStatusCounts = {

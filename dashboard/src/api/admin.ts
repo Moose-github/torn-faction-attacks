@@ -19,7 +19,7 @@ export async function getLatestMaintenanceRun(): Promise<MaintenanceRunResponse>
   return getJson<MaintenanceRunResponse>("/api/admin/maintenance-run", true);
 }
 
-export async function getTornApiUsage(windowSeconds = 60 * 60): Promise<TornApiUsageResponse> {
+export async function getTornApiUsage(windowSeconds = 24 * 60 * 60): Promise<TornApiUsageResponse> {
   const params = new URLSearchParams({ window_seconds: String(windowSeconds) });
   return getJson<TornApiUsageResponse>(`/api/admin/torn-api-usage?${params.toString()}`, true);
 }

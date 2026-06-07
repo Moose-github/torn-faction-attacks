@@ -1,4 +1,5 @@
 import React from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   AdminWarPayload,
   AuthSession,
@@ -46,6 +47,12 @@ import {
 } from "../../api";
 import { CollapsiblePanel, PanelHeader } from "../../components/Common";
 import { formatLongDateTime, formatNumber } from "../../utils/format";
+
+const TORN_API_USAGE_WINDOW_OPTIONS = [
+  { seconds: 60 * 60, label: "1h", summaryLabel: "1h" },
+  { seconds: 24 * 60 * 60, label: "1 day", summaryLabel: "1 day" },
+  { seconds: 7 * 24 * 60 * 60, label: "7 days", summaryLabel: "7 days" },
+] as const;
 
 export function AdminControls() {
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
@@ -134,6 +141,8 @@ export function AdminControls() {
   const [isLoadingIngestionRun, setIsLoadingIngestionRun] = React.useState(false);
   const [tornApiUsage, setTornApiUsage] = React.useState<TornApiUsageResponse | null>(null);
   const [isLoadingTornApiUsage, setIsLoadingTornApiUsage] = React.useState(false);
+  const [isTornApiUsageTableCollapsed, setIsTornApiUsageTableCollapsed] = React.useState(true);
+  const [tornApiUsageWindowSeconds, setTornApiUsageWindowSeconds] = React.useState(24 * 60 * 60);
   const adminTimeMode: AdminWarFormState["timeMode"] = useEpochTime ? "epoch" : "datetime";
 
   React.useEffect(() => {
@@ -290,15 +299,21 @@ export function AdminControls() {
     }
   }
 
-  async function loadTornApiUsage() {
+  async function loadTornApiUsage(windowSeconds = tornApiUsageWindowSeconds) {
     setIsLoadingTornApiUsage(true);
     try {
-      setTornApiUsage(await getTornApiUsage());
+      setTornApiUsage(await getTornApiUsage(windowSeconds));
     } catch {
       setTornApiUsage(null);
     } finally {
       setIsLoadingTornApiUsage(false);
     }
+  }
+
+  function handleTornApiUsageWindowChange(event: React.ChangeEvent<HTMLSelectElement>) {
+    const windowSeconds = Number(event.target.value);
+    setTornApiUsageWindowSeconds(windowSeconds);
+    loadTornApiUsage(windowSeconds);
   }
 
   async function loadLifestyleRepairJobs() {
@@ -372,6 +387,14 @@ export function AdminControls() {
   const currentReportableMembers = reportExemptionMembers.filter(
     (member) => member.is_current === 1 && member.report_exempt === 0,
   );
+  const tornApiUsageWindowLabel = formatTornApiUsageWindowSummaryLabel(
+    tornApiUsage?.window_seconds ?? tornApiUsageWindowSeconds,
+  );
+  const tornApiUsageStatus = isLoadingTornApiUsage
+    ? "Loading"
+    : tornApiUsage
+      ? `Last ${tornApiUsageWindowLabel}`
+      : "No data";
 
   return (
     <>
@@ -876,46 +899,118 @@ export function AdminControls() {
             <section className="admin-tool-section admin-tool-section-wide">
               <PanelHeader
                 title="Torn API usage"
-                aside={isLoadingTornApiUsage ? "Loading" : tornApiUsage ? "Last hour" : "No data"}
+                control={(
+                  <div className="admin-usage-window-control">
+                    <span>{tornApiUsageStatus}</span>
+                    <select
+                      aria-label="Torn API usage window"
+                      value={tornApiUsageWindowSeconds}
+                      disabled={isLoadingTornApiUsage}
+                      onChange={handleTornApiUsageWindowChange}
+                    >
+                      {TORN_API_USAGE_WINDOW_OPTIONS.map((option) => (
+                        <option key={option.seconds} value={option.seconds}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               />
               {tornApiUsage ? (
                 <>
                   <div className="admin-metric-list">
-                    {tornApiUsage.windows.map((window) => (
-                      <MetricLine
-                        key={window.window_seconds}
-                        label={formatUsageWindow(window.window_seconds)}
-                        value={`${formatNumber(window.requests)} calls (${window.requests_per_minute ?? 0}/min)`}
-                      />
-                    ))}
-                    <MetricLine label="Errors in last hour" value={formatNumber(tornApiUsage.summary.errors)} />
-                    <MetricLine label="429s in last hour" value={formatNumber(tornApiUsage.summary.rate_limited)} />
+                    <MetricLine
+                      label={`Requests in last ${tornApiUsageWindowLabel}`}
+                      value={`${formatNumber(tornApiUsage.summary.requests)} calls (${tornApiUsage.summary.requests_per_minute ?? 0}/min)`}
+                    />
+                    {tornApiUsage.windows
+                      .filter((window) => window.window_seconds !== tornApiUsage.window_seconds)
+                      .map((window) => (
+                        <MetricLine
+                          key={window.window_seconds}
+                          label={formatUsageWindow(window.window_seconds)}
+                          value={`${formatNumber(window.requests)} calls (${window.requests_per_minute ?? 0}/min)`}
+                        />
+                      ))}
+                    <MetricLine label={`Errors in last ${tornApiUsageWindowLabel}`} value={formatNumber(tornApiUsage.summary.errors)} />
+                    <MetricLine label={`429s in last ${tornApiUsageWindowLabel}`} value={formatNumber(tornApiUsage.summary.rate_limited)} />
                     <MetricLine
                       label="Average latency"
                       value={tornApiUsage.summary.avg_duration_ms === null ? "-" : `${formatNumber(tornApiUsage.summary.avg_duration_ms)}ms`}
                     />
                   </div>
-                  {tornApiUsage.by_feature.length > 0 ? (
-                    <table className="stock-status-table">
-                      <thead>
-                        <tr>
-                          <th>Feature</th>
-                          <th>Calls</th>
-                          <th>Errors</th>
-                          <th>Last call</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {tornApiUsage.by_feature.map((feature) => (
-                          <tr key={feature.feature}>
-                            <td>{feature.feature}</td>
-                            <td>{formatNumber(feature.requests)}</td>
-                            <td>{formatNumber(feature.errors)}</td>
-                            <td>{formatIngestionTime(feature.last_requested_at)}</td>
+                  {tornApiUsage.by_key.length > 0 ? (
+                    <>
+                      <div className="admin-table-toggle-row">
+                        <strong>Key breakdown</strong>
+                        <span>Last {tornApiUsageWindowLabel}</span>
+                      </div>
+                      <table className="stock-status-table">
+                        <thead>
+                          <tr>
+                            <th>Key</th>
+                            <th>Calls</th>
+                            <th>Errors</th>
+                            <th>429s</th>
+                            <th>Avg</th>
+                            <th>Last call</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {tornApiUsage.by_key.map((key) => (
+                            <tr key={key.key_source}>
+                              <td title={key.key_source}>{formatTornApiKeySource(key.key_source)}</td>
+                              <td>{formatNumber(key.requests)}</td>
+                              <td>{formatNumber(key.errors)}</td>
+                              <td>{formatNumber(key.rate_limited)}</td>
+                              <td>{key.avg_duration_ms === null ? "-" : `${formatNumber(key.avg_duration_ms)}ms`}</td>
+                              <td>{formatIngestionTime(key.last_requested_at)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </>
+                  ) : null}
+                  {tornApiUsage.by_feature.length > 0 ? (
+                    <>
+                      <div className="admin-table-toggle-row">
+                        <button
+                          type="button"
+                          className="collapse-button"
+                          aria-expanded={!isTornApiUsageTableCollapsed}
+                          onClick={() => setIsTornApiUsageTableCollapsed((current) => !current)}
+                        >
+                          <span>
+                            {isTornApiUsageTableCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                          </span>
+                          <strong>Feature breakdown</strong>
+                        </button>
+                        <span>{formatNumber(tornApiUsage.by_feature.length)} features</span>
+                      </div>
+                      {isTornApiUsageTableCollapsed ? null : (
+                        <table className="stock-status-table">
+                          <thead>
+                            <tr>
+                              <th>Feature</th>
+                              <th>Calls</th>
+                              <th>Errors</th>
+                              <th>Last call</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tornApiUsage.by_feature.map((feature) => (
+                              <tr key={feature.feature}>
+                                <td>{feature.feature}</td>
+                                <td>{formatNumber(feature.requests)}</td>
+                                <td>{formatNumber(feature.errors)}</td>
+                                <td>{formatIngestionTime(feature.last_requested_at)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </>
                   ) : (
                     <p className="panel-description">No Torn API calls have been recorded for the selected window.</p>
                   )}
@@ -927,7 +1022,7 @@ export function AdminControls() {
                 type="button"
                 className="admin-button"
                 disabled={isLoadingTornApiUsage}
-                onClick={loadTornApiUsage}
+                onClick={() => loadTornApiUsage()}
               >
                 Refresh usage
               </button>
@@ -2548,6 +2643,28 @@ function formatUsageWindow(seconds: number): string {
     return `${Math.round(seconds / (60 * 60))}h`;
   }
   return `${Math.round(seconds / (24 * 60 * 60))}d`;
+}
+
+function formatTornApiUsageWindowSummaryLabel(seconds: number): string {
+  return TORN_API_USAGE_WINDOW_OPTIONS.find((option) => option.seconds === seconds)?.summaryLabel
+    ?? formatUsageWindow(seconds);
+}
+
+function formatTornApiKeySource(keySource: string): string {
+  switch (keySource) {
+    case "env:TORN_API_KEY":
+      return "Primary key";
+    case "secrets:TORN_API_KEY_POOL_1":
+      return "Pool key 1";
+    case "secrets:TORN_API_KEY_POOL_2":
+      return "Pool key 2";
+    case "member_supplied:auth":
+      return "Member auth key";
+    case "member_supplied:trade_scout":
+      return "Trade Scout member key";
+    default:
+      return keySource;
+  }
 }
 
 function formatPrize(value: number): string {

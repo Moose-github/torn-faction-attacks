@@ -5377,6 +5377,49 @@ h2 {
   text-align: right;
 }
 
+.admin-usage-window-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-usage-window-control > span {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.admin-usage-window-control select {
+  min-height: 34px;
+  min-width: 92px;
+  padding: 6px 28px 6px 10px;
+  border-radius: 7px;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.admin-table-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.admin-table-toggle-row > span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.admin-table-toggle-row > strong {
+  color: #0f172a;
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
 .admin-button {
   min-height: 42px;
   padding: 0 12px;
@@ -7835,6 +7878,18 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .inline-metric,
 :root[data-theme="dark"] .discrepancy-group {
   border-color: var(--border-faint);
+}
+
+:root[data-theme="dark"] .admin-usage-window-control > span {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .admin-table-toggle-row > span {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .admin-table-toggle-row > strong {
+  color: var(--text-strong);
 }
 
 :root[data-theme="dark"] .inline-metric {
