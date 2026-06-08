@@ -241,8 +241,8 @@ export type DataHealthSnapshot = {
 };
 
 export const DEFAULT_DATA_HEALTH_SETTINGS: DataHealthSettings = {
-  ingestion_warn_seconds: 10 * 60,
-  ingestion_critical_seconds: 30 * 60,
+  ingestion_warn_seconds: 2 * 60,
+  ingestion_critical_seconds: 5 * 60,
   maintenance_warn_seconds: 45 * 60,
   maintenance_critical_seconds: 2 * 60 * 60,
   daily_stats_lag_warn_days: 1,

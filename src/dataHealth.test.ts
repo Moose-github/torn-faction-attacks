@@ -106,6 +106,87 @@ describe("data health severity", () => {
       .toBe("Last completed maintenance is older than 45m");
   });
 
+  it("treats attack ingestion older than the one-minute polling window as stale", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const now = Math.floor(Date.now() / 1000);
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 0,
+      missing_donator_days: 0,
+      personalstats_target_date: "2025-12-31",
+      latest_personalstats_bucket_date: "2025-12-31",
+      personalstats_lag_days: 0,
+      affected_members: [],
+    });
+
+    const response = await getAdminDataHealth(dataHealthEnv({
+      ingestionRun: {
+        ...successfulIngestionRun(now),
+        started_at: now - 200,
+        finished_at: now - 180,
+        fetched_attacks: 1,
+      },
+      latestAttackStarted: now - 540,
+    }));
+    const body = await response.json() as {
+      subsystems: Array<{ key: string; status: string; summary: string; metrics: Array<{ label: string; value: string }> }>;
+      issues: Array<{ key: string; title: string; detail: string }>;
+    };
+
+    const ingestion = body.subsystems.find((subsystem) => subsystem.key === "ingestion");
+    expect(ingestion).toMatchObject({
+      status: "warn",
+      summary: "Last attack poll is older than 2m",
+      metrics: [
+        { label: "Last poll", value: String(now - 180) },
+        { label: "Last run returned", value: "1" },
+        { label: "Newest stored attack", value: String(now - 540) },
+      ],
+    });
+    expect(body.issues.find((issue) => issue.key === "ingestion")).toMatchObject({
+      title: "Last attack poll is older than 2m",
+      detail: expect.stringContaining("last run returned: 1"),
+    });
+  });
+
+  it("describes a fresh attack ingestion run without using returned attacks as the headline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const now = Math.floor(Date.now() / 1000);
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 0,
+      missing_donator_days: 0,
+      personalstats_target_date: "2025-12-31",
+      latest_personalstats_bucket_date: "2025-12-31",
+      personalstats_lag_days: 0,
+      affected_members: [],
+    });
+
+    const response = await getAdminDataHealth(dataHealthEnv({
+      ingestionRun: {
+        ...successfulIngestionRun(now),
+        finished_at: now - 45,
+        fetched_attacks: 3,
+      },
+      latestAttackStarted: now - 600,
+    }));
+    const body = await response.json() as {
+      subsystems: Array<{ key: string; status: string; summary: string; metrics: Array<{ label: string; value: string; title?: string | null }> }>;
+    };
+
+    const ingestion = body.subsystems.find((subsystem) => subsystem.key === "ingestion");
+    expect(ingestion).toMatchObject({
+      status: "good",
+      summary: "Attack polling is on schedule",
+      metrics: [
+        { label: "Last poll", value: String(now - 45) },
+        { label: "Last run returned", value: "3" },
+        { label: "Newest stored attack", value: String(now - 600) },
+      ],
+    });
+    expect(ingestion?.metrics[1].title).toContain("latest poll window");
+  });
+
   it("hides admin-only subsystems from the member summary", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
       stale_personalstats: 0,
@@ -260,6 +341,9 @@ function settingsEnv(settings: Record<string, unknown>, save: () => void): Env {
 }
 
 function dataHealthEnv({
+  settings = DEFAULT_DATA_HEALTH_SETTINGS,
+  ingestionRun,
+  latestAttackStarted = null,
   maintenanceRun = successfulMaintenanceRun(),
   gymLatestDate = "2025-12-31",
   completedGymStats = ["gymenergy", "gymstrength", "gymspeed", "gymdefense", "gymdexterity"],
@@ -269,6 +353,9 @@ function dataHealthEnv({
     { snapshot_date: "2025-12-31", ready_members: 1, total_members: 1 },
   ],
 }: {
+  settings?: Record<string, unknown>;
+  ingestionRun?: Record<string, unknown>;
+  latestAttackStarted?: number | null;
   maintenanceRun?: Record<string, unknown>;
   gymLatestDate?: string;
   completedGymStats?: string[];
@@ -284,6 +371,9 @@ function dataHealthEnv({
             return statement;
           },
           first: async () => firstRowForDataHealthQuery(compactSql, maintenanceRun, {
+            settings,
+            ingestionRun,
+            latestAttackStarted,
             gymLatestDate,
             staleGymMembers,
           }),
@@ -299,37 +389,25 @@ function dataHealthEnv({
 function firstRowForDataHealthQuery(
   sql: string,
   maintenanceRun: Record<string, unknown>,
-  gymStats: { gymLatestDate: string; staleGymMembers: number },
+  options: {
+    settings: Record<string, unknown>;
+    ingestionRun?: Record<string, unknown>;
+    latestAttackStarted: number | null;
+    gymLatestDate: string;
+    staleGymMembers: number;
+  },
 ): Record<string, unknown> | null {
-  if (sql.includes("FROM data_health_settings")) return DEFAULT_DATA_HEALTH_SETTINGS;
+  if (sql.includes("FROM data_health_settings")) return options.settings;
   if (sql.includes("FROM ingestion_runs")) {
-    return {
-      id: "ingestion-run-1",
-      trigger_source: "cron",
-      started_at: Math.floor(Date.now() / 1000) - 60,
-      ranked_war_checked_at: null,
-      attacks_fetch_finished_at: null,
-      d1_writes_finished_at: null,
-      stats_finished_at: null,
-      report_finished_at: null,
-      finished_at: Math.floor(Date.now() / 1000) - 30,
-      latest_attack_started: null,
-      fetched_pages: 0,
-      fetched_attacks: 0,
-      wrote_batches: 0,
-      saw_rows: 0,
-      active_war_id: null,
-      status: "success",
-      error: null,
-    };
+    return options.ingestionRun ?? successfulIngestionRun(Math.floor(Date.now() / 1000));
   }
-  if (sql.includes("FROM attacks")) return { latest_attack_started: null };
+  if (sql.includes("FROM attacks")) return { latest_attack_started: options.latestAttackStarted };
   if (sql.includes("FROM scheduled_maintenance_runs")) return maintenanceRun;
   if (sql.includes("FROM member_lifestyle_stat_snapshots snapshots") && sql.includes("snapshots.gym_ready = 1")) {
-    return { snapshot_date: gymStats.gymLatestDate };
+    return { snapshot_date: options.gymLatestDate };
   }
   if (sql.includes("stale_gym_members")) {
-    return { stale_gym_members: gymStats.staleGymMembers };
+    return { stale_gym_members: options.staleGymMembers };
   }
   if (sql.includes("FROM home_faction_members")) {
     return {
@@ -381,6 +459,29 @@ function successfulMaintenanceRun(): Record<string, unknown> {
     task_count: 3,
     write_statements: 2,
     changed_rows: 4,
+    error: null,
+  };
+}
+
+function successfulIngestionRun(now: number): Record<string, unknown> {
+  return {
+    id: "ingestion-run-1",
+    trigger_source: "cron",
+    started_at: now - 60,
+    ranked_war_checked_at: null,
+    attacks_fetch_finished_at: null,
+    d1_writes_finished_at: null,
+    stats_finished_at: null,
+    report_finished_at: null,
+    heatmap_finished_at: null,
+    finished_at: now - 30,
+    latest_attack_started: null,
+    fetched_pages: 0,
+    fetched_attacks: 0,
+    wrote_batches: 0,
+    saw_rows: 0,
+    active_war_id: null,
+    status: "success",
     error: null,
   };
 }

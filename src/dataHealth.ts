@@ -236,10 +236,10 @@ function ingestionSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const summary = run.status === "error"
     ? "Latest attack ingestion failed"
     : freshnessStatus !== "good"
-      ? `Last completed ingestion is older than ${formatDurationLabel(staleThresholdSeconds)}`
+      ? `Last attack poll is older than ${formatDurationLabel(staleThresholdSeconds)}`
       : run.status === "running"
         ? "Attack ingestion is currently running"
-        : `${run.fetched_attacks} attacks fetched in latest run`;
+        : "Attack polling is on schedule";
 
   return {
     key: "ingestion",
@@ -248,10 +248,14 @@ function ingestionSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
     summary,
     updated_at: completedAt,
     metrics: [
-      { label: "Last completed", value: String(completedAt), timestamp: completedAt },
-      { label: "Fetched attacks", value: String(run.fetched_attacks) },
+      { label: "Last poll", value: String(completedAt), timestamp: completedAt },
       {
-        label: "Latest attack",
+        label: "Last run returned",
+        value: `${run.fetched_attacks}`,
+        title: "Attack rows returned by the latest poll window. This can include overlap and does not mean the newest stored attack happened in that run.",
+      },
+      {
+        label: "Newest stored attack",
         value: snapshot.latestAttackStarted === null ? "-" : String(snapshot.latestAttackStarted),
         timestamp: snapshot.latestAttackStarted,
       },
@@ -516,11 +520,11 @@ function issueDetailForSubsystem(snapshot: DataHealthSnapshot, subsystem: DataHe
     if (snapshot.ingestion?.error) return snapshot.ingestion.error;
     const completedAt = snapshot.ingestion?.finished_at ?? snapshot.ingestion?.started_at ?? null;
     return [
-      `Last completed: ${formatTimestampLabel(completedAt)}`,
+      `Last poll: ${formatTimestampLabel(completedAt)}`,
       `warning target: ${formatDurationLabel(snapshot.settings.ingestion_warn_seconds)}`,
       `critical target: ${formatDurationLabel(snapshot.settings.ingestion_critical_seconds)}`,
-      `fetched attacks: ${snapshot.ingestion?.fetched_attacks ?? 0}`,
-      `latest attack: ${formatTimestampLabel(snapshot.latestAttackStarted)}`,
+      `last run returned: ${snapshot.ingestion?.fetched_attacks ?? 0}`,
+      `newest stored attack: ${formatTimestampLabel(snapshot.latestAttackStarted)}`,
     ].join("; ");
   }
   if (subsystem.key === "maintenance" && snapshot.maintenance?.error) return snapshot.maintenance.error;
