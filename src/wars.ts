@@ -235,17 +235,27 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       );
     }
 
-    const activeWar = (await env.DB.prepare(
-      `SELECT id, name FROM wars WHERE status = 'active' LIMIT 1`,
-    ).first()) as { id: number; name: string } | null;
+    const syncState = await readSyncState(env, SOURCE_NAME);
+    const openWar = syncState?.war_state !== "none" && syncState?.active_war_id
+      ? ((await env.DB.prepare(
+        `
+        SELECT id, name
+        FROM wars
+        WHERE id = ?
+        LIMIT 1
+        `,
+      )
+        .bind(syncState.active_war_id)
+        .first()) as { id: number; name: string } | null)
+      : null;
 
-    if (activeWar) {
+    if (openWar) {
       return json(
         {
           ok: false,
-          error: "Cannot import a historical war while another war is active",
+          error: "Cannot import a historical war while another war is open",
           code: "ACTIVE_WAR_EXISTS",
-          active_war: activeWar,
+          active_war: openWar,
         },
         400,
       );
@@ -712,7 +722,7 @@ export async function endActiveWar(request: Request, env: Env): Promise<Response
   const syncState = await readSyncState(env, SOURCE_NAME);
   const activeWarId = syncState?.war_state === "current" ? syncState.active_war_id : null;
   if (!activeWarId) {
-    return json({ ok: false, error: "No active war" }, 400);
+    return json({ ok: false, error: "No current war" }, 400);
   }
 
   const activeWar = (await env.DB.prepare(
@@ -727,7 +737,7 @@ export async function endActiveWar(request: Request, env: Env): Promise<Response
     .first()) as { practical_start_time: number; enemy_faction_id: number | null } | null;
 
   if (!activeWar) {
-    return json({ ok: false, error: "Active war not found", code: "WAR_NOT_FOUND" }, 404);
+    return json({ ok: false, error: "Current war not found", code: "WAR_NOT_FOUND" }, 404);
   }
 
   const now = nowSeconds();

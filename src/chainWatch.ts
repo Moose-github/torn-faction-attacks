@@ -2,12 +2,13 @@ import {
   HOME_FACTION_ID,
   POSITIVE_ATTACK_RESULTS,
   POSITIVE_RESULTS_SQL,
+  SOURCE_NAME,
   TORN_FACTION_CHAIN_API_URL,
 } from "./constants";
 import { sendDiscordMessage } from "./discord";
 import { fetchTrackedTornJson } from "./external/torn";
 import { warNameFromWarRoute } from "./routes";
-import { WAR_SELECT_COLUMNS } from "./sql";
+import { WAR_SELECT_COLUMNS, WAR_SELECT_COLUMNS_WITH_ALIAS } from "./sql";
 import { Env, WarRow } from "./types";
 import { finiteNumber, json, nowSeconds } from "./utils";
 import { readJsonObject } from "./backend/request";
@@ -847,13 +848,19 @@ async function sendChainWatchDiscordMessage(env: Env, message: string): Promise<
 async function readActiveChainWatchWar(env: Env): Promise<WarRow | null> {
   return (await env.DB.prepare(
     `
-    SELECT ${WAR_SELECT_COLUMNS}
-    FROM wars
-    WHERE status = 'active'
-      AND practical_finish_time IS NULL
+    SELECT ${WAR_SELECT_COLUMNS_WITH_ALIAS}
+    FROM sync_state state
+    JOIN wars w ON w.id = state.active_war_id
+    WHERE state.name = ?
+      AND state.war_state = 'current'
+      AND w.status = 'active'
+      AND w.practical_finish_time IS NULL
+      AND w.official_end_time IS NULL
     LIMIT 1
     `,
-  ).first()) as WarRow | null;
+  )
+    .bind(SOURCE_NAME)
+    .first()) as WarRow | null;
 }
 
 async function readWarById(env: Env, warId: number): Promise<WarRow | null> {

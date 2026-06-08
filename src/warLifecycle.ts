@@ -53,7 +53,7 @@ export async function clearCurrentWarState(env: Env, warId?: number): Promise<vo
 export async function readCurrentWarId(env: Env): Promise<number | null> {
   const state = await readSyncState(env, SOURCE_NAME);
 
-  return state?.active_war_id ?? null;
+  return state?.war_state === "current" ? state.active_war_id : null;
 }
 
 export async function setUpcomingWarState(env: Env, warId: number): Promise<void> {

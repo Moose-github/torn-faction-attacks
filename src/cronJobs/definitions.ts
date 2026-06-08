@@ -44,7 +44,7 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     label: "Cron hourly exact war summaries",
     cadence: "1h active",
     category: "attacks",
-    purpose: "Rebuild active war summaries from raw attacks hourly so chain-bonus adjustments catch up outside the minute path.",
+    purpose: "Rebuild current war summaries from raw attacks hourly so chain-bonus adjustments catch up outside the minute path.",
     shouldRun: (date) => date.getUTCMinutes() === 0,
     run: (env) => rebuildOpenWarMemberStatsFromRaw(env),
   },

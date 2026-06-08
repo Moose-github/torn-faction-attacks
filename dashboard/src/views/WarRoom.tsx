@@ -642,6 +642,7 @@ export function WarRoom({
         {!isMemberTrackingActive ? (
           <LiveTrackingInactivePanel
             collapsed={collapsedPanels.liveTrackingInactive ?? true}
+            warState={isSelectedGlobalWar ? warState : "none"}
             onToggle={() => togglePanel("liveTrackingInactive")}
           />
         ) : null}
@@ -724,22 +725,34 @@ export function WarRoom({
 
 function LiveTrackingInactivePanel({
   collapsed,
+  warState,
   onToggle,
 }: {
   collapsed: boolean;
+  warState: GlobalWarState;
   onToggle: () => void;
 }) {
   return (
     <CollapsiblePanel
-      title="Live enemy tracking inactive"
+      title="War-room tracking paused"
       aside="Paused"
       collapsed={collapsed}
       onToggle={onToggle}
       className="live-tracking-inactive-panel"
     >
-      <EmptyState text="Push pressure, travel tracking, revivable members, Enemy status, and Hospital monitor are paused. Tracking starts two hours before official war start and stops at practical finish." />
+      <EmptyState text={pausedTrackingMessage(warState)} />
     </CollapsiblePanel>
   );
+}
+
+function pausedTrackingMessage(warState: GlobalWarState): string {
+  if (warState === "practically_finished") {
+    return "Push pressure, travel tracking, revivable members, enemy status, and Hospital monitor stopped at practical finish while we wait for Torn's official end.";
+  }
+  if (warState === "upcoming") {
+    return "Push pressure, travel tracking, revivable members, and enemy status start two hours before official start. Hospital monitor starts when the war becomes current.";
+  }
+  return "Push pressure, travel tracking, revivable members, enemy status, and Hospital monitor are paused because there is no current tracking window.";
 }
 
 function ChainWatchPanel({
@@ -795,7 +808,7 @@ function ChainWatchPanel({
           state={status}
           updatedAt={state?.last_checked_at ?? null}
           cadence={sourceLabel}
-          detail="Tracks our faction chain timeout during active wars."
+          detail="Tracks our faction chain timeout during current wars."
           tone={tone}
         />
       }
@@ -1000,22 +1013,22 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       state: "Live",
       tone: "live",
       enemyCadence: "Every 1m",
-      enemyDetail: "Updates with live enemy tracking about every minute while the selected war is active.",
+      enemyDetail: "Updates with live enemy tracking about every minute while this is the current war.",
       pushCadence: "1m / 5m history",
       pushDetail: "The current score updates about every minute. The 24 hour history refreshes every 5 minutes.",
       heatmapState: "Sampling",
       heatmapTone: "live",
       heatmapCadence: "Every 15m",
       heatmapDetail: "Heatmaps use Torn last-action data and refresh every 15 minutes while this section is open.",
-      heatmapClosedDetail: "Heatmaps load when opened, then refresh every 15 minutes while live tracking is active.",
+      heatmapClosedDetail: "Heatmaps load when opened, then refresh every 15 minutes while current-war tracking is live.",
       revivableState: "Sampling",
       revivableTone: "live",
       revivableCadence: "Enemy 1m / Home 15m",
-      revivableDetail: "Enemy revivable status updates with live enemy tracking about every minute. Home faction revivable status updates every 15 minutes.",
+      revivableDetail: "Enemy revivable status updates with current-war tracking about every minute. Home faction revivable status updates every 15 minutes.",
       hospitalState: "Live",
       hospitalTone: "live",
       hospitalCadence: "Real time",
-      hospitalDetail: "Runs with live enemy tracking while the selected war is active, using its own faster monitor checks.",
+      hospitalDetail: "Runs while this is the current war, using its own faster monitor checks.",
     };
   }
 
@@ -1039,7 +1052,7 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       hospitalState: "Waiting",
       hospitalTone: "paused",
       hospitalCadence: "Starts live",
-      hospitalDetail: "Starts with live enemy tracking when the selected war becomes active.",
+      hospitalDetail: "Starts when the war reaches official start and becomes current.",
     };
   }
 
@@ -1062,13 +1075,13 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
     hospitalState: "Paused",
     hospitalTone: "paused",
     hospitalCadence: "Inactive",
-    hospitalDetail: "Paused because the Hospital monitor only runs while the selected war is active.",
+    hospitalDetail: "Paused because the Hospital monitor only runs while the selected war is current.",
   };
 }
 
 function formatTrackingWindow(war: WarSummary, mode: TrackingMode): string {
   if (mode === "live") {
-    return "Live tracking is active. Fast-changing enemy status, travel, and push pressure update about every minute, while heavier history and heatmap views update less often.";
+    return "Current-war tracking is live. Fast-changing enemy status, travel, and push pressure update about every minute, while heavier history and heatmap views update less often.";
   }
 
   const officialStart = war.official_start_time ?? war.practical_start_time;
@@ -1079,7 +1092,7 @@ function formatTrackingWindow(war: WarSummary, mode: TrackingMode): string {
 
   const finishTime = war.practical_finish_time ?? war.official_end_time ?? null;
   if (finishTime) {
-    return `Tracking is paused because this war has finished. It stopped at practical finish: ${formatLongDateTime(finishTime)}.`;
+    return `Tracking is paused because this war is practically finished. It stopped at practical finish: ${formatLongDateTime(finishTime)}.`;
   }
 
   return `Tracking has not started yet. It starts two hours before official start: ${formatLongDateTime(trackingStart)}.`;
@@ -1136,7 +1149,7 @@ function HospitalMonitorLinkPanel({
       <p className="panel-description">
         {isWarLive
           ? "Watch enemy hospital status in real time while the war is active."
-          : "Hospital monitoring becomes live when the selected war is active."}
+          : "Hospital monitoring becomes live when the selected war is current."}
       </p>
       <button
         type="button"

@@ -290,6 +290,7 @@ export function DashboardHome({
     maintenanceRun,
     maintenanceTasks,
     primaryWar,
+    warState,
     watchlists,
   });
 
@@ -317,7 +318,6 @@ export function DashboardHome({
           loaded={xanaxCompetitionLoaded}
         />
         <CurrentWarCard
-          activeWar={activeWar}
           isLoadingWars={isLoadingWars}
           primaryWar={primaryWar}
           warState={warState}
@@ -330,15 +330,15 @@ export function DashboardHome({
         <DashboardCard
           icon={<Radar size={17} />}
           title="Enemy tracking"
-          status={activeWar?.enemy_faction_id ? "Tracking ready" : "Inactive"}
-          tone={activeWar?.enemy_faction_id ? "good" : "quiet"}
-          actionLabel={activeWar?.enemy_faction_id ? "Open tracking" : "Open war room"}
-          onAction={() => onOpenView(activeWar?.enemy_faction_id ? "hospitalMonitor" : "warRoom")}
+          status={enemyTrackingStatus(warState, primaryWar)}
+          tone={enemyTrackingTone(warState)}
+          actionLabel={warState === "current" && activeWar?.enemy_faction_id ? "Open monitor" : "Open war room"}
+          onAction={() => onOpenView(warState === "current" && activeWar?.enemy_faction_id ? "hospitalMonitor" : "warRoom")}
         >
           <div className="dashboard-card-metrics">
-            <MetricLine label="Enemy faction" value={activeWar?.enemy_faction_id ? String(activeWar.enemy_faction_id) : "-"} />
-            <MetricLine label="Scouting updated" value={formatRelativeTime(activeWar?.enemy_scouting_status_checked_at ?? null)} />
-            <MetricLine label="Monitor" value={activeWar?.enemy_faction_id ? "Available in War room" : "No active target"} />
+            <MetricLine label="Enemy faction" value={primaryWar?.enemy_faction_id ? String(primaryWar.enemy_faction_id) : "-"} />
+            <MetricLine label="Scouting updated" value={formatRelativeTime(primaryWar?.enemy_scouting_status_checked_at ?? null)} />
+            <MetricLine label="Monitor" value={enemyMonitorStatus(warState, activeWar)} />
           </div>
         </DashboardCard>
 
@@ -623,14 +623,12 @@ function formatPersonalstatsLag(attention: DailyStatsAttention | null): string {
 }
 
 function CurrentWarCard({
-  activeWar,
   isLoadingWars,
   primaryWar,
   warState,
   onOpenView,
   onOpenWar,
 }: {
-  activeWar: WarSummary | null;
   isLoadingWars: boolean;
   primaryWar: WarSummary | null;
   warState: GlobalWarState;
@@ -649,9 +647,9 @@ function CurrentWarCard({
       title={title}
       status={status}
       tone={tone}
-      actionLabel={activeWar ? "Open war room" : primaryWar ? "Open latest war" : undefined}
+      actionLabel={warState !== "none" && primaryWar ? "Open war room" : primaryWar ? "Open latest war" : undefined}
       onAction={
-        activeWar
+        warState !== "none" && primaryWar
           ? () => onOpenView("warRoom")
           : primaryWar
             ? () => onOpenWar(primaryWar.name)
@@ -743,6 +741,42 @@ function warTypeLabel(warType: WarSummary["war_type"]): string {
     return "Event";
   }
   return "-";
+}
+
+function enemyTrackingStatus(warState: GlobalWarState, war: WarSummary | null): string {
+  if (warState === "current" && war?.enemy_faction_id) {
+    return "Live";
+  }
+  if (warState === "upcoming" && war?.enemy_faction_id) {
+    return "Pre-war";
+  }
+  if (warState === "practically_finished") {
+    return "Paused";
+  }
+  return "No war";
+}
+
+function enemyTrackingTone(warState: GlobalWarState): "good" | "warn" | "danger" | "hot" | "quiet" {
+  if (warState === "current") {
+    return "hot";
+  }
+  if (warState === "upcoming") {
+    return "warn";
+  }
+  return "quiet";
+}
+
+function enemyMonitorStatus(warState: GlobalWarState, activeWar: WarSummary | null): string {
+  if (warState === "current" && activeWar?.enemy_faction_id) {
+    return "Available now";
+  }
+  if (warState === "upcoming") {
+    return "Starts at war start";
+  }
+  if (warState === "practically_finished") {
+    return "Stopped at practical finish";
+  }
+  return "No tracked war";
 }
 
 function DataHealthCard({
@@ -1311,6 +1345,7 @@ function buildRecentEvents({
   maintenanceRun,
   maintenanceTasks,
   primaryWar,
+  warState,
   watchlists,
 }: {
   activeWar: WarSummary | null;
@@ -1318,6 +1353,7 @@ function buildRecentEvents({
   maintenanceRun: MaintenanceRun | null;
   maintenanceTasks: MaintenanceTask[];
   primaryWar: WarSummary | null;
+  warState: GlobalWarState;
   watchlists: TradeWatchlist[];
 }): Array<{ label: string; detail: string; time: number | null }> {
   const taskEvents = maintenanceTasks.slice(0, 2).map((task) => ({
@@ -1329,14 +1365,14 @@ function buildRecentEvents({
   return [
     activeWar
       ? {
-          label: "Live war active",
+          label: "Current war live",
           detail: activeWar.name,
           time: activeWar.last_attack_at ?? activeWar.summary_updated_at,
         }
       : null,
     primaryWar
       ? {
-          label: "Latest recorded war",
+          label: warState === "none" ? "Latest recorded war" : "War state",
           detail: `${primaryWar.name} - ${displayWarStatus(primaryWar)}`,
           time: primaryWar.summary_updated_at ?? primaryWar.practical_start_time,
         }

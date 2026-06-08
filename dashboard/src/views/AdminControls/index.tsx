@@ -675,12 +675,12 @@ export function AdminControls() {
 
         {currentOfficialWar ? (
           <section className="panel admin-panel-edit-official">
-            <PanelHeader title="Edit Current war" aside={currentOfficialWar.name} />
+            <PanelHeader title="Edit open war" aside={currentOfficialWar.name} />
             <form
               className="admin-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                runAdminAction("Update current war", () =>
+                runAdminAction("Update open war", () =>
                   updateOfficialWar(toPracticalWarEditPayload(currentOfficialWar.id, currentWarEditForm)).then((response) => {
                     const updatedWar = (response as { war?: WarSummary }).war;
                     if (updatedWar) {

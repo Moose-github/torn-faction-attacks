@@ -1,3 +1,4 @@
+import { SOURCE_NAME } from "./constants";
 import { positiveIntegerOrNull, readJsonObject } from "./backend/request";
 import { Env, WarRow } from "./types";
 import { json, nowSeconds } from "./utils";
@@ -23,20 +24,23 @@ export async function createMonitorTicket(request: Request, env: Env): Promise<R
 
   const war = (await env.DB.prepare(
     `
-    SELECT *
-    FROM wars
-    WHERE id = ?
-      AND status = 'active'
-      AND practical_finish_time IS NULL
-      AND official_end_time IS NULL
+    SELECT w.*
+    FROM sync_state state
+    JOIN wars w ON w.id = state.active_war_id
+    WHERE state.name = ?
+      AND state.war_state = 'current'
+      AND w.id = ?
+      AND w.status = 'active'
+      AND w.practical_finish_time IS NULL
+      AND w.official_end_time IS NULL
     LIMIT 1
     `,
   )
-    .bind(warId)
+    .bind(SOURCE_NAME, warId)
     .first()) as WarRow | null;
 
   if (!war) {
-    return json({ ok: false, error: "Active war not found", code: "WAR_NOT_FOUND" }, 404);
+    return json({ ok: false, error: "Current war not found", code: "WAR_NOT_FOUND" }, 404);
   }
 
   if (war.enemy_faction_id === null) {

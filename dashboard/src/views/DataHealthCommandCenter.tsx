@@ -571,7 +571,7 @@ function EnemyScoutingDrilldown({
         }
       />
       {coverage.length === 0 ? (
-        <EmptyState text="No active or scheduled enemy faction is being tracked" />
+        <EmptyState text="No current or upcoming enemy faction is being tracked" />
       ) : (
         <>
           <div className="data-health-coverage-list">

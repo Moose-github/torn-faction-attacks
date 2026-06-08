@@ -1,4 +1,4 @@
-import { HOME_FACTION_ID } from "../constants";
+import { HOME_FACTION_ID, SOURCE_NAME } from "../constants";
 import type { Env } from "../types";
 import type { CurrentScoutingWar, EnemyFactionMemberRow } from "./model";
 
@@ -6,22 +6,27 @@ export async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingW
   return (await env.DB.prepare(
     `
     SELECT
-      id,
-      name,
-      enemy_faction_id,
-      war_type,
-      practical_start_time,
-      practical_finish_time,
-      official_start_time,
-      enemy_scouting_status_checked_at
-    FROM wars
-    WHERE enemy_faction_id IS NOT NULL
-      AND official_end_time IS NULL
-      AND COALESCE(war_type, 'real') != 'event'
-    ORDER BY practical_start_time DESC, id DESC
+      w.id,
+      w.name,
+      w.enemy_faction_id,
+      w.war_type,
+      w.practical_start_time,
+      w.practical_finish_time,
+      w.official_start_time,
+      w.enemy_scouting_status_checked_at
+    FROM sync_state state
+    JOIN wars w ON w.id = state.active_war_id
+    WHERE state.name = ?
+      AND state.war_state IN ('upcoming', 'current')
+      AND w.enemy_faction_id IS NOT NULL
+      AND w.official_end_time IS NULL
+      AND w.practical_finish_time IS NULL
+      AND COALESCE(w.war_type, 'real') != 'event'
     LIMIT 1
     `,
-  ).first()) as CurrentScoutingWar | null;
+  )
+    .bind(SOURCE_NAME)
+    .first()) as CurrentScoutingWar | null;
 }
 
 export async function readEnemyScouting(

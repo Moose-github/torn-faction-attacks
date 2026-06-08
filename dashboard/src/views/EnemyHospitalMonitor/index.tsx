@@ -287,7 +287,7 @@ export function EnemyHospitalMonitor({
       <>
         <section className="panel">
           <PanelHeader title="Enemy hospital monitor" />
-          <EmptyState text="No active war to monitor" />
+          <EmptyState text="No current war to monitor" />
         </section>
         {isLocalTestAvailable ? (
           <LocalMonitorTestPanel

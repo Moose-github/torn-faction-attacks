@@ -773,7 +773,7 @@ async function autoEndTermedWarIfLimitReached(
 
   if (activeWar.torn_war_id !== null && rankedWar.id !== activeWar.torn_war_id) {
     console.warn(
-      `Skipping termed auto-end check: latest Torn ranked war ${rankedWar.id} does not match active war ${activeWar.torn_war_id}`,
+      `Skipping termed auto-end check: latest Torn ranked war ${rankedWar.id} does not match current war ${activeWar.torn_war_id}`,
     );
     return false;
   }
