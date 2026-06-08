@@ -31,6 +31,7 @@ import { boolToInt, d1Changes, json, normalizeAttacks, nowSeconds } from "./util
 import {
   applyTornOfficialWarEnd,
   recordTermedWarPracticalFinish,
+  setUpcomingWarState,
   startWarTracking,
 } from "./warLifecycle";
 
@@ -1173,17 +1174,20 @@ async function syncUpcomingRankedWar(
 
   const existingByTornId = (await env.DB.prepare(
     `
-    SELECT id
+    SELECT id, status
     FROM wars
     WHERE torn_war_id = ?
     LIMIT 1
     `,
   )
     .bind(rankedWar.id)
-    .first()) as { id: number } | null;
+    .first()) as { id: number; status: string } | null;
 
   if (existingByTornId) {
     await updateWarRankedWarScores(env, existingByTornId.id, enemyFaction.id, rankedWar, rankedWar.start);
+    if (existingByTornId.status === "scheduled") {
+      await setUpcomingWarState(env, existingByTornId.id);
+    }
     return;
   }
 
@@ -1197,6 +1201,7 @@ async function syncUpcomingRankedWar(
   ).first()) as { id: number } | null;
 
   if (existingScheduledWar) {
+    await setUpcomingWarState(env, existingScheduledWar.id);
     console.warn(
       `Skipping ranked war schedule sync: scheduled war already exists and Torn war ${rankedWar.id} is not linked`,
     );
@@ -1234,6 +1239,7 @@ async function syncUpcomingRankedWar(
     .first()) as { id: number } | null;
 
   if (inserted) {
+    await setUpcomingWarState(env, inserted.id);
     await fetchEnemyScoutingOnceForWar(env, inserted.id);
   }
 }

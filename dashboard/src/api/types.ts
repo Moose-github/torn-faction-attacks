@@ -1,4 +1,6 @@
-export type WarType = "all" | "real" | "termed" | "event";
+export type WarType = "all" | "real" | "termed" | "event";
+
+export type GlobalWarState = "none" | "upcoming" | "current" | "practically_finished";
 export type EnemyStatsImagePreviewType = "comparison" | "members";
 
 export type OverallStats = {
@@ -153,7 +155,11 @@ export type WarSummary = {
 
 export type WarsResponse = {
   ok: boolean;
-  wars: WarSummary[];
+  war_state: GlobalWarState;
+
+  active_war_id: number | null;
+
+  wars: WarSummary[];
 };
 
 export type WarDetailResponse = {

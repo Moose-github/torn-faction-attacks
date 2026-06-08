@@ -38,6 +38,7 @@ import {
   WarDetailResponse,
   WarActivityBucket,
   WarMemberActivityHeatmapResponse,
+  type GlobalWarState,
   WarSummary,
   WarType,
 } from "./api";
@@ -116,6 +117,8 @@ function App() {
     getStoredAuthSession(),
   );
   const [wars, setWars] = React.useState<WarSummary[]>([]);
+  const [warState, setWarState] = React.useState<GlobalWarState>("none");
+  const [activeWarId, setActiveWarId] = React.useState<number | null>(null);
   const [selectedWarName, setSelectedWarName] = React.useState<string | null>(null);
   const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
   const [chainBonuses, setChainBonuses] = React.useState<ChainBonusAttack[]>([]);
@@ -185,6 +188,8 @@ function App() {
   async function loadWars() {
     if (!authSession) {
       setWars([]);
+      setWarState("none");
+      setActiveWarId(null);
       setSelectedWarName(null);
       setIsLoadingWars(false);
       return;
@@ -199,6 +204,8 @@ function App() {
       if (cancelled) return;
 
       setWars(warsResponse.wars);
+      setWarState(warsResponse.war_state);
+      setActiveWarId(warsResponse.active_war_id);
 
       setSelectedWarName((currentSelectedWarName) => {
         if (routedWarName && warsResponse.wars.some((war) => war.name === routedWarName)) {
@@ -211,7 +218,9 @@ function App() {
 
         return selectedStillVisible
           ? currentSelectedWarName
-          : warsResponse.wars[0]?.name ?? null;
+          : preferredWarName(warsResponse.wars, warsResponse.active_war_id) ??
+            warsResponse.wars[0]?.name ??
+            null;
       });
     } catch (err) {
       if (!cancelled) {
@@ -276,7 +285,7 @@ function App() {
 }, [selectedWarName]);
 
   const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
-  const activeWar = wars.find(isLiveWar) ?? (selectedWar && isLiveWar(selectedWar) ? selectedWar : null);
+  const activeWar = findGlobalWar(wars, selectedWar, activeWarId, warState === "current");
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
   const isAdmin = authSession?.access_level === "admin";
   const isActivityPanelOpen =
@@ -460,7 +469,7 @@ function App() {
       return;
     }
 
-    const refreshMs = warPageRefreshInterval(selectedWar);
+    const refreshMs = warPageRefreshInterval(selectedWar, activeWarId, warState);
     if (refreshMs === null) {
       return;
     }
@@ -478,6 +487,8 @@ function App() {
         }
 
         setWars(warsResponse.wars);
+        setWarState(warsResponse.war_state);
+        setActiveWarId(warsResponse.active_war_id);
         setWarDetail(detailResponse);
 
         if (detailResponse.war.torn_report_fetched_at && isReportDiscrepancyPanelOpen) {
@@ -500,6 +511,7 @@ function App() {
       window.clearInterval(timer);
     };
   }, [
+    activeWarId,
     selectedWar?.official_end_time,
     selectedWar?.practical_finish_time,
     selectedWar?.status,
@@ -509,6 +521,7 @@ function App() {
     warType,
     authSession,
     isReportDiscrepancyPanelOpen,
+    warState,
   ]);
 
   React.useEffect(() => {
@@ -576,7 +589,7 @@ function App() {
     }
 
     loadMemberAttacks();
-    const refreshMs = selectedWar && isLiveWar(selectedWar) ? ACTIVE_WAR_REFRESH_MS : null;
+    const refreshMs = isGlobalCurrentWar(selectedWar, activeWarId, warState) ? ACTIVE_WAR_REFRESH_MS : null;
     if (refreshMs === null) {
       return () => {
         cancelled = true;
@@ -588,7 +601,7 @@ function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [authSession, selectedMember, selectedWar?.id, selectedWar?.official_end_time, selectedWar?.practical_finish_time, selectedWar?.status, selectedWarName]);
+  }, [activeWarId, authSession, selectedMember, selectedWar?.id, selectedWarName, warState]);
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -615,7 +628,7 @@ function App() {
     }
 
     if ((nextView === "dashboard" || nextView === "warRoom") && wars[0]) {
-      setSelectedWarName(wars[0].name);
+      setSelectedWarName(preferredWarName(wars, activeWarId) ?? wars[0].name);
     }
 
     setRoutedWarName(null);
@@ -715,9 +728,11 @@ function App() {
           {view === "dashboard" ? (
             <DashboardHome
               activeWar={activeWar}
+              activeWarId={activeWarId}
               isAdmin={isAdmin}
               isLoadingWars={isLoadingWars}
               selectedWar={selectedWar}
+              warState={warState}
               wars={wars}
               onOpenView={changeView}
               onOpenWar={selectWar}
@@ -767,6 +782,8 @@ function App() {
               <WarRoom
                 selectedWar={selectedWar}
                 selectedWarName={selectedWarName}
+                activeWarId={activeWarId}
+                warState={warState}
                 onError={setError}
                 onOpenHospitalMonitor={() => changeView("hospitalMonitor")}
               />
@@ -895,7 +912,19 @@ function ApiKeyUseNotice() {
   );
 }
 
-function warPageRefreshInterval(war: WarSummary): number | null {
+function warPageRefreshInterval(
+  war: WarSummary,
+  activeWarId: number | null,
+  warState: GlobalWarState,
+): number | null {
+  if (isGlobalCurrentWar(war, activeWarId, warState)) {
+    return ACTIVE_WAR_REFRESH_MS;
+  }
+
+  if (warState === "practically_finished" && war.id === activeWarId) {
+    return PRACTICAL_FINISH_REFRESH_MS;
+  }
+
   if (war.official_end_time !== null || war.status === "ended") {
     return null;
   }
@@ -908,7 +937,7 @@ function warPageRefreshInterval(war: WarSummary): number | null {
     return PRACTICAL_FINISH_REFRESH_MS;
   }
 
-  return war.status === "active" ? SLOW_WAR_REFRESH_MS : null;
+  return war.status === "active" || war.status === "scheduled" ? SLOW_WAR_REFRESH_MS : null;
 }
 
 function warSecondaryPanelRefreshInterval(war: WarSummary): number {
@@ -916,20 +945,41 @@ function warSecondaryPanelRefreshInterval(war: WarSummary): number {
     return PRACTICAL_FINISH_REFRESH_MS;
   }
 
-  return isLiveWar(war) ? ACTIVE_WAR_REFRESH_MS : SLOW_WAR_REFRESH_MS;
+  return war.status === "active" ? ACTIVE_WAR_REFRESH_MS : SLOW_WAR_REFRESH_MS;
 }
 
 function warMemberActivityHeatmapRefreshInterval(war: WarSummary): number {
   return war.practical_finish_time !== null ? PRACTICAL_FINISH_REFRESH_MS : SLOW_WAR_REFRESH_MS;
 }
 
-function isLiveWar(war: WarSummary): boolean {
-  return (
-    war.status === "active" &&
-    war.enemy_faction_id !== null &&
-    war.official_end_time === null &&
-    war.practical_finish_time === null
-  );
+function isGlobalCurrentWar(
+  war: WarSummary | null,
+  activeWarId: number | null,
+  warState: GlobalWarState,
+): boolean {
+  return warState === "current" && activeWarId !== null && war?.id === activeWarId;
+}
+
+function findGlobalWar(
+  wars: WarSummary[],
+  selectedWar: WarSummary | null,
+  activeWarId: number | null,
+  shouldUseGlobalWar: boolean,
+): WarSummary | null {
+  if (!shouldUseGlobalWar || activeWarId === null) {
+    return null;
+  }
+
+  return wars.find((war) => war.id === activeWarId) ??
+    (selectedWar?.id === activeWarId ? selectedWar : null);
+}
+
+function preferredWarName(wars: WarSummary[], activeWarId: number | null): string | null {
+  if (activeWarId === null) {
+    return null;
+  }
+
+  return wars.find((war) => war.id === activeWarId)?.name ?? null;
 }
 
 function RefreshCountdowns() {

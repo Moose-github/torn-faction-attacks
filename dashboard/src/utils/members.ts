@@ -144,6 +144,10 @@ export function displayWarStatus(war: WarSummary): string {
     return "upcoming";
   }
 
+  if (war.practical_finish_time !== null && !hasOfficialEnd(war)) {
+    return "practically finished";
+  }
+
   if (!hasOfficialEnd(war)) {
     return "ongoing";
   }

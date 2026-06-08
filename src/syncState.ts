@@ -1,15 +1,18 @@
 import { Env } from "./types";
 
+export type GlobalWarState = "none" | "upcoming" | "current" | "practically_finished";
+
 export type SyncStateRow = {
   name: string;
   last_started: number | null;
   active_war_id: number | null;
+  war_state: GlobalWarState;
 };
 
 export async function readSyncState(env: Env, name: string): Promise<SyncStateRow | null> {
-  return (await env.DB.prepare(
+  const row = (await env.DB.prepare(
     `
-    SELECT name, last_started, active_war_id
+    SELECT name, last_started, active_war_id, COALESCE(war_state, 'none') AS war_state
     FROM sync_state
     WHERE name = ?
     LIMIT 1
@@ -17,6 +20,15 @@ export async function readSyncState(env: Env, name: string): Promise<SyncStateRo
   )
     .bind(name)
     .first()) as SyncStateRow | null;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    war_state: normalizeGlobalWarState(row.war_state),
+  };
 }
 
 export async function readSyncTimestamp(env: Env, name: string): Promise<number> {
@@ -112,6 +124,51 @@ export async function upsertSyncTimestamp(
     .run();
 }
 
+export async function setSyncGlobalWarState(
+  env: Env,
+  name: string,
+  warState: GlobalWarState,
+  activeWarId: number | null,
+  lastStarted?: number,
+): Promise<void> {
+  const normalizedState = normalizeGlobalWarState(warState);
+  const normalizedWarId = normalizedState === "none" ? null : activeWarId;
+
+  if (normalizedState !== "none" && normalizedWarId === null) {
+    throw new Error(`active_war_id is required for war state ${normalizedState}`);
+  }
+
+  if (lastStarted === undefined) {
+    await env.DB.prepare(
+      `
+      INSERT INTO sync_state (name, last_started, active_war_id, war_state, updated_at)
+      VALUES (?, 0, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(name) DO UPDATE SET
+        active_war_id = excluded.active_war_id,
+        war_state = excluded.war_state,
+        updated_at = CURRENT_TIMESTAMP
+      `,
+    )
+      .bind(name, normalizedWarId, normalizedState)
+      .run();
+    return;
+  }
+
+  await env.DB.prepare(
+    `
+    INSERT INTO sync_state (name, last_started, active_war_id, war_state, updated_at)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = excluded.last_started,
+      active_war_id = excluded.active_war_id,
+      war_state = excluded.war_state,
+      updated_at = CURRENT_TIMESTAMP
+    `,
+  )
+    .bind(name, lastStarted, normalizedWarId, normalizedState)
+    .run();
+}
+
 export async function deleteSyncState(env: Env, name: string): Promise<D1Result> {
   return env.DB.prepare(
     `
@@ -135,4 +192,13 @@ export async function deleteSyncStatesByPrefix(
   )
     .bind(`${prefix}%`)
     .run();
+}
+
+function normalizeGlobalWarState(value: unknown): GlobalWarState {
+  return value === "upcoming" ||
+    value === "current" ||
+    value === "practically_finished" ||
+    value === "none"
+    ? value
+    : "none";
 }

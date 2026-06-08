@@ -4,6 +4,7 @@ import {
   DEFEND_WON_RESULTS_SQL,
   POSITIVE_ATTACK_RESULTS,
   POSITIVE_RESULTS_SQL,
+  SOURCE_NAME,
   WAR_TYPES,
 } from "./constants";
 import {
@@ -13,6 +14,7 @@ import {
   WAR_SELECT_COLUMNS_WITH_ALIAS,
 } from "./sql";
 import { warNameFromWarRoute } from "./routes";
+import { readSyncState } from "./syncState";
 import { Env, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 
@@ -55,7 +57,14 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
       .bind(warType, warType)
       .all();
 
-    return json({ ok: true, wars: rows.results ?? [] });
+    const syncState = await readSyncState(env, SOURCE_NAME);
+
+    return json({
+      ok: true,
+      war_state: syncState?.war_state ?? "none",
+      active_war_id: syncState?.active_war_id ?? null,
+      wars: rows.results ?? [],
+    });
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
   }

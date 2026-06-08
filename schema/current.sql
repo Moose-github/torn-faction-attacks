@@ -565,7 +565,8 @@ CREATE TABLE sync_state (
     name TEXT PRIMARY KEY,
     last_started INTEGER NOT NULL,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    active_war_id INTEGER
+    active_war_id INTEGER,
+    war_state TEXT NOT NULL DEFAULT 'none'
 );
 
 CREATE TABLE xanax_competition_claims (

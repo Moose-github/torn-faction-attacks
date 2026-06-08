@@ -39,6 +39,7 @@ import {
   RecentFactionAttack,
   submitMemberSuggestion,
   TradeWatchlist,
+  type GlobalWarState,
   WarSummary,
   XanaxCompetitionResponse,
 } from "../api";
@@ -51,8 +52,8 @@ const RECENT_ATTACK_LIMIT = 10;
 const RECENT_ATTACK_REFRESH_MS = 30_000;
 const ADMIN_HEALTH_REFRESH_MS = 60_000;
 const DATA_HEALTH_REFRESH_MS = 60_000;
-const ATTACK_POLLING_RATE_LABEL = "About every minute during active tracking";
-const ATTACK_POLLING_DETAIL = "When no live war is being tracked, attacks are checked less often.";
+const ATTACK_POLLING_RATE_LABEL = "Every minute";
+const ATTACK_POLLING_DETAIL = "Attack ingestion now polls on the same one-minute cadence in every war state.";
 const HIGHLIGHT_ROTATE_MS = 6_000;
 const HIGHLIGHT_REFRESH_MS = 5 * 60_000;
 const HIGHLIGHT_GROUPS = [
@@ -78,9 +79,11 @@ const XANAX_RAIN_PARTICLES = Array.from({ length: 24 }, (_, index) => index);
 
 type DashboardHomeProps = {
   activeWar: WarSummary | null;
+  activeWarId: number | null;
   isAdmin: boolean;
   isLoadingWars: boolean;
   selectedWar: WarSummary | null;
+  warState: GlobalWarState;
   wars: WarSummary[];
   onOpenView: (view: AppView) => void;
   onOpenWar: (warName: string) => void;
@@ -88,9 +91,11 @@ type DashboardHomeProps = {
 
 export function DashboardHome({
   activeWar,
+  activeWarId,
   isAdmin,
   isLoadingWars,
   selectedWar,
+  warState,
   wars,
   onOpenView,
   onOpenWar,
@@ -268,7 +273,11 @@ export function DashboardHome({
     };
   }, [isAdmin]);
 
-  const primaryWar = activeWar ?? selectedWar ?? wars[0] ?? null;
+  const stateWar = activeWarId === null
+    ? null
+    : wars.find((war) => war.id === activeWarId) ??
+      (selectedWar?.id === activeWarId ? selectedWar : null);
+  const primaryWar = stateWar ?? selectedWar ?? wars[0] ?? null;
   const missingReports = wars.filter((war) => war.status === "ended" && !war.torn_report_fetched_at).length;
   const dailyStatsAttentionCount =
     (dailyStatsAttention?.stale_personalstats ?? 0) + (dailyStatsAttention?.missing_donator_days ?? 0);
@@ -311,6 +320,7 @@ export function DashboardHome({
           activeWar={activeWar}
           isLoadingWars={isLoadingWars}
           primaryWar={primaryWar}
+          warState={warState}
           onOpenView={onOpenView}
           onOpenWar={onOpenWar}
         />
@@ -616,19 +626,21 @@ function CurrentWarCard({
   activeWar,
   isLoadingWars,
   primaryWar,
+  warState,
   onOpenView,
   onOpenWar,
 }: {
   activeWar: WarSummary | null;
   isLoadingWars: boolean;
   primaryWar: WarSummary | null;
+  warState: GlobalWarState;
   onOpenView: (view: AppView) => void;
   onOpenWar: (warName: string) => void;
 }) {
-  const title = primaryWar ? currentWarTileTitle(primaryWar) : "Current war";
-  const status = primaryWar ? displayWarStatus(primaryWar) : "No live war";
-  const tone = currentWarTileTone(primaryWar);
-  const timing = primaryWar ? currentWarTiming(primaryWar) : null;
+  const title = currentWarTileTitle(primaryWar, warState);
+  const status = currentWarTileStatus(primaryWar, warState);
+  const tone = currentWarTileTone(warState);
+  const timing = primaryWar ? currentWarTiming(primaryWar, warState) : null;
 
   return (
     <DashboardCard
@@ -663,34 +675,53 @@ function CurrentWarCard({
   );
 }
 
-function currentWarTileTitle(war: WarSummary): string {
-  if (war.status === "scheduled") {
+function currentWarTileTitle(war: WarSummary | null, warState: GlobalWarState): string {
+  if (warState === "upcoming") {
     return "Upcoming war";
   }
 
-  if (!warEnded(war)) {
+  if (warState === "current") {
     return "Current war";
   }
 
-  return "Last war";
+  if (warState === "practically_finished") {
+    return "Practically finished";
+  }
+
+  return war ? "Last war" : "Current war";
 }
 
-function currentWarTileTone(war: WarSummary | null): "good" | "warn" | "danger" | "hot" | "quiet" {
-  if (!war) {
-    return "quiet";
+function currentWarTileStatus(war: WarSummary | null, warState: GlobalWarState): string {
+  if (warState === "none") {
+    return "No war";
   }
-  if (war.status === "scheduled") {
+
+  return war ? displayWarStatus(war) : warState.replace("_", " ");
+}
+
+function currentWarTileTone(warState: GlobalWarState): "good" | "warn" | "danger" | "hot" | "quiet" {
+  if (warState === "current") {
+    return "hot";
+  }
+  if (warState === "upcoming") {
     return "warn";
   }
-  return warEnded(war) ? "quiet" : "hot";
+  return "quiet";
 }
 
-function currentWarTiming(war: WarSummary): { label: string; timestamp: number | null } {
-  if (war.status === "scheduled") {
+function currentWarTiming(
+  war: WarSummary,
+  warState: GlobalWarState,
+): { label: string; timestamp: number | null } {
+  if (warState === "upcoming") {
     return { label: "Starting", timestamp: war.official_start_time ?? war.practical_start_time };
   }
 
-  if (warEnded(war)) {
+  if (warState === "practically_finished") {
+    return { label: "Practical finish", timestamp: war.practical_finish_time };
+  }
+
+  if (warState === "none" || warEnded(war)) {
     return { label: "Finished", timestamp: war.official_end_time ?? war.practical_finish_time };
   }
 

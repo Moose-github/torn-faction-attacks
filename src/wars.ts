@@ -1,5 +1,6 @@
 import {
   HOME_FACTION_ID,
+  SOURCE_NAME,
   WAR_TYPES,
 } from "./constants";
 import {
@@ -17,10 +18,10 @@ import {
 } from "./sql";
 import { Env, WarRow } from "./types";
 import { json, nowSeconds } from "./utils";
+import { readSyncState } from "./syncState";
 import {
   clearCurrentWarState,
   endWarPractically,
-  readCurrentWarId,
   setWarPracticalWindow,
 } from "./warLifecycle";
 export { exportWarAttacksCsv } from "./warExports";
@@ -672,6 +673,8 @@ export async function deleteWar(request: Request, env: Env): Promise<Response> {
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
     }
 
+    const syncState = await readSyncState(env, SOURCE_NAME);
+
     await env.DB.batch([
       env.DB.prepare(`UPDATE attacks SET war_id = NULL WHERE war_id = ?`).bind(war.id),
       env.DB.prepare(`DELETE FROM war_member_stats WHERE war_id = ?`).bind(war.id),
@@ -679,7 +682,7 @@ export async function deleteWar(request: Request, env: Env): Promise<Response> {
       env.DB.prepare(`DELETE FROM wars WHERE id = ?`).bind(war.id),
     ]);
 
-    if (war.status === "active") {
+    if (syncState?.active_war_id === war.id) {
       await clearCurrentWarState(env);
     }
     await bumpWarCacheVersion(env, war.name);
@@ -706,7 +709,8 @@ export async function endActiveWar(request: Request, env: Env): Promise<Response
     return handleMutationError(err);
   }
 
-  const activeWarId = await readCurrentWarId(env);
+  const syncState = await readSyncState(env, SOURCE_NAME);
+  const activeWarId = syncState?.war_state === "current" ? syncState.active_war_id : null;
   if (!activeWarId) {
     return json({ ok: false, error: "No active war" }, 400);
   }

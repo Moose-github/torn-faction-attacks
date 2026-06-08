@@ -2,9 +2,10 @@ import { HOME_FACTION_ID, SOURCE_NAME } from "./constants";
 import { bumpWarCacheVersionById } from "./cacheVersions";
 import { ensureChainWatchEnabledForWar } from "./chainWatch";
 import { clearLiveEnemyTrackingData } from "./enemyScouting";
-import { finalizeWar, rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
+import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
 import { WAR_RETURNING_COLUMNS } from "./sql";
-import { readSyncState, upsertSyncTimestamp } from "./syncState";
+import { readSyncState, setSyncGlobalWarState } from "./syncState";
+import type { GlobalWarState } from "./syncState";
 import { Env, WarRow } from "./types";
 import { nowSeconds } from "./utils";
 
@@ -22,7 +23,7 @@ export async function startWarTracking(
     .bind(options.warId)
     .run();
 
-  await setCurrentWarState(env, options.warId, options.startedAt);
+  await setGlobalWarState(env, "current", options.warId, options.startedAt);
   await ensureChainWatchEnabledForWar(env, options.warId);
   await backfillWarAssignments(env, options.warId, options.startedAt);
   await refreshWarDerivedStats(env, options.warId);
@@ -34,6 +35,7 @@ export async function clearCurrentWarState(env: Env, warId?: number): Promise<vo
     `
     UPDATE sync_state
     SET active_war_id = NULL,
+        war_state = 'none',
         updated_at = CURRENT_TIMESTAMP
     WHERE name = ?
       ${warFilter}
@@ -54,7 +56,11 @@ export async function readCurrentWarId(env: Env): Promise<number | null> {
   return state?.active_war_id ?? null;
 }
 
-export async function recordTermedWarPracticalFinish(
+export async function setUpcomingWarState(env: Env, warId: number): Promise<void> {
+  await setGlobalWarState(env, "upcoming", warId);
+}
+
+export async function recordWarPracticalFinish(
   env: Env,
   options: {
     warId: number;
@@ -92,9 +98,23 @@ export async function recordTermedWarPracticalFinish(
     await unassignWarAttacksAfterPracticalFinish(env, options.warId, practicalFinishTime);
   }
 
+  await setGlobalWarState(env, "practically_finished", options.warId);
   await stopLiveEnemyTracking(env, options.warId, options.enemyFactionId);
   await refreshWarDerivedStats(env, options.warId);
   await bumpWarCacheVersionById(env, options.warId);
+}
+
+export async function recordTermedWarPracticalFinish(
+  env: Env,
+  options: {
+    warId: number;
+    finishAt: number;
+    enemyFactionId: number | null;
+    tornWarId?: number | null;
+    preserveExistingFinish?: boolean;
+  },
+): Promise<void> {
+  await recordWarPracticalFinish(env, options);
 }
 
 export async function setWarPracticalWindow(
@@ -167,21 +187,7 @@ export async function endWarPractically(
     enemyFactionId: number | null;
   },
 ): Promise<void> {
-  await env.DB.prepare(
-    `
-    UPDATE wars
-    SET status = 'ended',
-        practical_finish_time = ?
-    WHERE id = ?
-    `,
-  )
-    .bind(options.finishAt, options.warId)
-    .run();
-
-  await clearCurrentWarState(env, options.warId);
-  await stopLiveEnemyTracking(env, options.warId, options.enemyFactionId);
-  await finalizeWar(env, options.warId);
-  await bumpWarCacheVersionById(env, options.warId);
+  await recordWarPracticalFinish(env, options);
 }
 
 export async function applyTornOfficialWarEnd(
@@ -223,7 +229,7 @@ export async function applyTornOfficialWarEnd(
     )
     .run();
 
-  await clearCurrentWarState(env);
+  await setNextGlobalWarStateAfterOfficialEnd(env);
   await stopLiveEnemyTracking(
     env,
     options.warId,
@@ -237,12 +243,32 @@ export async function refreshWarDerivedStats(env: Env, warId: number): Promise<v
   await rebuildWarSummaryFromMemberStats(env, warId);
 }
 
-async function setCurrentWarState(
+async function setGlobalWarState(
   env: Env,
+  warState: GlobalWarState,
   warId: number,
-  startedAt: number,
+  lastStarted?: number,
 ): Promise<void> {
-  await upsertSyncTimestamp(env, SOURCE_NAME, startedAt, warId);
+  await setSyncGlobalWarState(env, SOURCE_NAME, warState, warId, lastStarted);
+}
+
+async function setNextGlobalWarStateAfterOfficialEnd(env: Env): Promise<void> {
+  const scheduledWar = (await env.DB.prepare(
+    `
+    SELECT id
+    FROM wars
+    WHERE status = 'scheduled'
+    ORDER BY practical_start_time ASC
+    LIMIT 1
+    `,
+  ).first()) as { id: number } | null;
+
+  if (scheduledWar) {
+    await setGlobalWarState(env, "upcoming", scheduledWar.id);
+    return;
+  }
+
+  await clearCurrentWarState(env);
 }
 
 async function backfillWarAssignments(

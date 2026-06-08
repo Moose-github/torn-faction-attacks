@@ -17,6 +17,7 @@ import {
   refreshEnemyScouting,
   ScoutingComparisonResponse,
   updateChainWatch,
+  type GlobalWarState,
   WarSummary,
 } from "../api";
 import {
@@ -45,11 +46,15 @@ type TrackingMode = "live" | "pre-live" | "inactive";
 export function WarRoom({
   selectedWar,
   selectedWarName,
+  activeWarId,
+  warState,
   onError,
   onOpenHospitalMonitor,
 }: {
   selectedWar: WarSummary | null;
   selectedWarName: string | null;
+  activeWarId: number | null;
+  warState: GlobalWarState;
   onError: (message: string | null) => void;
   onOpenHospitalMonitor: () => void;
 }) {
@@ -81,12 +86,10 @@ export function WarRoom({
   });
   const trackingCadenceRef = React.useRef<HTMLElement | null>(null);
   const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
-  const isWarLive =
-    selectedWar?.status === "active" &&
-    selectedWar.official_end_time === null &&
-    selectedWar.practical_finish_time === null;
+  const isSelectedGlobalWar = activeWarId !== null && selectedWar?.id === activeWarId;
+  const isWarLive = warState === "current" && isSelectedGlobalWar;
   const nowMs = useCurrentTimeMs();
-  const isMemberTrackingActive = selectedWar
+  const isMemberTrackingActive = selectedWar && isSelectedGlobalWar
     ? isWarRoomMemberTrackingActive(selectedWar, Math.floor(nowMs / 1000))
     : false;
   const isActivityHeatmapsOpen = collapsedPanels.activityHeatmaps === false;
@@ -524,6 +527,8 @@ export function WarRoom({
         </div>
         <WarStartCountdown
           war={selectedWar}
+          isSelectedGlobalWar={isSelectedGlobalWar}
+          warState={warState}
         />
       </section>
 
@@ -2037,12 +2042,31 @@ function RevivableMemberList({
   );
 }
 
-function WarStartCountdown({ war }: { war: WarSummary }) {
+function WarStartCountdown({
+  war,
+  isSelectedGlobalWar,
+  warState,
+}: {
+  war: WarSummary;
+  isSelectedGlobalWar: boolean;
+  warState: GlobalWarState;
+}) {
   const nowMs = useCurrentTimeMs();
   const startTime = war.official_start_time ?? war.practical_start_time;
   const isEnded = war.official_end_time !== null || war.status === "ended";
+  const isPracticallyFinished =
+    isSelectedGlobalWar && warState === "practically_finished" && war.practical_finish_time !== null;
   const endTime = war.official_end_time ?? war.practical_finish_time;
   const remainingSeconds = Math.max(0, Number(startTime ?? 0) - Math.floor(nowMs / 1000));
+
+  if (isPracticallyFinished) {
+    return (
+      <div className="war-room-countdown war-room-countdown-ended">
+        <span>Practically finished</span>
+        <strong>{war.practical_finish_time ? formatLongDateTime(war.practical_finish_time) : "Finished"}</strong>
+      </div>
+    );
+  }
 
   if (isEnded) {
     return (
