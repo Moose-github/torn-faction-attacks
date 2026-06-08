@@ -59,6 +59,7 @@ const SETTING_FIELDS: Array<{
 
 const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "key_health", "war_reports"]);
 const PRECISE_RELATIVE_METRIC_LABELS = new Set(["Last poll", "Latest snapshot"]);
+const DATA_HEALTH_REFRESH_MS = 30 * 1000;
 const API_USAGE_WINDOW_OPTIONS = [
   { seconds: 60 * 60, label: "1h", summaryLabel: "1h" },
   { seconds: 24 * 60 * 60, label: "1 day", summaryLabel: "1 day" },
@@ -114,7 +115,11 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
 
   React.useEffect(() => {
     loadData();
-  }, [isAdmin]);
+    const timer = window.setInterval(() => {
+      loadData();
+    }, DATA_HEALTH_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [isAdmin, apiUsageWindowSeconds]);
 
   function handleApiUsageWindowChange(windowSeconds: number) {
     setApiUsageWindowSeconds(windowSeconds);
