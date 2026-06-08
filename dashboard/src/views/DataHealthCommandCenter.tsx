@@ -58,6 +58,7 @@ const SETTING_FIELDS: Array<{
 ];
 
 const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "key_health", "war_reports"]);
+const PRECISE_RELATIVE_METRIC_LABELS = new Set(["Last poll", "Latest snapshot"]);
 const API_USAGE_WINDOW_OPTIONS = [
   { seconds: 60 * 60, label: "1h", summaryLabel: "1h" },
   { seconds: 24 * 60 * 60, label: "1 day", summaryLabel: "1 day" },
@@ -483,7 +484,7 @@ function SubsystemTile({ subsystem }: { subsystem: DataHealthSubsystem }) {
             key={`${subsystem.key}-${metric.label}`}
             label={metric.label}
             title={metric.title ?? undefined}
-            value={displayMetricValue(metric.value, metric.timestamp)}
+            value={displayMetricValue(metric.value, metric.timestamp, metric.label)}
           />
         ))}
       </div>
@@ -872,11 +873,29 @@ function formatRate(value: number): string {
   return Number.isFinite(value) ? value.toFixed(2) : "0.00";
 }
 
-function displayMetricValue(value: string, timestamp: number | null | undefined): string {
+function displayMetricValue(value: string, timestamp: number | null | undefined, label: string): string {
   if (timestamp && value === String(timestamp)) {
+    if (PRECISE_RELATIVE_METRIC_LABELS.has(label)) {
+      return formatPreciseRelativeTime(timestamp);
+    }
     return formatRelativeTime(timestamp);
   }
   return value;
+}
+
+function formatPreciseRelativeTime(timestamp: number | null): string {
+  if (!timestamp) return "-";
+
+  const elapsedSeconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s ago`;
+
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  if (minutes < 60) {
+    return seconds === 0 ? `${minutes}m ago` : `${minutes}m ${seconds}s ago`;
+  }
+
+  return formatRelativeTime(timestamp);
 }
 
 function subsystemDescription(key: string): string {
