@@ -5,6 +5,7 @@ import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
 import { refreshMemberAchievementSummariesIfStale } from "./memberAchievements";
 import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
+import { refreshTornApiUsageRollups } from "./tornApiUsage";
 import { Env, TornFactionMember } from "./types";
 import { d1Changes, json, nowSeconds } from "./utils";
 import { reconcileXanaxCompetitionRollover } from "./xanaxCompetition";
@@ -112,6 +113,10 @@ function buildScheduledMaintenanceTasks(
     {
       name: "xanax competition rollover",
       run: () => reconcileXanaxCompetitionRollover(env),
+    },
+    {
+      name: "api usage rollups",
+      run: () => refreshTornApiUsageRollups(env),
     },
   ];
 }

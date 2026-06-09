@@ -219,6 +219,68 @@ describe("data health severity", () => {
     expect(body.overall_status).toBe("good");
   });
 
+  it("defaults admin API usage to one hour and skips breakdown queries until requested", async () => {
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 0,
+      missing_donator_days: 0,
+      personalstats_target_date: "2025-12-31",
+      latest_personalstats_bucket_date: "2025-12-31",
+      personalstats_lag_days: 0,
+      affected_members: [],
+    });
+    const breakdownQueries: string[] = [];
+    const env = dataHealthEnv({
+      onApiBreakdownQuery: (sql) => breakdownQueries.push(sql),
+      apiRollupSummary: {
+        requests: 10,
+        errors: 0,
+        rate_limited: 0,
+        avg_duration_ms: 100,
+        max_duration_ms: 100,
+      },
+      apiFeatureRows: [
+        {
+          feature: "personal_stats",
+          requests: 10,
+          errors: 0,
+          rate_limited: 0,
+          avg_duration_ms: 100,
+          last_requested_at: 1_767_139_200,
+        },
+      ],
+    });
+
+    const defaultResponse = await getAdminDataHealth(env);
+    const defaultBody = await defaultResponse.json() as {
+      details: {
+        api_usage_window_seconds: number;
+        api_features: unknown[];
+      };
+    };
+
+    expect(defaultBody.details.api_usage_window_seconds).toBe(60 * 60);
+    expect(defaultBody.details.api_features).toEqual([]);
+    expect(breakdownQueries).toEqual([]);
+
+    const breakdownResponse = await getAdminDataHealth(
+      new URL("https://worker.test/api/admin/data-health?include_breakdown=1"),
+      env,
+    );
+    const breakdownBody = await breakdownResponse.json() as {
+      details: {
+        api_usage_window_seconds: number;
+        api_features: Array<{ feature: string; requests: number }>;
+      };
+    };
+
+    expect(breakdownBody.details.api_usage_window_seconds).toBe(60 * 60);
+    expect(breakdownBody.details.api_features).toEqual([
+      expect.objectContaining({ feature: "personal_stats", requests: 10 }),
+    ]);
+    expect(breakdownQueries.some((sql) => sql.includes("FROM torn_api_usage_rollup_15m"))).toBe(true);
+    expect(breakdownQueries.some((sql) => sql.includes("FROM torn_api_call_log"))).toBe(false);
+  });
+
   it("splits daily member stats into personal and gym subsystem tiles", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
       stale_personalstats: 1,
@@ -420,6 +482,15 @@ function dataHealthEnv({
     { snapshot_date: "2025-12-31", ready_members: 1, total_members: 1 },
   ],
   personalCoverageGaps = [],
+  apiRollupSummary = {
+    requests: 1,
+    errors: 0,
+    rate_limited: 0,
+    avg_duration_ms: 100,
+    max_duration_ms: 100,
+  },
+  apiFeatureRows = [],
+  onApiBreakdownQuery,
 }: {
   settings?: Record<string, unknown>;
   ingestionRun?: Record<string, unknown>;
@@ -430,6 +501,9 @@ function dataHealthEnv({
   staleGymMembers?: number;
   personalCoverage?: Array<{ snapshot_date: string; ready_members: number; total_members: number }>;
   personalCoverageGaps?: Array<Record<string, unknown>>;
+  apiRollupSummary?: Record<string, unknown>;
+  apiFeatureRows?: Array<Record<string, unknown>>;
+  onApiBreakdownQuery?: (sql: string) => void;
 }): Env {
   return {
     DB: {
@@ -445,8 +519,25 @@ function dataHealthEnv({
             latestAttackStarted,
             gymLatestDate,
             staleGymMembers,
+            apiRollupSummary,
           }),
-          all: async () => ({ results: rowsForDataHealthQuery(compactSql, { completedGymStats, personalCoverage, personalCoverageGaps }) }),
+          all: async () => {
+            if (
+              compactSql.includes("FROM torn_api_usage_rollup_15m") &&
+              compactSql.includes("GROUP BY group_value") &&
+              !compactSql.includes("group_type = 'key_source'")
+            ) {
+              onApiBreakdownQuery?.(compactSql);
+            }
+            return {
+              results: rowsForDataHealthQuery(compactSql, {
+                completedGymStats,
+                personalCoverage,
+                personalCoverageGaps,
+                apiFeatureRows,
+              }),
+            };
+          },
           run: async () => ({ success: true }),
         };
         return statement;
@@ -464,6 +555,7 @@ function firstRowForDataHealthQuery(
     latestAttackStarted: number | null;
     gymLatestDate: string;
     staleGymMembers: number;
+    apiRollupSummary: Record<string, unknown>;
   },
 ): Record<string, unknown> | null {
   if (sql.includes("FROM data_health_settings")) return options.settings;
@@ -498,6 +590,9 @@ function firstRowForDataHealthQuery(
       avg_duration_ms: 100,
       max_duration_ms: 100,
     };
+  }
+  if (sql.includes("FROM torn_api_usage_rollup_15m") && sql.includes("SUM(requests) AS requests")) {
+    return options.apiRollupSummary;
   }
   if (sql.includes("FROM stock_ingestion_runs")) return null;
   if (sql.includes("FROM latest")) {
@@ -561,6 +656,7 @@ function rowsForDataHealthQuery(
     completedGymStats: string[];
     personalCoverage: Array<{ snapshot_date: string; ready_members: number; total_members: number }>;
     personalCoverageGaps: Array<Record<string, unknown>>;
+    apiFeatureRows: Array<Record<string, unknown>>;
   },
 ): Array<Record<string, unknown>> {
   if (sql.includes("FROM scheduled_maintenance_tasks")) return [];
@@ -572,6 +668,9 @@ function rowsForDataHealthQuery(
   }
   if (sql.includes("reportable_members")) return options.personalCoverageGaps;
   if (sql.includes("WITH target_dates")) return options.personalCoverage;
+  if (sql.includes("FROM torn_api_usage_rollup_15m") && sql.includes("GROUP BY group_value")) {
+    return sql.includes("group_type = 'key_source'") ? [] : options.apiFeatureRows;
+  }
   if (sql.includes("GROUP BY")) return [];
   if (sql.includes("FROM torn_api_call_log")) return [];
   return [];

@@ -26,6 +26,7 @@ import {
   normalizeSettingsPatch,
   readApiUsageFeatures,
   readApiUsageHealth,
+  readApiUsageHealthRollup,
   readApiUsageKeys,
   readDataHealthSettings,
   readEnemyScoutingCoverage,
@@ -77,7 +78,12 @@ export async function getAdminDataHealth(urlOrEnv: URL | Env, maybeEnv?: Env): P
     DEFAULT_ADMIN_API_USAGE_WINDOW_SECONDS,
     MAX_ADMIN_API_USAGE_WINDOW_SECONDS,
   );
-  const snapshot = await readDataHealthSnapshot(env, { includeAdminDetail: true, apiUsageWindowSeconds });
+  const includeApiUsageBreakdown = url?.searchParams.get("include_breakdown") === "1";
+  const snapshot = await readDataHealthSnapshot(env, {
+    includeAdminDetail: true,
+    apiUsageWindowSeconds,
+    includeApiUsageBreakdown,
+  });
   const subsystems = subsystemsFromSnapshot(snapshot);
   return json({
     ok: true,
@@ -130,11 +136,12 @@ export async function updateDataHealthSettingsFromRequest(request: Request, env:
 
 async function readDataHealthSnapshot(
   env: Env,
-  options: { includeAdminDetail: boolean; apiUsageWindowSeconds?: number },
+  options: { includeAdminDetail: boolean; apiUsageWindowSeconds?: number; includeApiUsageBreakdown?: boolean },
 ): Promise<DataHealthSnapshot> {
   const now = nowSeconds();
   const settings = await readDataHealthSettings(env);
   const apiUsageWindowSeconds = options.apiUsageWindowSeconds ?? API_USAGE_WINDOW_SECONDS;
+  const includeApiUsageBreakdown = options.includeAdminDetail && options.includeApiUsageBreakdown === true;
 
   const [
     ingestion,
@@ -162,11 +169,11 @@ async function readDataHealthSnapshot(
     getDailyStatsAttention(env),
     readRosterHealth(env),
     readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
-    options.includeAdminDetail ? readApiUsageHealth(env, now, apiUsageWindowSeconds) : readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
+    options.includeAdminDetail ? readApiUsageHealthRollup(env, now, apiUsageWindowSeconds) : readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
     options.includeAdminDetail ? readApiUsageKeys(env, now, KEY_HEALTH_WINDOW_SECONDS) : Promise.resolve([]),
     options.includeAdminDetail ? readApiUsageKeys(env, now, apiUsageWindowSeconds) : Promise.resolve([]),
-    options.includeAdminDetail ? readApiUsageFeatures(env, now, "feature", apiUsageWindowSeconds) : Promise.resolve([]),
-    options.includeAdminDetail ? readApiUsageFeatures(env, now, "endpoint", apiUsageWindowSeconds) : Promise.resolve([]),
+    includeApiUsageBreakdown ? readApiUsageFeatures(env, now, "feature", apiUsageWindowSeconds) : Promise.resolve([]),
+    includeApiUsageBreakdown ? readApiUsageFeatures(env, now, "endpoint", apiUsageWindowSeconds) : Promise.resolve([]),
     options.includeAdminDetail ? readRecentApiCalls(env) : Promise.resolve([]),
     readLatestStockRun(env),
     readStockCoverage(env, now, settings),

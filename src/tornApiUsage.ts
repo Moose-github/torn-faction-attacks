@@ -1,5 +1,6 @@
 import { Env } from "./types";
-import { fetchWithTimeout, json, nowSeconds, parseLimit } from "./utils";
+import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
+import { d1Changes, fetchWithTimeout, json, nowSeconds, parseLimit } from "./utils";
 
 export type TornApiCallInput = {
   feature: string;
@@ -60,6 +61,10 @@ type TornApiUsageCallRow = {
 
 const DEFAULT_USAGE_WINDOWS_SECONDS = [60, 5 * 60, 60 * 60, 24 * 60 * 60];
 const MAX_ERROR_LENGTH = 240;
+const API_USAGE_ROLLUP_BUCKET_SECONDS = 15 * 60;
+const API_USAGE_ROLLUP_OVERLAP_SECONDS = 2 * 60 * 60;
+const API_USAGE_ROLLUP_INITIAL_LOOKBACK_SECONDS = 25 * 60 * 60;
+const API_USAGE_ROLLUP_STATE_NAME = "torn_api_usage_rollup_15m";
 
 export async function trackedTornFetch(
   env: Env,
@@ -189,6 +194,57 @@ export async function getTornApiUsage(url: URL, env: Env): Promise<Response> {
   });
 }
 
+export async function refreshTornApiUsageRollups(
+  env: Env,
+  now = nowSeconds(),
+): Promise<{
+  writeStatements: number;
+  changedRows: number;
+  details: Record<string, unknown>;
+}> {
+  const lastRolledAt = await readSyncTimestamp(env, API_USAGE_ROLLUP_STATE_NAME);
+  const lookbackSeconds = lastRolledAt > 0
+    ? Math.min(
+      API_USAGE_ROLLUP_INITIAL_LOOKBACK_SECONDS,
+      Math.max(API_USAGE_ROLLUP_OVERLAP_SECONDS, now - lastRolledAt + API_USAGE_ROLLUP_OVERLAP_SECONDS),
+    )
+    : API_USAGE_ROLLUP_INITIAL_LOOKBACK_SECONDS;
+  const startAt = rollupBucketStart(Math.max(0, now - lookbackSeconds));
+  const endBucket = rollupBucketStart(now);
+
+  const deleteResult = await env.DB.prepare(
+    `
+    DELETE FROM torn_api_usage_rollup_15m
+    WHERE bucket_start >= ?
+      AND bucket_start <= ?
+    `,
+  ).bind(startAt, endBucket).run();
+
+  const featureResult = await insertRollupGroup(env, "feature", "feature", startAt, now);
+  const endpointResult = await insertRollupGroup(env, "endpoint", "endpoint", startAt, now);
+  const keySourceResult = await insertRollupGroup(env, "key_source", "key_source", startAt, now);
+  await upsertSyncTimestamp(env, API_USAGE_ROLLUP_STATE_NAME, now);
+
+  const deletedRows = d1Changes(deleteResult);
+  const featureRows = d1Changes(featureResult);
+  const endpointRows = d1Changes(endpointResult);
+  const keySourceRows = d1Changes(keySourceResult);
+
+  return {
+    writeStatements: 5,
+    changedRows: deletedRows + featureRows + endpointRows + keySourceRows + 1,
+    details: {
+      start_at: startAt,
+      end_at: now,
+      bucket_seconds: API_USAGE_ROLLUP_BUCKET_SECONDS,
+      deleted_rows: deletedRows,
+      feature_rows: featureRows,
+      endpoint_rows: endpointRows,
+      key_source_rows: keySourceRows,
+    },
+  };
+}
+
 async function readUsageSummaryForWindow(
   env: Env,
   now: number,
@@ -226,6 +282,52 @@ async function readUsageSummaryForWindow(
     max_duration_ms: nullableRoundedNumber(row?.max_duration_ms),
     requests_per_minute: Number((requests / Math.max(1, windowSeconds / 60)).toFixed(2)),
   };
+}
+
+function insertRollupGroup(
+  env: Env,
+  groupType: "feature" | "endpoint" | "key_source",
+  column: "feature" | "endpoint" | "key_source",
+  startAt: number,
+  endAt: number,
+): Promise<D1Result> {
+  return env.DB.prepare(
+    `
+    INSERT INTO torn_api_usage_rollup_15m (
+      bucket_start,
+      group_type,
+      group_value,
+      requests,
+      errors,
+      rate_limited,
+      total_duration_ms,
+      max_duration_ms,
+      last_requested_at,
+      updated_at
+    )
+    SELECT
+      requested_at - (requested_at % ?) AS bucket_start,
+      ? AS group_type,
+      ${column} AS group_value,
+      COUNT(*) AS requests,
+      SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS errors,
+      SUM(CASE WHEN status = 429 THEN 1 ELSE 0 END) AS rate_limited,
+      SUM(duration_ms) AS total_duration_ms,
+      MAX(duration_ms) AS max_duration_ms,
+      MAX(requested_at) AS last_requested_at,
+      unixepoch() AS updated_at
+    FROM torn_api_call_log
+    WHERE requested_at >= ?
+      AND requested_at <= ?
+      AND ${column} IS NOT NULL
+      AND ${column} <> ''
+    GROUP BY bucket_start, group_value
+    `,
+  ).bind(API_USAGE_ROLLUP_BUCKET_SECONDS, groupType, startAt, endAt).run();
+}
+
+function rollupBucketStart(timestamp: number): number {
+  return timestamp - (timestamp % API_USAGE_ROLLUP_BUCKET_SECONDS);
 }
 
 async function recordTornApiCall(

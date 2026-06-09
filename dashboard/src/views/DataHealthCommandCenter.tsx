@@ -65,6 +65,7 @@ const API_USAGE_WINDOW_OPTIONS = [
   { seconds: 24 * 60 * 60, label: "1 day", summaryLabel: "1 day" },
   { seconds: 7 * 24 * 60 * 60, label: "7 days", summaryLabel: "7 days" },
 ] as const;
+const DEFAULT_API_USAGE_WINDOW_SECONDS = 60 * 60;
 
 export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterProps) {
   const [data, setData] = React.useState<AdminDataHealthResponse | DataHealthSummaryResponse | null>(null);
@@ -73,14 +74,19 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
   const [isSaving, setIsSaving] = React.useState(false);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [apiUsageWindowSeconds, setApiUsageWindowSeconds] = React.useState(24 * 60 * 60);
+  const [apiUsageWindowSeconds, setApiUsageWindowSeconds] = React.useState(DEFAULT_API_USAGE_WINDOW_SECONDS);
   const [isApiFeatureTableCollapsed, setIsApiFeatureTableCollapsed] = React.useState(true);
 
-  async function loadData(windowSeconds = apiUsageWindowSeconds) {
+  async function loadData(
+    windowSeconds = apiUsageWindowSeconds,
+    includeApiUsageBreakdown = !isApiFeatureTableCollapsed,
+  ) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = isAdmin ? await getAdminDataHealth(windowSeconds) : await getDataHealthSummary();
+      const response = isAdmin
+        ? await getAdminDataHealth(windowSeconds, includeApiUsageBreakdown)
+        : await getDataHealthSummary();
       setData(response);
       if (isAdminDataHealthResponse(response)) {
         setSettingsForm(formFromSettings(response.settings));
@@ -102,7 +108,7 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
     try {
       const payload = settingsFromForm(settingsForm);
       await updateDataHealthSettings(payload);
-      const response = await getAdminDataHealth(apiUsageWindowSeconds);
+      const response = await getAdminDataHealth(apiUsageWindowSeconds, !isApiFeatureTableCollapsed);
       setData(response);
       setSettingsForm(formFromSettings(response.settings));
       setNotice("Data health thresholds saved.");
@@ -119,11 +125,14 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
       loadData();
     }, DATA_HEALTH_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [isAdmin, apiUsageWindowSeconds]);
+  }, [isAdmin, apiUsageWindowSeconds, isApiFeatureTableCollapsed]);
 
   function handleApiUsageWindowChange(windowSeconds: number) {
     setApiUsageWindowSeconds(windowSeconds);
-    loadData(windowSeconds);
+  }
+
+  function handleApiFeatureTableToggle() {
+    setIsApiFeatureTableCollapsed((current) => !current);
   }
 
   const adminData = isAdminDataHealthResponse(data) ? data : null;
@@ -141,7 +150,7 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
           apiUsageWindowSeconds={apiUsageWindowSeconds}
           isApiFeatureTableCollapsed={isApiFeatureTableCollapsed}
           isSaving={isSaving}
-          onApiFeatureTableToggle={() => setIsApiFeatureTableCollapsed((current) => !current)}
+          onApiFeatureTableToggle={handleApiFeatureTableToggle}
           onApiUsageWindowChange={handleApiUsageWindowChange}
           onOpenView={onOpenView}
           onSaveSettings={saveSettings}
@@ -402,21 +411,24 @@ function AdminDataHealthDiagnostics({
             </table>
           </>
         ) : null}
-        {data.details.api_features.length > 0 ? (
-          <>
-            <div className="admin-table-toggle-row">
-              <button
-                type="button"
-                className="collapse-button"
-                aria-expanded={!isApiFeatureTableCollapsed}
-                onClick={onApiFeatureTableToggle}
-              >
-                <span>{isApiFeatureTableCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</span>
-                <strong>Feature breakdown</strong>
-              </button>
-              <span>{formatNumber(data.details.api_features.length)} features</span>
-            </div>
-            {isApiFeatureTableCollapsed ? null : (
+        <div className="admin-table-toggle-row">
+          <button
+            type="button"
+            className="collapse-button"
+            aria-expanded={!isApiFeatureTableCollapsed}
+            onClick={onApiFeatureTableToggle}
+          >
+            <span>{isApiFeatureTableCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</span>
+            <strong>Feature breakdown</strong>
+          </button>
+          <span>
+            {isApiFeatureTableCollapsed
+              ? "Collapsed"
+              : `${formatNumber(data.details.api_features.length)} features`}
+          </span>
+        </div>
+        {isApiFeatureTableCollapsed ? null : (
+          data.details.api_features.length > 0 ? (
               <table className="stock-status-table data-health-table">
                 <thead>
                   <tr>
@@ -439,10 +451,9 @@ function AdminDataHealthDiagnostics({
                   ))}
                 </tbody>
               </table>
-            )}
-          </>
-        ) : (
-          <EmptyState text={`No Torn API calls recorded in the last ${apiUsageWindowLabel}`} />
+          ) : (
+            <EmptyState text={`No Torn API calls recorded in the last ${apiUsageWindowLabel}`} />
+          )
         )}
       </section>
 

@@ -382,49 +382,92 @@ export async function readApiUsageHealth(env: Env, now: number, windowSeconds: n
   };
 }
 
+export async function readApiUsageHealthRollup(env: Env, now: number, windowSeconds: number): Promise<ApiUsageHealthRow> {
+  const row = await env.DB.prepare(
+    `
+    SELECT
+      SUM(requests) AS requests,
+      SUM(errors) AS errors,
+      SUM(rate_limited) AS rate_limited,
+      CASE
+        WHEN SUM(requests) > 0 THEN SUM(total_duration_ms) * 1.0 / SUM(requests)
+        ELSE NULL
+      END AS avg_duration_ms,
+      MAX(max_duration_ms) AS max_duration_ms
+    FROM torn_api_usage_rollup_15m
+    WHERE group_type = 'feature'
+      AND bucket_start >= ?
+    `,
+  ).bind(rollupWindowStart(now, windowSeconds)).first<ApiUsageHealthRow>();
+  const requests = Number(row?.requests ?? 0);
+  return {
+    window_seconds: windowSeconds,
+    requests,
+    errors: Number(row?.errors ?? 0),
+    rate_limited: Number(row?.rate_limited ?? 0),
+    avg_duration_ms: nullableNumber(row?.avg_duration_ms),
+    max_duration_ms: nullableNumber(row?.max_duration_ms),
+    requests_per_minute: Number((requests / Math.max(1, windowSeconds / 60)).toFixed(2)),
+  };
+}
+
 export async function readApiUsageFeatures(
   env: Env,
   now: number,
   groupBy: "feature" | "endpoint",
   windowSeconds: number,
 ): Promise<ApiUsageFeatureRow[]> {
-  const column = groupBy === "feature" ? "feature" : "endpoint";
   const rows = await env.DB.prepare(
     `
     SELECT
-      ${column} AS feature,
-      COUNT(*) AS requests,
-      SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS errors,
-      SUM(CASE WHEN status = 429 THEN 1 ELSE 0 END) AS rate_limited,
-      AVG(duration_ms) AS avg_duration_ms,
-      MAX(requested_at) AS last_requested_at
-    FROM torn_api_call_log
-    WHERE requested_at >= ?
-    GROUP BY ${column}
-    ORDER BY errors DESC, rate_limited DESC, requests DESC, ${column} ASC
+      group_value AS feature,
+      SUM(requests) AS requests,
+      SUM(errors) AS errors,
+      SUM(rate_limited) AS rate_limited,
+      CASE
+        WHEN SUM(requests) > 0 THEN SUM(total_duration_ms) * 1.0 / SUM(requests)
+        ELSE NULL
+      END AS avg_duration_ms,
+      MAX(last_requested_at) AS last_requested_at
+    FROM torn_api_usage_rollup_15m
+    WHERE bucket_start >= ?
+      AND group_type = ?
+    GROUP BY group_value
+    ORDER BY errors DESC, rate_limited DESC, requests DESC, group_value ASC
     LIMIT 12
     `,
-  ).bind(now - windowSeconds).all<ApiUsageFeatureRow>();
-  return rows.results ?? [];
+  ).bind(rollupWindowStart(now, windowSeconds), groupBy).all<ApiUsageFeatureRow>();
+  return (rows.results ?? []).map((row) => ({
+    feature: row.feature,
+    requests: Number(row.requests ?? 0),
+    errors: Number(row.errors ?? 0),
+    rate_limited: Number(row.rate_limited ?? 0),
+    avg_duration_ms: nullableNumber(row.avg_duration_ms),
+    last_requested_at: nullableNumber(row.last_requested_at),
+  }));
 }
 
 export async function readApiUsageKeys(env: Env, now: number, windowSeconds: number): Promise<ApiUsageKeyRow[]> {
   const rows = await env.DB.prepare(
     `
     SELECT
-      key_source,
-      COUNT(*) AS requests,
-      SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS errors,
-      SUM(CASE WHEN status = 429 THEN 1 ELSE 0 END) AS rate_limited,
-      AVG(duration_ms) AS avg_duration_ms,
-      MAX(requested_at) AS last_requested_at
-    FROM torn_api_call_log
-    WHERE requested_at >= ?
-    GROUP BY key_source
-    ORDER BY requests DESC, key_source ASC
+      group_value AS key_source,
+      SUM(requests) AS requests,
+      SUM(errors) AS errors,
+      SUM(rate_limited) AS rate_limited,
+      CASE
+        WHEN SUM(requests) > 0 THEN SUM(total_duration_ms) * 1.0 / SUM(requests)
+        ELSE NULL
+      END AS avg_duration_ms,
+      MAX(last_requested_at) AS last_requested_at
+    FROM torn_api_usage_rollup_15m
+    WHERE bucket_start >= ?
+      AND group_type = 'key_source'
+    GROUP BY group_value
+    ORDER BY requests DESC, group_value ASC
     LIMIT 12
     `,
-  ).bind(now - windowSeconds).all<ApiUsageKeyRow>();
+  ).bind(rollupWindowStart(now, windowSeconds)).all<ApiUsageKeyRow>();
   const minutes = Math.max(1, windowSeconds / 60);
   return (rows.results ?? []).map((row) => ({
     ...row,
@@ -446,6 +489,12 @@ export async function readRecentApiCalls(env: Env): Promise<unknown[]> {
     `,
   ).all();
   return rows.results ?? [];
+}
+
+function rollupWindowStart(now: number, windowSeconds: number): number {
+  const bucketSeconds = 15 * 60;
+  const start = Math.max(0, now - windowSeconds);
+  return start - (start % bucketSeconds);
 }
 
 export async function readLatestStockRun(env: Env): Promise<StockRunRow | null> {
