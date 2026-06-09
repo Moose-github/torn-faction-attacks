@@ -485,54 +485,44 @@ function PersonalStatsIssueDetail({
   data: AdminDataHealthResponse;
   fallbackDetail: string;
 }) {
-  const coverage = data.subsystems.find((subsystem) => subsystem.key === "personal_stats")?.metrics
-    .filter((metric) => metric.label !== "Outstanding") ?? [];
+  const issueDate = personalStatsIssueDate(data);
   const gaps = data.details.personal_stats_coverage_gaps;
-  const affectedMembers = data.details.daily_stats_attention.affected_members;
+  const issueGaps = issueDate ? gaps.filter((member) => member.snapshot_date === issueDate) : [];
 
   return (
     <div className="data-health-issue-detail">
-      <small>{fallbackDetail}</small>
-      {coverage.length > 0 ? (
-        <div className="data-health-issue-coverage">
-          {coverage.map((metric) => (
-            <span key={metric.label}>
-              <b>{metric.label}</b>
-              <em>{metric.value}</em>
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {gaps.length > 0 ? (
+      {issueGaps.length > 0 ? (
         <div className="data-health-issue-members">
-          {gaps.slice(0, 8).map((member) => (
+          {issueGaps.slice(0, 8).map((member) => (
             <span
-              key={`${member.snapshot_date}-${member.member_id}`}
+              key={member.member_id}
               title={[
                 member.recent_error,
                 member.latest_personal_ready_date ? `Latest ready: ${member.latest_personal_ready_date}` : null,
                 member.recent_status ? `Recent status: ${member.recent_status}` : null,
               ].filter(Boolean).join(" | ") || undefined}
             >
-              <b>{member.snapshot_date}</b>
               <em>{member.member_name ?? `#${member.member_id}`}</em>
               <small>#{member.member_id}</small>
             </span>
           ))}
-          {gaps.length > 8 ? <span>{formatNumber(gaps.length - 8)} more</span> : null}
+          {issueGaps.length > 8 ? <span>{formatNumber(issueGaps.length - 8)} more</span> : null}
         </div>
-      ) : affectedMembers.length > 0 ? (
-        <div className="data-health-issue-members">
-          {affectedMembers.slice(0, 8).map((member) => (
-            <span key={member.member_id} title={member.error ?? undefined}>
-              <em>{member.member_name ?? `#${member.member_id}`}</em>
-              <small>#{member.member_id}</small>
-            </span>
-          ))}
-        </div>
-      ) : null}
+      ) : (
+        <small>{fallbackDetail}</small>
+      )}
     </div>
   );
+}
+
+function personalStatsIssueDate(data: AdminDataHealthResponse): string | null {
+  const metric = data.subsystems.find((subsystem) => subsystem.key === "personal_stats")?.metrics
+    .find((candidate) => {
+      if (candidate.label === "Outstanding") return false;
+      const [ready, total] = candidate.value.split("/").map(Number);
+      return Number.isFinite(ready) && Number.isFinite(total) && ready < total;
+    });
+  return metric?.label ?? null;
 }
 
 function SubsystemTile({ subsystem }: { subsystem: DataHealthSubsystem }) {

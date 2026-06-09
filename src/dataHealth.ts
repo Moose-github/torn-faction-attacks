@@ -536,21 +536,17 @@ function issueDetailForSubsystem(snapshot: DataHealthSnapshot, subsystem: DataHe
   if (subsystem.key === "maintenance" && snapshot.maintenance?.error) return snapshot.maintenance.error;
   if (subsystem.key === "stock_data" && snapshot.stockRun?.error) return snapshot.stockRun.error;
   if (subsystem.key === "personal_stats") {
-    const coverageDetail = snapshot.personalStatsCoverage.map((coverage) => {
-      const missing = Math.max(0, coverage.total_members - coverage.ready_members);
-      const missingMembers = snapshot.personalStatsCoverageGaps
-        .filter((gap) => gap.snapshot_date === coverage.snapshot_date)
-        .map(formatPersonalStatsGapMember)
-        .join(", ");
-      return missing > 0
-        ? `${coverage.snapshot_date}: ${coverage.ready_members}/${coverage.total_members}, missing ${missing}${missingMembers ? ` (${missingMembers})` : ""}`
-        : `${coverage.snapshot_date}: ${coverage.ready_members}/${coverage.total_members}`;
-    });
-    return [
-      ...coverageDetail,
-      `${snapshot.dailyStats.stale_personalstats} stale personalstats`,
-      `${snapshot.dailyStats.missing_donator_days} missing donator-day gaps`,
-    ].join("; ");
+    const coverage = snapshot.personalStatsCoverage[0] ?? null;
+    if (!coverage) return "No recent personal stat coverage is available";
+
+    const missingMembers = snapshot.personalStatsCoverageGaps
+      .filter((gap) => gap.snapshot_date === coverage.snapshot_date)
+      .map(formatPersonalStatsGapMember);
+    if (missingMembers.length === 0) {
+      return `${coverage.snapshot_date}: missing personal stats member identity unavailable`;
+    }
+
+    return `${coverage.snapshot_date}: ${missingMembers.join(", ")}`;
   }
   if (subsystem.key === "gym_stats") {
     return [

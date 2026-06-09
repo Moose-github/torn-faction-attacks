@@ -315,6 +315,16 @@ describe("data health severity", () => {
           recent_error: null,
           recent_updated_at: 1_781_000_000,
         },
+        {
+          snapshot_date: "2026-06-08",
+          member_id: 234567,
+          member_name: "Expected Pending Member",
+          latest_personal_ready_date: "2026-06-07",
+          recent_snapshot_date: "2026-06-08",
+          recent_status: "pending",
+          recent_error: null,
+          recent_updated_at: 1_781_000_100,
+        },
       ],
     }));
     const body = await response.json() as {
@@ -329,14 +339,19 @@ describe("data health severity", () => {
     };
 
     expect(body.issues.find((issue) => issue.key === "personal_stats")?.detail)
-      .toContain("2026-06-07: 59/60, missing 1 (Missing Member #123456)");
+      .toBe("2026-06-07: Missing Member #123456");
     expect(body.issues.find((issue) => issue.key === "personal_stats")?.detail)
-      .toContain("0 stale personalstats");
+      .not.toContain("Expected Pending Member");
     expect(body.details.personal_stats_coverage_gaps).toEqual([
       expect.objectContaining({
         snapshot_date: "2026-06-07",
         member_id: 123456,
         member_name: "Missing Member",
+      }),
+      expect.objectContaining({
+        snapshot_date: "2026-06-08",
+        member_id: 234567,
+        member_name: "Expected Pending Member",
       }),
     ]);
   });
