@@ -701,6 +701,11 @@ export function WarRoom({
           data={chainWatch}
           nowMs={nowMs}
           isLoading={isLoadingChainWatch}
+          trackingMode={trackingMode}
+          trackingState={trackingFreshness.chainWatchState}
+          trackingCadence={trackingFreshness.chainWatchCadence}
+          trackingTone={trackingFreshness.chainWatchTone}
+          trackingDetail={trackingFreshness.chainWatchDetail}
           canToggle={canRefreshEnemyScouting}
           isToggling={isTogglingChainWatch}
           collapsed={collapsedPanels.chainWatch ?? true}
@@ -716,6 +721,7 @@ export function WarRoom({
           pushPressureUpdatedAt={pushPressureUpdatedAt}
           heatmapSampledAt={latestHeatmapSampledAt}
           revivableUpdatedAt={latestRevivableUpdatedAt}
+          chainWatchUpdatedAt={chainWatch?.state?.last_checked_at ?? null}
           heatmapOpen={isActivityHeatmapsOpen}
         />
       </section>
@@ -759,6 +765,11 @@ function ChainWatchPanel({
   data,
   nowMs,
   isLoading,
+  trackingMode,
+  trackingState,
+  trackingCadence,
+  trackingTone,
+  trackingDetail,
   canToggle,
   isToggling,
   collapsed,
@@ -768,6 +779,11 @@ function ChainWatchPanel({
   data: ChainWatchResponse | null;
   nowMs: number;
   isLoading: boolean;
+  trackingMode: TrackingMode;
+  trackingState: string;
+  trackingCadence: string;
+  trackingTone: FreshnessTone;
+  trackingDetail: string;
   canToggle: boolean;
   isToggling: boolean;
   collapsed: boolean;
@@ -780,7 +796,7 @@ function ChainWatchPanel({
   const enabled = state?.enabled === 1;
   const sourceLabel = chainWatchSourceLabel(state?.source ?? null);
   const alertEligible = data?.computed.alert_eligible ?? false;
-  const status = isLoading
+  const liveStatus = isLoading
     ? "Loading"
     : !state
       ? "No state"
@@ -796,6 +812,11 @@ function ChainWatchPanel({
       : alertEligible
         ? "live"
         : "fresh";
+  const isLiveTracking = trackingMode === "live";
+  const status = isLiveTracking ? liveStatus : trackingState;
+  const metaTone = isLiveTracking ? tone : trackingTone;
+  const cadence = isLiveTracking ? sourceLabel : trackingCadence;
+  const detail = isLiveTracking ? "Tracks our faction chain timeout during current wars." : trackingDetail;
 
   return (
     <CollapsiblePanel
@@ -806,38 +827,44 @@ function ChainWatchPanel({
       control={
         <FreshnessMeta
           state={status}
-          updatedAt={state?.last_checked_at ?? null}
-          cadence={sourceLabel}
-          detail="Tracks our faction chain timeout during current wars."
-          tone={tone}
+          updatedAt={isLiveTracking ? state?.last_checked_at ?? null : undefined}
+          cadence={cadence}
+          detail={detail}
+          tone={metaTone}
         />
       }
     >
-      <div className="chain-watch-grid">
-        <div className="chain-watch-primary">
-          <span>Current chain</span>
-          <strong>{state?.current_chain !== null && state?.current_chain !== undefined ? formatNumber(state.current_chain) : "-"}</strong>
-        </div>
-        <div className="chain-watch-primary">
-          <span>Time left</span>
-          <strong>{remainingSeconds === null ? "-" : remainingSeconds <= 0 ? "Dropped" : formatCountdownDuration(remainingSeconds)}</strong>
-        </div>
-        <ChainWatchDetail label="Next check" value={state?.scheduled_alarm_at ? formatLongDateTime(state.scheduled_alarm_at) : "-"} />
-        <ChainWatchDetail label="Last hit" value={formatChainWatchLastHit(state)} />
-        <ChainWatchDetail label="Alert eligible" value={alertEligible ? "Above 100" : "No"} />
-        <ChainWatchDetail label="Last alert" value={formatChainWatchLastAlert(state)} />
-      </div>
-      {state?.last_error ? <p className="chain-watch-error">{state.last_error}</p> : null}
-      {canToggle ? (
-        <button
-          type="button"
-          className="panel-action-button chain-watch-toggle"
-          onClick={onEnabledToggle}
-          disabled={isToggling || isLoading || !state}
-        >
-          {isToggling ? "Saving" : enabled ? "Disable Chain Watch" : "Enable Chain Watch"}
-        </button>
-      ) : null}
+      {!isLiveTracking ? (
+        <EmptyState text={trackingDetail} />
+      ) : (
+        <>
+          <div className="chain-watch-grid">
+            <div className="chain-watch-primary">
+              <span>Current chain</span>
+              <strong>{state?.current_chain !== null && state?.current_chain !== undefined ? formatNumber(state.current_chain) : "-"}</strong>
+            </div>
+            <div className="chain-watch-primary">
+              <span>Time left</span>
+              <strong>{remainingSeconds === null ? "-" : remainingSeconds <= 0 ? "Dropped" : formatCountdownDuration(remainingSeconds)}</strong>
+            </div>
+            <ChainWatchDetail label="Next check" value={state?.scheduled_alarm_at ? formatLongDateTime(state.scheduled_alarm_at) : "-"} />
+            <ChainWatchDetail label="Last hit" value={formatChainWatchLastHit(state)} />
+            <ChainWatchDetail label="Alert eligible" value={alertEligible ? "Above 100" : "No"} />
+            <ChainWatchDetail label="Last alert" value={formatChainWatchLastAlert(state)} />
+          </div>
+          {state?.last_error ? <p className="chain-watch-error">{state.last_error}</p> : null}
+          {canToggle ? (
+            <button
+              type="button"
+              className="panel-action-button chain-watch-toggle"
+              onClick={onEnabledToggle}
+              disabled={isToggling || isLoading || !state}
+            >
+              {isToggling ? "Saving" : enabled ? "Disable Chain Watch" : "Enable Chain Watch"}
+            </button>
+          ) : null}
+        </>
+      )}
     </CollapsiblePanel>
   );
 }
@@ -897,6 +924,7 @@ const TrackingStatusPanel = React.forwardRef<HTMLElement, {
   pushPressureUpdatedAt: number | null;
   heatmapSampledAt: number | null;
   revivableUpdatedAt: number | null;
+  chainWatchUpdatedAt: number | null;
   heatmapOpen: boolean;
 }>(function TrackingStatusPanel({
   war,
@@ -905,6 +933,7 @@ const TrackingStatusPanel = React.forwardRef<HTMLElement, {
   pushPressureUpdatedAt,
   heatmapSampledAt,
   revivableUpdatedAt,
+  chainWatchUpdatedAt,
   heatmapOpen,
 }, ref) {
   const freshness = trackingFreshnessForMode(mode);
@@ -940,6 +969,12 @@ const TrackingStatusPanel = React.forwardRef<HTMLElement, {
           value={freshness.revivableCadence}
           updatedAt={revivableUpdatedAt}
           detail={freshness.revivableDetail}
+        />
+        <TrackingStatusItem
+          label="Chain Watch"
+          value={freshness.chainWatchCadence}
+          updatedAt={chainWatchUpdatedAt}
+          detail={freshness.chainWatchDetail}
         />
         <TrackingStatusItem
           label="Hospital monitor"
@@ -1001,6 +1036,10 @@ type TrackingFreshness = {
   revivableTone: FreshnessTone;
   revivableCadence: string;
   revivableDetail: string;
+  chainWatchState: string;
+  chainWatchTone: FreshnessTone;
+  chainWatchCadence: string;
+  chainWatchDetail: string;
   hospitalState: string;
   hospitalTone: FreshnessTone;
   hospitalCadence: string;
@@ -1025,6 +1064,10 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       revivableTone: "live",
       revivableCadence: "Enemy 1m / Home 15m",
       revivableDetail: "Enemy revivable status updates with current-war tracking about every minute. Home faction revivable status updates every 15 minutes.",
+      chainWatchState: "Live",
+      chainWatchTone: "live",
+      chainWatchCadence: "15s / alarms",
+      chainWatchDetail: "Tracks our faction chain timeout while this is the current war.",
       hospitalState: "Live",
       hospitalTone: "live",
       hospitalCadence: "Real time",
@@ -1049,6 +1092,10 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
       revivableTone: "fresh",
       revivableCadence: "Enemy 5m / Home 15m",
       revivableDetail: "Enemy revivable status updates with pre-war enemy tracking every 5 minutes. Home faction revivable status updates every 15 minutes.",
+      chainWatchState: "Waiting",
+      chainWatchTone: "paused",
+      chainWatchCadence: "Starts live",
+      chainWatchDetail: "Chain Watch starts when the selected war becomes current.",
       hospitalState: "Waiting",
       hospitalTone: "paused",
       hospitalCadence: "Starts live",
@@ -1072,6 +1119,10 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
     revivableTone: "paused",
     revivableCadence: "Paused",
     revivableDetail: "Paused because enemy tracking is outside the selected war's tracking window.",
+    chainWatchState: "Paused",
+    chainWatchTone: "paused",
+    chainWatchCadence: "Paused",
+    chainWatchDetail: "Paused because enemy tracking is outside the selected war's tracking window.",
     hospitalState: "Paused",
     hospitalTone: "paused",
     hospitalCadence: "Inactive",
