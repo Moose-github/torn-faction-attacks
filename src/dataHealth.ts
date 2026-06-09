@@ -36,6 +36,7 @@ import {
   readLatestMaintenance,
   readLatestStockRun,
   readPersonalStatsCoverage,
+  readPersonalStatsCoverageGaps,
   readRecentApiCalls,
   readRosterHealth,
   readStockCoverage,
@@ -91,6 +92,7 @@ export async function getAdminDataHealth(urlOrEnv: URL | Env, maybeEnv?: Env): P
       maintenance_run: snapshot.maintenance,
       maintenance_tasks: snapshot.maintenanceTasks,
       daily_stats_attention: snapshot.dailyStats,
+      personal_stats_coverage_gaps: snapshot.personalStatsCoverageGaps,
       gym_stats_health: snapshot.gymStats,
       roster: snapshot.roster,
       api_usage: snapshot.apiDetailUsage,
@@ -173,8 +175,11 @@ async function readDataHealthSnapshot(
     options.includeAdminDetail ? readEnemyScoutingCoverage(env) : Promise.resolve([]),
     options.includeAdminDetail ? readEnemyScoutingGaps(env) : Promise.resolve([]),
   ]);
-  const [personalStatsCoverage, gymStats] = await Promise.all([
+  const [personalStatsCoverage, personalStatsCoverageGaps, gymStats] = await Promise.all([
     readPersonalStatsCoverage(env, dailyStats.personalstats_target_date),
+    options.includeAdminDetail
+      ? readPersonalStatsCoverageGaps(env, dailyStats.personalstats_target_date)
+      : Promise.resolve([]),
     readGymStatsHealth(env, dailyStats.personalstats_target_date, now),
   ]);
 
@@ -187,6 +192,7 @@ async function readDataHealthSnapshot(
     maintenanceTasks: maintenance.tasks,
     dailyStats,
     personalStatsCoverage,
+    personalStatsCoverageGaps,
     gymStats,
     roster,
     apiUsage,
@@ -530,7 +536,21 @@ function issueDetailForSubsystem(snapshot: DataHealthSnapshot, subsystem: DataHe
   if (subsystem.key === "maintenance" && snapshot.maintenance?.error) return snapshot.maintenance.error;
   if (subsystem.key === "stock_data" && snapshot.stockRun?.error) return snapshot.stockRun.error;
   if (subsystem.key === "personal_stats") {
-    return `${snapshot.dailyStats.stale_personalstats} stale personalstats, ${snapshot.dailyStats.missing_donator_days} missing donator-day gaps`;
+    const coverageDetail = snapshot.personalStatsCoverage.map((coverage) => {
+      const missing = Math.max(0, coverage.total_members - coverage.ready_members);
+      const missingMembers = snapshot.personalStatsCoverageGaps
+        .filter((gap) => gap.snapshot_date === coverage.snapshot_date)
+        .map(formatPersonalStatsGapMember)
+        .join(", ");
+      return missing > 0
+        ? `${coverage.snapshot_date}: ${coverage.ready_members}/${coverage.total_members}, missing ${missing}${missingMembers ? ` (${missingMembers})` : ""}`
+        : `${coverage.snapshot_date}: ${coverage.ready_members}/${coverage.total_members}`;
+    });
+    return [
+      ...coverageDetail,
+      `${snapshot.dailyStats.stale_personalstats} stale personalstats`,
+      `${snapshot.dailyStats.missing_donator_days} missing donator-day gaps`,
+    ].join("; ");
   }
   if (subsystem.key === "gym_stats") {
     return [
@@ -615,6 +635,13 @@ function publishedDateLabel(snapshotDate: string | null): string | null {
 
 function statStreamList(stats: readonly GymContributorStatKey[]): string {
   return stats.length > 0 ? stats.map(formatGymStatName).join(", ") : "none";
+}
+
+function formatPersonalStatsGapMember(member: {
+  member_id: number;
+  member_name: string | null;
+}): string {
+  return `${member.member_name ?? "Unknown member"} #${member.member_id}`;
 }
 
 function formatGymStatName(stat: GymContributorStatKey): string {

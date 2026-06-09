@@ -759,6 +759,17 @@ export type DataHealthIssue = {
   action_label: string | null;
 };
 
+export type PersonalStatsCoverageGap = {
+  snapshot_date: string;
+  member_id: number;
+  member_name: string | null;
+  latest_personal_ready_date: string | null;
+  recent_snapshot_date: string | null;
+  recent_status: string | null;
+  recent_error: string | null;
+  recent_updated_at: number | null;
+};
+
 export type DataHealthSummaryResponse = {
   ok: boolean;
   generated_at: number;
@@ -775,6 +786,7 @@ export type AdminDataHealthResponse = DataHealthSummaryResponse & {
     maintenance_run: MaintenanceRun | null;
     maintenance_tasks: MaintenanceTask[];
     daily_stats_attention: DailyStatsAttention;
+    personal_stats_coverage_gaps: PersonalStatsCoverageGap[];
     gym_stats_health: GymStatsHealth;
     roster: {
       current_members: number;

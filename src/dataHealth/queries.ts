@@ -20,6 +20,7 @@ import {
   type IngestionRunRow,
   type MaintenanceRunRow,
   type MaintenanceTaskRow,
+  type PersonalStatsCoverageGapRow,
   type PersonalStatsCoverageRow,
   type RosterHealthRow,
   type StockCoverageRow,
@@ -245,6 +246,66 @@ export async function readPersonalStatsCoverage(env: Env, targetDate: string | n
     snapshot_date: row.snapshot_date,
     ready_members: Number(row.ready_members ?? 0),
     total_members: Number(row.total_members ?? 0),
+  }));
+}
+
+export async function readPersonalStatsCoverageGaps(
+  env: Env,
+  targetDate: string | null,
+): Promise<PersonalStatsCoverageGapRow[]> {
+  const dates = recentPersonalStatsCoverageDates(targetDate);
+  if (dates.length !== 2) return [];
+
+  const rows = await env.DB.prepare(
+    `
+    WITH target_dates(snapshot_date) AS (
+      SELECT ? UNION ALL SELECT ?
+    ),
+    reportable_members AS (
+      SELECT member_id, name
+      FROM home_faction_members
+      WHERE faction_id = ?
+        AND is_current = 1
+        AND report_exempt = 0
+    )
+    SELECT
+      target_dates.snapshot_date,
+      members.member_id,
+      members.name AS member_name,
+      (
+        SELECT MAX(existing.snapshot_date)
+        FROM member_lifestyle_stat_snapshots existing
+        WHERE existing.member_id = members.member_id
+          AND existing.personal_ready = 1
+      ) AS latest_personal_ready_date,
+      recent.snapshot_date AS recent_snapshot_date,
+      recent.status AS recent_status,
+      recent.error AS recent_error,
+      recent.updated_at AS recent_updated_at
+    FROM target_dates
+    JOIN reportable_members members
+    LEFT JOIN member_lifestyle_stat_snapshots snapshots
+      ON snapshots.member_id = members.member_id
+     AND snapshots.snapshot_date = target_dates.snapshot_date
+     AND snapshots.personal_ready = 1
+    LEFT JOIN member_personal_stats_recent recent
+      ON recent.member_id = members.member_id
+     AND recent.snapshot_date = target_dates.snapshot_date
+    WHERE snapshots.member_id IS NULL
+    ORDER BY target_dates.snapshot_date ASC, members.name ASC
+    LIMIT 25
+    `,
+  ).bind(dates[0], dates[1], HOME_FACTION_ID).all<PersonalStatsCoverageGapRow>();
+
+  return (rows.results ?? []).map((row) => ({
+    snapshot_date: row.snapshot_date,
+    member_id: Number(row.member_id),
+    member_name: row.member_name ?? null,
+    latest_personal_ready_date: row.latest_personal_ready_date ?? null,
+    recent_snapshot_date: row.recent_snapshot_date ?? null,
+    recent_status: row.recent_status ?? null,
+    recent_error: row.recent_error ?? null,
+    recent_updated_at: nullableNumber(row.recent_updated_at),
   }));
 }
 

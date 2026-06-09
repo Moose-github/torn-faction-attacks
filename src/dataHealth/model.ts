@@ -184,6 +184,17 @@ export type PersonalStatsCoverageRow = {
   total_members: number;
 };
 
+export type PersonalStatsCoverageGapRow = {
+  snapshot_date: string;
+  member_id: number;
+  member_name: string | null;
+  latest_personal_ready_date: string | null;
+  recent_snapshot_date: string | null;
+  recent_status: string | null;
+  recent_error: string | null;
+  recent_updated_at: number | null;
+};
+
 export type EnemyScoutingCoverageRow = {
   faction_id: number;
   war_names: string | null;
@@ -222,6 +233,7 @@ export type DataHealthSnapshot = {
   maintenanceTasks: MaintenanceTaskRow[];
   dailyStats: Awaited<ReturnType<typeof getDailyStatsAttention>>;
   personalStatsCoverage: PersonalStatsCoverageRow[];
+  personalStatsCoverageGaps: PersonalStatsCoverageGapRow[];
   gymStats: GymStatsHealthRow;
   roster: RosterHealthRow;
   apiUsage: ApiUsageHealthRow;

@@ -289,6 +289,58 @@ describe("data health severity", () => {
     });
   });
 
+  it("names members missing from personal stats coverage in admin issues", async () => {
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 0,
+      missing_donator_days: 0,
+      personalstats_target_date: "2026-06-08",
+      latest_personalstats_bucket_date: "2026-06-08",
+      personalstats_lag_days: 0,
+      affected_members: [],
+    });
+
+    const response = await getAdminDataHealth(dataHealthEnv({
+      personalCoverage: [
+        { snapshot_date: "2026-06-07", ready_members: 59, total_members: 60 },
+        { snapshot_date: "2026-06-08", ready_members: 60, total_members: 60 },
+      ],
+      personalCoverageGaps: [
+        {
+          snapshot_date: "2026-06-07",
+          member_id: 123456,
+          member_name: "Missing Member",
+          latest_personal_ready_date: "2026-06-06",
+          recent_snapshot_date: "2026-06-08",
+          recent_status: "completed",
+          recent_error: null,
+          recent_updated_at: 1_781_000_000,
+        },
+      ],
+    }));
+    const body = await response.json() as {
+      issues: Array<{ key: string; detail: string }>;
+      details: {
+        personal_stats_coverage_gaps: Array<{
+          snapshot_date: string;
+          member_id: number;
+          member_name: string | null;
+        }>;
+      };
+    };
+
+    expect(body.issues.find((issue) => issue.key === "personal_stats")?.detail)
+      .toContain("2026-06-07: 59/60, missing 1 (Missing Member #123456)");
+    expect(body.issues.find((issue) => issue.key === "personal_stats")?.detail)
+      .toContain("0 stale personalstats");
+    expect(body.details.personal_stats_coverage_gaps).toEqual([
+      expect.objectContaining({
+        snapshot_date: "2026-06-07",
+        member_id: 123456,
+        member_name: "Missing Member",
+      }),
+    ]);
+  });
+
   it("bases personal stats severity on the oldest recent date only", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
       stale_personalstats: 0,
@@ -352,6 +404,7 @@ function dataHealthEnv({
     { snapshot_date: "2025-12-30", ready_members: 1, total_members: 1 },
     { snapshot_date: "2025-12-31", ready_members: 1, total_members: 1 },
   ],
+  personalCoverageGaps = [],
 }: {
   settings?: Record<string, unknown>;
   ingestionRun?: Record<string, unknown>;
@@ -361,6 +414,7 @@ function dataHealthEnv({
   completedGymStats?: string[];
   staleGymMembers?: number;
   personalCoverage?: Array<{ snapshot_date: string; ready_members: number; total_members: number }>;
+  personalCoverageGaps?: Array<Record<string, unknown>>;
 }): Env {
   return {
     DB: {
@@ -377,7 +431,7 @@ function dataHealthEnv({
             gymLatestDate,
             staleGymMembers,
           }),
-          all: async () => ({ results: rowsForDataHealthQuery(compactSql, { completedGymStats, personalCoverage }) }),
+          all: async () => ({ results: rowsForDataHealthQuery(compactSql, { completedGymStats, personalCoverage, personalCoverageGaps }) }),
           run: async () => ({ success: true }),
         };
         return statement;
@@ -491,6 +545,7 @@ function rowsForDataHealthQuery(
   options: {
     completedGymStats: string[];
     personalCoverage: Array<{ snapshot_date: string; ready_members: number; total_members: number }>;
+    personalCoverageGaps: Array<Record<string, unknown>>;
   },
 ): Array<Record<string, unknown>> {
   if (sql.includes("FROM scheduled_maintenance_tasks")) return [];
@@ -500,6 +555,7 @@ function rowsForDataHealthQuery(
       last_started: Math.floor(Date.now() / 1000),
     }));
   }
+  if (sql.includes("reportable_members")) return options.personalCoverageGaps;
   if (sql.includes("WITH target_dates")) return options.personalCoverage;
   if (sql.includes("GROUP BY")) return [];
   if (sql.includes("FROM torn_api_call_log")) return [];
