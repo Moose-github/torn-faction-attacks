@@ -5,7 +5,8 @@ import {
   SOURCE_NAME,
   TORN_FACTION_CHAIN_API_URL,
 } from "./constants";
-import { sendDiscordMessage } from "./discord";
+import { createDiscordWebhookMessage, type DiscordAllowedMentions, editDiscordWebhookMessage } from "./discord";
+import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
 import { warNameFromWarRoute } from "./routes";
 import { WAR_SELECT_COLUMNS, WAR_SELECT_COLUMNS_WITH_ALIAS } from "./sql";
@@ -21,6 +22,9 @@ export const CHAIN_WATCH_ALERT_MIN_CHAIN = 100;
 const CHAIN_WATCH_MAX_ERROR_LENGTH = 240;
 const CHAIN_WATCH_ALARM_NAME_PREFIX = "chain-watch";
 const CHAIN_WATCH_LIVE_TIMEOUT_DRIFT_SECONDS = 5;
+const CHAIN_WATCH_WARNING_COLOR = 0xffa500;
+const CHAIN_WATCH_CRITICAL_COLOR = 0xff0000;
+const CHAIN_WATCH_ALERT_KEY = "chain_watch";
 
 type ChainWatchSource = "stored" | "live_confirm" | "stale" | "dropped";
 type ChainWatchAlarmStage = "warning_60" | "warning_30" | "drop";
@@ -48,6 +52,7 @@ export type ChainWatchStateRow = {
   drop_sent_at: number | null;
   alert_chain: number | null;
   alert_reset_at: number | null;
+  discord_message_id: string | null;
   last_checked_at: number | null;
   last_error: string | null;
   created_at: number;
@@ -257,11 +262,23 @@ export function chainWatchWarningMessage(options: {
   timeoutAt: number;
   lastHit: ChainWatchStateRow | ChainWatchAttackRow | null;
 }): string {
-  const remaining = options.stage === "warning_60" ? "60 seconds" : "30 seconds";
+  const critical = options.stage === "warning_30";
+  const remaining = critical ? "30 seconds" : "60 seconds";
   return [
-    `Chain Watch: chain ${options.currentChain} is close to timing out.`,
-    `Time left: ${remaining}`,
+    critical
+      ? `Chain Watch CRITICAL: chain ${options.currentChain} ${remaining} remaining`
+      : `Chain Watch WARNING: chain ${options.currentChain} ${remaining} remaining`,
     `Last hit: ${formatChainWatchAttackPair(options.lastHit)}`,
+    `Timeout: ${formatChainWatchDateTime(options.timeoutAt)}`,
+  ].join("\n");
+}
+
+export function chainWatchNormalMessage(options: {
+  currentChain: number;
+  timeoutAt: number;
+}): string {
+  return [
+    `Chain Watch: chain ${options.currentChain} is active.`,
     `Timeout: ${formatChainWatchDateTime(options.timeoutAt)}`,
   ].join("\n");
 }
@@ -272,10 +289,11 @@ export function chainWatchDroppedMessage(options: {
   lastHit: ChainWatchStateRow | ChainWatchAttackRow | null;
 }): string {
   return [
-    `Chain Watch: chain ${options.currentChain} appears to have dropped.`,
+    `Chain Watch: chain ${options.currentChain} dropped at ${
+      options.timeoutAt ? formatChainWatchAbsoluteDateTime(options.timeoutAt) : "an unknown time"
+    }.`,
     `Last hit: ${formatChainWatchAttackPair(options.lastHit)}`,
-    options.timeoutAt ? `Timeout: ${formatChainWatchDateTime(options.timeoutAt)}` : null,
-  ].filter((line): line is string => Boolean(line)).join("\n");
+  ].join("\n");
 }
 
 async function refreshChainWatchForWar(
@@ -293,7 +311,8 @@ async function refreshChainWatchForWar(
   const observation = await observeChainWatch(env, war, checkedAt, {
     confirmDrop: options.confirmDrop ?? false,
   });
-  const saved = await saveChainWatchObservation(env, war.id, existing, observation, checkedAt);
+  let saved = await saveChainWatchObservation(env, war.id, existing, observation, checkedAt);
+  saved = await syncChainWatchNormalDiscordMessage(env, existing, saved, checkedAt);
 
   if (options.scheduleAlarm !== false) {
     await scheduleChainWatchAlarmForState(env, saved, checkedAt);
@@ -448,14 +467,16 @@ async function sendWarningIfDue(
     return;
   }
 
-  await sendChainWatchDiscordMessage(
+  const discordMessageId = await upsertChainWatchDiscordMessage(
     env,
-    chainWatchWarningMessage({
+    confirmedState.discord_message_id,
+    await chainWatchWarningDiscordMessage(env, {
       stage,
       currentChain: Number(confirmedState.current_chain),
       timeoutAt: confirmedState.timeout_at,
       lastHit: confirmedState,
     }),
+    stage === "warning_60" ? CHAIN_WATCH_WARNING_COLOR : CHAIN_WATCH_CRITICAL_COLOR,
   );
 
   await env.DB.prepare(
@@ -464,6 +485,7 @@ async function sendWarningIfDue(
     SET ${warningColumn} = ?,
         alert_chain = ?,
         alert_reset_at = ?,
+        discord_message_id = COALESCE(?, discord_message_id),
         scheduled_alarm_stage = NULL,
         scheduled_alarm_at = NULL,
         last_error = NULL,
@@ -471,7 +493,14 @@ async function sendWarningIfDue(
     WHERE war_id = ?
     `,
   )
-    .bind(sentAt, confirmedState.current_chain, confirmedState.reset_at, sentAt, confirmedState.war_id)
+    .bind(
+      sentAt,
+      confirmedState.current_chain,
+      confirmedState.reset_at,
+      discordMessageId,
+      sentAt,
+      confirmedState.war_id,
+    )
     .run();
 }
 
@@ -516,7 +545,7 @@ async function confirmChainWatchWarningWithLiveChain(
   const chainDiffers = live.chain.current !== Number(state.current_chain ?? 0);
 
   if (timeoutDiffers || chainDiffers) {
-    const updated = await saveLiveChainWarningObservation(env, state, {
+    let updated = await saveLiveChainWarningObservation(env, state, {
       source: "live_confirm",
       currentChain: live.chain.current,
       resetAt: liveResetAt,
@@ -524,6 +553,7 @@ async function confirmChainWatchWarningWithLiveChain(
       lastHit: null,
       lastError: null,
     }, checkedAt);
+    updated = await syncChainWatchNormalDiscordMessage(env, state, updated, checkedAt);
 
     return timeoutMovedLater ? null : updated;
   }
@@ -548,8 +578,9 @@ async function sendDroppedIfDue(
     return;
   }
 
-  await sendChainWatchDiscordMessage(
+  const discordMessageId = await upsertChainWatchDiscordMessage(
     env,
+    state.discord_message_id,
     chainWatchDroppedMessage({
       currentChain: Number(state.current_chain ?? state.alert_chain ?? 0),
       timeoutAt: state.timeout_at,
@@ -562,6 +593,7 @@ async function sendDroppedIfDue(
     UPDATE chain_watch_state
     SET drop_sent_at = ?,
         source = 'dropped',
+        discord_message_id = COALESCE(?, discord_message_id),
         scheduled_alarm_stage = NULL,
         scheduled_alarm_at = NULL,
         last_error = NULL,
@@ -569,7 +601,7 @@ async function sendDroppedIfDue(
     WHERE war_id = ?
     `,
   )
-    .bind(sentAt, sentAt, state.war_id)
+    .bind(sentAt, discordMessageId, sentAt, state.war_id)
     .run();
 }
 
@@ -665,10 +697,17 @@ async function saveChainWatchObservation(
   observation: ChainWatchObservation,
   checkedAt: number,
 ): Promise<ChainWatchStateRow> {
-  const resetChanged =
+  const chainWindowChanged =
     existing === null ||
     existing.current_chain !== observation.currentChain ||
-    existing.reset_at !== observation.resetAt;
+    existing.reset_at !== observation.resetAt ||
+    existing.timeout_at !== observation.timeoutAt;
+  const activeObservation =
+    observation.resetAt !== null &&
+    observation.timeoutAt !== null &&
+    observation.timeoutAt > checkedAt;
+  const resetAlertState = chainWindowChanged && activeObservation;
+  const clearDiscordMessage = resetAlertState && existing?.drop_sent_at !== null;
   const hit = observation.lastHit;
   const hitAt = hit ? chainHitAt(hit) : null;
 
@@ -691,12 +730,13 @@ async function saveChainWatchObservation(
       drop_sent_at,
       alert_chain,
       alert_reset_at,
+      discord_message_id,
       last_checked_at,
       last_error,
       created_at,
       updated_at
     )
-    VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)
+    VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)
     ON CONFLICT(war_id) DO UPDATE SET
       source = excluded.source,
       current_chain = excluded.current_chain,
@@ -712,6 +752,7 @@ async function saveChainWatchObservation(
       drop_sent_at = CASE WHEN ? THEN NULL ELSE chain_watch_state.drop_sent_at END,
       alert_chain = CASE WHEN ? THEN NULL ELSE chain_watch_state.alert_chain END,
       alert_reset_at = CASE WHEN ? THEN NULL ELSE chain_watch_state.alert_reset_at END,
+      discord_message_id = CASE WHEN ? THEN NULL ELSE chain_watch_state.discord_message_id END,
       last_checked_at = excluded.last_checked_at,
       last_error = excluded.last_error,
       updated_at = excluded.updated_at
@@ -733,11 +774,12 @@ async function saveChainWatchObservation(
       truncateChainWatchError(observation.lastError),
       checkedAt,
       checkedAt,
-      resetChanged ? 1 : 0,
-      resetChanged ? 1 : 0,
-      resetChanged ? 1 : 0,
-      resetChanged ? 1 : 0,
-      resetChanged ? 1 : 0,
+      resetAlertState ? 1 : 0,
+      resetAlertState ? 1 : 0,
+      resetAlertState ? 1 : 0,
+      resetAlertState ? 1 : 0,
+      resetAlertState ? 1 : 0,
+      clearDiscordMessage ? 1 : 0,
     )
     .first()) as ChainWatchStateRow | null;
 
@@ -835,14 +877,89 @@ async function readTornChain(
   return { chain: parseTornChainResponse(data, now), error: null };
 }
 
-async function sendChainWatchDiscordMessage(env: Env, message: string): Promise<void> {
-  if (!env.DISCORD_WEBHOOK_URL) {
-    return;
+async function syncChainWatchNormalDiscordMessage(
+  env: Env,
+  previous: ChainWatchStateRow | null,
+  state: ChainWatchStateRow,
+  checkedAt: number,
+): Promise<ChainWatchStateRow> {
+  if (
+    state.timeout_at === null ||
+    state.timeout_at <= checkedAt ||
+    state.drop_sent_at !== null ||
+    !chainWatchAlertEligible(state.current_chain)
+  ) {
+    return state;
   }
 
-  await sendDiscordMessage(env, message, { users: [], roles: [] }).catch((err: any) => {
+  const chainWindowChanged =
+    previous === null ||
+    previous.current_chain !== state.current_chain ||
+    previous.reset_at !== state.reset_at ||
+    previous.timeout_at !== state.timeout_at;
+  const warningWasActive =
+    previous !== null &&
+    (previous.warning_60_sent_at !== null || previous.warning_30_sent_at !== null);
+
+  if (state.discord_message_id !== null && !chainWindowChanged && !warningWasActive) {
+    return state;
+  }
+
+  const discordMessageId = await upsertChainWatchDiscordMessage(
+    env,
+    state.discord_message_id,
+    chainWatchNormalMessage({
+      currentChain: Number(state.current_chain),
+      timeoutAt: state.timeout_at,
+    }),
+  );
+
+  if (!discordMessageId || discordMessageId === state.discord_message_id) {
+    return state;
+  }
+
+  await env.DB.prepare(
+    `
+    UPDATE chain_watch_state
+    SET discord_message_id = ?,
+        updated_at = ?
+    WHERE war_id = ?
+    `,
+  )
+    .bind(discordMessageId, checkedAt, state.war_id)
+    .run();
+
+  return {
+    ...state,
+    discord_message_id: discordMessageId,
+    updated_at: checkedAt,
+  };
+}
+
+async function upsertChainWatchDiscordMessage(
+  env: Env,
+  existingMessageId: string | null,
+  options: string | { message: string; allowedMentions?: DiscordAllowedMentions },
+  embedColor?: number,
+): Promise<string | null> {
+  if (!env.DISCORD_WEBHOOK_URL) {
+    return existingMessageId;
+  }
+
+  const message = typeof options === "string" ? options : options.message;
+  const allowedMentions = typeof options === "string" ? { users: [], roles: [] } : options.allowedMentions;
+
+  try {
+    if (existingMessageId) {
+      await editDiscordWebhookMessage(env, existingMessageId, message, allowedMentions, { embedColor });
+      return existingMessageId;
+    }
+
+    return await createDiscordWebhookMessage(env, message, allowedMentions, { embedColor });
+  } catch (err: any) {
     console.warn("Chain Watch Discord alert failed:", err?.message || err);
-  });
+    return existingMessageId;
+  }
 }
 
 async function readActiveChainWatchWar(env: Env): Promise<WarRow | null> {
@@ -961,6 +1078,10 @@ function formatChainWatchAttackPair(
 }
 
 function formatChainWatchDateTime(timestamp: number): string {
+  return `<t:${Math.floor(timestamp)}:R>`;
+}
+
+function formatChainWatchAbsoluteDateTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
@@ -972,6 +1093,22 @@ function formatChainWatchDateTime(timestamp: number): string {
     hour12: false,
     timeZone: "UTC",
   }).format(date);
+}
+
+async function chainWatchWarningDiscordMessage(
+  env: Env,
+  options: {
+    stage: "warning_60" | "warning_30";
+    currentChain: number;
+    timeoutAt: number;
+    lastHit: ChainWatchStateRow | ChainWatchAttackRow | null;
+  },
+): Promise<{ message: string; allowedMentions?: DiscordAllowedMentions }> {
+  const mentions = await readDiscordAlertMentions(env, CHAIN_WATCH_ALERT_KEY);
+  return {
+    message: formatDiscordAlertMessage(chainWatchWarningMessage(options), mentions.messageSuffix),
+    allowedMentions: mentions.allowedMentions ?? { users: [], roles: [] },
+  };
 }
 
 function cleanDiscordLineText(value: string | null | undefined): string | null {

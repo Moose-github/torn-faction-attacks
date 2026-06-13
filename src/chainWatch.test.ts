@@ -3,6 +3,9 @@ import {
   CHAIN_WATCH_TIMEOUT_SECONDS,
   chainHitAt,
   chainWatchAlertEligible,
+  chainWatchDroppedMessage,
+  chainWatchNormalMessage,
+  chainWatchWarningMessage,
   isQualifyingChainAttack,
   parseTornChainResponse,
   selectNextChainWatchAlarm,
@@ -147,6 +150,35 @@ describe("chain watch alert eligibility", () => {
   it("requires chain to be strictly above 100", () => {
     expect(chainWatchAlertEligible(100)).toBe(false);
     expect(chainWatchAlertEligible(101)).toBe(true);
+  });
+});
+
+describe("chain watch Discord messages", () => {
+  it("formats the initial normal chain message", () => {
+    expect(chainWatchNormalMessage({
+      currentChain: 125,
+      timeoutAt: 1_800_000_000,
+    })).toBe([
+      "Chain Watch: chain 125 is active.",
+      "Timeout: <t:1800000000:R>",
+    ].join("\n"));
+  });
+
+  it("labels the 30 second warning as critical", () => {
+    expect(chainWatchWarningMessage({
+      stage: "warning_30",
+      currentChain: 125,
+      timeoutAt: 1_800_000_000,
+      lastHit: attackRow({ attacker_name: "Alice", defender_name: "Bob" }),
+    })).toContain("Chain Watch CRITICAL: chain 125 30 seconds remaining");
+  });
+
+  it("formats dropped messages with the dropped-at timestamp", () => {
+    expect(chainWatchDroppedMessage({
+      currentChain: 125,
+      timeoutAt: 1_800_000_000,
+      lastHit: attackRow({ attacker_name: "Alice", defender_name: "Bob" }),
+    })).toContain("Chain Watch: chain 125 dropped at 15 Jan 2027, 08:00:00.");
   });
 });
 

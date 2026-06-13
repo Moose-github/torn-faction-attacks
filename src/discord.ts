@@ -1,5 +1,5 @@
 import { cleanString, readJsonObject } from "./backend/request";
-import { postDiscordForm, postDiscordJson } from "./external/discord";
+import { patchDiscordJson, postDiscordForm, postDiscordJson, postDiscordJsonAndRead } from "./external/discord";
 import { Env } from "./types";
 import { json } from "./utils";
 
@@ -8,6 +8,11 @@ const MAX_DISCORD_MESSAGE_LENGTH = 1900;
 export type DiscordAllowedMentions = {
   users?: string[];
   roles?: string[];
+};
+
+type DiscordPayloadOptions = {
+  embedColor?: number;
+  clearEmbeds?: boolean;
 };
 
 export async function sendDiscordMessageFromRequest(request: Request, env: Env): Promise<Response> {
@@ -51,26 +56,129 @@ export async function sendDiscordMessage(
   await postDiscordJson(env.DISCORD_WEBHOOK_URL, discordPayload(message, allowedMentions));
 }
 
-function discordPayload(content: string, allowedMentions?: DiscordAllowedMentions): {
+export async function createDiscordWebhookMessage(
+  env: Env,
+  message: string,
+  allowedMentions?: DiscordAllowedMentions,
+  options?: Pick<DiscordPayloadOptions, "embedColor">,
+): Promise<string | null> {
+  if (!env.DISCORD_WEBHOOK_URL) {
+    throw new Error("DISCORD_WEBHOOK_URL is not configured");
+  }
+
+  const response = await postDiscordJsonAndRead<DiscordWebhookMessage>(
+    discordWebhookUrlWithQuery(env.DISCORD_WEBHOOK_URL, { wait: "true" }),
+    discordPayload(message, allowedMentions, options),
+  );
+
+  return typeof response.id === "string" && response.id ? response.id : null;
+}
+
+export async function editDiscordWebhookMessage(
+  env: Env,
+  messageId: string,
+  message: string,
+  allowedMentions?: DiscordAllowedMentions,
+  options?: Pick<DiscordPayloadOptions, "embedColor">,
+): Promise<void> {
+  if (!env.DISCORD_WEBHOOK_URL) {
+    throw new Error("DISCORD_WEBHOOK_URL is not configured");
+  }
+
+  await patchDiscordJson(
+    discordWebhookMessageUrl(env.DISCORD_WEBHOOK_URL, messageId),
+    discordPayload(message, allowedMentions, { ...options, clearEmbeds: options?.embedColor === undefined }),
+  );
+}
+
+type DiscordWebhookMessage = {
+  id?: unknown;
+};
+
+function discordPayload(
+  content: string,
+  allowedMentions?: DiscordAllowedMentions,
+  options: DiscordPayloadOptions = {},
+): {
   content: string;
+  embeds?: Array<{
+    title: string;
+    description?: string;
+    color: number;
+  }>;
   allowed_mentions?: {
     parse: [];
     users?: string[];
     roles?: string[];
   };
 } {
+  const payload = options.embedColor === undefined
+    ? {
+      content,
+      ...(options.clearEmbeds ? { embeds: [] } : {}),
+    }
+    : discordEmbedPayload(content, options.embedColor);
+
   if (!allowedMentions) {
-    return { content };
+    return payload;
   }
 
   return {
-    content,
+    ...payload,
     allowed_mentions: {
       parse: [],
       users: allowedMentions.users ?? [],
       roles: allowedMentions.roles ?? [],
     },
   };
+}
+
+function discordEmbedPayload(content: string, color: number): {
+  content: string;
+  embeds: Array<{
+    title: string;
+    description?: string;
+    color: number;
+  }>;
+} {
+  const lines = content.split("\n");
+  const mentionLine = lines.length > 1 && isDiscordMentionLine(lines[lines.length - 1])
+    ? lines.pop() ?? ""
+    : "";
+  const [title = "", ...descriptionLines] = lines;
+  const description = descriptionLines.join("\n").trim();
+
+  return {
+    content: mentionLine,
+    embeds: [
+      {
+        title,
+        ...(description ? { description } : {}),
+        color,
+      },
+    ],
+  };
+}
+
+function isDiscordMentionLine(line: string): boolean {
+  return line
+    .trim()
+    .split(/\s+/)
+    .every((token) => /^<@&?\d{5,32}>$/.test(token));
+}
+
+function discordWebhookMessageUrl(webhookUrl: string, messageId: string): string {
+  const url = new URL(webhookUrl);
+  const pathname = url.pathname.replace(/\/+$/, "");
+  url.pathname = `${pathname}/messages/${encodeURIComponent(messageId)}`;
+  url.searchParams.delete("wait");
+  return url.toString();
+}
+
+function discordWebhookUrlWithQuery(webhookUrl: string, params: Record<string, string>): string {
+  const url = new URL(webhookUrl);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  return url.toString();
 }
 
 export async function sendDiscordMessageWithAttachment(

@@ -1,4 +1,5 @@
-import { DiscordAllowedMentions, sendDiscordMessage } from "./discord";
+import { sendDiscordMessage } from "./discord";
+import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import {
   clearSyncLatch,
   readSetSyncLatches,
@@ -31,16 +32,6 @@ type ShopliftingCacheRow = {
   data_json: string | null;
   fetched_at: number | null;
   error: string | null;
-};
-
-type DiscordAlertMentionRow = {
-  mention_type: string;
-  discord_id: string;
-};
-
-type DiscordAlertMentions = {
-  messageSuffix: string;
-  allowedMentions: DiscordAllowedMentions | undefined;
 };
 
 export async function getMiscellaneousData(env: Env): Promise<Response> {
@@ -217,50 +208,6 @@ async function markShopliftingSecurityAlertSent(env: Env, stateName: string, fet
 
 async function clearShopliftingSecurityAlert(env: Env, stateName: string): Promise<void> {
   await clearSyncLatch(env, stateName);
-}
-
-async function readDiscordAlertMentions(env: Env, alertKey: string): Promise<DiscordAlertMentions> {
-  const result = await env.DB.prepare(
-    `
-    SELECT mention_type, discord_id
-    FROM discord_alert_mentions
-    WHERE alert_key = ?
-      AND enabled = 1
-    ORDER BY mention_type, discord_id
-    `,
-  )
-    .bind(alertKey)
-    .all<DiscordAlertMentionRow>();
-  const rows = result.results ?? [];
-  const users = uniqueDiscordIds(rows, "user");
-  const roles = uniqueDiscordIds(rows, "role");
-  const messageSuffix = [
-    ...users.map((id) => `<@${id}>`),
-    ...roles.map((id) => `<@&${id}>`),
-  ].join(" ");
-
-  return {
-    messageSuffix,
-    allowedMentions: users.length > 0 || roles.length > 0
-      ? {
-          users,
-          roles,
-        }
-      : undefined,
-  };
-}
-
-function uniqueDiscordIds(rows: DiscordAlertMentionRow[], mentionType: "user" | "role"): string[] {
-  return [...new Set(
-    rows
-      .filter((row) => row.mention_type === mentionType)
-      .map((row) => row.discord_id.trim())
-      .filter((id) => /^\d{5,32}$/.test(id)),
-  )];
-}
-
-function formatDiscordAlertMessage(alertText: string, messageSuffix: string): string {
-  return messageSuffix ? `${alertText}\n${messageSuffix}` : alertText;
 }
 
 function formatShopliftingSecurityAlert(shopName: string): string {
