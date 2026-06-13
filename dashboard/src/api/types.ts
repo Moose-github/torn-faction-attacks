@@ -625,7 +625,31 @@ export type AdminWarPayload = {
   member_respect_limit?: number | null;
 };
 
-export type AttackWindowPayload = {
+export type ShopliftingAlertSetting = {
+
+  shop_key: "big_als" | "jewelry_store";
+
+  shop_name: string;
+
+  enabled: boolean;
+
+  configurable: boolean;
+
+};
+
+
+
+export type AdminShopliftingAlertsResponse = {
+
+  ok: boolean;
+
+  alerts: ShopliftingAlertSetting[];
+
+};
+
+
+
+export type AttackWindowPayload = {
   practical_start_time: number;
   practical_finish_time: number;
   limit?: number;

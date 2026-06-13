@@ -29,6 +29,10 @@ import {
   refreshDailyMemberLifestyleStats,
 } from "../lifestyleStats/dailyPersonal";
 import { getLatestMaintenanceRun } from "../maintenance";
+import {
+  getAdminShopliftingAlertSettings,
+  updateAdminShopliftingAlertSettings,
+} from "../miscellaneous";
 import { cachedGetJson } from "../responseCache";
 import {
   matchesExactRoute,
@@ -178,6 +182,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/discord/message", "POST")) {
     return withAdmin(routeContext, () => sendDiscordMessageFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "GET")) {
+    return withAdmin(routeContext, () => getAdminShopliftingAlertSettings(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "POST")) {
+    return withAdmin(routeContext, () => updateAdminShopliftingAlertSettings(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/enemy-stats-image/reset", "POST")) {

@@ -8,19 +8,30 @@ import {
 import { fetchTrackedTornJson } from "./external/torn";
 import { Env } from "./types";
 import { json, nowSeconds } from "./utils";
+import { readJsonObject } from "./backend/request";
 
 const TORN_SHOPLIFTING_API_URL = "https://api.torn.com/v2/torn";
 const SHOPLIFTING_CACHE_ID = 1;
 const SHOPLIFTING_CRIME_URL = "https://www.torn.com/page.php?sid=crimes#/shoplifting";
 const SHOPLIFTING_SECURITY_ALERT_STATE_PREFIX = "shoplifting_security_alert";
+const SHOPLIFTING_SECURITY_ALERT_ENABLED_STATE_PREFIX = "shoplifting_security_alert_enabled";
 const SHOPLIFTING_SECURITY_ALERTS = [
-  { shopKey: "big_als", shopName: "Big Als" },
-  { shopKey: "jewelry_store", shopName: "Jewelry Store" },
+  { shopKey: "big_als", shopName: "Big Als", defaultEnabled: true, configurable: false },
+  { shopKey: "jewelry_store", shopName: "Jewelry Store", defaultEnabled: false, configurable: true },
 ] as const;
 
 type TornShopliftingObstacle = {
   title: string;
   disabled: boolean;
+};
+
+type ShopliftingSecurityAlertConfig = typeof SHOPLIFTING_SECURITY_ALERTS[number];
+
+type ShopliftingSecurityAlertSetting = {
+  shop_key: ShopliftingSecurityAlertConfig["shopKey"];
+  shop_name: ShopliftingSecurityAlertConfig["shopName"];
+  enabled: boolean;
+  configurable: boolean;
 };
 
 type TornShopliftingResponse = {
@@ -42,6 +53,34 @@ export async function getMiscellaneousData(env: Env): Promise<Response> {
     fetched_at: row?.fetched_at ?? null,
     error: row?.error ?? null,
   });
+}
+
+export async function getAdminShopliftingAlertSettings(env: Env): Promise<Response> {
+  return json({
+    ok: true,
+    alerts: await readShopliftingSecurityAlertSettings(env),
+  });
+}
+
+export async function updateAdminShopliftingAlertSettings(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonObject(request);
+  const shopKey = typeof body.shop_key === "string" ? body.shop_key : "";
+  const alert = SHOPLIFTING_SECURITY_ALERTS.find((candidate) => candidate.shopKey === shopKey);
+  if (!alert || !alert.configurable) {
+    return json({ ok: false, error: "Unknown shoplifting alert", code: "UNKNOWN_SHOPLIFTING_ALERT" }, 400);
+  }
+  if (typeof body.enabled !== "boolean") {
+    return json({ ok: false, error: "enabled must be a boolean", code: "INVALID_ENABLED" }, 400);
+  }
+
+  if (body.enabled) {
+    await setSyncLatch(env, shopliftingAlertEnabledStateName(alert.shopKey), nowSeconds());
+  } else {
+    await clearSyncLatch(env, shopliftingAlertEnabledStateName(alert.shopKey));
+    await clearShopliftingSecurityAlert(env, shopliftingAlertStateName(alert));
+  }
+
+  return getAdminShopliftingAlertSettings(env);
 }
 
 export async function refreshTornShoplifting(env: Env): Promise<{
@@ -165,11 +204,20 @@ async function sendShopliftingSecurityAlerts(
 ): Promise<number> {
   let alertsSent = 0;
   const sentAlertStates = await readSentShopliftingSecurityAlerts(env);
+  const alertSettings = await readShopliftingSecurityAlertSettings(env);
+  const enabledByShopKey = new Map(alertSettings.map((alert) => [alert.shop_key, alert.enabled]));
 
   for (const alert of SHOPLIFTING_SECURITY_ALERTS) {
     const obstacles = shoplifting[alert.shopKey] ?? [];
-    const stateName = `${SHOPLIFTING_SECURITY_ALERT_STATE_PREFIX}:${alert.shopKey}`;
+    const stateName = shopliftingAlertStateName(alert);
     const allSecuritiesDown = obstacles.length >= 2 && obstacles.every((obstacle) => obstacle.disabled);
+
+    if (!enabledByShopKey.get(alert.shopKey)) {
+      if (sentAlertStates.has(stateName)) {
+        await clearShopliftingSecurityAlert(env, stateName);
+      }
+      continue;
+    }
 
     if (!allSecuritiesDown) {
       if (sentAlertStates.has(stateName)) {
@@ -197,9 +245,23 @@ async function sendShopliftingSecurityAlerts(
 
 async function readSentShopliftingSecurityAlerts(env: Env): Promise<Set<string>> {
   const stateNames = SHOPLIFTING_SECURITY_ALERTS.map(
-    (alert) => `${SHOPLIFTING_SECURITY_ALERT_STATE_PREFIX}:${alert.shopKey}`,
+    (alert) => shopliftingAlertStateName(alert),
   );
   return readSetSyncLatches(env, stateNames);
+}
+
+async function readShopliftingSecurityAlertSettings(env: Env): Promise<ShopliftingSecurityAlertSetting[]> {
+  const enabledStateNames = SHOPLIFTING_SECURITY_ALERTS
+    .filter((alert) => !alert.defaultEnabled)
+    .map((alert) => shopliftingAlertEnabledStateName(alert.shopKey));
+  const enabledOverrides = await readSetSyncLatches(env, enabledStateNames);
+
+  return SHOPLIFTING_SECURITY_ALERTS.map((alert) => ({
+    shop_key: alert.shopKey,
+    shop_name: alert.shopName,
+    enabled: alert.defaultEnabled || enabledOverrides.has(shopliftingAlertEnabledStateName(alert.shopKey)),
+    configurable: alert.configurable,
+  }));
 }
 
 async function markShopliftingSecurityAlertSent(env: Env, stateName: string, fetchedAt: number): Promise<void> {
@@ -212,6 +274,14 @@ async function clearShopliftingSecurityAlert(env: Env, stateName: string): Promi
 
 function formatShopliftingSecurityAlert(shopName: string): string {
   return `[Shoplifting alert:](${SHOPLIFTING_CRIME_URL}) all securities are down at ${shopName}.`;
+}
+
+function shopliftingAlertStateName(alert: Pick<ShopliftingSecurityAlertConfig, "shopKey">): string {
+  return `${SHOPLIFTING_SECURITY_ALERT_STATE_PREFIX}:${alert.shopKey}`;
+}
+
+function shopliftingAlertEnabledStateName(shopKey: ShopliftingSecurityAlertConfig["shopKey"]): string {
+  return `${SHOPLIFTING_SECURITY_ALERT_ENABLED_STATE_PREFIX}:${shopKey}`;
 }
 
 function parseCachedShoplifting(value: string | null): Record<string, TornShopliftingObstacle[]> {

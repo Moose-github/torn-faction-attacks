@@ -13,6 +13,7 @@ import {
   fetchTornWarReport,
   getLatestIngestionRun,
   getAdminXanaxCompetition,
+  getAdminShopliftingAlerts,
   getHomeFactionReportExemptions,
   getMemberLifestyleRepairJobs,
   getTornApiUsage,
@@ -35,7 +36,9 @@ import {
   relinkAttacks,
   runIngestion,
   sendDiscordMessage,
+  ShopliftingAlertSetting,
   updateAdminXanaxCompetitionSettings,
+  updateAdminShopliftingAlert,
   updateHomeFactionReportExemption,
   updateOfficialWar,
   TornApiUsageResponse,
@@ -98,6 +101,8 @@ export function AdminControls() {
   const [xanaxCompetition, setXanaxCompetition] =
     React.useState<AdminXanaxCompetitionResponse | null>(null);
   const [isLoadingXanaxCompetition, setIsLoadingXanaxCompetition] = React.useState(false);
+  const [shopliftingAlerts, setShopliftingAlerts] = React.useState<ShopliftingAlertSetting[]>([]);
+  const [isLoadingShopliftingAlerts, setIsLoadingShopliftingAlerts] = React.useState(false);
   const [xanaxSettingsForm, setXanaxSettingsForm] = React.useState({
     enabled: true,
     basePrize: "10000000",
@@ -279,6 +284,7 @@ export function AdminControls() {
       await loadTornApiUsage();
       await loadLifestyleRepairJobs();
       await loadReportExemptions();
+      await loadShopliftingAlerts();
       await loadXanaxCompetition();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -370,12 +376,25 @@ export function AdminControls() {
     }
   }
 
+  async function loadShopliftingAlerts() {
+    setIsLoadingShopliftingAlerts(true);
+    try {
+      const response = await getAdminShopliftingAlerts();
+      setShopliftingAlerts(response.alerts);
+    } catch {
+      setShopliftingAlerts([]);
+    } finally {
+      setIsLoadingShopliftingAlerts(false);
+    }
+  }
+
   React.useEffect(() => {
     if (authSession?.access_level === "admin") {
       loadLatestIngestionRun();
       loadTornApiUsage();
       loadLifestyleRepairJobs();
       loadReportExemptions();
+      loadShopliftingAlerts();
       loadXanaxCompetition();
     }
   }, [authSession?.access_level]);
@@ -395,6 +414,12 @@ export function AdminControls() {
     : tornApiUsage
       ? `Last ${tornApiUsageWindowLabel}`
       : "No data";
+  const jewelryStoreAlert = shopliftingAlerts.find((alert) => alert.shop_key === "jewelry_store") ?? null;
+  const shopliftingAlertStatus = isLoadingShopliftingAlerts
+    ? "Loading"
+    : jewelryStoreAlert?.enabled
+      ? "Jewelry active"
+      : "Jewelry paused";
 
   return (
     <>
@@ -527,6 +552,40 @@ export function AdminControls() {
               {isBusy === "Send Discord message" ? "Sending" : "Send to Discord"}
             </button>
           </form>
+        </section>
+
+        <section className="panel admin-panel-shoplifting-alerts">
+          <PanelHeader title="Shoplifting alerts" aside={shopliftingAlertStatus} />
+          <div className="admin-form">
+            {shopliftingAlerts.map((alert) => (
+              alert.configurable ? (
+                <label className="checkbox-row admin-form-wide" key={alert.shop_key}>
+                  <input
+                    type="checkbox"
+                    checked={alert.enabled}
+                    disabled={isBusy !== null || isLoadingShopliftingAlerts}
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      runAdminAction("Update shoplifting alert", () =>
+                        updateAdminShopliftingAlert({
+                          shop_key: alert.shop_key,
+                          enabled,
+                        }).then((response) => {
+                          setShopliftingAlerts(response.alerts);
+                          return response;
+                        }),
+                      );
+                    }}
+                  />
+                  <span>{alert.shop_name}</span>
+                </label>
+              ) : (
+                <div className="admin-form-wide" key={alert.shop_key}>
+                  <MetricLine label={alert.shop_name} value={alert.enabled ? "Active" : "Paused"} />
+                </div>
+              )
+            ))}
+          </div>
         </section>
 
         <section className="panel admin-panel-xanax-competition">

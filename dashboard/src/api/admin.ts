@@ -1,5 +1,5 @@
 import { API_BASE_URL, authHeaders, getJson, postJson } from "./client";
-import type { AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, TornApiUsageResponse } from "./types";
+import type { AdminShopliftingAlertsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse } from "./types";
 
 export async function runIngestion(): Promise<unknown> {
   return postJson("/api/run");
@@ -144,7 +144,25 @@ export async function getAdminXanaxCompetition(): Promise<AdminXanaxCompetitionR
   return getJson<AdminXanaxCompetitionResponse>("/api/admin/xanax-competition", true);
 }
 
-export async function updateAdminXanaxCompetitionSettings(payload: {
+export async function getAdminShopliftingAlerts(): Promise<AdminShopliftingAlertsResponse> {
+
+  return getJson<AdminShopliftingAlertsResponse>("/api/admin/shoplifting-alerts", true);
+
+}
+
+export async function updateAdminShopliftingAlert(payload: {
+
+  shop_key: ShopliftingAlertSetting["shop_key"];
+
+  enabled: boolean;
+
+}): Promise<AdminShopliftingAlertsResponse> {
+
+  return postJson<AdminShopliftingAlertsResponse>("/api/admin/shoplifting-alerts", payload);
+
+}
+
+export async function updateAdminXanaxCompetitionSettings(payload: {
   enabled: boolean;
   base_prize: number;
   rollover_count: number;
