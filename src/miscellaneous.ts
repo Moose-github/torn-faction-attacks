@@ -15,8 +15,9 @@ const SHOPLIFTING_CACHE_ID = 1;
 const SHOPLIFTING_CRIME_URL = "https://www.torn.com/page.php?sid=crimes#/shoplifting";
 const SHOPLIFTING_SECURITY_ALERT_STATE_PREFIX = "shoplifting_security_alert";
 const SHOPLIFTING_SECURITY_ALERT_ENABLED_STATE_PREFIX = "shoplifting_security_alert_enabled";
+const SHOPLIFTING_SECURITY_ALERT_DISABLED_STATE_PREFIX = "shoplifting_security_alert_disabled";
 const SHOPLIFTING_SECURITY_ALERTS = [
-  { shopKey: "big_als", shopName: "Big Als", defaultEnabled: true, configurable: false },
+  { shopKey: "big_als", shopName: "Big Als", defaultEnabled: true, configurable: true },
   { shopKey: "jewelry_store", shopName: "Jewelry Store", defaultEnabled: false, configurable: true },
 ] as const;
 
@@ -74,9 +75,15 @@ export async function updateAdminShopliftingAlertSettings(request: Request, env:
   }
 
   if (body.enabled) {
-    await setSyncLatch(env, shopliftingAlertEnabledStateName(alert.shopKey), nowSeconds());
+    await clearSyncLatch(env, shopliftingAlertDisabledStateName(alert.shopKey));
+    if (!alert.defaultEnabled) {
+      await setSyncLatch(env, shopliftingAlertEnabledStateName(alert.shopKey), nowSeconds());
+    }
   } else {
     await clearSyncLatch(env, shopliftingAlertEnabledStateName(alert.shopKey));
+    if (alert.defaultEnabled) {
+      await setSyncLatch(env, shopliftingAlertDisabledStateName(alert.shopKey), nowSeconds());
+    }
     await clearShopliftingSecurityAlert(env, shopliftingAlertStateName(alert));
   }
 
@@ -254,12 +261,18 @@ async function readShopliftingSecurityAlertSettings(env: Env): Promise<Shoplifti
   const enabledStateNames = SHOPLIFTING_SECURITY_ALERTS
     .filter((alert) => !alert.defaultEnabled)
     .map((alert) => shopliftingAlertEnabledStateName(alert.shopKey));
+  const disabledStateNames = SHOPLIFTING_SECURITY_ALERTS
+    .filter((alert) => alert.defaultEnabled)
+    .map((alert) => shopliftingAlertDisabledStateName(alert.shopKey));
   const enabledOverrides = await readSetSyncLatches(env, enabledStateNames);
+  const disabledOverrides = await readSetSyncLatches(env, disabledStateNames);
 
   return SHOPLIFTING_SECURITY_ALERTS.map((alert) => ({
     shop_key: alert.shopKey,
     shop_name: alert.shopName,
-    enabled: alert.defaultEnabled || enabledOverrides.has(shopliftingAlertEnabledStateName(alert.shopKey)),
+    enabled: alert.defaultEnabled
+      ? !disabledOverrides.has(shopliftingAlertDisabledStateName(alert.shopKey))
+      : enabledOverrides.has(shopliftingAlertEnabledStateName(alert.shopKey)),
     configurable: alert.configurable,
   }));
 }
@@ -282,6 +295,10 @@ function shopliftingAlertStateName(alert: Pick<ShopliftingSecurityAlertConfig, "
 
 function shopliftingAlertEnabledStateName(shopKey: ShopliftingSecurityAlertConfig["shopKey"]): string {
   return `${SHOPLIFTING_SECURITY_ALERT_ENABLED_STATE_PREFIX}:${shopKey}`;
+}
+
+function shopliftingAlertDisabledStateName(shopKey: ShopliftingSecurityAlertConfig["shopKey"]): string {
+  return `${SHOPLIFTING_SECURITY_ALERT_DISABLED_STATE_PREFIX}:${shopKey}`;
 }
 
 function parseCachedShoplifting(value: string | null): Record<string, TornShopliftingObstacle[]> {

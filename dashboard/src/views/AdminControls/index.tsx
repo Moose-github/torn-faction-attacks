@@ -414,12 +414,11 @@ export function AdminControls() {
     : tornApiUsage
       ? `Last ${tornApiUsageWindowLabel}`
       : "No data";
-  const jewelryStoreAlert = shopliftingAlerts.find((alert) => alert.shop_key === "jewelry_store") ?? null;
   const shopliftingAlertStatus = isLoadingShopliftingAlerts
     ? "Loading"
-    : jewelryStoreAlert?.enabled
-      ? "Jewelry active"
-      : "Jewelry paused";
+    : shopliftingAlerts.length > 0
+      ? `${shopliftingAlerts.filter((alert) => alert.enabled).length}/${shopliftingAlerts.length} active`
+      : "Unavailable";
 
   return (
     <>
