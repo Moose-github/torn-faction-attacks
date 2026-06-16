@@ -1,32 +1,40 @@
-import { HOME_FACTION_ID, SOURCE_NAME } from "./constants";
+import { SOURCE_NAME } from "./constants";
 import { bumpWarCacheVersionById } from "./cacheVersions";
-import { ensureChainWatchEnabledForWar } from "./chainWatch";
 import { clearLiveEnemyTrackingData } from "./enemyScouting";
-import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
 import { WAR_RETURNING_COLUMNS } from "./sql";
 import { readSyncState, setSyncGlobalWarState } from "./syncState";
 import type { GlobalWarState } from "./syncState";
 import { Env, WarRow } from "./types";
-import { nowSeconds } from "./utils";
+import { d1Changes, nowSeconds } from "./utils";
+import {
+  refreshWarDerivedStats,
+  runWarOfficiallyEndedHooks,
+  runWarPracticallyFinishedHooks,
+  runWarScheduledHooks,
+  runWarStartedHooks,
+} from "./warLifecycleHooks";
 
 export async function startWarTracking(
   env: Env,
   options: { warId: number; startedAt: number },
 ): Promise<void> {
-  await env.DB.prepare(
+  const activateResult = await env.DB.prepare(
     `
     UPDATE wars
     SET status = 'active'
     WHERE id = ?
+      AND status = 'scheduled'
     `,
   )
     .bind(options.warId)
     .run();
 
+  if (d1Changes(activateResult) === 0) {
+    return;
+  }
+
   await setGlobalWarState(env, "current", options.warId, options.startedAt);
-  await ensureChainWatchEnabledForWar(env, options.warId);
-  await backfillWarAssignments(env, options.warId, options.startedAt);
-  await refreshWarDerivedStats(env, options.warId);
+  await runWarStartedHooks(env, options);
 }
 
 export async function clearCurrentWarState(env: Env, warId?: number): Promise<void> {
@@ -58,6 +66,7 @@ export async function readCurrentWarId(env: Env): Promise<number | null> {
 
 export async function setUpcomingWarState(env: Env, warId: number): Promise<void> {
   await setGlobalWarState(env, "upcoming", warId);
+  await runWarScheduledHooks(env, warId);
 }
 
 export async function recordWarPracticalFinish(
@@ -99,9 +108,10 @@ export async function recordWarPracticalFinish(
   }
 
   await setGlobalWarState(env, "practically_finished", options.warId);
-  await stopLiveEnemyTracking(env, options.warId, options.enemyFactionId);
-  await refreshWarDerivedStats(env, options.warId);
-  await bumpWarCacheVersionById(env, options.warId);
+  await runWarPracticallyFinishedHooks(env, {
+    warId: options.warId,
+    enemyFactionId: options.enemyFactionId,
+  });
 }
 
 export async function recordTermedWarPracticalFinish(
@@ -230,17 +240,10 @@ export async function applyTornOfficialWarEnd(
     .run();
 
   await setNextGlobalWarStateAfterOfficialEnd(env);
-  await stopLiveEnemyTracking(
-    env,
-    options.warId,
-    options.enemyFactionId ?? options.currentEnemyFactionId,
-  );
-  await bumpWarCacheVersionById(env, options.warId);
-}
-
-export async function refreshWarDerivedStats(env: Env, warId: number): Promise<void> {
-  await rebuildWarMemberStatsFromRaw(env, warId);
-  await rebuildWarSummaryFromMemberStats(env, warId);
+  await runWarOfficiallyEndedHooks(env, {
+    warId: options.warId,
+    enemyFactionId: options.enemyFactionId ?? options.currentEnemyFactionId,
+  });
 }
 
 async function setGlobalWarState(
@@ -264,32 +267,11 @@ async function setNextGlobalWarStateAfterOfficialEnd(env: Env): Promise<void> {
   ).first()) as { id: number } | null;
 
   if (scheduledWar) {
-    await setGlobalWarState(env, "upcoming", scheduledWar.id);
+    await setUpcomingWarState(env, scheduledWar.id);
     return;
   }
 
   await clearCurrentWarState(env);
-}
-
-async function backfillWarAssignments(
-  env: Env,
-  warId: number,
-  startedAt: number,
-): Promise<void> {
-  await env.DB.prepare(
-    `
-    UPDATE attacks
-    SET war_id = ?
-    WHERE war_id IS NULL
-      AND started >= ?
-      AND (
-        attacker_faction_id = ?
-        OR defender_faction_id = ?
-      )
-    `,
-  )
-    .bind(warId, startedAt, HOME_FACTION_ID, HOME_FACTION_ID)
-    .run();
 }
 
 async function readWarPracticalFinishTime(env: Env, warId: number): Promise<number | null> {

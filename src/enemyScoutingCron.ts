@@ -38,6 +38,10 @@ import { Env } from "./types";
 import { corsHeaders, d1Changes, finiteNumber, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./warRoomTracking";
 import {
+  runWarLiveStartedHooks,
+  runWarPreLiveStartedHooks,
+} from "./warLifecycleHooks";
+import {
   clearLiveEnemyTrackingData,
   fetchBspBattlestatPrediction,
   readCurrentScoutingWar,
@@ -115,6 +119,8 @@ export async function runEnemyScoutingCronTick(
       reason: "no current scouting war",
     };
   }
+
+  await runDueWarRoomLifecycleHooks(env, war, options.scheduledTime);
 
   const stateNames = buildEnemyTargetStateNames(war.id, war.enemy_faction_id);
   const activeLatches = await readSetSyncLatches(env, Object.values(stateNames));
@@ -294,6 +300,22 @@ async function refreshCurrentEnemyMemberTrackingForWar(
     war.enemy_scouting_status_checked_at,
     { includeMembers: options.includeMembers, warType: war.war_type },
   );
+}
+
+async function runDueWarRoomLifecycleHooks(
+  env: Env,
+  war: CurrentScoutingWar,
+  scheduledTime?: number,
+): Promise<void> {
+  const checkedAt = scheduledTime ? Math.floor(scheduledTime / 1000) : nowSeconds();
+
+  if (isWarRoomMemberTrackingActive(war, checkedAt)) {
+    await runWarPreLiveStartedHooks(env, war.id);
+  }
+
+  if (isWarRoomMemberTrackingLive(war, checkedAt)) {
+    await runWarLiveStartedHooks(env, war.id);
+  }
 }
 
 export async function refreshMissingFfscouterEstimates(

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyTornOfficialWarEnd, endWarPractically } from "./warLifecycle";
+import { applyTornOfficialWarEnd, endWarPractically, startWarTracking } from "./warLifecycle";
 import type { Env } from "./types";
 
 vi.mock("./cacheVersions", () => ({
@@ -12,6 +12,7 @@ vi.mock("./chainWatch", () => ({
 
 vi.mock("./enemyScouting", () => ({
   clearLiveEnemyTrackingData: vi.fn(),
+  fetchEnemyScoutingOnceForWar: vi.fn(),
 }));
 
 vi.mock("./summaries", () => ({
@@ -20,6 +21,44 @@ vi.mock("./summaries", () => ({
 }));
 
 describe("war lifecycle global state", () => {
+  it("starts a scheduled war through the war-start lifecycle hooks", async () => {
+    const db = fakeDb([], [
+      {
+        match: "SET status = 'active'",
+        result: { success: true, meta: { changes: 1 } },
+      },
+    ]);
+
+    await startWarTracking(envWithDb(db), {
+      warId: 7,
+      startedAt: 100,
+    });
+
+    expect(db.calls).toContainEqual(expect.objectContaining({
+      params: ["attacks", 100, 7, "current"],
+    }));
+    expect(db.calls.some((call) => call.params[0] === "war_lifecycle:war_started:7"))
+      .toBe(true);
+  });
+
+  it("does not run war-start hooks when activation loses the scheduled-war race", async () => {
+    const db = fakeDb([], [
+      {
+        match: "SET status = 'active'",
+        result: { success: true, meta: { changes: 0 } },
+      },
+    ]);
+
+    await startWarTracking(envWithDb(db), {
+      warId: 7,
+      startedAt: 100,
+    });
+
+    expect(db.calls.some((call) => call.params[0] === "war_lifecycle:war_started:7"))
+      .toBe(false);
+    expect(db.calls.some((call) => call.params.includes("current"))).toBe(false);
+  });
+
   it("manual practical finish keeps the war active and marks the global state practically finished", async () => {
     const db = fakeDb([
       {
@@ -73,6 +112,8 @@ describe("war lifecycle global state", () => {
     expect(db.calls).toContainEqual(expect.objectContaining({
       params: ["attacks", 12, "upcoming"],
     }));
+    expect(db.calls.some((call) => call.params[0] === "war_lifecycle:war_scheduled:12"))
+      .toBe(true);
   });
 });
 
@@ -93,7 +134,10 @@ function envWithDb(db: ReturnType<typeof fakeDb>): Env {
   return { DB: db } as unknown as Env;
 }
 
-function fakeDb(firstResults: Array<{ match: string; result: unknown }>) {
+function fakeDb(
+  firstResults: Array<{ match: string; result: unknown }>,
+  runResults: Array<{ match: string; result: unknown }> = [],
+) {
   const calls: Array<{ sql: string; params: unknown[] }> = [];
 
   return {
@@ -108,6 +152,12 @@ function fakeDb(firstResults: Array<{ match: string; result: unknown }>) {
           return this;
         },
         async run() {
+          const index = runResults.findIndex((entry) => sql.includes(entry.match));
+          if (index >= 0) {
+            const [entry] = runResults.splice(index, 1);
+            return entry.result;
+          }
+
           return { success: true };
         },
         async first() {

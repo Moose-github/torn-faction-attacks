@@ -7,7 +7,6 @@ import {
   SOURCE_NAME,
 } from "./constants";
 import { sendDiscordMessage } from "./discord";
-import { fetchEnemyScoutingOnceForWar } from "./enemyScouting";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   applyIncrementalWarSummaries,
@@ -1240,7 +1239,6 @@ async function syncUpcomingRankedWar(
 
   if (inserted) {
     await setUpcomingWarState(env, inserted.id);
-    await fetchEnemyScoutingOnceForWar(env, inserted.id);
   }
 }
 

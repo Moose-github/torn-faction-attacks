@@ -321,7 +321,7 @@ export async function refreshEnemyHitStatsForWar(url: URL, env: Env): Promise<Re
   });
 }
 
-export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Promise<void> {
+export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Promise<boolean> {
   const war = (await env.DB.prepare(
     `
     SELECT id, enemy_faction_id, enemy_scouting_auto_attempted_at
@@ -333,8 +333,12 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
     .bind(warId)
     .first()) as EnemyScoutingWar | null;
 
-  if (!war || war.enemy_faction_id === null || war.enemy_scouting_auto_attempted_at !== null) {
-    return;
+  if (!war || war.enemy_faction_id === null) {
+    return false;
+  }
+
+  if (war.enemy_scouting_auto_attempted_at !== null) {
+    return true;
   }
 
   let refreshed = false;
@@ -358,6 +362,8 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
         .run();
     }
   }
+
+  return refreshed;
 }
 
 async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: number): Promise<boolean> {
