@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { parseActiveWarFromUrl } from "./activeWar";
 import type {
   ActiveWarConfig,
   MemberMonitorSnapshot,
@@ -542,28 +543,8 @@ function isRecentlyActive(member: MemberMonitorSnapshot, observedAt: number): bo
 }
 
 function activeWarFromUrl(url: URL): ActiveWarConfig | Response {
-  const warId = Number(url.searchParams.get("warId"));
-  const warName = url.searchParams.get("warName")?.trim() ?? "";
-  const enemyFactionId = Number(url.searchParams.get("enemyFactionId"));
-  const tornWarIdRaw = url.searchParams.get("tornWarId");
-  const tornWarId = tornWarIdRaw ? Number(tornWarIdRaw) : null;
-
-  if (!Number.isInteger(warId) || warId <= 0) {
-    return Response.json({ ok: false, error: "Invalid warId" }, { status: 400 });
-  }
-  if (!warName) {
-    return Response.json({ ok: false, error: "Invalid warName" }, { status: 400 });
-  }
-  if (!Number.isInteger(enemyFactionId) || enemyFactionId <= 0) {
-    return Response.json({ ok: false, error: "Invalid enemyFactionId" }, { status: 400 });
-  }
-  if (tornWarIdRaw) {
-    if (!Number.isInteger(tornWarId) || tornWarId === null || tornWarId <= 0) {
-      return Response.json({ ok: false, error: "Invalid tornWarId" }, { status: 400 });
-    }
-  }
-
-  return { warId, warName, enemyFactionId, tornWarId: tornWarId ?? null };
+  const parsed = parseActiveWarFromUrl(url);
+  return parsed.ok ? parsed.activeWar : Response.json({ ok: false, error: parsed.error }, { status: 400 });
 }
 
 function emptyKeyState(alias: MonitorKeyAlias): MonitorKeyState {

@@ -2,7 +2,7 @@ import { bumpMemberLifestyleCacheVersion } from "../cacheVersions";
 import { refreshMemberAchievementSummaries } from "../memberAchievements";
 import { readSyncTimestamp, upsertSyncTimestamp } from "../syncState";
 import { Env } from "../types";
-import { d1Changes, json, nowSeconds } from "../utils";
+import { chunkArray, d1Changes, json, nowSeconds } from "../utils";
 import {
   TornPersonalStatsHttpError,
 } from "../personalStats";
@@ -138,7 +138,7 @@ export async function createMemberLifestyleRepairJob(request: Request, env: Env)
     }
   }
 
-  for (const batch of chunk(statements, 50)) {
+  for (const batch of chunkArray(statements, 50)) {
     await env.DB.batch(batch);
   }
 
@@ -949,12 +949,4 @@ function parseOptionalPositiveInteger(value: unknown): number | null {
 
 function repairKeyPauseStateName(keySource: string): string {
   return `${REPAIR_KEY_PAUSE_PREFIX}:${keySource}`;
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 }

@@ -705,7 +705,7 @@ function storedHitStatError(err: unknown): string {
     : message;
 }
 
-function emptyEnemyHitStatsRefreshMetrics(): EnemyHitStatsRefreshMetrics {
+export function emptyEnemyHitStatsRefreshMetrics(): EnemyHitStatsRefreshMetrics {
   return {
     writeStatements: 0,
     changedRows: 0,

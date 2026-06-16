@@ -1,4 +1,5 @@
 import { API_BASE_URL, authHeaders, getJson, postJson } from "./client";
+import { queryString } from "./query";
 import type { AdminShopliftingAlertsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse } from "./types";
 
 export async function runIngestion(): Promise<unknown> {
@@ -20,8 +21,7 @@ export async function getLatestMaintenanceRun(): Promise<MaintenanceRunResponse>
 }
 
 export async function getTornApiUsage(windowSeconds = 24 * 60 * 60): Promise<TornApiUsageResponse> {
-  const params = new URLSearchParams({ window_seconds: String(windowSeconds) });
-  return getJson<TornApiUsageResponse>(`/api/admin/torn-api-usage?${params.toString()}`, true);
+  return getJson<TornApiUsageResponse>(`/api/admin/torn-api-usage${queryString({ window_seconds: windowSeconds })}`, true);
 }
 
 export async function updateHomeFactionReportExemption(payload: {
@@ -133,11 +133,11 @@ export async function restartLiveEnemyTracking(warId: number): Promise<unknown> 
   return postJson("/api/admin/live-enemy-tracking/restart", { war_id: warId });
 }
 
-export async function getAdminSuggestions(limit = 12): Promise<AdminSuggestionsResponse> {
-  return getJson<AdminSuggestionsResponse>(
-    `/api/admin/suggestions?limit=${encodeURIComponent(String(limit))}`,
-    true,
-  );
+export async function getAdminSuggestions(limit = 12): Promise<AdminSuggestionsResponse> {
+  return getJson<AdminSuggestionsResponse>(
+    `/api/admin/suggestions${queryString({ limit })}`,
+    true,
+  );
 }
 
 export async function getAdminXanaxCompetition(): Promise<AdminXanaxCompetitionResponse> {

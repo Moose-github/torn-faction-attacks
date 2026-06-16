@@ -6,11 +6,23 @@ import {
   RANKED_WAR_REPORT_API_BASE_URL,
 } from "./constants";
 import { bumpWarCacheVersion } from "./cacheVersions";
-import { warNameFromWarRoute } from "./routes";
 import { OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { fetchTrackedTornJson } from "./external/torn";
 import { Env, TornRankedWarReport, TornRankedWarReportResponse } from "./types";
 import { json, nowSeconds } from "./utils";
+import { readWarFromUrl } from "./warRequest";
+
+type WarReportRouteWar = {
+  id: number;
+  name: string;
+  torn_war_id: number | null;
+  practical_start_time: number;
+  practical_finish_time: number | null;
+  official_start_time: number | null;
+  official_end_time: number | null;
+  enemy_faction_id: number | null;
+  war_type: string | null;
+};
 
 export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response> {
   try {
@@ -72,15 +84,8 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
 
 export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Response> {
   try {
-    const name = warNameFromWarRoute(url);
-
-    if (!name) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
-    }
-
-    const war = (await env.DB.prepare(
-      `
-      SELECT
+    const war = await readWarFromUrl<WarReportRouteWar>(url, env, {
+      select: `
         id,
         name,
         torn_war_id,
@@ -90,27 +95,9 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         official_end_time,
         enemy_faction_id,
         war_type
-      FROM wars
-      WHERE LOWER(name) = LOWER(?)
-      LIMIT 1
       `,
-    )
-      .bind(name)
-      .first()) as {
-      id: number;
-      name: string;
-      torn_war_id: number | null;
-      practical_start_time: number;
-      practical_finish_time: number | null;
-      official_start_time: number | null;
-      official_end_time: number | null;
-      enemy_faction_id: number | null;
-      war_type: string | null;
-    } | null;
-
-    if (!war) {
-      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
-    }
+    });
+    if (war instanceof Response) return war;
 
     const officialStartTime = war.official_start_time ?? war.practical_start_time;
     const officialEndTime = war.official_end_time;

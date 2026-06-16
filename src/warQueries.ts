@@ -10,17 +10,36 @@ import {
 import {
   DEFENSE_ACTION_WINDOW_SQL,
   OUTGOING_ACTION_WINDOW_SQL,
-  WAR_SELECT_COLUMNS,
   WAR_SELECT_COLUMNS_WITH_ALIAS,
 } from "./sql";
-import { warNameFromWarRoute } from "./routes";
 import { readSyncState } from "./syncState";
-import { Env, WarRow, WarSummaryRow } from "./types";
+import { Env, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
+import { readWarFromUrl } from "./warRequest";
 
 const REPORTABLE_HOME_MEMBER_FILTER_SQL = "COALESCE(h.report_exempt, 0) = 0";
 const CURRENT_HOME_MEMBER_FILTER_SQL = "COALESCE(h.is_current, 0) = 1";
 type ReportableHomeMemberJoinTarget = "wms.member_id" | "buckets.member_id";
+type WarIdentityRow = { id: number; name: string };
+type WarMemberAttacksRouteWar = {
+  id: number;
+  name: string;
+  practical_start_time: number;
+  practical_finish_time: number | null;
+  official_start_time: number | null;
+  official_end_time: number | null;
+  status: string;
+  enemy_faction_id: number | null;
+};
+type WarActivityRouteWar = {
+  id: number;
+  name: string;
+  enemy_faction_id: number | null;
+  practical_start_time: number;
+  practical_finish_time: number | null;
+  official_start_time: number | null;
+  official_end_time: number | null;
+};
 
 function reportableHomeMemberJoinSql(memberIdColumn: ReportableHomeMemberJoinTarget): string {
   return `LEFT JOIN home_faction_members h ON h.member_id = ${memberIdColumn}`;
@@ -72,27 +91,8 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
 
 export async function getWar(url: URL, env: Env): Promise<Response> {
   try {
-    const name = warNameFromWarRoute(url);
-
-    if (!name) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
-    }
-
-    const war = (await env.DB.prepare(
-      `
-      SELECT
-        ${WAR_SELECT_COLUMNS}
-      FROM wars
-      WHERE LOWER(name) = LOWER(?)
-      LIMIT 1
-      `,
-    )
-      .bind(name)
-      .first()) as WarRow | null;
-
-    if (!war) {
-      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
-    }
+    const war = await readWarFromUrl(url, env);
+    if (war instanceof Response) return war;
 
     const summary = (await env.DB.prepare(
       `
@@ -136,27 +136,9 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
 
 export async function getWarChainBonusesForWar(url: URL, env: Env): Promise<Response> {
   try {
-    const name = warNameFromWarRoute(url);
-
-    if (!name) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
-    }
-
     const limit = parseLimit(url.searchParams.get("limit"), 25, 100);
-    const war = (await env.DB.prepare(
-      `
-      SELECT id, name
-      FROM wars
-      WHERE LOWER(name) = LOWER(?)
-      LIMIT 1
-      `,
-    )
-      .bind(name)
-      .first()) as { id: number; name: string } | null;
-
-    if (!war) {
-      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
-    }
+    const war = await readWarFromUrl<WarIdentityRow>(url, env, { select: "id, name" });
+    if (war instanceof Response) return war;
 
     const chainBonuses = await env.DB.prepare(
       `
@@ -204,29 +186,9 @@ export async function getWarChainBonusesForWar(url: URL, env: Env): Promise<Resp
 
 export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
   try {
-    const name = warNameFromWarRoute(url);
-
-    if (!name) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
-    }
-
     const limit = parseLimit(url.searchParams.get("limit"), 100, 250);
-
-    const war = (await env.DB.prepare(
-      `
-      SELECT
-        ${WAR_SELECT_COLUMNS}
-      FROM wars
-      WHERE LOWER(name) = LOWER(?)
-      LIMIT 1
-      `,
-    )
-      .bind(name)
-      .first()) as WarRow | null;
-
-    if (!war) {
-      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
-    }
+    const war = await readWarFromUrl(url, env);
+    if (war instanceof Response) return war;
 
     const attacks = await env.DB.prepare(
       `
@@ -257,40 +219,16 @@ export async function getWarAttacks(url: URL, env: Env): Promise<Response> {
 export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response> {
   try {
     const parts = url.pathname.split("/");
-    const name = warNameFromWarRoute(url);
     const memberId = Number(parts[5]);
-
-    if (!name) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
-    }
 
     if (!Number.isInteger(memberId) || memberId <= 0) {
       return json({ ok: false, error: "Invalid member id", code: "INVALID_MEMBER_ID" }, 400);
     }
 
-    const war = (await env.DB.prepare(
-      `
-      SELECT id, name, practical_start_time, practical_finish_time, official_start_time, official_end_time, status, enemy_faction_id
-      FROM wars
-      WHERE LOWER(name) = LOWER(?)
-      LIMIT 1
-      `,
-    )
-      .bind(name)
-      .first()) as {
-      id: number;
-      name: string;
-      practical_start_time: number;
-      practical_finish_time: number | null;
-      official_start_time: number | null;
-      official_end_time: number | null;
-      status: string;
-      enemy_faction_id: number | null;
-    } | null;
-
-    if (!war) {
-      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
-    }
+    const war = await readWarFromUrl<WarMemberAttacksRouteWar>(url, env, {
+      select: "id, name, practical_start_time, practical_finish_time, official_start_time, official_end_time, status, enemy_faction_id",
+    });
+    if (war instanceof Response) return war;
 
     const rows = await env.DB.prepare(
       `
@@ -376,12 +314,6 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
 
 export async function getWarActivity(url: URL, env: Env): Promise<Response> {
   try {
-    const name = warNameFromWarRoute(url);
-
-    if (!name) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
-    }
-
     const bucketMinutes = parseBucketMinutes(url.searchParams.get("bucket_minutes"));
     const bucketSeconds = bucketMinutes * 60;
     const windowMode = parseActivityWindow(url.searchParams.get("window"));
@@ -393,9 +325,8 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
     const activityWindowSql =
       windowMode === "official" ? OFFICIAL_ACTIVITY_WINDOW_SQL : PRACTICAL_ACTIVITY_WINDOW_SQL;
 
-    const war = (await env.DB.prepare(
-      `
-      SELECT
+    const war = await readWarFromUrl<WarActivityRouteWar>(url, env, {
+      select: `
         id,
         name,
         enemy_faction_id,
@@ -403,25 +334,9 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
         practical_finish_time,
         official_start_time,
         official_end_time
-      FROM wars
-      WHERE LOWER(name) = LOWER(?)
-      LIMIT 1
       `,
-    )
-      .bind(name)
-      .first()) as {
-      id: number;
-      name: string;
-      enemy_faction_id: number | null;
-      practical_start_time: number;
-      practical_finish_time: number | null;
-      official_start_time: number | null;
-      official_end_time: number | null;
-    } | null;
-
-    if (!war) {
-      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
-    }
+    });
+    if (war instanceof Response) return war;
 
     const canUseMaterializedBuckets = windowMode === "practical" && bucketSeconds % (15 * 60) === 0;
     const rows = canUseMaterializedBuckets
@@ -582,17 +497,10 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
 
 export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<Response> {
   try {
-    const name = warNameFromWarRoute(url);
-
-    if (!name) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
-    }
-
     const bucketMinutes = 15;
     const bucketSeconds = bucketMinutes * 60;
-    const war = (await env.DB.prepare(
-      `
-      SELECT
+    const war = await readWarFromUrl<WarActivityRouteWar>(url, env, {
+      select: `
         id,
         name,
         enemy_faction_id,
@@ -600,25 +508,9 @@ export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<R
         practical_finish_time,
         official_start_time,
         official_end_time
-      FROM wars
-      WHERE LOWER(name) = LOWER(?)
-      LIMIT 1
       `,
-    )
-      .bind(name)
-      .first()) as {
-      id: number;
-      name: string;
-      enemy_faction_id: number | null;
-      practical_start_time: number;
-      practical_finish_time: number | null;
-      official_start_time: number | null;
-      official_end_time: number | null;
-    } | null;
-
-    if (!war) {
-      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
-    }
+    });
+    if (war instanceof Response) return war;
 
     const startBucket = Math.floor(war.practical_start_time / bucketSeconds) * bucketSeconds;
     const finishAt = war.practical_finish_time ?? nowSeconds();

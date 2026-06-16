@@ -1,19 +1,16 @@
 import { API_BASE_URL, authHeaders, filenameFromContentDisposition, getJson, postJson } from "./client";
+import { queryString } from "./query";
 import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarDetailResponse, WarMemberActivityHeatmapResponse, WarsResponse, WarType } from "./types";
 
 export async function getStats(
   warType: WarType,
   options: { currentMembersOnly?: boolean } = {},
-): Promise<StatsResponse> {
-  const params = new URLSearchParams();
-  if (warType !== "all") {
-    params.set("war_type", warType);
-  }
-  if (options.currentMembersOnly) {
-    params.set("current_members", "1");
-  }
-  const suffix = params.size > 0 ? `?${params.toString()}` : "";
-  return getJson<StatsResponse>(`/api/stats${suffix}`);
+): Promise<StatsResponse> {
+  const suffix = queryString({
+    war_type: warType === "all" ? undefined : warType,
+    current_members: options.currentMembersOnly ? 1 : undefined,
+  });
+  return getJson<StatsResponse>(`/api/stats${suffix}`);
 }
 
 export async function getWars(warType: WarType): Promise<WarsResponse> {
@@ -45,11 +42,11 @@ export async function getWarActivity(
 export async function getWarActivityHeatmap(
   warName: string,
   warId?: number,
-): Promise<FactionActivityHeatmapResponse> {
-  const query = typeof warId === "number" ? `?war_id=${encodeURIComponent(String(warId))}` : "";
-  return getJson<FactionActivityHeatmapResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/activity-heatmap${query}`,
-  );
+): Promise<FactionActivityHeatmapResponse> {
+  const query = queryString({ war_id: warId });
+  return getJson<FactionActivityHeatmapResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/activity-heatmap${query}`,
+  );
 }
 
 export async function getWarMemberActivityHeatmap(
@@ -113,11 +110,11 @@ export async function getScoutingComparison(
 export async function getEnemyPushPressure(
   warName: string,
   options: { includeHistory?: boolean } = {},
-): Promise<EnemyPushPressureResponse> {
-  const query = options.includeHistory === false ? "?include_history=0" : "";
-  return getJson<EnemyPushPressureResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/enemy-push-pressure${query}`,
-  );
+): Promise<EnemyPushPressureResponse> {
+  const query = queryString({ include_history: options.includeHistory === false ? 0 : undefined });
+  return getJson<EnemyPushPressureResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/enemy-push-pressure${query}`,
+  );
 }
 
 export async function updateOfficialWar(payload: AdminWarPayload): Promise<unknown> {
@@ -183,27 +180,22 @@ export async function refreshEnemyScouting(warName: string): Promise<EnemyScouti
   );
 }
 
-export async function exportWarAttacksCsv(options: AttackExportOptions): Promise<void> {
-  const params = new URLSearchParams({
-    format: "csv",
-    scope: options.scope,
-    start_window: options.startWindow,
-    finish_window: options.finishWindow,
-    linked_status: options.linkedStatus,
-    columns: options.columns,
-  });
-
-  if (options.customStart !== undefined) {
-    params.set("custom_start", String(options.customStart));
-  }
-  if (options.customFinish !== undefined) {
-    params.set("custom_finish", String(options.customFinish));
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/api/wars/${encodeURIComponent(options.warName)}/attacks?${params.toString()}`,
-    { headers: authHeaders(true) },
-  );
+export async function exportWarAttacksCsv(options: AttackExportOptions): Promise<void> {
+  const query = queryString({
+    format: "csv",
+    scope: options.scope,
+    start_window: options.startWindow,
+    finish_window: options.finishWindow,
+    linked_status: options.linkedStatus,
+    columns: options.columns,
+    custom_start: options.customStart,
+    custom_finish: options.customFinish,
+  });
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/wars/${encodeURIComponent(options.warName)}/attacks${query}`,
+    { headers: authHeaders(true) },
+  );
 
   if (!response.ok) {
     const text = await response.text();
@@ -232,4 +224,6 @@ export async function exportWarAttacksCsv(options: AttackExportOptions): Promise
   window.URL.revokeObjectURL(downloadUrl);
 }
 
-function queryForWarType(warType: WarType): string { return warType === "all" ? "" : `?war_type=${encodeURIComponent(warType)}`; }
+function queryForWarType(warType: WarType): string {
+  return queryString({ war_type: warType === "all" ? undefined : warType });
+}

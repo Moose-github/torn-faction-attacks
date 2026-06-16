@@ -1,32 +1,12 @@
 import { HOME_FACTION_ID } from "./constants";
-import { warNameFromWarRoute } from "./routes";
-import { WAR_SELECT_COLUMNS } from "./sql";
 import { Env, WarRow } from "./types";
 import { corsHeaders, json, nowSeconds } from "./utils";
+import { readWarFromUrl } from "./warRequest";
 
 export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response> {
   try {
-    const name = warNameFromWarRoute(url);
-
-    if (!name) {
-      return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
-    }
-
-    const war = (await env.DB.prepare(
-      `
-      SELECT
-        ${WAR_SELECT_COLUMNS}
-      FROM wars
-      WHERE LOWER(name) = LOWER(?)
-      LIMIT 1
-      `,
-    )
-      .bind(name)
-      .first()) as WarRow | null;
-
-    if (!war) {
-      return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
-    }
+    const war = await readWarFromUrl(url, env);
+    if (war instanceof Response) return war;
 
     const scope = parseExportOption(url.searchParams.get("scope"), [
       "all",

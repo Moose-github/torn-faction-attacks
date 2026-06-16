@@ -8,11 +8,11 @@ import {
 import { createDiscordWebhookMessage, type DiscordAllowedMentions, editDiscordWebhookMessage } from "./discord";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
-import { warNameFromWarRoute } from "./routes";
 import { WAR_SELECT_COLUMNS, WAR_SELECT_COLUMNS_WITH_ALIAS } from "./sql";
 import { Env, WarRow } from "./types";
 import { finiteNumber, json, nowSeconds } from "./utils";
 import { readJsonObject } from "./backend/request";
+import { readWarFromUrl } from "./warRequest";
 
 export const CHAIN_WATCH_TIMEOUT_SECONDS = 5 * 60;
 export const CHAIN_WATCH_WARNING_60_OFFSET_SECONDS = 4 * 60;
@@ -994,23 +994,7 @@ async function readWarById(env: Env, warId: number): Promise<WarRow | null> {
 }
 
 async function readWarForChainWatchUrl(url: URL, env: Env): Promise<WarRow | Response> {
-  const name = warNameFromWarRoute(url);
-  if (!name) {
-    return json({ ok: false, error: "Invalid war name", code: "INVALID_WAR_NAME" }, 400);
-  }
-
-  const war = (await env.DB.prepare(
-    `
-    SELECT ${WAR_SELECT_COLUMNS}
-    FROM wars
-    WHERE LOWER(name) = LOWER(?)
-    LIMIT 1
-    `,
-  )
-    .bind(name)
-    .first()) as WarRow | null;
-
-  return war ?? json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
+  return readWarFromUrl(url, env);
 }
 
 async function readChainWatchState(env: Env, warId: number): Promise<ChainWatchStateRow | null> {

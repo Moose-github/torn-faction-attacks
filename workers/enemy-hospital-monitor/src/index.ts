@@ -1,4 +1,5 @@
 import { EnemyHospitalMonitor } from "./EnemyHospitalMonitor";
+import { parseActiveWarFromUrl } from "./activeWar";
 import type { ActiveWarConfig, MonitorEnv } from "./types";
 
 export { EnemyHospitalMonitor };
@@ -44,28 +45,8 @@ export default {
 };
 
 function activeWarFromUrl(url: URL): ActiveWarConfig | Response {
-  const warId = Number(url.searchParams.get("warId"));
-  const warName = url.searchParams.get("warName")?.trim() ?? "";
-  const enemyFactionId = Number(url.searchParams.get("enemyFactionId"));
-  const tornWarIdRaw = url.searchParams.get("tornWarId");
-  const tornWarId = tornWarIdRaw ? Number(tornWarIdRaw) : null;
-
-  if (!Number.isInteger(warId) || warId <= 0) {
-    return json({ ok: false, error: "Invalid warId" }, 400);
-  }
-  if (!warName) {
-    return json({ ok: false, error: "Invalid warName" }, 400);
-  }
-  if (!Number.isInteger(enemyFactionId) || enemyFactionId <= 0) {
-    return json({ ok: false, error: "Invalid enemyFactionId" }, 400);
-  }
-  if (tornWarIdRaw) {
-    if (!Number.isInteger(tornWarId) || tornWarId === null || tornWarId <= 0) {
-      return json({ ok: false, error: "Invalid tornWarId" }, 400);
-    }
-  }
-
-  return { warId, warName, enemyFactionId, tornWarId: tornWarId ?? null };
+  const parsed = parseActiveWarFromUrl(url);
+  return parsed.ok ? parsed.activeWar : json({ ok: false, error: parsed.error }, 400);
 }
 
 async function requireMonitorTicket(

@@ -15,6 +15,7 @@ import {
 } from "./enemyTargetLifecycle";
 import {
   ENEMY_HIT_STAT_PER_KEY_LIMIT,
+  emptyEnemyHitStatsRefreshMetrics,
   refreshMissingEnemyHitStats,
   type EnemyHitStatsRefreshMetrics,
 } from "./enemyHitStats";
@@ -1022,19 +1023,6 @@ function emptyEnemyScoutingCronTickMetrics(): EnemyScoutingCronTickMetrics {
     hitStats: emptyEnemyHitStatsRefreshMetrics(),
     bsp: emptyBspBattlestatRefreshMetrics(),
     image: { sent: false, skipped: true, reason: "not checked" },
-  };
-}
-
-function emptyEnemyHitStatsRefreshMetrics(): EnemyHitStatsRefreshMetrics {
-  return {
-    writeStatements: 0,
-    changedRows: 0,
-    candidates: 0,
-    updated: 0,
-    failed: 0,
-    rateLimited: 0,
-    activeKeys: 0,
-    skipped: true,
   };
 }
 

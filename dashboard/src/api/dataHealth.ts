@@ -1,4 +1,5 @@
 import { getJson, postJson } from "./client";
+import { queryString } from "./query";
 import type {
   AdminDataHealthResponse,
   DataHealthSettings,
@@ -13,11 +14,11 @@ export async function getAdminDataHealth(
   windowSeconds = 60 * 60,
   includeBreakdown = false,
 ): Promise<AdminDataHealthResponse> {
-  const params = new URLSearchParams({ window_seconds: String(windowSeconds) });
-  if (includeBreakdown) {
-    params.set("include_breakdown", "1");
-  }
-  return getJson<AdminDataHealthResponse>(`/api/admin/data-health?${params.toString()}`, true);
+  const suffix = queryString({
+    window_seconds: windowSeconds,
+    include_breakdown: includeBreakdown ? 1 : undefined,
+  });
+  return getJson<AdminDataHealthResponse>(`/api/admin/data-health${suffix}`, true);
 }
 
 export async function updateDataHealthSettings(

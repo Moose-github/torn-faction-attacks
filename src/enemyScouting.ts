@@ -38,6 +38,7 @@ import { fetchTrackedTornJson } from "./external/torn";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import {
   boolToInt,
+  chunkArray,
   cleanText,
   d1Changes,
   finiteNumber,
@@ -1102,7 +1103,7 @@ export async function refreshMissingFfBattlestats(
     .filter((row) => row.ff_battlestats === null)
     .map((row) => row.member_id);
 
-  for (const ids of chunks(missingIds, FFSCOUTER_BATCH_SIZE)) {
+  for (const ids of chunkArray(missingIds, FFSCOUTER_BATCH_SIZE)) {
     const estimates = await fetchFfscouterStats(env, ids).catch((err) => {
       console.warn("FFScouter stats fetch failed:", err?.message || err);
       return new Map<number, FfBattlestatEstimate>();
@@ -1327,12 +1328,4 @@ function jsonEnemyScouting(
       ...buildTravelDisplay(row),
     })),
   });
-}
-
-function chunks<T>(values: T[], size: number): T[][] {
-  const result: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    result.push(values.slice(index, index + size));
-  }
-  return result;
 }
