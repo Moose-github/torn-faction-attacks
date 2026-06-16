@@ -30,7 +30,10 @@ export async function startWarTracking(
     .run();
 
   if (d1Changes(activateResult) === 0) {
-    return;
+    const existing = await readWarLifecycleStatus(env, options.warId);
+    if (existing?.status !== "active") {
+      return;
+    }
   }
 
   await setGlobalWarState(env, "current", options.warId, options.startedAt);
@@ -253,6 +256,22 @@ async function setGlobalWarState(
   lastStarted?: number,
 ): Promise<void> {
   await setSyncGlobalWarState(env, SOURCE_NAME, warState, warId, lastStarted);
+}
+
+async function readWarLifecycleStatus(
+  env: Env,
+  warId: number,
+): Promise<{ status: string } | null> {
+  return (await env.DB.prepare(
+    `
+    SELECT status
+    FROM wars
+    WHERE id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first()) as { status: string } | null;
 }
 
 async function setNextGlobalWarStateAfterOfficialEnd(env: Env): Promise<void> {

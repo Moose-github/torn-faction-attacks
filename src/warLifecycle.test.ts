@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { applyTornOfficialWarEnd, endWarPractically, startWarTracking } from "./warLifecycle";
+import { runWarLiveStartedHooks } from "./warLifecycleHooks";
 import type { Env } from "./types";
 
 vi.mock("./cacheVersions", () => ({
@@ -41,8 +42,38 @@ describe("war lifecycle global state", () => {
       .toBe(true);
   });
 
-  it("does not run war-start hooks when activation loses the scheduled-war race", async () => {
-    const db = fakeDb([], [
+  it("recovers war-start hooks when activation already marked the war active", async () => {
+    const db = fakeDb([
+      {
+        match: "SELECT status",
+        result: { status: "active" },
+      },
+    ], [
+      {
+        match: "SET status = 'active'",
+        result: { success: true, meta: { changes: 0 } },
+      },
+    ]);
+
+    await startWarTracking(envWithDb(db), {
+      warId: 7,
+      startedAt: 100,
+    });
+
+    expect(db.calls).toContainEqual(expect.objectContaining({
+      params: ["attacks", 100, 7, "current"],
+    }));
+    expect(db.calls.some((call) => call.params[0] === "war_lifecycle:war_started:7"))
+      .toBe(true);
+  });
+
+  it("does not run war-start hooks when activation finds a non-active war", async () => {
+    const db = fakeDb([
+      {
+        match: "SELECT status",
+        result: { status: "ended" },
+      },
+    ], [
       {
         match: "SET status = 'active'",
         result: { success: true, meta: { changes: 0 } },
@@ -57,6 +88,20 @@ describe("war lifecycle global state", () => {
     expect(db.calls.some((call) => call.params[0] === "war_lifecycle:war_started:7"))
       .toBe(false);
     expect(db.calls.some((call) => call.params.includes("current"))).toBe(false);
+  });
+
+  it("does not rewrite an already-complete empty lifecycle phase", async () => {
+    const db = fakeDb([
+      {
+        match: "FROM sync_state",
+        result: { 1: 1 },
+      },
+    ]);
+
+    await runWarLiveStartedHooks(envWithDb(db), 7);
+
+    expect(db.calls.some((call) => call.sql.includes("INSERT INTO sync_state")))
+      .toBe(false);
   });
 
   it("manual practical finish keeps the war active and marks the global state practically finished", async () => {

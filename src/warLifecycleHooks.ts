@@ -117,10 +117,27 @@ async function runWarLifecycleHandlersOnce(
   warId: number,
   handlers: WarLifecycleHandler[],
 ): Promise<void> {
+  const phaseLatchName = warLifecyclePhaseLatchName(phase, warId);
+  const phaseLatchSet = await isSyncLatchSet(env, phaseLatchName);
+  const handlerLatchNames = handlers.map((handler) =>
+    warLifecycleHandlerLatchName(phase, warId, handler.name),
+  );
+
+  if (phaseLatchSet && handlerLatchNames.length === 0) {
+    return;
+  }
+
+  if (phaseLatchSet && handlerLatchNames.length > 0) {
+    const handlerLatches = await Promise.all(handlerLatchNames.map((name) => isSyncLatchSet(env, name)));
+    if (handlerLatches.every(Boolean)) {
+      return;
+    }
+  }
+
   let completed = true;
 
-  for (const handler of handlers) {
-    const latchName = warLifecycleHandlerLatchName(phase, warId, handler.name);
+  for (const [index, handler] of handlers.entries()) {
+    const latchName = handlerLatchNames[index];
     if (await isSyncLatchSet(env, latchName)) {
       continue;
     }
@@ -134,8 +151,8 @@ async function runWarLifecycleHandlersOnce(
     await setSyncLatch(env, latchName, nowSeconds());
   }
 
-  if (completed) {
-    await setSyncLatch(env, warLifecyclePhaseLatchName(phase, warId), nowSeconds());
+  if (completed && !phaseLatchSet) {
+    await setSyncLatch(env, phaseLatchName, nowSeconds());
   }
 }
 
