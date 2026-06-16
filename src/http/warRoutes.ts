@@ -49,84 +49,14 @@ import {
   RouteResult,
   withAdmin,
 } from "./context";
+import { routeExact, type ExactRoute } from "./routeTable";
 
 export async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, url } = routeContext;
 
-  if (matchesExactRoute(url, request, "/api/wars", "POST")) {
-    return withAdmin(routeContext, () =>
-      json(
-        {
-          ok: false,
-          error: "Manual war creation is disabled. Wars are auto-created from Torn or imported after they finish.",
-          code: "MANUAL_WAR_CREATION_DISABLED",
-        },
-        410,
-      ),
-    );
-  }
-
-  if (matchesExactRoute(url, request, "/api/wars/import", "POST")) {
-    return withAdmin(routeContext, () => importHistoricalWar(request, env));
-  }
-
-  if (matchesExactRoute(url, request, "/api/wars/import-event", "POST")) {
-    return withAdmin(routeContext, () =>
-      json(
-        {
-          ok: false,
-          error: "Manual event import is disabled. Use historical war import for war records.",
-          code: "MANUAL_EVENT_IMPORT_DISABLED",
-        },
-        410,
-      ),
-    );
-  }
-
-  if (matchesExactRoute(url, request, "/api/wars/import/preview", "POST")) {
-    return withAdmin(routeContext, () => previewHistoricalWarImport(request, env));
-  }
-
-  if (matchesExactRoute(url, request, "/api/wars/import-event/preview", "POST")) {
-    return withAdmin(routeContext, () =>
-      json(
-        {
-          ok: false,
-          error: "Manual event import preview is disabled.",
-          code: "MANUAL_EVENT_IMPORT_DISABLED",
-        },
-        410,
-      ),
-    );
-  }
-
-  if (matchesExactRoute(url, request, "/api/wars/update-official", "POST")) {
-    return withAdmin(routeContext, () => updateOfficialWar(request, env));
-  }
-
-  if (matchesExactRoute(url, request, "/api/wars/update-event", "POST")) {
-    return withAdmin(routeContext, () =>
-      json(
-        {
-          ok: false,
-          error: "Manual event editing is disabled.",
-          code: "MANUAL_EVENT_EDIT_DISABLED",
-        },
-        410,
-      ),
-    );
-  }
-
-  if (matchesExactRoute(url, request, "/api/wars/delete", "POST")) {
-    return withAdmin(routeContext, () => deleteWar(request, env));
-  }
-
-  if (matchesExactRoute(url, request, "/api/wars/relink-attacks", "POST")) {
-    return withAdmin(routeContext, () => relinkWarAttacks(request, env));
-  }
-
-  if (matchesExactRoute(url, request, "/api/wars/end", "POST")) {
-    return withAdmin(routeContext, () => endActiveWar(request, env));
+  const exactRouteResult = await routeExact(routeContext, warCommandExactRoutes(request, env));
+  if (exactRouteResult) {
+    return exactRouteResult;
   }
 
   if (isTornWarReportFetchRoute(url, request)) {
@@ -158,6 +88,89 @@ export async function routeWarCommands(routeContext: RouteContext): Promise<Rout
   }
 
   return null;
+}
+
+function warCommandExactRoutes(request: Request, env: RouteContext["env"]): ExactRoute[] {
+  return [
+    {
+      path: "/api/wars",
+      method: "POST",
+      handle: (routeContext) =>
+        withAdmin(routeContext, () =>
+          disabledWarCommandResponse(
+            "Manual war creation is disabled. Wars are auto-created from Torn or imported after they finish.",
+            "MANUAL_WAR_CREATION_DISABLED",
+          ),
+        ),
+    },
+    {
+      path: "/api/wars/import",
+      method: "POST",
+      handle: (routeContext) => withAdmin(routeContext, () => importHistoricalWar(request, env)),
+    },
+    {
+      path: "/api/wars/import-event",
+      method: "POST",
+      handle: (routeContext) =>
+        withAdmin(routeContext, () =>
+          disabledWarCommandResponse(
+            "Manual event import is disabled. Use historical war import for war records.",
+            "MANUAL_EVENT_IMPORT_DISABLED",
+          ),
+        ),
+    },
+    {
+      path: "/api/wars/import/preview",
+      method: "POST",
+      handle: (routeContext) => withAdmin(routeContext, () => previewHistoricalWarImport(request, env)),
+    },
+    {
+      path: "/api/wars/import-event/preview",
+      method: "POST",
+      handle: (routeContext) =>
+        withAdmin(routeContext, () =>
+          disabledWarCommandResponse(
+            "Manual event import preview is disabled.",
+            "MANUAL_EVENT_IMPORT_DISABLED",
+          ),
+        ),
+    },
+    {
+      path: "/api/wars/update-official",
+      method: "POST",
+      handle: (routeContext) => withAdmin(routeContext, () => updateOfficialWar(request, env)),
+    },
+    {
+      path: "/api/wars/update-event",
+      method: "POST",
+      handle: (routeContext) =>
+        withAdmin(routeContext, () =>
+          disabledWarCommandResponse(
+            "Manual event editing is disabled.",
+            "MANUAL_EVENT_EDIT_DISABLED",
+          ),
+        ),
+    },
+    {
+      path: "/api/wars/delete",
+      method: "POST",
+      handle: (routeContext) => withAdmin(routeContext, () => deleteWar(request, env)),
+    },
+    {
+      path: "/api/wars/relink-attacks",
+      method: "POST",
+      handle: (routeContext) => withAdmin(routeContext, () => relinkWarAttacks(request, env)),
+    },
+    {
+      path: "/api/wars/end",
+      method: "POST",
+      handle: (routeContext) => withAdmin(routeContext, () => endActiveWar(request, env)),
+    },
+  ];
+}
+
+function disabledWarCommandResponse(error: string, code: string): Response {
+  return json({ ok: false, error, code }, 410);
 }
 
 export async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
