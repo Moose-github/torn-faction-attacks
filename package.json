@@ -23,9 +23,10 @@
 	"private": true,
 	"scripts": {
 		"cf-typegen": "wrangler types",
-		"check": "npm run check:worker && npm run check:stock-worker && npm run check:dashboard",
+		"check": "npm run check:worker && npm run check:stock-worker && npm run check:enemy-hospital-monitor && npm run check:dashboard",
 		"check:all": "npm run schema:check && npm run test && npm run check",
 		"check:dashboard": "npm --prefix dashboard run build",
+		"check:enemy-hospital-monitor": "npm --prefix workers/enemy-hospital-monitor run check",
 		"check:stock-worker": "npm --prefix workers/stock-market run check",
 		"check:worker": "tsc && wrangler deploy --dry-run",
 		"deploy": "wrangler deploy",
