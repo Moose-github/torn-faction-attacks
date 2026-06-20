@@ -3,7 +3,7 @@ import { Env } from "./types";
 import { nowSeconds } from "./utils";
 
 export const GLOBAL_WAR_CACHE_VERSION_NAME = "cache_version:war:all";
-export const MEMBER_LIFESTYLE_CACHE_VERSION_NAME = "cache_version:member_lifestyle:v2";
+export const MEMBER_LIFESTYLE_CACHE_VERSION_NAME = "cache_version:member_lifestyle:v3";
 
 export function warCacheVersionName(warName: string): string {
   return `cache_version:war:${warName.toLowerCase()}`;
