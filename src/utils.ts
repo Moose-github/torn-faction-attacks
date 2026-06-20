@@ -1,4 +1,4 @@
-import { TornAttack } from "./types";
+import { TornAttack, TornFactionMember } from "./types";
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,6 +35,15 @@ export function boolToInt(value: boolean | undefined): number | null {
   }
 
   return value ? 1 : 0;
+}
+
+export function effectiveRevivableStatus(member: TornFactionMember): boolean | undefined {
+  const state = member.status?.state?.trim().toLowerCase();
+  if (state === "fallen") {
+    return false;
+  }
+
+  return typeof member.is_revivable === "boolean" ? member.is_revivable : undefined;
 }
 
 export function parseLimit(value: string | null, fallback: number, max: number): number {

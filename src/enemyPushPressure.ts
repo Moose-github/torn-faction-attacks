@@ -2,7 +2,7 @@ import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordMessage } from "./discord";
 import { clearSyncLatch, readSetSyncLatches, setSyncLatch } from "./syncLatches";
 import { Env, TornFactionMember } from "./types";
-import { finiteNumber, json, nowSeconds } from "./utils";
+import { effectiveRevivableStatus, finiteNumber, json, nowSeconds } from "./utils";
 import { readWarFromScoutingUrl } from "./warRequest";
 import type { EnemyFactionMemberRow } from "./enemyScouting";
 
@@ -109,7 +109,7 @@ export async function buildEnemyPushSnapshot(
       hospitalCount += 1;
     }
 
-    if (member.is_revivable) {
+    if (effectiveRevivableStatus(member)) {
       revivableCount += 1;
     }
   }

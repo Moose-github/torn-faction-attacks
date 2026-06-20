@@ -1,9 +1,10 @@
 import { HOME_FACTION_ID } from "./constants";
+import { bumpGlobalWarCacheVersion } from "./cacheVersions";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { warNameFromWarRoute } from "./routes";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember, WarRow } from "./types";
-import { boolToInt, d1Changes, json, nowSeconds } from "./utils";
+import { boolToInt, d1Changes, effectiveRevivableStatus, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
 
 const ACTIVITY_WINDOW_SECONDS = 15 * 60;
@@ -98,6 +99,10 @@ export async function sampleFactionActivityHeatmaps(
       ),
       "enemy",
     );
+  }
+
+  if (metrics.revivableChangedRows > 0) {
+    await bumpGlobalWarCacheVersion(env);
   }
 
   return metrics;
@@ -231,7 +236,7 @@ async function updateCachedRevivableMembers(
 ): Promise<{ writeStatements: number; changedRows: number }> {
   const tableName =
     factionId === HOME_FACTION_ID ? "home_faction_members" : "enemy_faction_members";
-  const revivableMembers = members.filter((member) => typeof member.is_revivable === "boolean");
+  const revivableMembers = members.filter((member) => typeof effectiveRevivableStatus(member) === "boolean");
   if (revivableMembers.length === 0) {
     return { writeStatements: 0, changedRows: 0 };
   }
@@ -239,11 +244,12 @@ async function updateCachedRevivableMembers(
   const existingValues = await readCachedRevivableValues(env, tableName, factionId);
   const statements = members
     .filter((member) => {
-      if (typeof member.is_revivable !== "boolean") {
+      const effectiveRevivable = effectiveRevivableStatus(member);
+      if (typeof effectiveRevivable !== "boolean") {
         return false;
       }
 
-      const nextValue = boolToInt(member.is_revivable);
+      const nextValue = boolToInt(effectiveRevivable);
       return existingValues.get(member.id) !== nextValue;
     })
     .map((member) =>
@@ -256,7 +262,7 @@ async function updateCachedRevivableMembers(
           AND member_id = ?
         `,
       ).bind(
-        boolToInt(member.is_revivable ?? false),
+        boolToInt(effectiveRevivableStatus(member) ?? false),
         factionId,
         member.id,
       ),

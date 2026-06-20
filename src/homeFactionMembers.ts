@@ -3,7 +3,7 @@ import { bumpGlobalWarCacheVersion, bumpMemberLifestyleCacheVersion } from "./ca
 import { HOME_FACTION_ID } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
 import { Env, TornFactionMember } from "./types";
-import { boolToInt, d1Changes, finiteNumber, json } from "./utils";
+import { boolToInt, d1Changes, effectiveRevivableStatus, finiteNumber, json } from "./utils";
 
 export type HomeFactionMembershipSyncMetrics = {
   writeStatements: number;
@@ -81,7 +81,7 @@ export async function syncHomeFactionMembershipAndSessions(
         finiteNumber(member.level),
         member.position ?? null,
         finiteNumber(member.days_in_faction),
-        boolToInt(member.is_revivable ?? false),
+        boolToInt(effectiveRevivableStatus(member) ?? false),
       ),
     ),
   );

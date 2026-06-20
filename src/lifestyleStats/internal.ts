@@ -1,7 +1,7 @@
 import { HOME_FACTION_ID } from "../constants";
 import { fetchTornFactionMembers } from "../enemyScouting";
 import { Env, TornFactionMember } from "../types";
-import { boolToInt, finiteNumber } from "../utils";
+import { boolToInt, effectiveRevivableStatus, finiteNumber } from "../utils";
 import type {
   TimedLifestyleStats,
 } from "./model";
@@ -127,7 +127,7 @@ export async function syncHomeFactionMemberList(env: Env): Promise<void> {
         finiteNumber(member.level),
         member.position ?? null,
         finiteNumber(member.days_in_faction),
-        boolToInt(member.is_revivable ?? false),
+        boolToInt(effectiveRevivableStatus(member) ?? false),
       ),
     ),
   );

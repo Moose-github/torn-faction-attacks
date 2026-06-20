@@ -384,14 +384,14 @@ export type EnemyFactionMember = {
   updated_at: number;
 };
 
-export type EnemyScoutingResponse = {
-  ok: boolean;
-  refreshed: boolean;
-  war: {
-    id: number;
-    name: string;
-    enemy_faction_id: number | null;
-  };
+export type EnemyScoutingResponse = {
+  ok: boolean;
+  refreshed: boolean;
+  war: {
+    id: number;
+    name: string;
+    enemy_faction_id: number | null;
+  };
   summary: {
     members_loaded: number;
     average_level: number;
@@ -411,7 +411,7 @@ export type EnemyScoutingResponse = {
   members: EnemyFactionMember[];
 };
 
-export type ScoutingComparisonResponse = {
+export type ScoutingComparisonResponse = {
   ok: boolean;
   comparison_stats_complete?: boolean;
 
@@ -422,11 +422,12 @@ export type ScoutingComparisonResponse = {
     trends: EnemyHitStatTrend[];
 
   };
-  war: {
-    id: number;
-    name: string;
-    enemy_faction_id: number | null;
-  };
+  war: {
+    id: number;
+    name: string;
+    status_checked_at?: number | null;
+    enemy_faction_id: number | null;
+  };
   home: {
     faction_id: number;
     members: EnemyFactionMember[];

@@ -41,6 +41,7 @@ import {
   chunkArray,
   cleanText,
   d1Changes,
+  effectiveRevivableStatus,
   finiteNumber,
   json,
   nowSeconds,
@@ -191,6 +192,7 @@ export async function getScoutingComparisonForWar(url: URL, env: Env): Promise<R
       official_start_time: war.official_start_time,
       official_end_time: war.official_end_time,
       enemy_faction_id: war.enemy_faction_id,
+      status_checked_at: war.enemy_scouting_status_checked_at,
     },
     home: {
       faction_id: HOME_FACTION_ID,
@@ -456,7 +458,7 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
         finiteNumber(member.level),
         member.position ?? null,
         finiteNumber(member.days_in_faction),
-        boolToInt(member.is_revivable ?? false),
+        boolToInt(effectiveRevivableStatus(member) ?? false),
         statusSnapshot.status_state,
         statusSnapshot.status_description,
         statusSnapshot.last_action_status,
@@ -525,7 +527,7 @@ async function refreshHomeFactionMembers(env: Env): Promise<void> {
         finiteNumber(member.level),
         member.position ?? null,
         finiteNumber(member.days_in_faction),
-        boolToInt(member.is_revivable ?? false),
+        boolToInt(effectiveRevivableStatus(member) ?? false),
       ),
     ),
   );
@@ -599,6 +601,7 @@ export async function refreshEnemyFactionMemberStatuses(
       statements.push(upsertEnemyMemberSnapshot(env, next));
     }
   }
+  const memberUpdateStatements = statements.length;
   statements.push(upsertEnemyPushSnapshot(env, pushSnapshot));
 
   let changedRows = 0;
@@ -608,6 +611,9 @@ export async function refreshEnemyFactionMemberStatuses(
   }
 
   await markEnemyScoutingStatusChecked(env, warId, fetchedAt);
+  if (memberUpdateStatements > 0) {
+    await bumpWarCacheVersion(env, warName);
+  }
   await sendEnemyPushAlerts(env, warId, warName, pushSnapshot, members, { warType: options.warType }).catch((err) => {
     console.warn(`Enemy push Discord alert failed for war ${warId}:`, err?.message || err);
   });
@@ -901,7 +907,7 @@ function buildEnemyMemberSnapshot(
     level: finiteNumber(member.level),
     position: member.position ?? null,
     days_in_faction: finiteNumber(member.days_in_faction),
-    is_revivable: boolToInt(member.is_revivable ?? false) ?? 0,
+    is_revivable: boolToInt(effectiveRevivableStatus(member) ?? false) ?? 0,
     ...buildMemberStatusSnapshot(member, previous, previousPollAt, fetchedAt),
   };
 }

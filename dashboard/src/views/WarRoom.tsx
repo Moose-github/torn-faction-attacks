@@ -98,10 +98,14 @@ export function WarRoom({
   const statusCheckedAt = enemyScouting?.summary.status_checked_at ?? null;
   const latestHeatmapSampledAt = getLatestHeatmapSampledAt(activityHeatmap);
   const pushPressureUpdatedAt = pushPressure?.latest?.created_at ?? null;
-  const latestRevivableUpdatedAt = getLatestMemberUpdatedAt([
+  const latestRevivableMemberUpdatedAt = getLatestMemberUpdatedAt([
     ...(scoutingComparison?.home.members ?? []),
     ...(scoutingComparison?.enemy.members ?? []),
   ]);
+  const latestRevivableUpdatedAt =
+    isMemberTrackingActive
+      ? scoutingComparison?.war.status_checked_at ?? latestRevivableMemberUpdatedAt
+      : latestRevivableMemberUpdatedAt;
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -371,10 +375,12 @@ export function WarRoom({
     }
 
     let cancelled = false;
+    const warName = selectedWarName;
     const refreshMs = isWarLive ? WAR_ROOM_LIVE_REVIVABLE_REFRESH_MS : WAR_ROOM_PRELIVE_REVIVABLE_REFRESH_MS;
-    const timer = window.setInterval(async () => {
+
+    async function refreshRevivableMembers() {
       try {
-        const response = await getScoutingComparison(selectedWarName);
+        const response = await getScoutingComparison(warName);
         if (!cancelled) {
           setScoutingComparison(response);
         }
@@ -383,7 +389,10 @@ export function WarRoom({
           setScoutingComparison(null);
         }
       }
-    }, refreshMs);
+    }
+
+    refreshRevivableMembers();
+    const timer = window.setInterval(refreshRevivableMembers, refreshMs);
 
     return () => {
       cancelled = true;
