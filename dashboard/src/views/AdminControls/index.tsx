@@ -37,7 +37,9 @@ import {
   runIngestion,
   sendDiscordMessage,
   ShopliftingAlertSetting,
+  EnemyPushAlertSetting,
   updateAdminXanaxCompetitionSettings,
+  updateAdminEnemyPushAlert,
   updateAdminShopliftingAlert,
   updateHomeFactionReportExemption,
   updateOfficialWar,
@@ -102,6 +104,7 @@ export function AdminControls() {
     React.useState<AdminXanaxCompetitionResponse | null>(null);
   const [isLoadingXanaxCompetition, setIsLoadingXanaxCompetition] = React.useState(false);
   const [shopliftingAlerts, setShopliftingAlerts] = React.useState<ShopliftingAlertSetting[]>([]);
+  const [enemyPushAlert, setEnemyPushAlert] = React.useState<EnemyPushAlertSetting | null>(null);
   const [isLoadingShopliftingAlerts, setIsLoadingShopliftingAlerts] = React.useState(false);
   const [xanaxSettingsForm, setXanaxSettingsForm] = React.useState({
     enabled: true,
@@ -381,8 +384,10 @@ export function AdminControls() {
     try {
       const response = await getAdminShopliftingAlerts();
       setShopliftingAlerts(response.alerts);
+      setEnemyPushAlert(response.enemy_push_alert);
     } catch {
       setShopliftingAlerts([]);
+      setEnemyPushAlert(null);
     } finally {
       setIsLoadingShopliftingAlerts(false);
     }
@@ -416,8 +421,11 @@ export function AdminControls() {
       : "No data";
   const shopliftingAlertStatus = isLoadingShopliftingAlerts
     ? "Loading"
-    : shopliftingAlerts.length > 0
-      ? `${shopliftingAlerts.filter((alert) => alert.enabled).length}/${shopliftingAlerts.length} active`
+    : shopliftingAlerts.length > 0 || enemyPushAlert
+      ? `${[
+          ...shopliftingAlerts.map((alert) => alert.enabled),
+          ...(enemyPushAlert ? [enemyPushAlert.enabled] : []),
+        ].filter(Boolean).length}/${shopliftingAlerts.length + (enemyPushAlert ? 1 : 0)} active`
       : "Unavailable";
 
   return (
@@ -554,8 +562,28 @@ export function AdminControls() {
         </section>
 
         <section className="panel admin-panel-shoplifting-alerts">
-          <PanelHeader title="Shoplifting alerts" aside={shopliftingAlertStatus} />
+          <PanelHeader title="Discord alerts" aside={shopliftingAlertStatus} />
           <div className="admin-form">
+            {enemyPushAlert ? (
+              <label className="checkbox-row admin-form-wide">
+                <input
+                  type="checkbox"
+                  checked={enemyPushAlert.enabled}
+                  disabled={isBusy !== null || isLoadingShopliftingAlerts}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    runAdminAction("Update enemy push alert", () =>
+                      updateAdminEnemyPushAlert({ enabled }).then((response) => {
+                        setShopliftingAlerts(response.alerts);
+                        setEnemyPushAlert(response.enemy_push_alert);
+                        return response;
+                      }),
+                    );
+                  }}
+                />
+                <span>{enemyPushAlert.name}</span>
+              </label>
+            ) : null}
             {shopliftingAlerts.map((alert) => (
               alert.configurable ? (
                 <label className="checkbox-row admin-form-wide" key={alert.shop_key}>
@@ -571,6 +599,7 @@ export function AdminControls() {
                           enabled,
                         }).then((response) => {
                           setShopliftingAlerts(response.alerts);
+                          setEnemyPushAlert(response.enemy_push_alert);
                           return response;
                         }),
                       );

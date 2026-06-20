@@ -162,6 +162,19 @@ export async function updateAdminShopliftingAlert(payload: {
 
 }
 
+export async function updateAdminEnemyPushAlert(payload: {
+
+  enabled: boolean;
+
+}): Promise<AdminShopliftingAlertsResponse> {
+
+  return postJson<AdminShopliftingAlertsResponse>("/api/admin/shoplifting-alerts", {
+    alert_key: "enemy_push",
+    enabled: payload.enabled,
+  });
+
+}
+
 export async function updateAdminXanaxCompetitionSettings(payload: {
   enabled: boolean;
   base_prize: number;

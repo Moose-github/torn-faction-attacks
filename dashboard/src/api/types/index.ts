@@ -638,6 +638,18 @@ export type ShopliftingAlertSetting = {
 
 };
 
+export type EnemyPushAlertSetting = {
+
+  key: "enemy_push";
+
+  name: string;
+
+  enabled: boolean;
+
+  configurable: boolean;
+
+};
+
 
 
 export type AdminShopliftingAlertsResponse = {
@@ -645,6 +657,8 @@ export type AdminShopliftingAlertsResponse = {
   ok: boolean;
 
   alerts: ShopliftingAlertSetting[];
+
+  enemy_push_alert: EnemyPushAlertSetting;
 
 };
 

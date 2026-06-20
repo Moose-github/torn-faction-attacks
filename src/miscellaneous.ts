@@ -1,6 +1,10 @@
 import { sendDiscordMessage } from "./discord";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import {
+  readEnemyPushAlertSetting,
+  updateEnemyPushAlertSetting,
+} from "./enemyPushPressure";
+import {
   clearSyncLatch,
   readSetSyncLatches,
   setSyncLatch,
@@ -60,11 +64,21 @@ export async function getAdminShopliftingAlertSettings(env: Env): Promise<Respon
   return json({
     ok: true,
     alerts: await readShopliftingSecurityAlertSettings(env),
+    enemy_push_alert: await readEnemyPushAlertSetting(env),
   });
 }
 
 export async function updateAdminShopliftingAlertSettings(request: Request, env: Env): Promise<Response> {
   const body = await readJsonObject(request);
+  if (body.alert_key === "enemy_push") {
+    if (typeof body.enabled !== "boolean") {
+      return json({ ok: false, error: "enabled must be a boolean", code: "INVALID_ENABLED" }, 400);
+    }
+
+    await updateEnemyPushAlertSetting(env, body.enabled);
+    return getAdminShopliftingAlertSettings(env);
+  }
+
   const shopKey = typeof body.shop_key === "string" ? body.shop_key : "";
   const alert = SHOPLIFTING_SECURITY_ALERTS.find((candidate) => candidate.shopKey === shopKey);
   if (!alert || !alert.configurable) {

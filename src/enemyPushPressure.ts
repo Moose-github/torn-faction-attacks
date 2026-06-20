@@ -1,6 +1,12 @@
 import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordMessage } from "./discord";
-import { clearSyncLatch, readSetSyncLatches, setSyncLatch } from "./syncLatches";
+import {
+  clearSyncLatch,
+  clearSyncLatchesByPrefix,
+  isSyncLatchSet,
+  readSetSyncLatches,
+  setSyncLatch,
+} from "./syncLatches";
 import { Env, TornFactionMember } from "./types";
 import { effectiveRevivableStatus, finiteNumber, json, nowSeconds } from "./utils";
 import { readWarFromScoutingUrl } from "./warRequest";
@@ -16,6 +22,7 @@ const PUSH_UNDERWAY_ATTACK_SIGNAL_COUNT_THRESHOLD = 3;
 const PUSH_UNDERWAY_ATTACK_SIGNAL_SCORE_THRESHOLD = 13;
 const PUSH_LIKELY_SCORE_THRESHOLD = 20;
 export const PUSH_ALERT_STATE_PREFIX = "enemy_push_alert";
+const PUSH_ALERT_ENABLED_STATE_NAME = "enemy_push_alert_discord_enabled";
 
 type EnemyPushSnapshotRow = {
   war_id: number;
@@ -40,6 +47,13 @@ type EnemyPushSnapshotRow = {
 };
 
 export type EnemyPushSnapshotInput = Omit<EnemyPushSnapshotRow, "created_at">;
+
+export type EnemyPushAlertSetting = {
+  key: "enemy_push";
+  name: string;
+  enabled: boolean;
+  configurable: boolean;
+};
 
 export async function getEnemyPushPressureForWar(url: URL, env: Env): Promise<Response> {
   const war = await readWarFromScoutingUrl(url, env);
@@ -235,6 +249,10 @@ export async function sendEnemyPushAlerts(
   members: TornFactionMember[] = [],
   options: { warType?: string | null } = {},
 ): Promise<void> {
+  if (!await isEnemyPushAlertEnabled(env)) {
+    return;
+  }
+
   const warType = options.warType === undefined
     ? await readEnemyPushAlertWarType(env, warId)
     : options.warType;
@@ -271,6 +289,29 @@ export async function sendEnemyPushAlerts(
   }
 
   await clearEnemyPushAlertIfSet(env, likelyStateName, setAlertStates);
+}
+
+export async function readEnemyPushAlertSetting(env: Env): Promise<EnemyPushAlertSetting> {
+  return {
+    key: "enemy_push",
+    name: "Enemy push alerts",
+    enabled: await isEnemyPushAlertEnabled(env),
+    configurable: true,
+  };
+}
+
+export async function updateEnemyPushAlertSetting(env: Env, enabled: boolean): Promise<void> {
+  if (enabled) {
+    await setSyncLatch(env, PUSH_ALERT_ENABLED_STATE_NAME, nowSeconds());
+    return;
+  }
+
+  await clearSyncLatch(env, PUSH_ALERT_ENABLED_STATE_NAME);
+  await clearSyncLatchesByPrefix(env, `${PUSH_ALERT_STATE_PREFIX}:`);
+}
+
+async function isEnemyPushAlertEnabled(env: Env): Promise<boolean> {
+  return isSyncLatchSet(env, PUSH_ALERT_ENABLED_STATE_NAME);
 }
 
 async function readLatestEnemyPushSnapshot(env: Env, warId: number): Promise<EnemyPushSnapshotRow | null> {
