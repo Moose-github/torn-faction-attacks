@@ -601,7 +601,6 @@ export async function refreshEnemyFactionMemberStatuses(
       statements.push(upsertEnemyMemberSnapshot(env, next));
     }
   }
-  const memberUpdateStatements = statements.length;
   statements.push(upsertEnemyPushSnapshot(env, pushSnapshot));
 
   let changedRows = 0;
@@ -611,9 +610,7 @@ export async function refreshEnemyFactionMemberStatuses(
   }
 
   await markEnemyScoutingStatusChecked(env, warId, fetchedAt);
-  if (memberUpdateStatements > 0) {
-    await bumpWarCacheVersion(env, warName);
-  }
+  await bumpWarCacheVersion(env, warName);
   await sendEnemyPushAlerts(env, warId, warName, pushSnapshot, members, { warType: options.warType }).catch((err) => {
     console.warn(`Enemy push Discord alert failed for war ${warId}:`, err?.message || err);
   });

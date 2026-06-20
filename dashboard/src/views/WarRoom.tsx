@@ -35,10 +35,8 @@ import { isWarRoomMemberTrackingActive } from "../utils/warTracking";
 import { ScoutingComparisonMetric } from "../../../shared/scoutingBuckets";
 
 const WAR_ROOM_HEATMAP_REFRESH_MS = 15 * 60_000;
-const WAR_ROOM_LIVE_SCOUTING_REFRESH_MS = 60_000;
 const WAR_ROOM_PUSH_HISTORY_REFRESH_MS = 5 * 60_000;
-const WAR_ROOM_LIVE_REVIVABLE_REFRESH_MS = 60_000;
-const WAR_ROOM_PRELIVE_REVIVABLE_REFRESH_MS = 5 * 60_000;
+const WAR_ROOM_MEMBER_TRACKING_REFRESH_MS = 30_000;
 const WAR_ROOM_CHAIN_WATCH_REFRESH_MS = 15_000;
 
 type TrackingMode = "live" | "pre-live" | "inactive";
@@ -376,62 +374,58 @@ export function WarRoom({
 
     let cancelled = false;
     const warName = selectedWarName;
-    const refreshMs = isWarLive ? WAR_ROOM_LIVE_REVIVABLE_REFRESH_MS : WAR_ROOM_PRELIVE_REVIVABLE_REFRESH_MS;
 
-    async function refreshRevivableMembers() {
-      try {
-        const response = await getScoutingComparison(warName);
-        if (!cancelled) {
-          setScoutingComparison(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setScoutingComparison(null);
-        }
+    async function refreshMemberTrackingData() {
+      const [comparisonResult, scoutingResult, pressureResult] = await Promise.allSettled([
+        getScoutingComparison(warName),
+        getEnemyScouting(warName),
+        getEnemyPushPressure(warName, { includeHistory: false }),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (comparisonResult.status === "fulfilled") {
+        setScoutingComparison(comparisonResult.value);
+      } else {
+        setScoutingComparison(null);
+      }
+
+      if (scoutingResult.status === "fulfilled") {
+        setEnemyScouting(scoutingResult.value);
+      } else {
+        setEnemyScouting(null);
+      }
+
+      if (pressureResult.status === "fulfilled") {
+        setPushPressure((current) => ({
+          ...pressureResult.value,
+          history: current?.history ?? pressureResult.value.history,
+        }));
+      } else {
+        setPushPressure((current) =>
+          current
+            ? {
+                ...current,
+                latest: null,
+              }
+            : null,
+        );
       }
     }
 
-    refreshRevivableMembers();
-    const timer = window.setInterval(refreshRevivableMembers, refreshMs);
+    refreshMemberTrackingData();
+    const timer = window.setInterval(refreshMemberTrackingData, WAR_ROOM_MEMBER_TRACKING_REFRESH_MS);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadScouting, isMemberTrackingActive, isWarLive, selectedWarName]);
+  }, [canLoadScouting, isMemberTrackingActive, selectedWarName]);
 
   React.useEffect(() => {
-    if (!selectedWarName || !canLoadScouting || !isWarLive) {
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setInterval(async () => {
-      try {
-        const response = await getEnemyScouting(selectedWarName);
-        const pressureResponse = await getEnemyPushPressure(selectedWarName, { includeHistory: false });
-        if (!cancelled) {
-          setEnemyScouting(response);
-          setPushPressure((current) => ({
-            ...pressureResponse,
-            history: current?.history ?? pressureResponse.history,
-          }));
-        }
-      } catch {
-        if (!cancelled) {
-          setEnemyScouting(null);
-        }
-      }
-    }, WAR_ROOM_LIVE_SCOUTING_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [canLoadScouting, isWarLive, selectedWarName]);
-
-  React.useEffect(() => {
-    if (!selectedWarName || !canLoadScouting || !isWarLive) {
+    if (!selectedWarName || !canLoadScouting || !isMemberTrackingActive) {
       return;
     }
 
@@ -453,7 +447,7 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadScouting, isWarLive, selectedWarName]);
+  }, [canLoadScouting, isMemberTrackingActive, selectedWarName]);
 
   async function refreshSelectedEnemyScouting() {
     if (!selectedWarName || !selectedWar) {
@@ -1599,8 +1593,8 @@ function EnemyStatusSummaryPanel({
         <StatusSummaryItem label="Abroad" value={summary.abroad} tone="abroad" />
         <StatusSummaryItem label="Hospital" value={summary.hospital} tone="danger" />
         <StatusSummaryItem label="Jail" value={summary.jail} tone="danger" />
-        <StatusSummaryItem label="Other" value={summary.other} tone="muted" />
-        <StatusSummaryItem label="Unknown" value={summary.unknown} tone="muted" />
+        <StatusSummaryItem label="Other" value={summary.other} tone="muted" tooltip={formatStatusSummaryTooltip(summary.otherMembers)} />
+        <StatusSummaryItem label="Unknown" value={summary.unknown} tone="muted" tooltip={formatStatusSummaryTooltip(summary.unknownMembers)} />
         <StatusSummaryItem label="Revivable" value={summary.revivable} tone="good" />
       </div>
     </section>
@@ -1610,14 +1604,16 @@ function EnemyStatusSummaryPanel({
 function StatusSummaryItem({
   label,
   value,
+  tooltip,
   tone = "okay",
 }: {
   label: string;
   value: number;
+  tooltip?: string;
   tone?: "okay" | "traveling" | "abroad" | "danger" | "muted" | "good";
 }) {
   return (
-    <div className={`enemy-status-summary-item ${tone}`}>
+    <div className={`enemy-status-summary-item ${tone}`} title={tooltip}>
       <span>{label}</span>
       <strong>{formatNumber(value)}</strong>
     </div>
@@ -1982,6 +1978,8 @@ function summarizeEnemyStatuses(members: EnemyFactionMember[]) {
     other: 0,
     unknown: 0,
     revivable: 0,
+    otherMembers: [] as EnemyFactionMember[],
+    unknownMembers: [] as EnemyFactionMember[],
   };
 
   for (const member of members) {
@@ -1992,6 +1990,7 @@ function summarizeEnemyStatuses(members: EnemyFactionMember[]) {
     const status = (member.status_state ?? "").toLowerCase();
     if (!status) {
       summary.unknown += 1;
+      summary.unknownMembers.push(member);
     } else if (status === "okay") {
       summary.okay += 1;
     } else if (status === "traveling") {
@@ -2004,10 +2003,27 @@ function summarizeEnemyStatuses(members: EnemyFactionMember[]) {
       summary.jail += 1;
     } else {
       summary.other += 1;
+      summary.otherMembers.push(member);
     }
   }
 
   return summary;
+}
+
+function formatStatusSummaryTooltip(members: EnemyFactionMember[]): string | undefined {
+  if (members.length === 0) {
+    return undefined;
+  }
+
+  return members
+    .map((member) => `${member.name}: ${formatMemberStatusDetail(member)}`)
+    .join("\n");
+}
+
+function formatMemberStatusDetail(member: EnemyFactionMember): string {
+  const state = member.status_state?.trim() || "Unknown";
+  const description = member.status_description?.trim();
+  return description ? `${state} - ${description}` : state;
 }
 
 function scoutingComparisonMetricLabel(metric: ScoutingComparisonMetric): string {

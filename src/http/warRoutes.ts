@@ -196,6 +196,7 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
       routeContext,
       warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55),
       () => getEnemyPushPressureForWar(url, env),
+      warVersionNames,
     );
   }
 
@@ -204,6 +205,7 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
       routeContext,
       warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55),
       () => getEnemyScoutingForWar(url, env),
+      warVersionNames,
     );
   }
 
