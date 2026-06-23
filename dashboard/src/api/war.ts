@@ -1,6 +1,6 @@
 import { API_BASE_URL, authHeaders, filenameFromContentDisposition, getJson, postJson } from "./client";
 import { queryString } from "./query";
-import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyBigHittersResponse, EnemyMemberActivityHeatmapResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarDetailResponse, WarMemberCombatHeatmapResponse, WarsResponse, WarType } from "./types";
+import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyBigHittersResponse, EnemyMemberActivityHeatmapResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarControlResponse, WarDetailResponse, WarMemberCombatHeatmapResponse, WarsResponse, WarType } from "./types";
 
 export async function getStats(
   warType: WarType,
@@ -146,7 +146,7 @@ export async function getScoutingComparison(
   );
 }
 
-export async function getEnemyPushPressure(
+export async function getEnemyPushPressure(
   warName: string,
   options: { includeHistory?: boolean } = {},
 ): Promise<EnemyPushPressureResponse> {
@@ -156,7 +156,17 @@ export async function getEnemyPushPressure(
   );
 }
 
-export async function updateOfficialWar(payload: AdminWarPayload): Promise<unknown> {
+export async function getWarControl(
+  warName: string,
+  options: { includeHistory?: boolean } = {},
+): Promise<WarControlResponse> {
+  const query = queryString({ include_history: options.includeHistory === false ? 0 : undefined });
+  return getJson<WarControlResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/war-control${query}`,
+  );
+}
+
+export async function updateOfficialWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars/update-official", payload);
 }
 

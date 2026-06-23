@@ -10,6 +10,7 @@ import {
   FactionActivityHeatmapResponse,
   ChainWatchResponse,
   EnemyMemberActivityHeatmapResponse,
+  getAdminWarControlSettings,
   getChainWatch,
   getEnemyBigHitters,
   getEnemyMemberActivityHeatmap,
@@ -17,13 +18,17 @@ import {
   getStoredAuthSession,
   getEnemyScouting,
   getScoutingComparison,
+  getWarControl,
   getWarActivityHeatmap,
   removeEnemyBigHitter,
   refreshAuthSession,
   refreshEnemyScouting,
   ScoutingComparisonResponse,
+  updateAdminWarControlSettings,
   updateChainWatch,
   type GlobalWarState,
+  WarControlResponse,
+  WarControlSettings,
   WarSummary,
 } from "../api";
 import {
@@ -88,6 +93,10 @@ export function WarRoom({
   const [selectedActivityMemberIds, setSelectedActivityMemberIds] = React.useState<number[]>([]);
   const [pushPressure, setPushPressure] = React.useState<EnemyPushPressureResponse | null>(null);
   const [isLoadingPushPressure, setIsLoadingPushPressure] = React.useState(false);
+  const [warControl, setWarControl] = React.useState<WarControlResponse | null>(null);
+  const [isLoadingWarControl, setIsLoadingWarControl] = React.useState(false);
+  const [warControlSettingsDraft, setWarControlSettingsDraft] = React.useState<WarControlSettings | null>(null);
+  const [isSavingWarControlSettings, setIsSavingWarControlSettings] = React.useState(false);
   const [chainWatch, setChainWatch] = React.useState<ChainWatchResponse | null>(null);
   const [isLoadingChainWatch, setIsLoadingChainWatch] = React.useState(false);
   const [isTogglingChainWatch, setIsTogglingChainWatch] = React.useState(false);
@@ -97,6 +106,7 @@ export function WarRoom({
     enemyHitTrends: true,
     enemyPushPressure: true,
     revivableMembers: true,
+    warControl: false,
   });
   const trackingCadenceRef = React.useRef<HTMLElement | null>(null);
   const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
@@ -119,6 +129,7 @@ export function WarRoom({
   const statusCheckedAt = enemyScouting?.summary.status_checked_at ?? null;
   const latestHeatmapSampledAt = getLatestHeatmapSampledAt(activityHeatmap);
   const pushPressureUpdatedAt = pushPressure?.latest?.created_at ?? null;
+  const warControlUpdatedAt = warControl?.latest?.created_at ?? null;
   const latestRevivableMemberUpdatedAt = getLatestMemberUpdatedAt([
     ...(scoutingComparison?.home.members ?? []),
     ...(scoutingComparison?.enemy.members ?? []),
@@ -196,6 +207,66 @@ export function WarRoom({
       cancelled = true;
     };
   }, [canLoadScouting, selectedWarName]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadWarControl() {
+      if (!selectedWarName || !canLoadScouting) {
+        setWarControl(null);
+        return;
+      }
+
+      setIsLoadingWarControl(true);
+
+      try {
+        const response = await getWarControl(selectedWarName);
+        if (!cancelled) {
+          setWarControl(response);
+          setWarControlSettingsDraft(response.settings);
+        }
+      } catch {
+        if (!cancelled) {
+          setWarControl(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingWarControl(false);
+        }
+      }
+    }
+
+    loadWarControl();
+    return () => {
+      cancelled = true;
+    };
+  }, [canLoadScouting, selectedWarName]);
+
+  React.useEffect(() => {
+    if (!canRefreshEnemyScouting) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadWarControlSettings() {
+      try {
+        const response = await getAdminWarControlSettings();
+        if (!cancelled) {
+          setWarControlSettingsDraft(response.settings);
+        }
+      } catch {
+        if (!cancelled) {
+          setWarControlSettingsDraft(warControl?.settings ?? null);
+        }
+      }
+    }
+
+    loadWarControlSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [canRefreshEnemyScouting, warControl?.settings.updated_at]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -498,10 +569,11 @@ export function WarRoom({
     const warName = selectedWarName;
 
     async function refreshMemberTrackingData() {
-      const [comparisonResult, scoutingResult, pressureResult] = await Promise.allSettled([
+      const [comparisonResult, scoutingResult, pressureResult, controlResult] = await Promise.allSettled([
         getScoutingComparison(warName),
         getEnemyScouting(warName),
         getEnemyPushPressure(warName, { includeHistory: false }),
+        getWarControl(warName, { includeHistory: false }),
       ]);
 
       if (cancelled) {
@@ -535,6 +607,23 @@ export function WarRoom({
             : null,
         );
       }
+
+      if (controlResult.status === "fulfilled") {
+        setWarControl((current) => ({
+          ...controlResult.value,
+          history: current?.history ?? controlResult.value.history,
+        }));
+        setWarControlSettingsDraft(controlResult.value.settings);
+      } else {
+        setWarControl((current) =>
+          current
+            ? {
+                ...current,
+                latest: null,
+              }
+            : null,
+        );
+      }
     }
 
     refreshMemberTrackingData();
@@ -554,13 +643,19 @@ export function WarRoom({
     let cancelled = false;
     const timer = window.setInterval(async () => {
       try {
-        const response = await getEnemyPushPressure(selectedWarName);
+        const [pressureResponse, controlResponse] = await Promise.all([
+          getEnemyPushPressure(selectedWarName),
+          getWarControl(selectedWarName),
+        ]);
         if (!cancelled) {
-          setPushPressure(response);
+          setPushPressure(pressureResponse);
+          setWarControl(controlResponse);
+          setWarControlSettingsDraft(controlResponse.settings);
         }
       } catch {
         if (!cancelled) {
           setPushPressure(null);
+          setWarControl(null);
         }
       }
     }, WAR_ROOM_PUSH_HISTORY_REFRESH_MS);
@@ -583,6 +678,9 @@ export function WarRoom({
       setEnemyScouting(await refreshEnemyScouting(selectedWarName));
       setEnemyBigHitters(await getEnemyBigHitters(selectedWarName));
       setScoutingComparison(await getScoutingComparison(selectedWarName));
+      const controlResponse = await getWarControl(selectedWarName);
+      setWarControl(controlResponse);
+      setWarControlSettingsDraft(controlResponse.settings);
       if (isActivityHeatmapsOpen) {
         setActivityHeatmap(await getWarActivityHeatmap(selectedWarName, selectedWar.id));
       }
@@ -590,6 +688,41 @@ export function WarRoom({
       onError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRefreshingEnemyScouting(false);
+    }
+  }
+
+  async function saveWarControlSettings() {
+    if (!warControlSettingsDraft) {
+      return;
+    }
+
+    setIsSavingWarControlSettings(true);
+    onError(null);
+
+    try {
+      const response = await updateAdminWarControlSettings({
+        control_hospital_threshold: warControlSettingsDraft.control_hospital_threshold,
+        available_advantage_min: warControlSettingsDraft.available_advantage_min,
+        opening_grace_minutes: warControlSettingsDraft.opening_grace_minutes,
+        status_freshness_max_seconds: warControlSettingsDraft.status_freshness_max_seconds,
+        min_observed_roster_percent: warControlSettingsDraft.min_observed_roster_percent,
+        min_local_relevant_members: warControlSettingsDraft.min_local_relevant_members,
+        heavy_own_hospital_penalty_threshold: warControlSettingsDraft.heavy_own_hospital_penalty_threshold,
+        severe_own_hospital_penalty_threshold: warControlSettingsDraft.severe_own_hospital_penalty_threshold,
+        heavy_own_hospital_confidence_penalty: warControlSettingsDraft.heavy_own_hospital_confidence_penalty,
+        severe_own_hospital_confidence_penalty: warControlSettingsDraft.severe_own_hospital_confidence_penalty,
+        transition_hospital_ratio_drop: warControlSettingsDraft.transition_hospital_ratio_drop,
+        transition_window_minutes: warControlSettingsDraft.transition_window_minutes,
+        transition_min_attacks_5m: warControlSettingsDraft.transition_min_attacks_5m,
+        transition_big_hitter_multiplier_one: warControlSettingsDraft.transition_big_hitter_multiplier_one,
+        transition_big_hitter_multiplier_multiple: warControlSettingsDraft.transition_big_hitter_multiplier_multiple,
+      });
+      setWarControlSettingsDraft(response.settings);
+      setWarControl((current) => current ? { ...current, settings: response.settings } : current);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSavingWarControlSettings(false);
     }
   }
 
@@ -733,6 +866,24 @@ export function WarRoom({
               trackingCadence={trackingFreshness.hospitalCadence}
               trackingTone={trackingFreshness.hospitalTone}
               trackingDetail={trackingFreshness.hospitalDetail}
+              onShowTrackingDetails={scrollToTrackingCadence}
+            />
+
+            <WarControlPanel
+              data={warControl}
+              settingsDraft={warControlSettingsDraft}
+              isAdmin={canRefreshEnemyScouting}
+              isLoading={isLoadingWarControl}
+              isSaving={isSavingWarControlSettings}
+              collapsed={collapsedPanels.warControl ?? false}
+              onToggle={() => togglePanel("warControl")}
+              onSettingsChange={setWarControlSettingsDraft}
+              onSaveSettings={saveWarControlSettings}
+              updatedAt={warControlUpdatedAt}
+              trackingState={trackingFreshness.state}
+              trackingCadence={trackingFreshness.pushCadence}
+              trackingTone={trackingFreshness.tone}
+              trackingDetail={trackingFreshness.pushDetail}
               onShowTrackingDetails={scrollToTrackingCadence}
             />
 
@@ -2217,6 +2368,217 @@ function StatusSummaryItem({
   );
 }
 
+function WarControlPanel({
+  data,
+  settingsDraft,
+  isAdmin,
+  isLoading,
+  isSaving,
+  collapsed,
+  onToggle,
+  onSettingsChange,
+  onSaveSettings,
+  updatedAt,
+  trackingState,
+  trackingCadence,
+  trackingTone,
+  trackingDetail,
+  onShowTrackingDetails,
+}: {
+  data: WarControlResponse | null;
+  settingsDraft: WarControlSettings | null;
+  isAdmin: boolean;
+  isLoading: boolean;
+  isSaving: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+  onSettingsChange: (settings: WarControlSettings | null) => void;
+  onSaveSettings: () => void;
+  updatedAt: number | null;
+  trackingState: string;
+  trackingCadence: string;
+  trackingTone: FreshnessTone;
+  trackingDetail: string;
+  onShowTrackingDetails: () => void;
+}) {
+  const latest = data?.latest ?? null;
+  const settings = settingsDraft ?? data?.settings ?? null;
+  const reasons = latest?.reasons ?? parseJsonReasons(latest?.reasons_json);
+
+  function updateSetting(key: keyof WarControlSettings, value: number) {
+    if (!settings) return;
+    onSettingsChange({
+      ...settings,
+      [key]: value,
+    });
+  }
+
+  return (
+    <CollapsiblePanel
+      title="War control (WIP)"
+      control={
+        <FreshnessMeta
+          state={isLoading ? "Loading" : trackingState}
+          updatedAt={updatedAt}
+          cadence={trackingCadence}
+          detail={latest ? `${trackingDetail} Current state: ${warControlStateLabel(latest.control_state)}.` : trackingDetail}
+          tone={trackingTone}
+          onClick={onShowTrackingDetails}
+        />
+      }
+      collapsed={collapsed}
+      onToggle={onToggle}
+      className="war-control-panel"
+    >
+      {!latest ? (
+        <EmptyState text={isLoading ? "Loading war control" : "No war control samples yet"} />
+      ) : (
+        <>
+          <div className={`war-control-status ${warControlTone(latest.control_state)}`}>
+            <div>
+              <span>Control</span>
+              <strong>{warControlStateLabel(latest.control_state)}</strong>
+            </div>
+            <div>
+              <span>Confidence</span>
+              <strong>{formatPercent(latest.control_confidence)}</strong>
+            </div>
+            <div>
+              <span>Reason</span>
+              <strong>{latest.control_reason}</strong>
+            </div>
+          </div>
+
+          <div className="war-control-metrics">
+            <WarControlMetric
+              label="Enemy local hospital"
+              value={`${formatPercent(latest.enemy_hospital_ratio)} / ${settings ? formatPercent(settings.control_hospital_threshold) : "-"}`}
+              detail={`${formatNumber(latest.enemy_hospital_count)} hospitalized of ${formatNumber(latest.enemy_local_relevant_count)} local relevant`}
+            />
+            <WarControlMetric
+              label="Home local hospital"
+              value={`${formatPercent(latest.home_hospital_ratio)} / ${settings ? formatPercent(settings.control_hospital_threshold) : "-"}`}
+              detail={`${formatNumber(latest.home_hospital_count)} hospitalized of ${formatNumber(latest.home_local_relevant_count)} local relevant`}
+            />
+            <WarControlMetric
+              label="Available edge"
+              value={signedPercent(latest.home_available_ratio - latest.enemy_available_ratio)}
+              detail={`Threshold ${settings ? signedPercent(settings.available_advantage_min) : "-"}; home ${formatPercent(latest.home_available_ratio)}, enemy ${formatPercent(latest.enemy_available_ratio)}`}
+            />
+            <WarControlMetric
+              label="Attacks"
+              value={`${formatNumber(latest.home_attacks_last_5m)}/${formatNumber(latest.enemy_attacks_last_5m)}`}
+              detail={`Home/enemy last 5m. Last 15m: ${formatNumber(latest.home_attacks_last_15m)}/${formatNumber(latest.enemy_attacks_last_15m)}`}
+            />
+            <WarControlMetric
+              label="Observed roster"
+              value={`${formatPercent(latest.home_observed_roster_percent)}/${formatPercent(latest.enemy_observed_roster_percent)}`}
+              detail={`Min ${settings ? formatPercent(settings.min_observed_roster_percent) : "-"}; home/enemy observed`}
+            />
+            <WarControlMetric
+              label="Status freshness"
+              value={`${formatNumber(latest.home_status_age_seconds)}/${formatNumber(latest.enemy_status_age_seconds)}s`}
+              detail={`Max ${settings ? formatNumber(settings.status_freshness_max_seconds) : "-"}s; home/enemy sample age`}
+            />
+            <WarControlMetric
+              label="Enemy big hitters"
+              value={`${formatNumber(latest.enemy_big_hitter_recently_active_count)} active`}
+              detail={`${formatNumber(latest.enemy_big_hitter_available_count)} available, ${formatNumber(latest.enemy_big_hitter_hospital_count)} hospital, ${formatNumber(latest.enemy_big_hitter_travel_count)} away`}
+            />
+          </div>
+
+          {reasons.length > 0 && (
+            <div className="war-control-reasons">
+              {reasons.map((reason) => (
+                <span key={reason}>{reason}</span>
+              ))}
+            </div>
+          )}
+
+          {isAdmin && settings && (
+            <div className="war-control-settings">
+              <div className="war-control-settings-header">
+                <strong>Control parameters</strong>
+                <button
+                  type="button"
+                  className="icon-text-button"
+                  onClick={onSaveSettings}
+                  disabled={isSaving}
+                >
+                  {isSaving ? "Saving" : "Save"}
+                </button>
+              </div>
+              <div className="war-control-settings-grid">
+                <WarControlSettingInput label="Hospital threshold" value={settings.control_hospital_threshold} step={0.01} onChange={(value) => updateSetting("control_hospital_threshold", value)} />
+                <WarControlSettingInput label="Available edge" value={settings.available_advantage_min} step={0.01} onChange={(value) => updateSetting("available_advantage_min", value)} />
+                <WarControlSettingInput label="Opening grace" value={settings.opening_grace_minutes} step={1} onChange={(value) => updateSetting("opening_grace_minutes", value)} />
+                <WarControlSettingInput label="Freshness max" value={settings.status_freshness_max_seconds} step={30} onChange={(value) => updateSetting("status_freshness_max_seconds", value)} />
+                <WarControlSettingInput label="Observed min" value={settings.min_observed_roster_percent} step={0.05} onChange={(value) => updateSetting("min_observed_roster_percent", value)} />
+                <WarControlSettingInput label="Min local" value={settings.min_local_relevant_members} step={1} onChange={(value) => updateSetting("min_local_relevant_members", value)} />
+                <WarControlSettingInput label="Heavy own hosp" value={settings.heavy_own_hospital_penalty_threshold} step={0.05} onChange={(value) => updateSetting("heavy_own_hospital_penalty_threshold", value)} />
+                <WarControlSettingInput label="Severe own hosp" value={settings.severe_own_hospital_penalty_threshold} step={0.05} onChange={(value) => updateSetting("severe_own_hospital_penalty_threshold", value)} />
+                <WarControlSettingInput label="Heavy penalty" value={settings.heavy_own_hospital_confidence_penalty} step={0.05} onChange={(value) => updateSetting("heavy_own_hospital_confidence_penalty", value)} />
+                <WarControlSettingInput label="Severe penalty" value={settings.severe_own_hospital_confidence_penalty} step={0.05} onChange={(value) => updateSetting("severe_own_hospital_confidence_penalty", value)} />
+                <WarControlSettingInput label="Transition drop" value={settings.transition_hospital_ratio_drop} step={0.01} onChange={(value) => updateSetting("transition_hospital_ratio_drop", value)} />
+                <WarControlSettingInput label="Transition attacks" value={settings.transition_min_attacks_5m} step={1} onChange={(value) => updateSetting("transition_min_attacks_5m", value)} />
+                <WarControlSettingInput label="BH one multiplier" value={settings.transition_big_hitter_multiplier_one} step={0.05} onChange={(value) => updateSetting("transition_big_hitter_multiplier_one", value)} />
+                <WarControlSettingInput label="BH multi multiplier" value={settings.transition_big_hitter_multiplier_multiple} step={0.05} onChange={(value) => updateSetting("transition_big_hitter_multiplier_multiple", value)} />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </CollapsiblePanel>
+  );
+}
+
+function WarControlMetric({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className="war-control-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function WarControlSettingInput({
+  label,
+  value,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="war-control-setting-input">
+      <span>{label}</span>
+      <input
+        type="number"
+        value={Number.isInteger(value) ? String(value) : String(Number(value.toFixed(3)))}
+        step={step}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          if (Number.isFinite(next)) {
+            onChange(next);
+          }
+        }}
+      />
+    </label>
+  );
+}
+
 function EnemyPushPressurePanel({
   data,
   isLoading,
@@ -2243,10 +2605,14 @@ function EnemyPushPressurePanel({
   const nowSeconds = Math.floor(useCurrentTimeMs() / 1000);
   const contributions = latest ? pushPressureContributions(latest) : [];
   const positiveContributions = contributions.filter((contribution) => contribution.score > 0);
-  const breakdownScore = contributions.reduce((total, contribution) => total + contribution.score, 0);
   const buildUpContributions = contributions.filter((contribution) => contribution.kind === "build-up");
   const buildUpScore = buildUpContributions.reduce((total, contribution) => total + contribution.score, 0);
   const attackContribution = contributions.find((contribution) => contribution.kind === "active-attack") ?? null;
+  const attackScore = attackContribution?.score ?? 0;
+  const basePressureScore = latest ? Math.max(Number(latest.base_pressure_score ?? 0), buildUpScore) : 0;
+  const bigHitterMultiplier = latest ? Number(latest.big_hitter_pressure_multiplier ?? 1) : 1;
+  const adjustedBuildUpScore = Math.round(basePressureScore * bigHitterMultiplier);
+  const breakdownScore = adjustedBuildUpScore + attackScore;
   const updatedAgeSeconds = latest ? Math.max(0, nowSeconds - latest.created_at) : null;
   const updateFreshness = updatedAgeSeconds === null
     ? null
@@ -2284,20 +2650,26 @@ function EnemyPushPressurePanel({
             </div>
             <div>
               <span>Score</span>
-              <strong title={`Stored score ${formatNumber(latest.pressure_score)}; visible breakdown total ${formatNumber(breakdownScore)}.`}>
+              <strong title={`Stored score ${formatNumber(latest.pressure_score)}. Adjusted build-up ${formatNumber(adjustedBuildUpScore)} + attack score ${formatNumber(attackScore)} = ${formatNumber(breakdownScore)}.`}>
                 {formatNumber(latest.pressure_score)}
               </strong>
             </div>
             <div>
-              <span>Build-up score</span>
-              <strong title={`Mobilization plus current-activity signals. Online now: ${formatNumber(latest.online_count)}. Active in last 5m: ${formatNumber(latest.recently_active_count)}.`}>
-                {buildUpScore > 0 ? `+${formatNumber(buildUpScore)}` : "0"}
+              <span>Adjusted build-up</span>
+              <strong title={`Base build-up ${formatNumber(basePressureScore)} x big hitter modifier ${formatMultiplier(bigHitterMultiplier)}. Online now: ${formatNumber(latest.online_count)}. Active in last 5m: ${formatNumber(latest.recently_active_count)}.`}>
+                {adjustedBuildUpScore > 0 ? `+${formatNumber(adjustedBuildUpScore)}` : "0"}
               </strong>
             </div>
             <div>
               <span>Attack score</span>
               <strong title={attackContribution?.tooltip}>
-                {attackContribution && attackContribution.score > 0 ? `+${formatNumber(attackContribution.score)}` : "0"}
+                {attackScore > 0 ? `+${formatNumber(attackScore)}` : "0"}
+              </strong>
+            </div>
+            <div>
+              <span>Big hitters</span>
+              <strong title={`Big hitter modifier: ${formatMultiplier(bigHitterMultiplier)}. ${formatNumber(latest.big_hitter_recently_active_count)} recently active, ${formatNumber(latest.big_hitter_online_count)} online, ${formatNumber(latest.big_hitter_total_count)} rostered.`}>
+                {formatMultiplier(bigHitterMultiplier)}
               </strong>
             </div>
             <div>
@@ -2310,9 +2682,16 @@ function EnemyPushPressurePanel({
           <div className="push-pressure-breakdown">
             <div className="push-pressure-breakdown-header">
               <strong>Score breakdown</strong>
-              <span title="The pressure score is the sum of these contribution scores. Current activity uses the stronger of cluster activity and baseline activity, so those two do not double count.">
+              <span title="The pressure score is adjusted build-up plus unscaled attack score. Current activity uses the stronger of cluster activity and baseline activity, so those two do not double count.">
                 {formatNumber(breakdownScore)} calculated
               </span>
+            </div>
+            <div className="push-pressure-big-hitter-modifier">
+              <span>Big hitter modifier</span>
+              <strong>{formatMultiplier(bigHitterMultiplier)}</strong>
+              <small>
+                {formatNumber(latest.big_hitter_recently_active_count)} recently active of {formatNumber(latest.big_hitter_total_count)} rostered. Base build-up {formatNumber(basePressureScore)} becomes {formatNumber(adjustedBuildUpScore)} before attack score is added.
+              </small>
             </div>
             <PushPressureContributionGroup
               title="Build-up signals"
@@ -2523,6 +2902,55 @@ function signedFormat(value: number): string {
     return `+${formatNumber(value)}`;
   }
   return formatNumber(value);
+}
+
+function formatMultiplier(value: number): string {
+  return `${formatNumber(value)}x`;
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  return `${formatNumber(Math.round(value * 100))}%`;
+}
+
+function signedPercent(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  const rounded = Math.round(value * 100);
+  return rounded > 0 ? `+${formatNumber(rounded)}%` : `${formatNumber(rounded)}%`;
+}
+
+function parseJsonReasons(value: string | null | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function warControlStateLabel(state: string): string {
+  if (state === "home_control") return "We have control";
+  if (state === "enemy_control") return "Enemy has control";
+  if (state === "transitioning") return "Control swing";
+  if (state === "opening") return "Opening";
+  if (state === "contested") return "Contested";
+  return "Unknown";
+}
+
+function warControlTone(state: string): string {
+  if (state === "home_control") return "home-control";
+  if (state === "enemy_control") return "enemy-control";
+  if (state === "transitioning") return "transitioning";
+  if (state === "opening") return "opening";
+  if (state === "contested") return "contested";
+  return "unknown";
 }
 
 function pushPressureLevelLabel(level: string): string {

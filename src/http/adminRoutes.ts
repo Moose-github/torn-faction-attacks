@@ -54,6 +54,10 @@ import { getTornApiUsage } from "../tornApiUsage";
 import { Env } from "../types";
 import { json, parseLimit } from "../utils";
 import {
+  getWarControlSettings,
+  updateWarControlSettingsFromRequest,
+} from "../warControl";
+import {
   getAdminXanaxCompetition,
   previewXanaxCompetitionImage,
   updateAdminXanaxCompetition,
@@ -93,6 +97,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/data-health/settings", "POST")) {
     return withAdmin(routeContext, () => updateDataHealthSettingsFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/war-control-settings", "GET")) {
+    return withAdmin(routeContext, () => getWarControlSettings(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/war-control-settings", "POST")) {
+    return withAdmin(routeContext, () => updateWarControlSettingsFromRequest(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/member-lifestyle/import-now", "POST")) {

@@ -1,6 +1,6 @@
 import { API_BASE_URL, authHeaders, getJson, postJson } from "./client";
 import { queryString } from "./query";
-import type { AdminShopliftingAlertsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse } from "./types";
+import type { AdminShopliftingAlertsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
 
 export async function runIngestion(): Promise<unknown> {
   return postJson("/api/run");
@@ -173,6 +173,16 @@ export async function updateAdminEnemyPushAlert(payload: {
     enabled: payload.enabled,
   });
 
+}
+
+export async function getAdminWarControlSettings(): Promise<WarControlSettingsResponse> {
+  return getJson<WarControlSettingsResponse>("/api/admin/war-control-settings", true);
+}
+
+export async function updateAdminWarControlSettings(
+  payload: WarControlSettingsUpdate,
+): Promise<WarControlSettingsResponse> {
+  return postJson<WarControlSettingsResponse>("/api/admin/war-control-settings", payload);
 }
 
 export async function updateAdminXanaxCompetitionSettings(payload: {

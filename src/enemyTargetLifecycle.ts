@@ -8,6 +8,7 @@ export type EnemyTargetLifecycleMetrics = {
   changedRows: number;
   enemyRosterRowsDeleted: number;
   enemyBigHitterRowsDeleted: number;
+  enemyControlRowsDeleted: number;
   enemyHitStatRowsDeleted: number;
   homeComparisonStatsRowsCleared: number;
   enemyHeatmapRowsDeleted: number;
@@ -95,6 +96,19 @@ export async function handleEnemyTargetMatched(
       metrics.writeStatements += 1;
       metrics.changedRows += bigHitterChanges;
       metrics.enemyBigHitterRowsDeleted += bigHitterChanges;
+
+      const controlResult = await env.DB.prepare(
+        `
+        DELETE FROM war_control_snapshots
+        WHERE war_id = ?
+        `,
+      )
+        .bind(options.warId)
+        .run();
+      const controlChanges = d1Changes(controlResult);
+      metrics.writeStatements += 1;
+      metrics.changedRows += controlChanges;
+      metrics.enemyControlRowsDeleted += controlChanges;
     }
   }
 
@@ -194,6 +208,7 @@ function emptyEnemyTargetLifecycleMetrics(): EnemyTargetLifecycleMetrics {
     changedRows: 0,
     enemyRosterRowsDeleted: 0,
     enemyBigHitterRowsDeleted: 0,
+    enemyControlRowsDeleted: 0,
     enemyHitStatRowsDeleted: 0,
     homeComparisonStatsRowsCleared: 0,
     enemyHeatmapRowsDeleted: 0,
@@ -209,6 +224,7 @@ function addEnemyTargetLifecycleMetrics(
   target.changedRows += source.changedRows;
   target.enemyRosterRowsDeleted += source.enemyRosterRowsDeleted;
   target.enemyBigHitterRowsDeleted += source.enemyBigHitterRowsDeleted;
+  target.enemyControlRowsDeleted += source.enemyControlRowsDeleted;
   target.enemyHitStatRowsDeleted += source.enemyHitStatRowsDeleted;
   target.homeComparisonStatsRowsCleared += source.homeComparisonStatsRowsCleared;
   target.enemyHeatmapRowsDeleted += source.enemyHeatmapRowsDeleted;

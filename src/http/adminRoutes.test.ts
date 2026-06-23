@@ -5,6 +5,10 @@ import {
   updateDataHealthSettingsFromRequest,
 } from "../dataHealth";
 import { jsonResponse, routeContext } from "../testUtils/http";
+import {
+  getWarControlSettings,
+  updateWarControlSettingsFromRequest,
+} from "../warControl";
 import { routeAdminApi } from "./adminRoutes";
 
 vi.mock("../auth", () => ({
@@ -62,6 +66,10 @@ vi.mock("../stockPaperTrading", () => ({
 vi.mock("../summaries", () => ({ rebuildDerivedStatsFromRaw: vi.fn() }));
 vi.mock("../suggestions", () => ({ listMemberSuggestionsForAdmin: vi.fn() }));
 vi.mock("../tornApiUsage", () => ({ getTornApiUsage: vi.fn() }));
+vi.mock("../warControl", () => ({
+  getWarControlSettings: vi.fn(),
+  updateWarControlSettingsFromRequest: vi.fn(),
+}));
 vi.mock("../wars", () => ({ getAttackWindow: vi.fn() }));
 vi.mock("../xanaxCompetition", () => ({
   getAdminXanaxCompetition: vi.fn(),
@@ -75,6 +83,8 @@ describe("admin routes", () => {
     vi.mocked(requireAdmin).mockResolvedValue(null);
     vi.mocked(getAdminDataHealth).mockResolvedValue(jsonResponse({ ok: true, route: "admin-data-health" }));
     vi.mocked(updateDataHealthSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "settings" }));
+    vi.mocked(getWarControlSettings).mockResolvedValue(jsonResponse({ ok: true, route: "war-control-settings" }));
+    vi.mocked(updateWarControlSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "war-control-settings-update" }));
   });
 
   it("routes admin data health through admin auth", async () => {
@@ -100,6 +110,31 @@ describe("admin routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "settings" });
     expect(requireAdmin).toHaveBeenCalledOnce();
     expect(updateDataHealthSettingsFromRequest).toHaveBeenCalledOnce();
+  });
+
+  it("routes war control settings reads through admin auth", async () => {
+    const response = await routeAdminApi(routeContext("https://worker.test/api/admin/war-control-settings"));
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "war-control-settings" });
+    expect(requireAdmin).toHaveBeenCalledOnce();
+    expect(getWarControlSettings).toHaveBeenCalledOnce();
+  });
+
+  it("routes war control settings updates through admin auth", async () => {
+    const response = await routeAdminApi(routeContext(
+      "https://worker.test/api/admin/war-control-settings",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ control_hospital_threshold: 0.8 }),
+      },
+    ));
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "war-control-settings-update" });
+    expect(requireAdmin).toHaveBeenCalledOnce();
+    expect(updateWarControlSettingsFromRequest).toHaveBeenCalledOnce();
   });
 
   it("rejects admin data health when admin auth fails", async () => {

@@ -28,6 +28,10 @@ import {
   upsertEnemyPushSnapshot,
 } from "./enemyPushPressure";
 import {
+  buildWarControlSnapshot,
+  upsertWarControlSnapshot,
+} from "./warControl";
+import {
   clearSyncLatchesByPrefix,
   clearSyncLatch,
   isSyncLatchSet,
@@ -251,6 +255,7 @@ export async function refreshEnemyScoutingForWar(url: URL, env: Env): Promise<Re
       war.id,
       war.name,
       enemyFactionId,
+      war.practical_start_time,
       war.enemy_scouting_status_checked_at,
       { warType: war.war_type },
     );
@@ -489,16 +494,26 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
   return true;
 }
 
-async function refreshHomeFactionMembers(env: Env): Promise<void> {
+async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMember[]> {
   const members = await fetchTornFactionMembers(env, HOME_FACTION_ID);
 
   if (members.length === 0) {
-    return;
+    return members;
   }
 
+  const fetchedAt = nowSeconds();
+  const existingRows = await readHomeScouting(env);
+  const existingById = new Map(existingRows.map((row) => [row.member_id, row]));
+
   await env.DB.batch(
-    members.map((member) =>
-      env.DB.prepare(
+    members.map((member) => {
+      const statusSnapshot = buildMemberStatusSnapshot(
+        member,
+        existingById.get(member.id) ?? null,
+        null,
+        fetchedAt,
+      );
+      return env.DB.prepare(
         `
         INSERT INTO home_faction_members (
           member_id,
@@ -508,10 +523,15 @@ async function refreshHomeFactionMembers(env: Env): Promise<void> {
           position,
           days_in_faction,
           is_revivable,
+          status_state,
+          status_description,
+          last_action_status,
+          last_action_timestamp,
+          status_updated_at,
           is_current,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
@@ -519,6 +539,11 @@ async function refreshHomeFactionMembers(env: Env): Promise<void> {
           position = excluded.position,
           days_in_faction = excluded.days_in_faction,
           is_revivable = excluded.is_revivable,
+          status_state = excluded.status_state,
+          status_description = excluded.status_description,
+          last_action_status = excluded.last_action_status,
+          last_action_timestamp = excluded.last_action_timestamp,
+          status_updated_at = excluded.status_updated_at,
           is_current = 1,
           updated_at = excluded.updated_at
         `,
@@ -530,8 +555,13 @@ async function refreshHomeFactionMembers(env: Env): Promise<void> {
         member.position ?? null,
         finiteNumber(member.days_in_faction),
         boolToInt(effectiveRevivableStatus(member) ?? false),
-      ),
-    ),
+        statusSnapshot.status_state,
+        statusSnapshot.status_description,
+        statusSnapshot.last_action_status,
+        statusSnapshot.last_action_timestamp,
+        statusSnapshot.status_updated_at,
+      );
+    }),
   );
 
   await markDepartedHomeFactionMembers(env, members);
@@ -547,6 +577,7 @@ async function refreshHomeFactionMembers(env: Env): Promise<void> {
   ).all()).results as EnemyFactionMemberRow[] | undefined;
 
   await refreshMissingFfBattlestats(env, rows ?? [], "home_faction_members");
+  return members;
 }
 
 async function markDepartedHomeFactionMembers(env: Env, members: TornFactionMember[]): Promise<void> {
@@ -573,6 +604,7 @@ export async function refreshEnemyFactionMemberStatuses(
   warId: number,
   warName: string,
   factionId: number,
+  practicalStartTime: number,
   previousPollAt: number | null,
   options: { members?: TornFactionMember[]; includeMembers?: boolean; warType?: string | null } = {},
 ): Promise<EnemyMemberTrackingRefreshMetrics> {
@@ -595,6 +627,17 @@ export async function refreshEnemyFactionMemberStatuses(
   const existingById = new Map(existingRows.map((row) => [row.member_id, row]));
   const statements: D1PreparedStatement[] = [];
   const pushSnapshot = await buildEnemyPushSnapshot(env, warId, factionId, members, existingById, fetchedAt);
+  const homeMembers = await refreshHomeFactionMembers(env).catch((err) => {
+    console.warn(`Home faction status refresh failed for war ${warId}:`, err?.message || err);
+    return [];
+  });
+  const controlSnapshot = await buildWarControlSnapshot(
+    env,
+    { id: warId, practical_start_time: practicalStartTime, enemy_faction_id: factionId },
+    homeMembers,
+    members,
+    fetchedAt,
+  );
 
   for (const member of members) {
     const existing = existingById.get(member.id) ?? null;
@@ -604,6 +647,7 @@ export async function refreshEnemyFactionMemberStatuses(
     }
   }
   statements.push(upsertEnemyPushSnapshot(env, pushSnapshot));
+  statements.push(upsertWarControlSnapshot(env, controlSnapshot));
 
   let changedRows = 0;
   if (statements.length > 0) {
@@ -854,6 +898,15 @@ async function clearLiveEnemyTrackingRows(
     .bind(warId)
     .run();
 
+  const controlSnapshotResult = await env.DB.prepare(
+    `
+    DELETE FROM war_control_snapshots
+    WHERE war_id = ?
+    `,
+  )
+    .bind(warId)
+    .run();
+
   const bigHitterResult = await env.DB.prepare(
     `
     DELETE FROM enemy_big_hitters
@@ -881,11 +934,12 @@ async function clearLiveEnemyTrackingRows(
     : null;
 
   return {
-    writeStatements: options.resetWarCheckedAt ? 6 : 5,
+    writeStatements: options.resetWarCheckedAt ? 7 : 6,
     changedRows:
       d1Changes(memberResult) +
       d1Changes(pushSnapshotResult) +
       d1Changes(memberHeatmapResult) +
+      d1Changes(controlSnapshotResult) +
       d1Changes(bigHitterResult) +
       d1Changes(pushAlertResult) +
       d1Changes(warCheckedResult),

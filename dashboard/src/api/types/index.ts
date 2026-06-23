@@ -1507,10 +1507,15 @@ export type EnemyPushPressureSnapshot = {
   hospital_count: number;
   revivable_count: number;
   baseline_active_count: number | null;
-  activity_above_baseline: number | null;
-  online_delta_10m: number;
-  recently_active_delta_10m: number;
-  pressure_score: number;
+  activity_above_baseline: number | null;
+  online_delta_10m: number;
+  recently_active_delta_10m: number;
+  big_hitter_total_count: number;
+  big_hitter_online_count: number;
+  big_hitter_recently_active_count: number;
+  big_hitter_pressure_multiplier: number;
+  base_pressure_score: number;
+  pressure_score: number;
   pressure_level: "quiet" | "building" | "likely" | "underway" | string;
   created_at: number;
 };
@@ -1529,7 +1534,100 @@ export type EnemyPushPressureResponse = {
   history: EnemyPushPressureSnapshot[];
 };
 
-export type DiceGameProfile = {
+export type WarControlState =
+  | "opening"
+  | "home_control"
+  | "enemy_control"
+  | "contested"
+  | "transitioning"
+  | "unknown"
+  | string;
+
+export type WarControlSettings = {
+  id: 1;
+  control_hospital_threshold: number;
+  available_advantage_min: number;
+  opening_grace_minutes: number;
+  status_freshness_max_seconds: number;
+  min_observed_roster_percent: number;
+  min_local_relevant_members: number;
+  heavy_own_hospital_penalty_threshold: number;
+  severe_own_hospital_penalty_threshold: number;
+  heavy_own_hospital_confidence_penalty: number;
+  severe_own_hospital_confidence_penalty: number;
+  transition_hospital_ratio_drop: number;
+  transition_window_minutes: number;
+  transition_min_attacks_5m: number;
+  transition_big_hitter_multiplier_one: number;
+  transition_big_hitter_multiplier_multiple: number;
+  updated_at: number;
+};
+
+export type WarControlSettingsUpdate = Partial<Omit<WarControlSettings, "id" | "updated_at">>;
+
+export type WarControlSettingsResponse = {
+  ok: boolean;
+  settings: WarControlSettings;
+};
+
+export type WarControlSnapshot = {
+  war_id: number;
+  bucket_start: number;
+  home_total_members: number;
+  home_observed_members: number;
+  home_observed_roster_percent: number;
+  home_available_count: number;
+  home_hospital_count: number;
+  home_travel_count: number;
+  home_unknown_count: number;
+  home_local_relevant_count: number;
+  enemy_total_members: number;
+  enemy_observed_members: number;
+  enemy_observed_roster_percent: number;
+  enemy_available_count: number;
+  enemy_hospital_count: number;
+  enemy_travel_count: number;
+  enemy_unknown_count: number;
+  enemy_local_relevant_count: number;
+  home_attacks_last_5m: number;
+  enemy_attacks_last_5m: number;
+  home_attacks_last_15m: number;
+  enemy_attacks_last_15m: number;
+  enemy_big_hitter_total_count: number;
+  enemy_big_hitter_available_count: number;
+  enemy_big_hitter_hospital_count: number;
+  enemy_big_hitter_travel_count: number;
+  enemy_big_hitter_recently_active_count: number;
+  home_hospital_ratio: number;
+  enemy_hospital_ratio: number;
+  home_available_ratio: number;
+  enemy_available_ratio: number;
+  home_status_age_seconds: number;
+  enemy_status_age_seconds: number;
+  control_state: WarControlState;
+  control_confidence: number;
+  control_reason: string;
+  reasons_json: string;
+  reasons?: string[];
+  created_at: number;
+};
+
+export type WarControlResponse = {
+  ok: boolean;
+  war: {
+    id: number;
+    name: string;
+    status: string;
+    practical_start_time: number;
+    practical_finish_time: number | null;
+    enemy_faction_id: number | null;
+  };
+  settings: WarControlSettings;
+  latest: WarControlSnapshot | null;
+  history: WarControlSnapshot[];
+};
+
+export type DiceGameProfile = {
   torn_user_id: number;
   member_name: string | null;
   xanax_balance: number;

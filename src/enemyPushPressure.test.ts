@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sendDiscordMessage } from "./discord";
-import { sendEnemyPushAlerts, type EnemyPushSnapshotInput } from "./enemyPushPressure";
+import {
+  bigHitterPressureMultiplierForCount,
+  buildEnemyPushSnapshot,
+  calculatePushPressureScore,
+  sendEnemyPushAlerts,
+  type EnemyPushSnapshotInput,
+} from "./enemyPushPressure";
 import {
   clearSyncLatch,
   clearSyncLatchesByPrefix,
@@ -9,6 +15,7 @@ import {
   setSyncLatch,
 } from "./syncLatches";
 import type { Env } from "./types";
+import type { TornFactionMember } from "./types";
 
 vi.mock("./discord", () => ({
   sendDiscordMessage: vi.fn(),
@@ -41,6 +48,11 @@ describe("enemy push alerts", () => {
     activity_above_baseline: 6,
     online_delta_10m: 5,
     recently_active_delta_10m: 7,
+    big_hitter_total_count: 4,
+    big_hitter_online_count: 2,
+    big_hitter_recently_active_count: 2,
+    big_hitter_pressure_multiplier: 1.5,
+    base_pressure_score: 13,
     pressure_score: 25,
     pressure_level: "underway",
   };
@@ -72,3 +84,171 @@ describe("enemy push alerts", () => {
     expect(clearSyncLatch).toHaveBeenCalledWith(env, "enemy_push_alert:123:likely");
   });
 });
+
+describe("enemy push pressure scoring", () => {
+  it.each([
+    [0, 0.5],
+    [1, 1],
+    [2, 1.5],
+    [8, 1.5],
+  ])("returns the expected multiplier for %s active big hitters", (count, expected) => {
+    expect(bigHitterPressureMultiplierForCount(count)).toBe(expected);
+  });
+
+  it("multiplies only pre-attack pressure and preserves attack score", () => {
+    const noBigHitters = calculatePushPressureScore({
+      totalMembers: 50,
+      onlineDelta10m: 4,
+      recentlyActiveCount: 14,
+      recentlyActiveDelta10m: 7,
+      offlineIdleToOnlineCount: 3,
+      activityAboveBaseline: 6,
+      enemyAttacksLast5m: 4,
+      bigHitterRecentlyActiveCount: 0,
+    });
+    const multipleBigHitters = calculatePushPressureScore({
+      totalMembers: 50,
+      onlineDelta10m: 4,
+      recentlyActiveCount: 14,
+      recentlyActiveDelta10m: 7,
+      offlineIdleToOnlineCount: 3,
+      activityAboveBaseline: 6,
+      enemyAttacksLast5m: 4,
+      bigHitterRecentlyActiveCount: 2,
+    });
+
+    expect(noBigHitters.basePressureScore).toBe(15);
+    expect(noBigHitters.attackScore).toBe(12);
+    expect(noBigHitters.pressureScore).toBe(20);
+    expect(multipleBigHitters.basePressureScore).toBe(15);
+    expect(multipleBigHitters.attackScore).toBe(12);
+    expect(multipleBigHitters.pressureScore).toBe(35);
+  });
+
+  it("counts rostered big hitters in push snapshots", async () => {
+    const db = new TestD1Database();
+    const env = { DB: db as unknown as D1Database } as Env;
+    const fetchedAt = 1_781_000_300;
+    const members: TornFactionMember[] = [
+      member(1, "Online Big", "Online", fetchedAt - 60),
+      member(2, "Offline Regular", "Offline", fetchedAt - 60 * 20),
+      member(3, "Idle Big", "Idle", fetchedAt - 60 * 20),
+    ];
+
+    const snapshot = await buildEnemyPushSnapshot(
+      env,
+      123,
+      456,
+      members,
+      new Map([[1, { last_action_status: "offline" } as any]]),
+      fetchedAt,
+    );
+
+    expect(snapshot.big_hitter_total_count).toBe(2);
+    expect(snapshot.big_hitter_online_count).toBe(1);
+    expect(snapshot.big_hitter_recently_active_count).toBe(1);
+    expect(snapshot.big_hitter_pressure_multiplier).toBe(1);
+    expect(snapshot.base_pressure_score).toBe(2);
+    expect(snapshot.pressure_score).toBe(5);
+  });
+});
+
+class TestD1PreparedStatement {
+  private args: unknown[] = [];
+
+  constructor(
+    private readonly db: TestD1Database,
+    private readonly sql: string,
+  ) {}
+
+  bind(...args: unknown[]): D1PreparedStatement {
+    this.args = args;
+    return this as unknown as D1PreparedStatement;
+  }
+
+  async first<T = unknown>(): Promise<T | null> {
+    return this.db.first(this.sql, this.args) as T | null;
+  }
+
+  async all<T = unknown>(): Promise<D1Result<T>> {
+    return this.db.all(this.sql, this.args) as D1Result<T>;
+  }
+
+  async run<T = unknown>(): Promise<D1Result<T>> {
+    return this.db.run(this.sql, this.args) as D1Result<T>;
+  }
+
+  execute(): Promise<D1Result<unknown>> {
+    return this.run();
+  }
+
+  raw(): Promise<unknown[]> {
+    throw new Error("raw is not implemented in this test");
+  }
+}
+
+class TestD1Database {
+  prepare(sql: string): D1PreparedStatement {
+    return new TestD1PreparedStatement(this, compactSql(sql)) as unknown as D1PreparedStatement;
+  }
+
+  first(sql: string, _args: unknown[]): unknown | null {
+    if (sql.includes("FROM enemy_push_activity_snapshots")) {
+      return null;
+    }
+
+    if (sql.includes("FROM faction_activity_heatmap")) {
+      return { active_count: 8 };
+    }
+
+    if (sql.includes("FROM attacks")) {
+      return { attacks: 1 };
+    }
+
+    return null;
+  }
+
+  all<T = unknown>(sql: string, _args: unknown[]): D1Result<T> {
+    if (sql.includes("FROM enemy_big_hitters")) {
+      return result([
+        { member_id: 1 },
+        { member_id: 3 },
+      ] as T[]);
+    }
+
+    return result([]);
+  }
+
+  run<T = unknown>(_sql: string, _args: unknown[]): D1Result<T> {
+    return result([]);
+  }
+}
+
+function member(
+  id: number,
+  name: string,
+  status: string,
+  timestamp: number,
+): TornFactionMember {
+  return {
+    id,
+    name,
+    level: 100,
+    last_action: {
+      status,
+      timestamp,
+    },
+  };
+}
+
+function compactSql(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim();
+}
+
+function result<T>(results: T[], changes = 0): D1Result<T> {
+  return {
+    results,
+    success: true,
+    meta: { changes },
+  } as unknown as D1Result<T>;
+}

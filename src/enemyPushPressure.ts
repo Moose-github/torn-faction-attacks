@@ -21,6 +21,9 @@ const PUSH_UNDERWAY_ATTACK_COUNT_THRESHOLD = 6;
 const PUSH_UNDERWAY_ATTACK_SIGNAL_COUNT_THRESHOLD = 3;
 const PUSH_UNDERWAY_ATTACK_SIGNAL_SCORE_THRESHOLD = 13;
 const PUSH_LIKELY_SCORE_THRESHOLD = 20;
+const BIG_HITTER_MULTIPLIER_NONE = 0.5;
+const BIG_HITTER_MULTIPLIER_ONE = 1;
+const BIG_HITTER_MULTIPLIER_MULTIPLE = 1.5;
 export const PUSH_ALERT_STATE_PREFIX = "enemy_push_alert";
 const PUSH_ALERT_ENABLED_STATE_NAME = "enemy_push_alert_discord_enabled";
 
@@ -41,6 +44,11 @@ type EnemyPushSnapshotRow = {
   activity_above_baseline: number | null;
   online_delta_10m: number;
   recently_active_delta_10m: number;
+  big_hitter_total_count: number;
+  big_hitter_online_count: number;
+  big_hitter_recently_active_count: number;
+  big_hitter_pressure_multiplier: number;
+  base_pressure_score: number;
   pressure_score: number;
   pressure_level: string;
   created_at: number;
@@ -95,12 +103,20 @@ export async function buildEnemyPushSnapshot(
   let offlineIdleToOnlineCount = 0;
   let hospitalCount = 0;
   let revivableCount = 0;
+  let bigHitterOnlineCount = 0;
+  let bigHitterRecentlyActiveCount = 0;
+  const bigHitterIds = await readEnemyBigHitterIds(env, warId);
+  const bigHitterIdSet = new Set(bigHitterIds);
 
   for (const member of members) {
+    const isBigHitter = bigHitterIdSet.has(member.id);
     const actionStatus = normalizeLastActionStatus(member.last_action?.status);
     const previousActionStatus = normalizeLastActionStatus(existingById.get(member.id)?.last_action_status);
     if (actionStatus === "online") {
       onlineCount += 1;
+      if (isBigHitter) {
+        bigHitterOnlineCount += 1;
+      }
       if (previousActionStatus === "offline" || previousActionStatus === "idle") {
         offlineIdleToOnlineCount += 1;
       }
@@ -117,6 +133,9 @@ export async function buildEnemyPushSnapshot(
       fetchedAt - lastActionTimestamp <= PUSH_RECENT_ACTIVITY_WINDOW_SECONDS
     ) {
       recentlyActiveCount += 1;
+      if (isBigHitter) {
+        bigHitterRecentlyActiveCount += 1;
+      }
     }
 
     if (member.status?.state === "Hospital") {
@@ -140,7 +159,7 @@ export async function buildEnemyPushSnapshot(
     : 0;
   const activityAboveBaseline =
     baselineActiveCount === null ? null : recentlyActiveCount - baselineActiveCount;
-  const pressureScore = calculatePushPressureScore({
+  const pressure = calculatePushPressureScore({
     totalMembers: members.length,
     onlineDelta10m,
     recentlyActiveCount,
@@ -148,6 +167,7 @@ export async function buildEnemyPushSnapshot(
     offlineIdleToOnlineCount,
     activityAboveBaseline,
     enemyAttacksLast5m,
+    bigHitterRecentlyActiveCount,
   });
 
   return {
@@ -167,8 +187,13 @@ export async function buildEnemyPushSnapshot(
     activity_above_baseline: activityAboveBaseline,
     online_delta_10m: onlineDelta10m,
     recently_active_delta_10m: recentlyActiveDelta10m,
-    pressure_score: pressureScore,
-    pressure_level: pushPressureLevel(pressureScore, enemyAttacksLast5m),
+    big_hitter_total_count: bigHitterIds.length,
+    big_hitter_online_count: bigHitterOnlineCount,
+    big_hitter_recently_active_count: bigHitterRecentlyActiveCount,
+    big_hitter_pressure_multiplier: pressure.bigHitterPressureMultiplier,
+    base_pressure_score: pressure.basePressureScore,
+    pressure_score: pressure.pressureScore,
+    pressure_level: pushPressureLevel(pressure.pressureScore, enemyAttacksLast5m),
   };
 }
 
@@ -195,11 +220,16 @@ export function upsertEnemyPushSnapshot(
       activity_above_baseline,
       online_delta_10m,
       recently_active_delta_10m,
+      big_hitter_total_count,
+      big_hitter_online_count,
+      big_hitter_recently_active_count,
+      big_hitter_pressure_multiplier,
+      base_pressure_score,
       pressure_score,
       pressure_level,
       created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
     ON CONFLICT(war_id, bucket_start) DO UPDATE SET
       faction_id = excluded.faction_id,
       total_members = excluded.total_members,
@@ -215,6 +245,11 @@ export function upsertEnemyPushSnapshot(
       activity_above_baseline = excluded.activity_above_baseline,
       online_delta_10m = excluded.online_delta_10m,
       recently_active_delta_10m = excluded.recently_active_delta_10m,
+      big_hitter_total_count = excluded.big_hitter_total_count,
+      big_hitter_online_count = excluded.big_hitter_online_count,
+      big_hitter_recently_active_count = excluded.big_hitter_recently_active_count,
+      big_hitter_pressure_multiplier = excluded.big_hitter_pressure_multiplier,
+      base_pressure_score = excluded.base_pressure_score,
       pressure_score = excluded.pressure_score,
       pressure_level = excluded.pressure_level,
       created_at = excluded.created_at
@@ -236,6 +271,11 @@ export function upsertEnemyPushSnapshot(
     snapshot.activity_above_baseline,
     snapshot.online_delta_10m,
     snapshot.recently_active_delta_10m,
+    snapshot.big_hitter_total_count,
+    snapshot.big_hitter_online_count,
+    snapshot.big_hitter_recently_active_count,
+    snapshot.big_hitter_pressure_multiplier,
+    snapshot.base_pressure_score,
     snapshot.pressure_score,
     snapshot.pressure_level,
   );
@@ -420,7 +460,30 @@ async function readEnemyAttacksLast5m(
   return Math.max(0, Math.floor(Number(row?.attacks ?? 0)));
 }
 
-function calculatePushPressureScore(values: {
+async function readEnemyBigHitterIds(env: Env, warId: number): Promise<number[]> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT member_id
+    FROM enemy_big_hitters
+    WHERE war_id = ?
+    `,
+  )
+    .bind(warId)
+    .all<{ member_id: number }>();
+
+  return (rows.results ?? [])
+    .map((row) => Math.floor(Number(row.member_id)))
+    .filter((memberId) => Number.isInteger(memberId) && memberId > 0);
+}
+
+export type PushPressureScoreBreakdown = {
+  basePressureScore: number;
+  attackScore: number;
+  bigHitterPressureMultiplier: number;
+  pressureScore: number;
+};
+
+export function calculatePushPressureScore(values: {
   totalMembers: number;
   onlineDelta10m: number;
   recentlyActiveCount: number;
@@ -428,7 +491,8 @@ function calculatePushPressureScore(values: {
   offlineIdleToOnlineCount: number;
   activityAboveBaseline: number | null;
   enemyAttacksLast5m: number;
-}): number {
+  bigHitterRecentlyActiveCount: number;
+}): PushPressureScoreBreakdown {
   const activeClusterThreshold = Math.max(4, Math.ceil(values.totalMembers * 0.12));
   const activeClusterScore = Math.max(0, values.recentlyActiveCount - activeClusterThreshold);
   const baselineScore =
@@ -439,12 +503,28 @@ function calculatePushPressureScore(values: {
     Math.max(0, values.recentlyActiveDelta10m),
     values.offlineIdleToOnlineCount * 2,
   );
-
-  return (
-    mobilizationScore +
-    values.enemyAttacksLast5m * 3 +
-    currentActivityScore
+  const basePressureScore = mobilizationScore + currentActivityScore;
+  const attackScore = values.enemyAttacksLast5m * 3;
+  const bigHitterPressureMultiplier = bigHitterPressureMultiplierForCount(
+    values.bigHitterRecentlyActiveCount,
   );
+
+  return {
+    basePressureScore,
+    attackScore,
+    bigHitterPressureMultiplier,
+    pressureScore: Math.round(basePressureScore * bigHitterPressureMultiplier) + attackScore,
+  };
+}
+
+export function bigHitterPressureMultiplierForCount(count: number): number {
+  if (count <= 0) {
+    return BIG_HITTER_MULTIPLIER_NONE;
+  }
+  if (count === 1) {
+    return BIG_HITTER_MULTIPLIER_ONE;
+  }
+  return BIG_HITTER_MULTIPLIER_MULTIPLE;
 }
 
 function pushPressureLevel(score: number, enemyAttacksLast5m: number): string {

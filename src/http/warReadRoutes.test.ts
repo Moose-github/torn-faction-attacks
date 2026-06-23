@@ -13,6 +13,7 @@ import {
   cachedVersionedGetJson,
 } from "../responseCache";
 import { jsonResponse, routeContext } from "../testUtils/http";
+import { getWarControlForWar } from "../warControl";
 import {
   exportWarAttacksCsv,
   getWar,
@@ -61,6 +62,10 @@ vi.mock("../reports", () => ({
   getWarReportDiscrepancies: vi.fn(),
 }));
 
+vi.mock("../warControl", () => ({
+  getWarControlForWar: vi.fn(),
+}));
+
 vi.mock("../responseCache", () => ({
   cachedGetJson: vi.fn((_request, _ctx, _ttl, load) => load()),
   cachedVersionedGetJson: vi.fn((_env, _request, _ctx, _ttl, _versions, load) => load()),
@@ -102,6 +107,7 @@ describe("war read routes", () => {
     vi.mocked(getWarAttacks).mockResolvedValue(jsonResponse({ ok: true, route: "attacks-json" }));
     vi.mocked(getWarMemberAttacks).mockResolvedValue(jsonResponse({ ok: true, route: "member-attacks" }));
     vi.mocked(getWarReportDiscrepancies).mockResolvedValue(jsonResponse({ ok: true, route: "report-discrepancies" }));
+    vi.mocked(getWarControlForWar).mockResolvedValue(jsonResponse({ ok: true, route: "war-control" }));
     vi.mocked(getEnemyBigHittersForWar).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-big-hitters" }));
     vi.mocked(getEnemyMemberActivityHeatmap).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-member-activity-heatmap" }));
     vi.mocked(getWarActivityHeatmap).mockResolvedValue(jsonResponse({ ok: true, route: "activity-heatmap" }));
@@ -220,6 +226,18 @@ describe("war read routes", () => {
     expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
     expect(warCacheVersionNames).toHaveBeenCalledWith("current");
     expect(getEnemyBigHittersForWar).toHaveBeenCalledWith(context.url, context.env);
+  });
+
+  it("routes war control reads through the war cache", async () => {
+    const context = routeContext("https://worker.test/api/wars/current/war-control");
+
+    const response = await routeWarReads(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "war-control" });
+    expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
+    expect(warCacheVersionNames).toHaveBeenCalledWith("current");
+    expect(getWarControlForWar).toHaveBeenCalledWith(context.url, context.env);
   });
 
   it("ignores non-GET war read routes", async () => {
