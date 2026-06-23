@@ -1,9 +1,15 @@
 import { HOME_FACTION_ID } from "./constants";
+import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env } from "./types";
 import { d1Changes, json, nowSeconds } from "./utils";
 
 const ACHIEVEMENT_TOP_RANKS = 3;
 const ACHIEVEMENT_DETAIL_VERSION = 6;
+const ACHIEVEMENT_READY_DATE_LOOKBACK_DAYS = 21;
+const ACHIEVEMENT_READY_DATE_LIMIT = 30;
+const ACHIEVEMENT_STALE_CHECK_AFTER_UTC_MINUTE = 15;
+const ACHIEVEMENT_STALE_CHECK_UTC_HOURS = [0, 6, 12, 18] as const;
+const ACHIEVEMENT_STALE_CHECK_STATE_NAME = "member_achievement_stale_check";
 const ACHIEVEMENT_METRICS = [
   {
     metricKey: "xanax_yesterday",
@@ -143,6 +149,21 @@ export async function listMemberAchievementSummaries(env: Env): Promise<Response
 export async function refreshMemberAchievementSummariesIfStale(
   env: Env,
 ): Promise<{ writeStatements: number; changedRows: number; skipped: boolean; reason?: string }> {
+  const checkedAt = nowSeconds();
+  if (!achievementStaleCheckWindowOpen(checkedAt)) {
+    return { writeStatements: 0, changedRows: 0, skipped: true, reason: "waiting for daily stats" };
+  }
+
+  const lastCheckedAt = await readSyncTimestamp(env, ACHIEVEMENT_STALE_CHECK_STATE_NAME);
+  if (
+    lastCheckedAt > 0 &&
+    achievementStaleCheckSlotKey(lastCheckedAt) === achievementStaleCheckSlotKey(checkedAt)
+  ) {
+    return { writeStatements: 0, changedRows: 0, skipped: true, reason: "checked this refresh window" };
+  }
+
+  await upsertSyncTimestamp(env, ACHIEVEMENT_STALE_CHECK_STATE_NAME, checkedAt);
+
   const availableDates = await readAvailableSnapshotDates(env);
   const sourceSnapshotDates = latestSnapshotDatesForMetrics(availableDates);
   if (sourceSnapshotDates.size === 0) {
@@ -161,7 +182,10 @@ export async function refreshMemberAchievementSummaries(
   latestSnapshotDate?: string | MetricSourceSnapshotDates,
   knownAvailableDates?: AvailableAchievementDates,
 ): Promise<{ writeStatements: number; changedRows: number; skipped: boolean; reason?: string }> {
-  const availableDates = knownAvailableDates ?? await readAvailableSnapshotDates(env);
+  const availableDates = knownAvailableDates ??
+    (typeof latestSnapshotDate === "string"
+      ? await readAvailableSnapshotDates(env, achievementReadinessDatesForSource(latestSnapshotDate))
+      : await readAvailableSnapshotDates(env));
   const sourceSnapshotDates = typeof latestSnapshotDate === "string"
     ? fixedSnapshotDateForMetrics(latestSnapshotDate)
     : latestSnapshotDate ?? latestSnapshotDatesForMetrics(availableDates);
@@ -369,55 +393,59 @@ function compareRankedRows(left: MugRow, right: MugRow): number {
   return (left.member_name ?? `#${left.member_id}`).localeCompare(right.member_name ?? `#${right.member_id}`);
 }
 
-async function readAvailableSnapshotDates(env: Env): Promise<AvailableAchievementDates> {
+async function readAvailableSnapshotDates(env: Env, exactDates?: string[]): Promise<AvailableAchievementDates> {
+  const uniqueExactDates = Array.from(new Set(exactDates ?? []))
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .sort();
+  const candidateDatesSql = uniqueExactDates.length > 0
+    ? `
+      SELECT DISTINCT snapshot_date
+      FROM member_lifestyle_stat_snapshots
+      WHERE snapshot_date IN (${uniqueExactDates.map(() => "?").join(", ")})
+      `
+    : `
+      SELECT DISTINCT snapshot_date
+      FROM member_lifestyle_stat_snapshots
+      WHERE snapshot_date >= date('now', ?)
+      ORDER BY snapshot_date DESC
+      LIMIT ?
+      `;
+  const candidateDateParams = uniqueExactDates.length > 0
+    ? uniqueExactDates
+    : [`-${ACHIEVEMENT_READY_DATE_LOOKBACK_DAYS} days`, ACHIEVEMENT_READY_DATE_LIMIT];
+
   const rows = ((await env.DB.prepare(
     `
     WITH candidate_dates AS (
-      SELECT DISTINCT snapshot_date
-      FROM member_lifestyle_stat_snapshots
+      ${candidateDatesSql}
+    ),
+    reportable_members AS (
+      SELECT member_id, days_in_faction, updated_at
+      FROM home_faction_members
+      WHERE faction_id = ?
+        AND is_current = 1
+        AND report_exempt = 0
     )
     SELECT
       candidate_dates.snapshot_date,
-      CASE WHEN NOT EXISTS (
-        SELECT 1
-        FROM home_faction_members members
-        LEFT JOIN member_lifestyle_stat_snapshots snapshots
-          ON snapshots.member_id = members.member_id
-         AND snapshots.snapshot_date = candidate_dates.snapshot_date
-         AND snapshots.personal_ready = 1
-        WHERE members.faction_id = ?
-          AND members.is_current = 1
-          AND members.report_exempt = 0
-          AND snapshots.member_id IS NULL
-      ) THEN 1 ELSE 0 END AS personal_ready,
-      CASE WHEN NOT EXISTS (
-        SELECT 1
-        FROM home_faction_members members
-        LEFT JOIN member_lifestyle_stat_snapshots snapshots
-          ON snapshots.member_id = members.member_id
-         AND snapshots.snapshot_date = candidate_dates.snapshot_date
-         AND snapshots.gym_ready = 1
-        WHERE members.faction_id = ?
-          AND members.is_current = 1
-          AND members.report_exempt = 0
-          AND snapshots.member_id IS NULL
-      ) THEN 1 ELSE 0 END AS gym_ready,
-      CASE WHEN NOT EXISTS (
-        SELECT 1
-        FROM home_faction_members members
-        LEFT JOIN member_lifestyle_stat_snapshots snapshots
-          ON snapshots.member_id = members.member_id
-         AND snapshots.snapshot_date = candidate_dates.snapshot_date
-         AND snapshots.fully_ready = 1
-        WHERE members.faction_id = ?
-          AND members.is_current = 1
-          AND members.report_exempt = 0
-          AND snapshots.member_id IS NULL
-      ) THEN 1 ELSE 0 END AS fully_ready
+      CASE WHEN SUM(CASE WHEN snapshots.personal_ready = 1 THEN 0 ELSE 1 END) = 0 THEN 1 ELSE 0 END AS personal_ready,
+      CASE WHEN SUM(CASE WHEN snapshots.gym_ready = 1 THEN 0 ELSE 1 END) = 0 THEN 1 ELSE 0 END AS gym_ready,
+      CASE WHEN SUM(CASE WHEN snapshots.fully_ready = 1 THEN 0 ELSE 1 END) = 0 THEN 1 ELSE 0 END AS fully_ready
     FROM candidate_dates
+    JOIN reportable_members members
+      ON (
+        members.days_in_faction IS NULL
+        OR members.updated_at IS NULL
+        OR candidate_dates.snapshot_date > date(members.updated_at, 'unixepoch', '-' || members.days_in_faction || ' days')
+      )
+    LEFT JOIN member_lifestyle_stat_snapshots snapshots
+      ON snapshots.member_id = members.member_id
+     AND snapshots.snapshot_date = candidate_dates.snapshot_date
+    GROUP BY candidate_dates.snapshot_date
+    ORDER BY candidate_dates.snapshot_date ASC
     `,
   )
-    .bind(HOME_FACTION_ID, HOME_FACTION_ID, HOME_FACTION_ID)
+    .bind(...candidateDateParams, HOME_FACTION_ID)
     .all()).results ?? []) as Array<{
     snapshot_date: string;
     personal_ready: number | null;
@@ -430,6 +458,38 @@ async function readAvailableSnapshotDates(env: Env): Promise<AvailableAchievemen
     gym: new Set(rows.filter((row) => Number(row.gym_ready) > 0).map((row) => row.snapshot_date)),
     personal: new Set(rows.filter((row) => Number(row.personal_ready) > 0).map((row) => row.snapshot_date)),
   };
+}
+
+function achievementReadinessDatesForSource(sourceSnapshotDate: string): string[] {
+  const dates = new Set<string>();
+  for (const metric of ACHIEVEMENT_METRICS) {
+    if (metric.source !== "lifestyle") {
+      continue;
+    }
+
+    dates.add(sourceSnapshotDate);
+    dates.add(shiftUtcDate(sourceSnapshotDate, -metric.days));
+  }
+  return Array.from(dates);
+}
+
+function achievementStaleCheckWindowOpen(timestamp: number): boolean {
+  return achievementStaleCheckSlotKey(timestamp) !== null;
+}
+
+function achievementStaleCheckSlotKey(timestamp: number): string | null {
+  const date = new Date(timestamp * 1000);
+  const currentMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
+  const slotHour = [...ACHIEVEMENT_STALE_CHECK_UTC_HOURS]
+    .reverse()
+    .find((hour) => currentMinutes >= hour * 60 + ACHIEVEMENT_STALE_CHECK_AFTER_UTC_MINUTE);
+  if (slotHour === undefined) {
+    return null;
+  }
+
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${month}-${day}T${String(slotHour).padStart(2, "0")}:${String(ACHIEVEMENT_STALE_CHECK_AFTER_UTC_MINUTE).padStart(2, "0")}`;
 }
 
 function latestSnapshotDatesForMetrics(availableDates: AvailableAchievementDates): MetricSourceSnapshotDates {
