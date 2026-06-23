@@ -1,6 +1,6 @@
 import { API_BASE_URL, authHeaders, filenameFromContentDisposition, getJson, postJson } from "./client";
 import { queryString } from "./query";
-import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarDetailResponse, WarMemberActivityHeatmapResponse, WarsResponse, WarType } from "./types";
+import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarDetailResponse, WarMemberCombatHeatmapResponse, WarsResponse, WarType } from "./types";
 
 export async function getStats(
   warType: WarType,
@@ -49,12 +49,12 @@ export async function getWarActivityHeatmap(
   );
 }
 
-export async function getWarMemberActivityHeatmap(
-  warName: string,
-): Promise<WarMemberActivityHeatmapResponse> {
-  return getJson<WarMemberActivityHeatmapResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/member-activity-heatmap`,
-  );
+export async function getWarMemberCombatHeatmap(
+  warName: string,
+): Promise<WarMemberCombatHeatmapResponse> {
+  return getJson<WarMemberCombatHeatmapResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/member-combat-heatmap`,
+  );
 }
 
 export async function getWarChainBonuses(warName: string): Promise<WarChainBonusesResponse> {

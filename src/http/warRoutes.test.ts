@@ -76,7 +76,7 @@ vi.mock("../wars", () => ({
   getWarActivity: vi.fn(),
   getWarAttacks: vi.fn(),
   getWarChainBonusesForWar: vi.fn(),
-  getWarMemberActivityHeatmap: vi.fn(),
+  getWarMemberCombatHeatmap: vi.fn(),
   getWarMemberAttacks: vi.fn(),
   importHistoricalWar: vi.fn(),
   listWars: vi.fn(),

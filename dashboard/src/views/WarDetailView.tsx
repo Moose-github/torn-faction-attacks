@@ -7,13 +7,13 @@ import {
   ReportDiscrepanciesResponse,
   WarActivityBucket,
   WarDetailResponse,
-  WarMemberActivityHeatmapResponse,
+  WarMemberCombatHeatmapResponse,
   WarSummary,
 } from "../api";
 import { ActivityChart, AttackChart, MemberPointGraphs } from "../components/Charts";
 import { ChainBonusList } from "../components/ChainBonuses";
 import { CollapsiblePanel, InlineMetric, MetricCard, PanelHeader } from "../components/Common";
-import { MemberActivityHeatmap } from "../components/MemberActivityHeatmap";
+import { MemberCombatHeatmap } from "../components/MemberCombatHeatmap";
 import { MemberAttackList, MemberTable } from "../components/MemberTables";
 import {
   discrepancyAside,
@@ -51,10 +51,10 @@ type WarDetailViewProps = {
   isAdmin: boolean;
   isLoadingActivity: boolean;
   isLoadingDetail: boolean;
-  isLoadingMemberActivityHeatmap: boolean;
+  isLoadingMemberCombatHeatmap: boolean;
   isLoadingMemberAttacks: boolean;
   isLoadingReportDiscrepancies: boolean;
-  memberActivityHeatmap: WarMemberActivityHeatmapResponse | null;
+  memberCombatHeatmap: WarMemberCombatHeatmapResponse | null;
   memberAttackSort: MemberAttackSort;
   memberAttacks: MemberAttack[];
   memberSort: MemberSort;
@@ -107,10 +107,10 @@ export function WarDetailView({
   isAdmin,
   isLoadingActivity,
   isLoadingDetail,
-  isLoadingMemberActivityHeatmap,
+  isLoadingMemberCombatHeatmap,
   isLoadingMemberAttacks,
   isLoadingReportDiscrepancies,
-  memberActivityHeatmap,
+  memberCombatHeatmap,
   memberAttackSort,
   memberAttacks,
   memberSort,
@@ -165,7 +165,7 @@ export function WarDetailView({
       hasTornReport);
   const showFactionActivity = hasWarData;
   const showEnemyActivity = hasWarData;
-  const showMemberActivityHeatmap = hasWarData;
+  const showMemberCombatHeatmap = hasWarData;
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
   const isScheduledWar = selectedWar.status === "scheduled";
 
@@ -415,21 +415,21 @@ export function WarDetailView({
                 </CollapsiblePanel>
               ) : null}
 
-              {showMemberActivityHeatmap ? (
+              {showMemberCombatHeatmap ? (
                 <CollapsiblePanel
-                  title="Member activity heatmap"
-                  aside={isLoadingMemberActivityHeatmap && collapsedPanels.memberActivityHeatmap === false ? "Loading" : "15 minute buckets"}
-                  collapsed={collapsedPanels.memberActivityHeatmap ?? true}
-                  onToggle={() => onTogglePanel("memberActivityHeatmap")}
-                  className="member-activity-panel"
+                  title="Member combat heatmap"
+                  aside={isLoadingMemberCombatHeatmap && collapsedPanels.memberCombatHeatmap === false ? "Loading" : "15 minute buckets"}
+                  collapsed={collapsedPanels.memberCombatHeatmap ?? true}
+                  onToggle={() => onTogglePanel("memberCombatHeatmap")}
+                  className="member-combat-panel"
                 >
                   <p className="panel-description">
                     Shows member attacks, outside hits, defends lost, and respect by 15-minute war bucket.
                     Drag cells, rows, or time columns to total a selection.
                   </p>
-                  <MemberActivityHeatmap
-                    heatmap={memberActivityHeatmap}
-                    isLoading={isLoadingMemberActivityHeatmap}
+                  <MemberCombatHeatmap
+                    heatmap={memberCombatHeatmap}
+                    isLoading={isLoadingMemberCombatHeatmap}
                   />
                 </CollapsiblePanel>
               ) : null}

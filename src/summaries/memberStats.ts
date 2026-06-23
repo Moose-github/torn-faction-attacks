@@ -121,7 +121,7 @@ export async function finalizeWar(env: Env, warId: number): Promise<void> {
 
 export async function rebuildDerivedStatsFromRaw(env: Env, warId?: number): Promise<{
   wars_rebuilt: number;
-  activity_bucket_rows: number;
+  combat_bucket_rows: number;
 }> {
   if (warId !== undefined) {
     const war = (await env.DB.prepare(
@@ -136,14 +136,14 @@ export async function rebuildDerivedStatsFromRaw(env: Env, warId?: number): Prom
       .first()) as { id: number } | null;
 
     if (!war) {
-      return { wars_rebuilt: 0, activity_bucket_rows: 0 };
+      return { wars_rebuilt: 0, combat_bucket_rows: 0 };
     }
 
     await rebuildWarMemberStatsFromRaw(env, war.id);
     await rebuildWarSummaryFromMemberStats(env, war.id);
     return {
       wars_rebuilt: 1,
-      activity_bucket_rows: await countWarMemberActivityBuckets(env, war.id),
+      combat_bucket_rows: await countWarMemberCombatBuckets(env, war.id),
     };
   }
 
@@ -166,22 +166,22 @@ export async function rebuildDerivedStatsFromRaw(env: Env, warId?: number): Prom
 
   return {
     wars_rebuilt: wars.length,
-    activity_bucket_rows: await countWarMemberActivityBuckets(env),
+    combat_bucket_rows: await countWarMemberCombatBuckets(env),
   };
 }
 
-async function countWarMemberActivityBuckets(env: Env, warId?: number): Promise<number> {
+async function countWarMemberCombatBuckets(env: Env, warId?: number): Promise<number> {
   const row = warId === undefined
     ? await env.DB.prepare(
       `
       SELECT COUNT(*) AS count
-      FROM war_member_activity_buckets
+      FROM war_member_combat_buckets
       `,
     ).first()
     : await env.DB.prepare(
       `
       SELECT COUNT(*) AS count
-      FROM war_member_activity_buckets
+      FROM war_member_combat_buckets
       WHERE war_id = ?
       `,
     )
@@ -194,13 +194,13 @@ async function countWarMemberActivityBuckets(env: Env, warId?: number): Promise<
 export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Promise<void> {
   await resetDerivedWarMemberStats(env, warId);
 
-  await env.DB.prepare(`DELETE FROM war_member_activity_buckets WHERE war_id = ?`)
+  await env.DB.prepare(`DELETE FROM war_member_combat_buckets WHERE war_id = ?`)
     .bind(warId)
     .run();
 
   await upsertWarMemberAttackStats(env, warId);
   await upsertWarMemberDefendStats(env, warId);
-  await upsertWarMemberActivityBuckets(env, warId);
+  await upsertWarMemberCombatBuckets(env, warId);
 }
 
 async function refreshWarChainBonusAdjustmentsFromRaw(env: Env, warId: number): Promise<number> {
@@ -744,17 +744,17 @@ async function applyIngestedWarMemberStats(
 
   await upsertIngestedWarMemberAttackStats(env, warId, ingestRunId);
   await upsertIngestedWarMemberDefendStats(env, warId, ingestRunId);
-  await upsertWarMemberActivityBuckets(env, warId, ingestRunId);
+  await upsertWarMemberCombatBuckets(env, warId, ingestRunId);
   return appliedAttacks;
 }
 
-async function upsertWarMemberActivityBuckets(
+async function upsertWarMemberCombatBuckets(
   env: Env,
   warId: number,
   ingestRunId?: string,
 ): Promise<void> {
   if (ingestRunId) {
-    await upsertIngestedWarMemberActivityBuckets(env, warId, ingestRunId);
+    await upsertIngestedWarMemberCombatBuckets(env, warId, ingestRunId);
     return;
   }
 
@@ -958,7 +958,7 @@ async function upsertWarMemberActivityBuckets(
       FROM bucket_rows
       GROUP BY war_id, member_id, bucket_start
     )
-    INSERT INTO war_member_activity_buckets (
+    INSERT INTO war_member_combat_buckets (
       war_id,
       member_id,
       bucket_start,
@@ -986,21 +986,21 @@ async function upsertWarMemberActivityBuckets(
     FROM grouped_rows
     WHERE true
     ON CONFLICT(war_id, member_id, bucket_start) DO UPDATE SET
-      attacks_successful = war_member_activity_buckets.attacks_successful + excluded.attacks_successful,
-      assists_vs_enemy = war_member_activity_buckets.assists_vs_enemy + excluded.assists_vs_enemy,
-      outside_hits = war_member_activity_buckets.outside_hits + excluded.outside_hits,
-      defends_lost = war_member_activity_buckets.defends_lost + excluded.defends_lost,
-      defends_won = war_member_activity_buckets.defends_won + excluded.defends_won,
-      defends_other = war_member_activity_buckets.defends_other + excluded.defends_other,
-      respect_gained = war_member_activity_buckets.respect_gained + excluded.respect_gained,
-      respect_lost = war_member_activity_buckets.respect_lost + excluded.respect_lost
+      attacks_successful = war_member_combat_buckets.attacks_successful + excluded.attacks_successful,
+      assists_vs_enemy = war_member_combat_buckets.assists_vs_enemy + excluded.assists_vs_enemy,
+      outside_hits = war_member_combat_buckets.outside_hits + excluded.outside_hits,
+      defends_lost = war_member_combat_buckets.defends_lost + excluded.defends_lost,
+      defends_won = war_member_combat_buckets.defends_won + excluded.defends_won,
+      defends_other = war_member_combat_buckets.defends_other + excluded.defends_other,
+      respect_gained = war_member_combat_buckets.respect_gained + excluded.respect_gained,
+      respect_lost = war_member_combat_buckets.respect_lost + excluded.respect_lost
     `,
   )
     .bind(...bindValues)
     .run();
 }
 
-async function upsertIngestedWarMemberActivityBuckets(
+async function upsertIngestedWarMemberCombatBuckets(
   env: Env,
   warId: number,
   ingestRunId: string,
@@ -1169,7 +1169,7 @@ async function upsertIngestedWarMemberActivityBuckets(
       FROM bucket_rows
       GROUP BY war_id, member_id, bucket_start
     )
-    INSERT INTO war_member_activity_buckets (
+    INSERT INTO war_member_combat_buckets (
       war_id,
       member_id,
       bucket_start,
@@ -1197,14 +1197,14 @@ async function upsertIngestedWarMemberActivityBuckets(
     FROM grouped_rows
     WHERE true
     ON CONFLICT(war_id, member_id, bucket_start) DO UPDATE SET
-      attacks_successful = war_member_activity_buckets.attacks_successful + excluded.attacks_successful,
-      assists_vs_enemy = war_member_activity_buckets.assists_vs_enemy + excluded.assists_vs_enemy,
-      outside_hits = war_member_activity_buckets.outside_hits + excluded.outside_hits,
-      defends_lost = war_member_activity_buckets.defends_lost + excluded.defends_lost,
-      defends_won = war_member_activity_buckets.defends_won + excluded.defends_won,
-      defends_other = war_member_activity_buckets.defends_other + excluded.defends_other,
-      respect_gained = war_member_activity_buckets.respect_gained + excluded.respect_gained,
-      respect_lost = war_member_activity_buckets.respect_lost + excluded.respect_lost
+      attacks_successful = war_member_combat_buckets.attacks_successful + excluded.attacks_successful,
+      assists_vs_enemy = war_member_combat_buckets.assists_vs_enemy + excluded.assists_vs_enemy,
+      outside_hits = war_member_combat_buckets.outside_hits + excluded.outside_hits,
+      defends_lost = war_member_combat_buckets.defends_lost + excluded.defends_lost,
+      defends_won = war_member_combat_buckets.defends_won + excluded.defends_won,
+      defends_other = war_member_combat_buckets.defends_other + excluded.defends_other,
+      respect_gained = war_member_combat_buckets.respect_gained + excluded.respect_gained,
+      respect_lost = war_member_combat_buckets.respect_lost + excluded.respect_lost
     `,
   )
     .bind(

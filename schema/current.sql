@@ -728,14 +728,17 @@ CREATE TABLE trade_watchlists (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 , created_by_torn_user_id INTEGER, created_by_name TEXT);
 
-CREATE TABLE war_member_activity_buckets (
+CREATE TABLE war_member_combat_buckets (
   war_id INTEGER NOT NULL,
   member_id INTEGER NOT NULL,
   bucket_start INTEGER NOT NULL,
 
   attacks_successful INTEGER NOT NULL DEFAULT 0,
+  assists_vs_enemy INTEGER NOT NULL DEFAULT 0,
   outside_hits INTEGER NOT NULL DEFAULT 0,
   defends_lost INTEGER NOT NULL DEFAULT 0,
+  defends_won INTEGER NOT NULL DEFAULT 0,
+  defends_other INTEGER NOT NULL DEFAULT 0,
 
   respect_gained REAL NOT NULL DEFAULT 0,
   respect_lost REAL NOT NULL DEFAULT 0,
@@ -1000,8 +1003,8 @@ CREATE INDEX idx_trade_watchlists_created_by
 CREATE INDEX idx_trade_watchlists_updated_at
   ON trade_watchlists(updated_at DESC);
 
-CREATE INDEX idx_war_member_activity_buckets_war_bucket
-  ON war_member_activity_buckets(war_id, bucket_start);
+CREATE INDEX idx_war_member_combat_buckets_war_bucket
+  ON war_member_combat_buckets(war_id, bucket_start);
 
 CREATE INDEX idx_wars_lower_name
   ON wars(LOWER(name));

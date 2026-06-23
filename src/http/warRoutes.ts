@@ -34,7 +34,7 @@ import {
   getWarActivity,
   getWarAttacks,
   getWarChainBonusesForWar,
-  getWarMemberActivityHeatmap,
+  getWarMemberCombatHeatmap,
   getWarMemberAttacks,
   importHistoricalWar,
   listWars,
@@ -227,11 +227,14 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
     );
   }
 
-  if (isWarSubroute(url, request, "/member-activity-heatmap", "GET")) {
+  if (
+    isWarSubroute(url, request, "/member-combat-heatmap", "GET") ||
+    isWarSubroute(url, request, "/member-activity-heatmap", "GET")
+  ) {
     return cachedMemberGet(
       routeContext,
       warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
-      () => getWarMemberActivityHeatmap(url, env),
+      () => getWarMemberCombatHeatmap(url, env),
       warVersionNames,
     );
   }

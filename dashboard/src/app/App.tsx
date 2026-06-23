@@ -23,7 +23,7 @@ import {
   getWar,
   getWarActivity,
   getWarChainBonuses,
-  getWarMemberActivityHeatmap,
+  getWarMemberCombatHeatmap,
   getWarMemberAttacks,
   getWarReportDiscrepancies,
   getWars,
@@ -36,7 +36,7 @@ import {
   ReportDiscrepanciesResponse,
   WarDetailResponse,
   WarActivityBucket,
-  WarMemberActivityHeatmapResponse,
+  WarMemberCombatHeatmapResponse,
   type GlobalWarState,
   WarSummary,
   WarType,
@@ -134,9 +134,9 @@ export function App() {
   const [factionActivityWindow, setFactionActivityWindow] = React.useState<"practical" | "official">("practical");
   const [activityBuckets, setActivityBuckets] = React.useState<WarActivityBucket[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = React.useState(false);
-  const [memberActivityHeatmap, setMemberActivityHeatmap] =
-    React.useState<WarMemberActivityHeatmapResponse | null>(null);
-  const [isLoadingMemberActivityHeatmap, setIsLoadingMemberActivityHeatmap] = React.useState(false);
+  const [memberCombatHeatmap, setMemberCombatHeatmap] =
+    React.useState<WarMemberCombatHeatmapResponse | null>(null);
+  const [isLoadingMemberCombatHeatmap, setIsLoadingMemberCombatHeatmap] = React.useState(false);
   const [reportDiscrepancies, setReportDiscrepancies] = React.useState<ReportDiscrepanciesResponse | null>(null);
   const [isLoadingReportDiscrepancies, setIsLoadingReportDiscrepancies] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({});
@@ -288,7 +288,7 @@ export function App() {
   const isAdmin = authSession?.access_level === "admin";
   const isActivityPanelOpen =
     collapsedPanels.factionActivity === false || collapsedPanels.enemyActivity === false;
-  const isMemberActivityPanelOpen = collapsedPanels.memberActivityHeatmap === false;
+  const isMemberCombatPanelOpen = collapsedPanels.memberCombatHeatmap === false;
   const isReportDiscrepancyPanelOpen = collapsedPanels.reportDiscrepancies === false;
 
   React.useEffect(() => {
@@ -390,36 +390,36 @@ export function App() {
   ]);
 
   React.useEffect(() => {
-    if (!authSession || view !== "war" || !selectedWarName || !selectedWar || !isMemberActivityPanelOpen) {
-      setMemberActivityHeatmap(null);
+    if (!authSession || view !== "war" || !selectedWarName || !selectedWar || !isMemberCombatPanelOpen) {
+      setMemberCombatHeatmap(null);
       return;
     }
 
     let cancelled = false;
     const heatmapWarName = selectedWarName;
 
-    async function loadMemberActivityHeatmap() {
-      setIsLoadingMemberActivityHeatmap(true);
+    async function loadMemberCombatHeatmap() {
+      setIsLoadingMemberCombatHeatmap(true);
       setError(null);
 
       try {
-        const response = await getWarMemberActivityHeatmap(heatmapWarName);
+        const response = await getWarMemberCombatHeatmap(heatmapWarName);
         if (!cancelled) {
-          setMemberActivityHeatmap(response);
+          setMemberCombatHeatmap(response);
         }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
-          setMemberActivityHeatmap(null);
+          setMemberCombatHeatmap(null);
         }
       } finally {
         if (!cancelled) {
-          setIsLoadingMemberActivityHeatmap(false);
+          setIsLoadingMemberCombatHeatmap(false);
         }
       }
     }
 
-    loadMemberActivityHeatmap();
+    loadMemberCombatHeatmap();
 
     if (selectedWar.official_end_time !== null || selectedWar.status === "ended") {
       return () => {
@@ -427,8 +427,8 @@ export function App() {
       };
     }
 
-    const refreshMs = warMemberActivityHeatmapRefreshInterval(selectedWar);
-    const timer = window.setInterval(loadMemberActivityHeatmap, refreshMs);
+    const refreshMs = warMemberCombatHeatmapRefreshInterval(selectedWar);
+    const timer = window.setInterval(loadMemberCombatHeatmap, refreshMs);
 
     return () => {
       cancelled = true;
@@ -436,7 +436,7 @@ export function App() {
     };
   }, [
     authSession,
-    isMemberActivityPanelOpen,
+    isMemberCombatPanelOpen,
     selectedWar?.official_end_time,
     selectedWar?.practical_finish_time,
     selectedWar?.status,
@@ -796,10 +796,10 @@ export function App() {
                 isAdmin={isAdmin}
                 isLoadingActivity={isLoadingActivity}
                 isLoadingDetail={isLoadingDetail}
-                isLoadingMemberActivityHeatmap={isLoadingMemberActivityHeatmap}
+                isLoadingMemberCombatHeatmap={isLoadingMemberCombatHeatmap}
                 isLoadingMemberAttacks={isLoadingMemberAttacks}
                 isLoadingReportDiscrepancies={isLoadingReportDiscrepancies}
-                memberActivityHeatmap={memberActivityHeatmap}
+                memberCombatHeatmap={memberCombatHeatmap}
                 memberAttackSort={memberAttackSort}
                 memberAttacks={memberAttacks}
                 memberSort={memberSort}
@@ -946,7 +946,7 @@ function warSecondaryPanelRefreshInterval(war: WarSummary): number {
   return war.status === "active" ? ACTIVE_WAR_REFRESH_MS : SLOW_WAR_REFRESH_MS;
 }
 
-function warMemberActivityHeatmapRefreshInterval(war: WarSummary): number {
+function warMemberCombatHeatmapRefreshInterval(war: WarSummary): number {
   return war.practical_finish_time !== null ? PRACTICAL_FINISH_REFRESH_MS : SLOW_WAR_REFRESH_MS;
 }
 

@@ -350,7 +350,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
           COALESCE(SUM(defends_lost), 0) AS defend_lost,
           COALESCE(SUM(defends_won), 0) AS defend_won,
           COALESCE(SUM(defends_other), 0) AS defend_other
-        FROM war_member_activity_buckets
+        FROM war_member_combat_buckets
         WHERE war_id = ?
           AND bucket_start BETWEEN ? AND ?
         GROUP BY CAST((bucket_start / ?) AS INTEGER) * ?
@@ -495,7 +495,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
   }
 }
 
-export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<Response> {
+export async function getWarMemberCombatHeatmap(url: URL, env: Env): Promise<Response> {
   try {
     const bucketMinutes = 15;
     const bucketSeconds = bucketMinutes * 60;
@@ -561,7 +561,7 @@ export async function getWarMemberActivityHeatmap(url: URL, env: Env): Promise<R
           buckets.defends_other,
           buckets.respect_gained,
           buckets.respect_lost
-        FROM war_member_activity_buckets buckets
+        FROM war_member_combat_buckets buckets
         ${reportableHomeMemberJoinSql("buckets.member_id")}
         WHERE buckets.war_id = ?
           AND buckets.bucket_start BETWEEN ? AND ?

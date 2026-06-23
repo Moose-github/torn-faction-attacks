@@ -1,22 +1,22 @@
 import React from "react";
 import { Maximize2, Minimize2, ZoomIn, ZoomOut } from "lucide-react";
 import {
-  WarMemberActivityBucket,
-  WarMemberActivityHeatmapResponse,
-  WarMemberActivityMetric,
-  WarMemberActivityMember,
+  WarMemberCombatBucket,
+  WarMemberCombatHeatmapResponse,
+  WarMemberCombatMetric,
+  WarMemberCombatMember,
 } from "../api";
 import { EmptyState } from "./Common";
 import { formatLongDateTime, formatNumber, formatTime } from "../utils/format";
 
-const metricOptions: Array<{ key: WarMemberActivityMetric; label: string; color: "blue" | "red" | "green" }> = [
+const metricOptions: Array<{ key: WarMemberCombatMetric; label: string; color: "blue" | "red" | "green" }> = [
   { key: "attacks_successful", label: "Attacks", color: "green" },
   { key: "outside_hits", label: "Outside hits", color: "blue" },
   { key: "defends_lost", label: "Defends lost", color: "red" },
   { key: "respect_gained", label: "Respect gained", color: "green" },
   { key: "respect_lost", label: "Respect lost", color: "red" },
 ];
-const activityMetricKeys: WarMemberActivityMetric[] = ["attacks_successful", "outside_hits"];
+const combatMetricKeys: WarMemberCombatMetric[] = ["attacks_successful", "outside_hits"];
 const zoomLevels = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 const defaultZoomIndex = 3;
 
@@ -34,14 +34,14 @@ type NormalizedSelection = {
   bucketEnd: number;
 };
 
-export function MemberActivityHeatmap({
+export function MemberCombatHeatmap({
   heatmap,
   isLoading,
 }: {
-  heatmap: WarMemberActivityHeatmapResponse | null;
+  heatmap: WarMemberCombatHeatmapResponse | null;
   isLoading: boolean;
 }) {
-  const [selectedMetrics, setSelectedMetrics] = React.useState<WarMemberActivityMetric[]>(["attacks_successful"]);
+  const [selectedMetrics, setSelectedMetrics] = React.useState<WarMemberCombatMetric[]>(["attacks_successful"]);
   const [selection, setSelection] = React.useState<GridSelection | null>(null);
   const [dragAnchor, setDragAnchor] = React.useState<{ memberIndex: number; bucketIndex: number } | null>(null);
   const [isExpanded, setIsExpanded] = React.useState(false);
@@ -82,11 +82,11 @@ export function MemberActivityHeatmap({
   }, [isExpanded]);
 
   if (isLoading) {
-    return <EmptyState text="Loading member activity" />;
+    return <EmptyState text="Loading member combat data" />;
   }
 
   if (!heatmap || heatmap.members.length === 0) {
-    return <EmptyState text="No member activity data yet" />;
+    return <EmptyState text="No member combat data yet" />;
   }
 
   if (heatmap.time_buckets.length === 0) {
@@ -119,10 +119,10 @@ export function MemberActivityHeatmap({
   const canZoomOut = zoomIndex > 0;
   const canZoomIn = zoomIndex < zoomLevels.length - 1;
   const gridStyle = {
-    "--member-activity-cell-width": `${cellWidth}px`,
-    "--member-activity-cell-height": `${cellHeight}px`,
-    "--member-activity-header-height": `${headerHeight}px`,
-    gridTemplateColumns: `minmax(150px, 220px) repeat(${data.time_buckets.length}, var(--member-activity-cell-width))`,
+    "--member-combat-cell-width": `${cellWidth}px`,
+    "--member-combat-cell-height": `${cellHeight}px`,
+    "--member-combat-header-height": `${headerHeight}px`,
+    gridTemplateColumns: `minmax(150px, 220px) repeat(${data.time_buckets.length}, var(--member-combat-cell-width))`,
   } as React.CSSProperties;
 
   function beginSelection(memberIndex: number, bucketIndex: number) {
@@ -172,14 +172,14 @@ export function MemberActivityHeatmap({
     setDragAnchor({ memberIndex, bucketIndex: 0 });
   }
 
-  function selectMetric(key: WarMemberActivityMetric) {
-    if (!activityMetricKeys.includes(key)) {
+  function selectMetric(key: WarMemberCombatMetric) {
+    if (!combatMetricKeys.includes(key)) {
       setSelectedMetrics([key]);
       return;
     }
 
     setSelectedMetrics((current) => {
-      const currentIsActivityOnly = current.every((metricKey) => activityMetricKeys.includes(metricKey));
+      const currentIsActivityOnly = current.every((metricKey) => combatMetricKeys.includes(metricKey));
       const selected = current.includes(key);
 
       if (!currentIsActivityOnly) {
@@ -198,8 +198,8 @@ export function MemberActivityHeatmap({
     });
   }
 
-  function metricSelected(key: WarMemberActivityMetric): boolean {
-    if (activityMetricKeys.includes(key)) {
+  function metricSelected(key: WarMemberCombatMetric): boolean {
+    if (combatMetricKeys.includes(key)) {
       return selectedMetrics.includes(key);
     }
 
@@ -207,9 +207,9 @@ export function MemberActivityHeatmap({
   }
 
   return (
-    <div className={isExpanded ? "member-activity-heatmap expanded" : "member-activity-heatmap"}>
-      <div className="member-activity-toolbar">
-        <div className="panel-toggle-row" aria-label="Member activity metric">
+    <div className={isExpanded ? "member-combat-heatmap expanded" : "member-combat-heatmap"}>
+      <div className="member-combat-toolbar">
+        <div className="panel-toggle-row" aria-label="Member combat metric">
           {metricOptions.map((option) => (
             <button
               key={option.key}
@@ -221,12 +221,12 @@ export function MemberActivityHeatmap({
             </button>
           ))}
         </div>
-        <div className="member-activity-toolbar-actions">
+        <div className="member-combat-toolbar-actions">
           <SelectionSummary summary={selectionSummary} selectedMetrics={selectedMetrics} />
-          <div className="member-activity-zoom-controls" aria-label="Member activity zoom">
+          <div className="member-combat-zoom-controls" aria-label="Member combat zoom">
             <button
               type="button"
-              className="panel-action-button member-activity-icon-button"
+              className="panel-action-button member-combat-icon-button"
               title="Zoom out"
               aria-label="Zoom out"
               disabled={!canZoomOut}
@@ -234,10 +234,10 @@ export function MemberActivityHeatmap({
             >
               <ZoomOut size={15} />
             </button>
-            <span className="member-activity-zoom-value">{Math.round(zoom * 100)}%</span>
+            <span className="member-combat-zoom-value">{Math.round(zoom * 100)}%</span>
             <button
               type="button"
-              className="panel-action-button member-activity-icon-button"
+              className="panel-action-button member-combat-icon-button"
               title="Zoom in"
               aria-label="Zoom in"
               disabled={!canZoomIn}
@@ -248,7 +248,7 @@ export function MemberActivityHeatmap({
           </div>
           <button
             type="button"
-            className="panel-action-button member-activity-icon-button"
+            className="panel-action-button member-combat-icon-button"
             title={isExpanded ? "Collapse heatmap" : "Expand heatmap"}
             aria-label={isExpanded ? "Collapse heatmap" : "Expand heatmap"}
             onClick={() => setIsExpanded((current) => !current)}
@@ -258,18 +258,18 @@ export function MemberActivityHeatmap({
         </div>
       </div>
 
-      <div className="member-activity-grid-wrap">
+      <div className="member-combat-grid-wrap">
         <div
-          className="member-activity-grid"
+          className="member-combat-grid"
           style={gridStyle}
           onMouseLeave={() => setDragAnchor(null)}
         >
-          <div className="member-activity-corner">Member</div>
+          <div className="member-combat-corner">Member</div>
           {data.time_buckets.map((bucketStart, bucketIndex) => (
             <button
               key={bucketStart}
               type="button"
-              className={columnSelected(normalizedSelection, bucketIndex) ? "member-activity-time selected" : "member-activity-time"}
+              className={columnSelected(normalizedSelection, bucketIndex) ? "member-combat-time selected" : "member-combat-time"}
               title={`${formatLongDateTime(bucketStart)} - ${formatTime(bucketStart + data.bucket_minutes * 60)}`}
               onMouseDown={() => selectColumn(bucketIndex)}
               onMouseEnter={() => {
@@ -291,7 +291,7 @@ export function MemberActivityHeatmap({
             <React.Fragment key={member.member_id}>
               <button
                 type="button"
-                className={rowSelected(normalizedSelection, memberIndex) ? "member-activity-member selected" : "member-activity-member"}
+                className={rowSelected(normalizedSelection, memberIndex) ? "member-combat-member selected" : "member-combat-member"}
                 title={displayMember(member)}
                 onMouseDown={() => selectRow(memberIndex)}
                 onMouseEnter={() => {
@@ -315,9 +315,9 @@ export function MemberActivityHeatmap({
                   <button
                     key={`${member.member_id}-${bucketStart}`}
                     type="button"
-                    className={selected ? "member-activity-cell selected" : "member-activity-cell"}
+                    className={selected ? "member-combat-cell selected" : "member-combat-cell"}
                     style={{
-                      background: activityCellBackground(bucket, selectedMetrics, value, maxValue, metricColor, metricMaxValues),
+                      background: combatCellBackground(bucket, selectedMetrics, value, maxValue, metricColor, metricMaxValues),
                     }}
                     title={`${displayMember(member)} | ${formatTime(bucketStart)}-${formatTime(bucketStart + data.bucket_minutes * 60)} | ${metricLabel}: ${formatNumber(value)}${selectedMetrics.length > 1 ? ` (${selectedMetrics.map((metricKey) => `${metricOptionLabel(metricKey)} ${formatNumber(Number(bucket?.[metricKey] ?? 0))}`).join(", ")})` : ""}`}
                     onMouseDown={() => beginSelection(memberIndex, bucketIndex)}
@@ -338,17 +338,17 @@ function SelectionSummary({
   selectedMetrics,
 }: {
   summary: ReturnType<typeof summarizeSelection> | null;
-  selectedMetrics: WarMemberActivityMetric[];
+  selectedMetrics: WarMemberCombatMetric[];
 }) {
   if (!summary) {
-    return <div className="member-activity-selection">Drag cells, member rows, or time columns to total them.</div>;
+    return <div className="member-combat-selection">Drag cells, member rows, or time columns to total them.</div>;
   }
 
   const metricLabel = selectedMetricLabel(selectedMetrics);
   const selectedTotal = selectedMetrics.reduce((total, metric) => total + summary.totals[metric], 0);
 
   return (
-    <div className="member-activity-selection">
+    <div className="member-combat-selection">
       <strong>{metricLabel}: {formatNumber(selectedTotal)}</strong>
       <span>{formatNumber(summary.memberCount)} members</span>
       <span>{formatNumber(summary.bucketCount)} time slots</span>
@@ -361,12 +361,12 @@ function SelectionSummary({
 }
 
 function summarizeSelection(
-  members: WarMemberActivityMember[],
+  members: WarMemberCombatMember[],
   timeBuckets: number[],
-  bucketMap: Map<string, WarMemberActivityBucket>,
+  bucketMap: Map<string, WarMemberCombatBucket>,
   selection: NormalizedSelection,
 ) {
-  const totals: Record<WarMemberActivityMetric, number> = {
+  const totals: Record<WarMemberCombatMetric, number> = {
     attacks_successful: 0,
     outside_hits: 0,
     defends_lost: 0,
@@ -411,10 +411,10 @@ function normalizeSelection(selection: GridSelection | null): NormalizedSelectio
 }
 
 function cellMetric(
-  bucketMap: Map<string, WarMemberActivityBucket>,
+  bucketMap: Map<string, WarMemberCombatBucket>,
   memberId: number,
   bucketStart: number,
-  metrics: WarMemberActivityMetric[],
+  metrics: WarMemberCombatMetric[],
 ): number {
   const bucket = bucketMap.get(bucketKey(memberId, bucketStart));
   return metrics.reduce((total, metric) => total + Number(bucket?.[metric] ?? 0), 0);
@@ -424,7 +424,7 @@ function bucketKey(memberId: number, bucketStart: number): string {
   return `${memberId}:${bucketStart}`;
 }
 
-function displayMember(member: WarMemberActivityMember): string {
+function displayMember(member: WarMemberCombatMember): string {
   return member.member_name ?? `#${member.member_id}`;
 }
 
@@ -447,11 +447,11 @@ function columnSelected(selection: NormalizedSelection | null, bucketIndex: numb
 }
 
 function maxValuesByMetric(
-  members: WarMemberActivityMember[],
+  members: WarMemberCombatMember[],
   timeBuckets: number[],
-  bucketMap: Map<string, WarMemberActivityBucket>,
-): Record<WarMemberActivityMetric, number> {
-  const maxValues: Record<WarMemberActivityMetric, number> = {
+  bucketMap: Map<string, WarMemberCombatBucket>,
+): Record<WarMemberCombatMetric, number> {
+  const maxValues: Record<WarMemberCombatMetric, number> = {
     attacks_successful: 0,
     outside_hits: 0,
     defends_lost: 0,
@@ -471,35 +471,35 @@ function maxValuesByMetric(
   return maxValues;
 }
 
-function activityCellBackground(
-  bucket: WarMemberActivityBucket | undefined,
-  selectedMetrics: WarMemberActivityMetric[],
+function combatCellBackground(
+  bucket: WarMemberCombatBucket | undefined,
+  selectedMetrics: WarMemberCombatMetric[],
   value: number,
   maxValue: number,
   color: "blue" | "red" | "green",
-  metricMaxValues: Record<WarMemberActivityMetric, number>,
+  metricMaxValues: Record<WarMemberCombatMetric, number>,
 ): string {
   if (selectedMetrics.includes("attacks_successful") && selectedMetrics.includes("outside_hits")) {
     const attacks = Number(bucket?.attacks_successful ?? 0);
     const outside = Number(bucket?.outside_hits ?? 0);
 
     if (attacks <= 0 && outside <= 0) {
-      return "var(--member-activity-empty-cell)";
+      return "var(--member-combat-empty-cell)";
     }
 
     return [
       "linear-gradient(90deg,",
-      `${activityCellColor(attacks, metricMaxValues.attacks_successful, "green")} 0 50%,`,
-      `${activityCellColor(outside, metricMaxValues.outside_hits, "blue")} 50% 100%)`,
+      `${combatCellColor(attacks, metricMaxValues.attacks_successful, "green")} 0 50%,`,
+      `${combatCellColor(outside, metricMaxValues.outside_hits, "blue")} 50% 100%)`,
     ].join(" ");
   }
 
-  return activityCellColor(value, maxValue, color);
+  return combatCellColor(value, maxValue, color);
 }
 
-function activityCellColor(value: number, maxValue: number, color: "blue" | "red" | "green"): string {
+function combatCellColor(value: number, maxValue: number, color: "blue" | "red" | "green"): string {
   if (value <= 0 || maxValue <= 0) {
-    return "var(--member-activity-empty-cell)";
+    return "var(--member-combat-empty-cell)";
   }
 
   const intensity = Math.max(0.12, Math.min(1, Math.log1p(value) / Math.log1p(maxValue)));
@@ -512,15 +512,15 @@ function activityCellColor(value: number, maxValue: number, color: "blue" | "red
   return `rgba(${colors[0]}, ${colors[1]}, ${colors[2]}, ${0.16 + intensity * 0.72})`;
 }
 
-function metricOptionLabel(metric: WarMemberActivityMetric): string {
+function metricOptionLabel(metric: WarMemberCombatMetric): string {
   return metricOptions.find((option) => option.key === metric)?.label ?? metric;
 }
 
-function selectedMetricLabel(metrics: WarMemberActivityMetric[]): string {
+function selectedMetricLabel(metrics: WarMemberCombatMetric[]): string {
   return metrics.map(metricOptionLabel).join(" + ");
 }
 
-function selectedMetricColor(metrics: WarMemberActivityMetric[]): "blue" | "red" | "green" {
+function selectedMetricColor(metrics: WarMemberCombatMetric[]): "blue" | "red" | "green" {
   if (metrics.length === 1) {
     return metricOptions.find((option) => option.key === metrics[0])?.color ?? "green";
   }

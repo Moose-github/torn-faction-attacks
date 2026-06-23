@@ -268,14 +268,14 @@ export type WarActivityResponse = {
   buckets: WarActivityBucket[];
 };
 
-export type WarMemberActivityMetric =
+export type WarMemberCombatMetric =
   | "attacks_successful"
   | "outside_hits"
   | "defends_lost"
   | "respect_gained"
   | "respect_lost";
 
-export type WarMemberActivityMember = {
+export type WarMemberCombatMember = {
   member_id: number;
   member_name: string | null;
   attacks_vs_enemy_successful: number;
@@ -287,13 +287,13 @@ export type WarMemberActivityMember = {
   respect_lost: number;
 };
 
-export type WarMemberActivityBucket = Record<WarMemberActivityMetric, number> & {
+export type WarMemberCombatBucket = Record<WarMemberCombatMetric, number> & {
   war_id: number;
   member_id: number;
   bucket_start: number;
 };
 
-export type WarMemberActivityHeatmapResponse = {
+export type WarMemberCombatHeatmapResponse = {
   ok: boolean;
   bucket_minutes: number;
   war: {
@@ -306,8 +306,8 @@ export type WarMemberActivityHeatmapResponse = {
     official_end_time: number | null;
   };
   time_buckets: number[];
-  members: WarMemberActivityMember[];
-  buckets: WarMemberActivityBucket[];
+  members: WarMemberCombatMember[];
+  buckets: WarMemberCombatBucket[];
 };
 
 export type FactionActivityHeatmapRow = {
