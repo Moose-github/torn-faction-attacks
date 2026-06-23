@@ -4,7 +4,7 @@ import { fetchTornFactionMembers } from "./enemyScouting";
 import { warNameFromWarRoute } from "./routes";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember, WarRow } from "./types";
-import { boolToInt, d1Changes, effectiveRevivableStatus, json, nowSeconds } from "./utils";
+import { boolToInt, cleanText, d1Changes, effectiveRevivableStatus, finiteNumber, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
 
 const ACTIVITY_WINDOW_SECONDS = 15 * 60;
@@ -29,6 +29,19 @@ type HeatmapRow = {
   interval_index: number;
   active_count: number;
   total_count: number;
+  sampled_at: number;
+};
+
+type EnemyMemberActivityHeatmapRow = {
+  war_id: number;
+  faction_id: number;
+  member_id: number;
+  member_name: string;
+  date: string;
+  interval_index: number;
+  is_recently_active: number;
+  last_action_status: string | null;
+  last_action_timestamp: number | null;
   sampled_at: number;
 };
 
@@ -96,6 +109,7 @@ export async function sampleFactionActivityHeatmaps(
         sampledAt,
         updateRevivableMembers,
         options.membersByFaction?.get(latestWar.enemy_faction_id),
+        latestWar.id,
       ),
       "enemy",
     );
@@ -161,12 +175,64 @@ export async function getWarActivityHeatmap(url: URL, env: Env): Promise<Respons
   });
 }
 
+export async function getEnemyMemberActivityHeatmap(url: URL, env: Env): Promise<Response> {
+  const war = await readHeatmapWarFromUrl(url, env);
+  if (war instanceof Response) {
+    return war;
+  }
+
+  if (war.enemy_faction_id === null) {
+    return json({ ok: false, error: "Selected war has no enemy faction", code: "NO_ENEMY_FACTION" }, 400);
+  }
+
+  const memberIds = parseMemberIdFilters(url);
+  if (memberIds instanceof Response) {
+    return memberIds;
+  }
+
+  const filters = [
+    "war_id = ?",
+    "faction_id = ?",
+  ];
+  const bindValues: Array<number | string> = [war.id, war.enemy_faction_id];
+
+  if (memberIds.length > 0) {
+    filters.push(`member_id IN (${memberIds.map(() => "?").join(",")})`);
+    bindValues.push(...memberIds);
+  }
+
+  const rows = await env.DB.prepare(
+    `
+    SELECT *
+    FROM enemy_member_activity_heatmap
+    WHERE ${filters.join("\n      AND ")}
+    ORDER BY date ASC, interval_index ASC, member_name ASC, member_id ASC
+    `,
+  )
+    .bind(...bindValues)
+    .all();
+
+  return json({
+    ok: true,
+    interval_minutes: 15,
+    war: {
+      id: war.id,
+      name: war.name,
+      practical_finish_time: war.practical_finish_time,
+      official_end_time: war.official_end_time,
+      enemy_faction_id: war.enemy_faction_id,
+    },
+    rows: (rows.results ?? []) as EnemyMemberActivityHeatmapRow[],
+  });
+}
+
 async function sampleFactionActivity(
   env: Env,
   factionId: number,
   sampledAt: number,
   updateRevivable: boolean,
   prefetchedMembers?: TornFactionMember[],
+  enemyMemberActivityWarId?: number,
 ): Promise<FactionActivitySampleMetrics> {
   const metrics: FactionActivitySampleMetrics = {
     sampled: false,
@@ -226,7 +292,77 @@ async function sampleFactionActivity(
   metrics.writeStatements += 1;
   metrics.changedRows += d1Changes(result);
 
+  if (enemyMemberActivityWarId !== undefined) {
+    const memberMetrics = await insertEnemyMemberActivityHeatmapRows(
+      env,
+      enemyMemberActivityWarId,
+      factionId,
+      bucket,
+      sampledAt,
+      members,
+    );
+    metrics.writeStatements += memberMetrics.writeStatements;
+    metrics.changedRows += memberMetrics.changedRows;
+  }
+
   return metrics;
+}
+
+async function insertEnemyMemberActivityHeatmapRows(
+  env: Env,
+  warId: number,
+  factionId: number,
+  bucket: { date: string; intervalIndex: number },
+  sampledAt: number,
+  members: TornFactionMember[],
+): Promise<{ writeStatements: number; changedRows: number }> {
+  if (members.length === 0) {
+    return { writeStatements: 0, changedRows: 0 };
+  }
+
+  const statements = members.map((member) => {
+    const lastActionTimestamp = finiteNumber(member.last_action?.timestamp);
+    return env.DB.prepare(
+      `
+      INSERT INTO enemy_member_activity_heatmap (
+        war_id,
+        faction_id,
+        member_id,
+        member_name,
+        date,
+        interval_index,
+        is_recently_active,
+        last_action_status,
+        last_action_timestamp,
+        sampled_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(war_id, faction_id, member_id, date, interval_index) DO UPDATE SET
+        member_name = excluded.member_name,
+        is_recently_active = excluded.is_recently_active,
+        last_action_status = excluded.last_action_status,
+        last_action_timestamp = excluded.last_action_timestamp,
+        sampled_at = excluded.sampled_at
+      `,
+    ).bind(
+      warId,
+      factionId,
+      member.id,
+      member.name,
+      bucket.date,
+      bucket.intervalIndex,
+      boolToInt(isRecentlyActiveMember(member, sampledAt)),
+      normalizeLastActionStatus(member.last_action?.status),
+      lastActionTimestamp,
+      sampledAt,
+    );
+  });
+
+  const results = await env.DB.batch(statements);
+  return {
+    writeStatements: statements.length,
+    changedRows: results.reduce((total: number, result: unknown) => total + d1Changes(result), 0),
+  };
 }
 
 async function updateCachedRevivableMembers(
@@ -301,10 +437,16 @@ function countRecentlyActiveMembers(
   members: TornFactionMember[],
   sampledAt: number,
 ): number {
-  return members.filter((member) => {
-    const lastAction = Number(member.last_action?.timestamp ?? 0);
-    return lastAction > 0 && sampledAt - lastAction <= ACTIVITY_WINDOW_SECONDS;
-  }).length;
+  return members.filter((member) => isRecentlyActiveMember(member, sampledAt)).length;
+}
+
+function isRecentlyActiveMember(member: TornFactionMember, sampledAt: number): boolean {
+  const lastAction = Number(member.last_action?.timestamp ?? 0);
+  return lastAction > 0 && sampledAt - lastAction <= ACTIVITY_WINDOW_SECONDS;
+}
+
+function normalizeLastActionStatus(value: unknown): string | null {
+  return cleanText(value)?.toLowerCase() ?? null;
 }
 
 async function cleanupHomeHeatmapIfDue(
@@ -429,6 +571,30 @@ function parseHeatmapWarId(value: string | null): number | null {
     return null;
   }
   return warId;
+}
+
+function parseMemberIdFilters(url: URL): number[] | Response {
+  const values = [
+    ...url.searchParams.getAll("member_id"),
+    ...url.searchParams.getAll("member_ids").flatMap((value) => value.split(",")),
+  ];
+  const uniqueMemberIds = new Set<number>();
+
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed === "") {
+      continue;
+    }
+
+    const memberId = Number(trimmed);
+    if (!Number.isInteger(memberId) || memberId <= 0) {
+      return json({ ok: false, error: "Invalid member_id", code: "INVALID_MEMBER_ID" }, 400);
+    }
+
+    uniqueMemberIds.add(memberId);
+  }
+
+  return [...uniqueMemberIds];
 }
 
 function heatmapBucket(timestamp: number): { date: string; intervalIndex: number } {

@@ -319,10 +319,10 @@ export type FactionActivityHeatmapRow = {
   sampled_at: number;
 };
 
-export type FactionActivityHeatmapResponse = {
-  ok: boolean;
-  interval_minutes: number;
-  war: {
+export type FactionActivityHeatmapResponse = {
+  ok: boolean;
+  interval_minutes: number;
+  war: {
     id: number;
     name: string;
     status?: string;
@@ -330,14 +330,69 @@ export type FactionActivityHeatmapResponse = {
     official_end_time?: number | null;
     enemy_faction_id: number | null;
   };
-  home_faction_id: number;
-  rows: FactionActivityHeatmapRow[];
-};
-
-export type EnemyFactionMember = {
-  member_id: number;
-  faction_id: number;
-  name: string;
+  home_faction_id: number;
+  rows: FactionActivityHeatmapRow[];
+};
+
+export type EnemyMemberActivityHeatmapRow = {
+  war_id: number;
+  faction_id: number;
+  member_id: number;
+  member_name: string;
+  date: string;
+  interval_index: number;
+  is_recently_active: number;
+  last_action_status: string | null;
+  last_action_timestamp: number | null;
+  sampled_at: number;
+};
+
+export type EnemyMemberActivityHeatmapResponse = {
+  ok: boolean;
+  interval_minutes: number;
+  war: {
+    id: number;
+    name: string;
+    practical_finish_time?: number | null;
+    official_end_time?: number | null;
+    enemy_faction_id: number | null;
+  };
+  rows: EnemyMemberActivityHeatmapRow[];
+};
+
+export type EnemyBigHitter = {
+  war_id: number;
+  faction_id: number;
+  member_id: number;
+  member_name: string;
+  created_at: number;
+  ff_battlestats: number | null;
+  ff_battlestats_updated_at: number | null;
+  bsp_battlestats: number | null;
+  bsp_battlestats_updated_at: number | null;
+  level: number | null;
+  position: string | null;
+  status_state: string | null;
+  last_action_status: string | null;
+  last_action_timestamp: number | null;
+};
+
+export type EnemyBigHittersResponse = {
+  ok: boolean;
+  threshold: number;
+  deleted?: number;
+  war: {
+    id: number;
+    name: string;
+    enemy_faction_id: number | null;
+  };
+  big_hitters: EnemyBigHitter[];
+};
+
+export type EnemyFactionMember = {
+  member_id: number;
+  faction_id: number;
+  name: string;
   level: number | null;
   position: string | null;
   days_in_faction: number | null;

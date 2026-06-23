@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireAdmin, requireMember } from "../auth";
 import { warCacheVersionNames } from "../cacheVersions";
 import { getChainWatchForWar } from "../chainWatch";
+import { getEnemyBigHittersForWar } from "../enemyBigHitters";
+import {
+  getEnemyMemberActivityHeatmap,
+  getWarActivityHeatmap,
+} from "../heatmap";
 import { getWarReportDiscrepancies } from "../reports";
 import {
   cachedGetJson,
@@ -35,6 +40,10 @@ vi.mock("../enemyPushPressure", () => ({
   getEnemyPushPressureForWar: vi.fn(),
 }));
 
+vi.mock("../enemyBigHitters", () => ({
+  getEnemyBigHittersForWar: vi.fn(),
+}));
+
 vi.mock("../enemyScouting", () => ({
   getEnemyScoutingForWar: vi.fn(),
   getScoutingComparisonForWar: vi.fn(),
@@ -43,6 +52,7 @@ vi.mock("../enemyScouting", () => ({
 }));
 
 vi.mock("../heatmap", () => ({
+  getEnemyMemberActivityHeatmap: vi.fn(),
   getWarActivityHeatmap: vi.fn(),
 }));
 
@@ -92,6 +102,9 @@ describe("war read routes", () => {
     vi.mocked(getWarAttacks).mockResolvedValue(jsonResponse({ ok: true, route: "attacks-json" }));
     vi.mocked(getWarMemberAttacks).mockResolvedValue(jsonResponse({ ok: true, route: "member-attacks" }));
     vi.mocked(getWarReportDiscrepancies).mockResolvedValue(jsonResponse({ ok: true, route: "report-discrepancies" }));
+    vi.mocked(getEnemyBigHittersForWar).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-big-hitters" }));
+    vi.mocked(getEnemyMemberActivityHeatmap).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-member-activity-heatmap" }));
+    vi.mocked(getWarActivityHeatmap).mockResolvedValue(jsonResponse({ ok: true, route: "activity-heatmap" }));
     vi.mocked(listWars).mockResolvedValue(jsonResponse({ ok: true, route: "list" }));
   });
 
@@ -183,6 +196,30 @@ describe("war read routes", () => {
     expect(await chainWatchResponse?.json()).toEqual({ ok: true, route: "chain-watch" });
     expect(getWarReportDiscrepancies).toHaveBeenCalledWith(reportContext.url, reportContext.env);
     expect(getChainWatchForWar).toHaveBeenCalledWith(chainWatchContext.url, chainWatchContext.env);
+  });
+
+  it("routes enemy member activity heatmap reads through the war cache", async () => {
+    const context = routeContext("https://worker.test/api/wars/current/enemy-member-activity-heatmap?member_id=123");
+
+    const response = await routeWarReads(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "enemy-member-activity-heatmap" });
+    expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
+    expect(warCacheVersionNames).toHaveBeenCalledWith("current");
+    expect(getEnemyMemberActivityHeatmap).toHaveBeenCalledWith(context.url, context.env);
+  });
+
+  it("routes enemy big hitter reads through the war cache", async () => {
+    const context = routeContext("https://worker.test/api/wars/current/enemy-big-hitters");
+
+    const response = await routeWarReads(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "enemy-big-hitters" });
+    expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
+    expect(warCacheVersionNames).toHaveBeenCalledWith("current");
+    expect(getEnemyBigHittersForWar).toHaveBeenCalledWith(context.url, context.env);
   });
 
   it("ignores non-GET war read routes", async () => {

@@ -3,6 +3,11 @@ import {
   getChainWatchForWar,
   updateChainWatchForWar,
 } from "../chainWatch";
+import {
+  addEnemyBigHitterForWar,
+  getEnemyBigHittersForWar,
+  removeEnemyBigHitterForWar,
+} from "../enemyBigHitters";
 import { getEnemyPushPressureForWar } from "../enemyPushPressure";
 import {
   getEnemyScoutingForWar,
@@ -10,7 +15,7 @@ import {
   refreshEnemyHitStatsForWar,
   refreshEnemyScoutingForWar,
 } from "../enemyScouting";
-import { getWarActivityHeatmap } from "../heatmap";
+import { getEnemyMemberActivityHeatmap, getWarActivityHeatmap } from "../heatmap";
 import { fetchRankedWarReport, getWarReportDiscrepancies } from "../reports";
 import {
   OFFICIAL_END_CACHE_TTL_SECONDS,
@@ -85,6 +90,14 @@ export async function routeWarCommands(routeContext: RouteContext): Promise<Rout
 
   if (isWarSubroute(url, request, "/chain-watch", "POST")) {
     return withAdmin(routeContext, () => updateChainWatchForWar(request, url, env));
+  }
+
+  if (isWarSubroute(url, request, "/enemy-big-hitters", "POST")) {
+    return withAdmin(routeContext, () => addEnemyBigHitterForWar(request, url, env));
+  }
+
+  if (isWarSubroute(url, request, "/enemy-big-hitters/remove", "POST")) {
+    return withAdmin(routeContext, () => removeEnemyBigHitterForWar(request, url, env));
   }
 
   return null;
@@ -209,6 +222,15 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
     );
   }
 
+  if (isWarSubroute(url, request, "/enemy-big-hitters", "GET")) {
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS, 55),
+      () => getEnemyBigHittersForWar(url, env),
+      warVersionNames,
+    );
+  }
+
   if (isWarSubroute(url, request, "/scouting-comparison", "GET")) {
     return cachedMemberGet(
       routeContext,
@@ -253,6 +275,15 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
       routeContext,
       warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
       () => getWarActivityHeatmap(url, env),
+      warVersionNames,
+    );
+  }
+
+  if (isWarSubroute(url, request, "/enemy-member-activity-heatmap", "GET")) {
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
+      () => getEnemyMemberActivityHeatmap(url, env),
       warVersionNames,
     );
   }

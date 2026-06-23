@@ -3,6 +3,7 @@ import {
   TORN_FACTION_API_BASE_URL,
 } from "./constants";
 import { bumpWarCacheVersion } from "./cacheVersions";
+import { seedEnemyBigHittersForWar } from "./enemyBigHitters";
 import {
   canInitializeEnemyTarget,
   enemyTargetBspFillCompleteLatchName,
@@ -484,6 +485,7 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
   const rows = await readEnemyScouting(env, factionId);
   await seedEnemyHitStatSnapshots(env, warId, factionId, rows, fetchedAt);
   await refreshMissingFfBattlestats(env, rows);
+  await seedEnemyBigHittersForWar(env, warId, factionId);
   return true;
 }
 
@@ -843,6 +845,24 @@ async function clearLiveEnemyTrackingRows(
     .bind(warId)
     .run();
 
+  const memberHeatmapResult = await env.DB.prepare(
+    `
+    DELETE FROM enemy_member_activity_heatmap
+    WHERE war_id = ?
+    `,
+  )
+    .bind(warId)
+    .run();
+
+  const bigHitterResult = await env.DB.prepare(
+    `
+    DELETE FROM enemy_big_hitters
+    WHERE war_id = ?
+    `,
+  )
+    .bind(warId)
+    .run();
+
   const pushAlertResult = await clearSyncLatchesByPrefix(
     env,
     `${PUSH_ALERT_STATE_PREFIX}:${warId}:`,
@@ -861,10 +881,12 @@ async function clearLiveEnemyTrackingRows(
     : null;
 
   return {
-    writeStatements: options.resetWarCheckedAt ? 4 : 3,
+    writeStatements: options.resetWarCheckedAt ? 6 : 5,
     changedRows:
       d1Changes(memberResult) +
       d1Changes(pushSnapshotResult) +
+      d1Changes(memberHeatmapResult) +
+      d1Changes(bigHitterResult) +
       d1Changes(pushAlertResult) +
       d1Changes(warCheckedResult),
   };

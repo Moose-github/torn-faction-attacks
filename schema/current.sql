@@ -150,6 +150,15 @@ CREATE TABLE enemy_faction_members (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 , networth INTEGER, networth_updated_at INTEGER, status_state TEXT, status_description TEXT, plane_image_type TEXT, travel_origin TEXT, travel_destination TEXT, travel_signature TEXT, travel_detected_at INTEGER, travel_started_after INTEGER, travel_started_before INTEGER, estimated_arrival_at INTEGER, estimated_arrival_earliest INTEGER, estimated_arrival_latest INTEGER, status_updated_at INTEGER, bsp_battlestats INTEGER, bsp_battlestats_updated_at INTEGER, travel_trip_destination TEXT, travel_trip_type TEXT, travel_trip_inferred_at INTEGER, last_action_status TEXT, last_action_timestamp INTEGER, networth_attempted_at INTEGER, networth_attempt_count INTEGER NOT NULL DEFAULT 0, networth_error TEXT, networth_key_source TEXT);
 
+CREATE TABLE enemy_big_hitters (
+  war_id INTEGER NOT NULL,
+  faction_id INTEGER NOT NULL,
+  member_id INTEGER NOT NULL,
+  member_name TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (war_id, member_id)
+);
+
 CREATE TABLE enemy_hit_stat_snapshots (
   war_id INTEGER NOT NULL,
   faction_id INTEGER NOT NULL,
@@ -186,6 +195,20 @@ CREATE TABLE enemy_hit_stat_snapshots (
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   PRIMARY KEY (war_id, faction_id, member_id, snapshot_date)
+);
+
+CREATE TABLE enemy_member_activity_heatmap (
+  war_id INTEGER NOT NULL,
+  faction_id INTEGER NOT NULL,
+  member_id INTEGER NOT NULL,
+  member_name TEXT NOT NULL,
+  date TEXT NOT NULL,
+  interval_index INTEGER NOT NULL,
+  is_recently_active INTEGER NOT NULL DEFAULT 0,
+  last_action_status TEXT,
+  last_action_timestamp INTEGER,
+  sampled_at INTEGER NOT NULL,
+  PRIMARY KEY (war_id, faction_id, member_id, date, interval_index)
 );
 
 CREATE TABLE enemy_push_activity_snapshots (
@@ -855,12 +878,21 @@ CREATE INDEX idx_enemy_faction_members_pending_networth
   ON enemy_faction_members(faction_id, networth_updated_at, networth_attempt_count, networth_attempted_at, level DESC, name)
   WHERE networth_updated_at IS NULL;
 
+CREATE INDEX idx_enemy_big_hitters_faction
+  ON enemy_big_hitters(faction_id, member_name);
+
 CREATE INDEX idx_enemy_hit_stat_snapshots_pending
   ON enemy_hit_stat_snapshots(war_id, faction_id, completed_at, attempt_count, attempted_at, snapshot_kind, snapshot_date, member_name)
   WHERE completed_at IS NULL;
 
 CREATE INDEX idx_enemy_hit_stat_snapshots_member
   ON enemy_hit_stat_snapshots(war_id, faction_id, member_id, snapshot_date);
+
+CREATE INDEX idx_enemy_member_activity_heatmap_war_bucket
+  ON enemy_member_activity_heatmap(war_id, date, interval_index);
+
+CREATE INDEX idx_enemy_member_activity_heatmap_war_member
+  ON enemy_member_activity_heatmap(war_id, member_id, date, interval_index);
 
 CREATE INDEX idx_faction_activity_heatmap_faction_sampled
   ON faction_activity_heatmap(faction_id, sampled_at);

@@ -7,6 +7,7 @@ export type EnemyTargetLifecycleMetrics = {
   writeStatements: number;
   changedRows: number;
   enemyRosterRowsDeleted: number;
+  enemyBigHitterRowsDeleted: number;
   enemyHitStatRowsDeleted: number;
   homeComparisonStatsRowsCleared: number;
   enemyHeatmapRowsDeleted: number;
@@ -80,6 +81,21 @@ export async function handleEnemyTargetMatched(
     metrics.writeStatements += 1;
     metrics.changedRows += hitStatsChanges;
     metrics.enemyHitStatRowsDeleted += hitStatsChanges;
+
+    if (options.warId !== undefined) {
+      const bigHitterResult = await env.DB.prepare(
+        `
+        DELETE FROM enemy_big_hitters
+        WHERE war_id = ?
+        `,
+      )
+        .bind(options.warId)
+        .run();
+      const bigHitterChanges = d1Changes(bigHitterResult);
+      metrics.writeStatements += 1;
+      metrics.changedRows += bigHitterChanges;
+      metrics.enemyBigHitterRowsDeleted += bigHitterChanges;
+    }
   }
 
   if (options.clearHomeComparisonStats) {
@@ -177,6 +193,7 @@ function emptyEnemyTargetLifecycleMetrics(): EnemyTargetLifecycleMetrics {
     writeStatements: 0,
     changedRows: 0,
     enemyRosterRowsDeleted: 0,
+    enemyBigHitterRowsDeleted: 0,
     enemyHitStatRowsDeleted: 0,
     homeComparisonStatsRowsCleared: 0,
     enemyHeatmapRowsDeleted: 0,
@@ -191,6 +208,7 @@ function addEnemyTargetLifecycleMetrics(
   target.writeStatements += source.writeStatements;
   target.changedRows += source.changedRows;
   target.enemyRosterRowsDeleted += source.enemyRosterRowsDeleted;
+  target.enemyBigHitterRowsDeleted += source.enemyBigHitterRowsDeleted;
   target.enemyHitStatRowsDeleted += source.enemyHitStatRowsDeleted;
   target.homeComparisonStatsRowsCleared += source.homeComparisonStatsRowsCleared;
   target.enemyHeatmapRowsDeleted += source.enemyHeatmapRowsDeleted;
@@ -221,7 +239,13 @@ async function clearReplaceableEnemyHeatmaps(
   const cachedFactions = ((await env.DB.prepare(
     `
     SELECT DISTINCT faction_id
-    FROM faction_activity_heatmap
+    FROM (
+      SELECT faction_id
+      FROM faction_activity_heatmap
+      UNION
+      SELECT faction_id
+      FROM enemy_member_activity_heatmap
+    ) cached_heatmap_factions
     WHERE faction_id != ?
       AND faction_id != ?
     `,
@@ -255,8 +279,16 @@ async function clearReplaceableEnemyHeatmaps(
     )
       .bind(cachedFaction.faction_id)
       .run();
-    const changes = d1Changes(result);
-    metrics.writeStatements += 1;
+    const memberResult = await env.DB.prepare(
+      `
+      DELETE FROM enemy_member_activity_heatmap
+      WHERE faction_id = ?
+      `,
+    )
+      .bind(cachedFaction.faction_id)
+      .run();
+    const changes = d1Changes(result) + d1Changes(memberResult);
+    metrics.writeStatements += 2;
     metrics.changedRows += changes;
     metrics.enemyHeatmapRowsDeleted += changes;
   }

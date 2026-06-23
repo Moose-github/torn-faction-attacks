@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireAdmin } from "../auth";
 import {
+  addEnemyBigHitterForWar,
+  removeEnemyBigHitterForWar,
+} from "../enemyBigHitters";
+import {
   refreshEnemyScoutingForWar,
 } from "../enemyScouting";
 import {
@@ -39,6 +43,12 @@ vi.mock("../enemyPushPressure", () => ({
   getEnemyPushPressureForWar: vi.fn(),
 }));
 
+vi.mock("../enemyBigHitters", () => ({
+  addEnemyBigHitterForWar: vi.fn(),
+  getEnemyBigHittersForWar: vi.fn(),
+  removeEnemyBigHitterForWar: vi.fn(),
+}));
+
 vi.mock("../enemyScouting", () => ({
   getEnemyScoutingForWar: vi.fn(),
   getScoutingComparisonForWar: vi.fn(),
@@ -47,6 +57,7 @@ vi.mock("../enemyScouting", () => ({
 }));
 
 vi.mock("../heatmap", () => ({
+  getEnemyMemberActivityHeatmap: vi.fn(),
   getWarActivityHeatmap: vi.fn(),
 }));
 
@@ -99,6 +110,8 @@ describe("war command routes", () => {
     vi.mocked(endActiveWar).mockResolvedValue(jsonResponse({ ok: true, route: "end" }));
     vi.mocked(fetchRankedWarReport).mockResolvedValue(jsonResponse({ ok: true, route: "fetch-report" }));
     vi.mocked(refreshEnemyScoutingForWar).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-scouting" }));
+    vi.mocked(addEnemyBigHitterForWar).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-big-hitters-add" }));
+    vi.mocked(removeEnemyBigHitterForWar).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-big-hitters-remove" }));
   });
 
   it("routes historical war imports through admin auth", async () => {
@@ -192,6 +205,23 @@ describe("war command routes", () => {
       code: "COOLDOWN_ACTIVE",
     });
     expect(refreshEnemyScoutingForWar).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/api/wars/current/enemy-big-hitters", addEnemyBigHitterForWar, "enemy-big-hitters-add"],
+    ["/api/wars/current/enemy-big-hitters/remove", removeEnemyBigHitterForWar, "enemy-big-hitters-remove"],
+  ])("routes %s through admin auth", async (path, handler, routeName) => {
+    const context = routeContext(`https://worker.test${path}`, {
+      method: "POST",
+      body: JSON.stringify({ member_id: 123 }),
+    });
+
+    const response = await routeWarCommands(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: routeName });
+    expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
+    expect(handler).toHaveBeenCalledWith(context.request, context.url, context.env);
   });
 
   it("ignores unmatched command routes", async () => {

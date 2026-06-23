@@ -1,18 +1,22 @@
 import React from "react";
-import { ArrowDown, ArrowUp, Siren } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Siren, Trash2 } from "lucide-react";
 import {
+  addEnemyBigHitter,
   EnemyFactionMember,
+  EnemyBigHittersResponse,
   EnemyHitStatTrend,
   EnemyPushPressureResponse,
   EnemyScoutingResponse,
   FactionActivityHeatmapResponse,
   ChainWatchResponse,
   getChainWatch,
+  getEnemyBigHitters,
   getEnemyPushPressure,
   getStoredAuthSession,
   getEnemyScouting,
   getScoutingComparison,
   getWarActivityHeatmap,
+  removeEnemyBigHitter,
   refreshAuthSession,
   refreshEnemyScouting,
   ScoutingComparisonResponse,
@@ -57,6 +61,10 @@ export function WarRoom({
   onOpenHospitalMonitor: () => void;
 }) {
   const [enemyScouting, setEnemyScouting] = React.useState<EnemyScoutingResponse | null>(null);
+  const [enemyBigHitters, setEnemyBigHitters] = React.useState<EnemyBigHittersResponse | null>(null);
+  const [isLoadingEnemyBigHitters, setIsLoadingEnemyBigHitters] = React.useState(false);
+  const [isUpdatingEnemyBigHitters, setIsUpdatingEnemyBigHitters] = React.useState(false);
+  const [selectedBigHitterMemberId, setSelectedBigHitterMemberId] = React.useState("");
   const [canRefreshEnemyScouting, setCanRefreshEnemyScouting] = React.useState(
     () => getStoredAuthSession()?.access_level === "admin",
   );
@@ -163,6 +171,40 @@ export function WarRoom({
     }
 
     loadEnemyScouting();
+    return () => {
+      cancelled = true;
+    };
+  }, [canLoadScouting, selectedWarName]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadEnemyBigHitters() {
+      if (!selectedWarName || !canLoadScouting) {
+        setEnemyBigHitters(null);
+        setSelectedBigHitterMemberId("");
+        return;
+      }
+
+      setIsLoadingEnemyBigHitters(true);
+
+      try {
+        const response = await getEnemyBigHitters(selectedWarName);
+        if (!cancelled) {
+          setEnemyBigHitters(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setEnemyBigHitters(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingEnemyBigHitters(false);
+        }
+      }
+    }
+
+    loadEnemyBigHitters();
     return () => {
       cancelled = true;
     };
@@ -459,6 +501,7 @@ export function WarRoom({
 
     try {
       setEnemyScouting(await refreshEnemyScouting(selectedWarName));
+      setEnemyBigHitters(await getEnemyBigHitters(selectedWarName));
       setScoutingComparison(await getScoutingComparison(selectedWarName));
       if (isActivityHeatmapsOpen) {
         setActivityHeatmap(await getWarActivityHeatmap(selectedWarName, selectedWar.id));
@@ -467,6 +510,46 @@ export function WarRoom({
       onError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRefreshingEnemyScouting(false);
+    }
+  }
+
+  async function addSelectedBigHitter() {
+    if (!selectedWarName || !selectedBigHitterMemberId) {
+      return;
+    }
+
+    const memberId = Number(selectedBigHitterMemberId);
+    if (!Number.isInteger(memberId) || memberId <= 0) {
+      return;
+    }
+
+    setIsUpdatingEnemyBigHitters(true);
+    onError(null);
+
+    try {
+      setEnemyBigHitters(await addEnemyBigHitter(selectedWarName, memberId));
+      setSelectedBigHitterMemberId("");
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsUpdatingEnemyBigHitters(false);
+    }
+  }
+
+  async function removeSelectedBigHitter(memberId: number) {
+    if (!selectedWarName) {
+      return;
+    }
+
+    setIsUpdatingEnemyBigHitters(true);
+    onError(null);
+
+    try {
+      setEnemyBigHitters(await removeEnemyBigHitter(selectedWarName, memberId));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsUpdatingEnemyBigHitters(false);
     }
   }
 
@@ -690,6 +773,18 @@ export function WarRoom({
           canRefresh={canRefreshEnemyScouting}
           showStatusColumn={isMemberTrackingActive}
           onRefresh={refreshSelectedEnemyScouting}
+        />
+
+        <EnemyBigHittersPanel
+          roster={enemyBigHitters}
+          scoutingMembers={enemyScouting?.members ?? []}
+          isLoading={isLoadingEnemyBigHitters}
+          isUpdating={isUpdatingEnemyBigHitters}
+          canEdit={canRefreshEnemyScouting}
+          selectedMemberId={selectedBigHitterMemberId}
+          onSelectedMemberIdChange={setSelectedBigHitterMemberId}
+          onAdd={addSelectedBigHitter}
+          onRemove={removeSelectedBigHitter}
         />
 
         <EnemyHitTrendWatchPanel
@@ -1216,6 +1311,142 @@ function HospitalMonitorLinkPanel({
       </button>
     </section>
   );
+}
+
+function EnemyBigHittersPanel({
+  roster,
+  scoutingMembers,
+  isLoading,
+  isUpdating,
+  canEdit,
+  selectedMemberId,
+  onSelectedMemberIdChange,
+  onAdd,
+  onRemove,
+}: {
+  roster: EnemyBigHittersResponse | null;
+  scoutingMembers: EnemyFactionMember[];
+  isLoading: boolean;
+  isUpdating: boolean;
+  canEdit: boolean;
+  selectedMemberId: string;
+  onSelectedMemberIdChange: (memberId: string) => void;
+  onAdd: () => void;
+  onRemove: (memberId: number) => void;
+}) {
+  const bigHitters = roster?.big_hitters ?? [];
+  const bigHitterIds = new Set(bigHitters.map((member) => member.member_id));
+  const candidates = scoutingMembers
+    .filter((member) => !bigHitterIds.has(member.member_id))
+    .sort((a, b) => bestBattleStats(b) - bestBattleStats(a) || a.name.localeCompare(b.name));
+  const selectedCandidate = candidates.find((member) => String(member.member_id) === selectedMemberId);
+
+  return (
+    <section className="panel enemy-big-hitters-panel">
+      <PanelHeader
+        title="Enemy big hitters"
+        aside={isLoading ? "Loading" : `${formatNumber(bigHitters.length)} members`}
+        control={
+          canEdit ? (
+            <div className="enemy-big-hitter-controls">
+              <select
+                value={selectedMemberId}
+                onChange={(event) => onSelectedMemberIdChange(event.target.value)}
+                disabled={isUpdating || candidates.length === 0}
+                aria-label="Enemy big hitter member"
+              >
+                <option value="">Add member</option>
+                {candidates.map((member) => (
+                  <option key={member.member_id} value={member.member_id}>
+                    {member.name} ({formatBattleStats(bestBattleStats(member))})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="icon-text-button"
+                onClick={onAdd}
+                disabled={isUpdating || !selectedCandidate}
+                title="Add selected enemy member"
+              >
+                <Plus size={15} />
+                Add
+              </button>
+            </div>
+          ) : undefined
+        }
+      />
+      <p className="panel-description">
+        One-time roster initially seeded at {formatBattleStats(roster?.threshold ?? 5_000_000_000)} or higher, then maintained manually.
+      </p>
+      {bigHitters.length === 0 ? (
+        <EmptyState text={isLoading ? "Loading big hitters" : "No enemy big hitters selected"} />
+      ) : (
+        <StickyTable renderHeader={() => (
+          <tr>
+            <th>Member</th>
+            <th>Best stats</th>
+            <th>FF stats</th>
+            <th>BSP stats</th>
+            <th>Status</th>
+            <th>Added</th>
+            {canEdit ? <th aria-label="Actions" /> : null}
+          </tr>
+        )}>
+          {bigHitters.map((member) => (
+            <tr key={member.member_id}>
+              <td>
+                <a
+                  href={`https://www.torn.com/profiles.php?XID=${member.member_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open Torn profile"
+                >
+                  {member.member_name}
+                </a>
+              </td>
+              <td>{formatBattleStats(bestBattleStats(member))}</td>
+              <td>{formatNullableBattleStats(member.ff_battlestats)}</td>
+              <td>{formatNullableBattleStats(member.bsp_battlestats)}</td>
+              <td title={member.last_action_timestamp ? `Last action ${formatRelativeTime(member.last_action_timestamp)}` : undefined}>
+                {member.status_state ?? member.last_action_status ?? "-"}
+              </td>
+              <td>{formatRelativeTime(member.created_at)}</td>
+              {canEdit ? (
+                <td>
+                  <button
+                    type="button"
+                    className="icon-text-button danger"
+                    onClick={() => onRemove(member.member_id)}
+                    disabled={isUpdating}
+                    title={`Remove ${member.member_name}`}
+                  >
+                    <Trash2 size={15} />
+                    Remove
+                  </button>
+                </td>
+              ) : null}
+            </tr>
+          ))}
+        </StickyTable>
+      )}
+    </section>
+  );
+}
+
+function bestBattleStats(member: {
+  ff_battlestats: number | null;
+  bsp_battlestats: number | null;
+}): number {
+  return Math.max(member.ff_battlestats ?? 0, member.bsp_battlestats ?? 0);
+}
+
+function formatBattleStats(value: number): string {
+  return value > 0 ? formatNumber(value) : "-";
+}
+
+function formatNullableBattleStats(value: number | null): string {
+  return value === null ? "-" : formatNumber(value);
 }
 
 function EnemyHitTrendWatchPanel({

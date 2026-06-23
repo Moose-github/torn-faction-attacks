@@ -1,6 +1,6 @@
 import { API_BASE_URL, authHeaders, filenameFromContentDisposition, getJson, postJson } from "./client";
 import { queryString } from "./query";
-import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarDetailResponse, WarMemberCombatHeatmapResponse, WarsResponse, WarType } from "./types";
+import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyBigHittersResponse, EnemyMemberActivityHeatmapResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarDetailResponse, WarMemberCombatHeatmapResponse, WarsResponse, WarType } from "./types";
 
 export async function getStats(
   warType: WarType,
@@ -39,13 +39,26 @@ export async function getWarActivity(
   );
 }
 
-export async function getWarActivityHeatmap(
-  warName: string,
-  warId?: number,
+export async function getWarActivityHeatmap(
+  warName: string,
+  warId?: number,
 ): Promise<FactionActivityHeatmapResponse> {
   const query = queryString({ war_id: warId });
   return getJson<FactionActivityHeatmapResponse>(
     `/api/wars/${encodeURIComponent(warName)}/activity-heatmap${query}`,
+  );
+}
+
+export async function getEnemyMemberActivityHeatmap(
+  warName: string,
+  options: { memberId?: number; memberIds?: number[] } = {},
+): Promise<EnemyMemberActivityHeatmapResponse> {
+  const query = queryString({
+    member_id: options.memberId,
+    member_ids: options.memberIds?.length ? options.memberIds.join(",") : undefined,
+  });
+  return getJson<EnemyMemberActivityHeatmapResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/enemy-member-activity-heatmap${query}`,
   );
 }
 
@@ -93,13 +106,39 @@ export async function getWarReportDiscrepancies(
   );
 }
 
-export async function getEnemyScouting(warName: string): Promise<EnemyScoutingResponse> {
-  return getJson<EnemyScoutingResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/enemy-scouting`,
-  );
+export async function getEnemyScouting(warName: string): Promise<EnemyScoutingResponse> {
+  return getJson<EnemyScoutingResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/enemy-scouting`,
+  );
 }
 
-export async function getScoutingComparison(
+export async function getEnemyBigHitters(warName: string): Promise<EnemyBigHittersResponse> {
+  return getJson<EnemyBigHittersResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/enemy-big-hitters`,
+  );
+}
+
+export async function addEnemyBigHitter(
+  warName: string,
+  memberId: number,
+): Promise<EnemyBigHittersResponse> {
+  return postJson<EnemyBigHittersResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/enemy-big-hitters`,
+    { member_id: memberId },
+  );
+}
+
+export async function removeEnemyBigHitter(
+  warName: string,
+  memberId: number,
+): Promise<EnemyBigHittersResponse> {
+  return postJson<EnemyBigHittersResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/enemy-big-hitters/remove`,
+    { member_id: memberId },
+  );
+}
+
+export async function getScoutingComparison(
   warName: string,
 ): Promise<ScoutingComparisonResponse> {
   return getJson<ScoutingComparisonResponse>(
