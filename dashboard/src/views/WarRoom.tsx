@@ -9,8 +9,10 @@ import {
   EnemyScoutingResponse,
   FactionActivityHeatmapResponse,
   ChainWatchResponse,
+  EnemyMemberActivityHeatmapResponse,
   getChainWatch,
   getEnemyBigHitters,
+  getEnemyMemberActivityHeatmap,
   getEnemyPushPressure,
   getStoredAuthSession,
   getEnemyScouting,
@@ -44,6 +46,7 @@ const WAR_ROOM_MEMBER_TRACKING_REFRESH_MS = 30_000;
 const WAR_ROOM_CHAIN_WATCH_REFRESH_MS = 15_000;
 
 type TrackingMode = "live" | "pre-live" | "inactive";
+type ActivityHeatmapMode = "faction" | "bigHitters" | "selectedPlayers";
 
 export function WarRoom({
   selectedWar,
@@ -78,6 +81,11 @@ export function WarRoom({
   const [activityHeatmap, setActivityHeatmap] =
     React.useState<FactionActivityHeatmapResponse | null>(null);
   const [isLoadingActivityHeatmap, setIsLoadingActivityHeatmap] = React.useState(false);
+  const [activityHeatmapMode, setActivityHeatmapMode] = React.useState<ActivityHeatmapMode>("faction");
+  const [enemyMemberActivityHeatmap, setEnemyMemberActivityHeatmap] =
+    React.useState<EnemyMemberActivityHeatmapResponse | null>(null);
+  const [isLoadingEnemyMemberActivityHeatmap, setIsLoadingEnemyMemberActivityHeatmap] = React.useState(false);
+  const [selectedActivityMemberIds, setSelectedActivityMemberIds] = React.useState<number[]>([]);
   const [pushPressure, setPushPressure] = React.useState<EnemyPushPressureResponse | null>(null);
   const [isLoadingPushPressure, setIsLoadingPushPressure] = React.useState(false);
   const [chainWatch, setChainWatch] = React.useState<ChainWatchResponse | null>(null);
@@ -99,6 +107,13 @@ export function WarRoom({
     ? isWarRoomMemberTrackingActive(selectedWar, Math.floor(nowMs / 1000))
     : false;
   const isActivityHeatmapsOpen = collapsedPanels.activityHeatmaps === false;
+  const bigHitterActivityMemberIds = React.useMemo(
+    () => (enemyBigHitters?.big_hitters ?? []).map((member) => member.member_id),
+    [enemyBigHitters],
+  );
+  const activeEnemyActivityMemberIds =
+    activityHeatmapMode === "bigHitters" ? bigHitterActivityMemberIds : selectedActivityMemberIds;
+  const activeEnemyActivityMemberKey = activeEnemyActivityMemberIds.join(",");
   const trackingMode: TrackingMode = isWarLive ? "live" : isMemberTrackingActive ? "pre-live" : "inactive";
   const trackingFreshness = trackingFreshnessForMode(trackingMode);
   const statusCheckedAt = enemyScouting?.summary.status_checked_at ?? null;
@@ -142,6 +157,12 @@ export function WarRoom({
       cancelled = true;
     };
   }, []);
+
+  React.useEffect(() => {
+    setActivityHeatmapMode("faction");
+    setSelectedActivityMemberIds([]);
+    setEnemyMemberActivityHeatmap(null);
+  }, [selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -368,6 +389,54 @@ export function WarRoom({
   }, [canLoadScouting, isActivityHeatmapsOpen, selectedWar?.id, selectedWarName]);
 
   React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadEnemyMemberActivityHeatmap() {
+      if (
+        !selectedWarName ||
+        !canLoadScouting ||
+        !isActivityHeatmapsOpen ||
+        activityHeatmapMode === "faction" ||
+        activeEnemyActivityMemberIds.length === 0
+      ) {
+        setEnemyMemberActivityHeatmap(null);
+        setIsLoadingEnemyMemberActivityHeatmap(false);
+        return;
+      }
+
+      setIsLoadingEnemyMemberActivityHeatmap(true);
+
+      try {
+        const response = await getEnemyMemberActivityHeatmap(selectedWarName, {
+          memberIds: activeEnemyActivityMemberIds,
+        });
+        if (!cancelled) {
+          setEnemyMemberActivityHeatmap(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setEnemyMemberActivityHeatmap(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingEnemyMemberActivityHeatmap(false);
+        }
+      }
+    }
+
+    loadEnemyMemberActivityHeatmap();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeEnemyActivityMemberKey,
+    activityHeatmapMode,
+    canLoadScouting,
+    isActivityHeatmapsOpen,
+    selectedWarName,
+  ]);
+
+  React.useEffect(() => {
     if (!selectedWarName || !selectedWar || !canLoadScouting || !isWarLive) {
       return;
     }
@@ -376,9 +445,14 @@ export function WarRoom({
     const shouldRefreshScoutingComparison = scoutingComparison?.comparison_stats_complete !== true;
     const timer = window.setInterval(async () => {
       try {
-        const [comparisonResponse, heatmapResponse] = await Promise.all([
+        const [comparisonResponse, heatmapResponse, memberHeatmapResponse] = await Promise.all([
           shouldRefreshScoutingComparison ? getScoutingComparison(selectedWarName) : Promise.resolve(null),
           isActivityHeatmapsOpen ? getWarActivityHeatmap(selectedWarName, selectedWar.id) : Promise.resolve(null),
+          isActivityHeatmapsOpen &&
+          activityHeatmapMode !== "faction" &&
+          activeEnemyActivityMemberIds.length > 0
+            ? getEnemyMemberActivityHeatmap(selectedWarName, { memberIds: activeEnemyActivityMemberIds })
+            : Promise.resolve(null),
         ]);
 
         if (!cancelled) {
@@ -388,10 +462,14 @@ export function WarRoom({
           if (heatmapResponse) {
             setActivityHeatmap(heatmapResponse);
           }
+          if (memberHeatmapResponse) {
+            setEnemyMemberActivityHeatmap(memberHeatmapResponse);
+          }
         }
       } catch {
         if (!cancelled) {
           setActivityHeatmap(null);
+          setEnemyMemberActivityHeatmap(null);
         }
       }
     }, WAR_ROOM_HEATMAP_REFRESH_MS);
@@ -402,6 +480,8 @@ export function WarRoom({
     };
   }, [
     canLoadScouting,
+    activeEnemyActivityMemberKey,
+    activityHeatmapMode,
     isActivityHeatmapsOpen,
     isWarLive,
     scoutingComparison?.comparison_stats_complete,
@@ -551,6 +631,20 @@ export function WarRoom({
     } finally {
       setIsUpdatingEnemyBigHitters(false);
     }
+  }
+
+  function addSelectedActivityMember(memberId: number) {
+    if (!Number.isInteger(memberId) || memberId <= 0) {
+      return;
+    }
+
+    setSelectedActivityMemberIds((current) =>
+      current.includes(memberId) ? current : [...current, memberId],
+    );
+  }
+
+  function removeSelectedActivityMember(memberId: number) {
+    setSelectedActivityMemberIds((current) => current.filter((id) => id !== memberId));
   }
 
   if (!selectedWar) {
@@ -735,35 +829,29 @@ export function WarRoom({
 
         <CollapsiblePanel
           title="Activity heatmaps"
-          aside={isLoadingActivityHeatmap ? "Loading" : heatmapHeaderAside(trackingMode)}
+          aside={
+            isLoadingActivityHeatmap || isLoadingEnemyMemberActivityHeatmap
+              ? "Loading"
+              : heatmapHeaderAside(trackingMode)
+          }
           collapsed={collapsedPanels.activityHeatmaps ?? false}
           onToggle={() => togglePanel("activityHeatmaps")}
           className="heatmap-panel"
         >
-          <p className="panel-description">
-            Shows when each faction is usually active, based on Torn last-action times and scaled against faction average.
-          </p>
-          <div className="heatmap-stack">
-            <FactionActivityHeatmap
-              rows={activityHeatmap?.rows ?? []}
-              factionId={activityHeatmap?.home_faction_id ?? null}
-              label="Buttgrass"
-              color="blue"
-            />
-            <FactionActivityHeatmap
-              rows={activityHeatmap?.rows ?? []}
-              factionId={selectedWar.enemy_faction_id}
-              label={selectedWar.name}
-              color="red"
-            />
-            <FactionActivityComparisonHeatmap
-              rows={activityHeatmap?.rows ?? []}
-              homeFactionId={activityHeatmap?.home_faction_id ?? null}
-              enemyFactionId={selectedWar.enemy_faction_id}
-              homeLabel="Buttgrass"
-              enemyLabel={selectedWar.name}
-            />
-          </div>
+          <EnemyActivityHeatmapPanel
+            activityHeatmap={activityHeatmap}
+            enemyMemberActivityHeatmap={enemyMemberActivityHeatmap}
+            enemyName={selectedWar.name}
+            enemyFactionId={selectedWar.enemy_faction_id}
+            mode={activityHeatmapMode}
+            onModeChange={setActivityHeatmapMode}
+            bigHitterIds={bigHitterActivityMemberIds}
+            selectedMemberIds={selectedActivityMemberIds}
+            scoutingMembers={enemyScouting?.members ?? []}
+            onAddSelectedMember={addSelectedActivityMember}
+            onRemoveSelectedMember={removeSelectedActivityMember}
+            isLoadingMemberHeatmap={isLoadingEnemyMemberActivityHeatmap}
+          />
         </CollapsiblePanel>
 
         <EnemyScoutingPanel
@@ -1261,6 +1349,284 @@ function getLatestMemberUpdatedAt(members: EnemyFactionMember[]): number | null 
     .filter((updatedAt) => Number.isFinite(updatedAt) && updatedAt > 0);
 
   return updatedAtValues.length > 0 ? Math.max(...updatedAtValues) : null;
+}
+
+function EnemyActivityHeatmapPanel({
+  activityHeatmap,
+  enemyMemberActivityHeatmap,
+  enemyName,
+  enemyFactionId,
+  mode,
+  onModeChange,
+  bigHitterIds,
+  selectedMemberIds,
+  scoutingMembers,
+  onAddSelectedMember,
+  onRemoveSelectedMember,
+  isLoadingMemberHeatmap,
+}: {
+  activityHeatmap: FactionActivityHeatmapResponse | null;
+  enemyMemberActivityHeatmap: EnemyMemberActivityHeatmapResponse | null;
+  enemyName: string;
+  enemyFactionId: number | null;
+  mode: ActivityHeatmapMode;
+  onModeChange: (mode: ActivityHeatmapMode) => void;
+  bigHitterIds: number[];
+  selectedMemberIds: number[];
+  scoutingMembers: EnemyFactionMember[];
+  onAddSelectedMember: (memberId: number) => void;
+  onRemoveSelectedMember: (memberId: number) => void;
+  isLoadingMemberHeatmap: boolean;
+}) {
+  const selectedMemberSet = new Set(selectedMemberIds);
+  const selectableMembers = scoutingMembers
+    .filter((member) => !selectedMemberSet.has(member.member_id))
+    .sort((a, b) => bestBattleStats(b) - bestBattleStats(a) || a.name.localeCompare(b.name));
+  const selectedMembers = selectedMemberIds
+    .map((memberId) => scoutingMembers.find((member) => member.member_id === memberId))
+    .filter((member): member is EnemyFactionMember => Boolean(member));
+  const memberRows = React.useMemo(
+    () => aggregateEnemyMemberActivityRows(enemyMemberActivityHeatmap, enemyFactionId),
+    [enemyFactionId, enemyMemberActivityHeatmap],
+  );
+  const bigHitterSummary = React.useMemo(
+    () => summarizeEnemyMembers(scoutingMembers, bigHitterIds),
+    [bigHitterIds, scoutingMembers],
+  );
+  const selectedSummary = React.useMemo(
+    () => summarizeEnemyMembers(scoutingMembers, selectedMemberIds),
+    [scoutingMembers, selectedMemberIds],
+  );
+
+  return (
+    <>
+      <p className="panel-description">
+        Shows when each faction is usually active, based on Torn last-action times and scaled against faction average.
+      </p>
+      <div className="panel-toggle-row" aria-label="Activity heatmap mode">
+        <button
+          type="button"
+          className={mode === "faction" ? "toggle-chip active" : "toggle-chip"}
+          onClick={() => onModeChange("faction")}
+        >
+          Faction
+        </button>
+        <button
+          type="button"
+          className={mode === "bigHitters" ? "toggle-chip active" : "toggle-chip"}
+          onClick={() => onModeChange("bigHitters")}
+        >
+          Big hitters
+        </button>
+        <button
+          type="button"
+          className={mode === "selectedPlayers" ? "toggle-chip active" : "toggle-chip"}
+          onClick={() => onModeChange("selectedPlayers")}
+        >
+          Selected players
+        </button>
+      </div>
+
+      {mode === "faction" ? (
+        <div className="heatmap-stack">
+          <FactionActivityHeatmap
+            rows={activityHeatmap?.rows ?? []}
+            factionId={activityHeatmap?.home_faction_id ?? null}
+            label="Buttgrass"
+            color="blue"
+          />
+          <FactionActivityHeatmap
+            rows={activityHeatmap?.rows ?? []}
+            factionId={enemyFactionId}
+            label={enemyName}
+            color="red"
+          />
+          <FactionActivityComparisonHeatmap
+            rows={activityHeatmap?.rows ?? []}
+            homeFactionId={activityHeatmap?.home_faction_id ?? null}
+            enemyFactionId={enemyFactionId}
+            homeLabel="Buttgrass"
+            enemyLabel={enemyName}
+          />
+        </div>
+      ) : null}
+
+      {mode === "bigHitters" ? (
+        <EnemyMemberActivityHeatmapView
+          label="Big hitters"
+          memberCount={bigHitterIds.length}
+          rows={memberRows}
+          factionId={enemyFactionId}
+          summary={bigHitterSummary}
+          emptyText={
+            bigHitterIds.length === 0
+              ? "No big hitters selected"
+              : isLoadingMemberHeatmap
+                ? "Loading big hitter activity"
+                : "No big hitter heatmap samples yet"
+          }
+        />
+      ) : null}
+
+      {mode === "selectedPlayers" ? (
+        <div className="selected-player-heatmap-mode">
+          <div className="enemy-player-select-row">
+            <select
+              defaultValue=""
+              onChange={(event) => {
+                const memberId = Number(event.currentTarget.value);
+                event.currentTarget.value = "";
+                onAddSelectedMember(memberId);
+              }}
+              disabled={selectableMembers.length === 0}
+              aria-label="Enemy activity heatmap member"
+            >
+              <option value="">Add player</option>
+              {selectableMembers.map((member) => (
+                <option key={member.member_id} value={member.member_id}>
+                  {member.name} ({formatBattleStats(bestBattleStats(member))})
+                </option>
+              ))}
+            </select>
+            {selectedMembers.length > 0 ? (
+              <div className="selected-player-chips">
+                {selectedMembers.map((member) => (
+                  <button
+                    key={member.member_id}
+                    type="button"
+                    className="selected-player-chip"
+                    onClick={() => onRemoveSelectedMember(member.member_id)}
+                    title={`Remove ${member.name}`}
+                  >
+                    {member.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <EnemyMemberActivityHeatmapView
+            label="Selected players"
+            memberCount={selectedMemberIds.length}
+            rows={memberRows}
+            factionId={enemyFactionId}
+            summary={selectedSummary}
+            emptyText={
+              selectedMemberIds.length === 0
+                ? "No players selected"
+                : isLoadingMemberHeatmap
+                  ? "Loading selected player activity"
+                  : "No selected player heatmap samples yet"
+            }
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function EnemyMemberActivityHeatmapView({
+  label,
+  memberCount,
+  rows,
+  factionId,
+  summary,
+  emptyText,
+}: {
+  label: string;
+  memberCount: number;
+  rows: FactionActivityHeatmapResponse["rows"];
+  factionId: number | null;
+  summary: EnemyMemberActivitySummary;
+  emptyText: string;
+}) {
+  if (memberCount === 0 || rows.length === 0 || factionId === null) {
+    return <EmptyState text={emptyText} />;
+  }
+
+  return (
+    <div className="enemy-member-activity-mode">
+      <div className="enemy-member-activity-summary" aria-label={`${label} current status`}>
+        <span>Total {formatNumber(summary.total)}</span>
+        <span>Online {formatNumber(summary.online)}</span>
+        <span>Recent {formatNumber(summary.recentlyActive)}</span>
+        <span>Hospital {formatNumber(summary.hospitalized)}</span>
+        <span>Travel {formatNumber(summary.traveling)}</span>
+      </div>
+      <div className="heatmap-stack heatmap-stack-single">
+        <FactionActivityHeatmap
+          rows={rows}
+          factionId={factionId}
+          label={label}
+          color="red"
+        />
+      </div>
+    </div>
+  );
+}
+
+type EnemyMemberActivitySummary = {
+  total: number;
+  online: number;
+  recentlyActive: number;
+  hospitalized: number;
+  traveling: number;
+};
+
+function aggregateEnemyMemberActivityRows(
+  heatmap: EnemyMemberActivityHeatmapResponse | null,
+  factionId: number | null,
+): FactionActivityHeatmapResponse["rows"] {
+  if (!heatmap || factionId === null) {
+    return [];
+  }
+
+  const buckets = new Map<string, FactionActivityHeatmapResponse["rows"][number]>();
+  for (const row of heatmap.rows) {
+    const intervalIndex = Number(row.interval_index);
+    if (!Number.isInteger(intervalIndex) || intervalIndex < 0 || intervalIndex >= 96) {
+      continue;
+    }
+
+    const key = `${row.date}:${intervalIndex}`;
+    const existing = buckets.get(key) ?? {
+      faction_id: factionId,
+      date: row.date,
+      interval_index: intervalIndex,
+      active_count: 0,
+      total_count: 0,
+      sampled_at: row.sampled_at,
+    };
+    existing.active_count += row.is_recently_active ? 1 : 0;
+    existing.total_count += 1;
+    existing.sampled_at = Math.max(existing.sampled_at, row.sampled_at);
+    buckets.set(key, existing);
+  }
+
+  return [...buckets.values()].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.interval_index - b.interval_index,
+  );
+}
+
+function summarizeEnemyMembers(
+  members: EnemyFactionMember[],
+  memberIds: number[],
+): EnemyMemberActivitySummary {
+  const memberSet = new Set(memberIds);
+  const selected = members.filter((member) => memberSet.has(member.member_id));
+  const nowSeconds = Math.floor(Date.now() / 1000);
+
+  return {
+    total: memberIds.length,
+    online: selected.filter((member) => member.last_action_status?.toLowerCase() === "online").length,
+    recentlyActive: selected.filter((member) =>
+      Number(member.last_action_timestamp ?? 0) > 0 &&
+      nowSeconds - Number(member.last_action_timestamp) <= 5 * 60,
+    ).length,
+    hospitalized: selected.filter((member) => member.status_state === "Hospital").length,
+    traveling: selected.filter((member) =>
+      member.status_state === "Traveling" || member.status_state === "Abroad",
+    ).length,
+  };
 }
 
 function HospitalMonitorLinkPanel({

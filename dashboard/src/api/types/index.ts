@@ -432,12 +432,14 @@ export type EnemyFactionMember = {
   estimated_arrival_at?: number | null;
   estimated_arrival_earliest?: number | null;
   estimated_arrival_latest?: number | null;
-  travel_trip_destination?: string | null;
-  travel_trip_type?: string | null;
-  travel_trip_inferred_at?: number | null;
-  status_updated_at?: number | null;
-  updated_at: number;
-};
+  travel_trip_destination?: string | null;
+  travel_trip_type?: string | null;
+  travel_trip_inferred_at?: number | null;
+  last_action_status?: string | null;
+  last_action_timestamp?: number | null;
+  status_updated_at?: number | null;
+  updated_at: number;
+};
 
 export type EnemyScoutingResponse = {
   ok: boolean;
