@@ -32,6 +32,28 @@ describe("war control detection", () => {
     expect(snapshot.control_state).toBe("home_control");
     expect(snapshot.enemy_hospital_ratio).toBe(0.8);
     expect(snapshot.control_confidence).toBeGreaterThan(0.4);
+    expect(parseReasons(snapshot.reasons_json)).toEqual(expect.arrayContaining([
+      "80% enemy local hospital >= 80% threshold",
+      "Enemy local hospital: 8/10 (80%)",
+      "Available edge: home +80% (home 100%, enemy 20%)",
+      "Observed roster: home 100%, enemy 100%",
+    ]));
+  });
+
+  it("explains own-side hospital penalties when a side still has control", async () => {
+    const db = new TestD1Database();
+    const sampledAt = 1_781_000_300;
+    const snapshot = await buildWarControlSnapshot(
+      { DB: db as unknown as D1Database } as Env,
+      { id: 123, practical_start_time: sampledAt - 30 * 60, enemy_faction_id: 456 },
+      [...members(8, "Hospital"), ...members(2, "Okay", 100)],
+      [...members(6, "Hospital", 200), ...members(4, "Okay", 300)],
+      sampledAt,
+    );
+
+    expect(snapshot.control_state).toBe("enemy_control");
+    expect(snapshot.enemy_hospital_ratio).toBe(0.6);
+    expect(parseReasons(snapshot.reasons_json)).toContain("Enemy confidence reduced: own local hospital 60% >= heavy 60%");
   });
 
   it("uses active big hitters as a transition confidence multiplier, not a blocker", async () => {
@@ -62,6 +84,11 @@ describe("war control detection", () => {
     expect(snapshot.control_state).toBe("transitioning");
     expect(snapshot.enemy_big_hitter_recently_active_count).toBe(1);
     expect(snapshot.control_confidence).toBe(0.88);
+    expect(parseReasons(snapshot.reasons_json)).toEqual(expect.arrayContaining([
+      "Enemy hospital ratio dropped -40% with 3 enemy attacks in 5m",
+      "Transition confidence multiplied by 1.1x from 1 recently active big hitter",
+      "Enemy big hitters: 1 recently active, 1 available, 0 hospital, 0 away of 1",
+    ]));
   });
 });
 
@@ -165,4 +192,9 @@ function result<T>(results: T[]): D1Result<T> {
     success: true,
     meta: { changes: 0 },
   } as unknown as D1Result<T>;
+}
+
+function parseReasons(value: string): string[] {
+  const parsed = JSON.parse(value);
+  return Array.isArray(parsed) ? parsed : [];
 }

@@ -11,6 +11,7 @@ import { Env, TornFactionMember } from "./types";
 import { effectiveRevivableStatus, finiteNumber, json, nowSeconds } from "./utils";
 import { readWarFromScoutingUrl } from "./warRequest";
 import type { EnemyFactionMemberRow } from "./enemyScouting";
+import { readLatestWarControlState, type WarControlState } from "./warControl";
 
 const PUSH_RECENT_ACTIVITY_WINDOW_SECONDS = 5 * 60;
 const PUSH_REFERENCE_WINDOW_SECONDS = 10 * 60;
@@ -63,6 +64,67 @@ export type EnemyPushAlertSetting = {
   configurable: boolean;
 };
 
+export type EnemyPushPressureInterpretation = {
+  control_state: WarControlState | null;
+  push_interpretation_label: string;
+  push_alerts_suppressed: boolean;
+  push_alert_suppression_reason: string | null;
+};
+
+export function interpretEnemyPushPressure(controlState: WarControlState | null): EnemyPushPressureInterpretation {
+  if (controlState === "home_control") {
+    return {
+      control_state: controlState,
+      push_interpretation_label: "Enemy push pressure",
+      push_alerts_suppressed: false,
+      push_alert_suppression_reason: null,
+    };
+  }
+
+  if (controlState === "enemy_control") {
+    return {
+      control_state: controlState,
+      push_interpretation_label: "Enemy control pressure",
+      push_alerts_suppressed: true,
+      push_alert_suppression_reason: "Enemy already has control, so push likely/underway alerts are suppressed.",
+    };
+  }
+
+  if (controlState === "contested") {
+    return {
+      control_state: controlState,
+      push_interpretation_label: "Enemy momentum",
+      push_alerts_suppressed: false,
+      push_alert_suppression_reason: null,
+    };
+  }
+
+  if (controlState === "transitioning") {
+    return {
+      control_state: controlState,
+      push_interpretation_label: "Control swing pressure",
+      push_alerts_suppressed: false,
+      push_alert_suppression_reason: null,
+    };
+  }
+
+  if (controlState === "opening") {
+    return {
+      control_state: controlState,
+      push_interpretation_label: "Opening momentum",
+      push_alerts_suppressed: false,
+      push_alert_suppression_reason: null,
+    };
+  }
+
+  return {
+    control_state: controlState,
+    push_interpretation_label: "Enemy activity pressure",
+    push_alerts_suppressed: false,
+    push_alert_suppression_reason: null,
+  };
+}
+
 export async function getEnemyPushPressureForWar(url: URL, env: Env): Promise<Response> {
   const war = await readWarFromScoutingUrl(url, env);
   if (war instanceof Response) {
@@ -72,6 +134,7 @@ export async function getEnemyPushPressureForWar(url: URL, env: Env): Promise<Re
   const includeHistory = url.searchParams.get("include_history") !== "0";
   const latest = await readLatestEnemyPushSnapshot(env, war.id);
   const history = includeHistory ? await readEnemyPushHistory(env, war.id) : [];
+  const interpretation = interpretEnemyPushPressure(await readLatestWarControlState(env, war.id));
 
   return json({
     ok: true,
@@ -83,6 +146,10 @@ export async function getEnemyPushPressureForWar(url: URL, env: Env): Promise<Re
       official_end_time: war.official_end_time,
       enemy_faction_id: war.enemy_faction_id,
     },
+    control_state: interpretation.control_state,
+    push_interpretation_label: interpretation.push_interpretation_label,
+    push_alerts_suppressed: interpretation.push_alerts_suppressed,
+    push_alert_suppression_reason: interpretation.push_alert_suppression_reason,
     latest,
     history,
   });
@@ -287,7 +354,7 @@ export async function sendEnemyPushAlerts(
   warName: string,
   snapshot: EnemyPushSnapshotInput,
   members: TornFactionMember[] = [],
-  options: { warType?: string | null } = {},
+  options: { warType?: string | null; controlState?: WarControlState | null } = {},
 ): Promise<void> {
   if (!await isEnemyPushAlertEnabled(env)) {
     return;
@@ -303,6 +370,16 @@ export async function sendEnemyPushAlerts(
   const likelyStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:likely`;
   const underwayStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:underway`;
   const setAlertStates = await readSetSyncLatches(env, [likelyStateName, underwayStateName]);
+  const controlState = options.controlState === undefined
+    ? await readLatestWarControlState(env, warId)
+    : options.controlState;
+  const interpretation = interpretEnemyPushPressure(controlState);
+
+  if (interpretation.push_alerts_suppressed) {
+    await clearEnemyPushAlertIfSet(env, likelyStateName, setAlertStates);
+    await clearEnemyPushAlertIfSet(env, underwayStateName, setAlertStates);
+    return;
+  }
 
   if (snapshot.pressure_level === "underway") {
     await clearEnemyPushAlertIfSet(env, likelyStateName, setAlertStates);
@@ -310,7 +387,7 @@ export async function sendEnemyPushAlerts(
       env,
       underwayStateName,
       setAlertStates,
-      formatEnemyPushAlertMessage("underway", warName, snapshot, members),
+      formatEnemyPushAlertMessage("underway", warName, snapshot, members, interpretation),
       snapshot.bucket_start,
     );
     return;
@@ -322,7 +399,7 @@ export async function sendEnemyPushAlerts(
       env,
       likelyStateName,
       setAlertStates,
-      formatEnemyPushAlertMessage("likely", warName, snapshot, members),
+      formatEnemyPushAlertMessage("likely", warName, snapshot, members, interpretation),
       snapshot.bucket_start,
     );
     return;
@@ -584,11 +661,13 @@ function formatEnemyPushAlertMessage(
   warName: string,
   snapshot: EnemyPushSnapshotInput,
   members: TornFactionMember[],
+  interpretation: EnemyPushPressureInterpretation,
 ): string {
+  const context = interpretation.push_interpretation_label.toLowerCase();
   const headline =
     alertType === "underway"
-      ? `WIP enemy push alert: push appears to be happening currently for ${warName}.`
-      : `WIP enemy push alert: push is likely happening soon for ${warName}.`;
+      ? `WIP enemy push alert: ${context} appears to be happening currently for ${warName}.`
+      : `WIP enemy push alert: ${context} is likely building soon for ${warName}.`;
   const reasons = enemyPushAlertReasons(snapshot);
   const onlineMembers = formatOnlineMembersForAlert(members);
   return `${PUSH_ALERT_USER_MENTION} ${headline} Score ${snapshot.pressure_score}.${reasons ? ` ${reasons}` : ""} ${onlineMembers}`;

@@ -454,13 +454,13 @@ function decideControlState(values: {
 
   if (warAgeSeconds < settings.opening_grace_minutes * 60) {
     reasons.push(`Opening grace period: ${Math.ceil((settings.opening_grace_minutes * 60 - warAgeSeconds) / 60)}m remaining`);
-    return decision("opening", 0.35, "Opening momentum", reasons);
+    return decision("opening", 0.35, "Opening momentum", withControlContext(reasons, values));
   }
 
   const dataIssue = firstDataQualityIssue(home, enemy, settings);
   if (dataIssue) {
     reasons.push(dataIssue);
-    return decision("unknown", 0.1, "Not enough fresh status data", reasons);
+    return decision("unknown", 0.1, "Not enough fresh status data", withControlContext(reasons, values));
   }
 
   const homeAvailableEdge = home.availableRatio - enemy.availableRatio;
@@ -475,38 +475,47 @@ function decideControlState(values: {
 
   if (transition) {
     reasons.push(transition.reason);
+    const multiplier = transitionConfidenceMultiplier(values.bigHitters, settings);
+    if (multiplier > 1) {
+      reasons.push(`Transition confidence multiplied by ${formatMultiplier(multiplier)} from ${values.bigHitters.recentlyActive} recently active big hitter${values.bigHitters.recentlyActive === 1 ? "" : "s"}`);
+    }
     return decision(
       "transitioning",
       transitionConfidence(transition.baseConfidence, values.bigHitters, settings),
       transition.label,
-      reasons,
+      withControlContext(reasons, values),
     );
   }
 
   if (homeControl && !enemyControl) {
     reasons.push(`${percent(enemy.hospitalRatio)} enemy local hospital >= ${percent(settings.control_hospital_threshold)} threshold`);
     reasons.push(`${signedPercent(homeAvailableEdge)} home available edge >= ${percent(settings.available_advantage_min)} threshold`);
+    reasons.push(...controlConfidenceReasons("home", values));
     return decision(
       "home_control",
       controlConfidence("home", values),
       "Likely home control",
-      reasons,
+      withControlContext(reasons, values),
     );
   }
 
   if (enemyControl && !homeControl) {
     reasons.push(`${percent(home.hospitalRatio)} home local hospital >= ${percent(settings.control_hospital_threshold)} threshold`);
     reasons.push(`${signedPercent(enemyAvailableEdge)} enemy available edge >= ${percent(settings.available_advantage_min)} threshold`);
+    reasons.push(...controlConfidenceReasons("enemy", values));
     return decision(
       "enemy_control",
       controlConfidence("enemy", values),
       "Likely enemy control",
-      reasons,
+      withControlContext(reasons, values),
     );
   }
 
   reasons.push(`Neither side has both ${percent(settings.control_hospital_threshold)} opposing hospital pressure and ${percent(settings.available_advantage_min)} available edge`);
-  return decision("contested", contestedConfidence(values), "Contested", reasons);
+  if (values.homeAttacks5m !== values.enemyAttacks5m) {
+    reasons.push(`Attack activity leans ${values.homeAttacks5m > values.enemyAttacks5m ? "home" : "enemy"} in the last 5m`);
+  }
+  return decision("contested", contestedConfidence(values), "Contested", withControlContext(reasons, values));
 }
 
 function transitionState(values: {
@@ -606,6 +615,42 @@ function controlConfidence(
   return clampConfidence(confidence);
 }
 
+function controlConfidenceReasons(
+  side: "home" | "enemy",
+  values: {
+    home: SideCounts;
+    enemy: SideCounts;
+    homeAttacks5m: number;
+    enemyAttacks5m: number;
+    bigHitters: ReturnType<typeof classifyEnemyBigHitters>;
+    settings: WarControlSettings;
+  },
+): string[] {
+  const own = side === "home" ? values.home : values.enemy;
+  const ownLabel = side === "home" ? "Home" : "Enemy";
+  const reasons: string[] = [];
+
+  if (side === "home" && values.homeAttacks5m > values.enemyAttacks5m) {
+    reasons.push(`Home attack activity leads ${values.homeAttacks5m}/${values.enemyAttacks5m} in 5m`);
+  }
+  if (side === "enemy" && values.enemyAttacks5m > values.homeAttacks5m) {
+    reasons.push(`Enemy attack activity leads ${values.enemyAttacks5m}/${values.homeAttacks5m} in 5m`);
+  }
+  if (side === "home" && values.bigHitters.hospital + values.bigHitters.travel >= 2) {
+    reasons.push(`Enemy big hitter availability favors home: ${values.bigHitters.hospital} hospital, ${values.bigHitters.travel} away`);
+  }
+  if (side === "enemy" && values.bigHitters.available + values.bigHitters.recentlyActive >= 2) {
+    reasons.push(`Enemy big hitter availability supports control: ${values.bigHitters.available} available, ${values.bigHitters.recentlyActive} recently active`);
+  }
+  if (own.hospitalRatio >= values.settings.severe_own_hospital_penalty_threshold) {
+    reasons.push(`${ownLabel} confidence reduced: own local hospital ${percent(own.hospitalRatio)} >= severe ${percent(values.settings.severe_own_hospital_penalty_threshold)}`);
+  } else if (own.hospitalRatio >= values.settings.heavy_own_hospital_penalty_threshold) {
+    reasons.push(`${ownLabel} confidence reduced: own local hospital ${percent(own.hospitalRatio)} >= heavy ${percent(values.settings.heavy_own_hospital_penalty_threshold)}`);
+  }
+
+  return reasons;
+}
+
 function contestedConfidence(values: {
   home: SideCounts;
   enemy: SideCounts;
@@ -622,12 +667,44 @@ function transitionConfidence(
   bigHitters: ReturnType<typeof classifyEnemyBigHitters>,
   settings: WarControlSettings,
 ): number {
-  const multiplier = bigHitters.recentlyActive <= 0
-    ? 1
-    : bigHitters.recentlyActive === 1
-      ? settings.transition_big_hitter_multiplier_one
-      : settings.transition_big_hitter_multiplier_multiple;
-  return clampConfidence(baseConfidence * multiplier);
+  return clampConfidence(baseConfidence * transitionConfidenceMultiplier(bigHitters, settings));
+}
+
+function transitionConfidenceMultiplier(
+  bigHitters: ReturnType<typeof classifyEnemyBigHitters>,
+  settings: WarControlSettings,
+): number {
+  if (bigHitters.recentlyActive <= 0) {
+    return 1;
+  }
+  return bigHitters.recentlyActive === 1
+    ? settings.transition_big_hitter_multiplier_one
+    : settings.transition_big_hitter_multiplier_multiple;
+}
+
+function withControlContext(
+  reasons: string[],
+  values: {
+    home: SideCounts;
+    enemy: SideCounts;
+    homeAttacks5m: number;
+    enemyAttacks5m: number;
+    bigHitters: ReturnType<typeof classifyEnemyBigHitters>;
+  },
+): string[] {
+  return [
+    ...reasons,
+    `Enemy local hospital: ${values.enemy.hospital}/${values.enemy.localRelevant} (${percent(values.enemy.hospitalRatio)})`,
+    `Home local hospital: ${values.home.hospital}/${values.home.localRelevant} (${percent(values.home.hospitalRatio)})`,
+    `Available edge: home ${signedPercent(values.home.availableRatio - values.enemy.availableRatio)} (home ${percent(values.home.availableRatio)}, enemy ${percent(values.enemy.availableRatio)})`,
+    `Recent attacks 5m: home ${values.homeAttacks5m}, enemy ${values.enemyAttacks5m}`,
+    `Observed roster: home ${percent(values.home.observedPercent)}, enemy ${percent(values.enemy.observedPercent)}`,
+    `Enemy big hitters: ${values.bigHitters.recentlyActive} recently active, ${values.bigHitters.available} available, ${values.bigHitters.hospital} hospital, ${values.bigHitters.travel} away of ${values.bigHitters.total}`,
+  ];
+}
+
+function formatMultiplier(value: number): string {
+  return `${Math.round(value * 100) / 100}x`;
 }
 
 function classifySide(members: TornFactionMember[]): SideCounts {
@@ -778,6 +855,11 @@ async function readLatestWarControlSnapshot(env: Env, warId: number): Promise<Wa
   )
     .bind(warId)
     .first<WarControlSnapshot>();
+}
+
+export async function readLatestWarControlState(env: Env, warId: number): Promise<WarControlState | null> {
+  const snapshot = await readLatestWarControlSnapshot(env, warId);
+  return snapshot?.control_state ?? null;
 }
 
 async function readPreviousWarControlSnapshot(

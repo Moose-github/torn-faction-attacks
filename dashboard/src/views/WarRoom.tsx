@@ -2613,6 +2613,10 @@ function EnemyPushPressurePanel({
   const bigHitterMultiplier = latest ? Number(latest.big_hitter_pressure_multiplier ?? 1) : 1;
   const adjustedBuildUpScore = Math.round(basePressureScore * bigHitterMultiplier);
   const breakdownScore = adjustedBuildUpScore + attackScore;
+  const interpretationLabel = data?.push_interpretation_label || "Enemy push pressure";
+  const controlState = data?.control_state ?? null;
+  const alertsSuppressed = Boolean(data?.push_alerts_suppressed);
+  const suppressionReason = data?.push_alert_suppression_reason ?? null;
   const updatedAgeSeconds = latest ? Math.max(0, nowSeconds - latest.created_at) : null;
   const updateFreshness = updatedAgeSeconds === null
     ? null
@@ -2624,13 +2628,13 @@ function EnemyPushPressurePanel({
 
   return (
     <CollapsiblePanel
-      title="Enemy push pressure (WIP)"
+      title={`${interpretationLabel} (WIP)`}
       control={
         <FreshnessMeta
           state={isLoading ? "Loading" : trackingState}
           updatedAt={latest?.created_at ?? null}
           cadence={trackingCadence}
-          detail={latest ? `${trackingDetail} Latest pressure: ${pushPressureLevelLabel(latest.pressure_level)}.` : trackingDetail}
+          detail={latest ? `${trackingDetail} ${interpretationLabel}: ${pushPressureLevelLabel(latest.pressure_level)}.` : trackingDetail}
           tone={trackingTone}
           onClick={onShowTrackingDetails}
         />
@@ -2643,9 +2647,15 @@ function EnemyPushPressurePanel({
         <>
           <div className={`push-pressure-status ${pushPressureTone(latest.pressure_level)}`}>
             <div>
-              <span>Current pressure</span>
+              <span>{interpretationLabel}</span>
               <strong title={pushPressureLevelTooltip(latest.pressure_level, latest.pressure_score, latest.enemy_attacks_last_5m)}>
                 {pushPressureLevelLabel(latest.pressure_level)}
+              </strong>
+            </div>
+            <div>
+              <span>Control state</span>
+              <strong title="Latest War Control state used to interpret this pressure sample.">
+                {controlState ? warControlStateLabel(controlState) : "Unknown"}
               </strong>
             </div>
             <div>
@@ -2679,6 +2689,12 @@ function EnemyPushPressurePanel({
               </strong>
             </div>
           </div>
+          {alertsSuppressed ? (
+            <div className="push-pressure-alert-suppression" role="status">
+              <strong>Push alerts suppressed</strong>
+              <span>{suppressionReason ?? "Push likely/underway alerts are suppressed for the current control state."}</span>
+            </div>
+          ) : null}
           <div className="push-pressure-breakdown">
             <div className="push-pressure-breakdown-header">
               <strong>Score breakdown</strong>

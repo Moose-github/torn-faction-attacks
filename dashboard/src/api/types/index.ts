@@ -1520,19 +1520,23 @@ export type EnemyPushPressureSnapshot = {
   created_at: number;
 };
 
-export type EnemyPushPressureResponse = {
-  ok: boolean;
-  war: {
+export type EnemyPushPressureResponse = {
+  ok: boolean;
+  war: {
     id: number;
     name: string;
     status: string;
     practical_finish_time: number | null;
-    official_end_time: number | null;
-    enemy_faction_id: number | null;
-  };
-  latest: EnemyPushPressureSnapshot | null;
-  history: EnemyPushPressureSnapshot[];
-};
+    official_end_time: number | null;
+    enemy_faction_id: number | null;
+  };
+  control_state: string | null;
+  push_interpretation_label: string;
+  push_alerts_suppressed: boolean;
+  push_alert_suppression_reason: string | null;
+  latest: EnemyPushPressureSnapshot | null;
+  history: EnemyPushPressureSnapshot[];
+};
 
 export type WarControlState =
   | "opening"

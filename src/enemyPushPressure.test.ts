@@ -4,6 +4,7 @@ import {
   bigHitterPressureMultiplierForCount,
   buildEnemyPushSnapshot,
   calculatePushPressureScore,
+  interpretEnemyPushPressure,
   sendEnemyPushAlerts,
   type EnemyPushSnapshotInput,
 } from "./enemyPushPressure";
@@ -65,7 +66,7 @@ describe("enemy push alerts", () => {
   it("does not send Discord messages by default", async () => {
     vi.mocked(isSyncLatchSet).mockResolvedValue(false);
 
-    await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real" });
+    await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: null });
 
     expect(sendDiscordMessage).not.toHaveBeenCalled();
     expect(readSetSyncLatches).not.toHaveBeenCalled();
@@ -77,11 +78,44 @@ describe("enemy push alerts", () => {
     vi.mocked(isSyncLatchSet).mockResolvedValue(true);
     vi.mocked(readSetSyncLatches).mockResolvedValue(new Set(["enemy_push_alert:123:likely"]));
 
-    await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real" });
+    await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: null });
 
     expect(sendDiscordMessage).toHaveBeenCalledOnce();
     expect(setSyncLatch).toHaveBeenCalledWith(env, "enemy_push_alert:123:underway", snapshot.bucket_start);
     expect(clearSyncLatch).toHaveBeenCalledWith(env, "enemy_push_alert:123:likely");
+  });
+
+  it("suppresses likely and underway alerts while the enemy already has control", async () => {
+    vi.mocked(isSyncLatchSet).mockResolvedValue(true);
+    vi.mocked(readSetSyncLatches).mockResolvedValue(new Set([
+      "enemy_push_alert:123:likely",
+      "enemy_push_alert:123:underway",
+    ]));
+
+    await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: "enemy_control" });
+
+    expect(sendDiscordMessage).not.toHaveBeenCalled();
+    expect(setSyncLatch).not.toHaveBeenCalled();
+    expect(clearSyncLatch).toHaveBeenCalledWith(env, "enemy_push_alert:123:likely");
+    expect(clearSyncLatch).toHaveBeenCalledWith(env, "enemy_push_alert:123:underway");
+  });
+});
+
+describe("enemy push pressure interpretation", () => {
+  it.each([
+    ["home_control", "Enemy push pressure", false],
+    ["enemy_control", "Enemy control pressure", true],
+    ["contested", "Enemy momentum", false],
+    ["transitioning", "Control swing pressure", false],
+    ["opening", "Opening momentum", false],
+    ["unknown", "Enemy activity pressure", false],
+    [null, "Enemy activity pressure", false],
+  ] as const)("interprets %s as %s", (controlState, label, suppressed) => {
+    expect(interpretEnemyPushPressure(controlState)).toMatchObject({
+      control_state: controlState,
+      push_interpretation_label: label,
+      push_alerts_suppressed: suppressed,
+    });
   });
 });
 
