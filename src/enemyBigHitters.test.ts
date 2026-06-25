@@ -119,7 +119,7 @@ describe("enemy big hitters", () => {
 
     const metrics = await seedEnemyBigHittersForWar(env, 123, 456);
 
-    expect(metrics).toEqual({ writeStatements: 1, changedRows: 2, seededRows: 2, skipped: false });
+    expect(metrics).toEqual({ writeStatements: 1, changedRows: 2, seededRows: 2 });
     expect(db.seedArgs).toEqual([123, 456, BIG_HITTER_BATTLESTAT_THRESHOLD]);
   });
 

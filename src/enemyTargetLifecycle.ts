@@ -1,4 +1,5 @@
 import { HOME_FACTION_ID } from "./constants";
+import { clearEnemyLiveTrackingRows } from "./enemyLiveTrackingCleanup";
 import { clearSyncLatch, setSyncLatch } from "./syncLatches";
 import { Env } from "./types";
 import { d1Changes, nowSeconds } from "./utils";
@@ -10,6 +11,7 @@ export type EnemyTargetLifecycleMetrics = {
   enemyBigHitterRowsDeleted: number;
   enemyControlRowsDeleted: number;
   enemyPushRowsDeleted: number;
+  enemyPushAlertLatchesCleared: number;
   enemyHitStatRowsDeleted: number;
   homeComparisonStatsRowsCleared: number;
   enemyActivitySampleRowsDeleted: number;
@@ -84,67 +86,7 @@ export async function handleEnemyTargetMatched(
     metrics.changedRows += hitStatsChanges;
     metrics.enemyHitStatRowsDeleted += hitStatsChanges;
 
-    if (options.warId !== undefined) {
-      const bigHitterResult = await env.DB.prepare(
-        `
-        DELETE FROM enemy_big_hitters
-        WHERE war_id = ?
-        `,
-      )
-        .bind(options.warId)
-        .run();
-      const bigHitterChanges = d1Changes(bigHitterResult);
-      metrics.writeStatements += 1;
-      metrics.changedRows += bigHitterChanges;
-      metrics.enemyBigHitterRowsDeleted += bigHitterChanges;
-
-      const controlResult = await env.DB.prepare(
-        `
-        DELETE FROM war_control_snapshots
-        WHERE war_id = ?
-        `,
-      )
-        .bind(options.warId)
-        .run();
-      const controlChanges = d1Changes(controlResult);
-      metrics.writeStatements += 1;
-      metrics.changedRows += controlChanges;
-      metrics.enemyControlRowsDeleted += controlChanges;
-
-      const pushResult = await env.DB.prepare(
-        `
-        DELETE FROM enemy_push_activity_snapshots
-        WHERE war_id = ?
-        `,
-      )
-        .bind(options.warId)
-        .run();
-      const pushChanges = d1Changes(pushResult);
-      metrics.writeStatements += 1;
-      metrics.changedRows += pushChanges;
-      metrics.enemyPushRowsDeleted += pushChanges;
-
-      const factionSampleResult = await env.DB.prepare(
-        `
-        DELETE FROM enemy_faction_activity_samples
-        WHERE war_id = ?
-        `,
-      )
-        .bind(options.warId)
-        .run();
-      const memberSampleResult = await env.DB.prepare(
-        `
-        DELETE FROM enemy_member_activity_samples
-        WHERE war_id = ?
-        `,
-      )
-        .bind(options.warId)
-        .run();
-      const sampleChanges = d1Changes(factionSampleResult) + d1Changes(memberSampleResult);
-      metrics.writeStatements += 2;
-      metrics.changedRows += sampleChanges;
-      metrics.enemyActivitySampleRowsDeleted += sampleChanges;
-    }
+    await clearEnemyLiveTrackingForTargetReplacement(env, nextFactionId, metrics, options.warId);
   }
 
   if (options.clearHomeComparisonStats) {
@@ -245,6 +187,7 @@ function emptyEnemyTargetLifecycleMetrics(): EnemyTargetLifecycleMetrics {
     enemyBigHitterRowsDeleted: 0,
     enemyControlRowsDeleted: 0,
     enemyPushRowsDeleted: 0,
+    enemyPushAlertLatchesCleared: 0,
     enemyHitStatRowsDeleted: 0,
     homeComparisonStatsRowsCleared: 0,
     enemyActivitySampleRowsDeleted: 0,
@@ -262,6 +205,7 @@ function addEnemyTargetLifecycleMetrics(
   target.enemyBigHitterRowsDeleted += source.enemyBigHitterRowsDeleted;
   target.enemyControlRowsDeleted += source.enemyControlRowsDeleted;
   target.enemyPushRowsDeleted += source.enemyPushRowsDeleted;
+  target.enemyPushAlertLatchesCleared += source.enemyPushAlertLatchesCleared;
   target.enemyHitStatRowsDeleted += source.enemyHitStatRowsDeleted;
   target.homeComparisonStatsRowsCleared += source.homeComparisonStatsRowsCleared;
   target.enemyActivitySampleRowsDeleted += source.enemyActivitySampleRowsDeleted;
@@ -282,6 +226,28 @@ async function clearEnemyTargetFillCompletionLatches(
   ]);
 
   return results.reduce((total, result) => total + d1Changes(result), 0);
+}
+
+async function clearEnemyLiveTrackingForTargetReplacement(
+  env: Env,
+  nextFactionId: number,
+  metrics: EnemyTargetLifecycleMetrics,
+  warId?: number,
+): Promise<void> {
+  if (warId === undefined) {
+    return;
+  }
+
+  const liveClear = await clearEnemyLiveTrackingRows(env, warId, nextFactionId, {
+    clearMemberStatuses: false,
+  });
+  metrics.writeStatements += liveClear.writeStatements;
+  metrics.changedRows += liveClear.changedRows;
+  metrics.enemyBigHitterRowsDeleted += liveClear.bigHitterRowsDeleted;
+  metrics.enemyControlRowsDeleted += liveClear.controlSnapshotRowsDeleted;
+  metrics.enemyPushRowsDeleted += liveClear.pushSnapshotRowsDeleted;
+  metrics.enemyPushAlertLatchesCleared += liveClear.pushAlertLatchesCleared;
+  metrics.enemyActivitySampleRowsDeleted += liveClear.enemyActivitySampleRowsDeleted;
 }
 
 async function clearReplaceableEnemyHeatmaps(

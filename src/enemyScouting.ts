@@ -22,16 +22,15 @@ import {
 import { ENEMY_NETWORTH_MAX_ATTEMPTS } from "./enemyNetworth";
 import {
   buildEnemyPushSnapshot,
-  PUSH_ALERT_STATE_PREFIX,
   sendEnemyPushAlerts,
   upsertEnemyPushSnapshot,
 } from "./enemyPushPressure";
+import { clearEnemyLiveTrackingRows } from "./enemyLiveTrackingCleanup";
 import {
   buildWarControlSnapshot,
   upsertWarControlSnapshot,
 } from "./warControl";
 import {
-  clearSyncLatchesByPrefix,
   clearSyncLatch,
   isSyncLatchSet,
 } from "./syncLatches";
@@ -655,7 +654,14 @@ export async function refreshEnemyFactionMemberStatuses(
 
   await markEnemyScoutingStatusChecked(env, warId, fetchedAt);
   await bumpWarCacheVersion(env, warName);
-  await sendEnemyPushAlerts(env, warId, warName, pushSnapshot, members, { warType: options.warType }).catch((err) => {
+  await sendEnemyPushAlerts(
+    env,
+    warId,
+    warName,
+    pushSnapshot,
+    members,
+    { warType: options.warType, controlState: controlSnapshot.control_state },
+  ).catch((err) => {
     console.warn(`Enemy push Discord alert failed for war ${warId}:`, err?.message || err);
   });
 
@@ -771,7 +777,7 @@ export async function clearLiveEnemyTrackingData(
     return { writeStatements: 0, changedRows: 0 };
   }
 
-  const cleared = await clearLiveEnemyTrackingRows(env, warId, factionId);
+  const cleared = await clearEnemyLiveTrackingRows(env, warId, factionId);
   await upsertSyncTimestamp(env, stateName, nowSeconds(), warId);
 
   return {
@@ -809,7 +815,7 @@ export async function restartLiveEnemyTrackingFromRequest(request: Request, env:
     );
   }
 
-  const result = await clearLiveEnemyTrackingRows(env, war.id, war.enemy_faction_id, {
+  const result = await clearEnemyLiveTrackingRows(env, war.id, war.enemy_faction_id, {
     resetWarCheckedAt: true,
   });
 
@@ -820,138 +826,6 @@ export async function restartLiveEnemyTrackingFromRequest(request: Request, env:
     enemy_faction_id: war.enemy_faction_id,
     ...result,
   });
-}
-
-async function clearLiveEnemyTrackingRows(
-  env: Env,
-  warId: number,
-  factionId: number,
-  options: { resetWarCheckedAt?: boolean } = {},
-): Promise<{ writeStatements: number; changedRows: number }> {
-  const memberResult = await env.DB.prepare(
-    `
-    UPDATE enemy_faction_members
-    SET is_revivable = NULL,
-        status_state = NULL,
-        status_description = NULL,
-        last_action_status = NULL,
-        last_action_timestamp = NULL,
-        plane_image_type = NULL,
-        travel_origin = NULL,
-        travel_destination = NULL,
-        travel_signature = NULL,
-        travel_detected_at = NULL,
-        travel_started_after = NULL,
-        travel_started_before = NULL,
-        estimated_arrival_at = NULL,
-        estimated_arrival_earliest = NULL,
-        estimated_arrival_latest = NULL,
-        travel_trip_destination = NULL,
-        travel_trip_type = NULL,
-        travel_trip_inferred_at = NULL,
-        status_updated_at = NULL,
-        updated_at = unixepoch()
-    WHERE faction_id = ?
-      AND (
-        is_revivable IS NOT NULL OR
-        status_state IS NOT NULL OR
-        status_description IS NOT NULL OR
-        last_action_status IS NOT NULL OR
-        last_action_timestamp IS NOT NULL OR
-        plane_image_type IS NOT NULL OR
-        travel_origin IS NOT NULL OR
-        travel_destination IS NOT NULL OR
-        travel_signature IS NOT NULL OR
-        travel_detected_at IS NOT NULL OR
-        travel_started_after IS NOT NULL OR
-        travel_started_before IS NOT NULL OR
-        estimated_arrival_at IS NOT NULL OR
-        estimated_arrival_earliest IS NOT NULL OR
-        estimated_arrival_latest IS NOT NULL OR
-        travel_trip_destination IS NOT NULL OR
-        travel_trip_type IS NOT NULL OR
-        travel_trip_inferred_at IS NOT NULL OR
-        status_updated_at IS NOT NULL
-      )
-    `,
-  )
-    .bind(factionId)
-    .run();
-
-  const pushSnapshotResult = await env.DB.prepare(
-    `
-    DELETE FROM enemy_push_activity_snapshots
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .run();
-
-  const memberHeatmapResult = await env.DB.prepare(
-    `
-    DELETE FROM enemy_member_activity_samples
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .run();
-
-  const factionSampleResult = await env.DB.prepare(
-    `
-    DELETE FROM enemy_faction_activity_samples
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .run();
-
-  const controlSnapshotResult = await env.DB.prepare(
-    `
-    DELETE FROM war_control_snapshots
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .run();
-
-  const bigHitterResult = await env.DB.prepare(
-    `
-    DELETE FROM enemy_big_hitters
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .run();
-
-  const pushAlertResult = await clearSyncLatchesByPrefix(
-    env,
-    `${PUSH_ALERT_STATE_PREFIX}:${warId}:`,
-  );
-
-  const warCheckedResult = options.resetWarCheckedAt
-    ? await env.DB.prepare(
-        `
-        UPDATE wars
-        SET enemy_scouting_status_checked_at = NULL
-        WHERE id = ?
-        `,
-      )
-        .bind(warId)
-        .run()
-    : null;
-
-  return {
-    writeStatements: options.resetWarCheckedAt ? 8 : 7,
-    changedRows:
-      d1Changes(memberResult) +
-      d1Changes(pushSnapshotResult) +
-      d1Changes(memberHeatmapResult) +
-      d1Changes(factionSampleResult) +
-      d1Changes(controlSnapshotResult) +
-      d1Changes(bigHitterResult) +
-      d1Changes(pushAlertResult) +
-      d1Changes(warCheckedResult),
-  };
 }
 
 function liveEnemyTrackingClearLatchName(warId: number): string {

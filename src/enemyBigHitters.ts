@@ -27,7 +27,6 @@ type SeedEnemyBigHittersResult = {
   writeStatements: number;
   changedRows: number;
   seededRows: number;
-  skipped: boolean;
 };
 
 export async function seedEnemyBigHittersForWar(
@@ -64,7 +63,7 @@ export async function seedEnemyBigHittersForWar(
     .run();
 
   const changes = d1Changes(result);
-  return { writeStatements: 1, changedRows: changes, seededRows: changes, skipped: false };
+  return { writeStatements: 1, changedRows: changes, seededRows: changes };
 }
 
 export async function getEnemyBigHittersForWar(url: URL, env: Env): Promise<Response> {
