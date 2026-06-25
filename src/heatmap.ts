@@ -63,6 +63,10 @@ type FactionActivitySampleMetrics = {
   revivableChangedRows: number;
 };
 
+type ActivitySampleTarget =
+  | { table: "home"; warId?: undefined }
+  | { table: "enemy"; warId: number };
+
 export async function sampleFactionActivityHeatmaps(
   env: Env,
   options: { membersByFaction?: Map<number, TornFactionMember[]> } = {},
@@ -92,6 +96,7 @@ export async function sampleFactionActivityHeatmaps(
       sampledAt,
       updateRevivableMembers,
       options.membersByFaction?.get(HOME_FACTION_ID),
+      { table: "home" },
     ),
     "home",
   );
@@ -109,7 +114,7 @@ export async function sampleFactionActivityHeatmaps(
         sampledAt,
         updateRevivableMembers,
         options.membersByFaction?.get(latestWar.enemy_faction_id),
-        latestWar.id,
+        { table: "enemy", warId: latestWar.id },
       ),
       "enemy",
     );
@@ -144,21 +149,32 @@ export async function getWarActivityHeatmap(url: URL, env: Env): Promise<Respons
     return war;
   }
 
-  const factionIds = [HOME_FACTION_ID];
-  if (war.enemy_faction_id !== null) {
-    factionIds.push(war.enemy_faction_id);
-  }
-
-  const rows = await env.DB.prepare(
-    `
-    SELECT *
-    FROM faction_activity_heatmap
-    WHERE faction_id IN (${factionIds.map(() => "?").join(",")})
-    ORDER BY date ASC, interval_index ASC, faction_id ASC
-    `,
-  )
-    .bind(...factionIds)
-    .all();
+  const rows = war.enemy_faction_id === null
+    ? await env.DB.prepare(
+        `
+        SELECT faction_id, date, interval_index, active_count, total_count, sampled_at
+        FROM home_faction_activity_samples
+        WHERE faction_id = ?
+        ORDER BY date ASC, interval_index ASC, faction_id ASC
+        `,
+      )
+        .bind(HOME_FACTION_ID)
+        .all()
+    : await env.DB.prepare(
+        `
+        SELECT faction_id, date, interval_index, active_count, total_count, sampled_at
+        FROM home_faction_activity_samples
+        WHERE faction_id = ?
+        UNION ALL
+        SELECT faction_id, date, interval_index, active_count, total_count, sampled_at
+        FROM enemy_faction_activity_samples
+        WHERE war_id = ?
+          AND faction_id = ?
+        ORDER BY date ASC, interval_index ASC, faction_id ASC
+        `,
+      )
+        .bind(HOME_FACTION_ID, war.id, war.enemy_faction_id)
+        .all();
 
   return json({
     ok: true,
@@ -204,7 +220,7 @@ export async function getEnemyMemberActivityHeatmap(url: URL, env: Env): Promise
   const rows = await env.DB.prepare(
     `
     SELECT *
-    FROM enemy_member_activity_heatmap
+    FROM enemy_member_activity_samples
     WHERE ${filters.join("\n      AND ")}
     ORDER BY date ASC, interval_index ASC, member_name ASC, member_id ASC
     `,
@@ -232,7 +248,7 @@ async function sampleFactionActivity(
   sampledAt: number,
   updateRevivable: boolean,
   prefetchedMembers?: TornFactionMember[],
-  enemyMemberActivityWarId?: number,
+  target: ActivitySampleTarget = { table: "home" },
 ): Promise<FactionActivitySampleMetrics> {
   const metrics: FactionActivitySampleMetrics = {
     sampled: false,
@@ -245,14 +261,18 @@ async function sampleFactionActivity(
   const existing = await env.DB.prepare(
     `
     SELECT sampled_at
-    FROM faction_activity_heatmap
-    WHERE faction_id = ?
+    FROM ${target.table === "home" ? "home_faction_activity_samples" : "enemy_faction_activity_samples"}
+    WHERE ${target.table === "home" ? "" : "war_id = ?\n      AND "}faction_id = ?
       AND date = ?
       AND interval_index = ?
     LIMIT 1
     `,
   )
-    .bind(factionId, bucket.date, bucket.intervalIndex)
+    .bind(...(
+      target.table === "home"
+        ? [factionId, bucket.date, bucket.intervalIndex]
+        : [target.warId, factionId, bucket.date, bucket.intervalIndex]
+    ))
     .first();
 
   if (existing) {
@@ -271,7 +291,8 @@ async function sampleFactionActivity(
 
   const result = await env.DB.prepare(
     `
-    INSERT INTO faction_activity_heatmap (
+    INSERT INTO ${target.table === "home" ? "home_faction_activity_samples" : "enemy_faction_activity_samples"} (
+      ${target.table === "home" ? "" : "war_id,"}
       faction_id,
       date,
       interval_index,
@@ -279,23 +300,27 @@ async function sampleFactionActivity(
       total_count,
       sampled_at
     )
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(faction_id, date, interval_index) DO UPDATE SET
+    VALUES (${target.table === "home" ? "" : "?,"} ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(${target.table === "home" ? "" : "war_id, "}faction_id, date, interval_index) DO UPDATE SET
       active_count = excluded.active_count,
       total_count = excluded.total_count,
       sampled_at = excluded.sampled_at
     `,
   )
-    .bind(factionId, bucket.date, bucket.intervalIndex, activeCount, members.length, sampledAt)
+    .bind(...(
+      target.table === "home"
+        ? [factionId, bucket.date, bucket.intervalIndex, activeCount, members.length, sampledAt]
+        : [target.warId, factionId, bucket.date, bucket.intervalIndex, activeCount, members.length, sampledAt]
+    ))
     .run();
   metrics.sampled = true;
   metrics.writeStatements += 1;
   metrics.changedRows += d1Changes(result);
 
-  if (enemyMemberActivityWarId !== undefined) {
-    const memberMetrics = await insertEnemyMemberActivityHeatmapRows(
+  if (target.table === "enemy") {
+    const memberMetrics = await insertEnemyMemberActivitySampleRows(
       env,
-      enemyMemberActivityWarId,
+      target.warId,
       factionId,
       bucket,
       sampledAt,
@@ -308,7 +333,7 @@ async function sampleFactionActivity(
   return metrics;
 }
 
-async function insertEnemyMemberActivityHeatmapRows(
+async function insertEnemyMemberActivitySampleRows(
   env: Env,
   warId: number,
   factionId: number,
@@ -324,7 +349,7 @@ async function insertEnemyMemberActivityHeatmapRows(
     const lastActionTimestamp = finiteNumber(member.last_action?.timestamp);
     return env.DB.prepare(
       `
-      INSERT INTO enemy_member_activity_heatmap (
+      INSERT INTO enemy_member_activity_samples (
         war_id,
         faction_id,
         member_id,
@@ -461,7 +486,7 @@ async function cleanupHomeHeatmapIfDue(
 
   const result = await env.DB.prepare(
     `
-    DELETE FROM faction_activity_heatmap
+    DELETE FROM home_faction_activity_samples
     WHERE faction_id = ?
       AND sampled_at < ?
     `,

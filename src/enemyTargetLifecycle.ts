@@ -9,9 +9,10 @@ export type EnemyTargetLifecycleMetrics = {
   enemyRosterRowsDeleted: number;
   enemyBigHitterRowsDeleted: number;
   enemyControlRowsDeleted: number;
+  enemyPushRowsDeleted: number;
   enemyHitStatRowsDeleted: number;
   homeComparisonStatsRowsCleared: number;
-  enemyHeatmapRowsDeleted: number;
+  enemyActivitySampleRowsDeleted: number;
   fillCompletionLatchesCleared: number;
 };
 
@@ -109,6 +110,40 @@ export async function handleEnemyTargetMatched(
       metrics.writeStatements += 1;
       metrics.changedRows += controlChanges;
       metrics.enemyControlRowsDeleted += controlChanges;
+
+      const pushResult = await env.DB.prepare(
+        `
+        DELETE FROM enemy_push_activity_snapshots
+        WHERE war_id = ?
+        `,
+      )
+        .bind(options.warId)
+        .run();
+      const pushChanges = d1Changes(pushResult);
+      metrics.writeStatements += 1;
+      metrics.changedRows += pushChanges;
+      metrics.enemyPushRowsDeleted += pushChanges;
+
+      const factionSampleResult = await env.DB.prepare(
+        `
+        DELETE FROM enemy_faction_activity_samples
+        WHERE war_id = ?
+        `,
+      )
+        .bind(options.warId)
+        .run();
+      const memberSampleResult = await env.DB.prepare(
+        `
+        DELETE FROM enemy_member_activity_samples
+        WHERE war_id = ?
+        `,
+      )
+        .bind(options.warId)
+        .run();
+      const sampleChanges = d1Changes(factionSampleResult) + d1Changes(memberSampleResult);
+      metrics.writeStatements += 2;
+      metrics.changedRows += sampleChanges;
+      metrics.enemyActivitySampleRowsDeleted += sampleChanges;
     }
   }
 
@@ -209,9 +244,10 @@ function emptyEnemyTargetLifecycleMetrics(): EnemyTargetLifecycleMetrics {
     enemyRosterRowsDeleted: 0,
     enemyBigHitterRowsDeleted: 0,
     enemyControlRowsDeleted: 0,
+    enemyPushRowsDeleted: 0,
     enemyHitStatRowsDeleted: 0,
     homeComparisonStatsRowsCleared: 0,
-    enemyHeatmapRowsDeleted: 0,
+    enemyActivitySampleRowsDeleted: 0,
     fillCompletionLatchesCleared: 0,
   };
 }
@@ -225,9 +261,10 @@ function addEnemyTargetLifecycleMetrics(
   target.enemyRosterRowsDeleted += source.enemyRosterRowsDeleted;
   target.enemyBigHitterRowsDeleted += source.enemyBigHitterRowsDeleted;
   target.enemyControlRowsDeleted += source.enemyControlRowsDeleted;
+  target.enemyPushRowsDeleted += source.enemyPushRowsDeleted;
   target.enemyHitStatRowsDeleted += source.enemyHitStatRowsDeleted;
   target.homeComparisonStatsRowsCleared += source.homeComparisonStatsRowsCleared;
-  target.enemyHeatmapRowsDeleted += source.enemyHeatmapRowsDeleted;
+  target.enemyActivitySampleRowsDeleted += source.enemyActivitySampleRowsDeleted;
   target.fillCompletionLatchesCleared += source.fillCompletionLatchesCleared;
 }
 
@@ -257,10 +294,10 @@ async function clearReplaceableEnemyHeatmaps(
     SELECT DISTINCT faction_id
     FROM (
       SELECT faction_id
-      FROM faction_activity_heatmap
+      FROM enemy_faction_activity_samples
       UNION
       SELECT faction_id
-      FROM enemy_member_activity_heatmap
+      FROM enemy_member_activity_samples
     ) cached_heatmap_factions
     WHERE faction_id != ?
       AND faction_id != ?
@@ -289,7 +326,7 @@ async function clearReplaceableEnemyHeatmaps(
 
     const result = await env.DB.prepare(
       `
-      DELETE FROM faction_activity_heatmap
+      DELETE FROM enemy_faction_activity_samples
       WHERE faction_id = ?
       `,
     )
@@ -297,7 +334,7 @@ async function clearReplaceableEnemyHeatmaps(
       .run();
     const memberResult = await env.DB.prepare(
       `
-      DELETE FROM enemy_member_activity_heatmap
+      DELETE FROM enemy_member_activity_samples
       WHERE faction_id = ?
       `,
     )
@@ -306,7 +343,7 @@ async function clearReplaceableEnemyHeatmaps(
     const changes = d1Changes(result) + d1Changes(memberResult);
     metrics.writeStatements += 2;
     metrics.changedRows += changes;
-    metrics.enemyHeatmapRowsDeleted += changes;
+    metrics.enemyActivitySampleRowsDeleted += changes;
   }
 
   return metrics;

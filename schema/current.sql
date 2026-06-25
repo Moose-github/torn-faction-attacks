@@ -197,7 +197,7 @@ CREATE TABLE enemy_hit_stat_snapshots (
   PRIMARY KEY (war_id, faction_id, member_id, snapshot_date)
 );
 
-CREATE TABLE enemy_member_activity_heatmap (
+CREATE TABLE enemy_member_activity_samples (
   war_id INTEGER NOT NULL,
   faction_id INTEGER NOT NULL,
   member_id INTEGER NOT NULL,
@@ -299,7 +299,7 @@ CREATE TABLE war_control_snapshots (
   FOREIGN KEY (war_id) REFERENCES wars(id)
 );
 
-CREATE TABLE faction_activity_heatmap (
+CREATE TABLE home_faction_activity_samples (
   faction_id INTEGER NOT NULL,
   date TEXT NOT NULL,
   interval_index INTEGER NOT NULL,
@@ -307,6 +307,17 @@ CREATE TABLE faction_activity_heatmap (
   total_count INTEGER NOT NULL,
   sampled_at INTEGER NOT NULL,
   PRIMARY KEY (faction_id, date, interval_index)
+);
+
+CREATE TABLE enemy_faction_activity_samples (
+  war_id INTEGER NOT NULL,
+  faction_id INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  interval_index INTEGER NOT NULL,
+  active_count INTEGER NOT NULL,
+  total_count INTEGER NOT NULL,
+  sampled_at INTEGER NOT NULL,
+  PRIMARY KEY (war_id, faction_id, date, interval_index)
 );
 
 CREATE TABLE home_faction_members (
@@ -956,17 +967,23 @@ CREATE INDEX idx_enemy_hit_stat_snapshots_member
 CREATE INDEX idx_war_control_snapshots_war_created
   ON war_control_snapshots(war_id, created_at DESC);
 
-CREATE INDEX idx_enemy_member_activity_heatmap_war_bucket
-  ON enemy_member_activity_heatmap(war_id, date, interval_index);
+CREATE INDEX idx_enemy_member_activity_samples_war_bucket
+  ON enemy_member_activity_samples(war_id, date, interval_index);
 
-CREATE INDEX idx_enemy_member_activity_heatmap_war_member
-  ON enemy_member_activity_heatmap(war_id, member_id, date, interval_index);
+CREATE INDEX idx_enemy_member_activity_samples_war_member
+  ON enemy_member_activity_samples(war_id, member_id, date, interval_index);
 
-CREATE INDEX idx_faction_activity_heatmap_faction_sampled
-  ON faction_activity_heatmap(faction_id, sampled_at);
+CREATE INDEX idx_home_faction_activity_samples_faction_sampled
+  ON home_faction_activity_samples(faction_id, sampled_at);
 
-CREATE INDEX idx_faction_activity_heatmap_sampled
-  ON faction_activity_heatmap(sampled_at);
+CREATE INDEX idx_home_faction_activity_samples_sampled
+  ON home_faction_activity_samples(sampled_at);
+
+CREATE INDEX idx_enemy_faction_activity_samples_war_bucket
+  ON enemy_faction_activity_samples(war_id, date, interval_index);
+
+CREATE INDEX idx_enemy_faction_activity_samples_faction_sampled
+  ON enemy_faction_activity_samples(faction_id, sampled_at);
 
 CREATE INDEX idx_home_faction_members_current
   ON home_faction_members(is_current, member_id);

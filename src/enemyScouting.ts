@@ -889,7 +889,16 @@ async function clearLiveEnemyTrackingRows(
 
   const memberHeatmapResult = await env.DB.prepare(
     `
-    DELETE FROM enemy_member_activity_heatmap
+    DELETE FROM enemy_member_activity_samples
+    WHERE war_id = ?
+    `,
+  )
+    .bind(warId)
+    .run();
+
+  const factionSampleResult = await env.DB.prepare(
+    `
+    DELETE FROM enemy_faction_activity_samples
     WHERE war_id = ?
     `,
   )
@@ -932,11 +941,12 @@ async function clearLiveEnemyTrackingRows(
     : null;
 
   return {
-    writeStatements: options.resetWarCheckedAt ? 7 : 6,
+    writeStatements: options.resetWarCheckedAt ? 8 : 7,
     changedRows:
       d1Changes(memberResult) +
       d1Changes(pushSnapshotResult) +
       d1Changes(memberHeatmapResult) +
+      d1Changes(factionSampleResult) +
       d1Changes(controlSnapshotResult) +
       d1Changes(bigHitterResult) +
       d1Changes(pushAlertResult) +

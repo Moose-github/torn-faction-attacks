@@ -231,7 +231,7 @@ class TestD1Database {
       return null;
     }
 
-    if (sql.includes("FROM faction_activity_heatmap")) {
+    if (sql.includes("FROM enemy_faction_activity_samples")) {
       return { active_count: 8 };
     }
 

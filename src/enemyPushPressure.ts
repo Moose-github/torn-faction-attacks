@@ -217,7 +217,7 @@ export async function buildEnemyPushSnapshot(
   const bucketStart = Math.floor(fetchedAt / 60) * 60;
   const [reference, baselineActiveCount, enemyAttacksLast5m] = await Promise.all([
     readEnemyPushReferenceSnapshot(env, warId, bucketStart - PUSH_REFERENCE_WINDOW_SECONDS),
-    readEnemyActivityBaseline(env, factionId, bucketStart),
+    readEnemyActivityBaseline(env, warId, factionId, bucketStart),
     readEnemyAttacksLast5m(env, warId, factionId, fetchedAt),
   ]);
   const onlineDelta10m = reference ? onlineCount - Number(reference.online_count ?? 0) : 0;
@@ -496,6 +496,7 @@ async function readEnemyPushReferenceSnapshot(
 
 async function readEnemyActivityBaseline(
   env: Env,
+  warId: number,
   factionId: number,
   sampledAt: number,
 ): Promise<number | null> {
@@ -503,12 +504,13 @@ async function readEnemyActivityBaseline(
   const row = (await env.DB.prepare(
     `
     SELECT AVG(active_count) AS active_count
-    FROM faction_activity_heatmap
-    WHERE faction_id = ?
+    FROM enemy_faction_activity_samples
+    WHERE war_id = ?
+      AND faction_id = ?
       AND interval_index = ?
     `,
   )
-    .bind(factionId, bucket)
+    .bind(warId, factionId, bucket)
     .first()) as { active_count: number | null } | null;
 
   return finiteNumber(row?.active_count);

@@ -69,16 +69,20 @@ class TestD1Database {
       };
     }
 
-    if (sql.includes("FROM faction_activity_heatmap")) {
+    if (sql.includes("FROM home_faction_activity_samples")) {
       const factionId = Number(args[0]);
       return factionId === HOME_FACTION_ID ? { sampled_at: 1_767_354_300 } : null;
+    }
+
+    if (sql.includes("FROM enemy_faction_activity_samples")) {
+      return null;
     }
 
     return null;
   }
 
   all<T = unknown>(sql: string, args: unknown[]): D1Result<T> {
-    if (sql.includes("FROM enemy_member_activity_heatmap")) {
+    if (sql.includes("FROM enemy_member_activity_samples")) {
       this.enemyMemberSelectArgs = args;
       return result(this.enemyMemberRows as T[]);
     }
@@ -87,11 +91,14 @@ class TestD1Database {
   }
 
   run<T = unknown>(sql: string, args: unknown[]): D1Result<T> {
-    if (sql.includes("INSERT INTO faction_activity_heatmap")) {
+    if (
+      sql.includes("INSERT INTO home_faction_activity_samples") ||
+      sql.includes("INSERT INTO enemy_faction_activity_samples")
+    ) {
       this.aggregateInserts.push(args);
     }
 
-    if (sql.includes("INSERT INTO enemy_member_activity_heatmap")) {
+    if (sql.includes("INSERT INTO enemy_member_activity_samples")) {
       this.enemyMemberInserts.push(args);
     }
 
