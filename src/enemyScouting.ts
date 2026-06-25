@@ -3,7 +3,6 @@ import {
   TORN_FACTION_API_BASE_URL,
 } from "./constants";
 import { bumpWarCacheVersion } from "./cacheVersions";
-import { seedEnemyBigHittersForWar } from "./enemyBigHitters";
 import {
   canInitializeEnemyTarget,
   enemyTargetBspFillCompleteLatchName,
@@ -490,7 +489,6 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
   const rows = await readEnemyScouting(env, factionId);
   await seedEnemyHitStatSnapshots(env, warId, factionId, rows, fetchedAt);
   await refreshMissingFfBattlestats(env, rows);
-  await seedEnemyBigHittersForWar(env, warId, factionId);
   return true;
 }
 

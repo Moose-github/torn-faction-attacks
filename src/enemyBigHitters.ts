@@ -35,20 +35,6 @@ export async function seedEnemyBigHittersForWar(
   warId: number,
   factionId: number,
 ): Promise<SeedEnemyBigHittersResult> {
-  const existing = (await env.DB.prepare(
-    `
-    SELECT COUNT(*) AS count
-    FROM enemy_big_hitters
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .first()) as { count: number } | null;
-
-  if ((existing?.count ?? 0) > 0) {
-    return { writeStatements: 1, changedRows: 0, seededRows: 0, skipped: true };
-  }
-
   const result = await env.DB.prepare(
     `
     INSERT INTO enemy_big_hitters (
@@ -78,7 +64,7 @@ export async function seedEnemyBigHittersForWar(
     .run();
 
   const changes = d1Changes(result);
-  return { writeStatements: 2, changedRows: changes, seededRows: changes, skipped: false };
+  return { writeStatements: 1, changedRows: changes, seededRows: changes, skipped: false };
 }
 
 export async function getEnemyBigHittersForWar(url: URL, env: Env): Promise<Response> {

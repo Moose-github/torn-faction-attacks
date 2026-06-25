@@ -21,7 +21,6 @@ export type WarControlSettings = {
   control_hospital_threshold: number;
   available_advantage_min: number;
   opening_grace_minutes: number;
-  status_freshness_max_seconds: number;
   min_observed_roster_percent: number;
   min_local_relevant_members: number;
   heavy_own_hospital_penalty_threshold: number;
@@ -68,8 +67,6 @@ export type WarControlSnapshot = {
   enemy_hospital_ratio: number;
   home_available_ratio: number;
   enemy_available_ratio: number;
-  home_status_age_seconds: number;
-  enemy_status_age_seconds: number;
   control_state: WarControlState;
   control_confidence: number;
   control_reason: string;
@@ -95,7 +92,6 @@ export const DEFAULT_WAR_CONTROL_SETTINGS: WarControlSettings = {
   control_hospital_threshold: 0.8,
   available_advantage_min: 0.15,
   opening_grace_minutes: 15,
-  status_freshness_max_seconds: 180,
   min_observed_roster_percent: 0.6,
   min_local_relevant_members: 10,
   heavy_own_hospital_penalty_threshold: 0.6,
@@ -139,7 +135,6 @@ export async function updateWarControlSettingsFromRequest(request: Request, env:
       control_hospital_threshold,
       available_advantage_min,
       opening_grace_minutes,
-      status_freshness_max_seconds,
       min_observed_roster_percent,
       min_local_relevant_members,
       heavy_own_hospital_penalty_threshold,
@@ -153,12 +148,11 @@ export async function updateWarControlSettingsFromRequest(request: Request, env:
       transition_big_hitter_multiplier_multiple,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
     ON CONFLICT(id) DO UPDATE SET
       control_hospital_threshold = excluded.control_hospital_threshold,
       available_advantage_min = excluded.available_advantage_min,
       opening_grace_minutes = excluded.opening_grace_minutes,
-      status_freshness_max_seconds = excluded.status_freshness_max_seconds,
       min_observed_roster_percent = excluded.min_observed_roster_percent,
       min_local_relevant_members = excluded.min_local_relevant_members,
       heavy_own_hospital_penalty_threshold = excluded.heavy_own_hospital_penalty_threshold,
@@ -178,7 +172,6 @@ export async function updateWarControlSettingsFromRequest(request: Request, env:
       next.control_hospital_threshold,
       next.available_advantage_min,
       next.opening_grace_minutes,
-      next.status_freshness_max_seconds,
       next.min_observed_roster_percent,
       next.min_local_relevant_members,
       next.heavy_own_hospital_penalty_threshold,
@@ -303,8 +296,6 @@ export async function buildWarControlSnapshot(
     enemy_hospital_ratio: enemy.hospitalRatio,
     home_available_ratio: home.availableRatio,
     enemy_available_ratio: enemy.availableRatio,
-    home_status_age_seconds: 0,
-    enemy_status_age_seconds: 0,
     control_state: decision.state,
     control_confidence: decision.confidence,
     control_reason: decision.reason,
@@ -348,15 +339,13 @@ export function upsertWarControlSnapshot(env: Env, snapshot: WarControlSnapshot)
       enemy_hospital_ratio,
       home_available_ratio,
       enemy_available_ratio,
-      home_status_age_seconds,
-      enemy_status_age_seconds,
       control_state,
       control_confidence,
       control_reason,
       reasons_json,
       created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(war_id, bucket_start) DO UPDATE SET
       home_total_members = excluded.home_total_members,
       home_observed_members = excluded.home_observed_members,
@@ -387,8 +376,6 @@ export function upsertWarControlSnapshot(env: Env, snapshot: WarControlSnapshot)
       enemy_hospital_ratio = excluded.enemy_hospital_ratio,
       home_available_ratio = excluded.home_available_ratio,
       enemy_available_ratio = excluded.enemy_available_ratio,
-      home_status_age_seconds = excluded.home_status_age_seconds,
-      enemy_status_age_seconds = excluded.enemy_status_age_seconds,
       control_state = excluded.control_state,
       control_confidence = excluded.control_confidence,
       control_reason = excluded.control_reason,
@@ -427,8 +414,6 @@ export function upsertWarControlSnapshot(env: Env, snapshot: WarControlSnapshot)
     snapshot.enemy_hospital_ratio,
     snapshot.home_available_ratio,
     snapshot.enemy_available_ratio,
-    snapshot.home_status_age_seconds,
-    snapshot.enemy_status_age_seconds,
     snapshot.control_state,
     snapshot.control_confidence,
     snapshot.control_reason,
@@ -460,7 +445,7 @@ function decideControlState(values: {
   const dataIssue = firstDataQualityIssue(home, enemy, settings);
   if (dataIssue) {
     reasons.push(dataIssue);
-    return decision("unknown", 0.1, "Not enough fresh status data", withControlContext(reasons, values));
+    return decision("unknown", 0.1, "Not enough status data", withControlContext(reasons, values));
   }
 
   const homeAvailableEdge = home.availableRatio - enemy.availableRatio;
@@ -919,7 +904,6 @@ function normalizeWarControlSettings(row: Partial<WarControlSettings> | null | u
     control_hospital_threshold: boundedNumber(row?.control_hospital_threshold, 0.5, 0.95, DEFAULT_WAR_CONTROL_SETTINGS.control_hospital_threshold),
     available_advantage_min: boundedNumber(row?.available_advantage_min, 0, 0.75, DEFAULT_WAR_CONTROL_SETTINGS.available_advantage_min),
     opening_grace_minutes: boundedInteger(row?.opening_grace_minutes, 0, 60, DEFAULT_WAR_CONTROL_SETTINGS.opening_grace_minutes),
-    status_freshness_max_seconds: boundedInteger(row?.status_freshness_max_seconds, 30, 900, DEFAULT_WAR_CONTROL_SETTINGS.status_freshness_max_seconds),
     min_observed_roster_percent: boundedNumber(row?.min_observed_roster_percent, 0.1, 1, DEFAULT_WAR_CONTROL_SETTINGS.min_observed_roster_percent),
     min_local_relevant_members: boundedInteger(row?.min_local_relevant_members, 1, 100, DEFAULT_WAR_CONTROL_SETTINGS.min_local_relevant_members),
     heavy_own_hospital_penalty_threshold: boundedNumber(row?.heavy_own_hospital_penalty_threshold, 0, 1, DEFAULT_WAR_CONTROL_SETTINGS.heavy_own_hospital_penalty_threshold),

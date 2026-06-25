@@ -1552,7 +1552,6 @@ export type WarControlSettings = {
   control_hospital_threshold: number;
   available_advantage_min: number;
   opening_grace_minutes: number;
-  status_freshness_max_seconds: number;
   min_observed_roster_percent: number;
   min_local_relevant_members: number;
   heavy_own_hospital_penalty_threshold: number;
@@ -1606,8 +1605,6 @@ export type WarControlSnapshot = {
   enemy_hospital_ratio: number;
   home_available_ratio: number;
   enemy_available_ratio: number;
-  home_status_age_seconds: number;
-  enemy_status_age_seconds: number;
   control_state: WarControlState;
   control_confidence: number;
   control_reason: string;

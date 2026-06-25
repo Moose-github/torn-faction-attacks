@@ -704,7 +704,6 @@ export function WarRoom({
         control_hospital_threshold: warControlSettingsDraft.control_hospital_threshold,
         available_advantage_min: warControlSettingsDraft.available_advantage_min,
         opening_grace_minutes: warControlSettingsDraft.opening_grace_minutes,
-        status_freshness_max_seconds: warControlSettingsDraft.status_freshness_max_seconds,
         min_observed_roster_percent: warControlSettingsDraft.min_observed_roster_percent,
         min_local_relevant_members: warControlSettingsDraft.min_local_relevant_members,
         heavy_own_hospital_penalty_threshold: warControlSettingsDraft.heavy_own_hospital_penalty_threshold,
@@ -2476,11 +2475,6 @@ function WarControlPanel({
               detail={`Min ${settings ? formatPercent(settings.min_observed_roster_percent) : "-"}; home/enemy observed`}
             />
             <WarControlMetric
-              label="Status freshness"
-              value={`${formatNumber(latest.home_status_age_seconds)}/${formatNumber(latest.enemy_status_age_seconds)}s`}
-              detail={`Max ${settings ? formatNumber(settings.status_freshness_max_seconds) : "-"}s; home/enemy sample age`}
-            />
-            <WarControlMetric
               label="Enemy big hitters"
               value={`${formatNumber(latest.enemy_big_hitter_recently_active_count)} active`}
               detail={`${formatNumber(latest.enemy_big_hitter_available_count)} available, ${formatNumber(latest.enemy_big_hitter_hospital_count)} hospital, ${formatNumber(latest.enemy_big_hitter_travel_count)} away`}
@@ -2512,7 +2506,6 @@ function WarControlPanel({
                 <WarControlSettingInput label="Hospital threshold" value={settings.control_hospital_threshold} step={0.01} onChange={(value) => updateSetting("control_hospital_threshold", value)} />
                 <WarControlSettingInput label="Available edge" value={settings.available_advantage_min} step={0.01} onChange={(value) => updateSetting("available_advantage_min", value)} />
                 <WarControlSettingInput label="Opening grace" value={settings.opening_grace_minutes} step={1} onChange={(value) => updateSetting("opening_grace_minutes", value)} />
-                <WarControlSettingInput label="Freshness max" value={settings.status_freshness_max_seconds} step={30} onChange={(value) => updateSetting("status_freshness_max_seconds", value)} />
                 <WarControlSettingInput label="Observed min" value={settings.min_observed_roster_percent} step={0.05} onChange={(value) => updateSetting("min_observed_roster_percent", value)} />
                 <WarControlSettingInput label="Min local" value={settings.min_local_relevant_members} step={1} onChange={(value) => updateSetting("min_local_relevant_members", value)} />
                 <WarControlSettingInput label="Heavy own hosp" value={settings.heavy_own_hospital_penalty_threshold} step={0.05} onChange={(value) => updateSetting("heavy_own_hospital_penalty_threshold", value)} />

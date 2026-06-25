@@ -28,6 +28,7 @@ import {
   readAvailableEnemyNetworthKeys,
   type TornApiKey,
 } from "./enemyNetworth";
+import { seedEnemyBigHittersForWar } from "./enemyBigHitters";
 import { fetchTornPersonalStats, TornPersonalStatsHttpError } from "./personalStats";
 import {
   clearSyncLatch,
@@ -996,6 +997,7 @@ async function markEnemyTargetComparisonStatsCompleteIfReady(
 
   await setSyncLatch(env, context.stateNames.comparisonStatsComplete, nowSeconds());
   context.activeLatches.add(context.stateNames.comparisonStatsComplete);
+  await seedEnemyBigHittersForWar(env, context.war.id, context.war.enemy_faction_id);
 }
 
 function buildEnemyTargetStateNames(warId: number, enemyFactionId: number): EnemyTargetStateNames {

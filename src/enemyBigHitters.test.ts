@@ -47,7 +47,6 @@ class TestD1PreparedStatement {
 }
 
 class TestD1Database {
-  existingBigHitterCount = 0;
   bigHitterRows: unknown[] = [];
   memberRow: unknown | null = { member_id: 111, faction_id: 456, name: "Large Enemy" };
   seedArgs: unknown[] | null = null;
@@ -72,10 +71,6 @@ class TestD1Database {
         enemy_faction_id: 456,
         war_type: "real",
       };
-    }
-
-    if (sql.includes("COUNT(*) AS count") && sql.includes("FROM enemy_big_hitters")) {
-      return { count: this.existingBigHitterCount };
     }
 
     if (sql.includes("FROM enemy_faction_members")) {
@@ -118,25 +113,14 @@ describe("enemy big hitters", () => {
     vi.clearAllMocks();
   });
 
-  it("seeds one-time big hitter rows from the enemy scouting roster", async () => {
+  it("seeds big hitter rows from the enemy scouting roster", async () => {
     const db = new TestD1Database();
     const env = { DB: db as unknown as D1Database } as Env;
 
     const metrics = await seedEnemyBigHittersForWar(env, 123, 456);
 
-    expect(metrics).toEqual({ writeStatements: 2, changedRows: 2, seededRows: 2, skipped: false });
+    expect(metrics).toEqual({ writeStatements: 1, changedRows: 2, seededRows: 2, skipped: false });
     expect(db.seedArgs).toEqual([123, 456, BIG_HITTER_BATTLESTAT_THRESHOLD]);
-  });
-
-  it("skips seeding when the war already has a big hitter roster", async () => {
-    const db = new TestD1Database();
-    db.existingBigHitterCount = 1;
-    const env = { DB: db as unknown as D1Database } as Env;
-
-    const metrics = await seedEnemyBigHittersForWar(env, 123, 456);
-
-    expect(metrics).toEqual({ writeStatements: 1, changedRows: 0, seededRows: 0, skipped: true });
-    expect(db.seedArgs).toBeNull();
   });
 
   it("lists, adds, and removes manual big hitters for a war", async () => {
