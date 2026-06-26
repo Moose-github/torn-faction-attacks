@@ -688,7 +688,7 @@ export function AdminControls() {
               disabled={isBusy !== null}
               onClick={() => runAdminAction("Sync Discord travel tracker", syncDiscordTravelTracker)}
             >
-              {isBusy === "Sync Discord travel tracker" ? "Syncing" : "Sync now"}
+              {isBusy === "Sync Discord travel tracker" ? "Syncing tracker" : "Sync tracker now"}
             </button>
           </form>
         </section>

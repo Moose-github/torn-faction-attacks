@@ -105,6 +105,26 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).toContain("abroad in Canada");
     expect(response.data?.embeds?.[0]?.description).toContain("return 12m");
   });
+
+  it("splits war buttons into valid Discord action rows", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      data: {
+        name: "war",
+        options: [
+          {
+            type: 1,
+            name: "current",
+          },
+        ],
+      },
+    }, fakeDiscordEnv());
+
+    expect(response.type).toBe(4);
+    expect(response.data?.components).toHaveLength(2);
+    expect(response.data?.components?.[0]?.components).toHaveLength(5);
+    expect(response.data?.components?.[1]?.components).toHaveLength(1);
+  });
 });
 
 async function signedDiscordRequest(payload: unknown): Promise<{

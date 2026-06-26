@@ -648,7 +648,14 @@ function warComponents(env: Env, war: WarSummaryForDiscord): DiscordComponent[] 
     buttons.push({ type: DISCORD_COMPONENT_BUTTON, style: DISCORD_BUTTON_LINK, label: "Dashboard", url: dashboardUrl });
   }
 
-  return [{ type: DISCORD_COMPONENT_ACTION_ROW, components: buttons }];
+  const rows: DiscordComponent[] = [];
+  for (let index = 0; index < buttons.length; index += 5) {
+    rows.push({
+      type: DISCORD_COMPONENT_ACTION_ROW,
+      components: buttons.slice(index, index + 5),
+    });
+  }
+  return rows;
 }
 
 function dashboardWarUrl(env: Env, warName: string): string | null {
