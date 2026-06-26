@@ -27,6 +27,7 @@ type DiscordTravelTrackerState = {
   war_id: number | null;
   target_source: string | null;
   faction_id: number | null;
+  destination_key: string | null;
   message_id: string | null;
   content_hash: string | null;
   last_synced_at: number | null;
@@ -131,8 +132,9 @@ export async function syncDiscordTravelTracker(
   options: { force?: boolean; scheduledTime?: number } = {},
 ): Promise<DiscordTravelTrackerSyncResult> {
   const state = await readTravelTrackerState(env);
-  if (!env.DISCORD_WEBHOOK_URL) {
-    return trackerResult(true, "DISCORD_WEBHOOK_URL is not configured", null, null, "inactive", state?.message_id ?? null, 0, 0, false);
+  const destination = readTravelTrackerDestination(env);
+  if (!destination) {
+    return trackerResult(true, "DISCORD_TRAVEL_TRACKER_WEBHOOK_URL or DISCORD_WEBHOOK_URL is not configured", null, null, "inactive", state?.message_id ?? null, 0, 0, false);
   }
 
   const checkedAt = options.scheduledTime ? Math.floor(options.scheduledTime / 1000) : nowSeconds();
@@ -141,19 +143,20 @@ export async function syncDiscordTravelTracker(
     if (!state?.message_id) {
       return trackerResult(true, "no active travel tracker target", null, null, "inactive", null, 0, 0, false);
     }
-    return updateTravelTrackerMessage(env, state, null, [], checkedAt, options.force ?? false);
+    return updateTravelTrackerMessage(env, state, destination, null, [], checkedAt, options.force ?? false);
   }
 
   const refreshed = target.source === "manual"
     ? await refreshManualTravelTrackerTarget(env, target)
     : undefined;
   const members = await readTravelTrackerRows(env, target.factionId);
-  return updateTravelTrackerMessage(env, state, target, members, checkedAt, options.force ?? false, refreshed);
+  return updateTravelTrackerMessage(env, state, destination, target, members, checkedAt, options.force ?? false, refreshed);
 }
 
 async function updateTravelTrackerMessage(
   env: Env,
   state: DiscordTravelTrackerState | null,
+  destination: TravelTrackerDestination,
   target: TravelTrackerTarget | null,
   members: TravelTrackerRow[],
   checkedAt: number,
@@ -167,7 +170,7 @@ async function updateTravelTrackerMessage(
   const warId = target?.warId ?? null;
   const factionId = target?.factionId ?? null;
   const source = target?.source ?? "inactive";
-  const sameTarget = isSameTrackerTarget(state, source, warId, factionId);
+  const sameTarget = isSameTrackerTarget(state, source, warId, factionId, destination.key);
   const reusableMessageId = sameTarget ? existingMessageId : null;
 
   if (!force && reusableMessageId && state?.content_hash === hash) {
@@ -176,18 +179,19 @@ async function updateTravelTrackerMessage(
   }
 
   const messageId = reusableMessageId
-    ? await editExistingTravelTrackerMessage(env, reusableMessageId, message)
+    ? await editExistingTravelTrackerMessage(env, reusableMessageId, destination, message)
     : await createDiscordWebhookMessage(
       env,
       message.content,
       { users: [], roles: [] },
-      { embedColor: message.color },
+      { embedColor: message.color, webhookUrl: destination.webhookUrl },
     );
 
   await saveTravelTrackerState(env, {
     source,
     warId,
     factionId,
+    destinationKey: destination.key,
     messageId,
     contentHash: hash,
     checkedAt,
@@ -199,6 +203,7 @@ async function updateTravelTrackerMessage(
 async function editExistingTravelTrackerMessage(
   env: Env,
   messageId: string,
+  destination: TravelTrackerDestination,
   message: { content: string; color: number },
 ): Promise<string> {
   await editDiscordWebhookMessage(
@@ -206,7 +211,7 @@ async function editExistingTravelTrackerMessage(
     messageId,
     message.content,
     { users: [], roles: [] },
-    { embedColor: message.color },
+    { embedColor: message.color, webhookUrl: destination.webhookUrl },
   );
   return messageId;
 }
@@ -248,18 +253,30 @@ function isSameTrackerTarget(
   source: "war" | "manual" | "inactive",
   warId: number | null,
   factionId: number | null,
+  destinationKey: string,
 ): boolean {
   if (!state?.message_id) {
     return false;
   }
 
   if (state.target_source === null && state.faction_id === null) {
-    return source === "war" && state.war_id === warId;
+    return source === "war" && state.war_id === warId && state.destination_key === destinationKey;
   }
 
   return state.target_source === source &&
     state.war_id === warId &&
-    state.faction_id === factionId;
+    state.faction_id === factionId &&
+    state.destination_key === destinationKey;
+}
+
+type TravelTrackerDestination = {
+  webhookUrl: string;
+  key: string;
+};
+
+function readTravelTrackerDestination(env: Env): TravelTrackerDestination | null {
+  const webhookUrl = env.DISCORD_TRAVEL_TRACKER_WEBHOOK_URL?.trim() || env.DISCORD_WEBHOOK_URL?.trim();
+  return webhookUrl ? { webhookUrl, key: contentHash(webhookUrl) } : null;
 }
 
 async function resolveTravelTrackerTarget(env: Env, checkedAt: number): Promise<TravelTrackerTarget | null> {
@@ -441,6 +458,7 @@ async function saveTravelTrackerState(
     source: "war" | "manual" | "inactive";
     warId: number | null;
     factionId: number | null;
+    destinationKey: string;
     messageId: string | null;
     contentHash: string;
     checkedAt: number;
@@ -453,17 +471,19 @@ async function saveTravelTrackerState(
       war_id,
       target_source,
       faction_id,
+      destination_key,
       message_id,
       content_hash,
       last_synced_at,
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
     ON CONFLICT(id) DO UPDATE SET
       war_id = excluded.war_id,
       target_source = excluded.target_source,
       faction_id = excluded.faction_id,
+      destination_key = excluded.destination_key,
       message_id = excluded.message_id,
       content_hash = excluded.content_hash,
       last_synced_at = excluded.last_synced_at,
@@ -474,6 +494,7 @@ async function saveTravelTrackerState(
     input.warId,
     input.source,
     input.factionId,
+    input.destinationKey,
     input.messageId,
     input.contentHash,
     input.checkedAt,

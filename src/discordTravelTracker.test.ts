@@ -74,7 +74,7 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Enemy Travel Tracker: War vs test-war"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed },
+      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
     );
     expect(env.state?.message_id).toBe("message-1");
   });
@@ -111,7 +111,7 @@ describe("Discord travel tracker", () => {
       "message-1",
       expect.stringContaining("<t:1800001200:t> (<t:1800001200:R>) | WLT benefit"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed },
+      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
     );
   });
 
@@ -142,12 +142,29 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Faction Travel Tracker: Manual Faction"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed },
+      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
     );
     expect(editDiscordWebhookMessage).not.toHaveBeenCalled();
     expect(env.state?.message_id).toBe("message-2");
     expect(env.state?.target_source).toBe("manual");
     expect(env.state?.faction_id).toBe(456);
+  });
+
+  it("uses the dedicated travel tracker webhook when configured", async () => {
+    const env = fakeEnv();
+    env.DISCORD_TRAVEL_TRACKER_WEBHOOK_URL = "https://discord.test/travel-webhook";
+
+    await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
+      source: "war",
+      message_id: "message-1",
+      changed: true,
+    });
+    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+      env,
+      expect.stringContaining("Enemy Travel Tracker: War vs test-war"),
+      { users: [], roles: [] },
+      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/travel-webhook" },
+    );
   });
 
   it("uses the manual target when no active war tracking is available", async () => {
@@ -173,7 +190,7 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Faction Travel Tracker: Manual Faction"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed },
+      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
     );
     expect(env.target?.last_refreshed_at).toBe(1_800_000_000);
   });
@@ -198,7 +215,7 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Faction Travel Tracker: Target Name"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed },
+      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
     );
   });
 
@@ -234,7 +251,7 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Faction Travel Tracker: Manual Faction"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed },
+      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
     );
   });
 
@@ -274,6 +291,7 @@ type FakeState = {
   war_id: number | null;
   target_source: string | null;
   faction_id: number | null;
+  destination_key: string | null;
   message_id: string | null;
   content_hash: string | null;
   last_synced_at: number | null;
@@ -390,9 +408,10 @@ function fakeEnv(): FakeEnv {
             war_id: values[1] as number | null,
             target_source: values[2] as string | null,
             faction_id: values[3] as number | null,
-            message_id: values[4] as string | null,
-            content_hash: values[5] as string | null,
-            last_synced_at: values[6] as number | null,
+            destination_key: values[4] as string | null,
+            message_id: values[5] as string | null,
+            content_hash: values[6] as string | null,
+            last_synced_at: values[7] as number | null,
           };
         } else if (sql.includes("INSERT INTO discord_travel_tracker_target")) {
           env.target = {

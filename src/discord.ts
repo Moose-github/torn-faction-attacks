@@ -13,6 +13,7 @@ export type DiscordAllowedMentions = {
 type DiscordPayloadOptions = {
   embedColor?: number;
   clearEmbeds?: boolean;
+  webhookUrl?: string;
 };
 
 export async function sendDiscordMessageFromRequest(request: Request, env: Env): Promise<Response> {
@@ -60,14 +61,15 @@ export async function createDiscordWebhookMessage(
   env: Env,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor">,
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "webhookUrl">,
 ): Promise<string | null> {
-  if (!env.DISCORD_WEBHOOK_URL) {
+  const webhookUrl = options?.webhookUrl ?? env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
     throw new Error("DISCORD_WEBHOOK_URL is not configured");
   }
 
   const response = await postDiscordJsonAndRead<DiscordWebhookMessage>(
-    discordWebhookUrlWithQuery(env.DISCORD_WEBHOOK_URL, { wait: "true" }),
+    discordWebhookUrlWithQuery(webhookUrl, { wait: "true" }),
     discordPayload(message, allowedMentions, options),
   );
 
@@ -79,14 +81,15 @@ export async function editDiscordWebhookMessage(
   messageId: string,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor">,
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "webhookUrl">,
 ): Promise<void> {
-  if (!env.DISCORD_WEBHOOK_URL) {
+  const webhookUrl = options?.webhookUrl ?? env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
     throw new Error("DISCORD_WEBHOOK_URL is not configured");
   }
 
   await patchDiscordJson(
-    discordWebhookMessageUrl(env.DISCORD_WEBHOOK_URL, messageId),
+    discordWebhookMessageUrl(webhookUrl, messageId),
     discordPayload(message, allowedMentions, { ...options, clearEmbeds: options?.embedColor === undefined }),
   );
 }

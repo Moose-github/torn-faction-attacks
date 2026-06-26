@@ -142,6 +142,7 @@ CREATE TABLE discord_travel_tracker_state (
   war_id INTEGER,
   target_source TEXT,
   faction_id INTEGER,
+  destination_key TEXT,
   message_id TEXT,
   content_hash TEXT,
   last_synced_at INTEGER,
