@@ -9,6 +9,9 @@ vi.mock("./ingestion", () => ({
 vi.mock("./chainWatch", () => ({
   runChainWatchCron: vi.fn(),
 }));
+vi.mock("./discordTravelTracker", () => ({
+  syncDiscordTravelTracker: vi.fn(),
+}));
 vi.mock("./lifestyleStats", () => ({
   processMemberLifestyleRepairJobs: vi.fn(),
   refreshDailyGymStats: vi.fn(),
@@ -82,5 +85,12 @@ describe("monthly Xanax competition cron", () => {
       .map((job) => job.label);
 
     expect(labels).toContain("Cron monthly Xanax competition Discord reminder");
+  });
+
+  it("temporarily schedules manual Discord travel tracker syncs every five minutes", () => {
+    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 5, 0)).map((job) => job.label))
+      .toContain("Cron manual Discord travel tracker sync");
+    expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 6, 0)).map((job) => job.label))
+      .not.toContain("Cron manual Discord travel tracker sync");
   });
 });

@@ -130,7 +130,7 @@ export async function clearDiscordTravelTrackerTargetFromRequest(env: Env): Prom
 
 export async function syncDiscordTravelTracker(
   env: Env,
-  options: { force?: boolean; scheduledTime?: number } = {},
+  options: { force?: boolean; scheduledTime?: number; manualOnly?: boolean } = {},
 ): Promise<DiscordTravelTrackerSyncResult> {
   const state = await readTravelTrackerState(env);
   const destination = readTravelTrackerDestination(env);
@@ -140,6 +140,20 @@ export async function syncDiscordTravelTracker(
 
   const checkedAt = options.scheduledTime ? Math.floor(options.scheduledTime / 1000) : nowSeconds();
   const target = await resolveTravelTrackerTarget(env, checkedAt);
+  if (options.manualOnly && target?.source !== "manual") {
+    return trackerResult(
+      true,
+      "manual travel tracker not active",
+      target?.warId ?? null,
+      target?.factionId ?? null,
+      target?.source ?? "inactive",
+      state?.message_id ?? null,
+      0,
+      0,
+      false,
+    );
+  }
+
   if (!target) {
     if (!state?.message_id) {
       return trackerResult(true, "no active travel tracker target", null, null, "inactive", null, 0, 0, false);
