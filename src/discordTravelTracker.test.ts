@@ -108,7 +108,7 @@ describe("Discord travel tracker", () => {
     expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
       env,
       "message-1",
-      expect.stringContaining("ETA <t:1800001200:R>"),
+      expect.stringContaining("<t:1800001200:t> (<t:1800001200:R>) | WLT benefit"),
       { users: [], roles: [] },
       { embedColor: 0x2f80ed },
     );

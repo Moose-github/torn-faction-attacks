@@ -100,10 +100,13 @@ describe("Discord interactions", () => {
 
     expect(response.type).toBe(4);
     expect(response.data?.embeds?.[0]?.title).toBe("test-war travel tracker");
+    expect(response.data?.embeds?.[0]?.description).toContain("**Traveling (1)**");
+    expect(response.data?.embeds?.[0]?.description).toContain("**Member** | **Route** | **Departure** | **Travel time** | **Arrival** | **Travel type**");
     expect(response.data?.embeds?.[0]?.description).toContain("Torn -> Mexico");
-    expect(response.data?.embeds?.[0]?.description).toContain("ETA <t:1800000600:R>");
-    expect(response.data?.embeds?.[0]?.description).toContain("abroad in Canada");
-    expect(response.data?.embeds?.[0]?.description).toContain("return 12m");
+    expect(response.data?.embeds?.[0]?.description).toContain("<t:1799999820:t> | 13m | <t:1800000600:t> (<t:1800000600:R>) | WLT benefit");
+    expect(response.data?.embeds?.[0]?.description).toContain("**Currently abroad (1)**");
+    expect(response.data?.embeds?.[0]?.description).toContain("**Member** | **Location** | **Outbound type** | **Minimum return**");
+    expect(response.data?.embeds?.[0]?.description).toContain("[Abroad](https://www.torn.com/profiles.php?XID=4) | Canada | Business Class | 12m");
   });
 
   it("splits war buttons into valid Discord action rows", async () => {
