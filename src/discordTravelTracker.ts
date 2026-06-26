@@ -21,6 +21,7 @@ const TRAVEL_TRACKER_COLOR = 0x2f80ed;
 const TRAVEL_TRACKER_INACTIVE_COLOR = 0x778899;
 const TRAVEL_TRACKER_LIMIT = 18;
 const TRAVEL_TRACKER_TARGET_ID = 1;
+const TRAVEL_TRACKER_EMBED_SAFE_LIMIT = 3900;
 
 type DiscordTravelTrackerState = {
   id: number;
@@ -550,9 +551,24 @@ function contentHash(value: string): string {
 }
 
 function fitDiscordMessage(message: string): string {
-  if (message.length <= 1900) {
+  if (message.length <= TRAVEL_TRACKER_EMBED_SAFE_LIMIT) {
     return message;
   }
 
-  return `${message.slice(0, 1870).trimEnd()}\n...`;
+  const suffix = "\n...";
+  const lines = message.split("\n");
+  const fitted: string[] = [];
+  let length = 0;
+
+  for (const line of lines) {
+    const nextLength = length + (fitted.length > 0 ? 1 : 0) + line.length;
+    if (nextLength + suffix.length > TRAVEL_TRACKER_EMBED_SAFE_LIMIT) {
+      break;
+    }
+
+    fitted.push(line);
+    length = nextLength;
+  }
+
+  return `${fitted.join("\n").trimEnd()}${suffix}`;
 }

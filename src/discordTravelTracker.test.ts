@@ -167,6 +167,25 @@ describe("Discord travel tracker", () => {
     );
   });
 
+  it("keeps tracker embeds above the old message content limit", async () => {
+    const env = fakeEnv();
+    env.rows = Array.from({ length: 18 }, (_, index) => ({
+      ...env.rows[0],
+      member_id: 10_000 + index,
+      name: `LongTrackerName${index}WithSeveralWords`,
+      estimated_arrival_at: 1_800_000_600 + index * 60,
+      estimated_arrival_earliest: 1_800_000_600 + index * 60,
+      estimated_arrival_latest: 1_800_000_600 + index * 60,
+    }));
+
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+
+    const message = vi.mocked(createDiscordWebhookMessage).mock.calls[0]?.[1] ?? "";
+    expect(message.length).toBeGreaterThan(1900);
+    expect(message).not.toContain("\n...");
+    expect(message).toContain("LongTrackerName17WithSeveralWords");
+  });
+
   it("uses the manual target when no active war tracking is available", async () => {
     vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
     const env = fakeEnv();
