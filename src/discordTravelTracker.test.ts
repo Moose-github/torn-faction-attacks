@@ -36,6 +36,7 @@ describe("Discord travel tracker", () => {
     vi.mocked(readCurrentScoutingWar).mockResolvedValue({
       id: 10,
       name: "test-war",
+      status: "active",
       enemy_faction_id: 123,
       war_type: "real",
       practical_start_time: 1_800_000_000,
@@ -140,6 +141,42 @@ describe("Discord travel tracker", () => {
       { embedColor: 0x2f80ed },
     );
     expect(env.target?.last_refreshed_at).toBe(1_800_000_000);
+  });
+
+  it("uses the manual target when the current war record is ended", async () => {
+    vi.mocked(readCurrentScoutingWar).mockResolvedValue({
+      id: 10,
+      name: "ended-war",
+      status: "ended",
+      enemy_faction_id: 123,
+      war_type: "real",
+      practical_start_time: 1_800_000_000,
+      practical_finish_time: null,
+      official_start_time: null,
+      enemy_scouting_status_checked_at: null,
+    });
+    vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(true);
+    const env = fakeEnv();
+    env.target = {
+      id: 1,
+      faction_id: 456,
+      faction_name: "Manual Faction",
+      enabled: 1,
+      last_refreshed_at: 1_799_999_900,
+    };
+
+    await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
+      source: "manual",
+      war_id: null,
+      faction_id: 456,
+      changed: true,
+    });
+    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+      env,
+      expect.stringContaining("Faction Travel Tracker: Manual Faction"),
+      { users: [], roles: [] },
+      { embedColor: 0x2f80ed },
+    );
   });
 
   it("allows admins to read, set, and clear the manual target", async () => {

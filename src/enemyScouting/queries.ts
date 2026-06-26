@@ -8,6 +8,7 @@ export async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingW
     SELECT
       w.id,
       w.name,
+      w.status,
       w.enemy_faction_id,
       w.war_type,
       w.practical_start_time,
@@ -19,6 +20,7 @@ export async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingW
     WHERE state.name = ?
       AND state.war_state IN ('upcoming', 'current')
       AND w.enemy_faction_id IS NOT NULL
+      AND COALESCE(w.status, 'active') != 'ended'
       AND w.official_end_time IS NULL
       AND w.practical_finish_time IS NULL
       AND COALESCE(w.war_type, 'real') != 'event'

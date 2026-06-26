@@ -80,7 +80,7 @@ export async function getDiscordTravelTrackerTargetFromRequest(env: Env): Promis
     readCurrentScoutingWar(env),
   ]);
   const checkedAt = nowSeconds();
-  const activeWar = war && isWarRoomMemberTrackingActive(war, checkedAt)
+  const activeWar = isActiveDiscordTravelWar(war, checkedAt)
     ? {
         war_id: war.id,
         faction_id: war.enemy_faction_id,
@@ -235,7 +235,7 @@ function buildTravelTrackerMessage(
 
 async function resolveTravelTrackerTarget(env: Env, checkedAt: number): Promise<TravelTrackerTarget | null> {
   const war = await readCurrentScoutingWar(env);
-  if (war && isWarRoomMemberTrackingActive(war, checkedAt)) {
+  if (isActiveDiscordTravelWar(war, checkedAt)) {
     return {
       source: "war",
       warId: war.id,
@@ -257,6 +257,13 @@ async function resolveTravelTrackerTarget(env: Env, checkedAt: number): Promise<
     name: manualTarget.faction_name ?? `Faction ${manualTarget.faction_id}`,
     manualTarget,
   };
+}
+
+function isActiveDiscordTravelWar(
+  war: Awaited<ReturnType<typeof readCurrentScoutingWar>>,
+  checkedAt: number,
+): war is NonNullable<typeof war> {
+  return Boolean(war && war.status !== "ended" && isWarRoomMemberTrackingActive(war, checkedAt));
 }
 
 async function refreshManualTravelTrackerTarget(

@@ -40,6 +40,7 @@ export type EnemyFactionMemberRow = {
 export type CurrentScoutingWar = {
   id: number;
   name: string;
+  status?: string | null;
   enemy_faction_id: number;
   war_type: string | null;
   practical_start_time: number;
