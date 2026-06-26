@@ -7,6 +7,12 @@ import {
 } from "../dataHealth";
 import { sendDiscordMessageFromRequest } from "../discord";
 import {
+  clearDiscordTravelTrackerTargetFromRequest,
+  getDiscordTravelTrackerTargetFromRequest,
+  setDiscordTravelTrackerTargetFromRequest,
+  syncDiscordTravelTrackerFromRequest,
+} from "../discordTravelTracker";
+import {
   previewEnemyStatsImageFromRequest,
   resetEnemyStatsImageFromRequest,
 } from "../enemyScoutingCron";
@@ -203,6 +209,26 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
       if (cooldownError) return cooldownError;
       return syncMemberDiscordLinksFromRequest(env);
     });
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-travel-tracker/sync", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "discord_travel_tracker_sync", 30);
+      if (cooldownError) return cooldownError;
+      return syncDiscordTravelTrackerFromRequest(env);
+    });
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-travel-tracker/target", "GET")) {
+    return withAdmin(routeContext, () => getDiscordTravelTrackerTargetFromRequest(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-travel-tracker/target", "POST")) {
+    return withAdmin(routeContext, () => setDiscordTravelTrackerTargetFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-travel-tracker/target", "DELETE")) {
+    return withAdmin(routeContext, () => clearDiscordTravelTrackerTargetFromRequest(env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "GET")) {

@@ -137,6 +137,26 @@ CREATE TABLE discord_alert_mentions (
   UNIQUE(alert_key, mention_type, discord_id)
 );
 
+CREATE TABLE discord_travel_tracker_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  war_id INTEGER,
+  message_id TEXT,
+  content_hash TEXT,
+  last_synced_at INTEGER,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE TABLE discord_travel_tracker_target (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  faction_id INTEGER NOT NULL,
+  faction_name TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_refreshed_at INTEGER,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE enemy_faction_members (
   member_id INTEGER PRIMARY KEY,
   faction_id INTEGER NOT NULL,

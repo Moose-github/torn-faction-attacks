@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordMessageWithAttachments } from "./discord";
+import { syncDiscordTravelTracker } from "./discordTravelTracker";
 import {
   renderEnemyMemberStatsTablePng,
   renderStatsComparisonPng,
@@ -175,6 +176,9 @@ export async function runEnemyScoutingCronTick(
   }
 
   metrics.image = await sendPendingEnemyStatsComparisonImageForContext(env, context);
+  await syncDiscordTravelTracker(env, { scheduledTime: options.scheduledTime }).catch((err: any) => {
+    console.warn("Discord travel tracker sync failed:", err?.message || err);
+  });
   return metrics;
 }
 

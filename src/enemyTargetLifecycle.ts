@@ -80,6 +80,10 @@ export async function handleEnemyTargetMatched(
     metrics.changedRows += changes;
     metrics.enemyRosterRowsDeleted += changes;
 
+    const trackerTargetClear = await env.DB.prepare(`DELETE FROM discord_travel_tracker_target WHERE id = 1`).run();
+    metrics.writeStatements += 1;
+    metrics.changedRows += d1Changes(trackerTargetClear);
+
     const hitStatsResult = await env.DB.prepare(`DELETE FROM enemy_hit_stat_snapshots`).run();
     const hitStatsChanges = d1Changes(hitStatsResult);
     metrics.writeStatements += 1;

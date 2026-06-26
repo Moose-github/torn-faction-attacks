@@ -158,6 +158,11 @@ export type EnemyMemberTrackingRefreshMetrics = {
   members?: TornFactionMember[];
 };
 
+export type TrackedFactionMemberRefreshMetrics = EnemyMemberTrackingRefreshMetrics & {
+  deletedMembers: number;
+  fetchedAt: number | null;
+};
+
 export async function getEnemyScoutingForWar(url: URL, env: Env): Promise<Response> {
   const war = await readWarFromScoutingUrl(url, env);
   if (war instanceof Response) {
@@ -676,6 +681,61 @@ export async function refreshEnemyFactionMemberStatuses(
   };
 }
 
+export async function refreshTrackedFactionMemberStatuses(
+  env: Env,
+  factionId: number,
+  previousPollAt: number | null,
+  options: { members?: TornFactionMember[]; includeMembers?: boolean } = {},
+): Promise<TrackedFactionMemberRefreshMetrics> {
+  const fetchedAt = nowSeconds();
+  const members = options.members ?? await fetchTornFactionMembers(env, factionId);
+
+  if (members.length === 0) {
+    return {
+      writeStatements: 0,
+      changedRows: 0,
+      fetchedMembers: 0,
+      updatedMembers: 0,
+      deletedMembers: 0,
+      skipped: true,
+      factionId,
+      fetchedAt: null,
+      members: options.includeMembers ? members : undefined,
+    };
+  }
+
+  const existingRows = await readEnemyScouting(env, factionId);
+  const existingById = new Map(existingRows.map((row) => [row.member_id, row]));
+  const statements: D1PreparedStatement[] = [];
+
+  for (const member of members) {
+    const existing = existingById.get(member.id) ?? null;
+    const next = buildEnemyMemberSnapshot(member, factionId, existing, previousPollAt, fetchedAt);
+    if (!existing || enemyMemberSnapshotChanged(existing, next)) {
+      statements.push(upsertEnemyMemberSnapshot(env, next));
+    }
+  }
+
+  const staleDelete = deleteStaleTrackedFactionMembers(env, factionId, members);
+  const results = statements.length > 0
+    ? await env.DB.batch([...statements, staleDelete])
+    : [await staleDelete.run()];
+  const changedRows = results.reduce((total: number, result: unknown) => total + d1Changes(result), 0);
+  const deletedMembers = d1Changes(results[results.length - 1]);
+
+  return {
+    writeStatements: statements.length + 1,
+    changedRows,
+    fetchedMembers: members.length,
+    updatedMembers: statements.length,
+    deletedMembers,
+    skipped: false,
+    factionId,
+    fetchedAt,
+    members: options.includeMembers ? members : undefined,
+  };
+}
+
 function upsertEnemyMemberSnapshot(
   env: Env,
   snapshot: EnemyMemberSnapshot,
@@ -765,6 +825,21 @@ function upsertEnemyMemberSnapshot(
     snapshot.travel_trip_inferred_at,
     snapshot.status_updated_at,
   );
+}
+
+function deleteStaleTrackedFactionMembers(
+  env: Env,
+  factionId: number,
+  members: TornFactionMember[],
+): D1PreparedStatement {
+  const memberIds = members.map((member) => member.id);
+  return env.DB.prepare(
+    `
+    DELETE FROM enemy_faction_members
+    WHERE faction_id = ?
+      AND member_id NOT IN (${memberIds.map(() => "?").join(",")})
+    `,
+  ).bind(factionId, ...memberIds);
 }
 
 export async function clearLiveEnemyTrackingData(

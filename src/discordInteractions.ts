@@ -1,5 +1,6 @@
 import { isRecord } from "./backend/request";
 import { DISCORD_COMMAND_NAMES, DISCORD_COMPONENT_IDS } from "./discordCommands";
+import { buildTravelDisplay } from "./enemyTravel";
 import { Env, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 
@@ -111,6 +112,24 @@ type EnemyStatusSummaryRow = {
   average_ff_battlestats: number | null;
 };
 
+type TravelTrackerRow = {
+  member_id: number;
+  name: string;
+  status_state: string | null;
+  status_description: string | null;
+  plane_image_type: string | null;
+  travel_origin: string | null;
+  travel_destination: string | null;
+  travel_started_after: number | null;
+  travel_started_before: number | null;
+  estimated_arrival_at: number | null;
+  estimated_arrival_earliest: number | null;
+  estimated_arrival_latest: number | null;
+  travel_trip_destination: string | null;
+  travel_trip_type: string | null;
+  travel_trip_inferred_at: number | null;
+};
+
 export async function handleDiscordInteractions(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (request.method !== "POST" || url.pathname !== "/api/discord/interactions") {
@@ -213,7 +232,16 @@ async function routeDiscordCommand(
   }
 
   if (command === DISCORD_COMMAND_NAMES.war && subcommand?.name === "enemy") {
-    return warEnemyResponse(env, optionString(subcommand, "view") ?? "status");
+    const view = optionString(subcommand, "view") ?? "status";
+    return view === "travel" ? travelCurrentResponse(env, "all", 10) : warEnemyResponse(env, view);
+  }
+
+  if (command === DISCORD_COMMAND_NAMES.travel && subcommand?.name === "current") {
+    return travelCurrentResponse(
+      env,
+      optionString(subcommand, "view") ?? "all",
+      optionInteger(subcommand, "limit"),
+    );
   }
 
   if (command === DISCORD_COMMAND_NAMES.chain && subcommand?.name === "status") {
@@ -238,6 +266,10 @@ async function routeDiscordComponent(customId: string, env: Env): Promise<Discor
 
   if (customId === DISCORD_COMPONENT_IDS.warEnemyStatus) {
     return warEnemyResponse(env, "status", DISCORD_RESPONSE_UPDATE_MESSAGE);
+  }
+
+  if (customId === DISCORD_COMPONENT_IDS.travelCurrent) {
+    return travelCurrentResponse(env, "all", 10, DISCORD_RESPONSE_UPDATE_MESSAGE);
   }
 
   if (customId === DISCORD_COMPONENT_IDS.chainStatus) {
@@ -334,6 +366,45 @@ async function warEnemyResponse(
   });
 }
 
+async function travelCurrentResponse(
+  env: Env,
+  view: string,
+  rawLimit: number | null,
+  responseType = DISCORD_RESPONSE_CHANNEL_MESSAGE,
+): Promise<DiscordInteractionResponse> {
+  const war = await readActiveOrLatestWar(env);
+  if (!war) {
+    return ephemeralMessage("No wars have been recorded yet.");
+  }
+
+  if (war.enemy_faction_id === null) {
+    return ephemeralMessage("This war does not have an enemy faction ID.");
+  }
+
+  const normalizedView = ["all", "traveling", "abroad"].includes(view) ? view : "all";
+  const limit = parseLimit(rawLimit === null ? null : String(rawLimit), 10, 20);
+  const members = await readTravelTrackerRows(env, war.enemy_faction_id, normalizedView, limit);
+  const traveling = members.filter((member) => member.status_state === "Traveling");
+  const abroad = members.filter((member) => member.status_state === "Abroad");
+  const description = travelTrackerDescription(members, normalizedView);
+
+  return discordMessageResponse(responseType, {
+    embeds: [
+      {
+        title: `${war.name} travel tracker`,
+        description,
+        color: BOT_COLOR,
+        fields: [
+          { name: "Traveling shown", value: integerField(traveling.length), inline: true },
+          { name: "Abroad shown", value: integerField(abroad.length), inline: true },
+          { name: "View", value: normalizedView, inline: true },
+        ],
+      },
+    ],
+    components: warComponents(env, war),
+  });
+}
+
 async function chainStatusResponse(env: Env, responseType: number): Promise<DiscordInteractionResponse> {
   const war = await readActiveOrLatestWar(env);
   if (!war) {
@@ -382,7 +453,8 @@ function botHelpResponse(): DiscordInteractionResponse {
         description: [
           "`/war current` - active or latest war summary",
           "`/war members` - member leaderboard",
-          "`/war enemy` - enemy status, travel, or scouting summary",
+          "`/war enemy` - enemy status or scouting summary",
+          "`/travel current` - enemy travel tracker with routes and ETAs",
           "`/chain status` - chain watch status",
         ].join("\n"),
         color: BOT_COLOR,
@@ -483,6 +555,50 @@ async function readEnemyStatusSummary(env: Env, factionId: number): Promise<Enem
   };
 }
 
+async function readTravelTrackerRows(
+  env: Env,
+  factionId: number,
+  view: string,
+  limit: number,
+): Promise<TravelTrackerRow[]> {
+  const statusFilter = view === "traveling"
+    ? "AND status_state = 'Traveling'"
+    : view === "abroad"
+      ? "AND status_state = 'Abroad'"
+      : "AND status_state IN ('Traveling', 'Abroad')";
+  const result = await env.DB.prepare(
+    `
+    SELECT
+      member_id,
+      name,
+      status_state,
+      status_description,
+      plane_image_type,
+      travel_origin,
+      travel_destination,
+      travel_started_after,
+      travel_started_before,
+      estimated_arrival_at,
+      estimated_arrival_earliest,
+      estimated_arrival_latest,
+      travel_trip_destination,
+      travel_trip_type,
+      travel_trip_inferred_at
+    FROM enemy_faction_members
+    WHERE faction_id = ?
+      ${statusFilter}
+    ORDER BY
+      CASE WHEN status_state = 'Traveling' THEN 0 ELSE 1 END,
+      COALESCE(estimated_arrival_at, estimated_arrival_latest, 9223372036854775807),
+      COALESCE(travel_trip_destination, travel_destination, status_description, ''),
+      LOWER(name)
+    LIMIT ?
+    `,
+  ).bind(factionId, limit).all<TravelTrackerRow>();
+
+  return result.results ?? [];
+}
+
 async function readChainWatchForWar(env: Env, warId: number): Promise<ChainWatchDiscordRow | null> {
   return await env.DB.prepare(
     `
@@ -524,6 +640,7 @@ function warComponents(env: Env, war: WarSummaryForDiscord): DiscordComponent[] 
     { type: DISCORD_COMPONENT_BUTTON, style: DISCORD_BUTTON_PRIMARY, label: "Summary", custom_id: DISCORD_COMPONENT_IDS.warCurrent },
     { type: DISCORD_COMPONENT_BUTTON, style: DISCORD_BUTTON_PRIMARY, label: "Members", custom_id: DISCORD_COMPONENT_IDS.warMembersRespect },
     { type: DISCORD_COMPONENT_BUTTON, style: DISCORD_BUTTON_PRIMARY, label: "Enemy", custom_id: DISCORD_COMPONENT_IDS.warEnemyStatus },
+    { type: DISCORD_COMPONENT_BUTTON, style: DISCORD_BUTTON_PRIMARY, label: "Travel", custom_id: DISCORD_COMPONENT_IDS.travelCurrent },
     { type: DISCORD_COMPONENT_BUTTON, style: DISCORD_BUTTON_PRIMARY, label: "Chain", custom_id: DISCORD_COMPONENT_IDS.chainStatus },
   ];
   const dashboardUrl = dashboardWarUrl(env, war.name);
@@ -552,14 +669,6 @@ function leaderboardLine(rank: number, member: MemberLeaderboardRow, metric: str
 }
 
 function enemyFields(summary: EnemyStatusSummaryRow, view: string): DiscordEmbed["fields"] {
-  if (view === "travel") {
-    return [
-      { name: "Traveling", value: integerField(summary.traveling), inline: true },
-      { name: "Abroad", value: integerField(summary.abroad), inline: true },
-      { name: "Loaded members", value: integerField(summary.total), inline: true },
-    ];
-  }
-
   if (view === "scouting") {
     return [
       { name: "Loaded members", value: integerField(summary.total), inline: true },
@@ -577,6 +686,79 @@ function enemyFields(summary: EnemyStatusSummaryRow, view: string): DiscordEmbed
     { name: "Unknown", value: integerField(summary.unknown), inline: true },
     { name: "Loaded members", value: integerField(summary.total), inline: true },
   ];
+}
+
+function travelTrackerDescription(members: TravelTrackerRow[], view: string): string {
+  if (members.length === 0) {
+    return view === "traveling"
+      ? "No enemy members are currently shown as traveling."
+      : view === "abroad"
+        ? "No enemy members are currently shown abroad."
+        : "No enemy travelers or abroad members are currently shown.";
+  }
+
+  return members.map(travelLine).join("\n");
+}
+
+function travelLine(member: TravelTrackerRow): string {
+  const display = buildTravelDisplay(member);
+  const name = `[${cleanMemberName(member.name, member.member_id)}](https://www.torn.com/profiles.php?XID=${member.member_id})`;
+  if (member.status_state === "Abroad") {
+    return [
+      `**${name}**`,
+      `abroad in ${member.travel_trip_destination ?? abroadLocation(member)}`,
+      display.return_travel_time_seconds ? `return ${durationLabel(display.return_travel_time_seconds)}` : "return unknown",
+    ].join(" - ");
+  }
+
+  return [
+    `**${name}**`,
+    travelRoute(member),
+    travelEta(member),
+    display.travel_type ? display.travel_type : "type unknown",
+  ].join(" - ");
+}
+
+function travelRoute(member: TravelTrackerRow): string {
+  if (member.travel_origin && member.travel_destination) {
+    return `${member.travel_origin} -> ${member.travel_destination}`;
+  }
+
+  return member.status_description ?? "route unknown";
+}
+
+function travelEta(member: TravelTrackerRow): string {
+  const earliest = member.estimated_arrival_earliest;
+  const latest = member.estimated_arrival_latest;
+  if (earliest && latest && earliest !== latest) {
+    return `ETA ${discordTimestamp(earliest)} to ${discordTimestamp(latest)}`;
+  }
+
+  const eta = member.estimated_arrival_at ?? earliest ?? latest;
+  return eta ? `ETA ${discordTimestamp(eta)}` : "ETA unknown";
+}
+
+function abroadLocation(member: TravelTrackerRow): string {
+  const description = member.status_description?.trim();
+  if (!description) {
+    return "unknown";
+  }
+
+  const match =
+    /^In (.+)$/i.exec(description) ??
+    /^Abroad in (.+)$/i.exec(description) ??
+    /^Currently in (.+)$/i.exec(description);
+  return match?.[1]?.trim() || description;
+}
+
+function durationLabel(seconds: number): string {
+  const totalMinutes = Math.max(0, Math.round(seconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return hours > 0 ? `${hours}h` : `${minutes}m`;
 }
 
 function chainAttackPair(chain: ChainWatchDiscordRow): string {
@@ -629,4 +811,3 @@ function hexToBytes(hex: string): Uint8Array | null {
   }
   return bytes;
 }
-

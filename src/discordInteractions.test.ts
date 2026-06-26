@@ -79,6 +79,32 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).toContain("<@111111111111111111>");
     expect(response.data?.embeds?.[0]?.description).toContain("Bob");
   });
+
+  it("formats the Discord travel tracker with routes and abroad returns", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      data: {
+        name: "travel",
+        options: [
+          {
+            type: 1,
+            name: "current",
+            options: [
+              { type: 3, name: "view", value: "all" },
+              { type: 4, name: "limit", value: 5 },
+            ],
+          },
+        ],
+      },
+    }, fakeDiscordEnv());
+
+    expect(response.type).toBe(4);
+    expect(response.data?.embeds?.[0]?.title).toBe("test-war travel tracker");
+    expect(response.data?.embeds?.[0]?.description).toContain("Torn -> Mexico");
+    expect(response.data?.embeds?.[0]?.description).toContain("ETA <t:1800000600:R>");
+    expect(response.data?.embeds?.[0]?.description).toContain("abroad in Canada");
+    expect(response.data?.embeds?.[0]?.description).toContain("return 12m");
+  });
 });
 
 async function signedDiscordRequest(payload: unknown): Promise<{
@@ -176,6 +202,42 @@ function fakeDiscordEnv(): Env {
       outside_hits: 0,
     },
   ];
+  const travelers = [
+    {
+      member_id: 3,
+      name: "Traveler",
+      status_state: "Traveling",
+      status_description: "Traveling to Mexico",
+      plane_image_type: "private_jet",
+      travel_origin: "Torn",
+      travel_destination: "Mexico",
+      travel_started_after: 1_799_999_820,
+      travel_started_before: 1_799_999_820,
+      estimated_arrival_at: 1_800_000_600,
+      estimated_arrival_earliest: 1_800_000_600,
+      estimated_arrival_latest: 1_800_000_600,
+      travel_trip_destination: "Mexico",
+      travel_trip_type: "WLT benefit",
+      travel_trip_inferred_at: null,
+    },
+    {
+      member_id: 4,
+      name: "Abroad",
+      status_state: "Abroad",
+      status_description: "In Canada",
+      plane_image_type: null,
+      travel_origin: null,
+      travel_destination: null,
+      travel_started_after: null,
+      travel_started_before: null,
+      estimated_arrival_at: null,
+      estimated_arrival_earliest: null,
+      estimated_arrival_latest: null,
+      travel_trip_destination: "Canada",
+      travel_trip_type: "Business Class",
+      travel_trip_inferred_at: null,
+    },
+  ];
 
   return {
     DASHBOARD_BASE_URL: "https://dashboard.test",
@@ -204,6 +266,9 @@ function fakeDiscordEnv(): Env {
       all() {
         if (sql.includes("FROM war_member_stats")) {
           return Promise.resolve({ results: members });
+        }
+        if (sql.includes("FROM enemy_faction_members")) {
+          return Promise.resolve({ results: travelers });
         }
         return Promise.resolve({ results: [] });
       },

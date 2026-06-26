@@ -1,5 +1,6 @@
 export const DISCORD_COMMAND_NAMES = {
   war: "war",
+  travel: "travel",
   chain: "chain",
   bot: "bot",
 } as const;
@@ -8,6 +9,7 @@ export const DISCORD_COMPONENT_IDS = {
   warCurrent: "discord:war:current",
   warMembersRespect: "discord:war:members:respect",
   warEnemyStatus: "discord:war:enemy:status",
+  travelCurrent: "discord:travel:current",
   chainStatus: "discord:chain:status",
 } as const;
 
@@ -96,6 +98,38 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
       ],
     },
     {
+      name: DISCORD_COMMAND_NAMES.travel,
+      description: "Enemy travel tracker",
+      options: [
+        {
+          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+          name: "current",
+          description: "Show enemy travelers and abroad members",
+          options: [
+            {
+              type: DISCORD_COMMAND_OPTION_TYPES.string,
+              name: "view",
+              description: "Travel view",
+              required: false,
+              choices: [
+                { name: "All", value: "all" },
+                { name: "Traveling", value: "traveling" },
+                { name: "Abroad", value: "abroad" },
+              ],
+            },
+            {
+              type: DISCORD_COMMAND_OPTION_TYPES.integer,
+              name: "limit",
+              description: "Number of members to show",
+              required: false,
+              min_value: 5,
+              max_value: 20,
+            },
+          ],
+        },
+      ],
+    },
+    {
       name: DISCORD_COMMAND_NAMES.chain,
       description: "Chain watch status",
       options: [
@@ -119,4 +153,3 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
     },
   ];
 }
-

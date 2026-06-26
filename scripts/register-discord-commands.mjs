@@ -62,6 +62,38 @@ const commands = [
     ],
   },
   {
+    name: "travel",
+    description: "Enemy travel tracker",
+    options: [
+      {
+        type: OPTION_TYPES.subCommand,
+        name: "current",
+        description: "Show enemy travelers and abroad members",
+        options: [
+          {
+            type: OPTION_TYPES.string,
+            name: "view",
+            description: "Travel view",
+            required: false,
+            choices: [
+              { name: "All", value: "all" },
+              { name: "Traveling", value: "traveling" },
+              { name: "Abroad", value: "abroad" },
+            ],
+          },
+          {
+            type: OPTION_TYPES.integer,
+            name: "limit",
+            description: "Number of members to show",
+            required: false,
+            min_value: 5,
+            max_value: 20,
+          },
+        ],
+      },
+    ],
+  },
+  {
     name: "chain",
     description: "Chain watch status",
     options: [
