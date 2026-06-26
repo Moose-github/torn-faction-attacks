@@ -5,12 +5,15 @@ import {
   AuthSession,
   authenticateTornKey,
   cancelMemberLifestyleRepairJob,
+  clearDiscordTravelTrackerTarget,
   clearStoredAuthSession,
   createMemberLifestyleRepairJob,
   deleteWar,
+  DiscordTravelTrackerTargetResponse,
   EnemyStatsImagePreviewType,
   exportWarAttacksCsv,
   fetchTornWarReport,
+  getDiscordTravelTrackerTarget,
   getLatestIngestionRun,
   getAdminXanaxCompetition,
   getAdminShopliftingAlerts,
@@ -36,7 +39,9 @@ import {
   relinkAttacks,
   runIngestion,
   sendDiscordMessage,
+  setDiscordTravelTrackerTarget,
   ShopliftingAlertSetting,
+  syncDiscordTravelTracker,
   EnemyPushAlertSetting,
   updateAdminXanaxCompetitionSettings,
   updateAdminEnemyPushAlert,
@@ -100,6 +105,13 @@ export function AdminControls() {
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [adminGrantForm, setAdminGrantForm] = React.useState({ tornUserId: "" });
   const [discordForm, setDiscordForm] = React.useState({ message: "" });
+  const [discordTravelTargetForm, setDiscordTravelTargetForm] = React.useState({
+    factionId: "",
+    factionName: "",
+  });
+  const [discordTravelTarget, setDiscordTravelTarget] =
+    React.useState<DiscordTravelTrackerTargetResponse | null>(null);
+  const [isLoadingDiscordTravelTarget, setIsLoadingDiscordTravelTarget] = React.useState(false);
   const [xanaxCompetition, setXanaxCompetition] =
     React.useState<AdminXanaxCompetitionResponse | null>(null);
   const [isLoadingXanaxCompetition, setIsLoadingXanaxCompetition] = React.useState(false);
@@ -288,6 +300,7 @@ export function AdminControls() {
       await loadLifestyleRepairJobs();
       await loadReportExemptions();
       await loadShopliftingAlerts();
+      await loadDiscordTravelTarget();
       await loadXanaxCompetition();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -393,6 +406,22 @@ export function AdminControls() {
     }
   }
 
+  async function loadDiscordTravelTarget() {
+    setIsLoadingDiscordTravelTarget(true);
+    try {
+      const response = await getDiscordTravelTrackerTarget();
+      setDiscordTravelTarget(response);
+      setDiscordTravelTargetForm((current) => ({
+        factionId: current.factionId || String(response.manual_target?.faction_id ?? ""),
+        factionName: current.factionName || (response.manual_target?.faction_name ?? ""),
+      }));
+    } catch {
+      setDiscordTravelTarget(null);
+    } finally {
+      setIsLoadingDiscordTravelTarget(false);
+    }
+  }
+
   React.useEffect(() => {
     if (authSession?.access_level === "admin") {
       loadLatestIngestionRun();
@@ -400,6 +429,7 @@ export function AdminControls() {
       loadLifestyleRepairJobs();
       loadReportExemptions();
       loadShopliftingAlerts();
+      loadDiscordTravelTarget();
       loadXanaxCompetition();
     }
   }, [authSession?.access_level]);
@@ -427,6 +457,13 @@ export function AdminControls() {
           ...(enemyPushAlert ? [enemyPushAlert.enabled] : []),
         ].filter(Boolean).length}/${shopliftingAlerts.length + (enemyPushAlert ? 1 : 0)} active`
       : "Unavailable";
+  const discordTravelTrackerStatus = isLoadingDiscordTravelTarget
+    ? "Loading"
+    : discordTravelTarget
+      ? discordTravelTarget.active_source
+      : "Unavailable";
+  const canSetDiscordTravelTarget =
+    isBusy === null && Number.isInteger(Number(discordTravelTargetForm.factionId)) && Number(discordTravelTargetForm.factionId) > 0;
 
   return (
     <>
@@ -557,6 +594,101 @@ export function AdminControls() {
               disabled={isBusy !== null || discordForm.message.trim().length === 0}
             >
               {isBusy === "Send Discord message" ? "Sending" : "Send to Discord"}
+            </button>
+          </form>
+        </section>
+
+        <section className="panel admin-panel-discord-travel">
+          <PanelHeader title="Discord travel tracker" aside={discordTravelTrackerStatus} />
+          <div className="admin-metric-list admin-form-wide">
+            <MetricLine
+              label="Active source"
+              value={formatDiscordTravelSource(discordTravelTarget?.active_source)}
+            />
+            <MetricLine
+              label="War target"
+              value={discordTravelTarget?.war_target
+                ? `${discordTravelTarget.war_target.name} (${discordTravelTarget.war_target.faction_id})`
+                : "None"}
+            />
+            <MetricLine
+              label="Manual target"
+              value={discordTravelTarget?.manual_target
+                ? `${discordTravelTarget.manual_target.faction_name || "Unnamed"} (${discordTravelTarget.manual_target.faction_id})`
+                : "None"}
+            />
+            <MetricLine
+              label="Manual refreshed"
+              value={formatOptionalUnixTime(discordTravelTarget?.manual_target?.last_refreshed_at ?? null)}
+            />
+          </div>
+          <form
+            className="admin-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const factionId = Number(discordTravelTargetForm.factionId);
+              if (!Number.isInteger(factionId) || factionId <= 0) {
+                setError("Enter a valid faction ID.");
+                return;
+              }
+              runAdminAction("Set Discord travel target", () =>
+                setDiscordTravelTrackerTarget({
+                  faction_id: factionId,
+                  faction_name: discordTravelTargetForm.factionName.trim() || undefined,
+                }),
+              );
+            }}
+          >
+            <label>
+              <span>Faction ID</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={discordTravelTargetForm.factionId}
+                onChange={(event) =>
+                  setDiscordTravelTargetForm((current) => ({ ...current, factionId: event.target.value }))}
+                placeholder="12345"
+              />
+            </label>
+            <label>
+              <span>Faction name</span>
+              <input
+                type="text"
+                value={discordTravelTargetForm.factionName}
+                onChange={(event) =>
+                  setDiscordTravelTargetForm((current) => ({ ...current, factionName: event.target.value }))}
+                placeholder="Optional"
+              />
+            </label>
+            <button
+              type="submit"
+              className="admin-button primary"
+              disabled={!canSetDiscordTravelTarget}
+            >
+              {isBusy === "Set Discord travel target" ? "Setting" : "Set target"}
+            </button>
+            <button
+              type="button"
+              className="admin-button"
+              disabled={isBusy !== null || !discordTravelTarget?.manual_target}
+              onClick={() =>
+                runAdminAction("Clear Discord travel target", () =>
+                  clearDiscordTravelTrackerTarget().then((response) => {
+                    setDiscordTravelTargetForm({ factionId: "", factionName: "" });
+                    return response;
+                  }),
+                )}
+            >
+              {isBusy === "Clear Discord travel target" ? "Clearing" : "Clear target"}
+            </button>
+            <button
+              type="button"
+              className="admin-button admin-form-wide"
+              disabled={isBusy !== null}
+              onClick={() => runAdminAction("Sync Discord travel tracker", syncDiscordTravelTracker)}
+            >
+              {isBusy === "Sync Discord travel tracker" ? "Syncing" : "Sync now"}
             </button>
           </form>
         </section>
@@ -2227,6 +2359,17 @@ function MetricLine({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function formatDiscordTravelSource(source: DiscordTravelTrackerTargetResponse["active_source"] | undefined): string {
+  if (source === "war") return "War";
+  if (source === "manual") return "Manual";
+  if (source === "inactive") return "Inactive";
+  return "Unknown";
+}
+
+function formatOptionalUnixTime(value: number | null): string {
+  return value ? formatLongDateTime(value) : "Never";
 }
 
 function defaultWarForm(): AdminWarFormState {

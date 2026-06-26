@@ -1,6 +1,37 @@
-import { API_BASE_URL, authHeaders, getJson, postJson } from "./client";
+import { API_BASE_URL, authHeaders, deleteJson, getJson, postJson } from "./client";
 import { queryString } from "./query";
 import type { AdminShopliftingAlertsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
+
+export type DiscordTravelTrackerTarget = {
+  faction_id: number;
+  faction_name: string | null;
+  enabled: boolean;
+  last_refreshed_at: number | null;
+};
+
+export type DiscordTravelTrackerTargetResponse = {
+  ok: true;
+  active_source: "war" | "manual" | "inactive";
+  war_target: {
+    war_id: number;
+    faction_id: number;
+    name: string;
+  } | null;
+  manual_target: DiscordTravelTrackerTarget | null;
+};
+
+export type DiscordTravelTrackerSyncResponse = {
+  ok: true;
+  skipped: boolean;
+  reason?: string;
+  war_id: number | null;
+  faction_id: number | null;
+  source: "war" | "manual" | "inactive";
+  message_id: string | null;
+  traveling: number;
+  abroad: number;
+  changed: boolean;
+};
 
 export async function runIngestion(): Promise<unknown> {
   return postJson("/api/run");
@@ -47,7 +78,29 @@ export async function sendDiscordMessage(message: string): Promise<unknown> {
   return postJson("/api/admin/discord/message", { message });
 }
 
-export async function resetEnemyStatsImageLatches(): Promise<unknown> {
+export async function getDiscordTravelTrackerTarget(): Promise<DiscordTravelTrackerTargetResponse> {
+  return getJson<DiscordTravelTrackerTargetResponse>("/api/admin/discord-travel-tracker/target", true);
+}
+
+export async function setDiscordTravelTrackerTarget(payload: {
+  faction_id: number;
+  faction_name?: string;
+}): Promise<{ ok: true; target: DiscordTravelTrackerTarget | null }> {
+  return postJson<{ ok: true; target: DiscordTravelTrackerTarget | null }>(
+    "/api/admin/discord-travel-tracker/target",
+    payload,
+  );
+}
+
+export async function clearDiscordTravelTrackerTarget(): Promise<{ ok: true; cleared: number }> {
+  return deleteJson<{ ok: true; cleared: number }>("/api/admin/discord-travel-tracker/target", true);
+}
+
+export async function syncDiscordTravelTracker(): Promise<DiscordTravelTrackerSyncResponse> {
+  return postJson<DiscordTravelTrackerSyncResponse>("/api/admin/discord-travel-tracker/sync");
+}
+
+export async function resetEnemyStatsImageLatches(): Promise<unknown> {
   return postJson("/api/admin/enemy-stats-image/reset");
 }
 

@@ -5595,6 +5595,12 @@ h2 {
   gap: 14px;
 }
 
+.admin-panel-discord-travel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
 .admin-panel-repair {
   order: 9;
   grid-column: 1 / -1;
