@@ -4,7 +4,7 @@ import {
   handleVerifiedDiscordInteraction,
   verifyDiscordRequestSignature,
 } from "./discordInteractions";
-import type { Env } from "./types";
+import type { Env, WarRow } from "./types";
 
 describe("Discord interactions", () => {
   it("verifies valid Ed25519 request signatures", async () => {
@@ -109,6 +109,33 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).toContain("[Abroad](https://www.torn.com/profiles.php?XID=4) | Canada | Business Class | 12m");
   });
 
+  it("uses the manual travel target when the latest war has ended", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      data: {
+        name: "travel",
+        options: [
+          {
+            type: 1,
+            name: "current",
+            options: [
+              { type: 3, name: "view", value: "all" },
+              { type: 4, name: "limit", value: 5 },
+            ],
+          },
+        ],
+      },
+    }, fakeDiscordEnv({
+      war: { status: "ended" },
+      manualTarget: { faction_id: 456, faction_name: "Manual Faction" },
+    }));
+
+    expect(response.type).toBe(4);
+    expect(response.data?.embeds?.[0]?.title).toBe("Manual Faction travel tracker");
+    expect(response.data?.embeds?.[0]?.description).toContain("Torn -> Mexico");
+    expect(response.data?.components).toEqual([]);
+  });
+
   it("splits war buttons into valid Discord action rows", async () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
@@ -167,7 +194,10 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function fakeDiscordEnv(): Env {
+function fakeDiscordEnv(options: {
+  war?: Partial<WarRow>;
+  manualTarget?: { faction_id: number; faction_name: string | null; enabled?: number } | null;
+} = {}): Env {
   const war = {
     id: 10,
     name: "test-war",
@@ -201,6 +231,8 @@ function fakeDiscordEnv(): Env {
     last_attack_at: 1_800_000_120,
     summary_updated_at: 1_800_000_130,
   };
+  Object.assign(war, options.war ?? {});
+  const manualTarget = options.manualTarget ?? null;
   const members = [
     {
       member_id: 1,
@@ -271,7 +303,13 @@ function fakeDiscordEnv(): Env {
             return statement(sql);
           },
           first() {
-            return Promise.resolve(sql.includes("FROM wars w") ? war : null);
+            if (sql.includes("FROM wars w")) {
+              return Promise.resolve(war);
+            }
+            if (sql.includes("FROM discord_travel_tracker_target")) {
+              return Promise.resolve(manualTarget && manualTarget.enabled !== 0 ? manualTarget : null);
+            }
+            return Promise.resolve(null);
           },
         };
       },
@@ -283,6 +321,9 @@ function fakeDiscordEnv(): Env {
       first() {
         if (sql.includes("FROM wars w")) {
           return Promise.resolve(war);
+        }
+        if (sql.includes("FROM discord_travel_tracker_target")) {
+          return Promise.resolve(manualTarget && manualTarget.enabled !== 0 ? manualTarget : null);
         }
         return Promise.resolve(null);
       },

@@ -77,6 +77,25 @@ type WarSummaryForDiscord = WarRow & Partial<WarSummaryRow> & {
   summary_updated_at: number | null;
 };
 
+type DiscordTravelTarget =
+  | {
+      source: "war";
+      factionId: number;
+      title: string;
+      war: WarSummaryForDiscord;
+    }
+  | {
+      source: "manual";
+      factionId: number;
+      title: string;
+      war: null;
+    };
+
+type DiscordTravelTrackerTargetRow = {
+  faction_id: number;
+  faction_name: string | null;
+};
+
 type MemberLeaderboardRow = {
   member_id: number;
   member_name: string | null;
@@ -360,25 +379,21 @@ async function travelCurrentResponse(
   rawLimit: number | null,
   responseType = DISCORD_RESPONSE_CHANNEL_MESSAGE,
 ): Promise<DiscordInteractionResponse> {
-  const war = await readActiveOrLatestWar(env);
-  if (!war) {
-    return ephemeralMessage("No wars have been recorded yet.");
-  }
-
-  if (war.enemy_faction_id === null) {
-    return ephemeralMessage("This war does not have an enemy faction ID.");
+  const target = await readDiscordTravelTarget(env);
+  if (!target) {
+    return ephemeralMessage("No active war-room or manual faction travel tracking is configured.");
   }
 
   const normalizedView = ["all", "traveling", "abroad"].includes(view) ? view : "all";
   const limit = parseLimit(rawLimit === null ? null : String(rawLimit), 10, 20);
-  const members = await readTravelTrackerRows(env, war.enemy_faction_id, normalizedView, limit);
+  const members = await readTravelTrackerRows(env, target.factionId, normalizedView, limit);
   const description = travelTrackerDescription(members, normalizedView);
   const counts = travelCounts(members);
 
   return discordMessageResponse(responseType, {
     embeds: [
       {
-        title: `${war.name} travel tracker`,
+        title: target.title,
         description,
         color: BOT_COLOR,
         fields: [
@@ -388,7 +403,7 @@ async function travelCurrentResponse(
         ],
       },
     ],
-    components: warComponents(env, war),
+    components: target.war ? warComponents(env, target.war) : [],
   });
 }
 
@@ -470,6 +485,46 @@ async function readActiveOrLatestWar(env: Env): Promise<WarSummaryForDiscord | n
     LIMIT 1
     `,
   ).first<WarSummaryForDiscord>();
+}
+
+async function readDiscordTravelTarget(env: Env): Promise<DiscordTravelTarget | null> {
+  const war = await readActiveOrLatestWar(env);
+  if (
+    war &&
+    war.enemy_faction_id !== null &&
+    war.status !== "ended" &&
+    war.practical_finish_time === null &&
+    war.official_end_time === null
+  ) {
+    return {
+      source: "war",
+      factionId: war.enemy_faction_id,
+      title: `${war.name} travel tracker`,
+      war,
+    };
+  }
+
+  const manualTarget = await env.DB.prepare(
+    `
+    SELECT faction_id, faction_name
+    FROM discord_travel_tracker_target
+    WHERE id = 1
+      AND enabled = 1
+    LIMIT 1
+    `,
+  ).first<DiscordTravelTrackerTargetRow>();
+
+  if (!manualTarget) {
+    return null;
+  }
+
+  const name = manualTarget.faction_name?.trim() || `Faction ${manualTarget.faction_id}`;
+  return {
+    source: "manual",
+    factionId: manualTarget.faction_id,
+    title: `${name} travel tracker`,
+    war: null,
+  };
 }
 
 async function readWarMemberLeaderboard(
