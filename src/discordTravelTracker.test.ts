@@ -115,6 +115,41 @@ describe("Discord travel tracker", () => {
     );
   });
 
+  it("creates a fresh message when tracking switches to a different target", async () => {
+    const env = fakeEnv();
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    expect(env.state?.message_id).toBe("message-1");
+
+    vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
+    vi.mocked(createDiscordWebhookMessage).mockResolvedValue("message-2");
+    vi.mocked(createDiscordWebhookMessage).mockClear();
+    vi.mocked(editDiscordWebhookMessage).mockClear();
+    env.target = {
+      id: 1,
+      faction_id: 456,
+      faction_name: "Manual Faction",
+      enabled: 1,
+      last_refreshed_at: 1_799_999_900,
+    };
+
+    await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
+      source: "manual",
+      faction_id: 456,
+      message_id: "message-2",
+      changed: true,
+    });
+    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+      env,
+      expect.stringContaining("Faction Travel Tracker: Manual Faction"),
+      { users: [], roles: [] },
+      { embedColor: 0x2f80ed },
+    );
+    expect(editDiscordWebhookMessage).not.toHaveBeenCalled();
+    expect(env.state?.message_id).toBe("message-2");
+    expect(env.state?.target_source).toBe("manual");
+    expect(env.state?.faction_id).toBe(456);
+  });
+
   it("uses the manual target when no active war tracking is available", async () => {
     vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
     const env = fakeEnv();
@@ -141,6 +176,30 @@ describe("Discord travel tracker", () => {
       { embedColor: 0x2f80ed },
     );
     expect(env.target?.last_refreshed_at).toBe(1_800_000_000);
+  });
+
+  it("syncs immediately when admins set a manual target", async () => {
+    vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
+    const env = fakeEnv();
+    const request = new Request("https://worker.test/api/admin/discord-travel-tracker/target", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ faction_id: 789, faction_name: "Target Name" }),
+    });
+
+    const response = await setDiscordTravelTrackerTargetFromRequest(request, env);
+
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      target: { faction_id: 789, faction_name: "Target Name", enabled: true },
+      sync: { source: "manual", faction_id: 789, changed: true },
+    });
+    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+      env,
+      expect.stringContaining("Faction Travel Tracker: Target Name"),
+      { users: [], roles: [] },
+      { embedColor: 0x2f80ed },
+    );
   });
 
   it("uses the manual target when the current war record is ended", async () => {
@@ -201,7 +260,11 @@ describe("Discord travel tracker", () => {
     });
 
     const clearResponse = await clearDiscordTravelTrackerTargetFromRequest(env);
-    expect(await clearResponse.json()).toEqual({ ok: true, cleared: 1 });
+    expect(await clearResponse.json()).toMatchObject({
+      ok: true,
+      cleared: 1,
+      sync: { source: "war", war_id: 10, changed: true },
+    });
     expect(env.target).toBeNull();
   });
 });
@@ -209,6 +272,8 @@ describe("Discord travel tracker", () => {
 type FakeState = {
   id: number;
   war_id: number | null;
+  target_source: string | null;
+  faction_id: number | null;
   message_id: string | null;
   content_hash: string | null;
   last_synced_at: number | null;
@@ -323,9 +388,11 @@ function fakeEnv(): FakeEnv {
           env.state = {
             id: Number(values[0]),
             war_id: values[1] as number | null,
-            message_id: values[2] as string | null,
-            content_hash: values[3] as string | null,
-            last_synced_at: values[4] as number | null,
+            target_source: values[2] as string | null,
+            faction_id: values[3] as number | null,
+            message_id: values[4] as string | null,
+            content_hash: values[5] as string | null,
+            last_synced_at: values[6] as number | null,
           };
         } else if (sql.includes("INSERT INTO discord_travel_tracker_target")) {
           env.target = {

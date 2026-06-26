@@ -25,6 +25,8 @@ const TRAVEL_TRACKER_TARGET_ID = 1;
 type DiscordTravelTrackerState = {
   id: number;
   war_id: number | null;
+  target_source: string | null;
+  faction_id: number | null;
   message_id: string | null;
   content_hash: string | null;
   last_synced_at: number | null;
@@ -106,17 +108,21 @@ export async function setDiscordTravelTrackerTargetFromRequest(request: Request,
   const factionName = cleanString(body.faction_name);
   await saveTravelTrackerTarget(env, factionId, factionName);
   const target = await readTravelTrackerTarget(env);
+  const sync = await syncDiscordTravelTracker(env, { force: true });
   return json({
     ok: true,
     target: serializeTravelTrackerTarget(target),
+    sync,
   });
 }
 
 export async function clearDiscordTravelTrackerTargetFromRequest(env: Env): Promise<Response> {
   const result = await clearTravelTrackerTarget(env);
+  const sync = await syncDiscordTravelTracker(env, { force: true });
   return json({
     ok: true,
     cleared: d1Changes(result),
+    sync,
   });
 }
 
@@ -161,14 +167,16 @@ async function updateTravelTrackerMessage(
   const warId = target?.warId ?? null;
   const factionId = target?.factionId ?? null;
   const source = target?.source ?? "inactive";
+  const sameTarget = isSameTrackerTarget(state, source, warId, factionId);
+  const reusableMessageId = sameTarget ? existingMessageId : null;
 
-  if (!force && existingMessageId && state?.content_hash === hash && state.war_id === warId) {
+  if (!force && reusableMessageId && state?.content_hash === hash) {
     await markTravelTrackerChecked(env, state, checkedAt);
-    return trackerResult(true, "travel tracker unchanged", warId, factionId, source, existingMessageId, traveling, abroad, false, refreshed);
+    return trackerResult(true, "travel tracker unchanged", warId, factionId, source, reusableMessageId, traveling, abroad, false, refreshed);
   }
 
-  const messageId = existingMessageId
-    ? await editExistingTravelTrackerMessage(env, existingMessageId, message)
+  const messageId = reusableMessageId
+    ? await editExistingTravelTrackerMessage(env, reusableMessageId, message)
     : await createDiscordWebhookMessage(
       env,
       message.content,
@@ -177,13 +185,15 @@ async function updateTravelTrackerMessage(
     );
 
   await saveTravelTrackerState(env, {
+    source,
     warId,
-    messageId: messageId ?? existingMessageId,
+    factionId,
+    messageId,
     contentHash: hash,
     checkedAt,
   });
 
-  return trackerResult(false, undefined, warId, factionId, source, messageId ?? existingMessageId, traveling, abroad, true, refreshed);
+  return trackerResult(false, undefined, warId, factionId, source, messageId, traveling, abroad, true, refreshed);
 }
 
 async function editExistingTravelTrackerMessage(
@@ -231,6 +241,25 @@ function buildTravelTrackerMessage(
     color: TRAVEL_TRACKER_COLOR,
     content: fitDiscordMessage(lines.join("\n")),
   };
+}
+
+function isSameTrackerTarget(
+  state: DiscordTravelTrackerState | null,
+  source: "war" | "manual" | "inactive",
+  warId: number | null,
+  factionId: number | null,
+): boolean {
+  if (!state?.message_id) {
+    return false;
+  }
+
+  if (state.target_source === null && state.faction_id === null) {
+    return source === "war" && state.war_id === warId;
+  }
+
+  return state.target_source === source &&
+    state.war_id === warId &&
+    state.faction_id === factionId;
 }
 
 async function resolveTravelTrackerTarget(env: Env, checkedAt: number): Promise<TravelTrackerTarget | null> {
@@ -409,7 +438,9 @@ async function markTravelTrackerChecked(
 async function saveTravelTrackerState(
   env: Env,
   input: {
+    source: "war" | "manual" | "inactive";
     warId: number | null;
+    factionId: number | null;
     messageId: string | null;
     contentHash: string;
     checkedAt: number;
@@ -420,15 +451,19 @@ async function saveTravelTrackerState(
     INSERT INTO discord_travel_tracker_state (
       id,
       war_id,
+      target_source,
+      faction_id,
       message_id,
       content_hash,
       last_synced_at,
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
     ON CONFLICT(id) DO UPDATE SET
       war_id = excluded.war_id,
+      target_source = excluded.target_source,
+      faction_id = excluded.faction_id,
       message_id = excluded.message_id,
       content_hash = excluded.content_hash,
       last_synced_at = excluded.last_synced_at,
@@ -437,6 +472,8 @@ async function saveTravelTrackerState(
   ).bind(
     TRAVEL_TRACKER_STATE_ID,
     input.warId,
+    input.source,
+    input.factionId,
     input.messageId,
     input.contentHash,
     input.checkedAt,
