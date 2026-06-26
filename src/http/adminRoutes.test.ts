@@ -9,6 +9,11 @@ import {
   getWarControlSettings,
   updateWarControlSettingsFromRequest,
 } from "../warControl";
+import { syncMemberDiscordLinksFromRequest } from "../memberDiscordLinks";
+import {
+  readSyncTimestamp,
+  upsertSyncTimestamp,
+} from "../syncState";
 import { routeAdminApi } from "./adminRoutes";
 
 vi.mock("../auth", () => ({
@@ -50,7 +55,12 @@ vi.mock("../lifestyleStats", () => ({
   refreshDailyMemberLifestyleStats: vi.fn(),
 }));
 vi.mock("../maintenance", () => ({ getLatestMaintenanceRun: vi.fn() }));
+vi.mock("../memberDiscordLinks", () => ({ syncMemberDiscordLinksFromRequest: vi.fn() }));
 vi.mock("../responseCache", () => ({ cachedGetJson: vi.fn() }));
+vi.mock("../syncState", () => ({
+  readSyncTimestamp: vi.fn(),
+  upsertSyncTimestamp: vi.fn(),
+}));
 vi.mock("../stockMarket", () => ({
   getStockIngestionStatus: vi.fn(),
   refreshTornStockHistoryBatch: vi.fn(),
@@ -85,6 +95,9 @@ describe("admin routes", () => {
     vi.mocked(updateDataHealthSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "settings" }));
     vi.mocked(getWarControlSettings).mockResolvedValue(jsonResponse({ ok: true, route: "war-control-settings" }));
     vi.mocked(updateWarControlSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "war-control-settings-update" }));
+    vi.mocked(readSyncTimestamp).mockResolvedValue(0);
+    vi.mocked(upsertSyncTimestamp).mockResolvedValue(undefined);
+    vi.mocked(syncMemberDiscordLinksFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-links" }));
   });
 
   it("routes admin data health through admin auth", async () => {
@@ -144,5 +157,36 @@ describe("admin routes", () => {
 
     expect(response?.status).toBe(403);
     expect(getAdminDataHealth).not.toHaveBeenCalled();
+  });
+
+  it("routes Discord link sync through admin auth and cooldown", async () => {
+    const context = routeContext("https://worker.test/api/admin/discord-links/sync", {
+      method: "POST",
+    });
+
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "discord-links" });
+    expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
+    expect(readSyncTimestamp).toHaveBeenCalledWith(context.env, "discord_links_sync");
+    expect(upsertSyncTimestamp).toHaveBeenCalledWith(
+      context.env,
+      "discord_links_sync",
+      expect.any(Number),
+      null,
+    );
+    expect(syncMemberDiscordLinksFromRequest).toHaveBeenCalledWith(context.env);
+  });
+
+  it("returns cooldown responses before syncing Discord links", async () => {
+    vi.mocked(readSyncTimestamp).mockResolvedValueOnce(Math.floor(Date.now() / 1000));
+    const response = await routeAdminApi(routeContext("https://worker.test/api/admin/discord-links/sync", {
+      method: "POST",
+    }));
+
+    expect(response?.status).toBe(429);
+    expect(await response?.json()).toMatchObject({ ok: false, code: "COOLDOWN_ACTIVE" });
+    expect(syncMemberDiscordLinksFromRequest).not.toHaveBeenCalled();
   });
 });

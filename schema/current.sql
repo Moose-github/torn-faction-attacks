@@ -372,6 +372,11 @@ CREATE TABLE member_achievement_summaries (
   PRIMARY KEY (metric_key, rank)
 );
 
+CREATE TABLE member_discord_links (
+  torn_user_id INTEGER PRIMARY KEY,
+  discord_user_id TEXT NOT NULL UNIQUE
+);
+
 CREATE TABLE member_gym_stats_current (
   member_id INTEGER PRIMARY KEY,
   member_name TEXT,

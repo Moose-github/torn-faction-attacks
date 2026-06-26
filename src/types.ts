@@ -7,6 +7,11 @@ export interface Env {
   BSP_TORN_API_KEY?: string;
   FFSCOUTER_API_KEY?: string;
   DISCORD_WEBHOOK_URL?: string;
+  DISCORD_PUBLIC_KEY?: string;
+  DISCORD_APPLICATION_ID?: string;
+  DISCORD_ADMIN_USER_IDS?: string;
+  DISCORD_ADMIN_ROLE_IDS?: string;
+  DASHBOARD_BASE_URL?: string;
   MONITOR_TICKET_SECRET?: string | SecretsStoreSecret;
 }
 

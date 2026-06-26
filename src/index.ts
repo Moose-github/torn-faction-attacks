@@ -1,5 +1,6 @@
 import { buildCronPlan } from "./cronPlan";
 export { ChainWatchAlarm } from "./chainWatchAlarm";
+import { handleDiscordInteractions } from "./discordInteractions";
 import { routeAdminApi } from "./http/adminRoutes";
 import { RouteContext, RouteResult } from "./http/context";
 import { routeMemberUtilityApi } from "./http/memberRoutes";
@@ -19,6 +20,11 @@ export default {
         status: 204,
         headers: corsHeaders,
       });
+    }
+
+    const discordResponse = await handleDiscordInteractions(request, env);
+    if (discordResponse) {
+      return discordResponse;
     }
 
     return (await routeApiRequest(routeContext)) ?? json({ error: "Not found" }, 404);

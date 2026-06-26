@@ -29,6 +29,7 @@ import {
   refreshDailyMemberLifestyleStats,
 } from "../lifestyleStats/dailyPersonal";
 import { getLatestMaintenanceRun } from "../maintenance";
+import { syncMemberDiscordLinksFromRequest } from "../memberDiscordLinks";
 import {
   getAdminShopliftingAlertSettings,
   updateAdminShopliftingAlertSettings,
@@ -194,6 +195,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/discord/message", "POST")) {
     return withAdmin(routeContext, () => sendDiscordMessageFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-links/sync", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "discord_links_sync", 60 * 60);
+      if (cooldownError) return cooldownError;
+      return syncMemberDiscordLinksFromRequest(env);
+    });
   }
 
   if (matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "GET")) {
