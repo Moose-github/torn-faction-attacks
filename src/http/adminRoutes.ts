@@ -11,6 +11,7 @@ import {
   getDiscordTravelTrackerTargetFromRequest,
   setDiscordTravelTrackerTargetFromRequest,
   syncDiscordTravelTrackerFromRequest,
+  updateDiscordTravelTrackerSettingsFromRequest,
 } from "../discordTravelTracker";
 import {
   previewEnemyStatsImageFromRequest,
@@ -229,6 +230,10 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/discord-travel-tracker/target", "DELETE")) {
     return withAdmin(routeContext, () => clearDiscordTravelTrackerTargetFromRequest(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-travel-tracker/settings", "POST")) {
+    return withAdmin(routeContext, () => updateDiscordTravelTrackerSettingsFromRequest(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "GET")) {

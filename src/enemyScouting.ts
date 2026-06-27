@@ -496,7 +496,7 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
   return true;
 }
 
-async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMember[]> {
+export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMember[]> {
   const members = await fetchTornFactionMembers(env, HOME_FACTION_ID);
 
   if (members.length === 0) {
@@ -529,11 +529,24 @@ async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMember[]>
           status_description,
           last_action_status,
           last_action_timestamp,
+          plane_image_type,
+          travel_origin,
+          travel_destination,
+          travel_signature,
+          travel_detected_at,
+          travel_started_after,
+          travel_started_before,
+          estimated_arrival_at,
+          estimated_arrival_earliest,
+          estimated_arrival_latest,
+          travel_trip_destination,
+          travel_trip_type,
+          travel_trip_inferred_at,
           status_updated_at,
           is_current,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
@@ -545,6 +558,19 @@ async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMember[]>
           status_description = excluded.status_description,
           last_action_status = excluded.last_action_status,
           last_action_timestamp = excluded.last_action_timestamp,
+          plane_image_type = excluded.plane_image_type,
+          travel_origin = excluded.travel_origin,
+          travel_destination = excluded.travel_destination,
+          travel_signature = excluded.travel_signature,
+          travel_detected_at = excluded.travel_detected_at,
+          travel_started_after = excluded.travel_started_after,
+          travel_started_before = excluded.travel_started_before,
+          estimated_arrival_at = excluded.estimated_arrival_at,
+          estimated_arrival_earliest = excluded.estimated_arrival_earliest,
+          estimated_arrival_latest = excluded.estimated_arrival_latest,
+          travel_trip_destination = excluded.travel_trip_destination,
+          travel_trip_type = excluded.travel_trip_type,
+          travel_trip_inferred_at = excluded.travel_trip_inferred_at,
           status_updated_at = excluded.status_updated_at,
           is_current = 1,
           updated_at = excluded.updated_at
@@ -561,6 +587,19 @@ async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMember[]>
         statusSnapshot.status_description,
         statusSnapshot.last_action_status,
         statusSnapshot.last_action_timestamp,
+        statusSnapshot.plane_image_type,
+        statusSnapshot.travel_origin,
+        statusSnapshot.travel_destination,
+        statusSnapshot.travel_signature,
+        statusSnapshot.travel_detected_at,
+        statusSnapshot.travel_started_after,
+        statusSnapshot.travel_started_before,
+        statusSnapshot.estimated_arrival_at,
+        statusSnapshot.estimated_arrival_earliest,
+        statusSnapshot.estimated_arrival_latest,
+        statusSnapshot.travel_trip_destination,
+        statusSnapshot.travel_trip_type,
+        statusSnapshot.travel_trip_inferred_at,
         statusSnapshot.status_updated_at,
       );
     }),

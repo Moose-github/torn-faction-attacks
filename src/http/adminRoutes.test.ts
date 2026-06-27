@@ -15,6 +15,7 @@ import {
   getDiscordTravelTrackerTargetFromRequest,
   setDiscordTravelTrackerTargetFromRequest,
   syncDiscordTravelTrackerFromRequest,
+  updateDiscordTravelTrackerSettingsFromRequest,
 } from "../discordTravelTracker";
 import {
   readSyncTimestamp,
@@ -44,6 +45,7 @@ vi.mock("../discordTravelTracker", () => ({
   getDiscordTravelTrackerTargetFromRequest: vi.fn(),
   setDiscordTravelTrackerTargetFromRequest: vi.fn(),
   syncDiscordTravelTrackerFromRequest: vi.fn(),
+  updateDiscordTravelTrackerSettingsFromRequest: vi.fn(),
 }));
 vi.mock("../enemyScoutingCron", () => ({
   previewEnemyStatsImageFromRequest: vi.fn(),
@@ -114,6 +116,7 @@ describe("admin routes", () => {
     vi.mocked(setDiscordTravelTrackerTargetFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-travel-target-set" }));
     vi.mocked(clearDiscordTravelTrackerTargetFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-travel-target-clear" }));
     vi.mocked(syncDiscordTravelTrackerFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-travel" }));
+    vi.mocked(updateDiscordTravelTrackerSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-travel-settings" }));
   });
 
   it("routes admin data health through admin auth", async () => {
@@ -274,5 +277,20 @@ describe("admin routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "discord-travel-target-clear" });
     expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
     expect(clearDiscordTravelTrackerTargetFromRequest).toHaveBeenCalledWith(context.env);
+  });
+
+  it("routes Discord travel tracker settings through admin auth", async () => {
+    const context = routeContext("https://worker.test/api/admin/discord-travel-tracker/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ home_enabled: true, target_enabled: false }),
+    });
+
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "discord-travel-settings" });
+    expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
+    expect(updateDiscordTravelTrackerSettingsFromRequest).toHaveBeenCalledWith(context.request, context.env);
   });
 });

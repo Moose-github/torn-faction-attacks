@@ -87,10 +87,10 @@ describe("monthly Xanax competition cron", () => {
     expect(labels).toContain("Cron monthly Xanax competition Discord reminder");
   });
 
-  it("temporarily schedules manual Discord travel tracker syncs every five minutes", () => {
+  it("temporarily schedules manual/home Discord travel tracker syncs every five minutes", () => {
     expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 5, 0)).map((job) => job.label))
-      .toContain("Cron manual Discord travel tracker sync");
+      .toContain("Cron manual/home Discord travel tracker sync");
     expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 6, 0)).map((job) => job.label))
-      .not.toContain("Cron manual Discord travel tracker sync");
+      .not.toContain("Cron manual/home Discord travel tracker sync");
   });
 });

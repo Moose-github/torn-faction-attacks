@@ -43,6 +43,7 @@ import {
   ShopliftingAlertSetting,
   syncDiscordTravelTracker,
   EnemyPushAlertSetting,
+  updateDiscordTravelTrackerSettings,
   updateAdminXanaxCompetitionSettings,
   updateAdminEnemyPushAlert,
   updateAdminShopliftingAlert,
@@ -460,7 +461,7 @@ export function AdminControls() {
   const discordTravelTrackerStatus = isLoadingDiscordTravelTarget
     ? "Loading"
     : discordTravelTarget
-      ? discordTravelTarget.active_source
+      ? `${discordTravelTarget.target_tracker.enabled ? "Target on" : "Target off"} / ${discordTravelTarget.home_tracker.enabled ? "Home on" : "Home off"}`
       : "Unavailable";
   const canSetDiscordTravelTarget =
     isBusy === null && Number.isInteger(Number(discordTravelTargetForm.factionId)) && Number(discordTravelTargetForm.factionId) > 0;
@@ -606,6 +607,14 @@ export function AdminControls() {
               value={formatDiscordTravelSource(discordTravelTarget?.active_source)}
             />
             <MetricLine
+              label="Target tracker"
+              value={discordTravelTarget?.target_tracker.enabled ? "Enabled" : "Disabled"}
+            />
+            <MetricLine
+              label="Home tracker"
+              value={discordTravelTarget?.home_tracker.enabled ? "Enabled" : "Disabled"}
+            />
+            <MetricLine
               label="War target"
               value={discordTravelTarget?.war_target
                 ? `${discordTravelTarget.war_target.name} (${discordTravelTarget.war_target.faction_id})`
@@ -620,6 +629,14 @@ export function AdminControls() {
             <MetricLine
               label="Manual refreshed"
               value={formatOptionalUnixTime(discordTravelTarget?.manual_target?.last_refreshed_at ?? null)}
+            />
+            <MetricLine
+              label="Target synced"
+              value={formatOptionalUnixTime(discordTravelTarget?.target_tracker.last_synced_at ?? null)}
+            />
+            <MetricLine
+              label="Home synced"
+              value={formatOptionalUnixTime(discordTravelTarget?.home_tracker.last_synced_at ?? null)}
             />
           </div>
           <form
@@ -639,6 +656,30 @@ export function AdminControls() {
               );
             }}
           >
+            <label className="checkbox-row admin-form-wide">
+              <input
+                type="checkbox"
+                checked={discordTravelTarget?.target_tracker.enabled ?? true}
+                disabled={isBusy !== null || isLoadingDiscordTravelTarget}
+                onChange={(event) =>
+                  runAdminAction("Update target travel tracker", () =>
+                    updateDiscordTravelTrackerSettings({ target_enabled: event.target.checked }),
+                  )}
+              />
+              <span>Enemy/manual travel tracker</span>
+            </label>
+            <label className="checkbox-row admin-form-wide">
+              <input
+                type="checkbox"
+                checked={discordTravelTarget?.home_tracker.enabled ?? false}
+                disabled={isBusy !== null || isLoadingDiscordTravelTarget}
+                onChange={(event) =>
+                  runAdminAction("Update home travel tracker", () =>
+                    updateDiscordTravelTrackerSettings({ home_enabled: event.target.checked }),
+                  )}
+              />
+              <span>Home travel tracker</span>
+            </label>
             <label>
               <span>Faction ID</span>
               <input

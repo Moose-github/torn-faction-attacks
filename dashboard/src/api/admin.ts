@@ -18,19 +18,44 @@ export type DiscordTravelTrackerTargetResponse = {
     name: string;
   } | null;
   manual_target: DiscordTravelTrackerTarget | null;
+  target_tracker: {
+    enabled: boolean;
+    active_source: "war" | "manual" | "inactive";
+    war_target: {
+      war_id: number;
+      faction_id: number;
+      name: string;
+    } | null;
+    manual_target: DiscordTravelTrackerTarget | null;
+    message_id: string | null;
+    last_synced_at: number | null;
+  };
+  home_tracker: {
+    enabled: boolean;
+    faction_id: number;
+    message_id: string | null;
+    last_synced_at: number | null;
+  };
 };
 
-export type DiscordTravelTrackerSyncResponse = {
+export type DiscordTravelTrackerChannelSyncResponse = {
   ok: true;
+  tracker_key: "target" | "home";
+  enabled: boolean;
   skipped: boolean;
   reason?: string;
   war_id: number | null;
   faction_id: number | null;
-  source: "war" | "manual" | "inactive";
+  source: "war" | "manual" | "home" | "inactive";
   message_id: string | null;
   traveling: number;
   abroad: number;
   changed: boolean;
+};
+
+export type DiscordTravelTrackerSyncResponse = DiscordTravelTrackerChannelSyncResponse & {
+  target: DiscordTravelTrackerChannelSyncResponse;
+  home: DiscordTravelTrackerChannelSyncResponse;
 };
 
 export async function runIngestion(): Promise<unknown> {
@@ -94,6 +119,21 @@ export async function setDiscordTravelTrackerTarget(payload: {
 
 export async function clearDiscordTravelTrackerTarget(): Promise<{ ok: true; cleared: number }> {
   return deleteJson<{ ok: true; cleared: number }>("/api/admin/discord-travel-tracker/target", true);
+}
+
+export async function updateDiscordTravelTrackerSettings(payload: {
+  target_enabled?: boolean;
+  home_enabled?: boolean;
+}): Promise<{
+  ok: true;
+  target_enabled: boolean;
+  home_enabled: boolean;
+  sync: DiscordTravelTrackerSyncResponse;
+}> {
+  return postJson(
+    "/api/admin/discord-travel-tracker/settings",
+    payload,
+  );
 }
 
 export async function syncDiscordTravelTracker(): Promise<DiscordTravelTrackerSyncResponse> {

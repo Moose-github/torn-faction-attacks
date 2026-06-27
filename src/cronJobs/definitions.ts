@@ -77,12 +77,12 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
         scheduledTime,
       }),
   },
-  // TODO: Remove this temporary manual tracker cron after out-of-war travel testing no longer needs live updates.
+  // TODO: Remove this temporary travel tracker cron after out-of-war travel testing no longer needs live updates.
   {
-    label: "Cron manual Discord travel tracker sync",
+    label: "Cron manual/home Discord travel tracker sync",
     cadence: "5m temporary",
     category: "discord",
-    purpose: "Temporarily refresh manually configured Discord travel tracking while no war-room target is active.",
+    purpose: "Temporarily refresh manually configured target travel and enabled home travel while no war-room target is active.",
     shouldRun: (date) => date.getUTCMinutes() % 5 === 0,
     run: (env, scheduledTime) =>
       syncDiscordTravelTracker(env, {

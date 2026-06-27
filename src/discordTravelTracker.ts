@@ -4,7 +4,11 @@ import {
   editDiscordWebhookMessage,
 } from "./discord";
 import {
+  HOME_FACTION_ID,
+} from "./constants";
+import {
   readCurrentScoutingWar,
+  refreshHomeFactionMembers,
   refreshTrackedFactionMemberStatuses,
 } from "./enemyScouting";
 import {
@@ -16,15 +20,18 @@ import { Env } from "./types";
 import { d1Changes, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
 
-const TRAVEL_TRACKER_STATE_ID = 1;
-const TRAVEL_TRACKER_COLOR = 0x2f80ed;
+const TARGET_TRAVEL_TRACKER_COLOR = 0xeb5757;
+const HOME_TRAVEL_TRACKER_COLOR = 0x27ae60;
 const TRAVEL_TRACKER_INACTIVE_COLOR = 0x778899;
 const TRAVEL_TRACKER_LIMIT = 18;
 const TRAVEL_TRACKER_TARGET_ID = 1;
 const TRAVEL_TRACKER_EMBED_SAFE_LIMIT = 3900;
+const TARGET_TRACKER_KEY = "target";
+const HOME_TRACKER_KEY = "home";
 
 type DiscordTravelTrackerState = {
-  id: number;
+  tracker_key: TravelTrackerKey;
+  enabled: number;
   war_id: number | null;
   target_source: string | null;
   faction_id: number | null;
@@ -42,6 +49,9 @@ type DiscordTravelTrackerTarget = {
   last_refreshed_at: number | null;
 };
 
+type TravelTrackerKey = typeof TARGET_TRACKER_KEY | typeof HOME_TRACKER_KEY;
+type TravelTrackerSource = "war" | "manual" | "home" | "inactive";
+
 type TravelTrackerTarget =
   | {
       source: "war";
@@ -56,17 +66,26 @@ type TravelTrackerTarget =
       factionId: number;
       name: string;
       manualTarget: DiscordTravelTrackerTarget;
+    }
+  | {
+      source: "home";
+      warId: null;
+      factionId: number;
+      name: string;
+      manualTarget: null;
     };
 
 type TravelTrackerRow = DiscordTravelRow;
 
-export type DiscordTravelTrackerSyncResult = {
+export type DiscordTravelTrackerChannelSyncResult = {
   ok: true;
+  tracker_key: TravelTrackerKey;
+  enabled: boolean;
   skipped: boolean;
   reason?: string;
   war_id: number | null;
   faction_id: number | null;
-  source: "war" | "manual" | "inactive";
+  source: TravelTrackerSource;
   message_id: string | null;
   traveling: number;
   abroad: number;
@@ -74,14 +93,21 @@ export type DiscordTravelTrackerSyncResult = {
   refreshed?: unknown;
 };
 
+export type DiscordTravelTrackerSyncResult = DiscordTravelTrackerChannelSyncResult & {
+  target: DiscordTravelTrackerChannelSyncResult;
+  home: DiscordTravelTrackerChannelSyncResult;
+};
+
 export async function syncDiscordTravelTrackerFromRequest(env: Env): Promise<Response> {
   return json(await syncDiscordTravelTracker(env, { force: true }));
 }
 
 export async function getDiscordTravelTrackerTargetFromRequest(env: Env): Promise<Response> {
-  const [target, war] = await Promise.all([
+  const [target, war, targetState, homeState] = await Promise.all([
     readTravelTrackerTarget(env),
     readCurrentScoutingWar(env),
+    readTravelTrackerState(env, TARGET_TRACKER_KEY),
+    readTravelTrackerState(env, HOME_TRACKER_KEY),
   ]);
   const checkedAt = nowSeconds();
   const activeWar = isActiveDiscordTravelWar(war, checkedAt)
@@ -91,12 +117,53 @@ export async function getDiscordTravelTrackerTargetFromRequest(env: Env): Promis
         name: war.name,
       }
     : null;
+  const activeSource = activeWar ? "war" : target ? "manual" : "inactive";
+  const serializedTarget = serializeTravelTrackerTarget(target);
 
   return json({
     ok: true,
-    active_source: activeWar ? "war" : target ? "manual" : "inactive",
+    active_source: activeSource,
     war_target: activeWar,
-    manual_target: serializeTravelTrackerTarget(target),
+    manual_target: serializedTarget,
+    target_tracker: {
+      enabled: trackerEnabled(TARGET_TRACKER_KEY, targetState),
+      active_source: activeSource,
+      war_target: activeWar,
+      manual_target: serializedTarget,
+      message_id: targetState?.message_id ?? null,
+      last_synced_at: targetState?.last_synced_at ?? null,
+    },
+    home_tracker: {
+      enabled: trackerEnabled(HOME_TRACKER_KEY, homeState),
+      faction_id: HOME_FACTION_ID,
+      message_id: homeState?.message_id ?? null,
+      last_synced_at: homeState?.last_synced_at ?? null,
+    },
+  });
+}
+
+export async function updateDiscordTravelTrackerSettingsFromRequest(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonObject(request);
+  const targetEnabled = optionalBoolean(body.target_enabled);
+  const homeEnabled = optionalBoolean(body.home_enabled);
+
+  if (targetEnabled === undefined && homeEnabled === undefined) {
+    return json({ ok: false, error: "target_enabled or home_enabled is required", code: "INVALID_TRACKER_SETTINGS" }, 400);
+  }
+
+  if (targetEnabled !== undefined) {
+    await setTravelTrackerEnabled(env, TARGET_TRACKER_KEY, targetEnabled);
+  }
+  if (homeEnabled !== undefined) {
+    await setTravelTrackerEnabled(env, HOME_TRACKER_KEY, homeEnabled);
+  }
+
+  const sync = await syncDiscordTravelTracker(env, { force: true });
+  return json({
+    ok: true,
+    target_enabled: sync.target.enabled,
+    home_enabled: sync.home.enabled,
+    sync,
   });
 }
 
@@ -130,18 +197,47 @@ export async function clearDiscordTravelTrackerTargetFromRequest(env: Env): Prom
 
 export async function syncDiscordTravelTracker(
   env: Env,
-  options: { force?: boolean; scheduledTime?: number; manualOnly?: boolean } = {},
+  options: { force?: boolean; scheduledTime?: number; manualOnly?: boolean; skipHomeRefresh?: boolean } = {},
 ): Promise<DiscordTravelTrackerSyncResult> {
-  const state = await readTravelTrackerState(env);
+  const [targetState, homeState] = await Promise.all([
+    readTravelTrackerState(env, TARGET_TRACKER_KEY),
+    readTravelTrackerState(env, HOME_TRACKER_KEY),
+  ]);
   const destination = readTravelTrackerDestination(env);
+  const checkedAt = options.scheduledTime ? Math.floor(options.scheduledTime / 1000) : nowSeconds();
+
   if (!destination) {
-    return trackerResult(true, "DISCORD_TRAVEL_TRACKER_WEBHOOK_URL or DISCORD_WEBHOOK_URL is not configured", null, null, "inactive", state?.message_id ?? null, 0, 0, false);
+    return combinedTrackerResult(
+      trackerResult(TARGET_TRACKER_KEY, trackerEnabled(TARGET_TRACKER_KEY, targetState), true, "DISCORD_TRAVEL_TRACKER_WEBHOOK_URL or DISCORD_WEBHOOK_URL is not configured", null, null, "inactive", targetState?.message_id ?? null, 0, 0, false),
+      trackerResult(HOME_TRACKER_KEY, trackerEnabled(HOME_TRACKER_KEY, homeState), true, "DISCORD_TRAVEL_TRACKER_WEBHOOK_URL or DISCORD_WEBHOOK_URL is not configured", null, HOME_FACTION_ID, "inactive", homeState?.message_id ?? null, 0, 0, false),
+    );
   }
 
-  const checkedAt = options.scheduledTime ? Math.floor(options.scheduledTime / 1000) : nowSeconds();
+  const targetResult = await syncTargetTravelTracker(env, targetState, destination, checkedAt, options);
+  const homeResult = await syncHomeTravelTracker(env, homeState, destination, checkedAt, {
+    force: options.force ?? false,
+    skipRefresh: options.skipHomeRefresh ?? false,
+  });
+  return combinedTrackerResult(targetResult, homeResult);
+}
+
+async function syncTargetTravelTracker(
+  env: Env,
+  state: DiscordTravelTrackerState | null,
+  destination: TravelTrackerDestination,
+  checkedAt: number,
+  options: { force?: boolean; manualOnly?: boolean },
+): Promise<DiscordTravelTrackerChannelSyncResult> {
+  const enabled = trackerEnabled(TARGET_TRACKER_KEY, state);
+  if (!enabled) {
+    return trackerResult(TARGET_TRACKER_KEY, enabled, true, "target travel tracker disabled", null, null, "inactive", state?.message_id ?? null, 0, 0, false);
+  }
+
   const target = await resolveTravelTrackerTarget(env, checkedAt);
   if (options.manualOnly && target?.source !== "manual") {
     return trackerResult(
+      TARGET_TRACKER_KEY,
+      enabled,
       true,
       "manual travel tracker not active",
       target?.warId ?? null,
@@ -156,20 +252,54 @@ export async function syncDiscordTravelTracker(
 
   if (!target) {
     if (!state?.message_id) {
-      return trackerResult(true, "no active travel tracker target", null, null, "inactive", null, 0, 0, false);
+      return trackerResult(TARGET_TRACKER_KEY, enabled, true, "no active travel tracker target", null, null, "inactive", null, 0, 0, false);
     }
-    return updateTravelTrackerMessage(env, state, destination, null, [], checkedAt, options.force ?? false);
+    return updateTravelTrackerMessage(env, TARGET_TRACKER_KEY, state, destination, null, [], checkedAt, options.force ?? false);
   }
 
   const refreshed = target.source === "manual"
     ? await refreshManualTravelTrackerTarget(env, target)
     : undefined;
-  const members = await readTravelTrackerRows(env, target.factionId);
-  return updateTravelTrackerMessage(env, state, destination, target, members, checkedAt, options.force ?? false, refreshed);
+  const members = await readTravelTrackerRows(env, TARGET_TRACKER_KEY, target.factionId);
+  return updateTravelTrackerMessage(env, TARGET_TRACKER_KEY, state, destination, target, members, checkedAt, options.force ?? false, refreshed);
+}
+
+async function syncHomeTravelTracker(
+  env: Env,
+  state: DiscordTravelTrackerState | null,
+  destination: TravelTrackerDestination,
+  checkedAt: number,
+  options: { force: boolean; skipRefresh: boolean },
+): Promise<DiscordTravelTrackerChannelSyncResult> {
+  const enabled = trackerEnabled(HOME_TRACKER_KEY, state);
+  if (!enabled) {
+    return trackerResult(HOME_TRACKER_KEY, enabled, true, "home travel tracker disabled", null, HOME_FACTION_ID, "home", state?.message_id ?? null, 0, 0, false);
+  }
+
+  const target: TravelTrackerTarget = {
+    source: "home",
+    warId: null,
+    factionId: HOME_FACTION_ID,
+    name: "Home faction",
+    manualTarget: null,
+  };
+  let refreshed: unknown;
+  if (!options.skipRefresh) {
+    try {
+      const members = await refreshHomeFactionMembers(env);
+      refreshed = { fetchedMembers: members.length };
+    } catch (err: any) {
+      console.warn("Home travel tracker refresh failed:", err?.message || err);
+      refreshed = { skipped: true, reason: "home refresh failed" };
+    }
+  }
+  const members = await readTravelTrackerRows(env, HOME_TRACKER_KEY, HOME_FACTION_ID);
+  return updateTravelTrackerMessage(env, HOME_TRACKER_KEY, state, destination, target, members, checkedAt, options.force, refreshed);
 }
 
 async function updateTravelTrackerMessage(
   env: Env,
+  trackerKey: TravelTrackerKey,
   state: DiscordTravelTrackerState | null,
   destination: TravelTrackerDestination,
   target: TravelTrackerTarget | null,
@@ -177,7 +307,7 @@ async function updateTravelTrackerMessage(
   checkedAt: number,
   force: boolean,
   refreshed?: unknown,
-): Promise<DiscordTravelTrackerSyncResult> {
+): Promise<DiscordTravelTrackerChannelSyncResult> {
   const message = buildTravelTrackerMessage(target, members, checkedAt);
   const hash = contentHash(message.content);
   const { traveling, abroad } = travelCounts(members);
@@ -185,12 +315,13 @@ async function updateTravelTrackerMessage(
   const warId = target?.warId ?? null;
   const factionId = target?.factionId ?? null;
   const source = target?.source ?? "inactive";
+  const enabled = trackerEnabled(trackerKey, state);
   const sameTarget = isSameTrackerTarget(state, source, warId, factionId, destination.key);
   const reusableMessageId = sameTarget ? existingMessageId : null;
 
   if (!force && reusableMessageId && state?.content_hash === hash) {
-    await markTravelTrackerChecked(env, state, checkedAt);
-    return trackerResult(true, "travel tracker unchanged", warId, factionId, source, reusableMessageId, traveling, abroad, false, refreshed);
+    await markTravelTrackerChecked(env, trackerKey, checkedAt);
+    return trackerResult(trackerKey, enabled, true, "travel tracker unchanged", warId, factionId, source, reusableMessageId, traveling, abroad, false, refreshed);
   }
 
   const messageId = reusableMessageId
@@ -203,6 +334,8 @@ async function updateTravelTrackerMessage(
     );
 
   await saveTravelTrackerState(env, {
+    trackerKey,
+    enabled,
     source,
     warId,
     factionId,
@@ -212,7 +345,7 @@ async function updateTravelTrackerMessage(
     checkedAt,
   });
 
-  return trackerResult(false, undefined, warId, factionId, source, messageId, traveling, abroad, true, refreshed);
+  return trackerResult(trackerKey, enabled, false, undefined, warId, factionId, source, messageId, traveling, abroad, true, refreshed);
 }
 
 async function editExistingTravelTrackerMessage(
@@ -247,9 +380,11 @@ function buildTravelTrackerMessage(
   }
 
   const { traveling, abroad } = travelCounts(members);
-  const title = target.source === "war"
-    ? `Enemy Travel Tracker: War vs ${target.name}`
-    : `Faction Travel Tracker: ${target.name}`;
+  const title = target.source === "home"
+    ? "Home Travel Tracker"
+    : target.source === "war"
+      ? `Enemy Travel Tracker: War vs ${target.name}`
+      : `Faction Travel Tracker: ${target.name}`;
   const lines = [
     title,
     `Updated <t:${checkedAt}:R> | ${traveling} traveling | ${abroad} abroad | ${target.factionId}`,
@@ -258,14 +393,14 @@ function buildTravelTrackerMessage(
   ].filter((line, index, all) => line !== "" || all[index - 1] !== "");
 
   return {
-    color: TRAVEL_TRACKER_COLOR,
+    color: target.source === "home" ? HOME_TRAVEL_TRACKER_COLOR : TARGET_TRAVEL_TRACKER_COLOR,
     content: fitDiscordMessage(lines.join("\n")),
   };
 }
 
 function isSameTrackerTarget(
   state: DiscordTravelTrackerState | null,
-  source: "war" | "manual" | "inactive",
+  source: TravelTrackerSource,
   warId: number | null,
   factionId: number | null,
   destinationKey: string,
@@ -344,7 +479,13 @@ async function refreshManualTravelTrackerTarget(
   return refresh;
 }
 
-async function readTravelTrackerRows(env: Env, factionId: number): Promise<TravelTrackerRow[]> {
+async function readTravelTrackerRows(
+  env: Env,
+  trackerKey: TravelTrackerKey,
+  factionId: number,
+): Promise<TravelTrackerRow[]> {
+  const tableName = trackerKey === HOME_TRACKER_KEY ? "home_faction_members" : "enemy_faction_members";
+  const currentFilter = trackerKey === HOME_TRACKER_KEY ? "AND is_current = 1" : "";
   const result = await env.DB.prepare(
     `
     SELECT
@@ -363,8 +504,9 @@ async function readTravelTrackerRows(env: Env, factionId: number): Promise<Trave
       travel_trip_destination,
       travel_trip_type,
       travel_trip_inferred_at
-    FROM enemy_faction_members
+    FROM ${tableName}
     WHERE faction_id = ?
+      ${currentFilter}
       AND status_state IN ('Traveling', 'Abroad')
     ORDER BY
       CASE WHEN status_state = 'Traveling' THEN 0 ELSE 1 END,
@@ -378,15 +520,18 @@ async function readTravelTrackerRows(env: Env, factionId: number): Promise<Trave
   return result.results ?? [];
 }
 
-async function readTravelTrackerState(env: Env): Promise<DiscordTravelTrackerState | null> {
+async function readTravelTrackerState(
+  env: Env,
+  trackerKey: TravelTrackerKey,
+): Promise<DiscordTravelTrackerState | null> {
   return await env.DB.prepare(
     `
     SELECT *
     FROM discord_travel_tracker_state
-    WHERE id = ?
+    WHERE tracker_key = ?
     LIMIT 1
     `,
-  ).bind(TRAVEL_TRACKER_STATE_ID).first<DiscordTravelTrackerState>();
+  ).bind(trackerKey).first<DiscordTravelTrackerState>();
 }
 
 async function readTravelTrackerTarget(env: Env): Promise<DiscordTravelTrackerTarget | null> {
@@ -454,7 +599,7 @@ async function markTravelTrackerTargetRefreshed(env: Env, refreshedAt: number): 
 
 async function markTravelTrackerChecked(
   env: Env,
-  state: DiscordTravelTrackerState,
+  trackerKey: TravelTrackerKey,
   checkedAt: number,
 ): Promise<void> {
   await env.DB.prepare(
@@ -462,15 +607,17 @@ async function markTravelTrackerChecked(
     UPDATE discord_travel_tracker_state
     SET last_synced_at = ?,
         updated_at = unixepoch()
-    WHERE id = ?
+    WHERE tracker_key = ?
     `,
-  ).bind(checkedAt, state.id).run();
+  ).bind(checkedAt, trackerKey).run();
 }
 
 async function saveTravelTrackerState(
   env: Env,
   input: {
-    source: "war" | "manual" | "inactive";
+    trackerKey: TravelTrackerKey;
+    enabled: boolean;
+    source: TravelTrackerSource;
     warId: number | null;
     factionId: number | null;
     destinationKey: string;
@@ -482,7 +629,8 @@ async function saveTravelTrackerState(
   await env.DB.prepare(
     `
     INSERT INTO discord_travel_tracker_state (
-      id,
+      tracker_key,
+      enabled,
       war_id,
       target_source,
       faction_id,
@@ -493,8 +641,9 @@ async function saveTravelTrackerState(
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
-    ON CONFLICT(id) DO UPDATE SET
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
+    ON CONFLICT(tracker_key) DO UPDATE SET
+      enabled = excluded.enabled,
       war_id = excluded.war_id,
       target_source = excluded.target_source,
       faction_id = excluded.faction_id,
@@ -505,7 +654,8 @@ async function saveTravelTrackerState(
       updated_at = unixepoch()
     `,
   ).bind(
-    TRAVEL_TRACKER_STATE_ID,
+    input.trackerKey,
+    input.enabled ? 1 : 0,
     input.warId,
     input.source,
     input.factionId,
@@ -529,20 +679,77 @@ function serializeTravelTrackerTarget(target: DiscordTravelTrackerTarget | null)
   };
 }
 
+async function setTravelTrackerEnabled(
+  env: Env,
+  trackerKey: TravelTrackerKey,
+  enabled: boolean,
+): Promise<void> {
+  await env.DB.prepare(
+    `
+    INSERT INTO discord_travel_tracker_state (
+      tracker_key,
+      enabled,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, unixepoch(), unixepoch())
+    ON CONFLICT(tracker_key) DO UPDATE SET
+      enabled = excluded.enabled,
+      updated_at = unixepoch()
+    `,
+  ).bind(trackerKey, enabled ? 1 : 0).run();
+}
+
+function trackerEnabled(
+  trackerKey: TravelTrackerKey,
+  state: DiscordTravelTrackerState | null,
+): boolean {
+  if (state) {
+    return state.enabled === 1;
+  }
+
+  return trackerKey === TARGET_TRACKER_KEY;
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  if (value === true || value === 1 || value === "1" || value === "true") {
+    return true;
+  }
+  if (value === false || value === 0 || value === "0" || value === "false") {
+    return false;
+  }
+  return undefined;
+}
+
+function combinedTrackerResult(
+  target: DiscordTravelTrackerChannelSyncResult,
+  home: DiscordTravelTrackerChannelSyncResult,
+): DiscordTravelTrackerSyncResult {
+  return {
+    ...target,
+    target,
+    home,
+  };
+}
+
 function trackerResult(
+  trackerKey: TravelTrackerKey,
+  enabled: boolean,
   skipped: boolean,
   reason: string | undefined,
   warId: number | null,
   factionId: number | null,
-  source: "war" | "manual" | "inactive",
+  source: TravelTrackerSource,
   messageId: string | null,
   traveling: number,
   abroad: number,
   changed: boolean,
   refreshed?: unknown,
-): DiscordTravelTrackerSyncResult {
+): DiscordTravelTrackerChannelSyncResult {
   return {
     ok: true,
+    tracker_key: trackerKey,
+    enabled,
     skipped,
     ...(reason ? { reason } : {}),
     war_id: warId,

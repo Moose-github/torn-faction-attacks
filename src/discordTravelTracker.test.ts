@@ -5,6 +5,7 @@ import {
 } from "./discord";
 import {
   readCurrentScoutingWar,
+  refreshHomeFactionMembers,
   refreshTrackedFactionMemberStatuses,
 } from "./enemyScouting";
 import {
@@ -12,6 +13,7 @@ import {
   getDiscordTravelTrackerTargetFromRequest,
   setDiscordTravelTrackerTargetFromRequest,
   syncDiscordTravelTracker,
+  updateDiscordTravelTrackerSettingsFromRequest,
 } from "./discordTravelTracker";
 import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
 import type { Env } from "./types";
@@ -23,12 +25,16 @@ vi.mock("./discord", () => ({
 
 vi.mock("./enemyScouting", () => ({
   readCurrentScoutingWar: vi.fn(),
+  refreshHomeFactionMembers: vi.fn(),
   refreshTrackedFactionMemberStatuses: vi.fn(),
 }));
 
 vi.mock("./warRoomTracking", () => ({
   isWarRoomMemberTrackingActive: vi.fn(),
 }));
+
+const TARGET_TRAVEL_TRACKER_COLOR = 0xeb5757;
+const HOME_TRAVEL_TRACKER_COLOR = 0x27ae60;
 
 describe("Discord travel tracker", () => {
   beforeEach(() => {
@@ -57,6 +63,7 @@ describe("Discord travel tracker", () => {
       factionId: 456,
       fetchedAt: 1_800_000_000,
     });
+    vi.mocked(refreshHomeFactionMembers).mockResolvedValue([]);
   });
 
   it("creates a persistent webhook message the first time it syncs", async () => {
@@ -74,7 +81,7 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Enemy Travel Tracker: War vs test-war"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
     expect(env.state?.message_id).toBe("message-1");
   });
@@ -111,7 +118,7 @@ describe("Discord travel tracker", () => {
       "message-1",
       expect.stringContaining("<t:1800001200:t> (<t:1800001200:R>) | WLT benefit"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
   });
 
@@ -142,7 +149,7 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Faction Travel Tracker: Manual Faction"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
     expect(editDiscordWebhookMessage).not.toHaveBeenCalled();
     expect(env.state?.message_id).toBe("message-2");
@@ -163,8 +170,113 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Enemy Travel Tracker: War vs test-war"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/travel-webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/travel-webhook" },
     );
+  });
+
+  it("syncs home travel when home is enabled and target is disabled", async () => {
+    const env = fakeEnv();
+    env.states.target = trackerState("target", { enabled: 0, message_id: "target-message" });
+    env.state = env.states.target;
+    env.states.home = trackerState("home", { enabled: 1 });
+
+    await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
+      skipped: true,
+      reason: "target travel tracker disabled",
+      target: { skipped: true, enabled: false },
+      home: {
+        skipped: false,
+        enabled: true,
+        source: "home",
+        faction_id: 8803,
+        traveling: 1,
+        changed: true,
+      },
+    });
+    expect(createDiscordWebhookMessage).toHaveBeenCalledOnce();
+    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+      env,
+      expect.stringContaining("Home Travel Tracker"),
+      { users: [], roles: [] },
+      { embedColor: HOME_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
+    );
+  });
+
+  it("creates separate messages when both target and home trackers are enabled", async () => {
+    const env = fakeEnv();
+    env.states.home = trackerState("home", { enabled: 1 });
+    vi.mocked(createDiscordWebhookMessage)
+      .mockResolvedValueOnce("target-message")
+      .mockResolvedValueOnce("home-message");
+
+    await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
+      target: { message_id: "target-message", source: "war", changed: true },
+      home: { message_id: "home-message", source: "home", changed: true },
+    });
+    expect(createDiscordWebhookMessage).toHaveBeenCalledTimes(2);
+    expect(env.states.target?.message_id).toBe("target-message");
+    expect(env.states.home?.message_id).toBe("home-message");
+  });
+
+  it("skips Discord posts when both trackers are disabled", async () => {
+    const env = fakeEnv();
+    env.states.target = trackerState("target", { enabled: 0, message_id: "target-message" });
+    env.state = env.states.target;
+    env.states.home = trackerState("home", { enabled: 0, message_id: "home-message" });
+
+    await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
+      target: { skipped: true, reason: "target travel tracker disabled", changed: false },
+      home: { skipped: true, reason: "home travel tracker disabled", changed: false },
+    });
+    expect(createDiscordWebhookMessage).not.toHaveBeenCalled();
+    expect(editDiscordWebhookMessage).not.toHaveBeenCalled();
+  });
+
+  it("manual-only sync still allows enabled home tracking", async () => {
+    const env = fakeEnv();
+    env.states.home = trackerState("home", { enabled: 1 });
+
+    await expect(syncDiscordTravelTracker(env, {
+      manualOnly: true,
+      scheduledTime: 1_800_000_000_000,
+    })).resolves.toMatchObject({
+      target: {
+        skipped: true,
+        reason: "manual travel tracker not active",
+        source: "war",
+      },
+      home: {
+        skipped: false,
+        source: "home",
+        changed: true,
+      },
+    });
+    expect(refreshTrackedFactionMemberStatuses).not.toHaveBeenCalled();
+    expect(refreshHomeFactionMembers).toHaveBeenCalledWith(env);
+    expect(createDiscordWebhookMessage).toHaveBeenCalledOnce();
+  });
+
+  it("updates target and home tracker settings independently", async () => {
+    const env = fakeEnv();
+    const request = new Request("https://worker.test/api/admin/discord-travel-tracker/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_enabled: false, home_enabled: true }),
+    });
+
+    const response = await updateDiscordTravelTrackerSettingsFromRequest(request, env);
+
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      target_enabled: false,
+      home_enabled: true,
+      sync: {
+        target: { enabled: false, skipped: true },
+        home: { enabled: true, changed: true },
+      },
+    });
+    expect(env.states.target?.enabled).toBe(0);
+    expect(env.states.home?.enabled).toBe(1);
   });
 
   it("keeps tracker embeds above the old message content limit", async () => {
@@ -209,7 +321,7 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Faction Travel Tracker: Manual Faction"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
     expect(env.target?.last_refreshed_at).toBe(1_800_000_000);
   });
@@ -234,7 +346,7 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Faction Travel Tracker: Target Name"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
   });
 
@@ -270,7 +382,7 @@ describe("Discord travel tracker", () => {
       env,
       expect.stringContaining("Faction Travel Tracker: Manual Faction"),
       { users: [], roles: [] },
-      { embedColor: 0x2f80ed, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
   });
 
@@ -306,7 +418,8 @@ describe("Discord travel tracker", () => {
 });
 
 type FakeState = {
-  id: number;
+  tracker_key: "target" | "home";
+  enabled: number;
   war_id: number | null;
   target_source: string | null;
   faction_id: number | null;
@@ -344,14 +457,20 @@ type FakeRow = {
 
 type FakeEnv = Env & {
   state: FakeState | null;
+  states: Record<"target" | "home", FakeState | null>;
   target: FakeTarget | null;
   rows: FakeRow[];
+  homeRows: FakeRow[];
 };
 
 function fakeEnv(): FakeEnv {
   const env = {
     DISCORD_WEBHOOK_URL: "https://discord.test/webhook",
     state: null,
+    states: {
+      target: null,
+      home: null,
+    },
     target: null,
     rows: [
       {
@@ -389,6 +508,25 @@ function fakeEnv(): FakeEnv {
         travel_trip_inferred_at: null,
       },
     ],
+    homeRows: [
+      {
+        member_id: 3,
+        name: "Home Traveler",
+        status_state: "Traveling",
+        status_description: "Traveling to Argentina",
+        plane_image_type: "airliner",
+        travel_origin: "Torn",
+        travel_destination: "Argentina",
+        travel_started_after: 1_799_999_700,
+        travel_started_before: 1_799_999_760,
+        estimated_arrival_at: 1_800_001_500,
+        estimated_arrival_earliest: 1_800_001_440,
+        estimated_arrival_latest: 1_800_001_560,
+        travel_trip_destination: "Argentina",
+        travel_trip_type: "Business Class/Standard",
+        travel_trip_inferred_at: null,
+      },
+    ],
   } as FakeEnv;
 
   env.DB = {
@@ -407,7 +545,7 @@ function fakeEnv(): FakeEnv {
     return {
       first() {
         if (sql.includes("FROM discord_travel_tracker_state")) {
-          return Promise.resolve(env.state);
+          return Promise.resolve(env.states[values[0] as "target" | "home"] ?? null);
         }
         if (sql.includes("FROM discord_travel_tracker_target")) {
           return Promise.resolve(env.target?.enabled === 1 ? env.target : null);
@@ -418,19 +556,47 @@ function fakeEnv(): FakeEnv {
         if (sql.includes("FROM enemy_faction_members")) {
           return Promise.resolve({ results: env.rows });
         }
+        if (sql.includes("FROM home_faction_members")) {
+          return Promise.resolve({ results: env.homeRows });
+        }
         return Promise.resolve({ results: [] });
       },
       run() {
         if (sql.includes("INSERT INTO discord_travel_tracker_state")) {
-          env.state = {
-            id: Number(values[0]),
-            war_id: values[1] as number | null,
-            target_source: values[2] as string | null,
-            faction_id: values[3] as number | null,
-            destination_key: values[4] as string | null,
-            message_id: values[5] as string | null,
-            content_hash: values[6] as string | null,
-            last_synced_at: values[7] as number | null,
+          const trackerKey = values[0] as "target" | "home";
+          if (values.length === 2) {
+            env.states[trackerKey] = {
+              tracker_key: trackerKey,
+              enabled: Number(values[1]),
+              war_id: env.states[trackerKey]?.war_id ?? null,
+              target_source: env.states[trackerKey]?.target_source ?? null,
+              faction_id: env.states[trackerKey]?.faction_id ?? null,
+              destination_key: env.states[trackerKey]?.destination_key ?? null,
+              message_id: env.states[trackerKey]?.message_id ?? null,
+              content_hash: env.states[trackerKey]?.content_hash ?? null,
+              last_synced_at: env.states[trackerKey]?.last_synced_at ?? null,
+            };
+          } else {
+            env.states[trackerKey] = {
+              tracker_key: trackerKey,
+              enabled: Number(values[1]),
+              war_id: values[2] as number | null,
+              target_source: values[3] as string | null,
+              faction_id: values[4] as number | null,
+              destination_key: values[5] as string | null,
+              message_id: values[6] as string | null,
+              content_hash: values[7] as string | null,
+              last_synced_at: values[8] as number | null,
+            };
+          }
+          if (trackerKey === "target") {
+            env.state = env.states.target;
+          }
+        } else if (sql.includes("UPDATE discord_travel_tracker_state") && env.states[values[1] as "target" | "home"]) {
+          const trackerKey = values[1] as "target" | "home";
+          env.states[trackerKey] = {
+            ...env.states[trackerKey]!,
+            last_synced_at: values[0] as number,
           };
         } else if (sql.includes("INSERT INTO discord_travel_tracker_target")) {
           env.target = {
@@ -444,11 +610,6 @@ function fakeEnv(): FakeEnv {
           };
         } else if (sql.includes("DELETE FROM discord_travel_tracker_target")) {
           env.target = null;
-        } else if (sql.includes("UPDATE discord_travel_tracker_state") && env.state) {
-          env.state = {
-            ...env.state,
-            last_synced_at: values[0] as number,
-          };
         } else if (sql.includes("UPDATE discord_travel_tracker_target") && env.target) {
           env.target = {
             ...env.target,
@@ -459,4 +620,22 @@ function fakeEnv(): FakeEnv {
       },
     };
   }
+}
+
+function trackerState(
+  trackerKey: "target" | "home",
+  overrides: Partial<FakeState> = {},
+): FakeState {
+  return {
+    tracker_key: trackerKey,
+    enabled: trackerKey === "target" ? 1 : 0,
+    war_id: null,
+    target_source: null,
+    faction_id: null,
+    destination_key: null,
+    message_id: null,
+    content_hash: null,
+    last_synced_at: null,
+    ...overrides,
+  };
 }

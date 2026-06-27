@@ -138,7 +138,8 @@ CREATE TABLE discord_alert_mentions (
 );
 
 CREATE TABLE discord_travel_tracker_state (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+  tracker_key TEXT PRIMARY KEY CHECK (tracker_key IN ('target', 'home')),
+  enabled INTEGER NOT NULL DEFAULT 1,
   war_id INTEGER,
   target_source TEXT,
   faction_id INTEGER,
@@ -354,7 +355,7 @@ CREATE TABLE home_faction_members (
   ff_battlestats INTEGER,
   ff_battlestats_updated_at INTEGER,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-, networth INTEGER, networth_updated_at INTEGER, bsp_battlestats INTEGER, bsp_battlestats_updated_at INTEGER, is_current INTEGER NOT NULL DEFAULT 1, report_exempt INTEGER NOT NULL DEFAULT 0, report_exempt_reason TEXT, report_exempt_updated_at INTEGER, status_state TEXT, status_description TEXT, last_action_status TEXT, last_action_timestamp INTEGER, status_updated_at INTEGER);
+, networth INTEGER, networth_updated_at INTEGER, bsp_battlestats INTEGER, bsp_battlestats_updated_at INTEGER, is_current INTEGER NOT NULL DEFAULT 1, report_exempt INTEGER NOT NULL DEFAULT 0, report_exempt_reason TEXT, report_exempt_updated_at INTEGER, status_state TEXT, status_description TEXT, last_action_status TEXT, last_action_timestamp INTEGER, status_updated_at INTEGER, plane_image_type TEXT, travel_origin TEXT, travel_destination TEXT, travel_signature TEXT, travel_detected_at INTEGER, travel_started_after INTEGER, travel_started_before INTEGER, estimated_arrival_at INTEGER, estimated_arrival_earliest INTEGER, estimated_arrival_latest INTEGER, travel_trip_destination TEXT, travel_trip_type TEXT, travel_trip_inferred_at INTEGER);
 
 CREATE TABLE ingestion_runs (
   id TEXT PRIMARY KEY,
