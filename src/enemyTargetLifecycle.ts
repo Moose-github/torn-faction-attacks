@@ -1,4 +1,3 @@
-import { HOME_FACTION_ID } from "./constants";
 import { clearEnemyLiveTrackingRows } from "./enemyLiveTrackingCleanup";
 import { clearSyncLatch, setSyncLatch } from "./syncLatches";
 import { Env } from "./types";
@@ -115,7 +114,7 @@ export async function handleEnemyTargetMatched(
   }
 
   if (options.clearReplaceableHeatmaps) {
-    const heatmapMetrics = await clearReplaceableEnemyHeatmaps(env, nextFactionId);
+    const heatmapMetrics = await clearEnemyActivitySamplesForTargetReplacement(env);
     addEnemyTargetLifecycleMetrics(metrics, heatmapMetrics);
   }
 
@@ -254,67 +253,27 @@ async function clearEnemyLiveTrackingForTargetReplacement(
   metrics.enemyActivitySampleRowsDeleted += liveClear.enemyActivitySampleRowsDeleted;
 }
 
-async function clearReplaceableEnemyHeatmaps(
+async function clearEnemyActivitySamplesForTargetReplacement(
   env: Env,
-  nextFactionId: number,
 ): Promise<EnemyTargetLifecycleMetrics> {
   const metrics = emptyEnemyTargetLifecycleMetrics();
-  const cachedFactions = ((await env.DB.prepare(
+
+  const factionResult = await env.DB.prepare(
     `
-    SELECT DISTINCT faction_id
-    FROM (
-      SELECT faction_id
-      FROM enemy_faction_activity_samples
-      UNION
-      SELECT faction_id
-      FROM enemy_member_activity_samples
-    ) cached_heatmap_factions
-    WHERE faction_id != ?
-      AND faction_id != ?
+    DELETE FROM enemy_faction_activity_samples
     `,
-  )
-    .bind(nextFactionId, HOME_FACTION_ID)
-    .all()).results ?? []) as { faction_id: number }[];
+  ).run();
 
-  for (const cachedFaction of cachedFactions) {
-    const unfinishedWar = (await env.DB.prepare(
-      `
-      SELECT id
-      FROM wars
-      WHERE enemy_faction_id = ?
-        AND official_end_time IS NULL
-      ORDER BY practical_start_time DESC
-      LIMIT 1
-      `,
-    )
-      .bind(cachedFaction.faction_id)
-      .first()) as { id: number } | null;
+  const memberResult = await env.DB.prepare(
+    `
+    DELETE FROM enemy_member_activity_samples
+    `,
+  ).run();
 
-    if (unfinishedWar) {
-      continue;
-    }
-
-    const result = await env.DB.prepare(
-      `
-      DELETE FROM enemy_faction_activity_samples
-      WHERE faction_id = ?
-      `,
-    )
-      .bind(cachedFaction.faction_id)
-      .run();
-    const memberResult = await env.DB.prepare(
-      `
-      DELETE FROM enemy_member_activity_samples
-      WHERE faction_id = ?
-      `,
-    )
-      .bind(cachedFaction.faction_id)
-      .run();
-    const changes = d1Changes(result) + d1Changes(memberResult);
-    metrics.writeStatements += 2;
-    metrics.changedRows += changes;
-    metrics.enemyActivitySampleRowsDeleted += changes;
-  }
+  const changes = d1Changes(factionResult) + d1Changes(memberResult);
+  metrics.writeStatements += 2;
+  metrics.changedRows += changes;
+  metrics.enemyActivitySampleRowsDeleted += changes;
 
   return metrics;
 }
