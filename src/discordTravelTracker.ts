@@ -28,6 +28,7 @@ const TRAVEL_TRACKER_TARGET_ID = 1;
 const TRAVEL_TRACKER_EMBED_SAFE_LIMIT = 3900;
 const TARGET_TRACKER_KEY = "target";
 const HOME_TRACKER_KEY = "home";
+const HOME_TRACKER_TITLE = "Buttgrass Travel Tracker";
 
 type DiscordTravelTrackerState = {
   tracker_key: TravelTrackerKey;
@@ -230,6 +231,9 @@ async function syncTargetTravelTracker(
 ): Promise<DiscordTravelTrackerChannelSyncResult> {
   const enabled = trackerEnabled(TARGET_TRACKER_KEY, state);
   if (!enabled) {
+    if (state?.message_id && options.force) {
+      return stopTravelTrackerMessage(env, TARGET_TRACKER_KEY, state, destination, checkedAt, "target travel tracker disabled");
+    }
     return trackerResult(TARGET_TRACKER_KEY, enabled, true, "target travel tracker disabled", null, null, "inactive", state?.message_id ?? null, 0, 0, false);
   }
 
@@ -254,7 +258,7 @@ async function syncTargetTravelTracker(
     if (!state?.message_id) {
       return trackerResult(TARGET_TRACKER_KEY, enabled, true, "no active travel tracker target", null, null, "inactive", null, 0, 0, false);
     }
-    return updateTravelTrackerMessage(env, TARGET_TRACKER_KEY, state, destination, null, [], checkedAt, options.force ?? false);
+    return stopTravelTrackerMessage(env, TARGET_TRACKER_KEY, state, destination, checkedAt, "no active travel tracker target");
   }
 
   const refreshed = target.source === "manual"
@@ -273,6 +277,9 @@ async function syncHomeTravelTracker(
 ): Promise<DiscordTravelTrackerChannelSyncResult> {
   const enabled = trackerEnabled(HOME_TRACKER_KEY, state);
   if (!enabled) {
+    if (state?.message_id && options.force) {
+      return stopTravelTrackerMessage(env, HOME_TRACKER_KEY, state, destination, checkedAt, "home travel tracker disabled");
+    }
     return trackerResult(HOME_TRACKER_KEY, enabled, true, "home travel tracker disabled", null, HOME_FACTION_ID, "home", state?.message_id ?? null, 0, 0, false);
   }
 
@@ -295,6 +302,39 @@ async function syncHomeTravelTracker(
   }
   const members = await readTravelTrackerRows(env, HOME_TRACKER_KEY, HOME_FACTION_ID);
   return updateTravelTrackerMessage(env, HOME_TRACKER_KEY, state, destination, target, members, checkedAt, options.force, refreshed);
+}
+
+async function stopTravelTrackerMessage(
+  env: Env,
+  trackerKey: TravelTrackerKey,
+  state: DiscordTravelTrackerState,
+  destination: TravelTrackerDestination,
+  checkedAt: number,
+  reason: string,
+): Promise<DiscordTravelTrackerChannelSyncResult> {
+  const message = buildStoppedTravelTrackerMessage(trackerKey, checkedAt, reason);
+  const hash = contentHash(message.content);
+  const enabled = trackerEnabled(trackerKey, state);
+
+  if (state.content_hash === hash) {
+    await markTravelTrackerChecked(env, trackerKey, checkedAt);
+    return trackerResult(trackerKey, enabled, true, "travel tracker unchanged", state.war_id, state.faction_id, "inactive", state.message_id, 0, 0, false);
+  }
+
+  await editExistingTravelTrackerMessage(env, state.message_id!, destination, message);
+  await saveTravelTrackerState(env, {
+    trackerKey,
+    enabled,
+    source: "inactive",
+    warId: state.war_id,
+    factionId: state.faction_id,
+    destinationKey: destination.key,
+    messageId: state.message_id,
+    contentHash: hash,
+    checkedAt,
+  });
+
+  return trackerResult(trackerKey, enabled, false, reason, state.war_id, state.faction_id, "inactive", state.message_id, 0, 0, true);
 }
 
 async function updateTravelTrackerMessage(
@@ -373,7 +413,7 @@ function buildTravelTrackerMessage(
     return {
       color: TRAVEL_TRACKER_INACTIVE_COLOR,
       content: [
-        "Faction Travel Tracker: inactive",
+        "Target Travel Tracker: inactive",
         `No active war-room or manual faction travel tracking. Last checked <t:${checkedAt}:R>.`,
       ].join("\n"),
     };
@@ -381,10 +421,8 @@ function buildTravelTrackerMessage(
 
   const { traveling, abroad } = travelCounts(members);
   const title = target.source === "home"
-    ? "Home Travel Tracker"
-    : target.source === "war"
-      ? `Enemy Travel Tracker: War vs ${target.name}`
-      : `Faction Travel Tracker: ${target.name}`;
+    ? HOME_TRACKER_TITLE
+    : `${target.name} Travel Tracker`;
   const lines = [
     title,
     `Updated <t:${checkedAt}:R> | ${traveling} traveling | ${abroad} abroad | ${target.factionId}`,
@@ -395,6 +433,25 @@ function buildTravelTrackerMessage(
   return {
     color: target.source === "home" ? HOME_TRAVEL_TRACKER_COLOR : TARGET_TRAVEL_TRACKER_COLOR,
     content: fitDiscordMessage(lines.join("\n")),
+  };
+}
+
+function buildStoppedTravelTrackerMessage(
+  trackerKey: TravelTrackerKey,
+  checkedAt: number,
+  reason: string,
+): { content: string; color: number } {
+  const title = trackerKey === HOME_TRACKER_KEY
+    ? `${HOME_TRACKER_TITLE}: stopped`
+    : "Target Travel Tracker: stopped";
+
+  return {
+    color: TRAVEL_TRACKER_INACTIVE_COLOR,
+    content: [
+      title,
+      `Tracking stopped <t:${checkedAt}:R>.`,
+      reason,
+    ].join("\n"),
   };
 }
 

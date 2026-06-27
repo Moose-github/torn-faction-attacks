@@ -79,7 +79,7 @@ describe("Discord travel tracker", () => {
     });
     expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
       env,
-      expect.stringContaining("Enemy Travel Tracker: War vs test-war"),
+      expect.stringContaining("test-war Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
@@ -147,7 +147,7 @@ describe("Discord travel tracker", () => {
     });
     expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
       env,
-      expect.stringContaining("Faction Travel Tracker: Manual Faction"),
+      expect.stringContaining("Manual Faction Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
@@ -168,7 +168,7 @@ describe("Discord travel tracker", () => {
     });
     expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
       env,
-      expect.stringContaining("Enemy Travel Tracker: War vs test-war"),
+      expect.stringContaining("test-war Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/travel-webhook" },
     );
@@ -196,7 +196,7 @@ describe("Discord travel tracker", () => {
     expect(createDiscordWebhookMessage).toHaveBeenCalledOnce();
     expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
       env,
-      expect.stringContaining("Home Travel Tracker"),
+      expect.stringContaining("Buttgrass Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: HOME_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
@@ -218,7 +218,7 @@ describe("Discord travel tracker", () => {
     expect(env.states.home?.message_id).toBe("home-message");
   });
 
-  it("skips Discord posts when both trackers are disabled", async () => {
+  it("skips Discord posts when both trackers are disabled during scheduled syncs", async () => {
     const env = fakeEnv();
     env.states.target = trackerState("target", { enabled: 0, message_id: "target-message" });
     env.state = env.states.target;
@@ -230,6 +230,91 @@ describe("Discord travel tracker", () => {
     });
     expect(createDiscordWebhookMessage).not.toHaveBeenCalled();
     expect(editDiscordWebhookMessage).not.toHaveBeenCalled();
+  });
+
+  it("edits existing messages to stopped notices when trackers are disabled by settings", async () => {
+    const env = fakeEnv();
+    env.states.target = trackerState("target", {
+      enabled: 1,
+      message_id: "target-message",
+      content_hash: "old-target-hash",
+      target_source: "war",
+      war_id: 10,
+      faction_id: 123,
+    });
+    env.state = env.states.target;
+    env.states.home = trackerState("home", {
+      enabled: 1,
+      message_id: "home-message",
+      content_hash: "old-home-hash",
+      target_source: "home",
+      faction_id: 8803,
+    });
+    const request = new Request("https://worker.test/api/admin/discord-travel-tracker/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_enabled: false, home_enabled: false }),
+    });
+
+    const response = await updateDiscordTravelTrackerSettingsFromRequest(request, env);
+
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      target_enabled: false,
+      home_enabled: false,
+      sync: {
+        target: { changed: true, source: "inactive", reason: "target travel tracker disabled" },
+        home: { changed: true, source: "inactive", reason: "home travel tracker disabled" },
+      },
+    });
+    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+      env,
+      "target-message",
+      expect.stringContaining("Target Travel Tracker: stopped"),
+      { users: [], roles: [] },
+      { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
+    );
+    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+      env,
+      "home-message",
+      expect.stringContaining("Buttgrass Travel Tracker: stopped"),
+      { users: [], roles: [] },
+      { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
+    );
+  });
+
+  it("edits the existing target message when active target tracking stops", async () => {
+    vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
+    const env = fakeEnv();
+    env.states.target = trackerState("target", {
+      enabled: 1,
+      message_id: "target-message",
+      content_hash: "old-target-hash",
+      target_source: "war",
+      war_id: 10,
+      faction_id: 123,
+    });
+    env.state = env.states.target;
+
+    await expect(syncDiscordTravelTracker(env, {
+      force: true,
+      scheduledTime: 1_800_000_000_000,
+    })).resolves.toMatchObject({
+      target: {
+        changed: true,
+        source: "inactive",
+        reason: "no active travel tracker target",
+        message_id: "target-message",
+      },
+    });
+    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+      env,
+      "target-message",
+      expect.stringContaining("Tracking stopped"),
+      { users: [], roles: [] },
+      { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
+    );
+    expect(createDiscordWebhookMessage).not.toHaveBeenCalled();
   });
 
   it("manual-only sync still allows enabled home tracking", async () => {
@@ -319,7 +404,7 @@ describe("Discord travel tracker", () => {
     expect(refreshTrackedFactionMemberStatuses).toHaveBeenCalledWith(env, 456, 1_799_999_900);
     expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
       env,
-      expect.stringContaining("Faction Travel Tracker: Manual Faction"),
+      expect.stringContaining("Manual Faction Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
@@ -344,7 +429,7 @@ describe("Discord travel tracker", () => {
     });
     expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
       env,
-      expect.stringContaining("Faction Travel Tracker: Target Name"),
+      expect.stringContaining("Target Name Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
@@ -380,7 +465,7 @@ describe("Discord travel tracker", () => {
     });
     expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
       env,
-      expect.stringContaining("Faction Travel Tracker: Manual Faction"),
+      expect.stringContaining("Manual Faction Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
