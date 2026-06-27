@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../types";
 import type {
   LifestyleRepairItemRow,
@@ -52,6 +52,7 @@ vi.mock("./internal", () => ({
 }));
 
 import { TornPersonalStatsHttpError } from "../personalStats";
+import { refreshDailyMemberLifestyleStats } from "./dailyPersonal";
 import { refreshDailyGymStats } from "./dailyGym";
 import { processMemberLifestyleRepairJobs } from "./repairJobs";
 
@@ -129,7 +130,38 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("lifestyle stats workflows", () => {
+  it("uses current faction tenure when checking daily personal stats completion", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-27T06:20:00.000Z"));
+    const db = new TestD1Database((call) => handleDailyPersonalQuery(call));
+    const env = { DB: db } as unknown as Env;
+
+    const result = await refreshDailyMemberLifestyleStats(env, {
+      limit: 1,
+      useLock: false,
+    });
+
+    const completionCall = db.calls.find((call) =>
+      call.method === "first" &&
+      call.sql.includes("SELECT members.member_id") &&
+      call.sql.includes("LEFT JOIN member_lifestyle_stat_snapshots snapshots")
+    );
+    expect(result).toMatchObject({ skipped: false, considered: 0, refreshed: 0, failed: 0 });
+    expect(completionCall?.sql).toContain("members.days_in_faction IS NULL");
+    expect(completionCall?.sql).toContain("? > date(members.updated_at");
+    expect(completionCall?.params).toEqual(["2026-06-26", 8803, "2026-06-26"]);
+    expect(mocks.writeLifestyleSnapshotForDate).toHaveBeenCalledWith(
+      env,
+      "2026-06-27",
+      { freshAfter: timestampForDailyPoll("2026-06-27") + 10 * 60 },
+    );
+  });
+
   it("skips stale repair buckets and later unavailable repair items", async () => {
     const job = repairJob({
       calls_per_minute_per_key: 3,
@@ -275,6 +307,22 @@ function repairEnv(options: {
     DB: db,
     TORN_API_KEY: "primary-key",
   } as unknown as Env;
+}
+
+function handleDailyPersonalQuery(call: QueryCall): unknown {
+  if (call.method === "run" && call.sql.includes("member_personal_stats_recent")) {
+    return d1Result(1);
+  }
+
+  if (
+    call.method === "first" &&
+    call.sql.includes("SELECT members.member_id") &&
+    call.sql.includes("FROM home_faction_members members")
+  ) {
+    return null;
+  }
+
+  throw new Error(`Unhandled daily personal query: ${call.method} ${call.sql}`);
 }
 
 function handleRepairQuery(

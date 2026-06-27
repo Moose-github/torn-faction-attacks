@@ -492,11 +492,16 @@ async function isPersonalStatsDateComplete(env: Env, targetSnapshotDate: string)
     WHERE members.faction_id = ?
       AND members.is_current = 1
       AND members.report_exempt = 0
+      AND (
+        members.days_in_faction IS NULL
+        OR members.updated_at IS NULL
+        OR ? > date(members.updated_at, 'unixepoch', '-' || members.days_in_faction || ' days')
+      )
       AND snapshots.member_id IS NULL
     LIMIT 1
     `,
   )
-    .bind(targetSnapshotDate, HOME_FACTION_ID)
+    .bind(targetSnapshotDate, HOME_FACTION_ID, targetSnapshotDate)
     .first();
 
   return remaining === null;
