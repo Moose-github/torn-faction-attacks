@@ -43,7 +43,41 @@ describe("daily lifestyle stats attention", () => {
       ],
     });
   });
+
+  it("ignores daily attention rows from before the member joined the faction", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-06T12:00:00Z"));
+    const calls: DbCall[] = [];
+
+    await getDailyStatsAttention(lifestyleAttentionEnv({
+      latestBucketDate: "2026-06-05",
+      affectedMembers: [],
+      counts: {
+        stale_personalstats: 0,
+        missing_donator_days: 0,
+      },
+      calls,
+    }));
+
+    const affectedMembersCall = calls.find((call) =>
+      call.method === "all" && call.sql.includes("LIMIT 12")
+    );
+    const countsCall = calls.find((call) =>
+      call.method === "first" && call.sql.includes("AS stale_personalstats")
+    );
+
+    expect(affectedMembersCall?.sql).toContain("members.days_in_faction IS NULL");
+    expect(affectedMembersCall?.sql).toContain("stats.snapshot_date > date(members.updated_at");
+    expect(countsCall?.sql).toContain("members.days_in_faction IS NULL");
+    expect(countsCall?.sql).toContain("stats.snapshot_date > date(members.updated_at");
+  });
 });
+
+type DbCall = {
+  sql: string;
+  method: "first" | "all";
+  params: unknown[];
+};
 
 function lifestyleAttentionEnv(options: {
   latestBucketDate: string | null;
@@ -57,17 +91,26 @@ function lifestyleAttentionEnv(options: {
     stale_personalstats: number | null;
     missing_donator_days: number | null;
   } | null;
+  calls?: DbCall[];
 }): Env {
   return {
     DB: {
       prepare(sql: string) {
         const compactSql = sql.replace(/\s+/g, " ").trim();
         const statement = {
-          bind() {
+          params: [] as unknown[],
+          bind(...params: unknown[]) {
+            statement.params = params;
             return statement;
           },
-          first: async () => firstRowForQuery(compactSql, options),
-          all: async () => ({ results: rowsForQuery(compactSql, options) }),
+          first: async () => {
+            options.calls?.push({ sql: compactSql, method: "first", params: statement.params });
+            return firstRowForQuery(compactSql, options);
+          },
+          all: async () => {
+            options.calls?.push({ sql: compactSql, method: "all", params: statement.params });
+            return { results: rowsForQuery(compactSql, options) };
+          },
         };
         return statement;
       },

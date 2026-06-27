@@ -45,6 +45,17 @@ const LIFESTYLE_SNAPSHOT_COLUMNS = `
   snapshots.validation_error
 `;
 
+function currentMembershipDateCondition(
+  memberAlias: string,
+  dateExpression: string,
+): string {
+  return `(
+          ${memberAlias}.days_in_faction IS NULL
+          OR ${memberAlias}.updated_at IS NULL
+          OR ${dateExpression} > date(${memberAlias}.updated_at, 'unixepoch', '-' || ${memberAlias}.days_in_faction || ' days')
+        )`;
+}
+
 export type DailyStatsAttentionCounts = Pick<
   DailyStatsAttention,
   "missing_donator_days" | "stale_personalstats"
@@ -74,11 +85,7 @@ export async function readCompleteLifestyleSnapshotDateRange(
       WHERE members.faction_id = ?
         AND members.is_current = 1
         AND members.report_exempt = 0
-        AND (
-          members.days_in_faction IS NULL
-          OR members.updated_at IS NULL
-          OR candidate_dates.snapshot_date > date(members.updated_at, 'unixepoch', '-' || members.days_in_faction || ' days')
-        )
+        AND ${currentMembershipDateCondition("members", "candidate_dates.snapshot_date")}
         AND snapshots.member_id IS NULL
     )
     `,
@@ -212,6 +219,7 @@ export async function readDailyStatsAttentionMembers(
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
       AND members.report_exempt = 0
+      AND ${currentMembershipDateCondition("members", "stats.snapshot_date")}
       AND (
         stats.status = 'retry_expired'
         OR (
@@ -271,6 +279,7 @@ export async function readDailyStatsAttentionCounts(
       ON stats.member_id = members.member_id
     WHERE members.is_current = 1
       AND members.report_exempt = 0
+      AND ${currentMembershipDateCondition("members", "stats.snapshot_date")}
     `,
   )
     .bind(
