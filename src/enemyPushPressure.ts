@@ -1,11 +1,13 @@
 import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordMessage } from "./discord";
+import {
+  ENEMY_PUSH_ALERT_STATE_PREFIX,
+  isEnemyPushAlertEnabled,
+} from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import {
   clearSyncLatch,
-  clearSyncLatchesByPrefix,
-  isSyncLatchSet,
   readSetSyncLatches,
   setSyncLatch,
 } from "./syncLatches";
@@ -26,8 +28,6 @@ const PUSH_LIKELY_SCORE_THRESHOLD = 20;
 const BIG_HITTER_MULTIPLIER_NONE = 0.5;
 const BIG_HITTER_MULTIPLIER_ONE = 1;
 const BIG_HITTER_MULTIPLIER_MULTIPLE = 1.5;
-export const PUSH_ALERT_STATE_PREFIX = "enemy_push_alert";
-const PUSH_ALERT_ENABLED_STATE_NAME = "enemy_push_alert_discord_enabled";
 
 type EnemyPushSnapshotRow = {
   war_id: number;
@@ -57,13 +57,6 @@ type EnemyPushSnapshotRow = {
 };
 
 export type EnemyPushSnapshotInput = Omit<EnemyPushSnapshotRow, "created_at">;
-
-export type EnemyPushAlertSetting = {
-  key: typeof DISCORD_ALERT_KEYS.enemyPush;
-  name: string;
-  enabled: boolean;
-  configurable: boolean;
-};
 
 export type EnemyPushPressureInterpretation = {
   control_state: WarControlState | null;
@@ -368,8 +361,8 @@ export async function sendEnemyPushAlerts(
     return;
   }
 
-  const likelyStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:likely`;
-  const underwayStateName = `${PUSH_ALERT_STATE_PREFIX}:${warId}:underway`;
+  const likelyStateName = `${ENEMY_PUSH_ALERT_STATE_PREFIX}:${warId}:likely`;
+  const underwayStateName = `${ENEMY_PUSH_ALERT_STATE_PREFIX}:${warId}:underway`;
   const setAlertStates = await readSetSyncLatches(env, [likelyStateName, underwayStateName]);
   const controlState = options.controlState === undefined
     ? await readLatestWarControlState(env, warId)
@@ -407,29 +400,6 @@ export async function sendEnemyPushAlerts(
   }
 
   await clearEnemyPushAlertIfSet(env, likelyStateName, setAlertStates);
-}
-
-export async function readEnemyPushAlertSetting(env: Env): Promise<EnemyPushAlertSetting> {
-  return {
-    key: DISCORD_ALERT_KEYS.enemyPush,
-    name: "Enemy push alerts",
-    enabled: await isEnemyPushAlertEnabled(env),
-    configurable: true,
-  };
-}
-
-export async function updateEnemyPushAlertSetting(env: Env, enabled: boolean): Promise<void> {
-  if (enabled) {
-    await setSyncLatch(env, PUSH_ALERT_ENABLED_STATE_NAME, nowSeconds());
-    return;
-  }
-
-  await clearSyncLatch(env, PUSH_ALERT_ENABLED_STATE_NAME);
-  await clearSyncLatchesByPrefix(env, `${PUSH_ALERT_STATE_PREFIX}:`);
-}
-
-async function isEnemyPushAlertEnabled(env: Env): Promise<boolean> {
-  return isSyncLatchSet(env, PUSH_ALERT_ENABLED_STATE_NAME);
 }
 
 async function readLatestEnemyPushSnapshot(env: Env, warId: number): Promise<EnemyPushSnapshotRow | null> {

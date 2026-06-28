@@ -1,6 +1,6 @@
 import { API_BASE_URL, authHeaders, deleteJson, getJson, postJson } from "./client";
 import { queryString } from "./query";
-import type { AdminShopliftingAlertsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
+import type { AdminDiscordAlertSettingsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
 
 export type DiscordTravelTrackerTarget = {
   faction_id: number;
@@ -237,31 +237,31 @@ export async function getAdminXanaxCompetition(): Promise<AdminXanaxCompetitionR
   return getJson<AdminXanaxCompetitionResponse>("/api/admin/xanax-competition", true);
 }
 
-export async function getAdminShopliftingAlerts(): Promise<AdminShopliftingAlertsResponse> {
+export async function getAdminDiscordAlertSettings(): Promise<AdminDiscordAlertSettingsResponse> {
 
-  return getJson<AdminShopliftingAlertsResponse>("/api/admin/shoplifting-alerts", true);
+  return getJson<AdminDiscordAlertSettingsResponse>("/api/admin/discord-alerts/settings", true);
 
 }
 
-export async function updateAdminShopliftingAlert(payload: {
+export async function updateAdminShopliftingDiscordAlert(payload: {
 
   shop_key: ShopliftingAlertSetting["shop_key"];
 
   enabled: boolean;
 
-}): Promise<AdminShopliftingAlertsResponse> {
+}): Promise<AdminDiscordAlertSettingsResponse> {
 
-  return postJson<AdminShopliftingAlertsResponse>("/api/admin/shoplifting-alerts", payload);
+  return postJson<AdminDiscordAlertSettingsResponse>("/api/admin/discord-alerts/settings", payload);
 
 }
 
-export async function updateAdminEnemyPushAlert(payload: {
+export async function updateAdminEnemyPushDiscordAlert(payload: {
 
   enabled: boolean;
 
-}): Promise<AdminShopliftingAlertsResponse> {
+}): Promise<AdminDiscordAlertSettingsResponse> {
 
-  return postJson<AdminShopliftingAlertsResponse>("/api/admin/shoplifting-alerts", {
+  return postJson<AdminDiscordAlertSettingsResponse>("/api/admin/discord-alerts/settings", {
     alert_key: "enemy_push",
     enabled: payload.enabled,
   });

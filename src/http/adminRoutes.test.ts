@@ -18,6 +18,10 @@ import {
   updateDiscordTravelTrackerSettingsFromRequest,
 } from "../discordTravelTracker";
 import {
+  getAdminDiscordAlertSettings,
+  updateAdminDiscordAlertSettingsFromRequest,
+} from "../discordAlertSettings";
+import {
   readSyncTimestamp,
   upsertSyncTimestamp,
 } from "../syncState";
@@ -46,6 +50,10 @@ vi.mock("../discordTravelTracker", () => ({
   setDiscordTravelTrackerTargetFromRequest: vi.fn(),
   syncDiscordTravelTrackerFromRequest: vi.fn(),
   updateDiscordTravelTrackerSettingsFromRequest: vi.fn(),
+}));
+vi.mock("../discordAlertSettings", () => ({
+  getAdminDiscordAlertSettings: vi.fn(),
+  updateAdminDiscordAlertSettingsFromRequest: vi.fn(),
 }));
 vi.mock("../enemyScoutingCron", () => ({
   previewEnemyStatsImageFromRequest: vi.fn(),
@@ -117,6 +125,8 @@ describe("admin routes", () => {
     vi.mocked(clearDiscordTravelTrackerTargetFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-travel-target-clear" }));
     vi.mocked(syncDiscordTravelTrackerFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-travel" }));
     vi.mocked(updateDiscordTravelTrackerSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-travel-settings" }));
+    vi.mocked(getAdminDiscordAlertSettings).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings" }));
+    vi.mocked(updateAdminDiscordAlertSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings-update" }));
   });
 
   it("routes admin data health through admin auth", async () => {
@@ -292,5 +302,41 @@ describe("admin routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "discord-travel-settings" });
     expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
     expect(updateDiscordTravelTrackerSettingsFromRequest).toHaveBeenCalledWith(context.request, context.env);
+  });
+
+  it("routes Discord alert settings through admin auth", async () => {
+    const context = routeContext("https://worker.test/api/admin/discord-alerts/settings");
+
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "discord-alert-settings" });
+    expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
+    expect(getAdminDiscordAlertSettings).toHaveBeenCalledWith(context.env);
+  });
+
+  it("routes Discord alert settings updates through admin auth", async () => {
+    const context = routeContext("https://worker.test/api/admin/discord-alerts/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alert_key: "enemy_push", enabled: true }),
+    });
+
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "discord-alert-settings-update" });
+    expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
+    expect(updateAdminDiscordAlertSettingsFromRequest).toHaveBeenCalledWith(context.request, context.env);
+  });
+
+  it("keeps the old shoplifting alerts route as a Discord alert settings alias", async () => {
+    const context = routeContext("https://worker.test/api/admin/shoplifting-alerts");
+
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "discord-alert-settings" });
+    expect(getAdminDiscordAlertSettings).toHaveBeenCalledWith(context.env);
   });
 });

@@ -1,4 +1,4 @@
-import { PUSH_ALERT_STATE_PREFIX } from "./enemyPushPressure";
+import { ENEMY_PUSH_ALERT_STATE_PREFIX } from "./discordAlertSettings";
 import { clearSyncLatchesByPrefix } from "./syncLatches";
 import { Env } from "./types";
 import { d1Changes } from "./utils";
@@ -121,7 +121,7 @@ export async function clearEnemyLiveTrackingRows(
 
   const pushAlertResult = await clearSyncLatchesByPrefix(
     env,
-    `${PUSH_ALERT_STATE_PREFIX}:${warId}:`,
+    `${ENEMY_PUSH_ALERT_STATE_PREFIX}:${warId}:`,
   );
 
   const warCheckedResult = options.resetWarCheckedAt

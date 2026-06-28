@@ -16,7 +16,7 @@ import {
   getDiscordTravelTrackerTarget,
   getLatestIngestionRun,
   getAdminXanaxCompetition,
-  getAdminShopliftingAlerts,
+  getAdminDiscordAlertSettings,
   getHomeFactionReportExemptions,
   getMemberLifestyleRepairJobs,
   getTornApiUsage,
@@ -45,8 +45,8 @@ import {
   EnemyPushAlertSetting,
   updateDiscordTravelTrackerSettings,
   updateAdminXanaxCompetitionSettings,
-  updateAdminEnemyPushAlert,
-  updateAdminShopliftingAlert,
+  updateAdminEnemyPushDiscordAlert,
+  updateAdminShopliftingDiscordAlert,
   updateHomeFactionReportExemption,
   updateOfficialWar,
   TornApiUsageResponse,
@@ -396,7 +396,7 @@ export function AdminControls() {
   async function loadShopliftingAlerts() {
     setIsLoadingShopliftingAlerts(true);
     try {
-      const response = await getAdminShopliftingAlerts();
+      const response = await getAdminDiscordAlertSettings();
       setShopliftingAlerts(response.alerts);
       setEnemyPushAlert(response.enemy_push_alert);
     } catch {
@@ -746,7 +746,7 @@ export function AdminControls() {
                   onChange={(event) => {
                     const enabled = event.target.checked;
                     runAdminAction("Update enemy push alert", () =>
-                      updateAdminEnemyPushAlert({ enabled }).then((response) => {
+                      updateAdminEnemyPushDiscordAlert({ enabled }).then((response) => {
                         setShopliftingAlerts(response.alerts);
                         setEnemyPushAlert(response.enemy_push_alert);
                         return response;
@@ -767,7 +767,7 @@ export function AdminControls() {
                     onChange={(event) => {
                       const enabled = event.target.checked;
                       runAdminAction("Update shoplifting alert", () =>
-                        updateAdminShopliftingAlert({
+                        updateAdminShopliftingDiscordAlert({
                           shop_key: alert.shop_key,
                           enabled,
                         }).then((response) => {

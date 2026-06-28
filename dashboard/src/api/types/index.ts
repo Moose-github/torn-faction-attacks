@@ -709,7 +709,7 @@ export type EnemyPushAlertSetting = {
 
 
 
-export type AdminShopliftingAlertsResponse = {
+export type AdminDiscordAlertSettingsResponse = {
 
   ok: boolean;
 
@@ -718,8 +718,6 @@ export type AdminShopliftingAlertsResponse = {
   enemy_push_alert: EnemyPushAlertSetting;
 
 };
-
-
 
 export type AttackWindowPayload = {
   practical_start_time: number;

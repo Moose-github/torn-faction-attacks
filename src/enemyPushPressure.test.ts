@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sendDiscordMessage } from "./discord";
+import { isEnemyPushAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { readDiscordAlertMentions } from "./discordMentions";
 import {
@@ -13,7 +14,6 @@ import {
 import {
   clearSyncLatch,
   clearSyncLatchesByPrefix,
-  isSyncLatchSet,
   readSetSyncLatches,
   setSyncLatch,
 } from "./syncLatches";
@@ -30,10 +30,14 @@ vi.mock("./discordMentions", () => ({
   readDiscordAlertMentions: vi.fn(),
 }));
 
+vi.mock("./discordAlertSettings", () => ({
+  ENEMY_PUSH_ALERT_STATE_PREFIX: "enemy_push_alert",
+  isEnemyPushAlertEnabled: vi.fn(),
+}));
+
 vi.mock("./syncLatches", () => ({
   clearSyncLatch: vi.fn(),
   clearSyncLatchesByPrefix: vi.fn(),
-  isSyncLatchSet: vi.fn(),
   readSetSyncLatches: vi.fn(),
   setSyncLatch: vi.fn(),
 }));
@@ -69,6 +73,7 @@ describe("enemy push alerts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(readSetSyncLatches).mockResolvedValue(new Set());
+    vi.mocked(isEnemyPushAlertEnabled).mockResolvedValue(true);
     vi.mocked(readDiscordAlertMentions).mockResolvedValue({
       messageSuffix: "",
       allowedMentions: undefined,
@@ -76,7 +81,7 @@ describe("enemy push alerts", () => {
   });
 
   it("does not send Discord messages by default", async () => {
-    vi.mocked(isSyncLatchSet).mockResolvedValue(false);
+    vi.mocked(isEnemyPushAlertEnabled).mockResolvedValue(false);
 
     await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: null });
 
@@ -87,7 +92,6 @@ describe("enemy push alerts", () => {
   });
 
   it("sends and latches Discord messages when enabled", async () => {
-    vi.mocked(isSyncLatchSet).mockResolvedValue(true);
     vi.mocked(readSetSyncLatches).mockResolvedValue(new Set(["enemy_push_alert:123:likely"]));
 
     await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: null });
@@ -104,7 +108,6 @@ describe("enemy push alerts", () => {
   });
 
   it("sends configured Discord alert mentions for enemy push alerts", async () => {
-    vi.mocked(isSyncLatchSet).mockResolvedValue(true);
     vi.mocked(readDiscordAlertMentions).mockResolvedValue({
       messageSuffix: "<@111111111111111111> <@&222222222222222222>",
       allowedMentions: {
@@ -126,7 +129,6 @@ describe("enemy push alerts", () => {
   });
 
   it("suppresses likely and underway alerts while the enemy already has control", async () => {
-    vi.mocked(isSyncLatchSet).mockResolvedValue(true);
     vi.mocked(readSetSyncLatches).mockResolvedValue(new Set([
       "enemy_push_alert:123:likely",
       "enemy_push_alert:123:underway",

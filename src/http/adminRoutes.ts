@@ -14,6 +14,10 @@ import {
   updateDiscordTravelTrackerSettingsFromRequest,
 } from "../discordTravelTracker";
 import {
+  getAdminDiscordAlertSettings,
+  updateAdminDiscordAlertSettingsFromRequest,
+} from "../discordAlertSettings";
+import {
   previewEnemyStatsImageFromRequest,
   resetEnemyStatsImageFromRequest,
 } from "../enemyScoutingCron";
@@ -37,10 +41,6 @@ import {
 } from "../lifestyleStats/dailyPersonal";
 import { getLatestMaintenanceRun } from "../maintenance";
 import { syncMemberDiscordLinksFromRequest } from "../memberDiscordLinks";
-import {
-  getAdminShopliftingAlertSettings,
-  updateAdminShopliftingAlertSettings,
-} from "../miscellaneous";
 import { cachedGetJson } from "../responseCache";
 import {
   matchesExactRoute,
@@ -236,12 +236,18 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
     return withAdmin(routeContext, () => updateDiscordTravelTrackerSettingsFromRequest(request, env));
   }
 
-  if (matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "GET")) {
-    return withAdmin(routeContext, () => getAdminShopliftingAlertSettings(env));
+  if (
+    matchesExactRoute(url, request, "/api/admin/discord-alerts/settings", "GET") ||
+    matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "GET")
+  ) {
+    return withAdmin(routeContext, () => getAdminDiscordAlertSettings(env));
   }
 
-  if (matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "POST")) {
-    return withAdmin(routeContext, () => updateAdminShopliftingAlertSettings(request, env));
+  if (
+    matchesExactRoute(url, request, "/api/admin/discord-alerts/settings", "POST") ||
+    matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "POST")
+  ) {
+    return withAdmin(routeContext, () => updateAdminDiscordAlertSettingsFromRequest(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/enemy-stats-image/reset", "POST")) {
