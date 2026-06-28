@@ -1,5 +1,7 @@
 import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordMessage } from "./discord";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import {
   clearSyncLatch,
   clearSyncLatchesByPrefix,
@@ -17,7 +19,6 @@ const PUSH_RECENT_ACTIVITY_WINDOW_SECONDS = 5 * 60;
 const PUSH_REFERENCE_WINDOW_SECONDS = 10 * 60;
 const PUSH_HISTORY_SECONDS = 24 * 60 * 60;
 const HEATMAP_INTERVAL_MINUTES = 15;
-const PUSH_ALERT_USER_MENTION = "<@327916221330620436>";
 const PUSH_UNDERWAY_ATTACK_COUNT_THRESHOLD = 6;
 const PUSH_UNDERWAY_ATTACK_SIGNAL_COUNT_THRESHOLD = 3;
 const PUSH_UNDERWAY_ATTACK_SIGNAL_SCORE_THRESHOLD = 13;
@@ -58,7 +59,7 @@ type EnemyPushSnapshotRow = {
 export type EnemyPushSnapshotInput = Omit<EnemyPushSnapshotRow, "created_at">;
 
 export type EnemyPushAlertSetting = {
-  key: "enemy_push";
+  key: typeof DISCORD_ALERT_KEYS.enemyPush;
   name: string;
   enabled: boolean;
   configurable: boolean;
@@ -410,7 +411,7 @@ export async function sendEnemyPushAlerts(
 
 export async function readEnemyPushAlertSetting(env: Env): Promise<EnemyPushAlertSetting> {
   return {
-    key: "enemy_push",
+    key: DISCORD_ALERT_KEYS.enemyPush,
     name: "Enemy push alerts",
     enabled: await isEnemyPushAlertEnabled(env),
     configurable: true,
@@ -640,7 +641,12 @@ async function sendEnemyPushAlertIfNeeded(
     return;
   }
 
-  await sendDiscordMessage(env, message);
+  const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.enemyPush);
+  await sendDiscordMessage(
+    env,
+    formatDiscordAlertMessage(message, mentions.messageSuffix),
+    mentions.allowedMentions,
+  );
   await setSyncLatch(env, stateName, sentAt);
   setAlertStates.add(stateName);
 }
@@ -672,7 +678,7 @@ function formatEnemyPushAlertMessage(
       : `WIP enemy push alert: ${context} is likely building soon for ${warName}.`;
   const reasons = enemyPushAlertReasons(snapshot);
   const onlineMembers = formatOnlineMembersForAlert(members);
-  return `${PUSH_ALERT_USER_MENTION} ${headline} Score ${snapshot.pressure_score}.${reasons ? ` ${reasons}` : ""} ${onlineMembers}`;
+  return `${headline} Score ${snapshot.pressure_score}.${reasons ? ` ${reasons}` : ""} ${onlineMembers}`;
 }
 
 function enemyPushAlertReasons(snapshot: EnemyPushSnapshotInput): string {

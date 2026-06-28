@@ -1,4 +1,5 @@
 import { sendDiscordMessage } from "./discord";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import {
   readEnemyPushAlertSetting,
@@ -17,7 +18,6 @@ import { readJsonObject } from "./backend/request";
 const TORN_SHOPLIFTING_API_URL = "https://api.torn.com/v2/torn";
 const SHOPLIFTING_CACHE_ID = 1;
 const SHOPLIFTING_CRIME_URL = "https://www.torn.com/page.php?sid=crimes#/shoplifting";
-const SHOPLIFTING_SECURITY_ALERT_STATE_PREFIX = "shoplifting_security_alert";
 const SHOPLIFTING_SECURITY_ALERT_ENABLED_STATE_PREFIX = "shoplifting_security_alert_enabled";
 const SHOPLIFTING_SECURITY_ALERT_DISABLED_STATE_PREFIX = "shoplifting_security_alert_disabled";
 const SHOPLIFTING_SECURITY_ALERTS = [
@@ -70,7 +70,7 @@ export async function getAdminShopliftingAlertSettings(env: Env): Promise<Respon
 
 export async function updateAdminShopliftingAlertSettings(request: Request, env: Env): Promise<Response> {
   const body = await readJsonObject(request);
-  if (body.alert_key === "enemy_push") {
+  if (body.alert_key === DISCORD_ALERT_KEYS.enemyPush) {
     if (typeof body.enabled !== "boolean") {
       return json({ ok: false, error: "enabled must be a boolean", code: "INVALID_ENABLED" }, 400);
     }
@@ -98,7 +98,7 @@ export async function updateAdminShopliftingAlertSettings(request: Request, env:
     if (alert.defaultEnabled) {
       await setSyncLatch(env, shopliftingAlertDisabledStateName(alert.shopKey), nowSeconds());
     }
-    await clearShopliftingSecurityAlert(env, shopliftingAlertStateName(alert));
+    await clearShopliftingSecurityAlert(env, shopliftingAlertKey(alert));
   }
 
   return getAdminShopliftingAlertSettings(env);
@@ -230,34 +230,34 @@ async function sendShopliftingSecurityAlerts(
 
   for (const alert of SHOPLIFTING_SECURITY_ALERTS) {
     const obstacles = shoplifting[alert.shopKey] ?? [];
-    const stateName = shopliftingAlertStateName(alert);
+    const alertKey = shopliftingAlertKey(alert);
     const allSecuritiesDown = obstacles.length >= 2 && obstacles.every((obstacle) => obstacle.disabled);
 
     if (!enabledByShopKey.get(alert.shopKey)) {
-      if (sentAlertStates.has(stateName)) {
-        await clearShopliftingSecurityAlert(env, stateName);
+      if (sentAlertStates.has(alertKey)) {
+        await clearShopliftingSecurityAlert(env, alertKey);
       }
       continue;
     }
 
     if (!allSecuritiesDown) {
-      if (sentAlertStates.has(stateName)) {
-        await clearShopliftingSecurityAlert(env, stateName);
+      if (sentAlertStates.has(alertKey)) {
+        await clearShopliftingSecurityAlert(env, alertKey);
       }
       continue;
     }
 
-    if (sentAlertStates.has(stateName)) {
+    if (sentAlertStates.has(alertKey)) {
       continue;
     }
 
-    const mentions = await readDiscordAlertMentions(env, stateName);
+    const mentions = await readDiscordAlertMentions(env, alertKey);
     await sendDiscordMessage(
       env,
       formatDiscordAlertMessage(formatShopliftingSecurityAlert(alert.shopName), mentions.messageSuffix),
       mentions.allowedMentions,
     );
-    await markShopliftingSecurityAlertSent(env, stateName, fetchedAt);
+    await markShopliftingSecurityAlertSent(env, alertKey, fetchedAt);
     alertsSent += 1;
   }
 
@@ -265,10 +265,10 @@ async function sendShopliftingSecurityAlerts(
 }
 
 async function readSentShopliftingSecurityAlerts(env: Env): Promise<Set<string>> {
-  const stateNames = SHOPLIFTING_SECURITY_ALERTS.map(
-    (alert) => shopliftingAlertStateName(alert),
+  const alertKeys = SHOPLIFTING_SECURITY_ALERTS.map(
+    (alert) => shopliftingAlertKey(alert),
   );
-  return readSetSyncLatches(env, stateNames);
+  return readSetSyncLatches(env, alertKeys);
 }
 
 async function readShopliftingSecurityAlertSettings(env: Env): Promise<ShopliftingSecurityAlertSetting[]> {
@@ -291,20 +291,20 @@ async function readShopliftingSecurityAlertSettings(env: Env): Promise<Shoplifti
   }));
 }
 
-async function markShopliftingSecurityAlertSent(env: Env, stateName: string, fetchedAt: number): Promise<void> {
-  await setSyncLatch(env, stateName, fetchedAt);
+async function markShopliftingSecurityAlertSent(env: Env, alertKey: string, fetchedAt: number): Promise<void> {
+  await setSyncLatch(env, alertKey, fetchedAt);
 }
 
-async function clearShopliftingSecurityAlert(env: Env, stateName: string): Promise<void> {
-  await clearSyncLatch(env, stateName);
+async function clearShopliftingSecurityAlert(env: Env, alertKey: string): Promise<void> {
+  await clearSyncLatch(env, alertKey);
 }
 
 function formatShopliftingSecurityAlert(shopName: string): string {
   return `[Shoplifting alert:](${SHOPLIFTING_CRIME_URL}) all securities are down at ${shopName}.`;
 }
 
-function shopliftingAlertStateName(alert: Pick<ShopliftingSecurityAlertConfig, "shopKey">): string {
-  return `${SHOPLIFTING_SECURITY_ALERT_STATE_PREFIX}:${alert.shopKey}`;
+function shopliftingAlertKey(alert: Pick<ShopliftingSecurityAlertConfig, "shopKey">): string {
+  return DISCORD_ALERT_KEYS.shopliftingSecurity(alert.shopKey);
 }
 
 function shopliftingAlertEnabledStateName(shopKey: ShopliftingSecurityAlertConfig["shopKey"]): string {

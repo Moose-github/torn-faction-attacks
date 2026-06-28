@@ -6,6 +6,7 @@ import {
   TORN_FACTION_CHAIN_API_URL,
 } from "./constants";
 import { createDiscordWebhookMessage, type DiscordAllowedMentions, editDiscordWebhookMessage } from "./discord";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
 import { WAR_SELECT_COLUMNS, WAR_SELECT_COLUMNS_WITH_ALIAS } from "./sql";
@@ -24,7 +25,6 @@ const CHAIN_WATCH_ALARM_NAME_PREFIX = "chain-watch";
 const CHAIN_WATCH_LIVE_TIMEOUT_DRIFT_SECONDS = 5;
 const CHAIN_WATCH_WARNING_COLOR = 0xffa500;
 const CHAIN_WATCH_CRITICAL_COLOR = 0xff0000;
-const CHAIN_WATCH_ALERT_KEY = "chain_watch";
 
 type ChainWatchSource = "stored" | "live_confirm" | "stale" | "dropped";
 type ChainWatchAlarmStage = "warning_60" | "warning_30" | "drop";
@@ -1088,7 +1088,7 @@ async function chainWatchWarningDiscordMessage(
     lastHit: ChainWatchStateRow | ChainWatchAttackRow | null;
   },
 ): Promise<{ message: string; allowedMentions?: DiscordAllowedMentions }> {
-  const mentions = await readDiscordAlertMentions(env, CHAIN_WATCH_ALERT_KEY);
+  const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.chainWatch);
   return {
     message: formatDiscordAlertMessage(chainWatchWarningMessage(options), mentions.messageSuffix),
     allowedMentions: mentions.allowedMentions ?? { users: [], roles: [] },

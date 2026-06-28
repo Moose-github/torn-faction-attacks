@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sendDiscordMessage } from "./discord";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import { readDiscordAlertMentions } from "./discordMentions";
 import {
   bigHitterPressureMultiplierForCount,
   buildEnemyPushSnapshot,
@@ -20,6 +22,12 @@ import type { TornFactionMember } from "./types";
 
 vi.mock("./discord", () => ({
   sendDiscordMessage: vi.fn(),
+}));
+
+vi.mock("./discordMentions", () => ({
+  formatDiscordAlertMessage: (alertText: string, messageSuffix: string) =>
+    messageSuffix ? `${alertText}\n${messageSuffix}` : alertText,
+  readDiscordAlertMentions: vi.fn(),
 }));
 
 vi.mock("./syncLatches", () => ({
@@ -61,6 +69,10 @@ describe("enemy push alerts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(readSetSyncLatches).mockResolvedValue(new Set());
+    vi.mocked(readDiscordAlertMentions).mockResolvedValue({
+      messageSuffix: "",
+      allowedMentions: undefined,
+    });
   });
 
   it("does not send Discord messages by default", async () => {
@@ -81,8 +93,36 @@ describe("enemy push alerts", () => {
     await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: null });
 
     expect(sendDiscordMessage).toHaveBeenCalledOnce();
+    expect(readDiscordAlertMentions).toHaveBeenCalledWith(env, DISCORD_ALERT_KEYS.enemyPush);
+    expect(sendDiscordMessage).toHaveBeenCalledWith(
+      env,
+      expect.not.stringContaining("<@327916221330620436>"),
+      undefined,
+    );
     expect(setSyncLatch).toHaveBeenCalledWith(env, "enemy_push_alert:123:underway", snapshot.bucket_start);
     expect(clearSyncLatch).toHaveBeenCalledWith(env, "enemy_push_alert:123:likely");
+  });
+
+  it("sends configured Discord alert mentions for enemy push alerts", async () => {
+    vi.mocked(isSyncLatchSet).mockResolvedValue(true);
+    vi.mocked(readDiscordAlertMentions).mockResolvedValue({
+      messageSuffix: "<@111111111111111111> <@&222222222222222222>",
+      allowedMentions: {
+        users: ["111111111111111111"],
+        roles: ["222222222222222222"],
+      },
+    });
+
+    await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: null });
+
+    expect(sendDiscordMessage).toHaveBeenCalledWith(
+      env,
+      expect.stringContaining("\n<@111111111111111111> <@&222222222222222222>"),
+      {
+        users: ["111111111111111111"],
+        roles: ["222222222222222222"],
+      },
+    );
   });
 
   it("suppresses likely and underway alerts while the enemy already has control", async () => {
