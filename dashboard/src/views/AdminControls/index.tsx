@@ -40,10 +40,12 @@ import {
   runIngestion,
   sendDiscordMessage,
   setDiscordTravelTrackerTarget,
+  ChainWatchAlertSetting,
   ShopliftingAlertSetting,
   syncDiscordTravelTracker,
   EnemyPushAlertSetting,
   updateDiscordTravelTrackerSettings,
+  updateAdminChainWatchDiscordAlert,
   updateAdminXanaxCompetitionSettings,
   updateAdminEnemyPushDiscordAlert,
   updateAdminShopliftingDiscordAlert,
@@ -116,6 +118,7 @@ export function AdminControls() {
   const [xanaxCompetition, setXanaxCompetition] =
     React.useState<AdminXanaxCompetitionResponse | null>(null);
   const [isLoadingXanaxCompetition, setIsLoadingXanaxCompetition] = React.useState(false);
+  const [chainWatchAlert, setChainWatchAlert] = React.useState<ChainWatchAlertSetting | null>(null);
   const [shopliftingAlerts, setShopliftingAlerts] = React.useState<ShopliftingAlertSetting[]>([]);
   const [enemyPushAlert, setEnemyPushAlert] = React.useState<EnemyPushAlertSetting | null>(null);
   const [isLoadingShopliftingAlerts, setIsLoadingShopliftingAlerts] = React.useState(false);
@@ -397,9 +400,11 @@ export function AdminControls() {
     setIsLoadingShopliftingAlerts(true);
     try {
       const response = await getAdminDiscordAlertSettings();
+      setChainWatchAlert(response.chain_watch_alert);
       setShopliftingAlerts(response.alerts);
       setEnemyPushAlert(response.enemy_push_alert);
     } catch {
+      setChainWatchAlert(null);
       setShopliftingAlerts([]);
       setEnemyPushAlert(null);
     } finally {
@@ -452,11 +457,12 @@ export function AdminControls() {
       : "No data";
   const shopliftingAlertStatus = isLoadingShopliftingAlerts
     ? "Loading"
-    : shopliftingAlerts.length > 0 || enemyPushAlert
+    : shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert
       ? `${[
+          ...(chainWatchAlert ? [chainWatchAlert.enabled] : []),
           ...shopliftingAlerts.map((alert) => alert.enabled),
           ...(enemyPushAlert ? [enemyPushAlert.enabled] : []),
-        ].filter(Boolean).length}/${shopliftingAlerts.length + (enemyPushAlert ? 1 : 0)} active`
+        ].filter(Boolean).length}/${shopliftingAlerts.length + (enemyPushAlert ? 1 : 0) + (chainWatchAlert ? 1 : 0)} active`
       : "Unavailable";
   const discordTravelTrackerStatus = isLoadingDiscordTravelTarget
     ? "Loading"
@@ -737,6 +743,27 @@ export function AdminControls() {
         <section className="panel admin-panel-shoplifting-alerts">
           <PanelHeader title="Discord alerts" aside={shopliftingAlertStatus} />
           <div className="admin-form">
+            {chainWatchAlert ? (
+              <label className="checkbox-row admin-form-wide">
+                <input
+                  type="checkbox"
+                  checked={chainWatchAlert.enabled}
+                  disabled={isBusy !== null || isLoadingShopliftingAlerts}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    runAdminAction("Update chain watch alert", () =>
+                      updateAdminChainWatchDiscordAlert({ enabled }).then((response) => {
+                        setChainWatchAlert(response.chain_watch_alert);
+                        setShopliftingAlerts(response.alerts);
+                        setEnemyPushAlert(response.enemy_push_alert);
+                        return response;
+                      }),
+                    );
+                  }}
+                />
+                <span>{chainWatchAlert.name}</span>
+              </label>
+            ) : null}
             {enemyPushAlert ? (
               <label className="checkbox-row admin-form-wide">
                 <input
@@ -747,6 +774,7 @@ export function AdminControls() {
                     const enabled = event.target.checked;
                     runAdminAction("Update enemy push alert", () =>
                       updateAdminEnemyPushDiscordAlert({ enabled }).then((response) => {
+                        setChainWatchAlert(response.chain_watch_alert);
                         setShopliftingAlerts(response.alerts);
                         setEnemyPushAlert(response.enemy_push_alert);
                         return response;
@@ -771,6 +799,7 @@ export function AdminControls() {
                           shop_key: alert.shop_key,
                           enabled,
                         }).then((response) => {
+                          setChainWatchAlert(response.chain_watch_alert);
                           setShopliftingAlerts(response.alerts);
                           setEnemyPushAlert(response.enemy_push_alert);
                           return response;

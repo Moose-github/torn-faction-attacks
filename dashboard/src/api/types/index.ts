@@ -707,11 +707,25 @@ export type EnemyPushAlertSetting = {
 
 };
 
+export type ChainWatchAlertSetting = {
+
+  key: "chain_watch";
+
+  name: string;
+
+  enabled: boolean;
+
+  configurable: boolean;
+
+};
+
 
 
 export type AdminDiscordAlertSettingsResponse = {
 
   ok: boolean;
+
+  chain_watch_alert: ChainWatchAlertSetting;
 
   alerts: ShopliftingAlertSetting[];
 

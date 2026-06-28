@@ -10,6 +10,14 @@ CREATE TABLE admin_users (
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+CREATE TABLE alert_settings (
+  alert_key TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+  configurable INTEGER NOT NULL DEFAULT 1 CHECK (configurable IN (0, 1)),
+  scope TEXT NOT NULL DEFAULT 'global',
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE attacks (
     id INTEGER PRIMARY KEY,
     war_id INTEGER,

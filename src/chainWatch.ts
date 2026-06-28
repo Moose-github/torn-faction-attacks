@@ -6,6 +6,7 @@ import {
   TORN_FACTION_CHAIN_API_URL,
 } from "./constants";
 import { createDiscordWebhookMessage, type DiscordAllowedMentions, editDiscordWebhookMessage } from "./discord";
+import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
@@ -943,6 +944,9 @@ async function upsertChainWatchDiscordMessage(
   embedColor?: number,
 ): Promise<string | null> {
   if (!env.DISCORD_WEBHOOK_URL) {
+    return existingMessageId;
+  }
+  if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.chainWatch)) {
     return existingMessageId;
   }
 
