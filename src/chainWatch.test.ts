@@ -5,6 +5,9 @@ import {
   chainWatchAlertEligible,
   chainWatchDroppedMessage,
   chainWatchNormalMessage,
+  chainWatchStoppedMessage,
+  chainWatchTrackingMessage,
+  chainWatchWarningAlertKey,
   chainWatchWarningMessage,
   isQualifyingChainAttack,
   parseTornChainResponse,
@@ -12,6 +15,7 @@ import {
   type ChainWatchAttackRow,
 } from "./chainWatch";
 import { HOME_FACTION_ID } from "./constants";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 
 describe("chain watch stored attacks", () => {
   it("accepts successful outgoing home attacks against any non-home target", () => {
@@ -179,6 +183,22 @@ describe("chain watch Discord messages", () => {
       timeoutAt: 1_800_000_000,
       lastHit: attackRow({ attacker_name: "Alice", defender_name: "Bob" }),
     })).toContain("Chain Watch: chain 125 dropped at 15 Jan 2027, 08:00:00.");
+  });
+
+  it("formats the tracking message before a qualifying chain exists", () => {
+    expect(chainWatchTrackingMessage({ currentChain: 0 })).toBe([
+      "Chain Watch: tracking is active.",
+      "Waiting for a qualifying chain above 100.",
+    ].join("\n"));
+  });
+
+  it("formats the stopped message with the war name", () => {
+    expect(chainWatchStoppedMessage({ warName: "Alpha  War" })).toBe("Chain Watch stopped for Alpha War.");
+  });
+
+  it("routes warning and critical messages to separate subscription keys", () => {
+    expect(chainWatchWarningAlertKey("warning_60")).toBe(DISCORD_ALERT_KEYS.chainWatchWarning);
+    expect(chainWatchWarningAlertKey("warning_30")).toBe(DISCORD_ALERT_KEYS.chainWatchCritical);
   });
 });
 

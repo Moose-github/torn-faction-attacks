@@ -1,5 +1,8 @@
 export const DISCORD_ALERT_KEYS = {
   chainWatch: "chain_watch",
+  chainWatchWarning: "chain_watch_warning",
+  chainWatchCritical: "chain_watch_critical",
+  chainWatchDrop: "chain_watch_drop",
   enemyPush: "enemy_push",
   shopliftingSecurity: <ShopKey extends string>(shopKey: ShopKey): `shoplifting_security_alert:${ShopKey}` =>
     `shoplifting_security_alert:${shopKey}`,
@@ -9,7 +12,25 @@ export const DISCORD_ALERTS = [
   {
     key: DISCORD_ALERT_KEYS.chainWatch,
     name: "Chain watch",
-    description: "Warnings when a qualifying chain is close to dropping.",
+    description: "Persistent Chain Watch status message updates.",
+    subscribable: false,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.chainWatchWarning,
+    name: "Chain watch warning",
+    description: "Mentions when a qualifying chain has 60 seconds remaining.",
+    subscribable: true,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.chainWatchCritical,
+    name: "Chain watch critical",
+    description: "Mentions when a qualifying chain has 30 seconds remaining.",
+    subscribable: true,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.chainWatchDrop,
+    name: "Chain watch dropped",
+    description: "Mentions when a qualifying chain has dropped.",
     subscribable: true,
   },
   {
