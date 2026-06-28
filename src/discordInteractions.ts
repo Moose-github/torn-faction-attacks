@@ -243,18 +243,6 @@ async function routeDiscordCommand(
     return view === "travel" ? travelCurrentResponse(env, "all", 10) : warEnemyResponse(env, view);
   }
 
-  if (command === DISCORD_COMMAND_NAMES.travel && subcommand?.name === "current") {
-    return travelCurrentResponse(
-      env,
-      optionString(subcommand, "view") ?? "all",
-      optionInteger(subcommand, "limit"),
-    );
-  }
-
-  if (command === DISCORD_COMMAND_NAMES.chain && subcommand?.name === "status") {
-    return chainStatusResponse(env, DISCORD_RESPONSE_CHANNEL_MESSAGE);
-  }
-
   if (command === DISCORD_COMMAND_NAMES.bot && subcommand?.name === "help") {
     return botHelpResponse();
   }
@@ -456,8 +444,6 @@ function botHelpResponse(): DiscordInteractionResponse {
           "`/war current` - active or latest war summary",
           "`/war members` - member leaderboard",
           "`/war enemy` - enemy status or scouting summary",
-          "`/travel current` - enemy travel tracker with routes and ETAs",
-          "`/chain status` - chain watch status",
         ].join("\n"),
         color: BOT_COLOR,
       },

@@ -4,9 +4,14 @@ import {
   handleVerifiedDiscordInteraction,
   verifyDiscordRequestSignature,
 } from "./discordInteractions";
+import { discordApplicationCommands } from "./discordCommands";
 import type { Env, WarRow } from "./types";
 
 describe("Discord interactions", () => {
+  it("does not register top-level travel or chain slash commands", () => {
+    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["war", "bot"]);
+  });
+
   it("verifies valid Ed25519 request signatures", async () => {
     const signed = await signedDiscordRequest({ type: 1 });
 
@@ -84,14 +89,13 @@ describe("Discord interactions", () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
       data: {
-        name: "travel",
+        name: "war",
         options: [
           {
             type: 1,
-            name: "current",
+            name: "enemy",
             options: [
-              { type: 3, name: "view", value: "all" },
-              { type: 4, name: "limit", value: 5 },
+              { type: 3, name: "view", value: "travel" },
             ],
           },
         ],
@@ -113,14 +117,13 @@ describe("Discord interactions", () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
       data: {
-        name: "travel",
+        name: "war",
         options: [
           {
             type: 1,
-            name: "current",
+            name: "enemy",
             options: [
-              { type: 3, name: "view", value: "all" },
-              { type: 4, name: "limit", value: 5 },
+              { type: 3, name: "view", value: "travel" },
             ],
           },
         ],
