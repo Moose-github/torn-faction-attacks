@@ -1,6 +1,11 @@
 import { HOME_FACTION_ID } from "./constants";
 import { bumpGlobalWarCacheVersion } from "./cacheVersions";
 import { fetchTornFactionMembers } from "./enemyScouting";
+import {
+  ENEMY_MEMBER_LIVE_STATUS_TABLE,
+  HOME_MEMBER_LIVE_STATUS_TABLE,
+  upsertMemberRevivableStatus,
+} from "./memberLiveStatus";
 import { warNameFromWarRoute } from "./routes";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env, TornFactionMember, WarRow } from "./types";
@@ -396,7 +401,7 @@ async function updateCachedRevivableMembers(
   members: TornFactionMember[],
 ): Promise<{ writeStatements: number; changedRows: number }> {
   const tableName =
-    factionId === HOME_FACTION_ID ? "home_faction_members" : "enemy_faction_members";
+    factionId === HOME_FACTION_ID ? HOME_MEMBER_LIVE_STATUS_TABLE : ENEMY_MEMBER_LIVE_STATUS_TABLE;
   const revivableMembers = members.filter((member) => typeof effectiveRevivableStatus(member) === "boolean");
   if (revivableMembers.length === 0) {
     return { writeStatements: 0, changedRows: 0 };
@@ -414,18 +419,12 @@ async function updateCachedRevivableMembers(
       return existingValues.get(member.id) !== nextValue;
     })
     .map((member) =>
-      env.DB.prepare(
-        `
-        UPDATE ${tableName}
-        SET is_revivable = ?,
-            updated_at = unixepoch()
-        WHERE faction_id = ?
-          AND member_id = ?
-        `,
-      ).bind(
-        boolToInt(effectiveRevivableStatus(member) ?? false),
-        factionId,
+      upsertMemberRevivableStatus(
+        env,
+        tableName,
         member.id,
+        factionId,
+        boolToInt(effectiveRevivableStatus(member) ?? false),
       ),
     );
 

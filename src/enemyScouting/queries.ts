@@ -1,6 +1,7 @@
 import { HOME_FACTION_ID, SOURCE_NAME } from "../constants";
 import type { Env } from "../types";
 import type { CurrentScoutingWar, EnemyFactionMemberRow } from "./model";
+import { MEMBER_LIVE_STATUS_SELECT_COLUMNS } from "../memberLiveStatus";
 
 export async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingWar | null> {
   return (await env.DB.prepare(
@@ -37,10 +38,31 @@ export async function readEnemyScouting(
 ): Promise<EnemyFactionMemberRow[]> {
   const rows = await env.DB.prepare(
     `
-    SELECT *
-    FROM enemy_faction_members
-    WHERE faction_id = ?
-    ORDER BY ff_battlestats DESC NULLS LAST, level DESC, name ASC
+    SELECT
+      members.member_id,
+      members.faction_id,
+      members.name,
+      members.level,
+      members.position,
+      members.days_in_faction,
+      members.ff_battlestats,
+      members.ff_battlestats_updated_at,
+      members.bsp_battlestats,
+      members.bsp_battlestats_updated_at,
+      members.networth,
+      members.networth_updated_at,
+      members.networth_attempted_at,
+      members.networth_attempt_count,
+      members.networth_error,
+      members.networth_key_source,
+      ${MEMBER_LIVE_STATUS_SELECT_COLUMNS},
+      members.updated_at
+    FROM enemy_faction_members members
+    LEFT JOIN enemy_member_live_status live
+      ON live.member_id = members.member_id
+     AND live.faction_id = members.faction_id
+    WHERE members.faction_id = ?
+    ORDER BY members.ff_battlestats DESC NULLS LAST, members.level DESC, members.name ASC
     `,
   )
     .bind(factionId)
@@ -52,11 +74,32 @@ export async function readEnemyScouting(
 export async function readHomeScouting(env: Env): Promise<EnemyFactionMemberRow[]> {
   const rows = await env.DB.prepare(
     `
-    SELECT *
-    FROM home_faction_members
-    WHERE faction_id = ?
-      AND is_current = 1
-    ORDER BY ff_battlestats DESC NULLS LAST, level DESC, name ASC
+    SELECT
+      members.member_id,
+      members.faction_id,
+      members.name,
+      members.level,
+      members.position,
+      members.days_in_faction,
+      members.ff_battlestats,
+      members.ff_battlestats_updated_at,
+      members.bsp_battlestats,
+      members.bsp_battlestats_updated_at,
+      members.networth,
+      members.networth_updated_at,
+      NULL AS networth_attempted_at,
+      NULL AS networth_attempt_count,
+      NULL AS networth_error,
+      NULL AS networth_key_source,
+      ${MEMBER_LIVE_STATUS_SELECT_COLUMNS},
+      members.updated_at
+    FROM home_faction_members members
+    LEFT JOIN home_member_live_status live
+      ON live.member_id = members.member_id
+     AND live.faction_id = members.faction_id
+    WHERE members.faction_id = ?
+      AND members.is_current = 1
+    ORDER BY members.ff_battlestats DESC NULLS LAST, members.level DESC, members.name ASC
     `,
   )
     .bind(HOME_FACTION_ID)

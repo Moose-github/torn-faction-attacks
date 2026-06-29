@@ -1,5 +1,9 @@
 import { HOME_FACTION_ID } from "../constants";
 import { fetchTornFactionMembers } from "../enemyScouting";
+import {
+  HOME_MEMBER_LIVE_STATUS_TABLE,
+  upsertMemberRevivableStatus,
+} from "../memberLiveStatus";
 import { Env, TornFactionMember } from "../types";
 import { boolToInt, effectiveRevivableStatus, finiteNumber } from "../utils";
 import type {
@@ -95,7 +99,7 @@ export async function syncHomeFactionMemberList(env: Env): Promise<void> {
   }
 
   await env.DB.batch(
-    members.map((member) =>
+    members.flatMap((member) => [
       env.DB.prepare(
         `
         INSERT INTO home_faction_members (
@@ -105,18 +109,16 @@ export async function syncHomeFactionMemberList(env: Env): Promise<void> {
           level,
           position,
           days_in_faction,
-          is_revivable,
           is_current,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, 1, unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
           level = excluded.level,
           position = excluded.position,
           days_in_faction = excluded.days_in_faction,
-          is_revivable = excluded.is_revivable,
           is_current = 1,
           updated_at = excluded.updated_at
         `,
@@ -127,9 +129,15 @@ export async function syncHomeFactionMemberList(env: Env): Promise<void> {
         finiteNumber(member.level),
         member.position ?? null,
         finiteNumber(member.days_in_faction),
+      ),
+      upsertMemberRevivableStatus(
+        env,
+        HOME_MEMBER_LIVE_STATUS_TABLE,
+        member.id,
+        HOME_FACTION_ID,
         boolToInt(effectiveRevivableStatus(member) ?? false),
       ),
-    ),
+    ]),
   );
 
   await markDepartedHomeFactionMembers(env, members);
@@ -155,6 +163,16 @@ async function markDepartedHomeFactionMembers(
     `,
   )
     .bind(...ids)
+    .run();
+
+  await env.DB.prepare(
+    `
+    DELETE FROM home_member_live_status
+    WHERE faction_id = ?
+      AND member_id NOT IN (${ids.map(() => "?").join(",")})
+    `,
+  )
+    .bind(HOME_FACTION_ID, ...ids)
     .run();
 }
 

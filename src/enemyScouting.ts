@@ -66,6 +66,12 @@ import {
   readEnemyScouting,
   readHomeScouting,
 } from "./enemyScouting/queries";
+import {
+  deleteStaleMemberLiveStatus,
+  ENEMY_MEMBER_LIVE_STATUS_TABLE,
+  HOME_MEMBER_LIVE_STATUS_TABLE,
+  upsertMemberLiveStatus,
+} from "./memberLiveStatus";
 export {
   readCurrentScoutingWar,
   readEnemyScouting,
@@ -400,93 +406,12 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
     clearReplaceableHeatmaps: true,
   });
   await env.DB.batch(
-    members.map((member) => {
-      const statusSnapshot = buildMemberStatusSnapshot(member, null, null, fetchedAt);
-      return env.DB.prepare(
-        `
-        INSERT INTO enemy_faction_members (
-          member_id,
-          faction_id,
-          name,
-          level,
-          position,
-          days_in_faction,
-          is_revivable,
-          status_state,
-          status_description,
-          last_action_status,
-          last_action_timestamp,
-          plane_image_type,
-          travel_origin,
-          travel_destination,
-          travel_signature,
-          travel_detected_at,
-          travel_started_after,
-          travel_started_before,
-          estimated_arrival_at,
-          estimated_arrival_earliest,
-          estimated_arrival_latest,
-          travel_trip_destination,
-          travel_trip_type,
-          travel_trip_inferred_at,
-          status_updated_at,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
-        ON CONFLICT(member_id) DO UPDATE SET
-          faction_id = excluded.faction_id,
-          name = excluded.name,
-          level = excluded.level,
-          position = excluded.position,
-          days_in_faction = excluded.days_in_faction,
-          is_revivable = excluded.is_revivable,
-          status_state = excluded.status_state,
-          status_description = excluded.status_description,
-          last_action_status = excluded.last_action_status,
-          last_action_timestamp = excluded.last_action_timestamp,
-          plane_image_type = excluded.plane_image_type,
-          travel_origin = excluded.travel_origin,
-          travel_destination = excluded.travel_destination,
-          travel_signature = excluded.travel_signature,
-          travel_detected_at = excluded.travel_detected_at,
-          travel_started_after = excluded.travel_started_after,
-          travel_started_before = excluded.travel_started_before,
-          estimated_arrival_at = excluded.estimated_arrival_at,
-          estimated_arrival_earliest = excluded.estimated_arrival_earliest,
-          estimated_arrival_latest = excluded.estimated_arrival_latest,
-          travel_trip_destination = excluded.travel_trip_destination,
-          travel_trip_type = excluded.travel_trip_type,
-          travel_trip_inferred_at = excluded.travel_trip_inferred_at,
-          status_updated_at = excluded.status_updated_at,
-          updated_at = excluded.updated_at
-        `,
-      ).bind(
-        member.id,
-        factionId,
-        member.name,
-        finiteNumber(member.level),
-        member.position ?? null,
-        finiteNumber(member.days_in_faction),
-        boolToInt(effectiveRevivableStatus(member) ?? false),
-        statusSnapshot.status_state,
-        statusSnapshot.status_description,
-        statusSnapshot.last_action_status,
-        statusSnapshot.last_action_timestamp,
-        statusSnapshot.plane_image_type,
-        statusSnapshot.travel_origin,
-        statusSnapshot.travel_destination,
-        statusSnapshot.travel_signature,
-        statusSnapshot.travel_detected_at,
-        statusSnapshot.travel_started_after,
-        statusSnapshot.travel_started_before,
-        statusSnapshot.estimated_arrival_at,
-        statusSnapshot.estimated_arrival_earliest,
-        statusSnapshot.estimated_arrival_latest,
-        statusSnapshot.travel_trip_destination,
-        statusSnapshot.travel_trip_type,
-        statusSnapshot.travel_trip_inferred_at,
-        statusSnapshot.status_updated_at,
-      );
+    members.flatMap((member) => {
+      const snapshot = buildEnemyMemberSnapshot(member, factionId, null, null, fetchedAt);
+      return [
+        upsertEnemyMemberRosterSnapshot(env, snapshot),
+        upsertMemberLiveStatus(env, ENEMY_MEMBER_LIVE_STATUS_TABLE, snapshot),
+      ];
     }),
   );
 
@@ -508,100 +433,27 @@ export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMe
   const existingById = new Map(existingRows.map((row) => [row.member_id, row]));
 
   await env.DB.batch(
-    members.map((member) => {
+    members.flatMap((member) => {
       const statusSnapshot = buildMemberStatusSnapshot(
         member,
         existingById.get(member.id) ?? null,
         null,
         fetchedAt,
       );
-      return env.DB.prepare(
-        `
-        INSERT INTO home_faction_members (
-          member_id,
-          faction_id,
-          name,
-          level,
-          position,
-          days_in_faction,
-          is_revivable,
-          status_state,
-          status_description,
-          last_action_status,
-          last_action_timestamp,
-          plane_image_type,
-          travel_origin,
-          travel_destination,
-          travel_signature,
-          travel_detected_at,
-          travel_started_after,
-          travel_started_before,
-          estimated_arrival_at,
-          estimated_arrival_earliest,
-          estimated_arrival_latest,
-          travel_trip_destination,
-          travel_trip_type,
-          travel_trip_inferred_at,
-          status_updated_at,
-          is_current,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch())
-        ON CONFLICT(member_id) DO UPDATE SET
-          faction_id = excluded.faction_id,
-          name = excluded.name,
-          level = excluded.level,
-          position = excluded.position,
-          days_in_faction = excluded.days_in_faction,
-          is_revivable = excluded.is_revivable,
-          status_state = excluded.status_state,
-          status_description = excluded.status_description,
-          last_action_status = excluded.last_action_status,
-          last_action_timestamp = excluded.last_action_timestamp,
-          plane_image_type = excluded.plane_image_type,
-          travel_origin = excluded.travel_origin,
-          travel_destination = excluded.travel_destination,
-          travel_signature = excluded.travel_signature,
-          travel_detected_at = excluded.travel_detected_at,
-          travel_started_after = excluded.travel_started_after,
-          travel_started_before = excluded.travel_started_before,
-          estimated_arrival_at = excluded.estimated_arrival_at,
-          estimated_arrival_earliest = excluded.estimated_arrival_earliest,
-          estimated_arrival_latest = excluded.estimated_arrival_latest,
-          travel_trip_destination = excluded.travel_trip_destination,
-          travel_trip_type = excluded.travel_trip_type,
-          travel_trip_inferred_at = excluded.travel_trip_inferred_at,
-          status_updated_at = excluded.status_updated_at,
-          is_current = 1,
-          updated_at = excluded.updated_at
-        `,
-      ).bind(
-        member.id,
-        HOME_FACTION_ID,
-        member.name,
-        finiteNumber(member.level),
-        member.position ?? null,
-        finiteNumber(member.days_in_faction),
-        boolToInt(effectiveRevivableStatus(member) ?? false),
-        statusSnapshot.status_state,
-        statusSnapshot.status_description,
-        statusSnapshot.last_action_status,
-        statusSnapshot.last_action_timestamp,
-        statusSnapshot.plane_image_type,
-        statusSnapshot.travel_origin,
-        statusSnapshot.travel_destination,
-        statusSnapshot.travel_signature,
-        statusSnapshot.travel_detected_at,
-        statusSnapshot.travel_started_after,
-        statusSnapshot.travel_started_before,
-        statusSnapshot.estimated_arrival_at,
-        statusSnapshot.estimated_arrival_earliest,
-        statusSnapshot.estimated_arrival_latest,
-        statusSnapshot.travel_trip_destination,
-        statusSnapshot.travel_trip_type,
-        statusSnapshot.travel_trip_inferred_at,
-        statusSnapshot.status_updated_at,
-      );
+      const snapshot = {
+        member_id: member.id,
+        faction_id: HOME_FACTION_ID,
+        name: member.name,
+        level: finiteNumber(member.level),
+        position: member.position ?? null,
+        days_in_faction: finiteNumber(member.days_in_faction),
+        is_revivable: boolToInt(effectiveRevivableStatus(member) ?? false) ?? 0,
+        ...statusSnapshot,
+      };
+      return [
+        upsertHomeMemberRosterSnapshot(env, snapshot),
+        upsertMemberLiveStatus(env, HOME_MEMBER_LIVE_STATUS_TABLE, snapshot),
+      ];
     }),
   );
 
@@ -638,6 +490,16 @@ async function markDepartedHomeFactionMembers(env: Env, members: TornFactionMemb
   )
     .bind(...ids)
     .run();
+
+  await env.DB.prepare(
+    `
+    DELETE FROM home_member_live_status
+    WHERE faction_id = ?
+      AND member_id NOT IN (${ids.map(() => "?").join(",")})
+    `,
+  )
+    .bind(HOME_FACTION_ID, ...ids)
+    .run();
 }
 
 export async function refreshEnemyFactionMemberStatuses(
@@ -667,6 +529,7 @@ export async function refreshEnemyFactionMemberStatuses(
   const existingRows = await readEnemyScouting(env, factionId);
   const existingById = new Map(existingRows.map((row) => [row.member_id, row]));
   const statements: D1PreparedStatement[] = [];
+  let updatedMembers = 0;
   const pushSnapshot = await buildEnemyPushSnapshot(env, warId, factionId, members, existingById, fetchedAt);
   const homeMembers = await refreshHomeFactionMembers(env).catch((err) => {
     console.warn(`Home faction status refresh failed for war ${warId}:`, err?.message || err);
@@ -684,7 +547,11 @@ export async function refreshEnemyFactionMemberStatuses(
     const existing = existingById.get(member.id) ?? null;
     const next = buildEnemyMemberSnapshot(member, factionId, existing, previousPollAt, fetchedAt);
     if (!existing || enemyMemberSnapshotChanged(existing, next)) {
-      statements.push(upsertEnemyMemberSnapshot(env, next));
+      updatedMembers += 1;
+      statements.push(
+        upsertEnemyMemberRosterSnapshot(env, next),
+        upsertMemberLiveStatus(env, ENEMY_MEMBER_LIVE_STATUS_TABLE, next),
+      );
     }
   }
   statements.push(upsertEnemyPushSnapshot(env, pushSnapshot));
@@ -713,7 +580,7 @@ export async function refreshEnemyFactionMemberStatuses(
     writeStatements: statements.length + 1,
     changedRows,
     fetchedMembers: members.length,
-    updatedMembers: statements.length,
+    updatedMembers,
     skipped: false,
     factionId,
     members: options.includeMembers ? members : undefined,
@@ -746,27 +613,39 @@ export async function refreshTrackedFactionMemberStatuses(
   const existingRows = await readEnemyScouting(env, factionId);
   const existingById = new Map(existingRows.map((row) => [row.member_id, row]));
   const statements: D1PreparedStatement[] = [];
+  let updatedMembers = 0;
 
   for (const member of members) {
     const existing = existingById.get(member.id) ?? null;
     const next = buildEnemyMemberSnapshot(member, factionId, existing, previousPollAt, fetchedAt);
     if (!existing || enemyMemberSnapshotChanged(existing, next)) {
-      statements.push(upsertEnemyMemberSnapshot(env, next));
+      updatedMembers += 1;
+      statements.push(
+        upsertEnemyMemberRosterSnapshot(env, next),
+        upsertMemberLiveStatus(env, ENEMY_MEMBER_LIVE_STATUS_TABLE, next),
+      );
     }
   }
 
-  const staleDelete = deleteStaleTrackedFactionMembers(env, factionId, members);
+  const memberIds = members.map((member) => member.id);
+  const staleDelete = deleteStaleTrackedFactionMembers(env, factionId, memberIds);
+  const staleLiveDelete = deleteStaleMemberLiveStatus(
+    env,
+    ENEMY_MEMBER_LIVE_STATUS_TABLE,
+    factionId,
+    memberIds,
+  );
   const results = statements.length > 0
-    ? await env.DB.batch([...statements, staleDelete])
-    : [await staleDelete.run()];
+    ? await env.DB.batch([...statements, staleDelete, staleLiveDelete])
+    : [await staleDelete.run(), await staleLiveDelete.run()];
   const changedRows = results.reduce((total: number, result: unknown) => total + d1Changes(result), 0);
-  const deletedMembers = d1Changes(results[results.length - 1]);
+  const deletedMembers = d1Changes(results[results.length - 2]);
 
   return {
-    writeStatements: statements.length + 1,
+    writeStatements: statements.length + 2,
     changedRows,
     fetchedMembers: members.length,
-    updatedMembers: statements.length,
+    updatedMembers,
     deletedMembers,
     skipped: false,
     factionId,
@@ -775,7 +654,7 @@ export async function refreshTrackedFactionMemberStatuses(
   };
 }
 
-function upsertEnemyMemberSnapshot(
+function upsertEnemyMemberRosterSnapshot(
   env: Env,
   snapshot: EnemyMemberSnapshot,
 ): D1PreparedStatement {
@@ -788,53 +667,15 @@ function upsertEnemyMemberSnapshot(
       level,
       position,
       days_in_faction,
-      is_revivable,
-      status_state,
-      status_description,
-      last_action_status,
-      last_action_timestamp,
-      plane_image_type,
-      travel_origin,
-      travel_destination,
-      travel_signature,
-      travel_detected_at,
-      travel_started_after,
-      travel_started_before,
-      estimated_arrival_at,
-      estimated_arrival_earliest,
-      estimated_arrival_latest,
-      travel_trip_destination,
-      travel_trip_type,
-      travel_trip_inferred_at,
-      status_updated_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, unixepoch())
     ON CONFLICT(member_id) DO UPDATE SET
       faction_id = excluded.faction_id,
       name = excluded.name,
       level = excluded.level,
       position = excluded.position,
       days_in_faction = excluded.days_in_faction,
-      is_revivable = excluded.is_revivable,
-      status_state = excluded.status_state,
-      status_description = excluded.status_description,
-      last_action_status = excluded.last_action_status,
-      last_action_timestamp = excluded.last_action_timestamp,
-      plane_image_type = excluded.plane_image_type,
-      travel_origin = excluded.travel_origin,
-      travel_destination = excluded.travel_destination,
-      travel_signature = excluded.travel_signature,
-      travel_detected_at = excluded.travel_detected_at,
-      travel_started_after = excluded.travel_started_after,
-      travel_started_before = excluded.travel_started_before,
-      estimated_arrival_at = excluded.estimated_arrival_at,
-      estimated_arrival_earliest = excluded.estimated_arrival_earliest,
-      estimated_arrival_latest = excluded.estimated_arrival_latest,
-      travel_trip_destination = excluded.travel_trip_destination,
-      travel_trip_type = excluded.travel_trip_type,
-      travel_trip_inferred_at = excluded.travel_trip_inferred_at,
-      status_updated_at = excluded.status_updated_at,
       updated_at = excluded.updated_at
     `,
   ).bind(
@@ -844,34 +685,50 @@ function upsertEnemyMemberSnapshot(
     snapshot.level,
     snapshot.position,
     snapshot.days_in_faction,
-    snapshot.is_revivable,
-    snapshot.status_state,
-    snapshot.status_description,
-    snapshot.last_action_status,
-    snapshot.last_action_timestamp,
-    snapshot.plane_image_type,
-    snapshot.travel_origin,
-    snapshot.travel_destination,
-    snapshot.travel_signature,
-    snapshot.travel_detected_at,
-    snapshot.travel_started_after,
-    snapshot.travel_started_before,
-    snapshot.estimated_arrival_at,
-    snapshot.estimated_arrival_earliest,
-    snapshot.estimated_arrival_latest,
-    snapshot.travel_trip_destination,
-    snapshot.travel_trip_type,
-    snapshot.travel_trip_inferred_at,
-    snapshot.status_updated_at,
+  );
+}
+
+function upsertHomeMemberRosterSnapshot(
+  env: Env,
+  snapshot: EnemyMemberSnapshot,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `
+    INSERT INTO home_faction_members (
+      member_id,
+      faction_id,
+      name,
+      level,
+      position,
+      days_in_faction,
+      is_current,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, 1, unixepoch())
+    ON CONFLICT(member_id) DO UPDATE SET
+      faction_id = excluded.faction_id,
+      name = excluded.name,
+      level = excluded.level,
+      position = excluded.position,
+      days_in_faction = excluded.days_in_faction,
+      is_current = 1,
+      updated_at = excluded.updated_at
+    `,
+  ).bind(
+    snapshot.member_id,
+    snapshot.faction_id,
+    snapshot.name,
+    snapshot.level,
+    snapshot.position,
+    snapshot.days_in_faction,
   );
 }
 
 function deleteStaleTrackedFactionMembers(
   env: Env,
   factionId: number,
-  members: TornFactionMember[],
+  memberIds: number[],
 ): D1PreparedStatement {
-  const memberIds = members.map((member) => member.id);
   return env.DB.prepare(
     `
     DELETE FROM enemy_faction_members

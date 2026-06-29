@@ -25,49 +25,8 @@ export async function clearEnemyLiveTrackingRows(
   const memberResult = clearMemberStatuses
     ? await env.DB.prepare(
         `
-        UPDATE enemy_faction_members
-        SET is_revivable = NULL,
-            status_state = NULL,
-            status_description = NULL,
-            last_action_status = NULL,
-            last_action_timestamp = NULL,
-            plane_image_type = NULL,
-            travel_origin = NULL,
-            travel_destination = NULL,
-            travel_signature = NULL,
-            travel_detected_at = NULL,
-            travel_started_after = NULL,
-            travel_started_before = NULL,
-            estimated_arrival_at = NULL,
-            estimated_arrival_earliest = NULL,
-            estimated_arrival_latest = NULL,
-            travel_trip_destination = NULL,
-            travel_trip_type = NULL,
-            travel_trip_inferred_at = NULL,
-            status_updated_at = NULL,
-            updated_at = unixepoch()
+        DELETE FROM enemy_member_live_status
         WHERE faction_id = ?
-          AND (
-            is_revivable IS NOT NULL OR
-            status_state IS NOT NULL OR
-            status_description IS NOT NULL OR
-            last_action_status IS NOT NULL OR
-            last_action_timestamp IS NOT NULL OR
-            plane_image_type IS NOT NULL OR
-            travel_origin IS NOT NULL OR
-            travel_destination IS NOT NULL OR
-            travel_signature IS NOT NULL OR
-            travel_detected_at IS NOT NULL OR
-            travel_started_after IS NOT NULL OR
-            travel_started_before IS NOT NULL OR
-            estimated_arrival_at IS NOT NULL OR
-            estimated_arrival_earliest IS NOT NULL OR
-            estimated_arrival_latest IS NOT NULL OR
-            travel_trip_destination IS NOT NULL OR
-            travel_trip_type IS NOT NULL OR
-            travel_trip_inferred_at IS NOT NULL OR
-            status_updated_at IS NOT NULL
-          )
         `,
       )
         .bind(factionId)

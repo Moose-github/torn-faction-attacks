@@ -557,16 +557,19 @@ async function readEnemyStatusSummary(env: Env, factionId: number): Promise<Enem
     `
     SELECT
       COUNT(*) AS total,
-      SUM(CASE WHEN status_state = 'Okay' THEN 1 ELSE 0 END) AS okay,
-      SUM(CASE WHEN status_state = 'Hospital' THEN 1 ELSE 0 END) AS hospital,
-      SUM(CASE WHEN status_state = 'Traveling' THEN 1 ELSE 0 END) AS traveling,
-      SUM(CASE WHEN status_state = 'Abroad' THEN 1 ELSE 0 END) AS abroad,
-      SUM(CASE WHEN status_state IS NULL OR status_state = '' THEN 1 ELSE 0 END) AS unknown,
-      SUM(CASE WHEN ff_battlestats IS NOT NULL THEN 1 ELSE 0 END) AS stats_available,
-      AVG(level) AS average_level,
-      AVG(ff_battlestats) AS average_ff_battlestats
-    FROM enemy_faction_members
-    WHERE faction_id = ?
+      SUM(CASE WHEN live.status_state = 'Okay' THEN 1 ELSE 0 END) AS okay,
+      SUM(CASE WHEN live.status_state = 'Hospital' THEN 1 ELSE 0 END) AS hospital,
+      SUM(CASE WHEN live.status_state = 'Traveling' THEN 1 ELSE 0 END) AS traveling,
+      SUM(CASE WHEN live.status_state = 'Abroad' THEN 1 ELSE 0 END) AS abroad,
+      SUM(CASE WHEN live.status_state IS NULL OR live.status_state = '' THEN 1 ELSE 0 END) AS unknown,
+      SUM(CASE WHEN members.ff_battlestats IS NOT NULL THEN 1 ELSE 0 END) AS stats_available,
+      AVG(members.level) AS average_level,
+      AVG(members.ff_battlestats) AS average_ff_battlestats
+    FROM enemy_faction_members members
+    LEFT JOIN enemy_member_live_status live
+      ON live.member_id = members.member_id
+     AND live.faction_id = members.faction_id
+    WHERE members.faction_id = ?
     `,
   ).bind(factionId).first<EnemyStatusSummaryRow>();
 
@@ -590,36 +593,39 @@ async function readTravelTrackerRows(
   limit: number,
 ): Promise<TravelTrackerRow[]> {
   const statusFilter = view === "traveling"
-    ? "AND status_state = 'Traveling'"
+    ? "AND live.status_state = 'Traveling'"
     : view === "abroad"
-      ? "AND status_state = 'Abroad'"
-      : "AND status_state IN ('Traveling', 'Abroad')";
+      ? "AND live.status_state = 'Abroad'"
+      : "AND live.status_state IN ('Traveling', 'Abroad')";
   const result = await env.DB.prepare(
     `
     SELECT
-      member_id,
-      name,
-      status_state,
-      status_description,
-      plane_image_type,
-      travel_origin,
-      travel_destination,
-      travel_started_after,
-      travel_started_before,
-      estimated_arrival_at,
-      estimated_arrival_earliest,
-      estimated_arrival_latest,
-      travel_trip_destination,
-      travel_trip_type,
-      travel_trip_inferred_at
-    FROM enemy_faction_members
-    WHERE faction_id = ?
+      members.member_id,
+      members.name,
+      live.status_state,
+      live.status_description,
+      live.plane_image_type,
+      live.travel_origin,
+      live.travel_destination,
+      live.travel_started_after,
+      live.travel_started_before,
+      live.estimated_arrival_at,
+      live.estimated_arrival_earliest,
+      live.estimated_arrival_latest,
+      live.travel_trip_destination,
+      live.travel_trip_type,
+      live.travel_trip_inferred_at
+    FROM enemy_faction_members members
+    JOIN enemy_member_live_status live
+      ON live.member_id = members.member_id
+     AND live.faction_id = members.faction_id
+    WHERE members.faction_id = ?
       ${statusFilter}
     ORDER BY
-      CASE WHEN status_state = 'Traveling' THEN 0 ELSE 1 END,
-      COALESCE(estimated_arrival_at, estimated_arrival_latest, 9223372036854775807),
-      COALESCE(travel_trip_destination, travel_destination, status_description, ''),
-      LOWER(name)
+      CASE WHEN live.status_state = 'Traveling' THEN 0 ELSE 1 END,
+      COALESCE(live.estimated_arrival_at, live.estimated_arrival_latest, 9223372036854775807),
+      COALESCE(live.travel_trip_destination, live.travel_destination, live.status_description, ''),
+      LOWER(members.name)
     LIMIT ?
     `,
   ).bind(factionId, limit).all<TravelTrackerRow>();

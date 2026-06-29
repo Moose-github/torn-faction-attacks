@@ -541,35 +541,39 @@ async function readTravelTrackerRows(
   trackerKey: TravelTrackerKey,
   factionId: number,
 ): Promise<TravelTrackerRow[]> {
-  const tableName = trackerKey === HOME_TRACKER_KEY ? "home_faction_members" : "enemy_faction_members";
-  const currentFilter = trackerKey === HOME_TRACKER_KEY ? "AND is_current = 1" : "";
+  const memberTableName = trackerKey === HOME_TRACKER_KEY ? "home_faction_members" : "enemy_faction_members";
+  const liveTableName = trackerKey === HOME_TRACKER_KEY ? "home_member_live_status" : "enemy_member_live_status";
+  const currentFilter = trackerKey === HOME_TRACKER_KEY ? "AND members.is_current = 1" : "";
   const result = await env.DB.prepare(
     `
     SELECT
-      member_id,
-      name,
-      status_state,
-      status_description,
-      plane_image_type,
-      travel_origin,
-      travel_destination,
-      travel_started_after,
-      travel_started_before,
-      estimated_arrival_at,
-      estimated_arrival_earliest,
-      estimated_arrival_latest,
-      travel_trip_destination,
-      travel_trip_type,
-      travel_trip_inferred_at
-    FROM ${tableName}
-    WHERE faction_id = ?
+      members.member_id,
+      members.name,
+      live.status_state,
+      live.status_description,
+      live.plane_image_type,
+      live.travel_origin,
+      live.travel_destination,
+      live.travel_started_after,
+      live.travel_started_before,
+      live.estimated_arrival_at,
+      live.estimated_arrival_earliest,
+      live.estimated_arrival_latest,
+      live.travel_trip_destination,
+      live.travel_trip_type,
+      live.travel_trip_inferred_at
+    FROM ${memberTableName} members
+    JOIN ${liveTableName} live
+      ON live.member_id = members.member_id
+     AND live.faction_id = members.faction_id
+    WHERE members.faction_id = ?
       ${currentFilter}
-      AND status_state IN ('Traveling', 'Abroad')
+      AND live.status_state IN ('Traveling', 'Abroad')
     ORDER BY
-      CASE WHEN status_state = 'Traveling' THEN 0 ELSE 1 END,
-      COALESCE(estimated_arrival_at, estimated_arrival_latest, 9223372036854775807),
-      COALESCE(travel_trip_destination, travel_destination, status_description, ''),
-      LOWER(name)
+      CASE WHEN live.status_state = 'Traveling' THEN 0 ELSE 1 END,
+      COALESCE(live.estimated_arrival_at, live.estimated_arrival_latest, 9223372036854775807),
+      COALESCE(live.travel_trip_destination, live.travel_destination, live.status_description, ''),
+      LOWER(members.name)
     LIMIT ?
     `,
   ).bind(factionId, TRAVEL_TRACKER_LIMIT).all<TravelTrackerRow>();

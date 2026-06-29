@@ -243,6 +243,31 @@ CREATE TABLE enemy_member_activity_samples (
   PRIMARY KEY (war_id, faction_id, member_id, date, interval_index)
 );
 
+CREATE TABLE enemy_member_live_status (
+  member_id INTEGER PRIMARY KEY,
+  faction_id INTEGER NOT NULL,
+  is_revivable INTEGER,
+  status_state TEXT,
+  status_description TEXT,
+  last_action_status TEXT,
+  last_action_timestamp INTEGER,
+  plane_image_type TEXT,
+  travel_origin TEXT,
+  travel_destination TEXT,
+  travel_signature TEXT,
+  travel_detected_at INTEGER,
+  travel_started_after INTEGER,
+  travel_started_before INTEGER,
+  estimated_arrival_at INTEGER,
+  estimated_arrival_earliest INTEGER,
+  estimated_arrival_latest INTEGER,
+  travel_trip_destination TEXT,
+  travel_trip_type TEXT,
+  travel_trip_inferred_at INTEGER,
+  status_updated_at INTEGER,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE enemy_push_activity_snapshots (
   war_id INTEGER NOT NULL,
   faction_id INTEGER NOT NULL,
@@ -364,6 +389,31 @@ CREATE TABLE home_faction_members (
   ff_battlestats_updated_at INTEGER,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 , networth INTEGER, networth_updated_at INTEGER, bsp_battlestats INTEGER, bsp_battlestats_updated_at INTEGER, is_current INTEGER NOT NULL DEFAULT 1, report_exempt INTEGER NOT NULL DEFAULT 0, report_exempt_reason TEXT, report_exempt_updated_at INTEGER, status_state TEXT, status_description TEXT, last_action_status TEXT, last_action_timestamp INTEGER, status_updated_at INTEGER, plane_image_type TEXT, travel_origin TEXT, travel_destination TEXT, travel_signature TEXT, travel_detected_at INTEGER, travel_started_after INTEGER, travel_started_before INTEGER, estimated_arrival_at INTEGER, estimated_arrival_earliest INTEGER, estimated_arrival_latest INTEGER, travel_trip_destination TEXT, travel_trip_type TEXT, travel_trip_inferred_at INTEGER);
+
+CREATE TABLE home_member_live_status (
+  member_id INTEGER PRIMARY KEY,
+  faction_id INTEGER NOT NULL,
+  is_revivable INTEGER,
+  status_state TEXT,
+  status_description TEXT,
+  last_action_status TEXT,
+  last_action_timestamp INTEGER,
+  plane_image_type TEXT,
+  travel_origin TEXT,
+  travel_destination TEXT,
+  travel_signature TEXT,
+  travel_detected_at INTEGER,
+  travel_started_after INTEGER,
+  travel_started_before INTEGER,
+  estimated_arrival_at INTEGER,
+  estimated_arrival_earliest INTEGER,
+  estimated_arrival_latest INTEGER,
+  travel_trip_destination TEXT,
+  travel_trip_type TEXT,
+  travel_trip_inferred_at INTEGER,
+  status_updated_at INTEGER,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
 
 CREATE TABLE ingestion_runs (
   id TEXT PRIMARY KEY,
@@ -1010,6 +1060,15 @@ CREATE INDEX idx_enemy_member_activity_samples_war_bucket
 CREATE INDEX idx_enemy_member_activity_samples_war_member
   ON enemy_member_activity_samples(war_id, member_id, date, interval_index);
 
+CREATE INDEX idx_enemy_member_live_status_faction
+  ON enemy_member_live_status(faction_id);
+
+CREATE INDEX idx_enemy_member_live_status_state
+  ON enemy_member_live_status(status_state);
+
+CREATE INDEX idx_enemy_member_live_status_travel
+  ON enemy_member_live_status(status_state, estimated_arrival_at);
+
 CREATE INDEX idx_home_faction_activity_samples_faction_sampled
   ON home_faction_activity_samples(faction_id, sampled_at);
 
@@ -1033,6 +1092,15 @@ CREATE INDEX idx_home_faction_members_ranked
 
 CREATE INDEX idx_home_faction_members_reportable
   ON home_faction_members(faction_id, is_current, report_exempt, member_id);
+
+CREATE INDEX idx_home_member_live_status_faction
+  ON home_member_live_status(faction_id);
+
+CREATE INDEX idx_home_member_live_status_state
+  ON home_member_live_status(status_state);
+
+CREATE INDEX idx_home_member_live_status_travel
+  ON home_member_live_status(status_state, estimated_arrival_at);
 
 CREATE INDEX idx_ingestion_runs_started
   ON ingestion_runs(started_at DESC);

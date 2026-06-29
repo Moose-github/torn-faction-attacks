@@ -2,6 +2,10 @@ import { revokeSessionsForFormerFactionMembers } from "./auth";
 import { bumpGlobalWarCacheVersion, bumpMemberLifestyleCacheVersion } from "./cacheVersions";
 import { HOME_FACTION_ID } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
+import {
+  HOME_MEMBER_LIVE_STATUS_TABLE,
+  upsertMemberRevivableStatus,
+} from "./memberLiveStatus";
 import { Env, TornFactionMember } from "./types";
 import { boolToInt, d1Changes, effectiveRevivableStatus, finiteNumber, json } from "./utils";
 
@@ -42,7 +46,7 @@ export async function syncHomeFactionMembershipAndSessions(
   }
 
   const upsertResults = await env.DB.batch(
-    members.map((member) =>
+    members.flatMap((member) => [
       env.DB.prepare(
         `
         INSERT INTO home_faction_members (
@@ -52,18 +56,16 @@ export async function syncHomeFactionMembershipAndSessions(
           level,
           position,
           days_in_faction,
-          is_revivable,
           is_current,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, 1, unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
           level = excluded.level,
           position = excluded.position,
           days_in_faction = excluded.days_in_faction,
-          is_revivable = excluded.is_revivable,
           is_current = 1,
           updated_at = excluded.updated_at
         WHERE home_faction_members.faction_id IS NOT excluded.faction_id
@@ -71,7 +73,6 @@ export async function syncHomeFactionMembershipAndSessions(
           OR home_faction_members.level IS NOT excluded.level
           OR home_faction_members.position IS NOT excluded.position
           OR home_faction_members.days_in_faction IS NOT excluded.days_in_faction
-          OR home_faction_members.is_revivable IS NOT excluded.is_revivable
           OR home_faction_members.is_current IS NOT 1
         `,
       ).bind(
@@ -81,9 +82,15 @@ export async function syncHomeFactionMembershipAndSessions(
         finiteNumber(member.level),
         member.position ?? null,
         finiteNumber(member.days_in_faction),
+      ),
+      upsertMemberRevivableStatus(
+        env,
+        HOME_MEMBER_LIVE_STATUS_TABLE,
+        member.id,
+        HOME_FACTION_ID,
         boolToInt(effectiveRevivableStatus(member) ?? false),
       ),
-    ),
+    ]),
   );
 
   const currentMemberIds = validMemberIds(members);
@@ -95,7 +102,7 @@ export async function syncHomeFactionMembershipAndSessions(
   );
 
   return {
-    writeStatements: members.length + 2,
+    writeStatements: members.length * 2 + 2,
     changedRows: upsertChangedRows + markedDepartedRows + revokedSessions,
     fetchedMembers: members.length,
     revokedSessions,
@@ -110,13 +117,16 @@ export async function getCurrentHomeFactionMemberSummary(env: Env): Promise<Resp
       COUNT(*) AS current_members,
       COALESCE(SUM(CASE WHEN report_exempt = 0 THEN 1 ELSE 0 END), 0) AS reportable_members,
       COALESCE(SUM(CASE WHEN report_exempt = 1 THEN 1 ELSE 0 END), 0) AS report_exempt_members,
-      COALESCE(SUM(CASE WHEN is_revivable = 1 THEN 1 ELSE 0 END), 0) AS revivable_members,
+      COALESCE(SUM(CASE WHEN live.is_revivable = 1 THEN 1 ELSE 0 END), 0) AS revivable_members,
       COALESCE(SUM(CASE WHEN ff_battlestats IS NOT NULL THEN 1 ELSE 0 END), 0) AS stat_estimates,
       COALESCE(SUM(CASE WHEN networth IS NOT NULL THEN 1 ELSE 0 END), 0) AS networth_estimates,
-      MAX(updated_at) AS updated_at
-    FROM home_faction_members
-    WHERE faction_id = ?
-      AND is_current = 1
+      MAX(members.updated_at) AS updated_at
+    FROM home_faction_members members
+    LEFT JOIN home_member_live_status live
+      ON live.member_id = members.member_id
+     AND live.faction_id = members.faction_id
+    WHERE members.faction_id = ?
+      AND members.is_current = 1
     `,
   )
     .bind(HOME_FACTION_ID)
@@ -241,6 +251,17 @@ async function markDepartedHomeFactionMembers(
   )
     .bind(...currentMemberIds)
     .run();
+
+  await env.DB.prepare(
+    `
+    DELETE FROM home_member_live_status
+    WHERE faction_id = ?
+      AND member_id NOT IN (${currentMemberIds.map(() => "?").join(",")})
+    `,
+  )
+    .bind(HOME_FACTION_ID, ...currentMemberIds)
+    .run();
+
   return d1Changes(result);
 }
 

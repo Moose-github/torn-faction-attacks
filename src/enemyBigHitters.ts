@@ -184,13 +184,16 @@ async function readEnemyBigHitters(env: Env, warId: number): Promise<EnemyBigHit
       m.bsp_battlestats_updated_at,
       m.level,
       m.position,
-      m.status_state,
-      m.last_action_status,
-      m.last_action_timestamp
+      live.status_state,
+      live.last_action_status,
+      live.last_action_timestamp
     FROM enemy_big_hitters b
     LEFT JOIN enemy_faction_members m
       ON m.member_id = b.member_id
      AND m.faction_id = b.faction_id
+    LEFT JOIN enemy_member_live_status live
+      ON live.member_id = b.member_id
+     AND live.faction_id = b.faction_id
     WHERE b.war_id = ?
     ORDER BY
       CASE

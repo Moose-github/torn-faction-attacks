@@ -39,6 +39,10 @@ describe("enemy target lifecycle", () => {
         result: result(10),
       },
       {
+        match: "DELETE FROM enemy_member_live_status",
+        result: result(2),
+      },
+      {
         match: "DELETE FROM discord_travel_tracker_target",
         result: result(1),
       },
@@ -52,12 +56,15 @@ describe("enemy target lifecycle", () => {
       clearCachedEnemyRoster: true,
     });
 
-    expect(metrics.writeStatements).toBe(3);
-    expect(metrics.changedRows).toBe(15);
+    expect(metrics.writeStatements).toBe(4);
+    expect(metrics.changedRows).toBe(17);
     expect(metrics.enemyRosterRowsDeleted).toBe(10);
     expect(metrics.enemyHitStatRowsDeleted).toBe(4);
     expect(db.calls.some((call) =>
       call.sql === "DELETE FROM discord_travel_tracker_target WHERE id = 1"
+    )).toBe(true);
+    expect(db.calls.some((call) =>
+      call.sql === "DELETE FROM enemy_member_live_status"
     )).toBe(true);
   });
 });

@@ -194,12 +194,15 @@ export async function readRosterHealth(env: Env): Promise<RosterHealthRow> {
       COUNT(CASE WHEN is_current = 1 AND name IS NOT NULL AND level IS NOT NULL AND position IS NOT NULL THEN 1 END) AS profile_members,
       COUNT(CASE WHEN is_current = 1 AND report_exempt = 0 THEN 1 END) AS reportable_members,
       COUNT(CASE WHEN is_current = 1 AND report_exempt = 1 THEN 1 END) AS report_exempt_members,
-      COUNT(CASE WHEN is_current = 1 AND is_revivable = 1 THEN 1 END) AS revivable_members,
+      COUNT(CASE WHEN is_current = 1 AND live.is_revivable = 1 THEN 1 END) AS revivable_members,
       COUNT(CASE WHEN is_current = 1 AND (ff_battlestats IS NOT NULL OR bsp_battlestats IS NOT NULL) THEN 1 END) AS stat_estimates,
       COUNT(CASE WHEN is_current = 1 AND networth IS NOT NULL THEN 1 END) AS networth_estimates,
-      MAX(updated_at) AS updated_at
-    FROM home_faction_members
-    WHERE faction_id = ?
+      MAX(members.updated_at) AS updated_at
+    FROM home_faction_members members
+    LEFT JOIN home_member_live_status live
+      ON live.member_id = members.member_id
+     AND live.faction_id = members.faction_id
+    WHERE members.faction_id = ?
     `,
   ).bind(HOME_FACTION_ID).first<Partial<RosterHealthRow>>();
 
@@ -636,7 +639,7 @@ export async function readEnemyScoutingGaps(env: Env): Promise<EnemyScoutingGapR
       m.member_id,
       m.name,
       m.level,
-      m.status_state,
+      live.status_state,
       m.ff_battlestats,
       m.bsp_battlestats,
       m.networth,
@@ -646,6 +649,9 @@ export async function readEnemyScoutingGaps(env: Env): Promise<EnemyScoutingGapR
       m.updated_at
     FROM enemy_faction_members m
     INNER JOIN tracked_factions tf ON tf.faction_id = m.faction_id
+    LEFT JOIN enemy_member_live_status live
+      ON live.member_id = m.member_id
+     AND live.faction_id = m.faction_id
     WHERE m.ff_battlestats IS NULL
        OR m.bsp_battlestats IS NULL
        OR m.networth IS NULL
