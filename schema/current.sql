@@ -19,46 +19,46 @@ CREATE TABLE alert_settings (
 );
 
 CREATE TABLE attacks (
-    id INTEGER PRIMARY KEY,
-    war_id INTEGER,
-    code TEXT,
-    started INTEGER,
-    ended INTEGER,
+  id INTEGER PRIMARY KEY,
+  war_id INTEGER,
+  code TEXT,
+  started INTEGER,
+  ended INTEGER,
 
-    attacker_id INTEGER,
-    attacker_name TEXT,
-    attacker_level INTEGER,
-    attacker_faction_id INTEGER,
-    attacker_faction_name TEXT,
+  attacker_id INTEGER,
+  attacker_name TEXT,
+  attacker_level INTEGER,
+  attacker_faction_id INTEGER,
+  attacker_faction_name TEXT,
 
-    defender_id INTEGER,
-    defender_name TEXT,
-    defender_level INTEGER,
-    defender_faction_id INTEGER,
-    defender_faction_name TEXT,
+  defender_id INTEGER,
+  defender_name TEXT,
+  defender_level INTEGER,
+  defender_faction_id INTEGER,
+  defender_faction_name TEXT,
 
-    result TEXT,
-    respect_gain REAL DEFAULT 0,
-    respect_loss REAL DEFAULT 0,
-    chain INTEGER,
+  result TEXT,
+  respect_gain REAL DEFAULT 0,
+  respect_loss REAL DEFAULT 0,
+  chain INTEGER,
 
-    is_interrupted INTEGER,
-    is_stealthed INTEGER,
-    is_raid INTEGER,
-    is_ranked_war INTEGER,
+  is_interrupted INTEGER,
+  is_stealthed INTEGER,
+  is_raid INTEGER,
+  is_ranked_war INTEGER,
 
-    m_fair_fight REAL,
-    m_war REAL,
-    m_retaliation REAL,
-    m_group REAL,
-    m_overseas REAL,
-    m_chain REAL,
-    m_warlord REAL,
+  m_fair_fight REAL,
+  m_war REAL,
+  m_retaliation REAL,
+  m_group REAL,
+  m_overseas REAL,
+  m_chain REAL,
+  m_warlord REAL,
 
-    fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    ingest_run_id TEXT,
+  fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ingest_run_id TEXT,
 
-    FOREIGN KEY (war_id) REFERENCES wars(id)
+  FOREIGN KEY (war_id) REFERENCES wars(id)
 );
 
 CREATE TABLE auth_sessions (
@@ -110,8 +110,13 @@ CREATE TABLE dice_game_losses (
   last_loss_amount INTEGER,
   last_verdict TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-, consecutive_losses INTEGER NOT NULL DEFAULT 0, streak_loss_total INTEGER NOT NULL DEFAULT 0, pity_after_losses INTEGER NOT NULL DEFAULT 0, last_roll_won INTEGER NOT NULL DEFAULT 0, last_natural_win INTEGER NOT NULL DEFAULT 0);
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  consecutive_losses INTEGER NOT NULL DEFAULT 0,
+  streak_loss_total INTEGER NOT NULL DEFAULT 0,
+  pity_after_losses INTEGER NOT NULL DEFAULT 0,
+  last_roll_won INTEGER NOT NULL DEFAULT 0,
+  last_natural_win INTEGER NOT NULL DEFAULT 0
+);
 
 CREATE TABLE data_health_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -447,8 +452,12 @@ CREATE TABLE ingestion_runs (
   saw_rows INTEGER NOT NULL DEFAULT 0,
   active_war_id INTEGER,
   status TEXT NOT NULL DEFAULT 'running',
-  error TEXT
-, attack_write_statements INTEGER NOT NULL DEFAULT 0, sync_state_writes INTEGER NOT NULL DEFAULT 0, stat_write_operations INTEGER NOT NULL DEFAULT 0, report_write_operations INTEGER NOT NULL DEFAULT 0);
+  error TEXT,
+  attack_write_statements INTEGER NOT NULL DEFAULT 0,
+  sync_state_writes INTEGER NOT NULL DEFAULT 0,
+  stat_write_operations INTEGER NOT NULL DEFAULT 0,
+  report_write_operations INTEGER NOT NULL DEFAULT 0
+);
 
 CREATE TABLE member_achievement_summaries (
   metric_key TEXT NOT NULL,
@@ -525,8 +534,9 @@ CREATE TABLE member_lifestyle_repair_jobs (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   alert_sent_at INTEGER,
-  last_error TEXT
-, member_id INTEGER);
+  last_error TEXT,
+  member_id INTEGER
+);
 
 CREATE TABLE member_lifestyle_stat_snapshots (
   member_id INTEGER NOT NULL,
@@ -541,7 +551,24 @@ CREATE TABLE member_lifestyle_stat_snapshots (
   gymspeed INTEGER,
   gymdefense INTEGER,
   gymdexterity INTEGER,
-  captured_at INTEGER NOT NULL, networth INTEGER, daysbeendonator INTEGER, xantaken_timestamp INTEGER, overdosed_timestamp INTEGER, refills_timestamp INTEGER, useractivity_timestamp INTEGER, networth_timestamp INTEGER, daysbeendonator_timestamp INTEGER, personalstats_bucket_date TEXT, personalstats_requested_at INTEGER, personalstats_key_source TEXT, validation_error TEXT, personal_captured_at INTEGER, gym_captured_at INTEGER, personal_ready INTEGER NOT NULL DEFAULT 0, gym_ready INTEGER NOT NULL DEFAULT 0, fully_ready INTEGER NOT NULL DEFAULT 0,
+  captured_at INTEGER NOT NULL,
+  networth INTEGER,
+  daysbeendonator INTEGER,
+  xantaken_timestamp INTEGER,
+  overdosed_timestamp INTEGER,
+  refills_timestamp INTEGER,
+  useractivity_timestamp INTEGER,
+  networth_timestamp INTEGER,
+  daysbeendonator_timestamp INTEGER,
+  personalstats_bucket_date TEXT,
+  personalstats_requested_at INTEGER,
+  personalstats_key_source TEXT,
+  validation_error TEXT,
+  personal_captured_at INTEGER,
+  gym_captured_at INTEGER,
+  personal_ready INTEGER NOT NULL DEFAULT 0,
+  gym_ready INTEGER NOT NULL DEFAULT 0,
+  fully_ready INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (member_id, snapshot_date)
 );
 
@@ -745,7 +772,10 @@ CREATE TABLE stock_price_snapshots (
   observed_at INTEGER NOT NULL,
   price REAL NOT NULL,
   raw_json TEXT,
-  fetched_at INTEGER NOT NULL, market_cap INTEGER, total_shares INTEGER, investors INTEGER,
+  fetched_at INTEGER NOT NULL,
+  market_cap INTEGER,
+  total_shares INTEGER,
+  investors INTEGER,
   PRIMARY KEY (stock_id, observed_at),
   FOREIGN KEY (stock_id) REFERENCES stock_profiles(stock_id)
 );
@@ -766,11 +796,11 @@ CREATE TABLE stock_profiles (
 );
 
 CREATE TABLE sync_state (
-    name TEXT PRIMARY KEY,
-    last_started INTEGER NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    active_war_id INTEGER,
-    war_state TEXT NOT NULL DEFAULT 'none'
+  name TEXT PRIMARY KEY,
+  last_started INTEGER NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  active_war_id INTEGER,
+  war_state TEXT NOT NULL DEFAULT 'none'
 );
 
 CREATE TABLE xanax_competition_claims (
@@ -900,8 +930,10 @@ CREATE TABLE trade_watchlists (
   min_quantity INTEGER NOT NULL DEFAULT 1,
   market_fee_percent REAL NOT NULL DEFAULT 5,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-, created_by_torn_user_id INTEGER, created_by_name TEXT);
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  created_by_torn_user_id INTEGER,
+  created_by_name TEXT
+);
 
 CREATE TABLE war_member_combat_buckets (
   war_id INTEGER NOT NULL,
@@ -923,93 +955,125 @@ CREATE TABLE war_member_combat_buckets (
 );
 
 CREATE TABLE war_member_stats (
-    war_id INTEGER NOT NULL,
-    member_id INTEGER NOT NULL,
-    member_name TEXT,
+  war_id INTEGER NOT NULL,
+  member_id INTEGER NOT NULL,
+  member_name TEXT,
 
-    attacks_vs_enemy_total INTEGER NOT NULL DEFAULT 0,
-    attacks_vs_enemy_successful INTEGER NOT NULL DEFAULT 0,
-    respect_gained REAL NOT NULL DEFAULT 0,
+  attacks_vs_enemy_total INTEGER NOT NULL DEFAULT 0,
+  attacks_vs_enemy_successful INTEGER NOT NULL DEFAULT 0,
+  respect_gained REAL NOT NULL DEFAULT 0,
 
-    assists_vs_enemy INTEGER NOT NULL DEFAULT 0,
-    hospitalizations_vs_enemy INTEGER NOT NULL DEFAULT 0,
-    mugs_vs_enemy INTEGER NOT NULL DEFAULT 0,
+  assists_vs_enemy INTEGER NOT NULL DEFAULT 0,
+  hospitalizations_vs_enemy INTEGER NOT NULL DEFAULT 0,
+  mugs_vs_enemy INTEGER NOT NULL DEFAULT 0,
 
-    outside_hits INTEGER NOT NULL DEFAULT 0,
-    friendly_hosps INTEGER NOT NULL DEFAULT 0,
+  outside_hits INTEGER NOT NULL DEFAULT 0,
+  friendly_hosps INTEGER NOT NULL DEFAULT 0,
 
-    defends_total INTEGER NOT NULL DEFAULT 0,
-    defends_won INTEGER NOT NULL DEFAULT 0,
-    respect_lost REAL NOT NULL DEFAULT 0,
+  defends_total INTEGER NOT NULL DEFAULT 0,
+  defends_won INTEGER NOT NULL DEFAULT 0,
+  respect_lost REAL NOT NULL DEFAULT 0,
 
-    first_action_at INTEGER,
-    last_action_at INTEGER, added_from_report INTEGER NOT NULL DEFAULT 0, retaliations_vs_enemy INTEGER NOT NULL DEFAULT 0, respect_gained_raw REAL NOT NULL DEFAULT 0, average_fair_fight REAL, defends_other INTEGER NOT NULL DEFAULT 0, respect_lost_raw REAL NOT NULL DEFAULT 0, chain_bonus_hits_vs_enemy INTEGER NOT NULL DEFAULT 0, chain_bonus_respect_removed REAL NOT NULL DEFAULT 0, enemy_chain_bonus_hits_received INTEGER NOT NULL DEFAULT 0, enemy_chain_bonus_respect_removed REAL NOT NULL DEFAULT 0, chain_bonus_hit_values_vs_enemy TEXT NOT NULL DEFAULT '', enemy_chain_bonus_hit_values_received TEXT NOT NULL DEFAULT '', chain_bonus_hit_details_vs_enemy TEXT NOT NULL DEFAULT '', enemy_chain_bonus_hit_details_received TEXT NOT NULL DEFAULT '', defends_lost_non_hospitalized INTEGER NOT NULL DEFAULT 0, respect_lost_non_hospitalized REAL NOT NULL DEFAULT 0,
+  first_action_at INTEGER,
+  last_action_at INTEGER,
+  added_from_report INTEGER NOT NULL DEFAULT 0,
+  retaliations_vs_enemy INTEGER NOT NULL DEFAULT 0,
+  respect_gained_raw REAL NOT NULL DEFAULT 0,
+  average_fair_fight REAL,
+  defends_other INTEGER NOT NULL DEFAULT 0,
+  respect_lost_raw REAL NOT NULL DEFAULT 0,
+  chain_bonus_hits_vs_enemy INTEGER NOT NULL DEFAULT 0,
+  chain_bonus_respect_removed REAL NOT NULL DEFAULT 0,
+  enemy_chain_bonus_hits_received INTEGER NOT NULL DEFAULT 0,
+  enemy_chain_bonus_respect_removed REAL NOT NULL DEFAULT 0,
+  chain_bonus_hit_values_vs_enemy TEXT NOT NULL DEFAULT '',
+  enemy_chain_bonus_hit_values_received TEXT NOT NULL DEFAULT '',
+  chain_bonus_hit_details_vs_enemy TEXT NOT NULL DEFAULT '',
+  enemy_chain_bonus_hit_details_received TEXT NOT NULL DEFAULT '',
+  defends_lost_non_hospitalized INTEGER NOT NULL DEFAULT 0,
+  respect_lost_non_hospitalized REAL NOT NULL DEFAULT 0,
 
-    PRIMARY KEY (war_id, member_id),
-    FOREIGN KEY (war_id) REFERENCES wars(id)
+  PRIMARY KEY (war_id, member_id),
+  FOREIGN KEY (war_id) REFERENCES wars(id)
 );
 
 CREATE TABLE war_summary (
-    war_id INTEGER PRIMARY KEY,
-    attacks_vs_enemy_total INTEGER NOT NULL DEFAULT 0,
-    total_respect_gain REAL NOT NULL DEFAULT 0,
-    total_respect_lost REAL NOT NULL DEFAULT 0,
+  war_id INTEGER PRIMARY KEY,
+  attacks_vs_enemy_total INTEGER NOT NULL DEFAULT 0,
+  total_respect_gain REAL NOT NULL DEFAULT 0,
+  total_respect_lost REAL NOT NULL DEFAULT 0,
 
-    unique_attackers INTEGER NOT NULL DEFAULT 0,
-    first_attack_at INTEGER,
-    last_attack_at INTEGER,
+  unique_attackers INTEGER NOT NULL DEFAULT 0,
+  first_attack_at INTEGER,
+  last_attack_at INTEGER,
 
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    attacks_from_enemy_total INTEGER NOT NULL DEFAULT 0,
-    outside_hits INTEGER NOT NULL DEFAULT 0, total_respect_gain_raw REAL NOT NULL DEFAULT 0, total_respect_lost_raw REAL NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  attacks_from_enemy_total INTEGER NOT NULL DEFAULT 0,
+  outside_hits INTEGER NOT NULL DEFAULT 0,
+  total_respect_gain_raw REAL NOT NULL DEFAULT 0,
+  total_respect_lost_raw REAL NOT NULL DEFAULT 0,
 
-    FOREIGN KEY (war_id) REFERENCES wars(id)
+  FOREIGN KEY (war_id) REFERENCES wars(id)
 );
 
 CREATE TABLE wars (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    status TEXT NOT NULL CHECK (status IN ('scheduled', 'active', 'ended')),
-    practical_start_time INTEGER NOT NULL,
-    practical_finish_time INTEGER,
-    finalized_at INTEGER,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    enemy_faction_id INTEGER,
-    war_type TEXT
-, torn_war_id INTEGER, auto_end_enabled INTEGER NOT NULL DEFAULT 0, faction_respect_limit REAL, member_respect_limit REAL, winner_faction_id INTEGER, torn_report_fetched_at INTEGER, official_home_score REAL, official_home_attacks INTEGER, official_enemy_score REAL, official_enemy_attacks INTEGER, official_end_time INTEGER, official_start_time INTEGER, enemy_scouting_auto_attempted_at INTEGER, enemy_scouting_status_checked_at INTEGER);
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status IN ('scheduled', 'active', 'ended')),
+  practical_start_time INTEGER NOT NULL,
+  practical_finish_time INTEGER,
+  finalized_at INTEGER,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  enemy_faction_id INTEGER,
+  war_type TEXT,
+  torn_war_id INTEGER,
+  auto_end_enabled INTEGER NOT NULL DEFAULT 0,
+  faction_respect_limit REAL,
+  member_respect_limit REAL,
+  winner_faction_id INTEGER,
+  torn_report_fetched_at INTEGER,
+  official_home_score REAL,
+  official_home_attacks INTEGER,
+  official_enemy_score REAL,
+  official_enemy_attacks INTEGER,
+  official_end_time INTEGER,
+  official_start_time INTEGER,
+  enemy_scouting_auto_attempted_at INTEGER,
+  enemy_scouting_status_checked_at INTEGER
+);
 
 CREATE INDEX idx_attacks_attacker_faction_started
-ON attacks(attacker_faction_id, started DESC, id DESC);
+  ON attacks(attacker_faction_id, started DESC, id DESC);
 
 CREATE INDEX idx_attacks_attacker_faction_war
-    ON attacks(attacker_faction_id, war_id, started DESC);
+  ON attacks(attacker_faction_id, war_id, started DESC);
 
 CREATE INDEX idx_attacks_defender_faction_started
-ON attacks(defender_faction_id, started DESC, id DESC);
+  ON attacks(defender_faction_id, started DESC, id DESC);
 
 CREATE INDEX idx_attacks_defender_faction_war
-    ON attacks(defender_faction_id, war_id, started DESC);
+  ON attacks(defender_faction_id, war_id, started DESC);
 
 CREATE INDEX idx_attacks_ingest_run_war_attacker
-ON attacks(ingest_run_id, war_id, attacker_faction_id, attacker_id);
+  ON attacks(ingest_run_id, war_id, attacker_faction_id, attacker_id);
 
 CREATE INDEX idx_attacks_ingest_run_war_defender
-ON attacks(ingest_run_id, war_id, defender_faction_id, defender_id);
+  ON attacks(ingest_run_id, war_id, defender_faction_id, defender_id);
 
 CREATE INDEX idx_attacks_started
-    ON attacks(started DESC);
+  ON attacks(started DESC);
 
 CREATE INDEX idx_attacks_war_attacker_started
-ON attacks (war_id, attacker_id, started DESC);
+  ON attacks (war_id, attacker_id, started DESC);
 
 CREATE INDEX idx_attacks_war_defender_started
-ON attacks (war_id, defender_id, started DESC);
+  ON attacks (war_id, defender_id, started DESC);
 
 CREATE INDEX idx_attacks_war_ingest_run
   ON attacks(war_id, ingest_run_id);
 
 CREATE INDEX idx_attacks_war_started
-    ON attacks(war_id, started DESC);
+  ON attacks(war_id, started DESC);
 
 CREATE INDEX idx_auth_sessions_expires_at
   ON auth_sessions (expires_at);
@@ -1137,7 +1201,7 @@ CREATE INDEX idx_member_stats_respect_sort
   ON war_member_stats(war_id, respect_gained DESC, attacks_vs_enemy_successful DESC, attacks_vs_enemy_total DESC);
 
 CREATE INDEX idx_member_suggestions_created
-ON member_suggestions(created_at DESC, id DESC);
+  ON member_suggestions(created_at DESC, id DESC);
 
 CREATE INDEX idx_scheduled_maintenance_runs_started
   ON scheduled_maintenance_runs(started_at DESC);
@@ -1222,7 +1286,7 @@ CREATE UNIQUE INDEX idx_wars_torn_war_id_unique
   WHERE torn_war_id IS NOT NULL;
 
 CREATE INDEX idx_wars_war_type
-    ON wars(war_type);
+  ON wars(war_type);
 
 CREATE INDEX idx_xanax_competition_claims_claimed
   ON xanax_competition_claims(claimed_at DESC);
