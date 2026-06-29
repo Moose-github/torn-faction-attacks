@@ -128,11 +128,11 @@ async function upsertMemberDiscordLinks(env: Env, links: DiscordLink[]): Promise
     links.map((link) =>
       env.DB.prepare(
         `
-        INSERT INTO member_discord_links (torn_user_id, discord_user_id)
+        INSERT INTO discord_member_links (torn_user_id, discord_user_id)
         VALUES (?, ?)
         ON CONFLICT(torn_user_id) DO UPDATE SET
           discord_user_id = excluded.discord_user_id
-        WHERE member_discord_links.discord_user_id IS NOT excluded.discord_user_id
+        WHERE discord_member_links.discord_user_id IS NOT excluded.discord_user_id
         `,
       ).bind(link.tornUserId, link.discordUserId)
     ),
@@ -140,4 +140,3 @@ async function upsertMemberDiscordLinks(env: Env, links: DiscordLink[]): Promise
 
   return results.reduce((total: number, result: unknown) => total + d1Changes(result), 0);
 }
-

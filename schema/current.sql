@@ -477,7 +477,7 @@ CREATE TABLE member_achievement_summaries (
   PRIMARY KEY (metric_key, rank)
 );
 
-CREATE TABLE member_discord_links (
+CREATE TABLE discord_member_links (
   torn_user_id INTEGER PRIMARY KEY,
   discord_user_id TEXT NOT NULL UNIQUE
 );

@@ -541,7 +541,7 @@ async function readWarMemberLeaderboard(
       wms.outside_hits
     FROM war_member_stats wms
     LEFT JOIN home_faction_members h ON h.member_id = wms.member_id
-    LEFT JOIN member_discord_links links ON links.torn_user_id = wms.member_id
+    LEFT JOIN discord_member_links links ON links.torn_user_id = wms.member_id
     WHERE wms.war_id = ?
       AND COALESCE(h.report_exempt, 0) = 0
     ORDER BY ${orderBy}, LOWER(wms.member_name), wms.member_id

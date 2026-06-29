@@ -118,7 +118,7 @@ function fakeEnv(members: Array<{ member_id: number; name: string }>): FakeEnv {
         return Promise.resolve({ results: members });
       },
       run() {
-        if (sql.includes("INSERT INTO member_discord_links")) {
+        if (sql.includes("INSERT INTO discord_member_links")) {
           insertedLinks.push([Number(values[0]), String(values[1])]);
         }
         return Promise.resolve({ meta: { changes: 1 } });
@@ -126,4 +126,3 @@ function fakeEnv(members: Array<{ member_id: number; name: string }>): FakeEnv {
     };
   }
 }
-
