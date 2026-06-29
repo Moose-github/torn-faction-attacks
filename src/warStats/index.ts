@@ -12,4 +12,8 @@ export {
   type WarStatsRebuildResult,
   type WarStatsRebuildScope,
 } from "./memberStats";
+export {
+  applyRankedWarReportStats,
+  type RankedWarReportStatsResult,
+} from "./rankedReport";
 export { rebuildWarSummaryFromMemberStats } from "./warSummary";

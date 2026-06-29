@@ -9,6 +9,7 @@ import { bumpWarCacheVersion } from "./cacheVersions";
 import { OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { fetchTrackedTornJson } from "./external/torn";
 import { Env, TornRankedWarReport, TornRankedWarReportResponse } from "./types";
+import { applyRankedWarReportStats } from "./warStats";
 import { json, nowSeconds } from "./utils";
 import { readWarFromUrl } from "./warRequest";
 
@@ -278,53 +279,10 @@ export async function applyRankedWarReport(
     )
     .run();
 
-  const existingMemberRows = await env.DB.prepare(
-    `
-    SELECT member_id
-    FROM war_member_stats
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .all();
-
-  const existingMemberIds = new Set(
-    (existingMemberRows.results ?? []).map((row: any) => Number(row.member_id)),
-  );
-  const missingMembers = (homeFaction?.members ?? []).filter(
-    (member) => !existingMemberIds.has(member.id),
-  );
-
-  if (missingMembers.length > 0) {
-    await env.DB.batch(
-      missingMembers.map((member) =>
-        env.DB.prepare(
-          `
-          INSERT INTO war_member_stats (
-            war_id,
-            member_id,
-            member_name,
-            attacks_vs_enemy_total,
-            attacks_vs_enemy_successful,
-            respect_gained,
-            assists_vs_enemy,
-            hospitalizations_vs_enemy,
-            mugs_vs_enemy,
-            retaliations_vs_enemy,
-            outside_hits,
-            friendly_hosps,
-            defends_total,
-            defends_won,
-            defends_other,
-            respect_lost,
-            added_from_report
-          )
-          VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
-          `,
-        ).bind(warId, member.id, member.name ?? null),
-      ),
-    );
-  }
+  const memberStats = await applyRankedWarReportStats(env, {
+    warId,
+    homeMembers: homeFaction?.members ?? [],
+  });
 
   return {
     war_id: warId,
@@ -335,8 +293,7 @@ export async function applyRankedWarReport(
     official_home_attacks: homeFaction?.attacks ?? null,
     official_enemy_score: enemyFaction?.score ?? null,
     official_enemy_attacks: enemyFaction?.attacks ?? null,
-    home_report_members: homeFaction?.members?.length ?? 0,
-    added_from_report_members: missingMembers.length,
+    ...memberStats,
   };
 }
 
