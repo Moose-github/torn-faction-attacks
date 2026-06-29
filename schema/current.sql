@@ -531,31 +531,6 @@ CREATE TABLE member_lifestyle_stat_snapshots (
   PRIMARY KEY (member_id, snapshot_date)
 );
 
-CREATE TABLE member_personal_stats_current (
-  member_id INTEGER PRIMARY KEY,
-  member_name TEXT,
-  level INTEGER,
-  position TEXT,
-  xantaken INTEGER,
-  overdosed INTEGER,
-  refills INTEGER,
-  useractivity INTEGER,
-  networth INTEGER,
-  daysbeendonator INTEGER,
-  xantaken_timestamp INTEGER,
-  overdosed_timestamp INTEGER,
-  refills_timestamp INTEGER,
-  useractivity_timestamp INTEGER,
-  networth_timestamp INTEGER,
-  daysbeendonator_timestamp INTEGER,
-  personalstats_bucket_date TEXT,
-  personalstats_requested_at INTEGER,
-  personalstats_key_source TEXT,
-  personal_captured_at INTEGER,
-  validation_error TEXT,
-  error TEXT
-);
-
 CREATE TABLE member_personal_stats_recent (
   member_id INTEGER NOT NULL,
   snapshot_date TEXT NOT NULL,
@@ -1137,12 +1112,6 @@ CREATE INDEX idx_member_lifestyle_snapshots_gym_ready
 
 CREATE INDEX idx_member_lifestyle_snapshots_personal_ready
   ON member_lifestyle_stat_snapshots(snapshot_date, personal_ready);
-
-CREATE INDEX idx_member_personal_stats_current_bucket
-  ON member_personal_stats_current(personalstats_bucket_date);
-
-CREATE INDEX idx_member_personal_stats_current_captured
-  ON member_personal_stats_current(personal_captured_at);
 
 CREATE INDEX idx_member_personal_stats_recent_status
   ON member_personal_stats_recent(status, snapshot_date, attempted_at, member_name);

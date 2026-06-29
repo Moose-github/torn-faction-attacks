@@ -187,15 +187,6 @@ async function removeDepartedLifestyleMembers(
 
   await env.DB.prepare(
     `
-    DELETE FROM member_personal_stats_current
-    WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
-    `,
-  )
-    .bind(...ids)
-    .run();
-
-  await env.DB.prepare(
-    `
     DELETE FROM member_personal_stats_recent
     WHERE member_id NOT IN (${ids.map(() => "?").join(",")})
     `,

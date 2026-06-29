@@ -30,7 +30,6 @@ import {
   TORN_LIFESTYLE_STAT_KEYS,
 } from "./model";
 import type {
-  LifestyleMemberRow,
   LifestyleStatKey,
   LifestyleStats,
   LifestyleStatTimestamps,
@@ -62,7 +61,6 @@ export async function refreshMemberLifestyleStats(
 
   await preparePersonalStatsRecentQueue(env, activeDates);
   const members = await readPersonalStatsRecentCandidates(env, activeDates, limit);
-  const refreshedMemberIds: number[] = [];
   let refreshed = 0;
   let failed = 0;
 
@@ -89,8 +87,7 @@ export async function refreshMemberLifestyleStats(
           member_name: queueRow.member_name,
           snapshot_date: returnedBucketDate,
         }, stats);
-        await upsertLifestyleStats(env, personalStatsRecentRowToMember(queueRow), stats, null);
-        refreshedMemberIds.push(queueRow.member_id);
+        await updateHomeFactionMemberNetworth(env, queueRow.member_id, stats);
         refreshed += 1;
         continue;
       }
@@ -108,8 +105,7 @@ export async function refreshMemberLifestyleStats(
             member_name: queueRow.member_name,
             snapshot_date: returnedBucketDate,
           }, stats);
-          await upsertLifestyleStats(env, personalStatsRecentRowToMember(queueRow), stats, null);
-          refreshedMemberIds.push(queueRow.member_id);
+          await updateHomeFactionMemberNetworth(env, queueRow.member_id, stats);
           refreshed += 1;
         }
         await markPersonalStatsRecentAttempt(
@@ -133,8 +129,6 @@ export async function refreshMemberLifestyleStats(
       failed += 1;
     }
   }
-
-  await syncHomeFactionMemberNetworth(env, refreshedMemberIds);
 
   return {
     considered: members.length,
@@ -574,16 +568,6 @@ export function personalStatsDataQualityError(
   return null;
 }
 
-function personalStatsRecentRowToMember(row: PersonalStatsRecentRow): LifestyleMemberRow {
-  return {
-    member_id: row.member_id,
-    name: row.member_name ?? String(row.member_id),
-    level: row.level,
-    position: row.position,
-    personal_captured_at: row.personal_captured_at,
-  };
-}
-
 async function markPersonalStatsRecentAttempt(
   env: Env,
   row: PersonalStatsRecentRow,
@@ -693,130 +677,31 @@ async function completePersonalStatsRecentRow(
     .run();
 }
 
-async function upsertLifestyleStats(
+async function updateHomeFactionMemberNetworth(
   env: Env,
-  member: LifestyleMemberRow,
+  memberId: number,
   stats: TimedLifestyleStats,
-  error: string | null,
 ): Promise<void> {
-  await env.DB.prepare(
-    `
-    INSERT INTO member_personal_stats_current (
-      member_id,
-      member_name,
-      level,
-      position,
-      xantaken,
-      overdosed,
-      refills,
-      useractivity,
-      networth,
-      daysbeendonator,
-      xantaken_timestamp,
-      overdosed_timestamp,
-      refills_timestamp,
-      useractivity_timestamp,
-      networth_timestamp,
-      daysbeendonator_timestamp,
-      personalstats_bucket_date,
-      personalstats_requested_at,
-      personalstats_key_source,
-      personal_captured_at,
-      validation_error,
-      error
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN unixepoch() ELSE NULL END, ?, NULL)
-    ON CONFLICT(member_id) DO UPDATE SET
-      member_name = excluded.member_name,
-      level = excluded.level,
-      position = excluded.position,
-      xantaken = COALESCE(excluded.xantaken, member_personal_stats_current.xantaken),
-      overdosed = COALESCE(excluded.overdosed, member_personal_stats_current.overdosed),
-      refills = COALESCE(excluded.refills, member_personal_stats_current.refills),
-      useractivity = COALESCE(excluded.useractivity, member_personal_stats_current.useractivity),
-      networth = COALESCE(excluded.networth, member_personal_stats_current.networth),
-      daysbeendonator = COALESCE(excluded.daysbeendonator, member_personal_stats_current.daysbeendonator),
-      xantaken_timestamp = COALESCE(excluded.xantaken_timestamp, member_personal_stats_current.xantaken_timestamp),
-      overdosed_timestamp = COALESCE(excluded.overdosed_timestamp, member_personal_stats_current.overdosed_timestamp),
-      refills_timestamp = COALESCE(excluded.refills_timestamp, member_personal_stats_current.refills_timestamp),
-      useractivity_timestamp = COALESCE(excluded.useractivity_timestamp, member_personal_stats_current.useractivity_timestamp),
-      networth_timestamp = COALESCE(excluded.networth_timestamp, member_personal_stats_current.networth_timestamp),
-      daysbeendonator_timestamp = COALESCE(excluded.daysbeendonator_timestamp, member_personal_stats_current.daysbeendonator_timestamp),
-      personalstats_bucket_date = excluded.personalstats_bucket_date,
-      personalstats_requested_at = excluded.personalstats_requested_at,
-      personalstats_key_source = excluded.personalstats_key_source,
-      personal_captured_at = CASE
-        WHEN excluded.validation_error IS NULL THEN excluded.personal_captured_at
-        ELSE member_personal_stats_current.personal_captured_at
-      END,
-      validation_error = excluded.validation_error,
-      error = excluded.error
-    `,
-  )
-    .bind(
-      member.member_id,
-      member.name,
-      member.level,
-      member.position,
-      stats.xantaken,
-      stats.overdosed,
-      stats.refills,
-      stats.useractivity,
-      stats.networth,
-      stats.daysbeendonator,
-      stats.xantaken_timestamp,
-      stats.overdosed_timestamp,
-      stats.refills_timestamp,
-      stats.useractivity_timestamp,
-      stats.networth_timestamp,
-      stats.daysbeendonator_timestamp,
-      stats.personalstats_bucket_date,
-      stats.personalstats_requested_at,
-      stats.personalstats_key_source,
-      error,
-      error,
-    )
-    .run();
-}
-
-async function syncHomeFactionMemberNetworth(env: Env, memberIds: number[]): Promise<void> {
-  if (memberIds.length === 0) {
+  if (stats.networth === null) {
     return;
   }
 
-  const uniqueIds = Array.from(new Set(memberIds));
-  const placeholders = uniqueIds.map(() => "?").join(", ");
   await env.DB.prepare(
     `
     UPDATE home_faction_members
-    SET
-      networth = (
-        SELECT stats.networth
-        FROM member_personal_stats_current stats
-        WHERE stats.member_id = home_faction_members.member_id
-      ),
-      networth_updated_at = (
-        SELECT stats.personal_captured_at
-        FROM member_personal_stats_current stats
-        WHERE stats.member_id = home_faction_members.member_id
-      ),
-      updated_at = unixepoch()
-    WHERE member_id IN (${placeholders})
-      AND EXISTS (
-        SELECT 1
-        FROM member_personal_stats_current stats
-        WHERE stats.member_id = home_faction_members.member_id
-          AND stats.networth IS NOT NULL
-          AND (
-            home_faction_members.networth IS NULL
-            OR home_faction_members.networth != stats.networth
-            OR home_faction_members.networth_updated_at IS NULL
-            OR home_faction_members.networth_updated_at != stats.personal_captured_at
-          )
+    SET networth = ?,
+        networth_updated_at = unixepoch(),
+        updated_at = unixepoch()
+    WHERE member_id = ?
+      AND faction_id = ?
+      AND (
+        networth IS NULL
+        OR networth != ?
+        OR networth_updated_at IS NULL
       )
     `,
   )
-    .bind(...uniqueIds)
+    .bind(stats.networth, memberId, HOME_FACTION_ID, stats.networth)
     .run();
 }
 
