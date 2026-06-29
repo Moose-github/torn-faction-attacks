@@ -176,11 +176,18 @@ CREATE TABLE enemy_faction_members (
   level INTEGER,
   position TEXT,
   days_in_faction INTEGER,
-  is_revivable INTEGER,
   ff_battlestats INTEGER,
   ff_battlestats_updated_at INTEGER,
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-, networth INTEGER, networth_updated_at INTEGER, status_state TEXT, status_description TEXT, plane_image_type TEXT, travel_origin TEXT, travel_destination TEXT, travel_signature TEXT, travel_detected_at INTEGER, travel_started_after INTEGER, travel_started_before INTEGER, estimated_arrival_at INTEGER, estimated_arrival_earliest INTEGER, estimated_arrival_latest INTEGER, status_updated_at INTEGER, bsp_battlestats INTEGER, bsp_battlestats_updated_at INTEGER, travel_trip_destination TEXT, travel_trip_type TEXT, travel_trip_inferred_at INTEGER, last_action_status TEXT, last_action_timestamp INTEGER, networth_attempted_at INTEGER, networth_attempt_count INTEGER NOT NULL DEFAULT 0, networth_error TEXT, networth_key_source TEXT);
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  networth INTEGER,
+  networth_updated_at INTEGER,
+  bsp_battlestats INTEGER,
+  bsp_battlestats_updated_at INTEGER,
+  networth_attempted_at INTEGER,
+  networth_attempt_count INTEGER NOT NULL DEFAULT 0,
+  networth_error TEXT,
+  networth_key_source TEXT
+);
 
 CREATE TABLE enemy_big_hitters (
   war_id INTEGER NOT NULL,
@@ -384,11 +391,18 @@ CREATE TABLE home_faction_members (
   level INTEGER,
   position TEXT,
   days_in_faction INTEGER,
-  is_revivable INTEGER,
   ff_battlestats INTEGER,
   ff_battlestats_updated_at INTEGER,
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-, networth INTEGER, networth_updated_at INTEGER, bsp_battlestats INTEGER, bsp_battlestats_updated_at INTEGER, is_current INTEGER NOT NULL DEFAULT 1, report_exempt INTEGER NOT NULL DEFAULT 0, report_exempt_reason TEXT, report_exempt_updated_at INTEGER, status_state TEXT, status_description TEXT, last_action_status TEXT, last_action_timestamp INTEGER, status_updated_at INTEGER, plane_image_type TEXT, travel_origin TEXT, travel_destination TEXT, travel_signature TEXT, travel_detected_at INTEGER, travel_started_after INTEGER, travel_started_before INTEGER, estimated_arrival_at INTEGER, estimated_arrival_earliest INTEGER, estimated_arrival_latest INTEGER, travel_trip_destination TEXT, travel_trip_type TEXT, travel_trip_inferred_at INTEGER);
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  networth INTEGER,
+  networth_updated_at INTEGER,
+  bsp_battlestats INTEGER,
+  bsp_battlestats_updated_at INTEGER,
+  is_current INTEGER NOT NULL DEFAULT 1,
+  report_exempt INTEGER NOT NULL DEFAULT 0,
+  report_exempt_reason TEXT,
+  report_exempt_updated_at INTEGER
+);
 
 CREATE TABLE home_member_live_status (
   member_id INTEGER PRIMARY KEY,
