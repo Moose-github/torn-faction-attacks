@@ -3,7 +3,7 @@ import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
 import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
 import { refreshMemberAchievementSummariesIfStale } from "./memberAchievements";
-import { rebuildOpenWarMemberStatsFromRaw } from "./warStats";
+import { rebuildWarStatsFromRaw } from "./warStats";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { refreshTornApiUsageRollups } from "./tornApiUsage";
 import { Env, TornFactionMember } from "./types";
@@ -324,7 +324,10 @@ async function runMemberStatCorrectionIfDue(env: Env): Promise<MaintenanceTaskMe
     };
   }
 
-  const result = await rebuildOpenWarMemberStatsFromRaw(env);
+  const result = await rebuildWarStatsFromRaw(env, {
+    scope: "open-wars",
+    reason: "maintenance",
+  });
   if (result.wars_rebuilt === 0) {
     return {
       writeStatements: 0,

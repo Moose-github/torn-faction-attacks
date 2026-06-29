@@ -24,7 +24,7 @@ vi.mock("./miscellaneous", () => ({
   refreshTornShoplifting: vi.fn(),
 }));
 vi.mock("./warStats", () => ({
-  rebuildOpenWarMemberStatsFromRaw: vi.fn(),
+  rebuildWarStatsFromRaw: vi.fn(),
   refreshOpenWarChainBonusAdjustmentsFromRaw: vi.fn(),
 }));
 vi.mock("./xanaxCompetition", () => ({

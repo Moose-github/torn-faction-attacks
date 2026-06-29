@@ -17,8 +17,7 @@ vi.mock("./enemyScouting", () => ({
 }));
 
 vi.mock("./warStats", () => ({
-  rebuildWarMemberStatsFromRaw: vi.fn(),
-  rebuildWarSummaryFromMemberStats: vi.fn(),
+  rebuildWarStatsFromRaw: vi.fn(),
 }));
 
 describe("war lifecycle global state", () => {

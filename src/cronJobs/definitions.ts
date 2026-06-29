@@ -14,7 +14,7 @@ import {
 import { runScheduledMaintenance } from "../maintenance";
 import { refreshTornShoplifting } from "../miscellaneous";
 import {
-  rebuildOpenWarMemberStatsFromRaw,
+  rebuildWarStatsFromRaw,
   refreshOpenWarChainBonusAdjustmentsFromRaw,
 } from "../warStats";
 import type { Env, TornFactionMember } from "../types";
@@ -47,7 +47,7 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     category: "attacks",
     purpose: "Rebuild current war summaries from raw attacks hourly so chain-bonus adjustments catch up outside the minute path.",
     shouldRun: (date) => date.getUTCMinutes() === 0,
-    run: (env) => rebuildOpenWarMemberStatsFromRaw(env),
+    run: (env) => rebuildWarStatsFromRaw(env, { scope: "open-wars", reason: "cron" }),
   },
   {
     label: "Cron targeted chain bonus correction",

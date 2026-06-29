@@ -5,7 +5,7 @@ import {
 } from "./cacheVersions";
 import { ingestHistoricalWarWindow } from "./ingestion";
 import { DEFENSE_ACTION_WINDOW_SQL } from "./sql";
-import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./warStats";
+import { rebuildWarStatsFromRaw } from "./warStats";
 import { Env, WarRow } from "./types";
 import { json } from "./utils";
 
@@ -59,8 +59,11 @@ export async function relinkWarAttacks(request: Request, env: Env): Promise<Resp
       results.push(result);
 
       if (!dryRun) {
-        await rebuildWarMemberStatsFromRaw(env, war.id);
-        await rebuildWarSummaryFromMemberStats(env, war.id);
+        await rebuildWarStatsFromRaw(env, {
+          scope: "single-war",
+          warId: war.id,
+          reason: "relink",
+        });
         await bumpWarCacheVersion(env, war.name);
       }
     }

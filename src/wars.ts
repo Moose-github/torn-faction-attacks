@@ -11,7 +11,7 @@ import {
   previewHistoricalWarWindow,
   pullAttackWindow,
 } from "./ingestion";
-import { finalizeWar } from "./warStats";
+import { clearWarStats, finalizeWar } from "./warStats";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   WAR_RETURNING_COLUMNS,
@@ -685,10 +685,10 @@ export async function deleteWar(request: Request, env: Env): Promise<Response> {
 
     const syncState = await readSyncState(env, SOURCE_NAME);
 
+    await clearWarStats(env, war.id);
+
     await env.DB.batch([
       env.DB.prepare(`UPDATE attacks SET war_id = NULL WHERE war_id = ?`).bind(war.id),
-      env.DB.prepare(`DELETE FROM war_member_stats WHERE war_id = ?`).bind(war.id),
-      env.DB.prepare(`DELETE FROM war_summary WHERE war_id = ?`).bind(war.id),
       env.DB.prepare(`DELETE FROM wars WHERE id = ?`).bind(war.id),
     ]);
 

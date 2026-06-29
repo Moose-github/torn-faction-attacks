@@ -5,7 +5,7 @@ import {
   clearLiveEnemyTrackingData,
   fetchEnemyScoutingOnceForWar,
 } from "../enemyScouting";
-import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "../warStats";
+import { rebuildWarStatsFromRaw } from "../warStats";
 import { isSyncLatchSet, setSyncLatch } from "../syncLatches";
 import type { Env } from "../types";
 import { nowSeconds } from "../utils";
@@ -107,8 +107,11 @@ export async function runWarOfficiallyEndedHooks(
 }
 
 export async function refreshWarDerivedStats(env: Env, warId: number): Promise<void> {
-  await rebuildWarMemberStatsFromRaw(env, warId);
-  await rebuildWarSummaryFromMemberStats(env, warId);
+  await rebuildWarStatsFromRaw(env, {
+    scope: "single-war",
+    warId,
+    reason: "lifecycle",
+  });
 }
 
 async function runWarLifecycleHandlersOnce(

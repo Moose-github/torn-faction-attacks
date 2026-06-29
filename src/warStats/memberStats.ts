@@ -12,6 +12,36 @@ import { rebuildWarSummaryFromMemberStats } from "./warSummary";
 
 const MEMBER_ACTIVITY_BUCKET_SECONDS = 15 * 60;
 
+export type WarStatsRebuildScope = "single-war" | "open-wars" | "all-wars";
+
+export type WarStatsRebuildReason =
+  | "admin"
+  | "cron"
+  | "lifecycle"
+  | "maintenance"
+  | "relink"
+  | "finalize"
+  | "compatibility";
+
+export type WarStatsRebuildOptions = {
+  scope: WarStatsRebuildScope;
+  warId?: number;
+  reason?: WarStatsRebuildReason;
+};
+
+export type WarStatsRebuildResult = {
+  wars_rebuilt: number;
+  combat_bucket_rows: number;
+};
+
+export async function clearWarStats(env: Env, warId: number): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM war_member_combat_buckets WHERE war_id = ?`).bind(warId),
+    env.DB.prepare(`DELETE FROM war_member_stats WHERE war_id = ?`).bind(warId),
+    env.DB.prepare(`DELETE FROM war_summary WHERE war_id = ?`).bind(warId),
+  ]);
+}
+
 export async function applyIncrementalWarSummaries(
   env: Env,
   warId: number,
@@ -25,7 +55,33 @@ export async function applyIncrementalWarSummaries(
   await rebuildWarSummaryFromMemberStats(env, warId);
 }
 
+export async function rebuildWarStatsFromRaw(
+  env: Env,
+  options: WarStatsRebuildOptions,
+): Promise<WarStatsRebuildResult> {
+  if (options.scope === "single-war") {
+    return rebuildSingleWarStatsFromRaw(env, options.warId);
+  }
+
+  if (options.scope === "open-wars") {
+    return rebuildOpenWarStatsFromRaw(env);
+  }
+
+  return rebuildAllWarStatsFromRaw(env);
+}
+
 export async function rebuildOpenWarMemberStatsFromRaw(env: Env): Promise<{ wars_rebuilt: number }> {
+  const result = await rebuildWarStatsFromRaw(env, {
+    scope: "open-wars",
+    reason: "compatibility",
+  });
+
+  return {
+    wars_rebuilt: result.wars_rebuilt,
+  };
+}
+
+async function rebuildOpenWarStatsFromRaw(env: Env): Promise<WarStatsRebuildResult> {
   const rows = await env.DB.prepare(
     `
     SELECT id
@@ -40,12 +96,12 @@ export async function rebuildOpenWarMemberStatsFromRaw(env: Env): Promise<{ wars
   const wars = (rows.results ?? []) as { id: number }[];
 
   for (const war of wars) {
-    await rebuildWarMemberStatsFromRaw(env, war.id);
-    await rebuildWarSummaryFromMemberStats(env, war.id);
+    await rebuildSingleWarStatsFromRaw(env, war.id);
   }
 
   return {
     wars_rebuilt: wars.length,
+    combat_bucket_rows: await countWarMemberCombatBuckets(env),
   };
 }
 
@@ -101,8 +157,11 @@ export async function finalizeWar(env: Env, warId: number): Promise<void> {
     return;
   }
 
-  await rebuildWarMemberStatsFromRaw(env, warId);
-  await rebuildWarSummaryFromMemberStats(env, warId);
+  await rebuildWarStatsFromRaw(env, {
+    scope: "single-war",
+    warId,
+    reason: "finalize",
+  });
 
   await env.DB.prepare(
     `
@@ -123,30 +182,44 @@ export async function rebuildDerivedStatsFromRaw(env: Env, warId?: number): Prom
   wars_rebuilt: number;
   combat_bucket_rows: number;
 }> {
-  if (warId !== undefined) {
-    const war = (await env.DB.prepare(
-      `
-      SELECT id
-      FROM wars
-      WHERE id = ?
-      LIMIT 1
-      `,
-    )
-      .bind(warId)
-      .first()) as { id: number } | null;
+  return rebuildWarStatsFromRaw(env, warId === undefined
+    ? { scope: "all-wars", reason: "compatibility" }
+    : { scope: "single-war", warId, reason: "compatibility" });
+}
 
-    if (!war) {
-      return { wars_rebuilt: 0, combat_bucket_rows: 0 };
-    }
-
-    await rebuildWarMemberStatsFromRaw(env, war.id);
-    await rebuildWarSummaryFromMemberStats(env, war.id);
-    return {
-      wars_rebuilt: 1,
-      combat_bucket_rows: await countWarMemberCombatBuckets(env, war.id),
-    };
+async function rebuildSingleWarStatsFromRaw(
+  env: Env,
+  warId: number | undefined,
+): Promise<WarStatsRebuildResult> {
+  if (warId === undefined) {
+    return { wars_rebuilt: 0, combat_bucket_rows: 0 };
   }
 
+  const war = (await env.DB.prepare(
+    `
+    SELECT id
+    FROM wars
+    WHERE id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first()) as { id: number } | null;
+
+  if (!war) {
+    return { wars_rebuilt: 0, combat_bucket_rows: 0 };
+  }
+
+  await rebuildWarMemberStatsFromRaw(env, war.id);
+  await rebuildWarSummaryFromMemberStats(env, war.id);
+
+  return {
+    wars_rebuilt: 1,
+    combat_bucket_rows: await countWarMemberCombatBuckets(env, war.id),
+  };
+}
+
+async function rebuildAllWarStatsFromRaw(env: Env): Promise<WarStatsRebuildResult> {
   await resetDerivedWarMemberStats(env);
 
   const rows = await env.DB.prepare(
@@ -160,8 +233,7 @@ export async function rebuildDerivedStatsFromRaw(env: Env, warId?: number): Prom
   const wars = (rows.results ?? []) as { id: number; status: string }[];
 
   for (const war of wars) {
-    await rebuildWarMemberStatsFromRaw(env, war.id);
-    await rebuildWarSummaryFromMemberStats(env, war.id);
+    await rebuildSingleWarStatsFromRaw(env, war.id);
   }
 
   return {
