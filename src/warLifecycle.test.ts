@@ -16,7 +16,7 @@ vi.mock("./enemyScouting", () => ({
   fetchEnemyScoutingOnceForWar: vi.fn(),
 }));
 
-vi.mock("./summaries", () => ({
+vi.mock("./warStats", () => ({
   rebuildWarMemberStatsFromRaw: vi.fn(),
   rebuildWarSummaryFromMemberStats: vi.fn(),
 }));

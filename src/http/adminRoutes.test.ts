@@ -95,7 +95,7 @@ vi.mock("../stockPaperTrading", () => ({
   resetStockPaperAccount: vi.fn(),
   simulateStockPaperBotFromRequest: vi.fn(),
 }));
-vi.mock("../summaries", () => ({ rebuildDerivedStatsFromRaw: vi.fn() }));
+vi.mock("../warStats", () => ({ rebuildDerivedStatsFromRaw: vi.fn() }));
 vi.mock("../suggestions", () => ({ listMemberSuggestionsForAdmin: vi.fn() }));
 vi.mock("../tornApiUsage", () => ({ getTornApiUsage: vi.fn() }));
 vi.mock("../warControl", () => ({

@@ -56,7 +56,7 @@ import {
   resetStockPaperAccount,
   simulateStockPaperBotFromRequest,
 } from "../stockPaperTrading";
-import { rebuildDerivedStatsFromRaw } from "../summaries";
+import { rebuildDerivedStatsFromRaw } from "../warStats";
 import { listMemberSuggestionsForAdmin } from "../suggestions";
 import { getTornApiUsage } from "../tornApiUsage";
 import { Env } from "../types";

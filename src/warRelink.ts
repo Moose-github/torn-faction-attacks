@@ -5,7 +5,7 @@ import {
 } from "./cacheVersions";
 import { ingestHistoricalWarWindow } from "./ingestion";
 import { DEFENSE_ACTION_WINDOW_SQL } from "./sql";
-import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./summaries";
+import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "./warStats";
 import { Env, WarRow } from "./types";
 import { json } from "./utils";
 

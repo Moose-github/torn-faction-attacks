@@ -11,7 +11,7 @@ import {
   previewHistoricalWarWindow,
   pullAttackWindow,
 } from "./ingestion";
-import { finalizeWar } from "./summaries";
+import { finalizeWar } from "./warStats";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   WAR_RETURNING_COLUMNS,

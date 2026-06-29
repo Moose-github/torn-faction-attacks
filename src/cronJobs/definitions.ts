@@ -16,7 +16,7 @@ import { refreshTornShoplifting } from "../miscellaneous";
 import {
   rebuildOpenWarMemberStatsFromRaw,
   refreshOpenWarChainBonusAdjustmentsFromRaw,
-} from "../summaries";
+} from "../warStats";
 import type { Env, TornFactionMember } from "../types";
 import { runMonthlyXanaxCompetitionDiscordReminder } from "../xanaxCompetition";
 import type { CronJobDefinition } from "./model";

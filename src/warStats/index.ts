@@ -5,5 +5,5 @@ export {
   rebuildOpenWarMemberStatsFromRaw,
   rebuildWarMemberStatsFromRaw,
   refreshOpenWarChainBonusAdjustmentsFromRaw,
-} from "../warStats";
-export { rebuildWarSummaryFromMemberStats } from "../warStats";
+} from "./memberStats";
+export { rebuildWarSummaryFromMemberStats } from "./warSummary";

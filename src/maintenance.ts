@@ -3,7 +3,7 @@ import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
 import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
 import { refreshMemberAchievementSummariesIfStale } from "./memberAchievements";
-import { rebuildOpenWarMemberStatsFromRaw } from "./summaries";
+import { rebuildOpenWarMemberStatsFromRaw } from "./warStats";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { refreshTornApiUsageRollups } from "./tornApiUsage";
 import { Env, TornFactionMember } from "./types";

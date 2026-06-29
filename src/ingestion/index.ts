@@ -11,7 +11,7 @@ import { applyRankedWarReport, fetchTornRankedWarReport } from "../reports";
 import {
   applyIncrementalWarSummaries,
   finalizeWar,
-} from "../summaries";
+} from "../warStats";
 import {
   insertSyncStateIfMissing,
   readSyncState,

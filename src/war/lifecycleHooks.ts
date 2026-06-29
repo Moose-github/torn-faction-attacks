@@ -5,7 +5,7 @@ import {
   clearLiveEnemyTrackingData,
   fetchEnemyScoutingOnceForWar,
 } from "../enemyScouting";
-import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "../summaries";
+import { rebuildWarMemberStatsFromRaw, rebuildWarSummaryFromMemberStats } from "../warStats";
 import { isSyncLatchSet, setSyncLatch } from "../syncLatches";
 import type { Env } from "../types";
 import { nowSeconds } from "../utils";
