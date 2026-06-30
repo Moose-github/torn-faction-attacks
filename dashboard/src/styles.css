@@ -5919,22 +5919,30 @@ h2 {
   display: grid;
   gap: 4px;
   padding: 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-faint);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--panel-muted-bg);
 }
 
 .settings-profile-grid span,
 .settings-link-notice span {
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 0.8rem;
   font-weight: 700;
 }
 
 .settings-profile-grid strong,
 .settings-link-notice strong {
-  color: #0f172a;
+  color: var(--text-strong);
   font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.settings-profile-grid small {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .settings-link-notice {
@@ -5954,9 +5962,9 @@ h2 {
   gap: 10px;
   min-height: 54px;
   padding: 10px 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-faint);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel-bg-solid);
 }
 
 .settings-alert-row > span {
@@ -5966,13 +5974,13 @@ h2 {
 }
 
 .settings-alert-row strong {
-  color: #0f172a;
+  color: var(--text-strong);
   font-size: 0.9rem;
 }
 
 .settings-alert-row small,
 .settings-alert-row em {
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 0.78rem;
   font-style: normal;
   font-weight: 700;
@@ -7122,6 +7130,7 @@ tbody tr:not(.attack-row):hover td {
 
   .admin-action-grid,
   .admin-form,
+  .settings-profile-grid,
   .admin-xanax-claims div,
   .xanax-leader-row {
     grid-template-columns: 1fr;

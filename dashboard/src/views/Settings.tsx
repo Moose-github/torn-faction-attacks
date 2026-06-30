@@ -57,19 +57,21 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
 
   const linked = data?.discord_link.linked ?? false;
   const linkedDiscordId = data?.discord_link.discord_user_id ?? null;
+  const tornUserDisplay = authSession.user.name ? `${authSession.user.name} ${authSession.user.id}` : String(authSession.user.id);
 
   return (
     <div className="settings-page">
       <section className="panel settings-profile-panel">
-        <PanelHeader title="Settings" aside={authSession.user.name ?? `Torn user ${authSession.user.id}`} icon={<Bell size={18} />} />
+        <PanelHeader title="Settings" aside={tornUserDisplay} icon={<Bell size={18} />} />
         <div className="settings-profile-grid">
           <div>
             <span>Torn user</span>
-            <strong>{authSession.user.name ?? `Torn user ${authSession.user.id}`}</strong>
+            <strong>{tornUserDisplay}</strong>
           </div>
           <div>
             <span>Discord link</span>
-            <strong>{linkedDiscordId ? `<@${linkedDiscordId}>` : "Not linked"}</strong>
+            <strong>{linkedDiscordId ? "Linked" : "Not linked"}</strong>
+            {linkedDiscordId ? <small>Discord ID {linkedDiscordId}</small> : null}
           </div>
         </div>
       </section>
