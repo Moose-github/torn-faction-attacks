@@ -733,6 +733,23 @@ export type AdminDiscordAlertSettingsResponse = {
 
 };
 
+export type DiscordMemberAlertSubscription = {
+  key: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+};
+
+export type DiscordMemberAlertSubscriptionsResponse = {
+  ok: boolean;
+  discord_link: {
+    torn_user_id: number;
+    discord_user_id: string | null;
+    linked: boolean;
+  };
+  alerts: DiscordMemberAlertSubscription[];
+};
+
 export type AttackWindowPayload = {
   practical_start_time: number;
   practical_finish_time: number;
@@ -967,6 +984,7 @@ type AppViewName =
   | "stockMarketStatus"
   | "diceGame"
   | "dataHealth"
+  | "settings"
   | "admin";
 
 export type TornApiUsageSummary = {

@@ -1,6 +1,6 @@
 import { getJson, postJson } from "./client";
 import { queryString } from "./query";
-import type { DiceGameResponse, DiceGameRollResponse, DiceGameSendXanaxResponse, HomeFactionMemberSummary, HomeFactionReportExemptionsResponse, MemberAchievementsResponse, MemberSuggestionResponse, MiscellaneousResponse, MonitorTicketResponse, RecentFactionAttacksResponse, XanaxCompetitionResponse } from "./types";
+import type { DiceGameResponse, DiceGameRollResponse, DiceGameSendXanaxResponse, DiscordMemberAlertSubscriptionsResponse, HomeFactionMemberSummary, HomeFactionReportExemptionsResponse, MemberAchievementsResponse, MemberSuggestionResponse, MiscellaneousResponse, MonitorTicketResponse, RecentFactionAttacksResponse, XanaxCompetitionResponse } from "./types";
 
 export async function getHomeFactionMemberSummary(): Promise<HomeFactionMemberSummary> {
   return getJson<HomeFactionMemberSummary>("/api/home-faction-members/summary");
@@ -33,6 +33,17 @@ export async function getXanaxCompetition(): Promise<XanaxCompetitionResponse> {
 
 export async function submitMemberSuggestion(suggestion: string): Promise<MemberSuggestionResponse> {
   return postJson<MemberSuggestionResponse>("/api/suggestions", { suggestion });
+}
+
+export async function getDiscordMemberAlertSubscriptions(): Promise<DiscordMemberAlertSubscriptionsResponse> {
+  return getJson<DiscordMemberAlertSubscriptionsResponse>("/api/me/discord-alert-subscriptions");
+}
+
+export async function updateDiscordMemberAlertSubscription(payload: {
+  alert_key: string;
+  enabled: boolean;
+}): Promise<DiscordMemberAlertSubscriptionsResponse> {
+  return postJson<DiscordMemberAlertSubscriptionsResponse>("/api/me/discord-alert-subscriptions", payload);
 }
 
 export async function getMiscellaneousData(): Promise<MiscellaneousResponse> {

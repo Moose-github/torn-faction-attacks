@@ -2,6 +2,10 @@ import { readAuthenticatedUserId } from "../auth";
 import { MEMBER_LIFESTYLE_CACHE_VERSION_NAME } from "../cacheVersions";
 import { getDataHealthSummary } from "../dataHealth";
 import { getDiceGameState, rollDiceGame, sendXanaxToDiceGame } from "../diceGame";
+import {
+  getDiscordMemberAlertSubscriptions,
+  updateDiscordMemberAlertSubscriptionFromRequest,
+} from "../discordMemberAlertSubscriptions";
 import { getRecentFactionAttacks } from "../factionAttacks";
 import { getCurrentHomeFactionMemberSummary } from "../homeFactionMembers";
 import {
@@ -85,6 +89,22 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
 
   if (matchesExactRoute(url, request, "/api/retaliations/check", "GET")) {
     return withMember(routeContext, () => getRetaliationCheck(url, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/me/discord-alert-subscriptions", "GET")) {
+    return withMember(routeContext, async () =>
+      getDiscordMemberAlertSubscriptions(env, await readAuthenticatedUserId(request, env)),
+    );
+  }
+
+  if (matchesExactRoute(url, request, "/api/me/discord-alert-subscriptions", "POST")) {
+    return withMember(routeContext, async () =>
+      updateDiscordMemberAlertSubscriptionFromRequest(
+        request,
+        env,
+        await readAuthenticatedUserId(request, env),
+      ),
+    );
   }
 
   if (matchesExactRoute(url, request, "/api/suggestions", "POST")) {

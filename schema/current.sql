@@ -139,15 +139,15 @@ CREATE TABLE data_health_settings (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
-CREATE TABLE discord_alert_mentions (
+CREATE TABLE discord_admin_alert_subscriptions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   alert_key TEXT NOT NULL,
-  mention_type TEXT NOT NULL CHECK (mention_type IN ('user', 'role')),
+  subscription_type TEXT NOT NULL CHECK (subscription_type IN ('user', 'role')),
   discord_id TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  UNIQUE(alert_key, mention_type, discord_id)
+  UNIQUE(alert_key, subscription_type, discord_id)
 );
 
 CREATE TABLE discord_travel_tracker_state (
@@ -480,6 +480,15 @@ CREATE TABLE member_achievement_summaries (
 CREATE TABLE discord_member_links (
   torn_user_id INTEGER PRIMARY KEY,
   discord_user_id TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE discord_member_alert_subscriptions (
+  torn_user_id INTEGER NOT NULL,
+  alert_key TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (torn_user_id, alert_key)
 );
 
 CREATE TABLE member_gym_stats_current (
@@ -1081,8 +1090,10 @@ CREATE INDEX idx_auth_sessions_expires_at
 CREATE INDEX idx_dice_game_losses_total_lost
   ON dice_game_losses(total_lost DESC, rolls DESC);
 
-CREATE INDEX idx_discord_alert_mentions_alert
-  ON discord_alert_mentions (alert_key, enabled);
+CREATE INDEX idx_discord_admin_alert_subscriptions_alert
+  ON discord_admin_alert_subscriptions (alert_key, enabled);
+CREATE INDEX idx_discord_member_alert_subscriptions_alert
+  ON discord_member_alert_subscriptions (alert_key, enabled);
 
 CREATE INDEX idx_enemy_faction_members_faction
   ON enemy_faction_members(faction_id);

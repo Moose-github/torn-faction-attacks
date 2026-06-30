@@ -11,6 +11,7 @@ export type AppView =
   | "stockMarketStatus"
   | "diceGame"
   | "dataHealth"
+  | "settings"
   | "admin";
 
 export type AppRoute = {
@@ -30,6 +31,7 @@ export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   stockMarketStatus: "/admin/stock-market",
   diceGame: "/dice-game",
   dataHealth: "/data-health",
+  settings: "/settings",
   admin: "/admin",
 };
 

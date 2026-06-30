@@ -5903,6 +5903,81 @@ h2 {
   font-weight: 800;
 }
 
+.settings-page {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-profile-grid > div,
+.settings-link-notice {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.settings-profile-grid span,
+.settings-link-notice span {
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.settings-profile-grid strong,
+.settings-link-notice strong {
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+
+.settings-link-notice {
+  margin: 12px 0 0;
+}
+
+.settings-alert-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.settings-alert-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.settings-alert-row > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-alert-row strong {
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+.settings-alert-row small,
+.settings-alert-row em {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .admin-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { requireMember } from "../auth";
+import { readAuthenticatedUserId, requireMember } from "../auth";
 import { getDataHealthSummary } from "../dataHealth";
+import {
+  getDiscordMemberAlertSubscriptions,
+  updateDiscordMemberAlertSubscriptionFromRequest,
+} from "../discordMemberAlertSubscriptions";
 import { getRetaliationCheck } from "../retaliations";
 import { jsonResponse, routeContext } from "../testUtils/http";
 import { routeMemberUtilityApi } from "./memberRoutes";
@@ -12,6 +16,11 @@ vi.mock("../auth", () => ({
 
 vi.mock("../dataHealth", () => ({
   getDataHealthSummary: vi.fn(),
+}));
+
+vi.mock("../discordMemberAlertSubscriptions", () => ({
+  getDiscordMemberAlertSubscriptions: vi.fn(),
+  updateDiscordMemberAlertSubscriptionFromRequest: vi.fn(),
 }));
 
 vi.mock("../retaliations", () => ({
@@ -65,7 +74,11 @@ describe("member utility routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(requireMember).mockResolvedValue(null);
+    vi.mocked(readAuthenticatedUserId).mockResolvedValue(12345);
     vi.mocked(getDataHealthSummary).mockResolvedValue(jsonResponse({ ok: true, route: "data-health" }));
+    vi.mocked(getDiscordMemberAlertSubscriptions).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alerts" }));
+    vi.mocked(updateDiscordMemberAlertSubscriptionFromRequest)
+      .mockResolvedValue(jsonResponse({ ok: true, route: "discord-alerts-update" }));
     vi.mocked(getRetaliationCheck).mockResolvedValue(jsonResponse({ ok: true, route: "retaliations" }));
   });
 
@@ -103,5 +116,31 @@ describe("member utility routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "data-health" });
     expect(requireMember).toHaveBeenCalledOnce();
     expect(getDataHealthSummary).toHaveBeenCalledOnce();
+  });
+
+  it("routes member Discord alert subscription reads through member auth", async () => {
+    const context = routeContext("https://worker.test/api/me/discord-alert-subscriptions");
+    const response = await routeMemberUtilityApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "discord-alerts" });
+    expect(requireMember).toHaveBeenCalledOnce();
+    expect(readAuthenticatedUserId).toHaveBeenCalledWith(context.request, context.env);
+    expect(getDiscordMemberAlertSubscriptions).toHaveBeenCalledWith(context.env, 12345);
+  });
+
+  it("routes member Discord alert subscription updates through member auth", async () => {
+    const context = routeContext("https://worker.test/api/me/discord-alert-subscriptions", {
+      method: "POST",
+      body: JSON.stringify({ alert_key: "enemy_push", enabled: true }),
+    });
+    const response = await routeMemberUtilityApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "discord-alerts-update" });
+    expect(requireMember).toHaveBeenCalledOnce();
+    expect(readAuthenticatedUserId).toHaveBeenCalledWith(context.request, context.env);
+    expect(updateDiscordMemberAlertSubscriptionFromRequest)
+      .toHaveBeenCalledWith(context.request, context.env, 12345);
   });
 });

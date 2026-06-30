@@ -11,6 +11,7 @@ import {
   Radar,
   ShoppingCart,
   ShieldCheck,
+  Settings as SettingsIcon,
   Sun,
   Target,
   TrendingUp,
@@ -85,6 +86,9 @@ const MembersOverview = React.lazy(() =>
 );
 const Miscellaneous = React.lazy(() =>
   import("../views/Miscellaneous").then((module) => ({ default: module.Miscellaneous })),
+);
+const SettingsPage = React.lazy(() =>
+  import("../views/Settings").then((module) => ({ default: module.Settings })),
 );
 const StockMarketStatus = React.lazy(() =>
   import("../views/StockMarketStatus").then((module) => ({ default: module.StockMarketStatus })),
@@ -716,6 +720,7 @@ export function App() {
           warPayoutsIcon={<CircleDollarSign size={18} />}
           stockMarketIcon={<TrendingUp size={18} />}
           dataHealthIcon={<Gauge size={18} />}
+          settingsIcon={<SettingsIcon size={18} />}
           diceGameIcon={<Dices size={18} />}
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
@@ -766,6 +771,10 @@ export function App() {
           ) : view === "dataHealth" ? (
             <LazyPage>
               <DataHealthPage isAdmin={isAdmin} onOpenView={changeView} />
+            </LazyPage>
+          ) : view === "settings" ? (
+            <LazyPage>
+              <SettingsPage authSession={authSession} />
             </LazyPage>
           ) : view === "members" ? (
             <LazyPage>
