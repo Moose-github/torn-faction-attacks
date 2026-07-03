@@ -23,6 +23,7 @@ export type ArrestScoutResult = {
   current_jailed: number | null;
   historical_jailed: number | null;
   jailed_delta: number | null;
+  notes_json: string;
   created_at: number;
 };
 
@@ -94,12 +95,22 @@ export type ArrestScoutFutureTargetsResponse = {
   future_targets: ArrestScoutFutureTarget[];
 };
 
+export type ArrestScoutSnapshotResponse = {
+  ok: boolean;
+  snapshot: ArrestScoutSnapshot;
+  results: ArrestScoutResult[];
+};
+
 export async function scanArrestScout(payload: ArrestScoutScanPayload): Promise<ArrestScoutScanResponse> {
   return postJson<ArrestScoutScanResponse>("/api/arrest-scout/scan", payload);
 }
 
 export async function getArrestScoutSnapshots(): Promise<ArrestScoutSnapshotsResponse> {
   return getJson<ArrestScoutSnapshotsResponse>("/api/arrest-scout/snapshots");
+}
+
+export async function getArrestScoutSnapshot(snapshotId: string): Promise<ArrestScoutSnapshotResponse> {
+  return getJson<ArrestScoutSnapshotResponse>(`/api/arrest-scout/snapshots/${encodeURIComponent(snapshotId)}`);
 }
 
 export async function getArrestScoutFutureTargets(): Promise<ArrestScoutFutureTargetsResponse> {

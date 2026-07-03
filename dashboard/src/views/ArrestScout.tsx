@@ -1,6 +1,7 @@
 import React from "react";
 import { RefreshCw, Search, ShieldCheck, TimerReset, UserSearch } from "lucide-react";
 import {
+  getArrestScoutSnapshot,
   getArrestScoutFutureTargets,
   getArrestScoutSnapshots,
   scanArrestScout,
@@ -24,7 +25,10 @@ export function ArrestScout() {
   const [scanResult, setScanResult] = React.useState<ArrestScoutScanResponse | null>(null);
   const [snapshots, setSnapshots] = React.useState<ArrestScoutSnapshot[]>([]);
   const [futureTargets, setFutureTargets] = React.useState<ArrestScoutFutureTarget[]>([]);
+  const [selectedSnapshot, setSelectedSnapshot] = React.useState<ArrestScoutSnapshot | null>(null);
+  const [selectedSnapshotResults, setSelectedSnapshotResults] = React.useState<ArrestScoutResult[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoadingSnapshotResults, setIsLoadingSnapshotResults] = React.useState(false);
   const [isScanning, setIsScanning] = React.useState(false);
   const [isRechecking, setIsRechecking] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -103,12 +107,29 @@ export function ArrestScout() {
         min_counterfeiting_delta: positiveInteger(minCounterfeitingDelta, 500),
       });
       setScanResult(response);
+      setSelectedSnapshot(null);
+      setSelectedSnapshotResults(response.results);
       await loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       await loadHistory();
     } finally {
       setIsScanning(false);
+    }
+  }
+
+  async function loadSnapshotResults(snapshot: ArrestScoutSnapshot) {
+    setIsLoadingSnapshotResults(true);
+    setError(null);
+
+    try {
+      const response = await getArrestScoutSnapshot(snapshot.id);
+      setSelectedSnapshot(response.snapshot);
+      setSelectedSnapshotResults(response.results);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoadingSnapshotResults(false);
     }
   }
 
@@ -256,6 +277,7 @@ export function ArrestScout() {
                     <th>Current</th>
                     <th>Future</th>
                     <th>Errors</th>
+                    <th>Results</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -266,7 +288,7 @@ export function ArrestScout() {
                         <small>{snapshot.source_type} - min {formatNumber(snapshot.min_counterfeiting_delta)}</small>
                       </td>
                       <td>
-                        <span className={`trade-quality-badge ${snapshot.status === "ok" ? "good" : "watch"}`}>
+                        <span className={`trade-quality-badge ${snapshot.status === "ok" ? "good" : "warn"}`}>
                           {snapshot.status}
                         </span>
                         {snapshot.error ? <small>{snapshot.error}</small> : null}
@@ -275,6 +297,21 @@ export function ArrestScout() {
                       <td>{formatNumber(snapshot.current_target_count)}</td>
                       <td>{formatNumber(snapshot.future_target_count)}</td>
                       <td>{formatNumber(snapshot.error_count)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="panel-action-button"
+                          onClick={() => loadSnapshotResults(snapshot)}
+                          disabled={isLoadingSnapshotResults && selectedSnapshot?.id === snapshot.id}
+                        >
+                          {isLoadingSnapshotResults && selectedSnapshot?.id === snapshot.id ? (
+                            <RefreshCw size={13} className="spinning-icon" />
+                          ) : (
+                            <Search size={13} />
+                          )}
+                          View
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -282,6 +319,12 @@ export function ArrestScout() {
             </div>
           )}
         </section>
+
+        <ScanResultsPanel
+          snapshot={selectedSnapshot}
+          results={selectedSnapshotResults}
+          isLoading={isLoadingSnapshotResults}
+        />
       </section>
     </>
   );
@@ -325,6 +368,69 @@ function ResultPanel({ title, results, emptyText }: { title: string; results: Ar
   );
 }
 
+function ScanResultsPanel({
+  snapshot,
+  results,
+  isLoading,
+}: {
+  snapshot: ArrestScoutSnapshot | null;
+  results: ArrestScoutResult[];
+  isLoading: boolean;
+}) {
+  const title = snapshot ? "Selected scan results" : "Latest scan results";
+  const aside = snapshot
+    ? `${formatRelativeTime(snapshot.scanned_at)} - ${formatNumber(results.length)} rows`
+    : `${formatNumber(results.length)} rows`;
+
+  return (
+    <section className="panel table-panel">
+      <PanelHeader title={title} aside={isLoading ? "Loading" : aside} />
+      {results.length === 0 ? (
+        <EmptyState text={isLoading ? "Loading scan results" : "Select a recent scan to view all member results"} />
+      ) : (
+        <div className="table-scroll">
+          <table className="trade-scout-table">
+            <thead>
+              <tr>
+                <th>Target</th>
+                <th>Class</th>
+                <th>Score</th>
+                <th>Counterfeiting</th>
+                <th>Jailed</th>
+                <th>Skill</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((result) => (
+                <tr key={result.id}>
+                  <td>{targetCell(result.target_user_id, result.name)}</td>
+                  <td>
+                    <span className={`trade-quality-badge ${classificationTone(result.classification)}`}>
+                      {classificationLabel(result.classification)}
+                    </span>
+                  </td>
+                  <td>{formatNumber(result.score)}</td>
+                  <td>
+                    <strong>{nullableNumber(result.counterfeiting_delta)}</strong>
+                    <small>{nullableNumber(result.historical_counterfeiting)} to {nullableNumber(result.current_counterfeiting)}</small>
+                  </td>
+                  <td>
+                    <strong>{nullableNumber(result.jailed_delta)}</strong>
+                    <small>{nullableNumber(result.historical_jailed)} to {nullableNumber(result.current_jailed)}</small>
+                  </td>
+                  <td>{nullableNumber(result.current_forgeryskill)}</td>
+                  <td>{notesLabel(result.notes_json)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function targetCell(targetUserId: number, name: string | null): React.ReactNode {
   return (
     <>
@@ -356,4 +462,20 @@ function nullableNumber(value: number | null): string {
 
 function classificationLabel(value: string): string {
   return value.replace(/_/g, " ");
+}
+
+function classificationTone(value: string): string {
+  if (value === "current_target") return "good";
+  if (value === "future_target") return "warn";
+  if (value === "error") return "danger";
+  return "";
+}
+
+function notesLabel(value: string): string {
+  try {
+    const notes = JSON.parse(value);
+    return Array.isArray(notes) && notes.length > 0 ? notes.join(", ") : "-";
+  } catch {
+    return value || "-";
+  }
 }
