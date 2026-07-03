@@ -22,6 +22,7 @@ export function Sidebar({
   lifestyleIcon,
   miscIcon,
   tradeScoutIcon,
+  arrestScoutIcon,
   warPayoutsIcon,
   stockMarketIcon,
   dataHealthIcon,
@@ -44,6 +45,7 @@ export function Sidebar({
   lifestyleIcon: React.ReactNode;
   miscIcon: React.ReactNode;
   tradeScoutIcon: React.ReactNode;
+  arrestScoutIcon: React.ReactNode;
   warPayoutsIcon: React.ReactNode;
   stockMarketIcon: React.ReactNode;
   dataHealthIcon: React.ReactNode;
@@ -61,7 +63,7 @@ export function Sidebar({
   });
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
-  const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout";
+  const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout" || view === "arrestScout";
   const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "admin";
 
   React.useEffect(() => {
@@ -183,6 +185,12 @@ export function Sidebar({
           icon={tradeScoutIcon}
           label="Trade scout"
           onClick={() => onViewChange("tradeScout")}
+        />
+        <SidebarLink
+          active={view === "arrestScout"}
+          icon={arrestScoutIcon}
+          label="Arrest scout"
+          onClick={() => onViewChange("arrestScout")}
         />
       </SidebarGroup>
 

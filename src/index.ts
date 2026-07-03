@@ -2,6 +2,7 @@ import { buildCronPlan } from "./cronPlan";
 export { ChainWatchAlarm } from "./chainWatchAlarm";
 import { handleDiscordInteractions } from "./discordInteractions";
 import { routeAdminApi } from "./http/adminRoutes";
+import { routeArrestScoutApi } from "./http/arrestScoutRoutes";
 import { RouteContext, RouteResult } from "./http/context";
 import { routeMemberUtilityApi } from "./http/memberRoutes";
 import { routePublicApi } from "./http/publicRoutes";
@@ -51,6 +52,7 @@ async function routeApiRequest(routeContext: RouteContext): Promise<RouteResult>
   return (
     (await routePublicApi(routeContext)) ??
     (await routeAdminApi(routeContext)) ??
+    (await routeArrestScoutApi(routeContext)) ??
     (await routeTradeApi(routeContext)) ??
     (await routeMemberUtilityApi(routeContext)) ??
     (await routeWarCommands(routeContext)) ??

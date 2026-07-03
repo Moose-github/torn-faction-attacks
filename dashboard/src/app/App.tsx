@@ -96,6 +96,9 @@ const StockMarketStatus = React.lazy(() =>
 const TradeScout = React.lazy(() =>
   import("../views/TradeScout").then((module) => ({ default: module.TradeScout })),
 );
+const ArrestScout = React.lazy(() =>
+  import("../views/ArrestScout").then((module) => ({ default: module.ArrestScout })),
+);
 const WarPayouts = React.lazy(() =>
   import("../views/WarPayouts").then((module) => ({ default: module.WarPayouts })),
 );
@@ -717,6 +720,7 @@ export function App() {
           lifestyleIcon={<Pill size={18} />}
           miscIcon={<Target size={18} />}
           tradeScoutIcon={<ShoppingCart size={18} />}
+          arrestScoutIcon={<ShieldCheck size={18} />}
           warPayoutsIcon={<CircleDollarSign size={18} />}
           stockMarketIcon={<TrendingUp size={18} />}
           dataHealthIcon={<Gauge size={18} />}
@@ -759,6 +763,10 @@ export function App() {
           ) : view === "tradeScout" ? (
             <LazyPage>
               <TradeScout isAdmin={isAdmin} />
+            </LazyPage>
+          ) : view === "arrestScout" ? (
+            <LazyPage>
+              <ArrestScout />
             </LazyPage>
           ) : view === "warPayouts" ? (
             <LazyPage>

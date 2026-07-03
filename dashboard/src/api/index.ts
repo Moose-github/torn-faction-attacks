@@ -6,5 +6,6 @@ export * from "./admin";
 export * from "./stocks";
 export * from "./lifestyle";
 export * from "./trade";
+export * from "./arrestScout";
 export * from "./member";
 export * from "./dataHealth";
