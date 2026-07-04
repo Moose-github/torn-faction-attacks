@@ -42,6 +42,7 @@ describe("torn key pool", () => {
       "hospital_monitor",
       "experimental_features",
       "faction_lifestyle_stats",
+      "faction_attack_data",
       "not_real",
     ]);
 
@@ -50,6 +51,7 @@ describe("torn key pool", () => {
       "hospital_monitor",
       "experimental_features",
       "faction_lifestyle_stats",
+      "faction_attack_data",
     ]);
     expect(isFeatureAllowed(json, "hospital_monitor")).toBe(true);
     expect(isFeatureAllowed(json, "experimental_features")).toBe(true);
@@ -68,22 +70,29 @@ describe("torn key pool", () => {
   it("checks stored key capabilities by feature", () => {
     const publicKey = { access_level: 1, access_type: "Custom", faction_access: 0 };
     const factionKey = { access_level: 1, access_type: "Custom", faction_access: 1 };
+    const limitedFactionKey = { access_level: 3, access_type: "Limited Access", faction_access: 1 };
     const fullKey = { access_level: null, access_type: "Full", faction_access: 0 };
     const noPublicAccessKey = { access_level: null, access_type: "Custom", faction_access: 0 };
 
     expect(isTornKeyCapableForFeature(publicKey, "arrest_scout")).toBe(true);
     expect(isTornKeyCapableForFeature(publicKey, "faction_lifestyle_stats")).toBe(true);
-    expect(isTornKeyCapableForFeature(publicKey, "war_live_data")).toBe(false);
+    expect(isTornKeyCapableForFeature(publicKey, "war_live_data")).toBe(true);
+    expect(isTornKeyCapableForFeature(publicKey, "faction_attack_data")).toBe(false);
     expect(isTornKeyCapableForFeature(publicKey, "faction_contributor_stats")).toBe(false);
     expect(isTornKeyCapableForFeature(factionKey, "war_live_data")).toBe(true);
-    expect(isTornKeyCapableForFeature(factionKey, "faction_contributor_stats")).toBe(true);
+    expect(isTornKeyCapableForFeature(factionKey, "faction_attack_data")).toBe(false);
+    expect(isTornKeyCapableForFeature(factionKey, "faction_contributor_stats")).toBe(false);
+    expect(isTornKeyCapableForFeature(limitedFactionKey, "faction_attack_data")).toBe(true);
+    expect(isTornKeyCapableForFeature(limitedFactionKey, "faction_contributor_stats")).toBe(true);
     expect(isTornKeyCapableForFeature(fullKey, "war_live_data")).toBe(true);
+    expect(isTornKeyCapableForFeature(fullKey, "faction_attack_data")).toBe(true);
     expect(isTornKeyCapableForFeature(noPublicAccessKey, "stock_tools")).toBe(false);
   });
 
   it("marks feature access requirements", () => {
-    expect(featureAccessRequirement("war_live_data")).toBe("faction");
-    expect(featureAccessRequirement("faction_contributor_stats")).toBe("faction");
+    expect(featureAccessRequirement("war_live_data")).toBe("public");
+    expect(featureAccessRequirement("faction_attack_data")).toBe("limited_faction");
+    expect(featureAccessRequirement("faction_contributor_stats")).toBe("limited_faction");
     expect(featureAccessRequirement("faction_lifestyle_stats")).toBe("public");
     expect(featureAccessRequirement("hospital_monitor")).toBe("public");
     expect(featureAccessRequirement("stock_tools")).toBe("public");

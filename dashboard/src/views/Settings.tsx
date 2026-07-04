@@ -93,9 +93,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
         const response = await previewMyTornKeyPoolKey(trimmedKey);
         if (cancelled || newKey.trim() !== trimmedKey) return;
         setNewKeyPreview({ status: "valid", key: response.key });
-        if (!response.key.faction_access) {
-          setNewKeyFeatures((features) => filterFeaturesForPreview(features, keyPool, response.key));
-        }
+        setNewKeyFeatures((features) => filterFeaturesForPreview(features, keyPool, response.key));
       } catch (err) {
         if (cancelled || newKey.trim() !== trimmedKey) return;
         setNewKeyPreview({ status: "invalid", error: err instanceof Error ? err.message : String(err) });
@@ -263,7 +261,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
               onChange={(event) => setNewKey(event.target.value)}
               placeholder="Submitted encrypted to the shared pool"
             />
-            {newKeyPreviewMessage(newKeyPreview)}
+            {newKeyPreviewMessage(newKeyPreview, newKeyFeatures, keyPool)}
           </label>
           <label>
             <span>Max requests per minute</span>
@@ -391,20 +389,24 @@ function KeyPoolRow({
         </div>
       </div>
       <div className="settings-alert-list">
-        {features.map((feature) => (
-          <label className="settings-alert-row" key={feature.key}>
-            <input
-              type="checkbox"
-              checked={allowedFeatures.includes(feature.key)}
-              onChange={(event) => setAllowedFeatures(toggleFeature(allowedFeatures, feature.key, event.target.checked))}
-            />
-            <span>
-              <strong>{feature.label}</strong>
-              <small>{featureDescription(feature.key, false)}</small>
-              {featureAccessDescription(feature.required_access)}
-            </span>
-          </label>
-        ))}
+        {features.map((feature) => {
+          const disabled = !keySupportsAccessRequirement(poolKey, feature.required_access);
+          return (
+            <label className={`settings-alert-row${disabled ? " disabled" : ""}`} key={feature.key}>
+              <input
+                type="checkbox"
+                checked={allowedFeatures.includes(feature.key) && !disabled}
+                disabled={disabled}
+                onChange={(event) => setAllowedFeatures(toggleFeature(allowedFeatures, feature.key, event.target.checked))}
+              />
+              <span>
+                <strong>{feature.label}</strong>
+                <small>{featureDescription(feature.key, false)}</small>
+                {featureAccessDescription(feature.required_access)}
+              </span>
+            </label>
+          );
+        })}
       </div>
       <div className="trade-scout-form-actions">
         <button
@@ -413,7 +415,7 @@ function KeyPoolRow({
           disabled={isSaving || !isRateLimitValid(rateLimit)}
           onClick={() => onSave(poolKey, {
             status,
-            allowed_features: allowedFeatures,
+            allowed_features: filterFeaturesForKey(allowedFeatures, features, poolKey),
             max_requests_per_minute: rateLimitFromInput(rateLimit) ?? DEFAULT_KEY_RATE_LIMIT,
           })}
         >
@@ -457,8 +459,11 @@ function featureDescription(feature: TornKeyPoolFeature, isNewKey: boolean): str
   if (feature === "faction_contributor_stats") {
     return "Allows faction contributor stat refreshes such as current gym totals.";
   }
+  if (feature === "faction_attack_data") {
+    return "Allows faction attack refreshes for live attack ingestion.";
+  }
   if (feature === "war_live_data") {
-    return "Allows live war data refreshes such as attacks, ranked wars, ranked war reports, and chain checks.";
+    return "Allows war refreshes such as ranked wars, ranked war reports, and chain checks.";
   }
   if (feature === "stock_tools") {
     return "Allows stock market refreshes, stock history recovery, and stock activity tools.";
@@ -469,12 +474,19 @@ function featureDescription(feature: TornKeyPoolFeature, isNewKey: boolean): str
   return isNewKey ? "Allowed to use this key when selected." : "Allowed feature";
 }
 
-function featureAccessDescription(requiredAccess: "public" | "faction"): React.ReactNode {
-  if (requiredAccess !== "faction") return null;
+function featureAccessDescription(requiredAccess: MyTornKeyPoolResponse["features"][number]["required_access"]): React.ReactNode {
+  if (requiredAccess === "public") return null;
+  if (requiredAccess === "limited_faction") {
+    return <small>Requires Limited access with faction API access.</small>;
+  }
   return <small>Requires a faction-capable key.</small>;
 }
 
-function newKeyPreviewMessage(preview: NewKeyPreviewState): React.ReactNode {
+function newKeyPreviewMessage(
+  preview: NewKeyPreviewState,
+  selectedFeatures: TornKeyPoolFeature[],
+  keyPool: MyTornKeyPoolResponse | null,
+): React.ReactNode {
   if (preview.status === "checking") {
     return <small className="torn-key-preview-status">Checking key access...</small>;
   }
@@ -488,7 +500,7 @@ function newKeyPreviewMessage(preview: NewKeyPreviewState): React.ReactNode {
     return (
       <>
         <small className="torn-key-preview-status">Key checked.</small>
-        {highAccessWarning(preview.key)}
+        {highAccessWarning(preview.key, selectedFeatures, keyPool)}
       </>
     );
   }
@@ -532,11 +544,20 @@ function isNewKeyFeatureDisabled(
   preview: NewKeyPreviewState,
 ): boolean {
   if (preview.status !== "valid" || preview.key.duplicate) return true;
-  return !preview.key.faction_access && feature.required_access === "faction";
+  return !keySupportsAccessRequirement(preview.key, feature.required_access);
 }
 
-function highAccessWarning(key: TornKeyPreviewMetadata): React.ReactNode {
+function highAccessWarning(
+  key: TornKeyPreviewMetadata,
+  selectedFeatures: TornKeyPoolFeature[],
+  keyPool: MyTornKeyPoolResponse | null,
+): React.ReactNode {
   if (Number(key.access_level ?? 0) <= 1) return null;
+  const selectedFeatureOptions = new Map((keyPool?.features ?? []).map((feature) => [feature.key, feature]));
+  const selectedNeedsHighAccess = selectedFeatures.some((feature) =>
+    selectedFeatureOptions.get(feature)?.required_access === "limited_faction"
+  );
+  if (selectedNeedsHighAccess) return null;
   return (
     <small className="torn-key-preview-status warning">
       Only a public key is required.
@@ -549,13 +570,46 @@ function filterFeaturesForPreview(
   keyPool: MyTornKeyPoolResponse | null,
   preview: TornKeyPreviewMetadata | null,
 ): TornKeyPoolFeature[] {
-  if (!preview || preview.faction_access) return features;
-  const factionOnlyFeatures = new Set(
-    (keyPool?.features ?? [])
-      .filter((feature) => feature.required_access === "faction")
-      .map((feature) => feature.key),
-  );
-  return features.filter((feature) => !factionOnlyFeatures.has(feature));
+  if (!preview) return features;
+  return filterFeaturesForKey(features, keyPool?.features ?? [], preview);
+}
+
+function filterFeaturesForKey(
+  features: TornKeyPoolFeature[],
+  options: MyTornKeyPoolResponse["features"],
+  key: Pick<TornKeyMetadata, "access_level" | "access_type" | "faction_access">,
+): TornKeyPoolFeature[] {
+  const featureOptions = new Map(options.map((feature) => [feature.key, feature]));
+  return features.filter((feature) => {
+    const option = featureOptions.get(feature);
+    return option ? keySupportsAccessRequirement(key, option.required_access) : true;
+  });
+}
+
+function keySupportsAccessRequirement(
+  key: Pick<TornKeyMetadata, "access_level" | "access_type" | "faction_access">,
+  requiredAccess: MyTornKeyPoolResponse["features"][number]["required_access"],
+): boolean {
+  if (requiredAccess === "public") return hasPublicAccess(key);
+  if (requiredAccess === "faction") return hasFactionAccess(key);
+  return hasLimitedFactionAccess(key);
+}
+
+function hasPublicAccess(key: Pick<TornKeyMetadata, "access_level" | "access_type">): boolean {
+  return isFullAccess(key.access_type) || Number(key.access_level ?? 0) >= 1;
+}
+
+function hasFactionAccess(key: Pick<TornKeyMetadata, "access_level" | "access_type" | "faction_access">): boolean {
+  return isFullAccess(key.access_type) || key.faction_access;
+}
+
+function hasLimitedFactionAccess(key: Pick<TornKeyMetadata, "access_level" | "access_type" | "faction_access">): boolean {
+  return isFullAccess(key.access_type) || (Number(key.access_level ?? 0) >= 3 && hasFactionAccess(key));
+}
+
+function isFullAccess(accessType: string | null): boolean {
+  const normalized = accessType?.trim().toLowerCase() ?? "";
+  return normalized === "full" || normalized === "full access";
 }
 
 function rateLimitFromInput(value: string): number | null {

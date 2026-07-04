@@ -686,7 +686,7 @@ async function fetchAttacks(env: Env, from: number, to?: number): Promise<TornAt
   url.searchParams.set("limit", String(LIMIT));
 
   return withTornKeyPool(env, {
-    feature: "war_live_data",
+    feature: "faction_attack_data",
     run: ({ key, keySource }) => fetchTrackedTornJson<TornAttackResponse>(env, url, {
       headers: {
         Accept: "application/json",

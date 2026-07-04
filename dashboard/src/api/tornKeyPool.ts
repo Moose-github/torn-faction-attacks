@@ -6,6 +6,7 @@ export type TornKeyPoolFeature =
   | "enemy_scouting"
   | "faction_lifestyle_stats"
   | "faction_contributor_stats"
+  | "faction_attack_data"
   | "war_live_data"
   | "stock_tools"
   | "misc_utilities"
@@ -14,7 +15,7 @@ export type TornKeyPoolFeature =
 export type TornKeyPoolFeatureOption = {
   key: TornKeyPoolFeature;
   label: string;
-  required_access: "public" | "faction";
+  required_access: "public" | "faction" | "limited_faction";
 };
 
 export type TornKeyMetadata = {

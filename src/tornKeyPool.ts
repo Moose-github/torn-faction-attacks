@@ -11,13 +11,14 @@ export type TornKeyPoolFeature =
   | "enemy_scouting"
   | "faction_lifestyle_stats"
   | "faction_contributor_stats"
+  | "faction_attack_data"
   | "war_live_data"
   | "stock_tools"
   | "misc_utilities"
   | "experimental_features";
 
 export type TornKeyPoolStatus = "active" | "disabled";
-export type TornKeyPoolAccessRequirement = "public" | "faction";
+export type TornKeyPoolAccessRequirement = "public" | "faction" | "limited_faction";
 
 export type TornKeyPoolRow = {
   id: string;
@@ -109,6 +110,7 @@ const FEATURE_LABELS: Record<TornKeyPoolFeature, string> = {
   enemy_scouting: "Enemy scouting",
   faction_lifestyle_stats: "Faction Lifestyle Stats",
   faction_contributor_stats: "Faction Contributor Stats",
+  faction_attack_data: "Faction Attack Data",
   war_live_data: "War Data Refresh",
   stock_tools: "Stocks Tools",
   misc_utilities: "Misc Utilities",
@@ -121,6 +123,7 @@ const ALLOWED_FEATURES = new Set<TornKeyPoolFeature>([
   "enemy_scouting",
   "faction_lifestyle_stats",
   "faction_contributor_stats",
+  "faction_attack_data",
   "war_live_data",
   "stock_tools",
   "misc_utilities",
@@ -129,6 +132,7 @@ const ALLOWED_FEATURES = new Set<TornKeyPoolFeature>([
 
 const DEFAULT_ALLOWED_FEATURES: TornKeyPoolFeature[] = [
   "arrest_scout",
+  "hospital_monitor",
   "enemy_scouting",
   "faction_lifestyle_stats",
   "faction_contributor_stats",
@@ -143,6 +147,7 @@ const FALLBACK_KEY_FEATURES: TornKeyPoolFeature[] = [
   "enemy_scouting",
   "faction_lifestyle_stats",
   "faction_contributor_stats",
+  "faction_attack_data",
   "war_live_data",
   "stock_tools",
   "misc_utilities",
@@ -256,7 +261,10 @@ export async function createMyTornApiKey(
     return json({ ok: false, error: safeErrorMessage(err), code: "INVALID_TORN_KEY" }, 400);
   }
 
-  const allowedFeatures = normalizeAllowedFeatures(body.allowed_features ?? body.allowedFeatures, DEFAULT_ALLOWED_FEATURES);
+  const allowedFeatures = filterFeaturesByCapability(
+    normalizeAllowedFeatures(body.allowed_features ?? body.allowedFeatures, DEFAULT_ALLOWED_FEATURES),
+    keyInfo,
+  );
   const maxRequestsPerMinute = normalizeMaxRequestsPerMinute(body.max_requests_per_minute ?? body.maxRequestsPerMinute);
   if (Number.isNaN(maxRequestsPerMinute)) {
     return json({ ok: false, error: "max_requests_per_minute must be between 10 and 75", code: "INVALID_RATE_LIMIT" }, 400);
@@ -358,7 +366,10 @@ export async function updateMyTornApiKey(
   }
 
   const allowedFeatures = body.allowed_features !== undefined || body.allowedFeatures !== undefined
-    ? normalizeAllowedFeatures(body.allowed_features ?? body.allowedFeatures, allowedFeaturesFromRow(existing))
+    ? filterFeaturesByCapability(
+      normalizeAllowedFeatures(body.allowed_features ?? body.allowedFeatures, allowedFeaturesFromRow(existing)),
+      existing,
+    )
     : allowedFeaturesFromRow(existing);
   const maxRequestsPerMinute = body.max_requests_per_minute !== undefined || body.maxRequestsPerMinute !== undefined
     ? normalizeMaxRequestsPerMinute(body.max_requests_per_minute ?? body.maxRequestsPerMinute)
@@ -634,17 +645,18 @@ export function isFeatureAllowed(allowedFeaturesJson: string, feature: TornKeyPo
 }
 
 export function isTornKeyCapableForFeature(
-  key: Pick<TornKeyPoolRow, "access_level" | "access_type" | "faction_access">,
+  key: KeyCapabilityInfo,
   feature: TornKeyPoolFeature,
 ): boolean {
   switch (feature) {
     case "faction_contributor_stats":
-    case "war_live_data":
-      return hasFactionCapability(key);
+    case "faction_attack_data":
+      return hasLimitedFactionCapability(key);
     case "arrest_scout":
     case "hospital_monitor":
     case "enemy_scouting":
     case "faction_lifestyle_stats":
+    case "war_live_data":
     case "stock_tools":
     case "misc_utilities":
     case "experimental_features":
@@ -655,12 +667,13 @@ export function isTornKeyCapableForFeature(
 export function featureAccessRequirement(feature: TornKeyPoolFeature): TornKeyPoolAccessRequirement {
   switch (feature) {
     case "faction_contributor_stats":
-    case "war_live_data":
-      return "faction";
+    case "faction_attack_data":
+      return "limited_faction";
     case "arrest_scout":
     case "hospital_monitor":
     case "enemy_scouting":
     case "faction_lifestyle_stats":
+    case "war_live_data":
     case "stock_tools":
     case "misc_utilities":
     case "experimental_features":
@@ -969,12 +982,29 @@ function normalizeMaxRequestsPerMinute(value: unknown): number | null {
     : Number.NaN;
 }
 
-function hasPublicCapability(key: Pick<TornKeyPoolRow, "access_level" | "access_type">): boolean {
+type KeyCapabilityInfo = {
+  access_level: number | null;
+  access_type: string | null;
+  faction_access: number | boolean | null;
+};
+
+function filterFeaturesByCapability(
+  features: TornKeyPoolFeature[],
+  key: KeyCapabilityInfo,
+): TornKeyPoolFeature[] {
+  return features.filter((feature) => isTornKeyCapableForFeature(key, feature));
+}
+
+function hasPublicCapability(key: Pick<KeyCapabilityInfo, "access_level" | "access_type">): boolean {
   return isFullAccessKey(key.access_type) || accessLevel(key.access_level) >= 1;
 }
 
-function hasFactionCapability(key: Pick<TornKeyPoolRow, "access_level" | "access_type" | "faction_access">): boolean {
-  return isFullAccessKey(key.access_type) || Number(key.faction_access ?? 0) === 1;
+function hasFactionCapability(key: KeyCapabilityInfo): boolean {
+  return isFullAccessKey(key.access_type) || key.faction_access === true || Number(key.faction_access ?? 0) === 1;
+}
+
+function hasLimitedFactionCapability(key: KeyCapabilityInfo): boolean {
+  return isFullAccessKey(key.access_type) || (accessLevel(key.access_level) >= 3 && hasFactionCapability(key));
 }
 
 function accessLevel(value: number | null): number {
