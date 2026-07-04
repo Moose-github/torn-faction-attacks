@@ -18,6 +18,7 @@ import {
   ARREST_SCOUT_STAT_KEYS,
   DEFAULT_LOOKBACK_DAYS,
   DEFAULT_MIN_COUNTERFEITING_DELTA,
+  DEFAULT_MIN_FRAUD_DELTA,
   DEFAULT_REQUIRED_FORGERYSKILL,
   type ArrestScoutFutureTargetRow,
   type ArrestScoutResultRow,
@@ -99,6 +100,7 @@ export async function scanArrestScout(
     scanned_at: scannedAt,
     lookback_seconds: payload.settings.lookback_seconds,
     min_counterfeiting_delta: payload.settings.min_counterfeiting_delta,
+    min_fraud_delta: payload.settings.min_fraud_delta,
     status,
     error: status === "ok" ? null : `${counts.error_count} target scan error${counts.error_count === 1 ? "" : "s"}`,
     settings_json: JSON.stringify({
@@ -107,6 +109,7 @@ export async function scanArrestScout(
       target_user_ids: payload.target_user_ids,
       lookback_days: payload.lookback_days,
       min_counterfeiting_delta: payload.settings.min_counterfeiting_delta,
+      min_fraud_delta: payload.settings.min_fraud_delta,
       required_forgeryskill: payload.settings.required_forgeryskill,
       key_sources: Array.from(usedKeySources),
     }),
@@ -130,6 +133,7 @@ export async function scanArrestScout(
     source_faction_id: payload.source_faction_id,
     lookback_days: payload.lookback_days,
     min_counterfeiting_delta: payload.settings.min_counterfeiting_delta,
+    min_fraud_delta: payload.settings.min_fraud_delta,
     target_count: snapshot.target_count,
     checked_count: snapshot.checked_count,
     skill_100_count: snapshot.skill_100_count,
@@ -389,6 +393,12 @@ async function readScanPayload(
       1_000_000,
       DEFAULT_MIN_COUNTERFEITING_DELTA,
     ),
+    min_fraud_delta: boundedInteger(
+      body.min_fraud_delta ?? body.minFraudDelta,
+      1,
+      1_000_000,
+      DEFAULT_MIN_FRAUD_DELTA,
+    ),
     required_forgeryskill: DEFAULT_REQUIRED_FORGERYSKILL,
   };
 
@@ -506,6 +516,7 @@ async function saveSnapshotAndResults(
         scanned_at,
         lookback_seconds,
         min_counterfeiting_delta,
+        min_fraud_delta,
         status,
         error,
         settings_json,
@@ -518,7 +529,7 @@ async function saveSnapshotAndResults(
         ignored_count,
         error_count
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     ).bind(
       snapshot.id,
@@ -528,6 +539,7 @@ async function saveSnapshotAndResults(
       snapshot.scanned_at,
       snapshot.lookback_seconds,
       snapshot.min_counterfeiting_delta,
+      snapshot.min_fraud_delta,
       snapshot.status,
       snapshot.error,
       snapshot.settings_json,

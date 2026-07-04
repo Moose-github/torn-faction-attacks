@@ -69,6 +69,7 @@ describe("scanArrestScout", () => {
       target_user_ids: [111, 222],
       lookback_days: 7,
       min_counterfeiting_delta: 500,
+      min_fraud_delta: 250,
     }), { DB: db } as any, 3238283);
     const body = await response.json() as any;
 
@@ -96,6 +97,7 @@ describe("scanArrestScout", () => {
     expect(db.snapshots[0]).toMatchObject({
       scanned_by_torn_user_id: 3238283,
       min_counterfeiting_delta: 500,
+      min_fraud_delta: 250,
       target_count: 2,
       checked_count: 2,
       current_target_count: 1,
@@ -105,6 +107,7 @@ describe("scanArrestScout", () => {
     expect(JSON.parse(db.snapshots[0].settings_json)).toMatchObject({
       source: "manual",
       target_user_ids: [111, 222],
+      min_fraud_delta: 250,
       key_sources: ["key_pool:key-1"],
     });
     expect(db.results).toHaveLength(2);
@@ -416,17 +419,18 @@ function snapshotFromArgs(args: unknown[]) {
     scanned_at: args[4],
     lookback_seconds: args[5],
     min_counterfeiting_delta: args[6],
-    status: args[7],
-    error: args[8],
-    settings_json: args[9],
-    target_count: args[10],
-    checked_count: args[11],
-    skill_100_count: args[12],
-    current_target_count: args[13],
-    future_target_count: args[14],
-    inactive_count: args[15],
-    ignored_count: args[16],
-    error_count: args[17],
+    min_fraud_delta: args[7],
+    status: args[8],
+    error: args[9],
+    settings_json: args[10],
+    target_count: args[11],
+    checked_count: args[12],
+    skill_100_count: args[13],
+    current_target_count: args[14],
+    future_target_count: args[15],
+    inactive_count: args[16],
+    ignored_count: args[17],
+    error_count: args[18],
   };
 }
 

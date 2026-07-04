@@ -10,6 +10,7 @@ export type ArrestScoutSourceType = "manual" | "faction" | "future_targets_due";
 export type ArrestScoutSettings = {
   lookback_seconds: number;
   min_counterfeiting_delta: number;
+  min_fraud_delta: number;
   required_forgeryskill: number;
 };
 
@@ -90,6 +91,7 @@ export type ArrestScoutSnapshotRow = {
   scanned_at: number;
   lookback_seconds: number;
   min_counterfeiting_delta: number;
+  min_fraud_delta: number;
   status: string;
   error: string | null;
   settings_json: string;
@@ -125,6 +127,7 @@ export type ArrestScoutScanResponse = {
   source_faction_id: number | null;
   lookback_days: number;
   min_counterfeiting_delta: number;
+  min_fraud_delta: number;
   target_count: number;
   checked_count: number;
   skill_100_count: number;
@@ -141,5 +144,6 @@ export type ArrestScoutScanResponse = {
 export const ARREST_SCOUT_STAT_KEYS = ["jailed", "counterfeiting", "forgeryskill", "fraud", "scammingskill"] as const;
 export const DEFAULT_LOOKBACK_DAYS = 7;
 export const DEFAULT_MIN_COUNTERFEITING_DELTA = 500;
+export const DEFAULT_MIN_FRAUD_DELTA = 500;
 export const DEFAULT_REQUIRED_FORGERYSKILL = 100;
 export const TORN_KEY_SOURCE = "member_supplied:arrest_scout";

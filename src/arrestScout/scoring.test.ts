@@ -5,6 +5,7 @@ import type { ArrestScoutSettings, ArrestScoutTargetStats } from "./model";
 const settings: ArrestScoutSettings = {
   lookback_seconds: 7 * 24 * 60 * 60,
   min_counterfeiting_delta: 500,
+  min_fraud_delta: 500,
   required_forgeryskill: 100,
 };
 
@@ -54,6 +55,18 @@ describe("classifyArrestScoutTarget", () => {
     expect(result.score).toBe(700);
     expect(result.fraud_delta).toBe(600);
     expect(result.counterfeiting_delta).toBeNull();
+  });
+
+  it("uses the fraud threshold for fraud tracks", () => {
+    const result = classifyArrestScoutTarget(
+      stats({ scammingskill: 100, fraud: 1_800, jailed: 5 }),
+      stats({ scammingskill: 100, fraud: 1_400, jailed: 5 }),
+      { ...settings, min_fraud_delta: 300 },
+    );
+
+    expect(result.classification).toBe("current_target");
+    expect(result.score).toBe(500);
+    expect(result.fraud_delta).toBe(400);
   });
 
   it("marks active max-skill targets with jailed delta as future targets", () => {

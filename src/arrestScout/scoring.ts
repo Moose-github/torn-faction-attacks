@@ -61,7 +61,7 @@ export function classifyArrestScoutTarget(
     };
   }
 
-  const activeTracks = validTracks.filter((track) => track.delta >= settings.min_counterfeiting_delta);
+  const activeTracks = validTracks.filter((track) => track.delta >= thresholdForTrack(track.name, settings));
   if (activeTracks.length === 0) {
     if (validTracks.length === 0) {
       return {
@@ -167,6 +167,10 @@ function evaluateTrack(
   }
 
   return { name, eligible: true, delta: currentValue - historicalValue, errorNote: null };
+}
+
+function thresholdForTrack(name: TrackName, settings: ArrestScoutSettings): number {
+  return name === "fraud" ? settings.min_fraud_delta : settings.min_counterfeiting_delta;
 }
 
 function deltaFieldsFromTracks(

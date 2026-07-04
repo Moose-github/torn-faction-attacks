@@ -38,6 +38,7 @@ export type ArrestScoutSnapshot = {
   scanned_at: number;
   lookback_seconds: number;
   min_counterfeiting_delta: number;
+  min_fraud_delta: number;
   status: string;
   error: string | null;
   target_count: number;
@@ -70,6 +71,7 @@ export type ArrestScoutScanPayload = {
   target_user_ids?: number[];
   lookback_days?: number;
   min_counterfeiting_delta?: number;
+  min_fraud_delta?: number;
 };
 
 export type ArrestScoutScanResponse = {
@@ -79,6 +81,7 @@ export type ArrestScoutScanResponse = {
   source_faction_id: number | null;
   lookback_days: number;
   min_counterfeiting_delta: number;
+  min_fraud_delta: number;
   target_count: number;
   checked_count: number;
   skill_100_count: number;

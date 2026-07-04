@@ -15,6 +15,7 @@ import { formatNumber, formatRelativeTime } from "../utils/format";
 
 const DEFAULT_LOOKBACK_DAYS = "7";
 const DEFAULT_MIN_COUNTERFEITING_DELTA = "500";
+const DEFAULT_MIN_FRAUD_DELTA = "500";
 
 export function ArrestScout() {
   const [targetIds, setTargetIds] = React.useState("");
@@ -22,6 +23,7 @@ export function ArrestScout() {
   const [sourceFactionId, setSourceFactionId] = React.useState("");
   const [lookbackDays, setLookbackDays] = React.useState(DEFAULT_LOOKBACK_DAYS);
   const [minCounterfeitingDelta, setMinCounterfeitingDelta] = React.useState(DEFAULT_MIN_COUNTERFEITING_DELTA);
+  const [minFraudDelta, setMinFraudDelta] = React.useState(DEFAULT_MIN_FRAUD_DELTA);
   const [scanResult, setScanResult] = React.useState<ArrestScoutScanResponse | null>(null);
   const [snapshots, setSnapshots] = React.useState<ArrestScoutSnapshot[]>([]);
   const [futureTargets, setFutureTargets] = React.useState<ArrestScoutFutureTarget[]>([]);
@@ -98,6 +100,7 @@ export function ArrestScout() {
         source_faction_id: input.source === "faction" ? input.source_faction_id : undefined,
         lookback_days: positiveInteger(lookbackDays, 7),
         min_counterfeiting_delta: positiveInteger(minCounterfeitingDelta, 500),
+        min_fraud_delta: positiveInteger(minFraudDelta, 500),
       });
       setScanResult(response);
       setSelectedSnapshot(null);
@@ -210,6 +213,14 @@ export function ArrestScout() {
                 onChange={(event) => setMinCounterfeitingDelta(event.target.value)}
               />
             </label>
+            <label>
+              <span>Minimum fraud increase</span>
+              <input
+                inputMode="numeric"
+                value={minFraudDelta}
+                onChange={(event) => setMinFraudDelta(event.target.value)}
+              />
+            </label>
             <div className="trade-scout-form-actions">
               <button type="submit" className="panel-action-button primary-action" disabled={isScanning}>
                 {isScanning ? <RefreshCw size={14} className="spinning-icon" /> : <Search size={14} />}
@@ -279,7 +290,11 @@ export function ArrestScout() {
                     <tr key={snapshot.id}>
                       <td>
                         <strong>{formatRelativeTime(snapshot.scanned_at)}</strong>
-                        <small>{snapshotSourceLabel(snapshot)} - min {formatNumber(snapshot.min_counterfeiting_delta)}</small>
+                        <small>
+                          {snapshotSourceLabel(snapshot)} - min C {formatNumber(snapshot.min_counterfeiting_delta)}
+                          {" / F "}
+                          {formatNumber(snapshot.min_fraud_delta)}
+                        </small>
                       </td>
                       <td>
                         <span className={`trade-quality-badge ${snapshot.status === "ok" ? "good" : "warn"}`}>

@@ -1310,6 +1310,7 @@ CREATE TABLE arrest_scout_snapshots (
   scanned_at INTEGER NOT NULL,
   lookback_seconds INTEGER NOT NULL,
   min_counterfeiting_delta INTEGER NOT NULL,
+  min_fraud_delta INTEGER NOT NULL DEFAULT 500,
   status TEXT NOT NULL,
   error TEXT,
   settings_json TEXT NOT NULL,
