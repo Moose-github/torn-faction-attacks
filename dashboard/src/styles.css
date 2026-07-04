@@ -5977,6 +5977,16 @@ h2 {
   width: 100%;
 }
 
+.torn-key-preview-status {
+  color: var(--text-soft);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.torn-key-preview-status.error {
+  color: var(--danger, #dc2626);
+}
+
 .torn-key-feature-list,
 .torn-key-pool-form .trade-scout-form-actions {
   grid-column: 1 / -1;
@@ -6021,6 +6031,10 @@ h2 {
   font-size: 0.78rem;
   font-style: normal;
   font-weight: 700;
+}
+
+.settings-alert-row.disabled {
+  opacity: 0.54;
 }
 
 .settings-key-card {

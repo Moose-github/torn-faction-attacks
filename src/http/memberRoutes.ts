@@ -24,6 +24,7 @@ import {
   createMyTornApiKey,
   deleteMyTornApiKey,
   listMyTornApiKeys,
+  previewMyTornApiKey,
   updateMyTornApiKey,
 } from "../tornKeyPool";
 import { json } from "../utils";
@@ -122,6 +123,12 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
   if (matchesExactRoute(url, request, "/api/me/torn-key-pool/keys", "POST")) {
     return withMember(routeContext, async () =>
       createMyTornApiKey(request, env, await readAuthenticatedUserId(request, env)),
+    );
+  }
+
+  if (matchesExactRoute(url, request, "/api/me/torn-key-pool/keys/preview", "POST")) {
+    return withMember(routeContext, async () =>
+      previewMyTornApiKey(request, env, await readAuthenticatedUserId(request, env)),
     );
   }
 

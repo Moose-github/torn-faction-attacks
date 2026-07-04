@@ -11,6 +11,7 @@ import {
   createMyTornApiKey,
   deleteMyTornApiKey,
   listMyTornApiKeys,
+  previewMyTornApiKey,
   updateMyTornApiKey,
 } from "../tornKeyPool";
 import { routeMemberUtilityApi } from "./memberRoutes";
@@ -73,6 +74,7 @@ vi.mock("../tornKeyPool", () => ({
   createMyTornApiKey: vi.fn(),
   deleteMyTornApiKey: vi.fn(),
   listMyTornApiKeys: vi.fn(),
+  previewMyTornApiKey: vi.fn(),
   updateMyTornApiKey: vi.fn(),
 }));
 vi.mock("../wars", () => ({
@@ -94,6 +96,7 @@ describe("member utility routes", () => {
     vi.mocked(getRetaliationCheck).mockResolvedValue(jsonResponse({ ok: true, route: "retaliations" }));
     vi.mocked(listMyTornApiKeys).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-list" }));
     vi.mocked(createMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-create" }));
+    vi.mocked(previewMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-preview" }));
     vi.mocked(updateMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-update" }));
     vi.mocked(deleteMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-delete" }));
   });
@@ -180,6 +183,18 @@ describe("member utility routes", () => {
     expect(response?.status).toBe(200);
     expect(await response?.json()).toEqual({ ok: true, route: "key-pool-create" });
     expect(createMyTornApiKey).toHaveBeenCalledWith(context.request, context.env, 12345);
+  });
+
+  it("routes member Torn key previews through member auth", async () => {
+    const context = routeContext("https://worker.test/api/me/torn-key-pool/keys/preview", {
+      method: "POST",
+      body: JSON.stringify({ key: "abc" }),
+    });
+    const response = await routeMemberUtilityApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "key-pool-preview" });
+    expect(previewMyTornApiKey).toHaveBeenCalledWith(context.request, context.env, 12345);
   });
 
   it("routes member Torn key pool updates and deletes by key id", async () => {

@@ -77,6 +77,10 @@ export type TornKeyMetadata = {
   updated_at: number;
 };
 
+export type TornKeyPreviewMetadata = ValidatedTornKeyInfo & {
+  duplicate: boolean;
+};
+
 const FEATURE_LABELS: Record<TornKeyPoolFeature, string> = {
   arrest_scout: "Arrest Scout",
   hospital_monitor: "Hospital Monitor",
@@ -129,6 +133,7 @@ const MAX_REQUESTS_PER_MINUTE = 100;
 const MONITOR_RECENT_USE_SECONDS = 15;
 
 type ValidatedTornKeyInfo = {
+  key_name: string | null;
   owner_torn_user_id: number;
   owner_name: string | null;
   access_level: number | null;
@@ -155,6 +160,42 @@ export function defaultTornKeyPoolFeatures(): TornKeyPoolFeature[] {
   return [...DEFAULT_ALLOWED_FEATURES];
 }
 
+export async function previewMyTornApiKey(
+  request: Request,
+  env: Env,
+  submittedByTornUserId: number | null,
+): Promise<Response> {
+  if (!submittedByTornUserId) {
+    return json({ ok: false, error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+  }
+
+  const body = await readJsonObject(request);
+  const rawKey = cleanString(body.key);
+  if (!rawKey) {
+    return json({ ok: false, error: "Torn API key is required", code: "MISSING_TORN_KEY" }, 400);
+  }
+
+  let keyInfo: ValidatedTornKeyInfo;
+  try {
+    keyInfo = await validateTornApiKey(env, rawKey);
+  } catch (err) {
+    return json({ ok: false, error: safeErrorMessage(err), code: "INVALID_TORN_KEY" }, 400);
+  }
+
+  const storageSecret = await readStorageSecret(env);
+  const duplicate = storageSecret
+    ? await isDuplicateTornKey(env, rawKey, storageSecret)
+    : false;
+
+  return json({
+    ok: true,
+    key: {
+      ...keyInfo,
+      duplicate,
+    } satisfies TornKeyPreviewMetadata,
+  });
+}
+
 export async function createMyTornApiKey(
   request: Request,
   env: Env,
@@ -177,16 +218,7 @@ export async function createMyTornApiKey(
 
   const now = nowSeconds();
   const fingerprint = await fingerprintTornApiKey(rawKey, storageSecret);
-  const duplicate = await env.DB.prepare(
-    `
-    SELECT id, submitted_by_torn_user_id
-    FROM torn_api_keys
-    WHERE key_fingerprint = ?
-    LIMIT 1
-    `,
-  )
-    .bind(fingerprint)
-    .first<{ id: string; submitted_by_torn_user_id: number | null }>();
+  const duplicate = await readDuplicateTornKey(env, fingerprint);
 
   if (duplicate) {
     const status = duplicate.submitted_by_torn_user_id === submittedByTornUserId ? 409 : 403;
@@ -630,12 +662,43 @@ async function validateTornApiKey(env: Env, tornKey: string): Promise<ValidatedT
   }
 
   return {
+    key_name: readTornKeyName(info),
     owner_torn_user_id: id,
     owner_name: typeof userInfo.name === "string" ? userInfo.name : null,
     access_level: Number.isFinite(Number(accessInfo.level)) ? Number(accessInfo.level) : null,
     access_type: typeof accessInfo.type === "string" ? accessInfo.type : null,
     faction_access: accessInfo.faction === true,
   };
+}
+
+function readTornKeyName(info: any): string | null {
+  return cleanString(
+    info.key?.name ??
+    info.key?.title ??
+    info.key_name ??
+    info.name ??
+    info.title,
+  ) || null;
+}
+
+async function isDuplicateTornKey(env: Env, rawKey: string, storageSecret: string): Promise<boolean> {
+  return (await readDuplicateTornKey(env, await fingerprintTornApiKey(rawKey, storageSecret))) !== null;
+}
+
+async function readDuplicateTornKey(
+  env: Env,
+  fingerprint: string,
+): Promise<{ id: string; submitted_by_torn_user_id: number | null } | null> {
+  return (await env.DB.prepare(
+    `
+    SELECT id, submitted_by_torn_user_id
+    FROM torn_api_keys
+    WHERE key_fingerprint = ?
+    LIMIT 1
+    `,
+  )
+    .bind(fingerprint)
+    .first<{ id: string; submitted_by_torn_user_id: number | null }>()) ?? null;
 }
 
 async function readFallbackKeyCandidates(env: Env, feature: TornKeyPoolFeature): Promise<TornKeyPoolCandidate[]> {

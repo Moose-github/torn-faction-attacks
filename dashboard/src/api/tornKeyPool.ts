@@ -40,6 +40,16 @@ export type TornKeyMetadata = {
   updated_at: number;
 };
 
+export type TornKeyPreviewMetadata = {
+  key_name: string | null;
+  owner_torn_user_id: number;
+  owner_name: string | null;
+  access_level: number | null;
+  access_type: string | null;
+  faction_access: boolean;
+  duplicate: boolean;
+};
+
 export type MyTornKeyPoolResponse = {
   ok: boolean;
   features: TornKeyPoolFeatureOption[];
@@ -65,6 +75,10 @@ export async function getMyTornKeyPool(): Promise<MyTornKeyPoolResponse> {
 
 export async function submitMyTornKeyPoolKey(payload: TornKeyUpdatePayload & { key: string }): Promise<{ ok: boolean; key: TornKeyMetadata }> {
   return postJson<{ ok: boolean; key: TornKeyMetadata }>("/api/me/torn-key-pool/keys", payload);
+}
+
+export async function previewMyTornKeyPoolKey(key: string): Promise<{ ok: boolean; key: TornKeyPreviewMetadata }> {
+  return postJson<{ ok: boolean; key: TornKeyPreviewMetadata }>("/api/me/torn-key-pool/keys/preview", { key });
 }
 
 export async function updateMyTornKeyPoolKey(keyId: string, payload: TornKeyUpdatePayload): Promise<{ ok: boolean; key: TornKeyMetadata }> {

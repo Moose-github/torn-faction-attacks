@@ -5,6 +5,7 @@ import {
   DiscordMemberAlertSubscriptionsResponse,
   getDiscordMemberAlertSubscriptions,
   getMyTornKeyPool,
+  previewMyTornKeyPoolKey,
   submitMyTornKeyPoolKey,
   updateDiscordMemberAlertSubscription,
   updateMyTornKeyPoolKey,
@@ -12,8 +13,15 @@ import {
   type MyTornKeyPoolResponse,
   type TornKeyMetadata,
   type TornKeyPoolFeature,
+  type TornKeyPreviewMetadata,
 } from "../api";
 import { EmptyState, PanelHeader } from "../components/Common";
+
+type NewKeyPreviewState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "valid"; key: TornKeyPreviewMetadata }
+  | { status: "invalid"; error: string };
 
 export function Settings({ authSession }: { authSession: AuthSession }) {
   const [data, setData] = React.useState<DiscordMemberAlertSubscriptionsResponse | null>(null);
@@ -27,6 +35,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
   const [newKey, setNewKey] = React.useState("");
   const [newKeyRateLimit, setNewKeyRateLimit] = React.useState("");
   const [newKeyFeatures, setNewKeyFeatures] = React.useState<TornKeyPoolFeature[]>([]);
+  const [newKeyPreview, setNewKeyPreview] = React.useState<NewKeyPreviewState>({ status: "idle" });
 
   React.useEffect(() => {
     let cancelled = false;
@@ -60,6 +69,35 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
   React.useEffect(() => {
     void loadKeyPool();
   }, []);
+
+  React.useEffect(() => {
+    const trimmedKey = newKey.trim();
+    if (!trimmedKey) {
+      setNewKeyPreview({ status: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    setNewKeyPreview({ status: "checking" });
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await previewMyTornKeyPoolKey(trimmedKey);
+        if (cancelled || newKey.trim() !== trimmedKey) return;
+        setNewKeyPreview({ status: "valid", key: response.key });
+        if (!response.key.faction_access) {
+          setNewKeyFeatures((features) => filterFeaturesForPreview(features, keyPool, response.key));
+        }
+      } catch (err) {
+        if (cancelled || newKey.trim() !== trimmedKey) return;
+        setNewKeyPreview({ status: "invalid", error: err instanceof Error ? err.message : String(err) });
+      }
+    }, 650);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [newKey, keyPool]);
 
   async function toggleAlert(alertKey: string, enabled: boolean) {
     setSavingKey(alertKey);
@@ -95,7 +133,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
     try {
       await submitMyTornKeyPoolKey({
         key: newKey,
-        allowed_features: newKeyFeatures,
+        allowed_features: filterFeaturesForPreview(newKeyFeatures, keyPool, newKeyPreview.status === "valid" ? newKeyPreview.key : null),
         max_requests_per_minute: rateLimitFromInput(newKeyRateLimit),
       });
       setNewKey("");
@@ -215,6 +253,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
               onChange={(event) => setNewKey(event.target.value)}
               placeholder="Submitted encrypted to the shared pool"
             />
+            {newKeyPreviewMessage(newKeyPreview)}
           </label>
           <label>
             <span>Max requests per minute</span>
@@ -225,12 +264,25 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
               placeholder="No personal cap"
             />
           </label>
+          <label>
+            <span>Key name</span>
+            <input readOnly value={previewKeyName(newKeyPreview)} placeholder="Checked key name" />
+          </label>
+          <label>
+            <span>Access level</span>
+            <input readOnly value={previewAccessLevel(newKeyPreview)} placeholder="Checked access level" />
+          </label>
+          <label>
+            <span>Faction access</span>
+            <input readOnly value={previewFactionAccess(newKeyPreview)} placeholder="Checked faction access" />
+          </label>
           <div className="settings-alert-list torn-key-feature-list">
             {(keyPool?.features ?? []).map((feature) => (
-              <label className="settings-alert-row" key={feature.key}>
+              <label className={`settings-alert-row${isNewKeyFeatureDisabled(feature, newKeyPreview) ? " disabled" : ""}`} key={feature.key}>
                 <input
                   type="checkbox"
-                  checked={newKeyFeatures.includes(feature.key)}
+                  checked={newKeyFeatures.includes(feature.key) && !isNewKeyFeatureDisabled(feature, newKeyPreview)}
+                  disabled={isNewKeyFeatureDisabled(feature, newKeyPreview)}
                   onChange={(event) => setNewKeyFeatures(toggleFeature(newKeyFeatures, feature.key, event.target.checked))}
                 />
                 <span>
@@ -242,7 +294,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
             ))}
           </div>
           <div className="trade-scout-form-actions">
-            <button type="submit" className="panel-action-button primary-action" disabled={savingPoolKey !== null || !newKey.trim()}>
+            <button type="submit" className="panel-action-button primary-action" disabled={savingPoolKey !== null || !newKey.trim() || newKeyPreviewBlocksSubmit(newKeyPreview)}>
               {savingPoolKey === "new" ? <RefreshCw size={14} className="spinning-icon" /> : <KeyRound size={14} />}
               {savingPoolKey === "new" ? "Submitting" : "Submit key"}
             </button>
@@ -367,8 +419,8 @@ function toggleFeature(features: TornKeyPoolFeature[], feature: TornKeyPoolFeatu
 function featureDescription(feature: TornKeyPoolFeature, isNewKey: boolean): string {
   if (feature === "hospital_monitor") {
     return isNewKey
-      ? "Opt in only. Active monitoring can make frequent requests."
-      : "Opt in to active monitor use.";
+      ? "Active monitoring can make frequent requests."
+      : "Allows active monitor use.";
   }
   if (feature === "experimental_features") {
     return "Opt in to let new or test features use this key.";
@@ -400,6 +452,76 @@ function featureDescription(feature: TornKeyPoolFeature, isNewKey: boolean): str
 function featureAccessDescription(requiredAccess: "public" | "faction"): React.ReactNode {
   if (requiredAccess !== "faction") return null;
   return <small>Requires a faction-capable key.</small>;
+}
+
+function newKeyPreviewMessage(preview: NewKeyPreviewState): React.ReactNode {
+  if (preview.status === "checking") {
+    return <small className="torn-key-preview-status">Checking key access...</small>;
+  }
+  if (preview.status === "invalid") {
+    return <small className="torn-key-preview-status error">{preview.error}</small>;
+  }
+  if (preview.status === "valid" && preview.key.duplicate) {
+    return <small className="torn-key-preview-status error">This key is already in the pool.</small>;
+  }
+  if (preview.status === "valid") {
+    return <small className="torn-key-preview-status">Key checked.</small>;
+  }
+  return null;
+}
+
+function previewKeyName(preview: NewKeyPreviewState): string {
+  if (preview.status !== "valid") return "";
+  return preview.key.key_name || generatedPreviewKeyLabel(preview.key);
+}
+
+function previewAccessLevel(preview: NewKeyPreviewState): string {
+  if (preview.status !== "valid") return "";
+  if (preview.key.access_type && preview.key.access_level !== null) {
+    return `${preview.key.access_type} (${preview.key.access_level})`;
+  }
+  if (preview.key.access_type) return preview.key.access_type;
+  if (preview.key.access_level !== null) return String(preview.key.access_level);
+  return "Unknown";
+}
+
+function previewFactionAccess(preview: NewKeyPreviewState): string {
+  if (preview.status !== "valid") return "";
+  return preview.key.faction_access ? "Yes" : "No";
+}
+
+function generatedPreviewKeyLabel(key: Pick<TornKeyPreviewMetadata, "owner_name" | "owner_torn_user_id">): string {
+  const owner = key.owner_name || String(key.owner_torn_user_id ?? "TORN");
+  return `${owner.replace(/\s+/g, "_")}_KEY`;
+}
+
+function newKeyPreviewBlocksSubmit(preview: NewKeyPreviewState): boolean {
+  return preview.status === "checking" ||
+    preview.status === "invalid" ||
+    (preview.status === "valid" && preview.key.duplicate);
+}
+
+function isNewKeyFeatureDisabled(
+  feature: MyTornKeyPoolResponse["features"][number],
+  preview: NewKeyPreviewState,
+): boolean {
+  return preview.status === "valid" &&
+    !preview.key.faction_access &&
+    feature.required_access === "faction";
+}
+
+function filterFeaturesForPreview(
+  features: TornKeyPoolFeature[],
+  keyPool: MyTornKeyPoolResponse | null,
+  preview: TornKeyPreviewMetadata | null,
+): TornKeyPoolFeature[] {
+  if (!preview || preview.faction_access) return features;
+  const factionOnlyFeatures = new Set(
+    (keyPool?.features ?? [])
+      .filter((feature) => feature.required_access === "faction")
+      .map((feature) => feature.key),
+  );
+  return features.filter((feature) => !factionOnlyFeatures.has(feature));
 }
 
 function rateLimitFromInput(value: string): number | null {
