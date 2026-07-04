@@ -15,14 +15,9 @@
   ],
   "secrets_store_secrets": [
     {
-      "binding": "TORN_API_KEY_POOL_1",
+      "binding": "TORN_API_KEY",
       "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
-      "secret_name": "TORN_API_KEY_POOL_1"
-    },
-    {
-      "binding": "TORN_API_KEY_POOL_2",
-      "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
-      "secret_name": "TORN_API_KEY_POOL_2"
+      "secret_name": "TORN_API_KEY"
     }
   ],
   "observability": {

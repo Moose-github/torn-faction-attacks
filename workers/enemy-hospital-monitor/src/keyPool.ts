@@ -123,22 +123,15 @@ async function readSubmittedMonitorKeys(env: MonitorEnv, now: number): Promise<M
 async function readFallbackMonitorKeys(env: MonitorEnv): Promise<MonitorKeyCandidate[]> {
   const definitions = [
     {
-      id: "secrets:TORN_API_KEY_POOL_1",
-      alias: "monitor-1",
-      binding: env.TORN_API_KEY_POOL_1,
-      fallback: env.MONITOR_TORN_API_KEY_1,
-    },
-    {
-      id: "secrets:TORN_API_KEY_POOL_2",
-      alias: "monitor-2",
-      binding: env.TORN_API_KEY_POOL_2,
-      fallback: env.MONITOR_TORN_API_KEY_2,
+      id: "env:TORN_API_KEY",
+      alias: "admin-fallback",
+      binding: env.TORN_API_KEY,
     },
   ];
   const candidates: MonitorKeyCandidate[] = [];
 
   for (const definition of definitions) {
-    const key = (await readSecretValue(definition.binding)) ?? definition.fallback?.trim() ?? null;
+    const key = await readSecretValue(definition.binding);
     if (!key) continue;
     candidates.push({
       id: definition.id,

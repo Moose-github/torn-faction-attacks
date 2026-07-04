@@ -66,7 +66,8 @@ export type AdminTornKeyPoolResponse = {
 export type TornKeyUpdatePayload = {
   status?: "active" | "disabled";
   allowed_features?: TornKeyPoolFeature[];
-  max_requests_per_minute?: number | null;
+  max_requests_per_minute?: number;
+  submitted_by_name?: string | null;
 };
 
 export async function getMyTornKeyPool(): Promise<MyTornKeyPoolResponse> {

@@ -267,10 +267,16 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
 
   const session = (await env.DB.prepare(
     `
-    SELECT torn_user_id, access_level, expires_at
+    SELECT
+      auth_sessions.torn_user_id,
+      auth_sessions.access_level,
+      auth_sessions.expires_at,
+      home_faction_members.name AS member_name
     FROM auth_sessions
+    LEFT JOIN home_faction_members
+      ON home_faction_members.member_id = auth_sessions.torn_user_id
     WHERE token = ?
-      AND expires_at > ?
+      AND auth_sessions.expires_at > ?
     LIMIT 1
     `,
   )
@@ -279,6 +285,7 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
     torn_user_id: number;
     access_level: AccessLevel;
     expires_at: number;
+    member_name: string | null;
   } | null;
 
   if (!session) {
@@ -287,7 +294,7 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
 
   const authSession = {
     id: session.torn_user_id,
-    name: null,
+    name: typeof session.member_name === "string" ? session.member_name : null,
     key_access_level: null,
     key_access_type: null,
     key_faction_access: false,
@@ -337,7 +344,7 @@ async function fetchTornKeyInfo(env: Env, tornKey: string): Promise<{
   return {
     user: {
       id,
-      name: null,
+      name: typeof userInfo.name === "string" ? userInfo.name : null,
       key_access_level: Number.isFinite(Number(accessInfo.level)) ? Number(accessInfo.level) : null,
       key_access_type: typeof accessInfo.type === "string" ? accessInfo.type : null,
       key_faction_access: accessInfo.faction === true,

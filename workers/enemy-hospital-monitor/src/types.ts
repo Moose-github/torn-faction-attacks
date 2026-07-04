@@ -4,10 +4,7 @@ export type MonitorEnv = {
   ENEMY_HOSPITAL_MONITOR: DurableObjectNamespace<EnemyHospitalMonitor>;
   DB: D1Database;
   TORN_KEY_STORAGE_SECRET?: string | SecretsStoreSecret;
-  TORN_API_KEY_POOL_1?: string | SecretsStoreSecret;
-  TORN_API_KEY_POOL_2?: string | SecretsStoreSecret;
-  MONITOR_TORN_API_KEY_1?: string;
-  MONITOR_TORN_API_KEY_2?: string;
+  TORN_API_KEY?: string | SecretsStoreSecret;
   MONITOR_TICKET_SECRET?: string | SecretsStoreSecret;
 };
 

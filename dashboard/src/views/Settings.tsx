@@ -24,6 +24,9 @@ type NewKeyPreviewState =
   | { status: "invalid"; error: string };
 
 const TORN_API_KEY_LENGTH = 16;
+const DEFAULT_KEY_RATE_LIMIT = 35;
+const MIN_KEY_RATE_LIMIT = 10;
+const MAX_KEY_RATE_LIMIT = 75;
 
 export function Settings({ authSession }: { authSession: AuthSession }) {
   const [data, setData] = React.useState<DiscordMemberAlertSubscriptionsResponse | null>(null);
@@ -35,7 +38,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
   const [error, setError] = React.useState<string | null>(null);
   const [keyPoolError, setKeyPoolError] = React.useState<string | null>(null);
   const [newKey, setNewKey] = React.useState("");
-  const [newKeyRateLimit, setNewKeyRateLimit] = React.useState("");
+  const [newKeyRateLimit, setNewKeyRateLimit] = React.useState(String(DEFAULT_KEY_RATE_LIMIT));
   const [newKeyFeatures, setNewKeyFeatures] = React.useState<TornKeyPoolFeature[]>([]);
   const [newKeyPreview, setNewKeyPreview] = React.useState<NewKeyPreviewState>({ status: "idle" });
 
@@ -139,11 +142,12 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
     try {
       await submitMyTornKeyPoolKey({
         key: newKey,
+        submitted_by_name: authSession.user.name,
         allowed_features: filterFeaturesForPreview(newKeyFeatures, keyPool, newKeyPreview.status === "valid" ? newKeyPreview.key : null),
-        max_requests_per_minute: rateLimitFromInput(newKeyRateLimit),
+        max_requests_per_minute: rateLimitFromInput(newKeyRateLimit) ?? DEFAULT_KEY_RATE_LIMIT,
       });
       setNewKey("");
-      setNewKeyRateLimit("");
+      setNewKeyRateLimit(String(DEFAULT_KEY_RATE_LIMIT));
       await loadKeyPool();
     } catch (err) {
       setKeyPoolError(err instanceof Error ? err.message : String(err));
@@ -159,7 +163,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
       await updateMyTornKeyPoolKey(key.id, {
         status: (patch.status ?? key.status) === "disabled" ? "disabled" : "active",
         allowed_features: patch.allowed_features ?? key.allowed_features,
-        max_requests_per_minute: patch.max_requests_per_minute ?? key.max_requests_per_minute,
+        max_requests_per_minute: patch.max_requests_per_minute ?? key.max_requests_per_minute ?? DEFAULT_KEY_RATE_LIMIT,
       });
       await loadKeyPool();
     } catch (err) {
@@ -265,14 +269,16 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
             <span>Max requests per minute</span>
             <input
               inputMode="numeric"
+              min={MIN_KEY_RATE_LIMIT}
+              max={MAX_KEY_RATE_LIMIT}
               value={newKeyRateLimit}
               onChange={(event) => setNewKeyRateLimit(event.target.value)}
-              placeholder="No personal cap"
+              placeholder={String(DEFAULT_KEY_RATE_LIMIT)}
             />
           </label>
           <label>
             <span>Key name</span>
-            <input readOnly value={previewKeyName(newKeyPreview)} placeholder="Checked key name" />
+            <input readOnly value={previewKeyName(newKeyPreview, authSession.user.name)} placeholder="Checked key name" />
           </label>
           <label>
             <span>Access level</span>
@@ -300,7 +306,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
             ))}
           </div>
           <div className="trade-scout-form-actions">
-            <button type="submit" className="panel-action-button primary-action" disabled={savingPoolKey !== null || !newKey.trim() || newKeyPreviewBlocksSubmit(newKeyPreview)}>
+            <button type="submit" className="panel-action-button primary-action" disabled={savingPoolKey !== null || !newKey.trim() || !isRateLimitValid(newKeyRateLimit) || newKeyPreviewBlocksSubmit(newKeyPreview)}>
               {savingPoolKey === "new" ? <RefreshCw size={14} className="spinning-icon" /> : <KeyRound size={14} />}
               {savingPoolKey === "new" ? "Submitting" : "Submit key"}
             </button>
@@ -343,12 +349,12 @@ function KeyPoolRow({
   onSave: (key: TornKeyMetadata, patch: Partial<TornKeyMetadata>) => void;
   onDisable: (key: TornKeyMetadata) => void;
 }) {
-  const [rateLimit, setRateLimit] = React.useState(poolKey.max_requests_per_minute?.toString() ?? "");
+  const [rateLimit, setRateLimit] = React.useState(poolKey.max_requests_per_minute?.toString() ?? String(DEFAULT_KEY_RATE_LIMIT));
   const [allowedFeatures, setAllowedFeatures] = React.useState<TornKeyPoolFeature[]>(poolKey.allowed_features);
   const [status, setStatus] = React.useState(poolKey.status);
 
   React.useEffect(() => {
-    setRateLimit(poolKey.max_requests_per_minute?.toString() ?? "");
+    setRateLimit(poolKey.max_requests_per_minute?.toString() ?? String(DEFAULT_KEY_RATE_LIMIT));
     setAllowedFeatures(poolKey.allowed_features);
     setStatus(poolKey.status);
   }, [poolKey]);
@@ -365,7 +371,13 @@ function KeyPoolRow({
         <div className="settings-key-controls">
           <label>
             <span>Max/min</span>
-            <input inputMode="numeric" value={rateLimit} onChange={(event) => setRateLimit(event.target.value)} />
+            <input
+              inputMode="numeric"
+              min={MIN_KEY_RATE_LIMIT}
+              max={MAX_KEY_RATE_LIMIT}
+              value={rateLimit}
+              onChange={(event) => setRateLimit(event.target.value)}
+            />
           </label>
           <label>
             <span>Status</span>
@@ -396,11 +408,11 @@ function KeyPoolRow({
         <button
           type="button"
           className="panel-action-button primary-action"
-          disabled={isSaving}
+          disabled={isSaving || !isRateLimitValid(rateLimit)}
           onClick={() => onSave(poolKey, {
             status,
             allowed_features: allowedFeatures,
-            max_requests_per_minute: rateLimitFromInput(rateLimit),
+            max_requests_per_minute: rateLimitFromInput(rateLimit) ?? DEFAULT_KEY_RATE_LIMIT,
           })}
         >
           {isSaving ? <RefreshCw size={14} className="spinning-icon" /> : <Save size={14} />}
@@ -481,9 +493,9 @@ function newKeyPreviewMessage(preview: NewKeyPreviewState): React.ReactNode {
   return null;
 }
 
-function previewKeyName(preview: NewKeyPreviewState): string {
+function previewKeyName(preview: NewKeyPreviewState, loggedInUserName: string | null): string {
   if (preview.status !== "valid") return "";
-  return preview.key.key_name || generatedPreviewKeyLabel(preview.key);
+  return generatedPreviewKeyLabel(loggedInUserName, preview.key);
 }
 
 function previewAccessLevel(preview: NewKeyPreviewState): string {
@@ -501,8 +513,11 @@ function previewFactionAccess(preview: NewKeyPreviewState): string {
   return preview.key.faction_access ? "Yes" : "No";
 }
 
-function generatedPreviewKeyLabel(key: Pick<TornKeyPreviewMetadata, "owner_name" | "owner_torn_user_id">): string {
-  const owner = key.owner_name || String(key.owner_torn_user_id ?? "TORN");
+function generatedPreviewKeyLabel(
+  loggedInUserName: string | null,
+  key: Pick<TornKeyPreviewMetadata, "owner_name" | "owner_torn_user_id">,
+): string {
+  const owner = loggedInUserName || key.owner_name || String(key.owner_torn_user_id ?? "TORN");
   return `${owner.replace(/\s+/g, "_")}_KEY`;
 }
 
@@ -545,7 +560,13 @@ function rateLimitFromInput(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   const parsed = Math.floor(Number(trimmed));
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  return Number.isInteger(parsed) && parsed >= MIN_KEY_RATE_LIMIT && parsed <= MAX_KEY_RATE_LIMIT
+    ? parsed
+    : null;
+}
+
+function isRateLimitValid(value: string): boolean {
+  return rateLimitFromInput(value) !== null;
 }
 
 function displayKeyLabel(poolKey: TornKeyMetadata): string {

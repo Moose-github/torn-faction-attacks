@@ -6,11 +6,13 @@ The Worker uses one named Durable Object, `active-war`, as the live coordinator.
 
 ## Setup
 
-Set the two Torn API keys as account-level Secrets Store secrets. These names are intentionally generic so other Workers can reuse the same account secrets later:
+Hospital Monitor reads submitted keys from the shared D1-backed Torn key pool. Users should submit their own keys through the main app settings page and opt in to Hospital Monitor use.
+
+Keep one admin/fallback Torn API key as an account-level Secrets Store secret:
 
 ```sh
-npx wrangler secrets-store secret create a65cbe2569df4bbf8723b8911a5bdc67 --name TORN_API_KEY_POOL_1 --scopes workers --remote
-npx wrangler secrets-store secret create a65cbe2569df4bbf8723b8911a5bdc67 --name TORN_API_KEY_POOL_2 --scopes workers --remote
+npx wrangler secrets-store secret create a65cbe2569df4bbf8723b8911a5bdc67 --name TORN_API_KEY --scopes workers --remote
+npx wrangler secrets-store secret create a65cbe2569df4bbf8723b8911a5bdc67 --name TORN_KEY_STORAGE_SECRET --scopes workers --remote
 ```
 
 Set the shared monitor ticket signing secret. Prefer Cloudflare Secrets Store and bind the same account-level secret to both this Worker and the main app Worker:
@@ -23,19 +25,19 @@ Set the shared monitor ticket signing secret. Prefer Cloudflare Secrets Store an
     "secret_name": "MONITOR_TICKET_SECRET"
   },
   {
-    "binding": "TORN_API_KEY_POOL_1",
+    "binding": "TORN_API_KEY",
     "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
-    "secret_name": "TORN_API_KEY_POOL_1"
+    "secret_name": "TORN_API_KEY"
   },
   {
-    "binding": "TORN_API_KEY_POOL_2",
+    "binding": "TORN_KEY_STORAGE_SECRET",
     "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
-    "secret_name": "TORN_API_KEY_POOL_2"
+    "secret_name": "TORN_KEY_STORAGE_SECRET"
   }
 ]
 ```
 
-For local development, use matching values in this Worker's `.dev.vars` file or create local Secrets Store secrets without `--remote`. The old `MONITOR_TORN_API_KEY_1` and `MONITOR_TORN_API_KEY_2` names are still accepted as a temporary local fallback.
+For local development, use matching values in this Worker's `.dev.vars` file or create local Secrets Store secrets without `--remote`. The retired `TORN_API_KEY_POOL_1` and `TORN_API_KEY_POOL_2` secrets are no longer used; existing raw pool keys should be submitted by their users through the main app instead of migrated manually.
 
 The monitor fails closed when `MONITOR_TICKET_SECRET` is missing. The main app mints short-lived member tickets, and this Worker verifies the ticket before opening `/ws`.
 

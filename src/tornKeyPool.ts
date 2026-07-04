@@ -1,5 +1,6 @@
-import { boundedInteger, cleanString, readJsonObject } from "./backend/request";
+import { cleanString, readJsonObject } from "./backend/request";
 import { TORN_KEY_INFO_API_URL } from "./constants";
+import { ExternalApiError } from "./external/http";
 import { fetchTrackedTornJson } from "./external/torn";
 import type { Env } from "./types";
 import { json, nowSeconds } from "./utils";
@@ -52,6 +53,27 @@ export type TornKeyPoolCandidate = {
   currentMinuteUsage: number;
   lastUsedAt: number | null;
   monitorLastUsedAt: number | null;
+};
+
+export type TornKeyPoolRunContext = {
+  candidate: TornKeyPoolCandidate;
+  key: string;
+  keySource: string;
+};
+
+export type TornKeyPoolRunOptions<T> = {
+  feature: TornKeyPoolFeature;
+  run: (context: TornKeyPoolRunContext) => Promise<T>;
+  now?: number;
+  includeFallback?: boolean;
+  usageCount?: number;
+  failurePauseSeconds?: number;
+  shouldRetryKey?: (error: unknown, context: TornKeyPoolRunContext) => boolean;
+};
+
+export type TornKeyPoolRunResult<T> = {
+  result: T;
+  candidate: TornKeyPoolCandidate;
 };
 
 export type TornKeyMetadata = {
@@ -129,7 +151,9 @@ const FALLBACK_KEY_FEATURES: TornKeyPoolFeature[] = [
 
 const ENCRYPTION_VERSION = "v1";
 const MAX_LABEL_LENGTH = 80;
-const MAX_REQUESTS_PER_MINUTE = 100;
+const MIN_REQUESTS_PER_MINUTE = 10;
+const MAX_REQUESTS_PER_MINUTE = 75;
+const DEFAULT_REQUESTS_PER_MINUTE = 35;
 const MONITOR_RECENT_USE_SECONDS = 15;
 
 type ValidatedTornKeyInfo = {
@@ -235,8 +259,9 @@ export async function createMyTornApiKey(
   const allowedFeatures = normalizeAllowedFeatures(body.allowed_features ?? body.allowedFeatures, DEFAULT_ALLOWED_FEATURES);
   const maxRequestsPerMinute = normalizeMaxRequestsPerMinute(body.max_requests_per_minute ?? body.maxRequestsPerMinute);
   if (Number.isNaN(maxRequestsPerMinute)) {
-    return json({ ok: false, error: "max_requests_per_minute must be blank or a positive integer", code: "INVALID_RATE_LIMIT" }, 400);
+    return json({ ok: false, error: "max_requests_per_minute must be between 10 and 75", code: "INVALID_RATE_LIMIT" }, 400);
   }
+  const submittedByName = cleanString(body.submitted_by_name ?? body.submittedByName);
 
   const id = crypto.randomUUID();
   await env.DB.prepare(
@@ -265,7 +290,7 @@ export async function createMyTornApiKey(
   )
     .bind(
       id,
-      generatedKeyLabel(keyInfo),
+      generatedKeyLabel(keyInfo, submittedByName),
       await encryptTornApiKey(rawKey, storageSecret),
       fingerprint,
       submittedByTornUserId,
@@ -338,7 +363,7 @@ export async function updateMyTornApiKey(
     ? normalizeMaxRequestsPerMinute(body.max_requests_per_minute ?? body.maxRequestsPerMinute)
     : existing.max_requests_per_minute;
   if (Number.isNaN(maxRequestsPerMinute)) {
-    return json({ ok: false, error: "max_requests_per_minute must be blank or a positive integer", code: "INVALID_RATE_LIMIT" }, 400);
+    return json({ ok: false, error: "max_requests_per_minute must be between 10 and 75", code: "INVALID_RATE_LIMIT" }, 400);
   }
 
   await env.DB.prepare(
@@ -527,6 +552,78 @@ export async function markTornKeyFailure(
     .run();
 }
 
+export class TornKeyPoolUnavailableError extends Error {
+  constructor(
+    readonly feature: TornKeyPoolFeature,
+    message = `No Torn API keys are available for ${feature}`,
+  ) {
+    super(message);
+  }
+}
+
+export class TornKeyPoolExhaustedError extends Error {
+  constructor(
+    readonly feature: TornKeyPoolFeature,
+    readonly lastError: unknown,
+  ) {
+    super(`All Torn API keys failed for ${feature}`);
+  }
+}
+
+export async function runWithTornKeyPool<T>(
+  env: Env,
+  options: TornKeyPoolRunOptions<T>,
+): Promise<TornKeyPoolRunResult<T>> {
+  const now = options.now ?? nowSeconds();
+  const candidates = await readAvailableTornApiKeys(env, options.feature, now, {
+    includeFallback: options.includeFallback,
+  });
+
+  if (candidates.length === 0) {
+    throw new TornKeyPoolUnavailableError(options.feature);
+  }
+
+  let lastRetryableError: unknown = null;
+  for (const candidate of candidates) {
+    const context: TornKeyPoolRunContext = {
+      candidate,
+      key: candidate.key,
+      keySource: candidate.keySource,
+    };
+
+    try {
+      const result = await options.run(context);
+      await recordTornKeyUse(env, candidate, options.feature, now, options.usageCount ?? 1);
+      return { result, candidate };
+    } catch (err) {
+      const retry = options.shouldRetryKey?.(err, context) ?? isRetryableTornKeyError(err);
+      if (!retry) {
+        throw err;
+      }
+
+      lastRetryableError = err;
+      if (candidate.sourceType === "submitted") {
+        await markTornKeyFailure(
+          env,
+          candidate.id,
+          safeErrorMessage(err),
+          now,
+          options.failurePauseSeconds ?? pauseSecondsForTornKeyError(err),
+        );
+      }
+    }
+  }
+
+  throw new TornKeyPoolExhaustedError(options.feature, lastRetryableError);
+}
+
+export async function withTornKeyPool<T>(
+  env: Env,
+  options: TornKeyPoolRunOptions<T>,
+): Promise<T> {
+  return (await runWithTornKeyPool(env, options)).result;
+}
+
 export function allowedFeaturesFromJson(value: string): TornKeyPoolFeature[] {
   return normalizeAllowedFeatures(parseJson(value), DEFAULT_ALLOWED_FEATURES);
 }
@@ -572,6 +669,22 @@ export function featureAccessRequirement(feature: TornKeyPoolFeature): TornKeyPo
 
 export function isUnderMinuteLimit(currentMinuteUsage: number, maxRequestsPerMinute: number | null): boolean {
   return maxRequestsPerMinute === null || currentMinuteUsage < maxRequestsPerMinute;
+}
+
+export function isRetryableTornKeyError(err: unknown): boolean {
+  const status = errorStatus(err);
+  if (status === 401 || status === 403 || status === 429) {
+    return true;
+  }
+
+  const message = safeErrorMessage(err).toLowerCase();
+  return message.includes("incorrect key") ||
+    message.includes("invalid api key") ||
+    message.includes("api key") ||
+    message.includes("rate limit") ||
+    message.includes("too many requests") ||
+    message.includes("access level") ||
+    message.includes("faction access");
 }
 
 export function sortCandidatesForFeature(
@@ -706,8 +819,6 @@ async function readFallbackKeyCandidates(env: Env, feature: TornKeyPoolFeature):
 
   const fallbackBindings: Array<{ id: string; keySource: string; binding?: string | SecretsStoreSecret }> = [
     { id: "env:TORN_API_KEY", keySource: "env:TORN_API_KEY", binding: env.TORN_API_KEY },
-    { id: "secrets:TORN_API_KEY_POOL_1", keySource: "secrets:TORN_API_KEY_POOL_1", binding: env.TORN_API_KEY_POOL_1 },
-    { id: "secrets:TORN_API_KEY_POOL_2", keySource: "secrets:TORN_API_KEY_POOL_2", binding: env.TORN_API_KEY_POOL_2 },
   ];
   const candidates: TornKeyPoolCandidate[] = [];
 
@@ -787,9 +898,11 @@ function normalizeAllowedFeatures(value: unknown, fallback: TornKeyPoolFeature[]
 }
 
 function normalizeMaxRequestsPerMinute(value: unknown): number | null {
-  if (value === null || value === undefined || value === "") return null;
-  const parsed = boundedInteger(value, 1, MAX_REQUESTS_PER_MINUTE, Number.NaN);
-  return Number.isNaN(parsed) ? Number.NaN : parsed;
+  if (value === null || value === undefined || value === "") return DEFAULT_REQUESTS_PER_MINUTE;
+  const parsed = Math.floor(Number(value));
+  return Number.isInteger(parsed) && parsed >= MIN_REQUESTS_PER_MINUTE && parsed <= MAX_REQUESTS_PER_MINUTE
+    ? parsed
+    : Number.NaN;
 }
 
 function hasPublicCapability(key: Pick<TornKeyPoolRow, "access_level" | "access_type">): boolean {
@@ -812,8 +925,8 @@ function isFullAccessKey(accessType: string | null): boolean {
 function generatedKeyLabel(source: {
   owner_name?: string | null;
   owner_torn_user_id?: number | null;
-}): string {
-  const owner = source.owner_name?.trim() || String(source.owner_torn_user_id ?? "TORN");
+}, submittedByName?: string | null): string {
+  const owner = submittedByName?.trim() || source.owner_name?.trim() || String(source.owner_torn_user_id ?? "TORN");
   const normalizedOwner = owner.replace(/\s+/g, "_").slice(0, Math.max(1, MAX_LABEL_LENGTH - 4));
   return `${normalizedOwner}_KEY`;
 }
@@ -830,6 +943,18 @@ function minuteWindowStart(now: number): number {
 
 function usageRatio(currentMinuteUsage: number, maxRequestsPerMinute: number | null): number {
   return maxRequestsPerMinute === null ? 0 : currentMinuteUsage / Math.max(1, maxRequestsPerMinute);
+}
+
+function pauseSecondsForTornKeyError(err: unknown): number {
+  return errorStatus(err) === 429 ? 60 : 15 * 60;
+}
+
+function errorStatus(err: unknown): number | null {
+  if (err instanceof ExternalApiError) {
+    return err.status;
+  }
+  const status = (err as { status?: unknown } | null)?.status;
+  return Number.isFinite(Number(status)) ? Number(status) : null;
 }
 
 function parseJson(value: string): unknown {

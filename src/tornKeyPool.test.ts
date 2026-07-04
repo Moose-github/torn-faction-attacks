@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ExternalApiError } from "./external/http";
 import {
   allowedFeaturesFromJson,
   decryptTornApiKey,
@@ -6,10 +7,14 @@ import {
   featureAccessRequirement,
   fingerprintTornApiKey,
   isFeatureAllowed,
+  isRetryableTornKeyError,
   isTornKeyCapableForFeature,
   isUnderMinuteLimit,
+  runWithTornKeyPool,
   sortCandidatesForFeature,
+  TornKeyPoolUnavailableError,
   type TornKeyPoolCandidate,
+  type TornKeyPoolRow,
 } from "./tornKeyPool";
 
 describe("torn key pool", () => {
@@ -97,6 +102,73 @@ describe("torn key pool", () => {
     expect(sortCandidatesForFeature(candidates, "arrest_scout", 1000)[0].id).toBe("quiet");
     expect(sortCandidatesForFeature(candidates, "hospital_monitor", 1000)[0].id).toBe("quiet");
   });
+
+  it("runs with the admin fallback key when no submitted keys are configured", async () => {
+    const output = await runWithTornKeyPool(envWithFallback("fallback-key"), {
+      feature: "arrest_scout",
+      now: 1000,
+      run: async ({ key, keySource }) => ({ key, keySource }),
+    });
+
+    expect(output.result).toEqual({ key: "fallback-key", keySource: "env:TORN_API_KEY" });
+    expect(output.candidate.sourceType).toBe("env");
+  });
+
+  it("throws a clear error when no key is available", async () => {
+    await expect(runWithTornKeyPool(envWithFallback(""), {
+      feature: "arrest_scout",
+      now: 1000,
+      run: async () => "never",
+    })).rejects.toBeInstanceOf(TornKeyPoolUnavailableError);
+  });
+
+  it("records submitted key usage after successful work", async () => {
+    const encrypted = await encryptTornApiKey("submitted-key", "storage-secret");
+    const db = new FakeD1([
+      keyRow({ id: "key-1", encrypted_key: encrypted }),
+    ]);
+
+    const output = await runWithTornKeyPool(fakeEnv({ DB: db, TORN_KEY_STORAGE_SECRET: "storage-secret" }), {
+      feature: "arrest_scout",
+      now: 1234,
+      run: async ({ key }) => key,
+    });
+
+    expect(output.result).toBe("submitted-key");
+    expect(db.batchCalls).toHaveLength(1);
+    expect(db.batchCalls[0].map((statement) => statement.sql)).toEqual([
+      expect.stringContaining("INSERT INTO torn_api_key_usage_windows"),
+      expect.stringContaining("UPDATE torn_api_keys"),
+    ]);
+  });
+
+  it("pauses a submitted key on retryable key failure and tries the next candidate", async () => {
+    const db = new FakeD1([
+      keyRow({ id: "bad-key", encrypted_key: await encryptTornApiKey("bad", "storage-secret") }),
+      keyRow({ id: "good-key", encrypted_key: await encryptTornApiKey("good", "storage-secret") }),
+    ]);
+
+    const output = await runWithTornKeyPool(fakeEnv({ DB: db, TORN_KEY_STORAGE_SECRET: "storage-secret" }), {
+      feature: "arrest_scout",
+      now: 1234,
+      run: async ({ key }) => {
+        if (key === "bad") {
+          throw new ExternalApiError("Torn request failed with HTTP 429", "Torn", 429);
+        }
+        return key;
+      },
+    });
+
+    expect(output.result).toBe("good");
+    expect(db.runCalls.some((call) => call.sql.includes("failure_count = failure_count + 1"))).toBe(true);
+    expect(db.batchCalls).toHaveLength(1);
+  });
+
+  it("classifies key and rate limit errors as retryable", () => {
+    expect(isRetryableTornKeyError(new ExternalApiError("rate limited", "Torn", 429))).toBe(true);
+    expect(isRetryableTornKeyError(new Error("Torn API error: Incorrect key"))).toBe(true);
+    expect(isRetryableTornKeyError(new ExternalApiError("bad request", "Torn", 400))).toBe(false);
+  });
 });
 
 function candidate(id: string, monitorLastUsedAt: number): TornKeyPoolCandidate {
@@ -110,4 +182,94 @@ function candidate(id: string, monitorLastUsedAt: number): TornKeyPoolCandidate 
     lastUsedAt: monitorLastUsedAt,
     monitorLastUsedAt,
   };
+}
+
+function envWithFallback(key: string): any {
+  return fakeEnv({ TORN_API_KEY: key });
+}
+
+function fakeEnv(overrides: Record<string, unknown> = {}): any {
+  return {
+    DB: new FakeD1([]),
+    ...overrides,
+  };
+}
+
+function keyRow(overrides: Partial<TornKeyPoolRow> = {}): TornKeyPoolRow {
+  return {
+    id: "key",
+    label: null,
+    encrypted_key: "",
+    key_fingerprint: "fingerprint",
+    submitted_by_torn_user_id: 1,
+    owner_torn_user_id: 1,
+    owner_name: "User",
+    access_level: 1,
+    access_type: "Public",
+    faction_access: 0,
+    status: "active",
+    allowed_features_json: JSON.stringify(["arrest_scout"]),
+    max_requests_per_minute: null,
+    last_validated_at: null,
+    last_used_at: null,
+    last_used_feature: null,
+    monitor_last_used_at: null,
+    paused_until: null,
+    failure_count: 0,
+    last_error: null,
+    created_at: 1,
+    updated_at: 1,
+    ...overrides,
+  };
+}
+
+class FakeD1Statement {
+  args: unknown[] = [];
+
+  constructor(
+    readonly db: FakeD1,
+    readonly sql: string,
+  ) {}
+
+  bind(...args: unknown[]) {
+    this.args = args;
+    return this;
+  }
+
+  async all<T>() {
+    if (this.sql.includes("FROM torn_api_keys k")) {
+      return {
+        results: this.db.rows.map((row) => ({
+          ...row,
+          current_request_count: 0,
+        })),
+      } as { results: T[] };
+    }
+    return { results: [] as T[] };
+  }
+
+  async first<T>() {
+    return null as T | null;
+  }
+
+  async run() {
+    this.db.runCalls.push({ sql: this.sql, args: this.args });
+    return {};
+  }
+}
+
+class FakeD1 {
+  runCalls: Array<{ sql: string; args: unknown[] }> = [];
+  batchCalls: FakeD1Statement[][] = [];
+
+  constructor(readonly rows: TornKeyPoolRow[]) {}
+
+  prepare(sql: string) {
+    return new FakeD1Statement(this, sql);
+  }
+
+  async batch(statements: FakeD1Statement[]) {
+    this.batchCalls.push(statements);
+    return statements.map(() => ({}));
+  }
 }
