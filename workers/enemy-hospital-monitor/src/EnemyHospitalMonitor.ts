@@ -1,5 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import { parseActiveWarFromUrl } from "./activeWar";
+import {
+  readMonitorKeyCandidates,
+  recordMonitorKeyUsage,
+  type MonitorKeyCandidate,
+} from "./keyPool";
 import type {
   ActiveWarConfig,
   MemberMonitorSnapshot,
@@ -12,12 +17,18 @@ import type {
 } from "./types";
 
 const POLL_INTERVAL_MS = 1_000;
+const KEY_CACHE_TTL_MS = 60_000;
+const USAGE_FLUSH_INTERVAL_MS = 10_000;
 const RECENT_ACTION_SECONDS = 5 * 60;
 const TIMER_DECREASE_GRACE_SECONDS = 10;
 const STORAGE_ACTIVE_WAR_KEY = "activeWar";
 const STORAGE_KEEP_ALIVE_UNTIL_KEY = "keepAliveUntil";
 
 type MonitorKeyAlias = MonitorKeyState["alias"];
+type PendingUsage = {
+  candidate: MonitorKeyCandidate;
+  count: number;
+};
 
 class TornApiError extends Error {
   constructor(
@@ -47,6 +58,10 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     emptyKeyState("monitor-1"),
     emptyKeyState("monitor-2"),
   ];
+  private keyCache: MonitorKeyCandidate[] = [];
+  private keyCacheLoadedAtMs = 0;
+  private pendingUsage = new Map<string, PendingUsage>();
+  private lastUsageFlushAtMs = 0;
 
   constructor(ctx: DurableObjectState, env: MonitorEnv) {
     super(ctx, env);
@@ -202,8 +217,9 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     const pollStartedAt = Math.floor(pollStartedMs / 1000);
     this.lastPollStartedAt = pollStartedAt;
 
-    const keyState = this.chooseMonitorKey(pollStartedAt);
-    if (!keyState) {
+    await this.refreshKeyCacheIfNeeded(pollStartedMs);
+    const keyCandidate = this.chooseMonitorKey(pollStartedAt);
+    if (!keyCandidate) {
       const nextKeyAt = this.nextKeyRetryAt();
       this.lastError = "No healthy monitor API key is currently available";
       this.lastPollFinishedAt = nowSeconds();
@@ -215,10 +231,11 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
       return;
     }
 
+    const keyState = this.keyStateForAlias(keyCandidate.alias);
     keyState.lastUsedAt = pollStartedAt;
 
     try {
-      const result = await this.fetchMembers(this.activeWar.enemyFactionId, keyState.alias);
+      const result = await this.fetchMembers(this.activeWar.enemyFactionId, keyCandidate);
       const observedAtMs = result.finishedAtMs;
       const observedAt = Math.floor(observedAtMs / 1000);
       keyState.lastSuccessAt = observedAt;
@@ -237,6 +254,8 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
       this.lastPollFinishedAt = nowSeconds();
       this.markKeyError(keyState, err);
     } finally {
+      this.noteKeyUsage(keyCandidate, pollStartedAt);
+      await this.flushPendingUsageIfDue(Date.now());
       this.pollInFlight = false;
       this.broadcastStatus();
     }
@@ -244,9 +263,8 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
 
   private async fetchMembers(
     enemyFactionId: number,
-    keyAlias: MonitorKeyAlias,
+    keyCandidate: MonitorKeyCandidate,
   ): Promise<{ members: TornFactionMember[]; responseTimeMs: number; finishedAtMs: number }> {
-    const key = await this.readTornApiKey(keyAlias);
     const url = new URL(`https://api.torn.com/v2/faction/${enemyFactionId}/members`);
     url.searchParams.set("striptags", "true");
     url.searchParams.set("timestamp", String(Date.now()));
@@ -255,7 +273,7 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     const startedAtMs = Date.now();
     const response = await fetch(url, {
       headers: {
-        Authorization: `ApiKey ${key}`,
+        Authorization: `ApiKey ${keyCandidate.key}`,
       },
     });
 
@@ -286,19 +304,6 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     };
   }
 
-  private async readTornApiKey(keyAlias: MonitorKeyAlias): Promise<string> {
-    const binding = keyAlias === "monitor-1" ? this.env.TORN_API_KEY_POOL_1 : this.env.TORN_API_KEY_POOL_2;
-    const fallback = keyAlias === "monitor-1" ? this.env.MONITOR_TORN_API_KEY_1 : this.env.MONITOR_TORN_API_KEY_2;
-    const value = typeof binding === "string" ? binding : await binding?.get();
-    const key = value?.trim() || fallback?.trim();
-
-    if (!key) {
-      throw new TornApiError(`Torn API key ${keyAlias} is not configured`);
-    }
-
-    return key;
-  }
-
   private handleMembers(members: TornFactionMember[], observedAt: number): void {
     const currentSnapshots = new Map<number, MemberMonitorSnapshot>();
     const events: MonitorEvent[] = [];
@@ -325,11 +330,21 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     this.broadcast({ type: "snapshot", status: this.status(), members: [...this.snapshots.values()] });
   }
 
-  private chooseMonitorKey(now: number): MonitorKeyState | null {
+  private chooseMonitorKey(now: number): MonitorKeyCandidate | null {
     return (
-      this.keyStates
-        .filter((key) => key.backoffUntil === null || key.backoffUntil <= now)
-        .sort((left, right) => (left.lastUsedAt ?? 0) - (right.lastUsedAt ?? 0))[0] ?? null
+      this.keyCache
+        .filter((candidate) => {
+          const state = this.keyStateForAlias(candidate.alias);
+          const pending = this.pendingUsage.get(candidate.id)?.count ?? 0;
+          const underLimit = candidate.maxRequestsPerMinute === null ||
+            candidate.currentMinuteUsage + pending < candidate.maxRequestsPerMinute;
+          return underLimit && (state.backoffUntil === null || state.backoffUntil <= now);
+        })
+        .sort((left, right) => {
+          const leftState = this.keyStateForAlias(left.alias);
+          const rightState = this.keyStateForAlias(right.alias);
+          return (leftState.lastUsedAt ?? left.lastUsedAt ?? 0) - (rightState.lastUsedAt ?? right.lastUsedAt ?? 0);
+        })[0] ?? null
     );
   }
 
@@ -359,6 +374,66 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
     }
 
     keyState.backoffUntil = now + Math.min(60, 5 * keyState.consecutiveErrors);
+  }
+
+  private async refreshKeyCacheIfNeeded(nowMs: number, force = false): Promise<void> {
+    if (!force && this.keyCache.length > 0 && nowMs - this.keyCacheLoadedAtMs < KEY_CACHE_TTL_MS) {
+      return;
+    }
+
+    try {
+      const candidates = await readMonitorKeyCandidates(this.env, Math.floor(nowMs / 1000));
+      this.keyCache = candidates;
+      this.keyCacheLoadedAtMs = nowMs;
+      this.syncKeyStates(candidates);
+    } catch (err) {
+      if (this.keyCache.length === 0) {
+        this.lastError = err instanceof Error ? err.message : String(err);
+      }
+    }
+  }
+
+  private syncKeyStates(candidates: MonitorKeyCandidate[]): void {
+    const previous = new Map(this.keyStates.map((state) => [state.alias, state]));
+    this.keyStates = candidates.map((candidate) => previous.get(candidate.alias) ?? emptyKeyState(candidate.alias));
+  }
+
+  private keyStateForAlias(alias: MonitorKeyAlias): MonitorKeyState {
+    let state = this.keyStates.find((key) => key.alias === alias);
+    if (!state) {
+      state = emptyKeyState(alias);
+      this.keyStates.push(state);
+    }
+    return state;
+  }
+
+  private noteKeyUsage(candidate: MonitorKeyCandidate, now: number): void {
+    candidate.currentMinuteUsage += 1;
+    candidate.lastUsedAt = now;
+    if (candidate.sourceType !== "submitted") return;
+
+    const existing = this.pendingUsage.get(candidate.id);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      this.pendingUsage.set(candidate.id, { candidate, count: 1 });
+    }
+  }
+
+  private async flushPendingUsageIfDue(nowMs: number, force = false): Promise<void> {
+    if (this.pendingUsage.size === 0) return;
+    if (!force && nowMs - this.lastUsageFlushAtMs < USAGE_FLUSH_INTERVAL_MS) return;
+
+    const pending = [...this.pendingUsage.values()];
+    this.pendingUsage.clear();
+    this.lastUsageFlushAtMs = nowMs;
+
+    await Promise.all(pending.map((item) =>
+      recordMonitorKeyUsage(this.env, item.candidate, Math.floor(nowMs / 1000), item.count)
+        .catch(() => {
+          this.pendingUsage.set(item.candidate.id, item);
+        }),
+    ));
   }
 
   private status(): MonitorStatus {

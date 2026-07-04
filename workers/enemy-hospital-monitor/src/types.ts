@@ -2,6 +2,8 @@ import type { EnemyHospitalMonitor } from "./EnemyHospitalMonitor";
 
 export type MonitorEnv = {
   ENEMY_HOSPITAL_MONITOR: DurableObjectNamespace<EnemyHospitalMonitor>;
+  DB: D1Database;
+  TORN_KEY_STORAGE_SECRET?: string | SecretsStoreSecret;
   TORN_API_KEY_POOL_1?: string | SecretsStoreSecret;
   TORN_API_KEY_POOL_2?: string | SecretsStoreSecret;
   MONITOR_TORN_API_KEY_1?: string;
@@ -84,7 +86,7 @@ export type MonitorEvent = {
 };
 
 export type MonitorKeyState = {
-  alias: "monitor-1" | "monitor-2";
+  alias: string;
   lastUsedAt: number | null;
   lastSuccessAt: number | null;
   backoffUntil: number | null;

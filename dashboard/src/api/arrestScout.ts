@@ -60,7 +60,6 @@ export type ArrestScoutFutureTarget = {
 
 export type ArrestScoutScanPayload = {
   source: ArrestScoutSourceType;
-  torn_key: string;
   target_user_ids?: number[];
   lookback_days?: number;
   min_counterfeiting_delta?: number;

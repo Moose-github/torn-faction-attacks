@@ -25,6 +25,7 @@ import {
   readSyncTimestamp,
   upsertSyncTimestamp,
 } from "../syncState";
+import { listAdminTornApiKeys } from "../tornKeyPool";
 import { routeAdminApi } from "./adminRoutes";
 
 vi.mock("../auth", () => ({
@@ -98,6 +99,7 @@ vi.mock("../stockPaperTrading", () => ({
 vi.mock("../warStats", () => ({ rebuildWarStatsFromRaw: vi.fn() }));
 vi.mock("../suggestions", () => ({ listMemberSuggestionsForAdmin: vi.fn() }));
 vi.mock("../tornApiUsage", () => ({ getTornApiUsage: vi.fn() }));
+vi.mock("../tornKeyPool", () => ({ listAdminTornApiKeys: vi.fn() }));
 vi.mock("../warControl", () => ({
   getWarControlSettings: vi.fn(),
   updateWarControlSettingsFromRequest: vi.fn(),
@@ -127,6 +129,7 @@ describe("admin routes", () => {
     vi.mocked(updateDiscordTravelTrackerSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-travel-settings" }));
     vi.mocked(getAdminDiscordAlertSettings).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings" }));
     vi.mocked(updateAdminDiscordAlertSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings-update" }));
+    vi.mocked(listAdminTornApiKeys).mockResolvedValue(jsonResponse({ ok: true, route: "admin-key-pool" }));
   });
 
   it("routes admin data health through admin auth", async () => {
@@ -161,6 +164,16 @@ describe("admin routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "war-control-settings" });
     expect(requireAdmin).toHaveBeenCalledOnce();
     expect(getWarControlSettings).toHaveBeenCalledOnce();
+  });
+
+  it("routes admin Torn key pool overview through admin auth", async () => {
+    const context = routeContext("https://worker.test/api/admin/torn-key-pool/keys");
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "admin-key-pool" });
+    expect(requireAdmin).toHaveBeenCalledOnce();
+    expect(listAdminTornApiKeys).toHaveBeenCalledWith(context.env);
   });
 
   it("routes war control settings updates through admin auth", async () => {

@@ -4,6 +4,7 @@ export interface Env {
   TORN_API_KEY: string;
   TORN_API_KEY_POOL_1?: string | SecretsStoreSecret;
   TORN_API_KEY_POOL_2?: string | SecretsStoreSecret;
+  TORN_KEY_STORAGE_SECRET?: string | SecretsStoreSecret;
   BSP_TORN_API_KEY?: string;
   FFSCOUTER_API_KEY?: string;
   DISCORD_WEBHOOK_URL?: string;

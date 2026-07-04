@@ -17,6 +17,13 @@
       "new_sqlite_classes": ["EnemyHospitalMonitor"]
     }
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "954da4c5-24ab-40d1-83d0-6dcc782d3668",
+      "database_name": "torn_attacks_db"
+    }
+  ],
   "secrets_store_secrets": [
     {
       "binding": "MONITOR_TICKET_SECRET",
@@ -32,6 +39,11 @@
       "binding": "TORN_API_KEY_POOL_2",
       "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
       "secret_name": "TORN_API_KEY_POOL_2"
+    },
+    {
+      "binding": "TORN_KEY_STORAGE_SECRET",
+      "store_id": "a65cbe2569df4bbf8723b8911a5bdc67",
+      "secret_name": "TORN_KEY_STORAGE_SECRET"
     }
   ],
   "observability": {

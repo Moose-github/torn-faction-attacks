@@ -13,12 +13,10 @@ import {
 import { EmptyState, MetricCard, PanelHeader } from "../components/Common";
 import { formatNumber, formatRelativeTime } from "../utils/format";
 
-const TORN_KEY_STORAGE_KEY = "arrestScoutTornKey";
 const DEFAULT_LOOKBACK_DAYS = "7";
 const DEFAULT_MIN_COUNTERFEITING_DELTA = "500";
 
 export function ArrestScout() {
-  const [tornKey, setTornKey] = React.useState(() => window.localStorage.getItem(TORN_KEY_STORAGE_KEY) ?? "");
   const [targetIds, setTargetIds] = React.useState("");
   const [lookbackDays, setLookbackDays] = React.useState(DEFAULT_LOOKBACK_DAYS);
   const [minCounterfeitingDelta, setMinCounterfeitingDelta] = React.useState(DEFAULT_MIN_COUNTERFEITING_DELTA);
@@ -39,10 +37,6 @@ export function ArrestScout() {
   const inactiveCount = scanResult?.inactive_count ?? 0;
   const ignoredCount = scanResult?.ignored_count ?? 0;
   const errorCount = scanResult?.error_count ?? 0;
-
-  React.useEffect(() => {
-    window.localStorage.setItem(TORN_KEY_STORAGE_KEY, tornKey);
-  }, [tornKey]);
 
   React.useEffect(() => {
     void loadHistory();
@@ -68,10 +62,6 @@ export function ArrestScout() {
 
   async function runManualScan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!tornKey.trim()) {
-      setError("Enter your Torn API key before scanning.");
-      return;
-    }
     if (parsedTargetIds.length === 0) {
       setError("Add at least one valid target user ID.");
       return;
@@ -84,11 +74,6 @@ export function ArrestScout() {
   }
 
   async function recheckFutureTargets() {
-    if (!tornKey.trim()) {
-      setError("Enter your Torn API key before rechecking future targets.");
-      return;
-    }
-
     setIsRechecking(true);
     await runScan({ source: "future_targets_due" });
     setIsRechecking(false);
@@ -101,7 +86,6 @@ export function ArrestScout() {
     try {
       const response = await scanArrestScout({
         source: input.source,
-        torn_key: tornKey.trim(),
         target_user_ids: input.source === "manual" ? input.target_user_ids : undefined,
         lookback_days: positiveInteger(lookbackDays, 7),
         min_counterfeiting_delta: positiveInteger(minCounterfeitingDelta, 500),
@@ -150,19 +134,6 @@ export function ArrestScout() {
 
       <section className="trade-scout-layout">
         <section className="trade-scout-summary-grid">
-          <section className="metric-card trade-scout-key-panel">
-            <PanelHeader title="Scanner key" aside="Local" />
-            <label>
-              <span>Torn API key</span>
-              <input
-                type="password"
-                value={tornKey}
-                autoComplete="off"
-                onChange={(event) => setTornKey(event.target.value)}
-                placeholder="Stored in this browser"
-              />
-            </label>
-          </section>
           <MetricCard
             icon={<ShieldCheck size={16} />}
             label="Current targets"

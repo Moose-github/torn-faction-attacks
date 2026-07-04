@@ -17,6 +17,7 @@ import {
   getLatestIngestionRun,
   getAdminXanaxCompetition,
   getAdminDiscordAlertSettings,
+  getAdminTornKeyPool,
   getHomeFactionReportExemptions,
   getMemberLifestyleRepairJobs,
   getTornApiUsage,
@@ -53,6 +54,7 @@ import {
   updateOfficialWar,
   TornApiUsageResponse,
   AdminXanaxCompetitionResponse,
+  AdminTornKeyPoolResponse,
   HomeFactionReportExemptionMember,
   MemberLifestyleRepairJob,
   WarSummary,
@@ -167,6 +169,8 @@ export function AdminControls() {
   const [isLoadingTornApiUsage, setIsLoadingTornApiUsage] = React.useState(false);
   const [isTornApiUsageTableCollapsed, setIsTornApiUsageTableCollapsed] = React.useState(true);
   const [tornApiUsageWindowSeconds, setTornApiUsageWindowSeconds] = React.useState(24 * 60 * 60);
+  const [tornKeyPool, setTornKeyPool] = React.useState<AdminTornKeyPoolResponse | null>(null);
+  const [isLoadingTornKeyPool, setIsLoadingTornKeyPool] = React.useState(false);
   const adminTimeMode: AdminWarFormState["timeMode"] = useEpochTime ? "epoch" : "datetime";
 
   React.useEffect(() => {
@@ -301,6 +305,7 @@ export function AdminControls() {
       setResult(await action());
       await loadLatestIngestionRun();
       await loadTornApiUsage();
+      await loadTornKeyPool();
       await loadLifestyleRepairJobs();
       await loadReportExemptions();
       await loadShopliftingAlerts();
@@ -333,6 +338,17 @@ export function AdminControls() {
       setTornApiUsage(null);
     } finally {
       setIsLoadingTornApiUsage(false);
+    }
+  }
+
+  async function loadTornKeyPool() {
+    setIsLoadingTornKeyPool(true);
+    try {
+      setTornKeyPool(await getAdminTornKeyPool());
+    } catch {
+      setTornKeyPool(null);
+    } finally {
+      setIsLoadingTornKeyPool(false);
     }
   }
 
@@ -432,6 +448,7 @@ export function AdminControls() {
     if (authSession?.access_level === "admin") {
       loadLatestIngestionRun();
       loadTornApiUsage();
+      loadTornKeyPool();
       loadLifestyleRepairJobs();
       loadReportExemptions();
       loadShopliftingAlerts();
@@ -455,6 +472,11 @@ export function AdminControls() {
     : tornApiUsage
       ? `Last ${tornApiUsageWindowLabel}`
       : "No data";
+  const tornKeyPoolStatus = isLoadingTornKeyPool
+    ? "Loading"
+    : tornKeyPool
+      ? `${tornKeyPool.keys.filter((key) => key.status === "active").length}/${tornKeyPool.keys.length} active`
+      : "Unavailable";
   const shopliftingAlertStatus = isLoadingShopliftingAlerts
     ? "Loading"
     : shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert
@@ -1314,6 +1336,54 @@ export function AdminControls() {
                 onClick={() => loadTornApiUsage()}
               >
                 Refresh usage
+              </button>
+            </section>
+
+            <section className="admin-tool-section admin-tool-section-wide">
+              <PanelHeader title="Torn key pool" aside={tornKeyPoolStatus} />
+              {tornKeyPool && tornKeyPool.keys.length > 0 ? (
+                <table className="stock-status-table">
+                  <thead>
+                    <tr>
+                      <th>Owner</th>
+                      <th>Status</th>
+                      <th>Features</th>
+                      <th>Max/min</th>
+                      <th>Last used</th>
+                      <th>Failures</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tornKeyPool.keys.map((key) => (
+                      <tr key={key.id}>
+                        <td>
+                          <strong>{key.owner_name ?? key.owner_torn_user_id ?? "Unknown"}</strong>
+                          <small>{key.label ?? key.id}</small>
+                        </td>
+                        <td>{key.status}</td>
+                        <td>{formatKeyPoolFeatures(key.allowed_features)}</td>
+                        <td>{key.max_requests_per_minute ?? "-"}</td>
+                        <td>{formatIngestionTime(key.last_used_at)}</td>
+                        <td>
+                          {formatNumber(key.failure_count)}
+                          {key.last_error ? <small>{key.last_error}</small> : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="panel-description">
+                  {isLoadingTornKeyPool ? "Loading submitted Torn keys." : "No submitted Torn keys are available yet."}
+                </p>
+              )}
+              <button
+                type="button"
+                className="admin-button"
+                disabled={isLoadingTornKeyPool}
+                onClick={loadTornKeyPool}
+              >
+                Refresh key pool
               </button>
             </section>
 
@@ -2963,8 +3033,17 @@ function formatTornApiKeySource(keySource: string): string {
     case "member_supplied:trade_scout":
       return "Trade Scout member key";
     default:
+      if (keySource.startsWith("key_pool:")) {
+        return `Pool ${keySource.slice("key_pool:".length, "key_pool:".length + 8)}`;
+      }
       return keySource;
   }
+}
+
+function formatKeyPoolFeatures(features: string[]): string {
+  return features.length > 0
+    ? features.map((feature) => feature.replace(/_/g, " ")).join(", ")
+    : "-";
 }
 
 function formatPrize(value: number): string {

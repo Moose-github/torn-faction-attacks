@@ -59,6 +59,7 @@ import {
 import { rebuildWarStatsFromRaw } from "../warStats";
 import { listMemberSuggestionsForAdmin } from "../suggestions";
 import { getTornApiUsage } from "../tornApiUsage";
+import { listAdminTornApiKeys } from "../tornKeyPool";
 import { Env } from "../types";
 import { json, parseLimit } from "../utils";
 import {
@@ -97,6 +98,10 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
     return withAdmin(routeContext, () =>
       cachedGetJson(request, ctx, 60, () => getTornApiUsage(url, env)),
     );
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/torn-key-pool/keys", "GET")) {
+    return withAdmin(routeContext, () => listAdminTornApiKeys(env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/data-health", "GET")) {

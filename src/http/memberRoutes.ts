@@ -20,6 +20,12 @@ import { getRetaliationCheck } from "../retaliations";
 import { matchesExactRoute, stockIdFromHistoryRoute } from "../routes";
 import { getStockHistory, getStocks } from "../stockMarket";
 import { createMemberSuggestion } from "../suggestions";
+import {
+  createMyTornApiKey,
+  deleteMyTornApiKey,
+  listMyTornApiKeys,
+  updateMyTornApiKey,
+} from "../tornKeyPool";
 import { json } from "../utils";
 import { getOverallStats } from "../wars";
 import { getXanaxCompetition } from "../xanaxCompetition";
@@ -107,6 +113,31 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
     );
   }
 
+  if (matchesExactRoute(url, request, "/api/me/torn-key-pool/keys", "GET")) {
+    return withMember(routeContext, async () =>
+      listMyTornApiKeys(env, await readAuthenticatedUserId(request, env)),
+    );
+  }
+
+  if (matchesExactRoute(url, request, "/api/me/torn-key-pool/keys", "POST")) {
+    return withMember(routeContext, async () =>
+      createMyTornApiKey(request, env, await readAuthenticatedUserId(request, env)),
+    );
+  }
+
+  const tornKeyPoolKeyId = tornKeyPoolKeyIdFromRoute(url);
+  if (tornKeyPoolKeyId && request.method === "PUT") {
+    return withMember(routeContext, async () =>
+      updateMyTornApiKey(request, env, await readAuthenticatedUserId(request, env), tornKeyPoolKeyId),
+    );
+  }
+
+  if (tornKeyPoolKeyId && request.method === "DELETE") {
+    return withMember(routeContext, async () =>
+      deleteMyTornApiKey(env, await readAuthenticatedUserId(request, env), tornKeyPoolKeyId),
+    );
+  }
+
   if (matchesExactRoute(url, request, "/api/suggestions", "POST")) {
     return withMember(routeContext, async () => {
       const userId = await readAuthenticatedUserId(request, env);
@@ -140,4 +171,9 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
   }
 
   return null;
+}
+
+function tornKeyPoolKeyIdFromRoute(url: URL): string | null {
+  const match = /^\/api\/me\/torn-key-pool\/keys\/([^/]+)$/.exec(url.pathname);
+  return match ? decodeURIComponent(match[1]).trim() || null : null;
 }

@@ -7,6 +7,12 @@ import {
 } from "../discordMemberAlertSubscriptions";
 import { getRetaliationCheck } from "../retaliations";
 import { jsonResponse, routeContext } from "../testUtils/http";
+import {
+  createMyTornApiKey,
+  deleteMyTornApiKey,
+  listMyTornApiKeys,
+  updateMyTornApiKey,
+} from "../tornKeyPool";
 import { routeMemberUtilityApi } from "./memberRoutes";
 
 vi.mock("../auth", () => ({
@@ -63,6 +69,12 @@ vi.mock("../stockMarket", () => ({
 vi.mock("../suggestions", () => ({
   createMemberSuggestion: vi.fn(),
 }));
+vi.mock("../tornKeyPool", () => ({
+  createMyTornApiKey: vi.fn(),
+  deleteMyTornApiKey: vi.fn(),
+  listMyTornApiKeys: vi.fn(),
+  updateMyTornApiKey: vi.fn(),
+}));
 vi.mock("../wars", () => ({
   getOverallStats: vi.fn(),
 }));
@@ -80,6 +92,10 @@ describe("member utility routes", () => {
     vi.mocked(updateDiscordMemberAlertSubscriptionFromRequest)
       .mockResolvedValue(jsonResponse({ ok: true, route: "discord-alerts-update" }));
     vi.mocked(getRetaliationCheck).mockResolvedValue(jsonResponse({ ok: true, route: "retaliations" }));
+    vi.mocked(listMyTornApiKeys).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-list" }));
+    vi.mocked(createMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-create" }));
+    vi.mocked(updateMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-update" }));
+    vi.mocked(deleteMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-delete" }));
   });
 
   it("routes retaliation checks through member auth", async () => {
@@ -142,5 +158,51 @@ describe("member utility routes", () => {
     expect(readAuthenticatedUserId).toHaveBeenCalledWith(context.request, context.env);
     expect(updateDiscordMemberAlertSubscriptionFromRequest)
       .toHaveBeenCalledWith(context.request, context.env, 12345);
+  });
+
+  it("routes member Torn key pool reads through member auth", async () => {
+    const context = routeContext("https://worker.test/api/me/torn-key-pool/keys");
+    const response = await routeMemberUtilityApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "key-pool-list" });
+    expect(requireMember).toHaveBeenCalledOnce();
+    expect(listMyTornApiKeys).toHaveBeenCalledWith(context.env, 12345);
+  });
+
+  it("routes member Torn key pool creates through member auth", async () => {
+    const context = routeContext("https://worker.test/api/me/torn-key-pool/keys", {
+      method: "POST",
+      body: JSON.stringify({ key: "abc" }),
+    });
+    const response = await routeMemberUtilityApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "key-pool-create" });
+    expect(createMyTornApiKey).toHaveBeenCalledWith(context.request, context.env, 12345);
+  });
+
+  it("routes member Torn key pool updates and deletes by key id", async () => {
+    const updateContext = routeContext("https://worker.test/api/me/torn-key-pool/keys/key-123", {
+      method: "PUT",
+      body: JSON.stringify({ label: "Main" }),
+    });
+    const updateResponse = await routeMemberUtilityApi(updateContext);
+
+    expect(updateResponse?.status).toBe(200);
+    expect(updateMyTornApiKey).toHaveBeenCalledWith(updateContext.request, updateContext.env, 12345, "key-123");
+
+    vi.clearAllMocks();
+    vi.mocked(requireMember).mockResolvedValue(null);
+    vi.mocked(readAuthenticatedUserId).mockResolvedValue(12345);
+    vi.mocked(deleteMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-delete" }));
+
+    const deleteContext = routeContext("https://worker.test/api/me/torn-key-pool/keys/key-123", {
+      method: "DELETE",
+    });
+    const deleteResponse = await routeMemberUtilityApi(deleteContext);
+
+    expect(deleteResponse?.status).toBe(200);
+    expect(deleteMyTornApiKey).toHaveBeenCalledWith(deleteContext.env, 12345, "key-123");
   });
 });
