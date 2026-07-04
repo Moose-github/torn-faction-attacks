@@ -2,13 +2,19 @@ import { deleteJson, getJson, postJson, putJson } from "./client";
 
 export type TornKeyPoolFeature =
   | "arrest_scout"
-  | "background_stats"
   | "hospital_monitor"
-  | "enemy_scouting";
+  | "enemy_scouting"
+  | "faction_lifestyle_stats"
+  | "faction_contributor_stats"
+  | "war_live_data"
+  | "stock_tools"
+  | "misc_utilities"
+  | "experimental_features";
 
 export type TornKeyPoolFeatureOption = {
   key: TornKeyPoolFeature;
   label: string;
+  required_access: "public" | "faction";
 };
 
 export type TornKeyMetadata = {
@@ -48,7 +54,6 @@ export type AdminTornKeyPoolResponse = {
 };
 
 export type TornKeyUpdatePayload = {
-  label?: string | null;
   status?: "active" | "disabled";
   allowed_features?: TornKeyPoolFeature[];
   max_requests_per_minute?: number | null;

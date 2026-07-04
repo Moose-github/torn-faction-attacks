@@ -6,11 +6,17 @@ import { json, nowSeconds } from "./utils";
 
 export type TornKeyPoolFeature =
   | "arrest_scout"
-  | "background_stats"
   | "hospital_monitor"
-  | "enemy_scouting";
+  | "enemy_scouting"
+  | "faction_lifestyle_stats"
+  | "faction_contributor_stats"
+  | "war_live_data"
+  | "stock_tools"
+  | "misc_utilities"
+  | "experimental_features";
 
 export type TornKeyPoolStatus = "active" | "disabled";
+export type TornKeyPoolAccessRequirement = "public" | "faction";
 
 export type TornKeyPoolRow = {
   id: string;
@@ -73,29 +79,48 @@ export type TornKeyMetadata = {
 
 const FEATURE_LABELS: Record<TornKeyPoolFeature, string> = {
   arrest_scout: "Arrest Scout",
-  background_stats: "Background/stat tools",
   hospital_monitor: "Hospital Monitor",
   enemy_scouting: "Enemy scouting",
+  faction_lifestyle_stats: "Faction Lifestyle Stats",
+  faction_contributor_stats: "Faction Contributor Stats",
+  war_live_data: "War Data Refresh",
+  stock_tools: "Stocks Tools",
+  misc_utilities: "Misc Utilities",
+  experimental_features: "New feature testing",
 };
 
 const ALLOWED_FEATURES = new Set<TornKeyPoolFeature>([
   "arrest_scout",
-  "background_stats",
   "hospital_monitor",
   "enemy_scouting",
+  "faction_lifestyle_stats",
+  "faction_contributor_stats",
+  "war_live_data",
+  "stock_tools",
+  "misc_utilities",
+  "experimental_features",
 ]);
 
 const DEFAULT_ALLOWED_FEATURES: TornKeyPoolFeature[] = [
   "arrest_scout",
-  "background_stats",
   "enemy_scouting",
+  "faction_lifestyle_stats",
+  "faction_contributor_stats",
+  "war_live_data",
+  "stock_tools",
+  "misc_utilities",
 ];
 
 const FALLBACK_KEY_FEATURES: TornKeyPoolFeature[] = [
   "arrest_scout",
-  "background_stats",
   "hospital_monitor",
   "enemy_scouting",
+  "faction_lifestyle_stats",
+  "faction_contributor_stats",
+  "war_live_data",
+  "stock_tools",
+  "misc_utilities",
+  "experimental_features",
 ];
 
 const ENCRYPTION_VERSION = "v1";
@@ -111,8 +136,19 @@ type ValidatedTornKeyInfo = {
   faction_access: boolean;
 };
 
-export function keyPoolFeatureOptions(): Array<{ key: TornKeyPoolFeature; label: string }> {
-  return Object.entries(FEATURE_LABELS).map(([key, label]) => ({ key: key as TornKeyPoolFeature, label }));
+export function keyPoolFeatureOptions(): Array<{
+  key: TornKeyPoolFeature;
+  label: string;
+  required_access: TornKeyPoolAccessRequirement;
+}> {
+  return Object.entries(FEATURE_LABELS).map(([key, label]) => {
+    const feature = key as TornKeyPoolFeature;
+    return {
+      key: feature,
+      label,
+      required_access: featureAccessRequirement(feature),
+    };
+  });
 }
 
 export function defaultTornKeyPoolFeatures(): TornKeyPoolFeature[] {
@@ -197,7 +233,7 @@ export async function createMyTornApiKey(
   )
     .bind(
       id,
-      normalizeLabel(body.label),
+      generatedKeyLabel(keyInfo),
       await encryptTornApiKey(rawKey, storageSecret),
       fingerprint,
       submittedByTornUserId,
@@ -288,7 +324,7 @@ export async function updateMyTornApiKey(
     `,
   )
     .bind(
-      normalizeLabel(body.label),
+      generatedKeyLabel(existing),
       status,
       JSON.stringify(allowedFeatures),
       maxRequestsPerMinute,
@@ -376,6 +412,7 @@ export async function readAvailableTornApiKeys(
 
     for (const row of rows.results ?? []) {
       if (!isFeatureAllowed(row.allowed_features_json, feature)) continue;
+      if (!isTornKeyCapableForFeature(row, feature)) continue;
       const currentMinuteUsage = Number(row.current_request_count ?? 0);
       if (!isUnderMinuteLimit(currentMinuteUsage, row.max_requests_per_minute)) continue;
 
@@ -464,6 +501,41 @@ export function allowedFeaturesFromJson(value: string): TornKeyPoolFeature[] {
 
 export function isFeatureAllowed(allowedFeaturesJson: string, feature: TornKeyPoolFeature): boolean {
   return allowedFeaturesFromJson(allowedFeaturesJson).includes(feature);
+}
+
+export function isTornKeyCapableForFeature(
+  key: Pick<TornKeyPoolRow, "access_level" | "access_type" | "faction_access">,
+  feature: TornKeyPoolFeature,
+): boolean {
+  switch (feature) {
+    case "faction_contributor_stats":
+    case "war_live_data":
+      return hasFactionCapability(key);
+    case "arrest_scout":
+    case "hospital_monitor":
+    case "enemy_scouting":
+    case "faction_lifestyle_stats":
+    case "stock_tools":
+    case "misc_utilities":
+    case "experimental_features":
+      return hasPublicCapability(key);
+  }
+}
+
+export function featureAccessRequirement(feature: TornKeyPoolFeature): TornKeyPoolAccessRequirement {
+  switch (feature) {
+    case "faction_contributor_stats":
+    case "war_live_data":
+      return "faction";
+    case "arrest_scout":
+    case "hospital_monitor":
+    case "enemy_scouting":
+    case "faction_lifestyle_stats":
+    case "stock_tools":
+    case "misc_utilities":
+    case "experimental_features":
+      return "public";
+  }
 }
 
 export function isUnderMinuteLimit(currentMinuteUsage: number, maxRequestsPerMinute: number | null): boolean {
@@ -634,9 +706,20 @@ function allowedFeaturesFromRow(row: Pick<TornKeyPoolRow, "allowed_features_json
 
 function normalizeAllowedFeatures(value: unknown, fallback: TornKeyPoolFeature[]): TornKeyPoolFeature[] {
   const raw = Array.isArray(value) ? value : [];
-  const normalized = Array.from(new Set(raw.filter((item): item is TornKeyPoolFeature =>
-    typeof item === "string" && ALLOWED_FEATURES.has(item as TornKeyPoolFeature),
-  )));
+  const normalized = Array.from(new Set(raw.flatMap((item): TornKeyPoolFeature[] => {
+    if (item === "background_stats") {
+      return ["faction_lifestyle_stats"];
+    }
+    if (item === "faction_stats") {
+      return ["faction_lifestyle_stats", "faction_contributor_stats"];
+    }
+    if (item === "war_tools") {
+      return ["war_live_data"];
+    }
+    return typeof item === "string" && ALLOWED_FEATURES.has(item as TornKeyPoolFeature)
+      ? [item as TornKeyPoolFeature]
+      : [];
+  })));
   return normalized.length > 0 ? normalized : [...fallback];
 }
 
@@ -646,9 +729,30 @@ function normalizeMaxRequestsPerMinute(value: unknown): number | null {
   return Number.isNaN(parsed) ? Number.NaN : parsed;
 }
 
-function normalizeLabel(value: unknown): string | null {
-  const label = cleanString(value);
-  return label ? label.slice(0, MAX_LABEL_LENGTH) : null;
+function hasPublicCapability(key: Pick<TornKeyPoolRow, "access_level" | "access_type">): boolean {
+  return isFullAccessKey(key.access_type) || accessLevel(key.access_level) >= 1;
+}
+
+function hasFactionCapability(key: Pick<TornKeyPoolRow, "access_level" | "access_type" | "faction_access">): boolean {
+  return isFullAccessKey(key.access_type) || Number(key.faction_access ?? 0) === 1;
+}
+
+function accessLevel(value: number | null): number {
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+function isFullAccessKey(accessType: string | null): boolean {
+  const normalized = accessType?.trim().toLowerCase() ?? "";
+  return normalized === "full" || normalized === "full access";
+}
+
+function generatedKeyLabel(source: {
+  owner_name?: string | null;
+  owner_torn_user_id?: number | null;
+}): string {
+  const owner = source.owner_name?.trim() || String(source.owner_torn_user_id ?? "TORN");
+  const normalizedOwner = owner.replace(/\s+/g, "_").slice(0, Math.max(1, MAX_LABEL_LENGTH - 4));
+  return `${normalizedOwner}_KEY`;
 }
 
 function normalizeStatus(value: unknown, fallback: string): TornKeyPoolStatus | null {

@@ -15,6 +15,9 @@ type StoredKeyRow = {
   id: string;
   encrypted_key: string;
   allowed_features_json: string;
+  access_level: number | null;
+  access_type: string | null;
+  faction_access: number | null;
   max_requests_per_minute: number | null;
   last_used_at: number | null;
   paused_until: number | null;
@@ -94,6 +97,7 @@ async function readSubmittedMonitorKeys(env: MonitorEnv, now: number): Promise<M
   const candidates: MonitorKeyCandidate[] = [];
   for (const row of rows.results ?? []) {
     if (!featureAllowed(row.allowed_features_json, CACHE_FEATURE)) continue;
+    if (!hasPublicCapability(row)) continue;
     const currentMinuteUsage = Number(row.current_request_count ?? 0);
     if (row.max_requests_per_minute !== null && currentMinuteUsage >= row.max_requests_per_minute) continue;
 
@@ -163,6 +167,11 @@ function featureAllowed(json: string, feature: string): boolean {
   } catch {
     return false;
   }
+}
+
+function hasPublicCapability(row: Pick<StoredKeyRow, "access_level" | "access_type">): boolean {
+  const accessType = row.access_type?.trim().toLowerCase() ?? "";
+  return accessType === "full" || accessType === "full access" || Number(row.access_level ?? 0) >= 1;
 }
 
 async function decryptTornApiKey(encrypted: string, secret: string): Promise<string> {

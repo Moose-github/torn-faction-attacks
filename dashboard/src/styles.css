@@ -5986,6 +5986,55 @@ h2 {
   font-weight: 700;
 }
 
+.settings-key-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--panel-bg-solid);
+}
+
+.settings-key-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.55fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.settings-key-meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-key-meta strong {
+  color: var(--text-strong);
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.settings-key-meta small {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.settings-key-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-key-controls label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .admin-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7006,6 +7055,7 @@ tbody tr:not(.attack-row):hover td {
   .trade-scout-layout,
   .trade-scout-summary-grid,
   .trade-scout-form,
+  .settings-key-card-header,
   .stock-backtest-controls,
   .dashboard-layout {
     grid-template-columns: 1fr;

@@ -25,7 +25,6 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
   const [error, setError] = React.useState<string | null>(null);
   const [keyPoolError, setKeyPoolError] = React.useState<string | null>(null);
   const [newKey, setNewKey] = React.useState("");
-  const [newKeyLabel, setNewKeyLabel] = React.useState("");
   const [newKeyRateLimit, setNewKeyRateLimit] = React.useState("");
   const [newKeyFeatures, setNewKeyFeatures] = React.useState<TornKeyPoolFeature[]>([]);
 
@@ -96,12 +95,10 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
     try {
       await submitMyTornKeyPoolKey({
         key: newKey,
-        label: newKeyLabel || null,
         allowed_features: newKeyFeatures,
         max_requests_per_minute: rateLimitFromInput(newKeyRateLimit),
       });
       setNewKey("");
-      setNewKeyLabel("");
       setNewKeyRateLimit("");
       await loadKeyPool();
     } catch (err) {
@@ -116,7 +113,6 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
     setKeyPoolError(null);
     try {
       await updateMyTornKeyPoolKey(key.id, {
-        label: patch.label ?? key.label,
         status: (patch.status ?? key.status) === "disabled" ? "disabled" : "active",
         allowed_features: patch.allowed_features ?? key.allowed_features,
         max_requests_per_minute: patch.max_requests_per_minute ?? key.max_requests_per_minute,
@@ -211,10 +207,6 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
 
         <form className="trade-scout-form" onSubmit={submitKey}>
           <label>
-            <span>Key label</span>
-            <input value={newKeyLabel} onChange={(event) => setNewKeyLabel(event.target.value)} placeholder="Main key" />
-          </label>
-          <label>
             <span>Torn API key</span>
             <input
               type="password"
@@ -243,7 +235,8 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
                 />
                 <span>
                   <strong>{feature.label}</strong>
-                  <small>{feature.key === "hospital_monitor" ? "Opt in only. Active monitoring can make frequent requests." : "Allowed to use this key when selected."}</small>
+                  <small>{featureDescription(feature.key, true)}</small>
+                  <small>{featureAccessDescription(feature.required_access)}</small>
                 </span>
               </label>
             ))}
@@ -292,41 +285,39 @@ function KeyPoolRow({
   onSave: (key: TornKeyMetadata, patch: Partial<TornKeyMetadata>) => void;
   onDisable: (key: TornKeyMetadata) => void;
 }) {
-  const [label, setLabel] = React.useState(poolKey.label ?? "");
   const [rateLimit, setRateLimit] = React.useState(poolKey.max_requests_per_minute?.toString() ?? "");
   const [allowedFeatures, setAllowedFeatures] = React.useState<TornKeyPoolFeature[]>(poolKey.allowed_features);
   const [status, setStatus] = React.useState(poolKey.status);
 
   React.useEffect(() => {
-    setLabel(poolKey.label ?? "");
     setRateLimit(poolKey.max_requests_per_minute?.toString() ?? "");
     setAllowedFeatures(poolKey.allowed_features);
     setStatus(poolKey.status);
   }, [poolKey]);
 
   return (
-    <div className="settings-alert-row">
-      <span>
-        <strong>{poolKey.owner_name ?? poolKey.owner_torn_user_id ?? "Submitted key"}</strong>
-        <small>
-          {poolKey.status} - {poolKey.allowed_features.join(", ")} - last used {poolKey.last_used_at ? formatUnix(poolKey.last_used_at) : "never"}
-        </small>
-      </span>
-      <label>
-        <span>Label</span>
-        <input value={label} onChange={(event) => setLabel(event.target.value)} />
-      </label>
-      <label>
-        <span>Max/min</span>
-        <input inputMode="numeric" value={rateLimit} onChange={(event) => setRateLimit(event.target.value)} />
-      </label>
-      <label>
-        <span>Status</span>
-        <select value={status} onChange={(event) => setStatus(event.target.value)}>
-          <option value="active">Active</option>
-          <option value="disabled">Disabled</option>
-        </select>
-      </label>
+    <div className="settings-key-card">
+      <div className="settings-key-card-header">
+        <span className="settings-key-meta">
+          <strong>{displayKeyLabel(poolKey)}</strong>
+          <small>
+            {poolKey.status} - {poolKey.allowed_features.join(", ")} - last used {poolKey.last_used_at ? formatUnix(poolKey.last_used_at) : "never"}
+          </small>
+        </span>
+        <div className="settings-key-controls">
+          <label>
+            <span>Max/min</span>
+            <input inputMode="numeric" value={rateLimit} onChange={(event) => setRateLimit(event.target.value)} />
+          </label>
+          <label>
+            <span>Status</span>
+            <select value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="active">Active</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </label>
+        </div>
+      </div>
       <div className="settings-alert-list">
         {features.map((feature) => (
           <label className="settings-alert-row" key={feature.key}>
@@ -337,7 +328,8 @@ function KeyPoolRow({
             />
             <span>
               <strong>{feature.label}</strong>
-              <small>{feature.key === "hospital_monitor" ? "Opt in to active monitor use." : "Allowed feature"}</small>
+              <small>{featureDescription(feature.key, false)}</small>
+              <small>{featureAccessDescription(feature.required_access)}</small>
             </span>
           </label>
         ))}
@@ -348,7 +340,6 @@ function KeyPoolRow({
           className="panel-action-button primary-action"
           disabled={isSaving}
           onClick={() => onSave(poolKey, {
-            label: label || null,
             status,
             allowed_features: allowedFeatures,
             max_requests_per_minute: rateLimitFromInput(rateLimit),
@@ -373,11 +364,56 @@ function toggleFeature(features: TornKeyPoolFeature[], feature: TornKeyPoolFeatu
   return features.filter((item) => item !== feature);
 }
 
+function featureDescription(feature: TornKeyPoolFeature, isNewKey: boolean): string {
+  if (feature === "hospital_monitor") {
+    return isNewKey
+      ? "Opt in only. Active monitoring can make frequent requests."
+      : "Opt in to active monitor use.";
+  }
+  if (feature === "experimental_features") {
+    return "Opt in to let new or test features use this key.";
+  }
+  if (feature === "arrest_scout") {
+    return "Allows Arrest Scout scans to check candidate targets.";
+  }
+  if (feature === "enemy_scouting") {
+    return "Allows enemy faction scouting, member checks, and related scouting stats.";
+  }
+  if (feature === "faction_lifestyle_stats") {
+    return "Allows lifestyle personalstats imports and repair jobs.";
+  }
+  if (feature === "faction_contributor_stats") {
+    return "Allows faction contributor stat refreshes such as current gym totals.";
+  }
+  if (feature === "war_live_data") {
+    return "Allows live war data refreshes such as attacks, ranked wars, ranked war reports, and chain checks.";
+  }
+  if (feature === "stock_tools") {
+    return "Allows stock market refreshes, stock history recovery, and stock activity tools.";
+  }
+  if (feature === "misc_utilities") {
+    return "Allows low-volume utility lookups such as shoplifting data and Discord link sync.";
+  }
+  return isNewKey ? "Allowed to use this key when selected." : "Allowed feature";
+}
+
+function featureAccessDescription(requiredAccess: "public" | "faction"): string {
+  return requiredAccess === "faction"
+    ? "Requires a faction-capable or Full access key."
+    : "Works with a public/basic or Full access key.";
+}
+
 function rateLimitFromInput(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   const parsed = Math.floor(Number(trimmed));
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function displayKeyLabel(poolKey: TornKeyMetadata): string {
+  if (poolKey.label) return poolKey.label;
+  const owner = poolKey.owner_name || String(poolKey.owner_torn_user_id ?? "TORN");
+  return `${owner.replace(/\s+/g, "_")}_KEY`;
 }
 
 function formatUnix(value: number): string {
