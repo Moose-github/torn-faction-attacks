@@ -272,7 +272,8 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
               min={MIN_KEY_RATE_LIMIT}
               max={MAX_KEY_RATE_LIMIT}
               value={newKeyRateLimit}
-              onChange={(event) => setNewKeyRateLimit(event.target.value)}
+              onChange={(event) => setNewKeyRateLimit(rateLimitInputValue(event.target.value))}
+              onBlur={() => setNewKeyRateLimit(clampRateLimitInput(newKeyRateLimit))}
               placeholder={String(DEFAULT_KEY_RATE_LIMIT)}
             />
           </label>
@@ -376,7 +377,8 @@ function KeyPoolRow({
               min={MIN_KEY_RATE_LIMIT}
               max={MAX_KEY_RATE_LIMIT}
               value={rateLimit}
-              onChange={(event) => setRateLimit(event.target.value)}
+              onChange={(event) => setRateLimit(rateLimitInputValue(event.target.value))}
+              onBlur={() => setRateLimit(clampRateLimitInput(rateLimit))}
             />
           </label>
           <label>
@@ -567,6 +569,20 @@ function rateLimitFromInput(value: string): number | null {
 
 function isRateLimitValid(value: string): boolean {
   return rateLimitFromInput(value) !== null;
+}
+
+function rateLimitInputValue(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  const parsed = Math.floor(Number(digits));
+  if (!Number.isFinite(parsed)) return "";
+  return String(Math.min(parsed, MAX_KEY_RATE_LIMIT));
+}
+
+function clampRateLimitInput(value: string): string {
+  const parsed = Math.floor(Number(value.trim()));
+  if (!Number.isFinite(parsed)) return String(DEFAULT_KEY_RATE_LIMIT);
+  return String(Math.min(MAX_KEY_RATE_LIMIT, Math.max(MIN_KEY_RATE_LIMIT, parsed)));
 }
 
 function displayKeyLabel(poolKey: TornKeyMetadata): string {
