@@ -5,7 +5,7 @@ export type ArrestScoutClassification =
   | "ignored"
   | "error";
 
-export type ArrestScoutSourceType = "manual" | "future_targets_due";
+export type ArrestScoutSourceType = "manual" | "faction" | "future_targets_due";
 
 export type ArrestScoutSettings = {
   lookback_seconds: number;
@@ -105,6 +105,7 @@ export type ArrestScoutScanResponse = {
   ok: boolean;
   snapshot_id: string;
   source_type: ArrestScoutSourceType;
+  source_faction_id: number | null;
   lookback_days: number;
   min_counterfeiting_delta: number;
   target_count: number;
@@ -124,5 +125,4 @@ export const ARREST_SCOUT_STAT_KEYS = ["jailed", "counterfeiting", "forgeryskill
 export const DEFAULT_LOOKBACK_DAYS = 7;
 export const DEFAULT_MIN_COUNTERFEITING_DELTA = 500;
 export const DEFAULT_REQUIRED_FORGERYSKILL = 100;
-export const MAX_TARGETS_PER_SCAN = 50;
 export const TORN_KEY_SOURCE = "member_supplied:arrest_scout";

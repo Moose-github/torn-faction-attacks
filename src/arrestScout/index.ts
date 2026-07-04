@@ -4,20 +4,21 @@ import {
   positiveIntegerOrNull,
   readJsonObject,
 } from "../backend/request";
+import { TORN_FACTION_API_BASE_URL } from "../constants";
+import { fetchTrackedTornJson } from "../external/torn";
 import { fetchTornPersonalStatsWithTimestamps, type TornPersonalStatsResponse } from "../personalStats";
 import {
   runWithTornKeyPool,
   TornKeyPoolExhaustedError,
   TornKeyPoolUnavailableError,
 } from "../tornKeyPool";
-import type { Env } from "../types";
+import type { Env, TornFactionMember, TornFactionMembersResponse } from "../types";
 import { json, nowSeconds } from "../utils";
 import {
   ARREST_SCOUT_STAT_KEYS,
   DEFAULT_LOOKBACK_DAYS,
   DEFAULT_MIN_COUNTERFEITING_DELTA,
   DEFAULT_REQUIRED_FORGERYSKILL,
-  MAX_TARGETS_PER_SCAN,
   type ArrestScoutFutureTargetRow,
   type ArrestScoutResultRow,
   type ArrestScoutScanResponse,
@@ -31,6 +32,7 @@ import { classifyArrestScoutTarget } from "./scoring";
 
 type ScanPayload = {
   source_type: ArrestScoutSourceType;
+  source_faction_id: number | null;
   target_user_ids: number[];
   lookback_days: number;
   settings: ArrestScoutSettings;
@@ -43,7 +45,16 @@ export async function scanArrestScout(
   env: Env,
   scannedByTornUserId: number | null,
 ): Promise<Response> {
-  const validated = await readScanPayload(request, env);
+  const usedKeySources = new Set<string>();
+  let validated: Awaited<ReturnType<typeof readScanPayload>>;
+  try {
+    validated = await readScanPayload(request, env, usedKeySources);
+  } catch (err) {
+    if (isArrestScoutKeyPoolUnavailable(err)) {
+      return noArrestScoutKeyResponse();
+    }
+    throw err;
+  }
   if ("response" in validated) {
     return validated.response;
   }
@@ -53,7 +64,6 @@ export async function scanArrestScout(
   const scannedAt = nowSeconds();
   const historicalTimestamp = scannedAt - payload.settings.lookback_seconds;
   const results: PendingResult[] = [];
-  const usedKeySources = new Set<string>();
 
   try {
     for (const [index, targetUserId] of payload.target_user_ids.entries()) {
@@ -70,14 +80,7 @@ export async function scanArrestScout(
     }
   } catch (err) {
     if (isArrestScoutKeyPoolUnavailable(err)) {
-      return json(
-        {
-          ok: false,
-          error: "No eligible Torn API key is available for Arrest Scout",
-          code: "NO_TORN_KEYS_AVAILABLE",
-        },
-        503,
-      );
+      return noArrestScoutKeyResponse();
     }
     throw err;
   }
@@ -91,7 +94,7 @@ export async function scanArrestScout(
   const snapshot: Omit<ArrestScoutSnapshotRow, "error"> & { error: string | null } = {
     id: snapshotId,
     source_type: payload.source_type,
-    source_faction_id: null,
+    source_faction_id: payload.source_faction_id,
     scanned_by_torn_user_id: scannedByTornUserId,
     scanned_at: scannedAt,
     lookback_seconds: payload.settings.lookback_seconds,
@@ -100,6 +103,7 @@ export async function scanArrestScout(
     error: status === "ok" ? null : `${counts.error_count} target scan error${counts.error_count === 1 ? "" : "s"}`,
     settings_json: JSON.stringify({
       source: payload.source_type,
+      source_faction_id: payload.source_faction_id,
       target_user_ids: payload.target_user_ids,
       lookback_days: payload.lookback_days,
       min_counterfeiting_delta: payload.settings.min_counterfeiting_delta,
@@ -123,6 +127,7 @@ export async function scanArrestScout(
     ok: status !== "error",
     snapshot_id: snapshotId,
     source_type: payload.source_type,
+    source_faction_id: payload.source_faction_id,
     lookback_days: payload.lookback_days,
     min_counterfeiting_delta: payload.settings.min_counterfeiting_delta,
     target_count: snapshot.target_count,
@@ -348,6 +353,7 @@ function errorResult(
 async function readScanPayload(
   request: Request,
   env: Env,
+  usedKeySources: Set<string>,
 ): Promise<{ payload: ScanPayload } | { response: Response }> {
   const body = await readJsonObject(request);
   const sourceType = normalizeSourceType(body.source ?? body.source_type ?? body.sourceType);
@@ -367,16 +373,39 @@ async function readScanPayload(
     required_forgeryskill: DEFAULT_REQUIRED_FORGERYSKILL,
   };
 
+  const sourceFactionId = sourceType === "faction"
+    ? positiveIntegerOrNull(body.source_faction_id ?? body.sourceFactionId)
+    : null;
+  if (sourceType === "faction" && !sourceFactionId) {
+    return {
+      response: json({
+        ok: false,
+        error: "A valid source faction ID is required",
+        code: "INVALID_SOURCE_FACTION_ID",
+      }, 400),
+    };
+  }
+
   const targetUserIds = sourceType === "future_targets_due"
     ? await readDueFutureTargetIds(env)
-    : parseTargetIds(body.target_user_ids ?? body.targetUserIds);
+    : sourceType === "faction"
+      ? await readFactionTargetIds(env, sourceFactionId as number, usedKeySources)
+      : parseTargetIds(body.target_user_ids ?? body.targetUserIds);
 
   if (targetUserIds.length === 0) {
     return {
       response: json({
         ok: false,
-        error: sourceType === "future_targets_due" ? "No future targets are due" : "At least one target user ID is required",
-        code: sourceType === "future_targets_due" ? "NO_FUTURE_TARGETS_DUE" : "INVALID_TARGET_USER_IDS",
+        error: sourceType === "future_targets_due"
+          ? "No future targets are due"
+          : sourceType === "faction"
+            ? "No faction members were found"
+            : "At least one target user ID is required",
+        code: sourceType === "future_targets_due"
+          ? "NO_FUTURE_TARGETS_DUE"
+          : sourceType === "faction"
+            ? "NO_FACTION_MEMBERS"
+            : "INVALID_TARGET_USER_IDS",
       }, 400),
     };
   }
@@ -384,7 +413,8 @@ async function readScanPayload(
   return {
     payload: {
       source_type: sourceType,
-      target_user_ids: targetUserIds.slice(0, MAX_TARGETS_PER_SCAN),
+      source_faction_id: sourceFactionId,
+      target_user_ids: targetUserIds,
       lookback_days: lookbackDays,
       settings,
     },
@@ -400,13 +430,42 @@ async function readDueFutureTargetIds(env: Env): Promise<number[]> {
     WHERE next_check_after IS NOT NULL
       AND next_check_after <= ?
     ORDER BY next_check_after ASC, best_score DESC
-    LIMIT ?
     `,
   )
-    .bind(now, MAX_TARGETS_PER_SCAN)
+    .bind(now)
     .all<{ target_user_id: number }>();
 
   return (rows.results ?? []).map((row) => Number(row.target_user_id)).filter((id) => Number.isInteger(id) && id > 0);
+}
+
+async function readFactionTargetIds(
+  env: Env,
+  factionId: number,
+  usedKeySources: Set<string>,
+): Promise<number[]> {
+  const url = new URL(`${TORN_FACTION_API_BASE_URL}/${factionId}/members`);
+  url.searchParams.set("striptags", "false");
+
+  const output = await runWithTornKeyPool(env, {
+    feature: "arrest_scout",
+    run: ({ key, keySource }) => fetchTrackedTornJson<TornFactionMembersResponse>(env, url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `ApiKey ${key}`,
+      },
+    }, {
+      feature: "arrest-scout:faction-members",
+      keySource,
+      timeoutMs: 15000,
+    }, { service: "Torn faction members" }),
+  });
+  usedKeySources.add(output.candidate.keySource);
+
+  return Array.from(new Set(
+    normalizeFactionMembers(output.result.members)
+      .map((member) => Number(member.id))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  ));
 }
 
 async function saveSnapshotAndResults(
@@ -681,7 +740,7 @@ function emptyTimestamps(): ArrestScoutStatTimestamps {
 
 function normalizeSourceType(value: unknown): ArrestScoutSourceType | null {
   const source = cleanString(value);
-  if (source === "manual" || source === "future_targets_due") {
+  if (source === "manual" || source === "faction" || source === "future_targets_due") {
     return source;
   }
   return null;
@@ -699,6 +758,29 @@ function parseTargetIds(value: unknown): number[] {
       .map((item) => positiveIntegerOrNull(item))
       .filter((item): item is number => item !== null),
   ));
+}
+
+function normalizeFactionMembers(members: TornFactionMembersResponse["members"]): TornFactionMember[] {
+  if (!members) return [];
+  if (Array.isArray(members)) return members;
+
+  return Object.entries(members).map(([id, member]) => ({
+    ...member,
+    id: Number.isInteger(Number(member.id)) && Number(member.id) > 0
+      ? Number(member.id)
+      : Number(id),
+  }));
+}
+
+function noArrestScoutKeyResponse(): Response {
+  return json(
+    {
+      ok: false,
+      error: "No eligible Torn API key is available for Arrest Scout",
+      code: "NO_TORN_KEYS_AVAILABLE",
+    },
+    503,
+  );
 }
 
 function safeErrorMessage(err: unknown): string {

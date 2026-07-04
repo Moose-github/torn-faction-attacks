@@ -7,7 +7,7 @@ export type ArrestScoutClassification =
   | "ignored"
   | "error";
 
-export type ArrestScoutSourceType = "manual" | "future_targets_due";
+export type ArrestScoutSourceType = "manual" | "faction" | "future_targets_due";
 
 export type ArrestScoutResult = {
   id: string;
@@ -30,6 +30,7 @@ export type ArrestScoutResult = {
 export type ArrestScoutSnapshot = {
   id: string;
   source_type: string;
+  source_faction_id: number | null;
   scanned_at: number;
   lookback_seconds: number;
   min_counterfeiting_delta: number;
@@ -60,6 +61,7 @@ export type ArrestScoutFutureTarget = {
 
 export type ArrestScoutScanPayload = {
   source: ArrestScoutSourceType;
+  source_faction_id?: number;
   target_user_ids?: number[];
   lookback_days?: number;
   min_counterfeiting_delta?: number;
@@ -69,6 +71,7 @@ export type ArrestScoutScanResponse = {
   ok: boolean;
   snapshot_id: string;
   source_type: ArrestScoutSourceType;
+  source_faction_id: number | null;
   lookback_days: number;
   min_counterfeiting_delta: number;
   target_count: number;

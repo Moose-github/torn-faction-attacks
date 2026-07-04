@@ -18,6 +18,8 @@ const DEFAULT_MIN_COUNTERFEITING_DELTA = "500";
 
 export function ArrestScout() {
   const [targetIds, setTargetIds] = React.useState("");
+  const [scanSource, setScanSource] = React.useState<"manual" | "faction" | "future_targets_due">("manual");
+  const [sourceFactionId, setSourceFactionId] = React.useState("");
   const [lookbackDays, setLookbackDays] = React.useState(DEFAULT_LOOKBACK_DAYS);
   const [minCounterfeitingDelta, setMinCounterfeitingDelta] = React.useState(DEFAULT_MIN_COUNTERFEITING_DELTA);
   const [scanResult, setScanResult] = React.useState<ArrestScoutScanResponse | null>(null);
@@ -28,7 +30,6 @@ export function ArrestScout() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isLoadingSnapshotResults, setIsLoadingSnapshotResults] = React.useState(false);
   const [isScanning, setIsScanning] = React.useState(false);
-  const [isRechecking, setIsRechecking] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const parsedTargetIds = React.useMemo(() => parseTargetIds(targetIds), [targetIds]);
@@ -60,26 +61,33 @@ export function ArrestScout() {
     }
   }
 
-  async function runManualScan(event: React.FormEvent<HTMLFormElement>) {
+  async function runConfiguredScan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (parsedTargetIds.length === 0) {
+    if (scanSource === "manual" && parsedTargetIds.length === 0) {
       setError("Add at least one valid target user ID.");
       return;
     }
+    const factionId = positiveInteger(sourceFactionId, 0);
+    if (scanSource === "faction" && factionId <= 0) {
+      setError("Add a valid faction ID.");
+      return;
+    }
 
-    await runScan({
-      source: "manual",
-      target_user_ids: parsedTargetIds,
-    });
+    await runScan(
+      scanSource === "manual"
+        ? { source: "manual", target_user_ids: parsedTargetIds }
+        : scanSource === "faction"
+          ? { source: "faction", source_faction_id: factionId }
+          : { source: "future_targets_due" },
+    );
   }
 
-  async function recheckFutureTargets() {
-    setIsRechecking(true);
-    await runScan({ source: "future_targets_due" });
-    setIsRechecking(false);
-  }
-
-  async function runScan(input: { source: "manual"; target_user_ids: number[] } | { source: "future_targets_due" }) {
+  async function runScan(
+    input:
+      | { source: "manual"; target_user_ids: number[] }
+      | { source: "faction"; source_faction_id: number }
+      | { source: "future_targets_due" },
+  ) {
     setIsScanning(true);
     setError(null);
 
@@ -87,6 +95,7 @@ export function ArrestScout() {
       const response = await scanArrestScout({
         source: input.source,
         target_user_ids: input.source === "manual" ? input.target_user_ids : undefined,
+        source_faction_id: input.source === "faction" ? input.source_faction_id : undefined,
         lookback_days: positiveInteger(lookbackDays, 7),
         min_counterfeiting_delta: positiveInteger(minCounterfeitingDelta, 500),
       });
@@ -156,18 +165,39 @@ export function ArrestScout() {
 
         <section className="panel trade-scout-form-panel">
           <PanelHeader
-            title="Manual scan"
-            aside={`${parsedTargetIds.length} parsed`}
+            title="Scan setup"
+            aside={scanSource === "manual" ? `${parsedTargetIds.length} parsed` : sourceLabel(scanSource)}
           />
-          <form className="trade-scout-form" onSubmit={runManualScan}>
-            <label className="trade-scout-items-field">
-              <span>Target IDs</span>
-              <textarea
-                value={targetIds}
-                onChange={(event) => setTargetIds(event.target.value)}
-                placeholder="3238283, 123456"
-              />
+          <form className="trade-scout-form" onSubmit={runConfiguredScan}>
+            <label>
+              <span>Scan source</span>
+              <select value={scanSource} onChange={(event) => setScanSource(event.target.value as typeof scanSource)}>
+                <option value="manual">Manual target IDs</option>
+                <option value="faction">Faction members</option>
+                <option value="future_targets_due">Due future targets</option>
+              </select>
             </label>
+            {scanSource === "manual" ? (
+              <label className="trade-scout-items-field">
+                <span>Target IDs</span>
+                <textarea
+                  value={targetIds}
+                  onChange={(event) => setTargetIds(event.target.value)}
+                  placeholder="3238283, 123456"
+                />
+              </label>
+            ) : null}
+            {scanSource === "faction" ? (
+              <label>
+                <span>Faction ID</span>
+                <input
+                  inputMode="numeric"
+                  value={sourceFactionId}
+                  onChange={(event) => setSourceFactionId(event.target.value)}
+                  placeholder="8803"
+                />
+              </label>
+            ) : null}
             <label>
               <span>Lookback days</span>
               <input inputMode="numeric" value={lookbackDays} onChange={(event) => setLookbackDays(event.target.value)} />
@@ -182,17 +212,8 @@ export function ArrestScout() {
             </label>
             <div className="trade-scout-form-actions">
               <button type="submit" className="panel-action-button primary-action" disabled={isScanning}>
-                {isScanning && !isRechecking ? <RefreshCw size={14} className="spinning-icon" /> : <Search size={14} />}
-                {isScanning && !isRechecking ? "Scanning" : "Scan targets"}
-              </button>
-              <button
-                type="button"
-                className="panel-action-button"
-                onClick={recheckFutureTargets}
-                disabled={isScanning}
-              >
-                {isRechecking ? <RefreshCw size={14} className="spinning-icon" /> : <TimerReset size={14} />}
-                {isRechecking ? "Rechecking" : "Recheck due"}
+                {isScanning ? <RefreshCw size={14} className="spinning-icon" /> : <Search size={14} />}
+                {isScanning ? scanningLabel(scanSource) : actionLabel(scanSource)}
               </button>
             </div>
           </form>
@@ -256,7 +277,7 @@ export function ArrestScout() {
                     <tr key={snapshot.id}>
                       <td>
                         <strong>{formatRelativeTime(snapshot.scanned_at)}</strong>
-                        <small>{snapshot.source_type} - min {formatNumber(snapshot.min_counterfeiting_delta)}</small>
+                        <small>{snapshotSourceLabel(snapshot)} - min {formatNumber(snapshot.min_counterfeiting_delta)}</small>
                       </td>
                       <td>
                         <span className={`trade-quality-badge ${snapshot.status === "ok" ? "good" : "warn"}`}>
@@ -440,6 +461,30 @@ function classificationTone(value: string): string {
   if (value === "future_target") return "warn";
   if (value === "error") return "danger";
   return "";
+}
+
+function sourceLabel(value: string): string {
+  if (value === "faction") return "Faction";
+  if (value === "future_targets_due") return "Due targets";
+  return "Manual";
+}
+
+function actionLabel(value: string): string {
+  if (value === "faction") return "Scan faction";
+  if (value === "future_targets_due") return "Recheck due";
+  return "Scan targets";
+}
+
+function scanningLabel(value: string): string {
+  if (value === "future_targets_due") return "Rechecking";
+  return "Scanning";
+}
+
+function snapshotSourceLabel(snapshot: ArrestScoutSnapshot): string {
+  if (snapshot.source_type === "faction" && snapshot.source_faction_id) {
+    return `faction ${snapshot.source_faction_id}`;
+  }
+  return snapshot.source_type;
 }
 
 function notesLabel(value: string): string {
