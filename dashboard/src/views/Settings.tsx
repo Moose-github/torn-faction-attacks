@@ -205,7 +205,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
         />
         {keyPoolError ? <p className="form-error">{keyPoolError}</p> : null}
 
-        <form className="trade-scout-form" onSubmit={submitKey}>
+        <form className="torn-key-pool-form" onSubmit={submitKey}>
           <label>
             <span>Torn API key</span>
             <input
@@ -225,7 +225,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
               placeholder="No personal cap"
             />
           </label>
-          <div className="settings-alert-list">
+          <div className="settings-alert-list torn-key-feature-list">
             {(keyPool?.features ?? []).map((feature) => (
               <label className="settings-alert-row" key={feature.key}>
                 <input
@@ -236,7 +236,7 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
                 <span>
                   <strong>{feature.label}</strong>
                   <small>{featureDescription(feature.key, true)}</small>
-                  <small>{featureAccessDescription(feature.required_access)}</small>
+                  {featureAccessDescription(feature.required_access)}
                 </span>
               </label>
             ))}
@@ -329,7 +329,7 @@ function KeyPoolRow({
             <span>
               <strong>{feature.label}</strong>
               <small>{featureDescription(feature.key, false)}</small>
-              <small>{featureAccessDescription(feature.required_access)}</small>
+              {featureAccessDescription(feature.required_access)}
             </span>
           </label>
         ))}
@@ -397,10 +397,9 @@ function featureDescription(feature: TornKeyPoolFeature, isNewKey: boolean): str
   return isNewKey ? "Allowed to use this key when selected." : "Allowed feature";
 }
 
-function featureAccessDescription(requiredAccess: "public" | "faction"): string {
-  return requiredAccess === "faction"
-    ? "Requires a faction-capable or Full access key."
-    : "Works with a public/basic or Full access key.";
+function featureAccessDescription(requiredAccess: "public" | "faction"): React.ReactNode {
+  if (requiredAccess !== "faction") return null;
+  return <small>Requires a faction-capable key.</small>;
 }
 
 function rateLimitFromInput(value: string): number | null {

@@ -5955,6 +5955,43 @@ h2 {
   margin-top: 14px;
 }
 
+.torn-key-pool-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+  margin-top: 12px;
+}
+
+.torn-key-pool-form > label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.torn-key-pool-form input {
+  width: 100%;
+}
+
+.torn-key-feature-list,
+.torn-key-pool-form .trade-scout-form-actions {
+  grid-column: 1 / -1;
+}
+
+.torn-key-feature-list {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-top: 2px;
+}
+
+.torn-key-feature-list .settings-alert-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+
 .settings-alert-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
