@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { parseActiveWarFromUrl } from "./activeWar";
 import {
+  markMonitorKeyFailure,
   readMonitorKeyCandidates,
   recordMonitorKeyUsage,
   type MonitorKeyCandidate,
@@ -252,7 +253,9 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
       const message = err instanceof Error ? err.message : String(err);
       this.lastError = message;
       this.lastPollFinishedAt = nowSeconds();
-      this.markKeyError(keyState, err);
+      const pauseSeconds = this.markKeyError(keyState, err);
+      await markMonitorKeyFailure(this.env, keyCandidate, message, this.lastPollFinishedAt, pauseSeconds)
+        .catch(() => undefined);
     } finally {
       this.noteKeyUsage(keyCandidate, pollStartedAt);
       await this.flushPendingUsageIfDue(Date.now());
@@ -355,25 +358,28 @@ export class EnemyHospitalMonitor extends DurableObject<MonitorEnv> {
       .sort((left, right) => left - right)[0] ?? null;
   }
 
-  private markKeyError(keyState: MonitorKeyState, err: unknown): void {
+  private markKeyError(keyState: MonitorKeyState, err: unknown): number {
     const now = nowSeconds();
     keyState.consecutiveErrors += 1;
     keyState.lastError = err instanceof Error ? err.message : String(err);
 
+    let pauseSeconds: number;
     if (err instanceof TornApiError) {
       if (err.retryAfterSeconds) {
-        keyState.backoffUntil = now + err.retryAfterSeconds;
+        pauseSeconds = err.retryAfterSeconds;
       } else if (err.code === 5) {
-        keyState.backoffUntil = now + 60;
+        pauseSeconds = 60;
       } else if (err.code === 2 || err.code === 7 || err.code === 10) {
-        keyState.backoffUntil = now + 15 * 60;
+        pauseSeconds = 15 * 60;
       } else {
-        keyState.backoffUntil = now + Math.min(60, 5 * keyState.consecutiveErrors);
+        pauseSeconds = Math.min(60, 5 * keyState.consecutiveErrors);
       }
-      return;
+    } else {
+      pauseSeconds = Math.min(60, 5 * keyState.consecutiveErrors);
     }
 
-    keyState.backoffUntil = now + Math.min(60, 5 * keyState.consecutiveErrors);
+    keyState.backoffUntil = now + pauseSeconds;
+    return pauseSeconds;
   }
 
   private async refreshKeyCacheIfNeeded(nowMs: number, force = false): Promise<void> {

@@ -69,6 +69,30 @@ export async function recordMonitorKeyUsage(
   ]);
 }
 
+export async function markMonitorKeyFailure(
+  env: MonitorEnv,
+  candidate: MonitorKeyCandidate,
+  error: string,
+  now: number,
+  pauseSeconds: number,
+): Promise<void> {
+  if (candidate.sourceType !== "submitted") return;
+
+  await env.DB.prepare(
+    `
+    UPDATE torn_api_keys
+    SET
+      failure_count = failure_count + 1,
+      last_error = ?,
+      paused_until = ?,
+      updated_at = ?
+    WHERE id = ?
+    `,
+  )
+    .bind(error.slice(0, 240), now + Math.max(1, pauseSeconds), now, candidate.id)
+    .run();
+}
+
 async function readSubmittedMonitorKeys(env: MonitorEnv, now: number): Promise<MonitorKeyCandidate[]> {
   const storageSecret = await readSecretValue(env.TORN_KEY_STORAGE_SECRET);
   if (!storageSecret) return [];
