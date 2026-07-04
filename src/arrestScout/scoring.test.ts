@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyArrestScoutTarget } from "./scoring";
-import type { ArrestScoutSettings } from "./model";
+import type { ArrestScoutSettings, ArrestScoutTargetStats } from "./model";
 
 const settings: ArrestScoutSettings = {
   lookback_seconds: 7 * 24 * 60 * 60,
@@ -11,7 +11,7 @@ const settings: ArrestScoutSettings = {
 describe("classifyArrestScoutTarget", () => {
   it("ignores targets below 100 forgery skill", () => {
     const result = classifyArrestScoutTarget(
-      { forgeryskill: 99, counterfeiting: 10_000, jailed: 5 },
+      stats({ forgeryskill: 99, counterfeiting: 10_000, jailed: 5 }),
       null,
       settings,
     );
@@ -22,8 +22,8 @@ describe("classifyArrestScoutTarget", () => {
 
   it("marks max-skill targets below the counterfeiting threshold inactive", () => {
     const result = classifyArrestScoutTarget(
-      { forgeryskill: 100, counterfeiting: 10_400, jailed: 5 },
-      { forgeryskill: 100, counterfeiting: 10_000, jailed: 5 },
+      stats({ forgeryskill: 100, counterfeiting: 10_400, jailed: 5 }),
+      stats({ forgeryskill: 100, counterfeiting: 10_000, jailed: 5 }),
       settings,
     );
 
@@ -34,8 +34,8 @@ describe("classifyArrestScoutTarget", () => {
 
   it("marks active max-skill targets without jailed delta as current targets", () => {
     const result = classifyArrestScoutTarget(
-      { forgeryskill: 100, counterfeiting: 10_600, jailed: 5 },
-      { forgeryskill: 100, counterfeiting: 10_000, jailed: 5 },
+      stats({ forgeryskill: 100, counterfeiting: 10_600, jailed: 5 }),
+      stats({ forgeryskill: 100, counterfeiting: 10_000, jailed: 5 }),
       settings,
     );
 
@@ -43,10 +43,23 @@ describe("classifyArrestScoutTarget", () => {
     expect(result.score).toBe(700);
   });
 
+  it("marks active max-scamming targets using fraud delta", () => {
+    const result = classifyArrestScoutTarget(
+      stats({ scammingskill: 100, fraud: 2_000, jailed: 5 }),
+      stats({ scammingskill: 100, fraud: 1_400, jailed: 5 }),
+      settings,
+    );
+
+    expect(result.classification).toBe("current_target");
+    expect(result.score).toBe(700);
+    expect(result.fraud_delta).toBe(600);
+    expect(result.counterfeiting_delta).toBeNull();
+  });
+
   it("marks active max-skill targets with jailed delta as future targets", () => {
     const result = classifyArrestScoutTarget(
-      { forgeryskill: 100, counterfeiting: 10_600, jailed: 6 },
-      { forgeryskill: 100, counterfeiting: 10_000, jailed: 5 },
+      stats({ forgeryskill: 100, counterfeiting: 10_600, jailed: 6 }),
+      stats({ forgeryskill: 100, counterfeiting: 10_000, jailed: 5 }),
       settings,
     );
 
@@ -56,8 +69,8 @@ describe("classifyArrestScoutTarget", () => {
 
   it("returns error for missing required stats", () => {
     const result = classifyArrestScoutTarget(
-      { forgeryskill: 100, counterfeiting: null, jailed: 6 },
-      { forgeryskill: 100, counterfeiting: 10_000, jailed: 5 },
+      stats({ forgeryskill: 100, counterfeiting: null, jailed: 6 }),
+      stats({ forgeryskill: 100, counterfeiting: 10_000, jailed: 5 }),
       settings,
     );
 
@@ -67,8 +80,8 @@ describe("classifyArrestScoutTarget", () => {
 
   it("returns error for negative deltas", () => {
     const result = classifyArrestScoutTarget(
-      { forgeryskill: 100, counterfeiting: 9_000, jailed: 5 },
-      { forgeryskill: 100, counterfeiting: 10_000, jailed: 5 },
+      stats({ forgeryskill: 100, counterfeiting: 9_000, jailed: 5 }),
+      stats({ forgeryskill: 100, counterfeiting: 10_000, jailed: 5 }),
       settings,
     );
 
@@ -76,3 +89,14 @@ describe("classifyArrestScoutTarget", () => {
     expect(result.notes).toEqual(["negative_delta"]);
   });
 });
+
+function stats(overrides: Partial<ArrestScoutTargetStats>): ArrestScoutTargetStats {
+  return {
+    jailed: null,
+    counterfeiting: null,
+    forgeryskill: 0,
+    fraud: null,
+    scammingskill: 0,
+    ...overrides,
+  };
+}

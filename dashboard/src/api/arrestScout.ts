@@ -20,6 +20,10 @@ export type ArrestScoutResult = {
   current_counterfeiting: number | null;
   historical_counterfeiting: number | null;
   counterfeiting_delta: number | null;
+  current_scammingskill: number | null;
+  current_fraud: number | null;
+  historical_fraud: number | null;
+  fraud_delta: number | null;
   current_jailed: number | null;
   historical_jailed: number | null;
   jailed_delta: number | null;
@@ -52,6 +56,7 @@ export type ArrestScoutFutureTarget = {
   best_score: number;
   last_classification: ArrestScoutClassification;
   last_counterfeiting_delta: number | null;
+  last_fraud_delta: number | null;
   last_jailed_delta: number | null;
   first_seen_at: number;
   last_seen_at: number;

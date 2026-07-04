@@ -234,6 +234,7 @@ export function ArrestScout() {
                     <th>Target</th>
                     <th>Best score</th>
                     <th>Counterfeiting</th>
+                    <th>Fraud</th>
                     <th>Jailed</th>
                     <th>Next check</th>
                   </tr>
@@ -244,6 +245,7 @@ export function ArrestScout() {
                       <td>{targetCell(target.target_user_id, target.name)}</td>
                       <td>{formatNumber(target.best_score)}</td>
                       <td>{nullableNumber(target.last_counterfeiting_delta)}</td>
+                      <td>{nullableNumber(target.last_fraud_delta)}</td>
                       <td>{nullableNumber(target.last_jailed_delta)}</td>
                       <td>{target.next_check_after ? formatRelativeTime(target.next_check_after) : "-"}</td>
                     </tr>
@@ -336,8 +338,9 @@ function ResultPanel({ title, results, emptyText }: { title: string; results: Ar
                 <th>Target</th>
                 <th>Score</th>
                 <th>Counterfeiting delta</th>
+                <th>Fraud delta</th>
                 <th>Jailed delta</th>
-                <th>Forgery skill</th>
+                <th>Skills</th>
                 <th>Classification</th>
               </tr>
             </thead>
@@ -347,8 +350,12 @@ function ResultPanel({ title, results, emptyText }: { title: string; results: Ar
                   <td>{targetCell(result.target_user_id, result.name)}</td>
                   <td>{formatNumber(result.score)}</td>
                   <td>{nullableNumber(result.counterfeiting_delta)}</td>
+                  <td>{nullableNumber(result.fraud_delta)}</td>
                   <td>{nullableNumber(result.jailed_delta)}</td>
-                  <td>{nullableNumber(result.current_forgeryskill)}</td>
+                  <td>
+                    <strong>{nullableNumber(result.current_forgeryskill)} / {nullableNumber(result.current_scammingskill)}</strong>
+                    <small>forgery / scamming</small>
+                  </td>
                   <td><span className="trade-quality-badge good">{classificationLabel(result.classification)}</span></td>
                 </tr>
               ))}
@@ -388,8 +395,9 @@ function ScanResultsPanel({
                 <th>Class</th>
                 <th>Score</th>
                 <th>Counterfeiting</th>
+                <th>Fraud</th>
                 <th>Jailed</th>
-                <th>Skill</th>
+                <th>Skills</th>
                 <th>Notes</th>
               </tr>
             </thead>
@@ -408,10 +416,17 @@ function ScanResultsPanel({
                     <small>{nullableNumber(result.historical_counterfeiting)} to {nullableNumber(result.current_counterfeiting)}</small>
                   </td>
                   <td>
+                    <strong>{nullableNumber(result.fraud_delta)}</strong>
+                    <small>{nullableNumber(result.historical_fraud)} to {nullableNumber(result.current_fraud)}</small>
+                  </td>
+                  <td>
                     <strong>{nullableNumber(result.jailed_delta)}</strong>
                     <small>{nullableNumber(result.historical_jailed)} to {nullableNumber(result.current_jailed)}</small>
                   </td>
-                  <td>{nullableNumber(result.current_forgeryskill)}</td>
+                  <td>
+                    <strong>{nullableNumber(result.current_forgeryskill)} / {nullableNumber(result.current_scammingskill)}</strong>
+                    <small>forgery / scamming</small>
+                  </td>
                   <td>{notesLabel(result.notes_json)}</td>
                 </tr>
               ))}

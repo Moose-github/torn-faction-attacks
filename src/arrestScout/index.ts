@@ -220,7 +220,10 @@ async function scanOneTarget(
     const current = targetStatsFromPersonalStats(currentStats);
     const currentTimestamps = statTimestampsFromPersonalStats(currentStats);
 
-    if (current.forgeryskill !== input.settings.required_forgeryskill) {
+    if (
+      current.forgeryskill !== input.settings.required_forgeryskill &&
+      current.scammingskill !== input.settings.required_forgeryskill
+    ) {
       const classified = classifyArrestScoutTarget(current, null, input.settings);
       return resultFromClassification(input, classified, currentTimestamps, emptyTimestamps(), currentStats, null);
     }
@@ -295,15 +298,23 @@ function resultFromClassification(
     current_counterfeiting: classified.current_counterfeiting,
     historical_counterfeiting: classified.historical_counterfeiting,
     counterfeiting_delta: classified.counterfeiting_delta,
+    current_scammingskill: classified.current_scammingskill,
+    current_fraud: classified.current_fraud,
+    historical_fraud: classified.historical_fraud,
+    fraud_delta: classified.fraud_delta,
     current_jailed: classified.current_jailed,
     historical_jailed: classified.historical_jailed,
     jailed_delta: classified.jailed_delta,
     current_jailed_timestamp: currentTimestamps.jailed,
     current_counterfeiting_timestamp: currentTimestamps.counterfeiting,
     current_forgeryskill_timestamp: currentTimestamps.forgeryskill,
+    current_fraud_timestamp: currentTimestamps.fraud,
+    current_scammingskill_timestamp: currentTimestamps.scammingskill,
     historical_jailed_timestamp: historicalTimestamps.jailed,
     historical_counterfeiting_timestamp: historicalTimestamps.counterfeiting,
     historical_forgeryskill_timestamp: historicalTimestamps.forgeryskill,
+    historical_fraud_timestamp: historicalTimestamps.fraud,
+    historical_scammingskill_timestamp: historicalTimestamps.scammingskill,
     lookback_seconds: input.settings.lookback_seconds,
     historical_timestamp_requested: input.historicalTimestamp,
     notes_json: JSON.stringify(classified.notes),
@@ -333,15 +344,23 @@ function errorResult(
     current_counterfeiting: null,
     historical_counterfeiting: null,
     counterfeiting_delta: null,
+    current_scammingskill: null,
+    current_fraud: null,
+    historical_fraud: null,
+    fraud_delta: null,
     current_jailed: null,
     historical_jailed: null,
     jailed_delta: null,
     current_jailed_timestamp: null,
     current_counterfeiting_timestamp: null,
     current_forgeryskill_timestamp: null,
+    current_fraud_timestamp: null,
+    current_scammingskill_timestamp: null,
     historical_jailed_timestamp: null,
     historical_counterfeiting_timestamp: null,
     historical_forgeryskill_timestamp: null,
+    historical_fraud_timestamp: null,
+    historical_scammingskill_timestamp: null,
     lookback_seconds: input.settings.lookback_seconds,
     historical_timestamp_requested: input.historicalTimestamp,
     notes_json: JSON.stringify(["scan_error", safeErrorMessage(err)]),
@@ -553,15 +572,23 @@ function insertResultStatement(env: Env, result: PendingResult, createdAt: numbe
       current_counterfeiting,
       historical_counterfeiting,
       counterfeiting_delta,
+      current_scammingskill,
+      current_fraud,
+      historical_fraud,
+      fraud_delta,
       current_jailed,
       historical_jailed,
       jailed_delta,
       current_jailed_timestamp,
       current_counterfeiting_timestamp,
       current_forgeryskill_timestamp,
+      current_fraud_timestamp,
+      current_scammingskill_timestamp,
       historical_jailed_timestamp,
       historical_counterfeiting_timestamp,
       historical_forgeryskill_timestamp,
+      historical_fraud_timestamp,
+      historical_scammingskill_timestamp,
       lookback_seconds,
       historical_timestamp_requested,
       notes_json,
@@ -569,7 +596,7 @@ function insertResultStatement(env: Env, result: PendingResult, createdAt: numbe
       historical_personalstats_json,
       created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   ).bind(
     result.id,
@@ -582,15 +609,23 @@ function insertResultStatement(env: Env, result: PendingResult, createdAt: numbe
     result.current_counterfeiting,
     result.historical_counterfeiting,
     result.counterfeiting_delta,
+    result.current_scammingskill,
+    result.current_fraud,
+    result.historical_fraud,
+    result.fraud_delta,
     result.current_jailed,
     result.historical_jailed,
     result.jailed_delta,
     result.current_jailed_timestamp,
     result.current_counterfeiting_timestamp,
     result.current_forgeryskill_timestamp,
+    result.current_fraud_timestamp,
+    result.current_scammingskill_timestamp,
     result.historical_jailed_timestamp,
     result.historical_counterfeiting_timestamp,
     result.historical_forgeryskill_timestamp,
+    result.historical_fraud_timestamp,
+    result.historical_scammingskill_timestamp,
     result.lookback_seconds,
     result.historical_timestamp_requested,
     result.notes_json,
@@ -609,6 +644,7 @@ function upsertFutureTargetStatement(env: Env, result: PendingResult, nextCheckA
       best_score,
       last_classification,
       last_counterfeiting_delta,
+      last_fraud_delta,
       last_jailed_delta,
       first_seen_at,
       last_seen_at,
@@ -616,12 +652,13 @@ function upsertFutureTargetStatement(env: Env, result: PendingResult, nextCheckA
       latest_snapshot_id,
       notes_json
     )
-    VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch(), ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch(), ?, ?, ?)
     ON CONFLICT(target_user_id) DO UPDATE SET
       name = COALESCE(excluded.name, arrest_scout_future_targets.name),
       best_score = MAX(arrest_scout_future_targets.best_score, excluded.best_score),
       last_classification = excluded.last_classification,
       last_counterfeiting_delta = excluded.last_counterfeiting_delta,
+      last_fraud_delta = excluded.last_fraud_delta,
       last_jailed_delta = excluded.last_jailed_delta,
       last_seen_at = unixepoch(),
       next_check_after = excluded.next_check_after,
@@ -634,6 +671,7 @@ function upsertFutureTargetStatement(env: Env, result: PendingResult, nextCheckA
     result.score,
     result.classification,
     result.counterfeiting_delta,
+    result.fraud_delta,
     result.jailed_delta,
     nextCheckAfter,
     result.snapshot_id,
@@ -658,6 +696,7 @@ function delayFutureTargetStatement(env: Env, result: PendingResult, nextCheckAf
       name = COALESCE(?, name),
       last_classification = ?,
       last_counterfeiting_delta = ?,
+      last_fraud_delta = ?,
       last_jailed_delta = ?,
       last_seen_at = unixepoch(),
       next_check_after = ?,
@@ -669,6 +708,7 @@ function delayFutureTargetStatement(env: Env, result: PendingResult, nextCheckAf
     result.name,
     result.classification,
     result.counterfeiting_delta,
+    result.fraud_delta,
     result.jailed_delta,
     nextCheckAfter,
     result.snapshot_id,
@@ -693,6 +733,7 @@ async function readResultsForSnapshot(env: Env, snapshotId: string): Promise<Arr
       END,
       score DESC,
       counterfeiting_delta DESC,
+      fraud_delta DESC,
       jailed_delta ASC,
       target_user_id ASC
     `,
@@ -705,7 +746,10 @@ async function readResultsForSnapshot(env: Env, snapshotId: string): Promise<Arr
 
 function countResults(results: PendingResult[]) {
   return {
-    skill_100_count: results.filter((row) => row.current_forgeryskill === DEFAULT_REQUIRED_FORGERYSKILL).length,
+    skill_100_count: results.filter((row) =>
+      row.current_forgeryskill === DEFAULT_REQUIRED_FORGERYSKILL ||
+      row.current_scammingskill === DEFAULT_REQUIRED_FORGERYSKILL
+    ).length,
     current_target_count: results.filter((row) => row.classification === "current_target").length,
     future_target_count: results.filter((row) => row.classification === "future_target").length,
     inactive_count: results.filter((row) => row.classification === "inactive").length,
@@ -718,7 +762,9 @@ function targetStatsFromPersonalStats(stats: TornPersonalStatsResponse): ArrestS
   return {
     jailed: stats.jailed?.value ?? null,
     counterfeiting: stats.counterfeiting?.value ?? null,
-    forgeryskill: stats.forgeryskill?.value ?? null,
+    forgeryskill: stats.forgeryskill?.value ?? 0,
+    fraud: stats.fraud?.value ?? null,
+    scammingskill: stats.scammingskill?.value ?? 0,
   };
 }
 
@@ -727,6 +773,8 @@ function statTimestampsFromPersonalStats(stats: TornPersonalStatsResponse): Arre
     jailed: stats.jailed?.timestamp ?? null,
     counterfeiting: stats.counterfeiting?.timestamp ?? null,
     forgeryskill: stats.forgeryskill?.timestamp ?? null,
+    fraud: stats.fraud?.timestamp ?? null,
+    scammingskill: stats.scammingskill?.timestamp ?? null,
   };
 }
 
@@ -735,6 +783,8 @@ function emptyTimestamps(): ArrestScoutStatTimestamps {
     jailed: null,
     counterfeiting: null,
     forgeryskill: null,
+    fraud: null,
+    scammingskill: null,
   };
 }
 

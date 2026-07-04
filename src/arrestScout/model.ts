@@ -17,12 +17,16 @@ export type ArrestScoutTargetStats = {
   jailed: number | null;
   counterfeiting: number | null;
   forgeryskill: number | null;
+  fraud: number | null;
+  scammingskill: number | null;
 };
 
 export type ArrestScoutStatTimestamps = {
   jailed: number | null;
   counterfeiting: number | null;
   forgeryskill: number | null;
+  fraud: number | null;
+  scammingskill: number | null;
 };
 
 export type ArrestScoutScoreResult = {
@@ -32,6 +36,10 @@ export type ArrestScoutScoreResult = {
   current_counterfeiting: number | null;
   historical_counterfeiting: number | null;
   counterfeiting_delta: number | null;
+  current_scammingskill: number | null;
+  current_fraud: number | null;
+  historical_fraud: number | null;
+  fraud_delta: number | null;
   current_jailed: number | null;
   historical_jailed: number | null;
   jailed_delta: number | null;
@@ -49,15 +57,23 @@ export type ArrestScoutResultRow = {
   current_counterfeiting: number | null;
   historical_counterfeiting: number | null;
   counterfeiting_delta: number | null;
+  current_scammingskill: number | null;
+  current_fraud: number | null;
+  historical_fraud: number | null;
+  fraud_delta: number | null;
   current_jailed: number | null;
   historical_jailed: number | null;
   jailed_delta: number | null;
   current_jailed_timestamp: number | null;
   current_counterfeiting_timestamp: number | null;
   current_forgeryskill_timestamp: number | null;
+  current_fraud_timestamp: number | null;
+  current_scammingskill_timestamp: number | null;
   historical_jailed_timestamp: number | null;
   historical_counterfeiting_timestamp: number | null;
   historical_forgeryskill_timestamp: number | null;
+  historical_fraud_timestamp: number | null;
+  historical_scammingskill_timestamp: number | null;
   lookback_seconds: number;
   historical_timestamp_requested: number;
   notes_json: string;
@@ -93,6 +109,7 @@ export type ArrestScoutFutureTargetRow = {
   best_score: number;
   last_classification: ArrestScoutClassification;
   last_counterfeiting_delta: number | null;
+  last_fraud_delta: number | null;
   last_jailed_delta: number | null;
   first_seen_at: number;
   last_seen_at: number;
@@ -121,7 +138,7 @@ export type ArrestScoutScanResponse = {
   results: ArrestScoutResultRow[];
 };
 
-export const ARREST_SCOUT_STAT_KEYS = ["jailed", "counterfeiting", "forgeryskill"] as const;
+export const ARREST_SCOUT_STAT_KEYS = ["jailed", "counterfeiting", "forgeryskill", "fraud", "scammingskill"] as const;
 export const DEFAULT_LOOKBACK_DAYS = 7;
 export const DEFAULT_MIN_COUNTERFEITING_DELTA = 500;
 export const DEFAULT_REQUIRED_FORGERYSKILL = 100;
