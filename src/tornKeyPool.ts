@@ -1,5 +1,5 @@
 import { cleanString, readJsonObject } from "./backend/request";
-import { TORN_KEY_INFO_API_URL } from "./constants";
+import { TORN_KEY_INFO_API_URL, TORN_USER_BASIC_API_URL } from "./constants";
 import { ExternalApiError } from "./external/http";
 import { fetchTrackedTornJson } from "./external/torn";
 import type { Env } from "./types";
@@ -774,14 +774,76 @@ async function validateTornApiKey(env: Env, tornKey: string): Promise<ValidatedT
     throw new Error("Torn key info response did not include a valid user ID");
   }
 
+  const ownerName = cleanString(userInfo.name) || await fetchTornKeyOwnerName(env, tornKey, id);
+
   return {
     key_name: readTornKeyName(info),
     owner_torn_user_id: id,
-    owner_name: typeof userInfo.name === "string" ? userInfo.name : null,
+    owner_name: ownerName,
     access_level: Number.isFinite(Number(accessInfo.level)) ? Number(accessInfo.level) : null,
     access_type: typeof accessInfo.type === "string" ? accessInfo.type : null,
     faction_access: accessInfo.faction === true,
   };
+}
+
+async function fetchTornKeyOwnerName(env: Env, tornKey: string, ownerTornUserId: number): Promise<string | null> {
+  const url = new URL(TORN_USER_BASIC_API_URL);
+  url.searchParams.set("striptags", "true");
+  url.searchParams.set("key", tornKey);
+
+  try {
+    const data = await fetchTrackedTornJson<any>(env, url, {
+      headers: {
+        Accept: "application/json",
+      },
+    }, {
+      feature: "torn-key-pool",
+      keySource: "member_submitted:key_owner_lookup",
+    }, {
+      service: "Torn key owner lookup",
+    });
+    return readTornBasicOwnerName(data, ownerTornUserId);
+  } catch {
+    return null;
+  }
+}
+
+export function readTornBasicOwnerName(data: unknown, expectedTornUserId: number): string | null {
+  const candidates = [
+    data,
+    readObject(data, "profile"),
+    readObject(data, "user"),
+    readObject(data, "basic"),
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const record = candidate as Record<string, unknown>;
+    const id = Number(
+      record.id ??
+      record.player_id ??
+      record.user_id,
+    );
+    if (Number.isInteger(id) && id > 0 && id !== expectedTornUserId) {
+      continue;
+    }
+    const name = cleanString(
+      record.name ??
+      record.player_name ??
+      record.username,
+    );
+    if (name) return name;
+  }
+
+  return null;
+}
+
+function readObject(source: unknown, key: string): Record<string, unknown> | null {
+  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+  const value = (source as Record<string, unknown>)[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 function readTornKeyName(info: any): string | null {

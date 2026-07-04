@@ -10,6 +10,7 @@ import {
   isRetryableTornKeyError,
   isTornKeyCapableForFeature,
   isUnderMinuteLimit,
+  readTornBasicOwnerName,
   runWithTornKeyPool,
   sortCandidatesForFeature,
   TornKeyPoolUnavailableError,
@@ -168,6 +169,13 @@ describe("torn key pool", () => {
     expect(isRetryableTornKeyError(new ExternalApiError("rate limited", "Torn", 429))).toBe(true);
     expect(isRetryableTornKeyError(new Error("Torn API error: Incorrect key"))).toBe(true);
     expect(isRetryableTornKeyError(new ExternalApiError("bad request", "Torn", 400))).toBe(false);
+  });
+
+  it("reads owner names from Torn user basic response shapes", () => {
+    expect(readTornBasicOwnerName({ name: "Dara", id: 3238283 }, 3238283)).toBe("Dara");
+    expect(readTornBasicOwnerName({ profile: { name: "Moose", player_id: 3238283 } }, 3238283)).toBe("Moose");
+    expect(readTornBasicOwnerName({ user: { username: "Wrong", id: 111 } }, 3238283)).toBeNull();
+    expect(readTornBasicOwnerName({ basic: { player_name: "Fallback" } }, 3238283)).toBe("Fallback");
   });
 });
 
