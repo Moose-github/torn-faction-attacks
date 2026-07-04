@@ -1,5 +1,6 @@
 import { Env } from "../types";
 import { fetchTrackedTornJson } from "../external/torn";
+import { withTornKeyPool } from "../tornKeyPool";
 import { cleanText, finiteNumber, json, nowSeconds, parseLimit } from "../utils";
 import {
   isRecord,
@@ -642,18 +643,21 @@ async function fetchCopyMovementActivity(
   observedAt: number,
 ): Promise<CopyMovementActivity> {
   const url = new URL(`${COPY_MOVEMENT_TORN_API_BASE}/user/${encodeURIComponent(String(playerId))}/basic`);
-  const data = await fetchTrackedTornJson<unknown>(env, url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `ApiKey ${env.TORN_API_KEY}`,
-      "User-Agent": "buttgrass-stock-copy-movement/1.0",
-    },
-  }, {
-    feature: "stock-copy-movement:activity",
-    keySource: "env:TORN_API_KEY",
-    timeoutMs: COPY_MOVEMENT_ACTIVITY_TIMEOUT_MS,
-  }, {
-    service: "Torn copy movement activity",
+  const data = await withTornKeyPool(env, {
+    feature: "stock_tools",
+    run: ({ key, keySource }) => fetchTrackedTornJson<unknown>(env, url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `ApiKey ${key}`,
+        "User-Agent": "buttgrass-stock-copy-movement/1.0",
+      },
+    }, {
+      feature: "stock-copy-movement:activity",
+      keySource,
+      timeoutMs: COPY_MOVEMENT_ACTIVITY_TIMEOUT_MS,
+    }, {
+      service: "Torn copy movement activity",
+    }),
   });
 
   const profile = isRecord(data) && isRecord(data.profile) ? data.profile : data;

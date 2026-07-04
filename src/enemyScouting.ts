@@ -38,6 +38,7 @@ import { hasSyncState, upsertSyncTimestamp } from "./syncState";
 import { fetchBspBattlestatJson } from "./external/bsp";
 import { fetchFfscouterStatsJson } from "./external/ffscouter";
 import { fetchTrackedTornJson } from "./external/torn";
+import { withTornKeyPool } from "./tornKeyPool";
 import { Env, TornFactionMember, TornFactionMembersResponse, WarRow } from "./types";
 import {
   boolToInt,
@@ -1073,16 +1074,19 @@ export async function fetchTornFactionMembers(
   const url = new URL(`${TORN_FACTION_API_BASE_URL}/${factionId}/members`);
   url.searchParams.set("striptags", "false");
 
-  const data = await fetchTrackedTornJson<TornFactionMembersResponse>(env, url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `ApiKey ${env.TORN_API_KEY}`,
-    },
-  }, {
-    feature: "enemy-scouting:faction-members",
-    keySource: "env:TORN_API_KEY",
-    timeoutMs: SCOUTING_FETCH_TIMEOUT_MS,
-  }, { service: "Torn faction members" });
+  const data = await withTornKeyPool(env, {
+    feature: "enemy_scouting",
+    run: ({ key, keySource }) => fetchTrackedTornJson<TornFactionMembersResponse>(env, url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `ApiKey ${key}`,
+      },
+    }, {
+      feature: "enemy-scouting:faction-members",
+      keySource,
+      timeoutMs: SCOUTING_FETCH_TIMEOUT_MS,
+    }, { service: "Torn faction members" }),
+  });
   return normalizeMembers(data.members);
 }
 

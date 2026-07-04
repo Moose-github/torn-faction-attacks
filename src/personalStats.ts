@@ -3,6 +3,7 @@ import {
   throwIfUpstreamError,
 } from "./external/http";
 import { fetchTrackedTornResponse } from "./external/torn";
+import { withTornKeyPool, type TornKeyPoolFeature } from "./tornKeyPool";
 import { Env } from "./types";
 import { finiteNumber } from "./utils";
 
@@ -32,6 +33,7 @@ export async function fetchTornPersonalStats(
     timestamp?: number;
     apiKey?: string;
     keySource?: string;
+    feature?: TornKeyPoolFeature;
   } = {},
 ): Promise<Record<string, number | null>> {
   const stats = await fetchTornPersonalStatsWithTimestamps(env, memberId, statKeys, options);
@@ -48,8 +50,20 @@ export async function fetchTornPersonalStatsWithTimestamps(
     timestamp?: number;
     apiKey?: string;
     keySource?: string;
+    feature?: TornKeyPoolFeature;
   } = {},
 ): Promise<TornPersonalStatsResponse> {
+  if (!options.apiKey) {
+    return withTornKeyPool(env, {
+      feature: options.feature ?? "faction_lifestyle_stats",
+      run: ({ key, keySource }) => fetchTornPersonalStatsWithTimestamps(env, memberId, statKeys, {
+        ...options,
+        apiKey: key,
+        keySource,
+      }),
+    });
+  }
+
   const url = new URL(`${PERSONAL_STATS_API_BASE_URL}/${memberId}/personalstats`);
   url.searchParams.set("stat", statKeys.join(","));
   if (options.timestamp !== undefined) {
@@ -59,10 +73,10 @@ export async function fetchTornPersonalStatsWithTimestamps(
   const response = await fetchWithTransientRetry(env, url.toString(), {
     headers: {
       Accept: "application/json",
-      Authorization: `ApiKey ${options.apiKey ?? env.TORN_API_KEY}`,
+      Authorization: `ApiKey ${options.apiKey}`,
     },
   }, {
-    keySource: options.keySource ?? "env:TORN_API_KEY",
+    keySource: options.keySource ?? "key_pool:unknown",
   });
 
   if (!response.ok) {

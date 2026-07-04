@@ -1,5 +1,6 @@
 import { TORN_USER_API_BASE_URL } from "./constants";
 import { fetchTrackedTornJson } from "./external/torn";
+import { withTornKeyPool } from "./tornKeyPool";
 import { Env } from "./types";
 import { d1Changes, json } from "./utils";
 
@@ -31,10 +32,6 @@ type DiscordLink = {
 };
 
 export async function syncMemberDiscordLinksFromRequest(env: Env): Promise<Response> {
-  if (!env.TORN_API_KEY) {
-    return json({ ok: false, error: "TORN_API_KEY is not configured", code: "MISSING_TORN_API_KEY" }, 500);
-  }
-
   const result = await syncMemberDiscordLinks(env);
   return json({ ok: true, ...result });
 }
@@ -86,19 +83,24 @@ async function readCurrentHomeMembers(env: Env): Promise<HomeMemberRow[]> {
 async function fetchMemberDiscordLink(env: Env, tornUserId: number): Promise<TornDiscordResponse> {
   const url = new URL(`${TORN_USER_API_BASE_URL}/${tornUserId}`);
   url.searchParams.set("selections", "discord");
-  url.searchParams.set("key", env.TORN_API_KEY);
 
-  return fetchTrackedTornJson<TornDiscordResponse>(
-    env,
-    url,
-    { headers: { Accept: "application/json" } },
-    {
-      feature: "discord-links",
-      keySource: "env:TORN_API_KEY",
-      timeoutMs: DISCORD_LINK_FETCH_TIMEOUT_MS,
+  return withTornKeyPool(env, {
+    feature: "misc_utilities",
+    run: ({ key, keySource }) => {
+      url.searchParams.set("key", key);
+      return fetchTrackedTornJson<TornDiscordResponse>(
+        env,
+        url,
+        { headers: { Accept: "application/json" } },
+        {
+          feature: "discord-links",
+          keySource,
+          timeoutMs: DISCORD_LINK_FETCH_TIMEOUT_MS,
+        },
+        { service: "Torn Discord lookup" },
+      );
     },
-    { service: "Torn Discord lookup" },
-  );
+  });
 }
 
 export function normalizeDiscordLink(data: TornDiscordResponse, expectedTornUserId: number): DiscordLink | null {

@@ -37,6 +37,7 @@ import {
   readSetSyncLatches,
   setSyncLatch,
 } from "./syncLatches";
+import { recordTornKeyUse } from "./tornKeyPool";
 import { Env } from "./types";
 import { corsHeaders, d1Changes, finiteNumber, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./warRoomTracking";
@@ -708,6 +709,7 @@ async function processEnemyNetworthBatch(
         apiKey: key.key,
         keySource: key.keySource,
       });
+      await recordTornKeyUse(env, key, "enemy_scouting");
       const networth = finiteNumber(stats.networth);
       const result = await env.DB.prepare(
         `

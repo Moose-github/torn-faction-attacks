@@ -11,6 +11,7 @@ import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
 import { WAR_SELECT_COLUMNS, WAR_SELECT_COLUMNS_WITH_ALIAS } from "./sql";
+import { withTornKeyPool } from "./tornKeyPool";
 import { Env, WarRow } from "./types";
 import { finiteNumber, json, nowSeconds } from "./utils";
 import { readJsonObject } from "./backend/request";
@@ -895,24 +896,27 @@ async function readTornChain(
   env: Env,
   now: number,
 ): Promise<{ chain: ParsedTornChain | null; error: string | null }> {
-  const data = await fetchTrackedTornJson<unknown>(
-    env,
-    TORN_FACTION_CHAIN_API_URL,
-    {
-      headers: {
-        Accept: "application/json",
-        Authorization: `ApiKey ${env.TORN_API_KEY}`,
+  const data = await withTornKeyPool(env, {
+    feature: "war_live_data",
+    run: ({ key, keySource }) => fetchTrackedTornJson<unknown>(
+      env,
+      TORN_FACTION_CHAIN_API_URL,
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: `ApiKey ${key}`,
+        },
       },
-    },
-    {
-      feature: "chain-watch:chain",
-      keySource: "env:TORN_API_KEY",
-      timeoutMs: 10_000,
-    },
-    {
-      service: "Torn chain",
-    },
-  );
+      {
+        feature: "chain-watch:chain",
+        keySource,
+        timeoutMs: 10_000,
+      },
+      {
+        service: "Torn chain",
+      },
+    ),
+  });
 
   return { chain: parseTornChainResponse(data, now), error: null };
 }

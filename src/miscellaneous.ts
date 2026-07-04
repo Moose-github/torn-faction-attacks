@@ -11,6 +11,7 @@ import {
   setSyncLatch,
 } from "./syncLatches";
 import { fetchTrackedTornJson } from "./external/torn";
+import { withTornKeyPool } from "./tornKeyPool";
 import { Env } from "./types";
 import { json, nowSeconds } from "./utils";
 
@@ -126,16 +127,19 @@ async function fetchTornShoplifting(env: Env): Promise<Record<string, TornShopli
   const url = new URL(TORN_SHOPLIFTING_API_URL);
   url.searchParams.set("selections", "shoplifting");
 
-  const data = await fetchTrackedTornJson<TornShopliftingResponse>(env, url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `ApiKey ${env.TORN_API_KEY}`,
-    },
-  }, {
-    feature: "miscellaneous:shoplifting",
-    keySource: "env:TORN_API_KEY",
-  }, {
-    service: "Torn shoplifting",
+  const data = await withTornKeyPool(env, {
+    feature: "misc_utilities",
+    run: ({ key, keySource }) => fetchTrackedTornJson<TornShopliftingResponse>(env, url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `ApiKey ${key}`,
+      },
+    }, {
+      feature: "miscellaneous:shoplifting",
+      keySource,
+    }, {
+      service: "Torn shoplifting",
+    }),
   });
 
   return normalizeShoplifting(data.shoplifting ?? {});

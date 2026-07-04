@@ -3,6 +3,7 @@ import { bumpMemberLifestyleCacheVersion } from "../cacheVersions";
 import { fetchTrackedTornJson } from "../external/torn";
 import { claimDailyBatchGate } from "../scheduledGates";
 import { deleteSyncState, readSyncState, readSyncTimestamp, upsertSyncTimestamp } from "../syncState";
+import { withTornKeyPool } from "../tornKeyPool";
 import { Env } from "../types";
 import { finiteNumber, nowSeconds } from "../utils";
 import { dailyRefreshReadyAt, utcDateKey } from "./dates";
@@ -396,17 +397,20 @@ async function fetchFactionContributorStat(
   url.searchParams.set("stat", stat);
   url.searchParams.set("cat", "current");
 
-  const data = await fetchTrackedTornJson<any>(env, url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `ApiKey ${env.TORN_API_KEY}`,
-    },
-  }, {
-    feature: "lifestyle:contributors",
-    keySource: "env:TORN_API_KEY",
-    timeoutMs: GYM_CONTRIBUTOR_FETCH_TIMEOUT_MS,
-  }, {
-    service: `Torn faction contributors ${stat}`,
+  const data = await withTornKeyPool(env, {
+    feature: "faction_contributor_stats",
+    run: ({ key, keySource }) => fetchTrackedTornJson<any>(env, url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `ApiKey ${key}`,
+      },
+    }, {
+      feature: "lifestyle:contributors",
+      keySource,
+      timeoutMs: GYM_CONTRIBUTOR_FETCH_TIMEOUT_MS,
+    }, {
+      service: `Torn faction contributors ${stat}`,
+    }),
   });
 
   return extractContributorValues(data?.contributors, stat);

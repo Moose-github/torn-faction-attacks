@@ -1,6 +1,7 @@
 import { bumpMemberLifestyleCacheVersion } from "../cacheVersions";
 import { refreshMemberAchievementSummaries } from "../memberAchievements";
 import { readSyncTimestamp, upsertSyncTimestamp } from "../syncState";
+import { readAvailableTornApiKeys, recordTornKeyUse, type TornKeyPoolCandidate } from "../tornKeyPool";
 import { Env } from "../types";
 import { chunkArray, d1Changes, json, nowSeconds } from "../utils";
 import {
@@ -25,7 +26,6 @@ import type {
   LifestyleRepairJobRow,
   RepairItemStatus,
   RepairJobStatus,
-  RepairKey,
   TimedLifestyleStats,
 } from "./model";
 import {
@@ -392,7 +392,7 @@ export async function processMemberLifestyleRepairJobs(env: Env): Promise<{
 async function processRepairItem(
   env: Env,
   item: LifestyleRepairItemRow,
-  key: RepairKey,
+  key: TornKeyPoolCandidate,
 ): Promise<{
   status: RepairItemStatus;
   writeStatements: number;
@@ -423,6 +423,7 @@ async function processRepairItem(
       apiKey: key.key,
       keySource: key.keySource,
     });
+    await recordTornKeyUse(env, key, "faction_lifestyle_stats");
     const validationError = personalStatsDataQualityError(stats, item.snapshot_date, {
       allowBucketLag: true,
     });
@@ -739,38 +740,16 @@ async function clearSnapshotPersonalStatsForDate(
   return d1Changes(result);
 }
 
-async function readAvailableRepairKeys(env: Env, now: number): Promise<RepairKey[]> {
-  const candidates: Array<RepairKey | null> = [
-    env.TORN_API_KEY?.trim()
-      ? { key: env.TORN_API_KEY.trim(), keySource: "env:TORN_API_KEY" }
-      : null,
-    await readRepairSecretKey(env.TORN_API_KEY_POOL_1, "secrets:TORN_API_KEY_POOL_1"),
-    await readRepairSecretKey(env.TORN_API_KEY_POOL_2, "secrets:TORN_API_KEY_POOL_2"),
-  ];
-  const keys: RepairKey[] = [];
+async function readAvailableRepairKeys(env: Env, now: number): Promise<TornKeyPoolCandidate[]> {
+  const candidates = await readAvailableTornApiKeys(env, "faction_lifestyle_stats", now);
+  const keys: TornKeyPoolCandidate[] = [];
   for (const key of candidates) {
-    if (!key) {
-      continue;
-    }
     const pauseUntil = await readSyncTimestamp(env, repairKeyPauseStateName(key.keySource));
     if (pauseUntil <= now) {
       keys.push(key);
     }
   }
   return keys;
-}
-
-async function readRepairSecretKey(
-  binding: Env["TORN_API_KEY_POOL_1"],
-  keySource: string,
-): Promise<RepairKey | null> {
-  try {
-    const value = typeof binding === "string" ? binding : await binding?.get();
-    const trimmed = value?.trim() ?? "";
-    return trimmed ? { key: trimmed, keySource } : null;
-  } catch {
-    return null;
-  }
 }
 
 async function readRepairJob(env: Env, jobId: string): Promise<LifestyleRepairJobRow | null> {

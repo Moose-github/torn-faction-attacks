@@ -6,10 +6,9 @@ import {
 } from "../backend/request";
 import { fetchTornPersonalStatsWithTimestamps, type TornPersonalStatsResponse } from "../personalStats";
 import {
-  readAvailableTornApiKeys,
-  recordTornKeyUse,
-  sortCandidatesForFeature,
-  type TornKeyPoolCandidate,
+  runWithTornKeyPool,
+  TornKeyPoolExhaustedError,
+  TornKeyPoolUnavailableError,
 } from "../tornKeyPool";
 import type { Env } from "../types";
 import { json, nowSeconds } from "../utils";
@@ -54,30 +53,33 @@ export async function scanArrestScout(
   const scannedAt = nowSeconds();
   const historicalTimestamp = scannedAt - payload.settings.lookback_seconds;
   const results: PendingResult[] = [];
-  const keyCandidates = await readAvailableTornApiKeys(env, "arrest_scout", scannedAt);
+  const usedKeySources = new Set<string>();
 
-  if (keyCandidates.length === 0) {
-    return json(
-      {
-        ok: false,
-        error: "No eligible Torn API key is available for Arrest Scout",
-        code: "NO_TORN_KEYS_AVAILABLE",
-      },
-      503,
-    );
-  }
-
-  for (const [index, targetUserId] of payload.target_user_ids.entries()) {
-    results.push(
-      await scanOneTarget(env, {
-        targetUserId,
-        rowId: `${snapshotId}:${index}`,
-        snapshotId,
-        keyCandidates,
-        settings: payload.settings,
-        historicalTimestamp,
-      }),
-    );
+  try {
+    for (const [index, targetUserId] of payload.target_user_ids.entries()) {
+      results.push(
+        await scanOneTarget(env, {
+          targetUserId,
+          rowId: `${snapshotId}:${index}`,
+          snapshotId,
+          usedKeySources,
+          settings: payload.settings,
+          historicalTimestamp,
+        }),
+      );
+    }
+  } catch (err) {
+    if (isArrestScoutKeyPoolUnavailable(err)) {
+      return json(
+        {
+          ok: false,
+          error: "No eligible Torn API key is available for Arrest Scout",
+          code: "NO_TORN_KEYS_AVAILABLE",
+        },
+        503,
+      );
+    }
+    throw err;
   }
 
   const counts = countResults(results);
@@ -102,7 +104,7 @@ export async function scanArrestScout(
       lookback_days: payload.lookback_days,
       min_counterfeiting_delta: payload.settings.min_counterfeiting_delta,
       required_forgeryskill: payload.settings.required_forgeryskill,
-      key_sources: Array.from(new Set(keyCandidates.map((key) => key.keySource))),
+      key_sources: Array.from(usedKeySources),
     }),
     target_count: payload.target_user_ids.length,
     checked_count: results.length,
@@ -203,13 +205,13 @@ async function scanOneTarget(
     targetUserId: number;
     rowId: string;
     snapshotId: string;
-    keyCandidates: TornKeyPoolCandidate[];
+    usedKeySources: Set<string>;
     settings: ArrestScoutSettings;
     historicalTimestamp: number;
   },
 ): Promise<PendingResult> {
   try {
-    const currentStats = await fetchStats(env, input.targetUserId, input.keyCandidates);
+    const currentStats = await fetchStats(env, input.targetUserId, input.usedKeySources);
     const current = targetStatsFromPersonalStats(currentStats);
     const currentTimestamps = statTimestampsFromPersonalStats(currentStats);
 
@@ -218,7 +220,7 @@ async function scanOneTarget(
       return resultFromClassification(input, classified, currentTimestamps, emptyTimestamps(), currentStats, null);
     }
 
-    const historicalStats = await fetchStats(env, input.targetUserId, input.keyCandidates, input.historicalTimestamp);
+    const historicalStats = await fetchStats(env, input.targetUserId, input.usedKeySources, input.historicalTimestamp);
     const classified = classifyArrestScoutTarget(
       current,
       targetStatsFromPersonalStats(historicalStats),
@@ -234,6 +236,9 @@ async function scanOneTarget(
       historicalStats,
     );
   } catch (err) {
+    if (isArrestScoutKeyPoolUnavailable(err)) {
+      throw err;
+    }
     return errorResult(input, err);
   }
 }
@@ -241,24 +246,23 @@ async function scanOneTarget(
 async function fetchStats(
   env: Env,
   targetUserId: number,
-  keyCandidates: TornKeyPoolCandidate[],
+  usedKeySources: Set<string>,
   timestamp?: number,
 ): Promise<TornPersonalStatsResponse> {
-  const candidate = chooseNextCandidate(keyCandidates);
-  if (!candidate) {
-    throw new Error("No eligible Torn API key is currently under its minute limit");
-  }
-
-  try {
-    return await fetchTornPersonalStatsWithTimestamps(env, targetUserId, ARREST_SCOUT_STAT_KEYS, {
-      apiKey: candidate.key,
-      keySource: candidate.keySource,
+  const output = await runWithTornKeyPool(env, {
+    feature: "arrest_scout",
+    run: ({ key, keySource }) => fetchTornPersonalStatsWithTimestamps(env, targetUserId, ARREST_SCOUT_STAT_KEYS, {
+      apiKey: key,
+      keySource,
       ...(timestamp ? { timestamp } : {}),
-    });
-  } finally {
-    candidate.currentMinuteUsage += 1;
-    await recordTornKeyUse(env, candidate, "arrest_scout");
-  }
+    }),
+  });
+  usedKeySources.add(output.candidate.keySource);
+  return output.result;
+}
+
+function isArrestScoutKeyPoolUnavailable(err: unknown): boolean {
+  return err instanceof TornKeyPoolUnavailableError || err instanceof TornKeyPoolExhaustedError;
 }
 
 function resultFromClassification(
@@ -695,15 +699,6 @@ function parseTargetIds(value: unknown): number[] {
       .map((item) => positiveIntegerOrNull(item))
       .filter((item): item is number => item !== null),
   ));
-}
-
-function chooseNextCandidate(candidates: TornKeyPoolCandidate[]): TornKeyPoolCandidate | null {
-  const now = nowSeconds();
-  const eligible = candidates.filter((candidate) =>
-    candidate.maxRequestsPerMinute === null ||
-    candidate.currentMinuteUsage < candidate.maxRequestsPerMinute
-  );
-  return sortCandidatesForFeature(eligible, "arrest_scout", now)[0] ?? null;
 }
 
 function safeErrorMessage(err: unknown): string {

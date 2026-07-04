@@ -3023,11 +3023,7 @@ function formatTornApiUsageWindowSummaryLabel(seconds: number): string {
 function formatTornApiKeySource(keySource: string): string {
   switch (keySource) {
     case "env:TORN_API_KEY":
-      return "Primary key";
-    case "secrets:TORN_API_KEY_POOL_1":
-      return "Pool key 1";
-    case "secrets:TORN_API_KEY_POOL_2":
-      return "Pool key 2";
+      return "Admin fallback key";
     case "member_supplied:auth":
       return "Member auth key";
     case "member_supplied:trade_scout":

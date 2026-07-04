@@ -13,6 +13,7 @@ import {
   type TornPersonalStatsResponse,
 } from "./personalStats";
 import { setSyncLatch } from "./syncLatches";
+import { recordTornKeyUse } from "./tornKeyPool";
 import { Env } from "./types";
 import { d1Changes, finiteNumber, nowSeconds } from "./utils";
 
@@ -521,6 +522,7 @@ async function processEnemyHitStatBatch(
         apiKey: key.key,
         keySource: key.keySource,
       });
+      await recordTornKeyUse(env, key, "enemy_scouting");
       const result = await updateEnemyHitStatSnapshot(env, row, stats, key.keySource);
       const changes = d1Changes(result);
       metrics.writeStatements += 1;

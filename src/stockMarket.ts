@@ -1,6 +1,6 @@
-import { readAvailableEnemyNetworthKeys } from "./enemyNetworth";
 import { fetchTrackedTornJson } from "./external/torn";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
+import { withTornKeyPool } from "./tornKeyPool";
 import { Env } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 
@@ -659,23 +659,21 @@ async function updateStockIngestionRun(env: Env, run: StockIngestionRun): Promis
 }
 
 async function fetchTornJson(endpoint: string, env: Env): Promise<unknown> {
-  const key = (await readAvailableEnemyNetworthKeys(env, nowSeconds()))[0];
-  if (!key) {
-    throw new Error("No Torn API key available for stock market refresh");
-  }
-
-  return fetchTrackedTornJson<unknown>(env, `${TORN_API_BASE}${endpoint}`, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `ApiKey ${key.key}`,
-      "User-Agent": "buttgrass-stock-market/1.0",
-    },
-  }, {
-    feature: "stock-market",
-    keySource: key.keySource,
-    timeoutMs: REQUEST_TIMEOUT_MS,
-  }, {
-    service: "Torn stock",
+  return withTornKeyPool(env, {
+    feature: "stock_tools",
+    run: ({ key, keySource }) => fetchTrackedTornJson<unknown>(env, `${TORN_API_BASE}${endpoint}`, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `ApiKey ${key}`,
+        "User-Agent": "buttgrass-stock-market/1.0",
+      },
+    }, {
+      feature: "stock-market",
+      keySource,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    }, {
+      service: "Torn stock",
+    }),
   });
 }
 

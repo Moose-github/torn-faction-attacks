@@ -13,9 +13,9 @@ describe("enemy networth key pooling", () => {
 
   it("partitions candidates across keys while respecting the per-key limit", () => {
     const keys = [
-      { key: "primary", keySource: "env:TORN_API_KEY" },
-      { key: "pool-1", keySource: "secrets:TORN_API_KEY_POOL_1" },
-      { key: "pool-2", keySource: "secrets:TORN_API_KEY_POOL_2" },
+      candidate("env:TORN_API_KEY", "admin-fallback"),
+      candidate("key_pool:alpha", "alpha"),
+      candidate("key_pool:bravo", "bravo"),
     ];
     const rows = Array.from({ length: 10 }, (_, index) => index + 1);
 
@@ -28,3 +28,16 @@ describe("enemy networth key pooling", () => {
     ]);
   });
 });
+
+function candidate(id: string, key: string) {
+  return {
+    id,
+    key,
+    keySource: id,
+    sourceType: id.startsWith("key_pool:") ? "submitted" as const : "env" as const,
+    maxRequestsPerMinute: null,
+    currentMinuteUsage: 0,
+    lastUsedAt: null,
+    monitorLastUsedAt: null,
+  };
+}

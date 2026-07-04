@@ -7,6 +7,7 @@ import {
 } from "../personalStats";
 import { claimDailyBatchGate } from "../scheduledGates";
 import { upsertSyncTimestamp } from "../syncState";
+import { runWithTornKeyPool } from "../tornKeyPool";
 import { Env } from "../types";
 import { nowSeconds } from "../utils";
 import {
@@ -68,7 +69,6 @@ export async function refreshMemberLifestyleStats(
     try {
       const stats = await fetchMemberPersonalStats(env, queueRow.member_id, {
         requestedAt: queueRow.target_timestamp,
-        keySource: "env:TORN_API_KEY",
       });
       const dataQualityError = personalStatsDataQualityError(stats, queueRow.snapshot_date, {
         allowBucketLag: true,
@@ -528,9 +528,21 @@ export async function fetchMemberPersonalStats(
   options: {
     requestedAt?: number;
     apiKey?: string;
-    keySource: string;
+    keySource?: string;
   },
 ): Promise<TimedLifestyleStats> {
+  if (!options.apiKey) {
+    const output = await runWithTornKeyPool(env, {
+      feature: "faction_lifestyle_stats",
+      run: ({ key, keySource }) => fetchMemberPersonalStats(env, memberId, {
+        ...options,
+        apiKey: key,
+        keySource,
+      }),
+    });
+    return output.result;
+  }
+
   return extractLifestyleStats(
     await fetchTornPersonalStatsWithTimestamps(env, memberId, TORN_LIFESTYLE_STAT_KEYS, {
       timestamp: options.requestedAt,
@@ -539,7 +551,7 @@ export async function fetchMemberPersonalStats(
     }),
     {
       requestedAt: options.requestedAt ?? null,
-      keySource: options.keySource,
+      keySource: options.keySource ?? "key_pool:unknown",
     },
   );
 }

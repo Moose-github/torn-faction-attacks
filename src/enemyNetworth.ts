@@ -1,10 +1,8 @@
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
+import { readAvailableTornApiKeys, type TornKeyPoolCandidate } from "./tornKeyPool";
 import { Env } from "./types";
 
-export type TornApiKey = {
-  key: string;
-  keySource: string;
-};
+export type TornApiKey = TornKeyPoolCandidate;
 
 export const ENEMY_NETWORTH_MAX_ATTEMPTS = 3;
 export const ENEMY_NETWORTH_PER_KEY_LIMIT = 40;
@@ -13,18 +11,9 @@ export const ENEMY_NETWORTH_KEY_PAUSE_SECONDS = 60;
 const ENEMY_NETWORTH_KEY_PAUSE_PREFIX = "enemy_networth_key_pause";
 
 export async function readAvailableEnemyNetworthKeys(env: Env, now: number): Promise<TornApiKey[]> {
-  const candidates: Array<TornApiKey | null> = [
-    env.TORN_API_KEY?.trim()
-      ? { key: env.TORN_API_KEY.trim(), keySource: "env:TORN_API_KEY" }
-      : null,
-    await readSecretStoreKey(env.TORN_API_KEY_POOL_1, "secrets:TORN_API_KEY_POOL_1"),
-    await readSecretStoreKey(env.TORN_API_KEY_POOL_2, "secrets:TORN_API_KEY_POOL_2"),
-  ];
+  const candidates = await readAvailableTornApiKeys(env, "enemy_scouting", now);
   const keys: TornApiKey[] = [];
   for (const key of candidates) {
-    if (!key) {
-      continue;
-    }
     const pauseUntil = await readSyncTimestamp(env, enemyNetworthKeyPauseStateName(key.keySource));
     if (pauseUntil <= now) {
       keys.push(key);
@@ -61,17 +50,4 @@ export function partitionEnemyNetworthCandidates<T>(
 
 function enemyNetworthKeyPauseStateName(keySource: string): string {
   return `${ENEMY_NETWORTH_KEY_PAUSE_PREFIX}:${keySource}`;
-}
-
-async function readSecretStoreKey(
-  binding: Env["TORN_API_KEY_POOL_1"],
-  keySource: string,
-): Promise<TornApiKey | null> {
-  try {
-    const value = typeof binding === "string" ? binding : await binding?.get();
-    const trimmed = value?.trim() ?? "";
-    return trimmed ? { key: trimmed, keySource } : null;
-  } catch {
-    return null;
-  }
 }
