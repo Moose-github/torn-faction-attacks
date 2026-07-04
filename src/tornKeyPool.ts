@@ -774,7 +774,8 @@ async function validateTornApiKey(env: Env, tornKey: string): Promise<ValidatedT
     throw new Error("Torn key info response did not include a valid user ID");
   }
 
-  const ownerName = cleanString(userInfo.name) || await fetchTornKeyOwnerName(env, tornKey, id);
+  const keyInfoOwnerName = cleanString(userInfo.name);
+  const ownerName = await fetchTornKeyOwnerName(env, tornKey, id) || keyInfoOwnerName;
 
   return {
     key_name: readTornKeyName(info),
