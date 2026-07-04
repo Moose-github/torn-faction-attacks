@@ -543,17 +543,26 @@ export async function fetchMemberPersonalStats(
     return output.result;
   }
 
+  const keySource = requireKeySourceForApiKey(options.keySource);
   return extractLifestyleStats(
     await fetchTornPersonalStatsWithTimestamps(env, memberId, TORN_LIFESTYLE_STAT_KEYS, {
       timestamp: options.requestedAt,
       apiKey: options.apiKey,
-      keySource: options.keySource,
+      keySource,
     }),
     {
       requestedAt: options.requestedAt ?? null,
-      keySource: options.keySource ?? "key_pool:unknown",
+      keySource,
     },
   );
+}
+
+function requireKeySourceForApiKey(keySource: string | undefined): string {
+  const trimmed = keySource?.trim();
+  if (!trimmed) {
+    throw new Error("keySource is required when apiKey is supplied");
+  }
+  return trimmed;
 }
 
 export function personalStatsDataQualityError(

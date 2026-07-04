@@ -10,6 +10,7 @@ import {
   isRetryableTornKeyError,
   isTornKeyCapableForFeature,
   isUnderMinuteLimit,
+  nextUniqueKeyLabel,
   readTornBasicOwnerName,
   runWithTornKeyPool,
   sortCandidatesForFeature,
@@ -176,6 +177,17 @@ describe("torn key pool", () => {
     expect(readTornBasicOwnerName({ profile: { name: "Moose", player_id: 3238283 } }, 3238283)).toBe("Moose");
     expect(readTornBasicOwnerName({ user: { username: "Wrong", id: 111 } }, 3238283)).toBeNull();
     expect(readTornBasicOwnerName({ basic: { player_name: "Fallback" } }, 3238283)).toBe("Fallback");
+  });
+
+  it("numbers duplicate generated key labels", () => {
+    expect(nextUniqueKeyLabel("M00SE_KEY", [])).toBe("M00SE_KEY");
+    expect(nextUniqueKeyLabel("M00SE_KEY", ["M00SE_KEY"])).toBe("M00SE_KEY_2");
+    expect(nextUniqueKeyLabel("M00SE_KEY", ["M00SE_KEY", "M00SE_KEY_2"])).toBe("M00SE_KEY_3");
+
+    const longBase = `${"A".repeat(76)}_KEY`;
+    const next = nextUniqueKeyLabel(longBase, [longBase]);
+    expect(next).toHaveLength(80);
+    expect(next.endsWith("_2")).toBe(true);
   });
 });
 

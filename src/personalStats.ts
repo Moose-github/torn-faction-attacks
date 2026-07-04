@@ -64,6 +64,7 @@ export async function fetchTornPersonalStatsWithTimestamps(
     });
   }
 
+  const keySource = requireKeySourceForApiKey(options.keySource);
   const url = new URL(`${PERSONAL_STATS_API_BASE_URL}/${memberId}/personalstats`);
   url.searchParams.set("stat", statKeys.join(","));
   if (options.timestamp !== undefined) {
@@ -76,7 +77,7 @@ export async function fetchTornPersonalStatsWithTimestamps(
       Authorization: `ApiKey ${options.apiKey}`,
     },
   }, {
-    keySource: options.keySource ?? "key_pool:unknown",
+    keySource,
   });
 
   if (!response.ok) {
@@ -171,6 +172,14 @@ async function fetchWithTransientRetry(
   }
 
   throw lastError instanceof Error ? lastError : new Error("Torn personalstats API request failed");
+}
+
+function requireKeySourceForApiKey(keySource: string | undefined): string {
+  const trimmed = keySource?.trim();
+  if (!trimmed) {
+    throw new Error("keySource is required when apiKey is supplied");
+  }
+  return trimmed;
 }
 
 function sleep(ms: number): Promise<void> {

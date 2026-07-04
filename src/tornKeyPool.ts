@@ -264,6 +264,7 @@ export async function createMyTornApiKey(
   const submittedByName = cleanString(body.submitted_by_name ?? body.submittedByName);
 
   const id = crypto.randomUUID();
+  const label = await generatedUniqueKeyLabel(env, submittedByTornUserId, keyInfo, submittedByName);
   await env.DB.prepare(
     `
     INSERT INTO torn_api_keys (
@@ -290,7 +291,7 @@ export async function createMyTornApiKey(
   )
     .bind(
       id,
-      generatedKeyLabel(keyInfo, submittedByName),
+      label,
       await encryptTornApiKey(rawKey, storageSecret),
       fingerprint,
       submittedByTornUserId,
@@ -381,7 +382,7 @@ export async function updateMyTornApiKey(
     `,
   )
     .bind(
-      generatedKeyLabel(existing),
+      existing.label ?? generatedKeyLabel(existing),
       status,
       JSON.stringify(allowedFeatures),
       maxRequestsPerMinute,
@@ -992,6 +993,48 @@ function generatedKeyLabel(source: {
   const owner = source.owner_name?.trim() || submittedByName?.trim() || String(source.owner_torn_user_id ?? "TORN");
   const normalizedOwner = owner.replace(/\s+/g, "_").slice(0, Math.max(1, MAX_LABEL_LENGTH - 4));
   return `${normalizedOwner}_KEY`;
+}
+
+async function generatedUniqueKeyLabel(
+  env: Env,
+  submittedByTornUserId: number,
+  source: {
+    owner_name?: string | null;
+    owner_torn_user_id?: number | null;
+  },
+  submittedByName?: string | null,
+): Promise<string> {
+  return nextUniqueKeyLabel(
+    generatedKeyLabel(source, submittedByName),
+    await readSubmittedKeyLabels(env, submittedByTornUserId),
+  );
+}
+
+export function nextUniqueKeyLabel(baseLabel: string, existingLabels: Array<string | null>): string {
+  const existing = new Set(existingLabels.map((label) => label?.trim()).filter(Boolean));
+  if (!existing.has(baseLabel)) return baseLabel;
+
+  let index = 2;
+  while (true) {
+    const suffix = `_${index}`;
+    const candidate = `${baseLabel.slice(0, Math.max(1, MAX_LABEL_LENGTH - suffix.length))}${suffix}`;
+    if (!existing.has(candidate)) return candidate;
+    index += 1;
+  }
+}
+
+async function readSubmittedKeyLabels(env: Env, submittedByTornUserId: number): Promise<Array<string | null>> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT label
+    FROM torn_api_keys
+    WHERE submitted_by_torn_user_id = ?
+    `,
+  )
+    .bind(submittedByTornUserId)
+    .all<{ label: string | null }>();
+
+  return (rows.results ?? []).map((row) => row.label);
 }
 
 function normalizeStatus(value: unknown, fallback: string): TornKeyPoolStatus | null {
