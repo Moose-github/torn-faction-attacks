@@ -5987,6 +5987,10 @@ h2 {
   color: var(--danger, #dc2626);
 }
 
+.torn-key-preview-status.warning {
+  color: #d97706;
+}
+
 .torn-key-feature-list,
 .torn-key-pool-form .trade-scout-form-actions {
   grid-column: 1 / -1;

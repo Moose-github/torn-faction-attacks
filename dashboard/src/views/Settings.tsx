@@ -23,6 +23,8 @@ type NewKeyPreviewState =
   | { status: "valid"; key: TornKeyPreviewMetadata }
   | { status: "invalid"; error: string };
 
+const TORN_API_KEY_LENGTH = 16;
+
 export function Settings({ authSession }: { authSession: AuthSession }) {
   const [data, setData] = React.useState<DiscordMemberAlertSubscriptionsResponse | null>(null);
   const [keyPool, setKeyPool] = React.useState<MyTornKeyPoolResponse | null>(null);
@@ -73,6 +75,10 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
   React.useEffect(() => {
     const trimmedKey = newKey.trim();
     if (!trimmedKey) {
+      setNewKeyPreview({ status: "idle" });
+      return;
+    }
+    if (trimmedKey.length !== TORN_API_KEY_LENGTH) {
       setNewKeyPreview({ status: "idle" });
       return;
     }
@@ -465,7 +471,12 @@ function newKeyPreviewMessage(preview: NewKeyPreviewState): React.ReactNode {
     return <small className="torn-key-preview-status error">This key is already in the pool.</small>;
   }
   if (preview.status === "valid") {
-    return <small className="torn-key-preview-status">Key checked.</small>;
+    return (
+      <>
+        <small className="torn-key-preview-status">Key checked.</small>
+        {highAccessWarning(preview.key)}
+      </>
+    );
   }
   return null;
 }
@@ -496,18 +507,24 @@ function generatedPreviewKeyLabel(key: Pick<TornKeyPreviewMetadata, "owner_name"
 }
 
 function newKeyPreviewBlocksSubmit(preview: NewKeyPreviewState): boolean {
-  return preview.status === "checking" ||
-    preview.status === "invalid" ||
-    (preview.status === "valid" && preview.key.duplicate);
+  return preview.status !== "valid" || preview.key.duplicate;
 }
 
 function isNewKeyFeatureDisabled(
   feature: MyTornKeyPoolResponse["features"][number],
   preview: NewKeyPreviewState,
 ): boolean {
-  return preview.status === "valid" &&
-    !preview.key.faction_access &&
-    feature.required_access === "faction";
+  if (preview.status !== "valid" || preview.key.duplicate) return true;
+  return !preview.key.faction_access && feature.required_access === "faction";
+}
+
+function highAccessWarning(key: TornKeyPreviewMetadata): React.ReactNode {
+  if (Number(key.access_level ?? 0) <= 1) return null;
+  return (
+    <small className="torn-key-preview-status warning">
+      Only a public key is required.
+    </small>
+  );
 }
 
 function filterFeaturesForPreview(
