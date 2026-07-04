@@ -988,7 +988,7 @@ function generatedKeyLabel(source: {
   owner_name?: string | null;
   owner_torn_user_id?: number | null;
 }, submittedByName?: string | null): string {
-  const owner = submittedByName?.trim() || source.owner_name?.trim() || String(source.owner_torn_user_id ?? "TORN");
+  const owner = source.owner_name?.trim() || submittedByName?.trim() || String(source.owner_torn_user_id ?? "TORN");
   const normalizedOwner = owner.replace(/\s+/g, "_").slice(0, Math.max(1, MAX_LABEL_LENGTH - 4));
   return `${normalizedOwner}_KEY`;
 }

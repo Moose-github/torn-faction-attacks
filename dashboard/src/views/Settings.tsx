@@ -519,7 +519,7 @@ function generatedPreviewKeyLabel(
   loggedInUserName: string | null,
   key: Pick<TornKeyPreviewMetadata, "owner_name" | "owner_torn_user_id">,
 ): string {
-  const owner = loggedInUserName || key.owner_name || String(key.owner_torn_user_id ?? "TORN");
+  const owner = key.owner_name || loggedInUserName || String(key.owner_torn_user_id ?? "TORN");
   return `${owner.replace(/\s+/g, "_")}_KEY`;
 }
 
