@@ -296,7 +296,10 @@ export function App() {
   const isActivityPanelOpen =
     collapsedPanels.factionActivity === false || collapsedPanels.enemyActivity === false;
   const isMemberCombatPanelOpen = collapsedPanels.memberCombatHeatmap === false;
+  const isReportValidationPanelOpen = collapsedPanels.reportValidation === false;
   const isReportDiscrepancyPanelOpen = collapsedPanels.reportDiscrepancies === false;
+  const shouldLoadReportDiscrepancies =
+    isReportValidationPanelOpen || isReportDiscrepancyPanelOpen;
 
   React.useEffect(() => {
     if (!authSession || view !== "war" || !selectedWarName || !selectedWar) {
@@ -496,7 +499,7 @@ export function App() {
         setActiveWarId(warsResponse.active_war_id);
         setWarDetail(detailResponse);
 
-        if (detailResponse.war.torn_report_fetched_at && isReportDiscrepancyPanelOpen) {
+        if (detailResponse.war.torn_report_fetched_at && shouldLoadReportDiscrepancies) {
           const discrepancies = await getWarReportDiscrepancies(selectedWarName);
           if (!cancelled) {
             setReportDiscrepancies(discrepancies);
@@ -525,7 +528,7 @@ export function App() {
     view,
     warType,
     authSession,
-    isReportDiscrepancyPanelOpen,
+    shouldLoadReportDiscrepancies,
     warState,
   ]);
 
@@ -533,7 +536,7 @@ export function App() {
     let cancelled = false;
 
     async function loadReportDiscrepancies() {
-      if (!authSession || !selectedWarName || !hasTornReport || !isReportDiscrepancyPanelOpen) {
+      if (!authSession || !selectedWarName || !hasTornReport || !shouldLoadReportDiscrepancies) {
         if (!hasTornReport) {
           setReportDiscrepancies(null);
         }
@@ -563,7 +566,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authSession, hasTornReport, isReportDiscrepancyPanelOpen, selectedWarName]);
+  }, [authSession, hasTornReport, shouldLoadReportDiscrepancies, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;

@@ -6,28 +6,39 @@ import { formatDate, formatNumber } from "../utils/format";
 const GROUP_DEFINITIONS = [
   {
     key: "after_practical_finish",
+    category: "adjustment",
     title: "Hits after practical finish",
     detail:
       "These Buttgrass hits happened after the practical finish, so they may appear in Torn totals but not member performance.",
   },
   {
     key: "uncounted_enemy_results",
+    category: "discrepancy",
     title: "Unknown attack results",
     detail:
       "These enemy-faction attacks have result values outside the known successful and unsuccessful lists.",
   },
   {
     key: "chain_bonus_adjustments",
+    category: "adjustment",
     title: "Chain bonus respect adjusted",
     detail:
       "Chain bonus attacks count, but bonus respect is replaced with the member's average respect/hit.",
   },
   {
     key: "outside_official_window",
+    category: "adjustment",
     title: "Hits outside official window",
     detail: "These linked Buttgrass attacks fall outside Torn's official war window.",
   },
 ];
+
+type ReportDiscrepancyDefinition = (typeof GROUP_DEFINITIONS)[number];
+
+export type ReportAdjustmentTotals = {
+  attackDelta: number;
+  respectDelta: number;
+};
 
 export function ReportDiscrepancyPanel({
   response,
@@ -39,65 +50,99 @@ export function ReportDiscrepancyPanel({
   }
 
   const groups = visibleGroupDefinitions(response);
+  const adjustmentGroups = groups.filter((definition) => definition.category === "adjustment");
+  const unresolvedGroups = groups.filter((definition) => definition.category === "discrepancy");
   const hasMemberMismatches = Boolean(
     response.member_report_comparison?.available &&
       response.member_report_comparison.mismatches.length > 0,
   );
+  const hasAdjustments = adjustmentGroups.length > 0;
+  const hasUnresolved = unresolvedGroups.length > 0 || hasMemberMismatches;
 
-  if (groups.length === 0 && !hasMemberMismatches) {
+  if (!hasAdjustments && !hasUnresolved) {
     return <EmptyState text="No discrepancy breakdown items found." />;
   }
 
   return (
     <div className="discrepancy-groups">
-      <MemberReportComparison response={response} />
-      {groups.map((definition) => {
-        const group = response.groups[definition.key];
-        const count = group?.count ?? 0;
-        return (
-          <section
-            className={count === 0 ? "discrepancy-group discrepancy-group-empty" : "discrepancy-group"}
-            key={definition.key}
-          >
-            <div className="discrepancy-group-header">
-              <div>
-                <h3>{definition.title}</h3>
-                {count > 0 ? <p>{definition.detail}</p> : null}
-              </div>
-              <strong>{discrepancyGroupSummary(definition.key, count, group?.respect_gain ?? 0)}</strong>
+      {hasAdjustments ? (
+        <section className="discrepancy-section">
+          <div className="discrepancy-section-header">
+            <div>
+              <h3>Dashboard adjustments</h3>
+              <p>Known transformations from Torn raw report totals into dashboard totals.</p>
             </div>
-            {count > 0 && group && group.attacks.length > 0 && definition.key === "chain_bonus_adjustments" ? (
-              <ChainBonusList attacks={group.attacks as ChainBonusAttack[]} />
-            ) : count > 0 && group && group.attacks.length > 0 ? (
-              <div className="table-scroll">
-                <table className="discrepancy-table">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Attacker</th>
-                      <th>Defender</th>
-                      <th>Result</th>
-                      <th>Respect</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.attacks.map((attack) => (
-                      <tr key={`${definition.key}-${attack.id}`}>
-                        <td>{formatDate(attack.started)}</td>
-                        <td>{attack.attacker_name ?? `#${attack.attacker_id ?? "-"}`}</td>
-                        <td>{attack.defender_name ?? `#${attack.defender_id ?? "-"}`}</td>
-                        <td>{attack.result ?? "-"}</td>
-                        <td>{formatNumber(attack.respect_gain ?? 0)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
-          </section>
-        );
-      })}
+            <strong>{formatAdjustmentTotals(reportAdjustmentTotals(response))}</strong>
+          </div>
+          {adjustmentGroups.map((definition) => renderDiscrepancyGroup(definition, response))}
+        </section>
+      ) : null}
+
+      {hasUnresolved ? (
+        <section className="discrepancy-section">
+          <div className="discrepancy-section-header">
+            <div>
+              <h3>Unresolved discrepancies</h3>
+              <p>Differences that remain after known dashboard adjustments.</p>
+            </div>
+            <strong>{discrepancyAside(response)}</strong>
+          </div>
+          <MemberReportComparison response={response} />
+          {unresolvedGroups.map((definition) => renderDiscrepancyGroup(definition, response))}
+        </section>
+      ) : null}
     </div>
+  );
+}
+
+function renderDiscrepancyGroup(
+  definition: ReportDiscrepancyDefinition,
+  response: ReportDiscrepanciesResponse,
+) {
+  const group = response.groups[definition.key];
+  const count = group?.count ?? 0;
+
+  return (
+    <section
+      className={count === 0 ? "discrepancy-group discrepancy-group-empty" : "discrepancy-group"}
+      key={definition.key}
+    >
+      <div className="discrepancy-group-header">
+        <div>
+          <h3>{definition.title}</h3>
+          {count > 0 ? <p>{definition.detail}</p> : null}
+        </div>
+        <strong>{discrepancyGroupSummary(definition.key, count, group?.respect_gain ?? 0)}</strong>
+      </div>
+      {count > 0 && group && group.attacks.length > 0 && definition.key === "chain_bonus_adjustments" ? (
+        <ChainBonusList attacks={group.attacks as ChainBonusAttack[]} />
+      ) : count > 0 && group && group.attacks.length > 0 ? (
+        <div className="table-scroll">
+          <table className="discrepancy-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Attacker</th>
+                <th>Defender</th>
+                <th>Result</th>
+                <th>Respect</th>
+              </tr>
+            </thead>
+            <tbody>
+              {group.attacks.map((attack) => (
+                <tr key={`${definition.key}-${attack.id}`}>
+                  <td>{formatDate(attack.started)}</td>
+                  <td>{attack.attacker_name ?? `#${attack.attacker_id ?? "-"}`}</td>
+                  <td>{attack.defender_name ?? `#${attack.defender_id ?? "-"}`}</td>
+                  <td>{attack.result ?? "-"}</td>
+                  <td>{formatNumber(attack.respect_gain ?? 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -199,26 +244,43 @@ export function discrepancyAside(response: ReportDiscrepanciesResponse | null): 
   }
 
   const memberComparison = response.member_report_comparison;
-  const memberAttackDiff = memberComparison?.available ? memberComparison.totals.attack_diff : 0;
-  const memberRespectDiff = memberComparison?.available ? memberComparison.totals.respect_diff : 0;
+  const attackDiff = memberComparison?.available ? memberComparison.totals.attack_diff : 0;
+  const respectDiff = memberComparison?.available ? memberComparison.totals.respect_diff : 0;
+  const unknownAttacks = response.groups.uncounted_enemy_results?.count ?? 0;
+  const unknownLabel = unknownAttacks > 0 ? ` / ${formatNumber(unknownAttacks)} unknown` : "";
 
-  const { attackDiff, respectDiff } = visibleGroupDefinitions(response).reduce(
+  return `${formatSignedNumber(attackDiff)} attacks / ${formatSignedNumber(respectDiff)} respect${unknownLabel}`;
+}
+
+export function reportAdjustmentTotals(
+  response: ReportDiscrepanciesResponse | null,
+): ReportAdjustmentTotals {
+  if (!response) {
+    return { attackDelta: 0, respectDelta: 0 };
+  }
+
+  return visibleGroupDefinitions(response).reduce(
     (totals, definition) => {
+      if (definition.category !== "adjustment") {
+        return totals;
+      }
+
       const group = response.groups[definition.key];
 
       if (definition.key === "after_practical_finish") {
-        totals.attackDiff -= group?.count ?? 0;
-        totals.respectDiff -= group?.respect_gain ?? 0;
+        totals.attackDelta -= group?.count ?? 0;
+        totals.respectDelta -= group?.respect_gain ?? 0;
+      } else if (definition.key === "outside_official_window") {
+        totals.attackDelta += group?.count ?? 0;
+        totals.respectDelta += group?.respect_gain ?? 0;
       } else if (definition.key === "chain_bonus_adjustments") {
-        totals.respectDiff -= group?.respect_gain ?? 0;
+        totals.respectDelta -= group?.respect_gain ?? 0;
       }
 
       return totals;
     },
-    { attackDiff: memberAttackDiff, respectDiff: memberRespectDiff },
+    { attackDelta: 0, respectDelta: 0 },
   );
-
-  return `${formatSignedNumber(attackDiff)} attacks / ${formatSignedNumber(respectDiff)} respect`;
 }
 
 function visibleGroupDefinitions(response: ReportDiscrepanciesResponse) {
@@ -235,6 +297,10 @@ function discrepancyGroupSummary(key: string, count: number, respectGain: number
   }
 
   return `${formatNumber(count)} attacks`;
+}
+
+function formatAdjustmentTotals(totals: ReportAdjustmentTotals): string {
+  return `${formatSignedNumber(totals.attackDelta)} attacks / ${formatSignedNumber(totals.respectDelta)} respect`;
 }
 
 function formatSignedNumber(value: number): string {

@@ -17,6 +17,7 @@ import { MemberCombatHeatmap } from "../components/MemberCombatHeatmap";
 import { MemberAttackList, MemberTable } from "../components/MemberTables";
 import {
   discrepancyAside,
+  reportAdjustmentTotals,
   ReportDiscrepancyPanel,
 } from "../components/ReportDiscrepancies";
 import {
@@ -167,15 +168,19 @@ export function WarDetailView({
   const showMemberCombatHeatmap = hasWarData;
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
   const isScheduledWar = selectedWar.status === "scheduled";
+  const hasReportAdjustmentData = Boolean(reportDiscrepancies);
+  const reportAdjustments = reportAdjustmentTotals(reportDiscrepancies);
   const reportValidationRows = hasTornReport
     ? buildReportValidationRows({
         factionAttacks: {
           derived: derivedSuccessfulAttacks,
           report: selectedWar.official_home_attacks,
+          adjustment: reportAdjustments.attackDelta,
         },
         factionRespect: {
           derived: derivedRespectGained,
           report: selectedWar.official_home_score,
+          adjustment: reportAdjustments.respectDelta,
         },
         enemyAttacks: {
           derived: derivedEnemySuccessfulAttacks,
@@ -187,8 +192,10 @@ export function WarDetailView({
         },
       })
     : [];
-  const reportMismatchCount = reportValidationRows.filter((row) => row.difference !== 0).length;
-  const reportValidationAside = reportMismatchCount === 0
+  const reportMismatchCount = reportValidationRows.filter((row) => !row.matches).length;
+  const reportValidationAside = isLoadingReportDiscrepancies && !hasReportAdjustmentData
+    ? "Loading adjustments"
+    : reportMismatchCount === 0
     ? "All totals match"
     : `${reportMismatchCount} mismatched ${reportMismatchCount === 1 ? "measure" : "measures"}`;
 
@@ -321,12 +328,14 @@ export function WarDetailView({
                   <div className={reportMismatchCount === 0 ? "report-validation-summary matched" : "report-validation-summary mismatched"}>
                     <div className="report-validation-summary-status">
                       {reportMismatchCount === 0 ? <CheckCircle2 size={18} /> : <TriangleAlert size={18} />}
-                      <strong>{reportMismatchCount === 0 ? "Official report matches dashboard totals" : "Official report needs review"}</strong>
+                      <strong>{reportMismatchCount === 0 ? "Official report reconciles to dashboard totals" : "Official report needs review"}</strong>
                     </div>
                     <span>
-                      {reportMismatchCount === 0
-                        ? "Dashboard totals line up with Torn's ranked war report."
-                        : "Use the breakdown below to identify member, timing, or chain bonus differences."}
+                      {hasReportAdjustmentData
+                        ? reportMismatchCount === 0
+                          ? "Torn raw totals line up after known dashboard adjustments."
+                          : "The remaining delta is not explained by known dashboard adjustments."
+                        : "Adjustment-aware reconciliation will appear once the breakdown data loads."}
                     </span>
                   </div>
                   <div className="table-scroll">
@@ -336,21 +345,25 @@ export function WarDetailView({
                           <th>Measure</th>
                           <th>Status</th>
                           <th>Dashboard derived</th>
-                          <th>Torn report</th>
+                          <th>Torn raw</th>
+                          <th>Dashboard adjustments</th>
+                          <th>Expected dashboard</th>
                           <th>Delta</th>
                         </tr>
                       </thead>
                       <tbody>
                         {reportValidationRows.map((row) => (
-                          <tr key={row.label} className={row.difference === 0 ? "report-validation-row matched" : "report-validation-row mismatched"}>
+                          <tr key={row.label} className={row.matches ? "report-validation-row matched" : "report-validation-row mismatched"}>
                             <td>{row.label}</td>
                             <td>
-                              <span className={row.difference === 0 ? "report-validation-status matched" : "report-validation-status mismatched"}>
-                                {row.difference === 0 ? "Match" : "Mismatch"}
+                              <span className={row.matches ? "report-validation-status matched" : "report-validation-status mismatched"}>
+                                {row.matches ? "Match" : "Mismatch"}
                               </span>
                             </td>
                             <td>{formatNumber(row.derived)}</td>
                             <td>{formatNumber(row.report)}</td>
+                            <td>{formatSignedDelta(row.adjustment)}</td>
+                            <td>{formatNumber(row.expected)}</td>
                             <td>{formatSignedDelta(row.difference)}</td>
                           </tr>
                         ))}
@@ -590,34 +603,44 @@ type ReportValidationRow = {
   label: string;
   derived: number;
   report: number;
+  adjustment: number;
+  expected: number;
   difference: number;
+  matches: boolean;
 };
 
 function buildReportValidationRows(values: {
-  factionAttacks: { derived: number; report: number | null };
-  factionRespect: { derived: number; report: number | null };
-  enemyAttacks: { derived: number; report: number | null };
-  enemyScore: { derived: number; report: number | null };
+  factionAttacks: { derived: number; report: number | null; adjustment?: number };
+  factionRespect: { derived: number; report: number | null; adjustment?: number };
+  enemyAttacks: { derived: number; report: number | null; adjustment?: number };
+  enemyScore: { derived: number; report: number | null; adjustment?: number };
 }): ReportValidationRow[] {
   return [
-    reportValidationRow("Faction attacks", values.factionAttacks),
-    reportValidationRow("Faction respect", values.factionRespect),
-    reportValidationRow("Enemy attacks", values.enemyAttacks),
-    reportValidationRow("Enemy score", values.enemyScore),
+    reportValidationRow("Faction attacks", values.factionAttacks, 0),
+    reportValidationRow("Faction respect", values.factionRespect, 0.1),
+    reportValidationRow("Enemy attacks", values.enemyAttacks, 0),
+    reportValidationRow("Enemy score", values.enemyScore, 0.1),
   ];
 }
 
 function reportValidationRow(
   label: string,
-  value: { derived: number; report: number | null },
+  value: { derived: number; report: number | null; adjustment?: number },
+  tolerance: number,
 ): ReportValidationRow {
   const report = Number(value.report ?? 0);
+  const adjustment = value.adjustment ?? 0;
+  const expected = report + adjustment;
+  const difference = value.derived - expected;
 
   return {
     label,
     derived: value.derived,
     report,
-    difference: value.derived - report,
+    adjustment,
+    expected,
+    difference,
+    matches: Math.abs(difference) <= tolerance,
   };
 }
 
