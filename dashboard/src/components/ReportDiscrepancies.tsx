@@ -39,6 +39,14 @@ export function ReportDiscrepancyPanel({
   }
 
   const groups = visibleGroupDefinitions(response);
+  const hasMemberMismatches = Boolean(
+    response.member_report_comparison?.available &&
+      response.member_report_comparison.mismatches.length > 0,
+  );
+
+  if (groups.length === 0 && !hasMemberMismatches) {
+    return <EmptyState text="No discrepancy breakdown items found." />;
+  }
 
   return (
     <div className="discrepancy-groups">
@@ -190,25 +198,27 @@ export function discrepancyAside(response: ReportDiscrepanciesResponse | null): 
     return "No data";
   }
 
-  const { attacks, respectRemoved } = visibleGroupDefinitions(response).reduce(
+  const memberComparison = response.member_report_comparison;
+  const memberAttackDiff = memberComparison?.available ? memberComparison.totals.attack_diff : 0;
+  const memberRespectDiff = memberComparison?.available ? memberComparison.totals.respect_diff : 0;
+
+  const { attackDiff, respectDiff } = visibleGroupDefinitions(response).reduce(
     (totals, definition) => {
       const group = response.groups[definition.key];
-      if (definition.key !== "chain_bonus_adjustments") {
-        totals.attacks += group?.count ?? 0;
-      }
 
-      if (
-        definition.key === "chain_bonus_adjustments" ||
-        definition.key === "after_practical_finish"
-      ) {
-        totals.respectRemoved += group?.respect_gain ?? 0;
+      if (definition.key === "after_practical_finish") {
+        totals.attackDiff -= group?.count ?? 0;
+        totals.respectDiff -= group?.respect_gain ?? 0;
+      } else if (definition.key === "chain_bonus_adjustments") {
+        totals.respectDiff -= group?.respect_gain ?? 0;
       }
 
       return totals;
     },
-    { attacks: 0, respectRemoved: 0 },
+    { attackDiff: memberAttackDiff, respectDiff: memberRespectDiff },
   );
-  return `${formatNumber(attacks)} attacks / ${formatNumber(respectRemoved)} removed`;
+
+  return `${formatSignedNumber(attackDiff)} attacks / ${formatSignedNumber(respectDiff)} respect`;
 }
 
 function visibleGroupDefinitions(response: ReportDiscrepanciesResponse) {
@@ -225,17 +235,6 @@ function discrepancyGroupSummary(key: string, count: number, respectGain: number
   }
 
   return `${formatNumber(count)} attacks`;
-}
-
-export function formatReportComparison(reportValue: number | null, derivedValue: number): string {
-  const report = Number(reportValue ?? 0);
-  const difference = derivedValue - report;
-
-  if (difference === 0) {
-    return `${formatNumber(report)} (match)`;
-  }
-
-  return `${formatNumber(report)} (${formatNumber(difference)} diff)`;
 }
 
 function formatSignedNumber(value: number): string {

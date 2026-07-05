@@ -5024,6 +5024,70 @@ h2 {
   min-width: 560px;
 }
 
+.report-validation-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.report-validation-summary.matched {
+  border-color: rgba(22, 163, 74, 0.32);
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.report-validation-summary.mismatched {
+  border-color: rgba(217, 119, 6, 0.36);
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.report-validation-summary-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+}
+
+.report-validation-summary-status strong {
+  color: inherit;
+  font-size: 0.9rem;
+}
+
+.report-validation-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.report-validation-status.matched {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.report-validation-status.mismatched {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.report-validation-row.mismatched td:last-child {
+  color: #b45309;
+  font-weight: 850;
+}
+
 .panel-description {
   margin: 0 0 12px;
   color: #64748b;
@@ -7852,6 +7916,38 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .nested-discrepancy-header > span {
   background: var(--panel-bg-solid);
   color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .report-validation-summary {
+  border-color: var(--border-faint);
+  background: rgba(20, 34, 56, 0.72);
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .report-validation-summary.matched {
+  border-color: rgba(74, 222, 128, 0.32);
+  background: rgba(20, 83, 45, 0.26);
+  color: #86efac;
+}
+
+:root[data-theme="dark"] .report-validation-summary.mismatched {
+  border-color: rgba(251, 191, 36, 0.34);
+  background: rgba(120, 53, 15, 0.28);
+  color: #fcd34d;
+}
+
+:root[data-theme="dark"] .report-validation-status.matched {
+  background: rgba(22, 101, 52, 0.58);
+  color: #bbf7d0;
+}
+
+:root[data-theme="dark"] .report-validation-status.mismatched {
+  background: rgba(146, 64, 14, 0.62);
+  color: #fde68a;
+}
+
+:root[data-theme="dark"] .report-validation-row.mismatched td:last-child {
+  color: #fcd34d;
 }
 
 :root[data-theme="dark"] .error-panel,

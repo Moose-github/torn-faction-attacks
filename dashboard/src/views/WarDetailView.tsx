@@ -1,5 +1,5 @@
 import React from "react";
-import { CalendarClock, ChevronDown, ChevronRight, Radar, Swords, Target } from "lucide-react";
+import { CalendarClock, CheckCircle2, ChevronDown, ChevronRight, Radar, Swords, Target, TriangleAlert } from "lucide-react";
 import {
   ChainBonusAttack,
   MemberAttack,
@@ -17,7 +17,6 @@ import { MemberCombatHeatmap } from "../components/MemberCombatHeatmap";
 import { MemberAttackList, MemberTable } from "../components/MemberTables";
 import {
   discrepancyAside,
-  formatReportComparison,
   ReportDiscrepancyPanel,
 } from "../components/ReportDiscrepancies";
 import {
@@ -168,6 +167,30 @@ export function WarDetailView({
   const showMemberCombatHeatmap = hasWarData;
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
   const isScheduledWar = selectedWar.status === "scheduled";
+  const reportValidationRows = hasTornReport
+    ? buildReportValidationRows({
+        factionAttacks: {
+          derived: derivedSuccessfulAttacks,
+          report: selectedWar.official_home_attacks,
+        },
+        factionRespect: {
+          derived: derivedRespectGained,
+          report: selectedWar.official_home_score,
+        },
+        enemyAttacks: {
+          derived: derivedEnemySuccessfulAttacks,
+          report: selectedWar.official_enemy_attacks,
+        },
+        enemyScore: {
+          derived: derivedRespectLost,
+          report: selectedWar.official_enemy_score,
+        },
+      })
+    : [];
+  const reportMismatchCount = reportValidationRows.filter((row) => row.difference !== 0).length;
+  const reportValidationAside = reportMismatchCount === 0
+    ? "All totals match"
+    : `${reportMismatchCount} mismatched ${reportMismatchCount === 1 ? "measure" : "measures"}`;
 
   React.useEffect(() => {
     if (!selectedMember || memberAttacks.length === 0 || isLoadingMemberAttacks) {
@@ -290,43 +313,47 @@ export function WarDetailView({
               {hasWarData && hasTornReport ? (
                 <CollapsiblePanel
                   title="Torn report validation"
+                  aside={reportValidationAside}
                   collapsed={collapsedPanels.reportValidation ?? true}
                   onToggle={() => onTogglePanel("reportValidation")}
                   className="table-panel"
                 >
-                  <p className="panel-description">
-                    Compares dashboard totals with Torn's official ranked war report.
-                  </p>
+                  <div className={reportMismatchCount === 0 ? "report-validation-summary matched" : "report-validation-summary mismatched"}>
+                    <div className="report-validation-summary-status">
+                      {reportMismatchCount === 0 ? <CheckCircle2 size={18} /> : <TriangleAlert size={18} />}
+                      <strong>{reportMismatchCount === 0 ? "Official report matches dashboard totals" : "Official report needs review"}</strong>
+                    </div>
+                    <span>
+                      {reportMismatchCount === 0
+                        ? "Dashboard totals line up with Torn's ranked war report."
+                        : "Use the breakdown below to identify member, timing, or chain bonus differences."}
+                    </span>
+                  </div>
                   <div className="table-scroll">
                     <table className="report-validation-table">
                       <thead>
                         <tr>
                           <th>Measure</th>
+                          <th>Status</th>
                           <th>Dashboard derived</th>
                           <th>Torn report</th>
+                          <th>Delta</th>
                         </tr>
                       </thead>
                       <tbody>
-                        <tr>
-                          <td>Faction attacks</td>
-                          <td>{formatNumber(derivedSuccessfulAttacks)}</td>
-                          <td>{formatReportComparison(selectedWar.official_home_attacks, derivedSuccessfulAttacks)}</td>
-                        </tr>
-                        <tr>
-                          <td>Faction respect</td>
-                          <td>{formatNumber(derivedRespectGained)}</td>
-                          <td>{formatReportComparison(selectedWar.official_home_score, derivedRespectGained)}</td>
-                        </tr>
-                        <tr>
-                          <td>Enemy attacks</td>
-                          <td>{formatNumber(derivedEnemySuccessfulAttacks)}</td>
-                          <td>{formatReportComparison(selectedWar.official_enemy_attacks, derivedEnemySuccessfulAttacks)}</td>
-                        </tr>
-                        <tr>
-                          <td>Enemy score</td>
-                          <td>{formatNumber(derivedRespectLost)}</td>
-                          <td>{formatReportComparison(selectedWar.official_enemy_score, derivedRespectLost)}</td>
-                        </tr>
+                        {reportValidationRows.map((row) => (
+                          <tr key={row.label} className={row.difference === 0 ? "report-validation-row matched" : "report-validation-row mismatched"}>
+                            <td>{row.label}</td>
+                            <td>
+                              <span className={row.difference === 0 ? "report-validation-status matched" : "report-validation-status mismatched"}>
+                                {row.difference === 0 ? "Match" : "Mismatch"}
+                              </span>
+                            </td>
+                            <td>{formatNumber(row.derived)}</td>
+                            <td>{formatNumber(row.report)}</td>
+                            <td>{formatSignedDelta(row.difference)}</td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -557,6 +584,49 @@ function formatCsvDecimal(value: number | null | undefined): string {
   }
 
   return Number(value).toFixed(2);
+}
+
+type ReportValidationRow = {
+  label: string;
+  derived: number;
+  report: number;
+  difference: number;
+};
+
+function buildReportValidationRows(values: {
+  factionAttacks: { derived: number; report: number | null };
+  factionRespect: { derived: number; report: number | null };
+  enemyAttacks: { derived: number; report: number | null };
+  enemyScore: { derived: number; report: number | null };
+}): ReportValidationRow[] {
+  return [
+    reportValidationRow("Faction attacks", values.factionAttacks),
+    reportValidationRow("Faction respect", values.factionRespect),
+    reportValidationRow("Enemy attacks", values.enemyAttacks),
+    reportValidationRow("Enemy score", values.enemyScore),
+  ];
+}
+
+function reportValidationRow(
+  label: string,
+  value: { derived: number; report: number | null },
+): ReportValidationRow {
+  const report = Number(value.report ?? 0);
+
+  return {
+    label,
+    derived: value.derived,
+    report,
+    difference: value.derived - report,
+  };
+}
+
+function formatSignedDelta(value: number): string {
+  if (value === 0) {
+    return "0";
+  }
+
+  return value > 0 ? `+${formatNumber(value)}` : formatNumber(value);
 }
 
 function exportMemberAttacksCsv(
