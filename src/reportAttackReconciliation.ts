@@ -10,12 +10,15 @@ const FETCH_WINDOW_BUFFER_SECONDS = 60;
 const LOCAL_ATTACK_QUERY_CHUNK_SIZE = 80;
 const INSERT_ITEM_CHUNK_SIZE = 50;
 const RESPECT_TOLERANCE = 0.01;
+const RECONCILIATION_LOGIC_VERSION = 2;
 
 const POSITIVE_ATTACK_RESULT_SET = new Set<string>(POSITIVE_ATTACK_RESULTS);
 
 export type ReportAttackReconciliationMismatch = {
   member_id: number;
   member_name: string | null;
+  local_attacks: number;
+  report_attacks: number;
   attack_diff: number;
 };
 
@@ -247,6 +250,7 @@ export async function runWarReportAttackReconciliationIfNeeded(
     if (
       !options.force &&
       latestRun?.status === "completed" &&
+      latestRun.logic_version === RECONCILIATION_LOGIC_VERSION &&
       nullableNumberEquals(latestRun.torn_report_fetched_at, options.war.torn_report_fetched_at)
     ) {
       return {
@@ -292,8 +296,27 @@ export async function runWarReportAttackReconciliationIfNeeded(
         ...localById.keys(),
         ...localIncludedById.keys(),
       ]);
+      const tornComparableCountByMember = countTornAttacksByMember(tornComparable);
+      const localIncludedCountByMember = countLocalAttacksByMember(localIncludedRows);
 
       const findings: ReconciliationFinding[] = [];
+
+      for (const mismatch of attackMismatches) {
+        const tornAttackLogCount = tornComparableCountByMember.get(mismatch.member_id) ?? 0;
+        const localIncludedCount = localIncludedCountByMember.get(mismatch.member_id) ?? 0;
+        const reportAttackGap = mismatch.report_attacks - tornAttackLogCount;
+        if (reportAttackGap > 0) {
+          findings.push(findingFromReportTotalGap(options.war.id, mismatch, {
+            classification: "report_total_gap",
+            reason: `Torn's ranked war report credits ${formatCount(reportAttackGap, "more attack")} than Torn's faction attack log returned for this member. Local counted ${localIncludedCount}; attack log returned ${tornAttackLogCount}; report total is ${mismatch.report_attacks}.`,
+          }));
+        } else if (reportAttackGap < 0) {
+          findings.push(findingFromReportTotalGap(options.war.id, mismatch, {
+            classification: "attack_log_extra",
+            reason: `Torn's faction attack log returned ${formatCount(Math.abs(reportAttackGap), "more report-comparable attack")} than Torn's ranked war report credits for this member. Local counted ${localIncludedCount}; attack log returned ${tornAttackLogCount}; report total is ${mismatch.report_attacks}.`,
+          }));
+        }
+      }
 
       for (const attack of tornComparable) {
         const local = localById.get(attack.id);
@@ -670,6 +693,63 @@ function normalizeLocalAttackRow(row: LocalAttackRow): LocalAttackRow {
   };
 }
 
+function countTornAttacksByMember(attacks: TornAttack[]): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const attack of attacks) {
+    const memberId = attack.attacker?.id;
+    if (memberId === undefined) continue;
+    counts.set(memberId, (counts.get(memberId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function countLocalAttacksByMember(rows: LocalAttackRow[]): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const row of rows) {
+    if (row.attacker_id === null) continue;
+    counts.set(row.attacker_id, (counts.get(row.attacker_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function findingFromReportTotalGap(
+  warId: number,
+  mismatch: ReportAttackReconciliationMismatch,
+  options: {
+    classification: string;
+    reason: string;
+  },
+): ReconciliationFinding {
+  return {
+    warId,
+    memberId: mismatch.member_id,
+    memberName: mismatch.member_name,
+    attackId: null,
+    attackCode: null,
+    source: "torn",
+    classification: options.classification,
+    reason: options.reason,
+    started: null,
+    ended: null,
+    attackerId: mismatch.member_id,
+    attackerName: mismatch.member_name,
+    defenderId: null,
+    defenderName: null,
+    defenderFactionId: null,
+    defenderFactionName: null,
+    result: null,
+    respectGain: null,
+    chain: null,
+    localWarId: warId,
+    localIncluded: null,
+    tornIncluded: null,
+  };
+}
+
+function formatCount(count: number, label: string): string {
+  return `${count} ${label}${count === 1 ? "" : "s"}`;
+}
+
 function findingFromTornAttack(
   warId: number,
   memberId: number,
@@ -825,10 +905,10 @@ async function replaceReconciliationItems(
 async function readLatestReconciliationRun(
   env: Env,
   warId: number,
-): Promise<{ id: number; status: string; torn_report_fetched_at: number | null } | null> {
+): Promise<{ id: number; status: string; torn_report_fetched_at: number | null; logic_version: number } | null> {
   const row = await env.DB.prepare(
     `
-    SELECT id, status, torn_report_fetched_at
+    SELECT id, status, torn_report_fetched_at, logic_version
     FROM war_report_attack_reconciliation_runs
     WHERE war_id = ?
     ORDER BY created_at DESC, id DESC
@@ -843,6 +923,7 @@ async function readLatestReconciliationRun(
     id: Number((row as any).id),
     status: String((row as any).status),
     torn_report_fetched_at: nullableNumber((row as any).torn_report_fetched_at),
+    logic_version: Number((row as any).logic_version ?? 1),
   };
 }
 
@@ -864,9 +945,10 @@ async function createReconciliationRun(
       official_start_time,
       official_end_time,
       member_ids_json,
+      logic_version,
       status
     )
-    VALUES (?, ?, ?, ?, ?, 'running')
+    VALUES (?, ?, ?, ?, ?, ?, 'running')
     `,
   )
     .bind(
@@ -875,6 +957,7 @@ async function createReconciliationRun(
       options.officialStartTime,
       options.officialEndTime,
       JSON.stringify(options.memberIds),
+      RECONCILIATION_LOGIC_VERSION,
     )
     .run();
 

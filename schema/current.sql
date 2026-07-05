@@ -1013,6 +1013,7 @@ CREATE TABLE war_report_attack_reconciliation_runs (
   official_start_time INTEGER NOT NULL,
   official_end_time INTEGER NOT NULL,
   member_ids_json TEXT NOT NULL,
+  logic_version INTEGER NOT NULL DEFAULT 1,
   status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
   torn_attacks_fetched INTEGER NOT NULL DEFAULT 0,
   comparable_torn_attacks INTEGER NOT NULL DEFAULT 0,

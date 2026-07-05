@@ -233,7 +233,7 @@ function AttackReconciliationRow({ item }: { item: ReportAttackReconciliationIte
         </span>
       </td>
       <td>{attackLink(item)}</td>
-      <td>{item.defender_name ?? `#${item.defender_id ?? "-"}`}</td>
+      <td>{item.defender_name ?? (item.defender_id === null ? "-" : `#${item.defender_id}`)}</td>
       <td>{item.result ?? "-"}</td>
       <td>{item.respect_gain === null ? "-" : formatNumber(item.respect_gain)}</td>
       <td>{item.reason}</td>
@@ -293,6 +293,10 @@ function classificationLabel(classification: string): string {
       return "Changed";
     case "local_only":
       return "Local only";
+    case "report_total_gap":
+      return "Report gap";
+    case "attack_log_extra":
+      return "Log extra";
     default:
       return classification.split("_").join(" ");
   }
@@ -304,6 +308,10 @@ function classificationTone(classification: string): string {
   }
 
   if (classification === "present_excluded" || classification === "field_mismatch") {
+    return "warn";
+  }
+
+  if (classification === "report_total_gap" || classification === "attack_log_extra") {
     return "warn";
   }
 
