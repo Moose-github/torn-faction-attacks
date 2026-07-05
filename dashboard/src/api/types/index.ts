@@ -633,9 +633,9 @@ export type ReportDiscrepancyGroup = {
   > & Partial<Pick<ChainBonusAttack, "chain" | "adjusted_respect_gain" | "respect_removed">>>;
 };
 
-export type ReportDiscrepanciesResponse = {
-  ok: boolean;
-  war: {
+export type ReportDiscrepanciesResponse = {
+  ok: boolean;
+  war: {
     id: number;
     name: string;
     practical_start_time: number;
@@ -646,14 +646,15 @@ export type ReportDiscrepanciesResponse = {
     war_type: Exclude<WarType, "all">;
   };
   groups: Record<string, ReportDiscrepancyGroup>;
-  member_report_comparison?: {
-    available: boolean;
-    totals: MemberReportComparisonTotals;
-    mismatches: MemberReportComparisonRow[];
-  };
-};
-
-export type MemberReportComparisonTotals = {
+  member_report_comparison?: {
+    available: boolean;
+    totals: MemberReportComparisonTotals;
+    mismatches: MemberReportComparisonRow[];
+  };
+  attack_reconciliation?: ReportAttackReconciliation | null;
+};
+
+export type MemberReportComparisonTotals = {
   local_attacks: number;
   report_attacks: number;
   attack_diff: number;
@@ -663,11 +664,57 @@ export type MemberReportComparisonTotals = {
 };
 
 export type MemberReportComparisonRow = MemberReportComparisonTotals & {
-  member_id: number;
-  member_name: string | null;
-};
-
-export type AdminWarPayload = {
+  member_id: number;
+  member_name: string | null;
+};
+
+export type ReportAttackReconciliation = {
+  id: number;
+  war_id: number;
+  torn_report_fetched_at: number | null;
+  official_start_time: number;
+  official_end_time: number;
+  member_ids: number[];
+  status: "running" | "completed" | "failed";
+  torn_attacks_fetched: number;
+  comparable_torn_attacks: number;
+  local_attacks_checked: number;
+  findings_count: number;
+  truncated: number;
+  error: string | null;
+  created_at: number;
+  completed_at: number | null;
+  items: ReportAttackReconciliationItem[];
+};
+
+export type ReportAttackReconciliationItem = {
+  id: number;
+  run_id: number;
+  war_id: number;
+  member_id: number;
+  member_name: string | null;
+  attack_id: number | null;
+  attack_code: string | null;
+  source: "torn" | "local" | "both";
+  classification: string;
+  reason: string;
+  started: number | null;
+  ended: number | null;
+  attacker_id: number | null;
+  attacker_name: string | null;
+  defender_id: number | null;
+  defender_name: string | null;
+  defender_faction_id: number | null;
+  defender_faction_name: string | null;
+  result: string | null;
+  respect_gain: number | null;
+  chain: number | null;
+  local_war_id: number | null;
+  local_included: number | null;
+  torn_included: number | null;
+};
+
+export type AdminWarPayload = {
   id?: number;
   status?: string;
   name?: string;

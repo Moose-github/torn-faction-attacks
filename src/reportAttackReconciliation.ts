@@ -41,6 +41,52 @@ export type ReportAttackReconciliationResult = {
   error?: string;
 };
 
+export type ReportAttackReconciliationItem = {
+  id: number;
+  run_id: number;
+  war_id: number;
+  member_id: number;
+  member_name: string | null;
+  attack_id: number | null;
+  attack_code: string | null;
+  source: "torn" | "local" | "both";
+  classification: string;
+  reason: string;
+  started: number | null;
+  ended: number | null;
+  attacker_id: number | null;
+  attacker_name: string | null;
+  defender_id: number | null;
+  defender_name: string | null;
+  defender_faction_id: number | null;
+  defender_faction_name: string | null;
+  result: string | null;
+  respect_gain: number | null;
+  chain: number | null;
+  local_war_id: number | null;
+  local_included: number | null;
+  torn_included: number | null;
+};
+
+export type ReportAttackReconciliationDetails = {
+  id: number;
+  war_id: number;
+  torn_report_fetched_at: number | null;
+  official_start_time: number;
+  official_end_time: number;
+  member_ids: number[];
+  status: "running" | "completed" | "failed";
+  torn_attacks_fetched: number;
+  comparable_torn_attacks: number;
+  local_attacks_checked: number;
+  findings_count: number;
+  truncated: number;
+  error: string | null;
+  created_at: number;
+  completed_at: number | null;
+  items: ReportAttackReconciliationItem[];
+};
+
 type LocalAttackRow = {
   id: number;
   war_id: number | null;
@@ -83,6 +129,96 @@ type ReconciliationFinding = {
   localIncluded: boolean | null;
   tornIncluded: boolean | null;
 };
+
+export async function getLatestWarReportAttackReconciliation(
+  env: Env,
+  warId: number,
+): Promise<ReportAttackReconciliationDetails | null> {
+  const run = await env.DB.prepare(
+    `
+    SELECT
+      id,
+      war_id,
+      torn_report_fetched_at,
+      official_start_time,
+      official_end_time,
+      member_ids_json,
+      status,
+      torn_attacks_fetched,
+      comparable_torn_attacks,
+      local_attacks_checked,
+      findings_count,
+      truncated,
+      error,
+      created_at,
+      completed_at
+    FROM war_report_attack_reconciliation_runs
+    WHERE war_id = ?
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first();
+
+  if (!run) {
+    return null;
+  }
+
+  const itemsResult = await env.DB.prepare(
+    `
+    SELECT
+      id,
+      run_id,
+      war_id,
+      member_id,
+      member_name,
+      attack_id,
+      attack_code,
+      source,
+      classification,
+      reason,
+      started,
+      ended,
+      attacker_id,
+      attacker_name,
+      defender_id,
+      defender_name,
+      defender_faction_id,
+      defender_faction_name,
+      result,
+      respect_gain,
+      chain,
+      local_war_id,
+      local_included,
+      torn_included
+    FROM war_report_attack_reconciliation_items
+    WHERE run_id = ?
+    ORDER BY member_name COLLATE NOCASE ASC, member_id ASC, started ASC, id ASC
+    `,
+  )
+    .bind((run as any).id)
+    .all();
+
+  return {
+    id: Number((run as any).id),
+    war_id: Number((run as any).war_id),
+    torn_report_fetched_at: nullableNumber((run as any).torn_report_fetched_at),
+    official_start_time: Number((run as any).official_start_time),
+    official_end_time: Number((run as any).official_end_time),
+    member_ids: parseMemberIds((run as any).member_ids_json),
+    status: normalizeRunStatus((run as any).status),
+    torn_attacks_fetched: Number((run as any).torn_attacks_fetched ?? 0),
+    comparable_torn_attacks: Number((run as any).comparable_torn_attacks ?? 0),
+    local_attacks_checked: Number((run as any).local_attacks_checked ?? 0),
+    findings_count: Number((run as any).findings_count ?? 0),
+    truncated: Number((run as any).truncated ?? 0),
+    error: (run as any).error ?? null,
+    created_at: Number((run as any).created_at),
+    completed_at: nullableNumber((run as any).completed_at),
+    items: ((itemsResult.results ?? []) as any[]).map(normalizeReconciliationItem),
+  };
+}
 
 export async function runWarReportAttackReconciliationIfNeeded(
   env: Env,
@@ -806,6 +942,54 @@ function nullableNumber(value: unknown): number | null {
 
 function nullableBoolToInt(value: boolean | null): number | null {
   return value === null ? null : boolToInt(value);
+}
+
+function normalizeReconciliationItem(row: any): ReportAttackReconciliationItem {
+  return {
+    id: Number(row.id),
+    run_id: Number(row.run_id),
+    war_id: Number(row.war_id),
+    member_id: Number(row.member_id),
+    member_name: row.member_name ?? null,
+    attack_id: nullableNumber(row.attack_id),
+    attack_code: row.attack_code ?? null,
+    source: normalizeItemSource(row.source),
+    classification: String(row.classification ?? "unknown"),
+    reason: String(row.reason ?? ""),
+    started: nullableNumber(row.started),
+    ended: nullableNumber(row.ended),
+    attacker_id: nullableNumber(row.attacker_id),
+    attacker_name: row.attacker_name ?? null,
+    defender_id: nullableNumber(row.defender_id),
+    defender_name: row.defender_name ?? null,
+    defender_faction_id: nullableNumber(row.defender_faction_id),
+    defender_faction_name: row.defender_faction_name ?? null,
+    result: row.result ?? null,
+    respect_gain: nullableNumber(row.respect_gain),
+    chain: nullableNumber(row.chain),
+    local_war_id: nullableNumber(row.local_war_id),
+    local_included: nullableNumber(row.local_included),
+    torn_included: nullableNumber(row.torn_included),
+  };
+}
+
+function normalizeItemSource(value: unknown): "torn" | "local" | "both" {
+  return value === "local" || value === "both" ? value : "torn";
+}
+
+function normalizeRunStatus(value: unknown): "running" | "completed" | "failed" {
+  return value === "running" || value === "failed" ? value : "completed";
+}
+
+function parseMemberIds(value: unknown): number[] {
+  try {
+    const parsed = JSON.parse(String(value ?? "[]"));
+    return Array.isArray(parsed)
+      ? parsed.map((item) => Number(item)).filter((item) => Number.isInteger(item))
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function nullableNumberEquals(left: number | null, right: number | null): boolean {

@@ -8,7 +8,10 @@ import {
 import { bumpWarCacheVersion } from "./cacheVersions";
 import { OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { fetchTrackedTornJson } from "./external/torn";
-import { runWarReportAttackReconciliationIfNeeded } from "./reportAttackReconciliation";
+import {
+  getLatestWarReportAttackReconciliation,
+  runWarReportAttackReconciliationIfNeeded,
+} from "./reportAttackReconciliation";
 import { withTornKeyPool } from "./tornKeyPool";
 import { Env, TornRankedWarReport, TornRankedWarReportMember, TornRankedWarReportResponse } from "./types";
 import { applyRankedWarReportStats } from "./warStats";
@@ -120,8 +123,8 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
         homeMembers,
       )
       : null;
-    const attackReconciliation = memberReportComparison
-      ? await runWarReportAttackReconciliationIfNeeded(env, {
+    if (memberReportComparison) {
+      await runWarReportAttackReconciliationIfNeeded(env, {
         war: {
           id: war.id,
           name: war.name,
@@ -131,8 +134,9 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
           enemy_faction_id: war.enemy_faction_id,
         },
         mismatches: memberReportComparison.mismatches,
-      })
-      : { status: "skipped", reason: "missing_official_window" };
+      });
+    }
+    const attackReconciliation = await getLatestWarReportAttackReconciliation(env, war.id);
     await bumpWarCacheVersion(env, war.name);
 
     return json({ ok: true, ...result, attack_reconciliation: attackReconciliation });
@@ -247,7 +251,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       chain_bonus_adjustments: chainBonusAdjustments,
       outside_official_window: outsideOfficialWindow,
     };
-    const attackReconciliation = await runWarReportAttackReconciliationIfNeeded(env, {
+    await runWarReportAttackReconciliationIfNeeded(env, {
       war: {
         id: war.id,
         name: war.name,
@@ -258,6 +262,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       },
       mismatches: memberReportComparison.mismatches,
     });
+    const attackReconciliation = await getLatestWarReportAttackReconciliation(env, war.id);
 
     return json({
       ok: true,

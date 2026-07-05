@@ -1,4 +1,10 @@
-import { ChainBonusAttack, MemberReportComparisonRow, ReportDiscrepanciesResponse } from "../api";
+import {
+  ChainBonusAttack,
+  MemberReportComparisonRow,
+  ReportAttackReconciliation,
+  ReportAttackReconciliationItem,
+  ReportDiscrepanciesResponse,
+} from "../api";
 import { EmptyState } from "./Common";
 import { ChainBonusList } from "./ChainBonuses";
 import { formatDate, formatNumber } from "../utils/format";
@@ -88,6 +94,7 @@ export function ReportDiscrepancyPanel({
             <strong>{discrepancyAside(response)}</strong>
           </div>
           <MemberReportComparison response={response} />
+          <AttackReconciliationInvestigation reconciliation={response.attack_reconciliation ?? null} />
           {unresolvedGroups.map((definition) => renderDiscrepancyGroup(definition, response))}
         </section>
       ) : null}
@@ -144,6 +151,163 @@ function renderDiscrepancyGroup(
       ) : null}
     </section>
   );
+}
+
+function AttackReconciliationInvestigation({
+  reconciliation,
+}: {
+  reconciliation: ReportAttackReconciliation | null;
+}) {
+  if (!reconciliation) {
+    return null;
+  }
+
+  const groupedItems = groupReconciliationItemsByMember(reconciliation.items);
+  const aside = reconciliation.status === "failed"
+    ? "Failed"
+    : `${formatNumber(reconciliation.findings_count)} findings`;
+
+  return (
+    <section className="discrepancy-group attack-reconciliation-group">
+      <div className="discrepancy-group-header">
+        <div>
+          <h3>Attack investigation</h3>
+          <p>
+            Compares Torn's official-window outgoing attacks with local attack rows for mismatched members.
+          </p>
+        </div>
+        <strong>{aside}</strong>
+      </div>
+
+      <div className="attack-reconciliation-meta">
+        <span>{formatNumber(reconciliation.comparable_torn_attacks)} Torn attacks checked</span>
+        <span>{formatNumber(reconciliation.local_attacks_checked)} local rows checked</span>
+        {reconciliation.truncated ? <span>Fetch truncated</span> : null}
+      </div>
+
+      {reconciliation.status === "failed" ? (
+        <EmptyState text={reconciliation.error ?? "Attack investigation failed"} />
+      ) : groupedItems.length === 0 ? (
+        <EmptyState text="No attack-level findings found for the current discrepancy." />
+      ) : (
+        groupedItems.map((group) => (
+          <section className="attack-reconciliation-member" key={group.memberId}>
+            <div className="attack-reconciliation-member-header">
+              <h4>{group.memberName ?? `#${group.memberId}`}</h4>
+              <span>{formatNumber(group.items.length)} findings</span>
+            </div>
+            <div className="table-scroll">
+              <table className="discrepancy-table attack-reconciliation-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Finding</th>
+                    <th>Attack</th>
+                    <th>Defender</th>
+                    <th>Result</th>
+                    <th>Respect</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.items.map((item) => (
+                    <AttackReconciliationRow item={item} key={item.id} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ))
+      )}
+    </section>
+  );
+}
+
+function AttackReconciliationRow({ item }: { item: ReportAttackReconciliationItem }) {
+  return (
+    <tr>
+      <td>{formatDate(item.started)}</td>
+      <td>
+        <span className={`attack-reconciliation-badge ${classificationTone(item.classification)}`}>
+          {classificationLabel(item.classification)}
+        </span>
+      </td>
+      <td>{attackLink(item)}</td>
+      <td>{item.defender_name ?? `#${item.defender_id ?? "-"}`}</td>
+      <td>{item.result ?? "-"}</td>
+      <td>{item.respect_gain === null ? "-" : formatNumber(item.respect_gain)}</td>
+      <td>{item.reason}</td>
+    </tr>
+  );
+}
+
+function attackLink(item: ReportAttackReconciliationItem) {
+  if (item.attack_code) {
+    return (
+      <a
+        className="table-link"
+        href={`https://www.torn.com/loader.php?sid=attackLog&ID=${encodeURIComponent(item.attack_code)}`}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {item.attack_code}
+      </a>
+    );
+  }
+
+  return item.attack_id === null ? "-" : `#${item.attack_id}`;
+}
+
+function groupReconciliationItemsByMember(items: ReportAttackReconciliationItem[]) {
+  const groups = new Map<number, {
+    memberId: number;
+    memberName: string | null;
+    items: ReportAttackReconciliationItem[];
+  }>();
+
+  for (const item of items) {
+    const group = groups.get(item.member_id) ?? {
+      memberId: item.member_id,
+      memberName: item.member_name,
+      items: [],
+    };
+    group.memberName = group.memberName ?? item.member_name;
+    group.items.push(item);
+    groups.set(item.member_id, group);
+  }
+
+  return [...groups.values()].sort((a, b) =>
+    (a.memberName ?? "").localeCompare(b.memberName ?? "") || a.memberId - b.memberId
+  );
+}
+
+function classificationLabel(classification: string): string {
+  switch (classification) {
+    case "missing_from_db":
+      return "Missing";
+    case "present_unlinked":
+      return "Unlinked";
+    case "present_excluded":
+      return "Excluded";
+    case "field_mismatch":
+      return "Changed";
+    case "local_only":
+      return "Local only";
+    default:
+      return classification.split("_").join(" ");
+  }
+}
+
+function classificationTone(classification: string): string {
+  if (classification === "missing_from_db" || classification === "present_unlinked") {
+    return "danger";
+  }
+
+  if (classification === "present_excluded" || classification === "field_mismatch") {
+    return "warn";
+  }
+
+  return "neutral";
 }
 
 function MemberReportComparison({

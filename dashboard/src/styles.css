@@ -5609,6 +5609,84 @@ h2 {
   min-width: 680px;
 }
 
+.attack-reconciliation-group {
+  gap: 12px;
+}
+
+.attack-reconciliation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attack-reconciliation-meta span {
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #516172;
+  padding: 3px 8px;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.attack-reconciliation-member {
+  display: grid;
+  gap: 8px;
+}
+
+.attack-reconciliation-member + .attack-reconciliation-member {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 10px;
+}
+
+.attack-reconciliation-member-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.attack-reconciliation-member-header h4 {
+  margin: 0;
+  color: #162033;
+  font-size: 0.92rem;
+}
+
+.attack-reconciliation-member-header span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.attack-reconciliation-table {
+  min-width: 980px;
+}
+
+.attack-reconciliation-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 0.74rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.attack-reconciliation-badge.danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.attack-reconciliation-badge.warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.attack-reconciliation-badge.neutral {
+  background: #e0f2fe;
+  color: #075985;
+}
+
 .member-report-comparison-table {
   min-width: 860px;
 }
@@ -8655,6 +8733,38 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .discrepancy-group-header strong {
   color: var(--accent-strong);
+}
+
+:root[data-theme="dark"] .attack-reconciliation-meta span {
+  background: var(--panel-bg-solid);
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .attack-reconciliation-member + .attack-reconciliation-member {
+  border-top-color: var(--border-faint);
+}
+
+:root[data-theme="dark"] .attack-reconciliation-member-header h4 {
+  color: var(--text-strong);
+}
+
+:root[data-theme="dark"] .attack-reconciliation-member-header span {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .attack-reconciliation-badge.danger {
+  background: rgba(127, 29, 29, 0.45);
+  color: #fecaca;
+}
+
+:root[data-theme="dark"] .attack-reconciliation-badge.warn {
+  background: rgba(146, 64, 14, 0.62);
+  color: #fde68a;
+}
+
+:root[data-theme="dark"] .attack-reconciliation-badge.neutral {
+  background: rgba(14, 116, 144, 0.42);
+  color: #a5f3fc;
 }
 
 :root[data-theme="dark"] .admin-button.primary,
