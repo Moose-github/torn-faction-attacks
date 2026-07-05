@@ -8,8 +8,9 @@ import {
 import { bumpWarCacheVersion } from "./cacheVersions";
 import { OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { fetchTrackedTornJson } from "./external/torn";
+import { runWarReportAttackReconciliationIfNeeded } from "./reportAttackReconciliation";
 import { withTornKeyPool } from "./tornKeyPool";
-import { Env, TornRankedWarReport, TornRankedWarReportResponse } from "./types";
+import { Env, TornRankedWarReport, TornRankedWarReportMember, TornRankedWarReportResponse } from "./types";
 import { applyRankedWarReportStats } from "./warStats";
 import { json, nowSeconds } from "./utils";
 import { readWarFromUrl } from "./warRequest";
@@ -24,6 +25,29 @@ type WarReportRouteWar = {
   official_end_time: number | null;
   enemy_faction_id: number | null;
   war_type: string | null;
+  torn_report_fetched_at: number | null;
+};
+
+type MemberReportComparison = {
+  available: boolean;
+  totals: {
+    local_attacks: number;
+    report_attacks: number;
+    attack_diff: number;
+    local_raw_respect: number;
+    report_score: number;
+    respect_diff: number;
+  };
+  mismatches: Array<{
+    member_id: number;
+    member_name: string | null;
+    local_attacks: number;
+    report_attacks: number;
+    attack_diff: number;
+    local_raw_respect: number;
+    report_score: number;
+    respect_diff: number;
+  }>;
 };
 
 export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response> {
@@ -36,14 +60,21 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
 
     const war = (await env.DB.prepare(
       `
-      SELECT id, name, enemy_faction_id, torn_war_id
+      SELECT id, name, enemy_faction_id, torn_war_id, official_start_time, official_end_time
       FROM wars
       WHERE torn_war_id = ?
       LIMIT 1
       `,
     )
       .bind(tornWarId)
-      .first()) as { id: number; name: string; enemy_faction_id: number | null; torn_war_id: number } | null;
+      .first()) as {
+        id: number;
+        name: string;
+        enemy_faction_id: number | null;
+        torn_war_id: number;
+        official_start_time: number | null;
+        official_end_time: number | null;
+      } | null;
 
     if (!war) {
       return json(
@@ -76,9 +107,35 @@ export async function fetchRankedWarReport(url: URL, env: Env): Promise<Response
       tornWarId,
       report,
     );
+    const officialStartTime = war.official_start_time ?? report.start ?? null;
+    const officialEndTime = war.official_end_time ?? (report.end && report.end > 0 ? report.end : null);
+    const homeMembers = report.factions?.find((faction) => faction.id === HOME_FACTION_ID)?.members ?? [];
+    const memberReportComparison = officialStartTime !== null && officialEndTime !== null
+      ? await getMemberReportComparisonFromHomeMembers(
+        env,
+        war.id,
+        war.enemy_faction_id,
+        officialStartTime,
+        officialEndTime,
+        homeMembers,
+      )
+      : null;
+    const attackReconciliation = memberReportComparison
+      ? await runWarReportAttackReconciliationIfNeeded(env, {
+        war: {
+          id: war.id,
+          name: war.name,
+          torn_report_fetched_at: result.torn_report_fetched_at,
+          official_start_time: officialStartTime,
+          official_end_time: officialEndTime,
+          enemy_faction_id: war.enemy_faction_id,
+        },
+        mismatches: memberReportComparison.mismatches,
+      })
+      : { status: "skipped", reason: "missing_official_window" };
     await bumpWarCacheVersion(env, war.name);
 
-    return json({ ok: true, ...result });
+    return json({ ok: true, ...result, attack_reconciliation: attackReconciliation });
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
   }
@@ -96,7 +153,8 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
         official_start_time,
         official_end_time,
         enemy_faction_id,
-        war_type
+        war_type,
+        torn_report_fetched_at
       `,
     });
     if (war instanceof Response) return war;
@@ -189,6 +247,17 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       chain_bonus_adjustments: chainBonusAdjustments,
       outside_official_window: outsideOfficialWindow,
     };
+    const attackReconciliation = await runWarReportAttackReconciliationIfNeeded(env, {
+      war: {
+        id: war.id,
+        name: war.name,
+        torn_report_fetched_at: war.torn_report_fetched_at,
+        official_start_time: officialStartTime,
+        official_end_time: officialEndTime,
+        enemy_faction_id: war.enemy_faction_id,
+      },
+      mismatches: memberReportComparison.mismatches,
+    });
 
     return json({
       ok: true,
@@ -204,6 +273,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
       },
       groups,
       member_report_comparison: memberReportComparison,
+      attack_reconciliation: attackReconciliation,
     });
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
@@ -248,6 +318,7 @@ export async function applyRankedWarReport(
   official_enemy_attacks: number | null;
   home_report_members: number;
   added_from_report_members: number;
+  torn_report_fetched_at: number;
 }> {
   const factions = report.factions ?? [];
   const homeFaction = factions.find((faction) => faction.id === HOME_FACTION_ID) ?? null;
@@ -255,6 +326,7 @@ export async function applyRankedWarReport(
     factions.find((faction) => factionId !== null && faction.id === factionId) ??
     factions.find((faction) => faction.id !== HOME_FACTION_ID) ??
     null;
+  const reportFetchedAt = nowSeconds();
 
   await env.DB.prepare(
     `
@@ -272,7 +344,7 @@ export async function applyRankedWarReport(
   )
     .bind(
       report.winner ?? null,
-      nowSeconds(),
+      reportFetchedAt,
       report.start ?? null,
       report.end && report.end > 0 ? report.end : null,
       homeFaction?.score ?? null,
@@ -297,6 +369,7 @@ export async function applyRankedWarReport(
     official_home_attacks: homeFaction?.attacks ?? null,
     official_enemy_score: enemyFaction?.score ?? null,
     official_enemy_attacks: enemyFaction?.attacks ?? null,
+    torn_report_fetched_at: reportFetchedAt,
     ...memberStats,
   };
 }
@@ -410,28 +483,8 @@ async function getMemberReportComparison(
   enemyFactionId: number | null,
   officialStartTime: number | null,
   officialEndTime: number | null,
-): Promise<{
-  available: boolean;
-  totals: {
-    local_attacks: number;
-    report_attacks: number;
-    attack_diff: number;
-    local_raw_respect: number;
-    report_score: number;
-    respect_diff: number;
-  };
-  mismatches: Array<{
-    member_id: number;
-    member_name: string | null;
-    local_attacks: number;
-    report_attacks: number;
-    attack_diff: number;
-    local_raw_respect: number;
-    report_score: number;
-    respect_diff: number;
-  }>;
-}> {
-  const emptyComparison = {
+): Promise<MemberReportComparison> {
+  const emptyComparison: MemberReportComparison = {
     available: false,
     totals: {
       local_attacks: 0,
@@ -455,6 +508,24 @@ async function getMemberReportComparison(
     return emptyComparison;
   }
 
+  return getMemberReportComparisonFromHomeMembers(
+    env,
+    warId,
+    enemyFactionId,
+    officialStartTime,
+    officialEndTime,
+    homeFaction.members ?? [],
+  );
+}
+
+async function getMemberReportComparisonFromHomeMembers(
+  env: Env,
+  warId: number,
+  enemyFactionId: number | null,
+  officialStartTime: number,
+  officialEndTime: number,
+  homeMembers: TornRankedWarReportMember[],
+): Promise<MemberReportComparison> {
   const localRows = await env.DB.prepare(
     `
     SELECT
@@ -496,7 +567,7 @@ async function getMemberReportComparison(
     });
   }
 
-  const reportByMember = new Map((homeFaction.members ?? []).map((member) => [member.id, member]));
+  const reportByMember = new Map(homeMembers.map((member) => [member.id, member]));
   const memberIds = new Set([...localByMember.keys(), ...reportByMember.keys()]);
   const rows = [...memberIds].map((memberId) => {
     const local = localByMember.get(memberId);
