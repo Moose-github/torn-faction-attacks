@@ -10,8 +10,11 @@ import {
 } from "./enemyScouting";
 import {
   clearDiscordTravelTrackerTargetFromRequest,
+  enableDiscordTargetTravelTracker,
+  enableDiscordTravelTrackersForWar,
   getDiscordTravelTrackerTargetFromRequest,
   setDiscordTravelTrackerTargetFromRequest,
+  stopDiscordTravelTrackersForWar,
   syncDiscordTravelTracker,
   updateDiscordTravelTrackerSettingsFromRequest,
 } from "./discordTravelTracker";
@@ -362,6 +365,67 @@ describe("Discord travel tracker", () => {
     });
     expect(env.states.target?.enabled).toBe(0);
     expect(env.states.home?.enabled).toBe(1);
+  });
+
+  it("can enable the target tracker for automatic war tracking", async () => {
+    const env = fakeEnv();
+    env.states.target = trackerState("target", { enabled: 0 });
+    env.state = env.states.target;
+
+    await enableDiscordTargetTravelTracker(env);
+
+    expect(env.states.target?.enabled).toBe(1);
+  });
+
+  it("can enable target and home trackers when war tracking starts", async () => {
+    const env = fakeEnv();
+    env.states.target = trackerState("target", { enabled: 0 });
+    env.states.home = trackerState("home", { enabled: 0 });
+    env.state = env.states.target;
+
+    await enableDiscordTravelTrackersForWar(env);
+
+    expect(env.states.target?.enabled).toBe(1);
+    expect(env.states.home?.enabled).toBe(1);
+  });
+
+  it("stops target and home trackers when war tracking ends", async () => {
+    const env = fakeEnv();
+    env.states.target = trackerState("target", {
+      enabled: 1,
+      message_id: "target-message",
+      content_hash: "old-target-hash",
+      target_source: "war",
+      war_id: 10,
+      faction_id: 123,
+    });
+    env.state = env.states.target;
+    env.states.home = trackerState("home", {
+      enabled: 1,
+      message_id: "home-message",
+      content_hash: "old-home-hash",
+      target_source: "home",
+      faction_id: 8803,
+    });
+
+    await stopDiscordTravelTrackersForWar(env);
+
+    expect(env.states.target?.enabled).toBe(0);
+    expect(env.states.home?.enabled).toBe(0);
+    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+      env,
+      "target-message",
+      expect.stringContaining("Target Travel Tracker: stopped"),
+      { users: [], roles: [] },
+      { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
+    );
+    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+      env,
+      "home-message",
+      expect.stringContaining("Buttgrass Travel Tracker: stopped"),
+      { users: [], roles: [] },
+      { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
+    );
   });
 
   it("keeps tracker embeds above the old message content limit", async () => {

@@ -168,6 +168,25 @@ export async function updateDiscordTravelTrackerSettingsFromRequest(request: Req
   });
 }
 
+export async function enableDiscordTargetTravelTracker(env: Env): Promise<void> {
+  await setTravelTrackerEnabled(env, TARGET_TRACKER_KEY, true);
+}
+
+export async function enableDiscordTravelTrackersForWar(env: Env): Promise<void> {
+  await Promise.all([
+    setTravelTrackerEnabled(env, TARGET_TRACKER_KEY, true),
+    setTravelTrackerEnabled(env, HOME_TRACKER_KEY, true),
+  ]);
+}
+
+export async function stopDiscordTravelTrackersForWar(env: Env): Promise<void> {
+  await Promise.all([
+    setTravelTrackerEnabled(env, TARGET_TRACKER_KEY, false),
+    setTravelTrackerEnabled(env, HOME_TRACKER_KEY, false),
+  ]);
+  await syncDiscordTravelTracker(env, { force: true });
+}
+
 export async function setDiscordTravelTrackerTargetFromRequest(request: Request, env: Env): Promise<Response> {
   const body = await readJsonObject(request);
   const factionId = positiveIntegerOrNull(body.faction_id);

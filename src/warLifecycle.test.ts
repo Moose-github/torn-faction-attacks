@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyTornOfficialWarEnd, endWarPractically, startWarTracking } from "./warLifecycle";
-import { runWarLiveStartedHooks } from "./warLifecycleHooks";
+import {
+  runWarLiveStartedHooks,
+  runWarPreLiveStartedHooks,
+} from "./warLifecycleHooks";
 import type { Env } from "./types";
 
 vi.mock("./cacheVersions", () => ({
@@ -9,6 +12,11 @@ vi.mock("./cacheVersions", () => ({
 
 vi.mock("./chainWatch", () => ({
   ensureChainWatchEnabledForWar: vi.fn(),
+}));
+
+vi.mock("./discordTravelTracker", () => ({
+  enableDiscordTravelTrackersForWar: vi.fn(),
+  stopDiscordTravelTrackersForWar: vi.fn(),
 }));
 
 vi.mock("./enemyScouting", () => ({
@@ -20,7 +28,17 @@ vi.mock("./warStats", () => ({
   rebuildWarStatsFromRaw: vi.fn(),
 }));
 
+import {
+  enableDiscordTravelTrackersForWar,
+  stopDiscordTravelTrackersForWar,
+} from "./discordTravelTracker";
+import { fetchEnemyScoutingOnceForWar } from "./enemyScouting";
+
 describe("war lifecycle global state", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("starts a scheduled war through the war-start lifecycle hooks", async () => {
     const db = fakeDb([], [
       {
@@ -103,6 +121,19 @@ describe("war lifecycle global state", () => {
       .toBe(false);
   });
 
+  it("enables the Discord travel trackers when pre-live tracking starts", async () => {
+    const db = fakeDb([]);
+    const env = envWithDb(db);
+
+    await runWarPreLiveStartedHooks(env, 7);
+
+    expect(enableDiscordTravelTrackersForWar).toHaveBeenCalledWith(env);
+    expect(fetchEnemyScoutingOnceForWar).toHaveBeenCalledWith(env, 7);
+    expect(db.calls).toContainEqual(expect.objectContaining({
+      params: ["war_lifecycle:pre_live_started:7:discord_travel_trackers_enabled"],
+    }));
+  });
+
   it("manual practical finish keeps the war active and marks the global state practically finished", async () => {
     const db = fakeDb([
       {
@@ -110,8 +141,9 @@ describe("war lifecycle global state", () => {
         result: { practical_finish_time: 200 },
       },
     ]);
+    const env = envWithDb(db);
 
-    await endWarPractically(envWithDb(db), {
+    await endWarPractically(env, {
       warId: 7,
       finishAt: 200,
       enemyFactionId: 123,
@@ -125,6 +157,7 @@ describe("war lifecycle global state", () => {
     expect(db.calls).toContainEqual(expect.objectContaining({
       params: ["attacks", 7, "practically_finished"],
     }));
+    expect(stopDiscordTravelTrackersForWar).toHaveBeenCalledWith(env);
   });
 
   it("official Torn end marks the war ended and clears global state when no scheduled war exists", async () => {
@@ -134,13 +167,15 @@ describe("war lifecycle global state", () => {
         result: null,
       },
     ]);
+    const env = envWithDb(db);
 
-    await applyTornOfficialWarEnd(envWithDb(db), officialEndOptions());
+    await applyTornOfficialWarEnd(env, officialEndOptions());
 
     expect(db.calls.find((call) => call.sql.includes("UPDATE wars"))?.sql).toContain("status = 'ended'");
     expect(db.calls.some((call) =>
       call.sql.includes("active_war_id = NULL") && call.sql.includes("war_state = 'none'")
     )).toBe(true);
+    expect(stopDiscordTravelTrackersForWar).toHaveBeenCalledWith(env);
   });
 
   it("official Torn end moves global state to the next scheduled war when one exists", async () => {

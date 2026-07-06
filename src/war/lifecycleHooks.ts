@@ -2,6 +2,10 @@ import { HOME_FACTION_ID } from "../constants";
 import { bumpWarCacheVersionById } from "../cacheVersions";
 import { ensureChainWatchEnabledForWar } from "../chainWatch";
 import {
+  enableDiscordTravelTrackersForWar,
+  stopDiscordTravelTrackersForWar,
+} from "../discordTravelTracker";
+import {
   clearLiveEnemyTrackingData,
   fetchEnemyScoutingOnceForWar,
 } from "../enemyScouting";
@@ -39,6 +43,10 @@ export async function runWarScheduledHooks(env: Env, warId: number): Promise<voi
 
 export async function runWarPreLiveStartedHooks(env: Env, warId: number): Promise<void> {
   await runWarLifecycleHandlersOnce(env, "pre_live_started", warId, [
+    {
+      name: "discord_travel_trackers_enabled",
+      run: () => enableDiscordTravelTrackersForWar(env),
+    },
     {
       name: "enemy_scouting_once",
       run: () => fetchEnemyScoutingOnceForWar(env, warId),
@@ -80,6 +88,10 @@ export async function runWarPracticallyFinishedHooks(
       run: () => stopLiveEnemyTracking(env, options.warId, options.enemyFactionId),
     },
     {
+      name: "discord_travel_trackers_stopped",
+      run: () => stopDiscordTravelTrackersForWar(env),
+    },
+    {
       name: "derived_stats_refreshed",
       run: () => refreshWarDerivedStats(env, options.warId),
     },
@@ -98,6 +110,10 @@ export async function runWarOfficiallyEndedHooks(
     {
       name: "live_enemy_tracking_stopped",
       run: () => stopLiveEnemyTracking(env, options.warId, options.enemyFactionId),
+    },
+    {
+      name: "discord_travel_trackers_stopped",
+      run: () => stopDiscordTravelTrackersForWar(env),
     },
     {
       name: "war_cache_bumped",
