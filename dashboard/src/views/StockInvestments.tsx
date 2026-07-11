@@ -22,6 +22,7 @@ import {
 } from "../utils/ownedStocks";
 
 const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
+const DEFAULT_MINIMUM_ROI = "5";
 
 export function StockInvestments() {
   const storageUserId = React.useMemo(() => getStoredAuthSession()?.user.id ?? null, []);
@@ -30,7 +31,7 @@ export function StockInvestments() {
   const [benefitInputs, setBenefitInputs] = React.useState<Record<string, string>>({});
   const [investmentAmount, setInvestmentAmount] = React.useState("");
   const [affordableOnly, setAffordableOnly] = React.useState(false);
-  const [minimumRoi, setMinimumRoi] = React.useState("5");
+  const [minimumRoi, setMinimumRoi] = React.useState(DEFAULT_MINIMUM_ROI);
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
   const [ownedSnapshot, setOwnedSnapshot] = React.useState<OwnedStockSnapshot | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -208,7 +209,9 @@ export function StockInvestments() {
   const bestRowSharesRemaining = bestRow ? Math.max(0, bestRow.total_shares_required - bestRowOwnedShares) : 0;
   const totalPricedRows = roiData?.rows.length ?? 0;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
-  const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== "" || affordableOnly;
+  const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
+  const benefitValuesRefreshedAt = roiData?.benefit_prices_refreshed_at ?? null;
+  const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly;
 
   return (
     <>
@@ -229,20 +232,24 @@ export function StockInvestments() {
 
       <section className="status-grid stock-status-grid stock-investment-status-grid">
         <StatusMetric
+          className="stock-best-block-card"
           label="Best next block"
-          value={bestRow ? `${bestRow.acronym ?? `#${bestRow.stock_id}`} ${formatPercent(bestRow.roi_percent)}` : "-"}
+          value={bestRow ? `${bestRow.acronym ?? `#${bestRow.stock_id}`} Block ${bestRow.increment}` : "-"}
           detail={bestRow
-            ? bestRowOwnedShares > 0
-              ? `${formatMoney(bestRow.increment_cost)} for increment ${bestRow.increment} - need ${formatNumber(bestRowSharesRemaining)} shares`
-              : `${formatMoney(bestRow.increment_cost)} for increment ${bestRow.increment}`
+            ? (
+              <span className="stock-metric-detail-stack">
+                <span>{formatPercent(bestRow.roi_percent)} ROI - {formatMoney(bestRow.increment_cost)} next cost</span>
+                <span>{bestRowOwnedShares > 0 ? `Need ${formatNumber(bestRowSharesRemaining)} more shares` : `${formatNumber(bestRow.total_shares_required)} shares required`}</span>
+              </span>
+            )
             : rows.length > 0
               ? "All shown blocks already covered"
               : "No priced rows"}
         />
         <StatusMetric
-          label="Data refreshed"
-          value={formatLongDateTime(roiData?.refreshed_at ?? null)}
-          detail="Latest stock snapshot used for pricing"
+          label="Stock prices"
+          value={formatRelativeTime(stockPricesRefreshedAt)}
+          detail={stockPricesRefreshedAt ? formatLongDateTime(stockPricesRefreshedAt) : "No stock snapshot yet"}
         />
         <StatusMetric
           label="Missing values"
@@ -250,62 +257,68 @@ export function StockInvestments() {
           detail={missingValueCount > 0 ? "Add manual values to unlock more blocks" : "All active benefits are priced"}
         />
         <StatusMetric
-          label="Benefit prices"
-          value={formatRelativeTime(roiData?.benefit_prices_refreshed_at ?? null)}
-          detail={roiData?.benefit_prices_refreshed_at ? formatLongDateTime(roiData.benefit_prices_refreshed_at) : "No market refresh yet"}
+          label="Benefit values"
+          value={formatRelativeTime(benefitValuesRefreshedAt)}
+          detail={benefitValuesRefreshedAt ? formatLongDateTime(benefitValuesRefreshedAt) : "No market refresh yet"}
         />
       </section>
 
       <section className="panel stock-investment-controls-panel">
         <PanelHeader
-          title="Filters"
+          title="Find blocks"
           aside={filtersActive ? "Filtered" : "All increments"}
           icon={<SlidersHorizontal size={18} />}
         />
-        <div className="stock-investment-controls">
-          <label>
-            <span>Investment amount</span>
-            <input
-              inputMode="numeric"
-              value={investmentAmount}
-              onChange={(event) => setInvestmentAmount(event.target.value)}
-              placeholder="Optional budget"
-            />
-          </label>
-          <label>
-            <span>Minimum ROI %</span>
-            <input
-              inputMode="decimal"
-              value={minimumRoi}
-              onChange={(event) => setMinimumRoi(event.target.value)}
-              placeholder="Optional"
-            />
-          </label>
-          <label className="stock-investment-toggle-row">
-            <input
-              type="checkbox"
-              checked={affordableOnly}
-              onChange={(event) => setAffordableOnly(event.target.checked)}
-            />
-            <span>Show affordable only</span>
-          </label>
-          <button
-            type="button"
-            className="panel-action-button secondary stock-investment-clear-button"
-            disabled={!filtersActive}
-            onClick={() => {
-              setInvestmentAmount("");
-              setMinimumRoi("");
-              setAffordableOnly(false);
-            }}
-          >
-            <RotateCcw size={14} />
-            Clear filters
-          </button>
+        <div className="stock-filter-stack">
+          <div className="stock-filter-section-heading">
+            <strong>Block filters</strong>
+            <span>{filtersActive ? `${formatNumber(rows.length)} matching blocks` : "Default minimum ROI applied"}</span>
+          </div>
+          <div className="stock-investment-controls">
+            <label>
+              <span>Investment amount</span>
+              <input
+                inputMode="numeric"
+                value={investmentAmount}
+                onChange={(event) => setInvestmentAmount(event.target.value)}
+                placeholder="Optional budget"
+              />
+            </label>
+            <label>
+              <span>Minimum ROI %</span>
+              <input
+                inputMode="decimal"
+                value={minimumRoi}
+                onChange={(event) => setMinimumRoi(event.target.value)}
+                placeholder="Optional"
+              />
+            </label>
+            <label className="stock-investment-toggle-row">
+              <input
+                type="checkbox"
+                checked={affordableOnly}
+                onChange={(event) => setAffordableOnly(event.target.checked)}
+              />
+              <span>Show affordable only</span>
+            </label>
+            <button
+              type="button"
+              className="panel-action-button secondary stock-investment-clear-button"
+              disabled={!filtersActive}
+              onClick={() => {
+                setInvestmentAmount("");
+                setMinimumRoi(DEFAULT_MINIMUM_ROI);
+                setAffordableOnly(false);
+              }}
+            >
+              <RotateCcw size={14} />
+              Clear filters
+            </button>
+          </div>
         </div>
         <div className="stock-owned-controls">
           <div className="stock-owned-controls-heading">
-            <strong>Highlight owned stocks</strong>
+            <strong>Owned stock highlighting</strong>
             <span>{ownedStockCount > 0 ? `${formatNumber(ownedStockCount)} owned stocks loaded` : "No owned stocks loaded"}</span>
           </div>
           <div className="stock-owned-controls-grid">
@@ -645,9 +658,19 @@ function BenefitValueRow({
   );
 }
 
-function StatusMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
+function StatusMetric({
+  label,
+  value,
+  detail,
+  className,
+}: {
+  label: string;
+  value: React.ReactNode;
+  detail: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="metric-card">
+    <div className={`metric-card${className ? ` ${className}` : ""}`}>
       <span className="panel-kicker">{label}</span>
       <strong className="metric-card-value">{value}</strong>
       <span className="metric-card-detail">{detail}</span>

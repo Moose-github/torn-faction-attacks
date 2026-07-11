@@ -389,7 +389,49 @@ h2 {
 }
 
 .stock-investment-status-grid {
-  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  grid-template-columns: minmax(240px, 1.35fr) repeat(3, minmax(170px, 1fr));
+}
+
+.stock-investment-status-grid .metric-card {
+  min-height: 128px;
+}
+
+.stock-best-block-card {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.92), var(--panel-bg));
+}
+
+.stock-best-block-card .metric-card-value {
+  color: var(--accent-strong);
+}
+
+.stock-metric-detail-stack {
+  display: grid;
+  gap: 3px;
+}
+
+.stock-filter-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.stock-filter-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stock-filter-section-heading strong {
+  color: var(--text-heading);
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.stock-filter-section-heading span {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 850;
 }
 
 .stock-investment-controls {
@@ -7196,6 +7238,10 @@ h2 {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .stock-filter-section-heading {
+    display: grid;
+  }
+
   .stock-owned-controls-heading,
   .stock-owned-controls-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -7846,6 +7892,11 @@ tbody tr:not(.attack-row):hover td {
   border-color: var(--border-soft);
   background: var(--panel-bg);
   box-shadow: var(--shadow-panel);
+}
+
+:root[data-theme="dark"] .stock-best-block-card {
+  border-color: rgba(96, 165, 250, 0.34);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.92), var(--panel-bg));
 }
 
 :root[data-theme="dark"] .xanax-competition-panel,
