@@ -812,6 +812,19 @@ CREATE TABLE stock_benefit_value_overrides (
   PRIMARY KEY (torn_user_id, benefit_key)
 );
 
+CREATE TABLE stock_benefit_item_prices (
+  benefit_key TEXT PRIMARY KEY,
+  market_type TEXT NOT NULL DEFAULT 'itemmarket',
+  torn_item_id INTEGER,
+  item_name TEXT,
+  market_value REAL,
+  fetched_at INTEGER,
+  status TEXT NOT NULL,
+  error TEXT,
+  raw_json TEXT,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE sync_state (
   name TEXT PRIMARY KEY,
   last_started INTEGER NOT NULL,

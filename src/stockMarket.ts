@@ -61,6 +61,18 @@ type StockBenefitValueOverride = {
   override_value: number;
 };
 
+type StockBenefitItemPrice = {
+  benefit_key: string;
+  market_type: string;
+  torn_item_id: number | null;
+  item_name: string | null;
+  market_value: number | null;
+  fetched_at: number | null;
+  status: string;
+  error: string | null;
+  raw_json: string | null;
+};
+
 type StockInvestmentProfileRow = {
   stock_id: number;
   acronym: string | null;
@@ -117,6 +129,27 @@ type ParsedBenefitValue = {
   editable: boolean;
 };
 
+type NormalizedMarketOffer = {
+  price: number;
+  quantity: number;
+};
+
+type StockBenefitItemDefinition = {
+  marketType: "itemmarket";
+  benefitKey: string;
+  label: string;
+  tornItemId: number;
+};
+
+type StockBenefitPointsDefinition = {
+  marketType: "pointsmarket";
+  benefitKey: string;
+  label: string;
+  quantity: number;
+};
+
+type StockBenefitMarketDefinition = StockBenefitItemDefinition | StockBenefitPointsDefinition;
+
 const TORN_API_BASE = "https://api.torn.com/v2";
 const REQUEST_TIMEOUT_MS = 12_000;
 const STOCK_PROFILE_REFRESH_STATE = "stock_market_profiles_refreshed";
@@ -127,9 +160,23 @@ const DEFAULT_STOCK_IDS = Array.from({ length: 35 }, (_, index) => index + 1);
 const PRIMARY_STOCK_CADENCE = "1m all-stocks";
 const RECOVERY_STOCK_CADENCE = "30m stale-stock history fallback";
 const MAX_ROI_INCREMENTS = 10;
+const BENEFIT_ITEM_PRICE_REFRESH_SECONDS = 6 * 60 * 60;
+const BENEFIT_ITEM_REFERENCE_QUANTITY = 5;
 const DEFAULT_BENEFIT_VALUES: Record<string, number> = {
   "item:box_of_medical_supplies": 850_000,
 };
+const STOCK_BENEFIT_MARKET_DEFINITIONS: StockBenefitMarketDefinition[] = [
+  { marketType: "itemmarket", benefitKey: "item:lawyer_s_business_card", label: "Lawyer's Business Card", tornItemId: 368 },
+  { marketType: "itemmarket", benefitKey: "item:box_of_medical_supplies", label: "Box of Medical Supplies", tornItemId: 365 },
+  { marketType: "itemmarket", benefitKey: "item:feathery_hotel_coupon", label: "Feathery Hotel Coupon", tornItemId: 367 },
+  { marketType: "itemmarket", benefitKey: "item:drug_pack", label: "Drug Pack", tornItemId: 370 },
+  { marketType: "itemmarket", benefitKey: "item:lottery_voucher", label: "Lottery Voucher", tornItemId: 369 },
+  { marketType: "itemmarket", benefitKey: "item:erotic_dvd", label: "Erotic DVD", tornItemId: 366 },
+  { marketType: "itemmarket", benefitKey: "item:box_of_grenades", label: "Box of Grenades", tornItemId: 364 },
+  { marketType: "itemmarket", benefitKey: "item:six_pack_of_energy_drink", label: "Six-Pack of Energy Drink", tornItemId: 818 },
+  { marketType: "itemmarket", benefitKey: "item:six_pack_of_alcohol", label: "Six-Pack of Alcohol", tornItemId: 817 },
+  { marketType: "pointsmarket", benefitKey: "item:100_points", label: "100 points", quantity: 100 },
+];
 
 function createStockIngestionRun(batchGroup: string, startedAt: number): StockIngestionRun {
   return {
@@ -294,6 +341,118 @@ export async function refreshTornStockHistoryBatch(
   }
 }
 
+export type StockBenefitItemPriceRefreshResult = {
+  ok: boolean;
+  refreshed: number;
+  skipped: number;
+  failed: number;
+  prices: Array<{
+    benefit_key: string;
+    label: string;
+    market_type: string;
+    torn_item_id: number | null;
+    market_value: number | null;
+    status: string;
+    error: string | null;
+  }>;
+};
+
+export async function refreshStockBenefitItemPrices(
+  env: Env,
+  options: { force?: boolean; now?: number } = {},
+): Promise<StockBenefitItemPriceRefreshResult> {
+  const fetchedAt = options.now ?? nowSeconds();
+  const existing = new Map((await readStockBenefitItemPrices(env)).map((row) => [row.benefit_key, row]));
+  const prices: StockBenefitItemPriceRefreshResult["prices"] = [];
+  let refreshed = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const definition of STOCK_BENEFIT_MARKET_DEFINITIONS) {
+    const current = existing.get(definition.benefitKey);
+    const currentFetchedAt = nullableNumber(current?.fetched_at);
+    if (
+      !options.force &&
+      current?.status === "ok" &&
+      currentFetchedAt !== null &&
+      fetchedAt - currentFetchedAt < BENEFIT_ITEM_PRICE_REFRESH_SECONDS
+    ) {
+      skipped += 1;
+      prices.push({
+        benefit_key: definition.benefitKey,
+        label: definition.label,
+        market_type: definition.marketType,
+        torn_item_id: stockBenefitDefinitionItemId(definition),
+        market_value: nullableNumber(current.market_value),
+        status: current.status,
+        error: current.error,
+      });
+      continue;
+    }
+
+    try {
+      const result = await fetchStockBenefitMarketValue(env, definition);
+      const marketValue = result.marketValue;
+      if (marketValue === null || marketValue <= 0) {
+        throw new Error("Torn market response did not include priced listings");
+      }
+
+      await upsertStockBenefitItemPrice(env, {
+        benefit_key: definition.benefitKey,
+        market_type: definition.marketType,
+        torn_item_id: stockBenefitDefinitionItemId(definition),
+        item_name: result.itemName ?? definition.label,
+        market_value: marketValue,
+        fetched_at: fetchedAt,
+        status: "ok",
+        error: null,
+        raw_json: JSON.stringify(result.rawJson),
+      });
+      refreshed += 1;
+      prices.push({
+        benefit_key: definition.benefitKey,
+        label: definition.label,
+        market_type: definition.marketType,
+        torn_item_id: stockBenefitDefinitionItemId(definition),
+        market_value: marketValue,
+        status: "ok",
+        error: null,
+      });
+    } catch (err: any) {
+      const error = String(err?.message ?? err);
+      await upsertStockBenefitItemPrice(env, {
+        benefit_key: definition.benefitKey,
+        market_type: definition.marketType,
+        torn_item_id: stockBenefitDefinitionItemId(definition),
+        item_name: current?.item_name ?? definition.label,
+        market_value: nullableNumber(current?.market_value),
+        fetched_at: currentFetchedAt,
+        status: "error",
+        error,
+        raw_json: current?.raw_json ?? null,
+      });
+      failed += 1;
+      prices.push({
+        benefit_key: definition.benefitKey,
+        label: definition.label,
+        market_type: definition.marketType,
+        torn_item_id: stockBenefitDefinitionItemId(definition),
+        market_value: nullableNumber(current?.market_value),
+        status: "error",
+        error,
+      });
+    }
+  }
+
+  return {
+    ok: failed === 0,
+    refreshed,
+    skipped,
+    failed,
+    prices,
+  };
+}
+
 export async function refreshTornStockProfiles(env: Env): Promise<StockProfile[]> {
   const data = await fetchTornJson("/torn/stocks", env);
   const fetchedAt = nowSeconds();
@@ -378,9 +537,10 @@ export async function getStockInvestmentRoi(env: Env, tornUserId: number | null)
     return json({ ok: false, error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
   }
 
-  const [profiles, overrides] = await Promise.all([
+  const [profiles, overrides, standardBenefitValues] = await Promise.all([
     readInvestmentProfileRows(env),
     readBenefitValueOverrides(env, tornUserId),
+    readStockBenefitStandardValueMap(env),
   ]);
   const overrideMap = new Map(overrides.map((override) => [override.benefit_key, override.override_value]));
   const skipped = { passive: 0, unpriced: 0, invalid: 0 };
@@ -405,7 +565,7 @@ export async function getStockInvestmentRoi(env: Env, tornUserId: number | null)
       continue;
     }
 
-    const valued = valueStockBenefit(parsed.benefit, overrideMap);
+    const valued = valueStockBenefit(parsed.benefit, overrideMap, standardBenefitValues);
     if (valued.value === null || valued.value <= 0) {
       skipped.unpriced += 1;
       continue;
@@ -604,10 +764,65 @@ async function readBenefitValueOverrides(env: Env, tornUserId: number): Promise<
   return rows.results ?? [];
 }
 
+async function readStockBenefitStandardValueMap(env: Env): Promise<Map<string, number>> {
+  const prices = await readStockBenefitItemPrices(env);
+  const values = new Map<string, number>();
+  for (const price of prices) {
+    const marketValue = nullableNumber(price.market_value);
+    if (marketValue !== null && marketValue > 0) {
+      values.set(price.benefit_key, marketValue);
+    }
+  }
+  return values;
+}
+
+async function readStockBenefitItemPrices(env: Env): Promise<StockBenefitItemPrice[]> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT *
+    FROM stock_benefit_item_prices
+    `,
+  ).all<StockBenefitItemPrice>();
+
+  return rows.results ?? [];
+}
+
+async function fetchStockBenefitMarketValue(
+  env: Env,
+  definition: StockBenefitMarketDefinition,
+): Promise<{ marketValue: number | null; itemName: string | null; rawJson: unknown }> {
+  if (definition.marketType === "pointsmarket") {
+    const data = await fetchTornJson("/market", env, {
+      selections: "pointsmarket",
+      sort: "ASC",
+    });
+    return {
+      marketValue: stockBenefitPointsValueFromResponse(data, definition.quantity),
+      itemName: definition.label,
+      rawJson: data,
+    };
+  }
+
+  const data = await fetchTornJson(`/market/${definition.tornItemId}/itemmarket`, env, {
+    limit: "20",
+    offset: "0",
+  });
+  return {
+    marketValue: stockBenefitMarketValueFromResponse(data),
+    itemName: stockBenefitItemNameFromResponse(data),
+    rawJson: data,
+  };
+}
+
+function stockBenefitDefinitionItemId(definition: StockBenefitMarketDefinition): number | null {
+  return definition.marketType === "itemmarket" ? definition.tornItemId : null;
+}
+
 async function readEffectiveStockBenefitValues(env: Env, tornUserId: number): Promise<StockBenefitValueRow[]> {
-  const [profiles, overrides] = await Promise.all([
+  const [profiles, overrides, standardBenefitValues] = await Promise.all([
     readInvestmentProfileRows(env),
     readBenefitValueOverrides(env, tornUserId),
+    readStockBenefitStandardValueMap(env),
   ]);
   const overrideMap = new Map(overrides.map((override) => [override.benefit_key, nullableNumber(override.override_value)]));
   const observed = new Map<string, { label: string; usedByStockIds: Set<number> }>();
@@ -632,7 +847,7 @@ async function readEffectiveStockBenefitValues(env: Env, tornUserId: number): Pr
 
   return [...observed.entries()]
     .map(([benefitKey, value]) => {
-      const defaultValue = DEFAULT_BENEFIT_VALUES[benefitKey] ?? null;
+      const defaultValue = stockBenefitDefaultValue(benefitKey, standardBenefitValues);
       const overrideValue = overrideMap.get(benefitKey) ?? null;
       const effectiveValue = overrideValue ?? defaultValue;
       return {
@@ -678,6 +893,48 @@ async function deleteBenefitValueOverride(env: Env, tornUserId: number, benefitK
     .run();
 }
 
+async function upsertStockBenefitItemPrice(env: Env, price: StockBenefitItemPrice): Promise<void> {
+  await env.DB.prepare(
+    `
+    INSERT INTO stock_benefit_item_prices (
+      benefit_key,
+      market_type,
+      torn_item_id,
+      item_name,
+      market_value,
+      fetched_at,
+      status,
+      error,
+      raw_json,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+    ON CONFLICT(benefit_key) DO UPDATE SET
+      market_type = excluded.market_type,
+      torn_item_id = excluded.torn_item_id,
+      item_name = excluded.item_name,
+      market_value = excluded.market_value,
+      fetched_at = excluded.fetched_at,
+      status = excluded.status,
+      error = excluded.error,
+      raw_json = excluded.raw_json,
+      updated_at = excluded.updated_at
+    `,
+  )
+    .bind(
+      price.benefit_key,
+      price.market_type,
+      price.torn_item_id,
+      price.item_name,
+      price.market_value,
+      price.fetched_at,
+      price.status,
+      price.error,
+      price.raw_json,
+    )
+    .run();
+}
+
 export function parseActiveStockBenefit(
   benefitJson: string | null,
 ): { status: "active"; benefit: ParsedActiveBenefit } | { status: "passive" | "invalid" } {
@@ -717,7 +974,10 @@ export function parseActiveStockBenefit(
   };
 }
 
-export function parseBenefitDescription(description: string): ParsedBenefitValue {
+export function parseBenefitDescription(
+  description: string,
+  standardBenefitValues: ReadonlyMap<string, number> = new Map(),
+): ParsedBenefitValue {
   const trimmed = description.trim();
   const cashValue = parseCashBenefitValue(trimmed);
   if (cashValue !== null) {
@@ -734,7 +994,7 @@ export function parseBenefitDescription(description: string): ParsedBenefitValue
     const quantity = Number(item[1]);
     const label = item[2].trim();
     const benefitKey = `item:${slugifyBenefitLabel(label)}`;
-    const unitValue = DEFAULT_BENEFIT_VALUES[benefitKey] ?? null;
+    const unitValue = stockBenefitDefaultValue(benefitKey, standardBenefitValues);
     return {
       benefit_key: benefitKey,
       label,
@@ -743,10 +1003,11 @@ export function parseBenefitDescription(description: string): ParsedBenefitValue
     };
   }
 
+  const benefitKey = `item:${slugifyBenefitLabel(trimmed)}`;
   return {
-    benefit_key: `item:${slugifyBenefitLabel(trimmed)}`,
+    benefit_key: benefitKey,
     label: trimmed,
-    value: null,
+    value: stockBenefitDefaultValue(benefitKey, standardBenefitValues),
     editable: true,
   };
 }
@@ -754,8 +1015,9 @@ export function parseBenefitDescription(description: string): ParsedBenefitValue
 export function valueStockBenefit(
   benefit: Pick<ParsedActiveBenefit, "description">,
   overrideMap: Map<string, number | null>,
+  standardBenefitValues: ReadonlyMap<string, number> = new Map(),
 ): ParsedBenefitValue & { source: StockBenefitValueSource } {
-  const parsed = parseBenefitDescription(benefit.description);
+  const parsed = parseBenefitDescription(benefit.description, standardBenefitValues);
   if (!parsed.editable || !parsed.benefit_key) {
     return { ...parsed, source: "cash" };
   }
@@ -796,6 +1058,18 @@ export function calculateStockInvestmentIncrement(input: {
   };
 }
 
+export function stockBenefitMarketValueFromResponse(data: unknown): number | null {
+  return priceAtCumulativeQuantity(
+    normalizeMarketOffers(data, "itemmarket"),
+    BENEFIT_ITEM_REFERENCE_QUANTITY,
+  );
+}
+
+export function stockBenefitPointsValueFromResponse(data: unknown, quantity: number): number | null {
+  const unitValue = priceAtCumulativeQuantity(normalizeMarketOffers(data, "pointsmarket"), quantity);
+  return unitValue === null ? null : unitValue * quantity;
+}
+
 function stockInvestmentRoiRow(
   profile: Pick<StockInvestmentProfileRow, "stock_id" | "acronym" | "name">,
   benefit: ParsedActiveBenefit,
@@ -831,6 +1105,63 @@ function parseCashBenefitValue(value: string): number | null {
   }
   const parsed = Number(value.replace(/[$,]/g, ""));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function stockBenefitItemNameFromResponse(data: unknown): string | null {
+  if (!isRecord(data)) {
+    return null;
+  }
+  const item = isRecord(data.item) ? data.item : null;
+  return cleanString(item?.name ?? data.name ?? data.item_name);
+}
+
+function normalizeMarketOffers(data: unknown, key: "itemmarket" | "bazaar" | "pointsmarket"): NormalizedMarketOffer[] {
+  if (!isRecord(data)) {
+    return [];
+  }
+  const container = data[key];
+  const raw = isRecord(container)
+    ? container.listings ?? container
+    : container ?? (key === "itemmarket" ? data.listings : null);
+  const offers = Array.isArray(raw) ? raw : isRecord(raw) ? Object.values(raw) : [];
+  return offers
+    .map((offer): NormalizedMarketOffer | null => {
+      if (!isRecord(offer)) {
+        return null;
+      }
+      const price = nullableNumber(offer.cost ?? offer.price ?? offer.market_price);
+      if (price === null || price <= 0) {
+        return null;
+      }
+      return {
+        price,
+        quantity: Math.max(1, finiteInteger(offer.quantity ?? offer.qty ?? offer.amount) ?? 1),
+      };
+    })
+    .filter((offer): offer is NormalizedMarketOffer => Boolean(offer))
+    .sort((left, right) => left.price - right.price);
+}
+
+function priceAtCumulativeQuantity(offers: NormalizedMarketOffer[], targetQuantity: number): number | null {
+  let seen = 0;
+  let lastPrice: number | null = null;
+
+  for (const offer of offers) {
+    lastPrice = offer.price;
+    seen += Math.max(1, offer.quantity);
+    if (seen >= targetQuantity) {
+      return offer.price;
+    }
+  }
+
+  return lastPrice;
+}
+
+function stockBenefitDefaultValue(
+  benefitKey: string,
+  standardBenefitValues: ReadonlyMap<string, number>,
+): number | null {
+  return standardBenefitValues.get(benefitKey) ?? DEFAULT_BENEFIT_VALUES[benefitKey] ?? null;
 }
 
 function slugifyBenefitLabel(value: string): string {
@@ -1119,10 +1450,15 @@ async function updateStockIngestionRun(env: Env, run: StockIngestionRun): Promis
     .run();
 }
 
-async function fetchTornJson(endpoint: string, env: Env): Promise<unknown> {
+async function fetchTornJson(endpoint: string, env: Env, params: Record<string, string> = {}): Promise<unknown> {
+  const url = new URL(`${TORN_API_BASE}${endpoint}`);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+
   return withTornKeyPool(env, {
     feature: "stock_tools",
-    run: ({ key, keySource }) => fetchTrackedTornJson<unknown>(env, `${TORN_API_BASE}${endpoint}`, {
+    run: ({ key, keySource }) => fetchTrackedTornJson<unknown>(env, url, {
       headers: {
         Accept: "application/json",
         Authorization: `ApiKey ${key}`,

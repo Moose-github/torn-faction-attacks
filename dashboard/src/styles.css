@@ -528,6 +528,24 @@ h2 {
   width: 160px;
 }
 
+.stock-benefit-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.stock-benefit-panel-actions > span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.stock-benefit-panel-actions .panel-action-button {
+  min-height: 32px;
+}
+
 .stock-benefit-actions {
   display: flex;
   flex-wrap: wrap;
@@ -7064,6 +7082,16 @@ h2 {
 
   .stock-benefit-cell {
     min-width: 160px;
+  }
+
+  .stock-benefit-panel-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .stock-benefit-panel-actions .panel-action-button {
+    flex: 1 1 180px;
+    justify-content: center;
   }
 }
 

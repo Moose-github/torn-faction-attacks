@@ -3,6 +3,8 @@ import {
   calculateStockInvestmentIncrement,
   parseActiveStockBenefit,
   parseBenefitDescription,
+  stockBenefitMarketValueFromResponse,
+  stockBenefitPointsValueFromResponse,
   valueStockBenefit,
 } from "./stockMarket";
 
@@ -78,6 +80,76 @@ describe("stock investment ROI parsing", () => {
       value: null,
       source: "unpriced",
     });
+  });
+
+  it("applies fetched standard values before hardcoded fallback", () => {
+    const standardValues = new Map([
+      ["item:drug_pack", 4_200_000],
+      ["item:box_of_medical_supplies", 910_000],
+      ["item:100_points", 3_113_600],
+    ]);
+
+    expect(parseBenefitDescription("2x Drug Pack", standardValues)).toMatchObject({
+      benefit_key: "item:drug_pack",
+      value: 8_400_000,
+    });
+    expect(valueStockBenefit(
+      { description: "1x Box of Medical Supplies" },
+      new Map(),
+      standardValues,
+    )).toMatchObject({
+      value: 910_000,
+      source: "default",
+    });
+    expect(valueStockBenefit(
+      { description: "1x Box of Medical Supplies" },
+      new Map([["item:box_of_medical_supplies", 925_000]]),
+      standardValues,
+    )).toMatchObject({
+      value: 925_000,
+      source: "custom",
+    });
+    expect(valueStockBenefit(
+      { description: "100 points" },
+      new Map(),
+      standardValues,
+    )).toMatchObject({
+      benefit_key: "item:100_points",
+      value: 3_113_600,
+      source: "default",
+    });
+  });
+});
+
+describe("stock benefit item market values", () => {
+  it("uses price at cumulative quantity five from sorted itemmarket listings", () => {
+    expect(stockBenefitMarketValueFromResponse({
+      itemmarket: {
+        listings: [
+          { cost: 1_050_000, quantity: 3 },
+          { cost: 1_000_000, quantity: 1 },
+          { cost: 1_100_000, quantity: 5 },
+        ],
+      },
+    })).toBe(1_100_000);
+  });
+
+  it("falls back to the last available listing when fewer than five are listed", () => {
+    expect(stockBenefitMarketValueFromResponse({
+      listings: [
+        { price: 10_000, amount: 1 },
+        { price: 12_000, amount: 2 },
+      ],
+    })).toBe(12_000);
+  });
+
+  it("uses pointsmarket cost at cumulative quantity for total point benefit value", () => {
+    expect(stockBenefitPointsValueFromResponse({
+      pointsmarket: {
+        "20709744": { cost: 31_136, quantity: 980, total_cost: 30_513_280 },
+        "20709718": { cost: 31_138, quantity: 100, total_cost: 3_113_800 },
+      },
+    }, 100)).toBe(3_113_600);
   });
 });
 

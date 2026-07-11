@@ -47,7 +47,11 @@ import {
   memberLifestyleRepairJobCancelIdFromRoute,
   memberLifestyleRepairJobIdFromRoute,
 } from "../routes";
-import { getStockIngestionStatus, refreshTornStockHistoryBatch } from "../stockMarket";
+import {
+  getStockIngestionStatus,
+  refreshStockBenefitItemPrices,
+  refreshTornStockHistoryBatch,
+} from "../stockMarket";
 import {
   exportStockSnapshots,
   getStockPaperSimulations,
@@ -174,6 +178,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
       if (cooldownError) return cooldownError;
       const run = await refreshTornStockHistoryBatch(env, Date.now(), { forceAll: true });
       return json({ ok: true, run });
+    });
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/stocks/benefit-item-prices/refresh", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "manual_stock_benefit_item_prices", 5 * 60);
+      if (cooldownError) return cooldownError;
+      return json(await refreshStockBenefitItemPrices(env, { force: true }));
     });
   }
 

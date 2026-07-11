@@ -3,6 +3,7 @@ import { BadgeDollarSign, CircleDollarSign, RefreshCw, RotateCcw, Save, SlidersH
 import {
   getStockBenefitValues,
   getStockInvestmentRoi,
+  refreshStockBenefitItemPrices,
   StockBenefitValue,
   StockInvestmentRoiResponse,
   StockInvestmentRoiRow,
@@ -19,6 +20,7 @@ export function StockInvestments() {
   const [affordableOnly, setAffordableOnly] = React.useState(false);
   const [minimumRoi, setMinimumRoi] = React.useState("5");
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isRefreshingBenefitPrices, setIsRefreshingBenefitPrices] = React.useState(false);
   const [savingBenefitKey, setSavingBenefitKey] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -82,6 +84,27 @@ export function StockInvestments() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingBenefitKey(null);
+    }
+  }
+
+  async function refreshBenefitPrices() {
+    setIsRefreshingBenefitPrices(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await refreshStockBenefitItemPrices();
+      const [roi, benefitValues] = await Promise.all([
+        getStockInvestmentRoi(),
+        getStockBenefitValues(),
+      ]);
+      setRoiData(roi);
+      setBenefits(benefitValues.benefits);
+      setBenefitInputs(inputsFromBenefits(benefitValues.benefits));
+      setMessage(`Benefit prices refreshed: ${formatNumber(result.refreshed)} updated, ${formatNumber(result.skipped)} unchanged`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsRefreshingBenefitPrices(false);
     }
   }
 
@@ -205,7 +228,24 @@ export function StockInvestments() {
       </section>
 
       <section className="panel table-panel">
-        <PanelHeader title="Benefit values" aside={`${formatNumber(benefits.length)} editable`} icon={<CircleDollarSign size={18} />} />
+        <PanelHeader
+          title="Benefit values"
+          icon={<CircleDollarSign size={18} />}
+          control={(
+            <div className="stock-benefit-panel-actions">
+              <span>{formatNumber(benefits.length)} editable</span>
+              <button
+                type="button"
+                className="panel-action-button secondary"
+                disabled={isLoading || isRefreshingBenefitPrices}
+                onClick={refreshBenefitPrices}
+              >
+                <RefreshCw size={14} className={isRefreshingBenefitPrices ? "spinning-icon" : ""} />
+                {isRefreshingBenefitPrices ? "Refreshing prices" : "Refresh prices"}
+              </button>
+            </div>
+          )}
+        />
         {isLoading ? (
           <EmptyState text="Loading benefit values" />
         ) : benefits.length === 0 ? (

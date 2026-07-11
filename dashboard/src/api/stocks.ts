@@ -2,6 +2,7 @@ import { getJson, postJson, putJson } from "./client";
 import { queryString } from "./query";
 import type {
   StockBenefitValuesResponse,
+  StockBenefitItemPriceRefreshResponse,
   StockIngestionStatusResponse,
   StockInvestmentRoiResponse,
   StockPaperSimulationResponse,
@@ -30,6 +31,10 @@ export async function updateStockBenefitValue(
     { override_value: overrideValue },
     true,
   );
+}
+
+export async function refreshStockBenefitItemPrices(): Promise<StockBenefitItemPriceRefreshResponse> {
+  return postJson<StockBenefitItemPriceRefreshResponse>("/api/admin/stocks/benefit-item-prices/refresh");
 }
 
 export async function getStockPaperStatus(): Promise<StockPaperStatusResponse> {

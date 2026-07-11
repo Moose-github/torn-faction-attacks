@@ -1283,6 +1283,36 @@ export type StockBenefitValuesResponse = {
 
 };
 
+export type StockBenefitItemPriceRefreshResponse = {
+
+  ok: boolean;
+
+  refreshed: number;
+
+  skipped: number;
+
+  failed: number;
+
+  prices: Array<{
+
+    benefit_key: string;
+
+    label: string;
+
+    market_type: string;
+
+    torn_item_id: number | null;
+
+    market_value: number | null;
+
+    status: string;
+
+    error: string | null;
+
+  }>;
+
+};
+
 
 
 export type StockPaperAccount = {

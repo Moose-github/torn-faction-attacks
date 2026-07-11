@@ -25,6 +25,7 @@ import {
   readSyncTimestamp,
   upsertSyncTimestamp,
 } from "../syncState";
+import { refreshStockBenefitItemPrices } from "../stockMarket";
 import { listAdminTornApiKeys } from "../tornKeyPool";
 import { routeAdminApi } from "./adminRoutes";
 
@@ -86,6 +87,7 @@ vi.mock("../syncState", () => ({
 }));
 vi.mock("../stockMarket", () => ({
   getStockIngestionStatus: vi.fn(),
+  refreshStockBenefitItemPrices: vi.fn(),
   refreshTornStockHistoryBatch: vi.fn(),
 }));
 vi.mock("../stockPaperTrading", () => ({
@@ -130,6 +132,13 @@ describe("admin routes", () => {
     vi.mocked(getAdminDiscordAlertSettings).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings" }));
     vi.mocked(updateAdminDiscordAlertSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings-update" }));
     vi.mocked(listAdminTornApiKeys).mockResolvedValue(jsonResponse({ ok: true, route: "admin-key-pool" }));
+    vi.mocked(refreshStockBenefitItemPrices).mockResolvedValue({
+      ok: true,
+      refreshed: 1,
+      skipped: 0,
+      failed: 0,
+      prices: [],
+    });
   });
 
   it("routes admin data health through admin auth", async () => {
@@ -174,6 +183,20 @@ describe("admin routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "admin-key-pool" });
     expect(requireAdmin).toHaveBeenCalledOnce();
     expect(listAdminTornApiKeys).toHaveBeenCalledWith(context.env);
+  });
+
+  it("routes stock benefit item price refresh through admin auth and cooldown", async () => {
+    const context = routeContext("https://worker.test/api/admin/stocks/benefit-item-prices/refresh", {
+      method: "POST",
+    });
+
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({ ok: true, refreshed: 1 });
+    expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
+    expect(readSyncTimestamp).toHaveBeenCalledWith(context.env, "manual_stock_benefit_item_prices");
+    expect(refreshStockBenefitItemPrices).toHaveBeenCalledWith(context.env, { force: true });
   });
 
   it("routes war control settings updates through admin auth", async () => {
