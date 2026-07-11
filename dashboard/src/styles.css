@@ -425,6 +425,59 @@ h2 {
   white-space: nowrap;
 }
 
+.stock-owned-controls {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.stock-owned-controls-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stock-owned-controls-heading strong {
+  color: var(--text-heading);
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.stock-owned-controls-heading span,
+.stock-owned-controls-status {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.stock-owned-controls-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 340px) auto auto minmax(180px, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.stock-owned-controls-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.stock-owned-controls-grid .panel-action-button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.stock-owned-controls-status {
+  align-self: center;
+}
+
 .stock-investment-table td,
 .stock-benefit-values-table td {
   vertical-align: middle;
@@ -528,6 +581,10 @@ h2 {
   color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 800;
+}
+
+.stock-shares-cell {
+  min-width: 130px;
 }
 
 .stock-benefit-value-input {
@@ -7080,6 +7137,14 @@ h2 {
     grid-template-columns: repeat(2, minmax(180px, 1fr));
   }
 
+  .stock-owned-controls-grid {
+    grid-template-columns: minmax(220px, 1fr) auto auto;
+  }
+
+  .stock-owned-controls-status {
+    grid-column: 1 / -1;
+  }
+
   .stock-investment-clear-button {
     justify-self: start;
   }
@@ -7121,6 +7186,19 @@ h2 {
   .stock-investment-status-grid,
   .stock-investment-controls {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stock-owned-controls-heading,
+  .stock-owned-controls-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stock-owned-controls-heading {
+    display: grid;
+  }
+
+  .stock-owned-controls-grid .panel-action-button {
+    justify-content: center;
   }
 
   .stock-investment-clear-button {
@@ -7314,6 +7392,15 @@ tbody tr:nth-child(even):not(.attack-row) td {
 
 tbody tr:not(.attack-row):hover td {
   background: var(--panel-hover-bg);
+}
+
+.stock-investment-table tr.stock-owned-increment-row td,
+.stock-investment-table tr.stock-owned-increment-row:hover td {
+  background: #f0fdf4;
+}
+
+.stock-investment-table tr.stock-owned-increment-row td:first-child {
+  box-shadow: inset 3px 0 0 #16a34a;
 }
 
 .clickable-member-row {
@@ -9149,6 +9236,15 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .table-scroll .chain-bonus-table tr:nth-child(even) td {
   background: var(--panel-hover-bg);
+}
+
+:root[data-theme="dark"] .stock-investment-table tr.stock-owned-increment-row td,
+:root[data-theme="dark"] .stock-investment-table tr.stock-owned-increment-row:hover td {
+  background: rgba(22, 101, 52, 0.22);
+}
+
+:root[data-theme="dark"] .stock-investment-table tr.stock-owned-increment-row td:first-child {
+  box-shadow: inset 3px 0 0 #4ade80;
 }
 
 :root[data-theme="dark"] .chain-bonus-compact,

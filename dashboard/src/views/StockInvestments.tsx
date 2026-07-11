@@ -10,18 +10,32 @@ import {
   StockInvestmentRoiRow,
   updateStockBenefitValue,
 } from "../api";
+import { getStoredAuthSession } from "../api/client";
 import { EmptyState, PanelHeader } from "../components/Common";
 import { formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
+import {
+  ownedSharesMap,
+  ownsStockIncrement,
+  OwnedStockSnapshot,
+  parseOwnedStocksResponse,
+  parseStoredOwnedStockSnapshot,
+} from "../utils/ownedStocks";
+
+const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
 
 export function StockInvestments() {
+  const storageUserId = React.useMemo(() => getStoredAuthSession()?.user.id ?? null, []);
   const [roiData, setRoiData] = React.useState<StockInvestmentRoiResponse | null>(null);
   const [benefits, setBenefits] = React.useState<StockBenefitValue[]>([]);
   const [benefitInputs, setBenefitInputs] = React.useState<Record<string, string>>({});
   const [investmentAmount, setInvestmentAmount] = React.useState("");
   const [affordableOnly, setAffordableOnly] = React.useState(false);
   const [minimumRoi, setMinimumRoi] = React.useState("5");
+  const [ownedApiKey, setOwnedApiKey] = React.useState("");
+  const [ownedSnapshot, setOwnedSnapshot] = React.useState<OwnedStockSnapshot | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshingBenefitPrices, setIsRefreshingBenefitPrices] = React.useState(false);
+  const [isRefreshingOwnedStocks, setIsRefreshingOwnedStocks] = React.useState(false);
   const [savingBenefitKey, setSavingBenefitKey] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -118,10 +132,63 @@ export function StockInvestments() {
     }
   }
 
+  async function refreshOwnedStocks() {
+    const trimmedKey = ownedApiKey.trim();
+    if (!trimmedKey) {
+      setError("Enter a Limited Torn API key before refreshing owned stocks.");
+      return;
+    }
+
+    setIsRefreshingOwnedStocks(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(`${TORN_OWNED_STOCKS_URL}?key=${encodeURIComponent(trimmedKey)}`, {
+        headers: { Accept: "application/json" },
+      });
+      let data: unknown;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error("Torn owned stocks response was not valid.");
+      }
+      const snapshot = parseOwnedStocksResponse(data, Math.floor(Date.now() / 1000));
+      if (!response.ok) {
+        throw new Error("Could not fetch owned stocks directly from Torn. No server proxy is used for Limited keys.");
+      }
+
+      setOwnedSnapshot(snapshot);
+      saveOwnedStocksStorage(storageUserId, trimmedKey, snapshot);
+      setMessage(`Owned stocks loaded: ${formatNumber(snapshot.stocks.length)} stocks`);
+    } catch (err) {
+      const message = err instanceof TypeError
+        ? "Could not fetch owned stocks directly from Torn. No server proxy is used for Limited keys."
+        : err instanceof Error
+          ? err.message
+          : String(err);
+      setError(message);
+    } finally {
+      setIsRefreshingOwnedStocks(false);
+    }
+  }
+
+  function clearOwnedStocks() {
+    setOwnedApiKey("");
+    setOwnedSnapshot(null);
+    clearOwnedStocksStorage(storageUserId);
+    setError(null);
+    setMessage("Owned stock highlights cleared");
+  }
+
   React.useEffect(() => {
+    const stored = readOwnedStocksStorage(storageUserId);
+    setOwnedApiKey(stored.apiKey);
+    setOwnedSnapshot(stored.snapshot);
     loadData();
   }, []);
 
+  const ownedShares = React.useMemo(() => ownedSharesMap(ownedSnapshot), [ownedSnapshot]);
+  const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
   const budget = moneyInputValue(investmentAmount);
   const minRoi = percentInputValue(minimumRoi);
   const rows = (roiData?.rows ?? []).filter((row) => {
@@ -223,6 +290,45 @@ export function StockInvestments() {
             Clear filters
           </button>
         </div>
+        <div className="stock-owned-controls">
+          <div className="stock-owned-controls-heading">
+            <strong>Highlight owned stocks</strong>
+            <span>{ownedStockCount > 0 ? `${formatNumber(ownedStockCount)} owned stocks loaded` : "No owned stocks loaded"}</span>
+          </div>
+          <div className="stock-owned-controls-grid">
+            <label>
+              <span>Limited API key</span>
+              <input
+                type="password"
+                value={ownedApiKey}
+                onChange={(event) => setOwnedApiKey(event.target.value)}
+                placeholder="Paste Limited key"
+                autoComplete="off"
+              />
+            </label>
+            <button
+              type="button"
+              className="panel-action-button secondary"
+              disabled={isRefreshingOwnedStocks}
+              onClick={refreshOwnedStocks}
+            >
+              <RefreshCw size={14} className={isRefreshingOwnedStocks ? "spinning-icon" : ""} />
+              {isRefreshingOwnedStocks ? "Refreshing" : "Refresh owned stocks"}
+            </button>
+            <button
+              type="button"
+              className="panel-action-button secondary"
+              disabled={!ownedApiKey && !ownedSnapshot}
+              onClick={clearOwnedStocks}
+            >
+              <RotateCcw size={14} />
+              Clear
+            </button>
+            <span className="stock-owned-controls-status">
+              {ownedSnapshot ? `Refreshed ${formatRelativeTime(ownedSnapshot.refreshed_at)}` : "Limited key stays in this browser only"}
+            </span>
+          </div>
+        </div>
       </section>
 
       <section className="panel table-panel">
@@ -232,7 +338,7 @@ export function StockInvestments() {
         ) : rows.length === 0 ? (
           <EmptyState text="No stock increments match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} />
+          <StockRoiTable rows={rows} ownedShares={ownedShares} />
         )}
       </section>
 
@@ -274,7 +380,7 @@ export function StockInvestments() {
   );
 }
 
-function StockRoiTable({ rows }: { rows: StockInvestmentRoiRow[] }) {
+function StockRoiTable({ rows, ownedShares }: { rows: StockInvestmentRoiRow[]; ownedShares: Map<number, number> }) {
   return (
     <div className="table-scroll">
       <table className="stock-status-table stock-investment-table">
@@ -291,48 +397,57 @@ function StockRoiTable({ rows }: { rows: StockInvestmentRoiRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={`${row.stock_id}-${row.increment}`}>
-              <td>
-                <span className="stock-symbol-chip">{row.acronym ?? `#${row.stock_id}`}</span>
-              </td>
-              <td>
-                <span className="stock-benefit-cell">
-                  <strong>{row.name ?? "-"}</strong>
-                  <small>Block {row.increment}</small>
-                </span>
-              </td>
-              <td>
-                {row.increment === 1 ? (
-                  formatNumber(row.required_shares)
-                ) : (
-                  <span className="stock-tooltip-value" title={`Total shares needed for this increment: ${formatNumber(row.total_shares_required)}`}>
-                    {formatNumber(row.required_shares)}
+          {rows.map((row) => {
+            const owned = ownedShares.get(row.stock_id) ?? 0;
+            const ownsIncrement = ownsStockIncrement(owned, row.total_shares_required);
+            return (
+              <tr key={`${row.stock_id}-${row.increment}`} className={ownsIncrement ? "stock-owned-increment-row" : undefined}>
+                <td>
+                  <span className="stock-symbol-chip">{row.acronym ?? `#${row.stock_id}`}</span>
+                </td>
+                <td>
+                  <span className="stock-benefit-cell">
+                    <strong>{row.name ?? "-"}</strong>
+                    <small>Block {row.increment}</small>
                   </span>
-                )}
-              </td>
-              <td>
-                {row.increment === 1 ? (
-                  formatMoney(row.increment_cost)
-                ) : (
-                  <span className="stock-tooltip-value" title={`Total cost through this increment: ${formatMoney(row.total_cost)}`}>
-                    {formatMoney(row.increment_cost)}
+                </td>
+                <td>
+                  <span className="stock-benefit-cell stock-shares-cell">
+                    <strong>
+                      {row.increment === 1 ? (
+                        formatNumber(row.required_shares)
+                      ) : (
+                        <span className="stock-tooltip-value" title={`Total shares needed for this increment: ${formatNumber(row.total_shares_required)}`}>
+                          {formatNumber(row.required_shares)}
+                        </span>
+                      )}
+                    </strong>
+                    {owned > 0 ? <small>Owned: {formatNumber(owned)}</small> : null}
                   </span>
-                )}
-              </td>
-              <td>
-                <span className="stock-benefit-cell">
-                  <strong>{row.benefit_description}</strong>
-                  <small>{formatNumber(row.frequency_days)} days - {valuationSourceLabel(row.valuation_source)} value</small>
-                </span>
-              </td>
-              <td>{formatMoney(row.annual_return)}</td>
-              <td>{formatNumber(Math.round(row.days_to_break_even))} days</td>
-              <td>
-                <span className={`stock-roi-chip ${roiTone(row.roi_percent)}`}>{formatPercent(row.roi_percent)}</span>
-              </td>
-            </tr>
-          ))}
+                </td>
+                <td>
+                  {row.increment === 1 ? (
+                    formatMoney(row.increment_cost)
+                  ) : (
+                    <span className="stock-tooltip-value" title={`Total cost through this increment: ${formatMoney(row.total_cost)}`}>
+                      {formatMoney(row.increment_cost)}
+                    </span>
+                  )}
+                </td>
+                <td>
+                  <span className="stock-benefit-cell">
+                    <strong>{row.benefit_description}</strong>
+                    <small>{formatNumber(row.frequency_days)} days - {valuationSourceLabel(row.valuation_source)} value</small>
+                  </span>
+                </td>
+                <td>{formatMoney(row.annual_return)}</td>
+                <td>{formatNumber(Math.round(row.days_to_break_even))} days</td>
+                <td>
+                  <span className={`stock-roi-chip ${roiTone(row.roi_percent)}`}>{formatPercent(row.roi_percent)}</span>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -529,6 +644,60 @@ function inputsFromBenefits(benefits: StockBenefitValue[]): Record<string, strin
     benefit.benefit_key,
     String(Math.round(benefit.override_value ?? benefit.default_value ?? benefit.effective_value ?? 0) || ""),
   ]));
+}
+
+function readOwnedStocksStorage(userId: number | null): { apiKey: string; snapshot: OwnedStockSnapshot | null } {
+  const keys = ownedStocksStorageKeys(userId);
+  if (!keys) {
+    return { apiKey: "", snapshot: null };
+  }
+
+  const apiKey = window.localStorage.getItem(keys.apiKey) ?? "";
+  const rawSnapshot = window.localStorage.getItem(keys.snapshot);
+  if (!rawSnapshot) {
+    return { apiKey, snapshot: null };
+  }
+
+  try {
+    return {
+      apiKey,
+      snapshot: parseStoredOwnedStockSnapshot(JSON.parse(rawSnapshot)),
+    };
+  } catch {
+    window.localStorage.removeItem(keys.snapshot);
+    return { apiKey, snapshot: null };
+  }
+}
+
+function saveOwnedStocksStorage(userId: number | null, apiKey: string, snapshot: OwnedStockSnapshot): void {
+  const keys = ownedStocksStorageKeys(userId);
+  if (!keys) {
+    return;
+  }
+
+  window.localStorage.setItem(keys.apiKey, apiKey);
+  window.localStorage.setItem(keys.snapshot, JSON.stringify(snapshot));
+}
+
+function clearOwnedStocksStorage(userId: number | null): void {
+  const keys = ownedStocksStorageKeys(userId);
+  if (!keys) {
+    return;
+  }
+
+  window.localStorage.removeItem(keys.apiKey);
+  window.localStorage.removeItem(keys.snapshot);
+}
+
+function ownedStocksStorageKeys(userId: number | null): { apiKey: string; snapshot: string } | null {
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    apiKey: `stockRoiOwnedStocksKey:${userId}`,
+    snapshot: `stockRoiOwnedStocksSnapshot:${userId}`,
+  };
 }
 
 function moneyInputValue(value: string): number | null {
