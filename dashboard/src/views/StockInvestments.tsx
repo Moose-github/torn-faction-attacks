@@ -24,6 +24,15 @@ import {
 const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
 const DEFAULT_MINIMUM_ROI = "5";
 
+type StockRoiSortKey = "acronym" | "name" | "shares" | "increment_cost" | "benefit" | "annual_return" | "days_to_break_even" | "roi_percent";
+
+type SortDirection = "asc" | "desc";
+
+type StockRoiSort = {
+  key: StockRoiSortKey;
+  direction: SortDirection;
+};
+
 export function StockInvestments() {
   const storageUserId = React.useMemo(() => getStoredAuthSession()?.user.id ?? null, []);
   const [roiData, setRoiData] = React.useState<StockInvestmentRoiResponse | null>(null);
@@ -32,6 +41,8 @@ export function StockInvestments() {
   const [investmentAmount, setInvestmentAmount] = React.useState("");
   const [affordableOnly, setAffordableOnly] = React.useState(false);
   const [minimumRoi, setMinimumRoi] = React.useState(DEFAULT_MINIMUM_ROI);
+  const [hideOwnedBlocks, setHideOwnedBlocks] = React.useState(false);
+  const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
   const [ownedSnapshot, setOwnedSnapshot] = React.useState<OwnedStockSnapshot | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -176,6 +187,7 @@ export function StockInvestments() {
   function clearOwnedStocks() {
     setOwnedApiKey("");
     setOwnedSnapshot(null);
+    setHideOwnedBlocks(false);
     clearOwnedStocksStorage(storageUserId);
     setError(null);
     setMessage("Owned stock highlights cleared");
@@ -190,20 +202,25 @@ export function StockInvestments() {
 
   const ownedShares = React.useMemo(() => ownedSharesMap(ownedSnapshot), [ownedSnapshot]);
   const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
+  const ownedCoveredBlockCount = (roiData?.rows ?? []).filter((row) => ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required)).length;
   const budget = moneyInputValue(investmentAmount);
   const minRoi = percentInputValue(minimumRoi);
-  const rows = (roiData?.rows ?? []).filter((row) => {
+  const filteredRows = (roiData?.rows ?? []).filter((row) => {
     if (affordableOnly && budget !== null && row.increment_cost > budget) {
       return false;
     }
     if (minRoi !== null && row.roi_percent < minRoi) {
       return false;
     }
+    if (hideOwnedBlocks && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required)) {
+      return false;
+    }
     return true;
   });
+  const rows = sortStockRoiRows(filteredRows, roiSort);
   const bestRow = React.useMemo(
-    () => rows.find((row) => !ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required)) ?? null,
-    [ownedShares, rows],
+    () => filteredRows.find((row) => !ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required)) ?? null,
+    [filteredRows, ownedShares],
   );
   const bestRowOwnedShares = bestRow ? ownedShares.get(bestRow.stock_id) ?? 0 : 0;
   const bestRowSharesRemaining = bestRow ? Math.max(0, bestRow.total_shares_required - bestRowOwnedShares) : 0;
@@ -211,7 +228,17 @@ export function StockInvestments() {
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
   const benefitValuesRefreshedAt = roiData?.benefit_prices_refreshed_at ?? null;
-  const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly;
+  const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly || hideOwnedBlocks;
+
+  function updateRoiSort(key: StockRoiSortKey) {
+    setRoiSort((current) => current.key === key
+      ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
+      : { key, direction: defaultSortDirection(key) });
+  }
+
+  function scrollToManualValues() {
+    document.getElementById("stock-benefit-manual-values")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <>
@@ -255,6 +282,7 @@ export function StockInvestments() {
           label="Missing values"
           value={formatNumber(missingValueCount)}
           detail={missingValueCount > 0 ? "Add manual values to unlock more blocks" : "All active benefits are priced"}
+          onClick={missingValueCount > 0 ? scrollToManualValues : undefined}
         />
         <StatusMetric
           label="Benefit values"
@@ -309,6 +337,7 @@ export function StockInvestments() {
                 setInvestmentAmount("");
                 setMinimumRoi(DEFAULT_MINIMUM_ROI);
                 setAffordableOnly(false);
+                setHideOwnedBlocks(false);
               }}
             >
               <RotateCcw size={14} />
@@ -321,6 +350,22 @@ export function StockInvestments() {
             <strong>Owned stock highlighting</strong>
             <span>{ownedStockCount > 0 ? `${formatNumber(ownedStockCount)} owned stocks loaded` : "No owned stocks loaded"}</span>
           </div>
+          {ownedSnapshot ? (
+            <div className="stock-owned-summary" aria-label="Owned stock snapshot summary">
+              <span>
+                <strong>{formatNumber(ownedStockCount)}</strong>
+                <small>Stocks loaded</small>
+              </span>
+              <span>
+                <strong>{formatNumber(ownedCoveredBlockCount)}</strong>
+                <small>Active blocks covered</small>
+              </span>
+              <span>
+                <strong>{formatRelativeTime(ownedSnapshot.refreshed_at)}</strong>
+                <small>Snapshot age</small>
+              </span>
+            </div>
+          ) : null}
           <div className="stock-owned-controls-grid">
             <label>
               <span>Limited API key</span>
@@ -353,6 +398,14 @@ export function StockInvestments() {
               <RotateCcw size={14} />
               Clear
             </button>
+            <label className="stock-owned-hide-toggle">
+              <input
+                type="checkbox"
+                checked={hideOwnedBlocks}
+                onChange={(event) => setHideOwnedBlocks(event.target.checked)}
+              />
+              <span>Hide owned blocks</span>
+            </label>
             <span className="stock-owned-controls-status">
               {ownedSnapshot ? `Refreshed ${formatRelativeTime(ownedSnapshot.refreshed_at)}` : "Limited key stays in this browser only"}
             </span>
@@ -367,7 +420,7 @@ export function StockInvestments() {
         ) : rows.length === 0 ? (
           <EmptyState text="No stock increments match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} ownedShares={ownedShares} />
+          <StockRoiTable rows={rows} ownedShares={ownedShares} sort={roiSort} onSort={updateRoiSort} />
         )}
       </section>
 
@@ -409,20 +462,30 @@ export function StockInvestments() {
   );
 }
 
-function StockRoiTable({ rows, ownedShares }: { rows: StockInvestmentRoiRow[]; ownedShares: Map<number, number> }) {
+function StockRoiTable({
+  rows,
+  ownedShares,
+  sort,
+  onSort,
+}: {
+  rows: StockInvestmentRoiRow[];
+  ownedShares: Map<number, number>;
+  sort: StockRoiSort;
+  onSort: (key: StockRoiSortKey) => void;
+}) {
   return (
     <div className="table-scroll">
       <table className="stock-status-table stock-investment-table">
         <thead>
           <tr>
-            <th>Acronym</th>
-            <th>Name</th>
-            <th>Shares</th>
-            <th>Increment Cost</th>
-            <th>Benefit</th>
-            <th>Annual Return</th>
-            <th>Break Even</th>
-            <th>ROI</th>
+            <SortableHeader label="Acronym" sortKey="acronym" sort={sort} onSort={onSort} />
+            <SortableHeader label="Name" sortKey="name" sort={sort} onSort={onSort} />
+            <SortableHeader label="Shares" sortKey="shares" sort={sort} onSort={onSort} />
+            <SortableHeader label="Increment Cost" sortKey="increment_cost" sort={sort} onSort={onSort} />
+            <SortableHeader label="Benefit" sortKey="benefit" sort={sort} onSort={onSort} />
+            <SortableHeader label="Annual Return" sortKey="annual_return" sort={sort} onSort={onSort} />
+            <SortableHeader label="Break Even" sortKey="days_to_break_even" sort={sort} onSort={onSort} />
+            <SortableHeader label="ROI" sortKey="roi_percent" sort={sort} onSort={onSort} />
           </tr>
         </thead>
         <tbody>
@@ -483,6 +546,32 @@ function StockRoiTable({ rows, ownedShares }: { rows: StockInvestmentRoiRow[]; o
   );
 }
 
+function SortableHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: StockRoiSortKey;
+  sort: StockRoiSort;
+  onSort: (key: StockRoiSortKey) => void;
+}) {
+  const isActive = sort.key === sortKey;
+  return (
+    <th aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
+      <button
+        type="button"
+        className={`sort-button stock-roi-sort-button${isActive ? " active" : ""}`}
+        onClick={() => onSort(sortKey)}
+      >
+        <span>{label}</span>
+        <span className="stock-sort-indicator" aria-hidden="true">{isActive ? (sort.direction === "asc" ? "▲" : "▼") : "↕"}</span>
+      </button>
+    </th>
+  );
+}
+
 function BenefitValuesTable({
   benefits,
   inputs,
@@ -517,6 +606,7 @@ function BenefitValuesTable({
       ) : null}
       {manualBenefits.length > 0 ? (
         <BenefitValuesSection
+          id="stock-benefit-manual-values"
           title="Manual values"
           aside={`${formatNumber(manualBenefits.length)} manual-only`}
           benefits={manualBenefits}
@@ -532,6 +622,7 @@ function BenefitValuesTable({
 }
 
 function BenefitValuesSection({
+  id,
   title,
   aside,
   benefits,
@@ -541,6 +632,7 @@ function BenefitValuesSection({
   onSave,
   onReset,
 }: {
+  id?: string;
   title: string;
   aside: string;
   benefits: StockBenefitValue[];
@@ -551,7 +643,7 @@ function BenefitValuesSection({
   onReset: (benefit: StockBenefitValue) => void;
 }) {
   return (
-    <div className="stock-benefit-table-section">
+    <div id={id} className="stock-benefit-table-section">
       <div className="stock-benefit-table-title">
         <strong>{title}</strong>
         <span>{aside}</span>
@@ -663,19 +755,79 @@ function StatusMetric({
   value,
   detail,
   className,
+  onClick,
 }: {
   label: string;
   value: React.ReactNode;
   detail: React.ReactNode;
   className?: string;
+  onClick?: () => void;
 }) {
-  return (
-    <div className={`metric-card${className ? ` ${className}` : ""}`}>
+  const content = (
+    <>
       <span className="panel-kicker">{label}</span>
       <strong className="metric-card-value">{value}</strong>
       <span className="metric-card-detail">{detail}</span>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button type="button" className={`metric-card stock-clickable-metric${className ? ` ${className}` : ""}`} onClick={onClick}>
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className={`metric-card${className ? ` ${className}` : ""}`}>
+      {content}
     </div>
   );
+}
+
+function sortStockRoiRows(rows: StockInvestmentRoiRow[], sort: StockRoiSort): StockInvestmentRoiRow[] {
+  return [...rows].sort((a, b) => {
+    const compared = compareStockRoiRows(a, b, sort.key);
+    if (compared !== 0) {
+      return sort.direction === "asc" ? compared : -compared;
+    }
+    if (a.stock_id !== b.stock_id) {
+      return a.stock_id - b.stock_id;
+    }
+    return a.increment - b.increment;
+  });
+}
+
+function compareStockRoiRows(a: StockInvestmentRoiRow, b: StockInvestmentRoiRow, key: StockRoiSortKey): number {
+  switch (key) {
+    case "acronym":
+      return compareText(a.acronym ?? `#${a.stock_id}`, b.acronym ?? `#${b.stock_id}`);
+    case "name":
+      return compareText(`${a.name ?? ""} ${a.increment}`, `${b.name ?? ""} ${b.increment}`);
+    case "shares":
+      return a.required_shares - b.required_shares;
+    case "increment_cost":
+      return a.increment_cost - b.increment_cost;
+    case "benefit":
+      return compareText(a.benefit_description, b.benefit_description);
+    case "annual_return":
+      return a.annual_return - b.annual_return;
+    case "days_to_break_even":
+      return a.days_to_break_even - b.days_to_break_even;
+    case "roi_percent":
+      return a.roi_percent - b.roi_percent;
+  }
+}
+
+function compareText(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function defaultSortDirection(key: StockRoiSortKey): SortDirection {
+  return key === "acronym" || key === "name" || key === "benefit" || key === "increment_cost" || key === "days_to_break_even" || key === "shares"
+    ? "asc"
+    : "desc";
 }
 
 function inputsFromBenefits(benefits: StockBenefitValue[]): Record<string, string> {

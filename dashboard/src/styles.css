@@ -405,6 +405,21 @@ h2 {
   color: var(--accent-strong);
 }
 
+.stock-clickable-metric {
+  width: 100%;
+  appearance: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.stock-clickable-metric:hover,
+.stock-clickable-metric:focus-visible {
+  border-color: var(--accent);
+  outline: 0;
+}
+
 .stock-metric-detail-stack {
   display: grid;
   gap: 3px;
@@ -495,9 +510,37 @@ h2 {
   font-weight: 850;
 }
 
+.stock-owned-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-faint);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.stock-owned-summary span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stock-owned-summary strong {
+  color: var(--text-heading);
+  font-size: 0.94rem;
+  font-weight: 900;
+}
+
+.stock-owned-summary small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .stock-owned-controls-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 340px) auto auto minmax(180px, 1fr);
+  grid-template-columns: minmax(220px, 340px) auto auto minmax(170px, max-content) minmax(180px, 1fr);
   gap: 10px;
   align-items: end;
 }
@@ -524,6 +567,19 @@ h2 {
   white-space: nowrap;
 }
 
+.stock-owned-hide-toggle {
+  min-height: 38px;
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.stock-owned-hide-toggle input {
+  min-height: auto;
+}
+
 .stock-owned-controls-status {
   align-self: center;
 }
@@ -548,6 +604,17 @@ h2 {
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
+}
+
+.stock-roi-sort-button {
+  white-space: nowrap;
+}
+
+.stock-sort-indicator {
+  min-width: 12px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1;
 }
 
 .stock-symbol-chip {
@@ -650,6 +717,7 @@ h2 {
   display: grid;
   gap: 8px;
   min-width: 0;
+  scroll-margin-top: 18px;
 }
 
 .stock-benefit-table-title {
@@ -7240,6 +7308,10 @@ h2 {
 
   .stock-filter-section-heading {
     display: grid;
+  }
+
+  .stock-owned-summary {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .stock-owned-controls-heading,
