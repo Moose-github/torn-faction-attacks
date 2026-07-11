@@ -206,6 +206,8 @@ export function StockInvestments() {
   );
   const bestRowOwnedShares = bestRow ? ownedShares.get(bestRow.stock_id) ?? 0 : 0;
   const bestRowSharesRemaining = bestRow ? Math.max(0, bestRow.total_shares_required - bestRowOwnedShares) : 0;
+  const totalPricedRows = roiData?.rows.length ?? 0;
+  const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== "" || affordableOnly;
 
   return (
@@ -243,9 +245,9 @@ export function StockInvestments() {
           detail="Latest stock snapshot used for pricing"
         />
         <StatusMetric
-          label="ROI rows"
-          value={formatNumber(roiData?.rows.length ?? 0)}
-          detail={`${formatNumber(rows.length)} after filters`}
+          label="Missing values"
+          value={formatNumber(missingValueCount)}
+          detail={missingValueCount > 0 ? "Add manual values to unlock more blocks" : "All active benefits are priced"}
         />
         <StatusMetric
           label="Benefit prices"
@@ -346,7 +348,7 @@ export function StockInvestments() {
       </section>
 
       <section className="panel table-panel">
-        <PanelHeader title="Active benefit increments" aside={`${formatNumber(rows.length)} shown`} icon={<BadgeDollarSign size={18} />} />
+        <PanelHeader title="Active benefit increments" aside={`${formatNumber(rows.length)} shown / ${formatNumber(totalPricedRows)} total`} icon={<BadgeDollarSign size={18} />} />
         {isLoading ? (
           <EmptyState text="Loading stock ROI" />
         ) : rows.length === 0 ? (
