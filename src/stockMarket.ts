@@ -164,6 +164,8 @@ const BENEFIT_ITEM_PRICE_REFRESH_SECONDS = 6 * 60 * 60;
 const BENEFIT_ITEM_REFERENCE_QUANTITY = 5;
 const DEFAULT_BENEFIT_VALUES: Record<string, number> = {
   "item:box_of_medical_supplies": 850_000,
+  "item:random_property": 45_456_058,
+  "item:clothing_cache": 5_137_999,
 };
 const STOCK_BENEFIT_MARKET_DEFINITIONS: StockBenefitMarketDefinition[] = [
   { marketType: "itemmarket", benefitKey: "item:lawyer_s_business_card", label: "Lawyer's Business Card", tornItemId: 368 },

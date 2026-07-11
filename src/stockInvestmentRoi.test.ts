@@ -60,6 +60,36 @@ describe("stock investment ROI parsing", () => {
       value: null,
       editable: true,
     });
+    expect(parseBenefitDescription("1x Random Property")).toMatchObject({
+      benefit_key: "item:random_property",
+      value: 45_456_058,
+      editable: true,
+    });
+    expect(parseBenefitDescription("1x Clothing Cache")).toMatchObject({
+      benefit_key: "item:clothing_cache",
+      value: 5_137_999,
+      editable: true,
+    });
+    expect(parseBenefitDescription("100 energy")).toMatchObject({
+      benefit_key: "item:100_energy",
+      value: null,
+      editable: true,
+    });
+    expect(parseBenefitDescription("1x Ammunition Pack")).toMatchObject({
+      benefit_key: "item:ammunition_pack",
+      value: null,
+      editable: true,
+    });
+    expect(parseBenefitDescription("50 nerve")).toMatchObject({
+      benefit_key: "item:50_nerve",
+      value: null,
+      editable: true,
+    });
+    expect(parseBenefitDescription("1000 happiness")).toMatchObject({
+      benefit_key: "item:1000_happiness",
+      value: null,
+      editable: true,
+    });
   });
 
   it("applies member override before default valuation", () => {
