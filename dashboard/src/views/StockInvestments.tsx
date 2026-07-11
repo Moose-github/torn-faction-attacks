@@ -200,7 +200,12 @@ export function StockInvestments() {
     }
     return true;
   });
-  const bestRow = rows[0] ?? null;
+  const bestRow = React.useMemo(
+    () => rows.find((row) => !ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required)) ?? null,
+    [ownedShares, rows],
+  );
+  const bestRowOwnedShares = bestRow ? ownedShares.get(bestRow.stock_id) ?? 0 : 0;
+  const bestRowSharesRemaining = bestRow ? Math.max(0, bestRow.total_shares_required - bestRowOwnedShares) : 0;
   const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== "" || affordableOnly;
 
   return (
@@ -224,7 +229,13 @@ export function StockInvestments() {
         <StatusMetric
           label="Best next block"
           value={bestRow ? `${bestRow.acronym ?? `#${bestRow.stock_id}`} ${formatPercent(bestRow.roi_percent)}` : "-"}
-          detail={bestRow ? `${formatMoney(bestRow.increment_cost)} for increment ${bestRow.increment}` : "No priced rows"}
+          detail={bestRow
+            ? bestRowOwnedShares > 0
+              ? `${formatMoney(bestRow.increment_cost)} for increment ${bestRow.increment} - need ${formatNumber(bestRowSharesRemaining)} shares`
+              : `${formatMoney(bestRow.increment_cost)} for increment ${bestRow.increment}`
+            : rows.length > 0
+              ? "All shown blocks already covered"
+              : "No priced rows"}
         />
         <StatusMetric
           label="Data refreshed"
@@ -305,6 +316,9 @@ export function StockInvestments() {
                 placeholder="Paste Limited key"
                 autoComplete="off"
               />
+              <small className="stock-owned-key-note">
+                Stored only in this browser. Never sent to our server; used only for the direct Torn owned-stocks request.
+              </small>
             </label>
             <button
               type="button"
