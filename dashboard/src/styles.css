@@ -495,6 +495,12 @@ h2 {
   color: #1d4ed8;
 }
 
+.stock-source-chip.market {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
 .stock-source-chip.default {
   border-color: #bbf7d0;
   background: #f0fdf4;
@@ -530,37 +536,42 @@ h2 {
 
 .stock-benefit-table-stack {
   display: grid;
-  gap: 18px;
+  gap: 0;
 }
 
-.stock-benefit-table-frame {
+.stock-benefit-table-section {
   min-width: max-content;
 }
 
-.stock-benefit-subtable {
-  display: grid;
-  gap: 8px;
+.stock-benefit-table-section + .stock-benefit-table-section {
+  border-top: 1px solid var(--border-faint);
 }
 
-.stock-benefit-subtable-header {
+.stock-benefit-table-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   min-width: max-content;
-  padding-top: 2px;
+  padding: 11px 14px;
+  background: var(--panel-muted-bg);
 }
 
-.stock-benefit-subtable-header strong {
+.stock-benefit-table-title strong {
   color: var(--text-heading);
   font-size: 0.86rem;
   font-weight: 850;
 }
 
-.stock-benefit-subtable-header span {
+.stock-benefit-table-title span {
   color: var(--text-muted);
   font-size: 0.76rem;
   font-weight: 850;
+}
+
+.stock-benefit-table-section .stock-benefit-values-table {
+  border: 0;
+  border-radius: 0;
 }
 
 .stock-benefit-panel-actions {

@@ -293,14 +293,22 @@ function StockRoiTable({ rows }: { rows: StockInvestmentRoiRow[] }) {
                 <span className="stock-increment-chip">Block {row.increment}</span>
               </td>
               <td>
-                <span className="stock-tooltip-value" title={`Total shares needed for this increment: ${formatNumber(row.total_shares_required)}`}>
-                  {formatNumber(row.required_shares)}
-                </span>
+                {row.increment === 1 ? (
+                  formatNumber(row.required_shares)
+                ) : (
+                  <span className="stock-tooltip-value" title={`Total shares needed for this increment: ${formatNumber(row.total_shares_required)}`}>
+                    {formatNumber(row.required_shares)}
+                  </span>
+                )}
               </td>
               <td>
-                <span className="stock-tooltip-value" title={`Total cost through this increment: ${formatMoney(row.total_cost)}`}>
-                  {formatMoney(row.increment_cost)}
-                </span>
+                {row.increment === 1 ? (
+                  formatMoney(row.increment_cost)
+                ) : (
+                  <span className="stock-tooltip-value" title={`Total cost through this increment: ${formatMoney(row.total_cost)}`}>
+                    {formatMoney(row.increment_cost)}
+                  </span>
+                )}
               </td>
               <td>
                 <span className="stock-benefit-cell">
@@ -342,7 +350,9 @@ function BenefitValuesTable({
   return (
     <div className="table-scroll stock-benefit-table-stack">
       {pricedBenefits.length > 0 ? (
-        <BenefitValuesSubtable
+        <BenefitValuesSection
+          title="Priced values"
+          aside={`${formatNumber(pricedBenefits.length)} default-backed`}
           benefits={pricedBenefits}
           inputs={inputs}
           savingBenefitKey={savingBenefitKey}
@@ -352,26 +362,24 @@ function BenefitValuesTable({
         />
       ) : null}
       {manualBenefits.length > 0 ? (
-        <div className="stock-benefit-subtable">
-          <div className="stock-benefit-subtable-header">
-            <strong>Manual values</strong>
-            <span>{formatNumber(manualBenefits.length)} manual-only</span>
-          </div>
-          <BenefitValuesSubtable
-            benefits={manualBenefits}
-            inputs={inputs}
-            savingBenefitKey={savingBenefitKey}
-            onInputChange={onInputChange}
-            onSave={onSave}
-            onReset={onReset}
-          />
-        </div>
+        <BenefitValuesSection
+          title="Manual values"
+          aside={`${formatNumber(manualBenefits.length)} manual-only`}
+          benefits={manualBenefits}
+          inputs={inputs}
+          savingBenefitKey={savingBenefitKey}
+          onInputChange={onInputChange}
+          onSave={onSave}
+          onReset={onReset}
+        />
       ) : null}
     </div>
   );
 }
 
-function BenefitValuesSubtable({
+function BenefitValuesSection({
+  title,
+  aside,
   benefits,
   inputs,
   savingBenefitKey,
@@ -379,6 +387,8 @@ function BenefitValuesSubtable({
   onSave,
   onReset,
 }: {
+  title: string;
+  aside: string;
   benefits: StockBenefitValue[];
   inputs: Record<string, string>;
   savingBenefitKey: string | null;
@@ -387,7 +397,11 @@ function BenefitValuesSubtable({
   onReset: (benefit: StockBenefitValue) => void;
 }) {
   return (
-    <div className="stock-benefit-table-frame">
+    <div className="stock-benefit-table-section">
+      <div className="stock-benefit-table-title">
+        <strong>{title}</strong>
+        <span>{aside}</span>
+      </div>
       <table className="stock-status-table stock-benefit-values-table">
         <thead>
           <tr>

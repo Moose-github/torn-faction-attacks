@@ -152,7 +152,7 @@ describe("stock investment ROI parsing", () => {
       standardValues,
     )).toMatchObject({
       value: 910_000,
-      source: "default",
+      source: "market",
     });
     expect(valueStockBenefit(
       { description: "1x Box of Medical Supplies" },
@@ -169,7 +169,7 @@ describe("stock investment ROI parsing", () => {
     )).toMatchObject({
       benefit_key: "item:100_points",
       value: 3_113_600,
-      source: "default",
+      source: "market",
     });
   });
 });

@@ -1189,7 +1189,7 @@ export type StockIngestionStatusResponse = {
   last_error: string | null;
 };
 
-export type StockBenefitValueSource = "cash" | "custom" | "default" | "unpriced";
+export type StockBenefitValueSource = "cash" | "custom" | "market" | "default" | "unpriced";
 
 
 

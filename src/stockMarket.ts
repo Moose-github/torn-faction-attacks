@@ -83,7 +83,7 @@ type StockInvestmentProfileRow = {
   latest_observed_at: number | null;
 };
 
-export type StockBenefitValueSource = "cash" | "custom" | "default" | "unpriced";
+export type StockBenefitValueSource = "cash" | "custom" | "market" | "default" | "unpriced";
 
 export type StockBenefitValueRow = {
   benefit_key: string;
@@ -865,7 +865,7 @@ async function readEffectiveStockBenefitValues(env: Env, tornUserId: number): Pr
         default_value: defaultValue,
         override_value: overrideValue,
         effective_value: effectiveValue,
-        source: overrideValue !== null ? "custom" as const : defaultValue !== null ? "default" as const : "unpriced" as const,
+        source: benefitValueSource(benefitKey, overrideValue, defaultValue, standardBenefitValues),
         used_by_stock_count: value.usedByStockIds.size,
       };
     })
@@ -1062,7 +1062,7 @@ export function valueStockBenefit(
 
   return {
     ...parsed,
-    source: parsed.value === null ? "unpriced" : "default",
+    source: benefitValueSource(parsed.benefit_key, null, parsed.value, standardBenefitValues),
   };
 }
 
@@ -1193,6 +1193,21 @@ function stockBenefitDefaultValue(
   standardBenefitValues: ReadonlyMap<string, number>,
 ): number | null {
   return standardBenefitValues.get(benefitKey) ?? DEFAULT_BENEFIT_VALUES[benefitKey] ?? null;
+}
+
+function benefitValueSource(
+  benefitKey: string | null,
+  overrideValue: number | null,
+  defaultValue: number | null,
+  standardBenefitValues: ReadonlyMap<string, number>,
+): Exclude<StockBenefitValueSource, "cash"> {
+  if (overrideValue !== null) {
+    return "custom";
+  }
+  if (benefitKey && standardBenefitValues.has(benefitKey)) {
+    return "market";
+  }
+  return defaultValue !== null ? "default" : "unpriced";
 }
 
 function slugifyBenefitLabel(value: string): string {
