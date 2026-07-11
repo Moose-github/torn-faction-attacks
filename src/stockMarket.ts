@@ -969,8 +969,8 @@ async function readEffectiveStockBenefitValues(env: Env, tornUserId: number): Pr
   const observed = new Map<string, { label: string; usedByStockIds: Set<number> }>();
 
   for (const profile of profiles) {
-    const parsed = parseStockBenefitForValuation(profile.benefit_json);
-    if (parsed.status !== "benefit") {
+    const parsed = parseActiveStockBenefit(profile.benefit_json);
+    if (parsed.status !== "active") {
       continue;
     }
     const benefitValue = parseBenefitDescription(parsed.benefit.description);
