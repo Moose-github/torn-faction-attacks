@@ -348,7 +348,7 @@ export function StockInvestments() {
         <div className="stock-owned-controls">
           <div className="stock-owned-controls-heading">
             <strong>Owned stock highlighting</strong>
-            <span>{ownedStockCount > 0 ? `${formatNumber(ownedStockCount)} owned stocks loaded` : "No owned stocks loaded"}</span>
+            <span>{ownedSnapshot ? "Local snapshot loaded" : "No owned stocks loaded"}</span>
           </div>
           {ownedSnapshot ? (
             <div className="stock-owned-summary" aria-label="Owned stock snapshot summary">
@@ -406,9 +406,6 @@ export function StockInvestments() {
               />
               <span>Hide owned blocks</span>
             </label>
-            <span className="stock-owned-controls-status">
-              {ownedSnapshot ? `Refreshed ${formatRelativeTime(ownedSnapshot.refreshed_at)}` : "Limited key stays in this browser only"}
-            </span>
           </div>
         </div>
       </section>

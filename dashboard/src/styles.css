@@ -503,8 +503,7 @@ h2 {
   font-weight: 850;
 }
 
-.stock-owned-controls-heading span,
-.stock-owned-controls-status {
+.stock-owned-controls-heading span {
   color: var(--text-muted);
   font-size: 0.76rem;
   font-weight: 850;
@@ -512,8 +511,9 @@ h2 {
 
 .stock-owned-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(120px, max-content));
+  gap: clamp(28px, 7vw, 96px);
+  justify-content: start;
   padding: 10px 0;
   border-top: 1px solid var(--border-faint);
   border-bottom: 1px solid var(--border-faint);
@@ -540,7 +540,7 @@ h2 {
 
 .stock-owned-controls-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 340px) auto auto minmax(170px, max-content) minmax(180px, 1fr);
+  grid-template-columns: minmax(220px, 340px) auto auto minmax(170px, max-content);
   gap: 10px;
   align-items: end;
 }
@@ -578,10 +578,6 @@ h2 {
 
 .stock-owned-hide-toggle input {
   min-height: auto;
-}
-
-.stock-owned-controls-status {
-  align-self: center;
 }
 
 .stock-investment-table td,
@@ -7256,11 +7252,7 @@ h2 {
   }
 
   .stock-owned-controls-grid {
-    grid-template-columns: minmax(220px, 1fr) auto auto;
-  }
-
-  .stock-owned-controls-status {
-    grid-column: 1 / -1;
+    grid-template-columns: minmax(220px, 1fr) auto auto auto;
   }
 
   .stock-investment-clear-button {
