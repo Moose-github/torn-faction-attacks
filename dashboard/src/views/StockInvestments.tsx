@@ -273,7 +273,6 @@ function StockRoiTable({ rows }: { rows: StockInvestmentRoiRow[] }) {
           <tr>
             <th>Acronym</th>
             <th>Name</th>
-            <th>Increment</th>
             <th>Shares</th>
             <th>Increment Cost</th>
             <th>Benefit</th>
@@ -288,9 +287,11 @@ function StockRoiTable({ rows }: { rows: StockInvestmentRoiRow[] }) {
               <td>
                 <span className="stock-symbol-chip">{row.acronym ?? `#${row.stock_id}`}</span>
               </td>
-              <td>{row.name ?? "-"}</td>
               <td>
-                <span className="stock-increment-chip">Block {row.increment}</span>
+                <span className="stock-benefit-cell">
+                  <strong>{row.name ?? "-"}</strong>
+                  <small>Block {row.increment}</small>
+                </span>
               </td>
               <td>
                 {row.increment === 1 ? (
