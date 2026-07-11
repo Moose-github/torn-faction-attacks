@@ -87,10 +87,17 @@ describe("owned stock parsing", () => {
   it("validates stored owned stock snapshots", () => {
     expect(parseStoredOwnedStockSnapshot({
       refreshed_at: 1_800_000_000,
-      stocks: [{ id: 13, shares: 1_000_000 }],
+      stocks: [{ stock_id: 13, shares: 1_000_000 }],
     })).toEqual({
       refreshed_at: 1_800_000_000,
       stocks: [{ stock_id: 13, shares: 1_000_000, bonus: null }],
+    });
+    expect(parseStoredOwnedStockSnapshot({
+      refreshed_at: 1_800_000_000,
+      stocks: [{ id: 15, shares: 376_210 }],
+    })).toEqual({
+      refreshed_at: 1_800_000_000,
+      stocks: [{ stock_id: 15, shares: 376_210, bonus: null }],
     });
     expect(parseStoredOwnedStockSnapshot({ stocks: [] })).toBeNull();
   });

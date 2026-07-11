@@ -78,7 +78,7 @@ function parseOwnedStockPosition(value: unknown): OwnedStockPosition | null {
     return null;
   }
 
-  const stockId = positiveInteger(value.id);
+  const stockId = positiveInteger(value.id) ?? positiveInteger(value.stock_id);
   const shares = positiveInteger(value.shares);
   if (stockId === null || shares === null) {
     return null;
