@@ -16,6 +16,11 @@ type StockProfile = {
   forecast: string | null;
   demand: string | null;
   benefit_json: string | null;
+  benefit_key: string | null;
+  benefit_label: string | null;
+  benefit_market_type: string | null;
+  benefit_torn_item_id: number | null;
+  benefit_quantity: number | null;
   raw_json: string | null;
   updated_at: number;
 };
@@ -79,6 +84,11 @@ type StockInvestmentProfileRow = {
   name: string | null;
   current_price: number | null;
   benefit_json: string | null;
+  benefit_key: string | null;
+  benefit_label: string | null;
+  benefit_market_type: string | null;
+  benefit_torn_item_id: number | null;
+  benefit_quantity: number | null;
   latest_price: number | null;
   latest_observed_at: number | null;
 };
@@ -161,6 +171,22 @@ type StockBenefitPointsDefinition = {
 
 type StockBenefitMarketDefinition = StockBenefitItemDefinition | StockBenefitPointsDefinition;
 
+type StockBenefitProfileMetadata = {
+  benefit_key: string | null;
+  benefit_label: string | null;
+  benefit_market_type: "itemmarket" | "pointsmarket" | null;
+  benefit_torn_item_id: number | null;
+  benefit_quantity: number | null;
+};
+
+type StockBenefitMarketDefinitionRow = {
+  benefit_key: string | null;
+  benefit_label: string | null;
+  benefit_market_type: string | null;
+  benefit_torn_item_id: number | null;
+  benefit_quantity: number | null;
+};
+
 const TORN_API_BASE = "https://api.torn.com/v2";
 const REQUEST_TIMEOUT_MS = 12_000;
 const STOCK_PROFILE_REFRESH_STATE = "stock_market_profiles_refreshed";
@@ -179,7 +205,7 @@ const DEFAULT_BENEFIT_VALUES: Record<string, number> = {
   "item:random_property": 45_456_058,
   "item:clothing_cache": 5_137_999,
 };
-const STOCK_BENEFIT_MARKET_DEFINITIONS: StockBenefitMarketDefinition[] = [
+const STOCK_BENEFIT_MARKET_DEFINITION_FALLBACKS: StockBenefitMarketDefinition[] = [
   { marketType: "itemmarket", benefitKey: "item:lawyer_s_business_card", label: "Lawyer's Business Card", tornItemId: 368 },
   { marketType: "itemmarket", benefitKey: "item:box_of_medical_supplies", label: "Box of Medical Supplies", tornItemId: 365 },
   { marketType: "itemmarket", benefitKey: "item:feathery_hotel_coupon", label: "Feathery Hotel Coupon", tornItemId: 367 },
@@ -386,7 +412,7 @@ export async function autoRefreshStockBenefitItemPrices(
       latched: true,
       retry_after_seconds: retryAfterSeconds,
       refreshed: 0,
-      skipped: STOCK_BENEFIT_MARKET_DEFINITIONS.length,
+      skipped: STOCK_BENEFIT_MARKET_DEFINITION_FALLBACKS.length,
       failed: 0,
       prices: [],
     };
@@ -402,16 +428,17 @@ export async function autoRefreshStockBenefitItemPrices(
 
 export async function refreshStockBenefitItemPrices(
   env: Env,
-  options: { force?: boolean; now?: number } = {},
+  options: { force?: boolean; now?: number; definitions?: StockBenefitMarketDefinition[] } = {},
 ): Promise<StockBenefitItemPriceRefreshResult> {
   const fetchedAt = options.now ?? nowSeconds();
+  const definitions = options.definitions ?? await readStockBenefitMarketDefinitions(env);
   const existing = new Map((await readStockBenefitItemPrices(env)).map((row) => [row.benefit_key, row]));
   const prices: StockBenefitItemPriceRefreshResult["prices"] = [];
   let refreshed = 0;
   let skipped = 0;
   let failed = 0;
 
-  for (const definition of STOCK_BENEFIT_MARKET_DEFINITIONS) {
+  for (const definition of definitions) {
     const current = existing.get(definition.benefitKey);
     const currentFetchedAt = nullableNumber(current?.fetched_at);
     if (
@@ -777,6 +804,11 @@ async function readInvestmentProfileRows(env: Env): Promise<StockInvestmentProfi
       p.name,
       p.current_price,
       p.benefit_json,
+      p.benefit_key,
+      p.benefit_label,
+      p.benefit_market_type,
+      p.benefit_torn_item_id,
+      p.benefit_quantity,
       s.price AS latest_price,
       s.observed_at AS latest_observed_at
     FROM stock_profiles p
@@ -829,6 +861,58 @@ async function readStockBenefitItemPrices(env: Env): Promise<StockBenefitItemPri
   ).all<StockBenefitItemPrice>();
 
   return rows.results ?? [];
+}
+
+async function readStockBenefitMarketDefinitions(env: Env): Promise<StockBenefitMarketDefinition[]> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT
+      benefit_key,
+      benefit_label,
+      benefit_market_type,
+      benefit_torn_item_id,
+      benefit_quantity
+    FROM stock_profiles
+    WHERE benefit_key IS NOT NULL
+      AND benefit_market_type IN ('itemmarket', 'pointsmarket')
+    ORDER BY stock_id ASC
+    `,
+  ).all<StockBenefitMarketDefinitionRow>();
+
+  const definitions = new Map<string, StockBenefitMarketDefinition>();
+  for (const row of rows.results ?? []) {
+    const definition = stockBenefitMarketDefinitionFromProfile(row);
+    if (definition && !definitions.has(definition.benefitKey)) {
+      definitions.set(definition.benefitKey, definition);
+    }
+  }
+
+  return definitions.size > 0 ? [...definitions.values()] : STOCK_BENEFIT_MARKET_DEFINITION_FALLBACKS;
+}
+
+function stockBenefitMarketDefinitionFromProfile(row: StockBenefitMarketDefinitionRow): StockBenefitMarketDefinition | null {
+  const benefitKey = cleanString(row.benefit_key);
+  const label = cleanString(row.benefit_label);
+  const marketType = cleanString(row.benefit_market_type);
+  if (!benefitKey || !label) {
+    return null;
+  }
+
+  if (marketType === "itemmarket") {
+    const tornItemId = finiteInteger(row.benefit_torn_item_id);
+    return tornItemId && tornItemId > 0
+      ? { marketType, benefitKey, label, tornItemId }
+      : null;
+  }
+
+  if (marketType === "pointsmarket") {
+    const quantity = finiteInteger(row.benefit_quantity);
+    return quantity && quantity > 0
+      ? { marketType, benefitKey, label, quantity }
+      : null;
+  }
+
+  return null;
 }
 
 async function readLatestStockBenefitItemPriceRefreshAt(env: Env): Promise<number | null> {
@@ -890,16 +974,18 @@ async function readEffectiveStockBenefitValues(env: Env, tornUserId: number): Pr
       continue;
     }
     const benefitValue = parseBenefitDescription(parsed.benefit.description);
-    if (!benefitValue.editable || !benefitValue.benefit_key) {
+    const benefitKey = cleanString(profile.benefit_key) ?? benefitValue.benefit_key;
+    const label = cleanString(profile.benefit_label) ?? benefitValue.label;
+    if (!benefitValue.editable || !benefitKey) {
       continue;
     }
 
-    const current = observed.get(benefitValue.benefit_key) ?? {
-      label: benefitValue.label,
+    const current = observed.get(benefitKey) ?? {
+      label,
       usedByStockIds: new Set<number>(),
     };
     current.usedByStockIds.add(profile.stock_id);
-    observed.set(benefitValue.benefit_key, current);
+    observed.set(benefitKey, current);
   }
 
   return [...observed.entries()]
@@ -1091,6 +1177,56 @@ export function parseBenefitDescription(
   };
 }
 
+function stockBenefitProfileMetadata(benefitJson: string | null): StockBenefitProfileMetadata {
+  const empty: StockBenefitProfileMetadata = {
+    benefit_key: null,
+    benefit_label: null,
+    benefit_market_type: null,
+    benefit_torn_item_id: null,
+    benefit_quantity: null,
+  };
+  const parsed = parseStockBenefitForValuation(benefitJson);
+  if (parsed.status !== "benefit") {
+    return empty;
+  }
+
+  const benefitValue = parseBenefitDescription(parsed.benefit.description);
+  const benefitKey = benefitValue.benefit_key;
+  if (!benefitKey) {
+    return {
+      ...empty,
+      benefit_label: benefitValue.label,
+      benefit_quantity: benefitQuantityFromDescription(parsed.benefit.description),
+    };
+  }
+
+  const marketDefinition = stockBenefitMarketDefinitionFallback(benefitKey);
+  return {
+    benefit_key: benefitKey,
+    benefit_label: benefitValue.label,
+    benefit_market_type: marketDefinition?.marketType ?? null,
+    benefit_torn_item_id: marketDefinition?.marketType === "itemmarket" ? marketDefinition.tornItemId : null,
+    benefit_quantity: marketDefinition?.marketType === "pointsmarket"
+      ? marketDefinition.quantity
+      : benefitQuantityFromDescription(parsed.benefit.description),
+  };
+}
+
+function stockBenefitMarketDefinitionFallback(benefitKey: string): StockBenefitMarketDefinition | null {
+  return STOCK_BENEFIT_MARKET_DEFINITION_FALLBACKS.find((definition) => definition.benefitKey === benefitKey) ?? null;
+}
+
+function benefitQuantityFromDescription(description: string): number | null {
+  const trimmed = description.trim();
+  const item = /^(\d+(?:\.\d+)?)\s*x\s+.+$/i.exec(trimmed);
+  if (item) {
+    return positiveNumber(item[1]);
+  }
+
+  const leadingQuantity = /^(\d+(?:\.\d+)?)\s+\S+/.exec(trimmed);
+  return leadingQuantity ? positiveNumber(leadingQuantity[1]) : null;
+}
+
 export function valueStockBenefit(
   benefit: Pick<ParsedActiveBenefit, "description">,
   overrideMap: Map<string, number | null>,
@@ -1276,6 +1412,11 @@ function positiveMoneyValue(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function positiveNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function nullableNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -1369,10 +1510,15 @@ async function saveStockProfiles(env: Env, profiles: StockProfile[]): Promise<vo
         forecast,
         demand,
         benefit_json,
+        benefit_key,
+        benefit_label,
+        benefit_market_type,
+        benefit_torn_item_id,
+        benefit_quantity,
         raw_json,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(stock_id) DO UPDATE SET
         acronym = COALESCE(excluded.acronym, stock_profiles.acronym),
         name = COALESCE(excluded.name, stock_profiles.name),
@@ -1383,6 +1529,11 @@ async function saveStockProfiles(env: Env, profiles: StockProfile[]): Promise<vo
         forecast = COALESCE(excluded.forecast, stock_profiles.forecast),
         demand = COALESCE(excluded.demand, stock_profiles.demand),
         benefit_json = COALESCE(excluded.benefit_json, stock_profiles.benefit_json),
+        benefit_key = COALESCE(excluded.benefit_key, stock_profiles.benefit_key),
+        benefit_label = COALESCE(excluded.benefit_label, stock_profiles.benefit_label),
+        benefit_market_type = COALESCE(excluded.benefit_market_type, stock_profiles.benefit_market_type),
+        benefit_torn_item_id = COALESCE(excluded.benefit_torn_item_id, stock_profiles.benefit_torn_item_id),
+        benefit_quantity = COALESCE(excluded.benefit_quantity, stock_profiles.benefit_quantity),
         raw_json = COALESCE(excluded.raw_json, stock_profiles.raw_json),
         updated_at = excluded.updated_at
       `,
@@ -1397,6 +1548,11 @@ async function saveStockProfiles(env: Env, profiles: StockProfile[]): Promise<vo
       profile.forecast,
       profile.demand,
       profile.benefit_json,
+      profile.benefit_key,
+      profile.benefit_label,
+      profile.benefit_market_type,
+      profile.benefit_torn_item_id,
+      profile.benefit_quantity,
       profile.raw_json,
       profile.updated_at,
     )
@@ -1643,6 +1799,8 @@ function normalizeStockProfile(value: unknown, fallbackId: number | null, fetche
   const benefit = isRecord(value.benefit) || Array.isArray(value.benefit)
     ? value.benefit
     : (isRecord(value.bonus) || Array.isArray(value.bonus) ? value.bonus : null);
+  const benefitJson = benefit ? JSON.stringify(benefit) : null;
+  const benefitMetadata = stockBenefitProfileMetadata(benefitJson);
   return {
     stock_id: stockId,
     acronym: cleanString(value.acronym ?? value.ticker ?? value.symbol),
@@ -1653,7 +1811,8 @@ function normalizeStockProfile(value: unknown, fallbackId: number | null, fetche
     available_shares: finiteInteger(value.available_shares ?? value.availableShares),
     forecast: cleanString(value.forecast),
     demand: cleanString(value.demand),
-    benefit_json: benefit ? JSON.stringify(benefit) : null,
+    benefit_json: benefitJson,
+    ...benefitMetadata,
     raw_json: JSON.stringify(value),
     updated_at: fetchedAt,
   };
@@ -1671,6 +1830,11 @@ function minimalStockProfile(stockId: number, fetchedAt: number): StockProfile {
     forecast: null,
     demand: null,
     benefit_json: null,
+    benefit_key: null,
+    benefit_label: null,
+    benefit_market_type: null,
+    benefit_torn_item_id: null,
+    benefit_quantity: null,
     raw_json: null,
     updated_at: fetchedAt,
   };
