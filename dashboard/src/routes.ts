@@ -10,6 +10,7 @@ export type AppView =
   | "arrestScout"
   | "warPayouts"
   | "stockMarketStatus"
+  | "stockInvestments"
   | "diceGame"
   | "dataHealth"
   | "settings"
@@ -31,6 +32,7 @@ export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   arrestScout: "/arrest-scout",
   warPayouts: "/war-payouts",
   stockMarketStatus: "/admin/stock-market",
+  stockInvestments: "/admin/stock-investments",
   diceGame: "/dice-game",
   dataHealth: "/data-health",
   settings: "/settings",
@@ -86,7 +88,7 @@ export function pathForView(view: AppView, warName?: string | null): string {
 }
 
 export function isAdminOnlyView(view: AppView): boolean {
-  return view === "admin" || view === "warPayouts" || view === "stockMarketStatus";
+  return view === "admin" || view === "warPayouts" || view === "stockMarketStatus" || view === "stockInvestments";
 }
 
 function safeDecodePathPart(value: string): string | null {

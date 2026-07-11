@@ -17,8 +17,14 @@ import { getMiscellaneousData } from "../miscellaneous";
 import { createMonitorTicket } from "../monitorTickets";
 import { OFFICIAL_END_CACHE_TTL_SECONDS } from "../responseCache";
 import { getRetaliationCheck } from "../retaliations";
-import { matchesExactRoute, stockIdFromHistoryRoute } from "../routes";
-import { getStockHistory, getStocks } from "../stockMarket";
+import { matchesExactRoute, stockBenefitValueKeyFromRoute, stockIdFromHistoryRoute } from "../routes";
+import {
+  getStockBenefitValues,
+  getStockHistory,
+  getStockInvestmentRoi,
+  getStocks,
+  updateStockBenefitValueFromRequest,
+} from "../stockMarket";
 import { createMemberSuggestion } from "../suggestions";
 import {
   createMyTornApiKey,
@@ -83,6 +89,30 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
 
   if (matchesExactRoute(url, request, "/api/stocks", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getStocks(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/stocks/investment-roi", "GET")) {
+    return withMember(routeContext, async () =>
+      getStockInvestmentRoi(env, await readAuthenticatedUserId(request, env)),
+    );
+  }
+
+  if (matchesExactRoute(url, request, "/api/stocks/benefit-values", "GET")) {
+    return withMember(routeContext, async () =>
+      getStockBenefitValues(env, await readAuthenticatedUserId(request, env)),
+    );
+  }
+
+  const stockBenefitValueKey = stockBenefitValueKeyFromRoute(url, request);
+  if (stockBenefitValueKey !== null) {
+    return withMember(routeContext, async () =>
+      updateStockBenefitValueFromRequest(
+        request,
+        env,
+        await readAuthenticatedUserId(request, env),
+        stockBenefitValueKey,
+      ),
+    );
   }
 
   const stockHistoryId = stockIdFromHistoryRoute(url, request);

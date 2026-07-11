@@ -93,6 +93,9 @@ const SettingsPage = React.lazy(() =>
 const StockMarketStatus = React.lazy(() =>
   import("../views/StockMarketStatus").then((module) => ({ default: module.StockMarketStatus })),
 );
+const StockInvestments = React.lazy(() =>
+  import("../views/StockInvestments").then((module) => ({ default: module.StockInvestments })),
+);
 const TradeScout = React.lazy(() =>
   import("../views/TradeScout").then((module) => ({ default: module.TradeScout })),
 );
@@ -778,6 +781,10 @@ export function App() {
           ) : view === "stockMarketStatus" ? (
             <LazyPage>
               <StockMarketStatus />
+            </LazyPage>
+          ) : view === "stockInvestments" ? (
+            <LazyPage>
+              <StockInvestments />
             </LazyPage>
           ) : view === "dataHealth" ? (
             <LazyPage>

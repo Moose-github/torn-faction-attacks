@@ -804,6 +804,14 @@ CREATE TABLE stock_profiles (
   updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE stock_benefit_value_overrides (
+  torn_user_id INTEGER NOT NULL,
+  benefit_key TEXT NOT NULL,
+  override_value REAL NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (torn_user_id, benefit_key)
+);
+
 CREATE TABLE sync_state (
   name TEXT PRIMARY KEY,
   last_started INTEGER NOT NULL,

@@ -8,6 +8,11 @@ import {
 import { getRetaliationCheck } from "../retaliations";
 import { jsonResponse, routeContext } from "../testUtils/http";
 import {
+  getStockBenefitValues,
+  getStockInvestmentRoi,
+  updateStockBenefitValueFromRequest,
+} from "../stockMarket";
+import {
   createMyTornApiKey,
   deleteMyTornApiKey,
   listMyTornApiKeys,
@@ -64,8 +69,11 @@ vi.mock("../responseCache", () => ({
   OFFICIAL_END_CACHE_TTL_SECONDS: 55,
 }));
 vi.mock("../stockMarket", () => ({
+  getStockBenefitValues: vi.fn(),
   getStockHistory: vi.fn(),
+  getStockInvestmentRoi: vi.fn(),
   getStocks: vi.fn(),
+  updateStockBenefitValueFromRequest: vi.fn(),
 }));
 vi.mock("../suggestions", () => ({
   createMemberSuggestion: vi.fn(),
@@ -99,6 +107,9 @@ describe("member utility routes", () => {
     vi.mocked(previewMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-preview" }));
     vi.mocked(updateMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-update" }));
     vi.mocked(deleteMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-delete" }));
+    vi.mocked(getStockInvestmentRoi).mockResolvedValue(jsonResponse({ ok: true, route: "stock-roi" }));
+    vi.mocked(getStockBenefitValues).mockResolvedValue(jsonResponse({ ok: true, route: "stock-benefits" }));
+    vi.mocked(updateStockBenefitValueFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "stock-benefits-update" }));
   });
 
   it("routes retaliation checks through member auth", async () => {
@@ -135,6 +146,40 @@ describe("member utility routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "data-health" });
     expect(requireMember).toHaveBeenCalledOnce();
     expect(getDataHealthSummary).toHaveBeenCalledOnce();
+  });
+
+  it("routes stock ROI reads through member auth with the current user id", async () => {
+    const context = routeContext("https://worker.test/api/stocks/investment-roi");
+    const response = await routeMemberUtilityApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "stock-roi" });
+    expect(requireMember).toHaveBeenCalledOnce();
+    expect(readAuthenticatedUserId).toHaveBeenCalledWith(context.request, context.env);
+    expect(getStockInvestmentRoi).toHaveBeenCalledWith(context.env, 12345);
+  });
+
+  it("routes stock benefit value reads and updates through member auth", async () => {
+    const readContext = routeContext("https://worker.test/api/stocks/benefit-values");
+    const readResponse = await routeMemberUtilityApi(readContext);
+
+    expect(readResponse?.status).toBe(200);
+    expect(getStockBenefitValues).toHaveBeenCalledWith(readContext.env, 12345);
+
+    vi.clearAllMocks();
+    vi.mocked(requireMember).mockResolvedValue(null);
+    vi.mocked(readAuthenticatedUserId).mockResolvedValue(12345);
+    vi.mocked(updateStockBenefitValueFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "stock-benefits-update" }));
+
+    const updateContext = routeContext("https://worker.test/api/stocks/benefit-values/item%3Abox_of_medical_supplies", {
+      method: "PUT",
+      body: JSON.stringify({ override_value: 900000 }),
+    });
+    const updateResponse = await routeMemberUtilityApi(updateContext);
+
+    expect(updateResponse?.status).toBe(200);
+    expect(updateStockBenefitValueFromRequest)
+      .toHaveBeenCalledWith(updateContext.request, updateContext.env, 12345, "item:box_of_medical_supplies");
   });
 
   it("routes member Discord alert subscription reads through member auth", async () => {

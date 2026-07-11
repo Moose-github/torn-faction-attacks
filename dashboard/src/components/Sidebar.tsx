@@ -64,7 +64,7 @@ export function Sidebar({
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
   const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout" || view === "arrestScout";
-  const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "admin";
+  const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "stockInvestments" || view === "admin";
 
   React.useEffect(() => {
     setCollapsedGroups((current) => {
@@ -212,6 +212,12 @@ export function Sidebar({
             icon={stockMarketIcon}
             label="Stock market"
             onClick={() => onViewChange("stockMarketStatus")}
+          />
+          <SidebarLink
+            active={view === "stockInvestments"}
+            icon={stockMarketIcon}
+            label="Stock ROI"
+            onClick={() => onViewChange("stockInvestments")}
           />
           <SidebarLink
             active={view === "admin"}

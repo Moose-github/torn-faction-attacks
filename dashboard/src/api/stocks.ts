@@ -1,9 +1,35 @@
-import { getJson, postJson } from "./client";
+import { getJson, postJson, putJson } from "./client";
 import { queryString } from "./query";
-import type { StockIngestionStatusResponse, StockPaperSimulationResponse, StockPaperStatusResponse, StockSnapshotExportResponse } from "./types";
+import type {
+  StockBenefitValuesResponse,
+  StockIngestionStatusResponse,
+  StockInvestmentRoiResponse,
+  StockPaperSimulationResponse,
+  StockPaperStatusResponse,
+  StockSnapshotExportResponse,
+} from "./types";
 
 export async function getStockIngestionStatus(): Promise<StockIngestionStatusResponse> {
   return getJson<StockIngestionStatusResponse>("/api/admin/stocks/ingestion-status", true);
+}
+
+export async function getStockInvestmentRoi(): Promise<StockInvestmentRoiResponse> {
+  return getJson<StockInvestmentRoiResponse>("/api/stocks/investment-roi", true);
+}
+
+export async function getStockBenefitValues(): Promise<StockBenefitValuesResponse> {
+  return getJson<StockBenefitValuesResponse>("/api/stocks/benefit-values", true);
+}
+
+export async function updateStockBenefitValue(
+  benefitKey: string,
+  overrideValue: number | null,
+): Promise<StockBenefitValuesResponse> {
+  return putJson<StockBenefitValuesResponse>(
+    `/api/stocks/benefit-values/${encodeURIComponent(benefitKey)}`,
+    { override_value: overrideValue },
+    true,
+  );
 }
 
 export async function getStockPaperStatus(): Promise<StockPaperStatusResponse> {

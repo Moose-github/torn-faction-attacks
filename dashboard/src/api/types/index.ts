@@ -1189,7 +1189,103 @@ export type StockIngestionStatusResponse = {
   last_error: string | null;
 };
 
-export type StockPaperAccount = {
+export type StockBenefitValueSource = "cash" | "custom" | "default" | "unpriced";
+
+
+
+export type StockInvestmentRoiRow = {
+
+  stock_id: number;
+
+  acronym: string | null;
+
+  name: string | null;
+
+  increment: number;
+
+  required_shares: number;
+
+  total_shares_required: number;
+
+  latest_price: number;
+
+  increment_cost: number;
+
+  total_cost: number;
+
+  benefit_key: string | null;
+
+  benefit_description: string;
+
+  valuation_source: StockBenefitValueSource;
+
+  frequency_days: number;
+
+  benefit_value: number;
+
+  annual_return: number;
+
+  days_to_break_even: number;
+
+  roi_percent: number;
+
+};
+
+
+
+export type StockInvestmentRoiResponse = {
+
+  ok: boolean;
+
+  refreshed_at: number | null;
+
+  rows: StockInvestmentRoiRow[];
+
+  skipped: {
+
+    passive: number;
+
+    unpriced: number;
+
+    invalid: number;
+
+  };
+
+};
+
+
+
+export type StockBenefitValue = {
+
+  benefit_key: string;
+
+  label: string;
+
+  default_value: number | null;
+
+  override_value: number | null;
+
+  effective_value: number | null;
+
+  source: Exclude<StockBenefitValueSource, "cash">;
+
+  used_by_stock_count: number;
+
+};
+
+
+
+export type StockBenefitValuesResponse = {
+
+  ok: boolean;
+
+  benefits: StockBenefitValue[];
+
+};
+
+
+
+export type StockPaperAccount = {
   id: string;
   name: string;
   mode: string;
