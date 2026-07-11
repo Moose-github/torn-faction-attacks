@@ -550,6 +550,15 @@ h2 {
   color: var(--text-main);
 }
 
+.stock-tooltip-value {
+  cursor: help;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(37, 99, 235, 0.38);
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+
 .dashboard-home-header {
   align-items: flex-start;
 }
@@ -8136,6 +8145,10 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .stock-money-cell.strong,
 :root[data-theme="dark"] .stock-benefit-cell strong {
   color: var(--text-strong);
+}
+
+:root[data-theme="dark"] .stock-tooltip-value {
+  text-decoration-color: rgba(147, 197, 253, 0.5);
 }
 
 :root[data-theme="dark"] .sidebar-link.active,

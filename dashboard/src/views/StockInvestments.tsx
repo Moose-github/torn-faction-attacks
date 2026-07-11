@@ -17,7 +17,7 @@ export function StockInvestments() {
   const [benefitInputs, setBenefitInputs] = React.useState<Record<string, string>>({});
   const [investmentAmount, setInvestmentAmount] = React.useState("");
   const [affordableOnly, setAffordableOnly] = React.useState(false);
-  const [minimumRoi, setMinimumRoi] = React.useState("");
+  const [minimumRoi, setMinimumRoi] = React.useState("5");
   const [isLoading, setIsLoading] = React.useState(true);
   const [savingBenefitKey, setSavingBenefitKey] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
@@ -235,11 +235,8 @@ function StockRoiTable({ rows }: { rows: StockInvestmentRoiRow[] }) {
             <th>Name</th>
             <th>Increment</th>
             <th>Shares</th>
-            <th>Total Shares</th>
             <th>Increment Cost</th>
-            <th>Total Cost</th>
             <th>Benefit</th>
-            <th>Frequency</th>
             <th>Annual Return</th>
             <th>Break Even</th>
             <th>ROI</th>
@@ -255,17 +252,22 @@ function StockRoiTable({ rows }: { rows: StockInvestmentRoiRow[] }) {
               <td>
                 <span className="stock-increment-chip">Block {row.increment}</span>
               </td>
-              <td>{formatNumber(row.required_shares)}</td>
-              <td>{formatNumber(row.total_shares_required)}</td>
-              <td>{formatMoney(row.increment_cost)}</td>
-              <td>{formatMoney(row.total_cost)}</td>
+              <td>
+                <span className="stock-tooltip-value" title={`Total shares needed for this increment: ${formatNumber(row.total_shares_required)}`}>
+                  {formatNumber(row.required_shares)}
+                </span>
+              </td>
+              <td>
+                <span className="stock-tooltip-value" title={`Total cost through this increment: ${formatMoney(row.total_cost)}`}>
+                  {formatMoney(row.increment_cost)}
+                </span>
+              </td>
               <td>
                 <span className="stock-benefit-cell">
                   <strong>{row.benefit_description}</strong>
-                  <small>{valuationSourceLabel(row.valuation_source)} value</small>
+                  <small>{formatNumber(row.frequency_days)} days - {valuationSourceLabel(row.valuation_source)} value</small>
                 </span>
               </td>
-              <td>{formatNumber(row.frequency_days)} days</td>
               <td>{formatMoney(row.annual_return)}</td>
               <td>{formatNumber(Math.round(row.days_to_break_even))} days</td>
               <td>
