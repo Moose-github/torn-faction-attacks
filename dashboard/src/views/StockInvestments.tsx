@@ -349,7 +349,7 @@ function BenefitValuesTable({
   const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
 
   return (
-    <div className="table-scroll stock-benefit-table-stack">
+    <div className="stock-benefit-table-stack">
       {pricedBenefits.length > 0 ? (
         <BenefitValuesSection
           title="Priced values"
@@ -403,31 +403,33 @@ function BenefitValuesSection({
         <strong>{title}</strong>
         <span>{aside}</span>
       </div>
-      <table className="stock-status-table stock-benefit-values-table">
-        <thead>
-          <tr>
-            <th>Benefit</th>
-            <th>Default</th>
-            <th>Custom</th>
-            <th>Effective</th>
-            <th>Source</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {benefits.map((benefit) => (
-            <BenefitValueRow
-              key={benefit.benefit_key}
-              benefit={benefit}
-              inputValue={inputs[benefit.benefit_key] ?? ""}
-              isSaving={savingBenefitKey === benefit.benefit_key}
-              onInputChange={onInputChange}
-              onSave={onSave}
-              onReset={onReset}
-            />
-          ))}
-        </tbody>
-      </table>
+      <div className="table-scroll stock-benefit-table-frame">
+        <table className="stock-status-table stock-benefit-values-table">
+          <thead>
+            <tr>
+              <th>Benefit</th>
+              <th>Default</th>
+              <th>Custom</th>
+              <th>Effective</th>
+              <th>Source</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {benefits.map((benefit) => (
+              <BenefitValueRow
+                key={benefit.benefit_key}
+                benefit={benefit}
+                inputValue={inputs[benefit.benefit_key] ?? ""}
+                isSaving={savingBenefitKey === benefit.benefit_key}
+                onInputChange={onInputChange}
+                onSave={onSave}
+                onReset={onReset}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

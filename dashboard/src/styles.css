@@ -496,9 +496,9 @@ h2 {
 }
 
 .stock-source-chip.market {
-  border-color: #a7f3d0;
-  background: #ecfdf5;
-  color: #047857;
+  border-color: #67e8f9;
+  background: #ecfeff;
+  color: #0e7490;
 }
 
 .stock-source-chip.default {
@@ -536,15 +536,13 @@ h2 {
 
 .stock-benefit-table-stack {
   display: grid;
-  gap: 0;
+  gap: 18px;
 }
 
 .stock-benefit-table-section {
-  min-width: max-content;
-}
-
-.stock-benefit-table-section + .stock-benefit-table-section {
-  border-top: 1px solid var(--border-faint);
+  display: grid;
+  gap: 8px;
+  min-width: 0;
 }
 
 .stock-benefit-table-title {
@@ -552,9 +550,8 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  min-width: max-content;
-  padding: 11px 14px;
-  background: var(--panel-muted-bg);
+  min-width: 0;
+  padding: 0 2px;
 }
 
 .stock-benefit-table-title strong {
@@ -569,7 +566,12 @@ h2 {
   font-weight: 850;
 }
 
-.stock-benefit-table-section .stock-benefit-values-table {
+.stock-benefit-table-frame {
+  border-color: var(--border-soft);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.stock-benefit-table-frame .stock-benefit-values-table {
   border: 0;
   border-radius: 0;
 }
@@ -8208,6 +8210,12 @@ tbody tr:not(.attack-row):hover td {
   border-color: rgba(245, 158, 11, 0.4);
   background: rgba(146, 64, 14, 0.24);
   color: #fcd34d;
+}
+
+:root[data-theme="dark"] .stock-source-chip.market {
+  border-color: rgba(34, 211, 238, 0.4);
+  background: rgba(8, 145, 178, 0.22);
+  color: #a5f3fc;
 }
 
 :root[data-theme="dark"] .stock-source-chip.unpriced {
