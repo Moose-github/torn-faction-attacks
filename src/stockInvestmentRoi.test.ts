@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  autoRefreshStockBenefitItemPrices,
   calculateStockInvestmentIncrement,
   parseActiveStockBenefit,
   parseBenefitDescription,
@@ -175,6 +176,35 @@ describe("stock investment ROI parsing", () => {
 });
 
 describe("stock benefit item market values", () => {
+  it("latches automatic benefit price refreshes for three hours", async () => {
+    const env = {
+      DB: {
+        prepare: () => ({
+          bind: () => ({
+            first: async () => ({
+              name: "auto_stock_benefit_item_prices",
+              last_started: 10_000,
+              active_war_id: null,
+              war_state: "none",
+            }),
+          }),
+        }),
+      },
+    };
+
+    const result = await autoRefreshStockBenefitItemPrices(env as any, { now: 10_600 });
+
+    expect(result).toMatchObject({
+      ok: true,
+      latched: true,
+      retry_after_seconds: 10_200,
+      refreshed: 0,
+      failed: 0,
+    });
+    expect(result.skipped).toBeGreaterThan(0);
+    expect(result.prices).toEqual([]);
+  });
+
   it("uses price at cumulative quantity five from sorted itemmarket listings", () => {
     expect(stockBenefitMarketValueFromResponse({
       itemmarket: {

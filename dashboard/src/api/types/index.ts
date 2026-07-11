@@ -1239,6 +1239,8 @@ export type StockInvestmentRoiResponse = {
 
   refreshed_at: number | null;
 
+  benefit_prices_refreshed_at: number | null;
+
   rows: StockInvestmentRoiRow[];
 
   skipped: {
@@ -1286,6 +1288,10 @@ export type StockBenefitValuesResponse = {
 export type StockBenefitItemPriceRefreshResponse = {
 
   ok: boolean;
+
+  latched?: boolean;
+
+  retry_after_seconds?: number;
 
   refreshed: number;
 

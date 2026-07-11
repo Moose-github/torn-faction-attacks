@@ -19,6 +19,7 @@ import { OFFICIAL_END_CACHE_TTL_SECONDS } from "../responseCache";
 import { getRetaliationCheck } from "../retaliations";
 import { matchesExactRoute, stockBenefitValueKeyFromRoute, stockIdFromHistoryRoute } from "../routes";
 import {
+  autoRefreshStockBenefitItemPrices,
   getStockBenefitValues,
   getStockHistory,
   getStockInvestmentRoi,
@@ -100,6 +101,12 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
   if (matchesExactRoute(url, request, "/api/stocks/benefit-values", "GET")) {
     return withMember(routeContext, async () =>
       getStockBenefitValues(env, await readAuthenticatedUserId(request, env)),
+    );
+  }
+
+  if (matchesExactRoute(url, request, "/api/stocks/benefit-item-prices/auto-refresh", "POST")) {
+    return withMember(routeContext, async () =>
+      json(await autoRefreshStockBenefitItemPrices(env)),
     );
   }
 

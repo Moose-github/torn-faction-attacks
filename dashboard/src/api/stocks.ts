@@ -37,6 +37,10 @@ export async function refreshStockBenefitItemPrices(): Promise<StockBenefitItemP
   return postJson<StockBenefitItemPriceRefreshResponse>("/api/admin/stocks/benefit-item-prices/refresh");
 }
 
+export async function autoRefreshStockBenefitItemPrices(): Promise<StockBenefitItemPriceRefreshResponse> {
+  return postJson<StockBenefitItemPriceRefreshResponse>("/api/stocks/benefit-item-prices/auto-refresh");
+}
+
 export async function getStockPaperStatus(): Promise<StockPaperStatusResponse> {
   return getJson<StockPaperStatusResponse>("/api/admin/stocks/paper/status", true);
 }

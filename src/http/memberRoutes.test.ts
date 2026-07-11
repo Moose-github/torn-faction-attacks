@@ -8,6 +8,7 @@ import {
 import { getRetaliationCheck } from "../retaliations";
 import { jsonResponse, routeContext } from "../testUtils/http";
 import {
+  autoRefreshStockBenefitItemPrices,
   getStockBenefitValues,
   getStockInvestmentRoi,
   updateStockBenefitValueFromRequest,
@@ -69,6 +70,7 @@ vi.mock("../responseCache", () => ({
   OFFICIAL_END_CACHE_TTL_SECONDS: 55,
 }));
 vi.mock("../stockMarket", () => ({
+  autoRefreshStockBenefitItemPrices: vi.fn(),
   getStockBenefitValues: vi.fn(),
   getStockHistory: vi.fn(),
   getStockInvestmentRoi: vi.fn(),
@@ -102,6 +104,13 @@ describe("member utility routes", () => {
     vi.mocked(updateDiscordMemberAlertSubscriptionFromRequest)
       .mockResolvedValue(jsonResponse({ ok: true, route: "discord-alerts-update" }));
     vi.mocked(getRetaliationCheck).mockResolvedValue(jsonResponse({ ok: true, route: "retaliations" }));
+    vi.mocked(autoRefreshStockBenefitItemPrices).mockResolvedValue({
+      ok: true,
+      refreshed: 0,
+      skipped: 0,
+      failed: 0,
+      prices: [],
+    });
     vi.mocked(listMyTornApiKeys).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-list" }));
     vi.mocked(createMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-create" }));
     vi.mocked(previewMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-preview" }));
@@ -180,6 +189,24 @@ describe("member utility routes", () => {
     expect(updateResponse?.status).toBe(200);
     expect(updateStockBenefitValueFromRequest)
       .toHaveBeenCalledWith(updateContext.request, updateContext.env, 12345, "item:box_of_medical_supplies");
+  });
+
+  it("routes stock benefit item price auto refresh through member auth", async () => {
+    const context = routeContext("https://worker.test/api/stocks/benefit-item-prices/auto-refresh", {
+      method: "POST",
+    });
+    const response = await routeMemberUtilityApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({
+      ok: true,
+      refreshed: 0,
+      skipped: 0,
+      failed: 0,
+      prices: [],
+    });
+    expect(requireMember).toHaveBeenCalledOnce();
+    expect(autoRefreshStockBenefitItemPrices).toHaveBeenCalledWith(context.env);
   });
 
   it("routes member Discord alert subscription reads through member auth", async () => {

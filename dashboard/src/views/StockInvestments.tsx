@@ -1,6 +1,7 @@
 import React from "react";
 import { BadgeDollarSign, CircleDollarSign, RefreshCw, RotateCcw, Save, SlidersHorizontal } from "lucide-react";
 import {
+  autoRefreshStockBenefitItemPrices,
   getStockBenefitValues,
   getStockInvestmentRoi,
   refreshStockBenefitItemPrices,
@@ -10,7 +11,7 @@ import {
   updateStockBenefitValue,
 } from "../api";
 import { EmptyState, PanelHeader } from "../components/Common";
-import { formatLongDateTime, formatNumber } from "../utils/format";
+import { formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
 
 export function StockInvestments() {
   const [roiData, setRoiData] = React.useState<StockInvestmentRoiResponse | null>(null);
@@ -29,6 +30,7 @@ export function StockInvestments() {
     setIsLoading(true);
     setError(null);
     try {
+      await autoRefreshBenefitPrices();
       const [roi, benefitValues] = await Promise.all([
         getStockInvestmentRoi(),
         getStockBenefitValues(),
@@ -42,6 +44,14 @@ export function StockInvestments() {
       setBenefits([]);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function autoRefreshBenefitPrices() {
+    try {
+      await autoRefreshStockBenefitItemPrices();
+    } catch (err) {
+      console.warn("Stock benefit item price auto-refresh failed:", err);
     }
   }
 
@@ -123,7 +133,6 @@ export function StockInvestments() {
     }
     return true;
   });
-  const skippedTotal = (roiData?.skipped.passive ?? 0) + (roiData?.skipped.unpriced ?? 0) + (roiData?.skipped.invalid ?? 0);
   const bestRow = rows[0] ?? null;
   const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== "" || affordableOnly;
 
@@ -161,9 +170,9 @@ export function StockInvestments() {
           detail={`${formatNumber(rows.length)} after filters`}
         />
         <StatusMetric
-          label="Skipped"
-          value={formatNumber(skippedTotal)}
-          detail={`${formatNumber(roiData?.skipped.unpriced ?? 0)} need valuation`}
+          label="Benefit prices"
+          value={formatRelativeTime(roiData?.benefit_prices_refreshed_at ?? null)}
+          detail={roiData?.benefit_prices_refreshed_at ? formatLongDateTime(roiData.benefit_prices_refreshed_at) : "No market refresh yet"}
         />
       </section>
 
@@ -241,7 +250,7 @@ export function StockInvestments() {
                 onClick={refreshBenefitPrices}
               >
                 <RefreshCw size={14} className={isRefreshingBenefitPrices ? "spinning-icon" : ""} />
-                {isRefreshingBenefitPrices ? "Refreshing prices" : "Refresh prices"}
+                {isRefreshingBenefitPrices ? "Force refreshing" : "Force refresh"}
               </button>
             </div>
           )}

@@ -115,6 +115,10 @@ export type StockInvestmentRoiRow = {
   roi_percent: number;
 };
 
+type StockBenefitItemPriceFreshness = {
+  latest_fetched_at: number | null;
+};
+
 type ParsedActiveBenefit = {
   passive: false;
   frequency: number;
@@ -167,7 +171,8 @@ const DEFAULT_STOCK_IDS = Array.from({ length: 35 }, (_, index) => index + 1);
 const PRIMARY_STOCK_CADENCE = "1m all-stocks";
 const RECOVERY_STOCK_CADENCE = "30m stale-stock history fallback";
 const MAX_ROI_INCREMENTS = 10;
-const BENEFIT_ITEM_PRICE_REFRESH_SECONDS = 6 * 60 * 60;
+const BENEFIT_ITEM_PRICE_REFRESH_SECONDS = 3 * 60 * 60;
+const AUTO_BENEFIT_ITEM_PRICE_REFRESH_STATE = "auto_stock_benefit_item_prices";
 const BENEFIT_ITEM_REFERENCE_QUANTITY = 5;
 const DEFAULT_BENEFIT_VALUES: Record<string, number> = {
   "item:box_of_medical_supplies": 850_000,
@@ -352,6 +357,8 @@ export async function refreshTornStockHistoryBatch(
 
 export type StockBenefitItemPriceRefreshResult = {
   ok: boolean;
+  latched?: boolean;
+  retry_after_seconds?: number;
   refreshed: number;
   skipped: number;
   failed: number;
@@ -365,6 +372,33 @@ export type StockBenefitItemPriceRefreshResult = {
     error: string | null;
   }>;
 };
+
+export async function autoRefreshStockBenefitItemPrices(
+  env: Env,
+  options: { now?: number } = {},
+): Promise<StockBenefitItemPriceRefreshResult> {
+  const now = options.now ?? nowSeconds();
+  const lastStarted = await readSyncTimestamp(env, AUTO_BENEFIT_ITEM_PRICE_REFRESH_STATE);
+  const retryAfterSeconds = lastStarted > 0 ? BENEFIT_ITEM_PRICE_REFRESH_SECONDS - (now - lastStarted) : 0;
+  if (retryAfterSeconds > 0) {
+    return {
+      ok: true,
+      latched: true,
+      retry_after_seconds: retryAfterSeconds,
+      refreshed: 0,
+      skipped: STOCK_BENEFIT_MARKET_DEFINITIONS.length,
+      failed: 0,
+      prices: [],
+    };
+  }
+
+  await upsertSyncTimestamp(env, AUTO_BENEFIT_ITEM_PRICE_REFRESH_STATE, now, null);
+  return {
+    ...(await refreshStockBenefitItemPrices(env, { force: false, now })),
+    latched: false,
+    retry_after_seconds: 0,
+  };
+}
 
 export async function refreshStockBenefitItemPrices(
   env: Env,
@@ -589,6 +623,7 @@ export async function getStockInvestmentRoi(env: Env, tornUserId: number | null)
   return json({
     ok: true,
     refreshed_at: refreshedAt,
+    benefit_prices_refreshed_at: await readLatestStockBenefitItemPriceRefreshAt(env),
     rows,
     skipped,
   });
@@ -794,6 +829,19 @@ async function readStockBenefitItemPrices(env: Env): Promise<StockBenefitItemPri
   ).all<StockBenefitItemPrice>();
 
   return rows.results ?? [];
+}
+
+async function readLatestStockBenefitItemPriceRefreshAt(env: Env): Promise<number | null> {
+  const row = await env.DB.prepare(
+    `
+    SELECT MAX(fetched_at) AS latest_fetched_at
+    FROM stock_benefit_item_prices
+    WHERE status = 'ok'
+      AND fetched_at IS NOT NULL
+    `,
+  ).first<StockBenefitItemPriceFreshness>();
+
+  return nullableNumber(row?.latest_fetched_at);
 }
 
 async function fetchStockBenefitMarketValue(
