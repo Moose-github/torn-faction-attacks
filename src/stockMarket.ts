@@ -122,6 +122,13 @@ type ParsedActiveBenefit = {
   description: string;
 };
 
+type ParsedStockBenefit = {
+  passive: boolean;
+  frequency: number;
+  requirement: number;
+  description: string;
+};
+
 type ParsedBenefitValue = {
   benefit_key: string | null;
   label: string;
@@ -830,8 +837,8 @@ async function readEffectiveStockBenefitValues(env: Env, tornUserId: number): Pr
   const observed = new Map<string, { label: string; usedByStockIds: Set<number> }>();
 
   for (const profile of profiles) {
-    const parsed = parseActiveStockBenefit(profile.benefit_json);
-    if (parsed.status !== "active") {
+    const parsed = parseStockBenefitForValuation(profile.benefit_json);
+    if (parsed.status !== "benefit") {
       continue;
     }
     const benefitValue = parseBenefitDescription(parsed.benefit.description);
@@ -940,6 +947,28 @@ async function upsertStockBenefitItemPrice(env: Env, price: StockBenefitItemPric
 export function parseActiveStockBenefit(
   benefitJson: string | null,
 ): { status: "active"; benefit: ParsedActiveBenefit } | { status: "passive" | "invalid" } {
+  const parsed = parseStockBenefitForValuation(benefitJson);
+  if (parsed.status !== "benefit") {
+    return { status: "invalid" };
+  }
+  if (parsed.benefit.passive) {
+    return { status: "passive" };
+  }
+
+  return {
+    status: "active",
+    benefit: {
+      passive: false,
+      frequency: parsed.benefit.frequency,
+      requirement: parsed.benefit.requirement,
+      description: parsed.benefit.description,
+    },
+  };
+}
+
+export function parseStockBenefitForValuation(
+  benefitJson: string | null,
+): { status: "benefit"; benefit: ParsedStockBenefit } | { status: "invalid" } {
   if (!benefitJson) {
     return { status: "invalid" };
   }
@@ -954,8 +983,8 @@ export function parseActiveStockBenefit(
   if (!isRecord(parsed)) {
     return { status: "invalid" };
   }
-  if (parsed.passive !== false) {
-    return { status: parsed.passive === true ? "passive" : "invalid" };
+  if (typeof parsed.passive !== "boolean") {
+    return { status: "invalid" };
   }
 
   const frequency = finiteInteger(parsed.frequency);
@@ -966,9 +995,9 @@ export function parseActiveStockBenefit(
   }
 
   return {
-    status: "active",
+    status: "benefit",
     benefit: {
-      passive: false,
+      passive: parsed.passive,
       frequency,
       requirement,
       description,

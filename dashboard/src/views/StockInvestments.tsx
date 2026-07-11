@@ -336,8 +336,58 @@ function BenefitValuesTable({
   onSave: (benefit: StockBenefitValue) => void;
   onReset: (benefit: StockBenefitValue) => void;
 }) {
+  const pricedBenefits = benefits.filter((benefit) => benefit.default_value !== null);
+  const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
+
   return (
-    <div className="table-scroll">
+    <div className="table-scroll stock-benefit-table-stack">
+      {pricedBenefits.length > 0 ? (
+        <BenefitValuesSubtable
+          benefits={pricedBenefits}
+          inputs={inputs}
+          savingBenefitKey={savingBenefitKey}
+          onInputChange={onInputChange}
+          onSave={onSave}
+          onReset={onReset}
+        />
+      ) : null}
+      {manualBenefits.length > 0 ? (
+        <div className="stock-benefit-subtable">
+          <div className="stock-benefit-subtable-header">
+            <strong>Manual values</strong>
+            <span>{formatNumber(manualBenefits.length)} manual-only</span>
+          </div>
+          <BenefitValuesSubtable
+            benefits={manualBenefits}
+            inputs={inputs}
+            savingBenefitKey={savingBenefitKey}
+            onInputChange={onInputChange}
+            onSave={onSave}
+            onReset={onReset}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function BenefitValuesSubtable({
+  benefits,
+  inputs,
+  savingBenefitKey,
+  onInputChange,
+  onSave,
+  onReset,
+}: {
+  benefits: StockBenefitValue[];
+  inputs: Record<string, string>;
+  savingBenefitKey: string | null;
+  onInputChange: (benefitKey: string, value: string) => void;
+  onSave: (benefit: StockBenefitValue) => void;
+  onReset: (benefit: StockBenefitValue) => void;
+}) {
+  return (
+    <div className="stock-benefit-table-frame">
       <table className="stock-status-table stock-benefit-values-table">
         <thead>
           <tr>
@@ -346,73 +396,95 @@ function BenefitValuesTable({
             <th>Custom</th>
             <th>Effective</th>
             <th>Source</th>
-            <th>Used By</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {benefits.map((benefit) => {
-            const isSaving = savingBenefitKey === benefit.benefit_key;
-            const inputValue = inputs[benefit.benefit_key] ?? "";
-            const canSave = moneyInputValue(inputValue) !== null;
-            const hasCustomValue = benefit.override_value !== null;
-            const parsedInput = moneyInputValue(inputValue);
-            const isChanged = parsedInput !== null && parsedInput !== benefit.effective_value;
-            return (
-              <tr key={benefit.benefit_key}>
-                <td>
-                  <span className="stock-benefit-cell">
-                    <strong>{benefit.label}</strong>
-                    <small>{benefit.benefit_key}</small>
-                  </span>
-                </td>
-                <td>
-                  <span className="stock-money-cell">{formatMoney(benefit.default_value)}</span>
-                </td>
-                <td>
-                  <input
-                    className="stock-benefit-value-input"
-                    inputMode="numeric"
-                    value={inputValue}
-                    onChange={(event) => onInputChange(benefit.benefit_key, event.target.value)}
-                    placeholder={benefit.default_value === null ? "Set value" : "Custom value"}
-                  />
-                </td>
-                <td>
-                  <span className="stock-money-cell strong">{formatMoney(benefit.effective_value)}</span>
-                </td>
-                <td>
-                  <span className={`stock-source-chip ${benefit.source}`}>{statusLabel(benefit.source)}</span>
-                </td>
-                <td>{formatNumber(benefit.used_by_stock_count)}</td>
-                <td>
-                  <div className="stock-benefit-actions">
-                    <button
-                      type="button"
-                      className="panel-action-button secondary"
-                      disabled={isSaving || !canSave || !isChanged}
-                      onClick={() => onSave(benefit)}
-                    >
-                      {isSaving ? <RefreshCw size={14} className="spinning-icon" /> : <Save size={14} />}
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      className="panel-action-button secondary"
-                      disabled={isSaving || !hasCustomValue}
-                      onClick={() => onReset(benefit)}
-                    >
-                      <RotateCcw size={14} />
-                      Reset
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
+          {benefits.map((benefit) => (
+            <BenefitValueRow
+              key={benefit.benefit_key}
+              benefit={benefit}
+              inputValue={inputs[benefit.benefit_key] ?? ""}
+              isSaving={savingBenefitKey === benefit.benefit_key}
+              onInputChange={onInputChange}
+              onSave={onSave}
+              onReset={onReset}
+            />
+          ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function BenefitValueRow({
+  benefit,
+  inputValue,
+  isSaving,
+  onInputChange,
+  onSave,
+  onReset,
+}: {
+  benefit: StockBenefitValue;
+  inputValue: string;
+  isSaving: boolean;
+  onInputChange: (benefitKey: string, value: string) => void;
+  onSave: (benefit: StockBenefitValue) => void;
+  onReset: (benefit: StockBenefitValue) => void;
+}) {
+  const canSave = moneyInputValue(inputValue) !== null;
+  const hasCustomValue = benefit.override_value !== null;
+  const parsedInput = moneyInputValue(inputValue);
+  const isChanged = parsedInput !== null && parsedInput !== benefit.effective_value;
+  return (
+    <tr>
+      <td>
+        <span className="stock-benefit-cell">
+          <strong>{benefit.label}</strong>
+          <small>{benefit.benefit_key}</small>
+        </span>
+      </td>
+      <td>
+        <span className="stock-money-cell">{formatMoney(benefit.default_value)}</span>
+      </td>
+      <td>
+        <input
+          className="stock-benefit-value-input"
+          inputMode="numeric"
+          value={inputValue}
+          onChange={(event) => onInputChange(benefit.benefit_key, event.target.value)}
+          placeholder={benefit.default_value === null ? "Set value" : "Custom value"}
+        />
+      </td>
+      <td>
+        <span className="stock-money-cell strong">{formatMoney(benefit.effective_value)}</span>
+      </td>
+      <td>
+        <span className={`stock-source-chip ${benefit.source}`}>{statusLabel(benefit.source)}</span>
+      </td>
+      <td>
+        <div className="stock-benefit-actions">
+          <button
+            type="button"
+            className="panel-action-button secondary"
+            disabled={isSaving || !canSave || !isChanged}
+            onClick={() => onSave(benefit)}
+          >
+            {isSaving ? <RefreshCw size={14} className="spinning-icon" /> : <Save size={14} />}
+            Save
+          </button>
+          <button
+            type="button"
+            className="panel-action-button secondary"
+            disabled={isSaving || !hasCustomValue}
+            onClick={() => onReset(benefit)}
+          >
+            <RotateCcw size={14} />
+            Reset
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }
 

@@ -3,6 +3,7 @@ import {
   calculateStockInvestmentIncrement,
   parseActiveStockBenefit,
   parseBenefitDescription,
+  parseStockBenefitForValuation,
   stockBenefitMarketValueFromResponse,
   stockBenefitPointsValueFromResponse,
   valueStockBenefit,
@@ -40,6 +41,28 @@ describe("stock investment ROI parsing", () => {
       requirement: 150_000,
       description: "1x Box of Medical Supplies",
     }))).toEqual({ status: "invalid" });
+  });
+
+  it("parses passive benefits for manual valuation rows", () => {
+    expect(parseStockBenefitForValuation(JSON.stringify({
+      passive: true,
+      frequency: 7,
+      requirement: 1_500_000,
+      description: "a 10% bank interest bonus",
+    }))).toEqual({
+      status: "benefit",
+      benefit: {
+        passive: true,
+        frequency: 7,
+        requirement: 1_500_000,
+        description: "a 10% bank interest bonus",
+      },
+    });
+    expect(parseBenefitDescription("a 10% bank interest bonus")).toMatchObject({
+      benefit_key: "item:a_10_bank_interest_bonus",
+      value: null,
+      editable: true,
+    });
   });
 
   it("parses cash and item benefit descriptions", () => {

@@ -528,6 +528,41 @@ h2 {
   width: 160px;
 }
 
+.stock-benefit-table-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.stock-benefit-table-frame {
+  min-width: max-content;
+}
+
+.stock-benefit-subtable {
+  display: grid;
+  gap: 8px;
+}
+
+.stock-benefit-subtable-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: max-content;
+  padding-top: 2px;
+}
+
+.stock-benefit-subtable-header strong {
+  color: var(--text-heading);
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.stock-benefit-subtable-header span {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
 .stock-benefit-panel-actions {
   display: inline-flex;
   align-items: center;
