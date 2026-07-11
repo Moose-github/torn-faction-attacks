@@ -1,5 +1,5 @@
 import React from "react";
-import { RefreshCw, RotateCcw, Save } from "lucide-react";
+import { BadgeDollarSign, CircleDollarSign, RefreshCw, RotateCcw, Save, SlidersHorizontal } from "lucide-react";
 import {
   getStockBenefitValues,
   getStockInvestmentRoi,
@@ -101,6 +101,8 @@ export function StockInvestments() {
     return true;
   });
   const skippedTotal = (roiData?.skipped.passive ?? 0) + (roiData?.skipped.unpriced ?? 0) + (roiData?.skipped.invalid ?? 0);
+  const bestRow = rows[0] ?? null;
+  const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== "" || affordableOnly;
 
   return (
     <>
@@ -111,7 +113,7 @@ export function StockInvestments() {
         <div>
           <p className="eyebrow">Stocks</p>
           <h2>Stock ROI</h2>
-          <p>Active stock benefit increments ranked by estimated annual return against current stock prices.</p>
+          <p>Active benefit increments priced from current shares and your benefit values.</p>
         </div>
         <button type="button" className="panel-action-button" disabled={isLoading} onClick={loadData}>
           <RefreshCw size={14} className={isLoading ? "spinning-icon" : ""} />
@@ -120,6 +122,11 @@ export function StockInvestments() {
       </section>
 
       <section className="status-grid stock-status-grid stock-investment-status-grid">
+        <StatusMetric
+          label="Best next block"
+          value={bestRow ? `${bestRow.acronym ?? `#${bestRow.stock_id}`} ${formatPercent(bestRow.roi_percent)}` : "-"}
+          detail={bestRow ? `${formatMoney(bestRow.increment_cost)} for increment ${bestRow.increment}` : "No priced rows"}
+        />
         <StatusMetric
           label="Data refreshed"
           value={formatLongDateTime(roiData?.refreshed_at ?? null)}
@@ -138,7 +145,11 @@ export function StockInvestments() {
       </section>
 
       <section className="panel stock-investment-controls-panel">
-        <PanelHeader title="Filters" aside={affordableOnly ? "Budget applied" : "All increments"} />
+        <PanelHeader
+          title="Filters"
+          aside={filtersActive ? "Filtered" : "All increments"}
+          icon={<SlidersHorizontal size={18} />}
+        />
         <div className="stock-investment-controls">
           <label>
             <span>Investment amount</span>
@@ -166,11 +177,24 @@ export function StockInvestments() {
             />
             <span>Show affordable only</span>
           </label>
+          <button
+            type="button"
+            className="panel-action-button secondary stock-investment-clear-button"
+            disabled={!filtersActive}
+            onClick={() => {
+              setInvestmentAmount("");
+              setMinimumRoi("");
+              setAffordableOnly(false);
+            }}
+          >
+            <RotateCcw size={14} />
+            Clear filters
+          </button>
         </div>
       </section>
 
       <section className="panel table-panel">
-        <PanelHeader title="Active benefit increments" aside={`${formatNumber(rows.length)} shown`} />
+        <PanelHeader title="Active benefit increments" aside={`${formatNumber(rows.length)} shown`} icon={<BadgeDollarSign size={18} />} />
         {isLoading ? (
           <EmptyState text="Loading stock ROI" />
         ) : rows.length === 0 ? (
@@ -181,7 +205,7 @@ export function StockInvestments() {
       </section>
 
       <section className="panel table-panel">
-        <PanelHeader title="Benefit values" aside={`${formatNumber(benefits.length)} editable`} />
+        <PanelHeader title="Benefit values" aside={`${formatNumber(benefits.length)} editable`} icon={<CircleDollarSign size={18} />} />
         {isLoading ? (
           <EmptyState text="Loading benefit values" />
         ) : benefits.length === 0 ? (
@@ -224,9 +248,13 @@ function StockRoiTable({ rows }: { rows: StockInvestmentRoiRow[] }) {
         <tbody>
           {rows.map((row) => (
             <tr key={`${row.stock_id}-${row.increment}`}>
-              <td>{row.acronym ?? `#${row.stock_id}`}</td>
+              <td>
+                <span className="stock-symbol-chip">{row.acronym ?? `#${row.stock_id}`}</span>
+              </td>
               <td>{row.name ?? "-"}</td>
-              <td>{row.increment}</td>
+              <td>
+                <span className="stock-increment-chip">Block {row.increment}</span>
+              </td>
               <td>{formatNumber(row.required_shares)}</td>
               <td>{formatNumber(row.total_shares_required)}</td>
               <td>{formatMoney(row.increment_cost)}</td>
@@ -234,13 +262,15 @@ function StockRoiTable({ rows }: { rows: StockInvestmentRoiRow[] }) {
               <td>
                 <span className="stock-benefit-cell">
                   <strong>{row.benefit_description}</strong>
-                  <small>{valuationSourceLabel(row.valuation_source)}</small>
+                  <small>{valuationSourceLabel(row.valuation_source)} value</small>
                 </span>
               </td>
               <td>{formatNumber(row.frequency_days)} days</td>
               <td>{formatMoney(row.annual_return)}</td>
               <td>{formatNumber(Math.round(row.days_to_break_even))} days</td>
-              <td>{formatPercent(row.roi_percent)}</td>
+              <td>
+                <span className={`stock-roi-chip ${roiTone(row.roi_percent)}`}>{formatPercent(row.roi_percent)}</span>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -283,6 +313,9 @@ function BenefitValuesTable({
             const isSaving = savingBenefitKey === benefit.benefit_key;
             const inputValue = inputs[benefit.benefit_key] ?? "";
             const canSave = moneyInputValue(inputValue) !== null;
+            const hasCustomValue = benefit.override_value !== null;
+            const parsedInput = moneyInputValue(inputValue);
+            const isChanged = parsedInput !== null && parsedInput !== benefit.effective_value;
             return (
               <tr key={benefit.benefit_key}>
                 <td>
@@ -291,25 +324,31 @@ function BenefitValuesTable({
                     <small>{benefit.benefit_key}</small>
                   </span>
                 </td>
-                <td>{formatMoney(benefit.default_value)}</td>
+                <td>
+                  <span className="stock-money-cell">{formatMoney(benefit.default_value)}</span>
+                </td>
                 <td>
                   <input
                     className="stock-benefit-value-input"
                     inputMode="numeric"
                     value={inputValue}
                     onChange={(event) => onInputChange(benefit.benefit_key, event.target.value)}
-                    placeholder="Set value"
+                    placeholder={benefit.default_value === null ? "Set value" : "Custom value"}
                   />
                 </td>
-                <td>{formatMoney(benefit.effective_value)}</td>
-                <td>{statusLabel(benefit.source)}</td>
+                <td>
+                  <span className="stock-money-cell strong">{formatMoney(benefit.effective_value)}</span>
+                </td>
+                <td>
+                  <span className={`stock-source-chip ${benefit.source}`}>{statusLabel(benefit.source)}</span>
+                </td>
                 <td>{formatNumber(benefit.used_by_stock_count)}</td>
                 <td>
                   <div className="stock-benefit-actions">
                     <button
                       type="button"
                       className="panel-action-button secondary"
-                      disabled={isSaving || !canSave}
+                      disabled={isSaving || !canSave || !isChanged}
                       onClick={() => onSave(benefit)}
                     >
                       {isSaving ? <RefreshCw size={14} className="spinning-icon" /> : <Save size={14} />}
@@ -318,7 +357,7 @@ function BenefitValuesTable({
                     <button
                       type="button"
                       className="panel-action-button secondary"
-                      disabled={isSaving || benefit.override_value === null}
+                      disabled={isSaving || !hasCustomValue}
                       onClick={() => onReset(benefit)}
                     >
                       <RotateCcw size={14} />
@@ -383,4 +422,10 @@ function statusLabel(value: string): string {
 function valuationSourceLabel(value: string): string {
   if (value === "cash") return "Cash";
   return statusLabel(value);
+}
+
+function roiTone(value: number): "high" | "medium" | "low" {
+  if (value >= 25) return "high";
+  if (value >= 10) return "medium";
+  return "low";
 }

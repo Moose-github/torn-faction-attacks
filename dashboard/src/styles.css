@@ -389,12 +389,12 @@ h2 {
 }
 
 .stock-investment-status-grid {
-  grid-template-columns: repeat(3, minmax(190px, 1fr));
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
 }
 
 .stock-investment-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 240px)) minmax(180px, 1fr);
+  grid-template-columns: repeat(2, minmax(180px, 240px)) minmax(190px, 1fr) auto;
   gap: 12px;
   align-items: end;
 }
@@ -419,10 +419,98 @@ h2 {
   min-height: auto;
 }
 
+.stock-investment-clear-button {
+  align-self: end;
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.stock-investment-table td,
+.stock-benefit-values-table td {
+  vertical-align: middle;
+}
+
+.stock-symbol-chip,
+.stock-increment-chip,
+.stock-roi-chip,
+.stock-source-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 24px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  font-size: 0.74rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.stock-symbol-chip {
+  min-width: 48px;
+  padding: 0 8px;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.stock-increment-chip {
+  padding: 0 8px;
+  background: var(--panel-muted-bg);
+  color: var(--text-muted);
+}
+
+.stock-roi-chip {
+  min-width: 74px;
+  padding: 0 9px;
+}
+
+.stock-roi-chip.high {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.stock-roi-chip.medium {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.stock-roi-chip.low {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.stock-source-chip {
+  min-width: 76px;
+  padding: 0 8px;
+}
+
+.stock-source-chip.custom {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.stock-source-chip.default {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.stock-source-chip.unpriced {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
 .stock-benefit-cell {
   display: grid;
   gap: 3px;
-  min-width: 180px;
+  min-width: 190px;
 }
 
 .stock-benefit-cell strong {
@@ -437,18 +525,29 @@ h2 {
 }
 
 .stock-benefit-value-input {
-  width: 150px;
+  width: 160px;
 }
 
 .stock-benefit-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 160px;
 }
 
 .stock-benefit-actions .panel-action-button {
   min-height: 30px;
   padding: 0 9px;
+}
+
+.stock-money-cell {
+  color: var(--text-muted);
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.stock-money-cell.strong {
+  color: var(--text-main);
 }
 
 .dashboard-home-header {
@@ -6897,6 +6996,18 @@ h2 {
   .data-health-subsystem-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .stock-investment-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stock-investment-controls {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+
+  .stock-investment-clear-button {
+    justify-self: start;
+  }
 }
 
 @media (max-width: 760px) {
@@ -6930,6 +7041,20 @@ h2 {
 
   .trade-scout-filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .stock-investment-status-grid,
+  .stock-investment-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stock-investment-clear-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .stock-benefit-cell {
+    min-width: 160px;
   }
 }
 
@@ -7973,6 +8098,44 @@ tbody tr:not(.attack-row):hover td {
   border-color: var(--accent-strong);
   background: var(--accent-strong);
   color: #07111f;
+}
+
+:root[data-theme="dark"] .stock-symbol-chip,
+:root[data-theme="dark"] .stock-source-chip.custom {
+  border-color: rgba(96, 165, 250, 0.34);
+  background: rgba(37, 99, 235, 0.22);
+  color: #bfdbfe;
+}
+
+:root[data-theme="dark"] .stock-increment-chip,
+:root[data-theme="dark"] .stock-roi-chip.low {
+  border-color: var(--border-faint);
+  background: var(--panel-muted-bg);
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .stock-roi-chip.high,
+:root[data-theme="dark"] .stock-source-chip.default {
+  border-color: rgba(74, 222, 128, 0.34);
+  background: rgba(22, 101, 52, 0.24);
+  color: #86efac;
+}
+
+:root[data-theme="dark"] .stock-roi-chip.medium {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(146, 64, 14, 0.24);
+  color: #fcd34d;
+}
+
+:root[data-theme="dark"] .stock-source-chip.unpriced {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(127, 29, 29, 0.24);
+  color: #fca5a5;
+}
+
+:root[data-theme="dark"] .stock-money-cell.strong,
+:root[data-theme="dark"] .stock-benefit-cell strong {
+  color: var(--text-strong);
 }
 
 :root[data-theme="dark"] .sidebar-link.active,
