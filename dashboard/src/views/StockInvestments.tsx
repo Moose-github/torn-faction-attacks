@@ -563,7 +563,7 @@ function SortableHeader({
         onClick={() => onSort(sortKey)}
       >
         <span>{label}</span>
-        <span className="stock-sort-indicator" aria-hidden="true">{isActive ? (sort.direction === "asc" ? "▲" : "▼") : "↕"}</span>
+        {isActive ? <span className="stock-sort-indicator" aria-hidden="true">{sort.direction === "asc" ? "▲" : "▼"}</span> : null}
       </button>
     </th>
   );
