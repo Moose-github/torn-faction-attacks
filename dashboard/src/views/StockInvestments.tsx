@@ -23,6 +23,8 @@ import {
 
 const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
 const DEFAULT_MINIMUM_ROI = "5";
+const CITY_BANK_TERM_DAYS = 90;
+const CITY_BANK_MERIT_STEP = 0.05;
 
 type StockRoiSortKey = "acronym" | "name" | "shares" | "increment_cost" | "benefit" | "annual_return" | "days_to_break_even" | "roi_percent";
 
@@ -42,6 +44,8 @@ export function StockInvestments() {
   const [affordableOnly, setAffordableOnly] = React.useState(false);
   const [minimumRoi, setMinimumRoi] = React.useState(DEFAULT_MINIMUM_ROI);
   const [hideOwnedBlocks, setHideOwnedBlocks] = React.useState(false);
+  const [cityBankActive, setCityBankActive] = React.useState(false);
+  const [bankMerits, setBankMerits] = React.useState(0);
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
   const [isMissingValuesOpen, setIsMissingValuesOpen] = React.useState(false);
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
@@ -196,36 +200,41 @@ export function StockInvestments() {
 
   React.useEffect(() => {
     const stored = readOwnedStocksStorage(storageUserId);
+    const storedCityBank = readCityBankStorage(storageUserId);
     setOwnedApiKey(stored.apiKey);
     setOwnedSnapshot(stored.snapshot);
+    setCityBankActive(storedCityBank.active);
+    setBankMerits(storedCityBank.merits);
     loadData();
   }, []);
 
   const ownedShares = React.useMemo(() => ownedSharesMap(ownedSnapshot), [ownedSnapshot]);
+  const investmentRows = React.useMemo(
+    () => (roiData?.rows ?? []).map((row) => adjustCityBankRowForMerits(row, bankMerits)),
+    [roiData?.rows, bankMerits],
+  );
   const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
-  const ownedCoveredBlockCount = (roiData?.rows ?? []).filter((row) => ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required)).length;
+  const ownedCoveredBlockCount = investmentRows.filter((row) => isStockInvestmentRow(row) && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required ?? 0)).length;
   const budget = moneyInputValue(investmentAmount);
   const minRoi = percentInputValue(minimumRoi);
-  const filteredRows = (roiData?.rows ?? []).filter((row) => {
+  const filteredRows = investmentRows.filter((row) => {
     if (affordableOnly && budget !== null && row.increment_cost > budget) {
       return false;
     }
     if (minRoi !== null && row.roi_percent < minRoi) {
       return false;
     }
-    if (hideOwnedBlocks && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required)) {
+    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, cityBankActive)) {
       return false;
     }
     return true;
   });
   const rows = sortStockRoiRows(filteredRows, roiSort);
-  const bestRow = React.useMemo(
-    () => filteredRows.find((row) => !ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required)) ?? null,
-    [filteredRows, ownedShares],
-  );
-  const bestRowOwnedShares = bestRow ? ownedShares.get(bestRow.stock_id) ?? 0 : 0;
-  const bestRowSharesRemaining = bestRow ? Math.max(0, bestRow.total_shares_required - bestRowOwnedShares) : 0;
-  const totalPricedRows = roiData?.rows.length ?? 0;
+  const bestOpportunityRows = sortStockRoiRows(filteredRows, { key: "roi_percent", direction: "desc" });
+  const bestRow = bestOpportunityRows.find((row) => !isInvestmentRowCovered(row, ownedShares, cityBankActive)) ?? null;
+  const bestRowOwnedShares = bestRow && isStockInvestmentRow(bestRow) ? ownedShares.get(bestRow.stock_id) ?? 0 : 0;
+  const bestRowSharesRemaining = bestRow && isStockInvestmentRow(bestRow) ? Math.max(0, (bestRow.total_shares_required ?? 0) - bestRowOwnedShares) : 0;
+  const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
@@ -258,17 +267,17 @@ export function StockInvestments() {
       <section className="status-grid stock-status-grid stock-investment-status-grid">
         <StatusMetric
           className="stock-best-block-card"
-          label="Best next block"
-          value={bestRow ? `${bestRow.acronym ?? `#${bestRow.stock_id}`} Block ${bestRow.increment}` : "-"}
+          label="Best opportunity"
+          value={bestRow ? bestOpportunityTitle(bestRow) : "-"}
           detail={bestRow
             ? (
               <span className="stock-metric-detail-stack">
                 <span>{formatPercent(bestRow.roi_percent)} ROI - {formatMoney(bestRow.increment_cost)} next cost</span>
-                <span>{bestRowOwnedShares > 0 ? `Need ${formatNumber(bestRowSharesRemaining)} more shares` : `${formatNumber(bestRow.total_shares_required)} shares required`}</span>
+                <span>{bestOpportunityDetail(bestRow, bankMerits, bestRowOwnedShares, bestRowSharesRemaining)}</span>
               </span>
             )
             : rows.length > 0
-              ? "All shown blocks already covered"
+              ? "All shown opportunities already covered"
               : "No priced rows"}
         />
         <StatusMetric
@@ -412,17 +421,47 @@ export function StockInvestments() {
               <span>Hide owned blocks</span>
             </label>
           </div>
+          <div className="stock-city-bank-controls">
+            <label className="stock-owned-hide-toggle">
+              <input
+                type="checkbox"
+                checked={cityBankActive}
+                onChange={(event) => {
+                  const nextActive = event.target.checked;
+                  setCityBankActive(nextActive);
+                  saveCityBankStorage(storageUserId, nextActive, bankMerits);
+                }}
+              />
+              <span>City Bank investment active</span>
+            </label>
+            <label className="stock-city-bank-merits">
+              <span>Bank merits</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={10}
+                step={1}
+                value={bankMerits}
+                onChange={(event) => {
+                  const nextMerits = clampBankMerits(event.target.value);
+                  setBankMerits(nextMerits);
+                  saveCityBankStorage(storageUserId, cityBankActive, nextMerits);
+                }}
+              />
+            </label>
+          </div>
         </div>
       </section>
 
       <section className="panel table-panel">
-        <PanelHeader title="Active benefit increments" aside={`${formatNumber(rows.length)} shown / ${formatNumber(totalPricedRows)} total`} icon={<BadgeDollarSign size={18} />} />
+        <PanelHeader title="Investment returns" aside={`${formatNumber(rows.length)} shown / ${formatNumber(totalPricedRows)} total`} icon={<BadgeDollarSign size={18} />} />
         {isLoading ? (
           <EmptyState text="Loading stock ROI" />
         ) : rows.length === 0 ? (
-          <EmptyState text="No stock increments match the current filters" />
+          <EmptyState text="No investment opportunities match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} ownedShares={ownedShares} sort={roiSort} onSort={updateRoiSort} />
+          <StockRoiTable rows={rows} ownedShares={ownedShares} cityBankActive={cityBankActive} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
         )}
       </section>
 
@@ -467,11 +506,15 @@ export function StockInvestments() {
 function StockRoiTable({
   rows,
   ownedShares,
+  cityBankActive,
+  bankMerits,
   sort,
   onSort,
 }: {
   rows: StockInvestmentRoiRow[];
   ownedShares: Map<number, number>;
+  cityBankActive: boolean;
+  bankMerits: number;
   sort: StockRoiSort;
   onSort: (key: StockRoiSortKey) => void;
 }) {
@@ -492,35 +535,38 @@ function StockRoiTable({
         </thead>
         <tbody>
           {rows.map((row) => {
-            const owned = ownedShares.get(row.stock_id) ?? 0;
-            const ownsIncrement = ownsStockIncrement(owned, row.total_shares_required);
+            const isStockRow = isStockInvestmentRow(row);
+            const owned = isStockRow ? ownedShares.get(row.stock_id) ?? 0 : 0;
+            const ownsIncrement = isInvestmentRowCovered(row, ownedShares, cityBankActive);
             return (
-              <tr key={`${row.stock_id}-${row.increment}`} className={ownsIncrement ? "stock-owned-increment-row" : undefined}>
+              <tr key={row.row_id} className={ownsIncrement ? "stock-owned-increment-row" : undefined}>
                 <td>
-                  <span className="stock-symbol-chip">{row.acronym ?? `#${row.stock_id}`}</span>
+                  <span className="stock-symbol-chip">{row.acronym ?? (row.stock_id ? `#${row.stock_id}` : "-")}</span>
                 </td>
                 <td>
                   <span className="stock-benefit-cell">
                     <strong>{row.name ?? "-"}</strong>
-                    <small>Block {row.increment}</small>
+                    <small>{isStockRow ? `Block ${row.increment}` : `${CITY_BANK_TERM_DAYS} days (${bankMerits}/10 Merits)`}</small>
                   </span>
                 </td>
                 <td>
                   <span className="stock-benefit-cell stock-shares-cell">
                     <strong>
-                      {row.increment === 1 ? (
-                        formatNumber(row.required_shares)
+                      {!isStockRow ? (
+                        "-"
+                      ) : row.increment === 1 ? (
+                        formatNumber(row.required_shares ?? 0)
                       ) : (
-                        <span className="stock-tooltip-value" title={`Total shares needed for this increment: ${formatNumber(row.total_shares_required)}`}>
-                          {formatNumber(row.required_shares)}
+                        <span className="stock-tooltip-value" title={`Total shares needed for this increment: ${formatNumber(row.total_shares_required ?? 0)}`}>
+                          {formatNumber(row.required_shares ?? 0)}
                         </span>
                       )}
                     </strong>
-                    {owned > 0 ? <small>Owned: {formatNumber(owned)}</small> : null}
+                    {isStockRow && owned > 0 ? <small>Owned: {formatNumber(owned)}</small> : null}
                   </span>
                 </td>
                 <td>
-                  {row.increment === 1 ? (
+                  {!isStockRow || row.increment === 1 ? (
                     formatMoney(row.increment_cost)
                   ) : (
                     <span className="stock-tooltip-value" title={`Total cost through this increment: ${formatMoney(row.total_cost)}`}>
@@ -531,7 +577,7 @@ function StockRoiTable({
                 <td>
                   <span className="stock-benefit-cell">
                     <strong>{row.benefit_description}</strong>
-                    <small>{formatNumber(row.frequency_days)} days - {valuationSourceLabel(row.valuation_source)} value</small>
+                    <small>{isStockRow ? `${formatNumber(row.frequency_days)} days - ${valuationSourceLabel(row.valuation_source)} value` : `${CITY_BANK_TERM_DAYS} days - ${bankMerits}/10 Merits`}</small>
                   </span>
                 </td>
                 <td>{formatMoney(row.annual_return)}</td>
@@ -922,21 +968,28 @@ function sortStockRoiRows(rows: StockInvestmentRoiRow[], sort: StockRoiSort): St
     if (compared !== 0) {
       return sort.direction === "asc" ? compared : -compared;
     }
-    if (a.stock_id !== b.stock_id) {
-      return a.stock_id - b.stock_id;
+    const stockIdA = a.stock_id ?? Number.MAX_SAFE_INTEGER;
+    const stockIdB = b.stock_id ?? Number.MAX_SAFE_INTEGER;
+    if (stockIdA !== stockIdB) {
+      return stockIdA - stockIdB;
     }
-    return a.increment - b.increment;
+    const incrementA = a.increment ?? Number.MAX_SAFE_INTEGER;
+    const incrementB = b.increment ?? Number.MAX_SAFE_INTEGER;
+    if (incrementA !== incrementB) {
+      return incrementA - incrementB;
+    }
+    return compareText(a.row_id, b.row_id);
   });
 }
 
 function compareStockRoiRows(a: StockInvestmentRoiRow, b: StockInvestmentRoiRow, key: StockRoiSortKey): number {
   switch (key) {
     case "acronym":
-      return compareText(a.acronym ?? `#${a.stock_id}`, b.acronym ?? `#${b.stock_id}`);
+      return compareText(rowAcronym(a), rowAcronym(b));
     case "name":
-      return compareText(`${a.name ?? ""} ${a.increment}`, `${b.name ?? ""} ${b.increment}`);
+      return compareText(`${a.name ?? ""} ${a.increment ?? ""}`, `${b.name ?? ""} ${b.increment ?? ""}`);
     case "shares":
-      return a.required_shares - b.required_shares;
+      return compareNullableNumber(a.required_shares, b.required_shares);
     case "increment_cost":
       return a.increment_cost - b.increment_cost;
     case "benefit":
@@ -948,6 +1001,75 @@ function compareStockRoiRows(a: StockInvestmentRoiRow, b: StockInvestmentRoiRow,
     case "roi_percent":
       return a.roi_percent - b.roi_percent;
   }
+}
+
+function compareNullableNumber(a: number | null, b: number | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a - b;
+}
+
+function rowAcronym(row: StockInvestmentRoiRow): string {
+  return row.acronym ?? (row.stock_id ? `#${row.stock_id}` : row.row_id);
+}
+
+function isStockInvestmentRow(row: StockInvestmentRoiRow): row is StockInvestmentRoiRow & {
+  investment_type: "stock";
+  stock_id: number;
+  increment: number;
+  required_shares: number;
+  total_shares_required: number;
+  latest_price: number;
+} {
+  return row.investment_type === "stock" && row.stock_id !== null && row.increment !== null;
+}
+
+function isInvestmentRowCovered(row: StockInvestmentRoiRow, ownedShares: Map<number, number>, cityBankActive: boolean): boolean {
+  if (row.investment_type === "city_bank") {
+    return cityBankActive;
+  }
+
+  if (!isStockInvestmentRow(row)) {
+    return false;
+  }
+
+  return ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required);
+}
+
+function adjustCityBankRowForMerits(row: StockInvestmentRoiRow, bankMerits: number): StockInvestmentRoiRow {
+  if (row.investment_type !== "city_bank") {
+    return row;
+  }
+
+  const multiplier = 1 + clampBankMerits(bankMerits) * CITY_BANK_MERIT_STEP;
+  const benefitValue = row.benefit_value * multiplier;
+  const annualReturn = row.annual_return * multiplier;
+  return {
+    ...row,
+    benefit_value: benefitValue,
+    annual_return: annualReturn,
+    roi_percent: (annualReturn / row.increment_cost) * 100,
+    days_to_break_even: row.increment_cost / (annualReturn / 365),
+  };
+}
+
+function bestOpportunityTitle(row: StockInvestmentRoiRow): string {
+  if (row.investment_type === "city_bank") {
+    return "BANK 90 days";
+  }
+
+  return `${row.acronym ?? `#${row.stock_id}`} Block ${row.increment ?? "-"}`;
+}
+
+function bestOpportunityDetail(row: StockInvestmentRoiRow, bankMerits: number, ownedShares: number, sharesRemaining: number): string {
+  if (row.investment_type === "city_bank") {
+    return `City Bank - ${bankMerits}/10 Merits`;
+  }
+
+  return ownedShares > 0
+    ? `Need ${formatNumber(sharesRemaining)} more shares`
+    : `${formatNumber(row.total_shares_required ?? 0)} shares required`;
 }
 
 function compareText(a: string, b: string): number {
@@ -1019,6 +1141,47 @@ function ownedStocksStorageKeys(userId: number | null): { apiKey: string; snapsh
     apiKey: `stockRoiOwnedStocksKey:${userId}`,
     snapshot: `stockRoiOwnedStocksSnapshot:${userId}`,
   };
+}
+
+function readCityBankStorage(userId: number | null): { active: boolean; merits: number } {
+  const keys = cityBankStorageKeys(userId);
+  if (!keys) {
+    return { active: false, merits: 0 };
+  }
+
+  return {
+    active: window.localStorage.getItem(keys.active) === "1",
+    merits: clampBankMerits(window.localStorage.getItem(keys.merits) ?? "0"),
+  };
+}
+
+function saveCityBankStorage(userId: number | null, active: boolean, merits: number): void {
+  const keys = cityBankStorageKeys(userId);
+  if (!keys) {
+    return;
+  }
+
+  window.localStorage.setItem(keys.active, active ? "1" : "0");
+  window.localStorage.setItem(keys.merits, String(clampBankMerits(merits)));
+}
+
+function cityBankStorageKeys(userId: number | null): { active: string; merits: string } | null {
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    active: `stockRoiCityBankActive:${userId}`,
+    merits: `stockRoiCityBankMerits:${userId}`,
+  };
+}
+
+function clampBankMerits(value: unknown): number {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  return Math.min(10, Math.max(0, parsed));
 }
 
 function moneyInputValue(value: string): number | null {

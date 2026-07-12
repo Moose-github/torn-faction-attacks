@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   autoRefreshStockBenefitItemPrices,
   calculateStockInvestmentIncrement,
+  cityBankInvestmentRoiRow,
   parseActiveStockBenefit,
   parseBenefitDescription,
   parseStockBenefitForValuation,
@@ -252,5 +253,25 @@ describe("calculateStockInvestmentIncrement", () => {
     expect(result.total_cost).toBeCloseTo(12_424_440_000);
     expect(result.annual_return).toBeCloseTo(697_606_562.86);
     expect(result.roi_percent).toBeCloseTo(9.83);
+  });
+});
+
+describe("cityBankInvestmentRoiRow", () => {
+  it("returns the 90-day City Bank baseline comparison row", () => {
+    const row = cityBankInvestmentRoiRow();
+
+    expect(row).toMatchObject({
+      investment_type: "city_bank",
+      row_id: "city_bank:90",
+      stock_id: null,
+      acronym: "BANK",
+      name: "City Bank",
+      frequency_days: 90,
+      increment_cost: 2_000_000_000,
+      total_cost: 2_000_000_000,
+      annual_return: 928_200_000,
+    });
+    expect(row.roi_percent).toBeCloseTo(46.41);
+    expect(row.days_to_break_even).toBeCloseTo(2_000_000_000 / (928_200_000 / 365));
   });
 });

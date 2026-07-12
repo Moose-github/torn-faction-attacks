@@ -106,13 +106,15 @@ export type StockBenefitValueRow = {
 };
 
 export type StockInvestmentRoiRow = {
-  stock_id: number;
+  investment_type: "stock" | "city_bank";
+  row_id: string;
+  stock_id: number | null;
   acronym: string | null;
   name: string | null;
-  increment: number;
-  required_shares: number;
-  total_shares_required: number;
-  latest_price: number;
+  increment: number | null;
+  required_shares: number | null;
+  total_shares_required: number | null;
+  latest_price: number | null;
   increment_cost: number;
   total_cost: number;
   benefit_key: string | null;
@@ -197,6 +199,9 @@ const DEFAULT_STOCK_IDS = Array.from({ length: 35 }, (_, index) => index + 1);
 const PRIMARY_STOCK_CADENCE = "1m all-stocks";
 const RECOVERY_STOCK_CADENCE = "30m stale-stock history fallback";
 const MAX_ROI_INCREMENTS = 10;
+const CITY_BANK_TERM_DAYS = 90;
+const CITY_BANK_PRINCIPAL = 2_000_000_000;
+const CITY_BANK_BASELINE_ANNUAL_RETURN = 928_200_000;
 const BENEFIT_ITEM_PRICE_REFRESH_SECONDS = 3 * 60 * 60;
 const AUTO_BENEFIT_ITEM_PRICE_REFRESH_STATE = "auto_stock_benefit_item_prices";
 const BENEFIT_ITEM_REFERENCE_QUANTITY = 5;
@@ -614,7 +619,7 @@ export async function getStockInvestmentRoi(env: Env, tornUserId: number | null)
   ]);
   const overrideMap = new Map(overrides.map((override) => [override.benefit_key, override.override_value]));
   const skipped = { passive: 0, unpriced: 0, invalid: 0 };
-  const rows: StockInvestmentRoiRow[] = [];
+  const rows: StockInvestmentRoiRow[] = [cityBankInvestmentRoiRow()];
   let refreshedAt: number | null = null;
 
   for (const profile of profiles) {
@@ -1273,6 +1278,31 @@ export function calculateStockInvestmentIncrement(input: {
   };
 }
 
+export function cityBankInvestmentRoiRow(): StockInvestmentRoiRow {
+  const benefitValue = CITY_BANK_BASELINE_ANNUAL_RETURN * (CITY_BANK_TERM_DAYS / 365);
+  return {
+    investment_type: "city_bank",
+    row_id: "city_bank:90",
+    stock_id: null,
+    acronym: "BANK",
+    name: "City Bank",
+    increment: null,
+    required_shares: null,
+    total_shares_required: null,
+    latest_price: null,
+    increment_cost: CITY_BANK_PRINCIPAL,
+    total_cost: CITY_BANK_PRINCIPAL,
+    benefit_key: "city_bank:90",
+    benefit_description: "City Bank interest",
+    valuation_source: "cash",
+    frequency_days: CITY_BANK_TERM_DAYS,
+    benefit_value: benefitValue,
+    annual_return: CITY_BANK_BASELINE_ANNUAL_RETURN,
+    days_to_break_even: CITY_BANK_PRINCIPAL / (CITY_BANK_BASELINE_ANNUAL_RETURN / 365),
+    roi_percent: (CITY_BANK_BASELINE_ANNUAL_RETURN / CITY_BANK_PRINCIPAL) * 100,
+  };
+}
+
 export function stockBenefitMarketValueFromResponse(data: unknown): number | null {
   return priceAtCumulativeQuantity(
     normalizeMarketOffers(data, "itemmarket"),
@@ -1300,6 +1330,8 @@ function stockInvestmentRoiRow(
     increment,
   });
   return {
+    investment_type: "stock",
+    row_id: `stock:${profile.stock_id}:${increment}`,
     stock_id: profile.stock_id,
     acronym: profile.acronym,
     name: profile.name,

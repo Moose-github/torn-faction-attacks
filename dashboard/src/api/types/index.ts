@@ -1195,19 +1195,23 @@ export type StockBenefitValueSource = "cash" | "custom" | "market" | "default" |
 
 export type StockInvestmentRoiRow = {
 
-  stock_id: number;
+  investment_type: "stock" | "city_bank";
+
+  row_id: string;
+
+  stock_id: number | null;
 
   acronym: string | null;
 
   name: string | null;
 
-  increment: number;
+  increment: number | null;
 
-  required_shares: number;
+  required_shares: number | null;
 
-  total_shares_required: number;
+  total_shares_required: number | null;
 
-  latest_price: number;
+  latest_price: number | null;
 
   increment_cost: number;
 
