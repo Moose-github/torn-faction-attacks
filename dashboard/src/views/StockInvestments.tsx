@@ -343,6 +343,14 @@ export function StockInvestments() {
               />
               <span>Show affordable only</span>
             </label>
+            <label className="stock-investment-toggle-row">
+              <input
+                type="checkbox"
+                checked={hideOwnedBlocks}
+                onChange={(event) => setHideOwnedBlocks(event.target.checked)}
+              />
+              <span>Hide owned blocks</span>
+            </label>
             <button
               type="button"
               className="panel-action-button secondary stock-investment-clear-button"
@@ -362,7 +370,6 @@ export function StockInvestments() {
         <div className="stock-owned-controls">
           <div className="stock-owned-controls-heading">
             <strong>Owned stock highlighting</strong>
-            <span>{ownedSnapshot ? "Local snapshot loaded" : "No owned stocks loaded"}</span>
           </div>
           {ownedSnapshot ? (
             <div className="stock-owned-summary" aria-label="Owned stock snapshot summary">
@@ -412,14 +419,12 @@ export function StockInvestments() {
               <RotateCcw size={14} />
               Clear
             </button>
-            <label className="stock-owned-hide-toggle">
-              <input
-                type="checkbox"
-                checked={hideOwnedBlocks}
-                onChange={(event) => setHideOwnedBlocks(event.target.checked)}
-              />
-              <span>Hide owned blocks</span>
-            </label>
+          </div>
+        </div>
+        <div className="stock-city-bank-section">
+          <div className="stock-owned-controls-heading">
+            <strong>City Bank comparison</strong>
+            <span>Used for the BANK row only</span>
           </div>
           <div className="stock-city-bank-controls">
             <label className="stock-owned-hide-toggle">

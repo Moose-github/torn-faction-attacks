@@ -573,7 +573,7 @@ h2 {
 
 .stock-investment-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 240px)) minmax(190px, 1fr) auto;
+  grid-template-columns: repeat(2, minmax(180px, 240px)) repeat(2, minmax(150px, max-content)) auto;
   gap: 12px;
   align-items: end;
 }
@@ -662,7 +662,7 @@ h2 {
 
 .stock-owned-controls-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 340px) auto auto minmax(170px, max-content);
+  grid-template-columns: minmax(320px, 1fr) auto auto;
   gap: 10px;
   align-items: end;
 }
@@ -677,7 +677,7 @@ h2 {
 }
 
 .stock-owned-key-note {
-  max-width: 340px;
+  max-width: 520px;
   color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 750;
@@ -702,13 +702,19 @@ h2 {
   min-height: auto;
 }
 
+.stock-city-bank-section {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-faint);
+}
+
 .stock-city-bank-controls {
   display: flex;
   flex-wrap: wrap;
   gap: 12px 18px;
   align-items: end;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-faint);
 }
 
 .stock-city-bank-merits {
@@ -7397,7 +7403,7 @@ h2 {
   }
 
   .stock-owned-controls-grid {
-    grid-template-columns: minmax(220px, 1fr) auto auto auto;
+    grid-template-columns: minmax(260px, 1fr) auto auto;
   }
 
   .stock-investment-clear-button {
