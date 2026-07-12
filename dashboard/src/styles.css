@@ -420,6 +420,128 @@ h2 {
   outline: 0;
 }
 
+.stock-missing-values-card {
+  position: relative;
+  overflow: visible;
+}
+
+.stock-missing-values-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stock-missing-values-gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg-solid);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.stock-missing-values-gear:hover,
+.stock-missing-values-gear:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  outline: 0;
+}
+
+.stock-missing-values-popout {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(420px, calc(100vw - 32px));
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg-solid);
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.18);
+}
+
+.stock-missing-values-popout p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.stock-missing-values-popout-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stock-missing-values-popout-heading strong {
+  color: var(--text-heading);
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.stock-text-button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.stock-missing-values-list {
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.stock-missing-value-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.stock-missing-value-row label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.stock-missing-value-row label span {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stock-missing-value-row input {
+  width: 100%;
+}
+
+.stock-missing-value-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.stock-missing-value-actions .panel-action-button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
 .stock-metric-detail-stack {
   display: grid;
   gap: 3px;
@@ -7304,6 +7426,24 @@ h2 {
 
   .stock-owned-summary {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stock-missing-values-popout {
+    right: auto;
+    left: 0;
+  }
+
+  .stock-missing-value-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stock-missing-value-actions {
+    justify-content: stretch;
+  }
+
+  .stock-missing-value-actions .panel-action-button {
+    flex: 1;
+    justify-content: center;
   }
 
   .stock-owned-controls-heading,

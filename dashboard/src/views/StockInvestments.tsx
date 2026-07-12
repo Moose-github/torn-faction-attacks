@@ -1,5 +1,5 @@
 import React from "react";
-import { BadgeDollarSign, CircleDollarSign, RefreshCw, RotateCcw, Save, SlidersHorizontal } from "lucide-react";
+import { BadgeDollarSign, CircleDollarSign, RefreshCw, RotateCcw, Save, Settings, SlidersHorizontal } from "lucide-react";
 import {
   autoRefreshStockBenefitItemPrices,
   getStockBenefitValues,
@@ -43,6 +43,7 @@ export function StockInvestments() {
   const [minimumRoi, setMinimumRoi] = React.useState(DEFAULT_MINIMUM_ROI);
   const [hideOwnedBlocks, setHideOwnedBlocks] = React.useState(false);
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
+  const [isMissingValuesOpen, setIsMissingValuesOpen] = React.useState(false);
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
   const [ownedSnapshot, setOwnedSnapshot] = React.useState<OwnedStockSnapshot | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -226,6 +227,7 @@ export function StockInvestments() {
   const bestRowSharesRemaining = bestRow ? Math.max(0, bestRow.total_shares_required - bestRowOwnedShares) : 0;
   const totalPricedRows = roiData?.rows.length ?? 0;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
+  const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
   const benefitValuesRefreshedAt = roiData?.benefit_prices_refreshed_at ?? null;
   const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly || hideOwnedBlocks;
@@ -234,10 +236,6 @@ export function StockInvestments() {
     setRoiSort((current) => current.key === key
       ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
       : { key, direction: defaultSortDirection(key) });
-  }
-
-  function scrollToManualValues() {
-    document.getElementById("stock-benefit-manual-values")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   return (
@@ -278,11 +276,18 @@ export function StockInvestments() {
           value={formatRelativeTime(stockPricesRefreshedAt)}
           detail={stockPricesRefreshedAt ? formatLongDateTime(stockPricesRefreshedAt) : "No stock snapshot yet"}
         />
-        <StatusMetric
-          label="Missing values"
-          value={formatNumber(missingValueCount)}
-          detail={missingValueCount > 0 ? "Add manual values to unlock more blocks" : "All active benefits are priced"}
-          onClick={missingValueCount > 0 ? scrollToManualValues : undefined}
+        <MissingValuesMetric
+          missingValueCount={missingValueCount}
+          benefits={manualBenefits}
+          inputs={benefitInputs}
+          isOpen={isMissingValuesOpen}
+          savingBenefitKey={savingBenefitKey}
+          onToggle={() => setIsMissingValuesOpen((current) => !current)}
+          onOpen={() => setIsMissingValuesOpen(true)}
+          onClose={() => setIsMissingValuesOpen(false)}
+          onInputChange={(benefitKey, value) => setBenefitInputs((current) => ({ ...current, [benefitKey]: value }))}
+          onSave={saveBenefit}
+          onReset={resetBenefit}
         />
         <StatusMetric
           label="Benefit values"
@@ -652,7 +657,6 @@ function BenefitValuesSection({
               <th>Benefit</th>
               <th>Default</th>
               <th>Custom</th>
-              <th>Effective</th>
               <th>Source</th>
               <th>Actions</th>
             </tr>
@@ -716,9 +720,6 @@ function BenefitValueRow({
         />
       </td>
       <td>
-        <span className="stock-money-cell strong">{formatMoney(benefit.effective_value)}</span>
-      </td>
-      <td>
         <span className={`stock-source-chip ${benefit.source}`}>{statusLabel(benefit.source)}</span>
       </td>
       <td>
@@ -744,6 +745,138 @@ function BenefitValueRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+function MissingValuesMetric({
+  missingValueCount,
+  benefits,
+  inputs,
+  isOpen,
+  savingBenefitKey,
+  onToggle,
+  onOpen,
+  onClose,
+  onInputChange,
+  onSave,
+  onReset,
+}: {
+  missingValueCount: number;
+  benefits: StockBenefitValue[];
+  inputs: Record<string, string>;
+  isOpen: boolean;
+  savingBenefitKey: string | null;
+  onToggle: () => void;
+  onOpen: () => void;
+  onClose: () => void;
+  onInputChange: (benefitKey: string, value: string) => void;
+  onSave: (benefit: StockBenefitValue) => void;
+  onReset: (benefit: StockBenefitValue) => void;
+}) {
+  return (
+    <div className="metric-card stock-missing-values-card stock-clickable-metric" onClick={onOpen} role="button" tabIndex={0} onKeyDown={(event) => {
+      if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
+        event.preventDefault();
+        onOpen();
+      }
+    }}>
+      <div className="stock-missing-values-heading">
+        <span className="panel-kicker">Missing values</span>
+        <button
+          type="button"
+          className="stock-missing-values-gear"
+          aria-expanded={isOpen}
+          aria-label="Edit missing benefit values"
+          title="Edit missing benefit values"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle();
+          }}
+        >
+          <Settings size={15} />
+        </button>
+      </div>
+      <strong className="metric-card-value">{formatNumber(missingValueCount)}</strong>
+      <span className="metric-card-detail">{missingValueCount > 0 ? "Add manual values to unlock more blocks" : "All active benefits are priced"}</span>
+      {isOpen ? (
+        <div className="stock-missing-values-popout" role="dialog" aria-label="Missing benefit values" onClick={(event) => event.stopPropagation()}>
+          <div className="stock-missing-values-popout-heading">
+            <strong>Manual values</strong>
+            <button type="button" className="stock-text-button" onClick={onClose}>Close</button>
+          </div>
+          {benefits.length === 0 ? (
+            <p>No manual benefit values are available.</p>
+          ) : (
+            <div className="stock-missing-values-list">
+              {benefits.map((benefit) => (
+                <MissingValueEditorRow
+                  key={benefit.benefit_key}
+                  benefit={benefit}
+                  inputValue={inputs[benefit.benefit_key] ?? ""}
+                  isSaving={savingBenefitKey === benefit.benefit_key}
+                  onInputChange={onInputChange}
+                  onSave={onSave}
+                  onReset={onReset}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MissingValueEditorRow({
+  benefit,
+  inputValue,
+  isSaving,
+  onInputChange,
+  onSave,
+  onReset,
+}: {
+  benefit: StockBenefitValue;
+  inputValue: string;
+  isSaving: boolean;
+  onInputChange: (benefitKey: string, value: string) => void;
+  onSave: (benefit: StockBenefitValue) => void;
+  onReset: (benefit: StockBenefitValue) => void;
+}) {
+  const parsedInput = moneyInputValue(inputValue);
+  const canSave = parsedInput !== null;
+  const hasCustomValue = benefit.override_value !== null;
+  const isChanged = parsedInput !== null && parsedInput !== benefit.effective_value;
+  return (
+    <div className="stock-missing-value-row">
+      <label>
+        <span>{benefit.label}</span>
+        <input
+          inputMode="numeric"
+          value={inputValue}
+          onChange={(event) => onInputChange(benefit.benefit_key, event.target.value)}
+          placeholder="Set value"
+        />
+      </label>
+      <div className="stock-missing-value-actions">
+        <button
+          type="button"
+          className="panel-action-button secondary"
+          disabled={isSaving || !canSave || !isChanged}
+          onClick={() => onSave(benefit)}
+        >
+          {isSaving ? <RefreshCw size={14} className="spinning-icon" /> : <Save size={14} />}
+          Save
+        </button>
+        <button
+          type="button"
+          className="panel-action-button secondary"
+          disabled={isSaving || !hasCustomValue}
+          onClick={() => onReset(benefit)}
+        >
+          <RotateCcw size={14} />
+        </button>
+      </div>
+    </div>
   );
 }
 
