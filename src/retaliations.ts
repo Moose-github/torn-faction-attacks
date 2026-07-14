@@ -787,12 +787,10 @@ export function renderRetaliationBoardPayload(
   rows: RetaliationOpportunity[],
   checkedAt: number,
 ): RetaliationBoardDiscordPayload {
-  const availableCount = rows.filter((row) => row.status === "available").length;
-  const startedCount = rows.filter((row) => row.status === "claimed_pending").length;
   const nextRefreshAt = checkedAt + RETALIATION_BOARD_FALLBACK_REFRESH_SECONDS;
   const content = rows.length === 0
     ? "**Retaliation Board**"
-    : `**Retaliation Board** - ${availableCount} available - ${startedCount} in progress\nUpdate <t:${nextRefreshAt}:R>`;
+    : `**Retaliation Board**\nUpdate <t:${nextRefreshAt}:R>`;
 
   return {
     content,
@@ -902,7 +900,7 @@ function cleanDiscordText(value: unknown): string | null {
 function retaliationBoardEmbed(row: RetaliationOpportunity): DiscordEmbed {
   const attack = row.enemy_attack;
   const target = cleanDiscordText(attack?.attacker_name) ?? `Torn ${row.target_id}`;
-  const faction = cleanDiscordText(attack?.attacker_faction_name) ?? "Unknown faction";
+  const faction = discordFactionLink(attack?.attacker_faction_id ?? null, attack?.attacker_faction_name ?? null);
   const attackAt = attackTimestamp(attack ?? { attack_at: null, ended: null, started: null });
   const defender = attack?.defender_id
     ? `[${cleanDiscordText(attack.defender_name) ?? `Torn ${attack.defender_id}`}](https://www.torn.com/profiles.php?XID=${attack.defender_id})`
@@ -913,7 +911,7 @@ function retaliationBoardEmbed(row: RetaliationOpportunity): DiscordEmbed {
     : result;
 
   return {
-    title: `Retal on ${target} [${row.target_id}]`,
+    title: `⚔️ ${target} [${row.target_id}]`,
     url: `https://www.torn.com/page.php?sid=attack&user2ID=${row.target_id}`,
     description: `from ${faction}`,
     color: retaliationBoardEmbedColor(row),
@@ -926,6 +924,13 @@ function retaliationBoardEmbed(row: RetaliationOpportunity): DiscordEmbed {
       { name: "Log", value: log, inline: true },
     ],
   };
+}
+
+function discordFactionLink(factionId: number | null, factionName: string | null): string {
+  const label = cleanDiscordText(factionName) ?? (factionId ? `Faction ${factionId}` : "Unknown faction");
+  return factionId
+    ? `[${label}](https://www.torn.com/factions.php?step=profile&ID=${factionId})`
+    : label;
 }
 
 function noActiveRetaliationBoardEmbed(nextRefreshAt: number): DiscordEmbed {
