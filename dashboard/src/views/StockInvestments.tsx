@@ -1245,10 +1245,10 @@ function strategyStepDescription(step: StockStrategyStep, bankMerits: number): s
   const recommendation = step.recommendation;
   const row = recommendation.row;
   const cashText = step.extra_cash_needed > 0
-    ? `Need ${formatMoney(step.extra_cash_needed)} more cash. `
+    ? `Save ${formatMoney(step.extra_cash_needed)} more cash. `
     : "";
   if (step.kind === "rebalance" && step.sales.length > 0) {
-    return `${cashText}Sell ${strategySaleDescription(step)}, then buy ${bestOpportunityTitle(row)}.`;
+    return `${strategyRebalanceFundingDescription(step)} Sources: ${strategySaleDescription(step)}.`;
   }
   if (row.investment_type === "city_bank") {
     return `${cashText}Add City Bank for ${formatMoney(recommendation.estimated_cost)} with ${bankMerits}/10 merits.`;
@@ -1266,9 +1266,20 @@ function strategySaleLabels(step: StockStrategyStep): string {
     .join(" + ");
 }
 
+function strategyRebalanceFundingDescription(step: StockStrategyStep): string {
+  const saleValue = step.sales.reduce((sum, sale) => sum + sale.sale_value, 0);
+  const cashText = step.extra_cash_needed > 0
+    ? `Save ${formatMoney(step.extra_cash_needed)} more cash, then use`
+    : "Use";
+  const holdingText = step.sales.length === 1
+    ? "1 holding"
+    : `${formatNumber(step.sales.length)} holdings`;
+  return `${cashText} ${formatMoney(saleValue)} sale value from ${holdingText} to fund ${bestOpportunityTitle(step.recommendation.row)}.`;
+}
+
 function strategySaleDescription(step: StockStrategyStep): string {
   return step.sales
-    .map((sale) => `${formatNumber(sale.shares)} ${sale.acronym ?? `#${sale.stock_id}`} shares for about ${formatMoney(sale.sale_value)}`)
+    .map((sale) => `${formatNumber(sale.shares)} ${sale.acronym ?? `#${sale.stock_id}`} (${formatMoney(sale.sale_value)})`)
     .join(", ");
 }
 
