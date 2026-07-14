@@ -6,6 +6,15 @@ const CITY_BANK_MERIT_STEP = 0.05;
 const MIN_REBALANCE_ANNUAL_GAIN = 1_000_000;
 const MIN_REBALANCE_ROI_GAIN = 5;
 
+type StockInvestmentStockRow = StockInvestmentRoiRow & {
+  investment_type: "stock";
+  stock_id: number;
+  increment: number;
+  required_shares: number;
+  total_shares_required: number;
+  latest_price: number;
+};
+
 export type StockBuyRecommendation = {
   row: StockInvestmentRoiRow;
   owned_shares: number;
@@ -59,6 +68,25 @@ export type StockRebalanceRecommendation = {
   proposed: StockBuyRecommendation;
   annual_return_gain: number;
   extra_cash_required: number;
+};
+
+export type StockStrategyStepKind = "buy" | "rebalance";
+
+export type StockStrategyStep = {
+  kind: StockStrategyStepKind;
+  cash_required: number;
+  extra_cash_needed: number;
+  starting_cash: number;
+  ending_cash: number;
+  annual_return_gain: number;
+  roi_percent: number;
+  recommendation: StockBuyRecommendation;
+  rebalance: StockRebalanceRecommendation | null;
+};
+
+export type StockStrategyPlan = {
+  starting_cash: number;
+  steps: StockStrategyStep[];
 };
 
 export function adjustCityBankRowForMerits(row: StockInvestmentRoiRow, bankMerits: number): StockInvestmentRoiRow {
@@ -187,6 +215,81 @@ export function buildStockCapitalMilestones(input: StockBuyRecommendationInput, 
 }
 
 export function buildStockRebalanceRecommendations(input: StockBuyRecommendationInput, limit = 5): StockRebalanceRecommendation[] {
+  const recommendations = buildRebalanceRecommendations(input, input.budget ?? 0, false);
+  recommendations.sort(compareStockRebalanceRecommendations);
+  return recommendations.slice(0, Math.max(0, limit));
+}
+
+export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit = 5): StockStrategyPlan {
+  let simulatedSnapshot = cloneOwnedSnapshot(input.ownedSnapshot);
+  let simulatedCityBankActive = input.cityBankActive;
+  let currentCash = input.budget ?? 0;
+  const steps: StockStrategyStep[] = [];
+
+  for (let index = 0; index < limit; index += 1) {
+    const stepInput = {
+      ...input,
+      ownedSnapshot: simulatedSnapshot,
+      cityBankActive: simulatedCityBankActive,
+      budget: null,
+      affordableOnly: false,
+    };
+    const buyCandidates = recommendStockBuys(stepInput, Number.MAX_SAFE_INTEGER)
+      .map((recommendation): StockStrategyStep => {
+        const cashRequired = recommendation.estimated_cost;
+        const extraCashNeeded = Math.max(0, cashRequired - currentCash);
+        return {
+          kind: "buy",
+          cash_required: cashRequired,
+          extra_cash_needed: extraCashNeeded,
+          starting_cash: currentCash,
+          ending_cash: Math.max(0, currentCash + extraCashNeeded - recommendation.estimated_cost),
+          annual_return_gain: recommendation.annual_return,
+          roi_percent: recommendation.roi_percent,
+          recommendation,
+          rebalance: null,
+        };
+      });
+    const rebalanceCandidates = buildRebalanceRecommendations(stepInput, currentCash, true)
+      .map((rebalance): StockStrategyStep => {
+        const cashRequired = Math.max(0, rebalance.proposed.estimated_cost - rebalance.sale_value);
+        const extraCashNeeded = Math.max(0, cashRequired - currentCash);
+        return {
+          kind: "rebalance",
+          cash_required: cashRequired,
+          extra_cash_needed: extraCashNeeded,
+          starting_cash: currentCash,
+          ending_cash: Math.max(0, currentCash + extraCashNeeded + rebalance.sale_value - rebalance.proposed.estimated_cost),
+          annual_return_gain: rebalance.annual_return_gain,
+          roi_percent: rebalance.proposed.roi_percent,
+          recommendation: rebalance.proposed,
+          rebalance,
+        };
+      });
+    const nextStep = [...buyCandidates, ...rebalanceCandidates].sort(compareStockStrategySteps)[0] ?? null;
+    if (!nextStep) {
+      break;
+    }
+
+    steps.push(nextStep);
+    currentCash = nextStep.ending_cash;
+    simulatedSnapshot = applyStrategyStepToSnapshot(simulatedSnapshot, nextStep);
+    if (nextStep.recommendation.row.investment_type === "city_bank") {
+      simulatedCityBankActive = true;
+    }
+  }
+
+  return {
+    starting_cash: input.budget ?? 0,
+    steps,
+  };
+}
+
+function buildRebalanceRecommendations(
+  input: StockBuyRecommendationInput,
+  availableCash: number,
+  allowFutureCash: boolean,
+): StockRebalanceRecommendation[] {
   if (!input.ownedSnapshot) {
     return [];
   }
@@ -197,16 +300,8 @@ export function buildStockRebalanceRecommendations(input: StockBuyRecommendation
     rows.push(row);
     map.set(row.stock_id, rows);
     return map;
-  }, new Map<number, Array<StockInvestmentRoiRow & {
-    investment_type: "stock";
-    stock_id: number;
-    increment: number;
-    required_shares: number;
-    total_shares_required: number;
-    latest_price: number;
-  }>>());
+  }, new Map<number, StockInvestmentStockRow[]>());
   const recommendations: StockRebalanceRecommendation[] = [];
-  const availableCash = input.budget ?? 0;
 
   for (const stock of input.ownedSnapshot.stocks) {
     if (stock.shares <= 0) {
@@ -233,8 +328,8 @@ export function buildStockRebalanceRecommendations(input: StockBuyRecommendation
     const availableCapital = saleValue + availableCash;
     const candidates = recommendStockBuys({
       ...input,
-      budget: availableCapital,
-      affordableOnly: true,
+      budget: allowFutureCash ? null : availableCapital,
+      affordableOnly: !allowFutureCash,
     }, Number.MAX_SAFE_INTEGER)
       .filter((candidate) => candidate.row.stock_id !== stock.stock_id);
 
@@ -254,7 +349,7 @@ export function buildStockRebalanceRecommendations(input: StockBuyRecommendation
         sell_shares: stock.shares,
         sale_value: saleValue,
         available_cash: availableCash,
-        available_capital: availableCapital,
+        available_capital: Math.max(availableCapital, candidate.estimated_cost),
         current_annual_return: currentAnnualReturn,
         current_roi_percent: currentRoiPercent,
         proposed: candidate,
@@ -264,8 +359,7 @@ export function buildStockRebalanceRecommendations(input: StockBuyRecommendation
     }
   }
 
-  recommendations.sort(compareStockRebalanceRecommendations);
-  return recommendations.slice(0, Math.max(0, limit));
+  return recommendations;
 }
 
 export function stockBuyRecommendationFromRow(
@@ -355,6 +449,61 @@ function compareStockRebalanceRecommendations(left: StockRebalanceRecommendation
   return left.proposed.row.row_id.localeCompare(right.proposed.row.row_id, undefined, { numeric: true, sensitivity: "base" });
 }
 
+function compareStockStrategySteps(left: StockStrategyStep, right: StockStrategyStep): number {
+  if (left.roi_percent !== right.roi_percent) {
+    return right.roi_percent - left.roi_percent;
+  }
+  if (left.annual_return_gain !== right.annual_return_gain) {
+    return right.annual_return_gain - left.annual_return_gain;
+  }
+  if (left.cash_required !== right.cash_required) {
+    return left.cash_required - right.cash_required;
+  }
+  if (left.kind !== right.kind) {
+    return left.kind === "buy" ? -1 : 1;
+  }
+  return left.recommendation.row.row_id.localeCompare(right.recommendation.row.row_id, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function cloneOwnedSnapshot(snapshot: OwnedStockSnapshot | null): OwnedStockSnapshot {
+  return {
+    refreshed_at: snapshot?.refreshed_at ?? 0,
+    stocks: (snapshot?.stocks ?? []).map((stock) => ({
+      stock_id: stock.stock_id,
+      shares: stock.shares,
+      bonus: stock.bonus ? { ...stock.bonus } : null,
+    })),
+  };
+}
+
+function applyStrategyStepToSnapshot(snapshot: OwnedStockSnapshot, step: StockStrategyStep): OwnedStockSnapshot {
+  const stocks = snapshot.stocks
+    .filter((stock) => stock.stock_id !== step.rebalance?.sell_stock_id)
+    .map((stock) => ({
+      stock_id: stock.stock_id,
+      shares: stock.shares,
+      bonus: stock.bonus ? { ...stock.bonus } : null,
+    }));
+  const row = step.recommendation.row;
+  if (row.investment_type === "stock" && row.stock_id !== null && step.recommendation.target_shares !== null) {
+    const existing = stocks.find((stock) => stock.stock_id === row.stock_id);
+    if (existing) {
+      existing.shares = Math.max(existing.shares, step.recommendation.target_shares);
+    } else {
+      stocks.push({
+        stock_id: row.stock_id,
+        shares: step.recommendation.target_shares,
+        bonus: null,
+      });
+    }
+  }
+
+  return {
+    refreshed_at: snapshot.refreshed_at,
+    stocks,
+  };
+}
+
 function closestCompletion(recommendations: StockBuyRecommendation[]): StockBuyRecommendation | null {
   return recommendations
     .filter((recommendation) =>
@@ -380,14 +529,7 @@ function affordability(cost: number, budget: number | null): boolean | null {
   return budget === null ? null : cost <= budget;
 }
 
-function isStockInvestmentRow(row: StockInvestmentRoiRow): row is StockInvestmentRoiRow & {
-  investment_type: "stock";
-  stock_id: number;
-  increment: number;
-  required_shares: number;
-  total_shares_required: number;
-  latest_price: number;
-} {
+function isStockInvestmentRow(row: StockInvestmentRoiRow): row is StockInvestmentStockRow {
   return (
     row.investment_type === "stock" &&
     row.stock_id !== null &&

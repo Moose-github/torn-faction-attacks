@@ -23,13 +23,13 @@ import {
 } from "../utils/ownedStocks";
 import {
   adjustCityBankRowForMerits,
-  buildStockCapitalMilestones,
   buildStockRebalanceRecommendations,
   buildStockSuggestedActions,
+  buildStockStrategyPlan,
   recommendBestStockBuy,
   type StockBuyRecommendation,
-  type StockCapitalMilestone,
   type StockRebalanceRecommendation,
+  type StockStrategyStep,
   type StockSuggestedAction,
 } from "../utils/stockRecommendations";
 
@@ -260,7 +260,7 @@ export function StockInvestments() {
     affordableOnly,
     minimumRoi: minRoi,
   }, 5), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
-  const capitalMilestones = React.useMemo(() => buildStockCapitalMilestones({
+  const rebalanceRecommendations = React.useMemo(() => buildStockRebalanceRecommendations({
     rows: investmentRows,
     ownedSnapshot,
     cityBankActive,
@@ -268,7 +268,7 @@ export function StockInvestments() {
     affordableOnly,
     minimumRoi: minRoi,
   }, 5), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
-  const rebalanceRecommendations = React.useMemo(() => buildStockRebalanceRecommendations({
+  const strategyPlan = React.useMemo(() => buildStockStrategyPlan({
     rows: investmentRows,
     ownedSnapshot,
     cityBankActive,
@@ -397,18 +397,18 @@ export function StockInvestments() {
           ) : null}
           <div className="stock-suggested-section">
             <div className="stock-suggested-heading">
-              <strong>Capital milestones</strong>
-              <span>Buy-only path</span>
+              <strong>Strategy path</strong>
+              <span>ROI-first milestones</span>
             </div>
-            {capitalMilestones.length === 0 ? (
-              <EmptyState text="No future buy milestones match the current filters" />
+            {strategyPlan.steps.length === 0 ? (
+              <EmptyState text="No strategy path matches the current filters" />
             ) : (
               <div className="stock-milestone-list">
-                {capitalMilestones.map((milestone) => (
-                  <CapitalMilestoneRow
-                    key={`${milestone.capital}:${milestone.recommendation.row.row_id}`}
-                    milestone={milestone}
-                    budget={budget}
+                {strategyPlan.steps.map((step, index) => (
+                  <StrategyStepRow
+                    key={`${index}:${step.kind}:${step.recommendation.row.row_id}`}
+                    step={step}
+                    index={index}
                     bankMerits={bankMerits}
                   />
                 ))}
@@ -1203,25 +1203,44 @@ function RebalanceRecommendationRow({
   );
 }
 
-function CapitalMilestoneRow({
-  milestone,
-  budget,
+function StrategyStepRow({
+  step,
+  index,
   bankMerits,
 }: {
-  milestone: StockCapitalMilestone;
-  budget: number | null;
+  step: StockStrategyStep;
+  index: number;
   bankMerits: number;
 }) {
-  const recommendation = milestone.recommendation;
-  const row = recommendation.row;
-  const isNow = budget !== null && milestone.capital <= budget;
+  const recommendation = step.recommendation;
+  const milestoneLabel = step.extra_cash_needed <= 0 ? "Now" : `At ${formatMoney(step.cash_required)} cash`;
   return (
     <div className="stock-milestone-row">
       <div>
-        <strong>{isNow ? "Now" : `At ${formatMoney(milestone.capital)}`}</strong>
-        <small>{bestOpportunityTitle(row)}</small>
+        <strong>{formatNumber(index + 1)}. {milestoneLabel}</strong>
+        <small>{strategyStepTitle(step)}</small>
       </div>
-      <p>{milestoneDescription(recommendation, bankMerits)}</p>
+      <p>{strategyStepDescription(step, bankMerits)}</p>
+      <div className="stock-milestone-metrics">
+        <span>
+          <strong>{formatMoney(recommendation.estimated_cost)}</strong>
+          <small>Cost</small>
+        </span>
+        {step.rebalance ? (
+          <span>
+            <strong>{formatMoney(step.rebalance.sale_value)}</strong>
+            <small>Sale value</small>
+          </span>
+        ) : null}
+        <span>
+          <strong>+{formatMoney(step.annual_return_gain)}</strong>
+          <small>Annual gain</small>
+        </span>
+        <span>
+          <strong>{formatPercent(step.roi_percent)}</strong>
+          <small>ROI</small>
+        </span>
+      </div>
     </div>
   );
 }
@@ -1255,13 +1274,32 @@ function rebalanceProposedDetail(recommendation: StockBuyRecommendation, bankMer
   return `${recommendation.row.benefit_description} every ${formatNumber(recommendation.row.frequency_days)} days.`;
 }
 
-function milestoneDescription(recommendation: StockBuyRecommendation, bankMerits: number): string {
-  const row = recommendation.row;
-  if (row.investment_type === "city_bank") {
-    return `City Bank becomes available for ${formatMoney(recommendation.estimated_cost)} with ${bankMerits}/10 merits.`;
+function strategyStepTitle(step: StockStrategyStep): string {
+  if (step.kind === "rebalance" && step.rebalance) {
+    const sellLabel = step.rebalance.sell_acronym ?? `#${step.rebalance.sell_stock_id}`;
+    return `Sell ${sellLabel}, buy ${bestOpportunityTitle(step.recommendation.row)}`;
   }
 
-  return `${row.acronym ?? `#${row.stock_id}`} Block ${row.increment ?? "-"} becomes available for about ${formatMoney(recommendation.estimated_cost)}. Annual return ${formatMoney(recommendation.annual_return)}.`;
+  return `Buy ${bestOpportunityTitle(step.recommendation.row)}`;
+}
+
+function strategyStepDescription(step: StockStrategyStep, bankMerits: number): string {
+  const recommendation = step.recommendation;
+  const row = recommendation.row;
+  const cashText = step.extra_cash_needed > 0
+    ? `Need ${formatMoney(step.extra_cash_needed)} more cash. `
+    : "";
+  if (step.kind === "rebalance" && step.rebalance) {
+    return `${cashText}Sell ${formatNumber(step.rebalance.sell_shares)} shares for about ${formatMoney(step.rebalance.sale_value)}, then buy ${bestOpportunityTitle(row)}.`;
+  }
+  if (row.investment_type === "city_bank") {
+    return `${cashText}Add City Bank for ${formatMoney(recommendation.estimated_cost)} with ${bankMerits}/10 merits.`;
+  }
+
+  const sharesText = recommendation.personalized && recommendation.owned_shares > 0
+    ? `Buy ${formatNumber(recommendation.shares_needed ?? 0)} more shares`
+    : `Buy ${formatNumber(recommendation.shares_needed ?? recommendation.target_shares ?? 0)} shares`;
+  return `${cashText}${sharesText} to reach ${formatNumber(recommendation.target_shares ?? 0)}.`;
 }
 
 async function fetchOwnedStockSnapshot(apiKey: string, refreshedAt: number): Promise<OwnedStockSnapshot> {

@@ -791,6 +791,32 @@ h2 {
   line-height: 1.35;
 }
 
+.stock-milestone-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+}
+
+.stock-milestone-metrics span {
+  display: grid;
+  gap: 3px;
+  min-width: 82px;
+}
+
+.stock-milestone-metrics strong {
+  color: var(--text-main);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.stock-milestone-metrics small {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .stock-filter-stack {
   display: grid;
   gap: 10px;
