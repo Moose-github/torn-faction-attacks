@@ -247,7 +247,7 @@ describe("retaliation availability", () => {
       confirmed,
     ], 1100);
 
-    expect(payload.content).toBe("**Retaliation Board** - 1 available - 1 pending\nUpdated <t:1100:R>");
+    expect(payload.content).toBe("**Retaliation Board** - 1 available - 1 in progress\nUpdated <t:1100:R>");
     expect(payload.embeds).toEqual([
       expect.objectContaining({
         title: "Retal on nex [2054500]",
@@ -271,14 +271,14 @@ describe("retaliation availability", () => {
         title: "Retal on hhk556 [2814133]",
         color: 0xffa500,
         fields: expect.arrayContaining([
-          { name: "Status", value: "Pending by Attacker", inline: true },
+          { name: "Status", value: "Attack started by Attacker", inline: true },
         ]),
       }),
       expect.objectContaining({
         title: "Retal on done [333333]",
         color: 0x57f287,
         fields: expect.arrayContaining([
-          { name: "Status", value: "Confirmed by Finisher", inline: true },
+          { name: "Status", value: "Retaliated by Finisher", inline: true },
         ]),
       }),
     ]);

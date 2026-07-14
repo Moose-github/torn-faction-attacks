@@ -74,7 +74,9 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
 
   const rows = data?.retaliations ?? [];
   const availableCount = rows.filter((row) => row.status === "available").length;
-  const pendingCount = rows.filter((row) => row.status === "claimed_pending").length;
+  const startedCount = rows.filter((row) => row.status === "claimed_pending").length;
+  const retaliatedCount = rows.filter((row) => row.status === "claimed_confirmed").length;
+  const expiredCount = rows.filter((row) => row.status === "expired").length;
 
   return (
     <div className="retaliations-page">
@@ -94,7 +96,17 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
         <div className="retaliations-controls">
           <span className="retaliations-summary">
             <strong>{availableCount}</strong> available
-            <strong>{pendingCount}</strong> pending
+            <strong>{startedCount}</strong> in progress
+            {retaliatedCount > 0 ? (
+              <>
+                <strong>{retaliatedCount}</strong> retaliated
+              </>
+            ) : null}
+            {expiredCount > 0 ? (
+              <>
+                <strong>{expiredCount}</strong> expired
+              </>
+            ) : null}
           </span>
           <label className="checkbox-row">
             <input
@@ -102,7 +114,7 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
               checked={includeExpired}
               onChange={(event) => setIncludeExpired(event.target.checked)}
             />
-            <span>Expired</span>
+            <span>Expired history</span>
           </label>
           <button type="button" className="panel-action-button" onClick={() => void load(true)} disabled={isLoading}>
             <RefreshCw size={14} className={isLoading ? "spinning-icon" : ""} />
@@ -118,7 +130,7 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
         {isLoading && !data ? (
           <EmptyState text="Loading retaliations" />
         ) : rows.length === 0 ? (
-          <EmptyState text="No retaliations to show" />
+          <EmptyState text={includeExpired ? "No retaliation history to show" : "No active retaliations"} />
         ) : (
           <div className="table-scroll">
             <table className="retaliations-table">
@@ -129,7 +141,7 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
                   <th>Result</th>
                   <th>Expires</th>
                   <th>Status</th>
-                  <th>Claimed by</th>
+                  <th>Started by</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -167,13 +179,13 @@ function RetaliationRow({
   onClaim: (row: RetaliationOpportunity) => void;
 }) {
   const attack = row.enemy_attack;
-  const claim = row.pending_claim;
-  const claimedByMe = claim?.claimant_torn_user_id === currentUserId;
+  const startedSignal = row.pending_claim;
+  const startedByMe = startedSignal?.claimant_torn_user_id === currentUserId;
   const canClaim = row.status === "available" && row.opening_attack_id !== null;
   const statusClass = row.status.replace("_", "-");
 
   return (
-    <tr>
+    <tr className={`retaliation-row ${statusClass}`}>
       <td>
         <a className="retaliation-table-link" href={profileLink(row.target_id)} target="_blank" rel="noreferrer">
           <strong>{attack?.attacker_name ?? `Torn ${row.target_id}`}</strong>
@@ -202,7 +214,7 @@ function RetaliationRow({
       </td>
       <td>
         <strong>{formatCountdown(row.expires_at, nowSeconds)}</strong>
-        <small>{row.expires_at ? formatDate(row.expires_at) : "-"}</small>
+        <small>{expiryDetail(row, nowSeconds)}</small>
       </td>
       <td>
         <span className={`status-pill retaliation-status ${statusClass}`}>
@@ -210,8 +222,8 @@ function RetaliationRow({
         </span>
       </td>
       <td>
-        <strong>{claim ? claim.claimant_name ?? claim.claimant_torn_user_id : confirmedClaimant(row)}</strong>
-        {claim ? <small>{claimedByMe ? "You" : claim.source}</small> : null}
+        <strong>{startedSignal ? startedSignal.claimant_name ?? startedSignal.claimant_torn_user_id : retaliatedBy(row)}</strong>
+        {startedSignal ? <small>{startedByMe ? "You" : signalSourceLabel(startedSignal.source)}</small> : null}
       </td>
       <td>
         <div className="retaliation-actions">
@@ -219,10 +231,11 @@ function RetaliationRow({
             type="button"
             className="panel-action-button primary-action"
             disabled={!canClaim || isClaiming}
+            title={retaliationActionTitle(row)}
             onClick={() => onClaim(row)}
           >
             {isClaiming ? <RefreshCw size={14} className="spinning-icon" /> : <Swords size={14} />}
-            {isClaiming ? "Opening" : "Attack"}
+            {retaliationActionLabel(row, isClaiming)}
           </button>
         </div>
       </td>
@@ -255,14 +268,20 @@ function attackLogLink(code: string): string {
 
 function statusLabel(row: RetaliationOpportunity): string {
   if (row.status === "available") return "Available";
-  if (row.status === "claimed_pending") return "Pending";
-  if (row.status === "claimed_confirmed") return "Confirmed";
+  if (row.status === "claimed_pending") return "In progress";
+  if (row.status === "claimed_confirmed") return "Retaliated";
   if (row.status === "expired") return "Expired";
   return "None";
 }
 
-function confirmedClaimant(row: RetaliationOpportunity): string {
+function retaliatedBy(row: RetaliationOpportunity): string {
   return row.claimed_by_attack?.attacker_name ?? "-";
+}
+
+function signalSourceLabel(source: string): string {
+  if (source === "dashboard") return "Dashboard";
+  if (source === "tampermonkey") return "Userscript";
+  return source;
 }
 
 function formatCountdown(expiresAt: number | null, nowSeconds: number): string {
@@ -274,9 +293,33 @@ function formatCountdown(expiresAt: number | null, nowSeconds: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function expiryDetail(row: RetaliationOpportunity, nowSeconds: number): string {
+  if (!row.expires_at) return "-";
+  if (row.status === "expired" || row.expires_at <= nowSeconds) {
+    return `Expired ${formatRelativeTime(row.expires_at)}`;
+  }
+  return formatDate(row.expires_at);
+}
+
+function retaliationActionLabel(row: RetaliationOpportunity, isClaiming: boolean): string {
+  if (isClaiming) return "Starting";
+  if (row.status === "expired") return "Expired";
+  if (row.status === "claimed_pending") return "Started";
+  if (row.status === "claimed_confirmed") return "Done";
+  return "Attack";
+}
+
+function retaliationActionTitle(row: RetaliationOpportunity): string {
+  if (row.status === "available") return "Notify the board that you started this attack and open Torn";
+  if (row.status === "expired") return "This retaliation window has expired";
+  if (row.status === "claimed_pending") return "Another member has started this attack";
+  if (row.status === "claimed_confirmed") return "Torn attack data confirmed this retaliation was completed";
+  return "Retaliation is unavailable";
+}
+
 function claimFailureMessage(message: string): string {
-  if (message.includes("CLAIM_ALREADY_PENDING") || /already claimed/i.test(message)) {
-    return "Already claimed. Refreshing board.";
+  if (message.includes("CLAIM_ALREADY_PENDING") || /already (claimed|started)/i.test(message)) {
+    return "Attack already started. Refreshing board.";
   }
   if (message.includes("OPPORTUNITY_CHANGED") || /newer/i.test(message)) {
     return "Opportunity changed. Refreshing board.";

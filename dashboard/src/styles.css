@@ -7866,6 +7866,7 @@ tbody tr:not(.attack-row):hover td {
 .retaliations-summary {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   color: #64748b;
   font-size: 13px;
@@ -7895,6 +7896,21 @@ tbody tr:not(.attack-row):hover td {
   margin-top: 3px;
   color: #64748b;
   font-size: 12px;
+}
+
+.retaliation-row.expired td {
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.retaliation-row.expired td,
+.retaliation-row.expired .retaliation-table-link {
+  color: #64748b;
+}
+
+.retaliation-row.expired td:first-child strong,
+.retaliation-row.expired td:nth-child(2) strong,
+.retaliation-row.expired td:nth-child(3) strong {
+  color: #475569;
 }
 
 .retaliation-table-link {
@@ -9654,6 +9670,18 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .attack-row.retaliation td {
   background: rgba(21, 94, 117, 0.24);
+}
+
+:root[data-theme="dark"] .retaliation-row.expired td {
+  background: rgba(51, 65, 85, 0.28);
+}
+
+:root[data-theme="dark"] .retaliation-row.expired td,
+:root[data-theme="dark"] .retaliation-row.expired .retaliation-table-link,
+:root[data-theme="dark"] .retaliation-row.expired td:first-child strong,
+:root[data-theme="dark"] .retaliation-row.expired td:nth-child(2) strong,
+:root[data-theme="dark"] .retaliation-row.expired td:nth-child(3) strong {
+  color: #94a3b8;
 }
 
 :root[data-theme="dark"] .attack-row.outside td {

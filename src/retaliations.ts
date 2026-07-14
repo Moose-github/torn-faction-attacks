@@ -222,7 +222,7 @@ export async function createRetaliationClaimFromRequest(
   if (confirmedClaim) {
     return json({
       ok: false,
-      error: "This retaliation has already been confirmed by Torn attack data",
+      error: "This retaliation has already been completed and confirmed by Torn attack data",
       code: "CLAIM_ALREADY_CONFIRMED",
       retaliation: resolveRetaliationOpportunity(openingAttack, confirmedClaim, null, checkedAt),
     }, 409);
@@ -236,7 +236,7 @@ export async function createRetaliationClaimFromRequest(
   ) {
     return json({
       ok: false,
-      error: "This retaliation is already claimed",
+      error: "Another member has already started this attack",
       code: "CLAIM_ALREADY_PENDING",
       retaliation: resolveRetaliationOpportunity(openingAttack, null, existingClaim, checkedAt),
     }, 409);
@@ -787,10 +787,10 @@ export function renderRetaliationBoardPayload(
   checkedAt: number,
 ): RetaliationBoardDiscordPayload {
   const availableCount = rows.filter((row) => row.status === "available").length;
-  const pendingCount = rows.filter((row) => row.status === "claimed_pending").length;
+  const startedCount = rows.filter((row) => row.status === "claimed_pending").length;
   const content = rows.length === 0
     ? "**Retaliation Board**"
-    : `**Retaliation Board** - ${availableCount} available - ${pendingCount} pending\nUpdated <t:${checkedAt}:R>`;
+    : `**Retaliation Board** - ${availableCount} available - ${startedCount} in progress\nUpdated <t:${checkedAt}:R>`;
 
   return {
     content,
@@ -943,10 +943,10 @@ function retaliationBoardEmbedColor(row: RetaliationOpportunity): number {
 function retaliationBoardStatus(row: RetaliationOpportunity): string {
   if (row.status === "available") return "Open";
   if (row.status === "claimed_pending") {
-    return `Pending by ${cleanDiscordText(row.pending_claim?.claimant_name) ?? row.pending_claim?.claimant_torn_user_id ?? "member"}`;
+    return `Attack started by ${cleanDiscordText(row.pending_claim?.claimant_name) ?? row.pending_claim?.claimant_torn_user_id ?? "member"}`;
   }
   if (row.status === "claimed_confirmed") {
-    return `Confirmed by ${cleanDiscordText(row.claimed_by_attack?.attacker_name) ?? "Torn data"}`;
+    return `Retaliated by ${cleanDiscordText(row.claimed_by_attack?.attacker_name) ?? "Torn data"}`;
   }
   return "Expired";
 }
