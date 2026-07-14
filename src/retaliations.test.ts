@@ -247,7 +247,7 @@ describe("retaliation availability", () => {
       confirmed,
     ], 1100);
 
-    expect(payload.content).toBe("Retaliation Board - 1 available - 1 pending\nUpdated <t:1100:R>");
+    expect(payload.content).toBe("**Retaliation Board** - 1 available - 1 pending\nUpdated <t:1100:R>");
     expect(payload.embeds).toEqual([
       expect.objectContaining({
         title: "Retal on nex [2054500]",
@@ -287,10 +287,13 @@ describe("retaliation availability", () => {
   it("renders an empty Discord board as a green status embed", () => {
     const payload = renderRetaliationBoardPayload([], 1100);
 
-    expect(payload.content).toBe("Retaliation Board - 0 available - 0 pending\nUpdated <t:1100:R>");
+    expect(payload.content).toBe("**Retaliation Board**");
     expect(payload.embeds).toEqual([
       {
         title: "No active retaliation",
+        footer: {
+          text: "Updated <t:1100:R>",
+        },
         color: 0x57f287,
       },
     ]);

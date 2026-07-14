@@ -788,12 +788,14 @@ export function renderRetaliationBoardPayload(
 ): RetaliationBoardDiscordPayload {
   const availableCount = rows.filter((row) => row.status === "available").length;
   const pendingCount = rows.filter((row) => row.status === "claimed_pending").length;
-  const content = `Retaliation Board - ${availableCount} available - ${pendingCount} pending\nUpdated <t:${checkedAt}:R>`;
+  const content = rows.length === 0
+    ? "**Retaliation Board**"
+    : `**Retaliation Board** - ${availableCount} available - ${pendingCount} pending\nUpdated <t:${checkedAt}:R>`;
 
   return {
     content,
     embeds: rows.length === 0
-      ? [noActiveRetaliationBoardEmbed()]
+      ? [noActiveRetaliationBoardEmbed(checkedAt)]
       : rows.map(retaliationBoardEmbed),
   };
 }
@@ -924,9 +926,12 @@ function retaliationBoardEmbed(row: RetaliationOpportunity): DiscordEmbed {
   };
 }
 
-function noActiveRetaliationBoardEmbed(): DiscordEmbed {
+function noActiveRetaliationBoardEmbed(checkedAt: number): DiscordEmbed {
   return {
     title: "No active retaliation",
+    footer: {
+      text: `Updated <t:${checkedAt}:R>`,
+    },
     color: RETALIATION_BOARD_CONFIRMED_COLOR,
   };
 }
