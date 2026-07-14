@@ -285,6 +285,11 @@ function nextStrategyStep(
   const targetStep = strategySalePlanIsBeneficial(target, targetSalePlan)
     ? strategyRebalanceStep(target, targetSalePlan, currentCash)
     : strategyBuyStep(target, currentCash);
+  const immediateStep = selectImmediateStrategyStep(input, recommendations, snapshot, currentCash);
+  if (immediateStep) {
+    return immediateStep;
+  }
+
   const steppingStone = selectStrategySteppingStone(
     recommendations,
     target,
@@ -307,6 +312,29 @@ function nextStrategyStep(
   return strategySalePlanIsBeneficial(steppingStone, steppingStoneSalePlan) && steppingStoneSalePlan.current_annual_return <= 0
     ? strategyRebalanceStep(steppingStone, steppingStoneSalePlan, currentCash)
     : strategyBuyStep(steppingStone, currentCash);
+}
+
+function selectImmediateStrategyStep(
+  input: StockBuyRecommendationInput,
+  recommendations: StockBuyRecommendation[],
+  snapshot: OwnedStockSnapshot,
+  currentCash: number,
+): StockStrategyStep | null {
+  for (const recommendation of recommendations) {
+    if (recommendation.estimated_cost <= currentCash) {
+      return strategyBuyStep(recommendation, currentCash);
+    }
+
+    const salePlan = buildStrategySalePlan(input.rows, snapshot, recommendation, currentCash);
+    const rebalanceStep = strategySalePlanIsBeneficial(recommendation, salePlan) && salePlan.current_annual_return <= 0
+      ? strategyRebalanceStep(recommendation, salePlan, currentCash)
+      : null;
+    if (rebalanceStep && rebalanceStep.extra_cash_needed <= 0) {
+      return rebalanceStep;
+    }
+  }
+
+  return null;
 }
 
 function selectStrategySteppingStone(

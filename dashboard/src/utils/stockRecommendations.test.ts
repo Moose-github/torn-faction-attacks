@@ -716,6 +716,36 @@ describe("stock buy recommendations", () => {
     expect(rowIds.indexOf("stock:4:1")).toBeLessThan(rowIds.indexOf("stock:5:1"));
   });
 
+  it("orders available-now rebalances before future cash milestones", () => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "FHG", latest_price: 1, total_shares_required: 2_000, increment_cost: 2_000, total_cost: 2_000, annual_return: 1_000, roi_percent: 50 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "TCT", latest_price: 1, total_shares_required: 100, increment_cost: 100, total_cost: 100, annual_return: 36, roi_percent: 36 }),
+        stockRow({ row_id: "stock:3:1", stock_id: 3, acronym: "PRN", latest_price: 1, total_shares_required: 600, increment_cost: 600, total_cost: 600, annual_return: 224, roi_percent: 37.333333333333336 }),
+        stockRow({ row_id: "stock:4:1", stock_id: 4, acronym: "GRN", latest_price: 1, total_shares_required: 150, increment_cost: 150, total_cost: 150, annual_return: 45, roi_percent: 30 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 400, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 4);
+
+    const rowIds = plan.steps.map((step) => step.recommendation.row.row_id);
+    expect(rowIds).toEqual([
+      "stock:2:1",
+      "stock:4:1",
+      "stock:3:1",
+      "stock:1:1",
+    ]);
+    expect(plan.steps[0]).toMatchObject({ kind: "rebalance", extra_cash_needed: 0 });
+    expect(plan.steps[1]).toMatchObject({ kind: "rebalance", extra_cash_needed: 0 });
+    expect(plan.steps[2].extra_cash_needed).toBeGreaterThan(0);
+  });
+
   it("stops the strategy path early when the next ROI is not useful enough", () => {
     const plan = buildStockStrategyPlan({
       rows: [
