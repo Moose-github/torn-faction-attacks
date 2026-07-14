@@ -38,6 +38,10 @@ export type EnemyPushAlertSetting = DiscordAlertSetting & {
   key: typeof DISCORD_ALERT_KEYS.enemyPush;
 };
 
+export type RetaliationBoardAlertSetting = DiscordAlertSetting & {
+  key: typeof DISCORD_ALERT_KEYS.retaliationBoard;
+};
+
 type AlertSettingConfig = {
   key: DiscordAlertKey;
   name: string;
@@ -65,6 +69,12 @@ const ALERT_SETTING_CONFIGS = [
     configurable: true,
   },
   {
+    key: DISCORD_ALERT_KEYS.retaliationBoard,
+    name: "Retaliation board",
+    defaultEnabled: true,
+    configurable: true,
+  },
+  {
     key: DISCORD_ALERT_KEYS.shopliftingSecurity("big_als"),
     name: "Big Als shoplifting",
     defaultEnabled: true,
@@ -82,6 +92,7 @@ export async function getAdminDiscordAlertSettings(env: Env): Promise<Response> 
   return json({
     ok: true,
     chain_watch_alert: await readChainWatchAlertSetting(env),
+    retaliation_board_alert: await readRetaliationBoardAlertSetting(env),
     enemy_push_alert: await readEnemyPushAlertSetting(env),
     alerts: await readShopliftingSecurityAlertSettings(env),
   });
@@ -97,6 +108,12 @@ export async function updateAdminDiscordAlertSettingsFromRequest(request: Reques
 
   if (body.alert_key === DISCORD_ALERT_KEYS.enemyPush) {
     const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.enemyPush, body.enabled);
+    if (error) return error;
+    return getAdminDiscordAlertSettings(env);
+  }
+
+  if (body.alert_key === DISCORD_ALERT_KEYS.retaliationBoard) {
+    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.retaliationBoard, body.enabled);
     if (error) return error;
     return getAdminDiscordAlertSettings(env);
   }
@@ -120,6 +137,13 @@ export async function readChainWatchAlertSetting(env: Env): Promise<ChainWatchAl
 
 export async function readEnemyPushAlertSetting(env: Env): Promise<EnemyPushAlertSetting> {
   return readConfiguredAlertSetting(env, alertConfig(DISCORD_ALERT_KEYS.enemyPush)) as Promise<EnemyPushAlertSetting>;
+}
+
+export async function readRetaliationBoardAlertSetting(env: Env): Promise<RetaliationBoardAlertSetting> {
+  return readConfiguredAlertSetting(
+    env,
+    alertConfig(DISCORD_ALERT_KEYS.retaliationBoard),
+  ) as Promise<RetaliationBoardAlertSetting>;
 }
 
 export async function isDiscordAlertEnabled(env: Env, alertKey: DiscordAlertKey): Promise<boolean> {

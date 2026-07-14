@@ -281,6 +281,19 @@ export async function updateAdminChainWatchDiscordAlert(payload: {
 
 }
 
+export async function updateAdminRetaliationBoardDiscordAlert(payload: {
+
+  enabled: boolean;
+
+}): Promise<AdminDiscordAlertSettingsResponse> {
+
+  return postJson<AdminDiscordAlertSettingsResponse>("/api/admin/discord-alerts/settings", {
+    alert_key: "retaliation_board",
+    enabled: payload.enabled,
+  });
+
+}
+
 export async function getAdminWarControlSettings(): Promise<WarControlSettingsResponse> {
   return getJson<WarControlSettingsResponse>("/api/admin/war-control-settings", true);
 }

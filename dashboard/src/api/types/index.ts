@@ -334,6 +334,79 @@ export type FactionActivityHeatmapResponse = {
   rows: FactionActivityHeatmapRow[];
 };
 
+export type RetaliationStatus = "available" | "claimed_pending" | "claimed_confirmed" | "expired" | "none";
+
+export type RetaliationAttack = {
+  id: number;
+  code: string | null;
+  started: number | null;
+  ended: number | null;
+  attacker_id: number | null;
+  attacker_name: string | null;
+  attacker_faction_id: number | null;
+  attacker_faction_name: string | null;
+  defender_id: number | null;
+  defender_name: string | null;
+  defender_faction_id: number | null;
+  defender_faction_name: string | null;
+  result: string | null;
+  respect_gain: number | null;
+  respect_loss: number | null;
+  m_retaliation?: number | null;
+  attack_at: number | null;
+};
+
+export type PendingRetaliationClaim = {
+  opening_attack_id: number;
+  target_id: number;
+  claimant_torn_user_id: number;
+  claimant_name: string | null;
+  source: "dashboard" | "tampermonkey";
+  attack_url: string | null;
+  created_at: number;
+  updated_at: number;
+  expires_at: number;
+};
+
+export type RetaliationOpportunity = {
+  target_id: number;
+  opening_attack_id: number | null;
+  status: RetaliationStatus;
+  available: boolean;
+  reason: "available" | "claimed" | "none";
+  enemy_attack: RetaliationAttack | null;
+  claimed_by_attack: RetaliationAttack | null;
+  pending_claim: PendingRetaliationClaim | null;
+  expires_at: number | null;
+};
+
+export type RetaliationSyncStatus = {
+  status: string;
+  last_success_at: number | null;
+  warning: string | null;
+  result: unknown | null;
+};
+
+export type RetaliationsResponse = {
+  ok: boolean;
+  checked_at: number;
+  window_seconds: number;
+  claim_ttl_seconds: number;
+  fresh: boolean;
+  sync: RetaliationSyncStatus;
+  retaliations: RetaliationOpportunity[];
+};
+
+export type RetaliationClaimResponse = {
+  ok: boolean;
+  checked_at: number;
+  window_seconds: number;
+  claim_ttl_seconds: number;
+  fresh: boolean;
+  sync: RetaliationSyncStatus;
+  retaliation: RetaliationOpportunity;
+};
+
 export type EnemyMemberActivityHeatmapRow = {
   war_id: number;
   faction_id: number;
@@ -766,6 +839,18 @@ export type ChainWatchAlertSetting = {
 
 };
 
+export type RetaliationBoardAlertSetting = {
+
+  key: "retaliation_board";
+
+  name: string;
+
+  enabled: boolean;
+
+  configurable: boolean;
+
+};
+
 
 
 export type AdminDiscordAlertSettingsResponse = {
@@ -773,6 +858,8 @@ export type AdminDiscordAlertSettingsResponse = {
   ok: boolean;
 
   chain_watch_alert: ChainWatchAlertSetting;
+
+  retaliation_board_alert: RetaliationBoardAlertSetting;
 
   alerts: ShopliftingAlertSetting[];
 

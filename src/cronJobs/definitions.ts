@@ -13,6 +13,7 @@ import {
 } from "../lifestyleStats/dailyPersonal";
 import { runScheduledMaintenance } from "../maintenance";
 import { refreshTornShoplifting } from "../miscellaneous";
+import { syncRetaliationDiscordBoard } from "../retaliations";
 import {
   rebuildWarStatsFromRaw,
   refreshOpenWarChainBonusAdjustmentsFromRaw,
@@ -39,6 +40,7 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     run: async (env, scheduledTime) => {
       await runIngestion(env, "cron", { scheduledTime });
       await runChainWatchCron(env, scheduledTime);
+      await syncRetaliationDiscordBoard(env, Math.floor(scheduledTime / 1000));
     },
   },
   {

@@ -5,7 +5,11 @@ import {
   getDiscordMemberAlertSubscriptions,
   updateDiscordMemberAlertSubscriptionFromRequest,
 } from "../discordMemberAlertSubscriptions";
-import { getRetaliationCheck } from "../retaliations";
+import {
+  createRetaliationClaimFromRequest,
+  getAvailableRetaliations,
+  getRetaliationCheck,
+} from "../retaliations";
 import { jsonResponse, routeContext } from "../testUtils/http";
 import {
   autoRefreshStockBenefitItemPrices,
@@ -37,6 +41,8 @@ vi.mock("../discordMemberAlertSubscriptions", () => ({
 }));
 
 vi.mock("../retaliations", () => ({
+  createRetaliationClaimFromRequest: vi.fn(),
+  getAvailableRetaliations: vi.fn(),
   getRetaliationCheck: vi.fn(),
 }));
 
@@ -104,6 +110,9 @@ describe("member utility routes", () => {
     vi.mocked(updateDiscordMemberAlertSubscriptionFromRequest)
       .mockResolvedValue(jsonResponse({ ok: true, route: "discord-alerts-update" }));
     vi.mocked(getRetaliationCheck).mockResolvedValue(jsonResponse({ ok: true, route: "retaliations" }));
+    vi.mocked(getAvailableRetaliations).mockResolvedValue(jsonResponse({ ok: true, route: "retaliations-list" }));
+    vi.mocked(createRetaliationClaimFromRequest)
+      .mockResolvedValue(jsonResponse({ ok: true, route: "retaliations-claim" }));
     vi.mocked(autoRefreshStockBenefitItemPrices).mockResolvedValue({
       ok: true,
       refreshed: 0,
@@ -144,6 +153,31 @@ describe("member utility routes", () => {
 
     expect(response?.status).toBe(401);
     expect(getRetaliationCheck).not.toHaveBeenCalled();
+  });
+
+  it("routes retaliation lists through member auth", async () => {
+    const response = await routeMemberUtilityApi(routeContext(
+      "https://worker.test/api/retaliations/available",
+    ));
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "retaliations-list" });
+    expect(requireMember).toHaveBeenCalledOnce();
+    expect(getAvailableRetaliations).toHaveBeenCalledOnce();
+  });
+
+  it("routes retaliation claims through member auth with the current user id", async () => {
+    const context = routeContext("https://worker.test/api/retaliations/claims", {
+      method: "POST",
+      body: JSON.stringify({ target_id: 123, opening_attack_id: 456, source: "dashboard" }),
+    });
+    const response = await routeMemberUtilityApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "retaliations-claim" });
+    expect(requireMember).toHaveBeenCalledOnce();
+    expect(readAuthenticatedUserId).toHaveBeenCalledWith(context.request, context.env);
+    expect(createRetaliationClaimFromRequest).toHaveBeenCalledWith(context.request, context.env, 12345);
   });
 
   it("routes data health summary through member auth", async () => {

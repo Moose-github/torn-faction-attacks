@@ -16,7 +16,11 @@ import { listMemberAchievementSummaries } from "../memberAchievements";
 import { getMiscellaneousData } from "../miscellaneous";
 import { createMonitorTicket } from "../monitorTickets";
 import { OFFICIAL_END_CACHE_TTL_SECONDS } from "../responseCache";
-import { getRetaliationCheck } from "../retaliations";
+import {
+  createRetaliationClaimFromRequest,
+  getAvailableRetaliations,
+  getRetaliationCheck,
+} from "../retaliations";
 import { matchesExactRoute, stockBenefitValueKeyFromRoute, stockIdFromHistoryRoute } from "../routes";
 import {
   autoRefreshStockBenefitItemPrices,
@@ -133,6 +137,16 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
 
   if (matchesExactRoute(url, request, "/api/retaliations/check", "GET")) {
     return withMember(routeContext, () => getRetaliationCheck(url, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/retaliations/available", "GET")) {
+    return withMember(routeContext, () => getAvailableRetaliations(url, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/retaliations/claims", "POST")) {
+    return withMember(routeContext, async () =>
+      createRetaliationClaimFromRequest(request, env, await readAuthenticatedUserId(request, env)),
+    );
   }
 
   if (matchesExactRoute(url, request, "/api/me/discord-alert-subscriptions", "GET")) {

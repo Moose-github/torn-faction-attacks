@@ -69,6 +69,26 @@ CREATE TABLE auth_sessions (
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+CREATE TABLE retaliation_claim_signals (
+  opening_attack_id INTEGER PRIMARY KEY,
+  target_id INTEGER NOT NULL,
+  claimant_torn_user_id INTEGER NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('dashboard', 'tampermonkey')),
+  attack_url TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+
+CREATE TABLE retaliation_board_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  discord_message_id TEXT,
+  last_rendered_hash TEXT,
+  last_edited_at INTEGER,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE chain_watch_state (
   war_id INTEGER PRIMARY KEY REFERENCES wars(id) ON DELETE CASCADE,
   enabled INTEGER NOT NULL DEFAULT 1,
@@ -1128,6 +1148,18 @@ CREATE INDEX idx_attacks_attacker_faction_war
 CREATE INDEX idx_attacks_defender_faction_started
   ON attacks(defender_faction_id, started DESC, id DESC);
 
+CREATE INDEX idx_attacks_retaliation_enemy_recent
+  ON attacks(attacker_id, defender_faction_id, started DESC, id DESC);
+
+CREATE INDEX idx_attacks_retaliation_claim_recent
+  ON attacks(defender_id, attacker_faction_id, started DESC, id DESC);
+
+CREATE INDEX idx_attacks_retaliation_enemy_list
+  ON attacks(defender_faction_id, started DESC, id DESC);
+
+CREATE INDEX idx_attacks_retaliation_claim_lookup
+  ON attacks(defender_id, attacker_faction_id, started DESC, id DESC);
+
 CREATE INDEX idx_attacks_defender_faction_war
   ON attacks(defender_faction_id, war_id, started DESC);
 
@@ -1163,6 +1195,12 @@ CREATE INDEX idx_report_attack_recon_runs_war
 
 CREATE INDEX idx_auth_sessions_expires_at
   ON auth_sessions (expires_at);
+
+CREATE INDEX idx_retaliation_claim_signals_expires
+  ON retaliation_claim_signals(expires_at);
+
+CREATE INDEX idx_retaliation_claim_signals_target
+  ON retaliation_claim_signals(target_id, updated_at DESC);
 
 CREATE INDEX idx_dice_game_losses_total_lost
   ON dice_game_losses(total_lost DESC, rolls DESC);

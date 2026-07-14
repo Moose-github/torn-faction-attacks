@@ -2,6 +2,7 @@ import React from "react";
 import {
   BarChart3,
   CircleDollarSign,
+  Crosshair,
   Dices,
   Gauge,
   House,
@@ -113,6 +114,9 @@ const WarDetailView = React.lazy(() =>
 );
 const WarRoom = React.lazy(() =>
   import("../views/WarRoom").then((module) => ({ default: module.WarRoom })),
+);
+const Retaliations = React.lazy(() =>
+  import("../views/Retaliations").then((module) => ({ default: module.Retaliations })),
 );
 
 export function App() {
@@ -722,6 +726,7 @@ export function App() {
           isLoadingWars={isLoadingWars}
           dashboardIcon={<House size={18} />}
           warRoomIcon={<Radar size={18} />}
+          retaliationIcon={<Crosshair size={18} />}
           memberIcon={<BarChart3 size={18} />}
           lifestyleIcon={<Pill size={18} />}
           miscIcon={<Target size={18} />}
@@ -812,6 +817,10 @@ export function App() {
                 onError={setError}
                 onOpenHospitalMonitor={() => changeView("hospitalMonitor")}
               />
+            </LazyPage>
+          ) : view === "retaliations" ? (
+            <LazyPage>
+              <Retaliations currentUserId={authSession.user.id} />
             </LazyPage>
           ) : selectedWar ? (
             <LazyPage>

@@ -44,6 +44,12 @@ describe("Discord alert settings", () => {
         enabled: false,
         configurable: true,
       },
+      retaliation_board_alert: {
+        key: "retaliation_board",
+        name: "Retaliation board",
+        enabled: true,
+        configurable: true,
+      },
       enemy_push_alert: {
         key: "enemy_push",
         name: "Enemy push alerts",
@@ -71,6 +77,7 @@ describe("Discord alert settings", () => {
     db.settings.clear();
 
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.chainWatch)).resolves.toBe(true);
+    await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.retaliationBoard)).resolves.toBe(true);
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.enemyPush)).resolves.toBe(false);
     await expect(readShopliftingSecurityAlertSettings(env)).resolves.toEqual([
       {

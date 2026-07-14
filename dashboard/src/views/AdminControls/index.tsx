@@ -42,11 +42,13 @@ import {
   sendDiscordMessage,
   setDiscordTravelTrackerTarget,
   ChainWatchAlertSetting,
+  RetaliationBoardAlertSetting,
   ShopliftingAlertSetting,
   syncDiscordTravelTracker,
   EnemyPushAlertSetting,
   updateDiscordTravelTrackerSettings,
   updateAdminChainWatchDiscordAlert,
+  updateAdminRetaliationBoardDiscordAlert,
   updateAdminXanaxCompetitionSettings,
   updateAdminEnemyPushDiscordAlert,
   updateAdminShopliftingDiscordAlert,
@@ -121,6 +123,8 @@ export function AdminControls() {
     React.useState<AdminXanaxCompetitionResponse | null>(null);
   const [isLoadingXanaxCompetition, setIsLoadingXanaxCompetition] = React.useState(false);
   const [chainWatchAlert, setChainWatchAlert] = React.useState<ChainWatchAlertSetting | null>(null);
+  const [retaliationBoardAlert, setRetaliationBoardAlert] =
+    React.useState<RetaliationBoardAlertSetting | null>(null);
   const [shopliftingAlerts, setShopliftingAlerts] = React.useState<ShopliftingAlertSetting[]>([]);
   const [enemyPushAlert, setEnemyPushAlert] = React.useState<EnemyPushAlertSetting | null>(null);
   const [isLoadingShopliftingAlerts, setIsLoadingShopliftingAlerts] = React.useState(false);
@@ -417,10 +421,12 @@ export function AdminControls() {
     try {
       const response = await getAdminDiscordAlertSettings();
       setChainWatchAlert(response.chain_watch_alert);
+      setRetaliationBoardAlert(response.retaliation_board_alert);
       setShopliftingAlerts(response.alerts);
       setEnemyPushAlert(response.enemy_push_alert);
     } catch {
       setChainWatchAlert(null);
+      setRetaliationBoardAlert(null);
       setShopliftingAlerts([]);
       setEnemyPushAlert(null);
     } finally {
@@ -479,12 +485,18 @@ export function AdminControls() {
       : "Unavailable";
   const shopliftingAlertStatus = isLoadingShopliftingAlerts
     ? "Loading"
-    : shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert
+    : shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert || retaliationBoardAlert
       ? `${[
           ...(chainWatchAlert ? [chainWatchAlert.enabled] : []),
+          ...(retaliationBoardAlert ? [retaliationBoardAlert.enabled] : []),
           ...shopliftingAlerts.map((alert) => alert.enabled),
           ...(enemyPushAlert ? [enemyPushAlert.enabled] : []),
-        ].filter(Boolean).length}/${shopliftingAlerts.length + (enemyPushAlert ? 1 : 0) + (chainWatchAlert ? 1 : 0)} active`
+        ].filter(Boolean).length}/${
+          shopliftingAlerts.length +
+          (enemyPushAlert ? 1 : 0) +
+          (chainWatchAlert ? 1 : 0) +
+          (retaliationBoardAlert ? 1 : 0)
+        } active`
       : "Unavailable";
   const discordTravelTrackerStatus = isLoadingDiscordTravelTarget
     ? "Loading"
@@ -776,6 +788,7 @@ export function AdminControls() {
                     runAdminAction("Update chain watch alert", () =>
                       updateAdminChainWatchDiscordAlert({ enabled }).then((response) => {
                         setChainWatchAlert(response.chain_watch_alert);
+                        setRetaliationBoardAlert(response.retaliation_board_alert);
                         setShopliftingAlerts(response.alerts);
                         setEnemyPushAlert(response.enemy_push_alert);
                         return response;
@@ -784,6 +797,28 @@ export function AdminControls() {
                   }}
                 />
                 <span>{chainWatchAlert.name}</span>
+              </label>
+            ) : null}
+            {retaliationBoardAlert ? (
+              <label className="checkbox-row admin-form-wide">
+                <input
+                  type="checkbox"
+                  checked={retaliationBoardAlert.enabled}
+                  disabled={isBusy !== null || isLoadingShopliftingAlerts}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    runAdminAction("Update retaliation board alert", () =>
+                      updateAdminRetaliationBoardDiscordAlert({ enabled }).then((response) => {
+                        setChainWatchAlert(response.chain_watch_alert);
+                        setRetaliationBoardAlert(response.retaliation_board_alert);
+                        setShopliftingAlerts(response.alerts);
+                        setEnemyPushAlert(response.enemy_push_alert);
+                        return response;
+                      }),
+                    );
+                  }}
+                />
+                <span>{retaliationBoardAlert.name}</span>
               </label>
             ) : null}
             {enemyPushAlert ? (
@@ -797,6 +832,7 @@ export function AdminControls() {
                     runAdminAction("Update enemy push alert", () =>
                       updateAdminEnemyPushDiscordAlert({ enabled }).then((response) => {
                         setChainWatchAlert(response.chain_watch_alert);
+                        setRetaliationBoardAlert(response.retaliation_board_alert);
                         setShopliftingAlerts(response.alerts);
                         setEnemyPushAlert(response.enemy_push_alert);
                         return response;
@@ -822,6 +858,7 @@ export function AdminControls() {
                           enabled,
                         }).then((response) => {
                           setChainWatchAlert(response.chain_watch_alert);
+                          setRetaliationBoardAlert(response.retaliation_board_alert);
                           setShopliftingAlerts(response.alerts);
                           setEnemyPushAlert(response.enemy_push_alert);
                           return response;

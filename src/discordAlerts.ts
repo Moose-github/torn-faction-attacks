@@ -3,6 +3,7 @@ export const DISCORD_ALERT_KEYS = {
   chainWatchWarning: "chain_watch_warning",
   chainWatchCritical: "chain_watch_critical",
   chainWatchDrop: "chain_watch_drop",
+  retaliationBoard: "retaliation_board",
   enemyPush: "enemy_push",
   shopliftingSecurity: <ShopKey extends string>(shopKey: ShopKey): `shoplifting_security_alert:${ShopKey}` =>
     `shoplifting_security_alert:${shopKey}`,
@@ -32,6 +33,12 @@ export const DISCORD_ALERTS = [
     name: "Chain watch dropped",
     description: "Mentions when a qualifying chain has dropped.",
     subscribable: true,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.retaliationBoard,
+    name: "Retaliation board",
+    description: "Persistent retaliation opportunity board updates.",
+    subscribable: false,
   },
   {
     key: DISCORD_ALERT_KEYS.enemyPush,

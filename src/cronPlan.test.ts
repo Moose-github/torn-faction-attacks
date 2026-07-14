@@ -23,6 +23,9 @@ vi.mock("./maintenance", () => ({
 vi.mock("./miscellaneous", () => ({
   refreshTornShoplifting: vi.fn(),
 }));
+vi.mock("./retaliations", () => ({
+  syncRetaliationDiscordBoard: vi.fn(),
+}));
 vi.mock("./warStats", () => ({
   rebuildWarStatsFromRaw: vi.fn(),
   refreshOpenWarChainBonusAdjustmentsFromRaw: vi.fn(),

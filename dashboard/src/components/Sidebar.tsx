@@ -18,6 +18,7 @@ export function Sidebar({
   isLoadingWars,
   dashboardIcon,
   warRoomIcon,
+  retaliationIcon,
   memberIcon,
   lifestyleIcon,
   miscIcon,
@@ -41,6 +42,7 @@ export function Sidebar({
   isLoadingWars: boolean;
   dashboardIcon: React.ReactNode;
   warRoomIcon: React.ReactNode;
+  retaliationIcon: React.ReactNode;
   memberIcon: React.ReactNode;
   lifestyleIcon: React.ReactNode;
   miscIcon: React.ReactNode;
@@ -98,6 +100,12 @@ export function Sidebar({
           icon={warRoomIcon}
           label="War room"
           onClick={() => onViewChange("warRoom")}
+        />
+        <SidebarLink
+          active={view === "retaliations"}
+          icon={retaliationIcon}
+          label="Retaliations"
+          onClick={() => onViewChange("retaliations")}
         />
         <SidebarLink
           active={view === "dataHealth"}

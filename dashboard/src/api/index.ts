@@ -10,3 +10,4 @@ export * from "./arrestScout";
 export * from "./tornKeyPool";
 export * from "./member";
 export * from "./dataHealth";
+export * from "./retaliations";

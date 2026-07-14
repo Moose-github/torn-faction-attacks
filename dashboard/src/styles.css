@@ -7846,6 +7846,84 @@ tbody tr:not(.attack-row):hover td {
   color: #166534;
 }
 
+.retaliations-page {
+  display: grid;
+  gap: 14px;
+}
+
+.retaliations-header-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.retaliations-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.retaliations-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.retaliations-summary strong {
+  color: #0f172a;
+}
+
+.retaliations-notice {
+  margin: 0;
+  color: #92400e;
+  font-size: 13px;
+}
+
+.retaliations-table td:first-child strong,
+.retaliations-table td:nth-child(2) strong,
+.retaliations-table td:nth-child(3) strong,
+.retaliations-table td:nth-child(4) strong,
+.retaliations-table td:nth-child(6) strong {
+  display: block;
+  white-space: nowrap;
+}
+
+.retaliations-table small {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.retaliation-status.available {
+  background: rgba(22, 163, 74, 0.12);
+  color: #166534;
+}
+
+.retaliation-status.claimed-pending {
+  background: rgba(217, 119, 6, 0.14);
+  color: #92400e;
+}
+
+.retaliation-status.claimed-confirmed {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+.retaliation-status.expired {
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+}
+
+.retaliation-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .admin-only-pill {
   border: 1px solid rgba(37, 99, 235, 0.24);
   background: #eff6ff;
