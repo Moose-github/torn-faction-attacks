@@ -374,6 +374,57 @@ describe("stock buy recommendations", () => {
     });
   });
 
+  it("combines multiple sell sources to fund one rebalance target", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 1_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", latest_price: 20, total_shares_required: 1_000 }),
+        stockRow({ row_id: "stock:3:1", stock_id: 3, acronym: "CCC", latest_price: 10, total_shares_required: 250, increment_cost: 2_500, total_cost: 2_500, annual_return: 2_500_000, roi_percent: 100_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [
+          { stock_id: 1, shares: 100, bonus: null },
+          { stock_id: 2, shares: 100, bonus: null },
+        ],
+      },
+      cityBankActive: false,
+      budget: 500,
+      affordableOnly: false,
+      minimumRoi: null,
+    });
+
+    expect(results[0]).toMatchObject({
+      sell_stock_id: 1,
+      sell_shares: 100,
+      sale_value: 2_000,
+      available_cash: 500,
+      available_capital: 2_500,
+      extra_cash_required: 0,
+      current_annual_return: 0,
+      annual_return_gain: 2_500_000,
+    });
+    expect(results[0].sales).toEqual([
+      {
+        stock_id: 1,
+        acronym: "AAA",
+        name: "Alpha",
+        shares: 100,
+        sale_value: 1_000,
+        current_annual_return: 0,
+      },
+      {
+        stock_id: 2,
+        acronym: "BBB",
+        name: "Alpha",
+        shares: 50,
+        sale_value: 1_000,
+        current_annual_return: 0,
+      },
+    ]);
+    expect(results[0].proposed.row.row_id).toBe("stock:3:1");
+  });
+
   it("skips same-stock rebalance loops", () => {
     const results = buildStockRebalanceRecommendations({
       rows: [

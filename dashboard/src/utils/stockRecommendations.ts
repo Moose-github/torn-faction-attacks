@@ -62,6 +62,7 @@ export type StockRebalanceRecommendation = {
   sell_acronym: string | null;
   sell_name: string | null;
   sell_shares: number;
+  sales: StockStrategySale[];
   sale_value: number;
   available_cash: number;
   available_capital: number;
@@ -444,67 +445,55 @@ function buildRebalanceRecommendations(
     return map;
   }, new Map<number, StockInvestmentStockRow[]>());
   const recommendations: StockRebalanceRecommendation[] = [];
-
-  for (const stock of input.ownedSnapshot.stocks) {
-    if (stock.shares <= 0) {
-      continue;
-    }
-
+  const totalSellableValue = input.ownedSnapshot.stocks.reduce((total, stock) => {
     const ownedRows = stockRowsById.get(stock.stock_id) ?? [];
     const priceRow = ownedRows.find((row) => row.latest_price > 0) ?? null;
-    if (!priceRow) {
+    return total + (priceRow ? stock.shares * priceRow.latest_price : 0);
+  }, 0);
+  const candidates = recommendStockBuys({
+    ...input,
+    budget: allowFutureCash ? null : availableCash + totalSellableValue,
+    affordableOnly: !allowFutureCash,
+  }, Number.MAX_SAFE_INTEGER);
+
+  for (const candidate of candidates) {
+    const salePlan = buildStrategySalePlan(input.rows, input.ownedSnapshot, candidate, availableCash);
+    if (salePlan.sales.length === 0) {
       continue;
     }
 
-    const fullSaleValue = stock.shares * priceRow.latest_price;
-    if (fullSaleValue <= 0) {
+    const extraCashRequired = Math.max(0, candidate.estimated_cost - availableCash - salePlan.sale_value);
+    if (!allowFutureCash && extraCashRequired > 0) {
       continue;
     }
 
-    const availableCapital = fullSaleValue + availableCash;
-    const candidates = recommendStockBuys({
-      ...input,
-      budget: allowFutureCash ? null : availableCapital,
-      affordableOnly: !allowFutureCash,
-    }, Number.MAX_SAFE_INTEGER)
-      .filter((candidate) => candidate.row.stock_id !== stock.stock_id);
-
-    for (const candidate of candidates) {
-      const cashNeededFromSale = Math.max(0, candidate.estimated_cost - availableCash);
-      const sellShares = Math.min(stock.shares, Math.ceil(cashNeededFromSale / priceRow.latest_price));
-      if (sellShares <= 0) {
-        continue;
-      }
-
-      const saleValue = sellShares * priceRow.latest_price;
-      const sharesAfterSale = Math.max(0, stock.shares - sellShares);
-      const currentAnnualReturn = coveredAnnualReturn(ownedRows, stock.shares) - coveredAnnualReturn(ownedRows, sharesAfterSale);
-      const currentRoiPercent = currentAnnualReturn > 0
-        ? (currentAnnualReturn / saleValue) * 100
-        : null;
-      const annualReturnGain = candidate.annual_return - currentAnnualReturn;
-      if (annualReturnGain < MIN_REBALANCE_ANNUAL_GAIN) {
-        continue;
-      }
-      if (currentRoiPercent !== null && candidate.roi_percent < currentRoiPercent + MIN_REBALANCE_ROI_GAIN) {
-        continue;
-      }
-
-      recommendations.push({
-        sell_stock_id: stock.stock_id,
-        sell_acronym: priceRow.acronym,
-        sell_name: priceRow.name,
-        sell_shares: sellShares,
-        sale_value: saleValue,
-        available_cash: availableCash,
-        available_capital: Math.max(availableCash + saleValue, candidate.estimated_cost),
-        current_annual_return: currentAnnualReturn,
-        current_roi_percent: currentRoiPercent,
-        proposed: candidate,
-        annual_return_gain: annualReturnGain,
-        extra_cash_required: Math.max(0, candidate.estimated_cost - availableCash - saleValue),
-      });
+    const currentRoiPercent = salePlan.current_annual_return > 0
+      ? (salePlan.current_annual_return / salePlan.sale_value) * 100
+      : null;
+    const annualReturnGain = candidate.annual_return - salePlan.current_annual_return;
+    if (annualReturnGain < MIN_REBALANCE_ANNUAL_GAIN) {
+      continue;
     }
+    if (currentRoiPercent !== null && candidate.roi_percent < currentRoiPercent + MIN_REBALANCE_ROI_GAIN) {
+      continue;
+    }
+
+    const firstSale = salePlan.sales[0];
+    recommendations.push({
+      sell_stock_id: firstSale.stock_id,
+      sell_acronym: firstSale.acronym,
+      sell_name: firstSale.name,
+      sell_shares: firstSale.shares,
+      sales: salePlan.sales,
+      sale_value: salePlan.sale_value,
+      available_cash: availableCash,
+      available_capital: Math.max(availableCash + salePlan.sale_value, candidate.estimated_cost),
+      current_annual_return: salePlan.current_annual_return,
+      current_roi_percent: currentRoiPercent,
+      proposed: candidate,
+      annual_return_gain: annualReturnGain,
+      extra_cash_required: extraCashRequired,
+    });
   }
 
   return recommendations;
@@ -694,6 +683,7 @@ function salePlanToRebalanceRecommendation(
     sell_acronym: firstSale.acronym,
     sell_name: firstSale.name,
     sell_shares: firstSale.shares,
+    sales: salePlan.sales,
     sale_value: salePlan.sale_value,
     available_cash: currentCash,
     available_capital: Math.max(currentCash + salePlan.sale_value, recommendation.estimated_cost),

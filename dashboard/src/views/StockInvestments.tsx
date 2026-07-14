@@ -1110,9 +1110,9 @@ function RebalanceRecommendationRow({
   return (
     <div className="stock-rebalance-row">
       <div className="stock-rebalance-title">
-        <span className="stock-symbol-chip">{recommendation.sell_acronym ?? `#${recommendation.sell_stock_id}`}</span>
+        <span className="stock-symbol-chip">{rebalanceSaleChip(recommendation)}</span>
         <span>
-          <strong>Sell {formatNumber(recommendation.sell_shares)} shares</strong>
+          <strong>{rebalanceSaleTitle(recommendation)}</strong>
           <small>{rebalanceActionDescription(recommendation, bankMerits)}</small>
         </span>
       </div>
@@ -1189,7 +1189,40 @@ function rebalanceActionDescription(recommendation: StockRebalanceRecommendation
   const availableCash = recommendation.available_cash > 0
     ? ` and ${formatMoney(recommendation.available_cash)} available cash`
     : "";
-  return `Combine about ${formatMoney(recommendation.sale_value)} sale value${availableCash} to buy ${bestOpportunityTitle(proposed.row)} for ${formatMoney(proposed.estimated_cost)}. ${rebalanceProposedDetail(proposed, bankMerits)}`;
+  return `Sell ${rebalanceSaleDescription(recommendation)}, combine about ${formatMoney(recommendation.sale_value)} sale value${availableCash}, and buy ${bestOpportunityTitle(proposed.row)} for ${formatMoney(proposed.estimated_cost)}. ${rebalanceProposedDetail(proposed, bankMerits)}`;
+}
+
+function rebalanceSaleChip(recommendation: StockRebalanceRecommendation): string {
+  if (recommendation.sales.length <= 1) {
+    return recommendation.sell_acronym ?? `#${recommendation.sell_stock_id}`;
+  }
+
+  return `${recommendation.sales[0]?.acronym ?? `#${recommendation.sales[0]?.stock_id}`} +${recommendation.sales.length - 1}`;
+}
+
+function rebalanceSaleTitle(recommendation: StockRebalanceRecommendation): string {
+  if (recommendation.sales.length <= 1) {
+    return `Sell ${formatNumber(recommendation.sell_shares)} shares`;
+  }
+
+  return `Sell from ${formatNumber(recommendation.sales.length)} holdings`;
+}
+
+function rebalanceSaleDescription(recommendation: StockRebalanceRecommendation): string {
+  const sales = recommendation.sales.length > 0
+    ? recommendation.sales
+    : [{
+        stock_id: recommendation.sell_stock_id,
+        acronym: recommendation.sell_acronym,
+        name: recommendation.sell_name,
+        shares: recommendation.sell_shares,
+        sale_value: recommendation.sale_value,
+        current_annual_return: recommendation.current_annual_return,
+      }];
+
+  return sales
+    .map((sale) => `${formatNumber(sale.shares)} ${sale.acronym ?? `#${sale.stock_id}`} shares`)
+    .join(", ");
 }
 
 function rebalanceProposedDetail(recommendation: StockBuyRecommendation, bankMerits: number): string {
