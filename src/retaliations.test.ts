@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateRetaliationAvailability,
   getRetaliationCheck,
+  renderRetaliationBoardPayload,
   resolveRetaliationOpportunity,
   type RetaliationAttackRow,
   type PendingRetaliationClaim,
@@ -175,6 +176,50 @@ describe("retaliation availability", () => {
       ok: false,
       code: "INVALID_TARGET_ID",
     });
+  });
+
+  it("renders the Discord board as compact retal embeds", () => {
+    const payload = renderRetaliationBoardPayload([
+      resolveRetaliationOpportunity(
+        attackRow({
+          id: 5001,
+          code: "attack-log-1",
+          attacker_id: 2054500,
+          attacker_name: "nex",
+          attacker_faction_name: "Vulpes Vulpes",
+          defender_id: 123,
+          defender_name: "Whiskas",
+          result: "Hospitalized",
+          respect_gain: 2.86,
+          attack_at: 1000,
+        }),
+        null,
+        null,
+        1100,
+      ),
+    ], 1100);
+
+    expect(payload.content).toBe("Retaliation Board - 1 available - 0 pending - updated <t:1100:R>");
+    expect(payload.embeds).toEqual([
+      expect.objectContaining({
+        title: "Retal on nex [2054500]",
+        url: "https://www.torn.com/page.php?sid=attack&user2ID=2054500",
+        description: "from Vulpes Vulpes",
+        color: 0xed4245,
+        fields: [
+          { name: "Time", value: "<t:1000:R>", inline: true },
+          { name: "Timeout", value: "<t:1300:R>", inline: true },
+          { name: "Defender", value: "[Whiskas](https://www.torn.com/profiles.php?XID=123)", inline: true },
+          { name: "Status", value: "Open", inline: true },
+          { name: "Respect", value: "2.86", inline: true },
+          {
+            name: "Log",
+            value: "[Hospitalized](https://www.torn.com/loader.php?sid=attackLog&ID=attack-log-1)",
+            inline: true,
+          },
+        ],
+      }),
+    ]);
   });
 });
 

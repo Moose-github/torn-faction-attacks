@@ -1,6 +1,6 @@
 import { cleanString, positiveIntegerOrNull, readJsonObject } from "./backend/request";
 import { HOME_FACTION_ID, POSITIVE_RESULTS_SQL, SOURCE_NAME } from "./constants";
-import { createDiscordWebhookMessage, editDiscordWebhookMessage } from "./discord";
+import { createDiscordWebhookMessage, type DiscordEmbed, editDiscordWebhookMessage } from "./discord";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { ingestRecentFactionAttacks, RecentAttackIngestionResult } from "./ingestion";
@@ -18,6 +18,9 @@ const LIGHT_SYNC_ATTEMPT_STATE = "retaliation_light_sync_attempt";
 const LIGHT_SYNC_SUCCESS_STATE = "retaliation_light_sync_success";
 const RETALIATION_BOARD_MIN_EDIT_INTERVAL_SECONDS = 5;
 const RETALIATION_BOARD_LIMIT = 10;
+const RETALIATION_BOARD_AVAILABLE_COLOR = 0xed4245;
+const RETALIATION_BOARD_PENDING_COLOR = 0xf1c40f;
+const RETALIATION_BOARD_CONFIRMED_COLOR = 0x747f8d;
 
 export type RetaliationAttackRow = {
   id: number;
@@ -80,6 +83,11 @@ type BoardStateRow = {
   discord_message_id: string | null;
   last_rendered_hash: string | null;
   last_edited_at: number | null;
+};
+
+type RetaliationBoardDiscordPayload = {
+  content: string;
+  embeds: DiscordEmbed[];
 };
 
 export async function getRetaliationCheck(url: URL, env: Env): Promise<Response> {
@@ -364,8 +372,8 @@ export async function syncRetaliationDiscordBoard(env: Env, checkedAt: number = 
     includeExpired: false,
     limit: RETALIATION_BOARD_LIMIT,
   });
-  const message = renderRetaliationBoardMessage(rows, checkedAt);
-  const hash = stableHash(message);
+  const message = renderRetaliationBoardPayload(rows, checkedAt);
+  const hash = stableHash(JSON.stringify(message));
   const state = await readRetaliationBoardState(env);
 
   if (state?.last_rendered_hash === hash) {
@@ -774,29 +782,20 @@ function retaliationAttackColumns(): string {
   `;
 }
 
-function renderRetaliationBoardMessage(rows: RetaliationOpportunity[], checkedAt: number): string {
-  const lines = ["Retaliation Board"];
-  if (rows.length === 0) {
-    lines.push("", "No available or pending retaliations.");
-  } else {
-    lines.push("");
-    rows.forEach((row, index) => {
-      const attack = row.enemy_attack;
-      const target = cleanDiscordText(attack?.attacker_name) ?? `Torn ${row.target_id}`;
-      const victim = cleanDiscordText(attack?.defender_name) ?? "unknown member";
-      const status = row.status === "available"
-        ? "available"
-        : row.status === "claimed_pending"
-          ? `pending by ${cleanDiscordText(row.pending_claim?.claimant_name) ?? row.pending_claim?.claimant_torn_user_id ?? "member"}`
-          : "confirmed";
-      const expires = row.expires_at ? `<t:${row.expires_at}:R>` : "unknown expiry";
-      lines.push(`${index + 1}. ${target} [${row.target_id}] - ${status} - ${expires}`);
-      lines.push(`   Hit ${victim}${attack?.result ? ` - ${cleanDiscordText(attack.result)}` : ""}`);
-      lines.push(`   Attack: https://www.torn.com/page.php?sid=attack&user2ID=${row.target_id}`);
-    });
-  }
-  lines.push("", `Last refresh: <t:${checkedAt}:T>`);
-  return lines.join("\n").slice(0, 1900);
+export function renderRetaliationBoardPayload(
+  rows: RetaliationOpportunity[],
+  checkedAt: number,
+): RetaliationBoardDiscordPayload {
+  const availableCount = rows.filter((row) => row.status === "available").length;
+  const pendingCount = rows.filter((row) => row.status === "claimed_pending").length;
+  const content = rows.length === 0
+    ? `Retaliation Board - no active retals - updated <t:${checkedAt}:R>`
+    : `Retaliation Board - ${availableCount} available - ${pendingCount} pending - updated <t:${checkedAt}:R>`;
+
+  return {
+    content,
+    embeds: rows.map(retaliationBoardEmbed),
+  };
 }
 
 async function readRetaliationBoardState(env: Env): Promise<BoardStateRow | null> {
@@ -840,14 +839,25 @@ async function saveRetaliationBoardState(
 async function upsertRetaliationBoardMessage(
   env: Env,
   existingMessageId: string | null,
-  message: string,
+  message: RetaliationBoardDiscordPayload,
 ): Promise<string | null> {
   try {
     if (existingMessageId) {
-      await editDiscordWebhookMessage(env, existingMessageId, message, { users: [], roles: [] });
+      await editDiscordWebhookMessage(
+        env,
+        existingMessageId,
+        message.content,
+        { users: [], roles: [] },
+        { embeds: message.embeds },
+      );
       return existingMessageId;
     }
-    return await createDiscordWebhookMessage(env, message, { users: [], roles: [] });
+    return await createDiscordWebhookMessage(
+      env,
+      message.content,
+      { users: [], roles: [] },
+      { embeds: message.embeds },
+    );
   } catch (err: any) {
     console.warn("Retaliation board Discord update failed:", err?.message || err);
     return existingMessageId;
@@ -881,8 +891,66 @@ function uniquePositive(values: Array<number | null | undefined>): number[] {
 
 function cleanDiscordText(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const cleaned = value.replace(/[`*_~|<>@]/g, "").trim();
+  const cleaned = value.replace(/[`*_~|<>@[\]()]/g, "").trim();
   return cleaned || null;
+}
+
+function retaliationBoardEmbed(row: RetaliationOpportunity): DiscordEmbed {
+  const attack = row.enemy_attack;
+  const target = cleanDiscordText(attack?.attacker_name) ?? `Torn ${row.target_id}`;
+  const faction = cleanDiscordText(attack?.attacker_faction_name) ?? "Unknown faction";
+  const attackAt = attackTimestamp(attack ?? { attack_at: null, ended: null, started: null });
+  const defender = attack?.defender_id
+    ? `[${cleanDiscordText(attack.defender_name) ?? `Torn ${attack.defender_id}`}](https://www.torn.com/profiles.php?XID=${attack.defender_id})`
+    : cleanDiscordText(attack?.defender_name) ?? "Unknown";
+  const result = cleanDiscordText(attack?.result) ?? "Log";
+  const log = attack?.code
+    ? `[${result}](https://www.torn.com/loader.php?sid=attackLog&ID=${encodeURIComponent(attack.code)})`
+    : result;
+
+  return {
+    title: `Retal on ${target} [${row.target_id}]`,
+    url: `https://www.torn.com/page.php?sid=attack&user2ID=${row.target_id}`,
+    description: `from ${faction}`,
+    color: retaliationBoardEmbedColor(row),
+    fields: [
+      { name: "Time", value: discordRelativeTime(attackAt), inline: true },
+      { name: "Timeout", value: discordRelativeTime(row.expires_at), inline: true },
+      { name: "Defender", value: defender, inline: true },
+      { name: "Status", value: retaliationBoardStatus(row), inline: true },
+      { name: "Respect", value: formatDiscordRespect(attack?.respect_gain ?? attack?.respect_loss ?? null), inline: true },
+      { name: "Log", value: log, inline: true },
+    ],
+  };
+}
+
+function retaliationBoardEmbedColor(row: RetaliationOpportunity): number {
+  if (row.status === "claimed_pending") return RETALIATION_BOARD_PENDING_COLOR;
+  if (row.status === "claimed_confirmed") return RETALIATION_BOARD_CONFIRMED_COLOR;
+  return RETALIATION_BOARD_AVAILABLE_COLOR;
+}
+
+function retaliationBoardStatus(row: RetaliationOpportunity): string {
+  if (row.status === "available") return "Open";
+  if (row.status === "claimed_pending") {
+    return `Pending by ${cleanDiscordText(row.pending_claim?.claimant_name) ?? row.pending_claim?.claimant_torn_user_id ?? "member"}`;
+  }
+  if (row.status === "claimed_confirmed") {
+    return `Confirmed by ${cleanDiscordText(row.claimed_by_attack?.attacker_name) ?? "Torn data"}`;
+  }
+  return "Expired";
+}
+
+function discordRelativeTime(timestamp: number | null | undefined): string {
+  return timestamp ? `<t:${timestamp}:R>` : "Unknown";
+}
+
+function formatDiscordRespect(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "Unknown";
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function stableHash(value: string): string {

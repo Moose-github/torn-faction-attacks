@@ -10,8 +10,24 @@ export type DiscordAllowedMentions = {
   roles?: string[];
 };
 
+export type DiscordEmbed = {
+  title?: string;
+  description?: string;
+  url?: string;
+  color?: number;
+  fields?: Array<{
+    name: string;
+    value: string;
+    inline?: boolean;
+  }>;
+  footer?: {
+    text: string;
+  };
+};
+
 type DiscordPayloadOptions = {
   embedColor?: number;
+  embeds?: DiscordEmbed[];
   clearEmbeds?: boolean;
   webhookUrl?: string;
 };
@@ -61,7 +77,7 @@ export async function createDiscordWebhookMessage(
   env: Env,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor" | "webhookUrl">,
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "webhookUrl">,
 ): Promise<string | null> {
   const webhookUrl = options?.webhookUrl ?? env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
@@ -81,7 +97,7 @@ export async function editDiscordWebhookMessage(
   messageId: string,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor" | "webhookUrl">,
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "webhookUrl">,
 ): Promise<void> {
   const webhookUrl = options?.webhookUrl ?? env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
@@ -90,7 +106,10 @@ export async function editDiscordWebhookMessage(
 
   await patchDiscordJson(
     discordWebhookMessageUrl(webhookUrl, messageId),
-    discordPayload(message, allowedMentions, { ...options, clearEmbeds: options?.embedColor === undefined }),
+    discordPayload(message, allowedMentions, {
+      ...options,
+      clearEmbeds: options?.embedColor === undefined && options?.embeds === undefined,
+    }),
   );
 }
 
@@ -104,23 +123,27 @@ function discordPayload(
   options: DiscordPayloadOptions = {},
 ): {
   content: string;
-  embeds?: Array<{
-    title: string;
-    description?: string;
-    color: number;
-  }>;
+  embeds?: DiscordEmbed[];
   allowed_mentions?: {
     parse: [];
     users?: string[];
     roles?: string[];
   };
 } {
-  const payload = options.embedColor === undefined
-    ? {
+  let payload: { content: string; embeds?: DiscordEmbed[] };
+  if (options.embeds !== undefined) {
+    payload = {
+      content,
+      embeds: options.embeds,
+    };
+  } else if (options.embedColor !== undefined) {
+    payload = discordEmbedPayload(content, options.embedColor);
+  } else {
+    payload = {
       content,
       ...(options.clearEmbeds ? { embeds: [] } : {}),
-    }
-    : discordEmbedPayload(content, options.embedColor);
+    };
+  }
 
   if (!allowedMentions) {
     return payload;

@@ -117,4 +117,69 @@ describe("Discord webhook messages", () => {
       },
     );
   });
+
+  it("creates webhook messages with explicit embed arrays", async () => {
+    vi.mocked(postDiscordJsonAndRead).mockResolvedValueOnce({ id: "message-1" });
+
+    await createDiscordWebhookMessage(
+      webhookEnv,
+      "Retaliation Board",
+      { users: [], roles: [] },
+      {
+        embeds: [
+          {
+            title: "Retal on nex [2054500]",
+            url: "https://www.torn.com/page.php?sid=attack&user2ID=2054500",
+            color: 0xed4245,
+            fields: [{ name: "Timeout", value: "<t:1000:R>", inline: true }],
+          },
+        ],
+      },
+    );
+
+    expect(postDiscordJsonAndRead).toHaveBeenCalledWith(
+      "https://discord.com/api/webhooks/webhook-id/token?thread_id=thread-1&wait=true",
+      {
+        content: "Retaliation Board",
+        embeds: [
+          {
+            title: "Retal on nex [2054500]",
+            url: "https://www.torn.com/page.php?sid=attack&user2ID=2054500",
+            color: 0xed4245,
+            fields: [{ name: "Timeout", value: "<t:1000:R>", inline: true }],
+          },
+        ],
+        allowed_mentions: {
+          parse: [],
+          users: [],
+          roles: [],
+        },
+      },
+    );
+  });
+
+  it("edits webhook messages with explicit embed arrays", async () => {
+    vi.mocked(patchDiscordJson).mockResolvedValueOnce(undefined);
+
+    await editDiscordWebhookMessage(
+      webhookEnv,
+      "message-1",
+      "Retaliation Board",
+      { users: [], roles: [] },
+      { embeds: [] },
+    );
+
+    expect(patchDiscordJson).toHaveBeenCalledWith(
+      "https://discord.com/api/webhooks/webhook-id/token/messages/message-1?thread_id=thread-1",
+      {
+        content: "Retaliation Board",
+        embeds: [],
+        allowed_mentions: {
+          parse: [],
+          users: [],
+          roles: [],
+        },
+      },
+    );
+  });
 });
