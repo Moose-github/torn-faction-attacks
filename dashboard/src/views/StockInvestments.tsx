@@ -17,11 +17,13 @@ import {
   ownedSharesMap,
   ownsStockIncrement,
   OwnedStockSnapshot,
+  parseBankMeritsResponse,
   parseOwnedStocksResponse,
   parseStoredOwnedStockSnapshot,
 } from "../utils/ownedStocks";
 
 const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
+const TORN_USER_MERITS_URL = "https://api.torn.com/v2/user/merits";
 const DEFAULT_MINIMUM_ROI = "5";
 const CITY_BANK_TERM_DAYS = 90;
 const CITY_BANK_MERIT_STEP = 0.05;
@@ -160,23 +162,24 @@ export function StockInvestments() {
     setError(null);
     setMessage(null);
     try {
-      const response = await fetch(`${TORN_OWNED_STOCKS_URL}?key=${encodeURIComponent(trimmedKey)}`, {
-        headers: { Accept: "application/json" },
-      });
-      let data: unknown;
-      try {
-        data = await response.json();
-      } catch {
-        throw new Error("Torn owned stocks response was not valid.");
-      }
-      const snapshot = parseOwnedStocksResponse(data, Math.floor(Date.now() / 1000));
-      if (!response.ok) {
-        throw new Error("Could not fetch owned stocks directly from Torn. No server proxy is used for Limited keys.");
-      }
+      const refreshedAt = Math.floor(Date.now() / 1000);
+      const [snapshot, bankMeritResult] = await Promise.all([
+        fetchOwnedStockSnapshot(trimmedKey, refreshedAt),
+        fetchBankMerits(trimmedKey).catch((err) => {
+          console.warn("Torn bank merits fetch failed:", err);
+          return null;
+        }),
+      ]);
 
       setOwnedSnapshot(snapshot);
       saveOwnedStocksStorage(storageUserId, trimmedKey, snapshot);
-      setMessage(`Owned stocks loaded: ${formatNumber(snapshot.stocks.length)} stocks`);
+      if (bankMeritResult !== null) {
+        setBankMerits(bankMeritResult);
+        saveCityBankStorage(storageUserId, cityBankActive, bankMeritResult);
+      }
+      setMessage(bankMeritResult === null
+        ? `Owned stocks loaded: ${formatNumber(snapshot.stocks.length)} stocks. Bank merits were not found.`
+        : `Owned stocks loaded: ${formatNumber(snapshot.stocks.length)} stocks; bank merits set to ${formatNumber(bankMeritResult)}.`);
     } catch (err) {
       const message = err instanceof TypeError
         ? "Could not fetch owned stocks directly from Torn. No server proxy is used for Limited keys."
@@ -398,7 +401,7 @@ export function StockInvestments() {
                 autoComplete="off"
               />
               <small className="stock-owned-key-note">
-                Stored only in this browser. Never sent to our server; used only for the direct Torn owned-stocks request.
+                Stored only in this browser. Never sent to our server; used only for direct Torn owned-stocks and merits requests.
               </small>
             </label>
             <button
@@ -965,6 +968,38 @@ function StatusMetric({
       {content}
     </div>
   );
+}
+
+async function fetchOwnedStockSnapshot(apiKey: string, refreshedAt: number): Promise<OwnedStockSnapshot> {
+  const data = await fetchTornUserJson(TORN_OWNED_STOCKS_URL, apiKey, "Torn owned stocks response was not valid.");
+  return parseOwnedStocksResponse(data, refreshedAt);
+}
+
+async function fetchBankMerits(apiKey: string): Promise<number | null> {
+  const data = await fetchTornUserJson(TORN_USER_MERITS_URL, apiKey, "Torn merits response was not valid.");
+  return parseBankMeritsResponse(data);
+}
+
+async function fetchTornUserJson(url: string, apiKey: string, invalidResponseMessage: string): Promise<unknown> {
+  const response = await fetch(`${url}?key=${encodeURIComponent(apiKey)}`, {
+    headers: { Accept: "application/json" },
+  });
+
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(invalidResponseMessage);
+  }
+
+  if (!response.ok) {
+    if (data && typeof data === "object" && "error" in data) {
+      return data;
+    }
+    throw new Error("Could not fetch directly from Torn. No server proxy is used for Limited keys.");
+  }
+
+  return data;
 }
 
 function sortStockRoiRows(rows: StockInvestmentRoiRow[], sort: StockRoiSort): StockInvestmentRoiRow[] {
