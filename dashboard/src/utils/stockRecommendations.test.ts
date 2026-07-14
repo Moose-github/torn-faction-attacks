@@ -716,6 +716,22 @@ describe("stock buy recommendations", () => {
     expect(rowIds.indexOf("stock:4:1")).toBeLessThan(rowIds.indexOf("stock:5:1"));
   });
 
+  it("skips temporary strategy buys when the final target is too close", () => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "TMP", latest_price: 1, total_shares_required: 850, increment_cost: 850, total_cost: 850, annual_return: 382.5, roi_percent: 45 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BIG", latest_price: 1, total_shares_required: 1_000, increment_cost: 1_000, total_cost: 1_000, annual_return: 500, roi_percent: 50 }),
+      ],
+      ownedSnapshot: null,
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 3);
+
+    expect(plan.steps[0].recommendation.row.row_id).toBe("stock:2:1");
+  });
+
   it("orders available-now rebalances before future cash milestones", () => {
     const plan = buildStockStrategyPlan({
       rows: [

@@ -6,6 +6,8 @@ const CITY_BANK_MERIT_STEP = 0.05;
 const MIN_REBALANCE_ANNUAL_GAIN = 1_000_000;
 const MIN_REBALANCE_ROI_GAIN = 5;
 const MIN_STRATEGY_ROI_RETENTION = 0.75;
+const MIN_STRATEGY_TEMP_TARGET_GAP_RATIO = 0.25;
+const MIN_STRATEGY_TEMP_HOLD_SCORE = 5;
 export const DEFAULT_STOCK_STRATEGY_STEP_LIMIT = 10;
 
 type StockInvestmentStockRow = StockInvestmentRoiRow & {
@@ -285,7 +287,8 @@ function nextStrategyStep(
   const targetStep = strategySalePlanIsBeneficial(target, targetSalePlan)
     ? strategyRebalanceStep(target, targetSalePlan, currentCash)
     : strategyBuyStep(target, currentCash);
-  const immediateStep = selectImmediateStrategyStep(input, recommendations, snapshot, currentCash);
+  const previousBestRoi = strategyBestPreviousRoi(previousSteps);
+  const immediateStep = selectImmediateStrategyStep(input, recommendations, snapshot, currentCash, target, targetCashRequired, previousBestRoi);
   if (immediateStep) {
     return immediateStep;
   }
@@ -295,7 +298,7 @@ function nextStrategyStep(
     target,
     targetCashRequired,
     previousSteps.length,
-    strategyBestPreviousRoi(previousSteps),
+    previousBestRoi,
   );
 
   if (!steppingStone) {
@@ -319,9 +322,15 @@ function selectImmediateStrategyStep(
   recommendations: StockBuyRecommendation[],
   snapshot: OwnedStockSnapshot,
   currentCash: number,
+  target: StockBuyRecommendation,
+  targetCashRequired: number,
+  previousBestRoi: number | null,
 ): StockStrategyStep | null {
   for (const recommendation of recommendations) {
     if (recommendation.estimated_cost <= currentCash) {
+      if (!strategyTemporaryRecommendationIsWorthHolding(recommendation, target, targetCashRequired, previousBestRoi)) {
+        continue;
+      }
       return strategyBuyStep(recommendation, currentCash);
     }
 
@@ -330,6 +339,9 @@ function selectImmediateStrategyStep(
       ? strategyRebalanceStep(recommendation, salePlan, currentCash)
       : null;
     if (rebalanceStep && rebalanceStep.extra_cash_needed <= 0) {
+      if (!strategyTemporaryRecommendationIsWorthHolding(recommendation, target, targetCashRequired, previousBestRoi)) {
+        continue;
+      }
       return rebalanceStep;
     }
   }
@@ -348,7 +360,8 @@ function selectStrategySteppingStone(
     .map((milestone) => milestone.recommendation)
     .filter((recommendation) =>
       recommendation.row.row_id !== target.row.row_id &&
-      recommendation.estimated_cost < targetCashRequired
+      recommendation.estimated_cost < targetCashRequired &&
+      strategyTemporaryRecommendationIsWorthHolding(recommendation, target, targetCashRequired, previousBestRoi)
     );
 
   if (steppingStones.length === 0) {
@@ -370,6 +383,35 @@ function selectStrategySteppingStone(
   }
 
   return [...usefulSteppingStones].sort(compareStockBuyRecommendations)[0] ?? null;
+}
+
+function strategyTemporaryRecommendationIsWorthHolding(
+  recommendation: StockBuyRecommendation,
+  target: StockBuyRecommendation,
+  targetCashRequired: number,
+  previousBestRoi: number | null,
+): boolean {
+  if (recommendation.row.row_id === target.row.row_id) {
+    return true;
+  }
+  if (recommendation.annual_return <= 0) {
+    return false;
+  }
+  if (previousBestRoi !== null && recommendation.roi_percent < previousBestRoi * MIN_STRATEGY_ROI_RETENTION) {
+    return false;
+  }
+
+  const targetCapital = Math.max(target.estimated_cost, targetCashRequired);
+  if (targetCapital <= recommendation.estimated_cost) {
+    return false;
+  }
+
+  const targetGapRatio = (targetCapital - recommendation.estimated_cost) / targetCapital;
+  if (targetGapRatio < MIN_STRATEGY_TEMP_TARGET_GAP_RATIO) {
+    return false;
+  }
+
+  return recommendation.roi_percent * targetGapRatio >= MIN_STRATEGY_TEMP_HOLD_SCORE;
 }
 
 function strategyStepIsWorthAdding(step: StockStrategyStep, previousSteps: StockStrategyStep[]): boolean {
