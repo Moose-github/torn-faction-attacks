@@ -54,6 +54,7 @@ export function StockInvestments() {
   const [bankMerits, setBankMerits] = React.useState(0);
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
   const [isMissingValuesOpen, setIsMissingValuesOpen] = React.useState(false);
+  const [isOwnedSettingsOpen, setIsOwnedSettingsOpen] = React.useState(false);
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
   const [ownedSnapshot, setOwnedSnapshot] = React.useState<OwnedStockSnapshot | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -381,7 +382,19 @@ export function StockInvestments() {
         </div>
         <div className="stock-owned-controls">
           <div className="stock-owned-controls-heading">
-            <strong>Owned stock highlighting</strong>
+            <div>
+              <strong>Owned stock highlighting</strong>
+              <span>Browser-only Torn key and Bank settings</span>
+            </div>
+            <button
+              type="button"
+              className="panel-action-button secondary"
+              aria-expanded={isOwnedSettingsOpen}
+              onClick={() => setIsOwnedSettingsOpen((current) => !current)}
+            >
+              <Settings size={14} />
+              Settings
+            </button>
           </div>
           {ownedSnapshot ? (
             <div className="stock-owned-summary" aria-label="Owned stock snapshot summary">
@@ -398,76 +411,92 @@ export function StockInvestments() {
                 <small>Snapshot age</small>
               </span>
             </div>
+          ) : (
+            <p className="stock-owned-empty-note">Load owned stocks from the settings popout to personalize the next-buy recommendation.</p>
+          )}
+          {isOwnedSettingsOpen ? (
+            <div className="stock-owned-settings-popout" role="dialog" aria-label="Owned stock settings">
+              <div className="stock-missing-values-popout-heading">
+                <strong>Owned stock settings</strong>
+                <button type="button" className="stock-text-button" onClick={() => setIsOwnedSettingsOpen(false)}>Close</button>
+              </div>
+              <div className="stock-owned-settings-section">
+                <div className="stock-owned-settings-title">
+                  <strong>Torn owned stocks</strong>
+                  <span>Used only in this browser</span>
+                </div>
+                <div className="stock-owned-controls-grid">
+                  <label>
+                    <span>Limited API key</span>
+                    <input
+                      type="password"
+                      value={ownedApiKey}
+                      onChange={(event) => setOwnedApiKey(event.target.value)}
+                      placeholder="Paste Limited key"
+                      autoComplete="off"
+                    />
+                    <small className="stock-owned-key-note">
+                      Stored only in this browser. Never sent to our server; used only for direct Torn owned-stocks and merits requests.
+                    </small>
+                  </label>
+                  <button
+                    type="button"
+                    className="panel-action-button secondary"
+                    disabled={isRefreshingOwnedStocks}
+                    onClick={refreshOwnedStocks}
+                  >
+                    <RefreshCw size={14} className={isRefreshingOwnedStocks ? "spinning-icon" : ""} />
+                    {isRefreshingOwnedStocks ? "Refreshing" : "Refresh owned stocks"}
+                  </button>
+                  <button
+                    type="button"
+                    className="panel-action-button secondary"
+                    disabled={!ownedApiKey && !ownedSnapshot}
+                    onClick={clearOwnedStocks}
+                  >
+                    <RotateCcw size={14} />
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div className="stock-owned-settings-section">
+                <div className="stock-owned-settings-title">
+                  <strong>City Bank comparison</strong>
+                  <span>Used for the BANK row only</span>
+                </div>
+                <div className="stock-city-bank-controls">
+                  <label className="stock-owned-hide-toggle">
+                    <input
+                      type="checkbox"
+                      checked={cityBankActive}
+                      onChange={(event) => {
+                        const nextActive = event.target.checked;
+                        setCityBankActive(nextActive);
+                        saveCityBankStorage(storageUserId, nextActive, bankMerits);
+                      }}
+                    />
+                    <span>City Bank investment active</span>
+                  </label>
+                  <label className="stock-city-bank-merits">
+                    <span>Bank merits</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10}
+                      step={1}
+                      value={bankMerits}
+                      onChange={(event) => {
+                        const nextMerits = clampBankMerits(event.target.value);
+                        setBankMerits(nextMerits);
+                        saveCityBankStorage(storageUserId, cityBankActive, nextMerits);
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
           ) : null}
-          <div className="stock-owned-controls-grid">
-            <label>
-              <span>Limited API key</span>
-              <input
-                type="password"
-                value={ownedApiKey}
-                onChange={(event) => setOwnedApiKey(event.target.value)}
-                placeholder="Paste Limited key"
-                autoComplete="off"
-              />
-              <small className="stock-owned-key-note">
-                Stored only in this browser. Never sent to our server; used only for direct Torn owned-stocks and merits requests.
-              </small>
-            </label>
-            <button
-              type="button"
-              className="panel-action-button secondary"
-              disabled={isRefreshingOwnedStocks}
-              onClick={refreshOwnedStocks}
-            >
-              <RefreshCw size={14} className={isRefreshingOwnedStocks ? "spinning-icon" : ""} />
-              {isRefreshingOwnedStocks ? "Refreshing" : "Refresh owned stocks"}
-            </button>
-            <button
-              type="button"
-              className="panel-action-button secondary"
-              disabled={!ownedApiKey && !ownedSnapshot}
-              onClick={clearOwnedStocks}
-            >
-              <RotateCcw size={14} />
-              Clear
-            </button>
-          </div>
-        </div>
-        <div className="stock-city-bank-section">
-          <div className="stock-owned-controls-heading">
-            <strong>City Bank comparison</strong>
-            <span>Used for the BANK row only</span>
-          </div>
-          <div className="stock-city-bank-controls">
-            <label className="stock-owned-hide-toggle">
-              <input
-                type="checkbox"
-                checked={cityBankActive}
-                onChange={(event) => {
-                  const nextActive = event.target.checked;
-                  setCityBankActive(nextActive);
-                  saveCityBankStorage(storageUserId, nextActive, bankMerits);
-                }}
-              />
-              <span>City Bank investment active</span>
-            </label>
-            <label className="stock-city-bank-merits">
-              <span>Bank merits</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={10}
-                step={1}
-                value={bankMerits}
-                onChange={(event) => {
-                  const nextMerits = clampBankMerits(event.target.value);
-                  setBankMerits(nextMerits);
-                  saveCityBankStorage(storageUserId, cityBankActive, nextMerits);
-                }}
-              />
-            </label>
-          </div>
         </div>
       </section>
 

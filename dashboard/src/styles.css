@@ -605,6 +605,7 @@ h2 {
 }
 
 .stock-owned-controls {
+  position: relative;
   display: grid;
   gap: 10px;
   margin-top: 16px;
@@ -625,9 +626,61 @@ h2 {
   font-weight: 850;
 }
 
+.stock-owned-controls-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
 .stock-owned-controls-heading span {
   color: var(--text-muted);
   font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.stock-owned-empty-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.stock-owned-settings-popout {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(720px, calc(100vw - 32px));
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-panel);
+}
+
+.stock-owned-settings-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.stock-owned-settings-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stock-owned-settings-title strong {
+  color: var(--text-heading);
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.stock-owned-settings-title span {
+  color: var(--text-muted);
+  font-size: 0.74rem;
   font-weight: 850;
 }
 
@@ -7462,6 +7515,12 @@ h2 {
     left: 0;
   }
 
+  .stock-owned-settings-popout {
+    right: auto;
+    left: 0;
+    width: min(420px, calc(100vw - 32px));
+  }
+
   .stock-missing-value-row {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -7482,6 +7541,11 @@ h2 {
 
   .stock-owned-controls-heading {
     display: grid;
+  }
+
+  .stock-owned-settings-title {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .stock-owned-controls-grid .panel-action-button {
