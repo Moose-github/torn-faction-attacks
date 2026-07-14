@@ -247,7 +247,7 @@ describe("retaliation availability", () => {
       confirmed,
     ], 1100);
 
-    expect(payload.content).toBe("**Retaliation Board** - 1 available - 1 in progress\nUpdated <t:1100:R>");
+    expect(payload.content).toBe("**Retaliation Board** - 1 available - 1 in progress\nUpdate <t:1160:R>");
     expect(payload.embeds).toEqual([
       expect.objectContaining({
         title: "Retal on nex [2054500]",
@@ -291,7 +291,7 @@ describe("retaliation availability", () => {
     expect(payload.embeds).toEqual([
       {
         title: "No active retaliation",
-        description: "-# Updated <t:1100:R>",
+        description: "-# Update <t:1160:R>",
         color: 0x57f287,
       },
     ]);
