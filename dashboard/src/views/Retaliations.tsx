@@ -130,7 +130,9 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
         {isLoading && !data ? (
           <EmptyState text="Loading retaliations" />
         ) : rows.length === 0 ? (
-          <EmptyState text={includeExpired ? "No retaliation history to show" : "No active retaliations"} />
+          <EmptyState
+            text={includeExpired ? "No retaliation history in display window (30 minutes)" : "No active retaliations"}
+          />
         ) : (
           <div className="table-scroll">
             <table className="retaliations-table">
