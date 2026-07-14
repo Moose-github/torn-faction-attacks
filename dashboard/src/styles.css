@@ -553,7 +553,7 @@ h2 {
 
 .stock-suggested-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 18px;
 }
 
@@ -588,9 +588,7 @@ h2 {
 
 .stock-next-buy-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(360px, auto);
-  gap: 14px;
-  align-items: center;
+  gap: 10px;
   padding: 10px 0;
   border-top: 1px solid var(--border-faint);
 }
@@ -636,7 +634,7 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 12px 18px;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
 }
 
@@ -676,6 +674,78 @@ h2 {
   border-color: rgba(220, 38, 38, 0.22);
   background: #fef2f2;
   color: #b91c1c;
+}
+
+.stock-rebalance-list {
+  display: grid;
+  gap: 8px;
+}
+
+.stock-rebalance-row {
+  display: grid;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-faint);
+}
+
+.stock-rebalance-row:first-child {
+  border-top: 0;
+}
+
+.stock-rebalance-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.stock-rebalance-title > span:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stock-rebalance-title strong {
+  color: var(--text-heading);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.stock-rebalance-title small {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.stock-rebalance-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: center;
+}
+
+.stock-rebalance-metrics > span {
+  display: grid;
+  gap: 3px;
+  min-width: 96px;
+}
+
+.stock-rebalance-metrics strong {
+  color: var(--text-main);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.stock-rebalance-metrics small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.stock-rebalance-gain strong {
+  color: #15803d;
 }
 
 .stock-milestone-list {

@@ -24,10 +24,12 @@ import {
 import {
   adjustCityBankRowForMerits,
   buildStockCapitalMilestones,
+  buildStockRebalanceRecommendations,
   buildStockSuggestedActions,
   recommendBestStockBuy,
   type StockBuyRecommendation,
   type StockCapitalMilestone,
+  type StockRebalanceRecommendation,
   type StockSuggestedAction,
 } from "../utils/stockRecommendations";
 
@@ -266,6 +268,14 @@ export function StockInvestments() {
     affordableOnly,
     minimumRoi: minRoi,
   }, 5), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
+  const rebalanceRecommendations = React.useMemo(() => buildStockRebalanceRecommendations({
+    rows: investmentRows,
+    ownedSnapshot,
+    cityBankActive,
+    budget,
+    affordableOnly,
+    minimumRoi: minRoi,
+  }, 5), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
@@ -341,7 +351,7 @@ export function StockInvestments() {
       <section className="panel stock-next-buys-panel">
         <PanelHeader
           title="Suggested actions"
-          aside={suggestedActions.length > 0 ? `${formatNumber(suggestedActions.length)} actions` : "No actions"}
+          aside={suggestedActions.length + rebalanceRecommendations.length > 0 ? `${formatNumber(suggestedActions.length + rebalanceRecommendations.length)} actions` : "No actions"}
           icon={<BadgeDollarSign size={18} />}
         />
         <div className="stock-suggested-layout">
@@ -364,6 +374,27 @@ export function StockInvestments() {
               </div>
             )}
           </div>
+          {ownedSnapshot ? (
+            <div className="stock-suggested-section">
+              <div className="stock-suggested-heading">
+                <strong>Rebalance ideas</strong>
+                <span>Sell one, buy one</span>
+              </div>
+              {rebalanceRecommendations.length === 0 ? (
+                <EmptyState text="No clear rebalance upgrade found" />
+              ) : (
+                <div className="stock-rebalance-list">
+                  {rebalanceRecommendations.map((recommendation) => (
+                    <RebalanceRecommendationRow
+                      key={`${recommendation.sell_stock_id}:${recommendation.proposed.row.row_id}`}
+                      recommendation={recommendation}
+                      bankMerits={bankMerits}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
           <div className="stock-suggested-section">
             <div className="stock-suggested-heading">
               <strong>Capital milestones</strong>
@@ -1128,6 +1159,50 @@ function SuggestedActionRow({
   );
 }
 
+function RebalanceRecommendationRow({
+  recommendation,
+  bankMerits,
+}: {
+  recommendation: StockRebalanceRecommendation;
+  bankMerits: number;
+}) {
+  const proposed = recommendation.proposed;
+  const row = proposed.row;
+  return (
+    <div className="stock-rebalance-row">
+      <div className="stock-rebalance-title">
+        <span className="stock-symbol-chip">{recommendation.sell_acronym ?? `#${recommendation.sell_stock_id}`}</span>
+        <span>
+          <strong>Sell {formatNumber(recommendation.sell_shares)} shares</strong>
+          <small>{rebalanceActionDescription(recommendation, bankMerits)}</small>
+        </span>
+      </div>
+      <div className="stock-rebalance-metrics">
+        <span>
+          <strong>{formatMoney(recommendation.sale_value)}</strong>
+          <small>Sale value</small>
+        </span>
+        <span>
+          <strong>{formatMoney(recommendation.current_annual_return)}</strong>
+          <small>Current return</small>
+        </span>
+        <span>
+          <strong>{formatMoney(proposed.annual_return)}</strong>
+          <small>Proposed return</small>
+        </span>
+        <span className="stock-rebalance-gain">
+          <strong>+{formatMoney(recommendation.annual_return_gain)}</strong>
+          <small>Annual gain</small>
+        </span>
+        <span>
+          <strong>{formatPercent(row.roi_percent)}</strong>
+          <small>Block ROI</small>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function CapitalMilestoneRow({
   milestone,
   budget,
@@ -1162,6 +1237,22 @@ function suggestedActionDescription(action: StockSuggestedAction, bankMerits: nu
     ? `Buy ${formatNumber(recommendation.shares_needed ?? 0)} more shares`
     : `Buy ${formatNumber(recommendation.shares_needed ?? recommendation.target_shares ?? 0)} shares`;
   return `${buyText} for about ${formatMoney(recommendation.estimated_cost)}. ${row.benefit_description} every ${formatNumber(row.frequency_days)} days.`;
+}
+
+function rebalanceActionDescription(recommendation: StockRebalanceRecommendation, bankMerits: number): string {
+  const proposed = recommendation.proposed;
+  const availableCash = recommendation.available_cash > 0
+    ? ` and ${formatMoney(recommendation.available_cash)} available cash`
+    : "";
+  return `Combine about ${formatMoney(recommendation.sale_value)} sale value${availableCash} to buy ${bestOpportunityTitle(proposed.row)} for ${formatMoney(proposed.estimated_cost)}. ${rebalanceProposedDetail(proposed, bankMerits)}`;
+}
+
+function rebalanceProposedDetail(recommendation: StockBuyRecommendation, bankMerits: number): string {
+  if (recommendation.row.investment_type === "city_bank") {
+    return `City Bank uses ${bankMerits}/10 merits.`;
+  }
+
+  return `${recommendation.row.benefit_description} every ${formatNumber(recommendation.row.frequency_days)} days.`;
 }
 
 function milestoneDescription(recommendation: StockBuyRecommendation, bankMerits: number): string {

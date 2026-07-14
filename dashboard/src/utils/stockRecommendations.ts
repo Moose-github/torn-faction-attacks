@@ -3,6 +3,8 @@ import type { OwnedStockSnapshot } from "./ownedStocks";
 import { ownedSharesMap, ownsStockIncrement } from "./ownedStocks";
 
 const CITY_BANK_MERIT_STEP = 0.05;
+const MIN_REBALANCE_ANNUAL_GAIN = 1_000_000;
+const MIN_REBALANCE_ROI_GAIN = 5;
 
 export type StockBuyRecommendation = {
   row: StockInvestmentRoiRow;
@@ -42,6 +44,21 @@ export type StockSuggestedAction = {
 export type StockCapitalMilestone = {
   capital: number;
   recommendation: StockBuyRecommendation;
+};
+
+export type StockRebalanceRecommendation = {
+  sell_stock_id: number;
+  sell_acronym: string | null;
+  sell_name: string | null;
+  sell_shares: number;
+  sale_value: number;
+  available_cash: number;
+  available_capital: number;
+  current_annual_return: number;
+  current_roi_percent: number | null;
+  proposed: StockBuyRecommendation;
+  annual_return_gain: number;
+  extra_cash_required: number;
 };
 
 export function adjustCityBankRowForMerits(row: StockInvestmentRoiRow, bankMerits: number): StockInvestmentRoiRow {
@@ -169,6 +186,88 @@ export function buildStockCapitalMilestones(input: StockBuyRecommendationInput, 
   return milestones;
 }
 
+export function buildStockRebalanceRecommendations(input: StockBuyRecommendationInput, limit = 5): StockRebalanceRecommendation[] {
+  if (!input.ownedSnapshot) {
+    return [];
+  }
+
+  const stockRows = input.rows.filter(isStockInvestmentRow);
+  const stockRowsById = stockRows.reduce((map, row) => {
+    const rows = map.get(row.stock_id) ?? [];
+    rows.push(row);
+    map.set(row.stock_id, rows);
+    return map;
+  }, new Map<number, Array<StockInvestmentRoiRow & {
+    investment_type: "stock";
+    stock_id: number;
+    increment: number;
+    required_shares: number;
+    total_shares_required: number;
+    latest_price: number;
+  }>>());
+  const recommendations: StockRebalanceRecommendation[] = [];
+  const availableCash = input.budget ?? 0;
+
+  for (const stock of input.ownedSnapshot.stocks) {
+    if (stock.shares <= 0) {
+      continue;
+    }
+
+    const ownedRows = stockRowsById.get(stock.stock_id) ?? [];
+    const priceRow = ownedRows.find((row) => row.latest_price > 0) ?? null;
+    if (!priceRow) {
+      continue;
+    }
+
+    const saleValue = stock.shares * priceRow.latest_price;
+    if (saleValue <= 0) {
+      continue;
+    }
+
+    const currentAnnualReturn = ownedRows
+      .filter((row) => ownsStockIncrement(stock.shares, row.total_shares_required))
+      .reduce((sum, row) => sum + row.annual_return, 0);
+    const currentRoiPercent = currentAnnualReturn > 0
+      ? (currentAnnualReturn / saleValue) * 100
+      : null;
+    const availableCapital = saleValue + availableCash;
+    const candidates = recommendStockBuys({
+      ...input,
+      budget: availableCapital,
+      affordableOnly: true,
+    }, Number.MAX_SAFE_INTEGER)
+      .filter((candidate) => candidate.row.stock_id !== stock.stock_id);
+
+    for (const candidate of candidates) {
+      const annualReturnGain = candidate.annual_return - currentAnnualReturn;
+      if (annualReturnGain < MIN_REBALANCE_ANNUAL_GAIN) {
+        continue;
+      }
+      if (currentRoiPercent !== null && candidate.roi_percent < currentRoiPercent + MIN_REBALANCE_ROI_GAIN) {
+        continue;
+      }
+
+      recommendations.push({
+        sell_stock_id: stock.stock_id,
+        sell_acronym: priceRow.acronym,
+        sell_name: priceRow.name,
+        sell_shares: stock.shares,
+        sale_value: saleValue,
+        available_cash: availableCash,
+        available_capital: availableCapital,
+        current_annual_return: currentAnnualReturn,
+        current_roi_percent: currentRoiPercent,
+        proposed: candidate,
+        annual_return_gain: annualReturnGain,
+        extra_cash_required: Math.max(0, candidate.estimated_cost - saleValue),
+      });
+    }
+  }
+
+  recommendations.sort(compareStockRebalanceRecommendations);
+  return recommendations.slice(0, Math.max(0, limit));
+}
+
 export function stockBuyRecommendationFromRow(
   row: StockInvestmentRoiRow,
   options: {
@@ -241,6 +340,19 @@ function compareByAnnualReturn(left: StockBuyRecommendation, right: StockBuyReco
     return right.annual_return - left.annual_return;
   }
   return compareStockBuyRecommendations(left, right);
+}
+
+function compareStockRebalanceRecommendations(left: StockRebalanceRecommendation, right: StockRebalanceRecommendation): number {
+  if (left.annual_return_gain !== right.annual_return_gain) {
+    return right.annual_return_gain - left.annual_return_gain;
+  }
+  if (left.proposed.roi_percent !== right.proposed.roi_percent) {
+    return right.proposed.roi_percent - left.proposed.roi_percent;
+  }
+  if (left.extra_cash_required !== right.extra_cash_required) {
+    return left.extra_cash_required - right.extra_cash_required;
+  }
+  return left.proposed.row.row_id.localeCompare(right.proposed.row.row_id, undefined, { numeric: true, sensitivity: "base" });
 }
 
 function closestCompletion(recommendations: StockBuyRecommendation[]): StockBuyRecommendation | null {

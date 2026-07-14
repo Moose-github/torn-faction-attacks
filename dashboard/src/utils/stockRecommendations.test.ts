@@ -3,6 +3,7 @@ import type { StockInvestmentRoiRow } from "../api/types";
 import {
   adjustCityBankRowForMerits,
   buildStockCapitalMilestones,
+  buildStockRebalanceRecommendations,
   buildStockSuggestedActions,
   recommendBestStockBuy,
   recommendStockBuys,
@@ -235,6 +236,174 @@ describe("stock buy recommendations", () => {
     expect(bank.annual_return).toBe(1_500);
     expect(bank.roi_percent).toBe(75);
     expect(result?.row.row_id).toBe("city_bank:90");
+  });
+
+  it("returns no rebalance ideas without a holdings snapshot", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, annual_return: 2_000_000 }),
+      ],
+      ownedSnapshot: null,
+      cityBankActive: false,
+      budget: 1_000,
+      affordableOnly: false,
+      minimumRoi: null,
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("allows partial holdings to be sold with zero current return", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 1_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 50, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 1_500,
+      affordableOnly: false,
+      minimumRoi: null,
+    });
+
+    expect(results[0]).toMatchObject({
+      sell_stock_id: 1,
+      sale_value: 500,
+      current_annual_return: 0,
+      current_roi_percent: null,
+      annual_return_gain: 2_000_000,
+    });
+    expect(results[0].proposed.row.row_id).toBe("stock:2:1");
+  });
+
+  it("subtracts covered holding return from rebalance gain", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 100, annual_return: 500_000, roi_percent: 500 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 100, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 1_000,
+      affordableOnly: false,
+      minimumRoi: null,
+    });
+
+    expect(results[0].current_annual_return).toBe(500_000);
+    expect(results[0].annual_return_gain).toBe(1_500_000);
+  });
+
+  it("combines budget with sale value for rebalance affordability", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, latest_price: 10, total_shares_required: 1_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, latest_price: 10, total_shares_required: 300, increment_cost: 3_000, total_cost: 3_000, annual_return: 2_000_000, roi_percent: 66_666 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 100, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 2_000,
+      affordableOnly: false,
+      minimumRoi: null,
+    });
+
+    expect(results[0]).toMatchObject({
+      sale_value: 1_000,
+      available_cash: 2_000,
+      available_capital: 3_000,
+      extra_cash_required: 2_000,
+    });
+  });
+
+  it("skips same-stock rebalance loops", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, latest_price: 10, total_shares_required: 100, annual_return: 500_000 }),
+        stockRow({ row_id: "stock:1:2", stock_id: 1, latest_price: 10, increment: 2, total_shares_required: 200, increment_cost: 1_000, total_cost: 2_000, annual_return: 3_000_000, roi_percent: 300_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 100, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 1_000,
+      affordableOnly: false,
+      minimumRoi: null,
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("skips active City Bank and compares inactive City Bank", () => {
+    const input = {
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, latest_price: 10, total_shares_required: 1_000 }),
+        cityBankRow({ increment_cost: 2_000, total_cost: 2_000, annual_return: 2_500_000, roi_percent: 125_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 100, bonus: null }],
+      },
+      budget: 1_000,
+      affordableOnly: false,
+      minimumRoi: null,
+    };
+
+    expect(buildStockRebalanceRecommendations({ ...input, cityBankActive: true })).toEqual([]);
+    expect(buildStockRebalanceRecommendations({ ...input, cityBankActive: false })[0].proposed.row.row_id).toBe("city_bank:90");
+  });
+
+  it("filters small conservative rebalance improvements", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, latest_price: 10, total_shares_required: 1_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, increment_cost: 2_000, total_cost: 2_000, annual_return: 999_999, roi_percent: 49_999 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 100, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 1_000,
+      affordableOnly: false,
+      minimumRoi: null,
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("sorts rebalance ideas by annual gain then proposed ROI", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, latest_price: 10, total_shares_required: 1_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+        stockRow({ row_id: "stock:3:1", stock_id: 3, increment_cost: 3_000, total_cost: 3_000, annual_return: 3_000_000, roi_percent: 100_000 }),
+        stockRow({ row_id: "stock:4:1", stock_id: 4, increment_cost: 4_000, total_cost: 4_000, annual_return: 3_000_000, roi_percent: 75_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 400, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 3);
+
+    expect(results.map((result) => result.proposed.row.row_id)).toEqual([
+      "stock:3:1",
+      "stock:4:1",
+      "stock:2:1",
+    ]);
   });
 });
 
