@@ -82,7 +82,7 @@ describe("retaliation availability", () => {
     expect(availability.available).toBe(false);
     expect(availability.reason).toBe("none");
     expect(availability.status).toBe("expired");
-    expect(availability.enemy_attack).toBeNull();
+    expect(availability.enemy_attack?.id).toBe(4);
     expect(availability.expires_at).toBe(1300);
   });
 

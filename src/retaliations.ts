@@ -311,7 +311,7 @@ export function resolveRetaliationOpportunity(
       status: "expired",
       available: false,
       reason: "none",
-      enemy_attack: null,
+      enemy_attack: enemyAttack,
       claimed_by_attack: null,
       pending_claim: null,
       expires_at: expiresAt,
@@ -401,7 +401,7 @@ async function listRetaliationOpportunities(
   options: { includeClaimed: boolean; includeExpired: boolean; limit: number },
 ): Promise<RetaliationOpportunity[]> {
   const lookback = options.includeExpired
-    ? RETALIATION_WINDOW_SECONDS * 2
+    ? RETALIATION_WINDOW_SECONDS * 6
     : RETALIATION_WINDOW_SECONDS;
   const attacks = await readRecentEnemyAttacks(env, now - lookback, options.limit * 3);
   const latestByTarget = new Map<number, RetaliationAttackRow>();
