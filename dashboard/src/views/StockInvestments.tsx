@@ -25,6 +25,7 @@ import {
   adjustCityBankRowForMerits,
   buildStockRebalanceRecommendations,
   buildStockStrategyPlan,
+  DEFAULT_STOCK_STRATEGY_STEP_LIMIT,
   recommendBestStockBuy,
   type StockBuyRecommendation,
   type StockRebalanceRecommendation,
@@ -265,7 +266,7 @@ export function StockInvestments() {
     budget,
     affordableOnly,
     minimumRoi: minRoi,
-  }, 5), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
+  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);

@@ -475,7 +475,6 @@ describe("stock buy recommendations", () => {
       row_id: step.recommendation.row.row_id,
     }))).toEqual([
       { kind: "buy", row_id: "stock:2:1" },
-      { kind: "buy", row_id: "stock:1:1" },
     ]);
   });
 
@@ -620,7 +619,7 @@ describe("stock buy recommendations", () => {
   it("builds stepping-stone buys before selling into a larger target", () => {
     const plan = buildStockStrategyPlan({
       rows: [
-        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 100, increment_cost: 1_000, total_cost: 1_000, annual_return: 100_000, roi_percent: 10_000 }),
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 100, increment_cost: 1_000, total_cost: 1_000, annual_return: 120_000, roi_percent: 12_000 }),
         stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", latest_price: 10, total_shares_required: 200, increment_cost: 2_000, total_cost: 2_000, annual_return: 300_000, roi_percent: 15_000 }),
         stockRow({ row_id: "stock:3:1", stock_id: 3, acronym: "CCC", latest_price: 10, total_shares_required: 1_000, increment_cost: 10_000, total_cost: 10_000, annual_return: 2_000_000, roi_percent: 20_000 }),
       ],
@@ -641,6 +640,46 @@ describe("stock buy recommendations", () => {
       { kind: "buy", row_id: "stock:2:1", cash_required: 2_000, sales: [] },
       { kind: "rebalance", row_id: "stock:3:1", cash_required: 7_000, sales: [1, 2] },
     ]);
+  });
+
+  it("prioritizes useful mid-tier strategy milestones over low-ROI ladder rungs", () => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 1, total_shares_required: 100, increment_cost: 100, total_cost: 100, annual_return: 30, roi_percent: 30 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", latest_price: 1, total_shares_required: 200, increment_cost: 200, total_cost: 200, annual_return: 30, roi_percent: 15 }),
+        stockRow({ row_id: "stock:3:1", stock_id: 3, acronym: "CCC", latest_price: 1, total_shares_required: 300, increment_cost: 300, total_cost: 300, annual_return: 30, roi_percent: 10 }),
+        stockRow({ row_id: "stock:4:1", stock_id: 4, acronym: "PRN", latest_price: 1, total_shares_required: 600, increment_cost: 600, total_cost: 600, annual_return: 224, roi_percent: 37.333333333333336 }),
+        stockRow({ row_id: "stock:5:1", stock_id: 5, acronym: "FHG", latest_price: 1, total_shares_required: 1_000, increment_cost: 1_000, total_cost: 1_000, annual_return: 500, roi_percent: 50 }),
+      ],
+      ownedSnapshot: null,
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 4);
+
+    const rowIds = plan.steps.map((step) => step.recommendation.row.row_id);
+    expect(rowIds[0]).toBe("stock:1:1");
+    expect(rowIds).not.toContain("stock:2:1");
+    expect(rowIds).not.toContain("stock:3:1");
+    expect(rowIds.indexOf("stock:4:1")).toBeLessThan(rowIds.indexOf("stock:5:1"));
+  });
+
+  it("stops the strategy path early when the next ROI is not useful enough", () => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, annual_return: 1_000, roi_percent: 100 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, annual_return: 600, roi_percent: 60 }),
+        stockRow({ row_id: "stock:3:1", stock_id: 3, annual_return: 500, roi_percent: 50 }),
+      ],
+      ownedSnapshot: null,
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 10);
+
+    expect(plan.steps.map((step) => step.recommendation.row.row_id)).toEqual(["stock:1:1"]);
   });
 
   it("sells idle partial target shares to buy a useful stepping stone", () => {
@@ -733,7 +772,7 @@ describe("stock buy recommendations", () => {
     const plan = buildStockStrategyPlan({
       rows: [
         stockRow({ row_id: "stock:1:1", stock_id: 1, annual_return: 100, roi_percent: 10 }),
-        stockRow({ row_id: "stock:2:1", stock_id: 2, annual_return: 200, roi_percent: 20 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, annual_return: 290, roi_percent: 29 }),
         stockRow({ row_id: "stock:3:1", stock_id: 3, annual_return: 300, roi_percent: 30 }),
       ],
       ownedSnapshot: null,

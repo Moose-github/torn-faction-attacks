@@ -5,6 +5,8 @@ import { ownedSharesMap, ownsStockIncrement } from "./ownedStocks";
 const CITY_BANK_MERIT_STEP = 0.05;
 const MIN_REBALANCE_ANNUAL_GAIN = 1_000_000;
 const MIN_REBALANCE_ROI_GAIN = 5;
+const MIN_STRATEGY_ROI_RETENTION = 0.75;
+export const DEFAULT_STOCK_STRATEGY_STEP_LIMIT = 10;
 
 type StockInvestmentStockRow = StockInvestmentRoiRow & {
   investment_type: "stock";
@@ -230,7 +232,7 @@ export function buildStockRebalanceRecommendations(input: StockBuyRecommendation
   return recommendations.slice(0, Math.max(0, limit));
 }
 
-export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit = 5): StockStrategyPlan {
+export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit = DEFAULT_STOCK_STRATEGY_STEP_LIMIT): StockStrategyPlan {
   let simulatedSnapshot = cloneOwnedSnapshot(input.ownedSnapshot);
   let simulatedCityBankActive = input.cityBankActive;
   let currentCash = input.budget ?? 0;
@@ -245,8 +247,8 @@ export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit
       affordableOnly: false,
     };
     const recommendations = recommendStockBuys(stepInput, Number.MAX_SAFE_INTEGER);
-    const nextStep = nextStrategyStep(stepInput, recommendations, simulatedSnapshot, currentCash, steps.length, limit);
-    if (!nextStep) {
+    const nextStep = nextStrategyStep(stepInput, recommendations, simulatedSnapshot, currentCash, steps, limit);
+    if (!nextStep || !strategyStepIsWorthAdding(nextStep, steps)) {
       break;
     }
 
@@ -269,7 +271,7 @@ function nextStrategyStep(
   recommendations: StockBuyRecommendation[],
   snapshot: OwnedStockSnapshot,
   currentCash: number,
-  stepIndex: number,
+  previousSteps: StockStrategyStep[],
   limit: number,
 ): StockStrategyStep | null {
   const target = recommendations[0] ?? null;
@@ -282,17 +284,18 @@ function nextStrategyStep(
   const targetStep = strategySalePlanIsBeneficial(target, targetSalePlan)
     ? strategyRebalanceStep(target, targetSalePlan, currentCash)
     : strategyBuyStep(target, currentCash);
-  const steppingStone = buildStrategyMilestones(recommendations)
-    .map((milestone) => milestone.recommendation)
-    .find((recommendation) =>
-      recommendation.row.row_id !== target.row.row_id &&
-      recommendation.estimated_cost < targetCashRequired
-    ) ?? null;
+  const steppingStone = selectStrategySteppingStone(
+    recommendations,
+    target,
+    targetCashRequired,
+    previousSteps.length,
+    strategyBestPreviousRoi(previousSteps),
+  );
 
   if (!steppingStone) {
     return targetStep;
   }
-  if (stepIndex >= limit - 1) {
+  if (previousSteps.length >= limit - 1) {
     return targetStep;
   }
   if (targetStep.kind === "rebalance" && targetCashRequired <= steppingStone.estimated_cost) {
@@ -303,6 +306,56 @@ function nextStrategyStep(
   return strategySalePlanIsBeneficial(steppingStone, steppingStoneSalePlan) && steppingStoneSalePlan.current_annual_return <= 0
     ? strategyRebalanceStep(steppingStone, steppingStoneSalePlan, currentCash)
     : strategyBuyStep(steppingStone, currentCash);
+}
+
+function selectStrategySteppingStone(
+  recommendations: StockBuyRecommendation[],
+  target: StockBuyRecommendation,
+  targetCashRequired: number,
+  stepIndex: number,
+  previousBestRoi: number | null,
+): StockBuyRecommendation | null {
+  const steppingStones = buildStrategyMilestones(recommendations)
+    .map((milestone) => milestone.recommendation)
+    .filter((recommendation) =>
+      recommendation.row.row_id !== target.row.row_id &&
+      recommendation.estimated_cost < targetCashRequired
+    );
+
+  if (steppingStones.length === 0) {
+    return null;
+  }
+
+  const bestSteppingStone = [...steppingStones].sort(compareStockBuyRecommendations)[0] ?? null;
+  const qualityFloor = Math.max(
+    bestSteppingStone ? bestSteppingStone.roi_percent * MIN_STRATEGY_ROI_RETENTION : 0,
+    previousBestRoi !== null ? previousBestRoi * MIN_STRATEGY_ROI_RETENTION : 0,
+  );
+  const usefulSteppingStones = steppingStones.filter((recommendation) => recommendation.roi_percent >= qualityFloor);
+  if (usefulSteppingStones.length === 0) {
+    return null;
+  }
+
+  if (stepIndex === 0) {
+    return usefulSteppingStones[0] ?? null;
+  }
+
+  return [...usefulSteppingStones].sort(compareStockBuyRecommendations)[0] ?? null;
+}
+
+function strategyStepIsWorthAdding(step: StockStrategyStep, previousSteps: StockStrategyStep[]): boolean {
+  if (previousSteps.length === 0) {
+    return true;
+  }
+
+  const bestPreviousRoi = strategyBestPreviousRoi(previousSteps) ?? 0;
+  return step.roi_percent >= bestPreviousRoi * MIN_STRATEGY_ROI_RETENTION;
+}
+
+function strategyBestPreviousRoi(previousSteps: StockStrategyStep[]): number | null {
+  return previousSteps.length > 0
+    ? Math.max(...previousSteps.map((previousStep) => previousStep.roi_percent))
+    : null;
 }
 
 function strategySalePlanIsBeneficial(
