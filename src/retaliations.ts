@@ -18,10 +18,12 @@ const LIGHT_SYNC_ATTEMPT_STATE = "retaliation_light_sync_attempt";
 const LIGHT_SYNC_SUCCESS_STATE = "retaliation_light_sync_success";
 const RETALIATION_BOARD_MIN_EDIT_INTERVAL_SECONDS = 5;
 const RETALIATION_BOARD_LIMIT = 10;
+export const RETALIATION_BOARD_ACTIVE_REFRESH_SECONDS = 10;
 const RETALIATION_BOARD_FALLBACK_REFRESH_SECONDS = 60;
 const RETALIATION_BOARD_AVAILABLE_COLOR = 0xed4245;
 const RETALIATION_BOARD_PENDING_COLOR = 0xffa500;
 const RETALIATION_BOARD_CONFIRMED_COLOR = 0x57f287;
+const RETALIATION_BOARD_ALARM_NAME = "retaliation-board";
 
 export type RetaliationAttackRow = {
   id: number;
@@ -89,6 +91,21 @@ type BoardStateRow = {
 type RetaliationBoardDiscordPayload = {
   content: string;
   embeds: DiscordEmbed[];
+};
+
+type RetaliationBoardAlarmStub = DurableObjectStub & {
+  schedule(alarmAtSeconds: number): Promise<void>;
+  cancel(): Promise<void>;
+};
+
+export type RetaliationBoardRefreshPlan = {
+  active: boolean;
+  nextRefreshAt: number;
+};
+
+export type RetaliationBoardSyncResult = RetaliationBoardRefreshPlan & {
+  edited: boolean;
+  skippedReason?: string;
 };
 
 export async function getRetaliationCheck(url: URL, env: Env): Promise<Response> {
@@ -360,12 +377,24 @@ export function resolveRetaliationOpportunity(
   };
 }
 
-export async function syncRetaliationDiscordBoard(env: Env, checkedAt: number = nowSeconds()): Promise<void> {
+export async function syncRetaliationDiscordBoard(
+  env: Env,
+  checkedAt: number = nowSeconds(),
+): Promise<RetaliationBoardSyncResult> {
+  const inactiveResult = (skippedReason: string): RetaliationBoardSyncResult => ({
+    active: false,
+    nextRefreshAt: checkedAt + RETALIATION_BOARD_FALLBACK_REFRESH_SECONDS,
+    edited: false,
+    skippedReason,
+  });
+
   if (!env.DISCORD_WEBHOOK_URL) {
-    return;
+    console.debug("Retaliation board sync skipped: missing Discord webhook");
+    return inactiveResult("missing_webhook");
   }
   if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.retaliationBoard)) {
-    return;
+    console.debug("Retaliation board sync skipped: alert disabled");
+    return inactiveResult("disabled");
   }
 
   const rows = await listRetaliationOpportunities(env, checkedAt, {
@@ -373,27 +402,48 @@ export async function syncRetaliationDiscordBoard(env: Env, checkedAt: number = 
     includeExpired: false,
     limit: RETALIATION_BOARD_LIMIT,
   });
-  const message = renderRetaliationBoardPayload(rows, checkedAt);
+  const refreshPlan = getRetaliationBoardRefreshPlan(rows, checkedAt);
+  const message = renderRetaliationBoardPayload(rows, checkedAt, refreshPlan.nextRefreshAt);
   const hash = stableHash(JSON.stringify(message));
   const state = await readRetaliationBoardState(env);
+  let result: RetaliationBoardSyncResult = {
+    ...refreshPlan,
+    edited: false,
+  };
 
   if (state?.last_rendered_hash === hash) {
-    return;
-  }
-  if (
+    console.debug("Retaliation board Discord update skipped: unchanged content");
+    result = { ...result, skippedReason: "unchanged" };
+  } else if (
     state?.last_edited_at !== null &&
     state?.last_edited_at !== undefined &&
     state.last_edited_at > checkedAt - RETALIATION_BOARD_MIN_EDIT_INTERVAL_SECONDS
   ) {
-    return;
+    console.debug("Retaliation board Discord update skipped: minimum edit interval");
+    result = { ...result, skippedReason: "min_edit_interval" };
+  } else {
+    const update = await upsertRetaliationBoardMessage(env, state?.discord_message_id ?? null, message);
+    if (update.ok) {
+      await saveRetaliationBoardState(env, {
+        discordMessageId: update.messageId,
+        renderedHash: hash,
+        editedAt: checkedAt,
+      });
+      result = { ...result, edited: true };
+    } else {
+      result = { ...result, skippedReason: "discord_update_failed" };
+    }
   }
 
-  const messageId = await upsertRetaliationBoardMessage(env, state?.discord_message_id ?? null, message);
-  await saveRetaliationBoardState(env, {
-    discordMessageId: messageId,
-    renderedHash: hash,
-    editedAt: checkedAt,
-  });
+  if (refreshPlan.active) {
+    await scheduleRetaliationBoardAlarm(env, refreshPlan.nextRefreshAt);
+  }
+
+  return result;
+}
+
+export async function handleRetaliationBoardAlarm(env: Env, checkedAt: number = nowSeconds()): Promise<void> {
+  await syncRetaliationDiscordBoard(env, checkedAt);
 }
 
 async function listRetaliationOpportunities(
@@ -786,8 +836,8 @@ function retaliationAttackColumns(): string {
 export function renderRetaliationBoardPayload(
   rows: RetaliationOpportunity[],
   checkedAt: number,
+  nextRefreshAt: number = getRetaliationBoardRefreshPlan(rows, checkedAt).nextRefreshAt,
 ): RetaliationBoardDiscordPayload {
-  const nextRefreshAt = checkedAt + RETALIATION_BOARD_FALLBACK_REFRESH_SECONDS;
   const content = rows.length === 0
     ? "**Retaliation Board**"
     : `**Retaliation Board**\nUpdate <t:${nextRefreshAt}:R>`;
@@ -797,6 +847,21 @@ export function renderRetaliationBoardPayload(
     embeds: rows.length === 0
       ? [noActiveRetaliationBoardEmbed(nextRefreshAt)]
       : rows.map(retaliationBoardEmbed),
+  };
+}
+
+export function getRetaliationBoardRefreshPlan(
+  rows: RetaliationOpportunity[],
+  checkedAt: number,
+): RetaliationBoardRefreshPlan {
+  const active = rows.some(isActiveRetaliationBoardRow);
+  return {
+    active,
+    nextRefreshAt: checkedAt + (
+      active
+        ? RETALIATION_BOARD_ACTIVE_REFRESH_SECONDS
+        : RETALIATION_BOARD_FALLBACK_REFRESH_SECONDS
+    ),
   };
 }
 
@@ -842,7 +907,7 @@ async function upsertRetaliationBoardMessage(
   env: Env,
   existingMessageId: string | null,
   message: RetaliationBoardDiscordPayload,
-): Promise<string | null> {
+): Promise<{ ok: boolean; messageId: string | null }> {
   try {
     if (existingMessageId) {
       await editDiscordWebhookMessage(
@@ -852,17 +917,27 @@ async function upsertRetaliationBoardMessage(
         { users: [], roles: [] },
         { embeds: message.embeds },
       );
-      return existingMessageId;
+      return { ok: true, messageId: existingMessageId };
     }
-    return await createDiscordWebhookMessage(
+    const messageId = await createDiscordWebhookMessage(
       env,
       message.content,
       { users: [], roles: [] },
       { embeds: message.embeds },
     );
+    return { ok: messageId !== null, messageId };
   } catch (err: any) {
     console.warn("Retaliation board Discord update failed:", err?.message || err);
-    return existingMessageId;
+    return { ok: false, messageId: existingMessageId };
+  }
+}
+
+async function scheduleRetaliationBoardAlarm(env: Env, alarmAtSeconds: number): Promise<void> {
+  try {
+    await retaliationBoardAlarmStub(env).schedule(alarmAtSeconds);
+    console.debug(`Retaliation board active refresh scheduled for ${alarmAtSeconds}`);
+  } catch (err: any) {
+    console.warn("Retaliation board active refresh scheduling failed:", err?.message || err);
   }
 }
 
@@ -871,6 +946,14 @@ function compareRetaliationRows(left: RetaliationOpportunity, right: Retaliation
   const rightExpires = right.expires_at ?? Number.MAX_SAFE_INTEGER;
   if (leftExpires !== rightExpires) return leftExpires - rightExpires;
   return (right.opening_attack_id ?? 0) - (left.opening_attack_id ?? 0);
+}
+
+function isActiveRetaliationBoardRow(row: RetaliationOpportunity): boolean {
+  return row.status === "available" || row.status === "claimed_pending";
+}
+
+function retaliationBoardAlarmStub(env: Env): RetaliationBoardAlarmStub {
+  return env.RETALIATION_BOARD_ALARMS.getByName(RETALIATION_BOARD_ALARM_NAME) as RetaliationBoardAlarmStub;
 }
 
 function attackTimestamp(attack: Pick<RetaliationAttackRow, "attack_at" | "ended" | "started">): number | null {

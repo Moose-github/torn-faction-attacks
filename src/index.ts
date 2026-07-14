@@ -1,5 +1,6 @@
 import { buildCronPlan } from "./cronPlan";
 export { ChainWatchAlarm } from "./chainWatchAlarm";
+export { RetaliationBoardAlarm } from "./retaliationBoardAlarm";
 import { handleDiscordInteractions } from "./discordInteractions";
 import { routeAdminApi } from "./http/adminRoutes";
 import { routeArrestScoutApi } from "./http/arrestScoutRoutes";

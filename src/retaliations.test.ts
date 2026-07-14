@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateRetaliationAvailability,
+  getRetaliationBoardRefreshPlan,
   getRetaliationCheck,
   renderRetaliationBoardPayload,
   resolveRetaliationOpportunity,
@@ -248,7 +249,7 @@ describe("retaliation availability", () => {
       confirmed,
     ], 1100);
 
-    expect(payload.content).toBe("**Retaliation Board**\nUpdate <t:1160:R>");
+    expect(payload.content).toBe("**Retaliation Board**\nUpdate <t:1110:R>");
     expect(payload.embeds).toEqual([
       expect.objectContaining({
         title: "nex [2054500] ⚔️",
@@ -296,6 +297,74 @@ describe("retaliation availability", () => {
         color: 0x57f287,
       },
     ]);
+  });
+
+  it("uses active refresh timing while open or started retals are visible", () => {
+    const available = resolveRetaliationOpportunity(
+      attackRow({
+        id: 5101,
+        attacker_id: 2054500,
+        defender_id: 123,
+        attack_at: 1000,
+      }),
+      null,
+      null,
+      1100,
+    );
+    const pending = resolveRetaliationOpportunity(
+      attackRow({
+        id: 5102,
+        attacker_id: 2814133,
+        defender_id: 123,
+        attack_at: 1010,
+      }),
+      null,
+      pendingClaim({
+        opening_attack_id: 5102,
+        target_id: 2814133,
+        expires_at: 1120,
+      }),
+      1100,
+    );
+
+    expect(getRetaliationBoardRefreshPlan([available], 1100)).toEqual({
+      active: true,
+      nextRefreshAt: 1110,
+    });
+    expect(getRetaliationBoardRefreshPlan([pending], 1100)).toEqual({
+      active: true,
+      nextRefreshAt: 1110,
+    });
+  });
+
+  it("falls back to minutely timing for empty or confirmed-only boards", () => {
+    const confirmed = resolveRetaliationOpportunity(
+      attackRow({
+        id: 5201,
+        attacker_id: 333333,
+        defender_id: 123,
+        attack_at: 1000,
+      }),
+      attackRow({
+        id: 5202,
+        attacker_id: 101,
+        defender_id: 333333,
+        result: "Hospitalized",
+        m_retaliation: 2,
+        attack_at: 1040,
+      }),
+      null,
+      1100,
+    );
+
+    expect(getRetaliationBoardRefreshPlan([], 1100)).toEqual({
+      active: false,
+      nextRefreshAt: 1160,
+    });
+    expect(getRetaliationBoardRefreshPlan([confirmed], 1100)).toEqual({
+      active: false,
+      nextRefreshAt: 1160,
+    });
   });
 });
 
