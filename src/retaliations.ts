@@ -792,7 +792,7 @@ function renderRetaliationBoardMessage(rows: RetaliationOpportunity[], checkedAt
       const expires = row.expires_at ? `<t:${row.expires_at}:R>` : "unknown expiry";
       lines.push(`${index + 1}. ${target} [${row.target_id}] - ${status} - ${expires}`);
       lines.push(`   Hit ${victim}${attack?.result ? ` - ${cleanDiscordText(attack.result)}` : ""}`);
-      lines.push(`   Attack: https://www.torn.com/loader.php?sid=attack&user2ID=${row.target_id}`);
+      lines.push(`   Attack: https://www.torn.com/page.php?sid=attack&user2ID=${row.target_id}`);
     });
   }
   lines.push("", `Last refresh: <t:${checkedAt}:T>`);

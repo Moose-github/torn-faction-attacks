@@ -1,5 +1,5 @@
 import React from "react";
-import { ExternalLink, RefreshCw, ShieldCheck, Swords } from "lucide-react";
+import { RefreshCw, ShieldCheck, Swords } from "lucide-react";
 import {
   claimRetaliation,
   listAvailableRetaliations,
@@ -85,11 +85,11 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
           icon={<Swords size={18} />}
           control={
             <FreshnessMeta
-              state={data?.fresh ? "Fresh" : "Stale"}
-              updatedAt={data?.checked_at ?? null}
-              cadence="12s"
-              detail={data?.sync.warning ?? undefined}
-              tone={data?.fresh ? "fresh" : "stale"}
+              state={freshnessLabel(data, isLoading)}
+              updatedAt={data?.checked_at}
+              cadence="Auto 12s"
+              detail={freshnessDetail(data)}
+              tone={freshnessTone(data, isLoading)}
             />
           }
         />
@@ -185,15 +185,29 @@ function RetaliationRow({
   return (
     <tr>
       <td>
-        <strong>{attack?.attacker_name ?? `Torn ${row.target_id}`}</strong>
+        <a className="retaliation-table-link" href={profileLink(row.target_id)} target="_blank" rel="noreferrer">
+          <strong>{attack?.attacker_name ?? `Torn ${row.target_id}`}</strong>
+        </a>
         <small>{row.target_id}</small>
       </td>
       <td>
-        <strong>{attack?.defender_name ?? "-"}</strong>
+        {attack?.defender_id ? (
+          <a className="retaliation-table-link" href={profileLink(attack.defender_id)} target="_blank" rel="noreferrer">
+            <strong>{attack.defender_name ?? `Torn ${attack.defender_id}`}</strong>
+          </a>
+        ) : (
+          <strong>{attack?.defender_name ?? "-"}</strong>
+        )}
         <small>{attack?.defender_id ?? ""}</small>
       </td>
       <td>
-        <strong>{attack?.result ?? "-"}</strong>
+        {attack?.code ? (
+          <a className="retaliation-table-link" href={attackLogLink(attack.code)} target="_blank" rel="noreferrer">
+            <strong>{attack.result ?? "Attack log"}</strong>
+          </a>
+        ) : (
+          <strong>{attack?.result ?? "-"}</strong>
+        )}
         <small>{formatDate(attack?.attack_at ?? null)}</small>
       </td>
       <td>
@@ -218,15 +232,8 @@ function RetaliationRow({
             onClick={() => onClaim(row)}
           >
             {isClaiming ? <RefreshCw size={14} className="spinning-icon" /> : <Swords size={14} />}
-            {isClaiming ? "Claiming" : "Claim"}
+            {isClaiming ? "Opening" : "Attack"}
           </button>
-          <a className="panel-action-button" href={attackLink(row.target_id)} target="_blank" rel="noreferrer">
-            <ExternalLink size={14} />
-            Attack
-          </a>
-          <a className="panel-action-button" href={`https://www.torn.com/profiles.php?XID=${row.target_id}`} target="_blank" rel="noreferrer">
-            Profile
-          </a>
         </div>
       </td>
     </tr>
@@ -245,7 +252,15 @@ function replaceRetaliation(data: RetaliationsResponse, retaliation: Retaliation
 }
 
 function attackLink(targetId: number): string {
-  return `https://www.torn.com/loader.php?sid=attack&user2ID=${targetId}`;
+  return `https://www.torn.com/page.php?sid=attack&user2ID=${targetId}`;
+}
+
+function profileLink(userId: number): string {
+  return `https://www.torn.com/profiles.php?XID=${userId}`;
+}
+
+function attackLogLink(code: string): string {
+  return `https://www.torn.com/loader.php?sid=attackLog&ID=${encodeURIComponent(code)}`;
 }
 
 function statusLabel(row: RetaliationOpportunity): string {
@@ -280,4 +295,25 @@ function claimFailureMessage(message: string): string {
     return "Opportunity expired. Refreshing board.";
   }
   return message;
+}
+
+function freshnessLabel(data: RetaliationsResponse | null, isLoading: boolean): string {
+  if (!data) return isLoading ? "Loading" : "Unchecked";
+  if (data.fresh) return data.sync.status === "refreshed" ? "Refreshed" : "Fresh";
+  if (data.sync.status === "cooldown") return "Stored data";
+  if (data.sync.status === "failed") return "Refresh failed";
+  return "Stale";
+}
+
+function freshnessTone(data: RetaliationsResponse | null, isLoading: boolean): "fresh" | "stale" | "quiet" {
+  if (!data) return isLoading ? "quiet" : "stale";
+  return data.fresh ? "fresh" : "stale";
+}
+
+function freshnessDetail(data: RetaliationsResponse | null): string | undefined {
+  if (!data) return undefined;
+  const pieces = [`Sync status: ${data.sync.status}`];
+  if (data.sync.last_success_at) pieces.push(`Last success: ${formatDate(data.sync.last_success_at)}`);
+  if (data.sync.warning) pieces.push(data.sync.warning);
+  return pieces.join(" - ");
 }

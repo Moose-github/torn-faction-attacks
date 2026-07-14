@@ -7897,6 +7897,17 @@ tbody tr:not(.attack-row):hover td {
   font-size: 12px;
 }
 
+.retaliation-table-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.retaliation-table-link:hover,
+.retaliation-table-link:focus-visible {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
 .retaliation-status.available {
   background: rgba(22, 163, 74, 0.12);
   color: #166534;
