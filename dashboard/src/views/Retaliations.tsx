@@ -7,14 +7,13 @@ import {
   type RetaliationsResponse,
 } from "../api";
 import { EmptyState, FreshnessMeta, PanelHeader } from "../components/Common";
-import { formatDate } from "../utils/format";
+import { formatDate, formatRelativeTime } from "../utils/format";
 import { useCurrentTimeMs } from "../utils/time";
 
 const REFRESH_MS = 12_000;
 
 export function Retaliations({ currentUserId }: { currentUserId: number }) {
   const [data, setData] = React.useState<RetaliationsResponse | null>(null);
-  const [includeClaimed, setIncludeClaimed] = React.useState(true);
   const [includeExpired, setIncludeExpired] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
   const [claimingId, setClaimingId] = React.useState<number | null>(null);
@@ -28,7 +27,7 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
     setError(null);
     try {
       setData(await listAvailableRetaliations({
-        includeClaimed,
+        includeClaimed: true,
         includeExpired,
         limit: 100,
       }));
@@ -37,7 +36,7 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
     } finally {
       if (showLoading) setIsLoading(false);
     }
-  }, [includeClaimed, includeExpired]);
+  }, [includeExpired]);
 
   React.useEffect(() => {
     void load(true);
@@ -86,8 +85,7 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
           control={
             <FreshnessMeta
               state={freshnessLabel(data, isLoading)}
-              updatedAt={data?.checked_at}
-              cadence="Auto 12s"
+              cadence={freshnessCadence(data)}
               detail={freshnessDetail(data)}
               tone={freshnessTone(data, isLoading)}
             />
@@ -98,14 +96,6 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
             <strong>{availableCount}</strong> available
             <strong>{pendingCount}</strong> pending
           </span>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={includeClaimed}
-              onChange={(event) => setIncludeClaimed(event.target.checked)}
-            />
-            <span>Claimed</span>
-          </label>
           <label className="checkbox-row">
             <input
               type="checkbox"
@@ -312,8 +302,17 @@ function freshnessTone(data: RetaliationsResponse | null, isLoading: boolean): "
 
 function freshnessDetail(data: RetaliationsResponse | null): string | undefined {
   if (!data) return undefined;
-  const pieces = [`Sync status: ${data.sync.status}`];
+  const pieces = [
+    "Dashboard polling: Auto 12s",
+    `Board checked: ${formatDate(data.checked_at)}`,
+    `Sync status: ${data.sync.status}`,
+  ];
   if (data.sync.last_success_at) pieces.push(`Last success: ${formatDate(data.sync.last_success_at)}`);
   if (data.sync.warning) pieces.push(data.sync.warning);
   return pieces.join(" - ");
+}
+
+function freshnessCadence(data: RetaliationsResponse | null): string {
+  if (!data) return "Auto 12s";
+  return data.sync.last_success_at ? `Synced ${formatRelativeTime(data.sync.last_success_at)}` : "No sync yet";
 }
