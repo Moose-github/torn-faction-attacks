@@ -1164,9 +1164,9 @@ function StrategyStepRow({
           <strong>{formatMoney(recommendation.estimated_cost)}</strong>
           <small>Cost</small>
         </span>
-        {step.rebalance ? (
+        {step.sales.length > 0 ? (
           <span>
-            <strong>{formatMoney(step.rebalance.sale_value)}</strong>
+            <strong>{formatMoney(step.sales.reduce((sum, sale) => sum + sale.sale_value, 0))}</strong>
             <small>Sale value</small>
           </span>
         ) : null}
@@ -1200,9 +1200,8 @@ function rebalanceProposedDetail(recommendation: StockBuyRecommendation, bankMer
 }
 
 function strategyStepTitle(step: StockStrategyStep): string {
-  if (step.kind === "rebalance" && step.rebalance) {
-    const sellLabel = step.rebalance.sell_acronym ?? `#${step.rebalance.sell_stock_id}`;
-    return `Sell ${sellLabel}, buy ${bestOpportunityTitle(step.recommendation.row)}`;
+  if (step.kind === "rebalance" && step.sales.length > 0) {
+    return `Sell ${strategySaleLabels(step)}, buy ${bestOpportunityTitle(step.recommendation.row)}`;
   }
 
   return `Buy ${bestOpportunityTitle(step.recommendation.row)}`;
@@ -1214,8 +1213,8 @@ function strategyStepDescription(step: StockStrategyStep, bankMerits: number): s
   const cashText = step.extra_cash_needed > 0
     ? `Need ${formatMoney(step.extra_cash_needed)} more cash. `
     : "";
-  if (step.kind === "rebalance" && step.rebalance) {
-    return `${cashText}Sell ${formatNumber(step.rebalance.sell_shares)} shares for about ${formatMoney(step.rebalance.sale_value)}, then buy ${bestOpportunityTitle(row)}.`;
+  if (step.kind === "rebalance" && step.sales.length > 0) {
+    return `${cashText}Sell ${strategySaleDescription(step)}, then buy ${bestOpportunityTitle(row)}.`;
   }
   if (row.investment_type === "city_bank") {
     return `${cashText}Add City Bank for ${formatMoney(recommendation.estimated_cost)} with ${bankMerits}/10 merits.`;
@@ -1225,6 +1224,18 @@ function strategyStepDescription(step: StockStrategyStep, bankMerits: number): s
     ? `Buy ${formatNumber(recommendation.shares_needed ?? 0)} more shares`
     : `Buy ${formatNumber(recommendation.shares_needed ?? recommendation.target_shares ?? 0)} shares`;
   return `${cashText}${sharesText} to reach ${formatNumber(recommendation.target_shares ?? 0)}.`;
+}
+
+function strategySaleLabels(step: StockStrategyStep): string {
+  return step.sales
+    .map((sale) => sale.acronym ?? `#${sale.stock_id}`)
+    .join(" + ");
+}
+
+function strategySaleDescription(step: StockStrategyStep): string {
+  return step.sales
+    .map((sale) => `${formatNumber(sale.shares)} ${sale.acronym ?? `#${sale.stock_id}`} shares for about ${formatMoney(sale.sale_value)}`)
+    .join(", ");
 }
 
 async function fetchOwnedStockSnapshot(apiKey: string, refreshedAt: number): Promise<OwnedStockSnapshot> {

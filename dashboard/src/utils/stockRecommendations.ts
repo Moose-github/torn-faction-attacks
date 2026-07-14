@@ -72,6 +72,15 @@ export type StockRebalanceRecommendation = {
 
 export type StockStrategyStepKind = "buy" | "rebalance";
 
+export type StockStrategySale = {
+  stock_id: number;
+  acronym: string | null;
+  name: string | null;
+  shares: number;
+  sale_value: number;
+  current_annual_return: number;
+};
+
 export type StockStrategyStep = {
   kind: StockStrategyStepKind;
   cash_required: number;
@@ -82,6 +91,7 @@ export type StockStrategyStep = {
   roi_percent: number;
   recommendation: StockBuyRecommendation;
   rebalance: StockRebalanceRecommendation | null;
+  sales: StockStrategySale[];
 };
 
 export type StockStrategyPlan = {
@@ -234,39 +244,8 @@ export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit
       budget: null,
       affordableOnly: false,
     };
-    const buyCandidates = recommendStockBuys(stepInput, Number.MAX_SAFE_INTEGER)
-      .map((recommendation): StockStrategyStep => {
-        const cashRequired = recommendation.estimated_cost;
-        const extraCashNeeded = Math.max(0, cashRequired - currentCash);
-        return {
-          kind: "buy",
-          cash_required: cashRequired,
-          extra_cash_needed: extraCashNeeded,
-          starting_cash: currentCash,
-          ending_cash: Math.max(0, currentCash + extraCashNeeded - recommendation.estimated_cost),
-          annual_return_gain: recommendation.annual_return,
-          roi_percent: recommendation.roi_percent,
-          recommendation,
-          rebalance: null,
-        };
-      });
-    const rebalanceCandidates = buildRebalanceRecommendations(stepInput, currentCash, true)
-      .map((rebalance): StockStrategyStep => {
-        const cashRequired = Math.max(0, rebalance.proposed.estimated_cost - rebalance.sale_value);
-        const extraCashNeeded = Math.max(0, cashRequired - currentCash);
-        return {
-          kind: "rebalance",
-          cash_required: cashRequired,
-          extra_cash_needed: extraCashNeeded,
-          starting_cash: currentCash,
-          ending_cash: Math.max(0, currentCash + extraCashNeeded + rebalance.sale_value - rebalance.proposed.estimated_cost),
-          annual_return_gain: rebalance.annual_return_gain,
-          roi_percent: rebalance.proposed.roi_percent,
-          recommendation: rebalance.proposed,
-          rebalance,
-        };
-      });
-    const nextStep = [...buyCandidates, ...rebalanceCandidates].sort(compareStockStrategySteps)[0] ?? null;
+    const recommendations = recommendStockBuys(stepInput, Number.MAX_SAFE_INTEGER);
+    const nextStep = nextStrategyStep(stepInput, recommendations, simulatedSnapshot, currentCash, steps.length, limit);
     if (!nextStep) {
       break;
     }
@@ -283,6 +262,113 @@ export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit
     starting_cash: input.budget ?? 0,
     steps,
   };
+}
+
+function nextStrategyStep(
+  input: StockBuyRecommendationInput,
+  recommendations: StockBuyRecommendation[],
+  snapshot: OwnedStockSnapshot,
+  currentCash: number,
+  stepIndex: number,
+  limit: number,
+): StockStrategyStep | null {
+  const target = recommendations[0] ?? null;
+  if (!target) {
+    return null;
+  }
+
+  const targetSalePlan = buildStrategySalePlan(input.rows, snapshot, target, currentCash);
+  const targetCashRequired = Math.max(0, target.estimated_cost - targetSalePlan.sale_value);
+  const targetStep = strategySalePlanIsBeneficial(target, targetSalePlan)
+    ? strategyRebalanceStep(target, targetSalePlan, currentCash)
+    : strategyBuyStep(target, currentCash);
+  const steppingStone = buildStrategyMilestones(recommendations)
+    .map((milestone) => milestone.recommendation)
+    .find((recommendation) =>
+      recommendation.row.row_id !== target.row.row_id &&
+      recommendation.estimated_cost < targetCashRequired
+    ) ?? null;
+
+  if (!steppingStone) {
+    return targetStep;
+  }
+  if (stepIndex >= limit - 1) {
+    return targetStep;
+  }
+  if (targetStep.kind === "rebalance" && targetCashRequired <= steppingStone.estimated_cost) {
+    return targetStep;
+  }
+
+  return strategyBuyStep(steppingStone, currentCash);
+}
+
+function strategySalePlanIsBeneficial(
+  recommendation: StockBuyRecommendation,
+  salePlan: StockStrategySalePlan,
+): boolean {
+  return salePlan.sales.length > 0 && recommendation.annual_return > salePlan.current_annual_return;
+}
+
+function strategyBuyStep(recommendation: StockBuyRecommendation, currentCash: number): StockStrategyStep {
+  const cashRequired = recommendation.estimated_cost;
+  const extraCashNeeded = Math.max(0, cashRequired - currentCash);
+  return {
+    kind: "buy",
+    cash_required: cashRequired,
+    extra_cash_needed: extraCashNeeded,
+    starting_cash: currentCash,
+    ending_cash: Math.max(0, currentCash + extraCashNeeded - recommendation.estimated_cost),
+    annual_return_gain: recommendation.annual_return,
+    roi_percent: recommendation.roi_percent,
+    recommendation,
+    rebalance: null,
+    sales: [],
+  };
+}
+
+function strategyRebalanceStep(
+  recommendation: StockBuyRecommendation,
+  salePlan: StockStrategySalePlan,
+  currentCash: number,
+): StockStrategyStep {
+  const cashRequired = Math.max(0, recommendation.estimated_cost - salePlan.sale_value);
+  const extraCashNeeded = Math.max(0, cashRequired - currentCash);
+  return {
+    kind: "rebalance",
+    cash_required: cashRequired,
+    extra_cash_needed: extraCashNeeded,
+    starting_cash: currentCash,
+    ending_cash: Math.max(0, currentCash + extraCashNeeded + salePlan.sale_value - recommendation.estimated_cost),
+    annual_return_gain: recommendation.annual_return - salePlan.current_annual_return,
+    roi_percent: recommendation.roi_percent,
+    recommendation,
+    rebalance: salePlanToRebalanceRecommendation(recommendation, salePlan, currentCash),
+    sales: salePlan.sales,
+  };
+}
+
+function buildStrategyMilestones(recommendations: StockBuyRecommendation[]): StockCapitalMilestone[] {
+  const candidates = [...recommendations]
+    .sort((left, right) => left.estimated_cost - right.estimated_cost || compareStockBuyRecommendations(left, right));
+  const milestones: StockCapitalMilestone[] = [];
+  let lastRecommendationRowId: string | null = null;
+
+  for (const candidate of candidates) {
+    const bestAtCapital = candidates
+      .filter((recommendation) => recommendation.estimated_cost <= candidate.estimated_cost)
+      .sort(compareStockBuyRecommendations)[0] ?? null;
+    if (!bestAtCapital || bestAtCapital.row.row_id === lastRecommendationRowId) {
+      continue;
+    }
+
+    milestones.push({
+      capital: candidate.estimated_cost,
+      recommendation: bestAtCapital,
+    });
+    lastRecommendationRowId = bestAtCapital.row.row_id;
+  }
+
+  return milestones;
 }
 
 function buildRebalanceRecommendations(
@@ -314,18 +400,12 @@ function buildRebalanceRecommendations(
       continue;
     }
 
-    const saleValue = stock.shares * priceRow.latest_price;
-    if (saleValue <= 0) {
+    const fullSaleValue = stock.shares * priceRow.latest_price;
+    if (fullSaleValue <= 0) {
       continue;
     }
 
-    const currentAnnualReturn = ownedRows
-      .filter((row) => ownsStockIncrement(stock.shares, row.total_shares_required))
-      .reduce((sum, row) => sum + row.annual_return, 0);
-    const currentRoiPercent = currentAnnualReturn > 0
-      ? (currentAnnualReturn / saleValue) * 100
-      : null;
-    const availableCapital = saleValue + availableCash;
+    const availableCapital = fullSaleValue + availableCash;
     const candidates = recommendStockBuys({
       ...input,
       budget: allowFutureCash ? null : availableCapital,
@@ -334,6 +414,18 @@ function buildRebalanceRecommendations(
       .filter((candidate) => candidate.row.stock_id !== stock.stock_id);
 
     for (const candidate of candidates) {
+      const cashNeededFromSale = Math.max(0, candidate.estimated_cost - availableCash);
+      const sellShares = Math.min(stock.shares, Math.ceil(cashNeededFromSale / priceRow.latest_price));
+      if (sellShares <= 0) {
+        continue;
+      }
+
+      const saleValue = sellShares * priceRow.latest_price;
+      const sharesAfterSale = Math.max(0, stock.shares - sellShares);
+      const currentAnnualReturn = coveredAnnualReturn(ownedRows, stock.shares) - coveredAnnualReturn(ownedRows, sharesAfterSale);
+      const currentRoiPercent = currentAnnualReturn > 0
+        ? (currentAnnualReturn / saleValue) * 100
+        : null;
       const annualReturnGain = candidate.annual_return - currentAnnualReturn;
       if (annualReturnGain < MIN_REBALANCE_ANNUAL_GAIN) {
         continue;
@@ -346,15 +438,15 @@ function buildRebalanceRecommendations(
         sell_stock_id: stock.stock_id,
         sell_acronym: priceRow.acronym,
         sell_name: priceRow.name,
-        sell_shares: stock.shares,
+        sell_shares: sellShares,
         sale_value: saleValue,
         available_cash: availableCash,
-        available_capital: Math.max(availableCapital, candidate.estimated_cost),
+        available_capital: Math.max(availableCash + saleValue, candidate.estimated_cost),
         current_annual_return: currentAnnualReturn,
         current_roi_percent: currentRoiPercent,
         proposed: candidate,
         annual_return_gain: annualReturnGain,
-        extra_cash_required: Math.max(0, candidate.estimated_cost - saleValue),
+        extra_cash_required: Math.max(0, candidate.estimated_cost - availableCash - saleValue),
       });
     }
   }
@@ -449,20 +541,118 @@ function compareStockRebalanceRecommendations(left: StockRebalanceRecommendation
   return left.proposed.row.row_id.localeCompare(right.proposed.row.row_id, undefined, { numeric: true, sensitivity: "base" });
 }
 
-function compareStockStrategySteps(left: StockStrategyStep, right: StockStrategyStep): number {
-  if (left.roi_percent !== right.roi_percent) {
-    return right.roi_percent - left.roi_percent;
+type StockStrategySalePlan = {
+  sales: StockStrategySale[];
+  sale_value: number;
+  current_annual_return: number;
+};
+
+function buildStrategySalePlan(
+  rows: StockInvestmentRoiRow[],
+  snapshot: OwnedStockSnapshot,
+  recommendation: StockBuyRecommendation,
+  currentCash: number,
+): StockStrategySalePlan {
+  const cashNeeded = Math.max(0, recommendation.estimated_cost - currentCash);
+  if (cashNeeded <= 0) {
+    return { sales: [], sale_value: 0, current_annual_return: 0 };
   }
-  if (left.annual_return_gain !== right.annual_return_gain) {
-    return right.annual_return_gain - left.annual_return_gain;
+
+  const stockRowsById = rows.filter(isStockInvestmentRow).reduce((map, row) => {
+    const stockRows = map.get(row.stock_id) ?? [];
+    stockRows.push(row);
+    map.set(row.stock_id, stockRows);
+    return map;
+  }, new Map<number, StockInvestmentStockRow[]>());
+  const sources = snapshot.stocks
+    .filter((stock) => stock.shares > 0 && stock.stock_id !== recommendation.row.stock_id)
+    .map((stock) => {
+      const ownedRows = stockRowsById.get(stock.stock_id) ?? [];
+      const priceRow = ownedRows.find((row) => row.latest_price > 0) ?? null;
+      if (!priceRow) {
+        return null;
+      }
+
+      const fullSaleValue = stock.shares * priceRow.latest_price;
+      const currentAnnualReturn = coveredAnnualReturn(ownedRows, stock.shares);
+      return {
+        stock,
+        ownedRows,
+        priceRow,
+        fullSaleValue,
+        currentAnnualReturn,
+        currentRoiPercent: currentAnnualReturn > 0 ? (currentAnnualReturn / fullSaleValue) * 100 : 0,
+      };
+    })
+    .filter((source): source is NonNullable<typeof source> => Boolean(source))
+    .sort((left, right) =>
+      left.currentRoiPercent - right.currentRoiPercent ||
+      left.currentAnnualReturn - right.currentAnnualReturn ||
+      left.priceRow.row_id.localeCompare(right.priceRow.row_id, undefined, { numeric: true, sensitivity: "base" })
+    );
+  const sales: StockStrategySale[] = [];
+  let remainingCashNeeded = cashNeeded;
+
+  for (const source of sources) {
+    if (remainingCashNeeded <= 0) {
+      break;
+    }
+
+    const sellShares = Math.min(source.stock.shares, Math.ceil(remainingCashNeeded / source.priceRow.latest_price));
+    if (sellShares <= 0) {
+      continue;
+    }
+
+    const saleValue = sellShares * source.priceRow.latest_price;
+    const sharesAfterSale = Math.max(0, source.stock.shares - sellShares);
+    sales.push({
+      stock_id: source.stock.stock_id,
+      acronym: source.priceRow.acronym,
+      name: source.priceRow.name,
+      shares: sellShares,
+      sale_value: saleValue,
+      current_annual_return: coveredAnnualReturn(source.ownedRows, source.stock.shares) - coveredAnnualReturn(source.ownedRows, sharesAfterSale),
+    });
+    remainingCashNeeded -= saleValue;
   }
-  if (left.cash_required !== right.cash_required) {
-    return left.cash_required - right.cash_required;
+
+  return {
+    sales,
+    sale_value: sales.reduce((sum, sale) => sum + sale.sale_value, 0),
+    current_annual_return: sales.reduce((sum, sale) => sum + sale.current_annual_return, 0),
+  };
+}
+
+function salePlanToRebalanceRecommendation(
+  recommendation: StockBuyRecommendation,
+  salePlan: StockStrategySalePlan,
+  currentCash: number,
+): StockRebalanceRecommendation | null {
+  const firstSale = salePlan.sales[0] ?? null;
+  if (!firstSale) {
+    return null;
   }
-  if (left.kind !== right.kind) {
-    return left.kind === "buy" ? -1 : 1;
-  }
-  return left.recommendation.row.row_id.localeCompare(right.recommendation.row.row_id, undefined, { numeric: true, sensitivity: "base" });
+
+  return {
+    sell_stock_id: firstSale.stock_id,
+    sell_acronym: firstSale.acronym,
+    sell_name: firstSale.name,
+    sell_shares: firstSale.shares,
+    sale_value: salePlan.sale_value,
+    available_cash: currentCash,
+    available_capital: Math.max(currentCash + salePlan.sale_value, recommendation.estimated_cost),
+    current_annual_return: salePlan.current_annual_return,
+    current_roi_percent: salePlan.current_annual_return > 0 ? (salePlan.current_annual_return / salePlan.sale_value) * 100 : null,
+    proposed: recommendation,
+    annual_return_gain: recommendation.annual_return - salePlan.current_annual_return,
+    extra_cash_required: Math.max(0, recommendation.estimated_cost - currentCash - salePlan.sale_value),
+  };
+}
+
+function coveredAnnualReturn(rows: StockInvestmentStockRow[], shares: number): number {
+  return rows
+    .filter((row) => ownsStockIncrement(shares, row.total_shares_required))
+    .reduce((sum, row) => sum + row.annual_return, 0);
 }
 
 function cloneOwnedSnapshot(snapshot: OwnedStockSnapshot | null): OwnedStockSnapshot {
@@ -477,13 +667,22 @@ function cloneOwnedSnapshot(snapshot: OwnedStockSnapshot | null): OwnedStockSnap
 }
 
 function applyStrategyStepToSnapshot(snapshot: OwnedStockSnapshot, step: StockStrategyStep): OwnedStockSnapshot {
-  const stocks = snapshot.stocks
-    .filter((stock) => stock.stock_id !== step.rebalance?.sell_stock_id)
-    .map((stock) => ({
-      stock_id: stock.stock_id,
-      shares: stock.shares,
-      bonus: stock.bonus ? { ...stock.bonus } : null,
-    }));
+  const soldSharesByStockId = new Map<number, number>();
+  for (const sale of step.sales) {
+    soldSharesByStockId.set(sale.stock_id, (soldSharesByStockId.get(sale.stock_id) ?? 0) + sale.shares);
+  }
+
+  const stocks = snapshot.stocks.flatMap((stock) => {
+    const sellShares = soldSharesByStockId.get(stock.stock_id) ?? 0;
+    const remainingShares = Math.max(0, stock.shares - sellShares);
+    return remainingShares > 0
+      ? [{
+        stock_id: stock.stock_id,
+        shares: remainingShares,
+        bonus: stock.bonus ? { ...stock.bonus } : null,
+      }]
+      : [];
+  });
   const row = step.recommendation.row;
   if (row.investment_type === "stock" && row.stock_id !== null && step.recommendation.target_shares !== null) {
     const existing = stocks.find((stock) => stock.stock_id === row.stock_id);

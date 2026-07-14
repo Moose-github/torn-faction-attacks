@@ -259,7 +259,7 @@ describe("stock buy recommendations", () => {
     const results = buildStockRebalanceRecommendations({
       rows: [
         stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 1_000 }),
-        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", latest_price: 10, total_shares_required: 200, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
       ],
       ownedSnapshot: {
         refreshed_at: 1_800_000_000,
@@ -273,6 +273,7 @@ describe("stock buy recommendations", () => {
 
     expect(results[0]).toMatchObject({
       sell_stock_id: 1,
+      sell_shares: 50,
       sale_value: 500,
       current_annual_return: 0,
       current_roi_percent: null,
@@ -281,11 +282,59 @@ describe("stock buy recommendations", () => {
     expect(results[0].proposed.row.row_id).toBe("stock:2:1");
   });
 
+  it("sells only enough shares to fund the rebalance gap", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 1_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", latest_price: 10, total_shares_required: 200, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 200, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 1_500,
+      affordableOnly: false,
+      minimumRoi: null,
+    });
+
+    expect(results[0]).toMatchObject({
+      sell_stock_id: 1,
+      sell_shares: 50,
+      sale_value: 500,
+      available_cash: 1_500,
+      extra_cash_required: 0,
+    });
+  });
+
+  it("keeps covered return when a partial sale still covers the block", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 100, annual_return: 500_000, roi_percent: 500 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", latest_price: 10, total_shares_required: 200, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 200, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 1_500,
+      affordableOnly: false,
+      minimumRoi: null,
+    });
+
+    expect(results[0]).toMatchObject({
+      sell_shares: 50,
+      current_annual_return: 0,
+      annual_return_gain: 2_000_000,
+    });
+  });
+
   it("subtracts covered holding return from rebalance gain", () => {
     const results = buildStockRebalanceRecommendations({
       rows: [
         stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 100, annual_return: 500_000, roi_percent: 500 }),
-        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", latest_price: 10, total_shares_required: 200, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
       ],
       ownedSnapshot: {
         refreshed_at: 1_800_000_000,
@@ -321,7 +370,7 @@ describe("stock buy recommendations", () => {
       sale_value: 1_000,
       available_cash: 2_000,
       available_capital: 3_000,
-      extra_cash_required: 2_000,
+      extra_cash_required: 0,
     });
   });
 
@@ -540,6 +589,60 @@ describe("stock buy recommendations", () => {
     ]);
   });
 
+  it("keeps remaining simulated shares after a partial strategy rebalance", () => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 100, annual_return: 500_000, roi_percent: 500 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", latest_price: 10, total_shares_required: 200, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 200, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 1_500,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 2);
+
+    expect(plan.steps[0]).toMatchObject({
+      kind: "rebalance",
+      sales: [
+        {
+          stock_id: 1,
+          shares: 50,
+        },
+      ],
+    });
+    expect(plan.steps.map((step) => step.recommendation.row.row_id)).not.toContain("stock:1:1");
+  });
+
+  it("builds stepping-stone buys before selling into a larger target", () => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "AAA", latest_price: 10, total_shares_required: 100, increment_cost: 1_000, total_cost: 1_000, annual_return: 100_000, roi_percent: 10_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BBB", latest_price: 10, total_shares_required: 200, increment_cost: 2_000, total_cost: 2_000, annual_return: 300_000, roi_percent: 15_000 }),
+        stockRow({ row_id: "stock:3:1", stock_id: 3, acronym: "CCC", latest_price: 10, total_shares_required: 1_000, increment_cost: 10_000, total_cost: 10_000, annual_return: 2_000_000, roi_percent: 20_000 }),
+      ],
+      ownedSnapshot: null,
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 3);
+
+    expect(plan.steps.map((step) => ({
+      kind: step.kind,
+      row_id: step.recommendation.row.row_id,
+      cash_required: step.cash_required,
+      sales: step.sales.map((sale) => sale.stock_id),
+    }))).toEqual([
+      { kind: "buy", row_id: "stock:1:1", cash_required: 1_000, sales: [] },
+      { kind: "buy", row_id: "stock:2:1", cash_required: 2_000, sales: [] },
+      { kind: "rebalance", row_id: "stock:3:1", cash_required: 7_000, sales: [1, 2] },
+    ]);
+  });
+
   it("marks City Bank unavailable after it is added to the strategy path", () => {
     const plan = buildStockStrategyPlan({
       rows: [
@@ -553,10 +656,7 @@ describe("stock buy recommendations", () => {
       minimumRoi: null,
     }, 2);
 
-    expect(plan.steps.map((step) => step.recommendation.row.row_id)).toEqual([
-      "city_bank:90",
-      "stock:1:1",
-    ]);
+    expect(plan.steps.map((step) => step.recommendation.row.row_id).filter((rowId) => rowId === "city_bank:90")).toHaveLength(1);
   });
 
   it("ranks strategy steps by ROI before annual return", () => {
