@@ -15,6 +15,7 @@ export type DiscordEmbed = {
   description?: string;
   url?: string;
   color?: number;
+  timestamp?: string;
   fields?: Array<{
     name: string;
     value: string;

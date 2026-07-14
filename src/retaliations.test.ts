@@ -291,8 +291,9 @@ describe("retaliation availability", () => {
     expect(payload.embeds).toEqual([
       {
         title: "No active retaliation",
+        timestamp: "1970-01-01T00:18:20.000Z",
         footer: {
-          text: "Updated <t:1100:R>",
+          text: "Updated",
         },
         color: 0x57f287,
       },
