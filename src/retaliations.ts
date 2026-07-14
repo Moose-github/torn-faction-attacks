@@ -929,10 +929,7 @@ function retaliationBoardEmbed(row: RetaliationOpportunity): DiscordEmbed {
 function noActiveRetaliationBoardEmbed(checkedAt: number): DiscordEmbed {
   return {
     title: "No active retaliation",
-    timestamp: new Date(checkedAt * 1000).toISOString(),
-    footer: {
-      text: "Updated",
-    },
+    description: `-# Updated <t:${checkedAt}:R>`,
     color: RETALIATION_BOARD_CONFIRMED_COLOR,
   };
 }
