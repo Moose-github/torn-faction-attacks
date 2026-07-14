@@ -1152,7 +1152,7 @@ function StrategyStepRow({
   bankMerits: number;
 }) {
   const recommendation = step.recommendation;
-  const milestoneLabel = step.extra_cash_needed <= 0 ? "Now" : `At ${formatMoney(step.cash_required)} cash`;
+  const milestoneLabel = step.extra_cash_needed <= 0 ? "Now" : `At ${formatInstructionMoney(step.cash_required)} cash`;
   return (
     <div className="stock-milestone-row">
       <div>
@@ -1187,9 +1187,9 @@ function StrategyStepRow({
 function rebalanceActionDescription(recommendation: StockRebalanceRecommendation, bankMerits: number): string {
   const proposed = recommendation.proposed;
   const availableCash = recommendation.available_cash > 0
-    ? ` and ${formatMoney(recommendation.available_cash)} available cash`
+    ? ` and ${formatInstructionMoney(recommendation.available_cash)} available cash`
     : "";
-  return `Sell ${rebalanceSaleDescription(recommendation)}, combine about ${formatMoney(recommendation.sale_value)} sale value${availableCash}, and buy ${bestOpportunityTitle(proposed.row)} for ${formatMoney(proposed.estimated_cost)}. ${rebalanceProposedDetail(proposed, bankMerits)}`;
+  return `Sell ${rebalanceSaleDescription(recommendation)}, combine about ${formatInstructionMoney(recommendation.sale_value)} sale value${availableCash}, and buy ${bestOpportunityTitle(proposed.row)} for ${formatInstructionMoney(proposed.estimated_cost)}. ${rebalanceProposedDetail(proposed, bankMerits)}`;
 }
 
 function rebalanceSaleChip(recommendation: StockRebalanceRecommendation): string {
@@ -1245,13 +1245,13 @@ function strategyStepDescription(step: StockStrategyStep, bankMerits: number): s
   const recommendation = step.recommendation;
   const row = recommendation.row;
   const cashText = step.extra_cash_needed > 0
-    ? `Save ${formatMoney(step.extra_cash_needed)} more cash. `
+    ? `Save ${formatInstructionMoney(step.extra_cash_needed)} more cash. `
     : "";
   if (step.kind === "rebalance" && step.sales.length > 0) {
     return `${strategyRebalanceFundingDescription(step)} Sources: ${strategySaleDescription(step)}.`;
   }
   if (row.investment_type === "city_bank") {
-    return `${cashText}Add City Bank for ${formatMoney(recommendation.estimated_cost)} with ${bankMerits}/10 merits.`;
+    return `${cashText}Add City Bank for ${formatInstructionMoney(recommendation.estimated_cost)} with ${bankMerits}/10 merits.`;
   }
 
   const sharesText = recommendation.personalized && recommendation.owned_shares > 0
@@ -1269,17 +1269,17 @@ function strategySaleLabels(step: StockStrategyStep): string {
 function strategyRebalanceFundingDescription(step: StockStrategyStep): string {
   const saleValue = step.sales.reduce((sum, sale) => sum + sale.sale_value, 0);
   const cashText = step.extra_cash_needed > 0
-    ? `Save ${formatMoney(step.extra_cash_needed)} more cash, then use`
+    ? `Save ${formatInstructionMoney(step.extra_cash_needed)} more cash, then use`
     : "Use";
   const holdingText = step.sales.length === 1
     ? "1 holding"
     : `${formatNumber(step.sales.length)} holdings`;
-  return `${cashText} ${formatMoney(saleValue)} sale value from ${holdingText} to fund ${bestOpportunityTitle(step.recommendation.row)}.`;
+  return `${cashText} ${formatInstructionMoney(saleValue)} sale value from ${holdingText} to fund ${bestOpportunityTitle(step.recommendation.row)}.`;
 }
 
 function strategySaleDescription(step: StockStrategyStep): string {
   return step.sales
-    .map((sale) => `${formatNumber(sale.shares)} ${sale.acronym ?? `#${sale.stock_id}`} (${formatMoney(sale.sale_value)})`)
+    .map((sale) => `${formatNumber(sale.shares)} ${sale.acronym ?? `#${sale.stock_id}`} (${formatInstructionMoney(sale.sale_value)})`)
     .join(", ");
 }
 
@@ -1558,6 +1558,18 @@ function formatMoney(value: number | null | undefined): string {
   }
 
   return `$${formatNumber(Math.round(value))}`;
+}
+
+function formatInstructionMoney(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "-";
+  }
+
+  if (Math.abs(value) < 500_000) {
+    return formatMoney(value);
+  }
+
+  return `$${formatNumber(Math.round(value / 1_000_000))}m`;
 }
 
 function formatPercent(value: number): string {

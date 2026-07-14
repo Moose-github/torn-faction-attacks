@@ -231,8 +231,9 @@ export function buildStockCapitalMilestones(input: StockBuyRecommendationInput, 
 
 export function buildStockRebalanceRecommendations(input: StockBuyRecommendationInput, limit = 5): StockRebalanceRecommendation[] {
   const recommendations = buildRebalanceRecommendations(input, input.budget ?? 0, false);
-  recommendations.sort(compareStockRebalanceRecommendations);
-  return recommendations.slice(0, Math.max(0, limit));
+  const usefulRecommendations = filterDominatedRebalanceRecommendations(recommendations);
+  usefulRecommendations.sort(compareStockRebalanceRecommendations);
+  return usefulRecommendations.slice(0, Math.max(0, limit));
 }
 
 export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit = DEFAULT_STOCK_STRATEGY_STEP_LIMIT): StockStrategyPlan {
@@ -654,6 +655,20 @@ function compareStockRebalanceRecommendations(left: StockRebalanceRecommendation
     return left.extra_cash_required - right.extra_cash_required;
   }
   return left.proposed.row.row_id.localeCompare(right.proposed.row.row_id, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function filterDominatedRebalanceRecommendations(recommendations: StockRebalanceRecommendation[]): StockRebalanceRecommendation[] {
+  return recommendations.filter((candidate) =>
+    !recommendations.some((other) => other !== candidate && rebalanceRecommendationDominates(other, candidate))
+  );
+}
+
+function rebalanceRecommendationDominates(left: StockRebalanceRecommendation, right: StockRebalanceRecommendation): boolean {
+  const hasAtLeastEqualGain = left.annual_return_gain >= right.annual_return_gain;
+  const hasAtLeastEqualRoi = left.proposed.roi_percent >= right.proposed.roi_percent;
+  const isStrictlyBetter = left.annual_return_gain > right.annual_return_gain ||
+    left.proposed.roi_percent > right.proposed.roi_percent;
+  return hasAtLeastEqualGain && hasAtLeastEqualRoi && isStrictlyBetter;
 }
 
 type StockStrategySalePlan = {

@@ -482,13 +482,14 @@ describe("stock buy recommendations", () => {
     expect(results).toEqual([]);
   });
 
-  it("sorts rebalance ideas by annual gain then proposed ROI", () => {
+  it("filters dominated rebalance ideas before sorting by annual gain then proposed ROI", () => {
     const results = buildStockRebalanceRecommendations({
       rows: [
         stockRow({ row_id: "stock:1:1", stock_id: 1, latest_price: 10, total_shares_required: 1_000 }),
-        stockRow({ row_id: "stock:2:1", stock_id: 2, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
-        stockRow({ row_id: "stock:3:1", stock_id: 3, increment_cost: 3_000, total_cost: 3_000, annual_return: 3_000_000, roi_percent: 100_000 }),
-        stockRow({ row_id: "stock:4:1", stock_id: 4, increment_cost: 4_000, total_cost: 4_000, annual_return: 3_000_000, roi_percent: 75_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, latest_price: 1, total_shares_required: 2_000, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+        stockRow({ row_id: "stock:3:1", stock_id: 3, latest_price: 1, total_shares_required: 3_000, increment_cost: 3_000, total_cost: 3_000, annual_return: 3_000_000, roi_percent: 100_000 }),
+        stockRow({ row_id: "stock:5:1", stock_id: 5, latest_price: 1, total_shares_required: 2_000, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_500_000, roi_percent: 125_000 }),
+        stockRow({ row_id: "stock:4:1", stock_id: 4, latest_price: 1, total_shares_required: 4_000, increment_cost: 4_000, total_cost: 4_000, annual_return: 3_000_000, roi_percent: 75_000 }),
       ],
       ownedSnapshot: {
         refreshed_at: 1_800_000_000,
@@ -502,8 +503,7 @@ describe("stock buy recommendations", () => {
 
     expect(results.map((result) => result.proposed.row.row_id)).toEqual([
       "stock:3:1",
-      "stock:4:1",
-      "stock:2:1",
+      "stock:5:1",
     ]);
   });
 
