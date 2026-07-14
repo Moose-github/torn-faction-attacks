@@ -251,7 +251,7 @@ describe("retaliation availability", () => {
     expect(payload.content).toBe("**Retaliation Board**\nUpdate <t:1160:R>");
     expect(payload.embeds).toEqual([
       expect.objectContaining({
-        title: "⚔️ nex [2054500]",
+        title: "nex [2054500] ⚔️",
         url: "https://www.torn.com/page.php?sid=attack&user2ID=2054500",
         description: "from [Vulpes Vulpes](https://www.torn.com/factions.php?step=profile&ID=1234)",
         color: 0xed4245,
@@ -269,14 +269,14 @@ describe("retaliation availability", () => {
         ],
       }),
       expect.objectContaining({
-        title: "⚔️ hhk556 [2814133]",
+        title: "hhk556 [2814133] ⚔️",
         color: 0xffa500,
         fields: expect.arrayContaining([
           { name: "Status", value: "Attack started by Attacker", inline: true },
         ]),
       }),
       expect.objectContaining({
-        title: "⚔️ done [333333]",
+        title: "done [333333] ⚔️",
         color: 0x57f287,
         fields: expect.arrayContaining([
           { name: "Status", value: "Retaliated by Finisher", inline: true },

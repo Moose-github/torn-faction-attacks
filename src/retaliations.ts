@@ -911,7 +911,7 @@ function retaliationBoardEmbed(row: RetaliationOpportunity): DiscordEmbed {
     : result;
 
   return {
-    title: `⚔️ ${target} [${row.target_id}]`,
+    title: `${target} [${row.target_id}] ⚔️`,
     url: `https://www.torn.com/page.php?sid=attack&user2ID=${row.target_id}`,
     description: `from ${faction}`,
     color: retaliationBoardEmbedColor(row),
