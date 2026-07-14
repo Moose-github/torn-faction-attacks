@@ -547,6 +547,101 @@ h2 {
   gap: 3px;
 }
 
+.stock-next-buys-panel {
+  margin-top: 14px;
+}
+
+.stock-next-buys-list {
+  display: grid;
+  gap: 8px;
+}
+
+.stock-next-buy-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(360px, auto);
+  gap: 14px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-faint);
+}
+
+.stock-next-buy-row:first-child {
+  border-top: 0;
+}
+
+.stock-next-buy-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.stock-next-buy-title > span:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stock-next-buy-title strong {
+  color: var(--text-heading);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.stock-next-buy-title small,
+.stock-next-buy-metrics small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.stock-next-buy-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.stock-next-buy-metrics > span:not(.stock-next-buy-affordability) {
+  display: grid;
+  gap: 3px;
+  min-width: 96px;
+}
+
+.stock-next-buy-metrics strong {
+  color: var(--text-main);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.stock-next-buy-affordability {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border-faint);
+  border-radius: 999px;
+  background: var(--panel-muted-bg);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.stock-next-buy-affordability.affordable {
+  border-color: rgba(22, 163, 74, 0.28);
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.stock-next-buy-affordability.over-budget {
+  border-color: rgba(220, 38, 38, 0.22);
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .stock-filter-stack {
   display: grid;
   gap: 10px;
@@ -686,7 +781,7 @@ h2 {
 
 .stock-owned-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(120px, max-content));
+  grid-template-columns: repeat(4, minmax(120px, max-content));
   gap: clamp(28px, 7vw, 96px);
   justify-content: start;
   padding: 10px 0;
@@ -902,6 +997,21 @@ h2 {
 
 .stock-shares-cell {
   min-width: 130px;
+}
+
+.stock-cost-cell {
+  display: grid;
+  gap: 3px;
+  min-width: 132px;
+  color: var(--text-main);
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.stock-cost-cell small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 
 .stock-benefit-value-input {
@@ -7510,6 +7620,14 @@ h2 {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .stock-next-buy-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stock-next-buy-metrics {
+    justify-content: flex-start;
+  }
+
   .stock-missing-values-popout {
     right: auto;
     left: 0;
@@ -9706,6 +9824,18 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .stock-investment-table tr.stock-owned-increment-row td:first-child {
   box-shadow: inset 3px 0 0 #4ade80;
+}
+
+:root[data-theme="dark"] .stock-next-buy-affordability.affordable {
+  border-color: rgba(74, 222, 128, 0.42);
+  background: rgba(22, 101, 52, 0.22);
+  color: #86efac;
+}
+
+:root[data-theme="dark"] .stock-next-buy-affordability.over-budget {
+  border-color: rgba(248, 113, 113, 0.38);
+  background: rgba(127, 29, 29, 0.22);
+  color: #fca5a5;
 }
 
 :root[data-theme="dark"] .chain-bonus-compact,

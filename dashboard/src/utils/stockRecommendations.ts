@@ -43,6 +43,10 @@ export function adjustCityBankRowForMerits(row: StockInvestmentRoiRow, bankMerit
 }
 
 export function recommendBestStockBuy(input: StockBuyRecommendationInput): StockBuyRecommendation | null {
+  return recommendStockBuys(input, 1)[0] ?? null;
+}
+
+export function recommendStockBuys(input: StockBuyRecommendationInput, limit = 5): StockBuyRecommendation[] {
   const ownedShares = ownedSharesMap(input.ownedSnapshot);
   const recommendations = input.rows
     .filter((row) => input.minimumRoi === null || row.roi_percent >= input.minimumRoi)
@@ -60,7 +64,7 @@ export function recommendBestStockBuy(input: StockBuyRecommendationInput): Stock
     });
 
   recommendations.sort(compareStockBuyRecommendations);
-  return recommendations[0] ?? null;
+  return recommendations.slice(0, Math.max(0, limit));
 }
 
 export function stockBuyRecommendationFromRow(

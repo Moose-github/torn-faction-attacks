@@ -24,6 +24,7 @@ import {
 import {
   adjustCityBankRowForMerits,
   recommendBestStockBuy,
+  recommendStockBuys,
   type StockBuyRecommendation,
 } from "../utils/stockRecommendations";
 
@@ -246,6 +247,14 @@ export function StockInvestments() {
     affordableOnly,
     minimumRoi: minRoi,
   }), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
+  const topNextBuyRecommendations = React.useMemo(() => recommendStockBuys({
+    rows: investmentRows,
+    ownedSnapshot,
+    cityBankActive,
+    budget,
+    affordableOnly,
+    minimumRoi: minRoi,
+  }, 5), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
@@ -316,6 +325,27 @@ export function StockInvestments() {
           value={formatRelativeTime(benefitValuesRefreshedAt)}
           detail={benefitValuesRefreshedAt ? formatLongDateTime(benefitValuesRefreshedAt) : "No market refresh yet"}
         />
+      </section>
+
+      <section className="panel stock-next-buys-panel">
+        <PanelHeader
+          title="Top next buys"
+          aside={topNextBuyRecommendations.length > 0 ? `${formatNumber(topNextBuyRecommendations.length)} shown` : "No matches"}
+          icon={<BadgeDollarSign size={18} />}
+        />
+        {topNextBuyRecommendations.length === 0 ? (
+          <EmptyState text={ownedSnapshot ? "All eligible opportunities are covered or filtered out" : "No priced opportunities match the current filters"} />
+        ) : (
+          <div className="stock-next-buys-list">
+            {topNextBuyRecommendations.map((recommendation) => (
+              <NextBuyRow
+                key={recommendation.row.row_id}
+                recommendation={recommendation}
+                bankMerits={bankMerits}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="panel stock-investment-controls-panel">
@@ -409,6 +439,10 @@ export function StockInvestments() {
               <span>
                 <strong>{formatRelativeTime(ownedSnapshot.refreshed_at)}</strong>
                 <small>Snapshot age</small>
+              </span>
+              <span>
+                <strong>{cityBankActive ? "Active" : "Inactive"}</strong>
+                <small>Bank: {formatNumber(bankMerits)}/10 merits</small>
               </span>
             </div>
           ) : (
@@ -584,6 +618,7 @@ function StockRoiTable({
             const isStockRow = isStockInvestmentRow(row);
             const owned = isStockRow ? ownedShares.get(row.stock_id) ?? 0 : 0;
             const ownsIncrement = isInvestmentRowCovered(row, ownedShares, cityBankActive);
+            const additionalCost = additionalCostForOwnedStockRow(row, owned);
             return (
               <tr key={row.row_id} className={ownsIncrement ? "stock-owned-increment-row" : undefined}>
                 <td>
@@ -612,13 +647,18 @@ function StockRoiTable({
                   </span>
                 </td>
                 <td>
-                  {!isStockRow || row.increment === 1 ? (
-                    formatMoney(row.increment_cost)
-                  ) : (
-                    <span className="stock-tooltip-value" title={`Total cost through this increment: ${formatMoney(row.total_cost)}`}>
-                      {formatMoney(row.increment_cost)}
+                  <span className="stock-cost-cell">
+                    {!isStockRow || row.increment === 1 ? (
+                      <span>{formatMoney(row.increment_cost)}</span>
+                    ) : (
+                      <span className="stock-tooltip-value" title={`Total cost through this increment: ${formatMoney(row.total_cost)}`}>
+                        {formatMoney(row.increment_cost)}
+                      </span>
+                    )}
+                    {additionalCost !== null ? (
+                      <small>Additional: {formatMoney(additionalCost)}</small>
+                    ) : null}
                     </span>
-                  )}
                 </td>
                 <td>
                   <span className="stock-benefit-cell">
@@ -1008,6 +1048,47 @@ function StatusMetric({
   );
 }
 
+function NextBuyRow({
+  recommendation,
+  bankMerits,
+}: {
+  recommendation: StockBuyRecommendation;
+  bankMerits: number;
+}) {
+  const row = recommendation.row;
+  const costLabel = row.investment_type === "stock" && recommendation.personalized ? "Additional cost" : "Cost";
+  return (
+    <div className="stock-next-buy-row">
+      <div className="stock-next-buy-title">
+        <span className="stock-symbol-chip">{row.acronym ?? (row.stock_id ? `#${row.stock_id}` : "-")}</span>
+        <span>
+          <strong>{bestOpportunityTitle(row)}</strong>
+          <small>{row.investment_type === "city_bank" ? `City Bank - ${bankMerits}/10 Merits` : row.name ?? "-"}</small>
+        </span>
+      </div>
+      <div className="stock-next-buy-metrics">
+        <span>
+          <strong>{formatMoney(recommendation.estimated_cost)}</strong>
+          <small>{costLabel}</small>
+        </span>
+        <span>
+          <strong>{formatMoney(recommendation.annual_return)}</strong>
+          <small>Annual return</small>
+        </span>
+        <span>
+          <strong>{formatPercent(row.roi_percent)}</strong>
+          <small>Block ROI</small>
+        </span>
+        {recommendation.affordable !== null ? (
+          <span className={`stock-next-buy-affordability ${recommendation.affordable ? "affordable" : "over-budget"}`}>
+            {recommendation.affordable ? "Fits budget" : "Over budget"}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 async function fetchOwnedStockSnapshot(apiKey: string, refreshedAt: number): Promise<OwnedStockSnapshot> {
   const data = await fetchTornUserJson(TORN_OWNED_STOCKS_URL, apiKey, "Torn owned stocks response was not valid.");
   return parseOwnedStocksResponse(data, refreshedAt);
@@ -1113,6 +1194,20 @@ function isInvestmentRowCovered(row: StockInvestmentRoiRow, ownedShares: Map<num
   }
 
   return ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required);
+}
+
+function additionalCostForOwnedStockRow(row: StockInvestmentRoiRow, ownedShares: number): number | null {
+  if (!isStockInvestmentRow(row) || ownedShares <= 0) {
+    return null;
+  }
+
+  const targetShares = row.total_shares_required ?? 0;
+  const latestPrice = row.latest_price ?? 0;
+  if (ownedShares >= targetShares || targetShares <= 0 || latestPrice <= 0) {
+    return null;
+  }
+
+  return (targetShares - ownedShares) * latestPrice;
 }
 
 function bestOpportunityTitle(row: StockInvestmentRoiRow): string {

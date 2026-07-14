@@ -3,6 +3,7 @@ import type { StockInvestmentRoiRow } from "../api/types";
 import {
   adjustCityBankRowForMerits,
   recommendBestStockBuy,
+  recommendStockBuys,
   stockBuyRecommendationFromRow,
 } from "./stockRecommendations";
 
@@ -42,6 +43,26 @@ describe("stock buy recommendations", () => {
     });
 
     expect(result?.row.row_id).toBe("stock:2:1");
+  });
+
+  it("returns a limited ranked list of next buys", () => {
+    const results = recommendStockBuys({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, roi_percent: 10, annual_return: 100 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, roi_percent: 20, annual_return: 200 }),
+        stockRow({ row_id: "stock:3:1", stock_id: 3, roi_percent: 15, annual_return: 150 }),
+      ],
+      ownedSnapshot: null,
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 2);
+
+    expect(results.map((recommendation) => recommendation.row.row_id)).toEqual([
+      "stock:2:1",
+      "stock:3:1",
+    ]);
   });
 
   it("uses additional shares and cost for partially owned blocks", () => {
