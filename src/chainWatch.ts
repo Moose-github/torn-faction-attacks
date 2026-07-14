@@ -279,6 +279,33 @@ export function chainWatchWarningMessage(options: {
   ].join("\n");
 }
 
+export async function refreshActiveChainWatchFromStoredAttacks(
+  env: Env,
+  checkedAt: number = nowSeconds(),
+): Promise<ChainWatchStateRow | null> {
+  const war = await readActiveChainWatchWar(env);
+  if (!war) {
+    return null;
+  }
+
+  await ensureChainWatchEnabledForWar(env, war.id);
+  const existing = await readChainWatchState(env, war.id);
+  if (existing && existing.enabled !== 1) {
+    await cancelChainWatchAlarm(env, war.id);
+    return existing;
+  }
+
+  const observation = await observeStoredChainWatch(env, war, checkedAt, { includeUnassigned: true });
+  if (!observation) {
+    return existing;
+  }
+
+  let saved = await saveChainWatchObservation(env, war.id, existing, observation, checkedAt);
+  saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, checkedAt);
+  await scheduleChainWatchAlarmForState(env, saved, checkedAt);
+  return saved;
+}
+
 export function chainWatchNormalMessage(options: {
   currentChain: number;
   timeoutAt: number;
@@ -368,18 +395,14 @@ async function observeChainWatch(
   checkedAt: number,
   options: { confirmDrop: boolean },
 ): Promise<ChainWatchObservation> {
-  const latestHit = await readLatestQualifyingChainHit(env, war.id);
-  const latestHitAt = latestHit ? chainHitAt(latestHit) : null;
-  const storedTimedOut =
-    latestHit !== null &&
-    latestHitAt !== null &&
-    latestHitAt + CHAIN_WATCH_TIMEOUT_SECONDS <= checkedAt;
+  const latestHit = await readLatestQualifyingChainHit(env, war);
+  const storedObservationValue = storedChainWatchObservation(latestHit, checkedAt);
 
-  if (latestHit && latestHitAt !== null && latestHitAt + CHAIN_WATCH_TIMEOUT_SECONDS > checkedAt) {
-    return storedObservation(latestHit);
+  if (storedObservationValue) {
+    return storedObservationValue;
   }
 
-  if (!latestHit || storedTimedOut || options.confirmDrop) {
+  if (!latestHit || !storedObservationValue || options.confirmDrop) {
     const live = await readTornChain(env, checkedAt).catch((err: any) => ({
       error: err?.message || String(err),
       chain: null,
@@ -420,6 +443,30 @@ async function observeChainWatch(
     ...storedObservation(latestHit),
     source: "stale",
   };
+}
+
+async function observeStoredChainWatch(
+  env: Env,
+  war: WarRow,
+  checkedAt: number,
+  options: { includeUnassigned: boolean },
+): Promise<ChainWatchObservation | null> {
+  return storedChainWatchObservation(
+    await readLatestQualifyingChainHit(env, war, options),
+    checkedAt,
+  );
+}
+
+export function storedChainWatchObservation(
+  latestHit: ChainWatchAttackRow | null,
+  checkedAt: number,
+): ChainWatchObservation | null {
+  const latestHitAt = latestHit ? chainHitAt(latestHit) : null;
+  if (!latestHit || latestHitAt === null || latestHitAt + CHAIN_WATCH_TIMEOUT_SECONDS <= checkedAt) {
+    return null;
+  }
+
+  return storedObservation(latestHit);
 }
 
 function storedObservation(hit: ChainWatchAttackRow): ChainWatchObservation {
@@ -851,7 +898,8 @@ function chainWatchStateAsAttackRow(state: ChainWatchStateRow): ChainWatchAttack
 
 async function readLatestQualifyingChainHit(
   env: Env,
-  warId: number,
+  war: WarRow,
+  options: { includeUnassigned?: boolean } = {},
 ): Promise<ChainWatchAttackRow | null> {
   return (await env.DB.prepare(
     `
@@ -866,8 +914,10 @@ async function readLatestQualifyingChainHit(
       a.result,
       a.chain
     FROM attacks a
-    JOIN wars w ON w.id = a.war_id
-    WHERE a.war_id = ?
+    WHERE (
+        a.war_id = ?
+        OR (? = 1 AND a.war_id IS NULL)
+      )
       AND a.attacker_faction_id = ${HOME_FACTION_ID}
       AND (
         a.defender_faction_id IS NULL
@@ -875,20 +925,28 @@ async function readLatestQualifyingChainHit(
       )
       AND a.result IN (${POSITIVE_RESULTS_SQL})
       AND COALESCE(a.ended, a.started) IS NOT NULL
-      AND a.started >= w.practical_start_time
+      AND a.started >= ?
       AND (
-        w.practical_finish_time IS NULL
-        OR COALESCE(a.ended, a.started) <= w.practical_finish_time
+        ? IS NULL
+        OR COALESCE(a.ended, a.started) <= ?
       )
       AND (
-        w.official_end_time IS NULL
-        OR COALESCE(a.ended, a.started) <= w.official_end_time
+        ? IS NULL
+        OR COALESCE(a.ended, a.started) <= ?
       )
     ORDER BY COALESCE(a.ended, a.started) DESC, a.id DESC
     LIMIT 1
     `,
   )
-    .bind(warId)
+    .bind(
+      war.id,
+      options.includeUnassigned ? 1 : 0,
+      war.practical_start_time,
+      war.practical_finish_time,
+      war.practical_finish_time,
+      war.official_end_time,
+      war.official_end_time,
+    )
     .first()) as ChainWatchAttackRow | null;
 }
 

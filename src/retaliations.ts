@@ -7,6 +7,7 @@ import { ingestRecentFactionAttacks, RecentAttackIngestionResult } from "./inges
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env } from "./types";
 import { d1Changes, json, nowSeconds, parseLimit } from "./utils";
+import { refreshActiveChainWatchFromStoredAttacks } from "./chainWatch";
 
 export const RETALIATION_WINDOW_SECONDS = 5 * 60;
 export const RETALIATION_CLAIM_TTL_SECONDS = 30;
@@ -20,6 +21,9 @@ const RETALIATION_BOARD_MIN_EDIT_INTERVAL_SECONDS = 5;
 const RETALIATION_BOARD_LIMIT = 10;
 export const RETALIATION_BOARD_ACTIVE_REFRESH_SECONDS = 10;
 const RETALIATION_BOARD_FALLBACK_REFRESH_SECONDS = 60;
+const RETALIATION_BOARD_LIGHT_SYNC_ATTEMPT_STATE = "retaliation_board_light_sync_attempt";
+const RETALIATION_BOARD_LIGHT_SYNC_SUCCESS_STATE = "retaliation_board_light_sync_success";
+const RETALIATION_BOARD_LIGHT_SYNC_COOLDOWN_SECONDS = 10;
 const RETALIATION_BOARD_AVAILABLE_COLOR = 0xed4245;
 const RETALIATION_BOARD_PENDING_COLOR = 0xffa500;
 const RETALIATION_BOARD_CONFIRMED_COLOR = 0x57f287;
@@ -106,6 +110,7 @@ export type RetaliationBoardRefreshPlan = {
 export type RetaliationBoardSyncResult = RetaliationBoardRefreshPlan & {
   edited: boolean;
   skippedReason?: string;
+  lightSync?: LightSyncResult;
 };
 
 export async function getRetaliationCheck(url: URL, env: Env): Promise<Response> {
@@ -380,6 +385,7 @@ export function resolveRetaliationOpportunity(
 export async function syncRetaliationDiscordBoard(
   env: Env,
   checkedAt: number = nowSeconds(),
+  options: { allowActiveLightSync?: boolean } = {},
 ): Promise<RetaliationBoardSyncResult> {
   const inactiveResult = (skippedReason: string): RetaliationBoardSyncResult => ({
     active: false,
@@ -397,11 +403,23 @@ export async function syncRetaliationDiscordBoard(
     return inactiveResult("disabled");
   }
 
-  const rows = await listRetaliationOpportunities(env, checkedAt, {
+  let rows = await listRetaliationOpportunities(env, checkedAt, {
     includeClaimed: true,
     includeExpired: false,
     limit: RETALIATION_BOARD_LIMIT,
   });
+  const initialRefreshPlan = getRetaliationBoardRefreshPlan(rows, checkedAt);
+  const lightSync = options.allowActiveLightSync && initialRefreshPlan.active
+    ? await maybeSyncRetaliationBoardRecentAttacks(env, checkedAt)
+    : null;
+  if ((lightSync?.result?.inserted_attacks ?? 0) > 0) {
+    await refreshActiveChainWatchFromStoredAttacks(env, checkedAt);
+    rows = await listRetaliationOpportunities(env, checkedAt, {
+      includeClaimed: true,
+      includeExpired: false,
+      limit: RETALIATION_BOARD_LIMIT,
+    });
+  }
   const refreshPlan = getRetaliationBoardRefreshPlan(rows, checkedAt);
   const message = renderRetaliationBoardPayload(rows, checkedAt, refreshPlan.nextRefreshAt);
   const hash = stableHash(JSON.stringify(message));
@@ -409,6 +427,7 @@ export async function syncRetaliationDiscordBoard(
   let result: RetaliationBoardSyncResult = {
     ...refreshPlan,
     edited: false,
+    ...(lightSync ? { lightSync } : {}),
   };
 
   if (state?.last_rendered_hash === hash) {
@@ -443,7 +462,7 @@ export async function syncRetaliationDiscordBoard(
 }
 
 export async function handleRetaliationBoardAlarm(env: Env, checkedAt: number = nowSeconds()): Promise<void> {
-  await syncRetaliationDiscordBoard(env, checkedAt);
+  await syncRetaliationDiscordBoard(env, checkedAt, { allowActiveLightSync: true });
 }
 
 async function listRetaliationOpportunities(
@@ -523,7 +542,7 @@ async function maybeSyncRecentAttacks(env: Env, now: number): Promise<LightSyncR
     };
   }
 
-  const claimed = await claimLightSyncAttempt(env, now);
+  const claimed = await claimLightSyncAttempt(env, LIGHT_SYNC_ATTEMPT_STATE, LIGHT_SYNC_COOLDOWN_SECONDS, now);
   if (!claimed) {
     return {
       fresh: lastSuccess >= now - LIGHT_SYNC_FRESH_SECONDS,
@@ -555,7 +574,53 @@ async function maybeSyncRecentAttacks(env: Env, now: number): Promise<LightSyncR
   }
 }
 
-async function claimLightSyncAttempt(env: Env, now: number): Promise<boolean> {
+async function maybeSyncRetaliationBoardRecentAttacks(env: Env, now: number): Promise<LightSyncResult> {
+  const lastSuccess = await readSyncTimestamp(env, RETALIATION_BOARD_LIGHT_SYNC_SUCCESS_STATE);
+  const claimed = await claimLightSyncAttempt(
+    env,
+    RETALIATION_BOARD_LIGHT_SYNC_ATTEMPT_STATE,
+    RETALIATION_BOARD_LIGHT_SYNC_COOLDOWN_SECONDS,
+    now,
+  );
+
+  if (!claimed) {
+    return {
+      fresh: lastSuccess >= now - RETALIATION_BOARD_LIGHT_SYNC_COOLDOWN_SECONDS,
+      status: "cooldown",
+      last_success_at: lastSuccess || null,
+      warning: "Retaliation board attack refresh is already cooling down; using stored data",
+      result: null,
+    };
+  }
+
+  try {
+    const result = await ingestRecentFactionAttacks(env, now - LIGHT_SYNC_LOOKBACK_SECONDS, now);
+    await upsertSyncTimestamp(env, RETALIATION_BOARD_LIGHT_SYNC_SUCCESS_STATE, now);
+    return {
+      fresh: true,
+      status: "refreshed",
+      last_success_at: now,
+      warning: null,
+      result,
+    };
+  } catch (err: any) {
+    console.warn("Retaliation board attack refresh failed:", err?.message || err);
+    return {
+      fresh: false,
+      status: "failed",
+      last_success_at: lastSuccess || await readSyncTimestamp(env, SOURCE_NAME) || null,
+      warning: err?.message || String(err),
+      result: null,
+    };
+  }
+}
+
+async function claimLightSyncAttempt(
+  env: Env,
+  stateName: string,
+  cooldownSeconds: number,
+  now: number,
+): Promise<boolean> {
   const result = await env.DB.prepare(
     `
     INSERT INTO sync_state (name, last_started, updated_at)
@@ -566,7 +631,7 @@ async function claimLightSyncAttempt(env: Env, now: number): Promise<boolean> {
     WHERE sync_state.last_started <= ?
     `,
   )
-    .bind(LIGHT_SYNC_ATTEMPT_STATE, now, now - LIGHT_SYNC_COOLDOWN_SECONDS)
+    .bind(stateName, now, now - cooldownSeconds)
     .run();
 
   return d1Changes(result) > 0;

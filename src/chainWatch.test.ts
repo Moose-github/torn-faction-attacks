@@ -12,6 +12,7 @@ import {
   isQualifyingChainAttack,
   parseTornChainResponse,
   selectNextChainWatchAlarm,
+  storedChainWatchObservation,
   type ChainWatchAttackRow,
 } from "./chainWatch";
 import { HOME_FACTION_ID } from "./constants";
@@ -47,6 +48,19 @@ describe("chain watch stored attacks", () => {
   it("uses a five minute timeout from the reset time", () => {
     const resetAt = chainHitAt(attackRow({ started: 100, ended: 130 }));
     expect((resetAt ?? 0) + CHAIN_WATCH_TIMEOUT_SECONDS).toBe(430);
+  });
+
+  it("creates stored observations only while the stored hit is still live", () => {
+    expect(storedChainWatchObservation(attackRow({ started: 100, ended: 130 }), 200))
+      .toMatchObject({
+        source: "stored",
+        currentChain: 101,
+        resetAt: 130,
+        timeoutAt: 430,
+      });
+
+    expect(storedChainWatchObservation(attackRow({ started: 100, ended: 130 }), 430)).toBeNull();
+    expect(storedChainWatchObservation(null, 200)).toBeNull();
   });
 });
 
