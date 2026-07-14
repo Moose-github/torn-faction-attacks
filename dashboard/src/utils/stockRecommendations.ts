@@ -25,6 +25,25 @@ export type StockBuyRecommendationInput = {
   minimumRoi: number | null;
 };
 
+export type StockSuggestedActionKind =
+  | "closest_completion"
+  | "best_affordable"
+  | "best_roi"
+  | "highest_return"
+  | "city_bank";
+
+export type StockSuggestedAction = {
+  kind: StockSuggestedActionKind;
+  title: string;
+  reason: string;
+  recommendation: StockBuyRecommendation;
+};
+
+export type StockCapitalMilestone = {
+  capital: number;
+  recommendation: StockBuyRecommendation;
+};
+
 export function adjustCityBankRowForMerits(row: StockInvestmentRoiRow, bankMerits: number): StockInvestmentRoiRow {
   if (row.investment_type !== "city_bank") {
     return row;
@@ -65,6 +84,89 @@ export function recommendStockBuys(input: StockBuyRecommendationInput, limit = 5
 
   recommendations.sort(compareStockBuyRecommendations);
   return recommendations.slice(0, Math.max(0, limit));
+}
+
+export function buildStockSuggestedActions(input: StockBuyRecommendationInput, limit = 5): StockSuggestedAction[] {
+  const recommendations = recommendStockBuys(input, Number.MAX_SAFE_INTEGER);
+  const actions: StockSuggestedAction[] = [];
+  const seenRows = new Set<string>();
+  const pushAction = (action: StockSuggestedAction | null) => {
+    if (!action || seenRows.has(action.recommendation.row.row_id) || actions.length >= limit) {
+      return;
+    }
+    seenRows.add(action.recommendation.row.row_id);
+    actions.push(action);
+  };
+
+  pushAction(actionFromRecommendation(
+    "closest_completion",
+    "Complete closest block",
+    "Lowest additional cost among partially owned blocks.",
+    closestCompletion(recommendations),
+  ));
+
+  if (input.budget !== null) {
+    pushAction(actionFromRecommendation(
+      "best_affordable",
+      "Best affordable buy",
+      "Highest ranked option within your investment amount.",
+      recommendations.filter((recommendation) => recommendation.affordable === true).sort(compareStockBuyRecommendations)[0] ?? null,
+    ));
+  }
+
+  pushAction(actionFromRecommendation(
+    "best_roi",
+    "Best ROI buy",
+    "Highest ranked next buy after covered blocks and filters.",
+    recommendations[0] ?? null,
+  ));
+
+  pushAction(actionFromRecommendation(
+    "highest_return",
+    "Highest annual return",
+    "Largest annual return among currently eligible next buys.",
+    [...recommendations].sort(compareByAnnualReturn)[0] ?? null,
+  ));
+
+  pushAction(actionFromRecommendation(
+    "city_bank",
+    "City Bank comparison",
+    "Bank option with your current merit setting, if it is not marked active.",
+    recommendations.find((recommendation) => recommendation.row.investment_type === "city_bank") ?? null,
+  ));
+
+  return actions;
+}
+
+export function buildStockCapitalMilestones(input: StockBuyRecommendationInput, limit = 5): StockCapitalMilestone[] {
+  const candidates = recommendStockBuys({
+    ...input,
+    budget: null,
+    affordableOnly: false,
+  }, Number.MAX_SAFE_INTEGER)
+    .sort((left, right) => left.estimated_cost - right.estimated_cost || compareStockBuyRecommendations(left, right));
+  const milestones: StockCapitalMilestone[] = [];
+  let lastRecommendationRowId: string | null = null;
+
+  for (const candidate of candidates) {
+    const bestAtCapital = candidates
+      .filter((recommendation) => recommendation.estimated_cost <= candidate.estimated_cost)
+      .sort(compareStockBuyRecommendations)[0] ?? null;
+    if (!bestAtCapital || bestAtCapital.row.row_id === lastRecommendationRowId) {
+      continue;
+    }
+
+    milestones.push({
+      capital: candidate.estimated_cost,
+      recommendation: bestAtCapital,
+    });
+    lastRecommendationRowId = bestAtCapital.row.row_id;
+    if (milestones.length >= limit) {
+      break;
+    }
+  }
+
+  return milestones;
 }
 
 export function stockBuyRecommendationFromRow(
@@ -132,6 +234,34 @@ function compareStockBuyRecommendations(left: StockBuyRecommendation, right: Sto
     return right.annual_return - left.annual_return;
   }
   return left.row.row_id.localeCompare(right.row.row_id, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function compareByAnnualReturn(left: StockBuyRecommendation, right: StockBuyRecommendation): number {
+  if (left.annual_return !== right.annual_return) {
+    return right.annual_return - left.annual_return;
+  }
+  return compareStockBuyRecommendations(left, right);
+}
+
+function closestCompletion(recommendations: StockBuyRecommendation[]): StockBuyRecommendation | null {
+  return recommendations
+    .filter((recommendation) =>
+      recommendation.personalized &&
+      recommendation.row.investment_type === "stock" &&
+      recommendation.owned_shares > 0 &&
+      recommendation.shares_needed !== null &&
+      recommendation.shares_needed > 0
+    )
+    .sort((left, right) => left.estimated_cost - right.estimated_cost || compareStockBuyRecommendations(left, right))[0] ?? null;
+}
+
+function actionFromRecommendation(
+  kind: StockSuggestedActionKind,
+  title: string,
+  reason: string,
+  recommendation: StockBuyRecommendation | null,
+): StockSuggestedAction | null {
+  return recommendation ? { kind, title, reason, recommendation } : null;
 }
 
 function affordability(cost: number, budget: number | null): boolean | null {

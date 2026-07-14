@@ -551,6 +551,36 @@ h2 {
   margin-top: 14px;
 }
 
+.stock-suggested-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  gap: 18px;
+}
+
+.stock-suggested-section {
+  min-width: 0;
+}
+
+.stock-suggested-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.stock-suggested-heading strong {
+  color: var(--text-heading);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.stock-suggested-heading span {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
 .stock-next-buys-list {
   display: grid;
   gap: 8px;
@@ -588,7 +618,13 @@ h2 {
   font-weight: 900;
 }
 
-.stock-next-buy-title small,
+.stock-next-buy-title small {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
 .stock-next-buy-metrics small {
   color: var(--text-muted);
   font-size: 0.72rem;
@@ -640,6 +676,49 @@ h2 {
   border-color: rgba(220, 38, 38, 0.22);
   background: #fef2f2;
   color: #b91c1c;
+}
+
+.stock-milestone-list {
+  display: grid;
+  gap: 8px;
+}
+
+.stock-milestone-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-faint);
+}
+
+.stock-milestone-row:first-child {
+  border-top: 0;
+}
+
+.stock-milestone-row > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stock-milestone-row strong {
+  color: var(--text-heading);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.stock-milestone-row small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.stock-milestone-row p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1.35;
 }
 
 .stock-filter-stack {
@@ -7618,6 +7697,16 @@ h2 {
 
   .stock-owned-summary {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stock-suggested-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stock-suggested-heading,
+  .stock-milestone-row > div {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .stock-next-buy-row {

@@ -23,9 +23,12 @@ import {
 } from "../utils/ownedStocks";
 import {
   adjustCityBankRowForMerits,
+  buildStockCapitalMilestones,
+  buildStockSuggestedActions,
   recommendBestStockBuy,
-  recommendStockBuys,
   type StockBuyRecommendation,
+  type StockCapitalMilestone,
+  type StockSuggestedAction,
 } from "../utils/stockRecommendations";
 
 const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
@@ -247,7 +250,15 @@ export function StockInvestments() {
     affordableOnly,
     minimumRoi: minRoi,
   }), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
-  const topNextBuyRecommendations = React.useMemo(() => recommendStockBuys({
+  const suggestedActions = React.useMemo(() => buildStockSuggestedActions({
+    rows: investmentRows,
+    ownedSnapshot,
+    cityBankActive,
+    budget,
+    affordableOnly,
+    minimumRoi: minRoi,
+  }, 5), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
+  const capitalMilestones = React.useMemo(() => buildStockCapitalMilestones({
     rows: investmentRows,
     ownedSnapshot,
     cityBankActive,
@@ -329,23 +340,51 @@ export function StockInvestments() {
 
       <section className="panel stock-next-buys-panel">
         <PanelHeader
-          title="Top next buys"
-          aside={topNextBuyRecommendations.length > 0 ? `${formatNumber(topNextBuyRecommendations.length)} shown` : "No matches"}
+          title="Suggested actions"
+          aside={suggestedActions.length > 0 ? `${formatNumber(suggestedActions.length)} actions` : "No actions"}
           icon={<BadgeDollarSign size={18} />}
         />
-        {topNextBuyRecommendations.length === 0 ? (
-          <EmptyState text={ownedSnapshot ? "All eligible opportunities are covered or filtered out" : "No priced opportunities match the current filters"} />
-        ) : (
-          <div className="stock-next-buys-list">
-            {topNextBuyRecommendations.map((recommendation) => (
-              <NextBuyRow
-                key={recommendation.row.row_id}
-                recommendation={recommendation}
-                bankMerits={bankMerits}
-              />
-            ))}
+        <div className="stock-suggested-layout">
+          <div className="stock-suggested-section">
+            <div className="stock-suggested-heading">
+              <strong>Actions</strong>
+              <span>Current holdings and filters</span>
+            </div>
+            {suggestedActions.length === 0 ? (
+              <EmptyState text={ownedSnapshot ? "All eligible opportunities are covered or filtered out" : "No priced opportunities match the current filters"} />
+            ) : (
+              <div className="stock-next-buys-list">
+                {suggestedActions.map((action) => (
+                  <SuggestedActionRow
+                    key={action.kind}
+                    action={action}
+                    bankMerits={bankMerits}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        )}
+          <div className="stock-suggested-section">
+            <div className="stock-suggested-heading">
+              <strong>Capital milestones</strong>
+              <span>Buy-only path</span>
+            </div>
+            {capitalMilestones.length === 0 ? (
+              <EmptyState text="No future buy milestones match the current filters" />
+            ) : (
+              <div className="stock-milestone-list">
+                {capitalMilestones.map((milestone) => (
+                  <CapitalMilestoneRow
+                    key={`${milestone.capital}:${milestone.recommendation.row.row_id}`}
+                    milestone={milestone}
+                    budget={budget}
+                    bankMerits={bankMerits}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </section>
 
       <section className="panel stock-investment-controls-panel">
@@ -1048,28 +1087,28 @@ function StatusMetric({
   );
 }
 
-function NextBuyRow({
-  recommendation,
+function SuggestedActionRow({
+  action,
   bankMerits,
 }: {
-  recommendation: StockBuyRecommendation;
+  action: StockSuggestedAction;
   bankMerits: number;
 }) {
+  const recommendation = action.recommendation;
   const row = recommendation.row;
-  const costLabel = row.investment_type === "stock" && recommendation.personalized ? "Additional cost" : "Cost";
   return (
     <div className="stock-next-buy-row">
       <div className="stock-next-buy-title">
         <span className="stock-symbol-chip">{row.acronym ?? (row.stock_id ? `#${row.stock_id}` : "-")}</span>
         <span>
-          <strong>{bestOpportunityTitle(row)}</strong>
-          <small>{row.investment_type === "city_bank" ? `City Bank - ${bankMerits}/10 Merits` : row.name ?? "-"}</small>
+          <strong>{action.title}</strong>
+          <small>{suggestedActionDescription(action, bankMerits)}</small>
         </span>
       </div>
       <div className="stock-next-buy-metrics">
         <span>
           <strong>{formatMoney(recommendation.estimated_cost)}</strong>
-          <small>{costLabel}</small>
+          <small>{row.investment_type === "stock" && recommendation.personalized ? "Additional cost" : "Cost"}</small>
         </span>
         <span>
           <strong>{formatMoney(recommendation.annual_return)}</strong>
@@ -1087,6 +1126,51 @@ function NextBuyRow({
       </div>
     </div>
   );
+}
+
+function CapitalMilestoneRow({
+  milestone,
+  budget,
+  bankMerits,
+}: {
+  milestone: StockCapitalMilestone;
+  budget: number | null;
+  bankMerits: number;
+}) {
+  const recommendation = milestone.recommendation;
+  const row = recommendation.row;
+  const isNow = budget !== null && milestone.capital <= budget;
+  return (
+    <div className="stock-milestone-row">
+      <div>
+        <strong>{isNow ? "Now" : `At ${formatMoney(milestone.capital)}`}</strong>
+        <small>{bestOpportunityTitle(row)}</small>
+      </div>
+      <p>{milestoneDescription(recommendation, bankMerits)}</p>
+    </div>
+  );
+}
+
+function suggestedActionDescription(action: StockSuggestedAction, bankMerits: number): string {
+  const recommendation = action.recommendation;
+  const row = recommendation.row;
+  if (row.investment_type === "city_bank") {
+    return `Compare City Bank at ${bankMerits}/10 merits against your next stock buy.`;
+  }
+
+  const buyText = recommendation.personalized && recommendation.owned_shares > 0
+    ? `Buy ${formatNumber(recommendation.shares_needed ?? 0)} more shares`
+    : `Buy ${formatNumber(recommendation.shares_needed ?? recommendation.target_shares ?? 0)} shares`;
+  return `${buyText} for about ${formatMoney(recommendation.estimated_cost)}. ${row.benefit_description} every ${formatNumber(row.frequency_days)} days.`;
+}
+
+function milestoneDescription(recommendation: StockBuyRecommendation, bankMerits: number): string {
+  const row = recommendation.row;
+  if (row.investment_type === "city_bank") {
+    return `City Bank becomes available for ${formatMoney(recommendation.estimated_cost)} with ${bankMerits}/10 merits.`;
+  }
+
+  return `${row.acronym ?? `#${row.stock_id}`} Block ${row.increment ?? "-"} becomes available for about ${formatMoney(recommendation.estimated_cost)}. Annual return ${formatMoney(recommendation.annual_return)}.`;
 }
 
 async function fetchOwnedStockSnapshot(apiKey: string, refreshedAt: number): Promise<OwnedStockSnapshot> {

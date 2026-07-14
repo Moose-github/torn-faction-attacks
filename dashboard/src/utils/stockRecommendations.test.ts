@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { StockInvestmentRoiRow } from "../api/types";
 import {
   adjustCityBankRowForMerits,
+  buildStockCapitalMilestones,
+  buildStockSuggestedActions,
   recommendBestStockBuy,
   recommendStockBuys,
   stockBuyRecommendationFromRow,
@@ -88,6 +90,72 @@ describe("stock buy recommendations", () => {
       estimated_cost: 2_000,
     });
     expect(result?.roi_percent).toBe(50);
+  });
+
+  it("builds deduped suggested actions from meaningful categories", () => {
+    const actions = buildStockSuggestedActions({
+      rows: [
+        stockRow({
+          row_id: "stock:1:1",
+          stock_id: 1,
+          acronym: "AAA",
+          total_shares_required: 1_000,
+          latest_price: 10,
+          increment_cost: 10_000,
+          annual_return: 1_000,
+          roi_percent: 10,
+        }),
+        stockRow({
+          row_id: "stock:2:1",
+          stock_id: 2,
+          acronym: "BBB",
+          total_shares_required: 1_000,
+          latest_price: 10,
+          increment_cost: 10_000,
+          annual_return: 2_000,
+          roi_percent: 20,
+        }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 900, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 2_000,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 5);
+
+    expect(actions.map((action) => action.kind)).toEqual([
+      "closest_completion",
+      "highest_return",
+    ]);
+    expect(actions[0].recommendation.row.row_id).toBe("stock:1:1");
+    expect(actions[0].recommendation.estimated_cost).toBe(1_000);
+  });
+
+  it("builds capital milestones when better buys become affordable", () => {
+    const milestones = buildStockCapitalMilestones({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, increment_cost: 100, total_cost: 100, roi_percent: 10, annual_return: 10 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, increment_cost: 500, total_cost: 500, roi_percent: 20, annual_return: 100 }),
+        stockRow({ row_id: "stock:3:1", stock_id: 3, increment_cost: 800, total_cost: 800, roi_percent: 15, annual_return: 200 }),
+      ],
+      ownedSnapshot: null,
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 5);
+
+    expect(milestones.map((milestone) => ({
+      capital: milestone.capital,
+      row_id: milestone.recommendation.row.row_id,
+    }))).toEqual([
+      { capital: 100, row_id: "stock:1:1" },
+      { capital: 500, row_id: "stock:2:1" },
+      { capital: 800, row_id: "stock:3:1" },
+    ]);
   });
 
   it("respects affordable-only against additional cost", () => {
