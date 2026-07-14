@@ -179,27 +179,75 @@ describe("retaliation availability", () => {
   });
 
   it("renders the Discord board as compact retal embeds", () => {
+    const available = resolveRetaliationOpportunity(
+      attackRow({
+        id: 5001,
+        code: "attack-log-1",
+        attacker_id: 2054500,
+        attacker_name: "nex",
+        attacker_faction_name: "Vulpes Vulpes",
+        defender_id: 123,
+        defender_name: "Whiskas",
+        result: "Hospitalized",
+        respect_gain: 2.86,
+        attack_at: 1000,
+      }),
+      null,
+      null,
+      1100,
+    );
+    const pending = resolveRetaliationOpportunity(
+      attackRow({
+        id: 5002,
+        attacker_id: 2814133,
+        attacker_name: "hhk556",
+        attacker_faction_name: "SMTH - High Pressure",
+        defender_id: 123,
+        defender_name: "Whiskas",
+        result: "Hospitalized",
+        attack_at: 1010,
+      }),
+      null,
+      pendingClaim({
+        opening_attack_id: 5002,
+        target_id: 2814133,
+        claimant_torn_user_id: 101,
+        claimant_name: "Attacker",
+        expires_at: 1120,
+      }),
+      1100,
+    );
+    const confirmed = resolveRetaliationOpportunity(
+      attackRow({
+        id: 5003,
+        attacker_id: 333333,
+        attacker_name: "done",
+        attacker_faction_name: "Enemy Faction",
+        defender_id: 123,
+        defender_name: "Whiskas",
+        result: "Hospitalized",
+        attack_at: 1020,
+      }),
+      attackRow({
+        id: 5004,
+        attacker_id: 101,
+        attacker_name: "Finisher",
+        defender_id: 333333,
+        result: "Hospitalized",
+        m_retaliation: 2,
+        attack_at: 1040,
+      }),
+      null,
+      1100,
+    );
+
     const payload = renderRetaliationBoardPayload([
-      resolveRetaliationOpportunity(
-        attackRow({
-          id: 5001,
-          code: "attack-log-1",
-          attacker_id: 2054500,
-          attacker_name: "nex",
-          attacker_faction_name: "Vulpes Vulpes",
-          defender_id: 123,
-          defender_name: "Whiskas",
-          result: "Hospitalized",
-          respect_gain: 2.86,
-          attack_at: 1000,
-        }),
-        null,
-        null,
-        1100,
-      ),
+      available,
+      pending,
+      confirmed,
     ], 1100);
 
-    expect(payload.content).toBe("Retaliation Board - 1 available - 0 pending - updated <t:1100:R>");
+    expect(payload.content).toBe("Retaliation Board - 1 available - 1 pending\nUpdated <t:1100:R>");
     expect(payload.embeds).toEqual([
       expect.objectContaining({
         title: "Retal on nex [2054500]",
@@ -219,6 +267,32 @@ describe("retaliation availability", () => {
           },
         ],
       }),
+      expect.objectContaining({
+        title: "Retal on hhk556 [2814133]",
+        color: 0xffa500,
+        fields: expect.arrayContaining([
+          { name: "Status", value: "Pending by Attacker", inline: true },
+        ]),
+      }),
+      expect.objectContaining({
+        title: "Retal on done [333333]",
+        color: 0x57f287,
+        fields: expect.arrayContaining([
+          { name: "Status", value: "Confirmed by Finisher", inline: true },
+        ]),
+      }),
+    ]);
+  });
+
+  it("renders an empty Discord board as a green status embed", () => {
+    const payload = renderRetaliationBoardPayload([], 1100);
+
+    expect(payload.content).toBe("Retaliation Board - 0 available - 0 pending\nUpdated <t:1100:R>");
+    expect(payload.embeds).toEqual([
+      {
+        title: "No active retaliation",
+        color: 0x57f287,
+      },
     ]);
   });
 });

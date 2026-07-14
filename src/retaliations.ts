@@ -19,8 +19,8 @@ const LIGHT_SYNC_SUCCESS_STATE = "retaliation_light_sync_success";
 const RETALIATION_BOARD_MIN_EDIT_INTERVAL_SECONDS = 5;
 const RETALIATION_BOARD_LIMIT = 10;
 const RETALIATION_BOARD_AVAILABLE_COLOR = 0xed4245;
-const RETALIATION_BOARD_PENDING_COLOR = 0xf1c40f;
-const RETALIATION_BOARD_CONFIRMED_COLOR = 0x747f8d;
+const RETALIATION_BOARD_PENDING_COLOR = 0xffa500;
+const RETALIATION_BOARD_CONFIRMED_COLOR = 0x57f287;
 
 export type RetaliationAttackRow = {
   id: number;
@@ -788,13 +788,13 @@ export function renderRetaliationBoardPayload(
 ): RetaliationBoardDiscordPayload {
   const availableCount = rows.filter((row) => row.status === "available").length;
   const pendingCount = rows.filter((row) => row.status === "claimed_pending").length;
-  const content = rows.length === 0
-    ? `Retaliation Board - no active retals - updated <t:${checkedAt}:R>`
-    : `Retaliation Board - ${availableCount} available - ${pendingCount} pending - updated <t:${checkedAt}:R>`;
+  const content = `Retaliation Board - ${availableCount} available - ${pendingCount} pending\nUpdated <t:${checkedAt}:R>`;
 
   return {
     content,
-    embeds: rows.map(retaliationBoardEmbed),
+    embeds: rows.length === 0
+      ? [noActiveRetaliationBoardEmbed()]
+      : rows.map(retaliationBoardEmbed),
   };
 }
 
@@ -921,6 +921,13 @@ function retaliationBoardEmbed(row: RetaliationOpportunity): DiscordEmbed {
       { name: "Respect", value: formatDiscordRespect(attack?.respect_gain ?? attack?.respect_loss ?? null), inline: true },
       { name: "Log", value: log, inline: true },
     ],
+  };
+}
+
+function noActiveRetaliationBoardEmbed(): DiscordEmbed {
+  return {
+    title: "No active retaliation",
+    color: RETALIATION_BOARD_CONFIRMED_COLOR,
   };
 }
 
