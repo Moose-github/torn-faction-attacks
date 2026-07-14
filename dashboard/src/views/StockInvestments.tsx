@@ -21,12 +21,16 @@ import {
   parseOwnedStocksResponse,
   parseStoredOwnedStockSnapshot,
 } from "../utils/ownedStocks";
+import {
+  adjustCityBankRowForMerits,
+  recommendBestStockBuy,
+  type StockBuyRecommendation,
+} from "../utils/stockRecommendations";
 
 const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
 const TORN_USER_MERITS_URL = "https://api.torn.com/v2/user/merits";
 const DEFAULT_MINIMUM_ROI = "5";
 const CITY_BANK_TERM_DAYS = 90;
-const CITY_BANK_MERIT_STEP = 0.05;
 
 type StockRoiSortKey = "acronym" | "name" | "shares" | "increment_cost" | "benefit" | "annual_return" | "days_to_break_even" | "roi_percent";
 
@@ -233,10 +237,14 @@ export function StockInvestments() {
     return true;
   });
   const rows = sortStockRoiRows(filteredRows, roiSort);
-  const bestOpportunityRows = sortStockRoiRows(filteredRows, { key: "roi_percent", direction: "desc" });
-  const bestRow = bestOpportunityRows.find((row) => !isInvestmentRowCovered(row, ownedShares, cityBankActive)) ?? null;
-  const bestRowOwnedShares = bestRow && isStockInvestmentRow(bestRow) ? ownedShares.get(bestRow.stock_id) ?? 0 : 0;
-  const bestRowSharesRemaining = bestRow && isStockInvestmentRow(bestRow) ? Math.max(0, (bestRow.total_shares_required ?? 0) - bestRowOwnedShares) : 0;
+  const bestBuyRecommendation = React.useMemo(() => recommendBestStockBuy({
+    rows: investmentRows,
+    ownedSnapshot,
+    cityBankActive,
+    budget,
+    affordableOnly,
+    minimumRoi: minRoi,
+  }), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
@@ -270,17 +278,18 @@ export function StockInvestments() {
       <section className="status-grid stock-status-grid stock-investment-status-grid">
         <StatusMetric
           className="stock-best-block-card"
-          label="Best opportunity"
-          value={bestRow ? bestOpportunityTitle(bestRow) : "-"}
-          detail={bestRow
+          label={ownedSnapshot ? "Best next buy" : "Best opportunity"}
+          value={bestBuyRecommendation ? bestOpportunityTitle(bestBuyRecommendation.row) : "-"}
+          detail={bestBuyRecommendation
             ? (
               <span className="stock-metric-detail-stack">
-                <span>{formatPercent(bestRow.roi_percent)} ROI - {formatMoney(bestRow.increment_cost)} next cost</span>
-                <span>{bestOpportunityDetail(bestRow, bankMerits, bestRowOwnedShares, bestRowSharesRemaining)}</span>
+                <span>{formatPercent(bestBuyRecommendation.roi_percent)} ROI - {formatMoney(bestBuyRecommendation.estimated_cost)} estimated cost</span>
+                <span>{bestBuyRecommendationDetail(bestBuyRecommendation, bankMerits)}</span>
+                <span>Expected annual return: {formatMoney(bestBuyRecommendation.annual_return)}</span>
               </span>
             )
             : rows.length > 0
-              ? "All shown opportunities already covered"
+              ? ownedSnapshot ? "All eligible opportunities already covered" : "No eligible opportunity"
               : "No priced rows"}
         />
         <StatusMetric
@@ -1077,23 +1086,6 @@ function isInvestmentRowCovered(row: StockInvestmentRoiRow, ownedShares: Map<num
   return ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required);
 }
 
-function adjustCityBankRowForMerits(row: StockInvestmentRoiRow, bankMerits: number): StockInvestmentRoiRow {
-  if (row.investment_type !== "city_bank") {
-    return row;
-  }
-
-  const multiplier = 1 + clampBankMerits(bankMerits) * CITY_BANK_MERIT_STEP;
-  const benefitValue = row.benefit_value * multiplier;
-  const annualReturn = row.annual_return * multiplier;
-  return {
-    ...row,
-    benefit_value: benefitValue,
-    annual_return: annualReturn,
-    roi_percent: (annualReturn / row.increment_cost) * 100,
-    days_to_break_even: row.increment_cost / (annualReturn / 365),
-  };
-}
-
 function bestOpportunityTitle(row: StockInvestmentRoiRow): string {
   if (row.investment_type === "city_bank") {
     return "BANK 90 days";
@@ -1102,14 +1094,20 @@ function bestOpportunityTitle(row: StockInvestmentRoiRow): string {
   return `${row.acronym ?? `#${row.stock_id}`} Block ${row.increment ?? "-"}`;
 }
 
-function bestOpportunityDetail(row: StockInvestmentRoiRow, bankMerits: number, ownedShares: number, sharesRemaining: number): string {
-  if (row.investment_type === "city_bank") {
+function bestBuyRecommendationDetail(recommendation: StockBuyRecommendation, bankMerits: number): string {
+  if (recommendation.row.investment_type === "city_bank") {
     return `City Bank - ${bankMerits}/10 Merits`;
   }
 
-  return ownedShares > 0
-    ? `Need ${formatNumber(sharesRemaining)} more shares`
-    : `${formatNumber(row.total_shares_required ?? 0)} shares required`;
+  if (!recommendation.personalized) {
+    return `${formatNumber(recommendation.target_shares ?? 0)} shares required`;
+  }
+
+  if (recommendation.owned_shares > 0) {
+    return `You own ${formatNumber(recommendation.owned_shares)}; buy ${formatNumber(recommendation.shares_needed ?? 0)} more to reach ${formatNumber(recommendation.target_shares ?? 0)}`;
+  }
+
+  return `Buy ${formatNumber(recommendation.shares_needed ?? 0)} shares to reach ${formatNumber(recommendation.target_shares ?? 0)}`;
 }
 
 function compareText(a: string, b: string): number {
