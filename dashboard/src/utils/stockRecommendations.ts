@@ -299,7 +299,10 @@ function nextStrategyStep(
     return targetStep;
   }
 
-  return strategyBuyStep(steppingStone, currentCash);
+  const steppingStoneSalePlan = buildStrategySalePlan(input.rows, snapshot, steppingStone, currentCash);
+  return strategySalePlanIsBeneficial(steppingStone, steppingStoneSalePlan) && steppingStoneSalePlan.current_annual_return <= 0
+    ? strategyRebalanceStep(steppingStone, steppingStoneSalePlan, currentCash)
+    : strategyBuyStep(steppingStone, currentCash);
 }
 
 function strategySalePlanIsBeneficial(

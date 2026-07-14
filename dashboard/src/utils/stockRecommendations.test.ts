@@ -643,6 +643,60 @@ describe("stock buy recommendations", () => {
     ]);
   });
 
+  it("sells idle partial target shares to buy a useful stepping stone", () => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({
+          row_id: "stock:1:1",
+          stock_id: 1,
+          acronym: "FHG",
+          latest_price: 1_000,
+          total_shares_required: 2_000,
+          increment_cost: 2_000_000,
+          total_cost: 2_000_000,
+          annual_return: 2_000_000,
+          roi_percent: 100,
+        }),
+        stockRow({
+          row_id: "stock:2:1",
+          stock_id: 2,
+          acronym: "TMP",
+          latest_price: 1_000,
+          total_shares_required: 100,
+          increment_cost: 100_000,
+          total_cost: 100_000,
+          annual_return: 50_000,
+          roi_percent: 50,
+        }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 200, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 2);
+
+    expect(plan.steps[0]).toMatchObject({
+      kind: "rebalance",
+      recommendation: {
+        row: {
+          row_id: "stock:2:1",
+        },
+      },
+      sales: [
+        {
+          stock_id: 1,
+          shares: 100,
+          sale_value: 100_000,
+          current_annual_return: 0,
+        },
+      ],
+    });
+  });
+
   it("marks City Bank unavailable after it is added to the strategy path", () => {
     const plan = buildStockStrategyPlan({
       rows: [
