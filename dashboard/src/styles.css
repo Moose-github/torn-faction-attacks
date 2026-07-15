@@ -6651,6 +6651,7 @@ h2 {
 
 .admin-tab-workspace {
   align-items: start;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .admin-tab-workspace > .admin-panel-maintenance {
@@ -6669,7 +6670,7 @@ h2 {
 
 .admin-event-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -6762,7 +6763,7 @@ h2 {
 
 .admin-repair-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -6774,6 +6775,10 @@ h2 {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #f8fafc;
+}
+
+.admin-tool-section[hidden] {
+  display: none;
 }
 
 .admin-maintenance-diagnostics {
@@ -9550,6 +9555,29 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .lifestyle-date-range-note,
 :root[data-theme="dark"] .admin-header-controls {
   color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .admin-tabs {
+  border-color: var(--border-faint);
+  background: var(--panel-muted-bg);
+}
+
+:root[data-theme="dark"] .admin-tab-button {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .admin-tab-button:hover,
+:root[data-theme="dark"] .admin-tab-button:focus-visible {
+  border-color: rgba(96, 165, 250, 0.36);
+  background: rgba(37, 99, 235, 0.2);
+  color: var(--accent-strong);
+}
+
+:root[data-theme="dark"] .admin-tab-button[aria-selected="true"] {
+  border-color: rgba(96, 165, 250, 0.58);
+  background: rgba(37, 99, 235, 0.28);
+  color: var(--accent-strong);
+  box-shadow: none;
 }
 
 :root[data-theme="dark"] .enemy-monitor-event .enemy-monitor-event-timer-summary {
