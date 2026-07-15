@@ -231,13 +231,14 @@ export function StockInvestments() {
   const budget = moneyInputValue(investmentAmount);
   const minRoi = percentInputValue(minimumRoi);
   const filteredRows = investmentRows.filter((row) => {
-    if (affordableOnly && budget !== null && row.increment_cost > budget) {
-      return false;
-    }
-    if (minRoi !== null && row.roi_percent < minRoi) {
-      return false;
-    }
     if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, cityBankActive)) {
+      return false;
+    }
+    const rowMetrics = stockRowFilterMetrics(row, ownedShares, ownedSnapshot !== null);
+    if (affordableOnly && budget !== null && rowMetrics.estimated_cost > budget) {
+      return false;
+    }
+    if (minRoi !== null && rowMetrics.roi_percent < minRoi) {
       return false;
     }
     return true;
@@ -1388,6 +1389,34 @@ function isInvestmentRowCovered(row: StockInvestmentRoiRow, ownedShares: Map<num
   }
 
   return ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required);
+}
+
+function stockRowFilterMetrics(
+  row: StockInvestmentRoiRow,
+  ownedShares: Map<number, number>,
+  hasOwnedSnapshot: boolean,
+): { estimated_cost: number; roi_percent: number } {
+  if (!hasOwnedSnapshot || !isStockInvestmentRow(row)) {
+    return {
+      estimated_cost: row.increment_cost,
+      roi_percent: row.roi_percent,
+    };
+  }
+
+  const owned = ownedShares.get(row.stock_id) ?? 0;
+  if (ownsStockIncrement(owned, row.total_shares_required)) {
+    return {
+      estimated_cost: 0,
+      roi_percent: row.roi_percent,
+    };
+  }
+
+  const sharesNeeded = Math.max(0, row.total_shares_required - owned);
+  const estimatedCost = sharesNeeded * row.latest_price;
+  return {
+    estimated_cost: estimatedCost > 0 ? estimatedCost : row.increment_cost,
+    roi_percent: estimatedCost > 0 ? (row.annual_return / estimatedCost) * 100 : row.roi_percent,
+  };
 }
 
 function additionalCostForOwnedStockRow(row: StockInvestmentRoiRow, ownedShares: number): number | null {

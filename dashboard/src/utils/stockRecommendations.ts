@@ -128,7 +128,6 @@ export function recommendBestStockBuy(input: StockBuyRecommendationInput): Stock
 export function recommendStockBuys(input: StockBuyRecommendationInput, limit = 5): StockBuyRecommendation[] {
   const ownedShares = ownedSharesMap(input.ownedSnapshot);
   const recommendations = input.rows
-    .filter((row) => input.minimumRoi === null || row.roi_percent >= input.minimumRoi)
     .map((row) => stockBuyRecommendationFromRow(row, {
       ownedShares,
       hasOwnedSnapshot: input.ownedSnapshot !== null,
@@ -137,6 +136,9 @@ export function recommendStockBuys(input: StockBuyRecommendationInput, limit = 5
     }))
     .filter((recommendation): recommendation is StockBuyRecommendation => {
       if (!recommendation) {
+        return false;
+      }
+      if (input.minimumRoi !== null && recommendation.roi_percent < input.minimumRoi) {
         return false;
       }
       return !input.affordableOnly || recommendation.affordable !== false;

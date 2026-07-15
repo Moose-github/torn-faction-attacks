@@ -94,6 +94,34 @@ describe("stock buy recommendations", () => {
     expect(result?.roi_percent).toBe(50);
   });
 
+  it("applies minimum ROI after recalculating partially owned blocks", () => {
+    const result = recommendBestStockBuy({
+      rows: [
+        stockRow({
+          row_id: "stock:1:1",
+          stock_id: 1,
+          latest_price: 10,
+          total_shares_required: 100,
+          increment_cost: 1_000,
+          annual_return: 100,
+          roi_percent: 10,
+        }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 90, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: 50,
+    });
+
+    expect(result?.row.row_id).toBe("stock:1:1");
+    expect(result?.estimated_cost).toBe(100);
+    expect(result?.roi_percent).toBe(100);
+  });
+
   it("builds deduped suggested actions from meaningful categories", () => {
     const actions = buildStockSuggestedActions({
       rows: [
@@ -568,6 +596,38 @@ describe("stock buy recommendations", () => {
       owned_shares: 60,
       shares_needed: 40,
       estimated_cost: 400,
+    });
+  });
+
+  it("applies minimum ROI to personalized strategy buys", () => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({
+          row_id: "stock:1:1",
+          stock_id: 1,
+          latest_price: 10,
+          total_shares_required: 100,
+          increment_cost: 1_000,
+          annual_return: 100,
+          roi_percent: 10,
+        }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 90, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: 50,
+    }, 1);
+
+    expect(plan.steps[0].recommendation).toMatchObject({
+      row: {
+        row_id: "stock:1:1",
+      },
+      estimated_cost: 100,
+      roi_percent: 100,
     });
   });
 
