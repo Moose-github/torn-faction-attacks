@@ -52,6 +52,8 @@ type StockRoiSort = {
   direction: SortDirection;
 };
 
+type StockStrategyPanelTab = "strategy" | "rebalance";
+
 type StockLockOption = {
   stock_id: number;
   acronym: string | null;
@@ -73,6 +75,7 @@ export function StockInvestments() {
   const [cityBankActive, setCityBankActive] = React.useState(false);
   const [bankMerits, setBankMerits] = React.useState(0);
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
+  const [strategyPanelTab, setStrategyPanelTab] = React.useState<StockStrategyPanelTab>("strategy");
   const [isMissingValuesOpen, setIsMissingValuesOpen] = React.useState(false);
   const [isOwnedSettingsOpen, setIsOwnedSettingsOpen] = React.useState(false);
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
@@ -555,14 +558,47 @@ export function StockInvestments() {
           aside={rebalanceRecommendations.length + strategyPlan.steps.length > 0 ? `${formatNumber(rebalanceRecommendations.length + strategyPlan.steps.length)} ideas` : "No ideas"}
           icon={<BadgeDollarSign size={18} />}
         />
+        <div className="stock-strategy-tabs" role="tablist" aria-label="Investment strategy views">
+          <button
+            type="button"
+            className={`stock-strategy-tab${strategyPanelTab === "strategy" ? " active" : ""}`}
+            role="tab"
+            aria-selected={strategyPanelTab === "strategy"}
+            aria-controls="stock-strategy-path-panel"
+            id="stock-strategy-path-tab"
+            onClick={() => setStrategyPanelTab("strategy")}
+          >
+            <span>Strategy path</span>
+            <strong>{formatNumber(strategyPlan.steps.length)}</strong>
+          </button>
+          <button
+            type="button"
+            className={`stock-strategy-tab${strategyPanelTab === "rebalance" ? " active" : ""}`}
+            role="tab"
+            aria-selected={strategyPanelTab === "rebalance"}
+            aria-controls="stock-rebalance-ideas-panel"
+            id="stock-rebalance-ideas-tab"
+            onClick={() => setStrategyPanelTab("rebalance")}
+          >
+            <span>Rebalance ideas</span>
+            <strong>{formatNumber(rebalanceRecommendations.length)}</strong>
+          </button>
+        </div>
         <div className="stock-suggested-layout">
-          {ownedSnapshot ? (
-            <div className="stock-suggested-section">
+          {strategyPanelTab === "rebalance" ? (
+            <div
+              className="stock-suggested-section"
+              role="tabpanel"
+              id="stock-rebalance-ideas-panel"
+              aria-labelledby="stock-rebalance-ideas-tab"
+            >
               <div className="stock-suggested-heading">
                 <strong>Rebalance ideas</strong>
                 <span>Sell one, buy one</span>
               </div>
-              {rebalanceRecommendations.length === 0 ? (
+              {!ownedSnapshot ? (
+                <EmptyState text="Load owned stocks to find rebalance ideas" />
+              ) : rebalanceRecommendations.length === 0 ? (
                 <EmptyState text="No clear rebalance upgrade found" />
               ) : (
                 <div className="stock-rebalance-list">
@@ -576,27 +612,33 @@ export function StockInvestments() {
                 </div>
               )}
             </div>
-          ) : null}
-          <div className="stock-suggested-section">
-            <div className="stock-suggested-heading">
-              <strong>Strategy path</strong>
-              <span>ROI-first milestones</span>
-            </div>
-            {strategyPlan.steps.length === 0 ? (
-              <EmptyState text="No strategy path matches the current filters" />
-            ) : (
-              <div className="stock-milestone-list">
-                {strategyPlan.steps.map((step, index) => (
-                  <StrategyStepRow
-                    key={`${index}:${step.kind}:${step.recommendation.row.row_id}`}
-                    step={step}
-                    index={index}
-                    bankMerits={bankMerits}
-                  />
-                ))}
+          ) : (
+            <div
+              className="stock-suggested-section"
+              role="tabpanel"
+              id="stock-strategy-path-panel"
+              aria-labelledby="stock-strategy-path-tab"
+            >
+              <div className="stock-suggested-heading">
+                <strong>Strategy path</strong>
+                <span>ROI-first milestones</span>
               </div>
-            )}
-          </div>
+              {strategyPlan.steps.length === 0 ? (
+                <EmptyState text="No strategy path matches the current filters" />
+              ) : (
+                <div className="stock-milestone-list">
+                  {strategyPlan.steps.map((step, index) => (
+                    <StrategyStepRow
+                      key={`${index}:${step.kind}:${step.recommendation.row.row_id}`}
+                      step={step}
+                      index={index}
+                      bankMerits={bankMerits}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </section>
 
