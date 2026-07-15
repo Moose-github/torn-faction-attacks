@@ -430,14 +430,34 @@ describe("stock buy recommendations", () => {
     });
     expect(partial.roi_percent).toBeCloseTo((133 / 600) * 100);
 
-    const covered = stockInvestmentRowMetrics(swap!, {
+    const reusable = stockInvestmentRowMetrics(swap!, {
       ownedShares: new Map([[9, 500]]),
       hasOwnedSnapshot: true,
     });
-    expect(covered).toMatchObject({
+    expect(reusable).toMatchObject({
       estimated_cost: 0,
       personalized: true,
-      covered: true,
+      covered: false,
+    });
+    expect(reusable.roi_percent).toBeCloseTo(13.3);
+
+    const recommendations = recommendStockBuys({
+      rows: [swap!],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 9, shares: 500, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 0,
+      affordableOnly: true,
+      minimumRoi: null,
+    });
+    expect(recommendations[0]).toMatchObject({
+      row: {
+        row_id: "strategy:fhg_tci_bank_swap",
+      },
+      estimated_cost: 0,
+      affordable: true,
     });
   });
 
@@ -480,6 +500,78 @@ describe("stock buy recommendations", () => {
     expect(plan.steps.map((step) => step.recommendation.row.row_id)).toEqual([
       "strategy:fhg_tci_bank_swap",
     ]);
+  });
+
+  it("reserves FHG/TCI component holdings after a swap strategy step", () => {
+    const fhg = stockRow({
+      row_id: "stock:5:1",
+      stock_id: 5,
+      acronym: "FHG",
+      latest_price: 2,
+      required_shares: 500,
+      total_shares_required: 500,
+      increment_cost: 1_000,
+      total_cost: 1_000,
+      annual_return: 900,
+      roi_percent: 90,
+    });
+    const tci = stockRow({
+      row_id: "stock:9:1",
+      stock_id: 9,
+      acronym: "TCI",
+      latest_price: 2,
+      required_shares: 500,
+      total_shares_required: 500,
+      increment_cost: 1_000,
+      total_cost: 1_000,
+      benefit_key: "city_bank:tci_bonus",
+      annual_return: 500,
+      roi_percent: 50,
+    });
+    const biggerTarget = stockRow({
+      row_id: "stock:3:1",
+      stock_id: 3,
+      acronym: "BIG",
+      latest_price: 1,
+      required_shares: 3_000,
+      total_shares_required: 3_000,
+      increment_cost: 3_000,
+      total_cost: 3_000,
+      annual_return: 3_600,
+      roi_percent: 120,
+    });
+    const swap = buildFhgTciSwapRow([fhg, tci]);
+    const plan = buildStockStrategyPlan({
+      rows: swap ? [fhg, tci, swap, biggerTarget] : [fhg, tci, biggerTarget],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 9, shares: 500, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 3);
+
+    expect(plan.steps[0]).toMatchObject({
+      kind: "buy",
+      extra_cash_needed: 0,
+      recommendation: {
+        row: {
+          row_id: "strategy:fhg_tci_bank_swap",
+        },
+        estimated_cost: 0,
+      },
+    });
+    expect(plan.steps[1]).toMatchObject({
+      kind: "buy",
+      recommendation: {
+        row: {
+          row_id: "stock:3:1",
+        },
+      },
+    });
+    expect(plan.steps[1].sales).toEqual([]);
   });
 
   it("returns no rebalance ideas without a holdings snapshot", () => {

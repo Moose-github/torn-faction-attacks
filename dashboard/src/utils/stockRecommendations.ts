@@ -328,7 +328,6 @@ function fhgTciSwapRowMetrics(
       estimated_cost: 0,
       days_to_break_even: 0,
       personalized: true,
-      covered: true,
     };
   }
 
@@ -464,12 +463,17 @@ export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit
   const steps: StockStrategyStep[] = [];
 
   for (let index = 0; index < limit; index += 1) {
+    const strategyLockedStockIds = combineLockedStockIds(
+      lockedStockIds(input),
+      reservedStockIdsForFhgTciSwapSteps(steps),
+    );
     const stepInput = {
       ...input,
       ownedSnapshot: simulatedSnapshot,
       cityBankActive: simulatedCityBankActive,
       budget: null,
       affordableOnly: false,
+      lockedStockIds: strategyLockedStockIds,
     };
     const recommendations = filterFhgTciSwapStrategyConflicts(
       recommendStockBuys(stepInput, Number.MAX_SAFE_INTEGER),
@@ -813,7 +817,7 @@ export function stockBuyRecommendationFromRow(
       ownedShares: options.ownedShares,
       hasOwnedSnapshot: options.hasOwnedSnapshot,
     });
-    if (metrics.covered || metrics.estimated_cost <= 0) {
+    if (metrics.covered) {
       return null;
     }
 
@@ -1182,6 +1186,26 @@ function affordability(cost: number, budget: number | null): boolean | null {
 
 function lockedStockIds(input: StockBuyRecommendationInput): ReadonlySet<number> {
   return input.lockedStockIds ?? new Set<number>();
+}
+
+function combineLockedStockIds(base: ReadonlySet<number>, extra: ReadonlySet<number>): ReadonlySet<number> {
+  if (extra.size === 0) {
+    return base;
+  }
+
+  return new Set([...base, ...extra]);
+}
+
+function reservedStockIdsForFhgTciSwapSteps(steps: StockStrategyStep[]): ReadonlySet<number> {
+  const stockIds = new Set<number>();
+  for (const step of steps) {
+    const row = step.recommendation.row;
+    if (isFhgTciSwapRow(row)) {
+      stockIds.add(row.components.fhg.stock_id);
+      stockIds.add(row.components.tci.stock_id);
+    }
+  }
+  return stockIds;
 }
 
 function rowToFhgTciSwapComponent(row: StockInvestmentStockRow): FhgTciSwapComponent {
