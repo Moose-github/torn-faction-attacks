@@ -9,6 +9,7 @@ import {
   recommendBestStockBuy,
   recommendStockBuys,
   stockBuyRecommendationFromRow,
+  stockInvestmentRowMetrics,
 } from "./stockRecommendations";
 
 describe("stock buy recommendations", () => {
@@ -120,6 +121,54 @@ describe("stock buy recommendations", () => {
     expect(result?.row.row_id).toBe("stock:1:1");
     expect(result?.estimated_cost).toBe(100);
     expect(result?.roi_percent).toBe(100);
+  });
+
+  it("returns personalized table metrics for partially owned rows", () => {
+    const metrics = stockInvestmentRowMetrics(stockRow({
+      stock_id: 1,
+      latest_price: 10,
+      total_shares_required: 100,
+      increment_cost: 1_000,
+      annual_return: 100,
+      roi_percent: 10,
+      days_to_break_even: 3_650,
+    }), {
+      ownedShares: new Map([[1, 90]]),
+      hasOwnedSnapshot: true,
+    });
+
+    expect(metrics).toMatchObject({
+      estimated_cost: 100,
+      days_to_break_even: 365,
+      roi_percent: 100,
+      owned_shares: 90,
+      shares_needed: 10,
+      personalized: true,
+      covered: false,
+    });
+  });
+
+  it("marks covered rows with zero remaining cost for table metrics", () => {
+    const metrics = stockInvestmentRowMetrics(stockRow({
+      stock_id: 1,
+      total_shares_required: 100,
+      increment_cost: 1_000,
+      annual_return: 100,
+      roi_percent: 10,
+    }), {
+      ownedShares: new Map([[1, 100]]),
+      hasOwnedSnapshot: true,
+    });
+
+    expect(metrics).toMatchObject({
+      estimated_cost: 0,
+      days_to_break_even: 0,
+      roi_percent: 10,
+      owned_shares: 100,
+      shares_needed: 0,
+      personalized: true,
+      covered: true,
+    });
   });
 
   it("builds deduped suggested actions from meaningful categories", () => {
@@ -510,7 +559,7 @@ describe("stock buy recommendations", () => {
     expect(results).toEqual([]);
   });
 
-  it("filters dominated rebalance ideas before sorting by annual gain then proposed ROI", () => {
+  it("surfaces best gain and best ROI rebalance ideas after filtering dominated options", () => {
     const results = buildStockRebalanceRecommendations({
       rows: [
         stockRow({ row_id: "stock:1:1", stock_id: 1, latest_price: 10, total_shares_required: 1_000 }),
@@ -532,6 +581,10 @@ describe("stock buy recommendations", () => {
     expect(results.map((result) => result.proposed.row.row_id)).toEqual([
       "stock:3:1",
       "stock:5:1",
+    ]);
+    expect(results.map((result) => result.highlight)).toEqual([
+      "best_gain",
+      "best_roi",
     ]);
   });
 

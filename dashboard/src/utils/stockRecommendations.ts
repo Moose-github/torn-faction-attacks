@@ -31,6 +31,18 @@ export type StockBuyRecommendation = {
   personalized: boolean;
 };
 
+export type StockInvestmentRowMetrics = {
+  estimated_cost: number;
+  annual_return: number;
+  days_to_break_even: number;
+  roi_percent: number;
+  owned_shares: number;
+  target_shares: number | null;
+  shares_needed: number | null;
+  personalized: boolean;
+  covered: boolean;
+};
+
 export type StockBuyRecommendationInput = {
   rows: StockInvestmentRoiRow[];
   ownedSnapshot: OwnedStockSnapshot | null;
@@ -73,6 +85,7 @@ export type StockRebalanceRecommendation = {
   proposed: StockBuyRecommendation;
   annual_return_gain: number;
   extra_cash_required: number;
+  highlight?: "best_gain" | "best_roi" | "best_gain_and_roi";
 };
 
 export type StockStrategyStepKind = "buy" | "rebalance";
@@ -118,6 +131,71 @@ export function adjustCityBankRowForMerits(row: StockInvestmentRoiRow, bankMerit
     annual_return: annualReturn,
     roi_percent: (annualReturn / row.increment_cost) * 100,
     days_to_break_even: row.increment_cost / (annualReturn / 365),
+  };
+}
+
+export function stockInvestmentRowMetrics(
+  row: StockInvestmentRoiRow,
+  options: {
+    ownedShares: Map<number, number>;
+    hasOwnedSnapshot: boolean;
+  },
+): StockInvestmentRowMetrics {
+  const rowRoiPercent = row.increment_cost > 0
+    ? (row.annual_return / row.increment_cost) * 100
+    : row.roi_percent;
+  const rowDaysToBreakEven = row.annual_return > 0
+    ? row.increment_cost / (row.annual_return / 365)
+    : row.days_to_break_even;
+  const baseMetrics: StockInvestmentRowMetrics = {
+    estimated_cost: row.increment_cost,
+    annual_return: row.annual_return,
+    days_to_break_even: rowDaysToBreakEven,
+    roi_percent: rowRoiPercent,
+    owned_shares: 0,
+    target_shares: isStockInvestmentRow(row) ? row.total_shares_required : null,
+    shares_needed: isStockInvestmentRow(row) ? row.required_shares : null,
+    personalized: false,
+    covered: false,
+  };
+
+  if (!options.hasOwnedSnapshot || !isStockInvestmentRow(row)) {
+    return baseMetrics;
+  }
+
+  const owned = options.ownedShares.get(row.stock_id) ?? 0;
+  const covered = ownsStockIncrement(owned, row.total_shares_required);
+  const sharesNeeded = Math.max(0, row.total_shares_required - owned);
+  if (covered || sharesNeeded <= 0) {
+    return {
+      ...baseMetrics,
+      estimated_cost: 0,
+      days_to_break_even: 0,
+      owned_shares: owned,
+      shares_needed: 0,
+      personalized: true,
+      covered: true,
+    };
+  }
+
+  const estimatedCost = sharesNeeded * row.latest_price;
+  if (estimatedCost <= 0) {
+    return {
+      ...baseMetrics,
+      owned_shares: owned,
+      shares_needed: sharesNeeded,
+      personalized: true,
+    };
+  }
+
+  return {
+    ...baseMetrics,
+    estimated_cost: estimatedCost,
+    days_to_break_even: row.annual_return > 0 ? estimatedCost / (row.annual_return / 365) : row.days_to_break_even,
+    roi_percent: (row.annual_return / estimatedCost) * 100,
+    owned_shares: owned,
+    shares_needed: sharesNeeded,
+    personalized: true,
   };
 }
 
@@ -234,8 +312,7 @@ export function buildStockCapitalMilestones(input: StockBuyRecommendationInput, 
 export function buildStockRebalanceRecommendations(input: StockBuyRecommendationInput, limit = 5): StockRebalanceRecommendation[] {
   const recommendations = buildRebalanceRecommendations(input, input.budget ?? 0, false);
   const usefulRecommendations = filterDominatedRebalanceRecommendations(recommendations);
-  usefulRecommendations.sort(compareStockRebalanceRecommendations);
-  return usefulRecommendations.slice(0, Math.max(0, limit));
+  return rankStockRebalanceRecommendations(usefulRecommendations, Math.max(0, limit));
 }
 
 export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit = DEFAULT_STOCK_STRATEGY_STEP_LIMIT): StockStrategyPlan {
@@ -603,29 +680,27 @@ export function stockBuyRecommendationFromRow(
     return null;
   }
 
-  const owned = options.ownedShares.get(row.stock_id) ?? 0;
-  if (ownsStockIncrement(owned, row.total_shares_required)) {
+  const metrics = stockInvestmentRowMetrics(row, {
+    ownedShares: options.ownedShares,
+    hasOwnedSnapshot: options.hasOwnedSnapshot,
+  });
+  if (metrics.covered) {
     return null;
   }
-
-  const sharesNeeded = Math.max(0, row.total_shares_required - owned);
-  const estimatedCost = options.hasOwnedSnapshot
-    ? sharesNeeded * row.latest_price
-    : row.increment_cost;
-  if (estimatedCost <= 0) {
+  if (metrics.estimated_cost <= 0) {
     return null;
   }
 
   return {
     row,
-    owned_shares: owned,
-    target_shares: row.total_shares_required,
-    shares_needed: sharesNeeded,
-    estimated_cost: estimatedCost,
-    annual_return: row.annual_return,
-    roi_percent: (row.annual_return / estimatedCost) * 100,
-    affordable: affordability(estimatedCost, options.budget),
-    personalized: options.hasOwnedSnapshot,
+    owned_shares: metrics.owned_shares,
+    target_shares: metrics.target_shares,
+    shares_needed: metrics.shares_needed,
+    estimated_cost: metrics.estimated_cost,
+    annual_return: metrics.annual_return,
+    roi_percent: metrics.roi_percent,
+    affordable: affordability(metrics.estimated_cost, options.budget),
+    personalized: metrics.personalized,
   };
 }
 
@@ -646,7 +721,49 @@ function compareByAnnualReturn(left: StockBuyRecommendation, right: StockBuyReco
   return compareStockBuyRecommendations(left, right);
 }
 
-function compareStockRebalanceRecommendations(left: StockRebalanceRecommendation, right: StockRebalanceRecommendation): number {
+function rankStockRebalanceRecommendations(recommendations: StockRebalanceRecommendation[], limit: number): StockRebalanceRecommendation[] {
+  if (limit <= 0) {
+    return [];
+  }
+
+  const byGain = [...recommendations].sort(compareStockRebalanceByGain);
+  const byRoi = [...recommendations].sort(compareStockRebalanceByRoi);
+  const bestGain = byGain[0] ?? null;
+  const bestRoi = byRoi[0] ?? null;
+  const ranked: StockRebalanceRecommendation[] = [];
+  const addRecommendation = (recommendation: StockRebalanceRecommendation | null) => {
+    if (!recommendation || ranked.some((existing) => existing === recommendation) || ranked.length >= limit) {
+      return;
+    }
+    ranked.push(recommendation);
+  };
+
+  addRecommendation(bestGain);
+  addRecommendation(bestRoi);
+  for (const recommendation of byGain) {
+    addRecommendation(recommendation);
+  }
+  for (const recommendation of byRoi) {
+    addRecommendation(recommendation);
+  }
+
+  return ranked.map((recommendation) => {
+    const isBestGain = recommendation === bestGain;
+    const isBestRoi = recommendation === bestRoi;
+    return {
+      ...recommendation,
+      highlight: isBestGain && isBestRoi
+        ? "best_gain_and_roi"
+        : isBestGain
+          ? "best_gain"
+          : isBestRoi
+            ? "best_roi"
+            : undefined,
+    };
+  });
+}
+
+function compareStockRebalanceByGain(left: StockRebalanceRecommendation, right: StockRebalanceRecommendation): number {
   if (left.annual_return_gain !== right.annual_return_gain) {
     return right.annual_return_gain - left.annual_return_gain;
   }
@@ -655,6 +772,19 @@ function compareStockRebalanceRecommendations(left: StockRebalanceRecommendation
   }
   if (left.extra_cash_required !== right.extra_cash_required) {
     return left.extra_cash_required - right.extra_cash_required;
+  }
+  return left.proposed.row.row_id.localeCompare(right.proposed.row.row_id, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function compareStockRebalanceByRoi(left: StockRebalanceRecommendation, right: StockRebalanceRecommendation): number {
+  if (left.proposed.roi_percent !== right.proposed.roi_percent) {
+    return right.proposed.roi_percent - left.proposed.roi_percent;
+  }
+  if (left.extra_cash_required !== right.extra_cash_required) {
+    return left.extra_cash_required - right.extra_cash_required;
+  }
+  if (left.annual_return_gain !== right.annual_return_gain) {
+    return right.annual_return_gain - left.annual_return_gain;
   }
   return left.proposed.row.row_id.localeCompare(right.proposed.row.row_id, undefined, { numeric: true, sensitivity: "base" });
 }

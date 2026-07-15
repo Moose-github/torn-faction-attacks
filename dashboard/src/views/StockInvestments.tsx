@@ -27,7 +27,9 @@ import {
   buildStockStrategyPlan,
   DEFAULT_STOCK_STRATEGY_STEP_LIMIT,
   recommendBestStockBuy,
+  stockInvestmentRowMetrics,
   type StockBuyRecommendation,
+  type StockInvestmentRowMetrics,
   type StockRebalanceRecommendation,
   type StockStrategyStep,
 } from "../utils/stockRecommendations";
@@ -234,7 +236,10 @@ export function StockInvestments() {
     if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, cityBankActive)) {
       return false;
     }
-    const rowMetrics = stockRowFilterMetrics(row, ownedShares, ownedSnapshot !== null);
+    const rowMetrics = stockInvestmentRowMetrics(row, {
+      ownedShares,
+      hasOwnedSnapshot: ownedSnapshot !== null,
+    });
     if (affordableOnly && budget !== null && rowMetrics.estimated_cost > budget) {
       return false;
     }
@@ -243,7 +248,7 @@ export function StockInvestments() {
     }
     return true;
   });
-  const rows = sortStockRoiRows(filteredRows, roiSort);
+  const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, ownedSnapshot !== null);
   const bestBuyRecommendation = React.useMemo(() => recommendBestStockBuy({
     rows: investmentRows,
     ownedSnapshot,
@@ -592,7 +597,7 @@ export function StockInvestments() {
         ) : rows.length === 0 ? (
           <EmptyState text="No investment opportunities match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} ownedShares={ownedShares} cityBankActive={cityBankActive} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
+          <StockRoiTable rows={rows} ownedShares={ownedShares} hasOwnedSnapshot={ownedSnapshot !== null} cityBankActive={cityBankActive} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
         )}
       </section>
 
@@ -637,6 +642,7 @@ export function StockInvestments() {
 function StockRoiTable({
   rows,
   ownedShares,
+  hasOwnedSnapshot,
   cityBankActive,
   bankMerits,
   sort,
@@ -644,6 +650,7 @@ function StockRoiTable({
 }: {
   rows: StockInvestmentRoiRow[];
   ownedShares: Map<number, number>;
+  hasOwnedSnapshot: boolean;
   cityBankActive: boolean;
   bankMerits: number;
   sort: StockRoiSort;
@@ -669,7 +676,9 @@ function StockRoiTable({
             const isStockRow = isStockInvestmentRow(row);
             const owned = isStockRow ? ownedShares.get(row.stock_id) ?? 0 : 0;
             const ownsIncrement = isInvestmentRowCovered(row, ownedShares, cityBankActive);
-            const additionalCost = additionalCostForOwnedStockRow(row, owned);
+            const rowMetrics = stockInvestmentRowMetrics(row, { ownedShares, hasOwnedSnapshot });
+            const costDetail = stockCostDetail(row, rowMetrics);
+            const showRawRoi = rowMetrics.personalized && !rowMetrics.covered && rowMetrics.roi_percent !== row.roi_percent;
             return (
               <tr key={row.row_id} className={ownsIncrement ? "stock-owned-increment-row" : undefined}>
                 <td>
@@ -699,17 +708,14 @@ function StockRoiTable({
                 </td>
                 <td>
                   <span className="stock-cost-cell">
-                    {!isStockRow || row.increment === 1 ? (
-                      <span>{formatMoney(row.increment_cost)}</span>
-                    ) : (
-                      <span className="stock-tooltip-value" title={`Total cost through this increment: ${formatMoney(row.total_cost)}`}>
-                        {formatMoney(row.increment_cost)}
-                      </span>
-                    )}
-                    {additionalCost !== null ? (
-                      <small>Additional: {formatMoney(additionalCost)}</small>
-                    ) : null}
+                    <span
+                      className={isStockRow && row.increment !== 1 ? "stock-tooltip-value" : undefined}
+                      title={isStockRow && row.increment !== 1 ? `Total cost through this increment: ${formatMoney(row.total_cost)}` : undefined}
+                    >
+                      {formatMoney(rowMetrics.estimated_cost)}
                     </span>
+                    {costDetail ? <small>{costDetail}</small> : null}
+                  </span>
                 </td>
                 <td>
                   <span className="stock-benefit-cell">
@@ -718,9 +724,12 @@ function StockRoiTable({
                   </span>
                 </td>
                 <td>{formatMoney(row.annual_return)}</td>
-                <td>{formatNumber(Math.round(row.days_to_break_even))} days</td>
+                <td>{formatNumber(Math.round(rowMetrics.days_to_break_even))} days</td>
                 <td>
-                  <span className={`stock-roi-chip ${roiTone(row.roi_percent)}`}>{formatPercent(row.roi_percent)}</span>
+                  <span className="stock-benefit-cell">
+                    <span className={`stock-roi-chip ${roiTone(rowMetrics.roi_percent)}`}>{formatPercent(rowMetrics.roi_percent)}</span>
+                    {showRawRoi ? <small>Block: {formatPercent(row.roi_percent)}</small> : null}
+                  </span>
                 </td>
               </tr>
             );
@@ -1113,7 +1122,10 @@ function RebalanceRecommendationRow({
       <div className="stock-rebalance-title">
         <span className="stock-symbol-chip">{rebalanceSaleChip(recommendation)}</span>
         <span>
-          <strong>{rebalanceSaleTitle(recommendation)}</strong>
+          <strong>
+            {rebalanceSaleTitle(recommendation)}
+            {recommendation.highlight ? <em className="stock-rebalance-highlight">{rebalanceHighlightLabel(recommendation.highlight)}</em> : null}
+          </strong>
           <small>{rebalanceActionDescription(recommendation, bankMerits)}</small>
         </span>
       </div>
@@ -1135,8 +1147,8 @@ function RebalanceRecommendationRow({
           <small>Annual gain</small>
         </span>
         <span>
-          <strong>{formatPercent(row.roi_percent)}</strong>
-          <small>Block ROI</small>
+          <strong>{formatPercent(proposed.roi_percent)}</strong>
+          <small>{proposed.roi_percent === row.roi_percent ? "Block ROI" : "Proposed ROI"}</small>
         </span>
       </div>
     </div>
@@ -1191,6 +1203,17 @@ function rebalanceActionDescription(recommendation: StockRebalanceRecommendation
     ? ` and ${formatInstructionMoney(recommendation.available_cash)} available cash`
     : "";
   return `Sell ${rebalanceSaleDescription(recommendation)}, combine about ${formatInstructionMoney(recommendation.sale_value)} sale value${availableCash}, and buy ${bestOpportunityTitle(proposed.row)} for ${formatInstructionMoney(proposed.estimated_cost)}. ${rebalanceProposedDetail(proposed, bankMerits)}`;
+}
+
+function rebalanceHighlightLabel(highlight: NonNullable<StockRebalanceRecommendation["highlight"]>): string {
+  switch (highlight) {
+    case "best_gain":
+      return "Best gain";
+    case "best_roi":
+      return "Best ROI";
+    case "best_gain_and_roi":
+      return "Best gain + ROI";
+  }
 }
 
 function rebalanceSaleChip(recommendation: StockRebalanceRecommendation): string {
@@ -1316,9 +1339,14 @@ async function fetchTornUserJson(url: string, apiKey: string, invalidResponseMes
   return data;
 }
 
-function sortStockRoiRows(rows: StockInvestmentRoiRow[], sort: StockRoiSort): StockInvestmentRoiRow[] {
+function sortStockRoiRows(
+  rows: StockInvestmentRoiRow[],
+  sort: StockRoiSort,
+  ownedShares: Map<number, number>,
+  hasOwnedSnapshot: boolean,
+): StockInvestmentRoiRow[] {
   return [...rows].sort((a, b) => {
-    const compared = compareStockRoiRows(a, b, sort.key);
+    const compared = compareStockRoiRows(a, b, sort.key, ownedShares, hasOwnedSnapshot);
     if (compared !== 0) {
       return sort.direction === "asc" ? compared : -compared;
     }
@@ -1336,7 +1364,15 @@ function sortStockRoiRows(rows: StockInvestmentRoiRow[], sort: StockRoiSort): St
   });
 }
 
-function compareStockRoiRows(a: StockInvestmentRoiRow, b: StockInvestmentRoiRow, key: StockRoiSortKey): number {
+function compareStockRoiRows(
+  a: StockInvestmentRoiRow,
+  b: StockInvestmentRoiRow,
+  key: StockRoiSortKey,
+  ownedShares: Map<number, number>,
+  hasOwnedSnapshot: boolean,
+): number {
+  const metricsA = stockInvestmentRowMetrics(a, { ownedShares, hasOwnedSnapshot });
+  const metricsB = stockInvestmentRowMetrics(b, { ownedShares, hasOwnedSnapshot });
   switch (key) {
     case "acronym":
       return compareText(rowAcronym(a), rowAcronym(b));
@@ -1345,15 +1381,15 @@ function compareStockRoiRows(a: StockInvestmentRoiRow, b: StockInvestmentRoiRow,
     case "shares":
       return compareNullableNumber(a.required_shares, b.required_shares);
     case "increment_cost":
-      return a.increment_cost - b.increment_cost;
+      return metricsA.estimated_cost - metricsB.estimated_cost;
     case "benefit":
       return compareText(a.benefit_description, b.benefit_description);
     case "annual_return":
       return a.annual_return - b.annual_return;
     case "days_to_break_even":
-      return a.days_to_break_even - b.days_to_break_even;
+      return metricsA.days_to_break_even - metricsB.days_to_break_even;
     case "roi_percent":
-      return a.roi_percent - b.roi_percent;
+      return metricsA.roi_percent - metricsB.roi_percent;
   }
 }
 
@@ -1391,46 +1427,19 @@ function isInvestmentRowCovered(row: StockInvestmentRoiRow, ownedShares: Map<num
   return ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required);
 }
 
-function stockRowFilterMetrics(
-  row: StockInvestmentRoiRow,
-  ownedShares: Map<number, number>,
-  hasOwnedSnapshot: boolean,
-): { estimated_cost: number; roi_percent: number } {
-  if (!hasOwnedSnapshot || !isStockInvestmentRow(row)) {
-    return {
-      estimated_cost: row.increment_cost,
-      roi_percent: row.roi_percent,
-    };
-  }
-
-  const owned = ownedShares.get(row.stock_id) ?? 0;
-  if (ownsStockIncrement(owned, row.total_shares_required)) {
-    return {
-      estimated_cost: 0,
-      roi_percent: row.roi_percent,
-    };
-  }
-
-  const sharesNeeded = Math.max(0, row.total_shares_required - owned);
-  const estimatedCost = sharesNeeded * row.latest_price;
-  return {
-    estimated_cost: estimatedCost > 0 ? estimatedCost : row.increment_cost,
-    roi_percent: estimatedCost > 0 ? (row.annual_return / estimatedCost) * 100 : row.roi_percent,
-  };
-}
-
-function additionalCostForOwnedStockRow(row: StockInvestmentRoiRow, ownedShares: number): number | null {
-  if (!isStockInvestmentRow(row) || ownedShares <= 0) {
+function stockCostDetail(row: StockInvestmentRoiRow, metrics: StockInvestmentRowMetrics): string | null {
+  if (!isStockInvestmentRow(row)) {
     return null;
   }
 
-  const targetShares = row.total_shares_required ?? 0;
-  const latestPrice = row.latest_price ?? 0;
-  if (ownedShares >= targetShares || targetShares <= 0 || latestPrice <= 0) {
+  if (metrics.covered) {
+    return "Covered";
+  }
+  if (!metrics.personalized || metrics.estimated_cost === row.increment_cost) {
     return null;
   }
 
-  return (targetShares - ownedShares) * latestPrice;
+  return `Increment: ${formatMoney(row.increment_cost)}`;
 }
 
 function bestOpportunityTitle(row: StockInvestmentRoiRow): string {

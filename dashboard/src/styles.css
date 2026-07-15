@@ -611,9 +611,25 @@ h2 {
 }
 
 .stock-rebalance-title strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   color: var(--text-heading);
   font-size: 0.9rem;
   font-weight: 900;
+}
+
+.stock-rebalance-highlight {
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .stock-rebalance-title small {
