@@ -768,7 +768,7 @@ h2 {
 
 .stock-investment-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 240px)) repeat(3, minmax(140px, max-content)) auto;
+  grid-template-columns: repeat(2, minmax(180px, 240px)) repeat(4, minmax(140px, max-content)) auto;
   gap: 12px;
   align-items: end;
 }

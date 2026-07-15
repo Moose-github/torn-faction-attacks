@@ -4,6 +4,12 @@ import { ownedSharesMap, ownsStockIncrement } from "./ownedStocks";
 
 const CITY_BANK_MERIT_STEP = 0.05;
 const TCI_BANK_INTEREST_BONUS_KEY = "city_bank:tci_bonus";
+const FHG_TCI_SWAP_ROW_ID = "strategy:fhg_tci_bank_swap";
+const FHG_TCI_SWAP_BENEFIT_KEY = "strategy:fhg_tci_bank_swap";
+const FHG_ACRONYM = "FHG";
+const FHG_TCI_SWAP_FHG_DAYS = 83;
+const FHG_TCI_SWAP_TCI_DAYS = 7;
+const FHG_TCI_SWAP_CYCLE_DAYS = 90;
 const MIN_REBALANCE_ANNUAL_GAIN = 1_000_000;
 const MIN_REBALANCE_ROI_GAIN = 5;
 const MIN_STRATEGY_ROI_RETENTION = 0.75;
@@ -21,8 +27,35 @@ type StockInvestmentStockRow = StockInvestmentRoiRow & {
   latest_price: number;
 };
 
+type FhgTciSwapComponent = {
+  stock_id: number;
+  acronym: string | null;
+  name: string | null;
+  required_shares: number;
+  latest_price: number;
+  cost: number;
+  annual_return: number;
+  row_id: string;
+};
+
+export type FhgTciSwapRow = StockInvestmentRoiRow & {
+  row_id: typeof FHG_TCI_SWAP_ROW_ID;
+  strategy_kind: "fhg_tci_bank_swap";
+  components: {
+    fhg: FhgTciSwapComponent;
+    tci: FhgTciSwapComponent;
+  };
+  hold_days: {
+    fhg: typeof FHG_TCI_SWAP_FHG_DAYS;
+    tci: typeof FHG_TCI_SWAP_TCI_DAYS;
+    cycle: typeof FHG_TCI_SWAP_CYCLE_DAYS;
+  };
+};
+
+export type StockInvestmentRecommendationRow = StockInvestmentRoiRow | FhgTciSwapRow;
+
 export type StockBuyRecommendation = {
-  row: StockInvestmentRoiRow;
+  row: StockInvestmentRecommendationRow;
   owned_shares: number;
   target_shares: number | null;
   shares_needed: number | null;
@@ -46,7 +79,7 @@ export type StockInvestmentRowMetrics = {
 };
 
 export type StockBuyRecommendationInput = {
-  rows: StockInvestmentRoiRow[];
+  rows: StockInvestmentRecommendationRow[];
   ownedSnapshot: OwnedStockSnapshot | null;
   cityBankActive: boolean;
   budget: number | null;
@@ -139,13 +172,71 @@ export function adjustCityBankRowForMerits(row: StockInvestmentRoiRow, bankMerit
   };
 }
 
+export function buildFhgTciSwapRow(rows: StockInvestmentRoiRow[]): FhgTciSwapRow | null {
+  const fhg = rows.find((row): row is StockInvestmentStockRow =>
+    isStockInvestmentRow(row) &&
+    row.increment === 1 &&
+    (row.acronym ?? "").toUpperCase() === FHG_ACRONYM &&
+    row.increment_cost > 0 &&
+    row.annual_return > 0
+  ) ?? null;
+  const tci = rows.find((row): row is StockInvestmentStockRow =>
+    isStockInvestmentRow(row) &&
+    row.benefit_key === TCI_BANK_INTEREST_BONUS_KEY &&
+    row.increment_cost > 0 &&
+    row.annual_return > 0
+  ) ?? null;
+  if (!fhg || !tci) {
+    return null;
+  }
+
+  const annualReturn = fhg.annual_return * (FHG_TCI_SWAP_FHG_DAYS / FHG_TCI_SWAP_CYCLE_DAYS) + tci.annual_return;
+  const capitalRequired = Math.max(fhg.increment_cost, tci.increment_cost);
+  const benefitValue = annualReturn * (FHG_TCI_SWAP_CYCLE_DAYS / 365);
+  return {
+    investment_type: "stock",
+    row_id: FHG_TCI_SWAP_ROW_ID,
+    stock_id: null,
+    acronym: "FHG/TCI",
+    name: "FHG/TCI Bank Swap",
+    increment: null,
+    required_shares: null,
+    total_shares_required: null,
+    latest_price: null,
+    increment_cost: capitalRequired,
+    total_cost: capitalRequired,
+    benefit_key: FHG_TCI_SWAP_BENEFIT_KEY,
+    benefit_description: "FHG 83 days + TCI 7 days",
+    valuation_source: "cash",
+    frequency_days: FHG_TCI_SWAP_CYCLE_DAYS,
+    benefit_value: benefitValue,
+    annual_return: annualReturn,
+    days_to_break_even: capitalRequired / (annualReturn / 365),
+    roi_percent: (annualReturn / capitalRequired) * 100,
+    strategy_kind: "fhg_tci_bank_swap",
+    components: {
+      fhg: rowToFhgTciSwapComponent(fhg),
+      tci: rowToFhgTciSwapComponent(tci),
+    },
+    hold_days: {
+      fhg: FHG_TCI_SWAP_FHG_DAYS,
+      tci: FHG_TCI_SWAP_TCI_DAYS,
+      cycle: FHG_TCI_SWAP_CYCLE_DAYS,
+    },
+  };
+}
+
 export function stockInvestmentRowMetrics(
-  row: StockInvestmentRoiRow,
+  row: StockInvestmentRecommendationRow,
   options: {
     ownedShares: Map<number, number>;
     hasOwnedSnapshot: boolean;
   },
 ): StockInvestmentRowMetrics {
+  if (isFhgTciSwapRow(row)) {
+    return fhgTciSwapRowMetrics(row, options);
+  }
+
   const rowRoiPercent = row.increment_cost > 0
     ? (row.annual_return / row.increment_cost) * 100
     : row.roi_percent;
@@ -200,6 +291,52 @@ export function stockInvestmentRowMetrics(
     roi_percent: (row.annual_return / estimatedCost) * 100,
     owned_shares: owned,
     shares_needed: sharesNeeded,
+    personalized: true,
+  };
+}
+
+function fhgTciSwapRowMetrics(
+  row: FhgTciSwapRow,
+  options: {
+    ownedShares: Map<number, number>;
+    hasOwnedSnapshot: boolean;
+  },
+): StockInvestmentRowMetrics {
+  const baseMetrics: StockInvestmentRowMetrics = {
+    estimated_cost: row.increment_cost,
+    annual_return: row.annual_return,
+    days_to_break_even: row.days_to_break_even,
+    roi_percent: row.roi_percent,
+    owned_shares: 0,
+    target_shares: null,
+    shares_needed: null,
+    personalized: false,
+    covered: false,
+  };
+  if (!options.hasOwnedSnapshot) {
+    return baseMetrics;
+  }
+
+  const reusableCapital = Math.max(
+    ownedComponentValue(row.components.fhg, options.ownedShares),
+    ownedComponentValue(row.components.tci, options.ownedShares),
+  );
+  const estimatedCost = Math.max(0, row.increment_cost - reusableCapital);
+  if (estimatedCost <= 0) {
+    return {
+      ...baseMetrics,
+      estimated_cost: 0,
+      days_to_break_even: 0,
+      personalized: true,
+      covered: true,
+    };
+  }
+
+  return {
+    ...baseMetrics,
+    estimated_cost: estimatedCost,
+    days_to_break_even: row.annual_return > 0 ? estimatedCost / (row.annual_return / 365) : row.days_to_break_even,
+    roi_percent: (row.annual_return / estimatedCost) * 100,
     personalized: true,
   };
 }
@@ -334,7 +471,10 @@ export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit
       budget: null,
       affordableOnly: false,
     };
-    const recommendations = recommendStockBuys(stepInput, Number.MAX_SAFE_INTEGER);
+    const recommendations = filterFhgTciSwapStrategyConflicts(
+      recommendStockBuys(stepInput, Number.MAX_SAFE_INTEGER),
+      steps,
+    );
     const nextStep = nextStrategyStep(stepInput, recommendations, simulatedSnapshot, currentCash, steps, limit);
     if (!nextStep || !strategyStepIsWorthAdding(nextStep, steps)) {
       break;
@@ -660,7 +800,7 @@ function buildRebalanceRecommendations(
 }
 
 export function stockBuyRecommendationFromRow(
-  row: StockInvestmentRoiRow,
+  row: StockInvestmentRecommendationRow,
   options: {
     ownedShares: Map<number, number>;
     hasOwnedSnapshot: boolean;
@@ -668,6 +808,28 @@ export function stockBuyRecommendationFromRow(
     budget: number | null;
   },
 ): StockBuyRecommendation | null {
+  if (isFhgTciSwapRow(row)) {
+    const metrics = stockInvestmentRowMetrics(row, {
+      ownedShares: options.ownedShares,
+      hasOwnedSnapshot: options.hasOwnedSnapshot,
+    });
+    if (metrics.covered || metrics.estimated_cost <= 0) {
+      return null;
+    }
+
+    return {
+      row,
+      owned_shares: 0,
+      target_shares: null,
+      shares_needed: null,
+      estimated_cost: metrics.estimated_cost,
+      annual_return: metrics.annual_return,
+      roi_percent: metrics.roi_percent,
+      affordable: affordability(metrics.estimated_cost, options.budget),
+      personalized: metrics.personalized,
+    };
+  }
+
   if (row.investment_type === "city_bank") {
     if (options.cityBankActive) {
       return null;
@@ -821,7 +983,7 @@ type StockStrategySalePlan = {
 };
 
 function buildStrategySalePlan(
-  rows: StockInvestmentRoiRow[],
+  rows: StockInvestmentRecommendationRow[],
   snapshot: OwnedStockSnapshot,
   recommendation: StockBuyRecommendation,
   currentCash: number,
@@ -838,8 +1000,16 @@ function buildStrategySalePlan(
     map.set(row.stock_id, stockRows);
     return map;
   }, new Map<number, StockInvestmentStockRow[]>());
+  const excludedSaleStockIds = isFhgTciSwapRow(recommendation.row)
+    ? new Set([recommendation.row.components.fhg.stock_id, recommendation.row.components.tci.stock_id])
+    : new Set<number>();
   const sources = snapshot.stocks
-    .filter((stock) => stock.shares > 0 && stock.stock_id !== recommendation.row.stock_id && !lockedIds.has(stock.stock_id))
+    .filter((stock) =>
+      stock.shares > 0 &&
+      stock.stock_id !== recommendation.row.stock_id &&
+      !lockedIds.has(stock.stock_id) &&
+      !excludedSaleStockIds.has(stock.stock_id)
+    )
     .map((stock) => {
       const ownedRows = stockRowsById.get(stock.stock_id) ?? [];
       const priceRow = ownedRows.find((row) => row.latest_price > 0) ?? null;
@@ -1014,11 +1184,62 @@ function lockedStockIds(input: StockBuyRecommendationInput): ReadonlySet<number>
   return input.lockedStockIds ?? new Set<number>();
 }
 
+function rowToFhgTciSwapComponent(row: StockInvestmentStockRow): FhgTciSwapComponent {
+  return {
+    stock_id: row.stock_id,
+    acronym: row.acronym,
+    name: row.name,
+    required_shares: row.total_shares_required,
+    latest_price: row.latest_price,
+    cost: row.increment_cost,
+    annual_return: row.annual_return,
+    row_id: row.row_id,
+  };
+}
+
+function ownedComponentValue(component: FhgTciSwapComponent, ownedShares: Map<number, number>): number {
+  const owned = Math.min(ownedShares.get(component.stock_id) ?? 0, component.required_shares);
+  return Math.max(0, owned * component.latest_price);
+}
+
+function filterFhgTciSwapStrategyConflicts(
+  recommendations: StockBuyRecommendation[],
+  previousSteps: StockStrategyStep[],
+): StockBuyRecommendation[] {
+  if (previousSteps.length === 0) {
+    return recommendations;
+  }
+
+  const hasSwapStep = previousSteps.some((step) => isFhgTciSwapRow(step.recommendation.row));
+  const hasComponentStep = previousSteps.some((step) => isFhgTciSwapComponentRow(step.recommendation.row));
+  return recommendations.filter((recommendation) => {
+    if (hasSwapStep && (isFhgTciSwapRow(recommendation.row) || isFhgTciSwapComponentRow(recommendation.row))) {
+      return false;
+    }
+    if (hasComponentStep && isFhgTciSwapRow(recommendation.row)) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function netSaleValue(grossSaleValue: number): number {
   return grossSaleValue * (1 - STOCK_SELL_FEE_RATE);
 }
 
-function isStockInvestmentRow(row: StockInvestmentRoiRow): row is StockInvestmentStockRow {
+export function isFhgTciSwapRow(row: StockInvestmentRecommendationRow): row is FhgTciSwapRow {
+  return "strategy_kind" in row && row.strategy_kind === "fhg_tci_bank_swap";
+}
+
+function isFhgTciSwapComponentRow(row: StockInvestmentRecommendationRow): boolean {
+  return isFhgBlockOneRow(row) || row.benefit_key === TCI_BANK_INTEREST_BONUS_KEY;
+}
+
+function isFhgBlockOneRow(row: StockInvestmentRecommendationRow): boolean {
+  return isStockInvestmentRow(row) && row.increment === 1 && (row.acronym ?? "").toUpperCase() === FHG_ACRONYM;
+}
+
+function isStockInvestmentRow(row: StockInvestmentRecommendationRow): row is StockInvestmentStockRow {
   return (
     row.investment_type === "stock" &&
     row.stock_id !== null &&
