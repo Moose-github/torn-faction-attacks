@@ -1,5 +1,5 @@
 import type { StockInvestmentRoiRow } from "../api/types";
-import type { OwnedStockSnapshot } from "./ownedStocks";
+import type { OwnedStockPosition, OwnedStockSnapshot } from "./ownedStocks";
 import { ownedSharesMap, ownsStockIncrement } from "./ownedStocks";
 
 const CITY_BANK_MERIT_STEP = 0.05;
@@ -62,6 +62,7 @@ export type StockBuyRecommendation = {
   estimated_cost: number;
   annual_return: number;
   roi_percent: number;
+  ranking_roi_percent: number;
   affordable: boolean | null;
   personalized: boolean;
 };
@@ -71,6 +72,7 @@ export type StockInvestmentRowMetrics = {
   annual_return: number;
   days_to_break_even: number;
   roi_percent: number;
+  ranking_roi_percent: number;
   owned_shares: number;
   target_shares: number | null;
   shares_needed: number | null;
@@ -248,6 +250,7 @@ export function stockInvestmentRowMetrics(
     annual_return: row.annual_return,
     days_to_break_even: rowDaysToBreakEven,
     roi_percent: rowRoiPercent,
+    ranking_roi_percent: rowRoiPercent,
     owned_shares: 0,
     target_shares: isStockInvestmentRow(row) ? row.total_shares_required : null,
     shares_needed: isStockInvestmentRow(row) ? row.required_shares : null,
@@ -289,6 +292,7 @@ export function stockInvestmentRowMetrics(
     estimated_cost: estimatedCost,
     days_to_break_even: row.annual_return > 0 ? estimatedCost / (row.annual_return / 365) : row.days_to_break_even,
     roi_percent: (row.annual_return / estimatedCost) * 100,
+    ranking_roi_percent: stockIncrementRankingRoiPercent(row, owned),
     owned_shares: owned,
     shares_needed: sharesNeeded,
     personalized: true,
@@ -307,6 +311,7 @@ function fhgTciSwapRowMetrics(
     annual_return: row.annual_return,
     days_to_break_even: row.days_to_break_even,
     roi_percent: row.roi_percent,
+    ranking_roi_percent: row.roi_percent,
     owned_shares: 0,
     target_shares: null,
     shares_needed: null,
@@ -336,6 +341,7 @@ function fhgTciSwapRowMetrics(
     estimated_cost: estimatedCost,
     days_to_break_even: row.annual_return > 0 ? estimatedCost / (row.annual_return / 365) : row.days_to_break_even,
     roi_percent: (row.annual_return / estimatedCost) * 100,
+    ranking_roi_percent: row.roi_percent,
     personalized: true,
   };
 }
@@ -599,10 +605,10 @@ function selectStrategySteppingStone(
 
   const bestSteppingStone = [...steppingStones].sort(compareStockBuyRecommendations)[0] ?? null;
   const qualityFloor = Math.max(
-    bestSteppingStone ? bestSteppingStone.roi_percent * MIN_STRATEGY_ROI_RETENTION : 0,
+    bestSteppingStone ? bestSteppingStone.ranking_roi_percent * MIN_STRATEGY_ROI_RETENTION : 0,
     previousBestRoi !== null ? previousBestRoi * MIN_STRATEGY_ROI_RETENTION : 0,
   );
-  const usefulSteppingStones = steppingStones.filter((recommendation) => recommendation.roi_percent >= qualityFloor);
+  const usefulSteppingStones = steppingStones.filter((recommendation) => recommendation.ranking_roi_percent >= qualityFloor);
   if (usefulSteppingStones.length === 0) {
     return null;
   }
@@ -626,7 +632,7 @@ function strategyTemporaryRecommendationIsWorthHolding(
   if (recommendation.annual_return <= 0) {
     return false;
   }
-  if (previousBestRoi !== null && recommendation.roi_percent < previousBestRoi * MIN_STRATEGY_ROI_RETENTION) {
+  if (previousBestRoi !== null && recommendation.ranking_roi_percent < previousBestRoi * MIN_STRATEGY_ROI_RETENTION) {
     return false;
   }
 
@@ -640,7 +646,7 @@ function strategyTemporaryRecommendationIsWorthHolding(
     return false;
   }
 
-  return recommendation.roi_percent * targetGapRatio >= MIN_STRATEGY_TEMP_HOLD_SCORE;
+  return recommendation.ranking_roi_percent * targetGapRatio >= MIN_STRATEGY_TEMP_HOLD_SCORE;
 }
 
 function strategyStepIsWorthAdding(step: StockStrategyStep, previousSteps: StockStrategyStep[]): boolean {
@@ -675,7 +681,7 @@ function strategyBuyStep(recommendation: StockBuyRecommendation, currentCash: nu
     starting_cash: currentCash,
     ending_cash: Math.max(0, currentCash + extraCashNeeded - recommendation.estimated_cost),
     annual_return_gain: recommendation.annual_return,
-    roi_percent: recommendation.roi_percent,
+    roi_percent: recommendation.ranking_roi_percent,
     recommendation,
     rebalance: null,
     sales: [],
@@ -696,7 +702,7 @@ function strategyRebalanceStep(
     starting_cash: currentCash,
     ending_cash: Math.max(0, currentCash + extraCashNeeded + salePlan.sale_value - recommendation.estimated_cost),
     annual_return_gain: recommendation.annual_return - salePlan.current_annual_return,
-    roi_percent: recommendation.roi_percent,
+    roi_percent: recommendation.ranking_roi_percent,
     recommendation,
     rebalance: salePlanToRebalanceRecommendation(recommendation, salePlan, currentCash),
     sales: salePlan.sales,
@@ -777,7 +783,7 @@ function buildRebalanceRecommendations(
     if (annualReturnGain < MIN_REBALANCE_ANNUAL_GAIN) {
       continue;
     }
-    if (currentRoiPercent !== null && candidate.roi_percent < currentRoiPercent + MIN_REBALANCE_ROI_GAIN) {
+    if (currentRoiPercent !== null && candidate.ranking_roi_percent < currentRoiPercent + MIN_REBALANCE_ROI_GAIN) {
       continue;
     }
 
@@ -813,6 +819,10 @@ export function stockBuyRecommendationFromRow(
   },
 ): StockBuyRecommendation | null {
   if (isFhgTciSwapRow(row)) {
+    if (!options.cityBankActive) {
+      return null;
+    }
+
     const metrics = stockInvestmentRowMetrics(row, {
       ownedShares: options.ownedShares,
       hasOwnedSnapshot: options.hasOwnedSnapshot,
@@ -829,6 +839,7 @@ export function stockBuyRecommendationFromRow(
       estimated_cost: metrics.estimated_cost,
       annual_return: metrics.annual_return,
       roi_percent: metrics.roi_percent,
+      ranking_roi_percent: metrics.ranking_roi_percent,
       affordable: affordability(metrics.estimated_cost, options.budget),
       personalized: metrics.personalized,
     };
@@ -847,6 +858,7 @@ export function stockBuyRecommendationFromRow(
       estimated_cost: row.increment_cost,
       annual_return: row.annual_return,
       roi_percent: row.roi_percent,
+      ranking_roi_percent: row.roi_percent,
       affordable: affordability(row.increment_cost, options.budget),
       personalized: options.hasOwnedSnapshot,
     };
@@ -875,14 +887,15 @@ export function stockBuyRecommendationFromRow(
     estimated_cost: metrics.estimated_cost,
     annual_return: metrics.annual_return,
     roi_percent: metrics.roi_percent,
+    ranking_roi_percent: metrics.ranking_roi_percent,
     affordable: affordability(metrics.estimated_cost, options.budget),
     personalized: metrics.personalized,
   };
 }
 
 function compareStockBuyRecommendations(left: StockBuyRecommendation, right: StockBuyRecommendation): number {
-  if (left.roi_percent !== right.roi_percent) {
-    return right.roi_percent - left.roi_percent;
+  if (left.ranking_roi_percent !== right.ranking_roi_percent) {
+    return right.ranking_roi_percent - left.ranking_roi_percent;
   }
   if (left.annual_return !== right.annual_return) {
     return right.annual_return - left.annual_return;
@@ -943,8 +956,8 @@ function compareStockRebalanceByGain(left: StockRebalanceRecommendation, right: 
   if (left.annual_return_gain !== right.annual_return_gain) {
     return right.annual_return_gain - left.annual_return_gain;
   }
-  if (left.proposed.roi_percent !== right.proposed.roi_percent) {
-    return right.proposed.roi_percent - left.proposed.roi_percent;
+  if (left.proposed.ranking_roi_percent !== right.proposed.ranking_roi_percent) {
+    return right.proposed.ranking_roi_percent - left.proposed.ranking_roi_percent;
   }
   if (left.extra_cash_required !== right.extra_cash_required) {
     return left.extra_cash_required - right.extra_cash_required;
@@ -953,8 +966,8 @@ function compareStockRebalanceByGain(left: StockRebalanceRecommendation, right: 
 }
 
 function compareStockRebalanceByRoi(left: StockRebalanceRecommendation, right: StockRebalanceRecommendation): number {
-  if (left.proposed.roi_percent !== right.proposed.roi_percent) {
-    return right.proposed.roi_percent - left.proposed.roi_percent;
+  if (left.proposed.ranking_roi_percent !== right.proposed.ranking_roi_percent) {
+    return right.proposed.ranking_roi_percent - left.proposed.ranking_roi_percent;
   }
   if (left.extra_cash_required !== right.extra_cash_required) {
     return left.extra_cash_required - right.extra_cash_required;
@@ -973,14 +986,29 @@ function filterDominatedRebalanceRecommendations(recommendations: StockRebalance
 
 function rebalanceRecommendationDominates(left: StockRebalanceRecommendation, right: StockRebalanceRecommendation): boolean {
   const hasAtLeastEqualGain = left.annual_return_gain >= right.annual_return_gain;
-  const hasAtLeastEqualRoi = left.proposed.roi_percent >= right.proposed.roi_percent;
+  const hasAtLeastEqualRoi = left.proposed.ranking_roi_percent >= right.proposed.ranking_roi_percent;
   const isStrictlyBetter = left.annual_return_gain > right.annual_return_gain ||
-    left.proposed.roi_percent > right.proposed.roi_percent;
+    left.proposed.ranking_roi_percent > right.proposed.ranking_roi_percent;
   return hasAtLeastEqualGain && hasAtLeastEqualRoi && isStrictlyBetter;
 }
 
 type StockStrategySalePlan = {
   sales: StockStrategySale[];
+  sale_value: number;
+  sale_fee: number;
+  current_annual_return: number;
+};
+
+type StockStrategySaleSource = {
+  stock: OwnedStockPosition;
+  ownedRows: StockInvestmentStockRow[];
+  priceRow: StockInvestmentStockRow;
+  remainingShares: number;
+};
+
+type StockStrategySaleChunk = {
+  source: StockStrategySaleSource;
+  shares: number;
   sale_value: number;
   sale_fee: number;
   current_annual_return: number;
@@ -1007,7 +1035,7 @@ function buildStrategySalePlan(
   const excludedSaleStockIds = isFhgTciSwapRow(recommendation.row)
     ? new Set([recommendation.row.components.fhg.stock_id, recommendation.row.components.tci.stock_id])
     : new Set<number>();
-  const sources = snapshot.stocks
+  const sources: StockStrategySaleSource[] = snapshot.stocks
     .filter((stock) =>
       stock.shares > 0 &&
       stock.stock_id !== recommendation.row.stock_id &&
@@ -1021,54 +1049,59 @@ function buildStrategySalePlan(
         return null;
       }
 
-      const fullGrossSaleValue = stock.shares * priceRow.latest_price;
-      const fullNetSaleValue = netSaleValue(fullGrossSaleValue);
-      const currentAnnualReturn = coveredAnnualReturn(ownedRows, stock.shares);
       return {
         stock,
         ownedRows,
         priceRow,
-        fullNetSaleValue,
-        currentAnnualReturn,
-        currentRoiPercent: currentAnnualReturn > 0 ? (currentAnnualReturn / fullNetSaleValue) * 100 : 0,
+        remainingShares: stock.shares,
       };
     })
-    .filter((source): source is NonNullable<typeof source> => Boolean(source))
-    .sort((left, right) =>
-      left.currentRoiPercent - right.currentRoiPercent ||
-      left.currentAnnualReturn - right.currentAnnualReturn ||
-      left.priceRow.row_id.localeCompare(right.priceRow.row_id, undefined, { numeric: true, sensitivity: "base" })
-    );
-  const sales: StockStrategySale[] = [];
+    .filter((source): source is StockStrategySaleSource => Boolean(source));
+  const salesByStockId = new Map<number, StockStrategySale>();
   let remainingCashNeeded = cashNeeded;
 
-  for (const source of sources) {
-    if (remainingCashNeeded <= 0) {
+  while (remainingCashNeeded > 0) {
+    const chunk = sources
+      .map(nextStrategySaleChunk)
+      .filter((saleChunk): saleChunk is StockStrategySaleChunk => Boolean(saleChunk))
+      .sort(compareStrategySaleChunks)[0] ?? null;
+    if (!chunk) {
       break;
     }
 
-    const netPricePerShare = netSaleValue(source.priceRow.latest_price);
-    const sellShares = Math.min(source.stock.shares, Math.ceil(remainingCashNeeded / netPricePerShare));
+    const netPricePerShare = netSaleValue(chunk.source.priceRow.latest_price);
+    const sellShares = chunk.current_annual_return <= 0 && chunk.sale_value > remainingCashNeeded
+      ? Math.min(chunk.shares, Math.ceil(remainingCashNeeded / netPricePerShare))
+      : chunk.shares;
     if (sellShares <= 0) {
-      continue;
+      break;
     }
 
-    const grossSaleValue = sellShares * source.priceRow.latest_price;
+    const grossSaleValue = sellShares * chunk.source.priceRow.latest_price;
     const saleFee = grossSaleValue * STOCK_SELL_FEE_RATE;
     const saleValue = grossSaleValue - saleFee;
-    const sharesAfterSale = Math.max(0, source.stock.shares - sellShares);
-    sales.push({
-      stock_id: source.stock.stock_id,
-      acronym: source.priceRow.acronym,
-      name: source.priceRow.name,
-      shares: sellShares,
-      sale_value: saleValue,
-      sale_fee: saleFee,
-      current_annual_return: coveredAnnualReturn(source.ownedRows, source.stock.shares) - coveredAnnualReturn(source.ownedRows, sharesAfterSale),
-    });
+    const existingSale = salesByStockId.get(chunk.source.stock.stock_id);
+    if (existingSale) {
+      existingSale.shares += sellShares;
+      existingSale.sale_value += saleValue;
+      existingSale.sale_fee += saleFee;
+      existingSale.current_annual_return += chunk.current_annual_return;
+    } else {
+      salesByStockId.set(chunk.source.stock.stock_id, {
+        stock_id: chunk.source.stock.stock_id,
+        acronym: chunk.source.priceRow.acronym,
+        name: chunk.source.priceRow.name,
+        shares: sellShares,
+        sale_value: saleValue,
+        sale_fee: saleFee,
+        current_annual_return: chunk.current_annual_return,
+      });
+    }
+    chunk.source.remainingShares = Math.max(0, chunk.source.remainingShares - sellShares);
     remainingCashNeeded -= saleValue;
   }
 
+  const sales = [...salesByStockId.values()];
   return {
     sales,
     sale_value: sales.reduce((sum, sale) => sum + sale.sale_value, 0),
@@ -1109,6 +1142,81 @@ function coveredAnnualReturn(rows: StockInvestmentStockRow[], shares: number): n
   return rows
     .filter((row) => ownsStockIncrement(shares, row.total_shares_required))
     .reduce((sum, row) => sum + row.annual_return, 0);
+}
+
+function nextStrategySaleChunk(source: StockStrategySaleSource): StockStrategySaleChunk | null {
+  const shares = source.remainingShares;
+  if (shares <= 0) {
+    return null;
+  }
+
+  const currentAnnualReturn = coveredAnnualReturn(source.ownedRows, shares);
+  const highestCoveredThreshold = highestCoveredStockThreshold(source.ownedRows, shares);
+  let sellShares: number;
+  let lostAnnualReturn = 0;
+  if (currentAnnualReturn <= 0 || highestCoveredThreshold === null) {
+    sellShares = shares;
+  } else if (shares > highestCoveredThreshold) {
+    sellShares = shares - highestCoveredThreshold;
+  } else {
+    sellShares = 1;
+    lostAnnualReturn = currentAnnualReturn - coveredAnnualReturn(source.ownedRows, shares - 1);
+  }
+
+  if (sellShares <= 0) {
+    return null;
+  }
+
+  const grossSaleValue = sellShares * source.priceRow.latest_price;
+  const saleFee = grossSaleValue * STOCK_SELL_FEE_RATE;
+  return {
+    source,
+    shares: sellShares,
+    sale_value: grossSaleValue - saleFee,
+    sale_fee: saleFee,
+    current_annual_return: lostAnnualReturn,
+  };
+}
+
+function compareStrategySaleChunks(left: StockStrategySaleChunk, right: StockStrategySaleChunk): number {
+  const leftLossRatio = left.sale_value > 0 ? left.current_annual_return / left.sale_value : Number.POSITIVE_INFINITY;
+  const rightLossRatio = right.sale_value > 0 ? right.current_annual_return / right.sale_value : Number.POSITIVE_INFINITY;
+  if (leftLossRatio !== rightLossRatio) {
+    return leftLossRatio - rightLossRatio;
+  }
+  if (left.current_annual_return !== right.current_annual_return) {
+    return left.current_annual_return - right.current_annual_return;
+  }
+  return left.source.priceRow.row_id.localeCompare(right.source.priceRow.row_id, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function highestCoveredStockThreshold(rows: StockInvestmentStockRow[], shares: number): number | null {
+  const thresholds = rows
+    .filter((row) => ownsStockIncrement(shares, row.total_shares_required))
+    .map((row) => row.total_shares_required);
+  return thresholds.length > 0 ? Math.max(...thresholds) : null;
+}
+
+function stockIncrementRankingRoiPercent(row: StockInvestmentStockRow, ownedShares: number): number {
+  const committedCost = stockIncrementCommittedCost(row, ownedShares);
+  return committedCost > 0 ? (row.annual_return / committedCost) * 100 : row.roi_percent;
+}
+
+function stockIncrementCommittedCost(row: StockInvestmentStockRow, ownedShares: number): number {
+  const previousTargetShares = Math.max(0, row.total_shares_required - row.required_shares);
+  if (ownedShares < previousTargetShares) {
+    const catchUpCost = Math.max(0, row.total_shares_required - ownedShares) * row.latest_price;
+    return catchUpCost > 0 ? catchUpCost : row.increment_cost;
+  }
+
+  const ownedTowardIncrement = Math.min(
+    row.required_shares,
+    Math.max(0, ownedShares - previousTargetShares),
+  );
+  const sharesNeeded = Math.max(0, row.total_shares_required - ownedShares);
+  const committedShares = Math.min(row.required_shares, ownedTowardIncrement + sharesNeeded);
+  const committedCost = committedShares * row.latest_price;
+  return committedCost > 0 ? committedCost : row.increment_cost;
 }
 
 function cloneOwnedSnapshot(snapshot: OwnedStockSnapshot | null): OwnedStockSnapshot {

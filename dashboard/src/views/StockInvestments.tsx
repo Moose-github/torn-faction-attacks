@@ -276,6 +276,9 @@ export function StockInvestments() {
   const budget = moneyInputValue(investmentAmount);
   const minRoi = percentInputValue(minimumRoi);
   const filteredRows = investmentRows.filter((row) => {
+    if (isFhgTciSwapRow(row) && !cityBankActive) {
+      return false;
+    }
     if (nextBlockOnly && isStockInvestmentRow(row) && !nextStockBlockRowIds.has(row.row_id)) {
       return false;
     }

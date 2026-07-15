@@ -124,6 +124,50 @@ describe("stock buy recommendations", () => {
     expect(result?.roi_percent).toBe(100);
   });
 
+  it("ranks partial completions by committed increment capital", () => {
+    const results = recommendStockBuys({
+      rows: [
+        stockRow({
+          row_id: "stock:1:1",
+          stock_id: 1,
+          acronym: "AAA",
+          latest_price: 10,
+          total_shares_required: 100,
+          increment_cost: 1_000,
+          annual_return: 100,
+          roi_percent: 10,
+        }),
+        stockRow({
+          row_id: "stock:2:1",
+          stock_id: 2,
+          acronym: "BBB",
+          latest_price: 10,
+          total_shares_required: 100,
+          increment_cost: 1_000,
+          annual_return: 200,
+          roi_percent: 20,
+        }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 90, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 2);
+
+    expect(results.map((recommendation) => ({
+      row_id: recommendation.row.row_id,
+      roi_percent: recommendation.roi_percent,
+      ranking_roi_percent: recommendation.ranking_roi_percent,
+    }))).toEqual([
+      { row_id: "stock:2:1", roi_percent: 20, ranking_roi_percent: 20 },
+      { row_id: "stock:1:1", roi_percent: 100, ranking_roi_percent: 10 },
+    ]);
+  });
+
   it("returns personalized table metrics for partially owned rows", () => {
     const metrics = stockInvestmentRowMetrics(stockRow({
       stock_id: 1,
@@ -441,13 +485,25 @@ describe("stock buy recommendations", () => {
     });
     expect(reusable.roi_percent).toBeCloseTo(13.3);
 
-    const recommendations = recommendStockBuys({
+    expect(recommendStockBuys({
       rows: [swap!],
       ownedSnapshot: {
         refreshed_at: 1_800_000_000,
         stocks: [{ stock_id: 9, shares: 500, bonus: null }],
       },
       cityBankActive: false,
+      budget: 0,
+      affordableOnly: true,
+      minimumRoi: null,
+    })).toEqual([]);
+
+    const recommendations = recommendStockBuys({
+      rows: [swap!],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 9, shares: 500, bonus: null }],
+      },
+      cityBankActive: true,
       budget: 0,
       affordableOnly: true,
       minimumRoi: null,
@@ -491,7 +547,7 @@ describe("stock buy recommendations", () => {
     const plan = buildStockStrategyPlan({
       rows: swap ? [fhg, tci, swap] : [fhg, tci],
       ownedSnapshot: null,
-      cityBankActive: false,
+      cityBankActive: true,
       budget: null,
       affordableOnly: false,
       minimumRoi: null,
@@ -547,7 +603,7 @@ describe("stock buy recommendations", () => {
         refreshed_at: 1_800_000_000,
         stocks: [{ stock_id: 9, shares: 500, bonus: null }],
       },
-      cityBankActive: false,
+      cityBankActive: true,
       budget: null,
       affordableOnly: false,
       minimumRoi: null,
@@ -665,6 +721,35 @@ describe("stock buy recommendations", () => {
       current_annual_return: 0,
       annual_return_gain: 2_000_000,
     });
+  });
+
+  it("sells excess covered shares before breaking lower ROI active blocks", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "HIGH", latest_price: 10, total_shares_required: 100, annual_return: 1_000, roi_percent: 100 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "LOW", latest_price: 10, total_shares_required: 100, annual_return: 100, roi_percent: 10 }),
+        stockRow({ row_id: "stock:3:1", stock_id: 3, acronym: "BUY", latest_price: 10, total_shares_required: 200, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [
+          { stock_id: 1, shares: 200, bonus: null },
+          { stock_id: 2, shares: 100, bonus: null },
+        ],
+      },
+      cityBankActive: false,
+      budget: 1_500,
+      affordableOnly: false,
+      minimumRoi: null,
+    });
+
+    expect(results[0]).toMatchObject({
+      sell_stock_id: 1,
+      sell_shares: 51,
+      current_annual_return: 0,
+      annual_return_gain: 2_000_000,
+    });
+    expect(results[0].sales.map((sale) => sale.stock_id)).toEqual([1]);
   });
 
   it("subtracts covered holding return from rebalance gain", () => {
