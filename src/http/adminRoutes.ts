@@ -5,7 +5,6 @@ import {
   getAdminDataHealth,
   updateDataHealthSettingsFromRequest,
 } from "../dataHealth";
-import { sendDiscordMessageFromRequest } from "../discord";
 import {
   clearDiscordTravelTrackerTargetFromRequest,
   getDiscordTravelTrackerTargetFromRequest,
@@ -215,10 +214,6 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/users/grant", "POST")) {
     return withAdmin(routeContext, () => grantAdminAccess(request, env));
-  }
-
-  if (matchesExactRoute(url, request, "/api/admin/discord/message", "POST")) {
-    return withAdmin(routeContext, () => sendDiscordMessageFromRequest(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/discord-links/sync", "POST")) {

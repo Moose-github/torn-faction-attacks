@@ -39,7 +39,6 @@ import {
   restartLiveEnemyTracking,
   relinkAttacks,
   runIngestion,
-  sendDiscordMessage,
   setDiscordTravelTrackerTarget,
   ChainWatchAlertSetting,
   RetaliationBoardAlertSetting,
@@ -62,7 +61,7 @@ import {
   WarSummary,
   WarType,
 } from "../../api";
-import { CollapsiblePanel, PanelHeader } from "../../components/Common";
+import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime, formatNumber } from "../../utils/format";
 
 const TORN_API_USAGE_WINDOW_OPTIONS = [
@@ -70,6 +69,16 @@ const TORN_API_USAGE_WINDOW_OPTIONS = [
   { seconds: 24 * 60 * 60, label: "1 day", summaryLabel: "1 day" },
   { seconds: 7 * 24 * 60 * 60, label: "7 days", summaryLabel: "7 days" },
 ] as const;
+
+type AdminTabKey = "operations" | "wars" | "reporting" | "maintenance" | "access";
+
+const ADMIN_TABS: Array<{ key: AdminTabKey; label: string }> = [
+  { key: "operations", label: "Operations" },
+  { key: "wars", label: "Wars & Events" },
+  { key: "reporting", label: "Reporting" },
+  { key: "maintenance", label: "Maintenance" },
+  { key: "access", label: "Access" },
+];
 
 export function AdminControls() {
   const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
@@ -111,7 +120,6 @@ export function AdminControls() {
   });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [adminGrantForm, setAdminGrantForm] = React.useState({ tornUserId: "" });
-  const [discordForm, setDiscordForm] = React.useState({ message: "" });
   const [discordTravelTargetForm, setDiscordTravelTargetForm] = React.useState({
     factionId: "",
     factionName: "",
@@ -165,8 +173,7 @@ export function AdminControls() {
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [isHistoricalWarPanelCollapsed, setIsHistoricalWarPanelCollapsed] = React.useState(true);
-  const [isRepairPanelCollapsed, setIsRepairPanelCollapsed] = React.useState(true);
+  const [activeAdminTab, setActiveAdminTab] = React.useState<AdminTabKey>("operations");
   const [ingestionRun, setIngestionRun] = React.useState<IngestionRun | null>(null);
   const [isLoadingIngestionRun, setIsLoadingIngestionRun] = React.useState(false);
   const [tornApiUsage, setTornApiUsage] = React.useState<TornApiUsageResponse | null>(null);
@@ -320,6 +327,32 @@ export function AdminControls() {
     } finally {
       setIsBusy(null);
     }
+  }
+
+  function handleAdminTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, tabKey: AdminTabKey) {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") {
+      return;
+    }
+
+    event.preventDefault();
+    const currentIndex = ADMIN_TABS.findIndex((tab) => tab.key === tabKey);
+    const nextIndex = event.key === "ArrowRight"
+      ? (currentIndex + 1) % ADMIN_TABS.length
+      : (currentIndex - 1 + ADMIN_TABS.length) % ADMIN_TABS.length;
+    setActiveAdminTab(ADMIN_TABS[nextIndex].key);
+  }
+
+  function confirmRebuildAllStats(): boolean {
+    if (rebuildWarId.trim() !== "") {
+      return true;
+    }
+
+    return window.confirm("Rebuild stats for all wars? This can take longer than rebuilding a selected war.");
+  }
+
+  function confirmDeleteWar(): boolean {
+    const target = deleteForm.name.trim() || (deleteForm.tornWarId.trim() ? `Torn war #${deleteForm.tornWarId.trim()}` : "this war/event");
+    return window.confirm(`Delete ${target}? This cannot be undone from the admin dashboard.`);
   }
 
   async function loadLatestIngestionRun() {
@@ -564,9 +597,41 @@ export function AdminControls() {
       ) : null}
 
       {authSession?.access_level === "admin" ? (
-      <section className="admin-grid">
+      <>
+      <nav className="admin-tabs" role="tablist" aria-label="Admin control sections">
+        {ADMIN_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            id={`admin-tab-${tab.key}`}
+            className="admin-tab-button"
+            role="tab"
+            aria-selected={activeAdminTab === tab.key}
+            aria-controls={`admin-panel-${tab.key}`}
+            tabIndex={activeAdminTab === tab.key ? 0 : -1}
+            onClick={() => setActiveAdminTab(tab.key)}
+            onKeyDown={(event) => handleAdminTabKeyDown(event, tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+      <section
+        id={`admin-panel-${activeAdminTab}`}
+        className="admin-grid admin-tab-workspace"
+        role="tabpanel"
+        aria-labelledby={`admin-tab-${activeAdminTab}`}
+      >
+        {activeAdminTab === "access" ? (
         <section className="panel admin-panel-access">
           <PanelHeader title="Admin access" />
+          <div className="admin-metric-list admin-form-wide">
+            <MetricLine
+              label="Signed in"
+              value={authSession.user.name ?? `Torn user ${authSession.user.id}`}
+            />
+            <MetricLine label="Access level" value={authSession.access_level} />
+          </div>
           <form
             className="admin-form"
             onSubmit={(event) => {
@@ -601,44 +666,20 @@ export function AdminControls() {
             >
               List current admins
             </button>
-          </form>
-        </section>
-
-        <section className="panel admin-panel-discord">
-          <PanelHeader title="Discord message" />
-          <form
-            className="admin-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              runAdminAction("Send Discord message", () =>
-                sendDiscordMessage(discordForm.message).then((response) => {
-                  setDiscordForm({ message: "" });
-                  return response;
-                }),
-              );
-            }}
-          >
-            <label className="admin-form-wide">
-              <span>Message</span>
-              <textarea
-                value={discordForm.message}
-                onChange={(event) => setDiscordForm({ message: event.target.value })}
-                maxLength={1900}
-                rows={4}
-                placeholder="Message to send to Discord"
-                required
-              />
-            </label>
             <button
-              type="submit"
-              className="admin-button primary admin-form-wide"
-              disabled={isBusy !== null || discordForm.message.trim().length === 0}
+              type="button"
+              className="admin-button admin-form-wide"
+              disabled={isBusy !== null}
+              onClick={logout}
             >
-              {isBusy === "Send Discord message" ? "Sending" : "Send to Discord"}
+              Sign out
             </button>
           </form>
         </section>
+        ) : null}
 
+        {activeAdminTab === "operations" ? (
+        <>
         <section className="panel admin-panel-discord-travel">
           <PanelHeader title="Discord travel tracker" aside={discordTravelTrackerStatus} />
           <div className="admin-metric-list admin-form-wide">
@@ -1021,6 +1062,11 @@ export function AdminControls() {
           ) : null}
         </section>
 
+        </>
+        ) : null}
+
+        {activeAdminTab === "wars" ? (
+        <>
         {currentOfficialWar ? (
           <section className="panel admin-panel-edit-official">
             <PanelHeader title="Edit open war" aside={currentOfficialWar.name} />
@@ -1100,13 +1146,8 @@ export function AdminControls() {
           </section>
         ) : null}
 
-        <CollapsiblePanel
-          title="Historical wars"
-          aside="Edit / import"
-          className="admin-panel-historical-wars"
-          collapsed={isHistoricalWarPanelCollapsed}
-          onToggle={() => setIsHistoricalWarPanelCollapsed((current) => !current)}
-        >
+        <section className="panel admin-panel-historical-wars">
+          <PanelHeader title="Historical wars" aside="Edit / import" />
           <div className="admin-event-grid">
             <section className="panel admin-event-command">
               <PanelHeader title="Edit historical war" />
@@ -1190,17 +1231,15 @@ export function AdminControls() {
               onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
             />
           </div>
-        </CollapsiblePanel>
+        </section>
 
-        <CollapsiblePanel
-          title="Repair/debug tools"
-          aside="Advanced"
-          className="admin-panel-repair"
-          collapsed={isRepairPanelCollapsed}
-          onToggle={() => setIsRepairPanelCollapsed((current) => !current)}
-        >
+        </>
+        ) : null}
+
+        {activeAdminTab === "reporting" || activeAdminTab === "maintenance" ? (
+        <section className="admin-panel-maintenance">
           <div className="admin-repair-grid">
-            <section className="admin-tool-section admin-tool-section-wide">
+            <section className="admin-tool-section admin-tool-section-wide admin-maintenance-diagnostics" hidden={activeAdminTab !== "maintenance"}>
               <PanelHeader
                 title="Latest data refresh"
                 aside={isLoadingIngestionRun ? "Loading" : ingestionRun?.status ?? "No runs"}
@@ -1244,7 +1283,7 @@ export function AdminControls() {
               </button>
             </section>
 
-            <section className="admin-tool-section admin-tool-section-wide">
+            <section className="admin-tool-section admin-tool-section-wide admin-maintenance-diagnostics" hidden={activeAdminTab !== "maintenance"}>
               <PanelHeader
                 title="Torn API usage"
                 control={(
@@ -1376,7 +1415,7 @@ export function AdminControls() {
               </button>
             </section>
 
-            <section className="admin-tool-section admin-tool-section-wide">
+            <section className="admin-tool-section admin-tool-section-wide admin-maintenance-diagnostics" hidden={activeAdminTab !== "maintenance"}>
               <PanelHeader title="Torn key pool" aside={tornKeyPoolStatus} />
               {tornKeyPool && tornKeyPool.keys.length > 0 ? (
                 <table className="stock-status-table">
@@ -1424,7 +1463,7 @@ export function AdminControls() {
               </button>
             </section>
 
-            <section className="admin-tool-section admin-tool-section-wide">
+            <section className="admin-tool-section admin-tool-section-wide" hidden={activeAdminTab !== "reporting"}>
               <PanelHeader title="Export attacks CSV" />
               <form
                 className="admin-form"
@@ -1607,7 +1646,7 @@ export function AdminControls() {
               </form>
             </section>
 
-            <section className="admin-tool-section admin-tool-section-wide">
+            <section className="admin-tool-section admin-tool-section-wide admin-maintenance-repair" hidden={activeAdminTab !== "maintenance"}>
               <PanelHeader title="Member lifestyle repair" />
               <form
                 className="admin-form"
@@ -1744,7 +1783,7 @@ export function AdminControls() {
               )}
             </section>
 
-            <section className="admin-tool-section">
+            <section className="admin-tool-section" hidden={activeAdminTab !== "reporting"}>
               <PanelHeader title="Report exemptions" />
               <form
                 className="admin-form"
@@ -1797,8 +1836,8 @@ export function AdminControls() {
               </form>
             </section>
 
-            <section className="admin-tool-section">
-              <PanelHeader title="Maintenance" />
+            <section className="admin-tool-section admin-maintenance-backfill" hidden={activeAdminTab !== "maintenance"}>
+              <PanelHeader title="Rebuilds and backfills" />
               <button
                 type="button"
                 className="admin-button primary"
@@ -1811,6 +1850,9 @@ export function AdminControls() {
                 className="admin-form"
                 onSubmit={(event) => {
                   event.preventDefault();
+                  if (!confirmRebuildAllStats()) {
+                    return;
+                  }
                   const warId = Number(rebuildWarId);
                   runAdminAction("Rebuild stats", () =>
                     rebuildStats(rebuildWarId.trim() === "" ? undefined : warId),
@@ -1915,12 +1957,15 @@ export function AdminControls() {
               </form>
             </section>
 
-            <section className="admin-tool-section">
+            <section className="admin-tool-section admin-maintenance-danger" hidden={activeAdminTab !== "maintenance"}>
               <PanelHeader title="Delete war/event" />
               <form
                 className="admin-form"
                 onSubmit={(event) => {
                   event.preventDefault();
+                  if (!confirmDeleteWar()) {
+                    return;
+                  }
                   runAdminAction("Delete war", () =>
                     deleteWar({
                       torn_war_id: deleteForm.tornWarId.trim()
@@ -1954,7 +1999,7 @@ export function AdminControls() {
               </form>
             </section>
 
-            <section className="admin-tool-section">
+            <section className="admin-tool-section admin-maintenance-repair" hidden={activeAdminTab !== "maintenance"}>
               <PanelHeader title="Reassign attacks to wars/events" />
               <form className="admin-form">
                 <label>
@@ -2009,13 +2054,13 @@ export function AdminControls() {
               </form>
             </section>
 
-            <section className="admin-tool-section">
-              <PanelHeader title="Fetch Torn report" />
+            <section className="admin-tool-section admin-maintenance-backfill" hidden={activeAdminTab !== "maintenance"}>
+              <PanelHeader title="Manual Torn report fetch" />
               <form
                 className="admin-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  runAdminAction("Fetch Torn report", () =>
+                  runAdminAction("Manual Torn report fetch", () =>
                     fetchTornWarReport(Number(reportForm.tornWarId)),
                   );
                 }}
@@ -2035,7 +2080,7 @@ export function AdminControls() {
               </form>
             </section>
 
-            <section className="admin-tool-section">
+            <section className="admin-tool-section admin-maintenance-backfill" hidden={activeAdminTab !== "maintenance"}>
               <PanelHeader title="Fetch attacks by time range" />
               <form
                 className="admin-form"
@@ -2126,13 +2171,16 @@ export function AdminControls() {
               </form>
             </section>
           </div>
-        </CollapsiblePanel>
-
+          {activeAdminTab === "maintenance" && result ? (
         <section className="panel admin-result-panel">
           <PanelHeader title="Latest API response" />
-          <pre>{result ? JSON.stringify(result, null, 2) : "No action run yet."}</pre>
+          <pre>{JSON.stringify(result, null, 2)}</pre>
         </section>
+          ) : null}
+        </section>
+        ) : null}
       </section>
+      </>
       ) : null}
     </>
   );

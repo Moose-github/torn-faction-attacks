@@ -45,7 +45,6 @@ vi.mock("../cacheVersions", () => ({
   bumpGlobalWarCacheVersion: vi.fn(),
   bumpWarCacheVersionById: vi.fn(),
 }));
-vi.mock("../discord", () => ({ sendDiscordMessageFromRequest: vi.fn() }));
 vi.mock("../discordTravelTracker", () => ({
   clearDiscordTravelTrackerTargetFromRequest: vi.fn(),
   getDiscordTravelTrackerTargetFromRequest: vi.fn(),
@@ -253,6 +252,17 @@ describe("admin routes", () => {
     expect(response?.status).toBe(429);
     expect(await response?.json()).toMatchObject({ ok: false, code: "COOLDOWN_ACTIVE" });
     expect(syncMemberDiscordLinksFromRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not route the removed arbitrary Discord message endpoint", async () => {
+    const response = await routeAdminApi(routeContext("https://worker.test/api/admin/discord/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "test" }),
+    }));
+
+    expect(response).toBeNull();
+    expect(requireAdmin).not.toHaveBeenCalled();
   });
 
   it("routes Discord travel tracker sync through admin auth", async () => {
