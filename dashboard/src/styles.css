@@ -6654,6 +6654,10 @@ h2 {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.admin-tab-workspace > * {
+  min-width: 0;
+}
+
 .admin-tab-workspace > .admin-panel-maintenance {
   grid-column: 1 / -1;
 }
@@ -6765,12 +6769,16 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
+  min-width: 0;
 }
 
 .admin-tool-section {
   display: grid;
   align-content: start;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
   padding: 14px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -7222,14 +7230,26 @@ h2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  min-width: 0;
 }
 
 .admin-form label {
   display: grid;
   gap: 6px;
+  min-width: 0;
   color: #475569;
   font-size: 0.82rem;
   font-weight: 800;
+}
+
+.admin-form input:not([type="checkbox"]):not([type="radio"]),
+.admin-form select,
+.admin-form textarea,
+.admin-form button {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
 }
 
 .admin-form .checkbox-row {
@@ -7253,10 +7273,12 @@ h2 {
 
 .admin-result-panel {
   grid-column: 1 / -1;
+  min-width: 0;
 }
 
 .admin-result-panel pre {
   max-height: 360px;
+  max-width: 100%;
   margin: 0;
   overflow: auto;
   padding: 14px;
@@ -7265,6 +7287,20 @@ h2 {
   color: #e2e8f0;
   font-size: 0.82rem;
   line-height: 1.5;
+}
+
+.stock-status-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.admin-tool-section .stock-status-table {
+  max-width: 100%;
+}
+
+.admin-tool-section .stock-status-table th,
+.admin-tool-section .stock-status-table td {
+  overflow-wrap: anywhere;
 }
 
 .inline-metric {

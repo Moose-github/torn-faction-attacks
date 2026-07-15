@@ -2171,18 +2171,27 @@ export function AdminControls() {
               </form>
             </section>
           </div>
-          {activeAdminTab === "maintenance" && result ? (
-        <section className="panel admin-result-panel">
-          <PanelHeader title="Latest API response" />
-          <pre>{JSON.stringify(result, null, 2)}</pre>
-        </section>
+          {result ? (
+            <AdminActionResult result={result} />
           ) : null}
         </section>
+        ) : null}
+        {activeAdminTab !== "maintenance" && result ? (
+          <AdminActionResult result={result} />
         ) : null}
       </section>
       </>
       ) : null}
     </>
+  );
+}
+
+function AdminActionResult({ result }: { result: unknown }) {
+  return (
+    <section className="panel admin-result-panel">
+      <PanelHeader title="Latest API response" />
+      <pre>{JSON.stringify(result, null, 2)}</pre>
+    </section>
   );
 }
 
