@@ -202,6 +202,7 @@ const MAX_ROI_INCREMENTS = 10;
 const CITY_BANK_TERM_DAYS = 90;
 const CITY_BANK_PRINCIPAL = 2_000_000_000;
 const CITY_BANK_BASELINE_ANNUAL_RETURN = 928_200_000;
+export const TCI_BANK_INTEREST_BONUS_KEY = "city_bank:tci_bonus";
 const BENEFIT_ITEM_PRICE_REFRESH_SECONDS = 3 * 60 * 60;
 const AUTO_BENEFIT_ITEM_PRICE_REFRESH_STATE = "auto_stock_benefit_item_prices";
 const BENEFIT_ITEM_REFERENCE_QUANTITY = 5;
@@ -624,12 +625,8 @@ export async function getStockInvestmentRoi(env: Env, tornUserId: number | null)
 
   for (const profile of profiles) {
     refreshedAt = maxNullable(refreshedAt, nullableNumber(profile.latest_observed_at));
-    const parsed = parseActiveStockBenefit(profile.benefit_json);
-    if (parsed.status === "passive") {
-      skipped.passive += 1;
-      continue;
-    }
-    if (parsed.status !== "active") {
+    const parsed = parseStockBenefitForValuation(profile.benefit_json);
+    if (parsed.status !== "benefit") {
       skipped.invalid += 1;
       continue;
     }
@@ -640,6 +637,17 @@ export async function getStockInvestmentRoi(env: Env, tornUserId: number | null)
       continue;
     }
 
+    if (parsed.benefit.passive) {
+      const bankInterestBonusRow = bankInterestBonusStockInvestmentRoiRow(profile, parsed.benefit, price);
+      if (bankInterestBonusRow) {
+        rows.push(bankInterestBonusRow);
+      } else {
+        skipped.passive += 1;
+      }
+      continue;
+    }
+
+    const activeBenefit: ParsedActiveBenefit = { ...parsed.benefit, passive: false };
     const valued = valueStockBenefit(parsed.benefit, overrideMap, standardBenefitValues);
     if (valued.value === null || valued.value <= 0) {
       skipped.unpriced += 1;
@@ -647,7 +655,7 @@ export async function getStockInvestmentRoi(env: Env, tornUserId: number | null)
     }
 
     for (let increment = 1; increment <= MAX_ROI_INCREMENTS; increment += 1) {
-      rows.push(stockInvestmentRoiRow(profile, parsed.benefit, valued, price, increment));
+      rows.push(stockInvestmentRoiRow(profile, activeBenefit, valued, price, increment));
     }
   }
 
@@ -1126,10 +1134,13 @@ export function parseStockBenefitForValuation(
     return { status: "invalid" };
   }
 
-  const frequency = finiteInteger(parsed.frequency);
+  const parsedFrequency = finiteInteger(parsed.frequency);
   const requirement = finiteInteger(parsed.requirement);
   const description = cleanString(parsed.description);
-  if (!frequency || frequency <= 0 || !requirement || requirement <= 0 || !description) {
+  if (!parsed.passive && (!parsedFrequency || parsedFrequency <= 0)) {
+    return { status: "invalid" };
+  }
+  if (!requirement || requirement <= 0 || !description) {
     return { status: "invalid" };
   }
 
@@ -1137,7 +1148,7 @@ export function parseStockBenefitForValuation(
     status: "benefit",
     benefit: {
       passive: parsed.passive,
-      frequency,
+      frequency: parsedFrequency && parsedFrequency > 0 ? parsedFrequency : 1,
       requirement,
       description,
     },
@@ -1303,6 +1314,42 @@ export function cityBankInvestmentRoiRow(): StockInvestmentRoiRow {
   };
 }
 
+export function bankInterestBonusStockInvestmentRoiRow(
+  profile: { stock_id: number; acronym: string | null; name: string | null },
+  benefit: { description: string; requirement: number },
+  latestPrice: number,
+): StockInvestmentRoiRow | null {
+  const bonusRate = bankInterestBonusRate(benefit.description);
+  if (bonusRate === null || bonusRate <= 0 || benefit.requirement <= 0 || latestPrice <= 0) {
+    return null;
+  }
+
+  const incrementCost = benefit.requirement * latestPrice;
+  const annualReturn = CITY_BANK_BASELINE_ANNUAL_RETURN * bonusRate;
+  const benefitValue = annualReturn * (CITY_BANK_TERM_DAYS / 365);
+  return {
+    investment_type: "stock",
+    row_id: `stock:${profile.stock_id}:1`,
+    stock_id: profile.stock_id,
+    acronym: profile.acronym,
+    name: profile.name,
+    increment: 1,
+    required_shares: benefit.requirement,
+    total_shares_required: benefit.requirement,
+    latest_price: latestPrice,
+    increment_cost: incrementCost,
+    total_cost: incrementCost,
+    benefit_key: TCI_BANK_INTEREST_BONUS_KEY,
+    benefit_description: `${formatPercentLabel(bonusRate)} City Bank interest bonus`,
+    valuation_source: "cash",
+    frequency_days: CITY_BANK_TERM_DAYS,
+    benefit_value: benefitValue,
+    annual_return: annualReturn,
+    days_to_break_even: incrementCost / (annualReturn / 365),
+    roi_percent: (annualReturn / incrementCost) * 100,
+  };
+}
+
 export function stockBenefitMarketValueFromResponse(data: unknown): number | null {
   return priceAtCumulativeQuantity(
     normalizeMarketOffers(data, "itemmarket"),
@@ -1352,6 +1399,22 @@ function parseCashBenefitValue(value: string): number | null {
   }
   const parsed = Number(value.replace(/[$,]/g, ""));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function bankInterestBonusRate(description: string): number | null {
+  const match = /(\d+(?:\.\d+)?)\s*%\s+bank interest bonus/i.exec(description);
+  if (!match) {
+    return null;
+  }
+
+  const percent = positiveNumber(match[1]);
+  return percent === null ? null : percent / 100;
+}
+
+function formatPercentLabel(rate: number): string {
+  return Number.isInteger(rate * 100)
+    ? `${rate * 100}%`
+    : `${Number((rate * 100).toFixed(2))}%`;
 }
 
 function stockBenefitItemNameFromResponse(data: unknown): string | null {

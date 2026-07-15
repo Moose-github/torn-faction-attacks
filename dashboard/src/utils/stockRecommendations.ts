@@ -3,6 +3,7 @@ import type { OwnedStockSnapshot } from "./ownedStocks";
 import { ownedSharesMap, ownsStockIncrement } from "./ownedStocks";
 
 const CITY_BANK_MERIT_STEP = 0.05;
+const TCI_BANK_INTEREST_BONUS_KEY = "city_bank:tci_bonus";
 const MIN_REBALANCE_ANNUAL_GAIN = 1_000_000;
 const MIN_REBALANCE_ROI_GAIN = 5;
 const MIN_STRATEGY_ROI_RETENTION = 0.75;
@@ -122,7 +123,7 @@ export type StockStrategyPlan = {
 };
 
 export function adjustCityBankRowForMerits(row: StockInvestmentRoiRow, bankMerits: number): StockInvestmentRoiRow {
-  if (row.investment_type !== "city_bank") {
+  if (row.investment_type !== "city_bank" && row.benefit_key !== TCI_BANK_INTEREST_BONUS_KEY) {
     return row;
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   autoRefreshStockBenefitItemPrices,
+  bankInterestBonusStockInvestmentRoiRow,
   calculateStockInvestmentIncrement,
   cityBankInvestmentRoiRow,
   parseActiveStockBenefit,
@@ -64,6 +65,23 @@ describe("stock investment ROI parsing", () => {
       benefit_key: "item:a_10_bank_interest_bonus",
       value: null,
       editable: true,
+    });
+  });
+
+  it("allows passive benefit JSON without a payout frequency", () => {
+    expect(parseStockBenefitForValuation(JSON.stringify({
+      passive: true,
+      frequency: 0,
+      requirement: 1_500_000,
+      description: "a 10% bank interest bonus",
+    }))).toEqual({
+      status: "benefit",
+      benefit: {
+        passive: true,
+        frequency: 1,
+        requirement: 1_500_000,
+        description: "a 10% bank interest bonus",
+      },
     });
   });
 
@@ -273,5 +291,42 @@ describe("cityBankInvestmentRoiRow", () => {
     });
     expect(row.roi_percent).toBeCloseTo(46.41);
     expect(row.days_to_break_even).toBeCloseTo(2_000_000_000 / (928_200_000 / 365));
+  });
+});
+
+describe("bankInterestBonusStockInvestmentRoiRow", () => {
+  it("values the TCI bank interest bonus from City Bank interest", () => {
+    const row = bankInterestBonusStockInvestmentRoiRow(
+      { stock_id: 9, acronym: "TCI", name: "Torn City Investments" },
+      { requirement: 1_500_000, description: "a 10% bank interest bonus" },
+      900,
+    );
+
+    expect(row).toMatchObject({
+      investment_type: "stock",
+      row_id: "stock:9:1",
+      stock_id: 9,
+      acronym: "TCI",
+      increment: 1,
+      required_shares: 1_500_000,
+      total_shares_required: 1_500_000,
+      increment_cost: 1_350_000_000,
+      total_cost: 1_350_000_000,
+      benefit_key: "city_bank:tci_bonus",
+      benefit_description: "10% City Bank interest bonus",
+      valuation_source: "cash",
+      frequency_days: 90,
+      annual_return: 92_820_000,
+    });
+    expect(row?.benefit_value).toBeCloseTo(22_887_123.29);
+    expect(row?.roi_percent).toBeCloseTo(6.8756);
+  });
+
+  it("ignores passive benefits that are not bank interest bonuses", () => {
+    expect(bankInterestBonusStockInvestmentRoiRow(
+      { stock_id: 10, acronym: "ZZZ", name: "Other Stock" },
+      { requirement: 1_000_000, description: "some other passive bonus" },
+      900,
+    )).toBeNull();
   });
 });

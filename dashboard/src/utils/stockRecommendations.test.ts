@@ -316,6 +316,25 @@ describe("stock buy recommendations", () => {
     expect(result?.row.row_id).toBe("city_bank:90");
   });
 
+  it("adjusts TCI bank interest bonus rows with bank merits", () => {
+    const tci = adjustCityBankRowForMerits(stockRow({
+      row_id: "stock:9:1",
+      stock_id: 9,
+      acronym: "TCI",
+      increment_cost: 1_350_000_000,
+      total_cost: 1_350_000_000,
+      benefit_key: "city_bank:tci_bonus",
+      benefit_description: "10% City Bank interest bonus",
+      benefit_value: 22_887_123.29,
+      annual_return: 92_820_000,
+      roi_percent: 6.8756,
+    }), 10);
+
+    expect(tci.benefit_value).toBeCloseTo(34_330_684.94);
+    expect(tci.annual_return).toBe(139_230_000);
+    expect(tci.roi_percent).toBeCloseTo(10.3133);
+  });
+
   it("returns no rebalance ideas without a holdings snapshot", () => {
     const results = buildStockRebalanceRecommendations({
       rows: [

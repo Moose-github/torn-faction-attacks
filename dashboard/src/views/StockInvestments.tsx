@@ -476,7 +476,7 @@ export function StockInvestments() {
               <div className="stock-owned-settings-section">
                 <div className="stock-owned-settings-title">
                   <strong>City Bank comparison</strong>
-                  <span>Used for the BANK row only</span>
+                  <span>Used for BANK and TCI interest rows</span>
                 </div>
                 <div className="stock-city-bank-controls">
                   <label className="stock-owned-hide-toggle">
@@ -795,7 +795,7 @@ function StockRoiTable({
                 <td>
                   <span className="stock-benefit-cell">
                     <strong>{row.benefit_description}</strong>
-                    <small>{isStockRow ? `${formatNumber(row.frequency_days)} days - ${valuationSourceLabel(row.valuation_source)} value` : `${CITY_BANK_TERM_DAYS} days - ${bankMerits}/10 Merits`}</small>
+                    <small>{isBankInterestBonusRow(row) ? `${formatNumber(row.frequency_days)} days - ${bankMerits}/10 Merits` : isStockRow ? `${formatNumber(row.frequency_days)} days - ${valuationSourceLabel(row.valuation_source)} value` : `${CITY_BANK_TERM_DAYS} days - ${bankMerits}/10 Merits`}</small>
                   </span>
                 </td>
                 <td>{formatMoney(row.annual_return)}</td>
@@ -1341,6 +1341,9 @@ function rebalanceProposedDetail(recommendation: StockBuyRecommendation, bankMer
   if (recommendation.row.investment_type === "city_bank") {
     return `City Bank uses ${bankMerits}/10 merits.`;
   }
+  if (isBankInterestBonusRow(recommendation.row)) {
+    return `${recommendation.row.benefit_description} using ${bankMerits}/10 merits.`;
+  }
 
   return `${recommendation.row.benefit_description} every ${formatNumber(recommendation.row.frequency_days)} days.`;
 }
@@ -1520,6 +1523,10 @@ function isStockInvestmentRow(row: StockInvestmentRoiRow): row is StockInvestmen
   latest_price: number;
 } {
   return row.investment_type === "stock" && row.stock_id !== null && row.increment !== null;
+}
+
+function isBankInterestBonusRow(row: StockInvestmentRoiRow): boolean {
+  return row.benefit_key === "city_bank:tci_bonus";
 }
 
 function isInvestmentRowCovered(row: StockInvestmentRoiRow, ownedShares: Map<number, number>, cityBankActive: boolean): boolean {
