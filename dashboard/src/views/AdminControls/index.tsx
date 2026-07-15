@@ -1423,6 +1423,8 @@ export function AdminControls() {
                     <tr>
                       <th>Owner</th>
                       <th>Status</th>
+                      <th>Access</th>
+                      <th>Faction access</th>
                       <th>Features</th>
                       <th>Max/min</th>
                       <th>Last used</th>
@@ -1437,6 +1439,8 @@ export function AdminControls() {
                           <small>{key.label ?? key.id}</small>
                         </td>
                         <td>{key.status}</td>
+                        <td>{formatKeyPoolAccess(key)}</td>
+                        <td>{formatBooleanAccess(key.faction_access)}</td>
                         <td>{formatKeyPoolFeatures(key.allowed_features)}</td>
                         <td>{key.max_requests_per_minute ?? "-"}</td>
                         <td>{formatIngestionTime(key.last_used_at)}</td>
@@ -3134,6 +3138,26 @@ function formatKeyPoolFeatures(features: string[]): string {
   return features.length > 0
     ? features.map((feature) => feature.replace(/_/g, " ")).join(", ")
     : "-";
+}
+
+function formatKeyPoolAccess(key: {
+  access_level: number | null;
+  access_type: string | null;
+}): string {
+  if (key.access_type && key.access_level !== null) {
+    return `${key.access_type} (${key.access_level})`;
+  }
+  if (key.access_type) {
+    return key.access_type;
+  }
+  if (key.access_level !== null) {
+    return String(key.access_level);
+  }
+  return "Unknown";
+}
+
+function formatBooleanAccess(value: boolean): string {
+  return value ? "Yes" : "No";
 }
 
 function formatPrize(value: number): string {
