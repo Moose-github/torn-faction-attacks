@@ -27,6 +27,7 @@ import {
   buildStockStrategyPlan,
   DEFAULT_STOCK_STRATEGY_STEP_LIMIT,
   recommendBestStockBuy,
+  STOCK_SELL_FEE_RATE,
   stockInvestmentRowMetrics,
   type StockBuyRecommendation,
   type StockInvestmentRowMetrics,
@@ -48,6 +49,13 @@ type StockRoiSort = {
   direction: SortDirection;
 };
 
+type StockLockOption = {
+  stock_id: number;
+  acronym: string | null;
+  name: string | null;
+  shares: number;
+};
+
 export function StockInvestments() {
   const storageUserId = React.useMemo(() => getStoredAuthSession()?.user.id ?? null, []);
   const [roiData, setRoiData] = React.useState<StockInvestmentRoiResponse | null>(null);
@@ -57,6 +65,7 @@ export function StockInvestments() {
   const [affordableOnly, setAffordableOnly] = React.useState(false);
   const [minimumRoi, setMinimumRoi] = React.useState(DEFAULT_MINIMUM_ROI);
   const [hideOwnedBlocks, setHideOwnedBlocks] = React.useState(false);
+  const [nextBlockOnly, setNextBlockOnly] = React.useState(false);
   const [cityBankActive, setCityBankActive] = React.useState(false);
   const [bankMerits, setBankMerits] = React.useState(0);
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
@@ -64,6 +73,7 @@ export function StockInvestments() {
   const [isOwnedSettingsOpen, setIsOwnedSettingsOpen] = React.useState(false);
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
   const [ownedSnapshot, setOwnedSnapshot] = React.useState<OwnedStockSnapshot | null>(null);
+  const [lockedStockIds, setLockedStockIds] = React.useState<Set<number>>(() => new Set());
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshingBenefitPrices, setIsRefreshingBenefitPrices] = React.useState(false);
   const [isRefreshingOwnedStocks, setIsRefreshingOwnedStocks] = React.useState(false);
@@ -207,10 +217,25 @@ export function StockInvestments() {
   function clearOwnedStocks() {
     setOwnedApiKey("");
     setOwnedSnapshot(null);
+    setLockedStockIds(new Set());
     setHideOwnedBlocks(false);
     clearOwnedStocksStorage(storageUserId);
+    saveLockedStockIdsStorage(storageUserId, new Set());
     setError(null);
     setMessage("Owned stock highlights cleared");
+  }
+
+  function toggleLockedStock(stockId: number, locked: boolean) {
+    setLockedStockIds((current) => {
+      const next = new Set(current);
+      if (locked) {
+        next.add(stockId);
+      } else {
+        next.delete(stockId);
+      }
+      saveLockedStockIdsStorage(storageUserId, next);
+      return next;
+    });
   }
 
   React.useEffect(() => {
@@ -218,6 +243,7 @@ export function StockInvestments() {
     const storedCityBank = readCityBankStorage(storageUserId);
     setOwnedApiKey(stored.apiKey);
     setOwnedSnapshot(stored.snapshot);
+    setLockedStockIds(readLockedStockIdsStorage(storageUserId));
     setCityBankActive(storedCityBank.active);
     setBankMerits(storedCityBank.merits);
     loadData();
@@ -230,9 +256,20 @@ export function StockInvestments() {
   );
   const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
   const ownedCoveredBlockCount = investmentRows.filter((row) => isStockInvestmentRow(row) && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required ?? 0)).length;
+  const nextStockBlockRowIds = React.useMemo(
+    () => nextStockBlockIds(investmentRows, ownedShares, ownedSnapshot !== null),
+    [investmentRows, ownedShares, ownedSnapshot],
+  );
+  const lockableHoldings = React.useMemo(
+    () => ownedStockLockOptions(ownedSnapshot, investmentRows),
+    [ownedSnapshot, investmentRows],
+  );
   const budget = moneyInputValue(investmentAmount);
   const minRoi = percentInputValue(minimumRoi);
   const filteredRows = investmentRows.filter((row) => {
+    if (nextBlockOnly && isStockInvestmentRow(row) && !nextStockBlockRowIds.has(row.row_id)) {
+      return false;
+    }
     if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, cityBankActive)) {
       return false;
     }
@@ -264,7 +301,8 @@ export function StockInvestments() {
     budget,
     affordableOnly,
     minimumRoi: minRoi,
-  }, 5), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
+    lockedStockIds,
+  }, 5), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi, lockedStockIds]);
   const strategyPlan = React.useMemo(() => buildStockStrategyPlan({
     rows: investmentRows,
     ownedSnapshot,
@@ -272,13 +310,14 @@ export function StockInvestments() {
     budget,
     affordableOnly,
     minimumRoi: minRoi,
-  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
+    lockedStockIds,
+  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi, lockedStockIds]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
   const benefitValuesRefreshedAt = roiData?.benefit_prices_refreshed_at ?? null;
-  const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly || hideOwnedBlocks;
+  const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly || hideOwnedBlocks || nextBlockOnly;
 
   function updateRoiSort(key: StockRoiSortKey) {
     setRoiSort((current) => current.key === key
@@ -470,6 +509,29 @@ export function StockInvestments() {
                   </label>
                 </div>
               </div>
+              {lockableHoldings.length > 0 ? (
+                <div className="stock-owned-settings-section">
+                  <div className="stock-owned-settings-title">
+                    <strong>Locked holdings</strong>
+                    <span>{formatNumber(lockedStockIds.size)} locked</span>
+                  </div>
+                  <div className="stock-locked-holdings-list">
+                    {lockableHoldings.map((holding) => (
+                      <label key={holding.stock_id} className="stock-locked-holding-row">
+                        <input
+                          type="checkbox"
+                          checked={lockedStockIds.has(holding.stock_id)}
+                          onChange={(event) => toggleLockedStock(holding.stock_id, event.target.checked)}
+                        />
+                        <span>
+                          <strong>{holding.acronym ?? `#${holding.stock_id}`}</strong>
+                          <small>{formatNumber(holding.shares)} shares{holding.name ? ` - ${holding.name}` : ""}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -567,6 +629,14 @@ export function StockInvestments() {
             <label className="stock-investment-toggle-row">
               <input
                 type="checkbox"
+                checked={nextBlockOnly}
+                onChange={(event) => setNextBlockOnly(event.target.checked)}
+              />
+              <span>Next block only</span>
+            </label>
+            <label className="stock-investment-toggle-row">
+              <input
+                type="checkbox"
                 checked={hideOwnedBlocks}
                 onChange={(event) => setHideOwnedBlocks(event.target.checked)}
               />
@@ -580,6 +650,7 @@ export function StockInvestments() {
                 setInvestmentAmount("");
                 setMinimumRoi(DEFAULT_MINIMUM_ROI);
                 setAffordableOnly(false);
+                setNextBlockOnly(false);
                 setHideOwnedBlocks(false);
               }}
             >
@@ -597,7 +668,7 @@ export function StockInvestments() {
         ) : rows.length === 0 ? (
           <EmptyState text="No investment opportunities match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} ownedShares={ownedShares} hasOwnedSnapshot={ownedSnapshot !== null} cityBankActive={cityBankActive} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
+          <StockRoiTable rows={rows} ownedShares={ownedShares} lockedStockIds={lockedStockIds} hasOwnedSnapshot={ownedSnapshot !== null} cityBankActive={cityBankActive} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
         )}
       </section>
 
@@ -642,6 +713,7 @@ export function StockInvestments() {
 function StockRoiTable({
   rows,
   ownedShares,
+  lockedStockIds,
   hasOwnedSnapshot,
   cityBankActive,
   bankMerits,
@@ -650,6 +722,7 @@ function StockRoiTable({
 }: {
   rows: StockInvestmentRoiRow[];
   ownedShares: Map<number, number>;
+  lockedStockIds: ReadonlySet<number>;
   hasOwnedSnapshot: boolean;
   cityBankActive: boolean;
   bankMerits: number;
@@ -675,6 +748,7 @@ function StockRoiTable({
           {rows.map((row) => {
             const isStockRow = isStockInvestmentRow(row);
             const owned = isStockRow ? ownedShares.get(row.stock_id) ?? 0 : 0;
+            const isLocked = isStockRow && lockedStockIds.has(row.stock_id);
             const ownsIncrement = isInvestmentRowCovered(row, ownedShares, cityBankActive);
             const rowMetrics = stockInvestmentRowMetrics(row, { ownedShares, hasOwnedSnapshot });
             const costDetail = stockCostDetail(row, rowMetrics);
@@ -704,6 +778,7 @@ function StockRoiTable({
                       )}
                     </strong>
                     {isStockRow && owned > 0 ? <small>Owned: {formatNumber(owned)}</small> : null}
+                    {isLocked ? <small>Locked</small> : null}
                   </span>
                 </td>
                 <td>
@@ -1132,7 +1207,11 @@ function RebalanceRecommendationRow({
       <div className="stock-rebalance-metrics">
         <span>
           <strong>{formatMoney(recommendation.sale_value)}</strong>
-          <small>Sale value</small>
+          <small>Net sale value</small>
+        </span>
+        <span>
+          <strong>{formatMoney(recommendation.sale_fee)}</strong>
+          <small>{formatPercent(STOCK_SELL_FEE_RATE * 100)} sell fee</small>
         </span>
         <span>
           <strong>{formatMoney(recommendation.current_annual_return)}</strong>
@@ -1169,7 +1248,10 @@ function StrategyStepRow({
   return (
     <div className="stock-milestone-row">
       <div>
-        <strong>{formatNumber(index + 1)}. {milestoneLabel}</strong>
+        <strong>
+          {formatNumber(index + 1)}. {milestoneLabel}
+          <em className="stock-rebalance-highlight">{strategyReasonLabel(step)}</em>
+        </strong>
         <small>{strategyStepTitle(step)}</small>
       </div>
       <p>{strategyStepDescription(step, bankMerits)}</p>
@@ -1181,7 +1263,13 @@ function StrategyStepRow({
         {step.sales.length > 0 ? (
           <span>
             <strong>{formatMoney(step.sales.reduce((sum, sale) => sum + sale.sale_value, 0))}</strong>
-            <small>Sale value</small>
+            <small>Net sale value</small>
+          </span>
+        ) : null}
+        {step.rebalance && step.rebalance.sale_fee > 0 ? (
+          <span>
+            <strong>{formatMoney(step.rebalance.sale_fee)}</strong>
+            <small>{formatPercent(STOCK_SELL_FEE_RATE * 100)} sell fee</small>
           </span>
         ) : null}
         <span>
@@ -1202,7 +1290,7 @@ function rebalanceActionDescription(recommendation: StockRebalanceRecommendation
   const availableCash = recommendation.available_cash > 0
     ? ` and ${formatInstructionMoney(recommendation.available_cash)} available cash`
     : "";
-  return `Sell ${rebalanceSaleDescription(recommendation)}, combine about ${formatInstructionMoney(recommendation.sale_value)} sale value${availableCash}, and buy ${bestOpportunityTitle(proposed.row)} for ${formatInstructionMoney(proposed.estimated_cost)}. ${rebalanceProposedDetail(proposed, bankMerits)}`;
+  return `Sell ${rebalanceSaleDescription(recommendation)}, combine about ${formatInstructionMoney(recommendation.sale_value)} net sale value${availableCash}, and buy ${bestOpportunityTitle(proposed.row)} for ${formatInstructionMoney(proposed.estimated_cost)}. ${rebalanceProposedDetail(proposed, bankMerits)}`;
 }
 
 function rebalanceHighlightLabel(highlight: NonNullable<StockRebalanceRecommendation["highlight"]>): string {
@@ -1265,6 +1353,22 @@ function strategyStepTitle(step: StockStrategyStep): string {
   return `Buy ${bestOpportunityTitle(step.recommendation.row)}`;
 }
 
+function strategyReasonLabel(step: StockStrategyStep): string {
+  if (step.kind === "rebalance" && step.extra_cash_needed <= 0) {
+    return "No extra cash";
+  }
+  if (step.kind === "rebalance") {
+    return "Funded by sales";
+  }
+  if (step.extra_cash_needed <= 0) {
+    return "Affordable now";
+  }
+  if (step.recommendation.personalized && step.recommendation.owned_shares > 0) {
+    return "Closest completion";
+  }
+  return "ROI milestone";
+}
+
 function strategyStepDescription(step: StockStrategyStep, bankMerits: number): string {
   const recommendation = step.recommendation;
   const row = recommendation.row;
@@ -1298,7 +1402,10 @@ function strategyRebalanceFundingDescription(step: StockStrategyStep): string {
   const holdingText = step.sales.length === 1
     ? "1 holding"
     : `${formatNumber(step.sales.length)} holdings`;
-  return `${cashText} ${formatInstructionMoney(saleValue)} sale value from ${holdingText} to fund ${bestOpportunityTitle(step.recommendation.row)}.`;
+  const feeText = step.rebalance && step.rebalance.sale_fee > 0
+    ? ` after ${formatInstructionMoney(step.rebalance.sale_fee)} sell fee`
+    : "";
+  return `${cashText} ${formatInstructionMoney(saleValue)} net sale value${feeText} from ${holdingText} to fund ${bestOpportunityTitle(step.recommendation.row)}.`;
 }
 
 function strategySaleDescription(step: StockStrategyStep): string {
@@ -1427,6 +1534,58 @@ function isInvestmentRowCovered(row: StockInvestmentRoiRow, ownedShares: Map<num
   return ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required);
 }
 
+function nextStockBlockIds(
+  rows: StockInvestmentRoiRow[],
+  ownedShares: Map<number, number>,
+  hasOwnedSnapshot: boolean,
+): Set<string> {
+  const rowsByStockId = rows.filter(isStockInvestmentRow).reduce((map, row) => {
+    const stockRows = map.get(row.stock_id) ?? [];
+    stockRows.push(row);
+    map.set(row.stock_id, stockRows);
+    return map;
+  }, new Map<number, StockInvestmentRoiRow[]>());
+  const rowIds = new Set<string>();
+
+  for (const [stockId, stockRows] of rowsByStockId) {
+    const owned = hasOwnedSnapshot ? ownedShares.get(stockId) ?? 0 : 0;
+    const nextRow = [...stockRows]
+      .sort((left, right) => (left.increment ?? 0) - (right.increment ?? 0))
+      .find((row) => !ownsStockIncrement(owned, row.total_shares_required ?? 0));
+    if (nextRow) {
+      rowIds.add(nextRow.row_id);
+    }
+  }
+
+  return rowIds;
+}
+
+function ownedStockLockOptions(snapshot: OwnedStockSnapshot | null, rows: StockInvestmentRoiRow[]): StockLockOption[] {
+  if (!snapshot) {
+    return [];
+  }
+
+  const stockLabels = rows.filter(isStockInvestmentRow).reduce((map, row) => {
+    if (!map.has(row.stock_id)) {
+      map.set(row.stock_id, {
+        acronym: row.acronym,
+        name: row.name,
+      });
+    }
+    return map;
+  }, new Map<number, Pick<StockLockOption, "acronym" | "name">>());
+
+  return snapshot.stocks
+    .filter((stock) => stock.shares > 0)
+    .map((stock) => ({
+      stock_id: stock.stock_id,
+      acronym: stockLabels.get(stock.stock_id)?.acronym ?? null,
+      name: stockLabels.get(stock.stock_id)?.name ?? null,
+      shares: stock.shares,
+    }))
+    .sort((left, right) => compareText(left.acronym ?? `#${left.stock_id}`, right.acronym ?? `#${right.stock_id}`));
+}
+
 function stockCostDetail(row: StockInvestmentRoiRow, metrics: StockInvestmentRowMetrics): string | null {
   if (!isStockInvestmentRow(row)) {
     return null;
@@ -1526,6 +1685,43 @@ function clearOwnedStocksStorage(userId: number | null): void {
   window.localStorage.removeItem(keys.snapshot);
 }
 
+function readLockedStockIdsStorage(userId: number | null): Set<number> {
+  const key = lockedStockIdsStorageKey(userId);
+  if (!key) {
+    return new Set();
+  }
+
+  const raw = window.localStorage.getItem(key);
+  if (!raw) {
+    return new Set();
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((value): value is number => Number.isInteger(value) && value > 0))
+      : new Set();
+  } catch {
+    window.localStorage.removeItem(key);
+    return new Set();
+  }
+}
+
+function saveLockedStockIdsStorage(userId: number | null, stockIds: ReadonlySet<number>): void {
+  const key = lockedStockIdsStorageKey(userId);
+  if (!key) {
+    return;
+  }
+
+  const values = [...stockIds].filter((stockId) => Number.isInteger(stockId) && stockId > 0).sort((left, right) => left - right);
+  if (values.length === 0) {
+    window.localStorage.removeItem(key);
+    return;
+  }
+
+  window.localStorage.setItem(key, JSON.stringify(values));
+}
+
 function ownedStocksStorageKeys(userId: number | null): { apiKey: string; snapshot: string } | null {
   if (!userId) {
     return null;
@@ -1535,6 +1731,10 @@ function ownedStocksStorageKeys(userId: number | null): { apiKey: string; snapsh
     apiKey: `stockRoiOwnedStocksKey:${userId}`,
     snapshot: `stockRoiOwnedStocksSnapshot:${userId}`,
   };
+}
+
+function lockedStockIdsStorageKey(userId: number | null): string | null {
+  return userId ? `stockRoiLockedStockIds:${userId}` : null;
 }
 
 function readCityBankStorage(userId: number | null): { active: boolean; merits: number } {

@@ -693,6 +693,10 @@ h2 {
 }
 
 .stock-milestone-row strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   color: var(--text-heading);
   font-size: 0.86rem;
   font-weight: 900;
@@ -764,7 +768,7 @@ h2 {
 
 .stock-investment-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 240px)) repeat(2, minmax(150px, max-content)) auto;
+  grid-template-columns: repeat(2, minmax(180px, 240px)) repeat(3, minmax(140px, max-content)) auto;
   gap: 12px;
   align-items: end;
 }
@@ -950,6 +954,45 @@ h2 {
 
 .stock-owned-hide-toggle input {
   min-height: auto;
+}
+
+.stock-locked-holdings-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.stock-locked-holding-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+}
+
+.stock-locked-holding-row input {
+  min-height: auto;
+}
+
+.stock-locked-holding-row span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stock-locked-holding-row strong {
+  color: var(--text-heading);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.stock-locked-holding-row small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 760;
+  overflow-wrap: anywhere;
 }
 
 .stock-city-bank-section {

@@ -9,6 +9,7 @@ const MIN_STRATEGY_ROI_RETENTION = 0.75;
 const MIN_STRATEGY_TEMP_TARGET_GAP_RATIO = 0.25;
 const MIN_STRATEGY_TEMP_HOLD_SCORE = 5;
 export const DEFAULT_STOCK_STRATEGY_STEP_LIMIT = 10;
+export const STOCK_SELL_FEE_RATE = 0.001;
 
 type StockInvestmentStockRow = StockInvestmentRoiRow & {
   investment_type: "stock";
@@ -50,6 +51,7 @@ export type StockBuyRecommendationInput = {
   budget: number | null;
   affordableOnly: boolean;
   minimumRoi: number | null;
+  lockedStockIds?: ReadonlySet<number>;
 };
 
 export type StockSuggestedActionKind =
@@ -78,6 +80,7 @@ export type StockRebalanceRecommendation = {
   sell_shares: number;
   sales: StockStrategySale[];
   sale_value: number;
+  sale_fee: number;
   available_cash: number;
   available_capital: number;
   current_annual_return: number;
@@ -96,6 +99,7 @@ export type StockStrategySale = {
   name: string | null;
   shares: number;
   sale_value: number;
+  sale_fee: number;
   current_annual_return: number;
 };
 
@@ -362,7 +366,7 @@ function nextStrategyStep(
     return null;
   }
 
-  const targetSalePlan = buildStrategySalePlan(input.rows, snapshot, target, currentCash);
+  const targetSalePlan = buildStrategySalePlan(input.rows, snapshot, target, currentCash, lockedStockIds(input));
   const targetCashRequired = Math.max(0, target.estimated_cost - targetSalePlan.sale_value);
   const targetStep = strategySalePlanIsBeneficial(target, targetSalePlan)
     ? strategyRebalanceStep(target, targetSalePlan, currentCash)
@@ -391,7 +395,7 @@ function nextStrategyStep(
     return targetStep;
   }
 
-  const steppingStoneSalePlan = buildStrategySalePlan(input.rows, snapshot, steppingStone, currentCash);
+  const steppingStoneSalePlan = buildStrategySalePlan(input.rows, snapshot, steppingStone, currentCash, lockedStockIds(input));
   return strategySalePlanIsBeneficial(steppingStone, steppingStoneSalePlan) && steppingStoneSalePlan.current_annual_return <= 0
     ? strategyRebalanceStep(steppingStone, steppingStoneSalePlan, currentCash)
     : strategyBuyStep(steppingStone, currentCash);
@@ -414,7 +418,7 @@ function selectImmediateStrategyStep(
       return strategyBuyStep(recommendation, currentCash);
     }
 
-    const salePlan = buildStrategySalePlan(input.rows, snapshot, recommendation, currentCash);
+    const salePlan = buildStrategySalePlan(input.rows, snapshot, recommendation, currentCash, lockedStockIds(input));
     const rebalanceStep = strategySalePlanIsBeneficial(recommendation, salePlan) && salePlan.current_annual_return <= 0
       ? strategyRebalanceStep(recommendation, salePlan, currentCash)
       : null;
@@ -595,10 +599,14 @@ function buildRebalanceRecommendations(
     return map;
   }, new Map<number, StockInvestmentStockRow[]>());
   const recommendations: StockRebalanceRecommendation[] = [];
+  const lockedIds = lockedStockIds(input);
   const totalSellableValue = input.ownedSnapshot.stocks.reduce((total, stock) => {
+    if (lockedIds.has(stock.stock_id)) {
+      return total;
+    }
     const ownedRows = stockRowsById.get(stock.stock_id) ?? [];
     const priceRow = ownedRows.find((row) => row.latest_price > 0) ?? null;
-    return total + (priceRow ? stock.shares * priceRow.latest_price : 0);
+    return total + (priceRow ? netSaleValue(stock.shares * priceRow.latest_price) : 0);
   }, 0);
   const candidates = recommendStockBuys({
     ...input,
@@ -607,7 +615,7 @@ function buildRebalanceRecommendations(
   }, Number.MAX_SAFE_INTEGER);
 
   for (const candidate of candidates) {
-    const salePlan = buildStrategySalePlan(input.rows, input.ownedSnapshot, candidate, availableCash);
+    const salePlan = buildStrategySalePlan(input.rows, input.ownedSnapshot, candidate, availableCash, lockedIds);
     if (salePlan.sales.length === 0) {
       continue;
     }
@@ -636,6 +644,7 @@ function buildRebalanceRecommendations(
       sell_shares: firstSale.shares,
       sales: salePlan.sales,
       sale_value: salePlan.sale_value,
+      sale_fee: salePlan.sale_fee,
       available_cash: availableCash,
       available_capital: Math.max(availableCash + salePlan.sale_value, candidate.estimated_cost),
       current_annual_return: salePlan.current_annual_return,
@@ -806,6 +815,7 @@ function rebalanceRecommendationDominates(left: StockRebalanceRecommendation, ri
 type StockStrategySalePlan = {
   sales: StockStrategySale[];
   sale_value: number;
+  sale_fee: number;
   current_annual_return: number;
 };
 
@@ -814,10 +824,11 @@ function buildStrategySalePlan(
   snapshot: OwnedStockSnapshot,
   recommendation: StockBuyRecommendation,
   currentCash: number,
+  lockedIds: ReadonlySet<number>,
 ): StockStrategySalePlan {
   const cashNeeded = Math.max(0, recommendation.estimated_cost - currentCash);
   if (cashNeeded <= 0) {
-    return { sales: [], sale_value: 0, current_annual_return: 0 };
+    return { sales: [], sale_value: 0, sale_fee: 0, current_annual_return: 0 };
   }
 
   const stockRowsById = rows.filter(isStockInvestmentRow).reduce((map, row) => {
@@ -827,7 +838,7 @@ function buildStrategySalePlan(
     return map;
   }, new Map<number, StockInvestmentStockRow[]>());
   const sources = snapshot.stocks
-    .filter((stock) => stock.shares > 0 && stock.stock_id !== recommendation.row.stock_id)
+    .filter((stock) => stock.shares > 0 && stock.stock_id !== recommendation.row.stock_id && !lockedIds.has(stock.stock_id))
     .map((stock) => {
       const ownedRows = stockRowsById.get(stock.stock_id) ?? [];
       const priceRow = ownedRows.find((row) => row.latest_price > 0) ?? null;
@@ -835,15 +846,16 @@ function buildStrategySalePlan(
         return null;
       }
 
-      const fullSaleValue = stock.shares * priceRow.latest_price;
+      const fullGrossSaleValue = stock.shares * priceRow.latest_price;
+      const fullNetSaleValue = netSaleValue(fullGrossSaleValue);
       const currentAnnualReturn = coveredAnnualReturn(ownedRows, stock.shares);
       return {
         stock,
         ownedRows,
         priceRow,
-        fullSaleValue,
+        fullNetSaleValue,
         currentAnnualReturn,
-        currentRoiPercent: currentAnnualReturn > 0 ? (currentAnnualReturn / fullSaleValue) * 100 : 0,
+        currentRoiPercent: currentAnnualReturn > 0 ? (currentAnnualReturn / fullNetSaleValue) * 100 : 0,
       };
     })
     .filter((source): source is NonNullable<typeof source> => Boolean(source))
@@ -860,12 +872,15 @@ function buildStrategySalePlan(
       break;
     }
 
-    const sellShares = Math.min(source.stock.shares, Math.ceil(remainingCashNeeded / source.priceRow.latest_price));
+    const netPricePerShare = netSaleValue(source.priceRow.latest_price);
+    const sellShares = Math.min(source.stock.shares, Math.ceil(remainingCashNeeded / netPricePerShare));
     if (sellShares <= 0) {
       continue;
     }
 
-    const saleValue = sellShares * source.priceRow.latest_price;
+    const grossSaleValue = sellShares * source.priceRow.latest_price;
+    const saleFee = grossSaleValue * STOCK_SELL_FEE_RATE;
+    const saleValue = grossSaleValue - saleFee;
     const sharesAfterSale = Math.max(0, source.stock.shares - sellShares);
     sales.push({
       stock_id: source.stock.stock_id,
@@ -873,6 +888,7 @@ function buildStrategySalePlan(
       name: source.priceRow.name,
       shares: sellShares,
       sale_value: saleValue,
+      sale_fee: saleFee,
       current_annual_return: coveredAnnualReturn(source.ownedRows, source.stock.shares) - coveredAnnualReturn(source.ownedRows, sharesAfterSale),
     });
     remainingCashNeeded -= saleValue;
@@ -881,6 +897,7 @@ function buildStrategySalePlan(
   return {
     sales,
     sale_value: sales.reduce((sum, sale) => sum + sale.sale_value, 0),
+    sale_fee: sales.reduce((sum, sale) => sum + sale.sale_fee, 0),
     current_annual_return: sales.reduce((sum, sale) => sum + sale.current_annual_return, 0),
   };
 }
@@ -902,6 +919,7 @@ function salePlanToRebalanceRecommendation(
     sell_shares: firstSale.shares,
     sales: salePlan.sales,
     sale_value: salePlan.sale_value,
+    sale_fee: salePlan.sale_fee,
     available_cash: currentCash,
     available_capital: Math.max(currentCash + salePlan.sale_value, recommendation.estimated_cost),
     current_annual_return: salePlan.current_annual_return,
@@ -989,6 +1007,14 @@ function actionFromRecommendation(
 
 function affordability(cost: number, budget: number | null): boolean | null {
   return budget === null ? null : cost <= budget;
+}
+
+function lockedStockIds(input: StockBuyRecommendationInput): ReadonlySet<number> {
+  return input.lockedStockIds ?? new Set<number>();
+}
+
+function netSaleValue(grossSaleValue: number): number {
+  return grossSaleValue * (1 - STOCK_SELL_FEE_RATE);
 }
 
 function isStockInvestmentRow(row: StockInvestmentRoiRow): row is StockInvestmentStockRow {

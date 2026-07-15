@@ -324,7 +324,7 @@ describe("stock buy recommendations", () => {
       ],
       ownedSnapshot: null,
       cityBankActive: false,
-      budget: 1_000,
+      budget: 1_001,
       affordableOnly: false,
       minimumRoi: null,
     });
@@ -343,7 +343,7 @@ describe("stock buy recommendations", () => {
         stocks: [{ stock_id: 1, shares: 50, bonus: null }],
       },
       cityBankActive: false,
-      budget: 1_500,
+      budget: 1_501,
       affordableOnly: false,
       minimumRoi: null,
     });
@@ -351,7 +351,8 @@ describe("stock buy recommendations", () => {
     expect(results[0]).toMatchObject({
       sell_stock_id: 1,
       sell_shares: 50,
-      sale_value: 500,
+      sale_value: 499.5,
+      sale_fee: 0.5,
       current_annual_return: 0,
       current_roi_percent: null,
       annual_return_gain: 2_000_000,
@@ -377,8 +378,9 @@ describe("stock buy recommendations", () => {
 
     expect(results[0]).toMatchObject({
       sell_stock_id: 1,
-      sell_shares: 50,
-      sale_value: 500,
+      sell_shares: 51,
+      sale_value: 509.49,
+      sale_fee: 0.51,
       available_cash: 1_500,
       extra_cash_required: 0,
     });
@@ -401,7 +403,7 @@ describe("stock buy recommendations", () => {
     });
 
     expect(results[0]).toMatchObject({
-      sell_shares: 50,
+      sell_shares: 51,
       current_annual_return: 0,
       annual_return_gain: 2_000_000,
     });
@@ -418,7 +420,7 @@ describe("stock buy recommendations", () => {
         stocks: [{ stock_id: 1, shares: 100, bonus: null }],
       },
       cityBankActive: false,
-      budget: 1_000,
+      budget: 1_001,
       affordableOnly: false,
       minimumRoi: null,
     });
@@ -438,14 +440,15 @@ describe("stock buy recommendations", () => {
         stocks: [{ stock_id: 1, shares: 100, bonus: null }],
       },
       cityBankActive: false,
-      budget: 2_000,
+      budget: 2_001,
       affordableOnly: false,
       minimumRoi: null,
     });
 
     expect(results[0]).toMatchObject({
-      sale_value: 1_000,
-      available_cash: 2_000,
+      sale_value: 999,
+      sale_fee: 1,
+      available_cash: 2_001,
       available_capital: 3_000,
       extra_cash_required: 0,
     });
@@ -474,9 +477,10 @@ describe("stock buy recommendations", () => {
     expect(results[0]).toMatchObject({
       sell_stock_id: 1,
       sell_shares: 100,
-      sale_value: 2_000,
+      sale_value: 2_017.98,
+      sale_fee: 2.02,
       available_cash: 500,
-      available_capital: 2_500,
+      available_capital: 2_517.98,
       extra_cash_required: 0,
       current_annual_return: 0,
       annual_return_gain: 2_500_000,
@@ -487,15 +491,17 @@ describe("stock buy recommendations", () => {
         acronym: "AAA",
         name: "Alpha",
         shares: 100,
-        sale_value: 1_000,
+        sale_value: 999,
+        sale_fee: 1,
         current_annual_return: 0,
       },
       {
         stock_id: 2,
         acronym: "BBB",
         name: "Alpha",
-        shares: 50,
-        sale_value: 1_000,
+        shares: 51,
+        sale_value: 1_018.98,
+        sale_fee: 1.02,
         current_annual_return: 0,
       },
     ]);
@@ -513,9 +519,29 @@ describe("stock buy recommendations", () => {
         stocks: [{ stock_id: 1, shares: 100, bonus: null }],
       },
       cityBankActive: false,
-      budget: 1_000,
+      budget: 1_001,
       affordableOnly: false,
       minimumRoi: null,
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("does not sell locked holdings for rebalance ideas", () => {
+    const results = buildStockRebalanceRecommendations({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "KEEP", latest_price: 10, total_shares_required: 1_000 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BUY", latest_price: 10, total_shares_required: 200, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: 200, bonus: null }],
+      },
+      cityBankActive: false,
+      budget: 1_001,
+      affordableOnly: false,
+      minimumRoi: null,
+      lockedStockIds: new Set([1]),
     });
 
     expect(results).toEqual([]);
@@ -531,7 +557,7 @@ describe("stock buy recommendations", () => {
         refreshed_at: 1_800_000_000,
         stocks: [{ stock_id: 1, shares: 100, bonus: null }],
       },
-      budget: 1_000,
+      budget: 1_001,
       affordableOnly: false,
       minimumRoi: null,
     };
@@ -702,8 +728,8 @@ describe("stock buy recommendations", () => {
 
     expect(plan.steps[0]).toMatchObject({
       kind: "rebalance",
-      cash_required: 1_000,
-      extra_cash_needed: 1_000,
+      cash_required: 1_001,
+      extra_cash_needed: 1_001,
       annual_return_gain: 2_000_000,
     });
     expect(plan.steps[0].rebalance?.sell_stock_id).toBe(1);
@@ -773,11 +799,53 @@ describe("stock buy recommendations", () => {
       sales: [
         {
           stock_id: 1,
-          shares: 50,
+          shares: 51,
         },
       ],
     });
     expect(plan.steps.map((step) => step.recommendation.row.row_id)).not.toContain("stock:1:1");
+  });
+
+  it("keeps a realistic locked-holding strategy snapshot stable", () => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({ row_id: "stock:1:1", stock_id: 1, acronym: "KEEP", latest_price: 10, total_shares_required: 100, annual_return: 500_000, roi_percent: 500 }),
+        stockRow({ row_id: "stock:2:1", stock_id: 2, acronym: "BUY", latest_price: 10, total_shares_required: 200, increment_cost: 2_000, total_cost: 2_000, annual_return: 2_000_000, roi_percent: 100_000 }),
+        stockRow({ row_id: "stock:4:1", stock_id: 4, acronym: "IDLE", latest_price: 1, total_shares_required: 10_000, increment_cost: 10_000, total_cost: 10_000, annual_return: 1, roi_percent: 0.01 }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [
+          { stock_id: 1, shares: 100, bonus: null },
+          { stock_id: 4, shares: 2_000, bonus: null },
+        ],
+      },
+      cityBankActive: false,
+      budget: 1_000,
+      affordableOnly: false,
+      minimumRoi: null,
+      lockedStockIds: new Set([1]),
+    }, 2);
+
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0]).toMatchObject({
+      kind: "rebalance",
+      recommendation: {
+        row: {
+          row_id: "stock:2:1",
+        },
+      },
+      sales: [
+        {
+          stock_id: 4,
+          shares: 1_002,
+        },
+      ],
+    });
+    expect(plan.steps[0].sales.map((sale) => sale.stock_id)).not.toContain(1);
+    expect(plan.steps[0].sales[0].sale_value).toBeCloseTo(1_000.998);
+    expect(plan.steps[0].rebalance?.sale_fee).toBeCloseTo(1.002);
+    expect(plan.steps[0].ending_cash).toBeCloseTo(0.998);
   });
 
   it("builds stepping-stone buys before selling into a larger target", () => {
@@ -802,7 +870,7 @@ describe("stock buy recommendations", () => {
     }))).toEqual([
       { kind: "buy", row_id: "stock:1:1", cash_required: 1_000, sales: [] },
       { kind: "buy", row_id: "stock:2:1", cash_required: 2_000, sales: [] },
-      { kind: "rebalance", row_id: "stock:3:1", cash_required: 7_000, sales: [1, 2] },
+      { kind: "rebalance", row_id: "stock:3:1", cash_required: 7_003, sales: [1, 2] },
     ]);
   });
 
@@ -938,8 +1006,8 @@ describe("stock buy recommendations", () => {
       sales: [
         {
           stock_id: 1,
-          shares: 100,
-          sale_value: 100_000,
+          shares: 101,
+          sale_value: 100_899,
           current_annual_return: 0,
         },
       ],
