@@ -23,11 +23,11 @@ import {
 } from "../utils/ownedStocks";
 import {
   adjustCityBankRowForMerits,
-  buildFhgTciSwapRow,
+  buildFhgTciHybridRow,
   buildStockRebalanceRecommendations,
   buildStockStrategyPlan,
   DEFAULT_STOCK_STRATEGY_STEP_LIMIT,
-  isFhgTciSwapRow,
+  isFhgTciHybridRow,
   recommendBestStockBuy,
   STOCK_SELL_FEE_RATE,
   stockInvestmentRowMetrics,
@@ -71,8 +71,9 @@ export function StockInvestments() {
   const [minimumRoi, setMinimumRoi] = React.useState(DEFAULT_MINIMUM_ROI);
   const [hideOwnedBlocks, setHideOwnedBlocks] = React.useState(false);
   const [nextBlockOnly, setNextBlockOnly] = React.useState(false);
-  const [includeFhgTciSwap, setIncludeFhgTciSwap] = React.useState(true);
+  const [includeFhgTciHybrid, setIncludeFhgTciHybrid] = React.useState(true);
   const [cityBankActive, setCityBankActive] = React.useState(false);
+  const [fhgTciHybridActive, setFhgTciHybridActive] = React.useState(false);
   const [bankMerits, setBankMerits] = React.useState(0);
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
   const [strategyPanelTab, setStrategyPanelTab] = React.useState<StockStrategyPanelTab>("strategy");
@@ -248,10 +249,12 @@ export function StockInvestments() {
   React.useEffect(() => {
     const stored = readOwnedStocksStorage(storageUserId);
     const storedCityBank = readCityBankStorage(storageUserId);
+    const storedFhgTciHybridActive = readFhgTciHybridStorage(storageUserId);
     setOwnedApiKey(stored.apiKey);
     setOwnedSnapshot(stored.snapshot);
     setLockedStockIds(readLockedStockIdsStorage(storageUserId));
     setCityBankActive(storedCityBank.active);
+    setFhgTciHybridActive(storedFhgTciHybridActive);
     setBankMerits(storedCityBank.merits);
     loadData();
   }, []);
@@ -261,10 +264,10 @@ export function StockInvestments() {
     () => (roiData?.rows ?? []).map((row) => adjustCityBankRowForMerits(row, bankMerits)),
     [roiData?.rows, bankMerits],
   );
-  const fhgTciSwapRow = React.useMemo(() => buildFhgTciSwapRow(baseInvestmentRows), [baseInvestmentRows]);
+  const fhgTciHybridRow = React.useMemo(() => buildFhgTciHybridRow(baseInvestmentRows), [baseInvestmentRows]);
   const investmentRows = React.useMemo<StockInvestmentRecommendationRow[]>(
-    () => includeFhgTciSwap && fhgTciSwapRow ? [...baseInvestmentRows, fhgTciSwapRow] : baseInvestmentRows,
-    [baseInvestmentRows, fhgTciSwapRow, includeFhgTciSwap],
+    () => includeFhgTciHybrid && fhgTciHybridRow ? [...baseInvestmentRows, fhgTciHybridRow] : baseInvestmentRows,
+    [baseInvestmentRows, fhgTciHybridRow, includeFhgTciHybrid],
   );
   const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
   const ownedCoveredBlockCount = investmentRows.filter((row) => isStockInvestmentRow(row) && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required ?? 0)).length;
@@ -279,18 +282,19 @@ export function StockInvestments() {
   const budget = moneyInputValue(investmentAmount);
   const minRoi = percentInputValue(minimumRoi);
   const filteredRows = investmentRows.filter((row) => {
-    if (isFhgTciSwapRow(row) && !cityBankActive) {
+    if (isFhgTciHybridRow(row) && !cityBankActive) {
       return false;
     }
     if (nextBlockOnly && isStockInvestmentRow(row) && !nextStockBlockRowIds.has(row.row_id)) {
       return false;
     }
-    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, cityBankActive)) {
+    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, ownedSnapshot !== null, cityBankActive, fhgTciHybridActive)) {
       return false;
     }
     const rowMetrics = stockInvestmentRowMetrics(row, {
       ownedShares,
       hasOwnedSnapshot: ownedSnapshot !== null,
+      fhgTciHybridActive,
     });
     if (affordableOnly && budget !== null && rowMetrics.estimated_cost > budget) {
       return false;
@@ -300,39 +304,42 @@ export function StockInvestments() {
     }
     return true;
   });
-  const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, ownedSnapshot !== null);
+  const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, ownedSnapshot !== null, fhgTciHybridActive);
   const bestBuyRecommendation = React.useMemo(() => recommendBestStockBuy({
     rows: investmentRows,
     ownedSnapshot,
     cityBankActive,
+    fhgTciHybridActive,
     budget,
     affordableOnly,
     minimumRoi: minRoi,
-  }), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi]);
+  }), [investmentRows, ownedSnapshot, cityBankActive, fhgTciHybridActive, budget, affordableOnly, minRoi]);
   const rebalanceRecommendations = React.useMemo(() => buildStockRebalanceRecommendations({
     rows: investmentRows,
     ownedSnapshot,
     cityBankActive,
+    fhgTciHybridActive,
     budget,
     affordableOnly,
     minimumRoi: minRoi,
     lockedStockIds,
-  }, 5), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi, lockedStockIds]);
+  }, 5), [investmentRows, ownedSnapshot, cityBankActive, fhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
   const strategyPlan = React.useMemo(() => buildStockStrategyPlan({
     rows: investmentRows,
     ownedSnapshot,
     cityBankActive,
+    fhgTciHybridActive,
     budget,
     affordableOnly,
     minimumRoi: minRoi,
     lockedStockIds,
-  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, ownedSnapshot, cityBankActive, budget, affordableOnly, minRoi, lockedStockIds]);
+  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, ownedSnapshot, cityBankActive, fhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
   const benefitValuesRefreshedAt = roiData?.benefit_prices_refreshed_at ?? null;
-  const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly || hideOwnedBlocks || nextBlockOnly || !includeFhgTciSwap;
+  const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly || hideOwnedBlocks || nextBlockOnly || !includeFhgTciHybrid;
 
   function updateRoiSort(key: StockRoiSortKey) {
     setRoiSort((current) => current.key === key
@@ -438,6 +445,10 @@ export function StockInvestments() {
                 <strong>{cityBankActive ? "Active" : "Inactive"}</strong>
                 <small>Bank: {formatNumber(bankMerits)}/10 merits</small>
               </span>
+              <span>
+                <strong>{fhgTciHybridActive ? "Active" : "Inactive"}</strong>
+                <small>FHG/TCI Hybrid</small>
+              </span>
             </div>
           ) : (
             <p className="stock-owned-empty-note">Load owned stocks from the settings popout to personalize the strategy planner.</p>
@@ -504,6 +515,18 @@ export function StockInvestments() {
                       }}
                     />
                     <span>City Bank investment active</span>
+                  </label>
+                  <label className="stock-owned-hide-toggle">
+                    <input
+                      type="checkbox"
+                      checked={fhgTciHybridActive}
+                      onChange={(event) => {
+                        const nextActive = event.target.checked;
+                        setFhgTciHybridActive(nextActive);
+                        saveFhgTciHybridStorage(storageUserId, nextActive);
+                      }}
+                    />
+                    <span>FHG/TCI Hybrid active</span>
                   </label>
                   <label className="stock-city-bank-merits">
                     <span>Bank merits</span>
@@ -693,10 +716,10 @@ export function StockInvestments() {
               <label className="stock-investment-toggle-row">
                 <input
                   type="checkbox"
-                  checked={includeFhgTciSwap}
-                  onChange={(event) => setIncludeFhgTciSwap(event.target.checked)}
+                  checked={includeFhgTciHybrid}
+                  onChange={(event) => setIncludeFhgTciHybrid(event.target.checked)}
                 />
-                <span>Include FHG/TCI swap</span>
+                <span>Include FHG/TCI hybrid</span>
               </label>
               <label className="stock-investment-toggle-row">
                 <input
@@ -716,7 +739,7 @@ export function StockInvestments() {
                 setMinimumRoi(DEFAULT_MINIMUM_ROI);
                 setAffordableOnly(false);
                 setNextBlockOnly(false);
-                setIncludeFhgTciSwap(true);
+                setIncludeFhgTciHybrid(true);
                 setHideOwnedBlocks(false);
               }}
             >
@@ -734,7 +757,7 @@ export function StockInvestments() {
         ) : rows.length === 0 ? (
           <EmptyState text="No investment opportunities match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} ownedShares={ownedShares} lockedStockIds={lockedStockIds} hasOwnedSnapshot={ownedSnapshot !== null} cityBankActive={cityBankActive} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
+          <StockRoiTable rows={rows} ownedShares={ownedShares} lockedStockIds={lockedStockIds} hasOwnedSnapshot={ownedSnapshot !== null} cityBankActive={cityBankActive} fhgTciHybridActive={fhgTciHybridActive} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
         )}
       </section>
 
@@ -782,6 +805,7 @@ function StockRoiTable({
   lockedStockIds,
   hasOwnedSnapshot,
   cityBankActive,
+  fhgTciHybridActive,
   bankMerits,
   sort,
   onSort,
@@ -791,6 +815,7 @@ function StockRoiTable({
   lockedStockIds: ReadonlySet<number>;
   hasOwnedSnapshot: boolean;
   cityBankActive: boolean;
+  fhgTciHybridActive: boolean;
   bankMerits: number;
   sort: StockRoiSort;
   onSort: (key: StockRoiSortKey) => void;
@@ -815,8 +840,8 @@ function StockRoiTable({
             const isStockRow = isStockInvestmentRow(row);
             const owned = isStockRow ? ownedShares.get(row.stock_id) ?? 0 : 0;
             const isLocked = isStockRow && lockedStockIds.has(row.stock_id);
-            const ownsIncrement = isInvestmentRowCovered(row, ownedShares, cityBankActive);
-            const rowMetrics = stockInvestmentRowMetrics(row, { ownedShares, hasOwnedSnapshot });
+            const ownsIncrement = isInvestmentRowCovered(row, ownedShares, hasOwnedSnapshot, cityBankActive, fhgTciHybridActive);
+            const rowMetrics = stockInvestmentRowMetrics(row, { ownedShares, hasOwnedSnapshot, fhgTciHybridActive });
             const costDetail = stockCostDetail(row, rowMetrics);
             const showRawRoi = rowMetrics.personalized && !rowMetrics.covered && rowMetrics.roi_percent !== row.roi_percent;
             return (
@@ -1362,15 +1387,17 @@ function rebalanceHighlightLabel(highlight: NonNullable<StockRebalanceRecommenda
 
 function rebalanceSaleChip(recommendation: StockRebalanceRecommendation): string {
   if (recommendation.sales.length <= 1) {
-    return recommendation.sell_acronym ?? `#${recommendation.sell_stock_id}`;
+    return recommendation.sell_acronym ?? stockSaleFallbackLabel(recommendation.sell_stock_id);
   }
 
-  return `${recommendation.sales[0]?.acronym ?? `#${recommendation.sales[0]?.stock_id}`} +${recommendation.sales.length - 1}`;
+  return `${saleLabel(recommendation.sales[0] ?? null)} +${recommendation.sales.length - 1}`;
 }
 
 function rebalanceSaleTitle(recommendation: StockRebalanceRecommendation): string {
   if (recommendation.sales.length <= 1) {
-    return `Sell ${formatNumber(recommendation.sell_shares)} shares`;
+    return recommendation.sell_stock_id === null
+      ? `Sell ${recommendation.sell_acronym ?? "holding"}`
+      : `Sell ${formatNumber(recommendation.sell_shares)} shares`;
   }
 
   return `Sell from ${formatNumber(recommendation.sales.length)} holdings`;
@@ -1380,16 +1407,21 @@ function rebalanceSaleDescription(recommendation: StockRebalanceRecommendation):
   const sales = recommendation.sales.length > 0
     ? recommendation.sales
     : [{
+        source_kind: recommendation.sell_stock_id === null ? "synthetic" as const : "stock" as const,
+        source_row_id: null,
         stock_id: recommendation.sell_stock_id,
         acronym: recommendation.sell_acronym,
         name: recommendation.sell_name,
         shares: recommendation.sell_shares,
         sale_value: recommendation.sale_value,
+        sale_fee: recommendation.sale_fee,
         current_annual_return: recommendation.current_annual_return,
       }];
 
   return sales
-    .map((sale) => `${formatNumber(sale.shares)} ${sale.acronym ?? `#${sale.stock_id}`} shares`)
+    .map((sale) => sale.source_kind === "synthetic"
+      ? `${sale.acronym ?? "FHG/TCI Hybrid"} block`
+      : `${formatNumber(sale.shares)} ${saleLabel(sale)} shares`)
     .join(", ");
 }
 
@@ -1397,8 +1429,8 @@ function rebalanceProposedDetail(recommendation: StockBuyRecommendation, bankMer
   if (recommendation.row.investment_type === "city_bank") {
     return `City Bank uses ${bankMerits}/10 merits.`;
   }
-  if (isFhgTciSwapRow(recommendation.row)) {
-    return `FHG 83 days plus TCI 7 days using ${bankMerits}/10 merits.`;
+  if (isFhgTciHybridRow(recommendation.row)) {
+    return `TCI plus 83/90 FHG using ${bankMerits}/10 merits.`;
   }
   if (isBankInterestBonusRow(recommendation.row)) {
     return `${recommendation.row.benefit_description} using ${bankMerits}/10 merits.`;
@@ -1411,6 +1443,9 @@ function strategyStepTitle(step: StockStrategyStep): string {
   if (step.kind === "rebalance" && step.sales.length > 0) {
     return `Sell ${strategySaleLabels(step)}, buy ${bestOpportunityTitle(step.recommendation.row)}`;
   }
+  if (step.kind === "convert") {
+    return `Convert to ${bestOpportunityTitle(step.recommendation.row)}`;
+  }
 
   return `Buy ${bestOpportunityTitle(step.recommendation.row)}`;
 }
@@ -1421,6 +1456,9 @@ function strategyReasonLabel(step: StockStrategyStep): string {
   }
   if (step.kind === "rebalance") {
     return "Funded by sales";
+  }
+  if (step.kind === "convert") {
+    return "Convert capital";
   }
   if (step.extra_cash_needed <= 0) {
     return "Affordable now";
@@ -1440,11 +1478,16 @@ function strategyStepDescription(step: StockStrategyStep, bankMerits: number): s
   if (step.kind === "rebalance" && step.sales.length > 0) {
     return `${strategyRebalanceFundingDescription(step)} Sources: ${strategySaleDescription(step)}.`;
   }
+  if (step.kind === "convert" && isFhgTciHybridRow(row)) {
+    const conversion = recommendation.hybrid_conversion;
+    const componentLabel = conversion?.acronym ?? "FHG/TCI";
+    return `Convert existing ${componentLabel} capital into the FHG/TCI Hybrid.`;
+  }
   if (row.investment_type === "city_bank") {
     return `${cashText}Add City Bank for ${formatInstructionMoney(recommendation.estimated_cost)} with ${bankMerits}/10 merits.`;
   }
-  if (isFhgTciSwapRow(row)) {
-    return `${cashText}Run the FHG/TCI swap for ${formatInstructionMoney(recommendation.estimated_cost)} reusable capital. Switch to TCI 7 days before refresh.`;
+  if (isFhgTciHybridRow(row)) {
+    return `${cashText}Buy/hold the FHG/TCI Hybrid for ${formatInstructionMoney(recommendation.estimated_cost)} additional capital.`;
   }
 
   const sharesText = recommendation.personalized && recommendation.owned_shares > 0
@@ -1455,7 +1498,7 @@ function strategyStepDescription(step: StockStrategyStep, bankMerits: number): s
 
 function strategySaleLabels(step: StockStrategyStep): string {
   return step.sales
-    .map((sale) => sale.acronym ?? `#${sale.stock_id}`)
+    .map((sale) => saleLabel(sale))
     .join(" + ");
 }
 
@@ -1475,8 +1518,21 @@ function strategyRebalanceFundingDescription(step: StockStrategyStep): string {
 
 function strategySaleDescription(step: StockStrategyStep): string {
   return step.sales
-    .map((sale) => `${formatNumber(sale.shares)} ${sale.acronym ?? `#${sale.stock_id}`} (${formatInstructionMoney(sale.sale_value)})`)
+    .map((sale) => sale.source_kind === "synthetic"
+      ? `${sale.acronym ?? "FHG/TCI Hybrid"} (${formatInstructionMoney(sale.sale_value)})`
+      : `${formatNumber(sale.shares)} ${saleLabel(sale)} (${formatInstructionMoney(sale.sale_value)})`)
     .join(", ");
+}
+
+function saleLabel(sale: StockStrategyStep["sales"][number] | null): string {
+  if (!sale) {
+    return "holding";
+  }
+  return sale.acronym ?? stockSaleFallbackLabel(sale.stock_id);
+}
+
+function stockSaleFallbackLabel(stockId: number | null): string {
+  return stockId === null ? "FHG/TCI Hybrid" : `#${stockId}`;
 }
 
 async function fetchOwnedStockSnapshot(apiKey: string, refreshedAt: number): Promise<OwnedStockSnapshot> {
@@ -1516,9 +1572,10 @@ function sortStockRoiRows(
   sort: StockRoiSort,
   ownedShares: Map<number, number>,
   hasOwnedSnapshot: boolean,
+  fhgTciHybridActive: boolean,
 ): StockInvestmentRecommendationRow[] {
   return [...rows].sort((a, b) => {
-    const compared = compareStockRoiRows(a, b, sort.key, ownedShares, hasOwnedSnapshot);
+    const compared = compareStockRoiRows(a, b, sort.key, ownedShares, hasOwnedSnapshot, fhgTciHybridActive);
     if (compared !== 0) {
       return sort.direction === "asc" ? compared : -compared;
     }
@@ -1542,9 +1599,10 @@ function compareStockRoiRows(
   key: StockRoiSortKey,
   ownedShares: Map<number, number>,
   hasOwnedSnapshot: boolean,
+  fhgTciHybridActive: boolean,
 ): number {
-  const metricsA = stockInvestmentRowMetrics(a, { ownedShares, hasOwnedSnapshot });
-  const metricsB = stockInvestmentRowMetrics(b, { ownedShares, hasOwnedSnapshot });
+  const metricsA = stockInvestmentRowMetrics(a, { ownedShares, hasOwnedSnapshot, fhgTciHybridActive });
+  const metricsB = stockInvestmentRowMetrics(b, { ownedShares, hasOwnedSnapshot, fhgTciHybridActive });
   switch (key) {
     case "acronym":
       return compareText(rowAcronym(a), rowAcronym(b));
@@ -1591,9 +1649,23 @@ function isBankInterestBonusRow(row: StockInvestmentRecommendationRow): boolean 
   return row.benefit_key === "city_bank:tci_bonus";
 }
 
-function isInvestmentRowCovered(row: StockInvestmentRecommendationRow, ownedShares: Map<number, number>, cityBankActive: boolean): boolean {
+function isInvestmentRowCovered(
+  row: StockInvestmentRecommendationRow,
+  ownedShares: Map<number, number>,
+  hasOwnedSnapshot: boolean,
+  cityBankActive: boolean,
+  fhgTciHybridActive: boolean,
+): boolean {
   if (row.investment_type === "city_bank") {
     return cityBankActive;
+  }
+
+  if (isFhgTciHybridRow(row)) {
+    return stockInvestmentRowMetrics(row, {
+      ownedShares,
+      hasOwnedSnapshot,
+      fhgTciHybridActive,
+    }).covered;
   }
 
   if (!isStockInvestmentRow(row)) {
@@ -1656,10 +1728,13 @@ function ownedStockLockOptions(snapshot: OwnedStockSnapshot | null, rows: StockI
 }
 
 function stockCostDetail(row: StockInvestmentRecommendationRow, metrics: StockInvestmentRowMetrics): string | null {
-  if (isFhgTciSwapRow(row)) {
+  if (isFhgTciHybridRow(row)) {
+    if (metrics.covered) {
+      return "Active";
+    }
     return metrics.personalized && metrics.estimated_cost !== row.increment_cost
       ? `Reusable capital: ${formatMoney(row.increment_cost - metrics.estimated_cost)}`
-      : "Switch to TCI 7 days before refresh";
+      : "Synthetic block";
   }
   if (!isStockInvestmentRow(row)) {
     return null;
@@ -1679,8 +1754,8 @@ function bestOpportunityTitle(row: StockInvestmentRecommendationRow): string {
   if (row.investment_type === "city_bank") {
     return "BANK 90 days";
   }
-  if (isFhgTciSwapRow(row)) {
-    return "FHG/TCI Bank Swap";
+  if (isFhgTciHybridRow(row)) {
+    return "FHG/TCI Hybrid";
   }
 
   return `${row.acronym ?? `#${row.stock_id}`} Block ${row.increment ?? "-"}`;
@@ -1690,8 +1765,11 @@ function bestBuyRecommendationDetail(recommendation: StockBuyRecommendation, ban
   if (recommendation.row.investment_type === "city_bank") {
     return `City Bank - ${bankMerits}/10 Merits`;
   }
-  if (isFhgTciSwapRow(recommendation.row)) {
-    return `$2b / 90-day bank model - switch to TCI 7 days before refresh`;
+  if (isFhgTciHybridRow(recommendation.row)) {
+    if (recommendation.hybrid_conversion) {
+      return `Convert existing ${recommendation.hybrid_conversion.acronym ?? "FHG/TCI"} capital`;
+    }
+    return "Synthetic block - TCI + 83/90 FHG";
   }
 
   if (!recommendation.personalized) {
@@ -1706,15 +1784,15 @@ function bestBuyRecommendationDetail(recommendation: StockBuyRecommendation, ban
 }
 
 function stockRowSubtitle(row: StockInvestmentRecommendationRow, isStockRow: boolean, bankMerits: number): string {
-  if (isFhgTciSwapRow(row)) {
-    return "FHG 83 days + TCI 7 days";
+  if (isFhgTciHybridRow(row)) {
+    return "Synthetic block";
   }
   return isStockRow ? `Block ${row.increment}` : `${CITY_BANK_TERM_DAYS} days (${bankMerits}/10 Merits)`;
 }
 
 function stockBenefitDetail(row: StockInvestmentRecommendationRow, isStockRow: boolean, bankMerits: number): string {
-  if (isFhgTciSwapRow(row)) {
-    return "$2b / 90-day bank model";
+  if (isFhgTciHybridRow(row)) {
+    return "TCI + 83/90 FHG";
   }
   if (isBankInterestBonusRow(row)) {
     return `${formatNumber(row.frequency_days)} days - ${bankMerits}/10 Merits`;
@@ -1858,6 +1936,20 @@ function saveCityBankStorage(userId: number | null, active: boolean, merits: num
   window.localStorage.setItem(keys.merits, String(clampBankMerits(merits)));
 }
 
+function readFhgTciHybridStorage(userId: number | null): boolean {
+  const key = fhgTciHybridStorageKey(userId);
+  return key ? window.localStorage.getItem(key) === "1" : false;
+}
+
+function saveFhgTciHybridStorage(userId: number | null, active: boolean): void {
+  const key = fhgTciHybridStorageKey(userId);
+  if (!key) {
+    return;
+  }
+
+  window.localStorage.setItem(key, active ? "1" : "0");
+}
+
 function cityBankStorageKeys(userId: number | null): { active: string; merits: string } | null {
   if (!userId) {
     return null;
@@ -1867,6 +1959,10 @@ function cityBankStorageKeys(userId: number | null): { active: string; merits: s
     active: `stockRoiCityBankActive:${userId}`,
     merits: `stockRoiCityBankMerits:${userId}`,
   };
+}
+
+function fhgTciHybridStorageKey(userId: number | null): string | null {
+  return userId ? `stockRoiFhgTciHybridActive:${userId}` : null;
 }
 
 function clampBankMerits(value: unknown): number {
