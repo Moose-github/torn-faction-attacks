@@ -597,6 +597,48 @@ describe("stock buy recommendations", () => {
     });
   });
 
+  it("skips a zero-cost FHG/TCI conversion when the reusable component would lose annual return", () => {
+    const fhg = stockRow({
+      row_id: "stock:5:1",
+      stock_id: 5,
+      acronym: "FHG",
+      latest_price: 2,
+      required_shares: 500,
+      total_shares_required: 500,
+      increment_cost: 1_000,
+      total_cost: 1_000,
+      annual_return: 1_000,
+      roi_percent: 100,
+    });
+    const tci = stockRow({
+      row_id: "stock:9:1",
+      stock_id: 9,
+      acronym: "TCI",
+      latest_price: 2,
+      required_shares: 500,
+      total_shares_required: 500,
+      increment_cost: 1_000,
+      total_cost: 1_000,
+      benefit_key: "city_bank:tci_bonus",
+      annual_return: 10,
+      roi_percent: 1,
+    });
+    const hybrid = buildFhgTciHybridRow([fhg, tci]);
+    expect(hybrid).not.toBeNull();
+
+    expect(recommendStockBuys({
+      rows: [hybrid!],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 5, shares: 500, bonus: null }],
+      },
+      cityBankActive: true,
+      budget: 0,
+      affordableOnly: true,
+      minimumRoi: null,
+    })).toEqual([]);
+  });
+
   it("keeps the FHG/TCI hybrid mutually exclusive with its component rows in the strategy path", () => {
     const fhg = stockRow({
       row_id: "stock:5:1",
@@ -843,6 +885,69 @@ describe("stock buy recommendations", () => {
     });
   });
 
+  it("does not repeat a higher FHG block after strategy buys extra shares beyond an active hybrid", () => {
+    const fhgOne = stockRow({
+      row_id: "stock:5:1",
+      stock_id: 5,
+      acronym: "FHG",
+      latest_price: 1,
+      required_shares: 500,
+      total_shares_required: 500,
+      increment_cost: 500,
+      total_cost: 500,
+      annual_return: 400,
+      roi_percent: 80,
+    });
+    const fhgTwo = stockRow({
+      row_id: "stock:5:2",
+      stock_id: 5,
+      acronym: "FHG",
+      latest_price: 1,
+      increment: 2,
+      required_shares: 1_000,
+      total_shares_required: 1_500,
+      increment_cost: 1_000,
+      total_cost: 1_500,
+      annual_return: 900,
+      roi_percent: 90,
+    });
+    const tci = stockRow({
+      row_id: "stock:9:1",
+      stock_id: 9,
+      acronym: "TCI",
+      latest_price: 1,
+      required_shares: 500,
+      total_shares_required: 500,
+      increment_cost: 500,
+      total_cost: 500,
+      benefit_key: "city_bank:tci_bonus",
+      annual_return: 100,
+      roi_percent: 20,
+    });
+    const hybrid = buildFhgTciHybridRow([fhgOne, tci]);
+    const plan = buildStockStrategyPlan({
+      rows: hybrid ? [fhgOne, fhgTwo, tci, hybrid] : [fhgOne, fhgTwo, tci],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 5, shares: 500, bonus: null }],
+      },
+      cityBankActive: true,
+      fhgTciHybridActive: true,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 3);
+
+    expect(plan.steps.map((step) => step.recommendation.row.row_id)).toEqual(["stock:5:2"]);
+    expect(plan.steps[0]).toMatchObject({
+      recommendation: {
+        estimated_cost: 1_000,
+        target_shares: 1_000,
+        shares_needed: 1_000,
+      },
+    });
+  });
+
   it("reserves partial FHG capital reused by a cash-funded hybrid strategy step", () => {
     const fhg = stockRow({
       row_id: "stock:5:1",
@@ -912,6 +1017,64 @@ describe("stock buy recommendations", () => {
       },
       sales: [],
       extra_cash_needed: 90,
+    });
+  });
+
+  it("allows excess FHG component shares to fund a hybrid buy while reserving the component slot", () => {
+    const fhg = stockRow({
+      row_id: "stock:5:1",
+      stock_id: 5,
+      acronym: "FHG",
+      latest_price: 1,
+      required_shares: 500,
+      total_shares_required: 500,
+      increment_cost: 500,
+      total_cost: 500,
+      annual_return: 400,
+      roi_percent: 80,
+    });
+    const tci = stockRow({
+      row_id: "stock:9:1",
+      stock_id: 9,
+      acronym: "TCI",
+      latest_price: 2,
+      required_shares: 500,
+      total_shares_required: 500,
+      increment_cost: 1_000,
+      total_cost: 1_000,
+      benefit_key: "city_bank:tci_bonus",
+      annual_return: 100,
+      roi_percent: 10,
+    });
+    const hybrid = buildFhgTciHybridRow([fhg, tci]);
+    const plan = buildStockStrategyPlan({
+      rows: hybrid ? [fhg, tci, hybrid] : [fhg, tci],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 5, shares: 1_000, bonus: null }],
+      },
+      cityBankActive: true,
+      budget: 1,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 2);
+
+    expect(plan.steps[0]).toMatchObject({
+      kind: "rebalance",
+      recommendation: {
+        row: {
+          row_id: "synthetic:fhg_tci_hybrid",
+        },
+        estimated_cost: 500,
+      },
+      sales: [
+        {
+          stock_id: 5,
+          shares: 500,
+          sale_value: 499.5,
+          current_annual_return: 0,
+        },
+      ],
     });
   });
 

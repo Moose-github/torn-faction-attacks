@@ -31,6 +31,8 @@ import {
   buildStockRebalanceRecommendations,
   buildStockStrategyPlan,
   DEFAULT_STOCK_STRATEGY_STEP_LIMIT,
+  fhgTciHybridBackingReservedShares,
+  fhgTciHybridBaselineSharesForRow,
   hasFhgTciHybridBackingShares,
   isFhgTciHybridRow,
   recommendBestStockBuy,
@@ -333,6 +335,12 @@ export function StockInvestments() {
     hasFhgTciHybridBackingShares(fhgTciHybridRow, ownedShares),
   );
   const effectiveFhgTciHybridActive = fhgTciHybridActive && canMarkFhgTciHybridActive;
+  const fhgTciHybridBaselineShares = effectiveFhgTciHybridActive && fhgTciHybridRow
+    ? fhgTciHybridBaselineSharesForRow(fhgTciHybridRow)
+    : undefined;
+  const fhgTciHybridReservedShares = effectiveFhgTciHybridActive && fhgTciHybridRow
+    ? fhgTciHybridBackingReservedShares(fhgTciHybridRow, ownedShares)
+    : undefined;
   const canEvaluateFhgTciHybridActive = Boolean(ownedSnapshot && !isLoading && roiData);
   const fhgTciHybridActiveHint = !ownedSnapshot
     ? "Load owned stocks to mark this as owned."
@@ -353,8 +361,8 @@ export function StockInvestments() {
   const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
   const ownedCoveredBlockCount = investmentRows.filter((row) => isStockInvestmentRow(row) && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required ?? 0)).length;
   const nextStockBlockRowIds = React.useMemo(
-    () => nextStockBlockIds(investmentRows, ownedShares, ownedSnapshot !== null),
-    [investmentRows, ownedShares, ownedSnapshot],
+    () => nextStockBlockIds(investmentRows, ownedShares, ownedSnapshot !== null, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares),
+    [investmentRows, ownedShares, ownedSnapshot, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares],
   );
   const lockableHoldings = React.useMemo(
     () => ownedStockLockOptions(ownedSnapshot, investmentRows),
@@ -369,13 +377,15 @@ export function StockInvestments() {
     if (nextBlockOnly && isStockInvestmentRow(row) && !nextStockBlockRowIds.has(row.row_id)) {
       return false;
     }
-    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, ownedSnapshot !== null, cityBankActive, effectiveFhgTciHybridActive)) {
+    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, ownedSnapshot !== null, cityBankActive, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares)) {
       return false;
     }
     const rowMetrics = stockInvestmentRowMetrics(row, {
       ownedShares,
       hasOwnedSnapshot: ownedSnapshot !== null,
       fhgTciHybridActive: effectiveFhgTciHybridActive,
+      fhgTciHybridBaselineShares,
+      fhgTciHybridReservedShares,
     });
     if (affordableOnly && budget !== null && rowMetrics.estimated_cost > budget) {
       return false;
@@ -385,7 +395,7 @@ export function StockInvestments() {
     }
     return true;
   });
-  const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, ownedSnapshot !== null, effectiveFhgTciHybridActive);
+  const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, ownedSnapshot !== null, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares);
   const bestBuyRecommendation = React.useMemo(() => recommendBestStockBuy({
     rows: investmentRows,
     ownedSnapshot,
@@ -849,7 +859,7 @@ export function StockInvestments() {
         ) : rows.length === 0 ? (
           <EmptyState text="No investment opportunities match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} ownedShares={ownedShares} lockedStockIds={lockedStockIds} hasOwnedSnapshot={ownedSnapshot !== null} cityBankActive={cityBankActive} fhgTciHybridActive={effectiveFhgTciHybridActive} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
+          <StockRoiTable rows={rows} ownedShares={ownedShares} lockedStockIds={lockedStockIds} hasOwnedSnapshot={ownedSnapshot !== null} cityBankActive={cityBankActive} fhgTciHybridActive={effectiveFhgTciHybridActive} fhgTciHybridBaselineShares={fhgTciHybridBaselineShares} fhgTciHybridReservedShares={fhgTciHybridReservedShares} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
         )}
       </section>
 
@@ -904,6 +914,8 @@ function StockRoiTable({
   hasOwnedSnapshot,
   cityBankActive,
   fhgTciHybridActive,
+  fhgTciHybridBaselineShares,
+  fhgTciHybridReservedShares,
   bankMerits,
   sort,
   onSort,
@@ -914,6 +926,8 @@ function StockRoiTable({
   hasOwnedSnapshot: boolean;
   cityBankActive: boolean;
   fhgTciHybridActive: boolean;
+  fhgTciHybridBaselineShares?: ReadonlyMap<number, number>;
+  fhgTciHybridReservedShares?: ReadonlyMap<number, number>;
   bankMerits: number;
   sort: StockRoiSort;
   onSort: (key: StockRoiSortKey) => void;
@@ -938,8 +952,8 @@ function StockRoiTable({
             const isStockRow = isStockInvestmentRow(row);
             const owned = isStockRow ? ownedShares.get(row.stock_id) ?? 0 : 0;
             const isLocked = isStockRow && lockedStockIds.has(row.stock_id);
-            const ownsIncrement = isInvestmentRowCovered(row, ownedShares, hasOwnedSnapshot, cityBankActive, fhgTciHybridActive);
-            const rowMetrics = stockInvestmentRowMetrics(row, { ownedShares, hasOwnedSnapshot, fhgTciHybridActive });
+            const ownsIncrement = isInvestmentRowCovered(row, ownedShares, hasOwnedSnapshot, cityBankActive, fhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares);
+            const rowMetrics = stockInvestmentRowMetrics(row, { ownedShares, hasOwnedSnapshot, fhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares });
             const costDetail = stockCostDetail(row, rowMetrics);
             const showRawRoi = rowMetrics.personalized && !rowMetrics.covered && rowMetrics.roi_percent !== row.roi_percent;
             return (
@@ -1661,9 +1675,11 @@ function sortStockRoiRows(
   ownedShares: Map<number, number>,
   hasOwnedSnapshot: boolean,
   fhgTciHybridActive: boolean,
+  fhgTciHybridBaselineShares?: ReadonlyMap<number, number>,
+  fhgTciHybridReservedShares?: ReadonlyMap<number, number>,
 ): StockInvestmentRecommendationRow[] {
   return [...rows].sort((a, b) => {
-    const compared = compareStockRoiRows(a, b, sort.key, ownedShares, hasOwnedSnapshot, fhgTciHybridActive);
+    const compared = compareStockRoiRows(a, b, sort.key, ownedShares, hasOwnedSnapshot, fhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares);
     if (compared !== 0) {
       return sort.direction === "asc" ? compared : -compared;
     }
@@ -1688,9 +1704,11 @@ function compareStockRoiRows(
   ownedShares: Map<number, number>,
   hasOwnedSnapshot: boolean,
   fhgTciHybridActive: boolean,
+  fhgTciHybridBaselineShares?: ReadonlyMap<number, number>,
+  fhgTciHybridReservedShares?: ReadonlyMap<number, number>,
 ): number {
-  const metricsA = stockInvestmentRowMetrics(a, { ownedShares, hasOwnedSnapshot, fhgTciHybridActive });
-  const metricsB = stockInvestmentRowMetrics(b, { ownedShares, hasOwnedSnapshot, fhgTciHybridActive });
+  const metricsA = stockInvestmentRowMetrics(a, { ownedShares, hasOwnedSnapshot, fhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares });
+  const metricsB = stockInvestmentRowMetrics(b, { ownedShares, hasOwnedSnapshot, fhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares });
   switch (key) {
     case "acronym":
       return compareText(rowAcronym(a), rowAcronym(b));
@@ -1743,30 +1761,33 @@ function isInvestmentRowCovered(
   hasOwnedSnapshot: boolean,
   cityBankActive: boolean,
   fhgTciHybridActive: boolean,
+  fhgTciHybridBaselineShares?: ReadonlyMap<number, number>,
+  fhgTciHybridReservedShares?: ReadonlyMap<number, number>,
 ): boolean {
   if (row.investment_type === "city_bank") {
     return cityBankActive;
   }
 
-  if (isFhgTciHybridRow(row)) {
+  if (isFhgTciHybridRow(row) || isStockInvestmentRow(row)) {
     return stockInvestmentRowMetrics(row, {
       ownedShares,
       hasOwnedSnapshot,
       fhgTciHybridActive,
+      fhgTciHybridBaselineShares,
+      fhgTciHybridReservedShares,
     }).covered;
   }
 
-  if (!isStockInvestmentRow(row)) {
-    return false;
-  }
-
-  return ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required);
+  return false;
 }
 
 function nextStockBlockIds(
   rows: StockInvestmentRecommendationRow[],
   ownedShares: Map<number, number>,
   hasOwnedSnapshot: boolean,
+  fhgTciHybridActive: boolean,
+  fhgTciHybridBaselineShares?: ReadonlyMap<number, number>,
+  fhgTciHybridReservedShares?: ReadonlyMap<number, number>,
 ): Set<string> {
   const rowsByStockId = rows.filter(isStockInvestmentRow).reduce((map, row) => {
     const stockRows = map.get(row.stock_id) ?? [];
@@ -1776,11 +1797,16 @@ function nextStockBlockIds(
   }, new Map<number, StockInvestmentRecommendationRow[]>());
   const rowIds = new Set<string>();
 
-  for (const [stockId, stockRows] of rowsByStockId) {
-    const owned = hasOwnedSnapshot ? ownedShares.get(stockId) ?? 0 : 0;
+  for (const stockRows of rowsByStockId.values()) {
     const nextRow = [...stockRows]
       .sort((left, right) => (left.increment ?? 0) - (right.increment ?? 0))
-      .find((row) => !ownsStockIncrement(owned, row.total_shares_required ?? 0));
+      .find((row) => !stockInvestmentRowMetrics(row, {
+        ownedShares,
+        hasOwnedSnapshot,
+        fhgTciHybridActive,
+        fhgTciHybridBaselineShares,
+        fhgTciHybridReservedShares,
+      }).covered);
     if (nextRow) {
       rowIds.add(nextRow.row_id);
     }

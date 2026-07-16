@@ -102,6 +102,7 @@ export type StockBuyRecommendationInput = {
   minimumRoi: number | null;
   lockedStockIds?: ReadonlySet<number>;
   fhgTciHybridBaselineShares?: ReadonlyMap<number, number>;
+  fhgTciHybridReservedShares?: ReadonlyMap<number, number>;
 };
 
 export type StockSuggestedActionKind =
@@ -248,7 +249,17 @@ export function hasFhgTciHybridBackingShares(
   row: FhgTciHybridRow,
   ownedShares: ReadonlyMap<number, number>,
 ): boolean {
-  return bestFhgTciHybridBackingComponent(row, ownedShares) !== null;
+  return fhgTciHybridBackingReservedShares(row, ownedShares).size > 0;
+}
+
+export function fhgTciHybridBackingReservedShares(
+  row: FhgTciHybridRow,
+  ownedShares: ReadonlyMap<number, number>,
+): ReadonlyMap<number, number> {
+  const componentUse = bestFhgTciHybridBackingComponent(row, ownedShares);
+  return componentUse
+    ? new Map([[componentUse.component.stock_id, componentUse.shares]])
+    : new Map<number, number>();
 }
 
 export function stockInvestmentRowMetrics(
@@ -258,6 +269,7 @@ export function stockInvestmentRowMetrics(
     hasOwnedSnapshot: boolean;
     fhgTciHybridActive?: boolean;
     fhgTciHybridBaselineShares?: ReadonlyMap<number, number>;
+    fhgTciHybridReservedShares?: ReadonlyMap<number, number>;
   },
 ): StockInvestmentRowMetrics {
   if (isFhgTciHybridRow(row)) {
@@ -266,6 +278,9 @@ export function stockInvestmentRowMetrics(
 
   const baselineShares = isStockInvestmentRow(row)
     ? options.fhgTciHybridBaselineShares?.get(row.stock_id) ?? 0
+    : 0;
+  const reservedShares = isStockInvestmentRow(row)
+    ? options.fhgTciHybridReservedShares?.get(row.stock_id) ?? 0
     : 0;
   const targetShares = isStockInvestmentRow(row)
     ? Math.max(0, row.total_shares_required - baselineShares)
@@ -296,7 +311,7 @@ export function stockInvestmentRowMetrics(
     return baseMetrics;
   }
 
-  const owned = Math.max(0, (options.ownedShares.get(row.stock_id) ?? 0) - baselineShares);
+  const owned = Math.max(0, (options.ownedShares.get(row.stock_id) ?? 0) - reservedShares);
   const adjustedTargetShares = targetShares ?? row.total_shares_required;
   const covered = adjustedTargetShares <= 0 || ownsStockIncrement(owned, adjustedTargetShares);
   const sharesNeeded = Math.max(0, adjustedTargetShares - owned);
@@ -399,6 +414,7 @@ export function recommendBestStockBuy(input: StockBuyRecommendationInput): Stock
 export function recommendStockBuys(input: StockBuyRecommendationInput, limit = 5): StockBuyRecommendation[] {
   const ownedShares = ownedSharesMap(input.ownedSnapshot);
   const baselineShares = fhgTciHybridBaselineShares(input);
+  const reservedShares = fhgTciHybridReservedShares(input);
   const recommendations = input.rows
     .map((row) => stockBuyRecommendationFromRow(row, {
       ownedShares,
@@ -406,6 +422,7 @@ export function recommendStockBuys(input: StockBuyRecommendationInput, limit = 5
       cityBankActive: input.cityBankActive,
       fhgTciHybridActive: input.fhgTciHybridActive ?? false,
       fhgTciHybridBaselineShares: baselineShares,
+      fhgTciHybridReservedShares: reservedShares,
       budget: input.budget,
     }))
     .filter((recommendation): recommendation is StockBuyRecommendation => {
@@ -524,12 +541,14 @@ export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit
     const baselineShares = simulatedHybridHolding
       ? fhgTciHybridBaselineSharesForRow(simulatedHybridHolding.row)
       : undefined;
+    const reservedShares = simulatedHybridHolding?.actualReservedShares;
     const stepInput = {
       ...input,
       ownedSnapshot: simulatedSnapshot,
       cityBankActive: simulatedCityBankActive,
       fhgTciHybridActive: Boolean(simulatedHybridHolding),
       fhgTciHybridBaselineShares: baselineShares,
+      fhgTciHybridReservedShares: reservedShares,
       budget: null,
       affordableOnly: false,
       lockedStockIds: lockedStockIds(input),
@@ -546,7 +565,7 @@ export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit
 
     steps.push(nextStep);
     currentCash = nextStep.ending_cash;
-    simulatedSnapshot = applyStrategyStepToSnapshot(simulatedSnapshot, nextStep);
+    simulatedSnapshot = applyStrategyStepToSnapshot(simulatedSnapshot, nextStep, simulatedHybridHolding);
     if (nextStep.sales.some((sale) => sale.source_kind === "synthetic" && sale.source_row_id === simulatedHybridHolding?.row.row_id)) {
       simulatedHybridHolding = null;
     }
@@ -851,6 +870,7 @@ function buildRebalanceRecommendations(
   const candidates = recommendStockBuys({
     ...input,
     fhgTciHybridBaselineShares: hybridHolding ? fhgTciHybridBaselineSharesForRow(hybridHolding.row) : input.fhgTciHybridBaselineShares,
+    fhgTciHybridReservedShares: hybridHolding ? hybridHolding.actualReservedShares : input.fhgTciHybridReservedShares,
     budget: allowFutureCash ? null : availableCash + totalSellableValue + hybridSellableValue,
     affordableOnly: !allowFutureCash,
   }, Number.MAX_SAFE_INTEGER);
@@ -907,6 +927,7 @@ export function stockBuyRecommendationFromRow(
     cityBankActive: boolean;
     fhgTciHybridActive?: boolean;
     fhgTciHybridBaselineShares?: ReadonlyMap<number, number>;
+    fhgTciHybridReservedShares?: ReadonlyMap<number, number>;
     budget: number | null;
   },
 ): StockBuyRecommendation | null {
@@ -925,6 +946,9 @@ export function stockBuyRecommendationFromRow(
     }
 
     const conversion = fhgTciHybridConversion(row, options.ownedShares);
+    if (metrics.estimated_cost <= 0 && !conversion) {
+      return null;
+    }
     const annualReturn = conversion?.annual_return_gain ?? metrics.annual_return;
     const roiPercent = conversion
       ? (annualReturn / row.increment_cost) * 100
@@ -971,6 +995,7 @@ export function stockBuyRecommendationFromRow(
     ownedShares: options.ownedShares,
     hasOwnedSnapshot: options.hasOwnedSnapshot,
     fhgTciHybridBaselineShares: options.fhgTciHybridBaselineShares,
+    fhgTciHybridReservedShares: options.fhgTciHybridReservedShares,
   });
   if (metrics.covered) {
     return null;
@@ -1104,6 +1129,7 @@ type StockStrategyStockSaleSource = {
   stock: OwnedStockPosition;
   ownedRows: StockInvestmentStockRow[];
   priceRow: StockInvestmentStockRow;
+  reservedShares: number;
   remainingShares: number;
 };
 
@@ -1122,6 +1148,23 @@ type StockStrategySaleChunk = {
   sale_fee: number;
   current_annual_return: number;
 };
+
+function hybridTargetReservedShares(
+  recommendation: StockBuyRecommendation,
+  snapshot: OwnedStockSnapshot,
+): ReadonlyMap<number, number> {
+  const row = recommendation.row;
+  if (!isFhgTciHybridRow(row)) {
+    return new Map<number, number>();
+  }
+
+  const componentUse = recommendation.hybrid_conversion
+    ? conversionToComponentUse(row, recommendation.hybrid_conversion)
+    : bestReusableHybridComponent(row, ownedSharesMap(snapshot), false);
+  return componentUse
+    ? new Map([[componentUse.component.stock_id, componentUse.shares]])
+    : new Map<number, number>();
+}
 
 function buildStrategySalePlan(
   rows: StockInvestmentRecommendationRow[],
@@ -1142,15 +1185,12 @@ function buildStrategySalePlan(
     map.set(row.stock_id, stockRows);
     return map;
   }, new Map<number, StockInvestmentStockRow[]>());
-  const excludedSaleStockIds = isFhgTciHybridRow(recommendation.row)
-    ? new Set([recommendation.row.components.fhg.stock_id, recommendation.row.components.tci.stock_id])
-    : new Set<number>();
+  const targetReservedShares = hybridTargetReservedShares(recommendation, snapshot);
   const sources: StockStrategySaleSource[] = snapshot.stocks
     .filter((stock) =>
       stock.shares > 0 &&
       stock.stock_id !== recommendation.row.stock_id &&
-      !lockedIds.has(stock.stock_id) &&
-      !excludedSaleStockIds.has(stock.stock_id)
+      !lockedIds.has(stock.stock_id)
     )
     .map((stock) => {
       const ownedRows = stockRowsById.get(stock.stock_id) ?? [];
@@ -1159,7 +1199,8 @@ function buildStrategySalePlan(
         return null;
       }
 
-      const reservedShares = hybridHolding?.actualReservedShares.get(stock.stock_id) ?? 0;
+      const reservedShares = (hybridHolding?.actualReservedShares.get(stock.stock_id) ?? 0) +
+        (targetReservedShares.get(stock.stock_id) ?? 0);
       const remainingShares = Math.max(0, stock.shares - reservedShares);
       if (remainingShares <= 0) {
         return null;
@@ -1170,6 +1211,7 @@ function buildStrategySalePlan(
         stock,
         ownedRows,
         priceRow,
+        reservedShares,
         remainingShares,
       };
     })
@@ -1177,7 +1219,8 @@ function buildStrategySalePlan(
   if (
     hybridHolding &&
     !isFhgTciHybridRow(recommendation.row) &&
-    !isFhgTciHybridComponentRow(recommendation.row)
+    !isFhgTciHybridComponentRow(recommendation.row) &&
+    !isFhgTciHybridComponentStockRow(recommendation.row, hybridHolding.row)
   ) {
     sources.push({
       source_kind: "synthetic",
@@ -1313,17 +1356,18 @@ function nextStrategySaleChunk(source: StockStrategySaleSource): StockStrategySa
     };
   }
 
-  const currentAnnualReturn = coveredAnnualReturn(source.ownedRows, shares);
-  const highestCoveredThreshold = highestCoveredStockThreshold(source.ownedRows, shares);
+  const totalShares = source.remainingShares + source.reservedShares;
+  const currentAnnualReturn = coveredAnnualReturn(source.ownedRows, totalShares);
+  const highestCoveredThreshold = highestCoveredStockThreshold(source.ownedRows, totalShares);
   let sellShares: number;
   let lostAnnualReturn = 0;
   if (currentAnnualReturn <= 0 || highestCoveredThreshold === null) {
     sellShares = shares;
-  } else if (shares > highestCoveredThreshold) {
-    sellShares = shares - highestCoveredThreshold;
+  } else if (totalShares > highestCoveredThreshold) {
+    sellShares = Math.min(shares, totalShares - highestCoveredThreshold);
   } else {
     sellShares = 1;
-    lostAnnualReturn = currentAnnualReturn - coveredAnnualReturn(source.ownedRows, shares - 1);
+    lostAnnualReturn = currentAnnualReturn - coveredAnnualReturn(source.ownedRows, totalShares - 1);
   }
 
   if (sellShares <= 0) {
@@ -1400,7 +1444,11 @@ function cloneOwnedSnapshot(snapshot: OwnedStockSnapshot | null): OwnedStockSnap
   };
 }
 
-function applyStrategyStepToSnapshot(snapshot: OwnedStockSnapshot, step: StockStrategyStep): OwnedStockSnapshot {
+function applyStrategyStepToSnapshot(
+  snapshot: OwnedStockSnapshot,
+  step: StockStrategyStep,
+  hybridHolding: FhgTciHybridHolding | null,
+): OwnedStockSnapshot {
   const soldSharesByStockId = new Map<number, number>();
   for (const sale of step.sales) {
     if (sale.stock_id === null) {
@@ -1422,13 +1470,14 @@ function applyStrategyStepToSnapshot(snapshot: OwnedStockSnapshot, step: StockSt
   });
   const row = step.recommendation.row;
   if (row.investment_type === "stock" && row.stock_id !== null && step.recommendation.target_shares !== null) {
+    const targetShares = strategyStepActualTargetShares(step, hybridHolding);
     const existing = stocks.find((stock) => stock.stock_id === row.stock_id);
     if (existing) {
-      existing.shares = Math.max(existing.shares, step.recommendation.target_shares);
+      existing.shares = Math.max(existing.shares, targetShares);
     } else {
       stocks.push({
         stock_id: row.stock_id,
-        shares: step.recommendation.target_shares,
+        shares: targetShares,
         bonus: null,
       });
     }
@@ -1438,6 +1487,30 @@ function applyStrategyStepToSnapshot(snapshot: OwnedStockSnapshot, step: StockSt
     refreshed_at: snapshot.refreshed_at,
     stocks,
   };
+}
+
+function strategyStepActualTargetShares(
+  step: StockStrategyStep,
+  hybridHolding: FhgTciHybridHolding | null,
+): number {
+  const row = step.recommendation.row;
+  if (
+    !isStockInvestmentRow(row) ||
+    step.recommendation.target_shares === null ||
+    !hybridHolding ||
+    strategyStepSellsHybridHolding(step, hybridHolding)
+  ) {
+    return step.recommendation.target_shares ?? 0;
+  }
+
+  return step.recommendation.target_shares + (hybridHolding.actualReservedShares.get(row.stock_id) ?? 0);
+}
+
+function strategyStepSellsHybridHolding(step: StockStrategyStep, hybridHolding: FhgTciHybridHolding): boolean {
+  return step.sales.some((sale) =>
+    sale.source_kind === "synthetic" &&
+    sale.source_row_id === hybridHolding.row.row_id
+  );
 }
 
 function closestCompletion(recommendations: StockBuyRecommendation[]): StockBuyRecommendation | null {
@@ -1647,7 +1720,24 @@ function fhgTciHybridBaselineShares(input: StockBuyRecommendationInput): Readonl
   return fhgTciHybridBaselineSharesForRow(row);
 }
 
-function fhgTciHybridBaselineSharesForRow(row: FhgTciHybridRow): ReadonlyMap<number, number> {
+function fhgTciHybridReservedShares(input: StockBuyRecommendationInput): ReadonlyMap<number, number> | undefined {
+  if (input.fhgTciHybridReservedShares) {
+    return input.fhgTciHybridReservedShares;
+  }
+  if (!input.fhgTciHybridActive || !input.ownedSnapshot) {
+    return undefined;
+  }
+
+  const row = input.rows.find(isFhgTciHybridRow) ?? null;
+  if (!row) {
+    return undefined;
+  }
+
+  const reservedShares = fhgTciHybridBackingReservedShares(row, ownedSharesMap(input.ownedSnapshot));
+  return reservedShares.size > 0 ? reservedShares : undefined;
+}
+
+export function fhgTciHybridBaselineSharesForRow(row: FhgTciHybridRow): ReadonlyMap<number, number> {
   return new Map([
     [row.components.fhg.stock_id, row.components.fhg.required_shares],
     [row.components.tci.stock_id, row.components.tci.required_shares],
@@ -1687,6 +1777,11 @@ export function isFhgTciHybridRow(row: StockInvestmentRecommendationRow): row is
 
 function isFhgTciHybridComponentRow(row: StockInvestmentRecommendationRow): boolean {
   return isFhgBlockOneRow(row) || row.benefit_key === TCI_BANK_INTEREST_BONUS_KEY;
+}
+
+function isFhgTciHybridComponentStockRow(row: StockInvestmentRecommendationRow, hybridRow: FhgTciHybridRow): boolean {
+  return isStockInvestmentRow(row) &&
+    (row.stock_id === hybridRow.components.fhg.stock_id || row.stock_id === hybridRow.components.tci.stock_id);
 }
 
 function isFhgBlockOneRow(row: StockInvestmentRecommendationRow): boolean {
