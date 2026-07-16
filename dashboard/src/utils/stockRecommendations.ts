@@ -244,6 +244,13 @@ export function buildFhgTciHybridRow(rows: StockInvestmentRoiRow[]): FhgTciHybri
   };
 }
 
+export function hasFhgTciHybridBackingShares(
+  row: FhgTciHybridRow,
+  ownedShares: ReadonlyMap<number, number>,
+): boolean {
+  return bestFhgTciHybridBackingComponent(row, ownedShares) !== null;
+}
+
 export function stockInvestmentRowMetrics(
   row: StockInvestmentRecommendationRow,
   options: {
@@ -355,7 +362,7 @@ function fhgTciHybridRowMetrics(
     ownedComponentValue(row.components.fhg, options.ownedShares),
     ownedComponentValue(row.components.tci, options.ownedShares),
   );
-  const activeHolding = Boolean(options.fhgTciHybridActive && bestReusableHybridComponent(row, options.ownedShares, true));
+  const activeHolding = Boolean(options.fhgTciHybridActive && bestFhgTciHybridBackingComponent(row, options.ownedShares));
   const estimatedCost = Math.max(0, row.increment_cost - reusableCapital);
   if (activeHolding) {
     return {
@@ -917,9 +924,7 @@ export function stockBuyRecommendationFromRow(
       return null;
     }
 
-    const conversion = options.fhgTciHybridActive
-      ? null
-      : fhgTciHybridConversion(row, options.ownedShares);
+    const conversion = fhgTciHybridConversion(row, options.ownedShares);
     const annualReturn = conversion?.annual_return_gain ?? metrics.annual_return;
     const roiPercent = conversion
       ? (annualReturn / row.increment_cost) * 100
@@ -1491,42 +1496,57 @@ function rowToFhgTciHybridComponent(row: StockInvestmentStockRow): FhgTciHybridC
   };
 }
 
-function ownedComponentValue(component: FhgTciHybridComponent, ownedShares: Map<number, number>): number {
+function ownedComponentValue(component: FhgTciHybridComponent, ownedShares: ReadonlyMap<number, number>): number {
   const owned = Math.min(ownedShares.get(component.stock_id) ?? 0, component.required_shares);
   return Math.max(0, owned * component.latest_price);
 }
 
+function bestFhgTciHybridBackingComponent(
+  row: FhgTciHybridRow,
+  ownedShares: ReadonlyMap<number, number>,
+): FhgTciHybridComponentUse | null {
+  return fhgTciHybridComponentUses(row, ownedShares)
+    .filter((candidate) => candidate.shares >= candidate.component.required_shares)
+    .sort(compareFhgTciHybridComponentUses)[0] ?? null;
+}
+
 function bestReusableHybridComponent(
   row: FhgTciHybridRow,
-  ownedShares: Map<number, number>,
+  ownedShares: ReadonlyMap<number, number>,
   requireFull: boolean,
 ): FhgTciHybridComponentUse | null {
-  const candidates: FhgTciHybridComponentUse[] = ([
-    ["fhg", row.components.fhg],
-    ["tci", row.components.tci],
-  ] as const)
-    .map(([componentKind, component]) => {
-      const shares = Math.min(ownedShares.get(component.stock_id) ?? 0, component.required_shares);
-      const capital = Math.max(0, shares * component.latest_price);
-      return {
-        component_kind: componentKind,
-        component,
-        shares,
-        capital,
-        annual_return_loss: component.annual_return,
-      };
-    })
+  return fhgTciHybridComponentUses(row, ownedShares)
     .filter((candidate) =>
       candidate.capital > 0 &&
       (!requireFull || candidate.capital >= row.increment_cost)
-    );
+    )
+    .sort(compareFhgTciHybridComponentUses)[0] ?? null;
+}
 
-  return candidates
-    .sort((left, right) =>
-      right.capital - left.capital ||
-      left.annual_return_loss - right.annual_return_loss ||
-      left.component.row_id.localeCompare(right.component.row_id, undefined, { numeric: true, sensitivity: "base" })
-    )[0] ?? null;
+function fhgTciHybridComponentUses(
+  row: FhgTciHybridRow,
+  ownedShares: ReadonlyMap<number, number>,
+): FhgTciHybridComponentUse[] {
+  return ([
+    ["fhg", row.components.fhg],
+    ["tci", row.components.tci],
+  ] as const).map(([componentKind, component]) => {
+    const shares = Math.min(ownedShares.get(component.stock_id) ?? 0, component.required_shares);
+    const capital = Math.max(0, shares * component.latest_price);
+    return {
+      component_kind: componentKind,
+      component,
+      shares,
+      capital,
+      annual_return_loss: component.annual_return,
+    };
+  });
+}
+
+function compareFhgTciHybridComponentUses(left: FhgTciHybridComponentUse, right: FhgTciHybridComponentUse): number {
+  return right.capital - left.capital ||
+    left.annual_return_loss - right.annual_return_loss ||
+    left.component.row_id.localeCompare(right.component.row_id, undefined, { numeric: true, sensitivity: "base" });
 }
 
 function fhgTciHybridConversion(row: FhgTciHybridRow, ownedShares: Map<number, number>): FhgTciHybridConversion | null {
@@ -1561,7 +1581,7 @@ function initialFhgTciHybridHolding(
     return null;
   }
 
-  const componentUse = bestReusableHybridComponent(row, ownedSharesMap(snapshot), true);
+  const componentUse = bestFhgTciHybridBackingComponent(row, ownedSharesMap(snapshot));
   if (!componentUse) {
     return null;
   }
@@ -1620,7 +1640,11 @@ function fhgTciHybridBaselineShares(input: StockBuyRecommendationInput): Readonl
   }
 
   const row = input.rows.find(isFhgTciHybridRow) ?? null;
-  return row ? fhgTciHybridBaselineSharesForRow(row) : undefined;
+  if (!row || !input.ownedSnapshot || !hasFhgTciHybridBackingShares(row, ownedSharesMap(input.ownedSnapshot))) {
+    return undefined;
+  }
+
+  return fhgTciHybridBaselineSharesForRow(row);
 }
 
 function fhgTciHybridBaselineSharesForRow(row: FhgTciHybridRow): ReadonlyMap<number, number> {

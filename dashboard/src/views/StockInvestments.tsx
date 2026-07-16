@@ -31,6 +31,7 @@ import {
   buildStockRebalanceRecommendations,
   buildStockStrategyPlan,
   DEFAULT_STOCK_STRATEGY_STEP_LIMIT,
+  hasFhgTciHybridBackingShares,
   isFhgTciHybridRow,
   recommendBestStockBuy,
   STOCK_SELL_FEE_RATE,
@@ -326,6 +327,29 @@ export function StockInvestments() {
     () => includeFhgTciHybrid && fhgTciHybridRow ? [...baseInvestmentRows, fhgTciHybridRow] : baseInvestmentRows,
     [baseInvestmentRows, fhgTciHybridRow, includeFhgTciHybrid],
   );
+  const canMarkFhgTciHybridActive = Boolean(
+    ownedSnapshot &&
+    fhgTciHybridRow &&
+    hasFhgTciHybridBackingShares(fhgTciHybridRow, ownedShares),
+  );
+  const effectiveFhgTciHybridActive = fhgTciHybridActive && canMarkFhgTciHybridActive;
+  const canEvaluateFhgTciHybridActive = Boolean(ownedSnapshot && !isLoading && roiData);
+  const fhgTciHybridActiveHint = !ownedSnapshot
+    ? "Load owned stocks to mark this as owned."
+    : !fhgTciHybridRow
+      ? "Requires available FHG and TCI component rows."
+      : !canMarkFhgTciHybridActive
+        ? "Requires a full FHG or TCI component position."
+        : "Uses your owned component position as the held hybrid.";
+
+  React.useEffect(() => {
+    if (!fhgTciHybridActive || !canEvaluateFhgTciHybridActive || canMarkFhgTciHybridActive) {
+      return;
+    }
+    setFhgTciHybridActive(false);
+    saveFhgTciHybridStorage(storageUserId, false);
+  }, [canEvaluateFhgTciHybridActive, canMarkFhgTciHybridActive, fhgTciHybridActive, storageUserId]);
+
   const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
   const ownedCoveredBlockCount = investmentRows.filter((row) => isStockInvestmentRow(row) && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required ?? 0)).length;
   const nextStockBlockRowIds = React.useMemo(
@@ -345,13 +369,13 @@ export function StockInvestments() {
     if (nextBlockOnly && isStockInvestmentRow(row) && !nextStockBlockRowIds.has(row.row_id)) {
       return false;
     }
-    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, ownedSnapshot !== null, cityBankActive, fhgTciHybridActive)) {
+    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, ownedSnapshot !== null, cityBankActive, effectiveFhgTciHybridActive)) {
       return false;
     }
     const rowMetrics = stockInvestmentRowMetrics(row, {
       ownedShares,
       hasOwnedSnapshot: ownedSnapshot !== null,
-      fhgTciHybridActive,
+      fhgTciHybridActive: effectiveFhgTciHybridActive,
     });
     if (affordableOnly && budget !== null && rowMetrics.estimated_cost > budget) {
       return false;
@@ -361,36 +385,36 @@ export function StockInvestments() {
     }
     return true;
   });
-  const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, ownedSnapshot !== null, fhgTciHybridActive);
+  const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, ownedSnapshot !== null, effectiveFhgTciHybridActive);
   const bestBuyRecommendation = React.useMemo(() => recommendBestStockBuy({
     rows: investmentRows,
     ownedSnapshot,
     cityBankActive,
-    fhgTciHybridActive,
+    fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
     affordableOnly,
     minimumRoi: minRoi,
-  }), [investmentRows, ownedSnapshot, cityBankActive, fhgTciHybridActive, budget, affordableOnly, minRoi]);
+  }), [investmentRows, ownedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi]);
   const rebalanceRecommendations = React.useMemo(() => buildStockRebalanceRecommendations({
     rows: investmentRows,
     ownedSnapshot,
     cityBankActive,
-    fhgTciHybridActive,
+    fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
     affordableOnly,
     minimumRoi: minRoi,
     lockedStockIds,
-  }, 5), [investmentRows, ownedSnapshot, cityBankActive, fhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
+  }, 5), [investmentRows, ownedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
   const strategyPlan = React.useMemo(() => buildStockStrategyPlan({
     rows: investmentRows,
     ownedSnapshot,
     cityBankActive,
-    fhgTciHybridActive,
+    fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
     affordableOnly,
     minimumRoi: minRoi,
     lockedStockIds,
-  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, ownedSnapshot, cityBankActive, fhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
+  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, ownedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
@@ -483,7 +507,7 @@ export function StockInvestments() {
               <small>Bank {formatNumber(bankMerits)}/10</small>
             </span>
             <span>
-              <strong>{fhgTciHybridActive ? "Yes" : "No"}</strong>
+              <strong>{effectiveFhgTciHybridActive ? "Yes" : "No"}</strong>
               <small>Hybrid owned</small>
             </span>
             <span>
@@ -569,14 +593,21 @@ export function StockInvestments() {
               <label className="stock-owned-hide-toggle">
                 <input
                   type="checkbox"
-                  checked={fhgTciHybridActive}
+                  checked={effectiveFhgTciHybridActive}
+                  disabled={!canMarkFhgTciHybridActive}
                   onChange={(event) => {
                     const nextActive = event.target.checked;
+                    if (nextActive && !canMarkFhgTciHybridActive) {
+                      return;
+                    }
                     setFhgTciHybridActive(nextActive);
                     saveFhgTciHybridStorage(storageUserId, nextActive);
                   }}
                 />
-                <span>FHG/TCI Hybrid already owned</span>
+                <span className="stock-owned-toggle-text">
+                  <span>FHG/TCI Hybrid already owned</span>
+                  {!canMarkFhgTciHybridActive ? <small>{fhgTciHybridActiveHint}</small> : null}
+                </span>
               </label>
               <label className="stock-owned-hide-toggle">
                 <input
@@ -818,7 +849,7 @@ export function StockInvestments() {
         ) : rows.length === 0 ? (
           <EmptyState text="No investment opportunities match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} ownedShares={ownedShares} lockedStockIds={lockedStockIds} hasOwnedSnapshot={ownedSnapshot !== null} cityBankActive={cityBankActive} fhgTciHybridActive={fhgTciHybridActive} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
+          <StockRoiTable rows={rows} ownedShares={ownedShares} lockedStockIds={lockedStockIds} hasOwnedSnapshot={ownedSnapshot !== null} cityBankActive={cityBankActive} fhgTciHybridActive={effectiveFhgTciHybridActive} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
         )}
       </section>
 

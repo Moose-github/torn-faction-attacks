@@ -7,6 +7,7 @@ import {
   buildStockRebalanceRecommendations,
   buildStockSuggestedActions,
   buildStockStrategyPlan,
+  hasFhgTciHybridBackingShares,
   recommendBestStockBuy,
   recommendStockBuys,
   stockBuyRecommendationFromRow,
@@ -431,6 +432,81 @@ describe("stock buy recommendations", () => {
     expect(buildFhgTciHybridRow([
       stockRow({ row_id: "stock:9:1", stock_id: 9, acronym: "TCI", benefit_key: "city_bank:tci_bonus" }),
     ])).toBeNull();
+  });
+
+  it("requires a full component share position before the FHG/TCI hybrid can be marked owned", () => {
+    const hybrid = buildFhgTciHybridRow([
+      stockRow({
+        row_id: "stock:5:1",
+        stock_id: 5,
+        acronym: "FHG",
+        latest_price: 3,
+        required_shares: 300,
+        total_shares_required: 300,
+        increment_cost: 900,
+        total_cost: 900,
+        annual_return: 90,
+        roi_percent: 10,
+      }),
+      stockRow({
+        row_id: "stock:9:1",
+        stock_id: 9,
+        acronym: "TCI",
+        latest_price: 2,
+        required_shares: 500,
+        total_shares_required: 500,
+        increment_cost: 1_000,
+        total_cost: 1_000,
+        benefit_key: "city_bank:tci_bonus",
+        annual_return: 50,
+        roi_percent: 5,
+      }),
+    ]);
+    expect(hybrid).not.toBeNull();
+
+    expect(hasFhgTciHybridBackingShares(hybrid!, new Map([[9, 499]]))).toBe(false);
+    expect(hasFhgTciHybridBackingShares(hybrid!, new Map([[9, 500]]))).toBe(true);
+    expect(hasFhgTciHybridBackingShares(hybrid!, new Map([[5, 300]]))).toBe(true);
+  });
+
+  it("treats an active FHG/TCI hybrid as covered from full backing shares, not only full hybrid capital", () => {
+    const hybrid = buildFhgTciHybridRow([
+      stockRow({
+        row_id: "stock:5:1",
+        stock_id: 5,
+        acronym: "FHG",
+        latest_price: 3,
+        required_shares: 300,
+        total_shares_required: 300,
+        increment_cost: 900,
+        total_cost: 900,
+        annual_return: 90,
+        roi_percent: 10,
+      }),
+      stockRow({
+        row_id: "stock:9:1",
+        stock_id: 9,
+        acronym: "TCI",
+        latest_price: 3,
+        required_shares: 500,
+        total_shares_required: 500,
+        increment_cost: 1_500,
+        total_cost: 1_500,
+        benefit_key: "city_bank:tci_bonus",
+        annual_return: 50,
+        roi_percent: 5,
+      }),
+    ]);
+    expect(hybrid).not.toBeNull();
+
+    expect(stockInvestmentRowMetrics(hybrid!, {
+      ownedShares: new Map([[5, 300]]),
+      hasOwnedSnapshot: true,
+      fhgTciHybridActive: true,
+    })).toMatchObject({
+      estimated_cost: 0,
+      covered: true,
+    });
   });
 
   it("personalizes the FHG/TCI hybrid from the best reusable component holding", () => {

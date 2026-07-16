@@ -1014,6 +1014,20 @@ h2 {
   min-height: auto;
 }
 
+.stock-owned-toggle-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stock-owned-toggle-text small {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
 .stock-locked-holdings-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
