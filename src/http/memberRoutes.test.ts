@@ -15,6 +15,7 @@ import {
   autoRefreshStockBenefitItemPrices,
   getStockBenefitValues,
   getStockInvestmentRoi,
+  updateStockBenefitDisabledStockFromRequest,
   updateStockBenefitValueFromRequest,
 } from "../stockMarket";
 import {
@@ -81,6 +82,7 @@ vi.mock("../stockMarket", () => ({
   getStockHistory: vi.fn(),
   getStockInvestmentRoi: vi.fn(),
   getStocks: vi.fn(),
+  updateStockBenefitDisabledStockFromRequest: vi.fn(),
   updateStockBenefitValueFromRequest: vi.fn(),
 }));
 vi.mock("../suggestions", () => ({
@@ -127,6 +129,7 @@ describe("member utility routes", () => {
     vi.mocked(deleteMyTornApiKey).mockResolvedValue(jsonResponse({ ok: true, route: "key-pool-delete" }));
     vi.mocked(getStockInvestmentRoi).mockResolvedValue(jsonResponse({ ok: true, route: "stock-roi" }));
     vi.mocked(getStockBenefitValues).mockResolvedValue(jsonResponse({ ok: true, route: "stock-benefits" }));
+    vi.mocked(updateStockBenefitDisabledStockFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "stock-benefits-disabled" }));
     vi.mocked(updateStockBenefitValueFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "stock-benefits-update" }));
   });
 
@@ -223,6 +226,21 @@ describe("member utility routes", () => {
     expect(updateResponse?.status).toBe(200);
     expect(updateStockBenefitValueFromRequest)
       .toHaveBeenCalledWith(updateContext.request, updateContext.env, 12345, "item:box_of_medical_supplies");
+  });
+
+  it("routes stock benefit disabled stock updates through member auth", async () => {
+    const context = routeContext("https://worker.test/api/stocks/benefit-disabled-stocks/12", {
+      method: "PUT",
+      body: JSON.stringify({ disabled: true }),
+    });
+    const response = await routeMemberUtilityApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "stock-benefits-disabled" });
+    expect(requireMember).toHaveBeenCalledOnce();
+    expect(readAuthenticatedUserId).toHaveBeenCalledWith(context.request, context.env);
+    expect(updateStockBenefitDisabledStockFromRequest)
+      .toHaveBeenCalledWith(context.request, context.env, 12345, 12);
   });
 
   it("routes stock benefit item price auto refresh through member auth", async () => {

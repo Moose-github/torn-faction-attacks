@@ -67,6 +67,15 @@ export function stockBenefitValueKeyFromRoute(url: URL, request: Request): strin
   return match ? decodeURIComponent(match[1]).trim() || null : null;
 }
 
+export function stockBenefitDisabledStockIdFromRoute(url: URL, request: Request): number | null {
+  if (request.method !== "PUT") {
+    return null;
+  }
+
+  const match = /^\/api\/stocks\/benefit-disabled-stocks\/(\d+)$/.exec(url.pathname);
+  return match ? Number(match[1]) : null;
+}
+
 export function isWarDetailRoute(url: URL, request: Request): boolean {
   return request.method === "GET" && url.pathname.startsWith("/api/wars/") && !url.pathname.endsWith("/attacks");
 }

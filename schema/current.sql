@@ -832,6 +832,14 @@ CREATE TABLE stock_benefit_value_overrides (
   PRIMARY KEY (torn_user_id, benefit_key)
 );
 
+CREATE TABLE stock_benefit_disabled_stocks (
+  torn_user_id INTEGER NOT NULL,
+  stock_id INTEGER NOT NULL,
+  benefit_key TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (torn_user_id, stock_id)
+);
+
 CREATE TABLE stock_benefit_item_prices (
   benefit_key TEXT PRIMARY KEY,
   market_type TEXT NOT NULL DEFAULT 'itemmarket',

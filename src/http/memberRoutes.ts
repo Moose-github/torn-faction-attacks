@@ -21,13 +21,14 @@ import {
   getAvailableRetaliations,
   getRetaliationCheck,
 } from "../retaliations";
-import { matchesExactRoute, stockBenefitValueKeyFromRoute, stockIdFromHistoryRoute } from "../routes";
+import { matchesExactRoute, stockBenefitDisabledStockIdFromRoute, stockBenefitValueKeyFromRoute, stockIdFromHistoryRoute } from "../routes";
 import {
   autoRefreshStockBenefitItemPrices,
   getStockBenefitValues,
   getStockHistory,
   getStockInvestmentRoi,
   getStocks,
+  updateStockBenefitDisabledStockFromRequest,
   updateStockBenefitValueFromRequest,
 } from "../stockMarket";
 import { createMemberSuggestion } from "../suggestions";
@@ -122,6 +123,18 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
         env,
         await readAuthenticatedUserId(request, env),
         stockBenefitValueKey,
+      ),
+    );
+  }
+
+  const stockBenefitDisabledStockId = stockBenefitDisabledStockIdFromRoute(url, request);
+  if (stockBenefitDisabledStockId !== null) {
+    return withMember(routeContext, async () =>
+      updateStockBenefitDisabledStockFromRequest(
+        request,
+        env,
+        await readAuthenticatedUserId(request, env),
+        stockBenefitDisabledStockId,
       ),
     );
   }

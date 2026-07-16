@@ -425,69 +425,10 @@ h2 {
   overflow: visible;
 }
 
-.stock-missing-values-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.stock-missing-values-gear {
+.stock-text-button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  min-height: 28px;
-  padding: 0;
-  border: 1px solid var(--border-faint);
-  border-radius: var(--radius-sm);
-  background: var(--panel-bg-solid);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.stock-missing-values-gear:hover,
-.stock-missing-values-gear:focus-visible {
-  border-color: var(--accent);
-  color: var(--accent-strong);
-  outline: 0;
-}
-
-.stock-missing-values-popout {
-  position: absolute;
-  z-index: 12;
-  top: calc(100% + 10px);
-  right: 0;
-  width: min(420px, calc(100vw - 32px));
-  padding: 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-md);
-  background: var(--panel-bg-solid);
-  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.18);
-}
-
-.stock-missing-values-popout p {
-  margin: 8px 0 0;
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  font-weight: 750;
-}
-
-.stock-missing-values-popout-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.stock-missing-values-popout-heading strong {
-  color: var(--text-heading);
-  font-size: 0.88rem;
-  font-weight: 900;
-}
-
-.stock-text-button {
+  gap: 4px;
   min-height: 0;
   padding: 0;
   border: 0;
@@ -499,47 +440,55 @@ h2 {
   font-weight: 850;
 }
 
-.stock-missing-values-list {
-  display: grid;
-  gap: 10px;
-  max-height: 360px;
-  overflow: auto;
+.stock-setup-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
-.stock-missing-value-row {
+.stock-setup-summary span {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: end;
+  gap: 2px;
+  min-width: 78px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted-bg);
 }
 
-.stock-missing-value-row label {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
+.stock-setup-summary strong {
+  color: var(--text-heading);
+  font-size: 0.78rem;
+  font-weight: 900;
 }
 
-.stock-missing-value-row label span {
+.stock-setup-summary small {
   color: var(--text-muted);
-  font-size: 0.76rem;
+  font-size: 0.66rem;
   font-weight: 850;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-transform: uppercase;
 }
 
-.stock-missing-value-row input {
-  width: 100%;
+.stock-planner-setup-panel {
+  margin-top: 14px;
 }
 
-.stock-missing-value-actions {
-  display: inline-flex;
-  gap: 6px;
+.stock-planner-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 
-.stock-missing-value-actions .panel-action-button {
-  min-height: 38px;
-  white-space: nowrap;
+.stock-planner-setup-grid .stock-owned-settings-section {
+  margin-top: 0;
+  padding: 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+}
+
+.stock-planner-wide-section {
+  grid-column: 1 / -1;
 }
 
 .stock-metric-detail-stack {
@@ -923,19 +872,6 @@ h2 {
   font-weight: 750;
 }
 
-.stock-owned-settings-popout {
-  position: absolute;
-  z-index: 12;
-  top: calc(100% + 10px);
-  right: 0;
-  width: min(720px, calc(100vw - 32px));
-  padding: 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-md);
-  background: var(--panel-bg);
-  box-shadow: var(--shadow-panel);
-}
-
 .stock-owned-settings-section {
   display: grid;
   gap: 10px;
@@ -1241,6 +1177,32 @@ h2 {
   width: 160px;
 }
 
+.stock-benefit-stock-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.stock-benefit-stock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 7px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted-bg);
+  color: var(--text-main);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.stock-benefit-stock-chip .stock-text-button {
+  color: #b91c1c;
+  font-size: 0.7rem;
+}
+
 .stock-benefit-table-stack {
   display: grid;
   gap: 18px;
@@ -1312,6 +1274,41 @@ h2 {
 .stock-benefit-actions .panel-action-button {
   min-height: 30px;
   padding: 0 9px;
+}
+
+.stock-disabled-benefit-list {
+  display: grid;
+  gap: 8px;
+}
+
+.stock-disabled-benefit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted-bg);
+}
+
+.stock-disabled-benefit-row > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stock-disabled-benefit-row strong {
+  color: var(--text-heading);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.stock-disabled-benefit-row small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 
 .stock-money-cell {
@@ -7945,8 +7942,18 @@ h2 {
   }
 
   .stock-investment-status-grid,
-  .stock-investment-controls {
+  .stock-investment-controls,
+  .stock-planner-setup-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stock-setup-summary {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .stock-setup-summary span {
+    flex: 1 1 110px;
   }
 
   .stock-investment-control-fields,
@@ -7966,30 +7973,6 @@ h2 {
   .stock-milestone-row > div {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .stock-missing-values-popout {
-    right: auto;
-    left: 0;
-  }
-
-  .stock-owned-settings-popout {
-    right: auto;
-    left: 0;
-    width: min(420px, calc(100vw - 32px));
-  }
-
-  .stock-missing-value-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .stock-missing-value-actions {
-    justify-content: stretch;
-  }
-
-  .stock-missing-value-actions .panel-action-button {
-    flex: 1;
-    justify-content: center;
   }
 
   .stock-owned-controls-heading,
@@ -8026,6 +8009,19 @@ h2 {
 
   .stock-benefit-panel-actions .panel-action-button {
     flex: 1 1 180px;
+    justify-content: center;
+  }
+
+  .stock-benefit-stock-list {
+    min-width: 180px;
+  }
+
+  .stock-disabled-benefit-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stock-disabled-benefit-row .panel-action-button {
     justify-content: center;
   }
 }

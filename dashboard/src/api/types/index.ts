@@ -1342,7 +1342,29 @@ export type StockInvestmentRoiResponse = {
 
     invalid: number;
 
+    disabled: number;
+
   };
+
+};
+
+export type StockBenefitStock = {
+
+  stock_id: number;
+
+  acronym: string | null;
+
+  name: string | null;
+
+};
+
+export type StockBenefitDisabledStock = StockBenefitStock & {
+
+  benefit_key: string;
+
+  label: string | null;
+
+  disabled_at: number;
 
 };
 
@@ -1364,6 +1386,8 @@ export type StockBenefitValue = {
 
   used_by_stock_count: number;
 
+  stocks: StockBenefitStock[];
+
 };
 
 
@@ -1373,6 +1397,8 @@ export type StockBenefitValuesResponse = {
   ok: boolean;
 
   benefits: StockBenefitValue[];
+
+  disabled_stocks: StockBenefitDisabledStock[];
 
 };
 

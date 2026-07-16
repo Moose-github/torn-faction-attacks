@@ -33,6 +33,17 @@ export async function updateStockBenefitValue(
   );
 }
 
+export async function setStockBenefitStockDisabled(
+  stockId: number,
+  disabled: boolean,
+): Promise<StockBenefitValuesResponse> {
+  return putJson<StockBenefitValuesResponse>(
+    `/api/stocks/benefit-disabled-stocks/${encodeURIComponent(String(stockId))}`,
+    { disabled },
+    true,
+  );
+}
+
 export async function refreshStockBenefitItemPrices(): Promise<StockBenefitItemPriceRefreshResponse> {
   return postJson<StockBenefitItemPriceRefreshResponse>("/api/admin/stocks/benefit-item-prices/refresh");
 }

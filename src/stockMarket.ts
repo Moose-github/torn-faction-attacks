@@ -66,6 +66,15 @@ type StockBenefitValueOverride = {
   override_value: number;
 };
 
+type StockBenefitDisabledStockRow = {
+  stock_id: number;
+  benefit_key: string;
+  acronym: string | null;
+  name: string | null;
+  benefit_label: string | null;
+  disabled_at: number;
+};
+
 type StockBenefitItemPrice = {
   benefit_key: string;
   market_type: string;
@@ -103,6 +112,19 @@ export type StockBenefitValueRow = {
   effective_value: number | null;
   source: Exclude<StockBenefitValueSource, "cash">;
   used_by_stock_count: number;
+  stocks: StockBenefitStock[];
+};
+
+export type StockBenefitStock = {
+  stock_id: number;
+  acronym: string | null;
+  name: string | null;
+};
+
+export type StockBenefitDisabledStock = StockBenefitStock & {
+  benefit_key: string;
+  label: string | null;
+  disabled_at: number;
 };
 
 export type StockInvestmentRoiRow = {
@@ -613,13 +635,15 @@ export async function getStockInvestmentRoi(env: Env, tornUserId: number | null)
     return json({ ok: false, error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
   }
 
-  const [profiles, overrides, standardBenefitValues] = await Promise.all([
+  const [profiles, overrides, standardBenefitValues, disabledStocks] = await Promise.all([
     readInvestmentProfileRows(env),
     readBenefitValueOverrides(env, tornUserId),
     readStockBenefitStandardValueMap(env),
+    readStockBenefitDisabledStocks(env, tornUserId),
   ]);
   const overrideMap = new Map(overrides.map((override) => [override.benefit_key, override.override_value]));
-  const skipped = { passive: 0, unpriced: 0, invalid: 0 };
+  const disabledStockIds = new Set(disabledStocks.map((stock) => stock.stock_id));
+  const skipped = { passive: 0, unpriced: 0, invalid: 0, disabled: 0 };
   const rows: StockInvestmentRoiRow[] = [cityBankInvestmentRoiRow()];
   let refreshedAt: number | null = null;
 
@@ -628,6 +652,11 @@ export async function getStockInvestmentRoi(env: Env, tornUserId: number | null)
     const parsed = parseStockBenefitForValuation(profile.benefit_json);
     if (parsed.status !== "benefit") {
       skipped.invalid += 1;
+      continue;
+    }
+
+    if (disabledStockIds.has(profile.stock_id)) {
+      skipped.disabled += 1;
       continue;
     }
 
@@ -677,6 +706,7 @@ export async function getStockBenefitValues(env: Env, tornUserId: number | null)
   return json({
     ok: true,
     benefits: await readEffectiveStockBenefitValues(env, tornUserId),
+    disabled_stocks: await readStockBenefitDisabledStocks(env, tornUserId),
   });
 }
 
@@ -699,6 +729,7 @@ export async function updateStockBenefitValueFromRequest(
     return json({
       ok: true,
       benefits: await readEffectiveStockBenefitValues(env, tornUserId),
+      disabled_stocks: await readStockBenefitDisabledStocks(env, tornUserId),
     });
   }
 
@@ -711,6 +742,51 @@ export async function updateStockBenefitValueFromRequest(
   return json({
     ok: true,
     benefits: await readEffectiveStockBenefitValues(env, tornUserId),
+    disabled_stocks: await readStockBenefitDisabledStocks(env, tornUserId),
+  });
+}
+
+export async function updateStockBenefitDisabledStockFromRequest(
+  request: Request,
+  env: Env,
+  tornUserId: number | null,
+  stockId: number,
+): Promise<Response> {
+  if (!tornUserId) {
+    return json({ ok: false, error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+  }
+  if (!Number.isInteger(stockId) || stockId <= 0) {
+    return json({ ok: false, error: "Invalid stock ID", code: "INVALID_STOCK_ID" }, 400);
+  }
+
+  const body = await readJsonObject(request);
+  if (typeof body.disabled !== "boolean") {
+    return json({ ok: false, error: "disabled must be a boolean", code: "INVALID_DISABLED_VALUE" }, 400);
+  }
+
+  if (!body.disabled) {
+    await deleteStockBenefitDisabledStock(env, tornUserId, stockId);
+    return json({
+      ok: true,
+      benefits: await readEffectiveStockBenefitValues(env, tornUserId),
+      disabled_stocks: await readStockBenefitDisabledStocks(env, tornUserId),
+    });
+  }
+
+  const candidate = await stockBenefitDisableCandidate(env, tornUserId, stockId);
+  if (!candidate) {
+    return json({
+      ok: false,
+      error: "Stock benefit can only be disabled while it is missing a value.",
+      code: "STOCK_BENEFIT_NOT_DISABLEABLE",
+    }, 400);
+  }
+
+  await upsertStockBenefitDisabledStock(env, tornUserId, stockId, candidate.benefit_key);
+  return json({
+    ok: true,
+    benefits: await readEffectiveStockBenefitValues(env, tornUserId),
+    disabled_stocks: await readStockBenefitDisabledStocks(env, tornUserId),
   });
 }
 
@@ -853,6 +929,36 @@ async function readBenefitValueOverrides(env: Env, tornUserId: number): Promise<
   return rows.results ?? [];
 }
 
+async function readStockBenefitDisabledStocks(env: Env, tornUserId: number): Promise<StockBenefitDisabledStock[]> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT
+      d.stock_id,
+      d.benefit_key,
+      d.updated_at AS disabled_at,
+      p.acronym,
+      p.name,
+      p.benefit_label
+    FROM stock_benefit_disabled_stocks d
+    LEFT JOIN stock_profiles p
+      ON p.stock_id = d.stock_id
+    WHERE d.torn_user_id = ?
+    ORDER BY COALESCE(p.acronym, d.stock_id) ASC
+    `,
+  )
+    .bind(tornUserId)
+    .all<StockBenefitDisabledStockRow>();
+
+  return (rows.results ?? []).map((row) => ({
+    stock_id: row.stock_id,
+    acronym: cleanString(row.acronym),
+    name: cleanString(row.name),
+    benefit_key: row.benefit_key,
+    label: cleanString(row.benefit_label) ?? row.benefit_key,
+    disabled_at: row.disabled_at,
+  }));
+}
+
 async function readStockBenefitStandardValueMap(env: Env): Promise<Map<string, number>> {
   const prices = await readStockBenefitItemPrices(env);
   const values = new Map<string, number>();
@@ -973,32 +1079,39 @@ function stockBenefitDefinitionItemId(definition: StockBenefitMarketDefinition):
 }
 
 async function readEffectiveStockBenefitValues(env: Env, tornUserId: number): Promise<StockBenefitValueRow[]> {
-  const [profiles, overrides, standardBenefitValues] = await Promise.all([
+  const [profiles, overrides, standardBenefitValues, disabledStocks] = await Promise.all([
     readInvestmentProfileRows(env),
     readBenefitValueOverrides(env, tornUserId),
     readStockBenefitStandardValueMap(env),
+    readStockBenefitDisabledStocks(env, tornUserId),
   ]);
   const overrideMap = new Map(overrides.map((override) => [override.benefit_key, nullableNumber(override.override_value)]));
-  const observed = new Map<string, { label: string; usedByStockIds: Set<number> }>();
+  const disabledStockIds = new Set(disabledStocks.map((stock) => stock.stock_id));
+  const observed = new Map<string, { label: string; stocks: StockBenefitStock[] }>();
 
   for (const profile of profiles) {
+    if (disabledStockIds.has(profile.stock_id)) {
+      continue;
+    }
     const parsed = parseActiveStockBenefit(profile.benefit_json);
     if (parsed.status !== "active") {
       continue;
     }
-    const benefitValue = parseBenefitDescription(parsed.benefit.description);
-    const benefitKey = cleanString(profile.benefit_key) ?? benefitValue.benefit_key;
-    const label = cleanString(profile.benefit_label) ?? benefitValue.label;
-    if (!benefitValue.editable || !benefitKey) {
+    const profileBenefit = editableStockBenefitFromProfile(profile, parsed.benefit);
+    if (!profileBenefit) {
       continue;
     }
 
-    const current = observed.get(benefitKey) ?? {
-      label,
-      usedByStockIds: new Set<number>(),
+    const current = observed.get(profileBenefit.benefit_key) ?? {
+      label: profileBenefit.label,
+      stocks: [],
     };
-    current.usedByStockIds.add(profile.stock_id);
-    observed.set(benefitKey, current);
+    current.stocks.push({
+      stock_id: profile.stock_id,
+      acronym: cleanString(profile.acronym),
+      name: cleanString(profile.name),
+    });
+    observed.set(profileBenefit.benefit_key, current);
   }
 
   return [...observed.entries()]
@@ -1013,10 +1126,59 @@ async function readEffectiveStockBenefitValues(env: Env, tornUserId: number): Pr
         override_value: overrideValue,
         effective_value: effectiveValue,
         source: benefitValueSource(benefitKey, overrideValue, defaultValue, standardBenefitValues),
-        used_by_stock_count: value.usedByStockIds.size,
+        used_by_stock_count: value.stocks.length,
+        stocks: value.stocks.sort((left, right) =>
+          (left.acronym ?? `#${left.stock_id}`).localeCompare(right.acronym ?? `#${right.stock_id}`),
+        ),
       };
     })
     .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function editableStockBenefitFromProfile(
+  profile: Pick<StockInvestmentProfileRow, "benefit_key" | "benefit_label">,
+  benefit: ParsedActiveBenefit,
+): { benefit_key: string; label: string } | null {
+  const benefitValue = parseBenefitDescription(benefit.description);
+  const benefitKey = cleanString(profile.benefit_key) ?? benefitValue.benefit_key;
+  const label = cleanString(profile.benefit_label) ?? benefitValue.label;
+  if (!benefitValue.editable || !benefitKey) {
+    return null;
+  }
+
+  return { benefit_key: benefitKey, label };
+}
+
+async function stockBenefitDisableCandidate(
+  env: Env,
+  tornUserId: number,
+  stockId: number,
+): Promise<{ benefit_key: string } | null> {
+  const [profiles, overrides, standardBenefitValues] = await Promise.all([
+    readInvestmentProfileRows(env),
+    readBenefitValueOverrides(env, tornUserId),
+    readStockBenefitStandardValueMap(env),
+  ]);
+  const profile = profiles.find((candidate) => candidate.stock_id === stockId);
+  if (!profile) {
+    return null;
+  }
+
+  const parsed = parseActiveStockBenefit(profile.benefit_json);
+  if (parsed.status !== "active") {
+    return null;
+  }
+
+  const profileBenefit = editableStockBenefitFromProfile(profile, parsed.benefit);
+  if (!profileBenefit) {
+    return null;
+  }
+
+  const overrideMap = new Map(overrides.map((override) => [override.benefit_key, nullableNumber(override.override_value)]));
+  const valued = valueStockBenefit(parsed.benefit, overrideMap, standardBenefitValues);
+  return valued.value === null || valued.value <= 0
+    ? { benefit_key: profileBenefit.benefit_key }
+    : null;
 }
 
 async function upsertBenefitValueOverride(
@@ -1046,6 +1208,36 @@ async function deleteBenefitValueOverride(env: Env, tornUserId: number, benefitK
     `,
   )
     .bind(tornUserId, benefitKey)
+    .run();
+}
+
+async function upsertStockBenefitDisabledStock(
+  env: Env,
+  tornUserId: number,
+  stockId: number,
+  benefitKey: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `
+    INSERT INTO stock_benefit_disabled_stocks (torn_user_id, stock_id, benefit_key, updated_at)
+    VALUES (?, ?, ?, unixepoch())
+    ON CONFLICT(torn_user_id, stock_id) DO UPDATE SET
+      benefit_key = excluded.benefit_key,
+      updated_at = excluded.updated_at
+    `,
+  )
+    .bind(tornUserId, stockId, benefitKey)
+    .run();
+}
+
+async function deleteStockBenefitDisabledStock(env: Env, tornUserId: number, stockId: number): Promise<void> {
+  await env.DB.prepare(
+    `
+    DELETE FROM stock_benefit_disabled_stocks
+    WHERE torn_user_id = ? AND stock_id = ?
+    `,
+  )
+    .bind(tornUserId, stockId)
     .run();
 }
 

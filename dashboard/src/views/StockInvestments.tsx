@@ -1,17 +1,21 @@
 import React from "react";
-import { BadgeDollarSign, CircleDollarSign, RefreshCw, RotateCcw, Save, Settings, SlidersHorizontal } from "lucide-react";
+import { BadgeDollarSign, Ban, RefreshCw, RotateCcw, Save } from "lucide-react";
 import {
   autoRefreshStockBenefitItemPrices,
   getStockBenefitValues,
   getStockInvestmentRoi,
   refreshStockBenefitItemPrices,
+  setStockBenefitStockDisabled,
+  StockBenefitDisabledStock,
+  StockBenefitStock,
   StockBenefitValue,
+  StockBenefitValuesResponse,
   StockInvestmentRoiResponse,
   StockInvestmentRoiRow,
   updateStockBenefitValue,
 } from "../api";
 import { getStoredAuthSession } from "../api/client";
-import { EmptyState, PanelHeader } from "../components/Common";
+import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
 import {
   ownedSharesMap,
@@ -61,10 +65,13 @@ type StockLockOption = {
   shares: number;
 };
 
+type StockPanelStorageKey = "plannerSetup" | "benefitValues";
+
 export function StockInvestments() {
   const storageUserId = React.useMemo(() => getStoredAuthSession()?.user.id ?? null, []);
   const [roiData, setRoiData] = React.useState<StockInvestmentRoiResponse | null>(null);
   const [benefits, setBenefits] = React.useState<StockBenefitValue[]>([]);
+  const [disabledBenefitStocks, setDisabledBenefitStocks] = React.useState<StockBenefitDisabledStock[]>([]);
   const [benefitInputs, setBenefitInputs] = React.useState<Record<string, string>>({});
   const [investmentAmount, setInvestmentAmount] = React.useState("");
   const [affordableOnly, setAffordableOnly] = React.useState(false);
@@ -77,8 +84,8 @@ export function StockInvestments() {
   const [bankMerits, setBankMerits] = React.useState(0);
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
   const [strategyPanelTab, setStrategyPanelTab] = React.useState<StockStrategyPanelTab>("strategy");
-  const [isMissingValuesOpen, setIsMissingValuesOpen] = React.useState(false);
-  const [isOwnedSettingsOpen, setIsOwnedSettingsOpen] = React.useState(false);
+  const [isPlannerSetupOpen, setIsPlannerSetupOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "plannerSetup", true));
+  const [isBenefitValuesOpen, setIsBenefitValuesOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "benefitValues", true));
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
   const [ownedSnapshot, setOwnedSnapshot] = React.useState<OwnedStockSnapshot | null>(null);
   const [lockedStockIds, setLockedStockIds] = React.useState<Set<number>>(() => new Set());
@@ -86,8 +93,15 @@ export function StockInvestments() {
   const [isRefreshingBenefitPrices, setIsRefreshingBenefitPrices] = React.useState(false);
   const [isRefreshingOwnedStocks, setIsRefreshingOwnedStocks] = React.useState(false);
   const [savingBenefitKey, setSavingBenefitKey] = React.useState<string | null>(null);
+  const [savingDisabledStockId, setSavingDisabledStockId] = React.useState<number | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  function applyBenefitValues(benefitValues: StockBenefitValuesResponse) {
+    setBenefits(benefitValues.benefits);
+    setDisabledBenefitStocks(benefitValues.disabled_stocks ?? []);
+    setBenefitInputs(inputsFromBenefits(benefitValues.benefits));
+  }
 
   async function loadData() {
     setIsLoading(true);
@@ -99,12 +113,12 @@ export function StockInvestments() {
         getStockBenefitValues(),
       ]);
       setRoiData(roi);
-      setBenefits(benefitValues.benefits);
-      setBenefitInputs(inputsFromBenefits(benefitValues.benefits));
+      applyBenefitValues(benefitValues);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setRoiData(null);
       setBenefits([]);
+      setDisabledBenefitStocks([]);
     } finally {
       setIsLoading(false);
     }
@@ -131,8 +145,7 @@ export function StockInvestments() {
     try {
       const nextBenefits = await updateStockBenefitValue(benefit.benefit_key, parsed);
       const nextRoi = await getStockInvestmentRoi();
-      setBenefits(nextBenefits.benefits);
-      setBenefitInputs(inputsFromBenefits(nextBenefits.benefits));
+      applyBenefitValues(nextBenefits);
       setRoiData(nextRoi);
       setMessage(`${benefit.label} value saved`);
     } catch (err) {
@@ -149,14 +162,30 @@ export function StockInvestments() {
     try {
       const nextBenefits = await updateStockBenefitValue(benefit.benefit_key, null);
       const nextRoi = await getStockInvestmentRoi();
-      setBenefits(nextBenefits.benefits);
-      setBenefitInputs(inputsFromBenefits(nextBenefits.benefits));
+      applyBenefitValues(nextBenefits);
       setRoiData(nextRoi);
       setMessage(`${benefit.label} value reset`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingBenefitKey(null);
+    }
+  }
+
+  async function updateBenefitStockDisabled(stock: StockBenefitStock | StockBenefitDisabledStock, disabled: boolean) {
+    setSavingDisabledStockId(stock.stock_id);
+    setError(null);
+    setMessage(null);
+    try {
+      const nextBenefits = await setStockBenefitStockDisabled(stock.stock_id, disabled);
+      const nextRoi = await getStockInvestmentRoi();
+      applyBenefitValues(nextBenefits);
+      setRoiData(nextRoi);
+      setMessage(`${stockLabel(stock)} ${disabled ? "disabled" : "enabled"}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingDisabledStockId(null);
     }
   }
 
@@ -171,8 +200,7 @@ export function StockInvestments() {
         getStockBenefitValues(),
       ]);
       setRoiData(roi);
-      setBenefits(benefitValues.benefits);
-      setBenefitInputs(inputsFromBenefits(benefitValues.benefits));
+      applyBenefitValues(benefitValues);
       setMessage(`Benefit prices refreshed: ${formatNumber(result.refreshed)} updated, ${formatNumber(result.skipped)} unchanged`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -244,6 +272,27 @@ export function StockInvestments() {
       saveLockedStockIdsStorage(storageUserId, next);
       return next;
     });
+  }
+
+  function togglePlannerSetup() {
+    setIsPlannerSetupOpen((current) => {
+      const next = !current;
+      savePanelOpenStorage(storageUserId, "plannerSetup", next);
+      return next;
+    });
+  }
+
+  function toggleBenefitValues() {
+    setIsBenefitValuesOpen((current) => {
+      const next = !current;
+      savePanelOpenStorage(storageUserId, "benefitValues", next);
+      return next;
+    });
+  }
+
+  function openBenefitValues() {
+    setIsBenefitValuesOpen(true);
+    savePanelOpenStorage(storageUserId, "benefitValues", true);
   }
 
   React.useEffect(() => {
@@ -336,10 +385,18 @@ export function StockInvestments() {
   }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, ownedSnapshot, cityBankActive, fhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
-  const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
   const benefitValuesRefreshedAt = roiData?.benefit_prices_refreshed_at ?? null;
   const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly || hideOwnedBlocks || nextBlockOnly || !includeFhgTciHybrid;
+  const activeFilterCount = [
+    investmentAmount.trim() !== "",
+    minimumRoi.trim() !== DEFAULT_MINIMUM_ROI,
+    affordableOnly,
+    nextBlockOnly,
+    !includeFhgTciHybrid,
+    hideOwnedBlocks,
+  ].filter(Boolean).length;
+  const disabledStockCount = roiData?.skipped.disabled ?? disabledBenefitStocks.length;
 
   function updateRoiSort(key: StockRoiSortKey) {
     setRoiSort((current) => current.key === key
@@ -388,15 +445,8 @@ export function StockInvestments() {
         />
         <MissingValuesMetric
           missingValueCount={missingValueCount}
-          benefits={manualBenefits}
-          inputs={benefitInputs}
-          isOpen={isMissingValuesOpen}
-          savingBenefitKey={savingBenefitKey}
-          onToggle={() => setIsMissingValuesOpen((current) => !current)}
-          onClose={() => setIsMissingValuesOpen(false)}
-          onInputChange={(benefitKey, value) => setBenefitInputs((current) => ({ ...current, [benefitKey]: value }))}
-          onSave={saveBenefit}
-          onReset={resetBenefit}
+          disabledCount={disabledStockCount}
+          onOpen={openBenefitValues}
         />
         <StatusMetric
           label="Benefit values"
@@ -405,174 +455,244 @@ export function StockInvestments() {
         />
       </section>
 
-      <section className="panel stock-owned-status-panel">
-        <PanelHeader
-          title="Owned stock input/status"
-          aside={ownedSnapshot ? `${formatNumber(ownedStockCount)} stocks loaded` : "Not loaded"}
-          icon={<Settings size={18} />}
-        />
-        <div className="stock-owned-controls stock-owned-controls-standalone">
-          <div className="stock-owned-controls-heading">
-            <div>
-              <strong>Portfolio snapshot</strong>
-              <span>Browser-only Torn key and Bank settings</span>
-            </div>
-            <button
-              type="button"
-              className="panel-action-button secondary"
-              aria-expanded={isOwnedSettingsOpen}
-              onClick={() => setIsOwnedSettingsOpen((current) => !current)}
-            >
-              <Settings size={14} />
-              Settings
-            </button>
+      <CollapsiblePanel
+        title="Planner setup"
+        collapsed={!isPlannerSetupOpen}
+        onToggle={togglePlannerSetup}
+        className="stock-planner-setup-panel"
+        control={(
+          <div className="stock-setup-summary" aria-label="Planner setup summary">
+            <span>
+              <strong>{ownedSnapshot ? formatNumber(ownedStockCount) : "No"}</strong>
+              <small>{ownedSnapshot ? "Stocks loaded" : "Snapshot"}</small>
+            </span>
+            <span>
+              <strong>{budget === null ? "Any" : formatMoney(budget)}</strong>
+              <small>Budget</small>
+            </span>
+            <span>
+              <strong>{cityBankActive ? "Active" : "Inactive"}</strong>
+              <small>Bank {formatNumber(bankMerits)}/10</small>
+            </span>
+            <span>
+              <strong>{fhgTciHybridActive ? "Active" : "Inactive"}</strong>
+              <small>FHG/TCI</small>
+            </span>
+            <span>
+              <strong>{formatNumber(activeFilterCount)}</strong>
+              <small>Filters</small>
+            </span>
           </div>
-          {ownedSnapshot ? (
+        )}
+      >
+        <div className="stock-planner-setup-grid">
+          <div className="stock-owned-settings-section">
+            <div className="stock-owned-settings-title">
+              <strong>Portfolio</strong>
+              <span>{ownedSnapshot ? `${formatNumber(ownedCoveredBlockCount)} active blocks covered` : "Used only in this browser"}</span>
+            </div>
             <div className="stock-owned-summary" aria-label="Owned stock snapshot summary">
               <span>
-                <strong>{formatNumber(ownedStockCount)}</strong>
+                <strong>{ownedSnapshot ? formatNumber(ownedStockCount) : "-"}</strong>
                 <small>Stocks loaded</small>
               </span>
               <span>
-                <strong>{formatNumber(ownedCoveredBlockCount)}</strong>
+                <strong>{ownedSnapshot ? formatNumber(ownedCoveredBlockCount) : "-"}</strong>
                 <small>Active blocks covered</small>
               </span>
               <span>
-                <strong>{formatRelativeTime(ownedSnapshot.refreshed_at)}</strong>
+                <strong>{ownedSnapshot ? formatRelativeTime(ownedSnapshot.refreshed_at) : "Not loaded"}</strong>
                 <small>Snapshot age</small>
               </span>
-              <span>
-                <strong>{cityBankActive ? "Active" : "Inactive"}</strong>
-                <small>Bank: {formatNumber(bankMerits)}/10 merits</small>
-              </span>
-              <span>
-                <strong>{fhgTciHybridActive ? "Active" : "Inactive"}</strong>
-                <small>FHG/TCI Hybrid</small>
-              </span>
             </div>
-          ) : (
-            <p className="stock-owned-empty-note">Load owned stocks from the settings popout to personalize the strategy planner.</p>
-          )}
-          {isOwnedSettingsOpen ? (
-            <div className="stock-owned-settings-popout" role="dialog" aria-label="Owned stock settings">
-              <div className="stock-missing-values-popout-heading">
-                <strong>Owned stock settings</strong>
-                <button type="button" className="stock-text-button" onClick={() => setIsOwnedSettingsOpen(false)}>Close</button>
+            <div className="stock-owned-controls-grid">
+              <label>
+                <span>Limited API key</span>
+                <input
+                  type="password"
+                  value={ownedApiKey}
+                  onChange={(event) => setOwnedApiKey(event.target.value)}
+                  placeholder="Paste Limited key"
+                  autoComplete="off"
+                />
+                <small className="stock-owned-key-note">
+                  Stored only in this browser. Never sent to our server; used only for direct Torn owned-stocks and merits requests.
+                </small>
+              </label>
+              <button
+                type="button"
+                className="panel-action-button secondary"
+                disabled={isRefreshingOwnedStocks}
+                onClick={refreshOwnedStocks}
+              >
+                <RefreshCw size={14} className={isRefreshingOwnedStocks ? "spinning-icon" : ""} />
+                {isRefreshingOwnedStocks ? "Refreshing" : "Refresh owned stocks"}
+              </button>
+              <button
+                type="button"
+                className="panel-action-button secondary"
+                disabled={!ownedApiKey && !ownedSnapshot}
+                onClick={clearOwnedStocks}
+              >
+                <RotateCcw size={14} />
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div className="stock-owned-settings-section">
+            <div className="stock-owned-settings-title">
+              <strong>Assumptions</strong>
+              <span>Used by strategy and rebalance ideas</span>
+            </div>
+            <div className="stock-city-bank-controls">
+              <label className="stock-owned-hide-toggle">
+                <input
+                  type="checkbox"
+                  checked={cityBankActive}
+                  onChange={(event) => {
+                    const nextActive = event.target.checked;
+                    setCityBankActive(nextActive);
+                    saveCityBankStorage(storageUserId, nextActive, bankMerits);
+                  }}
+                />
+                <span>City Bank investment active</span>
+              </label>
+              <label className="stock-owned-hide-toggle">
+                <input
+                  type="checkbox"
+                  checked={fhgTciHybridActive}
+                  onChange={(event) => {
+                    const nextActive = event.target.checked;
+                    setFhgTciHybridActive(nextActive);
+                    saveFhgTciHybridStorage(storageUserId, nextActive);
+                  }}
+                />
+                <span>FHG/TCI Hybrid active</span>
+              </label>
+              <label className="stock-city-bank-merits">
+                <span>Bank merits</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={10}
+                  step={1}
+                  value={bankMerits}
+                  onChange={(event) => {
+                    const nextMerits = clampBankMerits(event.target.value);
+                    setBankMerits(nextMerits);
+                    saveCityBankStorage(storageUserId, cityBankActive, nextMerits);
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="stock-owned-settings-section stock-planner-wide-section">
+            <div className="stock-owned-settings-title">
+              <strong>Filters</strong>
+              <span>{filtersActive ? `${formatNumber(rows.length)} matching blocks` : "Default minimum ROI applied"}</span>
+            </div>
+            <div className="stock-investment-controls">
+              <div className="stock-investment-control-fields">
+                <label>
+                  <span>Investment amount</span>
+                  <input
+                    inputMode="numeric"
+                    value={investmentAmount}
+                    onChange={(event) => setInvestmentAmount(event.target.value)}
+                    placeholder="Optional budget"
+                  />
+                </label>
+                <label>
+                  <span>Minimum ROI %</span>
+                  <input
+                    inputMode="decimal"
+                    value={minimumRoi}
+                    onChange={(event) => setMinimumRoi(event.target.value)}
+                    placeholder="Optional"
+                  />
+                </label>
               </div>
-              <div className="stock-owned-settings-section">
-                <div className="stock-owned-settings-title">
-                  <strong>Torn owned stocks</strong>
-                  <span>Used only in this browser</span>
-                </div>
-                <div className="stock-owned-controls-grid">
-                  <label>
-                    <span>Limited API key</span>
-                    <input
-                      type="password"
-                      value={ownedApiKey}
-                      onChange={(event) => setOwnedApiKey(event.target.value)}
-                      placeholder="Paste Limited key"
-                      autoComplete="off"
-                    />
-                    <small className="stock-owned-key-note">
-                      Stored only in this browser. Never sent to our server; used only for direct Torn owned-stocks and merits requests.
-                    </small>
-                  </label>
-                  <button
-                    type="button"
-                    className="panel-action-button secondary"
-                    disabled={isRefreshingOwnedStocks}
-                    onClick={refreshOwnedStocks}
-                  >
-                    <RefreshCw size={14} className={isRefreshingOwnedStocks ? "spinning-icon" : ""} />
-                    {isRefreshingOwnedStocks ? "Refreshing" : "Refresh owned stocks"}
-                  </button>
-                  <button
-                    type="button"
-                    className="panel-action-button secondary"
-                    disabled={!ownedApiKey && !ownedSnapshot}
-                    onClick={clearOwnedStocks}
-                  >
-                    <RotateCcw size={14} />
-                    Clear
-                  </button>
-                </div>
+              <div className="stock-investment-toggle-list">
+                <label className="stock-investment-toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={affordableOnly}
+                    onChange={(event) => setAffordableOnly(event.target.checked)}
+                  />
+                  <span>Show affordable only</span>
+                </label>
+                <label className="stock-investment-toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={nextBlockOnly}
+                    onChange={(event) => setNextBlockOnly(event.target.checked)}
+                  />
+                  <span>Next block only</span>
+                </label>
+                <label className="stock-investment-toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={includeFhgTciHybrid}
+                    onChange={(event) => setIncludeFhgTciHybrid(event.target.checked)}
+                  />
+                  <span>Include FHG/TCI hybrid</span>
+                </label>
+                <label className="stock-investment-toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={hideOwnedBlocks}
+                    onChange={(event) => setHideOwnedBlocks(event.target.checked)}
+                  />
+                  <span>Hide owned blocks</span>
+                </label>
               </div>
-              <div className="stock-owned-settings-section">
-                <div className="stock-owned-settings-title">
-                  <strong>City Bank comparison</strong>
-                  <span>Used for BANK and TCI interest rows</span>
-                </div>
-                <div className="stock-city-bank-controls">
-                  <label className="stock-owned-hide-toggle">
+              <button
+                type="button"
+                className="panel-action-button secondary stock-investment-clear-button"
+                disabled={!filtersActive}
+                onClick={() => {
+                  setInvestmentAmount("");
+                  setMinimumRoi(DEFAULT_MINIMUM_ROI);
+                  setAffordableOnly(false);
+                  setNextBlockOnly(false);
+                  setIncludeFhgTciHybrid(true);
+                  setHideOwnedBlocks(false);
+                }}
+              >
+                <RotateCcw size={14} />
+                Clear filters
+              </button>
+            </div>
+          </div>
+
+          {lockableHoldings.length > 0 ? (
+            <div className="stock-owned-settings-section stock-planner-wide-section">
+              <div className="stock-owned-settings-title">
+                <strong>Locked holdings</strong>
+                <span>{formatNumber(lockedStockIds.size)} locked</span>
+              </div>
+              <div className="stock-locked-holdings-list">
+                {lockableHoldings.map((holding) => (
+                  <label key={holding.stock_id} className="stock-locked-holding-row">
                     <input
                       type="checkbox"
-                      checked={cityBankActive}
-                      onChange={(event) => {
-                        const nextActive = event.target.checked;
-                        setCityBankActive(nextActive);
-                        saveCityBankStorage(storageUserId, nextActive, bankMerits);
-                      }}
+                      checked={lockedStockIds.has(holding.stock_id)}
+                      onChange={(event) => toggleLockedStock(holding.stock_id, event.target.checked)}
                     />
-                    <span>City Bank investment active</span>
+                    <span>
+                      <strong>{holding.acronym ?? `#${holding.stock_id}`}</strong>
+                      <small>{formatNumber(holding.shares)} shares{holding.name ? ` - ${holding.name}` : ""}</small>
+                    </span>
                   </label>
-                  <label className="stock-owned-hide-toggle">
-                    <input
-                      type="checkbox"
-                      checked={fhgTciHybridActive}
-                      onChange={(event) => {
-                        const nextActive = event.target.checked;
-                        setFhgTciHybridActive(nextActive);
-                        saveFhgTciHybridStorage(storageUserId, nextActive);
-                      }}
-                    />
-                    <span>FHG/TCI Hybrid active</span>
-                  </label>
-                  <label className="stock-city-bank-merits">
-                    <span>Bank merits</span>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      max={10}
-                      step={1}
-                      value={bankMerits}
-                      onChange={(event) => {
-                        const nextMerits = clampBankMerits(event.target.value);
-                        setBankMerits(nextMerits);
-                        saveCityBankStorage(storageUserId, cityBankActive, nextMerits);
-                      }}
-                    />
-                  </label>
-                </div>
+                ))}
               </div>
-              {lockableHoldings.length > 0 ? (
-                <div className="stock-owned-settings-section">
-                  <div className="stock-owned-settings-title">
-                    <strong>Locked holdings</strong>
-                    <span>{formatNumber(lockedStockIds.size)} locked</span>
-                  </div>
-                  <div className="stock-locked-holdings-list">
-                    {lockableHoldings.map((holding) => (
-                      <label key={holding.stock_id} className="stock-locked-holding-row">
-                        <input
-                          type="checkbox"
-                          checked={lockedStockIds.has(holding.stock_id)}
-                          onChange={(event) => toggleLockedStock(holding.stock_id, event.target.checked)}
-                        />
-                        <span>
-                          <strong>{holding.acronym ?? `#${holding.stock_id}`}</strong>
-                          <small>{formatNumber(holding.shares)} shares{holding.name ? ` - ${holding.name}` : ""}</small>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
             </div>
           ) : null}
         </div>
-      </section>
+      </CollapsiblePanel>
 
       <section className="panel stock-next-buys-panel">
         <PanelHeader
@@ -664,92 +784,6 @@ export function StockInvestments() {
         </div>
       </section>
 
-      <section className="panel stock-investment-controls-panel">
-        <PanelHeader
-          title="Find blocks"
-          aside={filtersActive ? "Filtered" : "All increments"}
-          icon={<SlidersHorizontal size={18} />}
-        />
-        <div className="stock-filter-stack">
-          <div className="stock-filter-section-heading">
-            <strong>Block filters</strong>
-            <span>{filtersActive ? `${formatNumber(rows.length)} matching blocks` : "Default minimum ROI applied"}</span>
-          </div>
-          <div className="stock-investment-controls">
-            <div className="stock-investment-control-fields">
-              <label>
-                <span>Investment amount</span>
-                <input
-                  inputMode="numeric"
-                  value={investmentAmount}
-                  onChange={(event) => setInvestmentAmount(event.target.value)}
-                  placeholder="Optional budget"
-                />
-              </label>
-              <label>
-                <span>Minimum ROI %</span>
-                <input
-                  inputMode="decimal"
-                  value={minimumRoi}
-                  onChange={(event) => setMinimumRoi(event.target.value)}
-                  placeholder="Optional"
-                />
-              </label>
-            </div>
-            <div className="stock-investment-toggle-list">
-              <label className="stock-investment-toggle-row">
-                <input
-                  type="checkbox"
-                  checked={affordableOnly}
-                  onChange={(event) => setAffordableOnly(event.target.checked)}
-                />
-                <span>Show affordable only</span>
-              </label>
-              <label className="stock-investment-toggle-row">
-                <input
-                  type="checkbox"
-                  checked={nextBlockOnly}
-                  onChange={(event) => setNextBlockOnly(event.target.checked)}
-                />
-                <span>Next block only</span>
-              </label>
-              <label className="stock-investment-toggle-row">
-                <input
-                  type="checkbox"
-                  checked={includeFhgTciHybrid}
-                  onChange={(event) => setIncludeFhgTciHybrid(event.target.checked)}
-                />
-                <span>Include FHG/TCI hybrid</span>
-              </label>
-              <label className="stock-investment-toggle-row">
-                <input
-                  type="checkbox"
-                  checked={hideOwnedBlocks}
-                  onChange={(event) => setHideOwnedBlocks(event.target.checked)}
-                />
-                <span>Hide owned blocks</span>
-              </label>
-            </div>
-            <button
-              type="button"
-              className="panel-action-button secondary stock-investment-clear-button"
-              disabled={!filtersActive}
-              onClick={() => {
-                setInvestmentAmount("");
-                setMinimumRoi(DEFAULT_MINIMUM_ROI);
-                setAffordableOnly(false);
-                setNextBlockOnly(false);
-                setIncludeFhgTciHybrid(true);
-                setHideOwnedBlocks(false);
-              }}
-            >
-              <RotateCcw size={14} />
-              Clear filters
-            </button>
-          </div>
-        </div>
-      </section>
-
       <section className="panel table-panel">
         <PanelHeader title="Investment returns" aside={`${formatNumber(rows.length)} shown / ${formatNumber(totalPricedRows)} total`} icon={<BadgeDollarSign size={18} />} />
         {isLoading ? (
@@ -761,40 +795,46 @@ export function StockInvestments() {
         )}
       </section>
 
-      <section className="panel table-panel">
-        <PanelHeader
-          title="Benefit values"
-          icon={<CircleDollarSign size={18} />}
-          control={(
-            <div className="stock-benefit-panel-actions">
-              <span>{formatNumber(benefits.length)} editable</span>
-              <button
-                type="button"
-                className="panel-action-button secondary"
-                disabled={isLoading || isRefreshingBenefitPrices}
-                onClick={refreshBenefitPrices}
-              >
-                <RefreshCw size={14} className={isRefreshingBenefitPrices ? "spinning-icon" : ""} />
-                {isRefreshingBenefitPrices ? "Force refreshing" : "Force refresh"}
-              </button>
-            </div>
-          )}
-        />
+      <CollapsiblePanel
+        title="Benefit values"
+        collapsed={!isBenefitValuesOpen}
+        onToggle={toggleBenefitValues}
+        className="stock-benefit-values-panel table-panel"
+        control={(
+          <div className="stock-benefit-panel-actions">
+            <span>{formatNumber(benefits.length)} editable</span>
+            <span>{formatNumber(disabledBenefitStocks.length)} disabled</span>
+            <button
+              type="button"
+              className="panel-action-button secondary"
+              disabled={isLoading || isRefreshingBenefitPrices}
+              onClick={refreshBenefitPrices}
+            >
+              <RefreshCw size={14} className={isRefreshingBenefitPrices ? "spinning-icon" : ""} />
+              {isRefreshingBenefitPrices ? "Force refreshing" : "Force refresh"}
+            </button>
+          </div>
+        )}
+      >
         {isLoading ? (
           <EmptyState text="Loading benefit values" />
-        ) : benefits.length === 0 ? (
+        ) : benefits.length === 0 && disabledBenefitStocks.length === 0 ? (
           <EmptyState text="No editable active benefits found" />
         ) : (
           <BenefitValuesTable
             benefits={benefits}
+            disabledStocks={disabledBenefitStocks}
             inputs={benefitInputs}
             savingBenefitKey={savingBenefitKey}
+            savingDisabledStockId={savingDisabledStockId}
             onInputChange={(benefitKey, value) => setBenefitInputs((current) => ({ ...current, [benefitKey]: value }))}
             onSave={saveBenefit}
             onReset={resetBenefit}
+            onDisableStock={(stock) => updateBenefitStockDisabled(stock, true)}
+            onEnableStock={(stock) => updateBenefitStockDisabled(stock, false)}
           />
         )}
-      </section>
+      </CollapsiblePanel>
     </>
   );
 }
@@ -934,18 +974,26 @@ function SortableHeader({
 
 function BenefitValuesTable({
   benefits,
+  disabledStocks,
   inputs,
   savingBenefitKey,
+  savingDisabledStockId,
   onInputChange,
   onSave,
   onReset,
+  onDisableStock,
+  onEnableStock,
 }: {
   benefits: StockBenefitValue[];
+  disabledStocks: StockBenefitDisabledStock[];
   inputs: Record<string, string>;
   savingBenefitKey: string | null;
+  savingDisabledStockId: number | null;
   onInputChange: (benefitKey: string, value: string) => void;
   onSave: (benefit: StockBenefitValue) => void;
   onReset: (benefit: StockBenefitValue) => void;
+  onDisableStock: (stock: StockBenefitStock) => void;
+  onEnableStock: (stock: StockBenefitDisabledStock) => void;
 }) {
   const pricedBenefits = benefits.filter((benefit) => benefit.default_value !== null);
   const manualBenefits = benefits.filter((benefit) => benefit.default_value === null);
@@ -959,9 +1007,11 @@ function BenefitValuesTable({
           benefits={pricedBenefits}
           inputs={inputs}
           savingBenefitKey={savingBenefitKey}
+          savingDisabledStockId={savingDisabledStockId}
           onInputChange={onInputChange}
           onSave={onSave}
           onReset={onReset}
+          onDisableStock={onDisableStock}
         />
       ) : null}
       {manualBenefits.length > 0 ? (
@@ -972,9 +1022,18 @@ function BenefitValuesTable({
           benefits={manualBenefits}
           inputs={inputs}
           savingBenefitKey={savingBenefitKey}
+          savingDisabledStockId={savingDisabledStockId}
           onInputChange={onInputChange}
           onSave={onSave}
           onReset={onReset}
+          onDisableStock={onDisableStock}
+        />
+      ) : null}
+      {disabledStocks.length > 0 ? (
+        <DisabledBenefitStocksSection
+          disabledStocks={disabledStocks}
+          savingDisabledStockId={savingDisabledStockId}
+          onEnableStock={onEnableStock}
         />
       ) : null}
     </div>
@@ -988,9 +1047,11 @@ function BenefitValuesSection({
   benefits,
   inputs,
   savingBenefitKey,
+  savingDisabledStockId,
   onInputChange,
   onSave,
   onReset,
+  onDisableStock,
 }: {
   id?: string;
   title: string;
@@ -998,9 +1059,11 @@ function BenefitValuesSection({
   benefits: StockBenefitValue[];
   inputs: Record<string, string>;
   savingBenefitKey: string | null;
+  savingDisabledStockId: number | null;
   onInputChange: (benefitKey: string, value: string) => void;
   onSave: (benefit: StockBenefitValue) => void;
   onReset: (benefit: StockBenefitValue) => void;
+  onDisableStock: (stock: StockBenefitStock) => void;
 }) {
   return (
     <div id={id} className="stock-benefit-table-section">
@@ -1015,6 +1078,7 @@ function BenefitValuesSection({
               <th>Benefit</th>
               <th>Default</th>
               <th>Custom</th>
+              <th>Stocks</th>
               <th>Source</th>
               <th>Actions</th>
             </tr>
@@ -1026,9 +1090,11 @@ function BenefitValuesSection({
                 benefit={benefit}
                 inputValue={inputs[benefit.benefit_key] ?? ""}
                 isSaving={savingBenefitKey === benefit.benefit_key}
+                savingDisabledStockId={savingDisabledStockId}
                 onInputChange={onInputChange}
                 onSave={onSave}
                 onReset={onReset}
+                onDisableStock={onDisableStock}
               />
             ))}
           </tbody>
@@ -1042,21 +1108,26 @@ function BenefitValueRow({
   benefit,
   inputValue,
   isSaving,
+  savingDisabledStockId,
   onInputChange,
   onSave,
   onReset,
+  onDisableStock,
 }: {
   benefit: StockBenefitValue;
   inputValue: string;
   isSaving: boolean;
+  savingDisabledStockId: number | null;
   onInputChange: (benefitKey: string, value: string) => void;
   onSave: (benefit: StockBenefitValue) => void;
   onReset: (benefit: StockBenefitValue) => void;
+  onDisableStock: (stock: StockBenefitStock) => void;
 }) {
   const canSave = moneyInputValue(inputValue) !== null;
   const hasCustomValue = benefit.override_value !== null;
   const parsedInput = moneyInputValue(inputValue);
   const isChanged = parsedInput !== null && parsedInput !== benefit.effective_value;
+  const canDisableStocks = benefit.default_value === null && benefit.effective_value === null;
   return (
     <tr>
       <td>
@@ -1076,6 +1147,26 @@ function BenefitValueRow({
           onChange={(event) => onInputChange(benefit.benefit_key, event.target.value)}
           placeholder={benefit.default_value === null ? "Set value" : "Custom value"}
         />
+      </td>
+      <td>
+        <div className="stock-benefit-stock-list">
+          {benefit.stocks.map((stock) => (
+            <span key={stock.stock_id} className="stock-benefit-stock-chip">
+              <span>{stockLabel(stock)}</span>
+              {canDisableStocks ? (
+                <button
+                  type="button"
+                  className="stock-text-button"
+                  disabled={savingDisabledStockId === stock.stock_id}
+                  onClick={() => onDisableStock(stock)}
+                >
+                  <Ban size={13} />
+                  {savingDisabledStockId === stock.stock_id ? "Disabling" : "Disable"}
+                </button>
+              ) : null}
+            </span>
+          ))}
+        </div>
       </td>
       <td>
         <span className={`stock-source-chip ${benefit.source}`}>{statusLabel(benefit.source)}</span>
@@ -1106,125 +1197,62 @@ function BenefitValueRow({
   );
 }
 
-function MissingValuesMetric({
-  missingValueCount,
-  benefits,
-  inputs,
-  isOpen,
-  savingBenefitKey,
-  onToggle,
-  onClose,
-  onInputChange,
-  onSave,
-  onReset,
+function DisabledBenefitStocksSection({
+  disabledStocks,
+  savingDisabledStockId,
+  onEnableStock,
 }: {
-  missingValueCount: number;
-  benefits: StockBenefitValue[];
-  inputs: Record<string, string>;
-  isOpen: boolean;
-  savingBenefitKey: string | null;
-  onToggle: () => void;
-  onClose: () => void;
-  onInputChange: (benefitKey: string, value: string) => void;
-  onSave: (benefit: StockBenefitValue) => void;
-  onReset: (benefit: StockBenefitValue) => void;
+  disabledStocks: StockBenefitDisabledStock[];
+  savingDisabledStockId: number | null;
+  onEnableStock: (stock: StockBenefitDisabledStock) => void;
 }) {
   return (
-    <div className="metric-card stock-missing-values-card">
-      <div className="stock-missing-values-heading">
-        <span className="panel-kicker">Missing values</span>
-        <button
-          type="button"
-          className="stock-missing-values-gear"
-          aria-expanded={isOpen}
-          aria-label="Edit missing benefit values"
-          title="Edit missing benefit values"
-          onClick={onToggle}
-        >
-          <Settings size={15} />
-        </button>
+    <div className="stock-benefit-table-section">
+      <div className="stock-benefit-table-title">
+        <strong>Disabled stocks</strong>
+        <span>{formatNumber(disabledStocks.length)} ignored</span>
       </div>
-      <strong className="metric-card-value">{formatNumber(missingValueCount)}</strong>
-      <span className="metric-card-detail">{missingValueCount > 0 ? "Add manual values to unlock more blocks" : "All active benefits are priced"}</span>
-      {isOpen ? (
-        <div className="stock-missing-values-popout" role="dialog" aria-label="Missing benefit values">
-          <div className="stock-missing-values-popout-heading">
-            <strong>Manual values</strong>
-            <button type="button" className="stock-text-button" onClick={onClose}>Close</button>
+      <div className="stock-disabled-benefit-list">
+        {disabledStocks.map((stock) => (
+          <div key={stock.stock_id} className="stock-disabled-benefit-row">
+            <span>
+              <strong>{stockLabel(stock)}</strong>
+              <small>{stock.label ?? stock.benefit_key}</small>
+            </span>
+            <button
+              type="button"
+              className="panel-action-button secondary"
+              disabled={savingDisabledStockId === stock.stock_id}
+              onClick={() => onEnableStock(stock)}
+            >
+              {savingDisabledStockId === stock.stock_id ? <RefreshCw size={14} className="spinning-icon" /> : <RotateCcw size={14} />}
+              Enable
+            </button>
           </div>
-          {benefits.length === 0 ? (
-            <p>No manual benefit values are available.</p>
-          ) : (
-            <div className="stock-missing-values-list">
-              {benefits.map((benefit) => (
-                <MissingValueEditorRow
-                  key={benefit.benefit_key}
-                  benefit={benefit}
-                  inputValue={inputs[benefit.benefit_key] ?? ""}
-                  isSaving={savingBenefitKey === benefit.benefit_key}
-                  onInputChange={onInputChange}
-                  onSave={onSave}
-                  onReset={onReset}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      ) : null}
+        ))}
+      </div>
     </div>
   );
 }
 
-function MissingValueEditorRow({
-  benefit,
-  inputValue,
-  isSaving,
-  onInputChange,
-  onSave,
-  onReset,
+function MissingValuesMetric({
+  missingValueCount,
+  disabledCount,
+  onOpen,
 }: {
-  benefit: StockBenefitValue;
-  inputValue: string;
-  isSaving: boolean;
-  onInputChange: (benefitKey: string, value: string) => void;
-  onSave: (benefit: StockBenefitValue) => void;
-  onReset: (benefit: StockBenefitValue) => void;
+  missingValueCount: number;
+  disabledCount: number;
+  onOpen: () => void;
 }) {
-  const parsedInput = moneyInputValue(inputValue);
-  const canSave = parsedInput !== null;
-  const hasCustomValue = benefit.override_value !== null;
-  const isChanged = parsedInput !== null && parsedInput !== benefit.effective_value;
   return (
-    <div className="stock-missing-value-row">
-      <label>
-        <span>{benefit.label}</span>
-        <input
-          inputMode="numeric"
-          value={inputValue}
-          onChange={(event) => onInputChange(benefit.benefit_key, event.target.value)}
-          placeholder="Set value"
-        />
-      </label>
-      <div className="stock-missing-value-actions">
-        <button
-          type="button"
-          className="panel-action-button secondary"
-          disabled={isSaving || !canSave || !isChanged}
-          onClick={() => onSave(benefit)}
-        >
-          {isSaving ? <RefreshCw size={14} className="spinning-icon" /> : <Save size={14} />}
-          Save
-        </button>
-        <button
-          type="button"
-          className="panel-action-button secondary"
-          disabled={isSaving || !hasCustomValue}
-          onClick={() => onReset(benefit)}
-        >
-          <RotateCcw size={14} />
-        </button>
-      </div>
-    </div>
+    <button type="button" className="metric-card stock-clickable-metric stock-missing-values-card" onClick={onOpen}>
+      <span className="panel-kicker">Missing values</span>
+      <strong className="metric-card-value">{formatNumber(missingValueCount)}</strong>
+      <span className="metric-card-detail">
+        {missingValueCount > 0 ? "Open Benefit values to set or disable stocks" : "All enabled benefits are priced"}
+        {disabledCount > 0 ? ` - ${formatNumber(disabledCount)} disabled` : ""}
+      </span>
+    </button>
   );
 }
 
@@ -1819,6 +1847,10 @@ function inputsFromBenefits(benefits: StockBenefitValue[]): Record<string, strin
   ]));
 }
 
+function stockLabel(stock: Pick<StockBenefitStock, "stock_id" | "acronym" | "name">): string {
+  return stock.acronym ?? stock.name ?? `#${stock.stock_id}`;
+}
+
 function readOwnedStocksStorage(userId: number | null): { apiKey: string; snapshot: OwnedStockSnapshot | null } {
   const keys = ownedStocksStorageKeys(userId);
   if (!keys) {
@@ -1950,6 +1982,25 @@ function saveFhgTciHybridStorage(userId: number | null, active: boolean): void {
   window.localStorage.setItem(key, active ? "1" : "0");
 }
 
+function readPanelOpenStorage(userId: number | null, panel: StockPanelStorageKey, defaultOpen: boolean): boolean {
+  const key = panelOpenStorageKey(userId, panel);
+  if (!key) {
+    return defaultOpen;
+  }
+
+  const stored = window.localStorage.getItem(key);
+  return stored === null ? defaultOpen : stored === "1";
+}
+
+function savePanelOpenStorage(userId: number | null, panel: StockPanelStorageKey, open: boolean): void {
+  const key = panelOpenStorageKey(userId, panel);
+  if (!key) {
+    return;
+  }
+
+  window.localStorage.setItem(key, open ? "1" : "0");
+}
+
 function cityBankStorageKeys(userId: number | null): { active: string; merits: string } | null {
   if (!userId) {
     return null;
@@ -1963,6 +2014,10 @@ function cityBankStorageKeys(userId: number | null): { active: string; merits: s
 
 function fhgTciHybridStorageKey(userId: number | null): string | null {
   return userId ? `stockRoiFhgTciHybridActive:${userId}` : null;
+}
+
+function panelOpenStorageKey(userId: number | null, panel: StockPanelStorageKey): string | null {
+  return userId ? `stockRoiPanelOpen:${panel}:${userId}` : null;
 }
 
 function clampBankMerits(value: unknown): number {

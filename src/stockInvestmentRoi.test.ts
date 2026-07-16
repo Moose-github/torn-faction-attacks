@@ -7,10 +7,13 @@ import {
   parseActiveStockBenefit,
   parseBenefitDescription,
   parseStockBenefitForValuation,
+  getStockInvestmentRoi,
   stockBenefitMarketValueFromResponse,
   stockBenefitPointsValueFromResponse,
+  updateStockBenefitDisabledStockFromRequest,
   valueStockBenefit,
 } from "./stockMarket";
+import type { Env } from "./types";
 
 describe("stock investment ROI parsing", () => {
   it("parses active stock benefit JSON", () => {
@@ -330,3 +333,265 @@ describe("bankInterestBonusStockInvestmentRoiRow", () => {
     )).toBeNull();
   });
 });
+
+describe("stock benefit disabled stocks", () => {
+  it("excludes disabled unpriced stocks from ROI rows and missing counts", async () => {
+    const db = new StockBenefitTestD1();
+    db.disabledStocks.set(1, {
+      torn_user_id: 12345,
+      stock_id: 1,
+      benefit_key: "item:mystery_box",
+      updated_at: 1_800_000_000,
+    });
+    const response = await getStockInvestmentRoi({ DB: db as unknown as D1Database } as Env, 12345);
+    const body = await response.json() as {
+      rows: Array<{ stock_id: number | null }>;
+      skipped: { disabled: number; unpriced: number };
+    };
+
+    expect(body.skipped).toMatchObject({ disabled: 1, unpriced: 0 });
+    expect(body.rows.some((row) => row.stock_id === 1)).toBe(false);
+    expect(body.rows.some((row) => row.stock_id === 2)).toBe(true);
+  });
+
+  it("allows disabling an individual unpriced stock benefit", async () => {
+    const db = new StockBenefitTestD1();
+    const response = await updateStockBenefitDisabledStockFromRequest(
+      new Request("https://worker.test/api/stocks/benefit-disabled-stocks/1", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabled: true }),
+      }),
+      { DB: db as unknown as D1Database } as Env,
+      12345,
+      1,
+    );
+    const body = await response.json() as { ok: boolean; disabled_stocks: Array<{ stock_id: number }> };
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(db.disabledStocks.get(1)).toMatchObject({
+      stock_id: 1,
+      benefit_key: "item:mystery_box",
+    });
+    expect(body.disabled_stocks).toEqual([
+      expect.objectContaining({ stock_id: 1, benefit_key: "item:mystery_box" }),
+    ]);
+  });
+
+  it("rejects disabling a priced/default-backed stock benefit", async () => {
+    const db = new StockBenefitTestD1();
+    const response = await updateStockBenefitDisabledStockFromRequest(
+      new Request("https://worker.test/api/stocks/benefit-disabled-stocks/2", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabled: true }),
+      }),
+      { DB: db as unknown as D1Database } as Env,
+      12345,
+      2,
+    );
+    const body = await response.json() as { ok: boolean; code: string };
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      ok: false,
+      code: "STOCK_BENEFIT_NOT_DISABLEABLE",
+    });
+    expect(db.disabledStocks.size).toBe(0);
+  });
+
+  it("re-enables a disabled stock benefit", async () => {
+    const db = new StockBenefitTestD1();
+    db.disabledStocks.set(1, {
+      torn_user_id: 12345,
+      stock_id: 1,
+      benefit_key: "item:mystery_box",
+      updated_at: 1_800_000_000,
+    });
+    const response = await updateStockBenefitDisabledStockFromRequest(
+      new Request("https://worker.test/api/stocks/benefit-disabled-stocks/1", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabled: false }),
+      }),
+      { DB: db as unknown as D1Database } as Env,
+      12345,
+      1,
+    );
+    const body = await response.json() as { ok: boolean; disabled_stocks: unknown[] };
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, disabled_stocks: [] });
+    expect(db.disabledStocks.size).toBe(0);
+  });
+});
+
+type StockBenefitTestProfile = {
+  stock_id: number;
+  acronym: string;
+  name: string;
+  current_price: number;
+  benefit_json: string;
+  benefit_key: string;
+  benefit_label: string;
+  benefit_market_type: string | null;
+  benefit_torn_item_id: number | null;
+  benefit_quantity: number | null;
+  latest_price: number;
+  latest_observed_at: number;
+};
+
+type StockBenefitTestDisabledStock = {
+  torn_user_id: number;
+  stock_id: number;
+  benefit_key: string;
+  updated_at: number;
+};
+
+class StockBenefitTestD1Statement {
+  private args: unknown[] = [];
+
+  constructor(
+    private readonly db: StockBenefitTestD1,
+    private readonly sql: string,
+  ) {}
+
+  bind(...args: unknown[]): D1PreparedStatement {
+    this.args = args;
+    return this as unknown as D1PreparedStatement;
+  }
+
+  async all<T = unknown>(): Promise<D1Result<T>> {
+    return this.db.all<T>(this.sql, this.args);
+  }
+
+  async first<T = unknown>(): Promise<T | null> {
+    return this.db.first<T>(this.sql);
+  }
+
+  async run<T = unknown>(): Promise<D1Result<T>> {
+    return this.db.run<T>(this.sql, this.args);
+  }
+}
+
+class StockBenefitTestD1 {
+  readonly profiles: StockBenefitTestProfile[] = [
+    {
+      stock_id: 1,
+      acronym: "MYS",
+      name: "Mystery Boxes",
+      current_price: 100,
+      benefit_json: JSON.stringify({
+        passive: false,
+        frequency: 7,
+        requirement: 100,
+        description: "1x Mystery Box",
+      }),
+      benefit_key: "item:mystery_box",
+      benefit_label: "Mystery Box",
+      benefit_market_type: null,
+      benefit_torn_item_id: null,
+      benefit_quantity: null,
+      latest_price: 100,
+      latest_observed_at: 1_800_000_000,
+    },
+    {
+      stock_id: 2,
+      acronym: "BMS",
+      name: "Medical Supplies",
+      current_price: 100,
+      benefit_json: JSON.stringify({
+        passive: false,
+        frequency: 7,
+        requirement: 100,
+        description: "1x Box of Medical Supplies",
+      }),
+      benefit_key: "item:box_of_medical_supplies",
+      benefit_label: "Box of Medical Supplies",
+      benefit_market_type: null,
+      benefit_torn_item_id: null,
+      benefit_quantity: null,
+      latest_price: 100,
+      latest_observed_at: 1_800_000_000,
+    },
+  ];
+
+  readonly disabledStocks = new Map<number, StockBenefitTestDisabledStock>();
+
+  prepare(sql: string): D1PreparedStatement {
+    return new StockBenefitTestD1Statement(this, compactSql(sql)) as unknown as D1PreparedStatement;
+  }
+
+  all<T = unknown>(sql: string, args: unknown[]): D1Result<T> {
+    if (sql.includes("FROM stock_profiles p")) {
+      return d1Result(this.profiles as T[]);
+    }
+    if (sql.includes("FROM stock_benefit_value_overrides")) {
+      return d1Result([]);
+    }
+    if (sql.includes("FROM stock_benefit_item_prices")) {
+      return d1Result([]);
+    }
+    if (sql.includes("FROM stock_benefit_disabled_stocks d")) {
+      const tornUserId = Number(args[0]);
+      const rows = [...this.disabledStocks.values()]
+        .filter((stock) => stock.torn_user_id === tornUserId)
+        .map((stock) => {
+          const profile = this.profiles.find((candidate) => candidate.stock_id === stock.stock_id);
+          return {
+            stock_id: stock.stock_id,
+            benefit_key: stock.benefit_key,
+            disabled_at: stock.updated_at,
+            acronym: profile?.acronym ?? null,
+            name: profile?.name ?? null,
+            benefit_label: profile?.benefit_label ?? null,
+          };
+        });
+      return d1Result(rows as T[]);
+    }
+
+    throw new Error(`Unhandled all query: ${sql}`);
+  }
+
+  first<T = unknown>(sql: string): T | null {
+    if (sql.includes("MAX(fetched_at)")) {
+      return { latest_fetched_at: null } as T;
+    }
+
+    throw new Error(`Unhandled first query: ${sql}`);
+  }
+
+  run<T = unknown>(sql: string, args: unknown[]): D1Result<T> {
+    if (sql.startsWith("INSERT INTO stock_benefit_disabled_stocks")) {
+      this.disabledStocks.set(Number(args[1]), {
+        torn_user_id: Number(args[0]),
+        stock_id: Number(args[1]),
+        benefit_key: String(args[2]),
+        updated_at: 1_800_000_001,
+      });
+      return d1Result([], 1);
+    }
+    if (sql.startsWith("DELETE FROM stock_benefit_disabled_stocks")) {
+      const stockId = Number(args[1]);
+      const changed = this.disabledStocks.delete(stockId) ? 1 : 0;
+      return d1Result([], changed);
+    }
+
+    throw new Error(`Unhandled run query: ${sql}`);
+  }
+}
+
+function compactSql(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim();
+}
+
+function d1Result<T>(results: T[], changes = 0): D1Result<T> {
+  return {
+    results,
+    success: true,
+    meta: {
+      changes,
+    },
+  } as unknown as D1Result<T>;
+}
