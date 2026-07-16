@@ -463,9 +463,6 @@ function botHelpResponse(): DiscordInteractionResponse {
       {
         title: "Torn war room bot",
         description: [
-          "`/war current` - active or latest war summary",
-          "`/war members` - member leaderboard",
-          "`/war enemy` - enemy status or scouting summary",
           "`/alerts list` - available alert subscriptions",
           "`/alerts subscribed` - your active alert subscriptions",
         ].join("\n"),

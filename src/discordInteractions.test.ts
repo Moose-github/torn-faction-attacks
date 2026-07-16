@@ -9,8 +9,8 @@ import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import type { Env, WarRow } from "./types";
 
 describe("Discord interactions", () => {
-  it("registers war, bot, and alert slash commands", () => {
-    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["war", "bot", "alerts"]);
+  it("registers bot and alert slash commands", () => {
+    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["bot", "alerts"]);
     expect(discordApplicationCommands().find((command) => command.name === "alerts")?.options?.map((option) => option.name))
       .toEqual(["list", "subscribed", "subscribe", "unsubscribe"]);
   });
