@@ -1063,7 +1063,7 @@ h2 {
 
 .stock-city-bank-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) 96px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   align-items: end;
 }
@@ -1078,13 +1078,74 @@ h2 {
 }
 
 .stock-city-bank-merits input {
-  width: 86px;
+  width: 100%;
   min-height: 38px;
 }
 
 .stock-investment-table td,
 .stock-benefit-values-table td {
   vertical-align: middle;
+}
+
+.stock-investment-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.stock-investment-table th,
+.stock-investment-table td {
+  padding-inline: 8px;
+}
+
+.stock-investment-table .stock-col-symbol {
+  width: 7%;
+}
+
+.stock-investment-table .stock-col-name {
+  width: 18%;
+}
+
+.stock-investment-table .stock-col-shares {
+  width: 12%;
+}
+
+.stock-investment-table .stock-col-cost {
+  width: 13%;
+}
+
+.stock-investment-table .stock-col-benefit {
+  width: 18%;
+}
+
+.stock-investment-table .stock-col-return {
+  width: 11%;
+}
+
+.stock-investment-table .stock-col-break-even {
+  width: 10%;
+}
+
+.stock-investment-table .stock-col-roi {
+  width: 11%;
+}
+
+.stock-investment-table .stock-benefit-cell,
+.stock-investment-table .stock-cost-cell {
+  min-width: 0;
+  white-space: normal;
+}
+
+.stock-investment-table .stock-benefit-cell strong,
+.stock-investment-table .stock-benefit-cell small,
+.stock-investment-table .stock-cost-cell small {
+  overflow-wrap: anywhere;
+}
+
+.stock-investment-table .stock-col-return,
+.stock-investment-table .stock-col-break-even {
+  font-size: 0.82rem;
+  white-space: normal;
 }
 
 .stock-symbol-chip,
@@ -8047,6 +8108,54 @@ h2 {
 
   .stock-benefit-cell {
     min-width: 160px;
+  }
+
+  .stock-investment-table {
+    min-width: 0;
+  }
+
+  .stock-investment-table thead {
+    display: none;
+  }
+
+  .stock-investment-table tbody,
+  .stock-investment-table tr,
+  .stock-investment-table td {
+    display: block;
+  }
+
+  .stock-investment-table tr {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-faint);
+  }
+
+  .stock-investment-table tr:last-child {
+    border-bottom: 0;
+  }
+
+  .stock-investment-table td {
+    width: 100% !important;
+    display: grid;
+    grid-template-columns: minmax(84px, 0.38fr) minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 8px 10px;
+    border-bottom: 0;
+    white-space: normal;
+  }
+
+  .stock-investment-table td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 900;
+    line-height: 1.3;
+    text-transform: uppercase;
+  }
+
+  .stock-investment-table .stock-symbol-chip,
+  .stock-investment-table .stock-roi-chip {
+    justify-self: start;
   }
 
   .stock-benefit-panel-actions {

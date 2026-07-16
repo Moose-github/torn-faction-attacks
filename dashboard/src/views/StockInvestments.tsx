@@ -395,14 +395,13 @@ export function StockInvestments() {
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
   const benefitValuesRefreshedAt = roiData?.benefit_prices_refreshed_at ?? null;
-  const recommendationFiltersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly || !includeFhgTciHybrid;
+  const recommendationFiltersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly;
   const tableFiltersActive = hideOwnedBlocks || nextBlockOnly;
   const activeFilterCount = [
     investmentAmount.trim() !== "",
     minimumRoi.trim() !== DEFAULT_MINIMUM_ROI,
     affordableOnly,
     nextBlockOnly,
-    !includeFhgTciHybrid,
     hideOwnedBlocks,
   ].filter(Boolean).length;
   const disabledStockCount = roiData?.skipped.disabled ?? disabledBenefitStocks.length;
@@ -552,7 +551,7 @@ export function StockInvestments() {
           <div className="stock-owned-settings-section">
             <div className="stock-owned-settings-title">
               <strong>Assumptions</strong>
-              <span>Existing holdings, not candidate options</span>
+              <span>Bank and hybrid behavior</span>
             </div>
             <div className="stock-city-bank-controls">
               <label className="stock-owned-hide-toggle">
@@ -579,6 +578,14 @@ export function StockInvestments() {
                 />
                 <span>FHG/TCI Hybrid already owned</span>
               </label>
+              <label className="stock-owned-hide-toggle">
+                <input
+                  type="checkbox"
+                  checked={includeFhgTciHybrid}
+                  onChange={(event) => setIncludeFhgTciHybrid(event.target.checked)}
+                />
+                <span>Show FHG/TCI Hybrid option</span>
+              </label>
               <label className="stock-city-bank-merits">
                 <span>Bank merits</span>
                 <input
@@ -600,7 +607,7 @@ export function StockInvestments() {
 
           <div className="stock-owned-settings-section stock-planner-wide-section">
             <div className="stock-owned-settings-title">
-              <strong>Recommendation options</strong>
+              <strong>Recommendation filters</strong>
               <span>{recommendationFiltersActive ? "Used by strategy and table" : "Default minimum ROI applied"}</span>
             </div>
             <div className="stock-investment-controls">
@@ -633,14 +640,6 @@ export function StockInvestments() {
                   />
                   <span>Affordable only</span>
                 </label>
-                <label className="stock-investment-toggle-row">
-                  <input
-                    type="checkbox"
-                    checked={includeFhgTciHybrid}
-                    onChange={(event) => setIncludeFhgTciHybrid(event.target.checked)}
-                  />
-                  <span>Show FHG/TCI Hybrid option</span>
-                </label>
               </div>
               <button
                 type="button"
@@ -650,7 +649,6 @@ export function StockInvestments() {
                   setInvestmentAmount("");
                   setMinimumRoi(DEFAULT_MINIMUM_ROI);
                   setAffordableOnly(false);
-                  setIncludeFhgTciHybrid(true);
                 }}
               >
                 <RotateCcw size={14} />
@@ -894,14 +892,14 @@ function StockRoiTable({
       <table className="stock-status-table stock-investment-table">
         <thead>
           <tr>
-            <SortableHeader label="Acronym" sortKey="acronym" sort={sort} onSort={onSort} />
-            <SortableHeader label="Name" sortKey="name" sort={sort} onSort={onSort} />
-            <SortableHeader label="Shares" sortKey="shares" sort={sort} onSort={onSort} />
-            <SortableHeader label="Increment Cost" sortKey="increment_cost" sort={sort} onSort={onSort} />
-            <SortableHeader label="Benefit" sortKey="benefit" sort={sort} onSort={onSort} />
-            <SortableHeader label="Annual Return" sortKey="annual_return" sort={sort} onSort={onSort} />
-            <SortableHeader label="Break Even" sortKey="days_to_break_even" sort={sort} onSort={onSort} />
-            <SortableHeader label="ROI" sortKey="roi_percent" sort={sort} onSort={onSort} />
+            <SortableHeader label="Ticker" sortKey="acronym" sort={sort} onSort={onSort} className="stock-col-symbol" />
+            <SortableHeader label="Name" sortKey="name" sort={sort} onSort={onSort} className="stock-col-name" />
+            <SortableHeader label="Shares" sortKey="shares" sort={sort} onSort={onSort} className="stock-col-shares" />
+            <SortableHeader label="Cost" sortKey="increment_cost" sort={sort} onSort={onSort} className="stock-col-cost" />
+            <SortableHeader label="Benefit" sortKey="benefit" sort={sort} onSort={onSort} className="stock-col-benefit" />
+            <SortableHeader label="Annual" sortKey="annual_return" sort={sort} onSort={onSort} className="stock-col-return" />
+            <SortableHeader label="Break even" sortKey="days_to_break_even" sort={sort} onSort={onSort} className="stock-col-break-even" />
+            <SortableHeader label="ROI" sortKey="roi_percent" sort={sort} onSort={onSort} className="stock-col-roi" />
           </tr>
         </thead>
         <tbody>
@@ -915,16 +913,16 @@ function StockRoiTable({
             const showRawRoi = rowMetrics.personalized && !rowMetrics.covered && rowMetrics.roi_percent !== row.roi_percent;
             return (
               <tr key={row.row_id} className={ownsIncrement ? "stock-owned-increment-row" : undefined}>
-                <td>
+                <td className="stock-col-symbol" data-label="Ticker">
                   <span className="stock-symbol-chip">{row.acronym ?? (row.stock_id ? `#${row.stock_id}` : "-")}</span>
                 </td>
-                <td>
+                <td className="stock-col-name" data-label="Name">
                   <span className="stock-benefit-cell">
                     <strong>{row.name ?? "-"}</strong>
                     <small>{stockRowSubtitle(row, isStockRow, bankMerits)}</small>
                   </span>
                 </td>
-                <td>
+                <td className="stock-col-shares" data-label="Shares">
                   <span className="stock-benefit-cell stock-shares-cell">
                     <strong>
                       {!isStockRow ? (
@@ -941,7 +939,7 @@ function StockRoiTable({
                     {isLocked ? <small>Locked</small> : null}
                   </span>
                 </td>
-                <td>
+                <td className="stock-col-cost" data-label="Cost">
                   <span className="stock-cost-cell">
                     <span
                       className={isStockRow && row.increment !== 1 ? "stock-tooltip-value" : undefined}
@@ -952,15 +950,15 @@ function StockRoiTable({
                     {costDetail ? <small>{costDetail}</small> : null}
                   </span>
                 </td>
-                <td>
+                <td className="stock-col-benefit" data-label="Benefit">
                   <span className="stock-benefit-cell">
                     <strong>{row.benefit_description}</strong>
                     <small>{stockBenefitDetail(row, isStockRow, bankMerits)}</small>
                   </span>
                 </td>
-                <td>{formatMoney(row.annual_return)}</td>
-                <td>{formatNumber(Math.round(rowMetrics.days_to_break_even))} days</td>
-                <td>
+                <td className="stock-col-return" data-label="Annual">{formatMoney(row.annual_return)}</td>
+                <td className="stock-col-break-even" data-label="Break even">{formatNumber(Math.round(rowMetrics.days_to_break_even))} days</td>
+                <td className="stock-col-roi" data-label="ROI">
                   <span className="stock-benefit-cell">
                     <span className={`stock-roi-chip ${roiTone(rowMetrics.roi_percent)}`}>{formatPercent(rowMetrics.roi_percent)}</span>
                     {showRawRoi ? <small>Block: {formatPercent(row.roi_percent)}</small> : null}
@@ -980,15 +978,17 @@ function SortableHeader({
   sortKey,
   sort,
   onSort,
+  className,
 }: {
   label: string;
   sortKey: StockRoiSortKey;
   sort: StockRoiSort;
   onSort: (key: StockRoiSortKey) => void;
+  className?: string;
 }) {
   const isActive = sort.key === sortKey;
   return (
-    <th aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
+    <th className={className} aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
       <button
         type="button"
         className={`sort-button stock-roi-sort-button${isActive ? " active" : ""}`}
