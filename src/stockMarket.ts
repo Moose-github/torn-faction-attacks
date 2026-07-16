@@ -765,7 +765,14 @@ export async function updateStockBenefitDisabledStockFromRequest(
   }
 
   if (!body.disabled) {
-    await deleteStockBenefitDisabledStock(env, tornUserId, stockId);
+    try {
+      await deleteStockBenefitDisabledStock(env, tornUserId, stockId);
+    } catch (err) {
+      if (isMissingStockBenefitDisabledTableError(err)) {
+        return stockBenefitDisabledStorageUnavailableResponse();
+      }
+      throw err;
+    }
     return json({
       ok: true,
       benefits: await readEffectiveStockBenefitValues(env, tornUserId),
@@ -782,7 +789,14 @@ export async function updateStockBenefitDisabledStockFromRequest(
     }, 400);
   }
 
-  await upsertStockBenefitDisabledStock(env, tornUserId, stockId, candidate.benefit_key);
+  try {
+    await upsertStockBenefitDisabledStock(env, tornUserId, stockId, candidate.benefit_key);
+  } catch (err) {
+    if (isMissingStockBenefitDisabledTableError(err)) {
+      return stockBenefitDisabledStorageUnavailableResponse();
+    }
+    throw err;
+  }
   return json({
     ok: true,
     benefits: await readEffectiveStockBenefitValues(env, tornUserId),
@@ -930,24 +944,32 @@ async function readBenefitValueOverrides(env: Env, tornUserId: number): Promise<
 }
 
 async function readStockBenefitDisabledStocks(env: Env, tornUserId: number): Promise<StockBenefitDisabledStock[]> {
-  const rows = await env.DB.prepare(
-    `
-    SELECT
-      d.stock_id,
-      d.benefit_key,
-      d.updated_at AS disabled_at,
-      p.acronym,
-      p.name,
-      p.benefit_label
-    FROM stock_benefit_disabled_stocks d
-    LEFT JOIN stock_profiles p
-      ON p.stock_id = d.stock_id
-    WHERE d.torn_user_id = ?
-    ORDER BY COALESCE(p.acronym, d.stock_id) ASC
-    `,
-  )
-    .bind(tornUserId)
-    .all<StockBenefitDisabledStockRow>();
+  let rows: D1Result<StockBenefitDisabledStockRow>;
+  try {
+    rows = await env.DB.prepare(
+      `
+      SELECT
+        d.stock_id,
+        d.benefit_key,
+        d.updated_at AS disabled_at,
+        p.acronym,
+        p.name,
+        p.benefit_label
+      FROM stock_benefit_disabled_stocks d
+      LEFT JOIN stock_profiles p
+        ON p.stock_id = d.stock_id
+      WHERE d.torn_user_id = ?
+      ORDER BY COALESCE(p.acronym, d.stock_id) ASC
+      `,
+    )
+      .bind(tornUserId)
+      .all<StockBenefitDisabledStockRow>();
+  } catch (err) {
+    if (isMissingStockBenefitDisabledTableError(err)) {
+      return [];
+    }
+    throw err;
+  }
 
   return (rows.results ?? []).map((row) => ({
     stock_id: row.stock_id,
@@ -1239,6 +1261,20 @@ async function deleteStockBenefitDisabledStock(env: Env, tornUserId: number, sto
   )
     .bind(tornUserId, stockId)
     .run();
+}
+
+function isMissingStockBenefitDisabledTableError(err: unknown): boolean {
+  return err instanceof Error &&
+    /stock_benefit_disabled_stocks/i.test(err.message) &&
+    /(no such table|does not exist|not found)/i.test(err.message);
+}
+
+function stockBenefitDisabledStorageUnavailableResponse(): Response {
+  return json({
+    ok: false,
+    error: "Disabled stock storage is not ready. Apply the latest database migrations before disabling stocks.",
+    code: "STOCK_BENEFIT_DISABLED_STORAGE_UNAVAILABLE",
+  }, 503);
 }
 
 async function upsertStockBenefitItemPrice(env: Env, price: StockBenefitItemPrice): Promise<void> {

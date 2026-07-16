@@ -354,6 +354,19 @@ describe("stock benefit disabled stocks", () => {
     expect(body.rows.some((row) => row.stock_id === 2)).toBe(true);
   });
 
+  it("loads ROI when disabled-stock storage has not been migrated yet", async () => {
+    const db = new MissingDisabledStockTableD1();
+    const response = await getStockInvestmentRoi({ DB: db as unknown as D1Database } as Env, 12345);
+    const body = await response.json() as {
+      rows: Array<{ stock_id: number | null }>;
+      skipped: { disabled: number; unpriced: number };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.skipped).toMatchObject({ disabled: 0, unpriced: 1 });
+    expect(body.rows.some((row) => row.stock_id === 2)).toBe(true);
+  });
+
   it("allows disabling an individual unpriced stock benefit", async () => {
     const db = new StockBenefitTestD1();
     const response = await updateStockBenefitDisabledStockFromRequest(
@@ -377,6 +390,27 @@ describe("stock benefit disabled stocks", () => {
     expect(body.disabled_stocks).toEqual([
       expect.objectContaining({ stock_id: 1, benefit_key: "item:mystery_box" }),
     ]);
+  });
+
+  it("returns a clear error when disabling before the migration is applied", async () => {
+    const db = new MissingDisabledStockTableD1();
+    const response = await updateStockBenefitDisabledStockFromRequest(
+      new Request("https://worker.test/api/stocks/benefit-disabled-stocks/1", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabled: true }),
+      }),
+      { DB: db as unknown as D1Database } as Env,
+      12345,
+      1,
+    );
+    const body = await response.json() as { ok: boolean; code: string };
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({
+      ok: false,
+      code: "STOCK_BENEFIT_DISABLED_STORAGE_UNAVAILABLE",
+    });
   });
 
   it("rejects disabling a priced/default-backed stock benefit", async () => {
@@ -579,6 +613,22 @@ class StockBenefitTestD1 {
     }
 
     throw new Error(`Unhandled run query: ${sql}`);
+  }
+}
+
+class MissingDisabledStockTableD1 extends StockBenefitTestD1 {
+  override all<T = unknown>(sql: string, args: unknown[]): D1Result<T> {
+    if (sql.includes("FROM stock_benefit_disabled_stocks d")) {
+      throw new Error("D1_ERROR: no such table: stock_benefit_disabled_stocks");
+    }
+    return super.all<T>(sql, args);
+  }
+
+  override run<T = unknown>(sql: string, args: unknown[]): D1Result<T> {
+    if (sql.startsWith("INSERT INTO stock_benefit_disabled_stocks") || sql.startsWith("DELETE FROM stock_benefit_disabled_stocks")) {
+      throw new Error("D1_ERROR: no such table: stock_benefit_disabled_stocks");
+    }
+    return super.run<T>(sql, args);
   }
 }
 
