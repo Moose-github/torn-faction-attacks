@@ -544,7 +544,7 @@ export function buildStockStrategyPlan(input: StockBuyRecommendationInput, limit
       simulatedHybridHolding = null;
     }
     if (isFhgTciHybridRow(nextStep.recommendation.row) && (nextStep.kind === "buy" || nextStep.kind === "convert")) {
-      simulatedHybridHolding = fhgTciHybridHoldingFromStep(nextStep);
+      simulatedHybridHolding = fhgTciHybridHoldingFromStep(nextStep, simulatedSnapshot);
     }
     if (nextStep.recommendation.row.investment_type === "city_bank") {
       simulatedCityBankActive = true;
@@ -1569,7 +1569,10 @@ function initialFhgTciHybridHolding(
   return fhgTciHybridHolding(row, componentUse);
 }
 
-function fhgTciHybridHoldingFromStep(step: StockStrategyStep): FhgTciHybridHolding | null {
+function fhgTciHybridHoldingFromStep(
+  step: StockStrategyStep,
+  snapshot: OwnedStockSnapshot,
+): FhgTciHybridHolding | null {
   const row = step.recommendation.row;
   if (!isFhgTciHybridRow(row)) {
     return null;
@@ -1578,7 +1581,7 @@ function fhgTciHybridHoldingFromStep(step: StockStrategyStep): FhgTciHybridHoldi
   const conversion = step.recommendation.hybrid_conversion;
   const componentUse = conversion
     ? conversionToComponentUse(row, conversion)
-    : null;
+    : bestReusableHybridComponent(row, ownedSharesMap(snapshot), false);
   return fhgTciHybridHolding(row, componentUse);
 }
 

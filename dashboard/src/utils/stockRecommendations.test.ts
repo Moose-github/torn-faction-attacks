@@ -767,6 +767,78 @@ describe("stock buy recommendations", () => {
     });
   });
 
+  it("reserves partial FHG capital reused by a cash-funded hybrid strategy step", () => {
+    const fhg = stockRow({
+      row_id: "stock:5:1",
+      stock_id: 5,
+      acronym: "FHG",
+      latest_price: 1,
+      required_shares: 100,
+      total_shares_required: 100,
+      increment_cost: 100,
+      total_cost: 100,
+      annual_return: 90,
+      roi_percent: 90,
+    });
+    const tci = stockRow({
+      row_id: "stock:9:1",
+      stock_id: 9,
+      acronym: "TCI",
+      latest_price: 1,
+      required_shares: 100,
+      total_shares_required: 100,
+      increment_cost: 100,
+      total_cost: 100,
+      benefit_key: "city_bank:tci_bonus",
+      annual_return: 10,
+      roi_percent: 10,
+    });
+    const nextTarget = stockRow({
+      row_id: "stock:2:1",
+      stock_id: 2,
+      acronym: "NEXT",
+      latest_price: 1,
+      required_shares: 90,
+      total_shares_required: 90,
+      increment_cost: 90,
+      total_cost: 90,
+      annual_return: 72,
+      roi_percent: 80,
+    });
+    const hybrid = buildFhgTciHybridRow([fhg, tci]);
+    const plan = buildStockStrategyPlan({
+      rows: hybrid ? [fhg, tci, hybrid, nextTarget] : [fhg, tci, nextTarget],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 5, shares: 40, bonus: null }],
+      },
+      cityBankActive: true,
+      budget: null,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 2);
+
+    expect(plan.steps[0]).toMatchObject({
+      kind: "buy",
+      recommendation: {
+        row: {
+          row_id: "synthetic:fhg_tci_hybrid",
+        },
+        estimated_cost: 60,
+      },
+    });
+    expect(plan.steps[1]).toMatchObject({
+      kind: "buy",
+      recommendation: {
+        row: {
+          row_id: "stock:2:1",
+        },
+      },
+      sales: [],
+      extra_cash_needed: 90,
+    });
+  });
+
   it("returns no rebalance ideas without a holdings snapshot", () => {
     const results = buildStockRebalanceRecommendations({
       rows: [
