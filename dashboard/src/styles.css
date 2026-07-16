@@ -476,8 +476,9 @@ h2 {
 
 .stock-planner-setup-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
   gap: 14px;
+  align-items: start;
 }
 
 .stock-planner-setup-grid .stock-owned-settings-section {
@@ -485,6 +486,7 @@ h2 {
   padding: 12px;
   border: 1px solid var(--border-faint);
   border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .stock-planner-wide-section {
@@ -767,8 +769,8 @@ h2 {
 
 .stock-investment-controls {
   display: grid;
-  grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.05fr) auto;
-  gap: 12px;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(440px, 1.2fr) auto;
+  gap: 14px;
   align-items: end;
 }
 
@@ -784,7 +786,7 @@ h2 {
 }
 
 .stock-investment-toggle-list {
-  grid-template-columns: repeat(2, minmax(130px, 1fr));
+  grid-template-columns: repeat(4, minmax(104px, 1fr));
   align-self: end;
 }
 
@@ -805,14 +807,19 @@ h2 {
 .stock-investment-toggle-row {
   align-self: end;
   min-height: 38px;
+  padding: 8px 9px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted-bg);
   flex-direction: row !important;
   align-items: center;
   justify-content: flex-start;
+  gap: 8px;
 }
 
 .stock-investment-toggle-row span {
   line-height: 1.25;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
 }
 
 .stock-investment-toggle-row input {
@@ -901,8 +908,8 @@ h2 {
 
 .stock-owned-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(120px, max-content));
-  gap: clamp(28px, 7vw, 96px);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
   justify-content: start;
   padding: 10px 0;
   border-top: 1px solid var(--border-faint);
@@ -930,7 +937,7 @@ h2 {
 
 .stock-owned-controls-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 1fr) auto auto;
+  grid-template-columns: repeat(2, minmax(0, max-content));
   gap: 10px;
   align-items: end;
 }
@@ -938,10 +945,16 @@ h2 {
 .stock-owned-controls-grid label {
   display: flex;
   flex-direction: column;
+  grid-column: 1 / -1;
   gap: 6px;
+  min-width: 0;
   color: var(--text-muted);
   font-size: 0.78rem;
   font-weight: 850;
+}
+
+.stock-owned-controls-grid input {
+  width: 100%;
 }
 
 .stock-owned-key-note {
@@ -963,7 +976,12 @@ h2 {
   flex-direction: row !important;
   align-items: center;
   gap: 8px;
-  white-space: nowrap;
+  padding: 8px 9px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted-bg);
+  line-height: 1.25;
+  white-space: normal;
 }
 
 .stock-owned-hide-toggle input {
@@ -972,7 +990,7 @@ h2 {
 
 .stock-locked-holdings-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 8px;
 }
 
@@ -1018,9 +1036,9 @@ h2 {
 }
 
 .stock-city-bank-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 96px;
+  gap: 10px;
   align-items: end;
 }
 
@@ -7957,7 +7975,8 @@ h2 {
   }
 
   .stock-investment-control-fields,
-  .stock-investment-toggle-list {
+  .stock-investment-toggle-list,
+  .stock-city-bank-controls {
     grid-template-columns: minmax(0, 1fr);
   }
 

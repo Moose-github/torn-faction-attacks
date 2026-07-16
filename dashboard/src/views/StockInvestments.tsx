@@ -46,6 +46,7 @@ const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
 const TORN_USER_MERITS_URL = "https://api.torn.com/v2/user/merits";
 const DEFAULT_MINIMUM_ROI = "5";
 const CITY_BANK_TERM_DAYS = 90;
+const MANUAL_BENEFIT_VALUES_SECTION_ID = "stock-benefit-manual-values";
 
 type StockRoiSortKey = "acronym" | "name" | "shares" | "increment_cost" | "benefit" | "annual_return" | "days_to_break_even" | "roi_percent";
 
@@ -293,6 +294,13 @@ export function StockInvestments() {
   function openBenefitValues() {
     setIsBenefitValuesOpen(true);
     savePanelOpenStorage(storageUserId, "benefitValues", true);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const target = document.getElementById(MANUAL_BENEFIT_VALUES_SECTION_ID)
+          ?? document.querySelector<HTMLElement>(".stock-benefit-values-panel");
+        target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
   }
 
   React.useEffect(() => {
@@ -622,7 +630,7 @@ export function StockInvestments() {
                     checked={affordableOnly}
                     onChange={(event) => setAffordableOnly(event.target.checked)}
                   />
-                  <span>Show affordable only</span>
+                  <span>Affordable only</span>
                 </label>
                 <label className="stock-investment-toggle-row">
                   <input
@@ -630,7 +638,7 @@ export function StockInvestments() {
                     checked={nextBlockOnly}
                     onChange={(event) => setNextBlockOnly(event.target.checked)}
                   />
-                  <span>Next block only</span>
+                  <span>Next block</span>
                 </label>
                 <label className="stock-investment-toggle-row">
                   <input
@@ -638,7 +646,7 @@ export function StockInvestments() {
                     checked={includeFhgTciHybrid}
                     onChange={(event) => setIncludeFhgTciHybrid(event.target.checked)}
                   />
-                  <span>Include FHG/TCI hybrid</span>
+                  <span>FHG/TCI hybrid</span>
                 </label>
                 <label className="stock-investment-toggle-row">
                   <input
@@ -1016,7 +1024,7 @@ function BenefitValuesTable({
       ) : null}
       {manualBenefits.length > 0 ? (
         <BenefitValuesSection
-          id="stock-benefit-manual-values"
+          id={MANUAL_BENEFIT_VALUES_SECTION_ID}
           title="Manual values"
           aside={`${formatNumber(manualBenefits.length)} manual-only`}
           benefits={manualBenefits}
