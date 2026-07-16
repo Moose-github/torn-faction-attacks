@@ -70,14 +70,13 @@ const TORN_API_USAGE_WINDOW_OPTIONS = [
   { seconds: 7 * 24 * 60 * 60, label: "7 days", summaryLabel: "7 days" },
 ] as const;
 
-type AdminTabKey = "operations" | "wars" | "reporting" | "maintenance" | "access";
+type AdminTabKey = "operations" | "wars" | "reporting" | "maintenance";
 
 const ADMIN_TABS: Array<{ key: AdminTabKey; label: string }> = [
   { key: "operations", label: "Operations" },
   { key: "wars", label: "Wars & Events" },
   { key: "reporting", label: "Reporting" },
   { key: "maintenance", label: "Maintenance" },
-  { key: "access", label: "Access" },
 ];
 
 export function AdminControls() {
@@ -622,7 +621,8 @@ export function AdminControls() {
         role="tabpanel"
         aria-labelledby={`admin-tab-${activeAdminTab}`}
       >
-        {activeAdminTab === "access" ? (
+        {activeAdminTab === "operations" ? (
+        <>
         <section className="panel admin-panel-access">
           <PanelHeader title="Admin access" />
           <div className="admin-metric-list admin-form-wide">
@@ -676,10 +676,7 @@ export function AdminControls() {
             </button>
           </form>
         </section>
-        ) : null}
 
-        {activeAdminTab === "operations" ? (
-        <>
         <section className="panel admin-panel-discord-travel">
           <PanelHeader title="Discord travel tracker" aside={discordTravelTrackerStatus} />
           <div className="admin-metric-list admin-form-wide">
@@ -918,6 +915,11 @@ export function AdminControls() {
           </div>
         </section>
 
+        </>
+        ) : null}
+
+        {activeAdminTab === "wars" ? (
+        <>
         <section className="panel admin-panel-xanax-competition">
           <PanelHeader
             title="Xanax competition"
@@ -1062,11 +1064,6 @@ export function AdminControls() {
           ) : null}
         </section>
 
-        </>
-        ) : null}
-
-        {activeAdminTab === "wars" ? (
-        <>
         {currentOfficialWar ? (
           <section className="panel admin-panel-edit-official">
             <PanelHeader title="Edit open war" aside={currentOfficialWar.name} />
