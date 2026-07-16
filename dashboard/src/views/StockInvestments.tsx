@@ -82,7 +82,7 @@ export function StockInvestments() {
   const [minimumRoi, setMinimumRoi] = React.useState(DEFAULT_MINIMUM_ROI);
   const [hideOwnedBlocks, setHideOwnedBlocks] = React.useState(false);
   const [nextBlockOnly, setNextBlockOnly] = React.useState(false);
-  const [includeFhgTciHybrid, setIncludeFhgTciHybrid] = React.useState(true);
+  const [includeFhgTciHybrid, setIncludeFhgTciHybrid] = React.useState(false);
   const [cityBankActive, setCityBankActive] = React.useState(false);
   const [fhgTciHybridActive, setFhgTciHybridActive] = React.useState(false);
   const [bankMerits, setBankMerits] = React.useState(0);
@@ -625,7 +625,17 @@ export function StockInvestments() {
                   checked={includeFhgTciHybrid}
                   onChange={(event) => setIncludeFhgTciHybrid(event.target.checked)}
                 />
-                <span>Show FHG/TCI Hybrid option</span>
+                <span className="stock-owned-toggle-text">
+                  <span>
+                    Show FHG/TCI Hybrid option
+                    <span
+                      className="data-wip-badge stock-hybrid-wip-badge"
+                      title="Hybrid stock planning is still being verified."
+                    >
+                      WIP
+                    </span>
+                  </span>
+                </span>
               </label>
               <label className="stock-city-bank-merits">
                 <span>Bank merits</span>

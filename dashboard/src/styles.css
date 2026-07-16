@@ -1028,6 +1028,11 @@ h2 {
   line-height: 1.25;
 }
 
+.stock-hybrid-wip-badge {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
 .stock-locked-holdings-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
