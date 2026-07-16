@@ -395,7 +395,8 @@ export function StockInvestments() {
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
   const benefitValuesRefreshedAt = roiData?.benefit_prices_refreshed_at ?? null;
-  const filtersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly || hideOwnedBlocks || nextBlockOnly || !includeFhgTciHybrid;
+  const recommendationFiltersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly || !includeFhgTciHybrid;
+  const tableFiltersActive = hideOwnedBlocks || nextBlockOnly;
   const activeFilterCount = [
     investmentAmount.trim() !== "",
     minimumRoi.trim() !== DEFAULT_MINIMUM_ROI,
@@ -483,8 +484,8 @@ export function StockInvestments() {
               <small>Bank {formatNumber(bankMerits)}/10</small>
             </span>
             <span>
-              <strong>{fhgTciHybridActive ? "Active" : "Inactive"}</strong>
-              <small>FHG/TCI</small>
+              <strong>{fhgTciHybridActive ? "Yes" : "No"}</strong>
+              <small>Hybrid owned</small>
             </span>
             <span>
               <strong>{formatNumber(activeFilterCount)}</strong>
@@ -551,7 +552,7 @@ export function StockInvestments() {
           <div className="stock-owned-settings-section">
             <div className="stock-owned-settings-title">
               <strong>Assumptions</strong>
-              <span>Used by strategy and rebalance ideas</span>
+              <span>Existing holdings, not candidate options</span>
             </div>
             <div className="stock-city-bank-controls">
               <label className="stock-owned-hide-toggle">
@@ -576,7 +577,7 @@ export function StockInvestments() {
                     saveFhgTciHybridStorage(storageUserId, nextActive);
                   }}
                 />
-                <span>FHG/TCI Hybrid active</span>
+                <span>FHG/TCI Hybrid already owned</span>
               </label>
               <label className="stock-city-bank-merits">
                 <span>Bank merits</span>
@@ -599,8 +600,8 @@ export function StockInvestments() {
 
           <div className="stock-owned-settings-section stock-planner-wide-section">
             <div className="stock-owned-settings-title">
-              <strong>Filters</strong>
-              <span>{filtersActive ? `${formatNumber(rows.length)} matching blocks` : "Default minimum ROI applied"}</span>
+              <strong>Recommendation options</strong>
+              <span>{recommendationFiltersActive ? "Used by strategy and table" : "Default minimum ROI applied"}</span>
             </div>
             <div className="stock-investment-controls">
               <div className="stock-investment-control-fields">
@@ -623,7 +624,7 @@ export function StockInvestments() {
                   />
                 </label>
               </div>
-              <div className="stock-investment-toggle-list">
+              <div className="stock-investment-toggle-list stock-recommendation-toggle-list">
                 <label className="stock-investment-toggle-row">
                   <input
                     type="checkbox"
@@ -635,39 +636,21 @@ export function StockInvestments() {
                 <label className="stock-investment-toggle-row">
                   <input
                     type="checkbox"
-                    checked={nextBlockOnly}
-                    onChange={(event) => setNextBlockOnly(event.target.checked)}
-                  />
-                  <span>Next block</span>
-                </label>
-                <label className="stock-investment-toggle-row">
-                  <input
-                    type="checkbox"
                     checked={includeFhgTciHybrid}
                     onChange={(event) => setIncludeFhgTciHybrid(event.target.checked)}
                   />
-                  <span>FHG/TCI hybrid</span>
-                </label>
-                <label className="stock-investment-toggle-row">
-                  <input
-                    type="checkbox"
-                    checked={hideOwnedBlocks}
-                    onChange={(event) => setHideOwnedBlocks(event.target.checked)}
-                  />
-                  <span>Hide owned blocks</span>
+                  <span>Show FHG/TCI Hybrid option</span>
                 </label>
               </div>
               <button
                 type="button"
                 className="panel-action-button secondary stock-investment-clear-button"
-                disabled={!filtersActive}
+                disabled={!recommendationFiltersActive}
                 onClick={() => {
                   setInvestmentAmount("");
                   setMinimumRoi(DEFAULT_MINIMUM_ROI);
                   setAffordableOnly(false);
-                  setNextBlockOnly(false);
                   setIncludeFhgTciHybrid(true);
-                  setHideOwnedBlocks(false);
                 }}
               >
                 <RotateCcw size={14} />
@@ -794,6 +777,44 @@ export function StockInvestments() {
 
       <section className="panel table-panel">
         <PanelHeader title="Investment returns" aside={`${formatNumber(rows.length)} shown / ${formatNumber(totalPricedRows)} total`} icon={<BadgeDollarSign size={18} />} />
+        <div className="stock-table-filter-panel">
+          <div className="stock-owned-settings-title">
+            <strong>Table filters</strong>
+            <span>{tableFiltersActive ? `${formatNumber(rows.length)} matching blocks` : "Table display only"}</span>
+          </div>
+          <div className="stock-table-filter-controls">
+            <div className="stock-investment-toggle-list">
+              <label className="stock-investment-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={nextBlockOnly}
+                  onChange={(event) => setNextBlockOnly(event.target.checked)}
+                />
+                <span>Next block</span>
+              </label>
+              <label className="stock-investment-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={hideOwnedBlocks}
+                  onChange={(event) => setHideOwnedBlocks(event.target.checked)}
+                />
+                <span>Hide owned blocks</span>
+              </label>
+            </div>
+            <button
+              type="button"
+              className="panel-action-button secondary stock-investment-clear-button"
+              disabled={!tableFiltersActive}
+              onClick={() => {
+                setNextBlockOnly(false);
+                setHideOwnedBlocks(false);
+              }}
+            >
+              <RotateCcw size={14} />
+              Clear filters
+            </button>
+          </div>
+        </div>
         {isLoading ? (
           <EmptyState text="Loading stock ROI" />
         ) : rows.length === 0 ? (
