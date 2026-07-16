@@ -386,7 +386,6 @@ export function StockInvestments() {
           isOpen={isMissingValuesOpen}
           savingBenefitKey={savingBenefitKey}
           onToggle={() => setIsMissingValuesOpen((current) => !current)}
-          onOpen={() => setIsMissingValuesOpen(true)}
           onClose={() => setIsMissingValuesOpen(false)}
           onInputChange={(benefitKey, value) => setBenefitInputs((current) => ({ ...current, [benefitKey]: value }))}
           onSave={saveBenefit}
@@ -654,56 +653,60 @@ export function StockInvestments() {
             <span>{filtersActive ? `${formatNumber(rows.length)} matching blocks` : "Default minimum ROI applied"}</span>
           </div>
           <div className="stock-investment-controls">
-            <label>
-              <span>Investment amount</span>
-              <input
-                inputMode="numeric"
-                value={investmentAmount}
-                onChange={(event) => setInvestmentAmount(event.target.value)}
-                placeholder="Optional budget"
-              />
-            </label>
-            <label>
-              <span>Minimum ROI %</span>
-              <input
-                inputMode="decimal"
-                value={minimumRoi}
-                onChange={(event) => setMinimumRoi(event.target.value)}
-                placeholder="Optional"
-              />
-            </label>
-            <label className="stock-investment-toggle-row">
-              <input
-                type="checkbox"
-                checked={affordableOnly}
-                onChange={(event) => setAffordableOnly(event.target.checked)}
-              />
-              <span>Show affordable only</span>
-            </label>
-            <label className="stock-investment-toggle-row">
-              <input
-                type="checkbox"
-                checked={nextBlockOnly}
-                onChange={(event) => setNextBlockOnly(event.target.checked)}
-              />
-              <span>Next block only</span>
-            </label>
-            <label className="stock-investment-toggle-row">
-              <input
-                type="checkbox"
-                checked={includeFhgTciSwap}
-                onChange={(event) => setIncludeFhgTciSwap(event.target.checked)}
-              />
-              <span>Include FHG/TCI swap</span>
-            </label>
-            <label className="stock-investment-toggle-row">
-              <input
-                type="checkbox"
-                checked={hideOwnedBlocks}
-                onChange={(event) => setHideOwnedBlocks(event.target.checked)}
-              />
-              <span>Hide owned blocks</span>
-            </label>
+            <div className="stock-investment-control-fields">
+              <label>
+                <span>Investment amount</span>
+                <input
+                  inputMode="numeric"
+                  value={investmentAmount}
+                  onChange={(event) => setInvestmentAmount(event.target.value)}
+                  placeholder="Optional budget"
+                />
+              </label>
+              <label>
+                <span>Minimum ROI %</span>
+                <input
+                  inputMode="decimal"
+                  value={minimumRoi}
+                  onChange={(event) => setMinimumRoi(event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+            </div>
+            <div className="stock-investment-toggle-list">
+              <label className="stock-investment-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={affordableOnly}
+                  onChange={(event) => setAffordableOnly(event.target.checked)}
+                />
+                <span>Show affordable only</span>
+              </label>
+              <label className="stock-investment-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={nextBlockOnly}
+                  onChange={(event) => setNextBlockOnly(event.target.checked)}
+                />
+                <span>Next block only</span>
+              </label>
+              <label className="stock-investment-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={includeFhgTciSwap}
+                  onChange={(event) => setIncludeFhgTciSwap(event.target.checked)}
+                />
+                <span>Include FHG/TCI swap</span>
+              </label>
+              <label className="stock-investment-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={hideOwnedBlocks}
+                  onChange={(event) => setHideOwnedBlocks(event.target.checked)}
+                />
+                <span>Hide owned blocks</span>
+              </label>
+            </div>
             <button
               type="button"
               className="panel-action-button secondary stock-investment-clear-button"
@@ -1085,7 +1088,6 @@ function MissingValuesMetric({
   isOpen,
   savingBenefitKey,
   onToggle,
-  onOpen,
   onClose,
   onInputChange,
   onSave,
@@ -1097,19 +1099,13 @@ function MissingValuesMetric({
   isOpen: boolean;
   savingBenefitKey: string | null;
   onToggle: () => void;
-  onOpen: () => void;
   onClose: () => void;
   onInputChange: (benefitKey: string, value: string) => void;
   onSave: (benefit: StockBenefitValue) => void;
   onReset: (benefit: StockBenefitValue) => void;
 }) {
   return (
-    <div className="metric-card stock-missing-values-card stock-clickable-metric" onClick={onOpen} role="button" tabIndex={0} onKeyDown={(event) => {
-      if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
-        event.preventDefault();
-        onOpen();
-      }
-    }}>
+    <div className="metric-card stock-missing-values-card">
       <div className="stock-missing-values-heading">
         <span className="panel-kicker">Missing values</span>
         <button
@@ -1118,10 +1114,7 @@ function MissingValuesMetric({
           aria-expanded={isOpen}
           aria-label="Edit missing benefit values"
           title="Edit missing benefit values"
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggle();
-          }}
+          onClick={onToggle}
         >
           <Settings size={15} />
         </button>
@@ -1129,7 +1122,7 @@ function MissingValuesMetric({
       <strong className="metric-card-value">{formatNumber(missingValueCount)}</strong>
       <span className="metric-card-detail">{missingValueCount > 0 ? "Add manual values to unlock more blocks" : "All active benefits are priced"}</span>
       {isOpen ? (
-        <div className="stock-missing-values-popout" role="dialog" aria-label="Missing benefit values" onClick={(event) => event.stopPropagation()}>
+        <div className="stock-missing-values-popout" role="dialog" aria-label="Missing benefit values">
           <div className="stock-missing-values-popout-heading">
             <strong>Manual values</strong>
             <button type="button" className="stock-text-button" onClick={onClose}>Close</button>
