@@ -1,5 +1,12 @@
 import { isRecord } from "./backend/request";
 import { DISCORD_COMMAND_NAMES, DISCORD_COMPONENT_IDS } from "./discordCommands";
+import { DISCORD_ALERTS, discordAlertByKey } from "./discordAlerts";
+import {
+  readDiscordMemberAlertSubscriptionsForDiscordUser,
+  updateDiscordMemberAlertSubscription,
+  type DiscordMemberAlertSubscriptionSetting,
+  type DiscordMemberAlertSubscriptionsResponse,
+} from "./discordMemberAlertSubscriptions";
 import {
   formatTravelTrackerSections,
   travelCounts,
@@ -24,11 +31,22 @@ const WARNING_COLOR = 0xffa500;
 
 type DiscordInteraction = {
   type?: number;
+  guild_id?: string;
+  channel_id?: string;
+  user?: DiscordInteractionUser;
+  member?: {
+    user?: DiscordInteractionUser;
+    roles?: string[];
+  };
   data?: {
     name?: string;
     custom_id?: string;
     options?: DiscordOption[];
   };
+};
+
+type DiscordInteractionUser = {
+  id?: string;
 };
 
 type DiscordOption = {
@@ -247,6 +265,10 @@ async function routeDiscordCommand(
     return botHelpResponse();
   }
 
+  if (command === DISCORD_COMMAND_NAMES.alerts) {
+    return alertsResponse(interaction, subcommand, env);
+  }
+
   return ephemeralMessage("I do not know that command yet.");
 }
 
@@ -444,11 +466,130 @@ function botHelpResponse(): DiscordInteractionResponse {
           "`/war current` - active or latest war summary",
           "`/war members` - member leaderboard",
           "`/war enemy` - enemy status or scouting summary",
+          "`/alerts list` - available alert subscriptions",
+          "`/alerts subscribed` - your active alert subscriptions",
         ].join("\n"),
         color: BOT_COLOR,
       },
     ],
   });
+}
+
+async function alertsResponse(
+  interaction: DiscordInteraction,
+  subcommand: DiscordOption | null,
+  env: Env,
+): Promise<DiscordInteractionResponse> {
+  const discordUserId = interactionDiscordUserId(interaction);
+  if (!discordUserId) {
+    return ephemeralMessage("Discord did not include your user ID with this interaction.");
+  }
+
+  if (subcommand?.name === "list") {
+    const subscriptions = await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId);
+    return alertsListResponse(subscriptions);
+  }
+
+  const subscriptions = await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId);
+  if (!subscriptions) {
+    return ephemeralMessage("I cannot find a Torn member linked to your Discord account yet.");
+  }
+
+  if (subcommand?.name === "subscribed") {
+    return subscribedAlertsResponse(subscriptions);
+  }
+
+  if (subcommand?.name === "subscribe" || subcommand?.name === "unsubscribe") {
+    const alertKey = optionString(subcommand, "alert") ?? "";
+    const alert = discordAlertByKey(alertKey);
+    if (!alert || !alert.subscribable) {
+      return ephemeralMessage("That alert is not available for member subscriptions.");
+    }
+
+    const enabled = subcommand.name === "subscribe";
+    const result = await updateDiscordMemberAlertSubscription(
+      env,
+      subscriptions.discord_link.torn_user_id,
+      alert.key,
+      enabled,
+    );
+    if (result !== "ok") {
+      return ephemeralMessage("I could not update that alert subscription.");
+    }
+
+    return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
+      flags: DISCORD_FLAG_EPHEMERAL,
+      embeds: [
+        {
+          title: enabled ? "Alert subscribed" : "Alert unsubscribed",
+          description: `${enabled ? "You are now subscribed to" : "You are no longer subscribed to"} **${alert.name}**.`,
+          color: BOT_COLOR,
+        },
+      ],
+    });
+  }
+
+  return ephemeralMessage("Use `/alerts list`, `/alerts subscribed`, `/alerts subscribe`, or `/alerts unsubscribe`.");
+}
+
+function alertsListResponse(
+  subscriptions: DiscordMemberAlertSubscriptionsResponse | null,
+): DiscordInteractionResponse {
+  const settings = subscriptions?.alerts ?? DISCORD_ALERTS
+    .filter((alert) => alert.subscribable)
+    .map<DiscordMemberAlertSubscriptionSetting>((alert) => ({
+      key: alert.key,
+      name: alert.name,
+      description: alert.description,
+      enabled: false,
+    }));
+
+  return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
+    flags: DISCORD_FLAG_EPHEMERAL,
+    embeds: [
+      {
+        title: "Available alert subscriptions",
+        description: subscriptions
+          ? "Use `/alerts subscribe` or `/alerts unsubscribe` to change your settings."
+          : "I cannot show your current status until your Discord account is linked to a Torn member.",
+        color: BOT_COLOR,
+        fields: settings.map(alertSettingField),
+      },
+    ],
+  });
+}
+
+function subscribedAlertsResponse(
+  subscriptions: DiscordMemberAlertSubscriptionsResponse,
+): DiscordInteractionResponse {
+  const enabled = subscriptions.alerts.filter((alert) => alert.enabled);
+
+  return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
+    flags: DISCORD_FLAG_EPHEMERAL,
+    embeds: [
+      {
+        title: "Your alert subscriptions",
+        description: enabled.length === 0
+          ? "You are not subscribed to any Discord member alerts."
+          : "These alerts can mention you when matching events happen.",
+        color: BOT_COLOR,
+        fields: enabled.length > 0
+          ? enabled.map(alertSettingField)
+          : [{ name: "No active subscriptions", value: "Use `/alerts list` to see what is available." }],
+      },
+    ],
+  });
+}
+
+function alertSettingField(alert: DiscordMemberAlertSubscriptionSetting): {
+  name: string;
+  value: string;
+  inline?: boolean;
+} {
+  return {
+    name: alert.enabled ? `${alert.name} - subscribed` : `${alert.name} - not subscribed`,
+    value: `${alert.description}\nKey: \`${alert.key}\``,
+  };
 }
 
 async function readActiveOrLatestWar(env: Env): Promise<WarSummaryForDiscord | null> {
@@ -756,6 +897,11 @@ function optionString(option: DiscordOption, name: string): string | null {
 function optionInteger(option: DiscordOption, name: string): number | null {
   const value = option.options?.find((item) => item.name === name)?.value;
   return Number.isInteger(value) ? value as number : null;
+}
+
+function interactionDiscordUserId(interaction: DiscordInteraction): string | null {
+  const userId = interaction.member?.user?.id ?? interaction.user?.id ?? "";
+  return /^\d{5,32}$/.test(userId) ? userId : null;
 }
 
 function cleanMemberName(name: string | null, id: number): string {

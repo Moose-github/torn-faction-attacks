@@ -5,11 +5,14 @@ import {
   verifyDiscordRequestSignature,
 } from "./discordInteractions";
 import { discordApplicationCommands } from "./discordCommands";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import type { Env, WarRow } from "./types";
 
 describe("Discord interactions", () => {
-  it("does not register top-level travel or chain slash commands", () => {
-    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["war", "bot"]);
+  it("registers war, bot, and alert slash commands", () => {
+    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["war", "bot", "alerts"]);
+    expect(discordApplicationCommands().find((command) => command.name === "alerts")?.options?.map((option) => option.name))
+      .toEqual(["list", "subscribed", "subscribe", "unsubscribe"]);
   });
 
   it("verifies valid Ed25519 request signatures", async () => {
@@ -158,6 +161,132 @@ describe("Discord interactions", () => {
     expect(response.data?.components?.[0]?.components).toHaveLength(5);
     expect(response.data?.components?.[1]?.components).toHaveLength(1);
   });
+
+  it("lists alert subscriptions for the linked Discord user", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      member: { user: { id: "222222222222222222" } },
+      data: {
+        name: "alerts",
+        options: [
+          {
+            type: 1,
+            name: "list",
+          },
+        ],
+      },
+    }, fakeDiscordEnv({
+      discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
+      subscriptions: { [DISCORD_ALERT_KEYS.enemyPush]: true },
+    }));
+
+    expect(response.type).toBe(4);
+    expect(response.data?.flags).toBe(64);
+    expect(response.data?.embeds?.[0]?.title).toBe("Available alert subscriptions");
+    expect(response.data?.embeds?.[0]?.fields?.some((field) =>
+      field.name === "Enemy push - subscribed"
+    )).toBe(true);
+  });
+
+  it("shows only active alert subscriptions", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      member: { user: { id: "222222222222222222" } },
+      data: {
+        name: "alerts",
+        options: [
+          {
+            type: 1,
+            name: "subscribed",
+          },
+        ],
+      },
+    }, fakeDiscordEnv({
+      discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
+      subscriptions: {
+        [DISCORD_ALERT_KEYS.enemyPush]: true,
+        [DISCORD_ALERT_KEYS.chainWatchCritical]: false,
+      },
+    }));
+
+    expect(response.data?.embeds?.[0]?.title).toBe("Your alert subscriptions");
+    expect(response.data?.embeds?.[0]?.fields).toHaveLength(1);
+    expect(response.data?.embeds?.[0]?.fields?.[0]?.name).toBe("Enemy push - subscribed");
+  });
+
+  it("subscribes the linked Discord user to an alert", async () => {
+    const env = fakeDiscordEnv({
+      discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
+    });
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      member: { user: { id: "222222222222222222" } },
+      data: {
+        name: "alerts",
+        options: [
+          {
+            type: 1,
+            name: "subscribe",
+            options: [
+              { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
+            ],
+          },
+        ],
+      },
+    }, env);
+
+    expect(response.data?.embeds?.[0]?.title).toBe("Alert subscribed");
+    expect(env.upserts).toEqual([[99, DISCORD_ALERT_KEYS.enemyPush, 1]]);
+  });
+
+  it("unsubscribes the linked Discord user from an alert", async () => {
+    const env = fakeDiscordEnv({
+      discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
+      subscriptions: { [DISCORD_ALERT_KEYS.enemyPush]: true },
+    });
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      member: { user: { id: "222222222222222222" } },
+      data: {
+        name: "alerts",
+        options: [
+          {
+            type: 1,
+            name: "unsubscribe",
+            options: [
+              { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
+            ],
+          },
+        ],
+      },
+    }, env);
+
+    expect(response.data?.embeds?.[0]?.title).toBe("Alert unsubscribed");
+    expect(env.upserts).toEqual([[99, DISCORD_ALERT_KEYS.enemyPush, 0]]);
+  });
+
+  it("does not subscribe when the Discord user is not linked", async () => {
+    const env = fakeDiscordEnv();
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      member: { user: { id: "222222222222222222" } },
+      data: {
+        name: "alerts",
+        options: [
+          {
+            type: 1,
+            name: "subscribe",
+            options: [
+              { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
+            ],
+          },
+        ],
+      },
+    }, env);
+
+    expect(response.data?.content).toBe("I cannot find a Torn member linked to your Discord account yet.");
+    expect(env.upserts).toEqual([]);
+  });
 });
 
 async function signedDiscordRequest(payload: unknown): Promise<{
@@ -200,7 +329,9 @@ function bytesToHex(bytes: Uint8Array): string {
 function fakeDiscordEnv(options: {
   war?: Partial<WarRow>;
   manualTarget?: { faction_id: number; faction_name: string | null; enabled?: number } | null;
-} = {}): Env {
+  discordLink?: { torn_user_id: number; discord_user_id: string };
+  subscriptions?: Record<string, boolean>;
+} = {}): Env & { upserts: Array<[number, string, number]> } {
   const war = {
     id: 10,
     name: "test-war",
@@ -236,6 +367,11 @@ function fakeDiscordEnv(options: {
   };
   Object.assign(war, options.war ?? {});
   const manualTarget = options.manualTarget ?? null;
+  const discordLink = options.discordLink ?? null;
+  const subscriptions = new Map(
+    Object.entries(options.subscriptions ?? {}).map(([key, enabled]) => [key, enabled ? 1 : 0]),
+  );
+  const upserts: Array<[number, string, number]> = [];
   const members = [
     {
       member_id: 1,
@@ -298,12 +434,13 @@ function fakeDiscordEnv(options: {
   ];
 
   return {
+    upserts,
     DASHBOARD_BASE_URL: "https://dashboard.test",
     DB: {
       prepare(sql: string) {
         return {
-          bind() {
-            return statement(sql);
+          bind(...values: unknown[]) {
+            return statement(sql, values);
           },
           first() {
             if (sql.includes("FROM wars w")) {
@@ -317,9 +454,9 @@ function fakeDiscordEnv(options: {
         };
       },
     },
-  } as unknown as Env;
+  } as unknown as Env & { upserts: Array<[number, string, number]> };
 
-  function statement(sql: string) {
+  function statement(sql: string, values: unknown[] = []) {
     return {
       first() {
         if (sql.includes("FROM wars w")) {
@@ -327,6 +464,12 @@ function fakeDiscordEnv(options: {
         }
         if (sql.includes("FROM discord_travel_tracker_target")) {
           return Promise.resolve(manualTarget && manualTarget.enabled !== 0 ? manualTarget : null);
+        }
+        if (sql.includes("FROM discord_member_links") && sql.includes("discord_user_id = ?")) {
+          return Promise.resolve(discordLink?.discord_user_id === values[0] ? discordLink : null);
+        }
+        if (sql.includes("FROM discord_member_links") && sql.includes("torn_user_id = ?")) {
+          return Promise.resolve(discordLink?.torn_user_id === values[0] ? discordLink : null);
         }
         return Promise.resolve(null);
       },
@@ -337,7 +480,19 @@ function fakeDiscordEnv(options: {
         if (sql.includes("FROM enemy_faction_members")) {
           return Promise.resolve({ results: travelers });
         }
+        if (sql.includes("FROM discord_member_alert_subscriptions")) {
+          return Promise.resolve({
+            results: Array.from(subscriptions, ([alert_key, enabled]) => ({ alert_key, enabled })),
+          });
+        }
         return Promise.resolve({ results: [] });
+      },
+      run() {
+        const alertKey = String(values[1]);
+        const enabled = Number(values[2]);
+        upserts.push([Number(values[0]), alertKey, enabled]);
+        subscriptions.set(alertKey, enabled);
+        return Promise.resolve({ meta: { changes: 1 } });
       },
     };
   }
