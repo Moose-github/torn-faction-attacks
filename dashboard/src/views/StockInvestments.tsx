@@ -391,13 +391,6 @@ export function StockInvestments() {
     minimumRoi: minRoi,
     lockedStockIds,
   }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, ownedSnapshot, cityBankActive, fhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
-  const strategyStepsWithCashMilestones = React.useMemo(() => {
-    let cashMilestone = strategyPlan.starting_cash;
-    return strategyPlan.steps.map((step) => {
-      cashMilestone += Math.max(0, step.extra_cash_needed);
-      return { step, cashMilestone };
-    });
-  }, [strategyPlan]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
@@ -765,14 +758,12 @@ export function StockInvestments() {
                 <EmptyState text="No strategy path matches the current filters" />
               ) : (
                 <div className="stock-milestone-list">
-                  {strategyStepsWithCashMilestones.map(({ step, cashMilestone }, index) => (
+                  {strategyPlan.steps.map((step, index) => (
                     <StrategyStepRow
                       key={`${index}:${step.kind}:${step.recommendation.row.row_id}`}
                       step={step}
                       index={index}
                       bankMerits={bankMerits}
-                      cashMilestone={cashMilestone}
-                      startingCash={strategyPlan.starting_cash}
                     />
                   ))}
                 </div>
@@ -1385,19 +1376,13 @@ function StrategyStepRow({
   step,
   index,
   bankMerits,
-  cashMilestone,
-  startingCash,
 }: {
   step: StockStrategyStep;
   index: number;
   bankMerits: number;
-  cashMilestone: number;
-  startingCash: number;
 }) {
   const recommendation = step.recommendation;
-  const milestoneLabel = step.extra_cash_needed <= 0 && cashMilestone <= startingCash
-    ? "Now"
-    : `At ${formatInstructionMoney(cashMilestone)} cash`;
+  const milestoneLabel = step.extra_cash_needed <= 0 ? "Now" : `At ${formatInstructionMoney(step.cash_required)} cash`;
   return (
     <div className="stock-milestone-row">
       <div>
