@@ -1,5 +1,13 @@
 import { cleanString, readJsonObject } from "./backend/request";
-import { patchDiscordJson, postDiscordForm, postDiscordJson, postDiscordJsonAndRead } from "./external/discord";
+import {
+  patchDiscordBotJson,
+  patchDiscordJson,
+  postDiscordBotFormAndRead,
+  postDiscordBotJsonAndRead,
+  postDiscordForm,
+  postDiscordJson,
+  postDiscordJsonAndRead,
+} from "./external/discord";
 import { Env } from "./types";
 import { json } from "./utils";
 
@@ -85,12 +93,12 @@ export async function createDiscordWebhookMessage(
     throw new Error("DISCORD_WEBHOOK_URL is not configured");
   }
 
-  const response = await postDiscordJsonAndRead<DiscordWebhookMessage>(
+  const response = await postDiscordJsonAndRead<DiscordMessage>(
     discordWebhookUrlWithQuery(webhookUrl, { wait: "true" }),
     discordPayload(message, allowedMentions, options),
   );
 
-  return typeof response.id === "string" && response.id ? response.id : null;
+  return discordMessageId(response);
 }
 
 export async function editDiscordWebhookMessage(
@@ -114,7 +122,43 @@ export async function editDiscordWebhookMessage(
   );
 }
 
-type DiscordWebhookMessage = {
+export async function createDiscordBotMessage(
+  env: Env,
+  channelId: string,
+  message: string,
+  allowedMentions?: DiscordAllowedMentions,
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds">,
+): Promise<string | null> {
+  const botToken = readDiscordBotToken(env);
+  const response = await postDiscordBotJsonAndRead<DiscordMessage>(
+    botToken,
+    discordChannelMessagesPath(channelId),
+    discordPayload(message, allowedMentions, options),
+  );
+
+  return discordMessageId(response);
+}
+
+export async function editDiscordBotMessage(
+  env: Env,
+  channelId: string,
+  messageId: string,
+  message: string,
+  allowedMentions?: DiscordAllowedMentions,
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds">,
+): Promise<void> {
+  const botToken = readDiscordBotToken(env);
+  await patchDiscordBotJson(
+    botToken,
+    discordChannelMessagePath(channelId, messageId),
+    discordPayload(message, allowedMentions, {
+      ...options,
+      clearEmbeds: options?.embedColor === undefined && options?.embeds === undefined,
+    }),
+  );
+}
+
+type DiscordMessage = {
   id?: unknown;
 };
 
@@ -259,4 +303,85 @@ export async function sendDiscordMessageWithAttachments(
   });
 
   await postDiscordForm(env.DISCORD_WEBHOOK_URL, form);
+}
+
+export async function sendDiscordBotMessageWithAttachment(
+  env: Env,
+  channelId: string,
+  options: {
+    content: string;
+    filename: string;
+    mimeType: string;
+    data: string | Uint8Array;
+    allowedMentions?: DiscordAllowedMentions;
+  },
+): Promise<string | null> {
+  return sendDiscordBotMessageWithAttachments(env, channelId, {
+    content: options.content,
+    allowedMentions: options.allowedMentions,
+    attachments: [
+      {
+        filename: options.filename,
+        mimeType: options.mimeType,
+        data: options.data,
+      },
+    ],
+  });
+}
+
+export async function sendDiscordBotMessageWithAttachments(
+  env: Env,
+  channelId: string,
+  options: {
+    content: string;
+    allowedMentions?: DiscordAllowedMentions;
+    attachments: Array<{
+      filename: string;
+      mimeType: string;
+      data: string | Uint8Array;
+    }>;
+  },
+): Promise<string | null> {
+  const botToken = readDiscordBotToken(env);
+
+  if (options.content.length > MAX_DISCORD_MESSAGE_LENGTH) {
+    throw new Error(`Discord message must be ${MAX_DISCORD_MESSAGE_LENGTH} characters or fewer`);
+  }
+
+  const form = new FormData();
+  form.append("payload_json", JSON.stringify(discordPayload(options.content, options.allowedMentions)));
+  options.attachments.forEach((attachment, index) => {
+    form.append(
+      `files[${index}]`,
+      new Blob([attachment.data], { type: attachment.mimeType }),
+      attachment.filename,
+    );
+  });
+
+  const response = await postDiscordBotFormAndRead<DiscordMessage>(
+    botToken,
+    discordChannelMessagesPath(channelId),
+    form,
+  );
+  return discordMessageId(response);
+}
+
+function readDiscordBotToken(env: Env): string {
+  const token = env.DISCORD_BOT_TOKEN?.trim();
+  if (!token) {
+    throw new Error("DISCORD_BOT_TOKEN is not configured");
+  }
+  return token;
+}
+
+function discordMessageId(message: DiscordMessage): string | null {
+  return typeof message.id === "string" && message.id ? message.id : null;
+}
+
+function discordChannelMessagesPath(channelId: string): string {
+  return `/channels/${encodeURIComponent(channelId)}/messages`;
+}
+
+function discordChannelMessagePath(channelId: string, messageId: string): string {
+  return `${discordChannelMessagesPath(channelId)}/${encodeURIComponent(messageId)}`;
 }
