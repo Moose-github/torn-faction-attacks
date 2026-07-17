@@ -477,9 +477,10 @@ async function chainStatusResponse(env: Env, responseType: number): Promise<Disc
 
 function botHelpResponse(): DiscordInteractionResponse {
   return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
+    flags: DISCORD_FLAG_EPHEMERAL,
     embeds: [
       {
-        title: "Torn war room bot",
+        title: "Butt Dashboard Bot",
         description: [
           "`/alerts list` - available alert subscriptions",
         ].join("\n"),

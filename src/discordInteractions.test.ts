@@ -108,6 +108,25 @@ describe("Discord interactions", () => {
     }
   });
 
+  it("shows ephemeral bot help", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      data: {
+        name: "bot",
+        options: [
+          {
+            type: 1,
+            name: "help",
+          },
+        ],
+      },
+    }, fakeDiscordEnv());
+
+    expect(response.type).toBe(4);
+    expect(response.data?.flags).toBe(64);
+    expect(response.data?.embeds?.[0]?.title).toBe("Butt Dashboard Bot");
+  });
+
   it("formats member leaderboards with linked Discord mentions", async () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
