@@ -75,11 +75,6 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
         },
         {
           type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-          name: "subscribed",
-          description: "Show your active alert subscriptions",
-        },
-        {
-          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
           name: "subscribe",
           description: "Subscribe yourself to an alert",
           options: [

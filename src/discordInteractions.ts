@@ -482,7 +482,6 @@ function botHelpResponse(): DiscordInteractionResponse {
         title: "Torn war room bot",
         description: [
           "`/alerts list` - available alert subscriptions",
-          "`/alerts subscribed` - your active alert subscriptions",
         ].join("\n"),
         color: BOT_COLOR,
       },
@@ -508,10 +507,6 @@ async function alertsResponse(
   const subscriptions = await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId);
   if (!subscriptions) {
     return ephemeralMessage("I cannot find a Torn member linked to your Discord account yet.");
-  }
-
-  if (subcommand?.name === "subscribed") {
-    return subscribedAlertsResponse(subscriptions);
   }
 
   if (subcommand?.name === "subscribe" || subcommand?.name === "unsubscribe") {
@@ -544,7 +539,7 @@ async function alertsResponse(
     });
   }
 
-  return ephemeralMessage("Use `/alerts list`, `/alerts subscribed`, `/alerts subscribe`, or `/alerts unsubscribe`.");
+  return ephemeralMessage("Use `/alerts list`, `/alerts subscribe`, or `/alerts unsubscribe`.");
 }
 
 async function alertChannelsResponse(
@@ -703,28 +698,6 @@ function alertsListResponse(
   });
 }
 
-function subscribedAlertsResponse(
-  subscriptions: DiscordMemberAlertSubscriptionsResponse,
-): DiscordInteractionResponse {
-  const enabled = subscriptions.alerts.filter((alert) => alert.enabled);
-
-  return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
-    flags: DISCORD_FLAG_EPHEMERAL,
-    embeds: [
-      {
-        title: "Your alert subscriptions",
-        description: enabled.length === 0
-          ? "You are not subscribed to any Discord member alerts."
-          : "These alerts can mention you when matching events happen.",
-        color: BOT_COLOR,
-        fields: enabled.length > 0
-          ? enabled.map(alertSettingField)
-          : [{ name: "No active subscriptions", value: "Use `/alerts list` to see what is available." }],
-      },
-    ],
-  });
-}
-
 function alertSettingField(alert: DiscordMemberAlertSubscriptionSetting): {
   name: string;
   value: string;
@@ -732,7 +705,7 @@ function alertSettingField(alert: DiscordMemberAlertSubscriptionSetting): {
 } {
   return {
     name: alert.enabled ? `${alert.name} - subscribed` : `${alert.name} - not subscribed`,
-    value: `${alert.description}\nKey: \`${alert.key}\``,
+    value: alert.description,
   };
 }
 

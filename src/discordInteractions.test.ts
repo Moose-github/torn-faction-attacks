@@ -12,7 +12,7 @@ describe("Discord interactions", () => {
   it("registers bot and alert slash commands", () => {
     expect(discordApplicationCommands().map((command) => command.name)).toEqual(["bot", "alerts", "alert-channels"]);
     expect(discordApplicationCommands().find((command) => command.name === "alerts")?.options?.map((option) => option.name))
-      .toEqual(["list", "subscribed", "subscribe", "unsubscribe"]);
+      .toEqual(["list", "subscribe", "unsubscribe"]);
     expect(discordApplicationCommands().find((command) => command.name === "alert-channels"))
       .toMatchObject({
         default_member_permissions: "32",
@@ -300,9 +300,13 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.fields?.some((field) =>
       field.name === "Enemy push - subscribed"
     )).toBe(true);
+    expect(response.data?.embeds?.[0]?.fields?.some((field) =>
+      field.name === "Chain watch critical - not subscribed"
+    )).toBe(true);
+    expect(JSON.stringify(response.data?.embeds)).not.toContain(DISCORD_ALERT_KEYS.enemyPush);
   });
 
-  it("shows only active alert subscriptions", async () => {
+  it("shows combined alert list guidance for unknown alert subcommands", async () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
       member: { user: { id: "222222222222222222" } },
@@ -311,21 +315,16 @@ describe("Discord interactions", () => {
         options: [
           {
             type: 1,
-            name: "subscribed",
+            name: "unknown",
           },
         ],
       },
     }, fakeDiscordEnv({
       discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
-      subscriptions: {
-        [DISCORD_ALERT_KEYS.enemyPush]: true,
-        [DISCORD_ALERT_KEYS.chainWatchCritical]: false,
-      },
     }));
 
-    expect(response.data?.embeds?.[0]?.title).toBe("Your alert subscriptions");
-    expect(response.data?.embeds?.[0]?.fields).toHaveLength(1);
-    expect(response.data?.embeds?.[0]?.fields?.[0]?.name).toBe("Enemy push - subscribed");
+    expect(response.data?.content).toBe("Use `/alerts list`, `/alerts subscribe`, or `/alerts unsubscribe`.");
+    expect(response.data?.content).not.toContain("subscribed");
   });
 
   it("subscribes the linked Discord user to an alert", async () => {
