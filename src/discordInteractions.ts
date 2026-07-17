@@ -283,6 +283,10 @@ async function routeDiscordCommand(
     return alertsResponse(interaction, subcommand, env);
   }
 
+  if (command === DISCORD_COMMAND_NAMES.alertChannels) {
+    return alertChannelsResponse(interaction, env, subcommand);
+  }
+
   return ephemeralMessage("I do not know that command yet.");
 }
 
@@ -496,10 +500,6 @@ async function alertsResponse(
     return ephemeralMessage("Discord did not include your user ID with this interaction.");
   }
 
-  if (subcommand?.name === "channels") {
-    return alertChannelsResponse(interaction, subcommand, env, discordUserId);
-  }
-
   if (subcommand?.name === "list") {
     const subscriptions = await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId);
     return alertsListResponse(subscriptions);
@@ -549,20 +549,19 @@ async function alertsResponse(
 
 async function alertChannelsResponse(
   interaction: DiscordInteraction,
-  group: DiscordOption,
   env: Env,
-  discordUserId: string,
+  subcommand: DiscordOption | null,
 ): Promise<DiscordInteractionResponse> {
+  const discordUserId = interactionDiscordUserId(interaction);
+  if (!discordUserId) {
+    return ephemeralMessage("Discord did not include your user ID with this interaction.");
+  }
+
   const guildId = interaction.guild_id;
   if (!guildId) {
     return ephemeralMessage("Alert channel routing can only be configured inside a Discord server.");
   }
 
-  if (!isDiscordAdmin(interaction, env, discordUserId)) {
-    return ephemeralMessage("Only configured Discord bot admins can change alert channel routing.");
-  }
-
-  const subcommand = group.options?.[0] ?? null;
   if (subcommand?.name === "list") {
     return alertChannelsListResponse(await listDiscordNotificationChannels(env, guildId));
   }
@@ -653,7 +652,7 @@ async function alertChannelsResponse(
     });
   }
 
-  return ephemeralMessage("Use `/alerts channels list`, `set`, `unset`, or `test`.");
+  return ephemeralMessage("Use `/alert-channels list`, `set`, `unset`, or `test`.");
 }
 
 function alertChannelsListResponse(routes: DiscordNotificationChannel[]): DiscordInteractionResponse {
@@ -671,7 +670,7 @@ function alertChannelsListResponse(routes: DiscordNotificationChannel[]): Discor
             name: route.alertName,
             value: `${discordChannelMention(route.channelId)}\nKey: \`${route.alertKey}\``,
           }))
-          : [{ name: "No routes", value: "Use `/alerts channels set` to configure one." }],
+          : [{ name: "No routes", value: "Use `/alert-channels set` to configure one." }],
       },
     ],
   });
@@ -1053,29 +1052,6 @@ function alertOption(option: DiscordOption): typeof DISCORD_ALERTS[number] | nul
 function interactionDiscordUserId(interaction: DiscordInteraction): string | null {
   const userId = interaction.member?.user?.id ?? interaction.user?.id ?? "";
   return /^\d{5,32}$/.test(userId) ? userId : null;
-}
-
-function isDiscordAdmin(interaction: DiscordInteraction, env: Env, discordUserId: string): boolean {
-  const adminUserIds = discordIdSet(env.DISCORD_ADMIN_USER_IDS);
-  if (adminUserIds.has(discordUserId)) {
-    return true;
-  }
-
-  const adminRoleIds = discordIdSet(env.DISCORD_ADMIN_ROLE_IDS);
-  if (adminRoleIds.size === 0) {
-    return false;
-  }
-
-  return (interaction.member?.roles ?? []).some((roleId) => adminRoleIds.has(roleId));
-}
-
-function discordIdSet(value: string | undefined): Set<string> {
-  return new Set(
-    (value ?? "")
-      .split(/[,\s]+/)
-      .map((item) => item.trim())
-      .filter((item) => /^\d{5,32}$/.test(item)),
-  );
 }
 
 function discordChannelMention(channelId: string): string {

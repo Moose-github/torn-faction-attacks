@@ -4,6 +4,7 @@ export const DISCORD_COMMAND_NAMES = {
   war: "war",
   bot: "bot",
   alerts: "alerts",
+  alertChannels: "alert-channels",
 } as const;
 
 export const DISCORD_COMPONENT_IDS = {
@@ -25,6 +26,8 @@ export const DISCORD_COMMAND_OPTION_TYPES = {
 export type DiscordApplicationCommand = {
   name: string;
   description: string;
+  default_member_permissions?: string;
+  dm_permission?: boolean;
   options?: DiscordCommandOption[];
 };
 
@@ -103,63 +106,64 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
             },
           ],
         },
+      ],
+    },
+    {
+      name: DISCORD_COMMAND_NAMES.alertChannels,
+      description: "Configure Discord alert delivery channels",
+      default_member_permissions: "32",
+      dm_permission: false,
+      options: [
         {
-          type: DISCORD_COMMAND_OPTION_TYPES.subCommandGroup,
-          name: "channels",
-          description: "Configure alert delivery channels",
+          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+          name: "list",
+          description: "Show configured alert delivery channels",
+        },
+        {
+          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+          name: "set",
+          description: "Send an alert type to a channel",
           options: [
             {
-              type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-              name: "list",
-              description: "Show configured alert delivery channels",
+              type: DISCORD_COMMAND_OPTION_TYPES.string,
+              name: "alert",
+              description: "Alert to route",
+              required: true,
+              choices: notificationAlertChoices,
             },
             {
-              type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-              name: "set",
-              description: "Send an alert type to a channel",
-              options: [
-                {
-                  type: DISCORD_COMMAND_OPTION_TYPES.string,
-                  name: "alert",
-                  description: "Alert to route",
-                  required: true,
-                  choices: notificationAlertChoices,
-                },
-                {
-                  type: DISCORD_COMMAND_OPTION_TYPES.channel,
-                  name: "channel",
-                  description: "Channel for this alert",
-                  required: true,
-                },
-              ],
+              type: DISCORD_COMMAND_OPTION_TYPES.channel,
+              name: "channel",
+              description: "Channel for this alert",
+              required: true,
             },
+          ],
+        },
+        {
+          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+          name: "unset",
+          description: "Remove an alert channel route",
+          options: [
             {
-              type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-              name: "unset",
-              description: "Remove an alert channel route",
-              options: [
-                {
-                  type: DISCORD_COMMAND_OPTION_TYPES.string,
-                  name: "alert",
-                  description: "Alert route to remove",
-                  required: true,
-                  choices: notificationAlertChoices,
-                },
-              ],
+              type: DISCORD_COMMAND_OPTION_TYPES.string,
+              name: "alert",
+              description: "Alert route to remove",
+              required: true,
+              choices: notificationAlertChoices,
             },
+          ],
+        },
+        {
+          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+          name: "test",
+          description: "Send a test message to a configured alert channel",
+          options: [
             {
-              type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-              name: "test",
-              description: "Send a test message to a configured alert channel",
-              options: [
-                {
-                  type: DISCORD_COMMAND_OPTION_TYPES.string,
-                  name: "alert",
-                  description: "Alert route to test",
-                  required: true,
-                  choices: notificationAlertChoices,
-                },
-              ],
+              type: DISCORD_COMMAND_OPTION_TYPES.string,
+              name: "alert",
+              description: "Alert route to test",
+              required: true,
+              choices: notificationAlertChoices,
             },
           ],
         },

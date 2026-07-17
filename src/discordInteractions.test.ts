@@ -10,9 +10,14 @@ import type { Env, WarRow } from "./types";
 
 describe("Discord interactions", () => {
   it("registers bot and alert slash commands", () => {
-    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["bot", "alerts"]);
+    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["bot", "alerts", "alert-channels"]);
     expect(discordApplicationCommands().find((command) => command.name === "alerts")?.options?.map((option) => option.name))
-      .toEqual(["list", "subscribed", "subscribe", "unsubscribe", "channels"]);
+      .toEqual(["list", "subscribed", "subscribe", "unsubscribe"]);
+    expect(discordApplicationCommands().find((command) => command.name === "alert-channels"))
+      .toMatchObject({
+        default_member_permissions: "32",
+        dm_permission: false,
+      });
   });
 
   it("verifies valid Ed25519 request signatures", async () => {
@@ -406,20 +411,14 @@ describe("Discord interactions", () => {
       guild_id: "727247760931160167",
       member: { user: { id: "222222222222222222" }, roles: [] },
       data: {
-        name: "alerts",
+        name: "alert-channels",
         options: [
           {
-            type: 2,
-            name: "channels",
+            type: 1,
+            name: "set",
             options: [
-              {
-                type: 1,
-                name: "set",
-                options: [
-                  { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
-                  { type: 7, name: "channel", value: "333333333333333333" },
-                ],
-              },
+              { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
+              { type: 7, name: "channel", value: "333333333333333333" },
             ],
           },
         ],
@@ -443,13 +442,9 @@ describe("Discord interactions", () => {
       guild_id: "727247760931160167",
       member: { user: { id: "222222222222222222" }, roles: ["999999999999999999"] },
       data: {
-        name: "alerts",
+        name: "alert-channels",
         options: [
-          {
-            type: 2,
-            name: "channels",
-            options: [{ type: 1, name: "list" }],
-          },
+          { type: 1, name: "list" },
         ],
       },
     }, fakeDiscordEnv({
@@ -478,19 +473,13 @@ describe("Discord interactions", () => {
       guild_id: "727247760931160167",
       member: { user: { id: "222222222222222222" }, roles: [] },
       data: {
-        name: "alerts",
+        name: "alert-channels",
         options: [
           {
-            type: 2,
-            name: "channels",
+            type: 1,
+            name: "unset",
             options: [
-              {
-                type: 1,
-                name: "unset",
-                options: [
-                  { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
-                ],
-              },
+              { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
             ],
           },
         ],
@@ -501,27 +490,22 @@ describe("Discord interactions", () => {
     expect(env.notificationRoutes.has("727247760931160167:enemy_push")).toBe(false);
   });
 
-  it("does not let non-admins configure alert channel routes", async () => {
-    const env = fakeDiscordEnv({
-      discordAdminUserIds: "111111111111111111",
-    });
+  it("trusts Discord command permissions for alert channel routes", async () => {
+    const env = fakeDiscordEnv();
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
       guild_id: "727247760931160167",
       member: { user: { id: "222222222222222222" }, roles: [] },
       data: {
-        name: "alerts",
+        name: "alert-channels",
         options: [
-          {
-            type: 2,
-            name: "channels",
-            options: [{ type: 1, name: "list" }],
-          },
+          { type: 1, name: "list" },
         ],
       },
     }, env);
 
-    expect(response.data?.content).toBe("Only configured Discord bot admins can change alert channel routing.");
+    expect(response.data?.embeds?.[0]?.title).toBe("Alert channel routes");
+    expect(response.data?.embeds?.[0]?.description).toBe("No alert channels are configured yet.");
   });
 });
 
