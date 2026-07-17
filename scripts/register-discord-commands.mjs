@@ -1,157 +1,8 @@
-import { pathToFileURL } from "node:url";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import ts from "typescript";
 
-const OPTION_TYPES = {
-  subCommand: 1,
-  subCommandGroup: 2,
-  string: 3,
-  integer: 4,
-  channel: 7,
-};
-
-const notificationAlertChoices = [
-  { name: "Chain watch", value: "chain_watch" },
-  { name: "Chain watch warning", value: "chain_watch_warning" },
-  { name: "Chain watch critical", value: "chain_watch_critical" },
-  { name: "Chain watch dropped", value: "chain_watch_drop" },
-  { name: "Retaliation board", value: "retaliation_board" },
-  { name: "Enemy push", value: "enemy_push" },
-  { name: "Target travel tracker", value: "target_travel_tracker" },
-  { name: "Home travel tracker", value: "home_travel_tracker" },
-  { name: "Enemy scouting report", value: "enemy_scouting_report" },
-  { name: "Xanax competition", value: "xanax_competition" },
-  { name: "Termed war auto-end", value: "termed_war_auto_end" },
-  { name: "Big Als shoplifting", value: "shoplifting_security_alert:big_als" },
-  { name: "Jewelry Store shoplifting", value: "shoplifting_security_alert:jewelry_store" },
-];
-const subscriptionAlertChoices = notificationAlertChoices
-  .filter((alert) => ![
-    "chain_watch",
-    "retaliation_board",
-    "target_travel_tracker",
-    "home_travel_tracker",
-    "enemy_scouting_report",
-    "xanax_competition",
-    "termed_war_auto_end",
-  ].includes(alert.value));
-
-export const commands = [
-  {
-    name: "bot",
-    description: "Bot help",
-    options: [
-      {
-        type: OPTION_TYPES.subCommand,
-        name: "help",
-        description: "Show available commands",
-      },
-    ],
-  },
-  {
-    name: "alerts",
-    description: "Manage your Discord alert subscriptions",
-    options: [
-      {
-        type: OPTION_TYPES.subCommand,
-        name: "list",
-        description: "Show available subscribable alerts",
-      },
-      {
-        type: OPTION_TYPES.subCommand,
-        name: "subscribed",
-        description: "Show your active alert subscriptions",
-      },
-      {
-        type: OPTION_TYPES.subCommand,
-        name: "subscribe",
-        description: "Subscribe yourself to an alert",
-        options: [
-          {
-            type: OPTION_TYPES.string,
-            name: "alert",
-            description: "Alert to subscribe to",
-            required: true,
-            choices: subscriptionAlertChoices,
-          },
-        ],
-      },
-      {
-        type: OPTION_TYPES.subCommand,
-        name: "unsubscribe",
-        description: "Unsubscribe yourself from an alert",
-        options: [
-          {
-            type: OPTION_TYPES.string,
-            name: "alert",
-            description: "Alert to unsubscribe from",
-            required: true,
-            choices: subscriptionAlertChoices,
-          },
-        ],
-      },
-    ],
-  },
-  {
-    name: "alert-channels",
-    description: "Configure Discord alert delivery channels",
-    default_member_permissions: "32",
-    dm_permission: false,
-    options: [
-      {
-        type: OPTION_TYPES.subCommand,
-        name: "list",
-        description: "Show configured alert delivery channels",
-      },
-      {
-        type: OPTION_TYPES.subCommand,
-        name: "set",
-        description: "Send an alert type to a channel",
-        options: [
-          {
-            type: OPTION_TYPES.string,
-            name: "alert",
-            description: "Alert to route",
-            required: true,
-            choices: notificationAlertChoices,
-          },
-          {
-            type: OPTION_TYPES.channel,
-            name: "channel",
-            description: "Channel for this alert",
-            required: true,
-          },
-        ],
-      },
-      {
-        type: OPTION_TYPES.subCommand,
-        name: "unset",
-        description: "Remove an alert channel route",
-        options: [
-          {
-            type: OPTION_TYPES.string,
-            name: "alert",
-            description: "Alert route to remove",
-            required: true,
-            choices: notificationAlertChoices,
-          },
-        ],
-      },
-      {
-        type: OPTION_TYPES.subCommand,
-        name: "test",
-        description: "Send a test message to a configured alert channel",
-        options: [
-          {
-            type: OPTION_TYPES.string,
-            name: "alert",
-            description: "Alert route to test",
-            required: true,
-            choices: notificationAlertChoices,
-          },
-        ],
-      },
-    ],
-  },
-];
+export const commands = await loadDiscordApplicationCommands();
 
 export async function registerDiscordCommands({
   argv = process.argv,
@@ -197,4 +48,33 @@ function requiredEnv(env, name) {
     throw new Error(`${name} is required`);
   }
   return value;
+}
+
+async function loadDiscordApplicationCommands() {
+  const alertsModuleUrl = await transpileTypeScriptModule(new URL("../src/discordAlerts.ts", import.meta.url));
+  const commandsSourceUrl = new URL("../src/discordCommands.ts", import.meta.url);
+  const commandsSource = await readFile(commandsSourceUrl, "utf8");
+  const source = commandsSource.replace(
+    /from\s+["']\.\/discordAlerts["']/g,
+    `from "${alertsModuleUrl}"`,
+  );
+  const moduleUrl = transpiledJavaScriptModuleUrl(source, fileURLToPath(commandsSourceUrl));
+  const module = await import(moduleUrl);
+  return module.discordApplicationCommands();
+}
+
+async function transpileTypeScriptModule(sourceUrl) {
+  const source = await readFile(sourceUrl, "utf8");
+  return transpiledJavaScriptModuleUrl(source, fileURLToPath(sourceUrl));
+}
+
+function transpiledJavaScriptModuleUrl(source, fileName) {
+  const output = ts.transpileModule(source, {
+    compilerOptions: {
+      target: ts.ScriptTarget.ESNext,
+      module: ts.ModuleKind.ESNext,
+    },
+    fileName,
+  }).outputText;
+  return `data:text/javascript;base64,${Buffer.from(output).toString("base64")}`;
 }
