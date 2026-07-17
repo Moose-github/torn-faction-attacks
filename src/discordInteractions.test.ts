@@ -476,13 +476,11 @@ describe("Discord interactions", () => {
       },
     }, env);
 
-    const select = response.data?.components?.[0]?.components?.[0];
     expect(response.type).toBe(7);
     expect(response.data?.embeds?.[0]?.description).toBe("Saved your alert subscriptions.");
+    expect(response.data?.components).toEqual([]);
     expect(env.upserts).toContainEqual([99, DISCORD_ALERT_KEYS.enemyPush, 0]);
     expect(env.upserts).toContainEqual([99, DISCORD_ALERT_KEYS.chainWatchCritical, 1]);
-    expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.enemyPush)).toBe(false);
-    expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.chainWatchCritical)).toBe(true);
   });
 
   it("subscribes the linked Discord user to an alert", async () => {

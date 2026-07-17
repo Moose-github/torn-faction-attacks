@@ -667,13 +667,17 @@ async function submitAlertSubscriptionsResponse(
     )
   ));
 
-  const updatedSubscriptions =
-    await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId) ?? subscriptions;
-  return alertsManageResponse(
-    updatedSubscriptions,
-    DISCORD_RESPONSE_UPDATE_MESSAGE,
-    "Saved your alert subscriptions.",
-  );
+  return discordMessageResponse(DISCORD_RESPONSE_UPDATE_MESSAGE, {
+    flags: DISCORD_FLAG_EPHEMERAL,
+    embeds: [
+      {
+        title: "Manage alert subscriptions",
+        description: "Saved your alert subscriptions.",
+        color: BOT_COLOR,
+      },
+    ],
+    components: [],
+  });
 }
 
 async function alertChannelsResponse(
