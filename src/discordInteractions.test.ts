@@ -378,14 +378,24 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.title).toBe("Manage alert subscriptions");
     expect(select).toMatchObject({
       type: 3,
-      custom_id: DISCORD_COMPONENT_IDS.alertsManage,
+      custom_id: DISCORD_COMPONENT_IDS.alertsManageSelect,
       min_values: 0,
     });
     expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.enemyPush))
       .toBe(true);
+    expect(response.data?.components?.[1]?.components).toEqual([
+      expect.objectContaining({
+        label: "Clear",
+        custom_id: DISCORD_COMPONENT_IDS.alertsManageClear,
+      }),
+      expect.objectContaining({
+        label: "Submit",
+        custom_id: expect.stringMatching(new RegExp(`^${DISCORD_COMPONENT_IDS.alertsManageSubmitPrefix}`)),
+      }),
+    ]);
   });
 
-  it("updates alert subscriptions from the manage dropdown", async () => {
+  it("updates pending alert subscriptions from the manage dropdown", async () => {
     const env = fakeDiscordEnv({
       discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
       subscriptions: {
@@ -398,7 +408,7 @@ describe("Discord interactions", () => {
       type: 3,
       member: { user: { id: "222222222222222222" } },
       data: {
-        custom_id: DISCORD_COMPONENT_IDS.alertsManage,
+        custom_id: DISCORD_COMPONENT_IDS.alertsManageSelect,
         values: [DISCORD_ALERT_KEYS.chainWatchCritical],
       },
     }, env);
@@ -406,12 +416,73 @@ describe("Discord interactions", () => {
     const select = response.data?.components?.[0]?.components?.[0];
     expect(response.type).toBe(7);
     expect(response.data?.embeds?.[0]?.title).toBe("Manage alert subscriptions");
-    expect(env.upserts).toContainEqual([99, DISCORD_ALERT_KEYS.enemyPush, 0]);
-    expect(env.upserts).toContainEqual([99, DISCORD_ALERT_KEYS.chainWatchCritical, 1]);
+    expect(response.data?.embeds?.[0]?.description).toBe("Review your changes, then press Submit to save them.");
+    expect(env.upserts).toEqual([]);
     expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.enemyPush))
       .toBe(false);
     expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.chainWatchCritical))
       .toBe(true);
+  });
+
+  it("clears pending alert subscriptions from the manage controls", async () => {
+    const env = fakeDiscordEnv({
+      discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
+      subscriptions: {
+        [DISCORD_ALERT_KEYS.enemyPush]: true,
+        [DISCORD_ALERT_KEYS.chainWatchCritical]: true,
+      },
+    });
+
+    const response = await handleVerifiedDiscordInteraction({
+      type: 3,
+      member: { user: { id: "222222222222222222" } },
+      data: {
+        custom_id: DISCORD_COMPONENT_IDS.alertsManageClear,
+      },
+    }, env);
+
+    const select = response.data?.components?.[0]?.components?.[0];
+    expect(response.type).toBe(7);
+    expect(response.data?.embeds?.[0]?.description).toBe("All alerts are cleared in this pending selection. Press Submit to save.");
+    expect(env.upserts).toEqual([]);
+    expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.enemyPush)).toBe(false);
+    expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.chainWatchCritical)).toBe(false);
+  });
+
+  it("submits alert subscriptions from the manage controls", async () => {
+    const env = fakeDiscordEnv({
+      discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
+      subscriptions: {
+        [DISCORD_ALERT_KEYS.enemyPush]: true,
+        [DISCORD_ALERT_KEYS.chainWatchCritical]: false,
+      },
+    });
+
+    const pendingResponse = await handleVerifiedDiscordInteraction({
+      type: 3,
+      member: { user: { id: "222222222222222222" } },
+      data: {
+        custom_id: DISCORD_COMPONENT_IDS.alertsManageSelect,
+        values: [DISCORD_ALERT_KEYS.chainWatchCritical],
+      },
+    }, env);
+    const submitCustomId = componentCustomId(pendingResponse.data?.components?.[1]?.components?.[1]);
+
+    const response = await handleVerifiedDiscordInteraction({
+      type: 3,
+      member: { user: { id: "222222222222222222" } },
+      data: {
+        custom_id: submitCustomId,
+      },
+    }, env);
+
+    const select = response.data?.components?.[0]?.components?.[0];
+    expect(response.type).toBe(7);
+    expect(response.data?.embeds?.[0]?.description).toBe("Saved your alert subscriptions.");
+    expect(env.upserts).toContainEqual([99, DISCORD_ALERT_KEYS.enemyPush, 0]);
+    expect(env.upserts).toContainEqual([99, DISCORD_ALERT_KEYS.chainWatchCritical, 1]);
+    expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.enemyPush)).toBe(false);
+    expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.chainWatchCritical)).toBe(true);
   });
 
   it("subscribes the linked Discord user to an alert", async () => {
@@ -605,6 +676,12 @@ function selectOptionDefault(
     options?: Array<{ value: string; default?: boolean }>;
   } | undefined)?.options ?? [];
   return options.find((option) => option.value === value)?.default;
+}
+
+function componentCustomId(component: unknown): string {
+  const customId = (component as { custom_id?: string } | undefined)?.custom_id;
+  expect(customId).toBeTypeOf("string");
+  return customId ?? "";
 }
 
 async function signedDiscordRequest(payload: unknown): Promise<{

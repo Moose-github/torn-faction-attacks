@@ -13,7 +13,9 @@ export const DISCORD_COMPONENT_IDS = {
   warEnemyStatus: "discord:war:enemy:status",
   travelCurrent: "discord:travel:current",
   chainStatus: "discord:chain:status",
-  alertsManage: "discord:alerts:manage",
+  alertsManageSelect: "discord:alerts:manage:select",
+  alertsManageClear: "discord:alerts:manage:clear",
+  alertsManageSubmitPrefix: "discord:alerts:manage:submit:",
 } as const;
 
 export const DISCORD_COMMAND_OPTION_TYPES = {

@@ -34,6 +34,8 @@ const DISCORD_COMPONENT_ACTION_ROW = 1;
 const DISCORD_COMPONENT_BUTTON = 2;
 const DISCORD_COMPONENT_STRING_SELECT = 3;
 const DISCORD_BUTTON_PRIMARY = 1;
+const DISCORD_BUTTON_SECONDARY = 2;
+const DISCORD_BUTTON_SUCCESS = 3;
 const DISCORD_BUTTON_LINK = 5;
 const BOT_COLOR = 0x2f80ed;
 const WARNING_COLOR = 0xffa500;
@@ -335,8 +337,16 @@ async function routeDiscordComponent(
     return chainStatusResponse(env, DISCORD_RESPONSE_UPDATE_MESSAGE);
   }
 
-  if (customId === DISCORD_COMPONENT_IDS.alertsManage) {
+  if (customId === DISCORD_COMPONENT_IDS.alertsManageSelect) {
     return updateAlertSubscriptionsFromSelectResponse(interaction, env);
+  }
+
+  if (customId === DISCORD_COMPONENT_IDS.alertsManageClear) {
+    return clearPendingAlertSubscriptionsResponse(interaction, env);
+  }
+
+  if (customId.startsWith(DISCORD_COMPONENT_IDS.alertsManageSubmitPrefix)) {
+    return submitAlertSubscriptionsResponse(interaction, env);
   }
 
   return ephemeralMessage("That Discord component is no longer supported.");
@@ -599,6 +609,55 @@ async function updateAlertSubscriptionsFromSelectResponse(
     }),
   );
 
+  return alertsManageResponse(
+    subscriptions,
+    DISCORD_RESPONSE_UPDATE_MESSAGE,
+    "Review your changes, then press Submit to save them.",
+    selectedAlertKeys,
+  );
+}
+
+async function clearPendingAlertSubscriptionsResponse(
+  interaction: DiscordInteraction,
+  env: Env,
+): Promise<DiscordInteractionResponse> {
+  const discordUserId = interactionDiscordUserId(interaction);
+  if (!discordUserId) {
+    return ephemeralMessage("Discord did not include your user ID with this interaction.");
+  }
+
+  const subscriptions = await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId);
+  if (!subscriptions) {
+    return ephemeralMessage("I cannot find a Torn member linked to your Discord account yet.");
+  }
+
+  return alertsManageResponse(
+    subscriptions,
+    DISCORD_RESPONSE_UPDATE_MESSAGE,
+    "All alerts are cleared in this pending selection. Press Submit to save.",
+    new Set(),
+  );
+}
+
+async function submitAlertSubscriptionsResponse(
+  interaction: DiscordInteraction,
+  env: Env,
+): Promise<DiscordInteractionResponse> {
+  const discordUserId = interactionDiscordUserId(interaction);
+  if (!discordUserId) {
+    return ephemeralMessage("Discord did not include your user ID with this interaction.");
+  }
+
+  const subscriptions = await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId);
+  if (!subscriptions) {
+    return ephemeralMessage("I cannot find a Torn member linked to your Discord account yet.");
+  }
+
+  const selectedAlertKeys = decodeAlertSelection(
+    subscriptions.alerts,
+    interaction.data?.custom_id?.slice(DISCORD_COMPONENT_IDS.alertsManageSubmitPrefix.length) ?? "",
+  );
+
   await Promise.all(subscriptions.alerts.map((alert) =>
     updateDiscordMemberAlertSubscription(
       env,
@@ -610,7 +669,11 @@ async function updateAlertSubscriptionsFromSelectResponse(
 
   const updatedSubscriptions =
     await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId) ?? subscriptions;
-  return alertsManageResponse(updatedSubscriptions, DISCORD_RESPONSE_UPDATE_MESSAGE);
+  return alertsManageResponse(
+    updatedSubscriptions,
+    DISCORD_RESPONSE_UPDATE_MESSAGE,
+    "Saved your alert subscriptions.",
+  );
 }
 
 async function alertChannelsResponse(
@@ -772,25 +835,31 @@ function alertsListResponse(
 function alertsManageResponse(
   subscriptions: DiscordMemberAlertSubscriptionsResponse,
   responseType: number,
+  description?: string,
+  pendingAlertKeys?: Set<string>,
 ): DiscordInteractionResponse {
-  const enabledCount = subscriptions.alerts.filter((alert) => alert.enabled).length;
+  const selectedAlertKeys = pendingAlertKeys ?? new Set(
+    subscriptions.alerts.filter((alert) => alert.enabled).map((alert) => alert.key),
+  );
+  const enabledCount = selectedAlertKeys.size;
   return discordMessageResponse(responseType, {
     flags: DISCORD_FLAG_EPHEMERAL,
     embeds: [
       {
         title: "Manage alert subscriptions",
-        description: enabledCount === 0
+        description: description ?? (enabledCount === 0
           ? "Select alerts from the dropdown to subscribe yourself."
-          : `You are subscribed to ${enabledCount} alert${enabledCount === 1 ? "" : "s"}. Update the dropdown to change them.`,
+          : `You are subscribed to ${enabledCount} alert${enabledCount === 1 ? "" : "s"}. Update the dropdown to change them.`),
         color: BOT_COLOR,
       },
     ],
-    components: alertSubscriptionComponents(subscriptions.alerts),
+    components: alertSubscriptionComponents(subscriptions.alerts, selectedAlertKeys),
   });
 }
 
 function alertSubscriptionComponents(
   alerts: DiscordMemberAlertSubscriptionSetting[],
+  selectedAlertKeys: Set<string>,
 ): DiscordComponent[] {
   return [
     {
@@ -798,7 +867,7 @@ function alertSubscriptionComponents(
       components: [
         {
           type: DISCORD_COMPONENT_STRING_SELECT,
-          custom_id: DISCORD_COMPONENT_IDS.alertsManage,
+          custom_id: DISCORD_COMPONENT_IDS.alertsManageSelect,
           placeholder: "Choose alert subscriptions",
           min_values: 0,
           max_values: alerts.length,
@@ -806,8 +875,25 @@ function alertSubscriptionComponents(
             label: alert.name,
             value: alert.key,
             description: fitDiscordSelectOptionDescription(alert.description),
-            default: alert.enabled,
+            default: selectedAlertKeys.has(alert.key),
           })),
+        },
+      ],
+    },
+    {
+      type: DISCORD_COMPONENT_ACTION_ROW,
+      components: [
+        {
+          type: DISCORD_COMPONENT_BUTTON,
+          style: DISCORD_BUTTON_SECONDARY,
+          label: "Clear",
+          custom_id: DISCORD_COMPONENT_IDS.alertsManageClear,
+        },
+        {
+          type: DISCORD_COMPONENT_BUTTON,
+          style: DISCORD_BUTTON_SUCCESS,
+          label: "Submit",
+          custom_id: `${DISCORD_COMPONENT_IDS.alertsManageSubmitPrefix}${encodeAlertSelection(alerts, selectedAlertKeys)}`,
         },
       ],
     },
@@ -829,6 +915,31 @@ function fitDiscordSelectOptionDescription(description: string): string {
   return description.length <= DISCORD_SELECT_OPTION_DESCRIPTION_LIMIT
     ? description
     : `${description.slice(0, DISCORD_SELECT_OPTION_DESCRIPTION_LIMIT - 3).trimEnd()}...`;
+}
+
+function encodeAlertSelection(
+  alerts: DiscordMemberAlertSubscriptionSetting[],
+  selectedAlertKeys: Set<string>,
+): string {
+  let mask = 0n;
+  alerts.forEach((alert, index) => {
+    if (selectedAlertKeys.has(alert.key)) {
+      mask |= 1n << BigInt(index);
+    }
+  });
+  return mask.toString(16);
+}
+
+function decodeAlertSelection(
+  alerts: DiscordMemberAlertSubscriptionSetting[],
+  encoded: string,
+): Set<string> {
+  const mask = /^[0-9a-f]+$/i.test(encoded) ? BigInt(`0x${encoded}`) : 0n;
+  return new Set(
+    alerts
+      .filter((_alert, index) => (mask & (1n << BigInt(index))) !== 0n)
+      .map((alert) => alert.key),
+  );
 }
 
 async function readActiveOrLatestWar(env: Env): Promise<WarSummaryForDiscord | null> {
