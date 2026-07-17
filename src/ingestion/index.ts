@@ -6,7 +6,8 @@ import {
   RANKED_WARS_API_URL,
   SOURCE_NAME,
 } from "../constants";
-import { sendDiscordMessage } from "../discord";
+import { sendDiscordAlertMessage } from "../discordAlertDelivery";
+import { DISCORD_ALERT_KEYS } from "../discordAlerts";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "../reports";
 import {
   applyIncrementalWarSummaries,
@@ -922,12 +923,12 @@ async function sendTermedWarAutoEndDiscordMessage(
     crossingAttack: TermedWarCrossingAttackRow | null;
   },
 ): Promise<void> {
-  if (!env.DISCORD_WEBHOOK_URL) {
-    return;
-  }
-
   try {
-    await sendDiscordMessage(env, buildTermedWarAutoEndDiscordMessage(options));
+    await sendDiscordAlertMessage(
+      env,
+      DISCORD_ALERT_KEYS.termedWarAutoEnd,
+      buildTermedWarAutoEndDiscordMessage(options),
+    );
   } catch (err: any) {
     console.warn("Unable to send termed war auto-end Discord message:", err?.message || err);
   }

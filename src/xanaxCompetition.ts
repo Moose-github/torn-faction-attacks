@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID } from "./constants";
-import { sendDiscordMessageWithAttachment } from "./discord";
+import { sendDiscordAlertMessageWithAttachment } from "./discordAlertDelivery";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { claimDailyBatchGate } from "./scheduledGates";
 import { upsertSyncTimestamp } from "./syncState";
 import { Env } from "./types";
@@ -232,7 +233,7 @@ export async function runMonthlyXanaxCompetitionDiscordReminder(
     xanaxImageDataUri: await getXanaxImageDataUri(),
   });
 
-  await sendDiscordMessageWithAttachment(env, {
+  await sendDiscordAlertMessageWithAttachment(env, DISCORD_ALERT_KEYS.xanaxCompetition, {
     content: buildMonthlyXanaxCompetitionDiscordMessage(settings.current_prize),
     filename: `xanax-competition-${settings.month_key}.gif`,
     mimeType: "image/gif",

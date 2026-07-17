@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { sendDiscordMessage } from "./discord";
+import { sendDiscordAlertMessage } from "./discordAlertDelivery";
 import { isEnemyPushAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { readDiscordAlertMentions } from "./discordMentions";
@@ -20,8 +20,8 @@ import {
 import type { Env } from "./types";
 import type { TornFactionMember } from "./types";
 
-vi.mock("./discord", () => ({
-  sendDiscordMessage: vi.fn(),
+vi.mock("./discordAlertDelivery", () => ({
+  sendDiscordAlertMessage: vi.fn(),
 }));
 
 vi.mock("./discordMentions", () => ({
@@ -85,7 +85,7 @@ describe("enemy push alerts", () => {
 
     await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: null });
 
-    expect(sendDiscordMessage).not.toHaveBeenCalled();
+    expect(sendDiscordAlertMessage).not.toHaveBeenCalled();
     expect(readSetSyncLatches).not.toHaveBeenCalled();
     expect(setSyncLatch).not.toHaveBeenCalled();
     expect(clearSyncLatchesByPrefix).not.toHaveBeenCalled();
@@ -96,10 +96,11 @@ describe("enemy push alerts", () => {
 
     await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: null });
 
-    expect(sendDiscordMessage).toHaveBeenCalledOnce();
+    expect(sendDiscordAlertMessage).toHaveBeenCalledOnce();
     expect(readDiscordAlertMentions).toHaveBeenCalledWith(env, DISCORD_ALERT_KEYS.enemyPush);
-    expect(sendDiscordMessage).toHaveBeenCalledWith(
+    expect(sendDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.enemyPush,
       expect.not.stringContaining("<@327916221330620436>"),
       undefined,
     );
@@ -118,8 +119,9 @@ describe("enemy push alerts", () => {
 
     await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: null });
 
-    expect(sendDiscordMessage).toHaveBeenCalledWith(
+    expect(sendDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.enemyPush,
       expect.stringContaining("\n<@111111111111111111> <@&222222222222222222>"),
       {
         users: ["111111111111111111"],
@@ -136,7 +138,7 @@ describe("enemy push alerts", () => {
 
     await sendEnemyPushAlerts(env, 123, "Test War", snapshot, [], { warType: "real", controlState: "enemy_control" });
 
-    expect(sendDiscordMessage).not.toHaveBeenCalled();
+    expect(sendDiscordAlertMessage).not.toHaveBeenCalled();
     expect(setSyncLatch).not.toHaveBeenCalled();
     expect(clearSyncLatch).toHaveBeenCalledWith(env, "enemy_push_alert:123:likely");
     expect(clearSyncLatch).toHaveBeenCalledWith(env, "enemy_push_alert:123:underway");

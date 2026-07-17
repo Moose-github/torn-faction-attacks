@@ -5,6 +5,11 @@ export const DISCORD_ALERT_KEYS = {
   chainWatchDrop: "chain_watch_drop",
   retaliationBoard: "retaliation_board",
   enemyPush: "enemy_push",
+  targetTravelTracker: "target_travel_tracker",
+  homeTravelTracker: "home_travel_tracker",
+  enemyScoutingReport: "enemy_scouting_report",
+  xanaxCompetition: "xanax_competition",
+  termedWarAutoEnd: "termed_war_auto_end",
   shopliftingSecurity: <ShopKey extends string>(shopKey: ShopKey): `shoplifting_security_alert:${ShopKey}` =>
     `shoplifting_security_alert:${shopKey}`,
 } as const;
@@ -45,6 +50,36 @@ export const DISCORD_ALERTS = [
     name: "Enemy push",
     description: "Warnings when enemy push pressure reaches likely or underway.",
     subscribable: true,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.targetTravelTracker,
+    name: "Target travel tracker",
+    description: "Persistent target faction travel tracker updates.",
+    subscribable: false,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.homeTravelTracker,
+    name: "Home travel tracker",
+    description: "Persistent home faction travel tracker updates.",
+    subscribable: false,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.enemyScoutingReport,
+    name: "Enemy scouting report",
+    description: "War matchup scouting reports with stats images.",
+    subscribable: false,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.xanaxCompetition,
+    name: "Xanax competition",
+    description: "Monthly Xanax competition reminder image.",
+    subscribable: false,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.termedWarAutoEnd,
+    name: "Termed war auto-end",
+    description: "Notifications when a termed war score limit is reached.",
+    subscribable: false,
   },
   {
     key: DISCORD_ALERT_KEYS.shopliftingSecurity("big_als"),

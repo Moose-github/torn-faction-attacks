@@ -1,6 +1,7 @@
 import { cleanString, positiveIntegerOrNull, readJsonObject } from "./backend/request";
 import { HOME_FACTION_ID, POSITIVE_RESULTS_SQL, SOURCE_NAME } from "./constants";
-import { createDiscordWebhookMessage, type DiscordEmbed, editDiscordWebhookMessage } from "./discord";
+import { type DiscordEmbed } from "./discord";
+import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { ingestRecentFactionAttacks, RecentAttackIngestionResult } from "./ingestion";
@@ -394,10 +395,6 @@ export async function syncRetaliationDiscordBoard(
     skippedReason,
   });
 
-  if (!env.DISCORD_WEBHOOK_URL) {
-    console.debug("Retaliation board sync skipped: missing Discord webhook");
-    return inactiveResult("missing_webhook");
-  }
   if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.retaliationBoard)) {
     console.debug("Retaliation board sync skipped: alert disabled");
     return inactiveResult("disabled");
@@ -974,18 +971,10 @@ async function upsertRetaliationBoardMessage(
   message: RetaliationBoardDiscordPayload,
 ): Promise<{ ok: boolean; messageId: string | null }> {
   try {
-    if (existingMessageId) {
-      await editDiscordWebhookMessage(
-        env,
-        existingMessageId,
-        message.content,
-        { users: [], roles: [] },
-        { embeds: message.embeds },
-      );
-      return { ok: true, messageId: existingMessageId };
-    }
-    const messageId = await createDiscordWebhookMessage(
+    const messageId = await upsertDiscordAlertMessage(
       env,
+      DISCORD_ALERT_KEYS.retaliationBoard,
+      existingMessageId,
       message.content,
       { users: [], roles: [] },
       { embeds: message.embeds },

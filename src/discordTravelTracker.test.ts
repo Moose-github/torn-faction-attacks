@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createDiscordWebhookMessage,
-  editDiscordWebhookMessage,
-} from "./discord";
+import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import {
   readCurrentScoutingWar,
   refreshHomeFactionMembers,
@@ -21,9 +19,8 @@ import {
 import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
 import type { Env } from "./types";
 
-vi.mock("./discord", () => ({
-  createDiscordWebhookMessage: vi.fn(),
-  editDiscordWebhookMessage: vi.fn(),
+vi.mock("./discordAlertDelivery", () => ({
+  upsertDiscordAlertMessage: vi.fn(),
 }));
 
 vi.mock("./enemyScouting", () => ({
@@ -54,8 +51,9 @@ describe("Discord travel tracker", () => {
       enemy_scouting_status_checked_at: null,
     });
     vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(true);
-    vi.mocked(createDiscordWebhookMessage).mockResolvedValue("message-1");
-    vi.mocked(editDiscordWebhookMessage).mockResolvedValue(undefined);
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, _alertKey, existingMessageId) =>
+      existingMessageId ?? "message-1"
+    );
     vi.mocked(refreshTrackedFactionMemberStatuses).mockResolvedValue({
       writeStatements: 1,
       changedRows: 1,
@@ -80,8 +78,10 @@ describe("Discord travel tracker", () => {
       abroad: 1,
       changed: true,
     });
-    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
+      null,
       expect.stringContaining("test-war Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
@@ -92,16 +92,14 @@ describe("Discord travel tracker", () => {
   it("skips Discord edits when the message content has not changed", async () => {
     const env = fakeEnv();
     await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
-    vi.mocked(createDiscordWebhookMessage).mockClear();
-    vi.mocked(editDiscordWebhookMessage).mockClear();
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
 
     await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
       skipped: true,
       reason: "travel tracker unchanged",
       changed: false,
     });
-    expect(createDiscordWebhookMessage).not.toHaveBeenCalled();
-    expect(editDiscordWebhookMessage).not.toHaveBeenCalled();
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
   });
 
   it("edits the existing message when travel details change", async () => {
@@ -116,8 +114,9 @@ describe("Discord travel tracker", () => {
       message_id: "message-1",
       changed: true,
     });
-    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
       "message-1",
       expect.stringContaining("<t:1800001200:t> (<t:1800001200:R>) | WLT benefit"),
       { users: [], roles: [] },
@@ -131,9 +130,8 @@ describe("Discord travel tracker", () => {
     expect(env.state?.message_id).toBe("message-1");
 
     vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
-    vi.mocked(createDiscordWebhookMessage).mockResolvedValue("message-2");
-    vi.mocked(createDiscordWebhookMessage).mockClear();
-    vi.mocked(editDiscordWebhookMessage).mockClear();
+    vi.mocked(upsertDiscordAlertMessage).mockResolvedValue("message-2");
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
     env.target = {
       id: 1,
       faction_id: 456,
@@ -148,13 +146,14 @@ describe("Discord travel tracker", () => {
       message_id: "message-2",
       changed: true,
     });
-    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
+      null,
       expect.stringContaining("Manual Faction Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
     );
-    expect(editDiscordWebhookMessage).not.toHaveBeenCalled();
     expect(env.state?.message_id).toBe("message-2");
     expect(env.state?.target_source).toBe("manual");
     expect(env.state?.faction_id).toBe(456);
@@ -169,11 +168,47 @@ describe("Discord travel tracker", () => {
       message_id: "message-1",
       changed: true,
     });
-    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
+      null,
       expect.stringContaining("test-war Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/travel-webhook" },
+    );
+  });
+
+  it("syncs target travel through a bot route when no webhook is configured", async () => {
+    const env = fakeEnv();
+    delete env.DISCORD_WEBHOOK_URL;
+    env.notificationRoutes.set(DISCORD_ALERT_KEYS.targetTravelTracker, {
+      guild_id: "guild-1",
+      alert_key: DISCORD_ALERT_KEYS.targetTravelTracker,
+      channel_id: "channel-1",
+      thread_id: null,
+      enabled: 1,
+      updated_by_discord_id: "user-1",
+      updated_at: 1,
+    });
+
+    await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
+      target: {
+        skipped: false,
+        message_id: "message-1",
+        changed: true,
+      },
+      home: {
+        skipped: true,
+        reason: "home travel tracker disabled",
+      },
+    });
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
+      env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
+      null,
+      expect.stringContaining("test-war Travel Tracker"),
+      { users: [], roles: [] },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: undefined },
     );
   });
 
@@ -196,9 +231,11 @@ describe("Discord travel tracker", () => {
         changed: true,
       },
     });
-    expect(createDiscordWebhookMessage).toHaveBeenCalledOnce();
-    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledOnce();
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.homeTravelTracker,
+      null,
       expect.stringContaining("Buttgrass Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: HOME_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
@@ -208,7 +245,7 @@ describe("Discord travel tracker", () => {
   it("creates separate messages when both target and home trackers are enabled", async () => {
     const env = fakeEnv();
     env.states.home = trackerState("home", { enabled: 1 });
-    vi.mocked(createDiscordWebhookMessage)
+    vi.mocked(upsertDiscordAlertMessage)
       .mockResolvedValueOnce("target-message")
       .mockResolvedValueOnce("home-message");
 
@@ -216,7 +253,7 @@ describe("Discord travel tracker", () => {
       target: { message_id: "target-message", source: "war", changed: true },
       home: { message_id: "home-message", source: "home", changed: true },
     });
-    expect(createDiscordWebhookMessage).toHaveBeenCalledTimes(2);
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledTimes(2);
     expect(env.states.target?.message_id).toBe("target-message");
     expect(env.states.home?.message_id).toBe("home-message");
   });
@@ -231,8 +268,7 @@ describe("Discord travel tracker", () => {
       target: { skipped: true, reason: "target travel tracker disabled", changed: false },
       home: { skipped: true, reason: "home travel tracker disabled", changed: false },
     });
-    expect(createDiscordWebhookMessage).not.toHaveBeenCalled();
-    expect(editDiscordWebhookMessage).not.toHaveBeenCalled();
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
   });
 
   it("edits existing messages to stopped notices when trackers are disabled by settings", async () => {
@@ -270,15 +306,17 @@ describe("Discord travel tracker", () => {
         home: { changed: true, source: "inactive", reason: "home travel tracker disabled" },
       },
     });
-    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
       "target-message",
       expect.stringContaining("Target Travel Tracker: stopped"),
       { users: [], roles: [] },
       { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
     );
-    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.homeTravelTracker,
       "home-message",
       expect.stringContaining("Buttgrass Travel Tracker: stopped"),
       { users: [], roles: [] },
@@ -310,14 +348,15 @@ describe("Discord travel tracker", () => {
         message_id: "target-message",
       },
     });
-    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
       "target-message",
       expect.stringContaining("Tracking stopped"),
       { users: [], roles: [] },
       { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
     );
-    expect(createDiscordWebhookMessage).not.toHaveBeenCalled();
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledTimes(1);
   });
 
   it("manual-only sync still allows enabled home tracking", async () => {
@@ -341,7 +380,7 @@ describe("Discord travel tracker", () => {
     });
     expect(refreshTrackedFactionMemberStatuses).not.toHaveBeenCalled();
     expect(refreshHomeFactionMembers).toHaveBeenCalledWith(env);
-    expect(createDiscordWebhookMessage).toHaveBeenCalledOnce();
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledOnce();
   });
 
   it("updates target and home tracker settings independently", async () => {
@@ -412,15 +451,17 @@ describe("Discord travel tracker", () => {
 
     expect(env.states.target?.enabled).toBe(0);
     expect(env.states.home?.enabled).toBe(0);
-    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
       "target-message",
       expect.stringContaining("Target Travel Tracker: stopped"),
       { users: [], roles: [] },
       { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
     );
-    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.homeTravelTracker,
       "home-message",
       expect.stringContaining("Buttgrass Travel Tracker: stopped"),
       { users: [], roles: [] },
@@ -441,7 +482,7 @@ describe("Discord travel tracker", () => {
 
     await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
 
-    const message = vi.mocked(createDiscordWebhookMessage).mock.calls[0]?.[1] ?? "";
+    const message = vi.mocked(upsertDiscordAlertMessage).mock.calls[0]?.[3] ?? "";
     expect(message.length).toBeGreaterThan(1900);
     expect(message).not.toContain("\n...");
     expect(message).toContain("LongTrackerName17WithSeveralWords");
@@ -466,8 +507,10 @@ describe("Discord travel tracker", () => {
       changed: true,
     });
     expect(refreshTrackedFactionMemberStatuses).toHaveBeenCalledWith(env, 456, 1_799_999_900);
-    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
+      null,
       expect.stringContaining("Manual Faction Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
@@ -491,8 +534,10 @@ describe("Discord travel tracker", () => {
       target: { faction_id: 789, faction_name: "Target Name", enabled: true },
       sync: { source: "manual", faction_id: 789, changed: true },
     });
-    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
+      null,
       expect.stringContaining("Target Name Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
@@ -527,8 +572,10 @@ describe("Discord travel tracker", () => {
       faction_id: 456,
       changed: true,
     });
-    expect(createDiscordWebhookMessage).toHaveBeenCalledWith(
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
+      null,
       expect.stringContaining("Manual Faction Travel Tracker"),
       { users: [], roles: [] },
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
@@ -610,6 +657,15 @@ type FakeEnv = Env & {
   target: FakeTarget | null;
   rows: FakeRow[];
   homeRows: FakeRow[];
+  notificationRoutes: Map<string, {
+    guild_id: string;
+    alert_key: string;
+    channel_id: string;
+    thread_id: string | null;
+    enabled: number;
+    updated_by_discord_id: string | null;
+    updated_at: number;
+  }>;
 };
 
 function fakeEnv(): FakeEnv {
@@ -620,6 +676,7 @@ function fakeEnv(): FakeEnv {
       target: null,
       home: null,
     },
+    notificationRoutes: new Map(),
     target: null,
     rows: [
       {
@@ -698,6 +755,14 @@ function fakeEnv(): FakeEnv {
         }
         if (sql.includes("FROM discord_travel_tracker_target")) {
           return Promise.resolve(env.target?.enabled === 1 ? env.target : null);
+        }
+        if (sql.includes("FROM discord_notification_channels")) {
+          const alertKey = values[0] as string;
+          return Promise.resolve(
+            Array.from(env.notificationRoutes.values())
+              .filter((route) => route.alert_key === alertKey && route.enabled === 1)
+              .sort((left, right) => right.updated_at - left.updated_at || left.guild_id.localeCompare(right.guild_id))[0] ?? null,
+          );
         }
         return Promise.resolve(null);
       },

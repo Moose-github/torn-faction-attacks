@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import type { Env } from "./types";
 
 const discordMock = vi.hoisted(() => ({
-  sendDiscordMessageWithAttachment: vi.fn(),
+  sendDiscordAlertMessageWithAttachment: vi.fn(),
 }));
 
 const rendererMock = vi.hoisted(() => ({
   renderXanaxCompetitionReminderGif: vi.fn(async () => new Uint8Array([1, 2, 3])),
 }));
 
-vi.mock("./discord", () => discordMock);
+vi.mock("./discordAlertDelivery", () => discordMock);
 vi.mock("./xanaxCompetitionImageRenderer", () => rendererMock);
 
 import {
@@ -22,7 +23,7 @@ describe("monthly Xanax competition Discord reminder", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-01T00:10:00.000Z"));
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 404 })));
-    discordMock.sendDiscordMessageWithAttachment.mockReset();
+    discordMock.sendDiscordAlertMessageWithAttachment.mockReset();
     rendererMock.renderXanaxCompetitionReminderGif.mockClear();
     rendererMock.renderXanaxCompetitionReminderGif.mockResolvedValue(new Uint8Array([1, 2, 3]));
   });
@@ -55,7 +56,7 @@ describe("monthly Xanax competition Discord reminder", () => {
       currentPrize: 20_000_000,
       xanaxImageDataUri: null,
     });
-    expect(discordMock.sendDiscordMessageWithAttachment).toHaveBeenCalledWith(fixture.env, {
+    expect(discordMock.sendDiscordAlertMessageWithAttachment).toHaveBeenCalledWith(fixture.env, DISCORD_ALERT_KEYS.xanaxCompetition, {
       content: "New month, new Xanax competition: the prize is $20,000,000. Take 100 Xanax this month to claim it.",
       filename: "xanax-competition-2026-06.gif",
       mimeType: "image/gif",
@@ -69,7 +70,7 @@ describe("monthly Xanax competition Discord reminder", () => {
   });
 
   it("does not mark the month complete when Discord send fails", async () => {
-    discordMock.sendDiscordMessageWithAttachment.mockRejectedValueOnce(new Error("discord down"));
+    discordMock.sendDiscordAlertMessageWithAttachment.mockRejectedValueOnce(new Error("discord down"));
     const fixture = createReminderFixture({
       lastRolloverMonthKey: "2026-04",
       rolloverCount: 0,

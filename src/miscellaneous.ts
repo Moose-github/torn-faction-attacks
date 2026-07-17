@@ -1,4 +1,4 @@
-import { sendDiscordMessage } from "./discord";
+import { sendDiscordAlertMessage } from "./discordAlertDelivery";
 import {
   readShopliftingSecurityAlertSettings,
   SHOPLIFTING_SECURITY_ALERTS,
@@ -196,8 +196,9 @@ async function sendShopliftingSecurityAlerts(
     }
 
     const mentions = await readDiscordAlertMentions(env, alertKey);
-    await sendDiscordMessage(
+    await sendDiscordAlertMessage(
       env,
+      alertKey,
       formatDiscordAlertMessage(formatShopliftingSecurityAlert(alert.shopName), mentions.messageSuffix),
       mentions.allowedMentions,
     );

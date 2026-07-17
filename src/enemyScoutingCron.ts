@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID } from "./constants";
-import { sendDiscordMessageWithAttachments } from "./discord";
+import { sendDiscordAlertMessageWithAttachments } from "./discordAlertDelivery";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { syncDiscordTravelTracker } from "./discordTravelTracker";
 import {
   renderEnemyMemberStatsTablePng,
@@ -929,7 +930,7 @@ async function sendPendingEnemyStatsComparisonImageForContext(
   });
   const startAt = scoutingWar.official_start_time ?? scoutingWar.practical_start_time;
 
-  await sendDiscordMessageWithAttachments(env, {
+  await sendDiscordAlertMessageWithAttachments(env, DISCORD_ALERT_KEYS.enemyScoutingReport, {
     content: `War matchup announced: Buttgrass vs ${scoutingWar.name}. Starts <t:${startAt}:R>`,
     attachments: [
       {

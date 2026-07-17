@@ -1,8 +1,10 @@
 import { cleanString, positiveIntegerOrNull, readJsonObject } from "./backend/request";
 import {
-  createDiscordWebhookMessage,
-  editDiscordWebhookMessage,
+  type DiscordAllowedMentions,
 } from "./discord";
+import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
+import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
+import { readDefaultDiscordNotificationChannel } from "./discordNotificationChannels";
 import {
   HOME_FACTION_ID,
 } from "./constants";
@@ -29,6 +31,8 @@ const TRAVEL_TRACKER_EMBED_SAFE_LIMIT = 3900;
 const TARGET_TRACKER_KEY = "target";
 const HOME_TRACKER_KEY = "home";
 const HOME_TRACKER_TITLE = "Buttgrass Travel Tracker";
+const MISSING_TRAVEL_TRACKER_DESTINATION_REASON =
+  "Discord travel tracker route or DISCORD_TRAVEL_TRACKER_WEBHOOK_URL/DISCORD_WEBHOOK_URL is not configured";
 
 type DiscordTravelTrackerState = {
   tracker_key: TravelTrackerKey;
@@ -223,13 +227,13 @@ export async function syncDiscordTravelTracker(
     readTravelTrackerState(env, TARGET_TRACKER_KEY),
     readTravelTrackerState(env, HOME_TRACKER_KEY),
   ]);
-  const destination = readTravelTrackerDestination(env);
+  const destination = await readTravelTrackerDestination(env);
   const checkedAt = options.scheduledTime ? Math.floor(options.scheduledTime / 1000) : nowSeconds();
 
   if (!destination) {
     return combinedTrackerResult(
-      trackerResult(TARGET_TRACKER_KEY, trackerEnabled(TARGET_TRACKER_KEY, targetState), true, "DISCORD_TRAVEL_TRACKER_WEBHOOK_URL or DISCORD_WEBHOOK_URL is not configured", null, null, "inactive", targetState?.message_id ?? null, 0, 0, false),
-      trackerResult(HOME_TRACKER_KEY, trackerEnabled(HOME_TRACKER_KEY, homeState), true, "DISCORD_TRAVEL_TRACKER_WEBHOOK_URL or DISCORD_WEBHOOK_URL is not configured", null, HOME_FACTION_ID, "inactive", homeState?.message_id ?? null, 0, 0, false),
+      trackerResult(TARGET_TRACKER_KEY, trackerEnabled(TARGET_TRACKER_KEY, targetState), true, MISSING_TRAVEL_TRACKER_DESTINATION_REASON, null, null, "inactive", targetState?.message_id ?? null, 0, 0, false),
+      trackerResult(HOME_TRACKER_KEY, trackerEnabled(HOME_TRACKER_KEY, homeState), true, MISSING_TRAVEL_TRACKER_DESTINATION_REASON, null, HOME_FACTION_ID, "inactive", homeState?.message_id ?? null, 0, 0, false),
     );
   }
 
@@ -249,11 +253,15 @@ async function syncTargetTravelTracker(
   options: { force?: boolean; manualOnly?: boolean },
 ): Promise<DiscordTravelTrackerChannelSyncResult> {
   const enabled = trackerEnabled(TARGET_TRACKER_KEY, state);
+  const canDeliver = travelTrackerDeliveryAvailable(destination, TARGET_TRACKER_KEY);
   if (!enabled) {
-    if (state?.message_id && options.force) {
+    if (state?.message_id && options.force && canDeliver) {
       return stopTravelTrackerMessage(env, TARGET_TRACKER_KEY, state, destination, checkedAt, "target travel tracker disabled");
     }
     return trackerResult(TARGET_TRACKER_KEY, enabled, true, "target travel tracker disabled", null, null, "inactive", state?.message_id ?? null, 0, 0, false);
+  }
+  if (!canDeliver) {
+    return trackerResult(TARGET_TRACKER_KEY, enabled, true, MISSING_TRAVEL_TRACKER_DESTINATION_REASON, null, null, "inactive", state?.message_id ?? null, 0, 0, false);
   }
 
   const target = await resolveTravelTrackerTarget(env, checkedAt);
@@ -295,11 +303,15 @@ async function syncHomeTravelTracker(
   options: { force: boolean; skipRefresh: boolean },
 ): Promise<DiscordTravelTrackerChannelSyncResult> {
   const enabled = trackerEnabled(HOME_TRACKER_KEY, state);
+  const canDeliver = travelTrackerDeliveryAvailable(destination, HOME_TRACKER_KEY);
   if (!enabled) {
-    if (state?.message_id && options.force) {
+    if (state?.message_id && options.force && canDeliver) {
       return stopTravelTrackerMessage(env, HOME_TRACKER_KEY, state, destination, checkedAt, "home travel tracker disabled");
     }
     return trackerResult(HOME_TRACKER_KEY, enabled, true, "home travel tracker disabled", null, HOME_FACTION_ID, "home", state?.message_id ?? null, 0, 0, false);
+  }
+  if (!canDeliver) {
+    return trackerResult(HOME_TRACKER_KEY, enabled, true, MISSING_TRAVEL_TRACKER_DESTINATION_REASON, null, HOME_FACTION_ID, "home", state?.message_id ?? null, 0, 0, false);
   }
 
   const target: TravelTrackerTarget = {
@@ -340,7 +352,7 @@ async function stopTravelTrackerMessage(
     return trackerResult(trackerKey, enabled, true, "travel tracker unchanged", state.war_id, state.faction_id, "inactive", state.message_id, 0, 0, false);
   }
 
-  await editExistingTravelTrackerMessage(env, state.message_id!, destination, message);
+  const messageId = await editExistingTravelTrackerMessage(env, trackerKey, state.message_id!, destination, message);
   await saveTravelTrackerState(env, {
     trackerKey,
     enabled,
@@ -348,12 +360,12 @@ async function stopTravelTrackerMessage(
     warId: state.war_id,
     factionId: state.faction_id,
     destinationKey: destination.key,
-    messageId: state.message_id,
+    messageId,
     contentHash: hash,
     checkedAt,
   });
 
-  return trackerResult(trackerKey, enabled, false, reason, state.war_id, state.faction_id, "inactive", state.message_id, 0, 0, true);
+  return trackerResult(trackerKey, enabled, false, reason, state.war_id, state.faction_id, "inactive", messageId, 0, 0, true);
 }
 
 async function updateTravelTrackerMessage(
@@ -384,13 +396,8 @@ async function updateTravelTrackerMessage(
   }
 
   const messageId = reusableMessageId
-    ? await editExistingTravelTrackerMessage(env, reusableMessageId, destination, message)
-    : await createDiscordWebhookMessage(
-      env,
-      message.content,
-      { users: [], roles: [] },
-      { embedColor: message.color, webhookUrl: destination.webhookUrl },
-    );
+    ? await editExistingTravelTrackerMessage(env, trackerKey, reusableMessageId, destination, message)
+    : await createTravelTrackerMessage(env, trackerKey, destination, message);
 
   await saveTravelTrackerState(env, {
     trackerKey,
@@ -409,18 +416,45 @@ async function updateTravelTrackerMessage(
 
 async function editExistingTravelTrackerMessage(
   env: Env,
+  trackerKey: TravelTrackerKey,
   messageId: string,
   destination: TravelTrackerDestination,
   message: { content: string; color: number },
-): Promise<string> {
-  await editDiscordWebhookMessage(
+): Promise<string | null> {
+  return await upsertDiscordAlertMessage(
     env,
+    travelTrackerAlertKey(trackerKey),
     messageId,
     message.content,
-    { users: [], roles: [] },
+    emptyAllowedMentions(),
     { embedColor: message.color, webhookUrl: destination.webhookUrl },
   );
-  return messageId;
+}
+
+async function createTravelTrackerMessage(
+  env: Env,
+  trackerKey: TravelTrackerKey,
+  destination: TravelTrackerDestination,
+  message: { content: string; color: number },
+): Promise<string | null> {
+  return upsertDiscordAlertMessage(
+    env,
+    travelTrackerAlertKey(trackerKey),
+    null,
+    message.content,
+    emptyAllowedMentions(),
+    { embedColor: message.color, webhookUrl: destination.webhookUrl },
+  );
+}
+
+function travelTrackerAlertKey(trackerKey: TravelTrackerKey): DiscordAlertKey {
+  return trackerKey === HOME_TRACKER_KEY
+    ? DISCORD_ALERT_KEYS.homeTravelTracker
+    : DISCORD_ALERT_KEYS.targetTravelTracker;
+}
+
+function emptyAllowedMentions(): DiscordAllowedMentions {
+  return { users: [], roles: [] };
 }
 
 function buildTravelTrackerMessage(
@@ -496,13 +530,43 @@ function isSameTrackerTarget(
 }
 
 type TravelTrackerDestination = {
-  webhookUrl: string;
+  webhookUrl?: string;
   key: string;
+  routedAlertKeys: Set<DiscordAlertKey>;
 };
 
-function readTravelTrackerDestination(env: Env): TravelTrackerDestination | null {
+async function readTravelTrackerDestination(env: Env): Promise<TravelTrackerDestination | null> {
   const webhookUrl = env.DISCORD_TRAVEL_TRACKER_WEBHOOK_URL?.trim() || env.DISCORD_WEBHOOK_URL?.trim();
-  return webhookUrl ? { webhookUrl, key: contentHash(webhookUrl) } : null;
+  const routedAlertKeys = new Set<DiscordAlertKey>();
+  await Promise.all([
+    addRoutedTravelTrackerAlertKey(env, routedAlertKeys, DISCORD_ALERT_KEYS.targetTravelTracker),
+    addRoutedTravelTrackerAlertKey(env, routedAlertKeys, DISCORD_ALERT_KEYS.homeTravelTracker),
+  ]);
+  if (!webhookUrl && routedAlertKeys.size === 0) {
+    return null;
+  }
+
+  return {
+    webhookUrl: webhookUrl || undefined,
+    routedAlertKeys,
+    key: webhookUrl
+      ? contentHash(webhookUrl)
+      : `discord-bot-route:${Array.from(routedAlertKeys).sort().join(",")}`,
+  };
+}
+
+async function addRoutedTravelTrackerAlertKey(
+  env: Env,
+  routedAlertKeys: Set<DiscordAlertKey>,
+  alertKey: DiscordAlertKey,
+): Promise<void> {
+  if (await readDefaultDiscordNotificationChannel(env, alertKey)) {
+    routedAlertKeys.add(alertKey);
+  }
+}
+
+function travelTrackerDeliveryAvailable(destination: TravelTrackerDestination, trackerKey: TravelTrackerKey): boolean {
+  return Boolean(destination.webhookUrl || destination.routedAlertKeys.has(travelTrackerAlertKey(trackerKey)));
 }
 
 async function resolveTravelTrackerTarget(env: Env, checkedAt: number): Promise<TravelTrackerTarget | null> {

@@ -1,5 +1,5 @@
 import { HOME_FACTION_ID } from "./constants";
-import { sendDiscordMessage } from "./discord";
+import { sendDiscordAlertMessage } from "./discordAlertDelivery";
 import {
   ENEMY_PUSH_ALERT_STATE_PREFIX,
   isEnemyPushAlertEnabled,
@@ -612,8 +612,9 @@ async function sendEnemyPushAlertIfNeeded(
   }
 
   const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.enemyPush);
-  await sendDiscordMessage(
+  await sendDiscordAlertMessage(
     env,
+    DISCORD_ALERT_KEYS.enemyPush,
     formatDiscordAlertMessage(message, mentions.messageSuffix),
     mentions.allowedMentions,
   );

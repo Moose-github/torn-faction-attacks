@@ -5,7 +5,8 @@ import {
   SOURCE_NAME,
   TORN_FACTION_CHAIN_API_URL,
 } from "./constants";
-import { createDiscordWebhookMessage, type DiscordAllowedMentions, editDiscordWebhookMessage } from "./discord";
+import { type DiscordAllowedMentions } from "./discord";
+import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
@@ -1078,9 +1079,6 @@ async function upsertChainWatchDiscordMessage(
   options: string | { message: string; allowedMentions?: DiscordAllowedMentions },
   embedColor?: number,
 ): Promise<string | null> {
-  if (!env.DISCORD_WEBHOOK_URL) {
-    return existingMessageId;
-  }
   if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.chainWatch)) {
     return existingMessageId;
   }
@@ -1089,12 +1087,14 @@ async function upsertChainWatchDiscordMessage(
   const allowedMentions = typeof options === "string" ? { users: [], roles: [] } : options.allowedMentions;
 
   try {
-    if (existingMessageId) {
-      await editDiscordWebhookMessage(env, existingMessageId, message, allowedMentions, { embedColor });
-      return existingMessageId;
-    }
-
-    return await createDiscordWebhookMessage(env, message, allowedMentions, { embedColor });
+    return await upsertDiscordAlertMessage(
+      env,
+      DISCORD_ALERT_KEYS.chainWatch,
+      existingMessageId,
+      message,
+      allowedMentions,
+      { embedColor },
+    );
   } catch (err: any) {
     console.warn("Chain Watch Discord alert failed:", err?.message || err);
     return existingMessageId;

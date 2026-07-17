@@ -15,11 +15,24 @@ const notificationAlertChoices = [
   { name: "Chain watch dropped", value: "chain_watch_drop" },
   { name: "Retaliation board", value: "retaliation_board" },
   { name: "Enemy push", value: "enemy_push" },
+  { name: "Target travel tracker", value: "target_travel_tracker" },
+  { name: "Home travel tracker", value: "home_travel_tracker" },
+  { name: "Enemy scouting report", value: "enemy_scouting_report" },
+  { name: "Xanax competition", value: "xanax_competition" },
+  { name: "Termed war auto-end", value: "termed_war_auto_end" },
   { name: "Big Als shoplifting", value: "shoplifting_security_alert:big_als" },
   { name: "Jewelry Store shoplifting", value: "shoplifting_security_alert:jewelry_store" },
 ];
 const subscriptionAlertChoices = notificationAlertChoices
-  .filter((alert) => !["chain_watch", "retaliation_board"].includes(alert.value));
+  .filter((alert) => ![
+    "chain_watch",
+    "retaliation_board",
+    "target_travel_tracker",
+    "home_travel_tracker",
+    "enemy_scouting_report",
+    "xanax_competition",
+    "termed_war_auto_end",
+  ].includes(alert.value));
 
 export const commands = [
   {

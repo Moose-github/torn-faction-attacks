@@ -259,10 +259,14 @@ export async function sendDiscordMessageWithAttachment(
     filename: string;
     mimeType: string;
     data: string | Uint8Array;
+    allowedMentions?: DiscordAllowedMentions;
+    webhookUrl?: string;
   },
 ): Promise<void> {
   return sendDiscordMessageWithAttachments(env, {
     content: options.content,
+    allowedMentions: options.allowedMentions,
+    webhookUrl: options.webhookUrl,
     attachments: [
       {
         filename: options.filename,
@@ -277,6 +281,8 @@ export async function sendDiscordMessageWithAttachments(
   env: Env,
   options: {
     content: string;
+    allowedMentions?: DiscordAllowedMentions;
+    webhookUrl?: string;
     attachments: Array<{
       filename: string;
       mimeType: string;
@@ -284,7 +290,8 @@ export async function sendDiscordMessageWithAttachments(
     }>;
   },
 ): Promise<void> {
-  if (!env.DISCORD_WEBHOOK_URL) {
+  const webhookUrl = options.webhookUrl ?? env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
     throw new Error("DISCORD_WEBHOOK_URL is not configured");
   }
 
@@ -293,7 +300,7 @@ export async function sendDiscordMessageWithAttachments(
   }
 
   const form = new FormData();
-  form.append("payload_json", JSON.stringify({ content: options.content }));
+  form.append("payload_json", JSON.stringify(discordPayload(options.content, options.allowedMentions)));
   options.attachments.forEach((attachment, index) => {
     form.append(
       `files[${index}]`,
@@ -302,7 +309,7 @@ export async function sendDiscordMessageWithAttachments(
     );
   });
 
-  await postDiscordForm(env.DISCORD_WEBHOOK_URL, form);
+  await postDiscordForm(webhookUrl, form);
 }
 
 export async function sendDiscordBotMessageWithAttachment(
