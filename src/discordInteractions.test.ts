@@ -4,7 +4,7 @@ import {
   handleVerifiedDiscordInteraction,
   verifyDiscordRequestSignature,
 } from "./discordInteractions";
-import { discordApplicationCommands } from "./discordCommands";
+import { DISCORD_COMPONENT_IDS, discordApplicationCommands } from "./discordCommands";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import type { Env, WarRow } from "./types";
 
@@ -12,7 +12,7 @@ describe("Discord interactions", () => {
   it("registers bot and alert slash commands", () => {
     expect(discordApplicationCommands().map((command) => command.name)).toEqual(["bot", "alerts", "alert-channels"]);
     expect(discordApplicationCommands().find((command) => command.name === "alerts")?.options?.map((option) => option.name))
-      .toEqual(["list", "subscribe", "unsubscribe"]);
+      .toEqual(["list", "manage", "subscribe", "unsubscribe"]);
     expect(discordApplicationCommands().find((command) => command.name === "alert-channels"))
       .toMatchObject({
         default_member_permissions: "32",
@@ -125,6 +125,10 @@ describe("Discord interactions", () => {
     expect(response.type).toBe(4);
     expect(response.data?.flags).toBe(64);
     expect(response.data?.embeds?.[0]?.title).toBe("Butt Dashboard Bot");
+    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts list`");
+    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts manage`");
+    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts subscribe`");
+    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts unsubscribe`");
   });
 
   it("formats member leaderboards with linked Discord mentions", async () => {
@@ -316,6 +320,10 @@ describe("Discord interactions", () => {
     expect(response.type).toBe(4);
     expect(response.data?.flags).toBe(64);
     expect(response.data?.embeds?.[0]?.title).toBe("Available alert subscriptions");
+    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts manage`");
+    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts subscribe`");
+    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts unsubscribe`");
+    expect(response.data?.embeds?.[0]?.description).toContain("[Dashboard settings](https://buttgrass.pages.dev/settings)");
     expect(response.data?.embeds?.[0]?.fields?.some((field) =>
       field.name === "Enemy push - subscribed"
     )).toBe(true);
@@ -342,8 +350,68 @@ describe("Discord interactions", () => {
       discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
     }));
 
-    expect(response.data?.content).toBe("Use `/alerts list`, `/alerts subscribe`, or `/alerts unsubscribe`.");
+    expect(response.data?.content).toBe("Use `/alerts list`, `/alerts manage`, `/alerts subscribe`, or `/alerts unsubscribe`.");
     expect(response.data?.content).not.toContain("subscribed");
+  });
+
+  it("shows alert subscriptions in a manage dropdown", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      member: { user: { id: "222222222222222222" } },
+      data: {
+        name: "alerts",
+        options: [
+          {
+            type: 1,
+            name: "manage",
+          },
+        ],
+      },
+    }, fakeDiscordEnv({
+      discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
+      subscriptions: { [DISCORD_ALERT_KEYS.enemyPush]: true },
+    }));
+
+    const select = response.data?.components?.[0]?.components?.[0];
+    expect(response.type).toBe(4);
+    expect(response.data?.flags).toBe(64);
+    expect(response.data?.embeds?.[0]?.title).toBe("Manage alert subscriptions");
+    expect(select).toMatchObject({
+      type: 3,
+      custom_id: DISCORD_COMPONENT_IDS.alertsManage,
+      min_values: 0,
+    });
+    expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.enemyPush))
+      .toBe(true);
+  });
+
+  it("updates alert subscriptions from the manage dropdown", async () => {
+    const env = fakeDiscordEnv({
+      discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
+      subscriptions: {
+        [DISCORD_ALERT_KEYS.enemyPush]: true,
+        [DISCORD_ALERT_KEYS.chainWatchCritical]: false,
+      },
+    });
+
+    const response = await handleVerifiedDiscordInteraction({
+      type: 3,
+      member: { user: { id: "222222222222222222" } },
+      data: {
+        custom_id: DISCORD_COMPONENT_IDS.alertsManage,
+        values: [DISCORD_ALERT_KEYS.chainWatchCritical],
+      },
+    }, env);
+
+    const select = response.data?.components?.[0]?.components?.[0];
+    expect(response.type).toBe(7);
+    expect(response.data?.embeds?.[0]?.title).toBe("Manage alert subscriptions");
+    expect(env.upserts).toContainEqual([99, DISCORD_ALERT_KEYS.enemyPush, 0]);
+    expect(env.upserts).toContainEqual([99, DISCORD_ALERT_KEYS.chainWatchCritical, 1]);
+    expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.enemyPush))
+      .toBe(false);
+    expect(selectOptionDefault(select, DISCORD_ALERT_KEYS.chainWatchCritical))
+      .toBe(true);
   });
 
   it("subscribes the linked Discord user to an alert", async () => {
@@ -477,6 +545,8 @@ describe("Discord interactions", () => {
       name: "Enemy push",
       value: expect.stringContaining("<#333333333333333333>"),
     });
+    expect(response.data?.embeds?.[0]?.fields?.[0]?.value).not.toContain("Key:");
+    expect(response.data?.embeds?.[0]?.fields?.[0]?.value).not.toContain(DISCORD_ALERT_KEYS.enemyPush);
   });
 
   it("unsets alert channel routes for Discord admins", async () => {
@@ -526,6 +596,16 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).toBe("No alert channels are configured yet.");
   });
 });
+
+function selectOptionDefault(
+  component: unknown,
+  value: string,
+): boolean | undefined {
+  const options = (component as {
+    options?: Array<{ value: string; default?: boolean }>;
+  } | undefined)?.options ?? [];
+  return options.find((option) => option.value === value)?.default;
+}
 
 async function signedDiscordRequest(payload: unknown): Promise<{
   request: Request;

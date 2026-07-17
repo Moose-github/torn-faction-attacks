@@ -13,6 +13,7 @@ export const DISCORD_COMPONENT_IDS = {
   warEnemyStatus: "discord:war:enemy:status",
   travelCurrent: "discord:travel:current",
   chainStatus: "discord:chain:status",
+  alertsManage: "discord:alerts:manage",
 } as const;
 
 export const DISCORD_COMMAND_OPTION_TYPES = {
@@ -72,6 +73,11 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
           type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
           name: "list",
           description: "Show available subscribable alerts",
+        },
+        {
+          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+          name: "manage",
+          description: "Manage your alert subscriptions with a dropdown",
         },
         {
           type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
