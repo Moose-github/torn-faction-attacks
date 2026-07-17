@@ -511,6 +511,18 @@ CREATE TABLE discord_member_alert_subscriptions (
   PRIMARY KEY (torn_user_id, alert_key)
 );
 
+CREATE TABLE discord_notification_channels (
+  guild_id TEXT NOT NULL,
+  alert_key TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  thread_id TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  updated_by_discord_id TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (guild_id, alert_key)
+);
+
 CREATE TABLE member_gym_stats_current (
   member_id INTEGER PRIMARY KEY,
   member_name TEXT,
@@ -1217,6 +1229,8 @@ CREATE INDEX idx_discord_admin_alert_subscriptions_alert
   ON discord_admin_alert_subscriptions (alert_key, enabled);
 CREATE INDEX idx_discord_member_alert_subscriptions_alert
   ON discord_member_alert_subscriptions (alert_key, enabled);
+CREATE INDEX idx_discord_notification_channels_alert
+  ON discord_notification_channels (alert_key, enabled);
 
 CREATE INDEX idx_enemy_faction_members_faction
   ON enemy_faction_members(faction_id);

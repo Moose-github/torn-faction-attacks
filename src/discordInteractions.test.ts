@@ -12,7 +12,7 @@ describe("Discord interactions", () => {
   it("registers bot and alert slash commands", () => {
     expect(discordApplicationCommands().map((command) => command.name)).toEqual(["bot", "alerts"]);
     expect(discordApplicationCommands().find((command) => command.name === "alerts")?.options?.map((option) => option.name))
-      .toEqual(["list", "subscribed", "subscribe", "unsubscribe"]);
+      .toEqual(["list", "subscribed", "subscribe", "unsubscribe", "channels"]);
   });
 
   it("verifies valid Ed25519 request signatures", async () => {
@@ -396,6 +396,133 @@ describe("Discord interactions", () => {
     expect(response.data?.content).toBe("I cannot find a Torn member linked to your Discord account yet.");
     expect(env.upserts).toEqual([]);
   });
+
+  it("sets alert channel routes for Discord admins", async () => {
+    const env = fakeDiscordEnv({
+      discordAdminUserIds: "222222222222222222",
+    });
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "727247760931160167",
+      member: { user: { id: "222222222222222222" }, roles: [] },
+      data: {
+        name: "alerts",
+        options: [
+          {
+            type: 2,
+            name: "channels",
+            options: [
+              {
+                type: 1,
+                name: "set",
+                options: [
+                  { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
+                  { type: 7, name: "channel", value: "333333333333333333" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    }, env);
+
+    expect(response.data?.embeds?.[0]?.title).toBe("Alert channel route saved");
+    expect(response.data?.embeds?.[0]?.description).toContain("<#333333333333333333>");
+    expect(env.notificationRoutes.get("727247760931160167:enemy_push")).toMatchObject({
+      guild_id: "727247760931160167",
+      alert_key: DISCORD_ALERT_KEYS.enemyPush,
+      channel_id: "333333333333333333",
+      enabled: 1,
+      updated_by_discord_id: "222222222222222222",
+    });
+  });
+
+  it("lists configured alert channel routes", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "727247760931160167",
+      member: { user: { id: "222222222222222222" }, roles: ["999999999999999999"] },
+      data: {
+        name: "alerts",
+        options: [
+          {
+            type: 2,
+            name: "channels",
+            options: [{ type: 1, name: "list" }],
+          },
+        ],
+      },
+    }, fakeDiscordEnv({
+      discordAdminRoleIds: "999999999999999999",
+      notificationRoutes: {
+        [DISCORD_ALERT_KEYS.enemyPush]: "333333333333333333",
+      },
+    }));
+
+    expect(response.data?.embeds?.[0]?.title).toBe("Alert channel routes");
+    expect(response.data?.embeds?.[0]?.fields?.[0]).toMatchObject({
+      name: "Enemy push",
+      value: expect.stringContaining("<#333333333333333333>"),
+    });
+  });
+
+  it("unsets alert channel routes for Discord admins", async () => {
+    const env = fakeDiscordEnv({
+      discordAdminUserIds: "222222222222222222",
+      notificationRoutes: {
+        [DISCORD_ALERT_KEYS.enemyPush]: "333333333333333333",
+      },
+    });
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "727247760931160167",
+      member: { user: { id: "222222222222222222" }, roles: [] },
+      data: {
+        name: "alerts",
+        options: [
+          {
+            type: 2,
+            name: "channels",
+            options: [
+              {
+                type: 1,
+                name: "unset",
+                options: [
+                  { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    }, env);
+
+    expect(response.data?.embeds?.[0]?.title).toBe("Alert channel route removed");
+    expect(env.notificationRoutes.has("727247760931160167:enemy_push")).toBe(false);
+  });
+
+  it("does not let non-admins configure alert channel routes", async () => {
+    const env = fakeDiscordEnv({
+      discordAdminUserIds: "111111111111111111",
+    });
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "727247760931160167",
+      member: { user: { id: "222222222222222222" }, roles: [] },
+      data: {
+        name: "alerts",
+        options: [
+          {
+            type: 2,
+            name: "channels",
+            options: [{ type: 1, name: "list" }],
+          },
+        ],
+      },
+    }, env);
+
+    expect(response.data?.content).toBe("Only configured Discord bot admins can change alert channel routing.");
+  });
 });
 
 async function signedDiscordRequest(payload: unknown): Promise<{
@@ -468,7 +595,21 @@ function fakeDiscordEnv(options: {
     travel_trip_type: string | null;
     travel_trip_inferred_at: number | null;
   }>;
-} = {}): Env & { upserts: Array<[number, string, number]> } {
+  discordAdminUserIds?: string;
+  discordAdminRoleIds?: string;
+  notificationRoutes?: Record<string, string>;
+} = {}): Env & {
+  upserts: Array<[number, string, number]>;
+  notificationRoutes: Map<string, {
+    guild_id: string;
+    alert_key: string;
+    channel_id: string;
+    thread_id: string | null;
+    enabled: number;
+    updated_by_discord_id: string | null;
+    updated_at: number;
+  }>;
+} {
   const war = {
     id: 10,
     name: "test-war",
@@ -509,6 +650,28 @@ function fakeDiscordEnv(options: {
     Object.entries(options.subscriptions ?? {}).map(([key, enabled]) => [key, enabled ? 1 : 0]),
   );
   const upserts: Array<[number, string, number]> = [];
+  const notificationRoutes = new Map<string, {
+    guild_id: string;
+    alert_key: string;
+    channel_id: string;
+    thread_id: string | null;
+    enabled: number;
+    updated_by_discord_id: string | null;
+    updated_at: number;
+  }>(
+    Object.entries(options.notificationRoutes ?? {}).map(([alert_key, channel_id]) => [
+      `727247760931160167:${alert_key}`,
+      {
+        guild_id: "727247760931160167",
+        alert_key,
+        channel_id,
+        thread_id: null,
+        enabled: 1,
+        updated_by_discord_id: "111111111111111111",
+        updated_at: 1_800_000_000,
+      },
+    ]),
+  );
   const members = options.members ?? [
     {
       member_id: 1,
@@ -572,7 +735,10 @@ function fakeDiscordEnv(options: {
 
   return {
     upserts,
+    notificationRoutes,
     DASHBOARD_BASE_URL: "https://dashboard.test",
+    DISCORD_ADMIN_USER_IDS: options.discordAdminUserIds,
+    DISCORD_ADMIN_ROLE_IDS: options.discordAdminRoleIds,
     DB: {
       prepare(sql: string) {
         return {
@@ -591,7 +757,10 @@ function fakeDiscordEnv(options: {
         };
       },
     },
-  } as unknown as Env & { upserts: Array<[number, string, number]> };
+  } as unknown as Env & {
+    upserts: Array<[number, string, number]>;
+    notificationRoutes: typeof notificationRoutes;
+  };
 
   function statement(sql: string, values: unknown[] = []) {
     return {
@@ -608,6 +777,12 @@ function fakeDiscordEnv(options: {
         if (sql.includes("FROM discord_member_links") && sql.includes("torn_user_id = ?")) {
           return Promise.resolve(discordLink?.torn_user_id === values[0] ? discordLink : null);
         }
+        if (sql.includes("FROM discord_notification_channels")) {
+          const guildId = String(values[0]);
+          const alertKey = String(values[1]);
+          const row = notificationRoutes.get(`${guildId}:${alertKey}`) ?? null;
+          return Promise.resolve(row && row.enabled === 1 ? row : null);
+        }
         return Promise.resolve(null);
       },
       all() {
@@ -622,9 +797,33 @@ function fakeDiscordEnv(options: {
             results: Array.from(subscriptions, ([alert_key, enabled]) => ({ alert_key, enabled })),
           });
         }
+        if (sql.includes("FROM discord_notification_channels")) {
+          const guildId = String(values[0]);
+          return Promise.resolve({
+            results: Array.from(notificationRoutes.values()).filter((row) => row.guild_id === guildId),
+          });
+        }
         return Promise.resolve({ results: [] });
       },
       run() {
+        if (sql.includes("INSERT INTO discord_notification_channels")) {
+          const guildId = String(values[0]);
+          const alertKey = String(values[1]);
+          notificationRoutes.set(`${guildId}:${alertKey}`, {
+            guild_id: guildId,
+            alert_key: alertKey,
+            channel_id: String(values[2]),
+            thread_id: typeof values[3] === "string" ? values[3] : null,
+            enabled: 1,
+            updated_by_discord_id: String(values[4]),
+            updated_at: 1_800_000_001,
+          });
+          return Promise.resolve({ meta: { changes: 1 } });
+        }
+        if (sql.includes("DELETE FROM discord_notification_channels")) {
+          notificationRoutes.delete(`${String(values[0])}:${String(values[1])}`);
+          return Promise.resolve({ meta: { changes: 1 } });
+        }
         const alertKey = String(values[1]);
         const enabled = Number(values[2]);
         upserts.push([Number(values[0]), alertKey, enabled]);

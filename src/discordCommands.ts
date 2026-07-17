@@ -16,8 +16,10 @@ export const DISCORD_COMPONENT_IDS = {
 
 export const DISCORD_COMMAND_OPTION_TYPES = {
   subCommand: 1,
+  subCommandGroup: 2,
   string: 3,
   integer: 4,
+  channel: 7,
 } as const;
 
 export type DiscordApplicationCommand = {
@@ -43,6 +45,8 @@ type DiscordCommandOption = {
 export function discordApplicationCommands(): DiscordApplicationCommand[] {
   const alertChoices = DISCORD_ALERTS
     .filter((alert) => alert.subscribable)
+    .map((alert) => ({ name: alert.name, value: alert.key }));
+  const notificationAlertChoices = DISCORD_ALERTS
     .map((alert) => ({ name: alert.name, value: alert.key }));
 
   return [
@@ -96,6 +100,66 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
               description: "Alert to unsubscribe from",
               required: true,
               choices: alertChoices,
+            },
+          ],
+        },
+        {
+          type: DISCORD_COMMAND_OPTION_TYPES.subCommandGroup,
+          name: "channels",
+          description: "Configure alert delivery channels",
+          options: [
+            {
+              type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+              name: "list",
+              description: "Show configured alert delivery channels",
+            },
+            {
+              type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+              name: "set",
+              description: "Send an alert type to a channel",
+              options: [
+                {
+                  type: DISCORD_COMMAND_OPTION_TYPES.string,
+                  name: "alert",
+                  description: "Alert to route",
+                  required: true,
+                  choices: notificationAlertChoices,
+                },
+                {
+                  type: DISCORD_COMMAND_OPTION_TYPES.channel,
+                  name: "channel",
+                  description: "Channel for this alert",
+                  required: true,
+                },
+              ],
+            },
+            {
+              type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+              name: "unset",
+              description: "Remove an alert channel route",
+              options: [
+                {
+                  type: DISCORD_COMMAND_OPTION_TYPES.string,
+                  name: "alert",
+                  description: "Alert route to remove",
+                  required: true,
+                  choices: notificationAlertChoices,
+                },
+              ],
+            },
+            {
+              type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+              name: "test",
+              description: "Send a test message to a configured alert channel",
+              options: [
+                {
+                  type: DISCORD_COMMAND_OPTION_TYPES.string,
+                  name: "alert",
+                  description: "Alert route to test",
+                  required: true,
+                  choices: notificationAlertChoices,
+                },
+              ],
             },
           ],
         },

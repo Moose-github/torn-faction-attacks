@@ -2,18 +2,24 @@ import { pathToFileURL } from "node:url";
 
 const OPTION_TYPES = {
   subCommand: 1,
+  subCommandGroup: 2,
   string: 3,
   integer: 4,
+  channel: 7,
 };
 
-const alertChoices = [
+const notificationAlertChoices = [
+  { name: "Chain watch", value: "chain_watch" },
   { name: "Chain watch warning", value: "chain_watch_warning" },
   { name: "Chain watch critical", value: "chain_watch_critical" },
   { name: "Chain watch dropped", value: "chain_watch_drop" },
+  { name: "Retaliation board", value: "retaliation_board" },
   { name: "Enemy push", value: "enemy_push" },
   { name: "Big Als shoplifting", value: "shoplifting_security_alert:big_als" },
   { name: "Jewelry Store shoplifting", value: "shoplifting_security_alert:jewelry_store" },
 ];
+const subscriptionAlertChoices = notificationAlertChoices
+  .filter((alert) => !["chain_watch", "retaliation_board"].includes(alert.value));
 
 export const commands = [
   {
@@ -51,7 +57,7 @@ export const commands = [
             name: "alert",
             description: "Alert to subscribe to",
             required: true,
-            choices: alertChoices,
+            choices: subscriptionAlertChoices,
           },
         ],
       },
@@ -65,7 +71,67 @@ export const commands = [
             name: "alert",
             description: "Alert to unsubscribe from",
             required: true,
-            choices: alertChoices,
+            choices: subscriptionAlertChoices,
+          },
+        ],
+      },
+      {
+        type: OPTION_TYPES.subCommandGroup,
+        name: "channels",
+        description: "Configure alert delivery channels",
+        options: [
+          {
+            type: OPTION_TYPES.subCommand,
+            name: "list",
+            description: "Show configured alert delivery channels",
+          },
+          {
+            type: OPTION_TYPES.subCommand,
+            name: "set",
+            description: "Send an alert type to a channel",
+            options: [
+              {
+                type: OPTION_TYPES.string,
+                name: "alert",
+                description: "Alert to route",
+                required: true,
+                choices: notificationAlertChoices,
+              },
+              {
+                type: OPTION_TYPES.channel,
+                name: "channel",
+                description: "Channel for this alert",
+                required: true,
+              },
+            ],
+          },
+          {
+            type: OPTION_TYPES.subCommand,
+            name: "unset",
+            description: "Remove an alert channel route",
+            options: [
+              {
+                type: OPTION_TYPES.string,
+                name: "alert",
+                description: "Alert route to remove",
+                required: true,
+                choices: notificationAlertChoices,
+              },
+            ],
+          },
+          {
+            type: OPTION_TYPES.subCommand,
+            name: "test",
+            description: "Send a test message to a configured alert channel",
+            options: [
+              {
+                type: OPTION_TYPES.string,
+                name: "alert",
+                description: "Alert route to test",
+                required: true,
+                choices: notificationAlertChoices,
+              },
+            ],
           },
         ],
       },
