@@ -28,6 +28,7 @@ const DISCORD_BUTTON_PRIMARY = 1;
 const DISCORD_BUTTON_LINK = 5;
 const BOT_COLOR = 0x2f80ed;
 const WARNING_COLOR = 0xffa500;
+const DISCORD_EMBED_DESCRIPTION_SAFE_LIMIT = 3900;
 
 type DiscordInteraction = {
   type?: number;
@@ -176,8 +177,13 @@ export async function handleDiscordInteractions(request: Request, env: Env): Pro
     return json({ ok: false, error: "Invalid Discord interaction payload", code: "INVALID_INTERACTION" }, 400);
   }
 
-  const response = await handleVerifiedDiscordInteraction(interaction, env);
-  return json(response);
+  try {
+    const response = await handleVerifiedDiscordInteraction(interaction, env);
+    return json(response);
+  } catch (error) {
+    logDiscordInteractionError(interaction, error);
+    return json(ephemeralMessage("Discord bot is temporarily unavailable. Please try again shortly."));
+  }
 }
 
 export async function verifyDiscordRequestSignature(
@@ -795,6 +801,7 @@ function discordMessageResponse(
     type: responseType,
     data: {
       ...data,
+      embeds: data.embeds?.map(fitDiscordEmbed),
       allowed_mentions: { parse: [] },
     },
   };
@@ -903,6 +910,53 @@ function interactionDiscordUserId(interaction: DiscordInteraction): string | nul
 
 function cleanMemberName(name: string | null, id: number): string {
   return name?.replace(/\s+/g, " ").trim() || `Torn ${id}`;
+}
+
+function fitDiscordEmbed(embed: DiscordEmbed): DiscordEmbed {
+  return embed.description
+    ? { ...embed, description: fitDiscordEmbedDescription(embed.description) }
+    : embed;
+}
+
+function fitDiscordEmbedDescription(description: string): string {
+  if (description.length <= DISCORD_EMBED_DESCRIPTION_SAFE_LIMIT) {
+    return description;
+  }
+
+  const suffix = "\n...";
+  const lines = description.split("\n");
+  const fitted: string[] = [];
+  let length = 0;
+
+  for (const line of lines) {
+    const separatorLength = fitted.length > 0 ? 1 : 0;
+    const remaining = DISCORD_EMBED_DESCRIPTION_SAFE_LIMIT - suffix.length - length - separatorLength;
+    if (remaining <= 0) {
+      break;
+    }
+
+    if (line.length > remaining) {
+      fitted.push(line.slice(0, remaining).trimEnd());
+      break;
+    }
+
+    fitted.push(line);
+    length += separatorLength + line.length;
+  }
+
+  const prefix = fitted.join("\n").trimEnd();
+  return prefix ? `${prefix}${suffix}` : "...";
+}
+
+function logDiscordInteractionError(interaction: DiscordInteraction, error: unknown): void {
+  console.error("Discord interaction failed", {
+    type: interaction.type ?? null,
+    command: interaction.data?.name ?? null,
+    custom_id: interaction.data?.custom_id ?? null,
+    guild_id: interaction.guild_id ?? null,
+    channel_id: interaction.channel_id ?? null,
+    error: error instanceof Error ? error.message : String(error),
+  });
 }
 
 function integerField(value: unknown): string {

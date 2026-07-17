@@ -1,3 +1,5 @@
+import { pathToFileURL } from "node:url";
+
 const OPTION_TYPES = {
   subCommand: 1,
   string: 3,
@@ -13,7 +15,7 @@ const alertChoices = [
   { name: "Jewelry Store shoplifting", value: "shoplifting_security_alert:jewelry_store" },
 ];
 
-const commands = [
+export const commands = [
   {
     name: "bot",
     description: "Bot help",
@@ -71,32 +73,46 @@ const commands = [
   },
 ];
 
-const token = requiredEnv("DISCORD_BOT_TOKEN");
-const applicationId = requiredEnv("DISCORD_APPLICATION_ID");
-const guildMode = process.argv.includes("--guild");
-const guildId = guildMode ? requiredEnv("DISCORD_GUILD_ID") : null;
-const route = guildId
-  ? `/applications/${applicationId}/guilds/${guildId}/commands`
-  : `/applications/${applicationId}/commands`;
+export async function registerDiscordCommands({
+  argv = process.argv,
+  env = process.env,
+  fetchImpl = fetch,
+} = {}) {
+  const token = requiredEnv(env, "DISCORD_BOT_TOKEN");
+  const applicationId = requiredEnv(env, "DISCORD_APPLICATION_ID");
+  const guildMode = argv.includes("--guild");
+  const guildId = guildMode ? requiredEnv(env, "DISCORD_GUILD_ID") : null;
+  const route = guildId
+    ? `/applications/${applicationId}/guilds/${guildId}/commands`
+    : `/applications/${applicationId}/commands`;
 
-const response = await fetch(`https://discord.com/api/v10${route}`, {
-  method: "PUT",
-  headers: {
-    Authorization: `Bot ${token}`,
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify(commands),
-});
+  const response = await fetchImpl(`https://discord.com/api/v10${route}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bot ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(commands),
+  });
 
-const bodyText = await response.text();
-if (!response.ok) {
-  throw new Error(`Discord command registration failed with HTTP ${response.status}: ${bodyText}`);
+  const bodyText = await response.text();
+  if (!response.ok) {
+    throw new Error(`Discord command registration failed with HTTP ${response.status}: ${bodyText}`);
+  }
+
+  return {
+    commandCount: commands.length,
+    guildId,
+  };
 }
 
-console.log(`Registered ${commands.length} Discord commands ${guildId ? `for guild ${guildId}` : "globally"}.`);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const result = await registerDiscordCommands();
+  console.log(`Registered ${result.commandCount} Discord commands ${result.guildId ? `for guild ${result.guildId}` : "globally"}.`);
+}
 
-function requiredEnv(name) {
-  const value = process.env[name]?.trim();
+function requiredEnv(env, name) {
+  const value = env[name]?.trim();
   if (!value) {
     throw new Error(`${name} is required`);
   }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   handleDiscordInteractions,
   handleVerifiedDiscordInteraction,
@@ -64,6 +64,45 @@ describe("Discord interactions", () => {
     expect(response?.status).toBe(401);
   });
 
+  it("returns a Discord-safe response when verified routing fails", async () => {
+    const signed = await signedDiscordRequest({
+      type: 2,
+      data: {
+        name: "war",
+        options: [{ type: 1, name: "current" }],
+      },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const response = await handleDiscordInteractions(signed.request, {
+        DISCORD_PUBLIC_KEY: signed.publicKeyHex,
+        DB: {
+          prepare() {
+            throw new Error("D1 unavailable");
+          },
+        },
+      } as unknown as Env);
+      const body = await response?.json();
+
+      expect(response?.status).toBe(200);
+      expect(body).toEqual({
+        type: 4,
+        data: {
+          content: "Discord bot is temporarily unavailable. Please try again shortly.",
+          flags: 64,
+          allowed_mentions: { parse: [] },
+        },
+      });
+      expect(errorSpy).toHaveBeenCalledWith("Discord interaction failed", expect.objectContaining({
+        command: "war",
+        error: "D1 unavailable",
+      }));
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it("formats member leaderboards with linked Discord mentions", async () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
@@ -86,6 +125,38 @@ describe("Discord interactions", () => {
     expect(response.data?.allowed_mentions).toEqual({ parse: [] });
     expect(response.data?.embeds?.[0]?.description).toContain("<@111111111111111111>");
     expect(response.data?.embeds?.[0]?.description).toContain("Bob");
+  });
+
+  it("bounds member leaderboard embed descriptions", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      data: {
+        name: "war",
+        options: [
+          {
+            type: 1,
+            name: "members",
+            options: [{ type: 4, name: "limit", value: 20 }],
+          },
+        ],
+      },
+    }, fakeDiscordEnv({
+      members: Array.from({ length: 20 }, (_, index) => ({
+        member_id: index + 1,
+        member_name: `Member ${index + 1} ${"LongName".repeat(80)}`,
+        discord_user_id: null,
+        attacks_vs_enemy_total: 10,
+        attacks_vs_enemy_successful: 8,
+        respect_gained: 55,
+        defends_total: 0,
+        defends_won: 0,
+        outside_hits: 0,
+      })),
+    }));
+
+    const description = response.data?.embeds?.[0]?.description ?? "";
+    expect(description.length).toBeLessThanOrEqual(3900);
+    expect(description).toMatch(/\n\.\.\.$/);
   });
 
   it("formats the Discord travel tracker with routes and abroad returns", async () => {
@@ -114,6 +185,44 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).toContain("**Currently abroad (1)**");
     expect(response.data?.embeds?.[0]?.description).toContain("**Member** | **Location** | **Outbound type** | **Minimum return**");
     expect(response.data?.embeds?.[0]?.description).toContain("[Abroad](https://www.torn.com/profiles.php?XID=4) | Canada | Business Class | 12m");
+  });
+
+  it("bounds travel tracker embed descriptions", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      data: {
+        name: "war",
+        options: [
+          {
+            type: 1,
+            name: "enemy",
+            options: [{ type: 3, name: "view", value: "travel" }],
+          },
+        ],
+      },
+    }, fakeDiscordEnv({
+      travelers: Array.from({ length: 20 }, (_, index) => ({
+        member_id: index + 100,
+        name: `Traveler ${index + 1} ${"LongName".repeat(60)}`,
+        status_state: "Traveling",
+        status_description: `Traveling to ${"Destination".repeat(50)}`,
+        plane_image_type: "private_jet",
+        travel_origin: "Torn",
+        travel_destination: `Destination ${index + 1} ${"VeryLong".repeat(50)}`,
+        travel_started_after: 1_799_999_820,
+        travel_started_before: 1_799_999_820,
+        estimated_arrival_at: 1_800_000_600,
+        estimated_arrival_earliest: 1_800_000_600,
+        estimated_arrival_latest: 1_800_000_600,
+        travel_trip_destination: `Destination ${index + 1}`,
+        travel_trip_type: "WLT benefit",
+        travel_trip_inferred_at: null,
+      })),
+    }));
+
+    const description = response.data?.embeds?.[0]?.description ?? "";
+    expect(description.length).toBeLessThanOrEqual(3900);
+    expect(description).toMatch(/\n\.\.\.$/);
   });
 
   it("uses the manual travel target when the latest war has ended", async () => {
@@ -331,6 +440,34 @@ function fakeDiscordEnv(options: {
   manualTarget?: { faction_id: number; faction_name: string | null; enabled?: number } | null;
   discordLink?: { torn_user_id: number; discord_user_id: string };
   subscriptions?: Record<string, boolean>;
+  members?: Array<{
+    member_id: number;
+    member_name: string | null;
+    discord_user_id: string | null;
+    attacks_vs_enemy_total: number;
+    attacks_vs_enemy_successful: number;
+    respect_gained: number;
+    defends_total: number;
+    defends_won: number;
+    outside_hits: number;
+  }>;
+  travelers?: Array<{
+    member_id: number;
+    name: string;
+    status_state: string | null;
+    status_description: string | null;
+    plane_image_type: string | null;
+    travel_origin: string | null;
+    travel_destination: string | null;
+    travel_started_after: number | null;
+    travel_started_before: number | null;
+    estimated_arrival_at: number | null;
+    estimated_arrival_earliest: number | null;
+    estimated_arrival_latest: number | null;
+    travel_trip_destination: string | null;
+    travel_trip_type: string | null;
+    travel_trip_inferred_at: number | null;
+  }>;
 } = {}): Env & { upserts: Array<[number, string, number]> } {
   const war = {
     id: 10,
@@ -372,7 +509,7 @@ function fakeDiscordEnv(options: {
     Object.entries(options.subscriptions ?? {}).map(([key, enabled]) => [key, enabled ? 1 : 0]),
   );
   const upserts: Array<[number, string, number]> = [];
-  const members = [
+  const members = options.members ?? [
     {
       member_id: 1,
       member_name: "Alice",
@@ -396,7 +533,7 @@ function fakeDiscordEnv(options: {
       outside_hits: 0,
     },
   ];
-  const travelers = [
+  const travelers = options.travelers ?? [
     {
       member_id: 3,
       name: "Traveler",
