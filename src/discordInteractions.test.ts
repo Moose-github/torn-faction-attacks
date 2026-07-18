@@ -17,7 +17,7 @@ describe("Discord interactions", () => {
   it("registers bot and alert slash commands", () => {
     expect(discordApplicationCommands().map((command) => command.name)).toEqual(["bot", "alerts", "alert-channels"]);
     expect(discordApplicationCommands().find((command) => command.name === "alerts")?.options?.map((option) => option.name))
-      .toEqual(["list", "manage", "subscribe", "unsubscribe"]);
+      .toEqual(["list", "manage"]);
     expect(discordApplicationCommands().find((command) => command.name === "alert-channels"))
       .toMatchObject({
         default_member_permissions: "32",
@@ -132,8 +132,8 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.title).toBe("Butt Dashboard Bot");
     expect(response.data?.embeds?.[0]?.description).toContain("`/alerts list`");
     expect(response.data?.embeds?.[0]?.description).toContain("`/alerts manage`");
-    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts subscribe`");
-    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts unsubscribe`");
+    expect(response.data?.embeds?.[0]?.description).not.toContain("`/alerts subscribe`");
+    expect(response.data?.embeds?.[0]?.description).not.toContain("`/alerts unsubscribe`");
   });
 
   it("formats member leaderboards with linked Discord mentions", async () => {
@@ -326,8 +326,8 @@ describe("Discord interactions", () => {
     expect(response.data?.flags).toBe(64);
     expect(response.data?.embeds?.[0]?.title).toBe("Available alert subscriptions");
     expect(response.data?.embeds?.[0]?.description).toContain("`/alerts manage`");
-    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts subscribe`");
-    expect(response.data?.embeds?.[0]?.description).toContain("`/alerts unsubscribe`");
+    expect(response.data?.embeds?.[0]?.description).not.toContain("`/alerts subscribe`");
+    expect(response.data?.embeds?.[0]?.description).not.toContain("`/alerts unsubscribe`");
     expect(response.data?.embeds?.[0]?.description).toContain("[Dashboard settings](https://buttgrass.pages.dev/settings)");
     expect(response.data?.embeds?.[0]?.fields?.some((field) =>
       field.name === "Enemy push - subscribed"
@@ -355,7 +355,7 @@ describe("Discord interactions", () => {
       discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
     }));
 
-    expect(response.data?.content).toBe("Use `/alerts list`, `/alerts manage`, `/alerts subscribe`, or `/alerts unsubscribe`.");
+    expect(response.data?.content).toBe("Use `/alerts list` or `/alerts manage`.");
     expect(response.data?.content).not.toContain("subscribed");
   });
 
@@ -488,7 +488,7 @@ describe("Discord interactions", () => {
     expect(env.upserts).toContainEqual([99, DISCORD_ALERT_KEYS.chainWatchCritical, 1]);
   });
 
-  it("subscribes the linked Discord user to an alert", async () => {
+  it("does not update alerts from the removed subscribe command", async () => {
     const env = fakeDiscordEnv({
       discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
     });
@@ -509,62 +509,14 @@ describe("Discord interactions", () => {
       },
     }, env);
 
-    expect(response.data?.embeds?.[0]?.title).toBe("Alert subscribed");
-    expect(env.upserts).toEqual([[99, DISCORD_ALERT_KEYS.enemyPush, 1]]);
-  });
-
-  it("unsubscribes the linked Discord user from an alert", async () => {
-    const env = fakeDiscordEnv({
-      discordLink: { torn_user_id: 99, discord_user_id: "222222222222222222" },
-      subscriptions: { [DISCORD_ALERT_KEYS.enemyPush]: true },
-    });
-    const response = await handleVerifiedDiscordInteraction({
-      type: 2,
-      member: { user: { id: "222222222222222222" } },
-      data: {
-        name: "alerts",
-        options: [
-          {
-            type: 1,
-            name: "unsubscribe",
-            options: [
-              { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
-            ],
-          },
-        ],
-      },
-    }, env);
-
-    expect(response.data?.embeds?.[0]?.title).toBe("Alert unsubscribed");
-    expect(env.upserts).toEqual([[99, DISCORD_ALERT_KEYS.enemyPush, 0]]);
-  });
-
-  it("does not subscribe when the Discord user is not linked", async () => {
-    const env = fakeDiscordEnv();
-    const response = await handleVerifiedDiscordInteraction({
-      type: 2,
-      member: { user: { id: "222222222222222222" } },
-      data: {
-        name: "alerts",
-        options: [
-          {
-            type: 1,
-            name: "subscribe",
-            options: [
-              { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
-            ],
-          },
-        ],
-      },
-    }, env);
-
-    expect(response.data?.content).toBe("I cannot find a Torn member linked to your Discord account yet.");
+    expect(response.data?.content).toBe("Use `/alerts list` or `/alerts manage`.");
     expect(env.upserts).toEqual([]);
   });
 
   it("sets alert channel routes for Discord admins", async () => {
     const env = fakeDiscordEnv({
       discordAdminUserIds: "222222222222222222",
+      discordGuildId: "727247760931160167",
     });
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
@@ -609,24 +561,33 @@ describe("Discord interactions", () => {
       },
     }, fakeDiscordEnv({
       discordAdminRoleIds: "999999999999999999",
+      discordGuildId: "727247760931160167",
       notificationRoutes: {
         [DISCORD_ALERT_KEYS.enemyPush]: "333333333333333333",
       },
     }));
 
     expect(response.data?.embeds?.[0]?.title).toBe("Alert channel routes");
-    expect(response.data?.embeds?.[0]?.fields?.[0]).toMatchObject({
-      name: "Enemy push",
-      value: expect.stringContaining("<#333333333333333333>"),
-    });
-    expect(response.data?.embeds?.[0]?.fields?.[0]?.value).not.toContain("Key:");
-    expect(response.data?.embeds?.[0]?.fields?.[0]?.value).not.toContain(DISCORD_ALERT_KEYS.enemyPush);
+    expect(response.data?.embeds?.[0]?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Enemy push",
+        value: expect.stringContaining("<#333333333333333333>"),
+      }),
+      expect.objectContaining({
+        name: "Chain watch",
+        value: "Unset",
+      }),
+    ]));
+    const enemyPushField = response.data?.embeds?.[0]?.fields?.find((field) => field.name === "Enemy push");
+    expect(enemyPushField?.value).not.toContain("Key:");
+    expect(enemyPushField?.value).not.toContain(DISCORD_ALERT_KEYS.enemyPush);
   });
 
   it("tests alert channel routes against stored thread targets", async () => {
     vi.mocked(createDiscordBotMessage).mockResolvedValue("message-1");
     const env = fakeDiscordEnv({
       discordAdminUserIds: "222222222222222222",
+      discordGuildId: "727247760931160167",
     });
     env.notificationRoutes.set("727247760931160167:enemy_push", {
       guild_id: "727247760931160167",
@@ -672,6 +633,7 @@ describe("Discord interactions", () => {
   it("unsets alert channel routes for Discord admins", async () => {
     const env = fakeDiscordEnv({
       discordAdminUserIds: "222222222222222222",
+      discordGuildId: "727247760931160167",
       notificationRoutes: {
         [DISCORD_ALERT_KEYS.enemyPush]: "333333333333333333",
       },
@@ -699,7 +661,7 @@ describe("Discord interactions", () => {
   });
 
   it("trusts Discord command permissions for alert channel routes", async () => {
-    const env = fakeDiscordEnv();
+    const env = fakeDiscordEnv({ discordGuildId: "727247760931160167" });
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
       guild_id: "727247760931160167",
@@ -713,7 +675,42 @@ describe("Discord interactions", () => {
     }, env);
 
     expect(response.data?.embeds?.[0]?.title).toBe("Alert channel routes");
-    expect(response.data?.embeds?.[0]?.description).toBe("No alert channels are configured yet.");
+    expect(response.data?.embeds?.[0]?.description).toBe("Configured bot delivery channels for this server.");
+    expect(response.data?.embeds?.[0]?.fields?.length).toBeGreaterThan(1);
+    expect(response.data?.embeds?.[0]?.fields?.every((field) => field.value === "Unset"))
+      .toBe(true);
+  });
+
+  it("rejects alert channel routes when no delivery guild is configured", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "727247760931160167",
+      member: { user: { id: "222222222222222222" }, roles: [] },
+      data: {
+        name: "alert-channels",
+        options: [
+          { type: 1, name: "list" },
+        ],
+      },
+    }, fakeDiscordEnv());
+
+    expect(response.data?.content).toBe("Alert channel routing requires DISCORD_GUILD_ID to be configured.");
+  });
+
+  it("rejects alert channel routes from non-delivery guilds", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "999999999999999999",
+      member: { user: { id: "222222222222222222" }, roles: [] },
+      data: {
+        name: "alert-channels",
+        options: [
+          { type: 1, name: "list" },
+        ],
+      },
+    }, fakeDiscordEnv({ discordGuildId: "727247760931160167" }));
+
+    expect(response.data?.content).toBe("Alert channel routing is only enabled for the configured Discord server.");
   });
 });
 
@@ -805,6 +802,7 @@ function fakeDiscordEnv(options: {
   }>;
   discordAdminUserIds?: string;
   discordAdminRoleIds?: string;
+  discordGuildId?: string;
   notificationRoutes?: Record<string, string>;
 } = {}): Env & {
   upserts: Array<[number, string, number]>;
@@ -947,6 +945,7 @@ function fakeDiscordEnv(options: {
     DASHBOARD_BASE_URL: "https://dashboard.test",
     DISCORD_ADMIN_USER_IDS: options.discordAdminUserIds,
     DISCORD_ADMIN_ROLE_IDS: options.discordAdminRoleIds,
+    DISCORD_GUILD_ID: options.discordGuildId,
     DB: {
       prepare(sql: string) {
         return {

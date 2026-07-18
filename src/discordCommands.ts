@@ -49,9 +49,6 @@ type DiscordCommandOption = {
 };
 
 export function discordApplicationCommands(): DiscordApplicationCommand[] {
-  const alertChoices = DISCORD_ALERTS
-    .filter((alert) => alert.subscribable)
-    .map((alert) => ({ name: alert.name, value: alert.key }));
   const notificationAlertChoices = DISCORD_ALERTS
     .map((alert) => ({ name: alert.name, value: alert.key }));
 
@@ -80,34 +77,6 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
           type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
           name: "manage",
           description: "Manage your alert subscriptions with a dropdown",
-        },
-        {
-          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-          name: "subscribe",
-          description: "Subscribe yourself to an alert",
-          options: [
-            {
-              type: DISCORD_COMMAND_OPTION_TYPES.string,
-              name: "alert",
-              description: "Alert to subscribe to",
-              required: true,
-              choices: alertChoices,
-            },
-          ],
-        },
-        {
-          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
-          name: "unsubscribe",
-          description: "Unsubscribe yourself from an alert",
-          options: [
-            {
-              type: DISCORD_COMMAND_OPTION_TYPES.string,
-              name: "alert",
-              description: "Alert to unsubscribe from",
-              required: true,
-              choices: alertChoices,
-            },
-          ],
         },
       ],
     },

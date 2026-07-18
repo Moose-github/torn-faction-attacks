@@ -11,6 +11,7 @@ import {
 import {
   listDiscordNotificationChannels,
   readDiscordNotificationChannel,
+  readDiscordNotificationGuildId,
   setDiscordNotificationChannel,
   unsetDiscordNotificationChannel,
   type DiscordNotificationChannel,
@@ -522,8 +523,6 @@ function botHelpResponse(): DiscordInteractionResponse {
         description: [
           "`/alerts list` - available alert subscriptions",
           "`/alerts manage` - manage alert subscriptions with a dropdown",
-          "`/alerts subscribe` - subscribe yourself to an alert",
-          "`/alerts unsubscribe` - unsubscribe yourself from an alert",
         ].join("\n"),
         color: BOT_COLOR,
       },
@@ -555,37 +554,7 @@ async function alertsResponse(
     return alertsManageResponse(subscriptions, DISCORD_RESPONSE_CHANNEL_MESSAGE);
   }
 
-  if (subcommand?.name === "subscribe" || subcommand?.name === "unsubscribe") {
-    const alertKey = optionString(subcommand, "alert") ?? "";
-    const alert = discordAlertByKey(alertKey);
-    if (!alert || !alert.subscribable) {
-      return ephemeralMessage("That alert is not available for member subscriptions.");
-    }
-
-    const enabled = subcommand.name === "subscribe";
-    const result = await updateDiscordMemberAlertSubscription(
-      env,
-      subscriptions.discord_link.torn_user_id,
-      alert.key,
-      enabled,
-    );
-    if (result !== "ok") {
-      return ephemeralMessage("I could not update that alert subscription.");
-    }
-
-    return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
-      flags: DISCORD_FLAG_EPHEMERAL,
-      embeds: [
-        {
-          title: enabled ? "Alert subscribed" : "Alert unsubscribed",
-          description: `${enabled ? "You are now subscribed to" : "You are no longer subscribed to"} **${alert.name}**.`,
-          color: BOT_COLOR,
-        },
-      ],
-    });
-  }
-
-  return ephemeralMessage("Use `/alerts list`, `/alerts manage`, `/alerts subscribe`, or `/alerts unsubscribe`.");
+  return ephemeralMessage("Use `/alerts list` or `/alerts manage`.");
 }
 
 async function updateAlertSubscriptionsFromSelectResponse(
@@ -695,6 +664,15 @@ async function alertChannelsResponse(
     return ephemeralMessage("Alert channel routing can only be configured inside a Discord server.");
   }
 
+  const configuredGuildId = readDiscordNotificationGuildId(env);
+  if (!configuredGuildId) {
+    return ephemeralMessage("Alert channel routing requires DISCORD_GUILD_ID to be configured.");
+  }
+
+  if (guildId !== configuredGuildId) {
+    return ephemeralMessage("Alert channel routing is only enabled for the configured Discord server.");
+  }
+
   if (subcommand?.name === "list") {
     return alertChannelsListResponse(await listDiscordNotificationChannels(env, guildId));
   }
@@ -789,21 +767,21 @@ async function alertChannelsResponse(
 }
 
 function alertChannelsListResponse(routes: DiscordNotificationChannel[]): DiscordInteractionResponse {
+  const routesByAlertKey = new Map(routes.map((route) => [route.alertKey, route]));
   return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
     flags: DISCORD_FLAG_EPHEMERAL,
     embeds: [
       {
         title: "Alert channel routes",
-        description: routes.length === 0
-          ? "No alert channels are configured yet."
-          : "Configured bot delivery channels for this server.",
+        description: "Configured bot delivery channels for this server.",
         color: BOT_COLOR,
-        fields: routes.length > 0
-          ? routes.map((route) => ({
-            name: route.alertName,
-            value: discordChannelMention(discordBotTargetChannelId(route)),
-          }))
-          : [{ name: "No routes", value: "Use `/alert-channels set` to configure one." }],
+        fields: DISCORD_ALERTS.map((alert) => {
+          const route = routesByAlertKey.get(alert.key);
+          return {
+            name: alert.name,
+            value: route ? discordChannelMention(discordBotTargetChannelId(route)) : "Unset",
+          };
+        }),
       },
     ],
   });
@@ -831,7 +809,7 @@ function alertsListResponse(
       {
         title: "Available alert subscriptions",
         description: subscriptions
-          ? `Use \`/alerts manage\`, \`/alerts subscribe\`, \`/alerts unsubscribe\`, or [Dashboard settings](${DASHBOARD_SETTINGS_URL}) to change your settings.`
+          ? `Use \`/alerts manage\` or [Dashboard settings](${DASHBOARD_SETTINGS_URL}) to change your settings.`
           : `I cannot show your current status until your Discord account is linked to a Torn member. You can also use [Dashboard settings](${DASHBOARD_SETTINGS_URL}).`,
         color: BOT_COLOR,
         fields: settings.map(alertSettingField),
