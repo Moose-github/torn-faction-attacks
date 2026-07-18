@@ -281,6 +281,94 @@ describe("data health severity", () => {
     expect(breakdownQueries.some((sql) => sql.includes("FROM torn_api_call_log"))).toBe(false);
   });
 
+  it("hides transient member auth keys from key health", async () => {
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 0,
+      missing_donator_days: 0,
+      personalstats_target_date: "2025-12-31",
+      latest_personalstats_bucket_date: "2025-12-31",
+      personalstats_lag_days: 0,
+      affected_members: [],
+    });
+
+    const response = await getAdminDataHealth(dataHealthEnv({
+      apiKeyRows: [
+        {
+          key_source: "member_supplied:auth",
+          requests: 1,
+          errors: 0,
+          rate_limited: 0,
+          avg_duration_ms: 100,
+          last_requested_at: 1_767_139_200,
+        },
+        {
+          key_source: "env:TORN_API_KEY",
+          requests: 1,
+          errors: 0,
+          rate_limited: 0,
+          avg_duration_ms: 100,
+          last_requested_at: 1_767_139_200,
+        },
+        {
+          key_source: "key_pool:11f3d22e-c241-4ecb-8159-4edeb36d68a1",
+          key_label: "Dara faction stat key",
+          requests: 1,
+          errors: 0,
+          rate_limited: 0,
+          avg_duration_ms: 100,
+          last_requested_at: 1_767_139_200,
+        },
+      ],
+    }));
+    const body = await response.json() as {
+      key_pool: {
+        active_saved_keys: number;
+        pool_requests: number;
+        fallback_requests: number;
+        total_requests: number;
+        pool_share_percent: number | null;
+        keys: Array<{ key_source: string; key_label?: string | null; requests: number; calls_per_minute: number }>;
+      };
+      subsystems: Array<{ key: string; metrics: Array<{ label: string; value: string }> }>;
+      details: {
+        api_key_health: Array<{ key_source: string; requests: number; calls_per_minute: number }>;
+      };
+    };
+
+    expect(body.key_pool).toMatchObject({
+      active_saved_keys: 2,
+      pool_requests: 1,
+      fallback_requests: 1,
+      total_requests: 2,
+      pool_share_percent: 50,
+    });
+    expect(body.key_pool.keys).toContainEqual(
+      expect.objectContaining({
+        key_source: "key_pool:11f3d22e-c241-4ecb-8159-4edeb36d68a1",
+        key_label: "Dara faction stat key",
+      }),
+    );
+    expect(body.details.api_key_health.map((key) => key.key_source)).toEqual([
+      "env:TORN_API_KEY",
+      "key_pool:11f3d22e-c241-4ecb-8159-4edeb36d68a1",
+    ]);
+    expect(body.subsystems.find((subsystem) => subsystem.key === "key_health")?.metrics).toContainEqual(
+      expect.objectContaining({
+        label: "Admin fallback key",
+        value: "<0.01/min",
+      }),
+    );
+    const fallbackKey = body.details.api_key_health.find((key) => key.key_source === "env:TORN_API_KEY");
+    expect(fallbackKey).toMatchObject({ requests: 1 });
+    expect(fallbackKey?.calls_per_minute).toBeCloseTo(1 / 1_440, 6);
+    expect(body.subsystems.find((subsystem) => subsystem.key === "key_health")?.metrics).toContainEqual(
+      expect.objectContaining({
+        label: "Dara faction stat key",
+        value: "<0.01/min",
+      }),
+    );
+  });
+
   it("splits daily member stats into personal and gym subsystem tiles", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
       stale_personalstats: 1,
@@ -490,6 +578,8 @@ function dataHealthEnv({
     max_duration_ms: 100,
   },
   apiFeatureRows = [],
+  apiKeyRows = [],
+  keyPoolCounts,
   onApiBreakdownQuery,
 }: {
   settings?: Record<string, unknown>;
@@ -503,6 +593,8 @@ function dataHealthEnv({
   personalCoverageGaps?: Array<Record<string, unknown>>;
   apiRollupSummary?: Record<string, unknown>;
   apiFeatureRows?: Array<Record<string, unknown>>;
+  apiKeyRows?: Array<Record<string, unknown>>;
+  keyPoolCounts?: Record<string, unknown>;
   onApiBreakdownQuery?: (sql: string) => void;
 }): Env {
   return {
@@ -520,6 +612,7 @@ function dataHealthEnv({
             gymLatestDate,
             staleGymMembers,
             apiRollupSummary,
+            keyPoolCounts,
           }),
           all: async () => {
             if (
@@ -535,6 +628,7 @@ function dataHealthEnv({
                 personalCoverage,
                 personalCoverageGaps,
                 apiFeatureRows,
+                apiKeyRows,
               }),
             };
           },
@@ -556,6 +650,7 @@ function firstRowForDataHealthQuery(
     gymLatestDate: string;
     staleGymMembers: number;
     apiRollupSummary: Record<string, unknown>;
+    keyPoolCounts?: Record<string, unknown>;
   },
 ): Record<string, unknown> | null {
   if (sql.includes("FROM data_health_settings")) return options.settings;
@@ -593,6 +688,9 @@ function firstRowForDataHealthQuery(
   }
   if (sql.includes("FROM torn_api_usage_rollup_15m") && sql.includes("SUM(requests) AS requests")) {
     return options.apiRollupSummary;
+  }
+  if (sql.includes("FROM torn_api_keys")) {
+    return options.keyPoolCounts ?? { saved_keys: 2, active_saved_keys: 2 };
   }
   if (sql.includes("FROM stock_ingestion_runs")) return null;
   if (sql.includes("FROM latest")) {
@@ -657,6 +755,7 @@ function rowsForDataHealthQuery(
     personalCoverage: Array<{ snapshot_date: string; ready_members: number; total_members: number }>;
     personalCoverageGaps: Array<Record<string, unknown>>;
     apiFeatureRows: Array<Record<string, unknown>>;
+    apiKeyRows: Array<Record<string, unknown>>;
   },
 ): Array<Record<string, unknown>> {
   if (sql.includes("FROM scheduled_maintenance_tasks")) return [];
@@ -669,7 +768,12 @@ function rowsForDataHealthQuery(
   if (sql.includes("reportable_members")) return options.personalCoverageGaps;
   if (sql.includes("WITH target_dates")) return options.personalCoverage;
   if (sql.includes("FROM torn_api_usage_rollup_15m") && sql.includes("GROUP BY group_value")) {
-    return sql.includes("group_type = 'key_source'") ? [] : options.apiFeatureRows;
+    if (sql.includes("group_type = 'key_source'")) {
+      return sql.includes("group_value <> 'member_supplied:auth'")
+        ? options.apiKeyRows.filter((row) => row.key_source !== "member_supplied:auth")
+        : options.apiKeyRows;
+    }
+    return options.apiFeatureRows;
   }
   if (sql.includes("GROUP BY")) return [];
   if (sql.includes("FROM torn_api_call_log")) return [];

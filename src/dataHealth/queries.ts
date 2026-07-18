@@ -18,6 +18,7 @@ import {
   type EnemyScoutingGapRow,
   type GymStatsHealthRow,
   type IngestionRunRow,
+  type KeyPoolCountRow,
   type MaintenanceRunRow,
   type MaintenanceTaskRow,
   type PersonalStatsCoverageGapRow,
@@ -453,33 +454,72 @@ export async function readApiUsageFeatures(
 export async function readApiUsageKeys(env: Env, now: number, windowSeconds: number): Promise<ApiUsageKeyRow[]> {
   const rows = await env.DB.prepare(
     `
+    WITH key_usage AS (
+      SELECT
+        group_value AS key_source,
+        SUM(requests) AS requests,
+        SUM(errors) AS errors,
+        SUM(rate_limited) AS rate_limited,
+        CASE
+          WHEN SUM(requests) > 0 THEN SUM(total_duration_ms) * 1.0 / SUM(requests)
+          ELSE NULL
+        END AS avg_duration_ms,
+        MAX(last_requested_at) AS last_requested_at
+      FROM torn_api_usage_rollup_15m
+      WHERE bucket_start >= ?
+        AND group_type = 'key_source'
+        AND group_value <> 'member_supplied:auth'
+      GROUP BY group_value
+    )
     SELECT
-      group_value AS key_source,
-      SUM(requests) AS requests,
-      SUM(errors) AS errors,
-      SUM(rate_limited) AS rate_limited,
-      CASE
-        WHEN SUM(requests) > 0 THEN SUM(total_duration_ms) * 1.0 / SUM(requests)
-        ELSE NULL
-      END AS avg_duration_ms,
-      MAX(last_requested_at) AS last_requested_at
-    FROM torn_api_usage_rollup_15m
-    WHERE bucket_start >= ?
-      AND group_type = 'key_source'
-    GROUP BY group_value
-    ORDER BY requests DESC, group_value ASC
+      key_usage.key_source,
+      COALESCE(
+        NULLIF(keys.label, ''),
+        NULLIF(keys.owner_name, ''),
+        CASE
+          WHEN keys.owner_torn_user_id IS NOT NULL THEN 'Torn user #' || keys.owner_torn_user_id
+          ELSE NULL
+        END
+      ) AS key_label,
+      key_usage.requests,
+      key_usage.errors,
+      key_usage.rate_limited,
+      key_usage.avg_duration_ms,
+      key_usage.last_requested_at
+    FROM key_usage
+    LEFT JOIN torn_api_keys keys
+      ON key_usage.key_source LIKE 'key_pool:%'
+      AND keys.id = substr(key_usage.key_source, 10)
+    ORDER BY key_usage.requests DESC, key_usage.key_source ASC
     LIMIT 12
     `,
   ).bind(rollupWindowStart(now, windowSeconds)).all<ApiUsageKeyRow>();
   const minutes = Math.max(1, windowSeconds / 60);
   return (rows.results ?? []).map((row) => ({
     ...row,
+    key_label: typeof row.key_label === "string" && row.key_label.trim() ? row.key_label.trim() : null,
     requests: Number(row.requests ?? 0),
     errors: Number(row.errors ?? 0),
     rate_limited: Number(row.rate_limited ?? 0),
     avg_duration_ms: nullableNumber(row.avg_duration_ms),
-    calls_per_minute: Number((Number(row.requests ?? 0) / minutes).toFixed(2)),
+    calls_per_minute: Number(row.requests ?? 0) / minutes,
   }));
+}
+
+export async function readKeyPoolCounts(env: Env): Promise<KeyPoolCountRow> {
+  const row = await env.DB.prepare(
+    `
+    SELECT
+      COUNT(*) AS saved_keys,
+      SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_saved_keys
+    FROM torn_api_keys
+    `,
+  ).first<KeyPoolCountRow>();
+
+  return {
+    saved_keys: Number(row?.saved_keys ?? 0),
+    active_saved_keys: Number(row?.active_saved_keys ?? 0),
+  };
 }
 
 export async function readRecentApiCalls(env: Env): Promise<unknown[]> {

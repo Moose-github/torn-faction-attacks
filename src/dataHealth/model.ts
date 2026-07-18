@@ -130,12 +130,29 @@ export type ApiUsageFeatureRow = {
 
 export type ApiUsageKeyRow = {
   key_source: string;
+  key_label?: string | null;
   requests: number;
   errors: number;
   rate_limited: number;
   avg_duration_ms: number | null;
   last_requested_at: number | null;
   calls_per_minute?: number;
+};
+
+export type KeyPoolCountRow = {
+  saved_keys: number;
+  active_saved_keys: number;
+};
+
+export type DataHealthKeyPoolSummary = {
+  window_seconds: number;
+  saved_keys: number;
+  active_saved_keys: number;
+  pool_requests: number;
+  fallback_requests: number;
+  total_requests: number;
+  pool_share_percent: number | null;
+  keys: ApiUsageKeyRow[];
 };
 
 export type StockRunRow = {
@@ -241,6 +258,7 @@ export type DataHealthSnapshot = {
   apiUsageWindowSeconds: number;
   apiKeyHealth: ApiUsageKeyRow[];
   apiKeys: ApiUsageKeyRow[];
+  keyPoolCounts: KeyPoolCountRow;
   apiFeatures: ApiUsageFeatureRow[];
   apiEndpoints: ApiUsageFeatureRow[];
   apiRecentCalls: unknown[];

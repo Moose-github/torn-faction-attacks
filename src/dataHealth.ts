@@ -17,6 +17,7 @@ import {
   statusForCount,
   statusForPercent,
   type DataHealthIssue,
+  type DataHealthKeyPoolSummary,
   type DataHealthSettings,
   type DataHealthSnapshot,
   type DataHealthStatus,
@@ -32,6 +33,7 @@ import {
   readEnemyScoutingCoverage,
   readEnemyScoutingGaps,
   readGymStatsHealth,
+  readKeyPoolCounts,
   readLatestAttackStarted,
   readLatestIngestionRun,
   readLatestMaintenance,
@@ -59,12 +61,14 @@ export type { DataHealthIssue, DataHealthSettings, DataHealthStatus };
 export async function getDataHealthSummary(env: Env): Promise<Response> {
   const snapshot = await readDataHealthSnapshot(env, { includeAdminDetail: false });
   const subsystems = memberVisibleSubsystems(subsystemsFromSnapshot(snapshot));
+  const keyPool = keyPoolSummary(snapshot);
   return json({
     ok: true,
     generated_at: snapshot.now,
     cache_seconds: HEALTH_CACHE_TIME_SECONDS,
     overall_status: overallStatus(subsystems),
     subsystems: sanitizeSubsystems(subsystems),
+    key_pool: keyPool,
   });
 }
 
@@ -85,6 +89,7 @@ export async function getAdminDataHealth(urlOrEnv: URL | Env, maybeEnv?: Env): P
     includeApiUsageBreakdown,
   });
   const subsystems = subsystemsFromSnapshot(snapshot);
+  const keyPool = keyPoolSummary(snapshot);
   return json({
     ok: true,
     generated_at: snapshot.now,
@@ -93,6 +98,7 @@ export async function getAdminDataHealth(urlOrEnv: URL | Env, maybeEnv?: Env): P
     settings: snapshot.settings,
     subsystems,
     issues: issuesFromSnapshot(snapshot, subsystems),
+    key_pool: keyPool,
     details: {
       ingestion_run: snapshot.ingestion,
       maintenance_run: snapshot.maintenance,
@@ -153,6 +159,7 @@ async function readDataHealthSnapshot(
     apiDetailUsage,
     apiKeyHealth,
     apiKeys,
+    keyPoolCounts,
     apiFeatures,
     apiEndpoints,
     apiRecentCalls,
@@ -170,8 +177,9 @@ async function readDataHealthSnapshot(
     readRosterHealth(env),
     readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
     options.includeAdminDetail ? readApiUsageHealthRollup(env, now, apiUsageWindowSeconds) : readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
-    options.includeAdminDetail ? readApiUsageKeys(env, now, KEY_HEALTH_WINDOW_SECONDS) : Promise.resolve([]),
+    readApiUsageKeys(env, now, KEY_HEALTH_WINDOW_SECONDS),
     options.includeAdminDetail ? readApiUsageKeys(env, now, apiUsageWindowSeconds) : Promise.resolve([]),
+    readKeyPoolCounts(env),
     includeApiUsageBreakdown ? readApiUsageFeatures(env, now, "feature", apiUsageWindowSeconds) : Promise.resolve([]),
     includeApiUsageBreakdown ? readApiUsageFeatures(env, now, "endpoint", apiUsageWindowSeconds) : Promise.resolve([]),
     options.includeAdminDetail ? readRecentApiCalls(env) : Promise.resolve([]),
@@ -207,6 +215,7 @@ async function readDataHealthSnapshot(
     apiUsageWindowSeconds,
     apiKeyHealth,
     apiKeys,
+    keyPoolCounts,
     apiFeatures,
     apiEndpoints,
     apiRecentCalls,
@@ -216,6 +225,29 @@ async function readDataHealthSnapshot(
     warReports,
     enemyScoutingCoverage,
     enemyScoutingGaps,
+  };
+}
+
+function keyPoolSummary(snapshot: DataHealthSnapshot): DataHealthKeyPoolSummary {
+  const keys = snapshot.apiKeyHealth.filter((key) =>
+    key.key_source === "env:TORN_API_KEY" || key.key_source.startsWith("key_pool:"));
+  const poolRequests = keys
+    .filter((key) => key.key_source.startsWith("key_pool:"))
+    .reduce((sum, key) => sum + Number(key.requests ?? 0), 0);
+  const fallbackRequests = keys
+    .filter((key) => key.key_source === "env:TORN_API_KEY")
+    .reduce((sum, key) => sum + Number(key.requests ?? 0), 0);
+  const totalRequests = poolRequests + fallbackRequests;
+
+  return {
+    window_seconds: KEY_HEALTH_WINDOW_SECONDS,
+    saved_keys: snapshot.keyPoolCounts.saved_keys,
+    active_saved_keys: snapshot.keyPoolCounts.active_saved_keys,
+    pool_requests: poolRequests,
+    fallback_requests: fallbackRequests,
+    total_requests: totalRequests,
+    pool_share_percent: totalRequests > 0 ? Number(((poolRequests / totalRequests) * 100).toFixed(1)) : null,
+    keys,
   };
 }
 
@@ -461,7 +493,7 @@ function keyHealthSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
     }, null),
     metrics: keys.length > 0
       ? keys.map((key) => ({
-        label: formatKeySourceLabel(key.key_source),
+        label: formatKeySourceLabel(key.key_source, key.key_label),
         value: `${formatRate(Number(key.calls_per_minute ?? 0))}/min`,
         title: `${key.key_source}: ${Number(key.requests ?? 0)} calls in the last 24h`,
       }))
@@ -612,10 +644,15 @@ function nullableNumber(value: unknown): number | null {
 }
 
 function formatRate(value: number): string {
-  return Number.isFinite(value) ? value.toFixed(2) : "0.00";
+  if (!Number.isFinite(value)) return "0.00";
+  if (value > 0 && value < 0.01) return "<0.01";
+  return value.toFixed(2);
 }
 
-function formatKeySourceLabel(keySource: string): string {
+function formatKeySourceLabel(keySource: string, keyLabel?: string | null): string {
+  const trimmedLabel = keyLabel?.trim();
+  if (trimmedLabel) return trimmedLabel;
+
   switch (keySource) {
     case "env:TORN_API_KEY":
       return "Admin fallback key";

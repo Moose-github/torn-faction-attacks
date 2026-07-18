@@ -2013,6 +2013,59 @@ h2 {
   line-height: 1.5;
 }
 
+.data-health-key-pool-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.data-health-key-pool-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.data-health-key-pool-stat {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+}
+
+.data-health-key-pool-stat span {
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.data-health-key-pool-stat strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: 1.04rem;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.data-health-key-pool-table-header {
+  margin-top: 2px;
+}
+
+.data-health-key-pool-table td:first-child {
+  max-width: 360px;
+}
+
+.data-health-key-pool-list {
+  display: none;
+}
+
+.data-health-key-pool-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .data-health-admin-section {
   display: grid;
   gap: 18px;
@@ -8053,9 +8106,58 @@ h2 {
 
 @media (max-width: 760px) {
   .data-health-status-grid,
+  .data-health-key-pool-stats,
   .data-health-drilldown-metrics,
   .data-health-settings-form {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .data-health-key-pool-table,
+  .data-health-key-pool-table-header {
+    display: none;
+  }
+
+  .data-health-key-pool-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .data-health-key-pool-list article {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    padding: 11px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: var(--radius-sm);
+    background: #f8fafc;
+  }
+
+  .data-health-key-pool-list strong,
+  .data-health-key-pool-list span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .data-health-key-pool-list strong {
+    color: #0f172a;
+    font-size: 0.9rem;
+    font-weight: 950;
+  }
+
+  .data-health-key-pool-list span {
+    color: #475569;
+    font-size: 0.8rem;
+    font-weight: 850;
+    line-height: 1.35;
+  }
+
+  .data-health-key-pool-actions {
+    justify-content: stretch;
+  }
+
+  .data-health-key-pool-actions .panel-action-button {
+    width: 100%;
+    justify-content: center;
   }
 
   .data-health-coverage-row {
@@ -8964,7 +9066,9 @@ tbody tr:not(.attack-row):hover td {
 
 :root[data-theme="dark"] .data-health-subsystem-tile,
 :root[data-theme="dark"] .data-health-issue-row,
-:root[data-theme="dark"] .data-health-coverage-row {
+:root[data-theme="dark"] .data-health-coverage-row,
+:root[data-theme="dark"] .data-health-key-pool-stat,
+:root[data-theme="dark"] .data-health-key-pool-list article {
   background: rgba(15, 23, 42, 0.92);
   box-shadow: var(--shadow-panel);
 }
@@ -8994,6 +9098,8 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .data-health-api-grid .dashboard-metric-line strong,
 :root[data-theme="dark"] .data-health-drilldown-metrics .dashboard-metric-line strong,
 :root[data-theme="dark"] .data-health-coverage-bars em,
+:root[data-theme="dark"] .data-health-key-pool-stat strong,
+:root[data-theme="dark"] .data-health-key-pool-list strong,
 :root[data-theme="dark"] .data-health-table td:first-child,
 :root[data-theme="dark"] .data-health-settings-form input {
   color: var(--text-strong);
@@ -9030,6 +9136,8 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .data-health-api-grid .dashboard-metric-line span,
 :root[data-theme="dark"] .data-health-drilldown-metrics .dashboard-metric-line span,
 :root[data-theme="dark"] .data-health-coverage-bars b,
+:root[data-theme="dark"] .data-health-key-pool-stat span,
+:root[data-theme="dark"] .data-health-key-pool-list span,
 :root[data-theme="dark"] .data-health-settings-form label > span,
 :root[data-theme="dark"] .data-health-settings-form small,
 :root[data-theme="dark"] .data-health-metric-card .panel-kicker {
@@ -9066,7 +9174,9 @@ tbody tr:not(.attack-row):hover td {
 }
 
 :root[data-theme="dark"] .data-health-drilldown-metrics .dashboard-metric-line,
-:root[data-theme="dark"] .data-health-coverage-bars span {
+:root[data-theme="dark"] .data-health-coverage-bars span,
+:root[data-theme="dark"] .data-health-key-pool-stat,
+:root[data-theme="dark"] .data-health-key-pool-list article {
   border-color: rgba(148, 163, 184, 0.32);
   background: rgba(30, 41, 59, 0.72);
 }

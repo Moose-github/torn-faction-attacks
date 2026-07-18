@@ -1118,7 +1118,7 @@ export function AdminControls() {
                         <tbody>
                           {tornApiUsage.by_key.map((key) => (
                             <tr key={key.key_source}>
-                              <td title={key.key_source}>{formatTornApiKeySource(key.key_source)}</td>
+                              <td title={key.key_source}>{formatTornApiKeySource(key.key_source, key.key_label)}</td>
                               <td>{formatNumber(key.requests)}</td>
                               <td>{formatNumber(key.errors)}</td>
                               <td>{formatNumber(key.rate_limited)}</td>
@@ -2878,7 +2878,10 @@ function formatTornApiUsageWindowSummaryLabel(seconds: number): string {
     ?? formatUsageWindow(seconds);
 }
 
-function formatTornApiKeySource(keySource: string): string {
+function formatTornApiKeySource(keySource: string, keyLabel?: string | null): string {
+  const trimmedLabel = keyLabel?.trim();
+  if (trimmedLabel) return trimmedLabel;
+
   switch (keySource) {
     case "env:TORN_API_KEY":
       return "Admin fallback key";

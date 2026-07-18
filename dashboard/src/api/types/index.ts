@@ -1060,6 +1060,17 @@ export type DataHealthIssue = {
   action_label: string | null;
 };
 
+export type DataHealthKeyPoolSummary = {
+  window_seconds: number;
+  saved_keys: number;
+  active_saved_keys: number;
+  pool_requests: number;
+  fallback_requests: number;
+  total_requests: number;
+  pool_share_percent: number | null;
+  keys: TornApiUsageKey[];
+};
+
 export type PersonalStatsCoverageGap = {
   snapshot_date: string;
   member_id: number;
@@ -1077,6 +1088,7 @@ export type DataHealthSummaryResponse = {
   cache_seconds: number;
   overall_status: DataHealthStatus;
   subsystems: DataHealthSubsystem[];
+  key_pool: DataHealthKeyPoolSummary;
 };
 
 export type AdminDataHealthResponse = DataHealthSummaryResponse & {
@@ -1193,6 +1205,7 @@ export type TornApiUsageEndpoint = {
 
 export type TornApiUsageKey = {
   key_source: string;
+  key_label?: string | null;
   requests: number;
   errors: number;
   rate_limited: number;

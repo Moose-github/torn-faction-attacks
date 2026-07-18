@@ -38,6 +38,7 @@ type TornApiUsageEndpointRow = {
 
 type TornApiUsageKeyRow = {
   key_source: string;
+  key_label: string | null;
   requests: number;
   errors: number;
   rate_limited: number;
@@ -128,17 +129,38 @@ export async function getTornApiUsage(url: URL, env: Env): Promise<Response> {
   const [byKey, byFeature, byEndpoint, recentCalls] = await Promise.all([
     env.DB.prepare(
       `
+      WITH key_usage AS (
+        SELECT
+          key_source,
+          COUNT(*) AS requests,
+          SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS errors,
+          SUM(CASE WHEN status = 429 THEN 1 ELSE 0 END) AS rate_limited,
+          AVG(duration_ms) AS avg_duration_ms,
+          MAX(requested_at) AS last_requested_at
+        FROM torn_api_call_log
+        WHERE requested_at >= ?
+        GROUP BY key_source
+      )
       SELECT
-        key_source,
-        COUNT(*) AS requests,
-        SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS errors,
-        SUM(CASE WHEN status = 429 THEN 1 ELSE 0 END) AS rate_limited,
-        AVG(duration_ms) AS avg_duration_ms,
-        MAX(requested_at) AS last_requested_at
-      FROM torn_api_call_log
-      WHERE requested_at >= ?
-      GROUP BY key_source
-      ORDER BY requests DESC, key_source ASC
+        key_usage.key_source,
+        COALESCE(
+          NULLIF(keys.label, ''),
+          NULLIF(keys.owner_name, ''),
+          CASE
+            WHEN keys.owner_torn_user_id IS NOT NULL THEN 'Torn user #' || keys.owner_torn_user_id
+            ELSE NULL
+          END
+        ) AS key_label,
+        key_usage.requests,
+        key_usage.errors,
+        key_usage.rate_limited,
+        key_usage.avg_duration_ms,
+        key_usage.last_requested_at
+      FROM key_usage
+      LEFT JOIN torn_api_keys keys
+        ON key_usage.key_source LIKE 'key_pool:%'
+        AND keys.id = substr(key_usage.key_source, 10)
+      ORDER BY key_usage.requests DESC, key_usage.key_source ASC
       `,
     ).bind(since).all<TornApiUsageKeyRow>(),
     env.DB.prepare(
@@ -416,6 +438,7 @@ function mapEndpointRow(row: TornApiUsageEndpointRow) {
 function mapKeyRow(row: TornApiUsageKeyRow) {
   return {
     key_source: row.key_source,
+    key_label: typeof row.key_label === "string" && row.key_label.trim() ? row.key_label.trim() : null,
     requests: Number(row.requests ?? 0),
     errors: Number(row.errors ?? 0),
     rate_limited: Number(row.rate_limited ?? 0),

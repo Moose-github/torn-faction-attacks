@@ -7,12 +7,14 @@ import {
   ChevronRight,
   Clock3,
   Gauge,
+  KeyRound,
   Radar,
   ServerCog,
   Settings2,
 } from "lucide-react";
 import {
   AdminDataHealthResponse,
+  DataHealthKeyPoolSummary,
   DataHealthSettings,
   DataHealthStatus,
   DataHealthSubsystem,
@@ -23,6 +25,7 @@ import {
   getDataHealthSummary,
   MaintenanceTask,
   TornApiUsageCall,
+  TornApiUsageKey,
   updateDataHealthSettings,
 } from "../api";
 import { EmptyState, PanelHeader } from "../components/Common";
@@ -142,7 +145,7 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
       {error ? <div className="error-panel">{error}</div> : null}
       {notice ? <div className="dashboard-suggestion-success">{notice}</div> : null}
 
-      <DataHealthOverview data={data} isLoading={isLoading} onRefresh={loadData} />
+      <DataHealthOverview data={data} isLoading={isLoading} onOpenView={onOpenView} onRefresh={loadData} />
 
       {adminData ? (
         <AdminDataHealthDiagnostics
@@ -167,10 +170,12 @@ export const DataHealthCommandCenter = DataHealthPage;
 function DataHealthOverview({
   data,
   isLoading,
+  onOpenView,
   onRefresh,
 }: {
   data: DataHealthSummaryResponse | null;
   isLoading: boolean;
+  onOpenView: (view: AppView) => void;
   onRefresh: () => void;
 }) {
   const subsystems = memberVisibleSubsystems(data?.subsystems ?? []);
@@ -235,7 +240,106 @@ function DataHealthOverview({
           </div>
         )}
       </section>
+
+      <KeyPoolPanel keyPool={data?.key_pool ?? null} onOpenView={onOpenView} />
     </>
+  );
+}
+
+function KeyPoolPanel({
+  keyPool,
+  onOpenView,
+}: {
+  keyPool: DataHealthKeyPoolSummary | null;
+  onOpenView: (view: AppView) => void;
+}) {
+  const windowLabel = formatApiUsageWindowSummaryLabel(keyPool?.window_seconds ?? 24 * 60 * 60);
+  const keys = keyPool?.keys ?? [];
+
+  return (
+    <section className="panel data-health-key-pool-panel">
+      <PanelHeader
+        icon={<KeyRound size={17} />}
+        title="Key Pool"
+        aside={`Last ${windowLabel}`}
+      />
+      <p className="panel-description data-health-panel-description">
+        Saved member keys help spread Torn API load across available keys.
+      </p>
+      {!keyPool ? (
+        <EmptyState text="Loading key pool usage" />
+      ) : (
+        <>
+          <div className="data-health-key-pool-stats">
+            <KeyPoolStat label="Saved keys" value={formatNumber(keyPool.active_saved_keys)} />
+            <KeyPoolStat label="Pool calls" value={`${formatNumber(keyPool.pool_requests)} / ${windowLabel}`} />
+            <KeyPoolStat
+              label="Pool share"
+              value={keyPool.pool_share_percent === null ? "-" : `${formatNumber(keyPool.pool_share_percent)}%`}
+            />
+          </div>
+          {keys.length > 0 ? (
+            <>
+              <div className="admin-table-toggle-row data-health-key-pool-table-header">
+                <strong>Usage in last {windowLabel}</strong>
+                <span>{formatNumber(keyPool.total_requests)} calls</span>
+              </div>
+              <table className="stock-status-table data-health-table data-health-key-pool-table">
+                <thead>
+                  <tr>
+                    <th>Key name</th>
+                    <th>Calls</th>
+                    <th>Avg/min</th>
+                    <th>Last used</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {keys.map((key) => (
+                    <tr key={key.key_source}>
+                      <td title={key.key_source}>{publicKeyPoolKeyLabel(key)}</td>
+                      <td>{formatNumber(key.requests)}</td>
+                      <td>{formatRate(key.calls_per_minute ?? 0)}</td>
+                      <td>{formatRelativeTime(key.last_requested_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="data-health-key-pool-list">
+                {keys.map((key) => (
+                  <article key={key.key_source} title={key.key_source}>
+                    <strong>{publicKeyPoolKeyLabel(key)}</strong>
+                    <span>
+                      {formatNumber(key.requests)} calls | {formatRate(key.calls_per_minute ?? 0)}/min | {formatRelativeTime(key.last_requested_at)}
+                    </span>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : (
+            <EmptyState text={`No key pool usage recorded in the last ${windowLabel}`} />
+          )}
+        </>
+      )}
+      <div className="data-health-key-pool-actions">
+        <button
+          type="button"
+          className="panel-action-button primary-action"
+          onClick={() => onOpenView("settings")}
+        >
+          <KeyRound size={14} />
+          Submit key
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function KeyPoolStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="data-health-key-pool-stat">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -398,7 +502,7 @@ function AdminDataHealthDiagnostics({
               <tbody>
                 {data.details.api_key_health.map((key) => (
                   <tr key={key.key_source}>
-                    <td title={key.key_source}>{formatTornApiKeySource(key.key_source)}</td>
+                    <td title={key.key_source}>{formatTornApiKeySource(key.key_source, key.key_label)}</td>
                     <td>{formatRate(key.calls_per_minute ?? 0)}</td>
                     <td>{formatNumber(key.requests)}</td>
                     <td>{formatNumber(key.errors)}</td>
@@ -915,7 +1019,10 @@ function formatApiUsageWindowSummaryLabel(seconds: number): string {
   return `${Math.round(seconds / (24 * 60 * 60))}d`;
 }
 
-function formatTornApiKeySource(keySource: string): string {
+function formatTornApiKeySource(keySource: string, keyLabel?: string | null): string {
+  const trimmedLabel = keyLabel?.trim();
+  if (trimmedLabel) return trimmedLabel;
+
   switch (keySource) {
     case "env:TORN_API_KEY":
       return "Admin fallback key";
@@ -928,12 +1035,24 @@ function formatTornApiKeySource(keySource: string): string {
   }
 }
 
+function publicKeyPoolKeyLabel(key: TornApiUsageKey): string {
+  const trimmedLabel = key.key_label?.trim();
+  if (trimmedLabel) return trimmedLabel;
+  if (key.key_source === "env:TORN_API_KEY") return "Fallback key";
+  if (key.key_source.startsWith("key_pool:")) {
+    return `Pool ${key.key_source.slice("key_pool:".length, "key_pool:".length + 8)}`;
+  }
+  return formatTornApiKeySource(key.key_source);
+}
+
 function nullableNumber(value: number | null): string {
   return value === null ? "-" : formatNumber(value);
 }
 
 function formatRate(value: number): string {
-  return Number.isFinite(value) ? value.toFixed(2) : "0.00";
+  if (!Number.isFinite(value)) return "0.00";
+  if (value > 0 && value < 0.01) return "<0.01";
+  return value.toFixed(2);
 }
 
 function displayMetricValue(value: string, timestamp: number | null | undefined, label: string): string {
