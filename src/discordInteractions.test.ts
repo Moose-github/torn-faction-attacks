@@ -515,11 +515,11 @@ describe("Discord interactions", () => {
 
   it("sets alert channel routes in the configured guild", async () => {
     const env = fakeDiscordEnv({
-      discordGuildId: "727247760931160167",
+      discordGuildId: "833065345023606805",
     });
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
-      guild_id: "727247760931160167",
+      guild_id: "833065345023606805",
       member: { user: { id: "222222222222222222" }, roles: [] },
       data: {
         name: "alert-channels",
@@ -538,8 +538,8 @@ describe("Discord interactions", () => {
 
     expect(response.data?.embeds?.[0]?.title).toBe("Alert channel route saved");
     expect(response.data?.embeds?.[0]?.description).toContain("<#333333333333333333>");
-    expect(env.notificationRoutes.get("727247760931160167:enemy_push")).toMatchObject({
-      guild_id: "727247760931160167",
+    expect(env.notificationRoutes.get("833065345023606805:enemy_push")).toMatchObject({
+      guild_id: "833065345023606805",
       alert_key: DISCORD_ALERT_KEYS.enemyPush,
       channel_id: "333333333333333333",
       enabled: 1,
@@ -550,7 +550,7 @@ describe("Discord interactions", () => {
   it("lists configured alert channel routes", async () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
-      guild_id: "727247760931160167",
+      guild_id: "833065345023606805",
       member: { user: { id: "222222222222222222" }, roles: ["999999999999999999"] },
       data: {
         name: "alert-channels",
@@ -559,7 +559,7 @@ describe("Discord interactions", () => {
         ],
       },
     }, fakeDiscordEnv({
-      discordGuildId: "727247760931160167",
+      discordGuildId: "833065345023606805",
       notificationRoutes: {
         [DISCORD_ALERT_KEYS.enemyPush]: "333333333333333333",
       },
@@ -589,10 +589,10 @@ describe("Discord interactions", () => {
   it("tests alert channel routes against stored thread targets", async () => {
     vi.mocked(createDiscordBotMessage).mockResolvedValue("message-1");
     const env = fakeDiscordEnv({
-      discordGuildId: "727247760931160167",
+      discordGuildId: "833065345023606805",
     });
-    env.notificationRoutes.set("727247760931160167:enemy_push", {
-      guild_id: "727247760931160167",
+    env.notificationRoutes.set("833065345023606805:enemy_push", {
+      guild_id: "833065345023606805",
       alert_key: DISCORD_ALERT_KEYS.enemyPush,
       channel_id: "333333333333333333",
       thread_id: "444444444444444444",
@@ -603,7 +603,7 @@ describe("Discord interactions", () => {
 
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
-      guild_id: "727247760931160167",
+      guild_id: "833065345023606805",
       member: { user: { id: "222222222222222222" }, roles: [] },
       data: {
         name: "alert-channels",
@@ -634,14 +634,14 @@ describe("Discord interactions", () => {
 
   it("unsets alert channel routes in the configured guild", async () => {
     const env = fakeDiscordEnv({
-      discordGuildId: "727247760931160167",
+      discordGuildId: "833065345023606805",
       notificationRoutes: {
         [DISCORD_ALERT_KEYS.enemyPush]: "333333333333333333",
       },
     });
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
-      guild_id: "727247760931160167",
+      guild_id: "833065345023606805",
       member: { user: { id: "222222222222222222" }, roles: [] },
       data: {
         name: "alert-channels",
@@ -658,14 +658,14 @@ describe("Discord interactions", () => {
     }, env);
 
     expect(response.data?.embeds?.[0]?.title).toBe("Alert channel route removed");
-    expect(env.notificationRoutes.has("727247760931160167:enemy_push")).toBe(false);
+    expect(env.notificationRoutes.has("833065345023606805:enemy_push")).toBe(false);
   });
 
   it("trusts Discord command permissions for alert channel routes", async () => {
-    const env = fakeDiscordEnv({ discordGuildId: "727247760931160167" });
+    const env = fakeDiscordEnv({ discordGuildId: "833065345023606805" });
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
-      guild_id: "727247760931160167",
+      guild_id: "833065345023606805",
       member: { user: { id: "222222222222222222" }, roles: [] },
       data: {
         name: "alert-channels",
@@ -689,7 +689,7 @@ describe("Discord interactions", () => {
   it("rejects alert channel routes when no delivery guild is configured", async () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
-      guild_id: "727247760931160167",
+      guild_id: "833065345023606805",
       member: { user: { id: "222222222222222222" }, roles: [] },
       data: {
         name: "alert-channels",
@@ -713,7 +713,7 @@ describe("Discord interactions", () => {
           { type: 1, name: "list" },
         ],
       },
-    }, fakeDiscordEnv({ discordGuildId: "727247760931160167" }));
+    }, fakeDiscordEnv({ discordGuildId: "833065345023606805" }));
 
     expect(response.data?.content).toBe("Alert channel routing is only enabled for the configured Discord server.");
   });
@@ -869,9 +869,9 @@ function fakeDiscordEnv(options: {
     updated_at: number;
   }>(
     Object.entries(options.notificationRoutes ?? {}).map(([alert_key, channel_id]) => [
-      `727247760931160167:${alert_key}`,
+      `833065345023606805:${alert_key}`,
       {
-        guild_id: "727247760931160167",
+        guild_id: "833065345023606805",
         alert_key,
         channel_id,
         thread_id: null,
