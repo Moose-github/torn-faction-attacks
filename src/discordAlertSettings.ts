@@ -42,6 +42,18 @@ export type RetaliationBoardAlertSetting = DiscordAlertSetting & {
   key: typeof DISCORD_ALERT_KEYS.retaliationBoard;
 };
 
+export type EnemyScoutingReportAlertSetting = DiscordAlertSetting & {
+  key: typeof DISCORD_ALERT_KEYS.enemyScoutingReport;
+};
+
+export type XanaxCompetitionAlertSetting = DiscordAlertSetting & {
+  key: typeof DISCORD_ALERT_KEYS.xanaxCompetition;
+};
+
+export type TermedWarAutoEndAlertSetting = DiscordAlertSetting & {
+  key: typeof DISCORD_ALERT_KEYS.termedWarAutoEnd;
+};
+
 type AlertSettingConfig = {
   key: DiscordAlertKey;
   name: string;
@@ -75,6 +87,24 @@ const ALERT_SETTING_CONFIGS = [
     configurable: true,
   },
   {
+    key: DISCORD_ALERT_KEYS.enemyScoutingReport,
+    name: "Enemy scouting report",
+    defaultEnabled: true,
+    configurable: true,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.xanaxCompetition,
+    name: "Xanax competition Discord reminder",
+    defaultEnabled: true,
+    configurable: true,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.termedWarAutoEnd,
+    name: "Termed war auto-end notice",
+    defaultEnabled: true,
+    configurable: true,
+  },
+  {
     key: DISCORD_ALERT_KEYS.shopliftingSecurity("big_als"),
     name: "Big Als shoplifting",
     defaultEnabled: true,
@@ -94,6 +124,9 @@ export async function getAdminDiscordAlertSettings(env: Env): Promise<Response> 
     chain_watch_alert: await readChainWatchAlertSetting(env),
     retaliation_board_alert: await readRetaliationBoardAlertSetting(env),
     enemy_push_alert: await readEnemyPushAlertSetting(env),
+    enemy_scouting_report_alert: await readEnemyScoutingReportAlertSetting(env),
+    xanax_competition_alert: await readXanaxCompetitionAlertSetting(env),
+    termed_war_auto_end_alert: await readTermedWarAutoEndAlertSetting(env),
     alerts: await readShopliftingSecurityAlertSettings(env),
   });
 }
@@ -114,6 +147,24 @@ export async function updateAdminDiscordAlertSettingsFromRequest(request: Reques
 
   if (body.alert_key === DISCORD_ALERT_KEYS.retaliationBoard) {
     const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.retaliationBoard, body.enabled);
+    if (error) return error;
+    return getAdminDiscordAlertSettings(env);
+  }
+
+  if (body.alert_key === DISCORD_ALERT_KEYS.enemyScoutingReport) {
+    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.enemyScoutingReport, body.enabled);
+    if (error) return error;
+    return getAdminDiscordAlertSettings(env);
+  }
+
+  if (body.alert_key === DISCORD_ALERT_KEYS.xanaxCompetition) {
+    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.xanaxCompetition, body.enabled);
+    if (error) return error;
+    return getAdminDiscordAlertSettings(env);
+  }
+
+  if (body.alert_key === DISCORD_ALERT_KEYS.termedWarAutoEnd) {
+    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.termedWarAutoEnd, body.enabled);
     if (error) return error;
     return getAdminDiscordAlertSettings(env);
   }
@@ -144,6 +195,27 @@ export async function readRetaliationBoardAlertSetting(env: Env): Promise<Retali
     env,
     alertConfig(DISCORD_ALERT_KEYS.retaliationBoard),
   ) as Promise<RetaliationBoardAlertSetting>;
+}
+
+export async function readEnemyScoutingReportAlertSetting(env: Env): Promise<EnemyScoutingReportAlertSetting> {
+  return readConfiguredAlertSetting(
+    env,
+    alertConfig(DISCORD_ALERT_KEYS.enemyScoutingReport),
+  ) as Promise<EnemyScoutingReportAlertSetting>;
+}
+
+export async function readXanaxCompetitionAlertSetting(env: Env): Promise<XanaxCompetitionAlertSetting> {
+  return readConfiguredAlertSetting(
+    env,
+    alertConfig(DISCORD_ALERT_KEYS.xanaxCompetition),
+  ) as Promise<XanaxCompetitionAlertSetting>;
+}
+
+export async function readTermedWarAutoEndAlertSetting(env: Env): Promise<TermedWarAutoEndAlertSetting> {
+  return readConfiguredAlertSetting(
+    env,
+    alertConfig(DISCORD_ALERT_KEYS.termedWarAutoEnd),
+  ) as Promise<TermedWarAutoEndAlertSetting>;
 }
 
 export async function isDiscordAlertEnabled(env: Env, alertKey: DiscordAlertKey): Promise<boolean> {

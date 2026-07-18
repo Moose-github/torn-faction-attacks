@@ -56,6 +56,24 @@ describe("Discord alert settings", () => {
         enabled: true,
         configurable: true,
       },
+      enemy_scouting_report_alert: {
+        key: "enemy_scouting_report",
+        name: "Enemy scouting report",
+        enabled: true,
+        configurable: true,
+      },
+      xanax_competition_alert: {
+        key: "xanax_competition",
+        name: "Xanax competition Discord reminder",
+        enabled: true,
+        configurable: true,
+      },
+      termed_war_auto_end_alert: {
+        key: "termed_war_auto_end",
+        name: "Termed war auto-end notice",
+        enabled: true,
+        configurable: true,
+      },
       alerts: [
         {
           shop_key: "big_als",
@@ -79,6 +97,9 @@ describe("Discord alert settings", () => {
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.chainWatch)).resolves.toBe(true);
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.retaliationBoard)).resolves.toBe(true);
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.enemyPush)).resolves.toBe(false);
+    await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.enemyScoutingReport)).resolves.toBe(true);
+    await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.xanaxCompetition)).resolves.toBe(true);
+    await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.termedWarAutoEnd)).resolves.toBe(true);
     await expect(readShopliftingSecurityAlertSettings(env)).resolves.toEqual([
       {
         shop_key: "big_als",
@@ -100,6 +121,25 @@ describe("Discord alert settings", () => {
 
     expect(db.settings.get("chain_watch")).toMatchObject({ enabled: 1, configurable: 1 });
     expect(clearSyncLatchesByPrefix).not.toHaveBeenCalled();
+  });
+
+  it("updates Discord-only report and reminder alert settings", async () => {
+    await updateAdminDiscordAlertSettingsFromRequest(
+      jsonRequest({ alert_key: DISCORD_ALERT_KEYS.enemyScoutingReport, enabled: false }),
+      env,
+    );
+    await updateAdminDiscordAlertSettingsFromRequest(
+      jsonRequest({ alert_key: DISCORD_ALERT_KEYS.xanaxCompetition, enabled: false }),
+      env,
+    );
+    await updateAdminDiscordAlertSettingsFromRequest(
+      jsonRequest({ alert_key: DISCORD_ALERT_KEYS.termedWarAutoEnd, enabled: false }),
+      env,
+    );
+
+    expect(db.settings.get(DISCORD_ALERT_KEYS.enemyScoutingReport)).toMatchObject({ enabled: 0, configurable: 1 });
+    expect(db.settings.get(DISCORD_ALERT_KEYS.xanaxCompetition)).toMatchObject({ enabled: 0, configurable: 1 });
+    expect(db.settings.get(DISCORD_ALERT_KEYS.termedWarAutoEnd)).toMatchObject({ enabled: 0, configurable: 1 });
   });
 
   it("disables enemy push alerts and clears pending push alert latches", async () => {

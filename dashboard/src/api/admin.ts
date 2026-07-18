@@ -257,10 +257,7 @@ export async function updateAdminEnemyPushDiscordAlert(payload: {
 
 }): Promise<AdminDiscordAlertSettingsResponse> {
 
-  return postJson<AdminDiscordAlertSettingsResponse>("/api/admin/discord-alerts/settings", {
-    alert_key: "enemy_push",
-    enabled: payload.enabled,
-  });
+  return updateAdminDiscordAlert("enemy_push", payload.enabled);
 
 }
 
@@ -270,10 +267,7 @@ export async function updateAdminChainWatchDiscordAlert(payload: {
 
 }): Promise<AdminDiscordAlertSettingsResponse> {
 
-  return postJson<AdminDiscordAlertSettingsResponse>("/api/admin/discord-alerts/settings", {
-    alert_key: "chain_watch",
-    enabled: payload.enabled,
-  });
+  return updateAdminDiscordAlert("chain_watch", payload.enabled);
 
 }
 
@@ -283,9 +277,48 @@ export async function updateAdminRetaliationBoardDiscordAlert(payload: {
 
 }): Promise<AdminDiscordAlertSettingsResponse> {
 
+  return updateAdminDiscordAlert("retaliation_board", payload.enabled);
+
+}
+
+export async function updateAdminEnemyScoutingReportDiscordAlert(payload: {
+
+  enabled: boolean;
+
+}): Promise<AdminDiscordAlertSettingsResponse> {
+
+  return updateAdminDiscordAlert("enemy_scouting_report", payload.enabled);
+
+}
+
+export async function updateAdminXanaxCompetitionDiscordAlert(payload: {
+
+  enabled: boolean;
+
+}): Promise<AdminDiscordAlertSettingsResponse> {
+
+  return updateAdminDiscordAlert("xanax_competition", payload.enabled);
+
+}
+
+export async function updateAdminTermedWarAutoEndDiscordAlert(payload: {
+
+  enabled: boolean;
+
+}): Promise<AdminDiscordAlertSettingsResponse> {
+
+  return updateAdminDiscordAlert("termed_war_auto_end", payload.enabled);
+
+}
+
+function updateAdminDiscordAlert(
+  alertKey: string,
+  enabled: boolean,
+): Promise<AdminDiscordAlertSettingsResponse> {
+
   return postJson<AdminDiscordAlertSettingsResponse>("/api/admin/discord-alerts/settings", {
-    alert_key: "retaliation_board",
-    enabled: payload.enabled,
+    alert_key: alertKey,
+    enabled,
   });
 
 }

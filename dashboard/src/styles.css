@@ -7458,6 +7458,24 @@ h2 {
   min-height: 38px;
 }
 
+.admin-alert-toggle-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.admin-alert-toggle-text strong {
+  color: var(--text-strong);
+  font-size: 0.86rem;
+}
+
+.admin-alert-toggle-text small {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .checkbox-row input {
   min-height: auto;
 }

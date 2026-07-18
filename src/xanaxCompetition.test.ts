@@ -136,6 +136,13 @@ function createReminderFixture(options: ReminderFixtureOptions): {
             operations.push("read-settings");
             return { ...settings };
           }
+          if (compactSql.includes("FROM alert_settings")) {
+            return {
+              alert_key: DISCORD_ALERT_KEYS.xanaxCompetition,
+              enabled: 1,
+              configurable: 1,
+            };
+          }
           if (compactSql.includes("FROM xanax_competition_claims")) {
             operations.push("read-claim");
             return null;

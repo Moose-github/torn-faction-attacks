@@ -4,6 +4,7 @@ import {
   ChainWatchAlertSetting,
   clearDiscordTravelTrackerTarget,
   DiscordTravelTrackerTargetResponse,
+  EnemyScoutingReportAlertSetting,
   EnemyPushAlertSetting,
   RetaliationBoardAlertSetting,
   setDiscordTravelTrackerTarget,
@@ -11,9 +12,14 @@ import {
   syncDiscordTravelTracker,
   updateAdminChainWatchDiscordAlert,
   updateAdminEnemyPushDiscordAlert,
+  updateAdminEnemyScoutingReportDiscordAlert,
   updateAdminRetaliationBoardDiscordAlert,
   updateAdminShopliftingDiscordAlert,
+  updateAdminTermedWarAutoEndDiscordAlert,
+  updateAdminXanaxCompetitionDiscordAlert,
   updateDiscordTravelTrackerSettings,
+  TermedWarAutoEndAlertSetting,
+  XanaxCompetitionAlertSetting,
 } from "../../api";
 import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime } from "../../utils/format";
@@ -32,6 +38,9 @@ type DiscordAdminControlsProps = {
   retaliationBoardAlert: RetaliationBoardAlertSetting | null;
   shopliftingAlerts: ShopliftingAlertSetting[];
   enemyPushAlert: EnemyPushAlertSetting | null;
+  enemyScoutingReportAlert: EnemyScoutingReportAlertSetting | null;
+  xanaxCompetitionAlert: XanaxCompetitionAlertSetting | null;
+  termedWarAutoEndAlert: TermedWarAutoEndAlertSetting | null;
   isLoadingDiscordAlertSettings: boolean;
   setDiscordTravelTargetForm: React.Dispatch<React.SetStateAction<DiscordTravelTargetForm>>;
   setError: React.Dispatch<React.SetStateAction<string | null>>;
@@ -48,6 +57,9 @@ export function DiscordAdminControls({
   retaliationBoardAlert,
   shopliftingAlerts,
   enemyPushAlert,
+  enemyScoutingReportAlert,
+  xanaxCompetitionAlert,
+  termedWarAutoEndAlert,
   isLoadingDiscordAlertSettings,
   setDiscordTravelTargetForm,
   setError,
@@ -57,16 +69,23 @@ export function DiscordAdminControls({
   const discordAlertStatus = isLoadingDiscordAlertSettings
     ? "Loading"
     : shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert || retaliationBoardAlert
+      || enemyScoutingReportAlert || xanaxCompetitionAlert || termedWarAutoEndAlert
       ? `${[
           ...(chainWatchAlert ? [chainWatchAlert.enabled] : []),
           ...(retaliationBoardAlert ? [retaliationBoardAlert.enabled] : []),
           ...shopliftingAlerts.map((alert) => alert.enabled),
           ...(enemyPushAlert ? [enemyPushAlert.enabled] : []),
+          ...(enemyScoutingReportAlert ? [enemyScoutingReportAlert.enabled] : []),
+          ...(xanaxCompetitionAlert ? [xanaxCompetitionAlert.enabled] : []),
+          ...(termedWarAutoEndAlert ? [termedWarAutoEndAlert.enabled] : []),
         ].filter(Boolean).length}/${
           shopliftingAlerts.length +
           (enemyPushAlert ? 1 : 0) +
           (chainWatchAlert ? 1 : 0) +
-          (retaliationBoardAlert ? 1 : 0)
+          (retaliationBoardAlert ? 1 : 0) +
+          (enemyScoutingReportAlert ? 1 : 0) +
+          (xanaxCompetitionAlert ? 1 : 0) +
+          (termedWarAutoEndAlert ? 1 : 0)
         } active`
       : "Unavailable";
   const discordTravelTrackerStatus = isLoadingDiscordTravelTarget
@@ -81,6 +100,134 @@ export function DiscordAdminControls({
 
   return (
     <>
+      <section className="panel admin-panel-shoplifting-alerts">
+        <PanelHeader title="Discord alerts" aside={discordAlertStatus} />
+        <div className="admin-form">
+          {chainWatchAlert ? (
+            <AlertToggle
+              checked={chainWatchAlert.enabled}
+              description="Controls the persistent Chain Watch status message; warning and drop routes still decide where mention pings go."
+              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
+              label={chainWatchAlert.name}
+              onChange={(enabled) => {
+                runAdminAction("Update chain watch alert", () =>
+                  updateAdminChainWatchDiscordAlert({ enabled }).then((response) => {
+                    applyDiscordAlertSettingsResponse(response);
+                    return response;
+                  }),
+                );
+              }}
+            />
+          ) : null}
+          {retaliationBoardAlert ? (
+            <AlertToggle
+              checked={retaliationBoardAlert.enabled}
+              description="Controls the persistent retaliation opportunity board updates sent to Discord."
+              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
+              label={retaliationBoardAlert.name}
+              onChange={(enabled) => {
+                runAdminAction("Update retaliation board alert", () =>
+                  updateAdminRetaliationBoardDiscordAlert({ enabled }).then((response) => {
+                    applyDiscordAlertSettingsResponse(response);
+                    return response;
+                  }),
+                );
+              }}
+            />
+          ) : null}
+          {enemyPushAlert ? (
+            <AlertToggle
+              checked={enemyPushAlert.enabled}
+              description="Sends pressure warnings when enemy activity looks likely to become, or is already, a push."
+              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
+              label={enemyPushAlert.name}
+              onChange={(enabled) => {
+                runAdminAction("Update enemy push alert", () =>
+                  updateAdminEnemyPushDiscordAlert({ enabled }).then((response) => {
+                    applyDiscordAlertSettingsResponse(response);
+                    return response;
+                  }),
+                );
+              }}
+            />
+          ) : null}
+          {enemyScoutingReportAlert ? (
+            <AlertToggle
+              checked={enemyScoutingReportAlert.enabled}
+              description="Sends the war matchup scouting report and stats images when enemy scouting is ready."
+              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
+              label={enemyScoutingReportAlert.name}
+              onChange={(enabled) => {
+                runAdminAction("Update enemy scouting report alert", () =>
+                  updateAdminEnemyScoutingReportDiscordAlert({ enabled }).then((response) => {
+                    applyDiscordAlertSettingsResponse(response);
+                    return response;
+                  }),
+                );
+              }}
+            />
+          ) : null}
+          {xanaxCompetitionAlert ? (
+            <AlertToggle
+              checked={xanaxCompetitionAlert.enabled}
+              description="Sends the monthly Xanax competition Discord reminder image when the competition is active."
+              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
+              label={xanaxCompetitionAlert.name}
+              onChange={(enabled) => {
+                runAdminAction("Update Xanax competition Discord alert", () =>
+                  updateAdminXanaxCompetitionDiscordAlert({ enabled }).then((response) => {
+                    applyDiscordAlertSettingsResponse(response);
+                    return response;
+                  }),
+                );
+              }}
+            />
+          ) : null}
+          {termedWarAutoEndAlert ? (
+            <AlertToggle
+              checked={termedWarAutoEndAlert.enabled}
+              description="Sends a Discord notice when a termed war score limit has been reached."
+              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
+              label={termedWarAutoEndAlert.name}
+              onChange={(enabled) => {
+                runAdminAction("Update termed war auto-end alert", () =>
+                  updateAdminTermedWarAutoEndDiscordAlert({ enabled }).then((response) => {
+                    applyDiscordAlertSettingsResponse(response);
+                    return response;
+                  }),
+                );
+              }}
+            />
+          ) : null}
+          {shopliftingAlerts.map((alert) => (
+            alert.configurable ? (
+              <AlertToggle
+                checked={alert.enabled}
+                description={`Sends a Discord warning when both ${alert.shop_name} shoplifting security obstacles are down.`}
+                disabled={isBusy !== null || isLoadingDiscordAlertSettings}
+                key={alert.shop_key}
+                label={alert.shop_name}
+                onChange={(enabled) => {
+                  runAdminAction("Update shoplifting alert", () =>
+                    updateAdminShopliftingDiscordAlert({
+                      shop_key: alert.shop_key,
+                      enabled,
+                    }).then((response) => {
+                      applyDiscordAlertSettingsResponse(response);
+                      return response;
+                    }),
+                  );
+                }}
+              />
+            ) : (
+              <div className="admin-form-wide" key={alert.shop_key}>
+                <MetricLine label={alert.shop_name} value={alert.enabled ? "Active" : "Paused"} />
+              </div>
+            )
+          ))}
+        </div>
+      </section>
+
       <section className="panel admin-panel-discord-travel">
         <PanelHeader title="Discord travel tracker" aside={discordTravelTrackerStatus} />
         <div className="admin-metric-list admin-form-wide">
@@ -148,7 +295,10 @@ export function DiscordAdminControls({
                   updateDiscordTravelTrackerSettings({ target_enabled: event.target.checked }),
                 )}
             />
-            <span>Enemy/manual travel tracker</span>
+            <span className="admin-alert-toggle-text">
+              <strong>Enemy/manual travel tracker</strong>
+              <small>Updates the target faction travel tracker message for the current war target or manual faction.</small>
+            </span>
           </label>
           <label className="checkbox-row admin-form-wide">
             <input
@@ -160,7 +310,10 @@ export function DiscordAdminControls({
                   updateDiscordTravelTrackerSettings({ home_enabled: event.target.checked }),
                 )}
             />
-            <span>Home travel tracker</span>
+            <span className="admin-alert-toggle-text">
+              <strong>Home travel tracker</strong>
+              <small>Updates the home faction travel tracker message.</small>
+            </span>
           </label>
           <label>
             <span>Faction ID</span>
@@ -221,98 +374,36 @@ export function DiscordAdminControls({
           </button>
         </form>
       </section>
-
-      <section className="panel admin-panel-shoplifting-alerts">
-        <PanelHeader title="Discord alerts" aside={discordAlertStatus} />
-        <div className="admin-form">
-          {chainWatchAlert ? (
-            <label className="checkbox-row admin-form-wide">
-              <input
-                type="checkbox"
-                checked={chainWatchAlert.enabled}
-                disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-                onChange={(event) => {
-                  const enabled = event.target.checked;
-                  runAdminAction("Update chain watch alert", () =>
-                    updateAdminChainWatchDiscordAlert({ enabled }).then((response) => {
-                      applyDiscordAlertSettingsResponse(response);
-                      return response;
-                    }),
-                  );
-                }}
-              />
-              <span>{chainWatchAlert.name}</span>
-            </label>
-          ) : null}
-          {retaliationBoardAlert ? (
-            <label className="checkbox-row admin-form-wide">
-              <input
-                type="checkbox"
-                checked={retaliationBoardAlert.enabled}
-                disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-                onChange={(event) => {
-                  const enabled = event.target.checked;
-                  runAdminAction("Update retaliation board alert", () =>
-                    updateAdminRetaliationBoardDiscordAlert({ enabled }).then((response) => {
-                      applyDiscordAlertSettingsResponse(response);
-                      return response;
-                    }),
-                  );
-                }}
-              />
-              <span>{retaliationBoardAlert.name}</span>
-            </label>
-          ) : null}
-          {enemyPushAlert ? (
-            <label className="checkbox-row admin-form-wide">
-              <input
-                type="checkbox"
-                checked={enemyPushAlert.enabled}
-                disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-                onChange={(event) => {
-                  const enabled = event.target.checked;
-                  runAdminAction("Update enemy push alert", () =>
-                    updateAdminEnemyPushDiscordAlert({ enabled }).then((response) => {
-                      applyDiscordAlertSettingsResponse(response);
-                      return response;
-                    }),
-                  );
-                }}
-              />
-              <span>{enemyPushAlert.name}</span>
-            </label>
-          ) : null}
-          {shopliftingAlerts.map((alert) => (
-            alert.configurable ? (
-              <label className="checkbox-row admin-form-wide" key={alert.shop_key}>
-                <input
-                  type="checkbox"
-                  checked={alert.enabled}
-                  disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-                  onChange={(event) => {
-                    const enabled = event.target.checked;
-                    runAdminAction("Update shoplifting alert", () =>
-                      updateAdminShopliftingDiscordAlert({
-                        shop_key: alert.shop_key,
-                        enabled,
-                      }).then((response) => {
-                        applyDiscordAlertSettingsResponse(response);
-                        return response;
-                      }),
-                    );
-                  }}
-                />
-                <span>{alert.shop_name}</span>
-              </label>
-            ) : (
-              <div className="admin-form-wide" key={alert.shop_key}>
-                <MetricLine label={alert.shop_name} value={alert.enabled ? "Active" : "Paused"} />
-              </div>
-            )
-          ))}
-        </div>
-      </section>
     </>
+  );
+}
+
+function AlertToggle({
+  checked,
+  description,
+  disabled,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  description: string;
+  disabled: boolean;
+  label: string;
+  onChange: (enabled: boolean) => void;
+}) {
+  return (
+    <label className="checkbox-row admin-form-wide">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="admin-alert-toggle-text">
+        <strong>{label}</strong>
+        <small>{description}</small>
+      </span>
+    </label>
   );
 }
 

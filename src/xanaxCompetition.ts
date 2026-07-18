@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordAlertMessageWithAttachment } from "./discordAlertDelivery";
+import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { claimDailyBatchGate } from "./scheduledGates";
 import { upsertSyncTimestamp } from "./syncState";
@@ -225,6 +226,9 @@ export async function runMonthlyXanaxCompetitionDiscordReminder(
   const settings = serializeSettings(await ensureCompetitionSettings(env), monthKey);
   if (!settings.enabled) {
     return { sent: false, skipped: true, reason: "competition disabled", monthKey };
+  }
+  if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.xanaxCompetition)) {
+    return { sent: false, skipped: true, reason: "xanax competition Discord reminder disabled", monthKey };
   }
 
   const gif = await renderXanaxCompetitionReminderGif({

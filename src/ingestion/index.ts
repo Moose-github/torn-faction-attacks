@@ -9,6 +9,7 @@ import {
   SOURCE_NAME,
 } from "../constants";
 import { sendDiscordAlertMessage } from "../discordAlertDelivery";
+import { isDiscordAlertEnabled } from "../discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "../discordAlerts";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "../reports";
 import {
@@ -954,6 +955,9 @@ async function sendTermedWarAutoEndDiscordMessage(
   },
 ): Promise<void> {
   try {
+    if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.termedWarAutoEnd)) {
+      return;
+    }
     await sendDiscordAlertMessage(
       env,
       DISCORD_ALERT_KEYS.termedWarAutoEnd,

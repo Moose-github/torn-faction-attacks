@@ -40,9 +40,12 @@ import {
   relinkAttacks,
   runIngestion,
   ChainWatchAlertSetting,
+  EnemyScoutingReportAlertSetting,
   RetaliationBoardAlertSetting,
   ShopliftingAlertSetting,
   EnemyPushAlertSetting,
+  TermedWarAutoEndAlertSetting,
+  XanaxCompetitionAlertSetting,
   updateAdminXanaxCompetitionSettings,
   updateHomeFactionReportExemption,
   updateOfficialWar,
@@ -129,6 +132,12 @@ export function AdminControls() {
     React.useState<RetaliationBoardAlertSetting | null>(null);
   const [shopliftingAlerts, setShopliftingAlerts] = React.useState<ShopliftingAlertSetting[]>([]);
   const [enemyPushAlert, setEnemyPushAlert] = React.useState<EnemyPushAlertSetting | null>(null);
+  const [enemyScoutingReportAlert, setEnemyScoutingReportAlert] =
+    React.useState<EnemyScoutingReportAlertSetting | null>(null);
+  const [xanaxCompetitionAlert, setXanaxCompetitionAlert] =
+    React.useState<XanaxCompetitionAlertSetting | null>(null);
+  const [termedWarAutoEndAlert, setTermedWarAutoEndAlert] =
+    React.useState<TermedWarAutoEndAlertSetting | null>(null);
   const [isLoadingDiscordAlertSettings, setIsLoadingDiscordAlertSettings] = React.useState(false);
   const [xanaxSettingsForm, setXanaxSettingsForm] = React.useState({
     enabled: true,
@@ -448,6 +457,9 @@ export function AdminControls() {
     setRetaliationBoardAlert(response.retaliation_board_alert);
     setShopliftingAlerts(response.alerts);
     setEnemyPushAlert(response.enemy_push_alert);
+    setEnemyScoutingReportAlert(response.enemy_scouting_report_alert);
+    setXanaxCompetitionAlert(response.xanax_competition_alert);
+    setTermedWarAutoEndAlert(response.termed_war_auto_end_alert);
   }
 
   async function loadDiscordAlertSettings() {
@@ -460,6 +472,9 @@ export function AdminControls() {
       setRetaliationBoardAlert(null);
       setShopliftingAlerts([]);
       setEnemyPushAlert(null);
+      setEnemyScoutingReportAlert(null);
+      setXanaxCompetitionAlert(null);
+      setTermedWarAutoEndAlert(null);
     } finally {
       setIsLoadingDiscordAlertSettings(false);
     }
@@ -666,6 +681,9 @@ export function AdminControls() {
             retaliationBoardAlert={retaliationBoardAlert}
             shopliftingAlerts={shopliftingAlerts}
             enemyPushAlert={enemyPushAlert}
+            enemyScoutingReportAlert={enemyScoutingReportAlert}
+            xanaxCompetitionAlert={xanaxCompetitionAlert}
+            termedWarAutoEndAlert={termedWarAutoEndAlert}
             isLoadingDiscordAlertSettings={isLoadingDiscordAlertSettings}
             setDiscordTravelTargetForm={setDiscordTravelTargetForm}
             setError={setError}

@@ -827,6 +827,42 @@ export type EnemyPushAlertSetting = {
 
 };
 
+export type EnemyScoutingReportAlertSetting = {
+
+  key: "enemy_scouting_report";
+
+  name: string;
+
+  enabled: boolean;
+
+  configurable: boolean;
+
+};
+
+export type XanaxCompetitionAlertSetting = {
+
+  key: "xanax_competition";
+
+  name: string;
+
+  enabled: boolean;
+
+  configurable: boolean;
+
+};
+
+export type TermedWarAutoEndAlertSetting = {
+
+  key: "termed_war_auto_end";
+
+  name: string;
+
+  enabled: boolean;
+
+  configurable: boolean;
+
+};
+
 export type ChainWatchAlertSetting = {
 
   key: "chain_watch";
@@ -864,6 +900,12 @@ export type AdminDiscordAlertSettingsResponse = {
   alerts: ShopliftingAlertSetting[];
 
   enemy_push_alert: EnemyPushAlertSetting;
+
+  enemy_scouting_report_alert: EnemyScoutingReportAlertSetting;
+
+  xanax_competition_alert: XanaxCompetitionAlertSetting;
+
+  termed_war_auto_end_alert: TermedWarAutoEndAlertSetting;
 
 };
 

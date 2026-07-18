@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordAlertMessageWithAttachments } from "./discordAlertDelivery";
+import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { syncDiscordTravelTracker } from "./discordTravelTracker";
 import {
@@ -913,6 +914,11 @@ async function sendPendingEnemyStatsComparisonImageForContext(
   );
   if (!ready) {
     return { sent: false, skipped: true, reason: "stats still filling" };
+  }
+  if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.enemyScoutingReport)) {
+    await clearSyncLatch(env, pendingLatchName);
+    context.activeLatches.delete(pendingLatchName);
+    return { sent: false, skipped: true, reason: "enemy scouting report Discord alert disabled" };
   }
 
   const [homeMembers, enemyMembers] = await Promise.all([
