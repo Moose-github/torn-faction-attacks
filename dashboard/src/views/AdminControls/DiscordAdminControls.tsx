@@ -229,45 +229,7 @@ export function DiscordAdminControls({
       </section>
 
       <section className="panel admin-panel-discord-travel">
-        <PanelHeader title="Discord travel tracker" aside={discordTravelTrackerStatus} />
-        <div className="admin-metric-list admin-form-wide">
-          <MetricLine
-            label="Active source"
-            value={formatDiscordTravelSource(discordTravelTarget?.active_source)}
-          />
-          <MetricLine
-            label="Target tracker"
-            value={discordTravelTarget?.target_tracker.enabled ? "Enabled" : "Disabled"}
-          />
-          <MetricLine
-            label="Home tracker"
-            value={discordTravelTarget?.home_tracker.enabled ? "Enabled" : "Disabled"}
-          />
-          <MetricLine
-            label="War target"
-            value={discordTravelTarget?.war_target
-              ? `${discordTravelTarget.war_target.name} (${discordTravelTarget.war_target.faction_id})`
-              : "None"}
-          />
-          <MetricLine
-            label="Manual target"
-            value={discordTravelTarget?.manual_target
-              ? `${discordTravelTarget.manual_target.faction_name || "Unnamed"} (${discordTravelTarget.manual_target.faction_id})`
-              : "None"}
-          />
-          <MetricLine
-            label="Manual refreshed"
-            value={formatOptionalUnixTime(discordTravelTarget?.manual_target?.last_refreshed_at ?? null)}
-          />
-          <MetricLine
-            label="Target synced"
-            value={formatOptionalUnixTime(discordTravelTarget?.target_tracker.last_synced_at ?? null)}
-          />
-          <MetricLine
-            label="Home synced"
-            value={formatOptionalUnixTime(discordTravelTarget?.home_tracker.last_synced_at ?? null)}
-          />
-        </div>
+        <PanelHeader title="Travel tracker controls" aside={discordTravelTrackerStatus} />
         <form
           className="admin-form"
           onSubmit={(event) => {
@@ -296,8 +258,8 @@ export function DiscordAdminControls({
                 )}
             />
             <span className="admin-alert-toggle-text">
-              <strong>Enemy/manual travel tracker</strong>
-              <small>Updates the target faction travel tracker message for the current war target or manual faction.</small>
+              <strong>Target faction travel tracker</strong>
+              <small>Tracks the current war enemy or the manual faction below.</small>
             </span>
           </label>
           <label className="checkbox-row admin-form-wide">
@@ -374,6 +336,40 @@ export function DiscordAdminControls({
           </button>
         </form>
       </section>
+
+      <section className="panel admin-panel-discord-travel-status">
+        <PanelHeader title="Travel tracker status" />
+        <div className="admin-metric-list admin-form-wide">
+          <MetricLine
+            label="Active source"
+            value={formatDiscordTravelSource(discordTravelTarget?.active_source)}
+          />
+          <MetricLine
+            label="Current target"
+            value={formatDiscordTravelTarget(discordTravelTarget)}
+          />
+          <MetricLine
+            label="Target tracker"
+            value={discordTravelTarget?.target_tracker.enabled ? "Enabled" : "Disabled"}
+          />
+          <MetricLine
+            label="Home tracker"
+            value={discordTravelTarget?.home_tracker.enabled ? "Enabled" : "Disabled"}
+          />
+          <MetricLine
+            label="Manual refreshed"
+            value={formatOptionalUnixTime(discordTravelTarget?.manual_target?.last_refreshed_at ?? null)}
+          />
+          <MetricLine
+            label="Target synced"
+            value={formatOptionalUnixTime(discordTravelTarget?.target_tracker.last_synced_at ?? null)}
+          />
+          <MetricLine
+            label="Home synced"
+            value={formatOptionalUnixTime(discordTravelTarget?.home_tracker.last_synced_at ?? null)}
+          />
+        </div>
+      </section>
     </>
   );
 }
@@ -421,6 +417,16 @@ function formatDiscordTravelSource(source: DiscordTravelTrackerTargetResponse["a
   if (source === "manual") return "Manual";
   if (source === "inactive") return "Inactive";
   return "Unknown";
+}
+
+function formatDiscordTravelTarget(target: DiscordTravelTrackerTargetResponse | null): string {
+  if (target?.active_source === "war" && target.war_target) {
+    return `${target.war_target.name} (${target.war_target.faction_id})`;
+  }
+  if (target?.active_source === "manual" && target.manual_target) {
+    return `${target.manual_target.faction_name || "Unnamed"} (${target.manual_target.faction_id})`;
+  }
+  return "None";
 }
 
 function formatOptionalUnixTime(value: number | null): string {

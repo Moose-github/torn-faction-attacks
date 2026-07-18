@@ -6896,7 +6896,8 @@ h2 {
   gap: 14px;
 }
 
-.admin-panel-discord-travel {
+.admin-panel-discord-travel,
+.admin-panel-discord-travel-status {
   display: grid;
   align-content: start;
   gap: 14px;
