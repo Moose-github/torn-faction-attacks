@@ -513,9 +513,8 @@ describe("Discord interactions", () => {
     expect(env.upserts).toEqual([]);
   });
 
-  it("sets alert channel routes for Discord admins", async () => {
+  it("sets alert channel routes in the configured guild", async () => {
     const env = fakeDiscordEnv({
-      discordAdminUserIds: "222222222222222222",
       discordGuildId: "727247760931160167",
     });
     const response = await handleVerifiedDiscordInteraction({
@@ -560,7 +559,6 @@ describe("Discord interactions", () => {
         ],
       },
     }, fakeDiscordEnv({
-      discordAdminRoleIds: "999999999999999999",
       discordGuildId: "727247760931160167",
       notificationRoutes: {
         [DISCORD_ALERT_KEYS.enemyPush]: "333333333333333333",
@@ -591,7 +589,6 @@ describe("Discord interactions", () => {
   it("tests alert channel routes against stored thread targets", async () => {
     vi.mocked(createDiscordBotMessage).mockResolvedValue("message-1");
     const env = fakeDiscordEnv({
-      discordAdminUserIds: "222222222222222222",
       discordGuildId: "727247760931160167",
     });
     env.notificationRoutes.set("727247760931160167:enemy_push", {
@@ -635,9 +632,8 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).not.toContain("<#333333333333333333>");
   });
 
-  it("unsets alert channel routes for Discord admins", async () => {
+  it("unsets alert channel routes in the configured guild", async () => {
     const env = fakeDiscordEnv({
-      discordAdminUserIds: "222222222222222222",
       discordGuildId: "727247760931160167",
       notificationRoutes: {
         [DISCORD_ALERT_KEYS.enemyPush]: "333333333333333333",
@@ -809,8 +805,6 @@ function fakeDiscordEnv(options: {
     travel_trip_type: string | null;
     travel_trip_inferred_at: number | null;
   }>;
-  discordAdminUserIds?: string;
-  discordAdminRoleIds?: string;
   discordGuildId?: string;
   notificationRoutes?: Record<string, string>;
 } = {}): Env & {
@@ -952,8 +946,6 @@ function fakeDiscordEnv(options: {
     upserts,
     notificationRoutes,
     DASHBOARD_BASE_URL: "https://dashboard.test",
-    DISCORD_ADMIN_USER_IDS: options.discordAdminUserIds,
-    DISCORD_ADMIN_ROLE_IDS: options.discordAdminRoleIds,
     DISCORD_GUILD_ID: options.discordGuildId,
     DB: {
       prepare(sql: string) {

@@ -20,6 +20,8 @@ vi.mock("./discord", () => ({
 }));
 
 vi.mock("./discordNotificationChannels", () => ({
+  discordNotificationChannelTargetId: (route: { channelId: string; threadId: string | null }) =>
+    route.threadId ?? route.channelId,
   readConfiguredDiscordNotificationChannel: vi.fn(),
 }));
 

@@ -9,6 +9,7 @@ import {
   type DiscordMemberAlertSubscriptionsResponse,
 } from "./discordMemberAlertSubscriptions";
 import {
+  discordNotificationChannelTargetId,
   listDiscordNotificationChannels,
   readDiscordNotificationChannel,
   readDiscordNotificationGuildId,
@@ -737,7 +738,7 @@ async function alertChannelsResponse(
 
     await createDiscordBotMessage(
       env,
-      discordBotTargetChannelId(route),
+      discordNotificationChannelTargetId(route),
       `Discord alert route test: ${alert.name}`,
       { users: [], roles: [] },
       {
@@ -756,7 +757,7 @@ async function alertChannelsResponse(
       embeds: [
         {
           title: "Test alert sent",
-          description: `Sent a test message to ${discordChannelMention(discordBotTargetChannelId(route))} for **${route.alertName}**.`,
+          description: `Sent a test message to ${discordChannelMention(discordNotificationChannelTargetId(route))} for **${route.alertName}**.`,
           color: BOT_COLOR,
         },
       ],
@@ -778,7 +779,7 @@ function alertChannelsListResponse(routes: DiscordNotificationChannel[]): Discor
 
     return [{
       name: alert.name,
-      value: discordChannelMention(discordBotTargetChannelId(route)),
+      value: discordChannelMention(discordNotificationChannelTargetId(route)),
     }];
   });
   if (unsetAlertNames.length > 0) {
@@ -799,10 +800,6 @@ function alertChannelsListResponse(routes: DiscordNotificationChannel[]): Discor
       },
     ],
   });
-}
-
-function discordBotTargetChannelId(route: { channelId: string; threadId: string | null }): string {
-  return route.threadId ?? route.channelId;
 }
 
 function alertsListResponse(

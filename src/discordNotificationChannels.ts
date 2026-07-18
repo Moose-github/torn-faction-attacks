@@ -79,6 +79,12 @@ export function readDiscordNotificationGuildId(env: Env): string | null {
   return guildId || null;
 }
 
+export function discordNotificationChannelTargetId(
+  route: Pick<DiscordNotificationChannel, "channelId" | "threadId">,
+): string {
+  return route.threadId ?? route.channelId;
+}
+
 export async function setDiscordNotificationChannel(
   env: Env,
   options: {

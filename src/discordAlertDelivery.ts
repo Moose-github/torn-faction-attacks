@@ -12,7 +12,10 @@ import {
   type DiscordEmbed,
 } from "./discord";
 import { type DiscordAlertKey } from "./discordAlerts";
-import { readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
+import {
+  discordNotificationChannelTargetId,
+  readConfiguredDiscordNotificationChannel,
+} from "./discordNotificationChannels";
 import type { Env } from "./types";
 
 type DiscordAlertDeliveryOptions = {
@@ -42,7 +45,7 @@ export async function sendDiscordAlertMessage(
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (route) {
     try {
-      await createDiscordBotMessage(env, discordBotTargetChannelId(route), message, allowedMentions);
+      await createDiscordBotMessage(env, discordNotificationChannelTargetId(route), message, allowedMentions);
       return;
     } catch (err: any) {
       console.warn(`Discord bot alert send failed for ${alertKey}; falling back to webhook:`, err?.message || err);
@@ -60,7 +63,7 @@ export async function sendDiscordAlertMessageWithAttachment(
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (route) {
     try {
-      return await sendDiscordBotMessageWithAttachment(env, discordBotTargetChannelId(route), options);
+      return await sendDiscordBotMessageWithAttachment(env, discordNotificationChannelTargetId(route), options);
     } catch (err: any) {
       console.warn(`Discord bot alert attachment send failed for ${alertKey}; falling back to webhook:`, err?.message || err);
     }
@@ -78,7 +81,7 @@ export async function sendDiscordAlertMessageWithAttachments(
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (route) {
     try {
-      return await sendDiscordBotMessageWithAttachments(env, discordBotTargetChannelId(route), options);
+      return await sendDiscordBotMessageWithAttachments(env, discordNotificationChannelTargetId(route), options);
     } catch (err: any) {
       console.warn(`Discord bot alert attachments send failed for ${alertKey}; falling back to webhook:`, err?.message || err);
     }
@@ -98,7 +101,13 @@ export async function createDiscordAlertMessage(
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (route) {
     try {
-      return await createDiscordBotMessage(env, discordBotTargetChannelId(route), message, allowedMentions, options);
+      return await createDiscordBotMessage(
+        env,
+        discordNotificationChannelTargetId(route),
+        message,
+        allowedMentions,
+        options,
+      );
     } catch (err: any) {
       console.warn(`Discord bot alert create failed for ${alertKey}; falling back to webhook:`, err?.message || err);
     }
@@ -121,7 +130,7 @@ export async function upsertDiscordAlertMessage(
       try {
         await editDiscordBotMessage(
           env,
-          discordBotTargetChannelId(route),
+          discordNotificationChannelTargetId(route),
           existingMessageId,
           message,
           allowedMentions,
@@ -134,7 +143,13 @@ export async function upsertDiscordAlertMessage(
     }
 
     try {
-      return await createDiscordBotMessage(env, discordBotTargetChannelId(route), message, allowedMentions, options);
+      return await createDiscordBotMessage(
+        env,
+        discordNotificationChannelTargetId(route),
+        message,
+        allowedMentions,
+        options,
+      );
     } catch (err: any) {
       console.warn(`Discord bot alert create failed for ${alertKey}; falling back to webhook:`, err?.message || err);
     }
@@ -146,8 +161,4 @@ export async function upsertDiscordAlertMessage(
   }
 
   return await createDiscordWebhookMessage(env, message, allowedMentions, options);
-}
-
-function discordBotTargetChannelId(route: { channelId: string; threadId: string | null }): string {
-  return route.threadId ?? route.channelId;
 }
