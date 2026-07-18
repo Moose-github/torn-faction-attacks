@@ -1017,7 +1017,7 @@ async function saveRetaliationBoardState(
 
 async function readRetaliationBoardDiscordTargetId(env: Env): Promise<string> {
   const route = await readConfiguredDiscordNotificationChannel(env, DISCORD_ALERT_KEYS.retaliationBoard);
-  return route ? `bot:${discordNotificationChannelTargetId(route)}` : "webhook";
+  return route ? `bot:${discordNotificationChannelTargetId(route)}` : "unrouted";
 }
 
 async function upsertRetaliationBoardMessage(

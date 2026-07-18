@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createDiscordBotMessage,
-  createDiscordWebhookMessage,
   editDiscordBotMessage,
-  editDiscordWebhookMessage,
-  sendDiscordMessage,
+  sendDiscordBotMessageWithAttachment,
+  sendDiscordBotMessageWithAttachments,
 } from "./discord";
 import { sendDiscordAlertMessage, upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
@@ -13,10 +12,9 @@ import type { Env } from "./types";
 
 vi.mock("./discord", () => ({
   createDiscordBotMessage: vi.fn(),
-  createDiscordWebhookMessage: vi.fn(),
   editDiscordBotMessage: vi.fn(),
-  editDiscordWebhookMessage: vi.fn(),
-  sendDiscordMessage: vi.fn(),
+  sendDiscordBotMessageWithAttachment: vi.fn(),
+  sendDiscordBotMessageWithAttachments: vi.fn(),
 }));
 
 vi.mock("./discordNotificationChannels", () => ({
@@ -43,7 +41,8 @@ describe("discord alert delivery", () => {
     vi.clearAllMocks();
     vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue(null);
     vi.mocked(createDiscordBotMessage).mockResolvedValue("bot-message-1");
-    vi.mocked(createDiscordWebhookMessage).mockResolvedValue("webhook-message-1");
+    vi.mocked(sendDiscordBotMessageWithAttachment).mockResolvedValue("bot-message-1");
+    vi.mocked(sendDiscordBotMessageWithAttachments).mockResolvedValue("bot-message-1");
   });
 
   it("sends through the bot when an alert route is configured", async () => {
@@ -52,7 +51,6 @@ describe("discord alert delivery", () => {
     await sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push", { users: ["1"] });
 
     expect(createDiscordBotMessage).toHaveBeenCalledWith(env, "channel-1", "Enemy push", { users: ["1"] });
-    expect(sendDiscordMessage).not.toHaveBeenCalled();
   });
 
   it("uses the configured thread as the bot target when present", async () => {
@@ -66,20 +64,20 @@ describe("discord alert delivery", () => {
     expect(createDiscordBotMessage).toHaveBeenCalledWith(env, "thread-1", "Enemy push", undefined);
   });
 
-  it("falls back to webhooks when there is no alert route", async () => {
+  it("skips delivery when there is no alert route", async () => {
     await sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push");
 
-    expect(sendDiscordMessage).toHaveBeenCalledWith(env, "Enemy push", undefined);
     expect(createDiscordBotMessage).not.toHaveBeenCalled();
   });
 
-  it("falls back to webhooks when bot send fails", async () => {
+  it("surfaces bot send failures without webhook fallback", async () => {
     vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue(route);
     vi.mocked(createDiscordBotMessage).mockRejectedValue(new Error("missing access"));
 
-    await sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push");
+    await expect(sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push"))
+      .rejects.toThrow("missing access");
 
-    expect(sendDiscordMessage).toHaveBeenCalledWith(env, "Enemy push", undefined);
+    expect(createDiscordBotMessage).toHaveBeenCalledWith(env, "channel-1", "Enemy push", undefined);
   });
 
   it("edits bot messages for routed upserts", async () => {
@@ -103,7 +101,6 @@ describe("discord alert delivery", () => {
       { roles: ["2"] },
       { embedColor: 0xff0000 },
     );
-    expect(editDiscordWebhookMessage).not.toHaveBeenCalled();
   });
 
   it("creates a fresh bot message when editing a routed message fails", async () => {
@@ -128,7 +125,7 @@ describe("discord alert delivery", () => {
     );
   });
 
-  it("edits webhook messages when no route is configured", async () => {
+  it("skips routed upserts when no route is configured", async () => {
     const messageId = await upsertDiscordAlertMessage(
       env,
       DISCORD_ALERT_KEYS.chainWatch,
@@ -136,13 +133,8 @@ describe("discord alert delivery", () => {
       "Chain watch",
     );
 
-    expect(messageId).toBe("message-1");
-    expect(editDiscordWebhookMessage).toHaveBeenCalledWith(
-      env,
-      "message-1",
-      "Chain watch",
-      undefined,
-      undefined,
-    );
+    expect(messageId).toBeNull();
+    expect(editDiscordBotMessage).not.toHaveBeenCalled();
+    expect(createDiscordBotMessage).not.toHaveBeenCalled();
   });
 });

@@ -67,7 +67,7 @@ describe("Discord travel tracker", () => {
     vi.mocked(refreshHomeFactionMembers).mockResolvedValue([]);
   });
 
-  it("creates a persistent webhook message the first time it syncs", async () => {
+  it("creates a persistent bot-routed message the first time it syncs", async () => {
     const env = fakeEnv();
 
     await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
@@ -84,7 +84,7 @@ describe("Discord travel tracker", () => {
       null,
       expect.stringContaining("test-war Travel Tracker"),
       { users: [], roles: [] },
-      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR },
     );
     expect(env.state?.message_id).toBe("message-1");
   });
@@ -120,7 +120,7 @@ describe("Discord travel tracker", () => {
       "message-1",
       expect.stringContaining("<t:1800001200:t> (<t:1800001200:R>) | WLT benefit"),
       { users: [], roles: [] },
-      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR },
     );
   });
 
@@ -152,35 +152,27 @@ describe("Discord travel tracker", () => {
       null,
       expect.stringContaining("Manual Faction Travel Tracker"),
       { users: [], roles: [] },
-      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR },
     );
     expect(env.state?.message_id).toBe("message-2");
     expect(env.state?.target_source).toBe("manual");
     expect(env.state?.faction_id).toBe(456);
   });
 
-  it("uses the dedicated travel tracker webhook when configured", async () => {
+  it("ignores travel tracker webhooks when no bot route is configured", async () => {
     const env = fakeEnv();
+    env.notificationRoutes.clear();
     env.DISCORD_TRAVEL_TRACKER_WEBHOOK_URL = "https://discord.test/travel-webhook";
 
     await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
-      source: "war",
-      message_id: "message-1",
-      changed: true,
+      target: { skipped: true, reason: "Discord travel tracker route is not configured" },
+      home: { skipped: true, reason: "Discord travel tracker route is not configured" },
     });
-    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
-      env,
-      DISCORD_ALERT_KEYS.targetTravelTracker,
-      null,
-      expect.stringContaining("test-war Travel Tracker"),
-      { users: [], roles: [] },
-      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/travel-webhook" },
-    );
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
   });
 
-  it("syncs target travel through a bot route when no webhook is configured", async () => {
+  it("syncs target travel through a bot route", async () => {
     const env = fakeEnv();
-    delete env.DISCORD_WEBHOOK_URL;
     env.DISCORD_GUILD_ID = "guild-1";
     env.notificationRoutes.set(`guild-1:${DISCORD_ALERT_KEYS.targetTravelTracker}`, {
       guild_id: "guild-1",
@@ -209,7 +201,7 @@ describe("Discord travel tracker", () => {
       null,
       expect.stringContaining("test-war Travel Tracker"),
       { users: [], roles: [] },
-      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: undefined },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR },
     );
   });
 
@@ -239,7 +231,7 @@ describe("Discord travel tracker", () => {
       null,
       expect.stringContaining("Buttgrass Travel Tracker"),
       { users: [], roles: [] },
-      { embedColor: HOME_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: HOME_TRAVEL_TRACKER_COLOR },
     );
   });
 
@@ -313,7 +305,7 @@ describe("Discord travel tracker", () => {
       "target-message",
       expect.stringContaining("Target Travel Tracker: stopped"),
       { users: [], roles: [] },
-      { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: 0x778899 },
     );
     expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
@@ -321,7 +313,7 @@ describe("Discord travel tracker", () => {
       "home-message",
       expect.stringContaining("Buttgrass Travel Tracker: stopped"),
       { users: [], roles: [] },
-      { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: 0x778899 },
     );
   });
 
@@ -355,7 +347,7 @@ describe("Discord travel tracker", () => {
       "target-message",
       expect.stringContaining("Tracking stopped"),
       { users: [], roles: [] },
-      { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: 0x778899 },
     );
     expect(upsertDiscordAlertMessage).toHaveBeenCalledTimes(1);
   });
@@ -458,7 +450,7 @@ describe("Discord travel tracker", () => {
       "target-message",
       expect.stringContaining("Target Travel Tracker: stopped"),
       { users: [], roles: [] },
-      { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: 0x778899 },
     );
     expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
       env,
@@ -466,7 +458,7 @@ describe("Discord travel tracker", () => {
       "home-message",
       expect.stringContaining("Buttgrass Travel Tracker: stopped"),
       { users: [], roles: [] },
-      { embedColor: 0x778899, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: 0x778899 },
     );
   });
 
@@ -514,7 +506,7 @@ describe("Discord travel tracker", () => {
       null,
       expect.stringContaining("Manual Faction Travel Tracker"),
       { users: [], roles: [] },
-      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR },
     );
     expect(env.target?.last_refreshed_at).toBe(1_800_000_000);
   });
@@ -541,7 +533,7 @@ describe("Discord travel tracker", () => {
       null,
       expect.stringContaining("Target Name Travel Tracker"),
       { users: [], roles: [] },
-      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR },
     );
   });
 
@@ -579,7 +571,7 @@ describe("Discord travel tracker", () => {
       null,
       expect.stringContaining("Manual Faction Travel Tracker"),
       { users: [], roles: [] },
-      { embedColor: TARGET_TRAVEL_TRACKER_COLOR, webhookUrl: "https://discord.test/webhook" },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR },
     );
   });
 
@@ -653,6 +645,7 @@ type FakeRow = {
 };
 
 type FakeEnv = Env & {
+  DISCORD_TRAVEL_TRACKER_WEBHOOK_URL?: string;
   state: FakeState | null;
   states: Record<"target" | "home", FakeState | null>;
   target: FakeTarget | null;
@@ -671,13 +664,16 @@ type FakeEnv = Env & {
 
 function fakeEnv(): FakeEnv {
   const env = {
-    DISCORD_WEBHOOK_URL: "https://discord.test/webhook",
+    DISCORD_GUILD_ID: "guild-1",
     state: null,
     states: {
       target: null,
       home: null,
     },
-    notificationRoutes: new Map(),
+    notificationRoutes: new Map([
+      [`guild-1:${DISCORD_ALERT_KEYS.targetTravelTracker}`, notificationRoute(DISCORD_ALERT_KEYS.targetTravelTracker)],
+      [`guild-1:${DISCORD_ALERT_KEYS.homeTravelTracker}`, notificationRoute(DISCORD_ALERT_KEYS.homeTravelTracker)],
+    ]),
     target: null,
     rows: [
       {
@@ -833,6 +829,26 @@ function fakeEnv(): FakeEnv {
       },
     };
   }
+}
+
+function notificationRoute(alertKey: string): {
+  guild_id: string;
+  alert_key: string;
+  channel_id: string;
+  thread_id: string | null;
+  enabled: number;
+  updated_by_discord_id: string | null;
+  updated_at: number;
+} {
+  return {
+    guild_id: "guild-1",
+    alert_key: alertKey,
+    channel_id: "channel-1",
+    thread_id: null,
+    enabled: 1,
+    updated_by_discord_id: "user-1",
+    updated_at: 1,
+  };
 }
 
 function trackerState(

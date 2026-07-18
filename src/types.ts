@@ -7,7 +7,6 @@ export interface Env {
   BSP_TORN_API_KEY?: string;
   FFSCOUTER_API_KEY?: string;
   DISCORD_WEBHOOK_URL?: string;
-  DISCORD_TRAVEL_TRACKER_WEBHOOK_URL?: string;
   DISCORD_GUILD_ID?: string;
   DISCORD_BOT_TOKEN?: string;
   DISCORD_PUBLIC_KEY?: string;

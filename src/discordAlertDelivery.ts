@@ -1,13 +1,8 @@
 import {
   createDiscordBotMessage,
-  createDiscordWebhookMessage,
   editDiscordBotMessage,
-  editDiscordWebhookMessage,
   sendDiscordBotMessageWithAttachment,
   sendDiscordBotMessageWithAttachments,
-  sendDiscordMessage,
-  sendDiscordMessageWithAttachment,
-  sendDiscordMessageWithAttachments,
   type DiscordAllowedMentions,
   type DiscordEmbed,
 } from "./discord";
@@ -21,7 +16,6 @@ import type { Env } from "./types";
 type DiscordAlertDeliveryOptions = {
   embedColor?: number;
   embeds?: DiscordEmbed[];
-  webhookUrl?: string;
 };
 
 type DiscordAlertAttachment = {
@@ -33,7 +27,6 @@ type DiscordAlertAttachment = {
 type DiscordAlertAttachmentOptions = {
   content: string;
   allowedMentions?: DiscordAllowedMentions;
-  webhookUrl?: string;
 };
 
 export async function sendDiscordAlertMessage(
@@ -43,16 +36,12 @@ export async function sendDiscordAlertMessage(
   allowedMentions?: DiscordAllowedMentions,
 ): Promise<void> {
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
-  if (route) {
-    try {
-      await createDiscordBotMessage(env, discordNotificationChannelTargetId(route), message, allowedMentions);
-      return;
-    } catch (err: any) {
-      console.warn(`Discord bot alert send failed for ${alertKey}; falling back to webhook:`, err?.message || err);
-    }
+  if (!route) {
+    console.warn(`Discord alert ${alertKey} skipped: no bot channel route is configured.`);
+    return;
   }
 
-  await sendDiscordMessage(env, message, allowedMentions);
+  await createDiscordBotMessage(env, discordNotificationChannelTargetId(route), message, allowedMentions);
 }
 
 export async function sendDiscordAlertMessageWithAttachment(
@@ -61,16 +50,12 @@ export async function sendDiscordAlertMessageWithAttachment(
   options: DiscordAlertAttachmentOptions & DiscordAlertAttachment,
 ): Promise<string | null> {
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
-  if (route) {
-    try {
-      return await sendDiscordBotMessageWithAttachment(env, discordNotificationChannelTargetId(route), options);
-    } catch (err: any) {
-      console.warn(`Discord bot alert attachment send failed for ${alertKey}; falling back to webhook:`, err?.message || err);
-    }
+  if (!route) {
+    console.warn(`Discord alert ${alertKey} attachment skipped: no bot channel route is configured.`);
+    return null;
   }
 
-  await sendDiscordMessageWithAttachment(env, options);
-  return null;
+  return await sendDiscordBotMessageWithAttachment(env, discordNotificationChannelTargetId(route), options);
 }
 
 export async function sendDiscordAlertMessageWithAttachments(
@@ -79,16 +64,12 @@ export async function sendDiscordAlertMessageWithAttachments(
   options: DiscordAlertAttachmentOptions & { attachments: DiscordAlertAttachment[] },
 ): Promise<string | null> {
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
-  if (route) {
-    try {
-      return await sendDiscordBotMessageWithAttachments(env, discordNotificationChannelTargetId(route), options);
-    } catch (err: any) {
-      console.warn(`Discord bot alert attachments send failed for ${alertKey}; falling back to webhook:`, err?.message || err);
-    }
+  if (!route) {
+    console.warn(`Discord alert ${alertKey} attachments skipped: no bot channel route is configured.`);
+    return null;
   }
 
-  await sendDiscordMessageWithAttachments(env, options);
-  return null;
+  return await sendDiscordBotMessageWithAttachments(env, discordNotificationChannelTargetId(route), options);
 }
 
 export async function createDiscordAlertMessage(
@@ -99,21 +80,18 @@ export async function createDiscordAlertMessage(
   options?: DiscordAlertDeliveryOptions,
 ): Promise<string | null> {
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
-  if (route) {
-    try {
-      return await createDiscordBotMessage(
-        env,
-        discordNotificationChannelTargetId(route),
-        message,
-        allowedMentions,
-        options,
-      );
-    } catch (err: any) {
-      console.warn(`Discord bot alert create failed for ${alertKey}; falling back to webhook:`, err?.message || err);
-    }
+  if (!route) {
+    console.warn(`Discord alert ${alertKey} create skipped: no bot channel route is configured.`);
+    return null;
   }
 
-  return await createDiscordWebhookMessage(env, message, allowedMentions, options);
+  return await createDiscordBotMessage(
+    env,
+    discordNotificationChannelTargetId(route),
+    message,
+    allowedMentions,
+    options,
+  );
 }
 
 export async function upsertDiscordAlertMessage(
@@ -125,40 +103,32 @@ export async function upsertDiscordAlertMessage(
   options?: DiscordAlertDeliveryOptions,
 ): Promise<string | null> {
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
-  if (route) {
-    if (existingMessageId) {
-      try {
-        await editDiscordBotMessage(
-          env,
-          discordNotificationChannelTargetId(route),
-          existingMessageId,
-          message,
-          allowedMentions,
-          options,
-        );
-        return existingMessageId;
-      } catch (err: any) {
-        console.warn(`Discord bot alert edit failed for ${alertKey}; creating a new bot message:`, err?.message || err);
-      }
-    }
+  if (!route) {
+    console.warn(`Discord alert ${alertKey} upsert skipped: no bot channel route is configured.`);
+    return null;
+  }
 
+  if (existingMessageId) {
     try {
-      return await createDiscordBotMessage(
+      await editDiscordBotMessage(
         env,
         discordNotificationChannelTargetId(route),
+        existingMessageId,
         message,
         allowedMentions,
         options,
       );
+      return existingMessageId;
     } catch (err: any) {
-      console.warn(`Discord bot alert create failed for ${alertKey}; falling back to webhook:`, err?.message || err);
+      console.warn(`Discord bot alert edit failed for ${alertKey}; creating a new bot message:`, err?.message || err);
     }
   }
 
-  if (existingMessageId) {
-    await editDiscordWebhookMessage(env, existingMessageId, message, allowedMentions, options);
-    return existingMessageId;
-  }
-
-  return await createDiscordWebhookMessage(env, message, allowedMentions, options);
+  return await createDiscordBotMessage(
+    env,
+    discordNotificationChannelTargetId(route),
+    message,
+    allowedMentions,
+    options,
+  );
 }
