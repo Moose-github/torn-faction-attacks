@@ -1,5 +1,5 @@
 import { cleanString, positiveIntegerOrNull, readJsonObject } from "./backend/request";
-import { HOME_FACTION_ID, POSITIVE_RESULTS_SQL, SOURCE_NAME } from "./constants";
+import { HOME_FACTION_ID, POSITIVE_RESULTS_SQL, RETALIATION_WINDOW_SECONDS, SOURCE_NAME } from "./constants";
 import { type DiscordEmbed } from "./discord";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
@@ -10,7 +10,7 @@ import { Env } from "./types";
 import { d1Changes, json, nowSeconds, parseLimit } from "./utils";
 import { refreshActiveChainWatchFromStoredAttacks } from "./chainWatch";
 
-export const RETALIATION_WINDOW_SECONDS = 5 * 60;
+export { RETALIATION_WINDOW_SECONDS } from "./constants";
 export const RETALIATION_CLAIM_TTL_SECONDS = 30;
 
 const LIGHT_SYNC_LOOKBACK_SECONDS = RETALIATION_WINDOW_SECONDS + 90;
@@ -324,8 +324,22 @@ export function resolveRetaliationOpportunity(
   }
 
   const attackAt = attackTimestamp(enemyAttack);
-  const expiresAt = attackAt === null ? null : attackAt + RETALIATION_WINDOW_SECONDS;
-  const expired = expiresAt === null || expiresAt <= now;
+  if (attackAt === null) {
+    return {
+      target_id: targetId,
+      opening_attack_id: null,
+      status: "none",
+      available: false,
+      reason: "none",
+      enemy_attack: null,
+      claimed_by_attack: null,
+      pending_claim: null,
+      expires_at: null,
+    };
+  }
+
+  const expiresAt = attackAt + RETALIATION_WINDOW_SECONDS;
+  const expired = expiresAt <= now;
   const unexpiredPending = pendingClaim && pendingClaim.expires_at > now ? pendingClaim : null;
 
   if (expired) {
@@ -641,17 +655,14 @@ async function readLatestEnemyAttack(
 ): Promise<RetaliationAttackRow | null> {
   return (await env.DB.prepare(
     `
-    SELECT ${retaliationAttackColumns()}
-    FROM attacks
-    WHERE attacker_id = ?
-      AND defender_faction_id = ?
-      AND result IN (${POSITIVE_RESULTS_SQL})
-      AND COALESCE(ended, started) >= ?
-    ORDER BY COALESCE(ended, started) DESC, id DESC
+    SELECT ${retaliationOpportunityColumns()}
+    FROM retaliation_opportunities
+    WHERE target_id = ?
+      AND attack_at >= ?
     LIMIT 1
     `,
   )
-    .bind(targetId, HOME_FACTION_ID, since)
+    .bind(targetId, since)
     .first()) as RetaliationAttackRow | null;
 }
 
@@ -663,6 +674,7 @@ async function readEnemyAttackById(env: Env, attackId: number): Promise<Retaliat
     WHERE id = ?
       AND defender_faction_id = ?
       AND result IN (${POSITIVE_RESULTS_SQL})
+      AND ended IS NOT NULL
     LIMIT 1
     `,
   )
@@ -677,17 +689,14 @@ async function readRecentEnemyAttacks(
 ): Promise<RetaliationAttackRow[]> {
   const result = await env.DB.prepare(
     `
-    SELECT ${retaliationAttackColumns()}
-    FROM attacks
-    WHERE defender_faction_id = ?
-      AND result IN (${POSITIVE_RESULTS_SQL})
-      AND attacker_id IS NOT NULL
-      AND COALESCE(ended, started) >= ?
-    ORDER BY COALESCE(ended, started) DESC, id DESC
+    SELECT ${retaliationOpportunityColumns()}
+    FROM retaliation_opportunities
+    WHERE attack_at >= ?
+    ORDER BY attack_at DESC, opening_attack_id DESC
     LIMIT ?
     `,
   )
-    .bind(HOME_FACTION_ID, since, limit)
+    .bind(since, limit)
     .all<RetaliationAttackRow>();
 
   return result.results ?? [];
@@ -706,8 +715,8 @@ async function readClaimingRetaliationAttack(
       AND defender_id = ?
       AND result = 'Hospitalized'
       AND COALESCE(m_retaliation, 1) > 1
-      AND COALESCE(ended, started) >= ?
-    ORDER BY COALESCE(ended, started) ASC, id ASC
+      AND ended >= ?
+    ORDER BY ended ASC, id ASC
     LIMIT 1
     `,
   )
@@ -738,8 +747,8 @@ async function readConfirmedClaimsForOpenings(
       AND defender_id IN (${placeholders})
       AND result = 'Hospitalized'
       AND COALESCE(m_retaliation, 1) > 1
-      AND COALESCE(ended, started) >= ?
-    ORDER BY COALESCE(ended, started) ASC, id ASC
+      AND ended >= ?
+    ORDER BY ended ASC, id ASC
     `,
   )
     .bind(HOME_FACTION_ID, ...targetIds, earliestOpeningAt)
@@ -891,7 +900,29 @@ function retaliationAttackColumns(): string {
       respect_gain,
       respect_loss,
       m_retaliation,
-      COALESCE(ended, started) AS attack_at
+      ended AS attack_at
+  `;
+}
+
+function retaliationOpportunityColumns(): string {
+  return `
+      opening_attack_id AS id,
+      code,
+      started,
+      ended,
+      attacker_id,
+      attacker_name,
+      attacker_faction_id,
+      attacker_faction_name,
+      defender_id,
+      defender_name,
+      defender_faction_id,
+      defender_faction_name,
+      result,
+      respect_gain,
+      respect_loss,
+      m_retaliation,
+      attack_at
   `;
 }
 
@@ -1011,7 +1042,7 @@ function retaliationBoardAlarmStub(env: Env): RetaliationBoardAlarmStub {
 }
 
 function attackTimestamp(attack: Pick<RetaliationAttackRow, "attack_at" | "ended" | "started">): number | null {
-  return attack.attack_at ?? attack.ended ?? attack.started ?? null;
+  return attack.attack_at ?? attack.ended ?? null;
 }
 
 function booleanQueryParam(value: string | null): boolean {

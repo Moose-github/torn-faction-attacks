@@ -80,6 +80,30 @@ CREATE TABLE retaliation_claim_signals (
   expires_at INTEGER NOT NULL
 );
 
+CREATE TABLE retaliation_opportunities (
+  target_id INTEGER PRIMARY KEY,
+  opening_attack_id INTEGER NOT NULL,
+  attack_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  code TEXT,
+  started INTEGER,
+  ended INTEGER NOT NULL,
+  attacker_id INTEGER NOT NULL,
+  attacker_name TEXT,
+  attacker_faction_id INTEGER,
+  attacker_faction_name TEXT,
+  defender_id INTEGER,
+  defender_name TEXT,
+  defender_faction_id INTEGER,
+  defender_faction_name TEXT,
+  result TEXT NOT NULL,
+  respect_gain REAL DEFAULT 0,
+  respect_loss REAL DEFAULT 0,
+  m_retaliation REAL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE retaliation_board_state (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   discord_message_id TEXT,
@@ -1221,6 +1245,15 @@ CREATE INDEX idx_retaliation_claim_signals_expires
 
 CREATE INDEX idx_retaliation_claim_signals_target
   ON retaliation_claim_signals(target_id, updated_at DESC);
+
+CREATE UNIQUE INDEX idx_retaliation_opportunities_opening_attack
+  ON retaliation_opportunities(opening_attack_id);
+
+CREATE INDEX idx_retaliation_opportunities_attack_at
+  ON retaliation_opportunities(attack_at DESC, opening_attack_id DESC);
+
+CREATE INDEX idx_retaliation_opportunities_expires
+  ON retaliation_opportunities(expires_at);
 
 CREATE INDEX idx_dice_game_losses_total_lost
   ON dice_game_losses(total_lost DESC, rolls DESC);

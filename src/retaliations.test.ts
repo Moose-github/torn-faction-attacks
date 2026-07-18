@@ -71,6 +71,23 @@ describe("retaliation availability", () => {
     expect(availability.expires_at).toBeNull();
   });
 
+  it("does not create an opportunity for an ongoing attack", () => {
+    const availability = evaluateRetaliationAvailability(attackRow({
+      id: 9,
+      attacker_id: 200,
+      defender_id: 101,
+      result: "Hospitalized",
+      started: 1000,
+      ended: null,
+      attack_at: null,
+    }), null, 1100);
+
+    expect(availability.available).toBe(false);
+    expect(availability.reason).toBe("none");
+    expect(availability.status).toBe("none");
+    expect(availability.opening_attack_id).toBeNull();
+  });
+
   it("expires opportunities after the five-minute window", () => {
     const availability = evaluateRetaliationAvailability(attackRow({
       id: 4,

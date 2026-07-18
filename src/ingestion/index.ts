@@ -3,7 +3,9 @@ import {
   HOME_FACTION_ID,
   LIMIT,
   OVERLAP_SECONDS,
+  POSITIVE_ATTACK_RESULTS,
   RANKED_WARS_API_URL,
+  RETALIATION_WINDOW_SECONDS,
   SOURCE_NAME,
 } from "../constants";
 import { sendDiscordAlertMessage } from "../discordAlertDelivery";
@@ -208,11 +210,25 @@ export async function runIngestion(
             statements.push(buildLiveWarAssignmentStatement(env, ingestRunId, warId, attack.id));
             warWriteFlags.push(true);
           }
+          if (existingAttack.ended === null && attack.ended !== null) {
+            statements.push(buildLiveCompletionUpdateStatement(env, ingestRunId, attack));
+            warWriteFlags.push(existingAttack.war_id !== null || warId !== null);
+          }
+          const retaliationOpportunityStatement = buildRetaliationOpportunityUpsertStatement(env, attack);
+          if (retaliationOpportunityStatement) {
+            statements.push(retaliationOpportunityStatement);
+            warWriteFlags.push(false);
+          }
           continue;
         }
 
         statements.push(buildLiveInsertStatement(env, ingestRunId, warId, attack));
         warWriteFlags.push(warId !== null);
+        const retaliationOpportunityStatement = buildRetaliationOpportunityUpsertStatement(env, attack);
+        if (retaliationOpportunityStatement) {
+          statements.push(retaliationOpportunityStatement);
+          warWriteFlags.push(false);
+        }
       }
 
       if (statements.length > 0) {
@@ -302,6 +318,7 @@ type AttackWindowStats = {
 type ExistingAttackRow = {
   id: number;
   war_id: number | null;
+  ended: number | null;
 };
 
 export async function getLatestIngestionRun(env: Env): Promise<Response> {
@@ -726,18 +743,31 @@ export async function ingestRecentFactionAttacks(
 
     const existingAttackRows = await readExistingAttackRows(env, attacks.map((attack) => attack.id));
     const statements: D1PreparedStatement[] = [];
+    const attackWriteFlags: boolean[] = [];
     let newestStarted = nextFrom;
 
     for (const attack of attacks) {
       newestStarted = Math.max(newestStarted, attack.started ?? nextFrom);
       if (!existingAttackRows.has(attack.id)) {
         statements.push(buildLiveInsertStatement(env, ingestRunId, null, attack));
+        attackWriteFlags.push(true);
+      } else if (existingAttackRows.get(attack.id)?.ended === null && attack.ended !== null) {
+        statements.push(buildLiveCompletionUpdateStatement(env, ingestRunId, attack));
+        attackWriteFlags.push(true);
+      }
+      const retaliationOpportunityStatement = buildRetaliationOpportunityUpsertStatement(env, attack);
+      if (retaliationOpportunityStatement) {
+        statements.push(retaliationOpportunityStatement);
+        attackWriteFlags.push(false);
       }
     }
 
     if (statements.length > 0) {
       const results = await env.DB.batch(statements);
-      insertedAttacks += results.reduce((sum, result) => sum + d1Changes(result), 0);
+      insertedAttacks += results.reduce(
+        (sum, result, index) => sum + (attackWriteFlags[index] ? d1Changes(result) : 0),
+        0,
+      );
     }
 
     if (attacks.length < LIMIT || newestStarted >= cappedTo) {
@@ -1375,7 +1405,7 @@ async function readExistingAttackRows(
 
   const rows = ((await env.DB.prepare(
     `
-    SELECT id, war_id
+    SELECT id, war_id, ended
     FROM attacks
     WHERE id IN (${uniqueIds.map(() => "?").join(",")})
     `,
@@ -1402,6 +1432,139 @@ function buildLiveWarAssignmentStatement(
       AND war_id IS NULL
     `,
   ).bind(warId, ingestRunId, attackId);
+}
+
+function buildLiveCompletionUpdateStatement(
+  env: Env,
+  ingestRunId: string,
+  attack: TornAttack,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `
+    UPDATE attacks
+    SET ended = ?,
+        result = COALESCE(?, result),
+        respect_gain = COALESCE(?, respect_gain),
+        respect_loss = COALESCE(?, respect_loss),
+        m_retaliation = COALESCE(?, m_retaliation),
+        fetched_at = CURRENT_TIMESTAMP,
+        ingest_run_id = ?
+    WHERE id = ?
+      AND ended IS NULL
+      AND ? IS NOT NULL
+    `,
+  ).bind(
+    attack.ended ?? null,
+    attack.result ?? null,
+    attack.respect_gain ?? null,
+    attack.respect_loss ?? null,
+    attack.modifiers?.retaliation ?? null,
+    ingestRunId,
+    attack.id,
+    attack.ended ?? null,
+  );
+}
+
+function buildRetaliationOpportunityUpsertStatement(
+  env: Env,
+  attack: TornAttack,
+): D1PreparedStatement | null {
+  if (!isRetaliationOpeningAttack(attack)) {
+    return null;
+  }
+
+  const attackAt = attack.ended;
+  const targetId = attack.attacker?.id;
+  if (attackAt === undefined || attackAt === null || targetId === undefined || targetId === null) {
+    return null;
+  }
+
+  return env.DB.prepare(
+    `
+    INSERT INTO retaliation_opportunities (
+      target_id,
+      opening_attack_id,
+      attack_at,
+      expires_at,
+      code,
+      started,
+      ended,
+      attacker_id,
+      attacker_name,
+      attacker_faction_id,
+      attacker_faction_name,
+      defender_id,
+      defender_name,
+      defender_faction_id,
+      defender_faction_name,
+      result,
+      respect_gain,
+      respect_loss,
+      m_retaliation,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
+    ON CONFLICT(target_id) DO UPDATE SET
+      opening_attack_id = excluded.opening_attack_id,
+      attack_at = excluded.attack_at,
+      expires_at = excluded.expires_at,
+      code = excluded.code,
+      started = excluded.started,
+      ended = excluded.ended,
+      attacker_id = excluded.attacker_id,
+      attacker_name = excluded.attacker_name,
+      attacker_faction_id = excluded.attacker_faction_id,
+      attacker_faction_name = excluded.attacker_faction_name,
+      defender_id = excluded.defender_id,
+      defender_name = excluded.defender_name,
+      defender_faction_id = excluded.defender_faction_id,
+      defender_faction_name = excluded.defender_faction_name,
+      result = excluded.result,
+      respect_gain = excluded.respect_gain,
+      respect_loss = excluded.respect_loss,
+      m_retaliation = excluded.m_retaliation,
+      updated_at = excluded.updated_at
+    WHERE excluded.attack_at > retaliation_opportunities.attack_at
+       OR (
+        excluded.attack_at = retaliation_opportunities.attack_at
+        AND excluded.opening_attack_id > retaliation_opportunities.opening_attack_id
+      )
+    `,
+  ).bind(
+    targetId,
+    attack.id,
+    attackAt,
+    attackAt + RETALIATION_WINDOW_SECONDS,
+    attack.code ?? null,
+    attack.started ?? null,
+    attack.ended ?? null,
+    attack.attacker?.id ?? null,
+    attack.attacker?.name ?? null,
+    attack.attacker?.faction?.id ?? null,
+    attack.attacker?.faction?.name ?? null,
+    attack.defender?.id ?? null,
+    attack.defender?.name ?? null,
+    attack.defender?.faction?.id ?? null,
+    attack.defender?.faction?.name ?? null,
+    attack.result ?? null,
+    attack.respect_gain ?? 0,
+    attack.respect_loss ?? 0,
+    attack.modifiers?.retaliation ?? 1,
+  );
+}
+
+function isRetaliationOpeningAttack(attack: TornAttack): boolean {
+  const result = attack.result;
+  return (
+    attack.ended !== undefined &&
+    attack.ended !== null &&
+    attack.attacker?.id !== undefined &&
+    attack.attacker.id !== null &&
+    attack.defender?.faction?.id === HOME_FACTION_ID &&
+    result !== undefined &&
+    POSITIVE_ATTACK_RESULTS.includes(result as typeof POSITIVE_ATTACK_RESULTS[number])
+  );
 }
 
 function buildLiveInsertStatement(

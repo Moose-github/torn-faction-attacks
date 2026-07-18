@@ -13,6 +13,7 @@ export const LIMIT = 100;
 export const OVERLAP_SECONDS = 60;
 export const AUTH_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 export const WAR_TYPES = ["real", "termed", "event"] as const;
+export const RETALIATION_WINDOW_SECONDS = 5 * 60;
 
 // Hardcoded for now to keep the reporting model focused on your faction.
 export const HOME_FACTION_ID = 8803;
