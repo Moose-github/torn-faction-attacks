@@ -5,10 +5,10 @@ import {
   AuthSession,
   authenticateTornKey,
   cancelMemberLifestyleRepairJob,
-  clearDiscordTravelTrackerTarget,
   clearStoredAuthSession,
   createMemberLifestyleRepairJob,
   deleteWar,
+  AdminDiscordAlertSettingsResponse,
   DiscordTravelTrackerTargetResponse,
   EnemyStatsImagePreviewType,
   exportWarAttacksCsv,
@@ -39,18 +39,11 @@ import {
   restartLiveEnemyTracking,
   relinkAttacks,
   runIngestion,
-  setDiscordTravelTrackerTarget,
   ChainWatchAlertSetting,
   RetaliationBoardAlertSetting,
   ShopliftingAlertSetting,
-  syncDiscordTravelTracker,
   EnemyPushAlertSetting,
-  updateDiscordTravelTrackerSettings,
-  updateAdminChainWatchDiscordAlert,
-  updateAdminRetaliationBoardDiscordAlert,
   updateAdminXanaxCompetitionSettings,
-  updateAdminEnemyPushDiscordAlert,
-  updateAdminShopliftingDiscordAlert,
   updateHomeFactionReportExemption,
   updateOfficialWar,
   TornApiUsageResponse,
@@ -63,6 +56,7 @@ import {
 } from "../../api";
 import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime, formatNumber } from "../../utils/format";
+import { DiscordAdminControls, DiscordTravelTargetForm } from "./DiscordAdminControls";
 
 const TORN_API_USAGE_WINDOW_OPTIONS = [
   { seconds: 60 * 60, label: "1h", summaryLabel: "1h" },
@@ -70,10 +64,11 @@ const TORN_API_USAGE_WINDOW_OPTIONS = [
   { seconds: 7 * 24 * 60 * 60, label: "7 days", summaryLabel: "7 days" },
 ] as const;
 
-type AdminTabKey = "operations" | "wars" | "reporting" | "maintenance";
+type AdminTabKey = "operations" | "discord" | "wars" | "reporting" | "maintenance";
 
 const ADMIN_TABS: Array<{ key: AdminTabKey; label: string }> = [
   { key: "operations", label: "Operations" },
+  { key: "discord", label: "Discord" },
   { key: "wars", label: "Wars & Events" },
   { key: "reporting", label: "Reporting" },
   { key: "maintenance", label: "Maintenance" },
@@ -119,7 +114,7 @@ export function AdminControls() {
   });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [adminGrantForm, setAdminGrantForm] = React.useState({ tornUserId: "" });
-  const [discordTravelTargetForm, setDiscordTravelTargetForm] = React.useState({
+  const [discordTravelTargetForm, setDiscordTravelTargetForm] = React.useState<DiscordTravelTargetForm>({
     factionId: "",
     factionName: "",
   });
@@ -134,7 +129,7 @@ export function AdminControls() {
     React.useState<RetaliationBoardAlertSetting | null>(null);
   const [shopliftingAlerts, setShopliftingAlerts] = React.useState<ShopliftingAlertSetting[]>([]);
   const [enemyPushAlert, setEnemyPushAlert] = React.useState<EnemyPushAlertSetting | null>(null);
-  const [isLoadingShopliftingAlerts, setIsLoadingShopliftingAlerts] = React.useState(false);
+  const [isLoadingDiscordAlertSettings, setIsLoadingDiscordAlertSettings] = React.useState(false);
   const [xanaxSettingsForm, setXanaxSettingsForm] = React.useState({
     enabled: true,
     basePrize: "10000000",
@@ -318,7 +313,7 @@ export function AdminControls() {
       await loadTornKeyPool();
       await loadLifestyleRepairJobs();
       await loadReportExemptions();
-      await loadShopliftingAlerts();
+      await loadDiscordAlertSettings();
       await loadDiscordTravelTarget();
       await loadXanaxCompetition();
     } catch (err) {
@@ -448,21 +443,25 @@ export function AdminControls() {
     }
   }
 
-  async function loadShopliftingAlerts() {
-    setIsLoadingShopliftingAlerts(true);
+  function applyDiscordAlertSettingsResponse(response: AdminDiscordAlertSettingsResponse) {
+    setChainWatchAlert(response.chain_watch_alert);
+    setRetaliationBoardAlert(response.retaliation_board_alert);
+    setShopliftingAlerts(response.alerts);
+    setEnemyPushAlert(response.enemy_push_alert);
+  }
+
+  async function loadDiscordAlertSettings() {
+    setIsLoadingDiscordAlertSettings(true);
     try {
       const response = await getAdminDiscordAlertSettings();
-      setChainWatchAlert(response.chain_watch_alert);
-      setRetaliationBoardAlert(response.retaliation_board_alert);
-      setShopliftingAlerts(response.alerts);
-      setEnemyPushAlert(response.enemy_push_alert);
+      applyDiscordAlertSettingsResponse(response);
     } catch {
       setChainWatchAlert(null);
       setRetaliationBoardAlert(null);
       setShopliftingAlerts([]);
       setEnemyPushAlert(null);
     } finally {
-      setIsLoadingShopliftingAlerts(false);
+      setIsLoadingDiscordAlertSettings(false);
     }
   }
 
@@ -489,7 +488,7 @@ export function AdminControls() {
       loadTornKeyPool();
       loadLifestyleRepairJobs();
       loadReportExemptions();
-      loadShopliftingAlerts();
+      loadDiscordAlertSettings();
       loadDiscordTravelTarget();
       loadXanaxCompetition();
     }
@@ -515,29 +514,6 @@ export function AdminControls() {
     : tornKeyPool
       ? `${tornKeyPool.keys.filter((key) => key.status === "active").length}/${tornKeyPool.keys.length} active`
       : "Unavailable";
-  const shopliftingAlertStatus = isLoadingShopliftingAlerts
-    ? "Loading"
-    : shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert || retaliationBoardAlert
-      ? `${[
-          ...(chainWatchAlert ? [chainWatchAlert.enabled] : []),
-          ...(retaliationBoardAlert ? [retaliationBoardAlert.enabled] : []),
-          ...shopliftingAlerts.map((alert) => alert.enabled),
-          ...(enemyPushAlert ? [enemyPushAlert.enabled] : []),
-        ].filter(Boolean).length}/${
-          shopliftingAlerts.length +
-          (enemyPushAlert ? 1 : 0) +
-          (chainWatchAlert ? 1 : 0) +
-          (retaliationBoardAlert ? 1 : 0)
-        } active`
-      : "Unavailable";
-  const discordTravelTrackerStatus = isLoadingDiscordTravelTarget
-    ? "Loading"
-    : discordTravelTarget
-      ? `${discordTravelTarget.target_tracker.enabled ? "Target on" : "Target off"} / ${discordTravelTarget.home_tracker.enabled ? "Home on" : "Home off"}`
-      : "Unavailable";
-  const canSetDiscordTravelTarget =
-    isBusy === null && Number.isInteger(Number(discordTravelTargetForm.factionId)) && Number(discordTravelTargetForm.factionId) > 0;
-
   return (
     <>
       {error ? <div className="error-panel">{error}</div> : null}
@@ -677,245 +653,25 @@ export function AdminControls() {
           </form>
         </section>
 
-        <section className="panel admin-panel-discord-travel">
-          <PanelHeader title="Discord travel tracker" aside={discordTravelTrackerStatus} />
-          <div className="admin-metric-list admin-form-wide">
-            <MetricLine
-              label="Active source"
-              value={formatDiscordTravelSource(discordTravelTarget?.active_source)}
-            />
-            <MetricLine
-              label="Target tracker"
-              value={discordTravelTarget?.target_tracker.enabled ? "Enabled" : "Disabled"}
-            />
-            <MetricLine
-              label="Home tracker"
-              value={discordTravelTarget?.home_tracker.enabled ? "Enabled" : "Disabled"}
-            />
-            <MetricLine
-              label="War target"
-              value={discordTravelTarget?.war_target
-                ? `${discordTravelTarget.war_target.name} (${discordTravelTarget.war_target.faction_id})`
-                : "None"}
-            />
-            <MetricLine
-              label="Manual target"
-              value={discordTravelTarget?.manual_target
-                ? `${discordTravelTarget.manual_target.faction_name || "Unnamed"} (${discordTravelTarget.manual_target.faction_id})`
-                : "None"}
-            />
-            <MetricLine
-              label="Manual refreshed"
-              value={formatOptionalUnixTime(discordTravelTarget?.manual_target?.last_refreshed_at ?? null)}
-            />
-            <MetricLine
-              label="Target synced"
-              value={formatOptionalUnixTime(discordTravelTarget?.target_tracker.last_synced_at ?? null)}
-            />
-            <MetricLine
-              label="Home synced"
-              value={formatOptionalUnixTime(discordTravelTarget?.home_tracker.last_synced_at ?? null)}
-            />
-          </div>
-          <form
-            className="admin-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const factionId = Number(discordTravelTargetForm.factionId);
-              if (!Number.isInteger(factionId) || factionId <= 0) {
-                setError("Enter a valid faction ID.");
-                return;
-              }
-              runAdminAction("Set Discord travel target", () =>
-                setDiscordTravelTrackerTarget({
-                  faction_id: factionId,
-                  faction_name: discordTravelTargetForm.factionName.trim() || undefined,
-                }),
-              );
-            }}
-          >
-            <label className="checkbox-row admin-form-wide">
-              <input
-                type="checkbox"
-                checked={discordTravelTarget?.target_tracker.enabled ?? true}
-                disabled={isBusy !== null || isLoadingDiscordTravelTarget}
-                onChange={(event) =>
-                  runAdminAction("Update target travel tracker", () =>
-                    updateDiscordTravelTrackerSettings({ target_enabled: event.target.checked }),
-                  )}
-              />
-              <span>Enemy/manual travel tracker</span>
-            </label>
-            <label className="checkbox-row admin-form-wide">
-              <input
-                type="checkbox"
-                checked={discordTravelTarget?.home_tracker.enabled ?? false}
-                disabled={isBusy !== null || isLoadingDiscordTravelTarget}
-                onChange={(event) =>
-                  runAdminAction("Update home travel tracker", () =>
-                    updateDiscordTravelTrackerSettings({ home_enabled: event.target.checked }),
-                  )}
-              />
-              <span>Home travel tracker</span>
-            </label>
-            <label>
-              <span>Faction ID</span>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={discordTravelTargetForm.factionId}
-                onChange={(event) =>
-                  setDiscordTravelTargetForm((current) => ({ ...current, factionId: event.target.value }))}
-                placeholder="12345"
-              />
-            </label>
-            <label>
-              <span>Faction name</span>
-              <input
-                type="text"
-                value={discordTravelTargetForm.factionName}
-                onChange={(event) =>
-                  setDiscordTravelTargetForm((current) => ({ ...current, factionName: event.target.value }))}
-                placeholder="Optional"
-              />
-            </label>
-            <button
-              type="submit"
-              className="admin-button primary"
-              disabled={!canSetDiscordTravelTarget}
-            >
-              {isBusy === "Set Discord travel target" ? "Setting" : "Set target"}
-            </button>
-            <button
-              type="button"
-              className="admin-button"
-              disabled={isBusy !== null || !discordTravelTarget?.manual_target}
-              onClick={() =>
-                runAdminAction("Clear Discord travel target", () =>
-                  clearDiscordTravelTrackerTarget().then((response) => {
-                    setDiscordTravelTargetForm({ factionId: "", factionName: "" });
-                    return response;
-                  }),
-                )}
-            >
-              {isBusy === "Clear Discord travel target" ? "Clearing" : "Clear target"}
-            </button>
-            <button
-              type="button"
-              className="admin-button admin-form-wide"
-              disabled={isBusy !== null}
-              onClick={() => runAdminAction("Sync Discord travel tracker", syncDiscordTravelTracker)}
-            >
-              {isBusy === "Sync Discord travel tracker" ? "Syncing tracker" : "Sync tracker now"}
-            </button>
-          </form>
-        </section>
-
-        <section className="panel admin-panel-shoplifting-alerts">
-          <PanelHeader title="Discord alerts" aside={shopliftingAlertStatus} />
-          <div className="admin-form">
-            {chainWatchAlert ? (
-              <label className="checkbox-row admin-form-wide">
-                <input
-                  type="checkbox"
-                  checked={chainWatchAlert.enabled}
-                  disabled={isBusy !== null || isLoadingShopliftingAlerts}
-                  onChange={(event) => {
-                    const enabled = event.target.checked;
-                    runAdminAction("Update chain watch alert", () =>
-                      updateAdminChainWatchDiscordAlert({ enabled }).then((response) => {
-                        setChainWatchAlert(response.chain_watch_alert);
-                        setRetaliationBoardAlert(response.retaliation_board_alert);
-                        setShopliftingAlerts(response.alerts);
-                        setEnemyPushAlert(response.enemy_push_alert);
-                        return response;
-                      }),
-                    );
-                  }}
-                />
-                <span>{chainWatchAlert.name}</span>
-              </label>
-            ) : null}
-            {retaliationBoardAlert ? (
-              <label className="checkbox-row admin-form-wide">
-                <input
-                  type="checkbox"
-                  checked={retaliationBoardAlert.enabled}
-                  disabled={isBusy !== null || isLoadingShopliftingAlerts}
-                  onChange={(event) => {
-                    const enabled = event.target.checked;
-                    runAdminAction("Update retaliation board alert", () =>
-                      updateAdminRetaliationBoardDiscordAlert({ enabled }).then((response) => {
-                        setChainWatchAlert(response.chain_watch_alert);
-                        setRetaliationBoardAlert(response.retaliation_board_alert);
-                        setShopliftingAlerts(response.alerts);
-                        setEnemyPushAlert(response.enemy_push_alert);
-                        return response;
-                      }),
-                    );
-                  }}
-                />
-                <span>{retaliationBoardAlert.name}</span>
-              </label>
-            ) : null}
-            {enemyPushAlert ? (
-              <label className="checkbox-row admin-form-wide">
-                <input
-                  type="checkbox"
-                  checked={enemyPushAlert.enabled}
-                  disabled={isBusy !== null || isLoadingShopliftingAlerts}
-                  onChange={(event) => {
-                    const enabled = event.target.checked;
-                    runAdminAction("Update enemy push alert", () =>
-                      updateAdminEnemyPushDiscordAlert({ enabled }).then((response) => {
-                        setChainWatchAlert(response.chain_watch_alert);
-                        setRetaliationBoardAlert(response.retaliation_board_alert);
-                        setShopliftingAlerts(response.alerts);
-                        setEnemyPushAlert(response.enemy_push_alert);
-                        return response;
-                      }),
-                    );
-                  }}
-                />
-                <span>{enemyPushAlert.name}</span>
-              </label>
-            ) : null}
-            {shopliftingAlerts.map((alert) => (
-              alert.configurable ? (
-                <label className="checkbox-row admin-form-wide" key={alert.shop_key}>
-                  <input
-                    type="checkbox"
-                    checked={alert.enabled}
-                    disabled={isBusy !== null || isLoadingShopliftingAlerts}
-                    onChange={(event) => {
-                      const enabled = event.target.checked;
-                      runAdminAction("Update shoplifting alert", () =>
-                        updateAdminShopliftingDiscordAlert({
-                          shop_key: alert.shop_key,
-                          enabled,
-                        }).then((response) => {
-                          setChainWatchAlert(response.chain_watch_alert);
-                          setRetaliationBoardAlert(response.retaliation_board_alert);
-                          setShopliftingAlerts(response.alerts);
-                          setEnemyPushAlert(response.enemy_push_alert);
-                          return response;
-                        }),
-                      );
-                    }}
-                  />
-                  <span>{alert.shop_name}</span>
-                </label>
-              ) : (
-                <div className="admin-form-wide" key={alert.shop_key}>
-                  <MetricLine label={alert.shop_name} value={alert.enabled ? "Active" : "Paused"} />
-                </div>
-              )
-            ))}
-          </div>
-        </section>
-
         </>
+        ) : null}
+
+        {activeAdminTab === "discord" ? (
+          <DiscordAdminControls
+            isBusy={isBusy}
+            discordTravelTargetForm={discordTravelTargetForm}
+            discordTravelTarget={discordTravelTarget}
+            isLoadingDiscordTravelTarget={isLoadingDiscordTravelTarget}
+            chainWatchAlert={chainWatchAlert}
+            retaliationBoardAlert={retaliationBoardAlert}
+            shopliftingAlerts={shopliftingAlerts}
+            enemyPushAlert={enemyPushAlert}
+            isLoadingDiscordAlertSettings={isLoadingDiscordAlertSettings}
+            setDiscordTravelTargetForm={setDiscordTravelTargetForm}
+            setError={setError}
+            applyDiscordAlertSettingsResponse={applyDiscordAlertSettingsResponse}
+            runAdminAction={runAdminAction}
+          />
         ) : null}
 
         {activeAdminTab === "wars" ? (
@@ -2594,17 +2350,6 @@ function MetricLine({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
-}
-
-function formatDiscordTravelSource(source: DiscordTravelTrackerTargetResponse["active_source"] | undefined): string {
-  if (source === "war") return "War";
-  if (source === "manual") return "Manual";
-  if (source === "inactive") return "Inactive";
-  return "Unknown";
-}
-
-function formatOptionalUnixTime(value: number | null): string {
-  return value ? formatLongDateTime(value) : "Never";
 }
 
 function defaultWarForm(): AdminWarFormState {
