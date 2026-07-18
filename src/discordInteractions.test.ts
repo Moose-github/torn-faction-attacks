@@ -574,10 +574,15 @@ describe("Discord interactions", () => {
         value: expect.stringContaining("<#333333333333333333>"),
       }),
       expect.objectContaining({
-        name: "Chain watch",
-        value: "Unset",
+        name: "Unset",
+        value: expect.stringContaining("Chain watch"),
       }),
     ]));
+    expect(response.data?.embeds?.[0]?.fields?.filter((field) => field.name === "Unset"))
+      .toHaveLength(1);
+    const unsetField = response.data?.embeds?.[0]?.fields?.find((field) => field.name === "Unset");
+    expect(unsetField?.value).toContain("Chain watch warning");
+    expect(unsetField?.value).not.toContain("Enemy push");
     const enemyPushField = response.data?.embeds?.[0]?.fields?.find((field) => field.name === "Enemy push");
     expect(enemyPushField?.value).not.toContain("Key:");
     expect(enemyPushField?.value).not.toContain(DISCORD_ALERT_KEYS.enemyPush);
@@ -676,9 +681,13 @@ describe("Discord interactions", () => {
 
     expect(response.data?.embeds?.[0]?.title).toBe("Alert channel routes");
     expect(response.data?.embeds?.[0]?.description).toBe("Configured bot delivery channels for this server.");
-    expect(response.data?.embeds?.[0]?.fields?.length).toBeGreaterThan(1);
-    expect(response.data?.embeds?.[0]?.fields?.every((field) => field.value === "Unset"))
-      .toBe(true);
+    expect(response.data?.embeds?.[0]?.fields).toEqual([
+      expect.objectContaining({
+        name: "Unset",
+        value: expect.stringContaining("Chain watch"),
+      }),
+    ]);
+    expect(response.data?.embeds?.[0]?.fields?.[0]?.value).toContain("Enemy push");
   });
 
   it("rejects alert channel routes when no delivery guild is configured", async () => {

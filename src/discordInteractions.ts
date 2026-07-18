@@ -768,6 +768,26 @@ async function alertChannelsResponse(
 
 function alertChannelsListResponse(routes: DiscordNotificationChannel[]): DiscordInteractionResponse {
   const routesByAlertKey = new Map(routes.map((route) => [route.alertKey, route]));
+  const unsetAlertNames: string[] = [];
+  const fields: NonNullable<DiscordEmbed["fields"]> = DISCORD_ALERTS.flatMap((alert) => {
+    const route = routesByAlertKey.get(alert.key);
+    if (!route) {
+      unsetAlertNames.push(alert.name);
+      return [];
+    }
+
+    return [{
+      name: alert.name,
+      value: discordChannelMention(discordBotTargetChannelId(route)),
+    }];
+  });
+  if (unsetAlertNames.length > 0) {
+    fields.push({
+      name: "Unset",
+      value: unsetAlertNames.join("\n"),
+    });
+  }
+
   return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
     flags: DISCORD_FLAG_EPHEMERAL,
     embeds: [
@@ -775,13 +795,7 @@ function alertChannelsListResponse(routes: DiscordNotificationChannel[]): Discor
         title: "Alert channel routes",
         description: "Configured bot delivery channels for this server.",
         color: BOT_COLOR,
-        fields: DISCORD_ALERTS.map((alert) => {
-          const route = routesByAlertKey.get(alert.key);
-          return {
-            name: alert.name,
-            value: route ? discordChannelMention(discordBotTargetChannelId(route)) : "Unset",
-          };
-        }),
+        fields,
       },
     ],
   });
