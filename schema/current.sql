@@ -107,6 +107,7 @@ CREATE TABLE retaliation_opportunities (
 CREATE TABLE retaliation_board_state (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   discord_message_id TEXT,
+  discord_target_id TEXT,
   last_rendered_hash TEXT,
   last_edited_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),

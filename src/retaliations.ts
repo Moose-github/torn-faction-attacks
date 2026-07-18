@@ -4,6 +4,10 @@ import { type DiscordEmbed } from "./discord";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import {
+  discordNotificationChannelTargetId,
+  readConfiguredDiscordNotificationChannel,
+} from "./discordNotificationChannels";
 import { ingestRecentFactionAttacks, RecentAttackIngestionResult } from "./ingestion";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { Env } from "./types";
@@ -89,6 +93,7 @@ type LightSyncResult = {
 type BoardStateRow = {
   id: number;
   discord_message_id: string | null;
+  discord_target_id: string | null;
   last_rendered_hash: string | null;
   last_edited_at: number | null;
 };
@@ -435,16 +440,19 @@ export async function syncRetaliationDiscordBoard(
   const message = renderRetaliationBoardPayload(rows, checkedAt, refreshPlan.nextRefreshAt);
   const hash = stableHash(JSON.stringify(message));
   const state = await readRetaliationBoardState(env);
+  const discordTargetId = await readRetaliationBoardDiscordTargetId(env);
+  const targetChanged = state?.discord_target_id !== discordTargetId;
   let result: RetaliationBoardSyncResult = {
     ...refreshPlan,
     edited: false,
     ...(lightSync ? { lightSync } : {}),
   };
 
-  if (state?.last_rendered_hash === hash) {
+  if (!targetChanged && state?.last_rendered_hash === hash) {
     console.debug("Retaliation board Discord update skipped: unchanged content");
     result = { ...result, skippedReason: "unchanged" };
   } else if (
+    !targetChanged &&
     state?.last_edited_at !== null &&
     state?.last_edited_at !== undefined &&
     state.last_edited_at > checkedAt - RETALIATION_BOARD_MIN_EDIT_INTERVAL_SECONDS
@@ -452,10 +460,12 @@ export async function syncRetaliationDiscordBoard(
     console.debug("Retaliation board Discord update skipped: minimum edit interval");
     result = { ...result, skippedReason: "min_edit_interval" };
   } else {
-    const update = await upsertRetaliationBoardMessage(env, state?.discord_message_id ?? null, message);
+    const existingMessageId = targetChanged ? null : state?.discord_message_id ?? null;
+    const update = await upsertRetaliationBoardMessage(env, existingMessageId, message);
     if (update.ok) {
       await saveRetaliationBoardState(env, {
         discordMessageId: update.messageId,
+        discordTargetId,
         renderedHash: hash,
         editedAt: checkedAt,
       });
@@ -961,7 +971,7 @@ export function getRetaliationBoardRefreshPlan(
 async function readRetaliationBoardState(env: Env): Promise<BoardStateRow | null> {
   return (await env.DB.prepare(
     `
-    SELECT id, discord_message_id, last_rendered_hash, last_edited_at
+    SELECT id, discord_message_id, discord_target_id, last_rendered_hash, last_edited_at
     FROM retaliation_board_state
     WHERE id = 1
     LIMIT 1
@@ -972,28 +982,42 @@ async function readRetaliationBoardState(env: Env): Promise<BoardStateRow | null
 
 async function saveRetaliationBoardState(
   env: Env,
-  state: { discordMessageId: string | null; renderedHash: string; editedAt: number },
+  state: { discordMessageId: string | null; discordTargetId: string; renderedHash: string; editedAt: number },
 ): Promise<void> {
   await env.DB.prepare(
     `
     INSERT INTO retaliation_board_state (
       id,
       discord_message_id,
+      discord_target_id,
       last_rendered_hash,
       last_edited_at,
       created_at,
       updated_at
     )
-    VALUES (1, ?, ?, ?, ?, ?)
+    VALUES (1, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       discord_message_id = excluded.discord_message_id,
+      discord_target_id = excluded.discord_target_id,
       last_rendered_hash = excluded.last_rendered_hash,
       last_edited_at = excluded.last_edited_at,
       updated_at = excluded.updated_at
     `,
   )
-    .bind(state.discordMessageId, state.renderedHash, state.editedAt, state.editedAt, state.editedAt)
+    .bind(
+      state.discordMessageId,
+      state.discordTargetId,
+      state.renderedHash,
+      state.editedAt,
+      state.editedAt,
+      state.editedAt,
+    )
     .run();
+}
+
+async function readRetaliationBoardDiscordTargetId(env: Env): Promise<string> {
+  const route = await readConfiguredDiscordNotificationChannel(env, DISCORD_ALERT_KEYS.retaliationBoard);
+  return route ? `bot:${discordNotificationChannelTargetId(route)}` : "webhook";
 }
 
 async function upsertRetaliationBoardMessage(

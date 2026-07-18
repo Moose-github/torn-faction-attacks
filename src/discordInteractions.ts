@@ -1,6 +1,6 @@
 import { isRecord } from "./backend/request";
 import { DISCORD_COMMAND_NAMES, DISCORD_COMPONENT_IDS } from "./discordCommands";
-import { DISCORD_ALERTS, discordAlertByKey } from "./discordAlerts";
+import { DISCORD_ALERT_KEYS, DISCORD_ALERTS, discordAlertByKey } from "./discordAlerts";
 import { createDiscordBotMessage } from "./discord";
 import {
   readDiscordMemberAlertSubscriptionsForDiscordUser,
@@ -24,6 +24,7 @@ import {
 } from "./discordTravelFormatting";
 import { Env, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
+import { syncRetaliationDiscordBoard } from "./retaliations";
 
 const DISCORD_INTERACTION_PING = 1;
 const DISCORD_INTERACTION_APPLICATION_COMMAND = 2;
@@ -694,6 +695,9 @@ async function alertChannelsResponse(
       channelId,
       updatedByDiscordId: discordUserId,
     });
+    if (alert.key === DISCORD_ALERT_KEYS.retaliationBoard) {
+      await syncRetaliationBoardAfterRouteChange(env);
+    }
     return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
       flags: DISCORD_FLAG_EPHEMERAL,
       embeds: [
@@ -713,6 +717,9 @@ async function alertChannelsResponse(
     }
 
     await unsetDiscordNotificationChannel(env, guildId, alert.key);
+    if (alert.key === DISCORD_ALERT_KEYS.retaliationBoard) {
+      await syncRetaliationBoardAfterRouteChange(env);
+    }
     return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
       flags: DISCORD_FLAG_EPHEMERAL,
       embeds: [
@@ -765,6 +772,14 @@ async function alertChannelsResponse(
   }
 
   return ephemeralMessage("Use `/alert-channels list`, `set`, `unset`, or `test`.");
+}
+
+async function syncRetaliationBoardAfterRouteChange(env: Env): Promise<void> {
+  try {
+    await syncRetaliationDiscordBoard(env, nowSeconds());
+  } catch (err: any) {
+    console.warn("Retaliation board route-change sync failed:", err?.message || err);
+  }
 }
 
 function alertChannelsListResponse(routes: DiscordNotificationChannel[]): DiscordInteractionResponse {
