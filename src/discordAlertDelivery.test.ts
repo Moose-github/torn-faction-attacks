@@ -8,7 +8,7 @@ import {
 } from "./discord";
 import { sendDiscordAlertMessage, upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
-import { readDefaultDiscordNotificationChannel } from "./discordNotificationChannels";
+import { readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
 import type { Env } from "./types";
 
 vi.mock("./discord", () => ({
@@ -20,7 +20,7 @@ vi.mock("./discord", () => ({
 }));
 
 vi.mock("./discordNotificationChannels", () => ({
-  readDefaultDiscordNotificationChannel: vi.fn(),
+  readConfiguredDiscordNotificationChannel: vi.fn(),
 }));
 
 describe("discord alert delivery", () => {
@@ -39,13 +39,13 @@ describe("discord alert delivery", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(readDefaultDiscordNotificationChannel).mockResolvedValue(null);
+    vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue(null);
     vi.mocked(createDiscordBotMessage).mockResolvedValue("bot-message-1");
     vi.mocked(createDiscordWebhookMessage).mockResolvedValue("webhook-message-1");
   });
 
   it("sends through the bot when an alert route is configured", async () => {
-    vi.mocked(readDefaultDiscordNotificationChannel).mockResolvedValue(route);
+    vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue(route);
 
     await sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push", { users: ["1"] });
 
@@ -54,7 +54,7 @@ describe("discord alert delivery", () => {
   });
 
   it("uses the configured thread as the bot target when present", async () => {
-    vi.mocked(readDefaultDiscordNotificationChannel).mockResolvedValue({
+    vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue({
       ...route,
       threadId: "thread-1",
     });
@@ -72,7 +72,7 @@ describe("discord alert delivery", () => {
   });
 
   it("falls back to webhooks when bot send fails", async () => {
-    vi.mocked(readDefaultDiscordNotificationChannel).mockResolvedValue(route);
+    vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue(route);
     vi.mocked(createDiscordBotMessage).mockRejectedValue(new Error("missing access"));
 
     await sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push");
@@ -81,7 +81,7 @@ describe("discord alert delivery", () => {
   });
 
   it("edits bot messages for routed upserts", async () => {
-    vi.mocked(readDefaultDiscordNotificationChannel).mockResolvedValue(route);
+    vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue(route);
 
     const messageId = await upsertDiscordAlertMessage(
       env,
@@ -105,7 +105,7 @@ describe("discord alert delivery", () => {
   });
 
   it("creates a fresh bot message when editing a routed message fails", async () => {
-    vi.mocked(readDefaultDiscordNotificationChannel).mockResolvedValue(route);
+    vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue(route);
     vi.mocked(editDiscordBotMessage).mockRejectedValue(new Error("unknown message"));
     vi.mocked(createDiscordBotMessage).mockResolvedValue("bot-message-2");
 

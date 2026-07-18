@@ -759,7 +759,7 @@ async function alertChannelsResponse(
 
     await createDiscordBotMessage(
       env,
-      route.channelId,
+      discordBotTargetChannelId(route),
       `Discord alert route test: ${alert.name}`,
       { users: [], roles: [] },
       {
@@ -778,7 +778,7 @@ async function alertChannelsResponse(
       embeds: [
         {
           title: "Test alert sent",
-          description: `Sent a test message to ${discordChannelMention(route.channelId)} for **${route.alertName}**.`,
+          description: `Sent a test message to ${discordChannelMention(discordBotTargetChannelId(route))} for **${route.alertName}**.`,
           color: BOT_COLOR,
         },
       ],
@@ -801,12 +801,16 @@ function alertChannelsListResponse(routes: DiscordNotificationChannel[]): Discor
         fields: routes.length > 0
           ? routes.map((route) => ({
             name: route.alertName,
-            value: discordChannelMention(route.channelId),
+            value: discordChannelMention(discordBotTargetChannelId(route)),
           }))
           : [{ name: "No routes", value: "Use `/alert-channels set` to configure one." }],
       },
     ],
   });
+}
+
+function discordBotTargetChannelId(route: { channelId: string; threadId: string | null }): string {
+  return route.threadId ?? route.channelId;
 }
 
 function alertsListResponse(

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createDiscordBotMessage } from "./discord";
 import {
   handleDiscordInteractions,
   handleVerifiedDiscordInteraction,
@@ -7,6 +8,10 @@ import {
 import { DISCORD_COMPONENT_IDS, discordApplicationCommands } from "./discordCommands";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import type { Env, WarRow } from "./types";
+
+vi.mock("./discord", () => ({
+  createDiscordBotMessage: vi.fn(),
+}));
 
 describe("Discord interactions", () => {
   it("registers bot and alert slash commands", () => {
@@ -616,6 +621,52 @@ describe("Discord interactions", () => {
     });
     expect(response.data?.embeds?.[0]?.fields?.[0]?.value).not.toContain("Key:");
     expect(response.data?.embeds?.[0]?.fields?.[0]?.value).not.toContain(DISCORD_ALERT_KEYS.enemyPush);
+  });
+
+  it("tests alert channel routes against stored thread targets", async () => {
+    vi.mocked(createDiscordBotMessage).mockResolvedValue("message-1");
+    const env = fakeDiscordEnv({
+      discordAdminUserIds: "222222222222222222",
+    });
+    env.notificationRoutes.set("727247760931160167:enemy_push", {
+      guild_id: "727247760931160167",
+      alert_key: DISCORD_ALERT_KEYS.enemyPush,
+      channel_id: "333333333333333333",
+      thread_id: "444444444444444444",
+      enabled: 1,
+      updated_by_discord_id: "111111111111111111",
+      updated_at: 1_800_000_000,
+    });
+
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "727247760931160167",
+      member: { user: { id: "222222222222222222" }, roles: [] },
+      data: {
+        name: "alert-channels",
+        options: [
+          {
+            type: 1,
+            name: "test",
+            options: [
+              { type: 3, name: "alert", value: DISCORD_ALERT_KEYS.enemyPush },
+            ],
+          },
+        ],
+      },
+    }, env);
+
+    expect(createDiscordBotMessage).toHaveBeenCalledWith(
+      env,
+      "444444444444444444",
+      "Discord alert route test: Enemy push",
+      { users: [], roles: [] },
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Discord alert route test" })],
+      }),
+    );
+    expect(response.data?.embeds?.[0]?.description).toContain("<#444444444444444444>");
+    expect(response.data?.embeds?.[0]?.description).not.toContain("<#333333333333333333>");
   });
 
   it("unsets alert channel routes for Discord admins", async () => {

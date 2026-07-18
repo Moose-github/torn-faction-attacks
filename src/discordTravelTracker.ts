@@ -4,7 +4,7 @@ import {
 } from "./discord";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
-import { readDefaultDiscordNotificationChannel } from "./discordNotificationChannels";
+import { readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
 import {
   HOME_FACTION_ID,
 } from "./constants";
@@ -560,7 +560,7 @@ async function addRoutedTravelTrackerAlertKey(
   routedAlertKeys: Set<DiscordAlertKey>,
   alertKey: DiscordAlertKey,
 ): Promise<void> {
-  if (await readDefaultDiscordNotificationChannel(env, alertKey)) {
+  if (await readConfiguredDiscordNotificationChannel(env, alertKey)) {
     routedAlertKeys.add(alertKey);
   }
 }

@@ -181,7 +181,8 @@ describe("Discord travel tracker", () => {
   it("syncs target travel through a bot route when no webhook is configured", async () => {
     const env = fakeEnv();
     delete env.DISCORD_WEBHOOK_URL;
-    env.notificationRoutes.set(DISCORD_ALERT_KEYS.targetTravelTracker, {
+    env.DISCORD_GUILD_ID = "guild-1";
+    env.notificationRoutes.set(`guild-1:${DISCORD_ALERT_KEYS.targetTravelTracker}`, {
       guild_id: "guild-1",
       alert_key: DISCORD_ALERT_KEYS.targetTravelTracker,
       channel_id: "channel-1",
@@ -757,12 +758,10 @@ function fakeEnv(): FakeEnv {
           return Promise.resolve(env.target?.enabled === 1 ? env.target : null);
         }
         if (sql.includes("FROM discord_notification_channels")) {
-          const alertKey = values[0] as string;
-          return Promise.resolve(
-            Array.from(env.notificationRoutes.values())
-              .filter((route) => route.alert_key === alertKey && route.enabled === 1)
-              .sort((left, right) => right.updated_at - left.updated_at || left.guild_id.localeCompare(right.guild_id))[0] ?? null,
-          );
+          const guildId = String(values[0]);
+          const alertKey = String(values[1]);
+          const row = env.notificationRoutes.get(`${guildId}:${alertKey}`) ?? null;
+          return Promise.resolve(row && row.enabled === 1 ? row : null);
         }
         return Promise.resolve(null);
       },

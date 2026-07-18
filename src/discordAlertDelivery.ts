@@ -12,7 +12,7 @@ import {
   type DiscordEmbed,
 } from "./discord";
 import { type DiscordAlertKey } from "./discordAlerts";
-import { readDefaultDiscordNotificationChannel } from "./discordNotificationChannels";
+import { readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
 import type { Env } from "./types";
 
 type DiscordAlertDeliveryOptions = {
@@ -39,7 +39,7 @@ export async function sendDiscordAlertMessage(
   message: string,
   allowedMentions?: DiscordAllowedMentions,
 ): Promise<void> {
-  const route = await readDefaultDiscordNotificationChannel(env, alertKey);
+  const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (route) {
     try {
       await createDiscordBotMessage(env, discordBotTargetChannelId(route), message, allowedMentions);
@@ -57,7 +57,7 @@ export async function sendDiscordAlertMessageWithAttachment(
   alertKey: DiscordAlertKey,
   options: DiscordAlertAttachmentOptions & DiscordAlertAttachment,
 ): Promise<string | null> {
-  const route = await readDefaultDiscordNotificationChannel(env, alertKey);
+  const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (route) {
     try {
       return await sendDiscordBotMessageWithAttachment(env, discordBotTargetChannelId(route), options);
@@ -75,7 +75,7 @@ export async function sendDiscordAlertMessageWithAttachments(
   alertKey: DiscordAlertKey,
   options: DiscordAlertAttachmentOptions & { attachments: DiscordAlertAttachment[] },
 ): Promise<string | null> {
-  const route = await readDefaultDiscordNotificationChannel(env, alertKey);
+  const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (route) {
     try {
       return await sendDiscordBotMessageWithAttachments(env, discordBotTargetChannelId(route), options);
@@ -95,7 +95,7 @@ export async function createDiscordAlertMessage(
   allowedMentions?: DiscordAllowedMentions,
   options?: DiscordAlertDeliveryOptions,
 ): Promise<string | null> {
-  const route = await readDefaultDiscordNotificationChannel(env, alertKey);
+  const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (route) {
     try {
       return await createDiscordBotMessage(env, discordBotTargetChannelId(route), message, allowedMentions, options);
@@ -115,7 +115,7 @@ export async function upsertDiscordAlertMessage(
   allowedMentions?: DiscordAllowedMentions,
   options?: DiscordAlertDeliveryOptions,
 ): Promise<string | null> {
-  const route = await readDefaultDiscordNotificationChannel(env, alertKey);
+  const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (route) {
     if (existingMessageId) {
       try {

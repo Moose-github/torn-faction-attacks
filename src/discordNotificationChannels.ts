@@ -66,24 +66,17 @@ export async function readDiscordNotificationChannel(
   return row ? discordNotificationChannelFromRow(row) : null;
 }
 
-export async function readDefaultDiscordNotificationChannel(
+export async function readConfiguredDiscordNotificationChannel(
   env: Env,
   alertKey: DiscordAlertKey,
 ): Promise<DiscordNotificationChannel | null> {
-  const row = await env.DB.prepare(
-    `
-    SELECT guild_id, alert_key, channel_id, thread_id, enabled, updated_by_discord_id, updated_at
-    FROM discord_notification_channels
-    WHERE alert_key = ?
-      AND enabled = 1
-    ORDER BY updated_at DESC, guild_id
-    LIMIT 1
-    `,
-  )
-    .bind(alertKey)
-    .first<DiscordNotificationChannelRow>();
+  const guildId = readDiscordNotificationGuildId(env);
+  return guildId ? readDiscordNotificationChannel(env, guildId, alertKey) : null;
+}
 
-  return row ? discordNotificationChannelFromRow(row) : null;
+export function readDiscordNotificationGuildId(env: Env): string | null {
+  const guildId = env.DISCORD_GUILD_ID?.trim();
+  return guildId || null;
 }
 
 export async function setDiscordNotificationChannel(
