@@ -468,7 +468,13 @@ export type EnemyFactionMember = {
   name: string;
   level: number | null;
   position: string | null;
-  days_in_faction: number | null;
+  days_in_faction: number | null;
+
+  company_type: string | null;
+
+  company_rating: number | null;
+
+  company_id: number | null;
   is_revivable: number | null;
   ff_battlestats: number | null;
   ff_battlestats_updated_at: number | null;

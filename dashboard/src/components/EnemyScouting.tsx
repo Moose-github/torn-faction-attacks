@@ -10,6 +10,7 @@ type EnemyScoutingSortKey =
   | "status"
   | "level"
   | "position"
+  | "company_type"
   | "days_in_faction"
   | "ff_battlestats"
   | "bsp_battlestats"
@@ -56,6 +57,7 @@ export function EnemyScoutingPanel({
       ) : null}
       <SortableHeader label="Level" sortKey="level" sort={sort} onSortChange={setSort} />
       <SortableHeader label="Position" sortKey="position" sort={sort} onSortChange={setSort} />
+      <SortableHeader label="Company" sortKey="company_type" sort={sort} onSortChange={setSort} />
       <SortableHeader label="Days in faction" sortKey="days_in_faction" sort={sort} onSortChange={setSort} />
       <SortableHeader label="FF stats" sortKey="ff_battlestats" sort={sort} onSortChange={setSort} />
       <SortableHeader label="BSP stats" sortKey="bsp_battlestats" sort={sort} onSortChange={setSort} />
@@ -142,6 +144,7 @@ export function EnemyScoutingPanel({
               ) : null}
               <td>{formatNumber(member.level ?? 0)}</td>
               <td>{member.position ?? "-"}</td>
+              <td title={companyTitle(member)}>{companyLabel(member)}</td>
               <td>{formatNumber(member.days_in_faction ?? 0)}</td>
               <td title={updatedTitle("FF battle stats", member.ff_battlestats_updated_at)}>
                 {member.ff_battlestats === null
@@ -191,6 +194,32 @@ function networthTitle(member: EnemyFactionMember): string {
 
 function bspBattlestatsTitle(member: EnemyFactionMember): string {
   return updatedTitle("BSP battle stats", member.bsp_battlestats_updated_at);
+}
+
+function companyLabel(member: EnemyFactionMember): string {
+  if (!member.company_type) {
+    return "-";
+  }
+
+  return member.company_rating === null
+    ? member.company_type
+    : `${formatNumber(member.company_rating)}* ${member.company_type}`;
+}
+
+function companyTitle(member: EnemyFactionMember): string {
+  if (!member.company_type) {
+    return "No company or city job stored";
+  }
+
+  const details = [member.company_type];
+  if (member.company_rating !== null) {
+    details.push(`${formatNumber(member.company_rating)} star company`);
+  }
+  if (member.company_id !== null) {
+    details.push(`Company ID ${formatNumber(member.company_id)}`);
+  }
+
+  return details.join(". ");
 }
 
 function enemyStatusLabel(member: EnemyFactionMember): string {
@@ -301,6 +330,10 @@ function scoutingSortValue(
 
   if (key === "position") {
     return (member.position ?? "").toLowerCase();
+  }
+
+  if (key === "company_type") {
+    return (member.company_type ?? "").toLowerCase();
   }
 
   if (key === "status") {

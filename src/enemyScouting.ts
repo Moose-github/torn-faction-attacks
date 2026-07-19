@@ -2,6 +2,12 @@ import {
   HOME_FACTION_ID,
   TORN_FACTION_API_BASE_URL,
 } from "./constants";
+import {
+  collectEnemyCompanySnapshots,
+  emptyEnemyCompanySnapshot,
+  parseTornUserJobCompanySnapshot,
+  type EnemyCompanySnapshot,
+} from "./enemyCompany";
 import { bumpWarCacheVersion } from "./cacheVersions";
 import {
   canInitializeEnemyTarget,
@@ -82,6 +88,7 @@ export type { CurrentScoutingWar, EnemyFactionMemberRow } from "./enemyScouting/
 
 const FFSCOUTER_BATCH_SIZE = 100;
 const SCOUTING_FETCH_TIMEOUT_MS = 15000;
+const TORN_USER_JOB_API_BASE_URL = "https://api.torn.com/v2/user";
 const LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX = "enemy_live_tracking_cleared";
 
 type FfBattlestatEstimate = {
@@ -110,7 +117,7 @@ type MemberStatusSnapshot = {
   status_updated_at: number | null;
 };
 
-type EnemyMemberSnapshot = MemberStatusSnapshot & {
+type FactionMemberSnapshot = MemberStatusSnapshot & {
   member_id: number;
   faction_id: number;
   name: string;
@@ -119,6 +126,8 @@ type EnemyMemberSnapshot = MemberStatusSnapshot & {
   days_in_faction: number | null;
   is_revivable: number;
 };
+
+type EnemyMemberSnapshot = FactionMemberSnapshot & EnemyCompanySnapshot;
 
 export type FfscouterRefreshMetrics = {
   writeStatements: number;
@@ -400,6 +409,16 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
   }
 
   const fetchedAt = nowSeconds();
+  const companySnapshots = await collectEnemyCompanySnapshots(
+    members,
+    (member) => fetchTornUserJobCompanySnapshot(env, member.id),
+    (member, err) => {
+      console.warn(
+        `Enemy company lookup failed for ${member.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    },
+  );
   await handleEnemyTargetMatched(env, factionId, {
     warId,
     clearCachedEnemyRoster: true,
@@ -408,7 +427,14 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
   });
   await env.DB.batch(
     members.flatMap((member) => {
-      const snapshot = buildEnemyMemberSnapshot(member, factionId, null, null, fetchedAt);
+      const snapshot = buildEnemyMemberSnapshot(
+        member,
+        factionId,
+        null,
+        null,
+        fetchedAt,
+        companySnapshots.get(member.id) ?? emptyEnemyCompanySnapshot(),
+      );
       return [
         upsertEnemyMemberRosterSnapshot(env, snapshot),
         upsertMemberLiveStatus(env, ENEMY_MEMBER_LIVE_STATUS_TABLE, snapshot),
@@ -668,15 +694,21 @@ function upsertEnemyMemberRosterSnapshot(
       level,
       position,
       days_in_faction,
+      company_type,
+      company_rating,
+      company_id,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
     ON CONFLICT(member_id) DO UPDATE SET
       faction_id = excluded.faction_id,
       name = excluded.name,
       level = excluded.level,
       position = excluded.position,
       days_in_faction = excluded.days_in_faction,
+      company_type = excluded.company_type,
+      company_rating = excluded.company_rating,
+      company_id = excluded.company_id,
       updated_at = excluded.updated_at
     `,
   ).bind(
@@ -686,12 +718,15 @@ function upsertEnemyMemberRosterSnapshot(
     snapshot.level,
     snapshot.position,
     snapshot.days_in_faction,
+    snapshot.company_type,
+    snapshot.company_rating,
+    snapshot.company_id,
   );
 }
 
 function upsertHomeMemberRosterSnapshot(
   env: Env,
-  snapshot: EnemyMemberSnapshot,
+  snapshot: FactionMemberSnapshot,
 ): D1PreparedStatement {
   return env.DB.prepare(
     `
@@ -826,7 +861,14 @@ function buildEnemyMemberSnapshot(
   previous: EnemyFactionMemberRow | null,
   previousPollAt: number | null,
   fetchedAt: number,
+  companySnapshot: EnemyCompanySnapshot | null = null,
 ): EnemyMemberSnapshot {
+  const company = companySnapshot ?? {
+    company_type: previous?.company_type ?? null,
+    company_rating: previous?.company_rating ?? null,
+    company_id: previous?.company_id ?? null,
+  };
+
   return {
     member_id: member.id,
     faction_id: factionId,
@@ -835,6 +877,9 @@ function buildEnemyMemberSnapshot(
     position: member.position ?? null,
     days_in_faction: finiteNumber(member.days_in_faction),
     is_revivable: boolToInt(effectiveRevivableStatus(member) ?? false) ?? 0,
+    company_type: company.company_type,
+    company_rating: company.company_rating,
+    company_id: company.company_id,
     ...buildMemberStatusSnapshot(member, previous, previousPollAt, fetchedAt),
   };
 }
@@ -1000,6 +1045,9 @@ function enemyMemberSnapshotChanged(
     previous.level !== next.level ||
     previous.position !== next.position ||
     previous.days_in_faction !== next.days_in_faction ||
+    previous.company_type !== next.company_type ||
+    previous.company_rating !== next.company_rating ||
+    previous.company_id !== next.company_id ||
     previous.is_revivable !== next.is_revivable ||
     previous.status_state !== next.status_state ||
     previous.status_description !== next.status_description ||
@@ -1088,6 +1136,28 @@ export async function fetchTornFactionMembers(
     }, { service: "Torn faction members" }),
   });
   return normalizeMembers(data.members);
+}
+
+async function fetchTornUserJobCompanySnapshot(
+  env: Env,
+  memberId: number,
+): Promise<EnemyCompanySnapshot> {
+  const url = new URL(`${TORN_USER_JOB_API_BASE_URL}/${memberId}/job`);
+
+  const data = await withTornKeyPool(env, {
+    feature: "enemy_scouting",
+    run: ({ key, keySource }) => fetchTrackedTornJson<unknown>(env, url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `ApiKey ${key}`,
+      },
+    }, {
+      feature: "enemy-scouting:user-job",
+      keySource,
+      timeoutMs: SCOUTING_FETCH_TIMEOUT_MS,
+    }, { service: "Torn user job" }),
+  });
+  return parseTornUserJobCompanySnapshot(data);
 }
 
 async function fetchFfscouterStats(
