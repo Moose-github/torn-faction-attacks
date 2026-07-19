@@ -72,10 +72,11 @@ describe("stock buy recommendations", () => {
     ]);
   });
 
-  it("uses additional shares and cost for partially owned blocks", () => {
+  it("uses additional shares and cost for partially owned blocks without inflating ROI", () => {
     const row = stockRow({
       stock_id: 3,
       latest_price: 5,
+      required_shares: 1_000,
       total_shares_required: 1_000,
       increment_cost: 5_000,
       annual_return: 1_000,
@@ -94,10 +95,10 @@ describe("stock buy recommendations", () => {
       shares_needed: 400,
       estimated_cost: 2_000,
     });
-    expect(result?.roi_percent).toBe(50);
+    expect(result?.roi_percent).toBe(20);
   });
 
-  it("applies minimum ROI after recalculating partially owned blocks", () => {
+  it("applies minimum ROI to committed capital for partially owned blocks", () => {
     const result = recommendBestStockBuy({
       rows: [
         stockRow({
@@ -120,9 +121,7 @@ describe("stock buy recommendations", () => {
       minimumRoi: 50,
     });
 
-    expect(result?.row.row_id).toBe("stock:1:1");
-    expect(result?.estimated_cost).toBe(100);
-    expect(result?.roi_percent).toBe(100);
+    expect(result).toBeNull();
   });
 
   it("ranks partial completions by committed increment capital", () => {
@@ -165,7 +164,7 @@ describe("stock buy recommendations", () => {
       ranking_roi_percent: recommendation.ranking_roi_percent,
     }))).toEqual([
       { row_id: "stock:2:1", roi_percent: 20, ranking_roi_percent: 20 },
-      { row_id: "stock:1:1", roi_percent: 100, ranking_roi_percent: 10 },
+      { row_id: "stock:1:1", roi_percent: 10, ranking_roi_percent: 10 },
     ]);
   });
 
@@ -185,8 +184,8 @@ describe("stock buy recommendations", () => {
 
     expect(metrics).toMatchObject({
       estimated_cost: 100,
-      days_to_break_even: 365,
-      roi_percent: 100,
+      days_to_break_even: 3_650,
+      roi_percent: 10,
       owned_shares: 90,
       shares_needed: 10,
       personalized: true,
@@ -1473,7 +1472,7 @@ describe("stock buy recommendations", () => {
     });
   });
 
-  it("applies minimum ROI to personalized strategy buys", () => {
+  it("applies minimum ROI to committed capital for personalized strategy buys", () => {
     const plan = buildStockStrategyPlan({
       rows: [
         stockRow({
@@ -1496,13 +1495,7 @@ describe("stock buy recommendations", () => {
       minimumRoi: 50,
     }, 1);
 
-    expect(plan.steps[0].recommendation).toMatchObject({
-      row: {
-        row_id: "stock:1:1",
-      },
-      estimated_cost: 100,
-      roi_percent: 100,
-    });
+    expect(plan.steps).toEqual([]);
   });
 
   it("includes rebalance milestones when sale value unlocks a higher-ROI option", () => {

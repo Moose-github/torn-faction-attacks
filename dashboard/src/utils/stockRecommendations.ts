@@ -328,9 +328,15 @@ export function stockInvestmentRowMetrics(
   }
 
   const estimatedCost = sharesNeeded * row.latest_price;
+  const committedCost = stockIncrementCommittedCost(row, owned, baselineShares);
+  const committedRoiPercent = committedCost > 0
+    ? (row.annual_return / committedCost) * 100
+    : rowRoiPercent;
   if (estimatedCost <= 0) {
     return {
       ...baseMetrics,
+      roi_percent: committedRoiPercent,
+      ranking_roi_percent: committedRoiPercent,
       owned_shares: owned,
       shares_needed: sharesNeeded,
       personalized: true,
@@ -340,9 +346,9 @@ export function stockInvestmentRowMetrics(
   return {
     ...baseMetrics,
     estimated_cost: estimatedCost,
-    days_to_break_even: row.annual_return > 0 ? estimatedCost / (row.annual_return / 365) : row.days_to_break_even,
-    roi_percent: (row.annual_return / estimatedCost) * 100,
-    ranking_roi_percent: stockIncrementRankingRoiPercent(row, owned, baselineShares),
+    days_to_break_even: row.annual_return > 0 ? committedCost / (row.annual_return / 365) : row.days_to_break_even,
+    roi_percent: committedRoiPercent,
+    ranking_roi_percent: committedRoiPercent,
     owned_shares: owned,
     shares_needed: sharesNeeded,
     personalized: true,
@@ -1408,11 +1414,6 @@ function highestCoveredStockThreshold(rows: StockInvestmentStockRow[], shares: n
     .filter((row) => ownsStockIncrement(shares, row.total_shares_required))
     .map((row) => row.total_shares_required);
   return thresholds.length > 0 ? Math.max(...thresholds) : null;
-}
-
-function stockIncrementRankingRoiPercent(row: StockInvestmentStockRow, ownedShares: number, baselineShares = 0): number {
-  const committedCost = stockIncrementCommittedCost(row, ownedShares, baselineShares);
-  return committedCost > 0 ? (row.annual_return / committedCost) * 100 : row.roi_percent;
 }
 
 function stockIncrementCommittedCost(row: StockInvestmentStockRow, ownedShares: number, baselineShares = 0): number {
