@@ -9,6 +9,7 @@ import {
   createMemberLifestyleRepairJob,
   deleteWar,
   AdminDiscordAlertSettingsResponse,
+  DiscordAlertRouteSummary,
   DiscordTravelTrackerTargetResponse,
   EnemyStatsImagePreviewType,
   exportWarAttacksCsv,
@@ -138,6 +139,8 @@ export function AdminControls() {
     React.useState<XanaxCompetitionAlertSetting | null>(null);
   const [termedWarAutoEndAlert, setTermedWarAutoEndAlert] =
     React.useState<TermedWarAutoEndAlertSetting | null>(null);
+  const [discordAlertRoutes, setDiscordAlertRoutes] =
+    React.useState<Record<string, DiscordAlertRouteSummary | null>>({});
   const [isLoadingDiscordAlertSettings, setIsLoadingDiscordAlertSettings] = React.useState(false);
   const [xanaxSettingsForm, setXanaxSettingsForm] = React.useState({
     enabled: true,
@@ -460,6 +463,7 @@ export function AdminControls() {
     setEnemyScoutingReportAlert(response.enemy_scouting_report_alert);
     setXanaxCompetitionAlert(response.xanax_competition_alert);
     setTermedWarAutoEndAlert(response.termed_war_auto_end_alert);
+    setDiscordAlertRoutes(response.routes ?? {});
   }
 
   async function loadDiscordAlertSettings() {
@@ -475,6 +479,7 @@ export function AdminControls() {
       setEnemyScoutingReportAlert(null);
       setXanaxCompetitionAlert(null);
       setTermedWarAutoEndAlert(null);
+      setDiscordAlertRoutes({});
     } finally {
       setIsLoadingDiscordAlertSettings(false);
     }
@@ -684,6 +689,7 @@ export function AdminControls() {
             enemyScoutingReportAlert={enemyScoutingReportAlert}
             xanaxCompetitionAlert={xanaxCompetitionAlert}
             termedWarAutoEndAlert={termedWarAutoEndAlert}
+            discordAlertRoutes={discordAlertRoutes}
             isLoadingDiscordAlertSettings={isLoadingDiscordAlertSettings}
             setDiscordTravelTargetForm={setDiscordTravelTargetForm}
             setError={setError}

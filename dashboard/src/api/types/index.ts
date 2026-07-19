@@ -888,6 +888,22 @@ export type RetaliationBoardAlertSetting = {
 };
 
 
+export type DiscordAlertRouteSummary = {
+
+  alert_key: string;
+
+  channel_id: string;
+
+  thread_id: string | null;
+
+  target_id: string;
+
+  updated_by_discord_id: string | null;
+
+  updated_at: number;
+
+};
+
 
 export type AdminDiscordAlertSettingsResponse = {
 
@@ -906,6 +922,8 @@ export type AdminDiscordAlertSettingsResponse = {
   xanax_competition_alert: XanaxCompetitionAlertSetting;
 
   termed_war_auto_end_alert: TermedWarAutoEndAlertSetting;
+
+  routes: Record<string, DiscordAlertRouteSummary | null>;
 
 };
 

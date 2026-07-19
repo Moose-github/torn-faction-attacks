@@ -3,6 +3,7 @@ import {
   AdminDiscordAlertSettingsResponse,
   ChainWatchAlertSetting,
   clearDiscordTravelTrackerTarget,
+  DiscordAlertRouteSummary,
   DiscordTravelTrackerTargetResponse,
   EnemyScoutingReportAlertSetting,
   EnemyPushAlertSetting,
@@ -41,6 +42,7 @@ type DiscordAdminControlsProps = {
   enemyScoutingReportAlert: EnemyScoutingReportAlertSetting | null;
   xanaxCompetitionAlert: XanaxCompetitionAlertSetting | null;
   termedWarAutoEndAlert: TermedWarAutoEndAlertSetting | null;
+  discordAlertRoutes: Record<string, DiscordAlertRouteSummary | null>;
   isLoadingDiscordAlertSettings: boolean;
   setDiscordTravelTargetForm: React.Dispatch<React.SetStateAction<DiscordTravelTargetForm>>;
   setError: React.Dispatch<React.SetStateAction<string | null>>;
@@ -60,6 +62,7 @@ export function DiscordAdminControls({
   enemyScoutingReportAlert,
   xanaxCompetitionAlert,
   termedWarAutoEndAlert,
+  discordAlertRoutes,
   isLoadingDiscordAlertSettings,
   setDiscordTravelTargetForm,
   setError,
@@ -97,133 +100,157 @@ export function DiscordAdminControls({
     isBusy === null &&
     Number.isInteger(Number(discordTravelTargetForm.factionId)) &&
     Number(discordTravelTargetForm.factionId) > 0;
+  const discordAlertRows = [
+    chainWatchAlert
+      ? {
+          key: chainWatchAlert.key,
+          checked: chainWatchAlert.enabled,
+          configurable: chainWatchAlert.configurable,
+          description: "Controls the persistent Chain Watch status message; warning and drop routes still decide where mention pings go.",
+          label: chainWatchAlert.name,
+          onChange: (enabled: boolean) => {
+            runAdminAction("Update chain watch alert", () =>
+              updateAdminChainWatchDiscordAlert({ enabled }).then((response) => {
+                applyDiscordAlertSettingsResponse(response);
+                return response;
+              }),
+            );
+          },
+        }
+      : null,
+    retaliationBoardAlert
+      ? {
+          key: retaliationBoardAlert.key,
+          checked: retaliationBoardAlert.enabled,
+          configurable: retaliationBoardAlert.configurable,
+          description: "Controls the persistent retaliation opportunity board updates sent to Discord.",
+          label: retaliationBoardAlert.name,
+          onChange: (enabled: boolean) => {
+            runAdminAction("Update retaliation board alert", () =>
+              updateAdminRetaliationBoardDiscordAlert({ enabled }).then((response) => {
+                applyDiscordAlertSettingsResponse(response);
+                return response;
+              }),
+            );
+          },
+        }
+      : null,
+    enemyPushAlert
+      ? {
+          key: enemyPushAlert.key,
+          checked: enemyPushAlert.enabled,
+          configurable: enemyPushAlert.configurable,
+          description: "Sends pressure warnings when enemy activity looks likely to become, or is already, a push.",
+          label: enemyPushAlert.name,
+          onChange: (enabled: boolean) => {
+            runAdminAction("Update enemy push alert", () =>
+              updateAdminEnemyPushDiscordAlert({ enabled }).then((response) => {
+                applyDiscordAlertSettingsResponse(response);
+                return response;
+              }),
+            );
+          },
+        }
+      : null,
+    enemyScoutingReportAlert
+      ? {
+          key: enemyScoutingReportAlert.key,
+          checked: enemyScoutingReportAlert.enabled,
+          configurable: enemyScoutingReportAlert.configurable,
+          description: "Sends the war matchup scouting report and stats images when enemy scouting is ready.",
+          label: enemyScoutingReportAlert.name,
+          onChange: (enabled: boolean) => {
+            runAdminAction("Update enemy scouting report alert", () =>
+              updateAdminEnemyScoutingReportDiscordAlert({ enabled }).then((response) => {
+                applyDiscordAlertSettingsResponse(response);
+                return response;
+              }),
+            );
+          },
+        }
+      : null,
+    xanaxCompetitionAlert
+      ? {
+          key: xanaxCompetitionAlert.key,
+          checked: xanaxCompetitionAlert.enabled,
+          configurable: xanaxCompetitionAlert.configurable,
+          description: "Sends the monthly Xanax competition Discord reminder image when the competition is active.",
+          label: xanaxCompetitionAlert.name,
+          onChange: (enabled: boolean) => {
+            runAdminAction("Update Xanax competition Discord alert", () =>
+              updateAdminXanaxCompetitionDiscordAlert({ enabled }).then((response) => {
+                applyDiscordAlertSettingsResponse(response);
+                return response;
+              }),
+            );
+          },
+        }
+      : null,
+    termedWarAutoEndAlert
+      ? {
+          key: termedWarAutoEndAlert.key,
+          checked: termedWarAutoEndAlert.enabled,
+          configurable: termedWarAutoEndAlert.configurable,
+          description: "Sends a Discord notice when a termed war score limit has been reached.",
+          label: termedWarAutoEndAlert.name,
+          onChange: (enabled: boolean) => {
+            runAdminAction("Update termed war auto-end alert", () =>
+              updateAdminTermedWarAutoEndDiscordAlert({ enabled }).then((response) => {
+                applyDiscordAlertSettingsResponse(response);
+                return response;
+              }),
+            );
+          },
+        }
+      : null,
+    ...shopliftingAlerts.map((alert) => ({
+      key: `shoplifting_security_alert:${alert.shop_key}`,
+      checked: alert.enabled,
+      configurable: alert.configurable,
+      description: `Sends a Discord warning when both ${alert.shop_name} shoplifting security obstacles are down.`,
+      label: alert.shop_name,
+      onChange: (enabled: boolean) => {
+        runAdminAction("Update shoplifting alert", () =>
+          updateAdminShopliftingDiscordAlert({
+            shop_key: alert.shop_key,
+            enabled,
+          }).then((response) => {
+            applyDiscordAlertSettingsResponse(response);
+            return response;
+          }),
+        );
+      },
+    })),
+  ].filter((row): row is {
+    key: string;
+    checked: boolean;
+    configurable: boolean;
+    description: string;
+    label: string;
+    onChange: (enabled: boolean) => void;
+  } => Boolean(row));
 
   return (
     <>
       <section className="panel admin-panel-shoplifting-alerts">
         <PanelHeader title="Discord alerts" aside={discordAlertStatus} />
-        <div className="admin-form">
-          {chainWatchAlert ? (
-            <AlertToggle
-              checked={chainWatchAlert.enabled}
-              description="Controls the persistent Chain Watch status message; warning and drop routes still decide where mention pings go."
-              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-              label={chainWatchAlert.name}
-              onChange={(enabled) => {
-                runAdminAction("Update chain watch alert", () =>
-                  updateAdminChainWatchDiscordAlert({ enabled }).then((response) => {
-                    applyDiscordAlertSettingsResponse(response);
-                    return response;
-                  }),
-                );
-              }}
-            />
-          ) : null}
-          {retaliationBoardAlert ? (
-            <AlertToggle
-              checked={retaliationBoardAlert.enabled}
-              description="Controls the persistent retaliation opportunity board updates sent to Discord."
-              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-              label={retaliationBoardAlert.name}
-              onChange={(enabled) => {
-                runAdminAction("Update retaliation board alert", () =>
-                  updateAdminRetaliationBoardDiscordAlert({ enabled }).then((response) => {
-                    applyDiscordAlertSettingsResponse(response);
-                    return response;
-                  }),
-                );
-              }}
-            />
-          ) : null}
-          {enemyPushAlert ? (
-            <AlertToggle
-              checked={enemyPushAlert.enabled}
-              description="Sends pressure warnings when enemy activity looks likely to become, or is already, a push."
-              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-              label={enemyPushAlert.name}
-              onChange={(enabled) => {
-                runAdminAction("Update enemy push alert", () =>
-                  updateAdminEnemyPushDiscordAlert({ enabled }).then((response) => {
-                    applyDiscordAlertSettingsResponse(response);
-                    return response;
-                  }),
-                );
-              }}
-            />
-          ) : null}
-          {enemyScoutingReportAlert ? (
-            <AlertToggle
-              checked={enemyScoutingReportAlert.enabled}
-              description="Sends the war matchup scouting report and stats images when enemy scouting is ready."
-              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-              label={enemyScoutingReportAlert.name}
-              onChange={(enabled) => {
-                runAdminAction("Update enemy scouting report alert", () =>
-                  updateAdminEnemyScoutingReportDiscordAlert({ enabled }).then((response) => {
-                    applyDiscordAlertSettingsResponse(response);
-                    return response;
-                  }),
-                );
-              }}
-            />
-          ) : null}
-          {xanaxCompetitionAlert ? (
-            <AlertToggle
-              checked={xanaxCompetitionAlert.enabled}
-              description="Sends the monthly Xanax competition Discord reminder image when the competition is active."
-              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-              label={xanaxCompetitionAlert.name}
-              onChange={(enabled) => {
-                runAdminAction("Update Xanax competition Discord alert", () =>
-                  updateAdminXanaxCompetitionDiscordAlert({ enabled }).then((response) => {
-                    applyDiscordAlertSettingsResponse(response);
-                    return response;
-                  }),
-                );
-              }}
-            />
-          ) : null}
-          {termedWarAutoEndAlert ? (
-            <AlertToggle
-              checked={termedWarAutoEndAlert.enabled}
-              description="Sends a Discord notice when a termed war score limit has been reached."
-              disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-              label={termedWarAutoEndAlert.name}
-              onChange={(enabled) => {
-                runAdminAction("Update termed war auto-end alert", () =>
-                  updateAdminTermedWarAutoEndDiscordAlert({ enabled }).then((response) => {
-                    applyDiscordAlertSettingsResponse(response);
-                    return response;
-                  }),
-                );
-              }}
-            />
-          ) : null}
-          {shopliftingAlerts.map((alert) => (
-            alert.configurable ? (
-              <AlertToggle
-                checked={alert.enabled}
-                description={`Sends a Discord warning when both ${alert.shop_name} shoplifting security obstacles are down.`}
-                disabled={isBusy !== null || isLoadingDiscordAlertSettings}
-                key={alert.shop_key}
-                label={alert.shop_name}
-                onChange={(enabled) => {
-                  runAdminAction("Update shoplifting alert", () =>
-                    updateAdminShopliftingDiscordAlert({
-                      shop_key: alert.shop_key,
-                      enabled,
-                    }).then((response) => {
-                      applyDiscordAlertSettingsResponse(response);
-                      return response;
-                    }),
-                  );
-                }}
-              />
-            ) : (
-              <div className="admin-form-wide" key={alert.shop_key}>
-                <MetricLine label={alert.shop_name} value={alert.enabled ? "Active" : "Paused"} />
+        <div className="admin-alert-route-grid">
+          <div className="admin-alert-route-heading">Alert</div>
+          <div className="admin-alert-route-heading">Status</div>
+          <div className="admin-alert-route-heading">Current route</div>
+          {discordAlertRows.map((alert) => (
+            <React.Fragment key={alert.key}>
+              <div className="admin-alert-route-copy">
+                <strong>{alert.label}</strong>
+                <small>{alert.description}</small>
               </div>
-            )
+              <AlertToggle
+                checked={alert.checked}
+                disabled={!alert.configurable || isBusy !== null || isLoadingDiscordAlertSettings}
+                onChange={alert.onChange}
+              />
+              <AlertRoute route={discordAlertRoutes[alert.key] ?? null} />
+            </React.Fragment>
           ))}
         </div>
       </section>
@@ -374,32 +401,42 @@ export function DiscordAdminControls({
   );
 }
 
-function AlertToggle({
-  checked,
-  description,
-  disabled,
-  label,
-  onChange,
-}: {
+function AlertToggle({ checked, disabled, onChange }: {
   checked: boolean;
-  description: string;
   disabled: boolean;
-  label: string;
   onChange: (enabled: boolean) => void;
 }) {
   return (
-    <label className="checkbox-row admin-form-wide">
+    <label className="checkbox-row admin-alert-route-toggle">
       <input
         type="checkbox"
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
       />
-      <span className="admin-alert-toggle-text">
-        <strong>{label}</strong>
-        <small>{description}</small>
-      </span>
+      <span>{checked ? "On" : "Off"}</span>
     </label>
+  );
+}
+
+function AlertRoute({ route }: { route: DiscordAlertRouteSummary | null }) {
+  if (!route) {
+    return (
+      <div className="admin-alert-route-target is-unset">
+        <strong>Unset</strong>
+        <small>No bot channel route</small>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-alert-route-target">
+      <strong>{route.thread_id ? `Thread ${route.thread_id}` : `Channel ${route.channel_id}`}</strong>
+      <small>
+        {route.thread_id ? `Parent ${route.channel_id}` : `Target ${route.target_id}`}
+        {route.updated_at ? ` - ${formatLongDateTime(route.updated_at)}` : ""}
+      </small>
+    </div>
   );
 }
 

@@ -7530,6 +7530,73 @@ h2 {
   line-height: 1.35;
 }
 
+.admin-alert-route-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(96px, 120px) minmax(220px, 0.85fr);
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+}
+
+.admin-alert-route-heading,
+.admin-alert-route-copy,
+.admin-alert-route-toggle,
+.admin-alert-route-target {
+  min-width: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.admin-alert-route-heading {
+  background: rgba(15, 23, 42, 0.035);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-alert-route-copy,
+.admin-alert-route-target {
+  display: grid;
+  gap: 3px;
+}
+
+.admin-alert-route-copy strong,
+.admin-alert-route-target strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+  font-size: 0.86rem;
+}
+
+.admin-alert-route-copy small,
+.admin-alert-route-target small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.admin-alert-route-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-strong);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.admin-alert-route-target.is-unset strong {
+  color: var(--text-muted);
+}
+
+.admin-alert-route-grid > :nth-last-child(-n + 3) {
+  border-bottom: 0;
+}
+
 .checkbox-row input {
   min-height: auto;
 }
@@ -8988,6 +9055,27 @@ tbody tr:not(.attack-row):hover td {
   .admin-xanax-claims div,
   .xanax-leader-row {
     grid-template-columns: 1fr;
+  }
+
+  .admin-alert-route-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(84px, auto);
+  }
+
+  .admin-alert-route-heading {
+    display: none;
+  }
+
+  .admin-alert-route-target {
+    grid-column: 1 / -1;
+    padding-top: 0;
+  }
+
+  .admin-alert-route-grid > :nth-last-child(-n + 3) {
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  }
+
+  .admin-alert-route-grid > :last-child {
+    border-bottom: 0;
   }
 
   .xanax-leader-row small,

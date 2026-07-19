@@ -30,13 +30,23 @@ describe("Discord alert settings", () => {
       ["shoplifting_security_alert:big_als", { enabled: 0, configurable: 1 }],
       ["shoplifting_security_alert:jewelry_store", { enabled: 1, configurable: 1 }],
     ]);
-    env = { DB: db as unknown as D1Database } as Env;
+    db.routes.set("enemy_push", {
+      guild_id: "guild-1",
+      alert_key: DISCORD_ALERT_KEYS.enemyPush,
+      channel_id: "channel-1",
+      thread_id: "thread-1",
+      enabled: 1,
+      updated_by_discord_id: "user-1",
+      updated_at: 1_800_000_000,
+    });
+    env = { DB: db as unknown as D1Database, DISCORD_GUILD_ID: "guild-1" } as Env;
   });
 
   it("reads global Discord alert settings from alert_settings", async () => {
     const response = await getAdminDiscordAlertSettings(env);
+    const body = await response.json();
 
-    expect(await response.json()).toEqual({
+    expect(body).toMatchObject({
       ok: true,
       chain_watch_alert: {
         key: "chain_watch",
@@ -88,6 +98,17 @@ describe("Discord alert settings", () => {
           configurable: true,
         },
       ],
+      routes: {
+        chain_watch: null,
+        enemy_push: {
+          alert_key: "enemy_push",
+          channel_id: "channel-1",
+          thread_id: "thread-1",
+          target_id: "thread-1",
+          updated_by_discord_id: "user-1",
+          updated_at: 1_800_000_000,
+        },
+      },
     });
   });
 
@@ -188,7 +209,7 @@ class TestD1PreparedStatement {
   }
 
   async all<T = unknown>(): Promise<D1Result<T>> {
-    return this.db.all(this.sql) as D1Result<T>;
+    return this.db.all(this.sql, this.args) as D1Result<T>;
   }
 
   async run<T = unknown>(): Promise<D1Result<T>> {
@@ -198,6 +219,15 @@ class TestD1PreparedStatement {
 
 class TestD1Database {
   readonly settings: Map<string, { enabled: number; configurable: number }>;
+  readonly routes = new Map<string, {
+    guild_id: string;
+    alert_key: string;
+    channel_id: string;
+    thread_id: string | null;
+    enabled: number;
+    updated_by_discord_id: string | null;
+    updated_at: number;
+  }>();
 
   constructor(entries: Array<[string, { enabled: number; configurable: number }]>) {
     this.settings = new Map(entries);
@@ -216,9 +246,17 @@ class TestD1Database {
     return null;
   }
 
-  all<T = unknown>(sql: string): D1Result<T> {
+  all<T = unknown>(sql: string, args: unknown[] = []): D1Result<T> {
     if (sql.includes("FROM alert_settings")) {
       return result(Array.from(this.settings, ([alert_key, row]) => ({ alert_key, ...row })) as T[]);
+    }
+    if (sql.includes("FROM discord_notification_channels")) {
+      const guildId = String(args[0] ?? "");
+      return result(
+        Array.from(this.routes.values())
+          .filter((route) => route.guild_id === guildId)
+          .sort((left, right) => left.alert_key.localeCompare(right.alert_key)) as T[],
+      );
     }
     return result([]);
   }

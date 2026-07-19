@@ -1,6 +1,12 @@
 import { readJsonObject } from "./backend/request";
 import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
 import {
+  discordNotificationChannelTargetId,
+  listDiscordNotificationChannels,
+  readDiscordNotificationGuildId,
+  type DiscordNotificationChannel,
+} from "./discordNotificationChannels";
+import {
   clearSyncLatch,
   clearSyncLatchesByPrefix,
 } from "./syncLatches";
@@ -21,6 +27,15 @@ export type DiscordAlertSetting = {
   name: string;
   enabled: boolean;
   configurable: boolean;
+};
+
+export type DiscordAlertRouteSummary = {
+  alert_key: DiscordAlertKey;
+  channel_id: string;
+  thread_id: string | null;
+  target_id: string;
+  updated_by_discord_id: string | null;
+  updated_at: number;
 };
 
 export type ShopliftingSecurityAlertSetting = {
@@ -119,6 +134,7 @@ const ALERT_SETTING_CONFIGS = [
 ] as const satisfies readonly AlertSettingConfig[];
 
 export async function getAdminDiscordAlertSettings(env: Env): Promise<Response> {
+  const routes = await readDiscordAlertRouteSummaries(env);
   return json({
     ok: true,
     chain_watch_alert: await readChainWatchAlertSetting(env),
@@ -128,6 +144,7 @@ export async function getAdminDiscordAlertSettings(env: Env): Promise<Response> 
     xanax_competition_alert: await readXanaxCompetitionAlertSetting(env),
     termed_war_auto_end_alert: await readTermedWarAutoEndAlertSetting(env),
     alerts: await readShopliftingSecurityAlertSettings(env),
+    routes,
   });
 }
 
@@ -319,6 +336,36 @@ async function readAlertSettingMap(env: Env): Promise<Map<string, AlertSettingRo
   ).all<AlertSettingRow>();
 
   return new Map((result.results ?? []).map((row) => [row.alert_key, row]));
+}
+
+async function readDiscordAlertRouteSummaries(
+  env: Env,
+): Promise<Record<DiscordAlertKey, DiscordAlertRouteSummary | null>> {
+  const guildId = readDiscordNotificationGuildId(env);
+  const routesByAlertKey = new Map<DiscordAlertKey, DiscordNotificationChannel>();
+  if (guildId) {
+    const routes = await listDiscordNotificationChannels(env, guildId);
+    routes.forEach((route) => routesByAlertKey.set(route.alertKey, route));
+  }
+
+  return Object.fromEntries(
+    ALERT_SETTING_CONFIGS.map((config) => {
+      const route = routesByAlertKey.get(config.key);
+      return [
+        config.key,
+        route
+          ? {
+              alert_key: route.alertKey,
+              channel_id: route.channelId,
+              thread_id: route.threadId,
+              target_id: discordNotificationChannelTargetId(route),
+              updated_by_discord_id: route.updatedByDiscordId,
+              updated_at: route.updatedAt,
+            }
+          : null,
+      ];
+    }),
+  ) as Record<DiscordAlertKey, DiscordAlertRouteSummary | null>;
 }
 
 function alertConfig(alertKey: DiscordAlertKey): AlertSettingConfig {
