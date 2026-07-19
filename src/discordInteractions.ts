@@ -287,19 +287,6 @@ async function routeDiscordCommand(
   const command = interaction.data?.name;
   const subcommand = interaction.data?.options?.[0] ?? null;
 
-  if (command === DISCORD_COMMAND_NAMES.war && subcommand?.name === "current") {
-    return warCurrentResponse(env, DISCORD_RESPONSE_CHANNEL_MESSAGE);
-  }
-
-  if (command === DISCORD_COMMAND_NAMES.war && subcommand?.name === "members") {
-    return warMembersResponse(env, optionString(subcommand, "metric") ?? "respect", optionInteger(subcommand, "limit"));
-  }
-
-  if (command === DISCORD_COMMAND_NAMES.war && subcommand?.name === "enemy") {
-    const view = optionString(subcommand, "view") ?? "status";
-    return view === "travel" ? travelCurrentResponse(env, "all", 10) : warEnemyResponse(env, view);
-  }
-
   if (command === DISCORD_COMMAND_NAMES.bot && subcommand?.name === "help") {
     return botHelpResponse();
   }
@@ -1255,11 +1242,6 @@ function chainAttackPair(chain: ChainWatchDiscordRow): string {
 function optionString(option: DiscordOption, name: string): string | null {
   const value = option.options?.find((item) => item.name === name)?.value;
   return typeof value === "string" ? value : null;
-}
-
-function optionInteger(option: DiscordOption, name: string): number | null {
-  const value = option.options?.find((item) => item.name === name)?.value;
-  return Number.isInteger(value) ? value as number : null;
 }
 
 function alertOption(option: DiscordOption): typeof DISCORD_ALERTS[number] | null {

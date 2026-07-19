@@ -76,10 +76,9 @@ describe("Discord interactions", () => {
 
   it("returns a Discord-safe response when verified routing fails", async () => {
     const signed = await signedDiscordRequest({
-      type: 2,
+      type: 3,
       data: {
-        name: "war",
-        options: [{ type: 1, name: "current" }],
+        custom_id: DISCORD_COMPONENT_IDS.warCurrent,
       },
     });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -105,7 +104,8 @@ describe("Discord interactions", () => {
         },
       });
       expect(errorSpy).toHaveBeenCalledWith("Discord interaction failed", expect.objectContaining({
-        command: "war",
+        command: null,
+        custom_id: DISCORD_COMPONENT_IDS.warCurrent,
         error: "D1 unavailable",
       }));
     } finally {
@@ -136,25 +136,27 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).not.toContain("`/alerts unsubscribe`");
   });
 
-  it("formats member leaderboards with linked Discord mentions", async () => {
+  it("does not route the removed war slash command", async () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
       data: {
         name: "war",
-        options: [
-          {
-            type: 1,
-            name: "members",
-            options: [
-              { type: 3, name: "metric", value: "respect" },
-              { type: 4, name: "limit", value: 5 },
-            ],
-          },
-        ],
+        options: [{ type: 1, name: "current" }],
       },
     }, fakeDiscordEnv());
 
-    expect(response.type).toBe(4);
+    expect(response.data?.content).toBe("I do not know that command yet.");
+  });
+
+  it("formats member leaderboards with linked Discord mentions", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 3,
+      data: {
+        custom_id: DISCORD_COMPONENT_IDS.warMembersRespect,
+      },
+    }, fakeDiscordEnv());
+
+    expect(response.type).toBe(7);
     expect(response.data?.allowed_mentions).toEqual({ parse: [] });
     expect(response.data?.embeds?.[0]?.description).toContain("<@111111111111111111>");
     expect(response.data?.embeds?.[0]?.description).toContain("Bob");
@@ -162,16 +164,9 @@ describe("Discord interactions", () => {
 
   it("bounds member leaderboard embed descriptions", async () => {
     const response = await handleVerifiedDiscordInteraction({
-      type: 2,
+      type: 3,
       data: {
-        name: "war",
-        options: [
-          {
-            type: 1,
-            name: "members",
-            options: [{ type: 4, name: "limit", value: 20 }],
-          },
-        ],
+        custom_id: DISCORD_COMPONENT_IDS.warMembersRespect,
       },
     }, fakeDiscordEnv({
       members: Array.from({ length: 20 }, (_, index) => ({
@@ -194,22 +189,13 @@ describe("Discord interactions", () => {
 
   it("formats the Discord travel tracker with routes and abroad returns", async () => {
     const response = await handleVerifiedDiscordInteraction({
-      type: 2,
+      type: 3,
       data: {
-        name: "war",
-        options: [
-          {
-            type: 1,
-            name: "enemy",
-            options: [
-              { type: 3, name: "view", value: "travel" },
-            ],
-          },
-        ],
+        custom_id: DISCORD_COMPONENT_IDS.travelCurrent,
       },
     }, fakeDiscordEnv());
 
-    expect(response.type).toBe(4);
+    expect(response.type).toBe(7);
     expect(response.data?.embeds?.[0]?.title).toBe("test-war travel tracker");
     expect(response.data?.embeds?.[0]?.description).toContain("**Traveling (1)**");
     expect(response.data?.embeds?.[0]?.description).toContain("**Member** | **Route** | **Departure** | **Travel time** | **Arrival** | **Travel type**");
@@ -222,16 +208,9 @@ describe("Discord interactions", () => {
 
   it("bounds travel tracker embed descriptions", async () => {
     const response = await handleVerifiedDiscordInteraction({
-      type: 2,
+      type: 3,
       data: {
-        name: "war",
-        options: [
-          {
-            type: 1,
-            name: "enemy",
-            options: [{ type: 3, name: "view", value: "travel" }],
-          },
-        ],
+        custom_id: DISCORD_COMPONENT_IDS.travelCurrent,
       },
     }, fakeDiscordEnv({
       travelers: Array.from({ length: 20 }, (_, index) => ({
@@ -260,25 +239,16 @@ describe("Discord interactions", () => {
 
   it("uses the manual travel target when the latest war has ended", async () => {
     const response = await handleVerifiedDiscordInteraction({
-      type: 2,
+      type: 3,
       data: {
-        name: "war",
-        options: [
-          {
-            type: 1,
-            name: "enemy",
-            options: [
-              { type: 3, name: "view", value: "travel" },
-            ],
-          },
-        ],
+        custom_id: DISCORD_COMPONENT_IDS.travelCurrent,
       },
     }, fakeDiscordEnv({
       war: { status: "ended" },
       manualTarget: { faction_id: 456, faction_name: "Manual Faction" },
     }));
 
-    expect(response.type).toBe(4);
+    expect(response.type).toBe(7);
     expect(response.data?.embeds?.[0]?.title).toBe("Manual Faction travel tracker");
     expect(response.data?.embeds?.[0]?.description).toContain("Torn -> Mexico");
     expect(response.data?.components).toEqual([]);
@@ -286,19 +256,13 @@ describe("Discord interactions", () => {
 
   it("splits war buttons into valid Discord action rows", async () => {
     const response = await handleVerifiedDiscordInteraction({
-      type: 2,
+      type: 3,
       data: {
-        name: "war",
-        options: [
-          {
-            type: 1,
-            name: "current",
-          },
-        ],
+        custom_id: DISCORD_COMPONENT_IDS.warCurrent,
       },
     }, fakeDiscordEnv());
 
-    expect(response.type).toBe(4);
+    expect(response.type).toBe(7);
     expect(response.data?.components).toHaveLength(2);
     expect(response.data?.components?.[0]?.components).toHaveLength(5);
     expect(response.data?.components?.[1]?.components).toHaveLength(1);

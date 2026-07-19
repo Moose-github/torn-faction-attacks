@@ -72,28 +72,6 @@ export async function sendDiscordAlertMessageWithAttachments(
   return await sendDiscordBotMessageWithAttachments(env, discordNotificationChannelTargetId(route), options);
 }
 
-export async function createDiscordAlertMessage(
-  env: Env,
-  alertKey: DiscordAlertKey,
-  message: string,
-  allowedMentions?: DiscordAllowedMentions,
-  options?: DiscordAlertDeliveryOptions,
-): Promise<string | null> {
-  const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
-  if (!route) {
-    console.warn(`Discord alert ${alertKey} create skipped: no bot channel route is configured.`);
-    return null;
-  }
-
-  return await createDiscordBotMessage(
-    env,
-    discordNotificationChannelTargetId(route),
-    message,
-    allowedMentions,
-    options,
-  );
-}
-
 export async function upsertDiscordAlertMessage(
   env: Env,
   alertKey: DiscordAlertKey,

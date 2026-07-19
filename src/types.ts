@@ -6,7 +6,6 @@ export interface Env {
   TORN_KEY_STORAGE_SECRET?: string | SecretsStoreSecret;
   BSP_TORN_API_KEY?: string;
   FFSCOUTER_API_KEY?: string;
-  DISCORD_WEBHOOK_URL?: string;
   DISCORD_GUILD_ID?: string;
   DISCORD_BOT_TOKEN?: string;
   DISCORD_PUBLIC_KEY?: string;

@@ -1,15 +1,9 @@
-import { cleanString, readJsonObject } from "./backend/request";
 import {
   patchDiscordBotJson,
-  patchDiscordJson,
   postDiscordBotFormAndRead,
   postDiscordBotJsonAndRead,
-  postDiscordForm,
-  postDiscordJson,
-  postDiscordJsonAndRead,
 } from "./external/discord";
 import { Env } from "./types";
-import { json } from "./utils";
 
 const MAX_DISCORD_MESSAGE_LENGTH = 1900;
 
@@ -38,89 +32,7 @@ type DiscordPayloadOptions = {
   embedColor?: number;
   embeds?: DiscordEmbed[];
   clearEmbeds?: boolean;
-  webhookUrl?: string;
 };
-
-export async function sendDiscordMessageFromRequest(request: Request, env: Env): Promise<Response> {
-  if (!env.DISCORD_WEBHOOK_URL) {
-    return json(
-      { ok: false, error: "DISCORD_WEBHOOK_URL is not configured", code: "MISSING_DISCORD_WEBHOOK" },
-      500,
-    );
-  }
-
-  const body = await readJsonObject(request);
-  const message = cleanString(body.message) ?? "";
-  if (!message) {
-    return json({ ok: false, error: "Message is required", code: "MISSING_MESSAGE" }, 400);
-  }
-
-  if (message.length > MAX_DISCORD_MESSAGE_LENGTH) {
-    return json(
-      {
-        ok: false,
-        error: `Message must be ${MAX_DISCORD_MESSAGE_LENGTH} characters or fewer`,
-        code: "MESSAGE_TOO_LONG",
-      },
-      400,
-    );
-  }
-
-  await sendDiscordMessage(env, message);
-  return json({ ok: true, sent: true });
-}
-
-export async function sendDiscordMessage(
-  env: Env,
-  message: string,
-  allowedMentions?: DiscordAllowedMentions,
-): Promise<void> {
-  if (!env.DISCORD_WEBHOOK_URL) {
-    throw new Error("DISCORD_WEBHOOK_URL is not configured");
-  }
-
-  await postDiscordJson(env.DISCORD_WEBHOOK_URL, discordPayload(message, allowedMentions));
-}
-
-export async function createDiscordWebhookMessage(
-  env: Env,
-  message: string,
-  allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "webhookUrl">,
-): Promise<string | null> {
-  const webhookUrl = options?.webhookUrl ?? env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl) {
-    throw new Error("DISCORD_WEBHOOK_URL is not configured");
-  }
-
-  const response = await postDiscordJsonAndRead<DiscordMessage>(
-    discordWebhookUrlWithQuery(webhookUrl, { wait: "true" }),
-    discordPayload(message, allowedMentions, options),
-  );
-
-  return discordMessageId(response);
-}
-
-export async function editDiscordWebhookMessage(
-  env: Env,
-  messageId: string,
-  message: string,
-  allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "webhookUrl">,
-): Promise<void> {
-  const webhookUrl = options?.webhookUrl ?? env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl) {
-    throw new Error("DISCORD_WEBHOOK_URL is not configured");
-  }
-
-  await patchDiscordJson(
-    discordWebhookMessageUrl(webhookUrl, messageId),
-    discordPayload(message, allowedMentions, {
-      ...options,
-      clearEmbeds: options?.embedColor === undefined && options?.embeds === undefined,
-    }),
-  );
-}
 
 export async function createDiscordBotMessage(
   env: Env,
@@ -236,80 +148,6 @@ function isDiscordMentionLine(line: string): boolean {
     .trim()
     .split(/\s+/)
     .every((token) => /^<@&?\d{5,32}>$/.test(token));
-}
-
-function discordWebhookMessageUrl(webhookUrl: string, messageId: string): string {
-  const url = new URL(webhookUrl);
-  const pathname = url.pathname.replace(/\/+$/, "");
-  url.pathname = `${pathname}/messages/${encodeURIComponent(messageId)}`;
-  url.searchParams.delete("wait");
-  return url.toString();
-}
-
-function discordWebhookUrlWithQuery(webhookUrl: string, params: Record<string, string>): string {
-  const url = new URL(webhookUrl);
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-  return url.toString();
-}
-
-export async function sendDiscordMessageWithAttachment(
-  env: Env,
-  options: {
-    content: string;
-    filename: string;
-    mimeType: string;
-    data: string | Uint8Array;
-    allowedMentions?: DiscordAllowedMentions;
-    webhookUrl?: string;
-  },
-): Promise<void> {
-  return sendDiscordMessageWithAttachments(env, {
-    content: options.content,
-    allowedMentions: options.allowedMentions,
-    webhookUrl: options.webhookUrl,
-    attachments: [
-      {
-        filename: options.filename,
-        mimeType: options.mimeType,
-        data: options.data,
-      },
-    ],
-  });
-}
-
-export async function sendDiscordMessageWithAttachments(
-  env: Env,
-  options: {
-    content: string;
-    allowedMentions?: DiscordAllowedMentions;
-    webhookUrl?: string;
-    attachments: Array<{
-      filename: string;
-      mimeType: string;
-      data: string | Uint8Array;
-    }>;
-  },
-): Promise<void> {
-  const webhookUrl = options.webhookUrl ?? env.DISCORD_WEBHOOK_URL;
-  if (!webhookUrl) {
-    throw new Error("DISCORD_WEBHOOK_URL is not configured");
-  }
-
-  if (options.content.length > MAX_DISCORD_MESSAGE_LENGTH) {
-    throw new Error(`Discord message must be ${MAX_DISCORD_MESSAGE_LENGTH} characters or fewer`);
-  }
-
-  const form = new FormData();
-  form.append("payload_json", JSON.stringify(discordPayload(options.content, options.allowedMentions)));
-  options.attachments.forEach((attachment, index) => {
-    form.append(
-      `files[${index}]`,
-      new Blob([attachment.data], { type: attachment.mimeType }),
-      attachment.filename,
-    );
-  });
-
-  await postDiscordForm(webhookUrl, form);
 }
 
 export async function sendDiscordBotMessageWithAttachment(

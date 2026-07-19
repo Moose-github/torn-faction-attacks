@@ -1,7 +1,6 @@
 import { DISCORD_ALERTS } from "./discordAlerts";
 
 export const DISCORD_COMMAND_NAMES = {
-  war: "war",
   bot: "bot",
   alerts: "alerts",
   alertChannels: "alert-channels",
@@ -20,9 +19,7 @@ export const DISCORD_COMPONENT_IDS = {
 
 export const DISCORD_COMMAND_OPTION_TYPES = {
   subCommand: 1,
-  subCommandGroup: 2,
   string: 3,
-  integer: 4,
   channel: 7,
 } as const;
 
