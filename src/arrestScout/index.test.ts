@@ -26,7 +26,7 @@ vi.mock("../tornKeyPool", () => ({
   TornKeyPoolUnavailableError: mocks.TornKeyPoolUnavailableError,
 }));
 
-import { scanArrestScout } from "./index";
+import { listArrestScoutFactionHof, scanArrestScout } from "./index";
 
 describe("scanArrestScout", () => {
   beforeEach(() => {
@@ -48,15 +48,15 @@ describe("scanArrestScout", () => {
   it("scans targets through the shared key pool and persists snapshot results", async () => {
     const db = new FakeArrestScoutD1();
     mocks.fetchTornPersonalStatsWithTimestamps.mockImplementation(async (_env, memberId, statKeys, options = {}) => {
-      expect(statKeys).toEqual(["jailed", "counterfeiting", "forgeryskill", "fraud", "scammingskill"]);
+      expect(statKeys).toEqual(["jailed", "counterfeiting", "forgeryskill", "fraud", "scammingskill", "criminaloffenses"]);
       expect(options.apiKey).toBe("submitted-key");
       expect(options.keySource).toBe("key_pool:key-1");
 
       if (memberId === 111 && options.timestamp === undefined) {
-        return personalStats({ counterfeiting: 1_000, jailed: 5, forgeryskill: 100 });
+        return personalStats({ counterfeiting: 1_000, jailed: 5, forgeryskill: 100, criminaloffenses: 42_000 });
       }
       if (memberId === 111 && typeof options.timestamp === "number") {
-        return personalStats({ counterfeiting: 400, jailed: 5, forgeryskill: 100 });
+        return personalStats({ counterfeiting: 400, jailed: 5, forgeryskill: 100, criminaloffenses: 41_500 });
       }
       if (memberId === 222 && options.timestamp === undefined) {
         return personalStats({ counterfeiting: 10_000, jailed: 2, forgeryskill: 99 });
@@ -88,6 +88,9 @@ describe("scanArrestScout", () => {
       current_fraud: 0,
       historical_fraud: 0,
       fraud_delta: null,
+      current_criminaloffenses: 42_000,
+      historical_criminaloffenses: 41_500,
+      criminaloffenses_delta: 500,
       current_jailed: 5,
       historical_jailed: 5,
       jailed_delta: 0,
@@ -248,6 +251,7 @@ describe("scanArrestScout", () => {
     expect(body.source_faction_id).toBe(8803);
     expect(body.target_count).toBe(2);
     expect(body.results.map((row: any) => row.target_user_id)).toEqual([111, 222]);
+    expect(body.results.map((row: any) => row.name)).toEqual(["One", "Two"]);
     expect(db.snapshots[0]).toMatchObject({
       source_type: "faction",
       source_faction_id: 8803,
@@ -296,7 +300,10 @@ describe("scanArrestScout", () => {
   });
 
   it("rechecks every due future target without applying a target cap", async () => {
-    const futureTargets = Array.from({ length: 55 }, (_, index) => ({ target_user_id: 20_000 + index }));
+    const futureTargets = Array.from({ length: 55 }, (_, index) => ({
+      target_user_id: 20_000 + index,
+      name: `Target ${index + 1}`,
+    }));
     const db = new FakeArrestScoutD1({ futureTargets });
     mocks.fetchTornPersonalStatsWithTimestamps.mockResolvedValue(
       personalStats({ counterfeiting: 1_000, jailed: 5, forgeryskill: 99 }),
@@ -310,9 +317,86 @@ describe("scanArrestScout", () => {
     expect(response.status).toBe(200);
     expect(body.target_count).toBe(55);
     expect(body.checked_count).toBe(55);
+    expect(body.results[0].name).toBe("Target 1");
     expect(db.results).toHaveLength(55);
     expect(mocks.fetchTornPersonalStatsWithTimestamps).toHaveBeenCalledTimes(55);
     expect(db.preparedSql.some((sql) => sql.includes("FROM arrest_scout_future_targets") && sql.includes("LIMIT"))).toBe(false);
+  });
+});
+
+describe("listArrestScoutFactionHof", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.runWithTornKeyPool.mockImplementation(async (_env, options) => {
+      const keyContext = {
+        candidate: { keySource: "key_pool:key-1" },
+        key: "submitted-key",
+        keySource: "key_pool:key-1",
+      };
+      return {
+        candidate: keyContext.candidate,
+        result: await options.run(keyContext),
+      };
+    });
+  });
+
+  it("fetches faction HoF rows with a custom offset through the shared key pool", async () => {
+    mocks.fetchTrackedTornJson.mockResolvedValue({
+      factionhof: [
+        { id: 111, name: "One", rank: 5001, value: 9_000, members: 90, respect: 123_456 },
+        { faction: { id: 222, name: "Two" }, position: 5002, value: "8_000" },
+      ],
+    });
+
+    const response = await listArrestScoutFactionHof(
+      new Request("https://worker.test/api/arrest-scout/faction-hof?cat=rank&limit=100&offset=5000"),
+      { DB: new FakeArrestScoutD1() } as any,
+    );
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      ok: true,
+      cat: "rank",
+      limit: 100,
+      offset: 5000,
+      key_source: "key_pool:key-1",
+      factions: [
+        { faction_id: 111, name: "One", rank: 5001, value: 9_000, members: 90, respect: 123_456 },
+        { faction_id: 222, name: "Two", rank: 5002, value: 8_000 },
+      ],
+    });
+    expect(mocks.fetchTrackedTornJson).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        pathname: "/v2/torn/factionhof",
+        searchParams: expect.any(URLSearchParams),
+      }),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "ApiKey submitted-key" }),
+      }),
+      expect.objectContaining({
+        feature: "arrest-scout:faction-hof",
+        keySource: "key_pool:key-1",
+      }),
+      expect.anything(),
+    );
+    const calledUrl = mocks.fetchTrackedTornJson.mock.calls[0][1] as URL;
+    expect(calledUrl.searchParams.get("cat")).toBe("rank");
+    expect(calledUrl.searchParams.get("limit")).toBe("100");
+    expect(calledUrl.searchParams.get("offset")).toBe("5000");
+  });
+
+  it("rejects invalid faction HoF categories", async () => {
+    const response = await listArrestScoutFactionHof(
+      new Request("https://worker.test/api/arrest-scout/faction-hof?cat=rank%26key%3Dsecret"),
+      { DB: new FakeArrestScoutD1() } as any,
+    );
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({ ok: false, code: "INVALID_HOF_CATEGORY" });
+    expect(mocks.runWithTornKeyPool).not.toHaveBeenCalled();
   });
 });
 
@@ -328,8 +412,9 @@ function personalStats(values: {
   counterfeiting: number;
   jailed: number;
   forgeryskill: number;
-  fraud?: number;
-  scammingskill?: number;
+    fraud?: number;
+    scammingskill?: number;
+    criminaloffenses?: number;
 }) {
   return {
     counterfeiting: { value: values.counterfeiting, timestamp: 1_800_000_000 },
@@ -337,6 +422,7 @@ function personalStats(values: {
     forgeryskill: { value: values.forgeryskill, timestamp: 1_800_000_000 },
     fraud: { value: values.fraud ?? 0, timestamp: 1_800_000_000 },
     scammingskill: { value: values.scammingskill ?? 0, timestamp: 1_800_000_000 },
+    criminaloffenses: { value: values.criminaloffenses ?? 0, timestamp: 1_800_000_000 },
   };
 }
 
@@ -382,10 +468,10 @@ class FakeArrestScoutD1Statement {
 class FakeArrestScoutD1 {
   snapshots: any[] = [];
   results: any[] = [];
-  futureTargets: Array<{ target_user_id: number }> = [];
+  futureTargets: Array<{ target_user_id: number; name?: string | null }> = [];
   preparedSql: string[] = [];
 
-  constructor(options: { futureTargets?: Array<{ target_user_id: number }> } = {}) {
+  constructor(options: { futureTargets?: Array<{ target_user_id: number; name?: string | null }> } = {}) {
     this.futureTargets = options.futureTargets ?? [];
   }
 
@@ -450,24 +536,29 @@ function resultFromArgs(args: unknown[]) {
     current_fraud: args[11],
     historical_fraud: args[12],
     fraud_delta: args[13],
-    current_jailed: args[14],
-    historical_jailed: args[15],
-    jailed_delta: args[16],
-    current_jailed_timestamp: args[17],
-    current_counterfeiting_timestamp: args[18],
-    current_forgeryskill_timestamp: args[19],
-    current_fraud_timestamp: args[20],
-    current_scammingskill_timestamp: args[21],
-    historical_jailed_timestamp: args[22],
-    historical_counterfeiting_timestamp: args[23],
-    historical_forgeryskill_timestamp: args[24],
-    historical_fraud_timestamp: args[25],
-    historical_scammingskill_timestamp: args[26],
-    lookback_seconds: args[27],
-    historical_timestamp_requested: args[28],
-    notes_json: args[29],
-    current_personalstats_json: args[30],
-    historical_personalstats_json: args[31],
-    created_at: args[32],
+    current_criminaloffenses: args[14],
+    historical_criminaloffenses: args[15],
+    criminaloffenses_delta: args[16],
+    current_jailed: args[17],
+    historical_jailed: args[18],
+    jailed_delta: args[19],
+    current_jailed_timestamp: args[20],
+    current_counterfeiting_timestamp: args[21],
+    current_forgeryskill_timestamp: args[22],
+    current_fraud_timestamp: args[23],
+    current_scammingskill_timestamp: args[24],
+    current_criminaloffenses_timestamp: args[25],
+    historical_jailed_timestamp: args[26],
+    historical_counterfeiting_timestamp: args[27],
+    historical_forgeryskill_timestamp: args[28],
+    historical_fraud_timestamp: args[29],
+    historical_scammingskill_timestamp: args[30],
+    historical_criminaloffenses_timestamp: args[31],
+    lookback_seconds: args[32],
+    historical_timestamp_requested: args[33],
+    notes_json: args[34],
+    current_personalstats_json: args[35],
+    historical_personalstats_json: args[36],
+    created_at: args[37],
   };
 }

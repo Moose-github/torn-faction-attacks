@@ -110,6 +110,7 @@ function stats(overrides: Partial<ArrestScoutTargetStats>): ArrestScoutTargetSta
     forgeryskill: 0,
     fraud: null,
     scammingskill: 0,
+    criminaloffenses: null,
     ...overrides,
   };
 }

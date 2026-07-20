@@ -1,6 +1,7 @@
 import { readAuthenticatedUserId } from "../auth";
 import {
   getArrestScoutSnapshot,
+  listArrestScoutFactionHof,
   listArrestScoutFutureTargets,
   listArrestScoutSnapshots,
   scanArrestScout,
@@ -32,6 +33,10 @@ export async function routeArrestScoutApi(routeContext: RouteContext): Promise<R
 
   if (matchesExactRoute(url, request, "/api/arrest-scout/future-targets", "GET")) {
     return withMember(routeContext, () => listArrestScoutFutureTargets(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/arrest-scout/faction-hof", "GET")) {
+    return withMember(routeContext, () => listArrestScoutFactionHof(request, env));
   }
 
   return null;

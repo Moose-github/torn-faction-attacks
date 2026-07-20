@@ -21,6 +21,8 @@ import {
   DEFAULT_MIN_FRAUD_DELTA,
   DEFAULT_REQUIRED_FORGERYSKILL,
   type ArrestScoutFutureTargetRow,
+  type ArrestScoutFactionHofFaction,
+  type ArrestScoutFactionHofResponse,
   type ArrestScoutResultRow,
   type ArrestScoutScanResponse,
   type ArrestScoutSettings,
@@ -35,11 +37,14 @@ type ScanPayload = {
   source_type: ArrestScoutSourceType;
   source_faction_id: number | null;
   target_user_ids: number[];
+  target_names_by_id: Map<number, string>;
   lookback_days: number;
   settings: ArrestScoutSettings;
 };
 
 type PendingResult = Omit<ArrestScoutResultRow, "created_at">;
+
+const TORN_FACTION_HOF_API_URL = "https://api.torn.com/v2/torn/factionhof";
 
 export async function scanArrestScout(
   request: Request,
@@ -73,6 +78,7 @@ export async function scanArrestScout(
           targetUserId,
           rowId: `${snapshotId}:${index}`,
           snapshotId,
+          targetName: payload.target_names_by_id.get(targetUserId) ?? null,
           usedKeySources,
           settings: payload.settings,
           historicalTimestamp,
@@ -208,12 +214,59 @@ export async function listArrestScoutFutureTargets(env: Env): Promise<Response> 
   });
 }
 
+export async function listArrestScoutFactionHof(request: Request, env: Env): Promise<Response> {
+  const requestUrl = new URL(request.url);
+  const cat = normalizeFactionHofCategory(requestUrl.searchParams.get("cat"));
+  if (!cat) {
+    return json({ ok: false, error: "Invalid faction HoF category", code: "INVALID_HOF_CATEGORY" }, 400);
+  }
+
+  const limit = boundedInteger(requestUrl.searchParams.get("limit"), 1, 100, 100);
+  const offset = boundedInteger(requestUrl.searchParams.get("offset"), 0, 100_000, 0);
+  const url = new URL(TORN_FACTION_HOF_API_URL);
+  url.searchParams.set("limit", String(limit));
+  url.searchParams.set("offset", String(offset));
+  url.searchParams.set("cat", cat);
+
+  try {
+    const output = await runWithTornKeyPool(env, {
+      feature: "arrest_scout",
+      run: ({ key, keySource }) => fetchTrackedTornJson<unknown>(env, url, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `ApiKey ${key}`,
+        },
+      }, {
+        feature: "arrest-scout:faction-hof",
+        keySource,
+        timeoutMs: 15000,
+      }, { service: "Torn faction HoF" }),
+    });
+
+    const response: ArrestScoutFactionHofResponse = {
+      ok: true,
+      cat,
+      limit,
+      offset,
+      key_source: output.candidate.keySource,
+      factions: normalizeFactionHofRows(output.result),
+    };
+    return json(response);
+  } catch (err) {
+    if (isArrestScoutKeyPoolUnavailable(err)) {
+      return noArrestScoutKeyResponse();
+    }
+    throw err;
+  }
+}
+
 async function scanOneTarget(
   env: Env,
   input: {
     targetUserId: number;
     rowId: string;
     snapshotId: string;
+    targetName: string | null;
     usedKeySources: Set<string>;
     settings: ArrestScoutSettings;
     historicalTimestamp: number;
@@ -282,6 +335,7 @@ function resultFromClassification(
     targetUserId: number;
     rowId: string;
     snapshotId: string;
+    targetName: string | null;
     settings: ArrestScoutSettings;
     historicalTimestamp: number;
   },
@@ -295,7 +349,7 @@ function resultFromClassification(
     id: input.rowId,
     snapshot_id: input.snapshotId,
     target_user_id: input.targetUserId,
-    name: null,
+    name: input.targetName,
     classification: classified.classification,
     score: classified.score,
     current_forgeryskill: classified.current_forgeryskill,
@@ -306,6 +360,9 @@ function resultFromClassification(
     current_fraud: classified.current_fraud,
     historical_fraud: classified.historical_fraud,
     fraud_delta: classified.fraud_delta,
+    current_criminaloffenses: classified.current_criminaloffenses,
+    historical_criminaloffenses: classified.historical_criminaloffenses,
+    criminaloffenses_delta: classified.criminaloffenses_delta,
     current_jailed: classified.current_jailed,
     historical_jailed: classified.historical_jailed,
     jailed_delta: classified.jailed_delta,
@@ -314,11 +371,13 @@ function resultFromClassification(
     current_forgeryskill_timestamp: currentTimestamps.forgeryskill,
     current_fraud_timestamp: currentTimestamps.fraud,
     current_scammingskill_timestamp: currentTimestamps.scammingskill,
+    current_criminaloffenses_timestamp: currentTimestamps.criminaloffenses,
     historical_jailed_timestamp: historicalTimestamps.jailed,
     historical_counterfeiting_timestamp: historicalTimestamps.counterfeiting,
     historical_forgeryskill_timestamp: historicalTimestamps.forgeryskill,
     historical_fraud_timestamp: historicalTimestamps.fraud,
     historical_scammingskill_timestamp: historicalTimestamps.scammingskill,
+    historical_criminaloffenses_timestamp: historicalTimestamps.criminaloffenses,
     lookback_seconds: input.settings.lookback_seconds,
     historical_timestamp_requested: input.historicalTimestamp,
     notes_json: JSON.stringify(classified.notes),
@@ -332,6 +391,7 @@ function errorResult(
     targetUserId: number;
     rowId: string;
     snapshotId: string;
+    targetName: string | null;
     settings: ArrestScoutSettings;
     historicalTimestamp: number;
   },
@@ -341,7 +401,7 @@ function errorResult(
     id: input.rowId,
     snapshot_id: input.snapshotId,
     target_user_id: input.targetUserId,
-    name: null,
+    name: input.targetName,
     classification: "error",
     score: 0,
     current_forgeryskill: null,
@@ -352,6 +412,9 @@ function errorResult(
     current_fraud: null,
     historical_fraud: null,
     fraud_delta: null,
+    current_criminaloffenses: null,
+    historical_criminaloffenses: null,
+    criminaloffenses_delta: null,
     current_jailed: null,
     historical_jailed: null,
     jailed_delta: null,
@@ -360,11 +423,13 @@ function errorResult(
     current_forgeryskill_timestamp: null,
     current_fraud_timestamp: null,
     current_scammingskill_timestamp: null,
+    current_criminaloffenses_timestamp: null,
     historical_jailed_timestamp: null,
     historical_counterfeiting_timestamp: null,
     historical_forgeryskill_timestamp: null,
     historical_fraud_timestamp: null,
     historical_scammingskill_timestamp: null,
+    historical_criminaloffenses_timestamp: null,
     lookback_seconds: input.settings.lookback_seconds,
     historical_timestamp_requested: input.historicalTimestamp,
     notes_json: JSON.stringify(["scan_error", safeErrorMessage(err)]),
@@ -415,11 +480,15 @@ async function readScanPayload(
     };
   }
 
-  const targetUserIds = sourceType === "future_targets_due"
-    ? await readDueFutureTargetIds(env)
+  const targetSelection = sourceType === "future_targets_due"
+    ? await readDueFutureTargets(env)
     : sourceType === "faction"
-      ? await readFactionTargetIds(env, sourceFactionId as number, usedKeySources)
-      : parseTargetIds(body.target_user_ids ?? body.targetUserIds);
+      ? await readFactionTargets(env, sourceFactionId as number, usedKeySources)
+      : {
+          targetUserIds: parseTargetIds(body.target_user_ids ?? body.targetUserIds),
+          targetNamesById: new Map<number, string>(),
+        };
+  const targetUserIds = targetSelection.targetUserIds;
 
   if (targetUserIds.length === 0) {
     return {
@@ -444,17 +513,18 @@ async function readScanPayload(
       source_type: sourceType,
       source_faction_id: sourceFactionId,
       target_user_ids: targetUserIds,
+      target_names_by_id: targetSelection.targetNamesById,
       lookback_days: lookbackDays,
       settings,
     },
   };
 }
 
-async function readDueFutureTargetIds(env: Env): Promise<number[]> {
+async function readDueFutureTargets(env: Env): Promise<{ targetUserIds: number[]; targetNamesById: Map<number, string> }> {
   const now = nowSeconds();
   const rows = await env.DB.prepare(
     `
-    SELECT target_user_id
+    SELECT target_user_id, name
     FROM arrest_scout_future_targets
     WHERE next_check_after IS NOT NULL
       AND next_check_after <= ?
@@ -462,16 +532,16 @@ async function readDueFutureTargetIds(env: Env): Promise<number[]> {
     `,
   )
     .bind(now)
-    .all<{ target_user_id: number }>();
+    .all<{ target_user_id: number; name: string | null }>();
 
-  return (rows.results ?? []).map((row) => Number(row.target_user_id)).filter((id) => Number.isInteger(id) && id > 0);
+  return targetSelectionFromRows(rows.results ?? []);
 }
 
-async function readFactionTargetIds(
+async function readFactionTargets(
   env: Env,
   factionId: number,
   usedKeySources: Set<string>,
-): Promise<number[]> {
+): Promise<{ targetUserIds: number[]; targetNamesById: Map<number, string> }> {
   const url = new URL(`${TORN_FACTION_API_BASE_URL}/${factionId}/members`);
   url.searchParams.set("striptags", "false");
 
@@ -490,11 +560,7 @@ async function readFactionTargetIds(
   });
   usedKeySources.add(output.candidate.keySource);
 
-  return Array.from(new Set(
-    normalizeFactionMembers(output.result.members)
-      .map((member) => Number(member.id))
-      .filter((id) => Number.isInteger(id) && id > 0),
-  ));
+  return targetSelectionFromRows(normalizeFactionMembers(output.result.members));
 }
 
 async function saveSnapshotAndResults(
@@ -588,6 +654,9 @@ function insertResultStatement(env: Env, result: PendingResult, createdAt: numbe
       current_fraud,
       historical_fraud,
       fraud_delta,
+      current_criminaloffenses,
+      historical_criminaloffenses,
+      criminaloffenses_delta,
       current_jailed,
       historical_jailed,
       jailed_delta,
@@ -596,11 +665,13 @@ function insertResultStatement(env: Env, result: PendingResult, createdAt: numbe
       current_forgeryskill_timestamp,
       current_fraud_timestamp,
       current_scammingskill_timestamp,
+      current_criminaloffenses_timestamp,
       historical_jailed_timestamp,
       historical_counterfeiting_timestamp,
       historical_forgeryskill_timestamp,
       historical_fraud_timestamp,
       historical_scammingskill_timestamp,
+      historical_criminaloffenses_timestamp,
       lookback_seconds,
       historical_timestamp_requested,
       notes_json,
@@ -608,7 +679,7 @@ function insertResultStatement(env: Env, result: PendingResult, createdAt: numbe
       historical_personalstats_json,
       created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   ).bind(
     result.id,
@@ -625,6 +696,9 @@ function insertResultStatement(env: Env, result: PendingResult, createdAt: numbe
     result.current_fraud,
     result.historical_fraud,
     result.fraud_delta,
+    result.current_criminaloffenses,
+    result.historical_criminaloffenses,
+    result.criminaloffenses_delta,
     result.current_jailed,
     result.historical_jailed,
     result.jailed_delta,
@@ -633,11 +707,13 @@ function insertResultStatement(env: Env, result: PendingResult, createdAt: numbe
     result.current_forgeryskill_timestamp,
     result.current_fraud_timestamp,
     result.current_scammingskill_timestamp,
+    result.current_criminaloffenses_timestamp,
     result.historical_jailed_timestamp,
     result.historical_counterfeiting_timestamp,
     result.historical_forgeryskill_timestamp,
     result.historical_fraud_timestamp,
     result.historical_scammingskill_timestamp,
+    result.historical_criminaloffenses_timestamp,
     result.lookback_seconds,
     result.historical_timestamp_requested,
     result.notes_json,
@@ -777,6 +853,7 @@ function targetStatsFromPersonalStats(stats: TornPersonalStatsResponse): ArrestS
     forgeryskill: stats.forgeryskill?.value ?? 0,
     fraud: stats.fraud?.value ?? null,
     scammingskill: stats.scammingskill?.value ?? 0,
+    criminaloffenses: stats.criminaloffenses?.value ?? null,
   };
 }
 
@@ -787,6 +864,7 @@ function statTimestampsFromPersonalStats(stats: TornPersonalStatsResponse): Arre
     forgeryskill: stats.forgeryskill?.timestamp ?? null,
     fraud: stats.fraud?.timestamp ?? null,
     scammingskill: stats.scammingskill?.timestamp ?? null,
+    criminaloffenses: stats.criminaloffenses?.timestamp ?? null,
   };
 }
 
@@ -797,6 +875,7 @@ function emptyTimestamps(): ArrestScoutStatTimestamps {
     forgeryskill: null,
     fraud: null,
     scammingskill: null,
+    criminaloffenses: null,
   };
 }
 
@@ -806,6 +885,11 @@ function normalizeSourceType(value: unknown): ArrestScoutSourceType | null {
     return source;
   }
   return null;
+}
+
+function normalizeFactionHofCategory(value: unknown): string | null {
+  const category = cleanString(value) ?? "rank";
+  return /^[a-z][a-z0-9_]{0,40}$/i.test(category) ? category.toLowerCase() : null;
 }
 
 function parseTargetIds(value: unknown): number[] {
@@ -820,6 +904,112 @@ function parseTargetIds(value: unknown): number[] {
       .map((item) => positiveIntegerOrNull(item))
       .filter((item): item is number => item !== null),
   ));
+}
+
+function normalizeFactionHofRows(data: unknown): ArrestScoutFactionHofFaction[] {
+  const rows = factionHofRowCandidates(data);
+  const factions: ArrestScoutFactionHofFaction[] = [];
+  const seen = new Set<number>();
+
+  for (const row of rows) {
+    const faction = normalizeFactionHofRow(row.value, row.fallbackId);
+    if (!faction || seen.has(faction.faction_id)) {
+      continue;
+    }
+    seen.add(faction.faction_id);
+    factions.push(faction);
+  }
+
+  return factions;
+}
+
+function factionHofRowCandidates(data: unknown): Array<{ value: unknown; fallbackId: unknown }> {
+  const root = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : {};
+  const candidate = root.factionhof ?? root.factions ?? root.hof ?? data;
+
+  if (Array.isArray(candidate)) {
+    return candidate.map((value) => ({ value, fallbackId: null }));
+  }
+
+  if (candidate && typeof candidate === "object") {
+    return Object.entries(candidate as Record<string, unknown>)
+      .map(([id, value]) => ({ value, fallbackId: id }));
+  }
+
+  return [];
+}
+
+function normalizeFactionHofRow(value: unknown, fallbackId: unknown): ArrestScoutFactionHofFaction | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const row = value as Record<string, unknown>;
+  const faction = row.faction && typeof row.faction === "object" && !Array.isArray(row.faction)
+    ? row.faction as Record<string, unknown>
+    : {};
+  const factionId = positiveIntegerOrNull(
+    row.faction_id ??
+    row.id ??
+    faction.id ??
+    fallbackId,
+  );
+  if (factionId === null) {
+    return null;
+  }
+
+  return {
+    faction_id: factionId,
+    name: cleanString(row.name ?? row.faction_name ?? faction.name),
+    rank: finiteIntegerOrNull(row.rank ?? row.position),
+    value: finiteNumberOrNull(row.value),
+    members: finiteIntegerOrNull(row.members ?? row.member_count),
+    respect: finiteNumberOrNull(row.respect),
+  };
+}
+
+function finiteIntegerOrNull(value: unknown): number | null {
+  const parsed = Math.floor(readNumber(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  const parsed = readNumber(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readNumber(value: unknown): number {
+  if (typeof value === "string") {
+    return Number(value.replace(/[,_\s]/g, ""));
+  }
+  return Number(value);
+}
+
+function targetSelectionFromRows(
+  rows: Array<{ id?: number | string; target_user_id?: number | string; name?: string | null }>,
+): { targetUserIds: number[]; targetNamesById: Map<number, string> } {
+  const targetUserIds: number[] = [];
+  const targetNamesById = new Map<number, string>();
+  const seen = new Set<number>();
+
+  for (const row of rows) {
+    const targetUserId = positiveIntegerOrNull(row.target_user_id ?? row.id);
+    if (targetUserId === null || seen.has(targetUserId)) {
+      continue;
+    }
+
+    seen.add(targetUserId);
+    targetUserIds.push(targetUserId);
+
+    const name = cleanString(row.name);
+    if (name) {
+      targetNamesById.set(targetUserId, name);
+    }
+  }
+
+  return { targetUserIds, targetNamesById };
 }
 
 function normalizeFactionMembers(members: TornFactionMembersResponse["members"]): TornFactionMember[] {

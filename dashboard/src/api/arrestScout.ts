@@ -24,6 +24,9 @@ export type ArrestScoutResult = {
   current_fraud: number | null;
   historical_fraud: number | null;
   fraud_delta: number | null;
+  current_criminaloffenses: number | null;
+  historical_criminaloffenses: number | null;
+  criminaloffenses_delta: number | null;
   current_jailed: number | null;
   historical_jailed: number | null;
   jailed_delta: number | null;
@@ -63,6 +66,15 @@ export type ArrestScoutFutureTarget = {
   last_seen_at: number;
   next_check_after: number | null;
   latest_snapshot_id: string | null;
+};
+
+export type ArrestScoutFactionHofFaction = {
+  faction_id: number;
+  name: string | null;
+  rank: number | null;
+  value: number | null;
+  members: number | null;
+  respect: number | null;
 };
 
 export type ArrestScoutScanPayload = {
@@ -105,6 +117,15 @@ export type ArrestScoutFutureTargetsResponse = {
   future_targets: ArrestScoutFutureTarget[];
 };
 
+export type ArrestScoutFactionHofResponse = {
+  ok: boolean;
+  cat: string;
+  limit: number;
+  offset: number;
+  key_source: string;
+  factions: ArrestScoutFactionHofFaction[];
+};
+
 export type ArrestScoutSnapshotResponse = {
   ok: boolean;
   snapshot: ArrestScoutSnapshot;
@@ -125,4 +146,17 @@ export async function getArrestScoutSnapshot(snapshotId: string): Promise<Arrest
 
 export async function getArrestScoutFutureTargets(): Promise<ArrestScoutFutureTargetsResponse> {
   return getJson<ArrestScoutFutureTargetsResponse>("/api/arrest-scout/future-targets");
+}
+
+export async function getArrestScoutFactionHof(options: {
+  cat?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<ArrestScoutFactionHofResponse> {
+  const params = new URLSearchParams();
+  if (options.cat) params.set("cat", options.cat);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return getJson<ArrestScoutFactionHofResponse>(`/api/arrest-scout/faction-hof${suffix}`);
 }

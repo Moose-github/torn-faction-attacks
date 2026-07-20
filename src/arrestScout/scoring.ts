@@ -119,6 +119,9 @@ function baseResult(
     current_fraud: current.fraud,
     historical_fraud: historical?.fraud ?? null,
     fraud_delta: null,
+    current_criminaloffenses: current.criminaloffenses,
+    historical_criminaloffenses: historical?.criminaloffenses ?? null,
+    criminaloffenses_delta: deltaOrNull(current.criminaloffenses, historical?.criminaloffenses ?? null),
     current_jailed: current.jailed,
     historical_jailed: historical?.jailed ?? null,
     jailed_delta: null,
@@ -140,6 +143,10 @@ function errorResult(
 
 function isUsableNumber(value: number | null): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function deltaOrNull(current: number | null, historical: number | null): number | null {
+  return isUsableNumber(current) && isUsableNumber(historical) ? current - historical : null;
 }
 
 type TrackName = "counterfeiting" | "fraud";

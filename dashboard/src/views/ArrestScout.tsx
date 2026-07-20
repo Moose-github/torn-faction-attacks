@@ -2,9 +2,11 @@ import React from "react";
 import { RefreshCw, Search, ShieldCheck, TimerReset, UserSearch } from "lucide-react";
 import {
   getArrestScoutSnapshot,
+  getArrestScoutFactionHof,
   getArrestScoutFutureTargets,
   getArrestScoutSnapshots,
   scanArrestScout,
+  type ArrestScoutFactionHofFaction,
   type ArrestScoutFutureTarget,
   type ArrestScoutResult,
   type ArrestScoutScanResponse,
@@ -16,6 +18,8 @@ import { formatNumber, formatRelativeTime } from "../utils/format";
 const DEFAULT_LOOKBACK_DAYS = "7";
 const DEFAULT_MIN_COUNTERFEITING_DELTA = "500";
 const DEFAULT_MIN_FRAUD_DELTA = "500";
+const DEFAULT_HOF_LIMIT = "100";
+const DEFAULT_HOF_OFFSET = "0";
 
 export function ArrestScout() {
   const [targetIds, setTargetIds] = React.useState("");
@@ -24,12 +28,17 @@ export function ArrestScout() {
   const [lookbackDays, setLookbackDays] = React.useState(DEFAULT_LOOKBACK_DAYS);
   const [minCounterfeitingDelta, setMinCounterfeitingDelta] = React.useState(DEFAULT_MIN_COUNTERFEITING_DELTA);
   const [minFraudDelta, setMinFraudDelta] = React.useState(DEFAULT_MIN_FRAUD_DELTA);
+  const [hofCategory, setHofCategory] = React.useState("rank");
+  const [hofLimit, setHofLimit] = React.useState(DEFAULT_HOF_LIMIT);
+  const [hofOffset, setHofOffset] = React.useState(DEFAULT_HOF_OFFSET);
+  const [hofFactions, setHofFactions] = React.useState<ArrestScoutFactionHofFaction[]>([]);
   const [scanResult, setScanResult] = React.useState<ArrestScoutScanResponse | null>(null);
   const [snapshots, setSnapshots] = React.useState<ArrestScoutSnapshot[]>([]);
   const [futureTargets, setFutureTargets] = React.useState<ArrestScoutFutureTarget[]>([]);
   const [selectedSnapshot, setSelectedSnapshot] = React.useState<ArrestScoutSnapshot | null>(null);
   const [selectedSnapshotResults, setSelectedSnapshotResults] = React.useState<ArrestScoutResult[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoadingFactionHof, setIsLoadingFactionHof] = React.useState(false);
   const [isLoadingSnapshotResults, setIsLoadingSnapshotResults] = React.useState(false);
   const [isScanning, setIsScanning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -127,6 +136,31 @@ export function ArrestScout() {
     } finally {
       setIsLoadingSnapshotResults(false);
     }
+  }
+
+  async function loadFactionHof(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsLoadingFactionHof(true);
+    setError(null);
+
+    try {
+      const response = await getArrestScoutFactionHof({
+        cat: hofCategory.trim() || "rank",
+        limit: positiveInteger(hofLimit, 100),
+        offset: nonNegativeInteger(hofOffset, 0),
+      });
+      setHofFactions(response.factions);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoadingFactionHof(false);
+    }
+  }
+
+  async function scanHofFaction(faction: ArrestScoutFactionHofFaction) {
+    setScanSource("faction");
+    setSourceFactionId(String(faction.faction_id));
+    await runScan({ source: "faction", source_faction_id: faction.faction_id });
   }
 
   return (
@@ -228,6 +262,73 @@ export function ArrestScout() {
               </button>
             </div>
           </form>
+        </section>
+
+        <section className="panel trade-scout-form-panel">
+          <PanelHeader
+            title="Faction HoF"
+            aside={isLoadingFactionHof ? "Loading" : `${formatNumber(hofFactions.length)} factions`}
+          />
+          <form className="trade-scout-form" onSubmit={loadFactionHof}>
+            <label>
+              <span>Category</span>
+              <input value={hofCategory} onChange={(event) => setHofCategory(event.target.value)} />
+            </label>
+            <label>
+              <span>Limit</span>
+              <input inputMode="numeric" value={hofLimit} onChange={(event) => setHofLimit(event.target.value)} />
+            </label>
+            <label>
+              <span>Offset</span>
+              <input inputMode="numeric" value={hofOffset} onChange={(event) => setHofOffset(event.target.value)} />
+            </label>
+            <div className="trade-scout-form-actions">
+              <button type="submit" className="panel-action-button" disabled={isLoadingFactionHof}>
+                {isLoadingFactionHof ? <RefreshCw size={14} className="spinning-icon" /> : <Search size={14} />}
+                {isLoadingFactionHof ? "Loading" : "Load factions"}
+              </button>
+            </div>
+          </form>
+          {hofFactions.length === 0 ? (
+            <EmptyState text={isLoadingFactionHof ? "Loading factions" : "No faction HoF rows loaded"} />
+          ) : (
+            <div className="table-scroll">
+              <table className="trade-scout-table">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Faction</th>
+                    <th>Value</th>
+                    <th>Members</th>
+                    <th>Respect</th>
+                    <th>Scan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hofFactions.map((faction) => (
+                    <tr key={faction.faction_id}>
+                      <td>{nullableNumber(faction.rank)}</td>
+                      <td>{factionCell(faction)}</td>
+                      <td>{nullableNumber(faction.value)}</td>
+                      <td>{nullableNumber(faction.members)}</td>
+                      <td>{nullableNumber(faction.respect)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="panel-action-button"
+                          disabled={isScanning}
+                          onClick={() => scanHofFaction(faction)}
+                        >
+                          {isScanning ? <RefreshCw size={13} className="spinning-icon" /> : <Search size={13} />}
+                          Scan
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         <ResultPanel title="Current targets" results={currentTargets} emptyText="No current targets in the latest scan" />
@@ -354,6 +455,7 @@ function ResultPanel({ title, results, emptyText }: { title: string; results: Ar
                 <th>Score</th>
                 <th>Counterfeiting delta</th>
                 <th>Fraud delta</th>
+                <th>Criminal offenses</th>
                 <th>Jailed delta</th>
                 <th>Skills</th>
                 <th>Classification</th>
@@ -366,6 +468,7 @@ function ResultPanel({ title, results, emptyText }: { title: string; results: Ar
                   <td>{formatNumber(result.score)}</td>
                   <td>{nullableNumber(result.counterfeiting_delta)}</td>
                   <td>{nullableNumber(result.fraud_delta)}</td>
+                  <td>{nullableNumber(result.criminaloffenses_delta)}</td>
                   <td>{nullableNumber(result.jailed_delta)}</td>
                   <td>
                     <strong>{nullableNumber(result.current_forgeryskill)} / {nullableNumber(result.current_scammingskill)}</strong>
@@ -411,6 +514,7 @@ function ScanResultsPanel({
                 <th>Score</th>
                 <th>Counterfeiting</th>
                 <th>Fraud</th>
+                <th>Criminal offenses</th>
                 <th>Jailed</th>
                 <th>Skills</th>
                 <th>Notes</th>
@@ -433,6 +537,10 @@ function ScanResultsPanel({
                   <td>
                     <strong>{nullableNumber(result.fraud_delta)}</strong>
                     <small>{nullableNumber(result.historical_fraud)} to {nullableNumber(result.current_fraud)}</small>
+                  </td>
+                  <td>
+                    <strong>{nullableNumber(result.criminaloffenses_delta)}</strong>
+                    <small>{nullableNumber(result.historical_criminaloffenses)} to {nullableNumber(result.current_criminaloffenses)}</small>
                   </td>
                   <td>
                     <strong>{nullableNumber(result.jailed_delta)}</strong>
@@ -464,6 +572,17 @@ function targetCell(targetUserId: number, name: string | null): React.ReactNode 
   );
 }
 
+function factionCell(faction: ArrestScoutFactionHofFaction): React.ReactNode {
+  return (
+    <>
+      <a href={`https://www.torn.com/factions.php?step=profile&ID=${faction.faction_id}`} target="_blank" rel="noreferrer">
+        {faction.name ?? faction.faction_id}
+      </a>
+      {faction.name ? <small>{faction.faction_id}</small> : null}
+    </>
+  );
+}
+
 function parseTargetIds(value: string): number[] {
   return Array.from(new Set(
     value
@@ -476,6 +595,11 @@ function parseTargetIds(value: string): number[] {
 function positiveInteger(value: string, fallback: number): number {
   const parsed = Math.floor(Number(value));
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function nonNegativeInteger(value: string, fallback: number): number {
+  const parsed = Math.floor(Number(value));
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function nullableNumber(value: number | null): string {

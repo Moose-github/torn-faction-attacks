@@ -20,6 +20,7 @@ export type ArrestScoutTargetStats = {
   forgeryskill: number | null;
   fraud: number | null;
   scammingskill: number | null;
+  criminaloffenses: number | null;
 };
 
 export type ArrestScoutStatTimestamps = {
@@ -28,6 +29,7 @@ export type ArrestScoutStatTimestamps = {
   forgeryskill: number | null;
   fraud: number | null;
   scammingskill: number | null;
+  criminaloffenses: number | null;
 };
 
 export type ArrestScoutScoreResult = {
@@ -41,6 +43,9 @@ export type ArrestScoutScoreResult = {
   current_fraud: number | null;
   historical_fraud: number | null;
   fraud_delta: number | null;
+  current_criminaloffenses: number | null;
+  historical_criminaloffenses: number | null;
+  criminaloffenses_delta: number | null;
   current_jailed: number | null;
   historical_jailed: number | null;
   jailed_delta: number | null;
@@ -62,6 +67,9 @@ export type ArrestScoutResultRow = {
   current_fraud: number | null;
   historical_fraud: number | null;
   fraud_delta: number | null;
+  current_criminaloffenses: number | null;
+  historical_criminaloffenses: number | null;
+  criminaloffenses_delta: number | null;
   current_jailed: number | null;
   historical_jailed: number | null;
   jailed_delta: number | null;
@@ -70,11 +78,13 @@ export type ArrestScoutResultRow = {
   current_forgeryskill_timestamp: number | null;
   current_fraud_timestamp: number | null;
   current_scammingskill_timestamp: number | null;
+  current_criminaloffenses_timestamp: number | null;
   historical_jailed_timestamp: number | null;
   historical_counterfeiting_timestamp: number | null;
   historical_forgeryskill_timestamp: number | null;
   historical_fraud_timestamp: number | null;
   historical_scammingskill_timestamp: number | null;
+  historical_criminaloffenses_timestamp: number | null;
   lookback_seconds: number;
   historical_timestamp_requested: number;
   notes_json: string;
@@ -120,6 +130,24 @@ export type ArrestScoutFutureTargetRow = {
   notes_json: string;
 };
 
+export type ArrestScoutFactionHofFaction = {
+  faction_id: number;
+  name: string | null;
+  rank: number | null;
+  value: number | null;
+  members: number | null;
+  respect: number | null;
+};
+
+export type ArrestScoutFactionHofResponse = {
+  ok: boolean;
+  cat: string;
+  limit: number;
+  offset: number;
+  key_source: string;
+  factions: ArrestScoutFactionHofFaction[];
+};
+
 export type ArrestScoutScanResponse = {
   ok: boolean;
   snapshot_id: string;
@@ -141,7 +169,7 @@ export type ArrestScoutScanResponse = {
   results: ArrestScoutResultRow[];
 };
 
-export const ARREST_SCOUT_STAT_KEYS = ["jailed", "counterfeiting", "forgeryskill", "fraud", "scammingskill"] as const;
+export const ARREST_SCOUT_STAT_KEYS = ["jailed", "counterfeiting", "forgeryskill", "fraud", "scammingskill", "criminaloffenses"] as const;
 export const DEFAULT_LOOKBACK_DAYS = 7;
 export const DEFAULT_MIN_COUNTERFEITING_DELTA = 500;
 export const DEFAULT_MIN_FRAUD_DELTA = 500;

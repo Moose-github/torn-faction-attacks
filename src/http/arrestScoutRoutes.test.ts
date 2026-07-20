@@ -5,6 +5,7 @@ import {
 } from "../auth";
 import {
   getArrestScoutSnapshot,
+  listArrestScoutFactionHof,
   listArrestScoutFutureTargets,
   listArrestScoutSnapshots,
   scanArrestScout,
@@ -19,6 +20,7 @@ vi.mock("../auth", () => ({
 
 vi.mock("../arrestScout", () => ({
   getArrestScoutSnapshot: vi.fn(),
+  listArrestScoutFactionHof: vi.fn(),
   listArrestScoutFutureTargets: vi.fn(),
   listArrestScoutSnapshots: vi.fn(),
   scanArrestScout: vi.fn(),
@@ -33,6 +35,7 @@ describe("arrest scout routes", () => {
     vi.mocked(listArrestScoutSnapshots).mockResolvedValue(jsonResponse({ ok: true, route: "snapshots" }));
     vi.mocked(getArrestScoutSnapshot).mockResolvedValue(jsonResponse({ ok: true, route: "snapshot" }));
     vi.mocked(listArrestScoutFutureTargets).mockResolvedValue(jsonResponse({ ok: true, route: "future-targets" }));
+    vi.mocked(listArrestScoutFactionHof).mockResolvedValue(jsonResponse({ ok: true, route: "faction-hof" }));
   });
 
   it("routes scans through member auth with the authenticated member id", async () => {
@@ -61,6 +64,17 @@ describe("arrest scout routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: routeName });
     expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
     expect(handler).toHaveBeenCalledWith(context.env);
+  });
+
+  it("routes faction HoF lookup through member auth with the request", async () => {
+    const context = routeContext("https://worker.test/api/arrest-scout/faction-hof?cat=rank&limit=100");
+
+    const response = await routeArrestScoutApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "faction-hof" });
+    expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
+    expect(listArrestScoutFactionHof).toHaveBeenCalledWith(context.request, context.env);
   });
 
   it("routes snapshot details through member auth", async () => {
