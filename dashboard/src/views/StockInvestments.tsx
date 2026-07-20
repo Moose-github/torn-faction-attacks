@@ -536,9 +536,8 @@ export function StockInvestments() {
           detail={bestBuyRecommendation
             ? (
               <span className="stock-metric-detail-stack">
-                <span>{formatPercent(bestBuyRecommendation.roi_percent)} ROI - {formatMoney(bestBuyRecommendation.estimated_cost)} estimated cost</span>
-                <span>{bestBuyRecommendationDetail(bestBuyRecommendation, bankMerits)}</span>
-                <span>Expected annual return: {formatMoney(bestBuyRecommendation.annual_return)}</span>
+                <span>{formatPercent(bestBuyRecommendation.roi_percent)} ROI</span>
+                <span>{formatInstructionMoney(bestBuyRecommendation.annual_return)} Expected annual return</span>
               </span>
             )
             : rows.length > 0
@@ -2135,31 +2134,6 @@ function bestOpportunityTitle(row: StockInvestmentRecommendationRow): string {
   }
 
   return `${row.acronym ?? `#${row.stock_id}`} Block ${row.increment ?? "-"}`;
-}
-
-function bestBuyRecommendationDetail(recommendation: StockBuyRecommendation, bankMerits: number): string {
-  if (recommendation.row.investment_type === "city_bank") {
-    return `City Bank - ${bankMerits}/10 Merits`;
-  }
-  if (isFhgTciHybridRow(recommendation.row)) {
-    if (recommendation.hybrid_conversion) {
-      return `Convert existing ${recommendation.hybrid_conversion.acronym ?? "FHG/TCI"} capital`;
-    }
-    return "Synthetic block - TCI + 83/90 FHG";
-  }
-  if (isPrivateIslandRentalRow(recommendation.row)) {
-    return "Rental income per island";
-  }
-
-  if (!recommendation.personalized) {
-    return `${formatNumber(recommendation.target_shares ?? 0)} shares required`;
-  }
-
-  if (recommendation.owned_shares > 0) {
-    return `You own ${formatNumber(recommendation.owned_shares)}; buy ${formatNumber(recommendation.shares_needed ?? 0)} more to reach ${formatNumber(recommendation.target_shares ?? 0)}`;
-  }
-
-  return `Buy ${formatNumber(recommendation.shares_needed ?? 0)} shares to reach ${formatNumber(recommendation.target_shares ?? 0)}`;
 }
 
 function stockRowSubtitle(row: StockInvestmentRecommendationRow, isStockRow: boolean, bankMerits: number): string {

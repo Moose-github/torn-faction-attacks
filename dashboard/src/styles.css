@@ -1104,6 +1104,16 @@ h2 {
   align-items: stretch;
 }
 
+.stock-hybrid-controls .stock-owned-toggle-text > span {
+  font-size: 0.74rem;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.stock-hybrid-controls .stock-owned-toggle-text small {
+  font-size: 0.66rem;
+}
+
 .stock-city-bank-merits {
   display: flex;
   flex-direction: column;
