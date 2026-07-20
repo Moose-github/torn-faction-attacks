@@ -105,7 +105,6 @@ export function StockInvestments() {
   const [affordableOnly, setAffordableOnly] = React.useState(false);
   const [minimumRoi, setMinimumRoi] = React.useState(DEFAULT_MINIMUM_ROI);
   const [hideOwnedBlocks, setHideOwnedBlocks] = React.useState(false);
-  const [nextBlockOnly, setNextBlockOnly] = React.useState(false);
   const [includeFhgTciHybrid, setIncludeFhgTciHybrid] = React.useState(false);
   const [cityBankActive, setCityBankActive] = React.useState(false);
   const [fhgTciHybridActive, setFhgTciHybridActive] = React.useState(false);
@@ -446,10 +445,6 @@ export function StockInvestments() {
 
   const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
   const ownedCoveredBlockCount = investmentRows.filter((row) => isStockInvestmentRow(row) && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required ?? 0)).length;
-  const nextStockBlockRowIds = React.useMemo(
-    () => nextStockBlockIds(investmentRows, ownedShares, hasOwnershipState, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares),
-    [investmentRows, ownedShares, hasOwnershipState, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares],
-  );
   const lockableHoldings = React.useMemo(
     () => ownedStockLockOptions(effectiveOwnedSnapshot, investmentRows),
     [effectiveOwnedSnapshot, investmentRows],
@@ -458,9 +453,6 @@ export function StockInvestments() {
   const minRoi = percentInputValue(minimumRoi);
   const filteredRows = investmentRows.filter((row) => {
     if (isFhgTciHybridRow(row) && !cityBankActive) {
-      return false;
-    }
-    if (nextBlockOnly && isStockInvestmentRow(row) && !nextStockBlockRowIds.has(row.row_id)) {
       return false;
     }
     if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, privateIslandRentalCount(privateIslandInputs) > 0, fhgTciHybridBaselineShares, fhgTciHybridReservedShares)) {
@@ -488,29 +480,29 @@ export function StockInvestments() {
     cityBankActive,
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
-    affordableOnly,
-    minimumRoi: minRoi,
-  }), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi]);
+    affordableOnly: false,
+    minimumRoi: null,
+  }), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget]);
   const rebalanceRecommendations = React.useMemo(() => buildStockRebalanceRecommendations({
     rows: investmentRows,
     ownedSnapshot: effectiveOwnedSnapshot,
     cityBankActive,
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
-    affordableOnly,
-    minimumRoi: minRoi,
+    affordableOnly: false,
+    minimumRoi: null,
     lockedStockIds,
-  }, 5), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
+  }, 5), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, lockedStockIds]);
   const strategyPlan = React.useMemo(() => buildStockStrategyPlan({
     rows: investmentRows,
     ownedSnapshot: effectiveOwnedSnapshot,
     cityBankActive,
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
-    affordableOnly,
-    minimumRoi: minRoi,
+    affordableOnly: false,
+    minimumRoi: null,
     lockedStockIds,
-  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
+  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, lockedStockIds]);
   const ownedInvestmentSummary = React.useMemo(() => buildOwnedInvestmentSummary({
     rows: investmentRows,
     ownedShares,
@@ -526,13 +518,12 @@ export function StockInvestments() {
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
   const benefitValuesRefreshedAt = roiData?.benefit_prices_refreshed_at ?? null;
-  const recommendationFiltersActive = investmentAmount.trim() !== "" || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly;
-  const tableFiltersActive = hideOwnedBlocks || nextBlockOnly;
+  const recommendationFiltersActive = investmentAmount.trim() !== "";
+  const tableFiltersActive = hideOwnedBlocks || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly;
   const activeFilterCount = [
     investmentAmount.trim() !== "",
     minimumRoi.trim() !== DEFAULT_MINIMUM_ROI,
     affordableOnly,
-    nextBlockOnly,
     hideOwnedBlocks,
   ].filter(Boolean).length;
   const disabledStockCount = roiData?.skipped.disabled ?? disabledBenefitStocks.length;
@@ -683,8 +674,8 @@ export function StockInvestments() {
 
           <div className="stock-owned-settings-section">
             <div className="stock-owned-settings-title">
-              <strong>Assumptions</strong>
-              <span>Bank and hybrid behavior</span>
+              <strong>City Bank</strong>
+              <span>{cityBankActive ? `Active with ${formatNumber(bankMerits)}/10 merits` : "Bank option available"}</span>
             </div>
             <div className="stock-city-bank-controls">
               <label className="stock-owned-hide-toggle">
@@ -699,6 +690,31 @@ export function StockInvestments() {
                 />
                 <span>City Bank investment active</span>
               </label>
+              <label className="stock-city-bank-merits">
+                <span>Bank merits</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={10}
+                  step={1}
+                  value={bankMerits}
+                  onChange={(event) => {
+                    const nextMerits = clampBankMerits(event.target.value);
+                    setBankMerits(nextMerits);
+                    saveCityBankStorage(storageUserId, cityBankActive, nextMerits);
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="stock-owned-settings-section">
+            <div className="stock-owned-settings-title">
+              <strong>FHG/TCI Hybrid</strong>
+              <span>{includeFhgTciHybrid ? "Shown in recommendations" : "Hidden from recommendations"}</span>
+            </div>
+            <div className="stock-hybrid-controls">
               <label className="stock-owned-hide-toggle">
                 <input
                   type="checkbox"
@@ -735,22 +751,6 @@ export function StockInvestments() {
                     </span>
                   </span>
                 </span>
-              </label>
-              <label className="stock-city-bank-merits">
-                <span>Bank merits</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  max={10}
-                  step={1}
-                  value={bankMerits}
-                  onChange={(event) => {
-                    const nextMerits = clampBankMerits(event.target.value);
-                    setBankMerits(nextMerits);
-                    saveCityBankStorage(storageUserId, cityBankActive, nextMerits);
-                  }}
-                />
               </label>
             </div>
           </div>
@@ -802,8 +802,8 @@ export function StockInvestments() {
 
           <div className="stock-owned-settings-section stock-planner-wide-section">
             <div className="stock-owned-settings-title">
-              <strong>Recommendation filters</strong>
-              <span>{recommendationFiltersActive ? "Used by strategy and table" : "Default minimum ROI applied"}</span>
+              <strong>Strategy budget</strong>
+              <span>{recommendationFiltersActive ? "Used by strategy path" : "No budget limit"}</span>
             </div>
             <div className="stock-investment-controls">
               <div className="stock-investment-control-fields">
@@ -816,25 +816,6 @@ export function StockInvestments() {
                     placeholder="Optional budget"
                   />
                 </label>
-                <label>
-                  <span>Minimum ROI %</span>
-                  <input
-                    inputMode="decimal"
-                    value={minimumRoi}
-                    onChange={(event) => setMinimumRoi(event.target.value)}
-                    placeholder="Optional"
-                  />
-                </label>
-              </div>
-              <div className="stock-investment-toggle-list stock-recommendation-toggle-list">
-                <label className="stock-investment-toggle-row">
-                  <input
-                    type="checkbox"
-                    checked={affordableOnly}
-                    onChange={(event) => setAffordableOnly(event.target.checked)}
-                  />
-                  <span>Affordable only</span>
-                </label>
               </div>
               <button
                 type="button"
@@ -842,12 +823,10 @@ export function StockInvestments() {
                 disabled={!recommendationFiltersActive}
                 onClick={() => {
                   setInvestmentAmount("");
-                  setMinimumRoi(DEFAULT_MINIMUM_ROI);
-                  setAffordableOnly(false);
                 }}
               >
                 <RotateCcw size={14} />
-                Clear filters
+                Clear budget
               </button>
             </div>
           </div>
@@ -950,7 +929,7 @@ export function StockInvestments() {
                 <span>ROI-first milestones</span>
               </div>
               {strategyPlan.steps.length === 0 ? (
-                <EmptyState text="No strategy path matches the current filters" />
+                <EmptyState text="No strategy path matches the current budget" />
               ) : (
                 <div className="stock-milestone-list">
                   {strategyPlan.steps.map((step, index) => (
@@ -976,15 +955,18 @@ export function StockInvestments() {
             <span>{tableFiltersActive ? `${formatNumber(rows.length)} matching blocks` : "Table display only"}</span>
           </div>
           <div className="stock-table-filter-controls">
-            <div className="stock-investment-toggle-list">
-              <label className="stock-investment-toggle-row">
+            <div className="stock-investment-control-fields stock-table-filter-fields">
+              <label>
+                <span>Minimum ROI %</span>
                 <input
-                  type="checkbox"
-                  checked={nextBlockOnly}
-                  onChange={(event) => setNextBlockOnly(event.target.checked)}
+                  inputMode="decimal"
+                  value={minimumRoi}
+                  onChange={(event) => setMinimumRoi(event.target.value)}
+                  placeholder="Optional"
                 />
-                <span>Next block</span>
               </label>
+            </div>
+            <div className="stock-investment-toggle-list">
               <label className="stock-investment-toggle-row">
                 <input
                   type="checkbox"
@@ -993,14 +975,23 @@ export function StockInvestments() {
                 />
                 <span>Hide owned blocks</span>
               </label>
+              <label className="stock-investment-toggle-row">
+                <input
+                  type="checkbox"
+                  checked={affordableOnly}
+                  onChange={(event) => setAffordableOnly(event.target.checked)}
+                />
+                <span>Affordable only</span>
+              </label>
             </div>
             <button
               type="button"
               className="panel-action-button secondary stock-investment-clear-button"
               disabled={!tableFiltersActive}
               onClick={() => {
-                setNextBlockOnly(false);
                 setHideOwnedBlocks(false);
+                setMinimumRoi(DEFAULT_MINIMUM_ROI);
+                setAffordableOnly(false);
               }}
             >
               <RotateCcw size={14} />
@@ -2126,40 +2117,6 @@ function isInvestmentRowCovered(
   }
 
   return false;
-}
-
-function nextStockBlockIds(
-  rows: StockInvestmentRecommendationRow[],
-  ownedShares: Map<number, number>,
-  hasOwnedSnapshot: boolean,
-  fhgTciHybridActive: boolean,
-  fhgTciHybridBaselineShares?: ReadonlyMap<number, number>,
-  fhgTciHybridReservedShares?: ReadonlyMap<number, number>,
-): Set<string> {
-  const rowsByStockId = rows.filter(isStockInvestmentRow).reduce((map, row) => {
-    const stockRows = map.get(row.stock_id) ?? [];
-    stockRows.push(row);
-    map.set(row.stock_id, stockRows);
-    return map;
-  }, new Map<number, StockInvestmentRecommendationRow[]>());
-  const rowIds = new Set<string>();
-
-  for (const stockRows of rowsByStockId.values()) {
-    const nextRow = [...stockRows]
-      .sort((left, right) => (left.increment ?? 0) - (right.increment ?? 0))
-      .find((row) => !stockInvestmentRowMetrics(row, {
-        ownedShares,
-        hasOwnedSnapshot,
-        fhgTciHybridActive,
-        fhgTciHybridBaselineShares,
-        fhgTciHybridReservedShares,
-      }).covered);
-    if (nextRow) {
-      rowIds.add(nextRow.row_id);
-    }
-  }
-
-  return rowIds;
 }
 
 function ownedStockLockOptions(snapshot: OwnedStockSnapshot | null, rows: StockInvestmentRecommendationRow[]): StockLockOption[] {
