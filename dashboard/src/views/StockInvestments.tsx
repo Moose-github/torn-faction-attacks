@@ -714,7 +714,28 @@ export function StockInvestments() {
               <strong>FHG/TCI Hybrid</strong>
               <span>{includeFhgTciHybrid ? "Shown in recommendations" : "Hidden from recommendations"}</span>
             </div>
+            <p className="stock-owned-settings-description">
+              Treats a TCI block plus 83/90 of an FHG block as one combined option, using the bank interest boost from TCI and rental yield from FHG.
+            </p>
             <div className="stock-hybrid-controls">
+              <label className="stock-owned-hide-toggle">
+                <input
+                  type="checkbox"
+                  checked={includeFhgTciHybrid}
+                  onChange={(event) => setIncludeFhgTciHybrid(event.target.checked)}
+                />
+                <span className="stock-owned-toggle-text">
+                  <span>
+                    Enable FHG/TCI Hybrid option
+                    <span
+                      className="data-wip-badge stock-hybrid-wip-badge"
+                      title="Hybrid stock planning is still being verified."
+                    >
+                      WIP
+                    </span>
+                  </span>
+                </span>
+              </label>
               <label className="stock-owned-hide-toggle">
                 <input
                   type="checkbox"
@@ -732,24 +753,6 @@ export function StockInvestments() {
                 <span className="stock-owned-toggle-text">
                   <span>FHG/TCI Hybrid already owned</span>
                   {!canMarkFhgTciHybridActive ? <small>{fhgTciHybridActiveHint}</small> : null}
-                </span>
-              </label>
-              <label className="stock-owned-hide-toggle">
-                <input
-                  type="checkbox"
-                  checked={includeFhgTciHybrid}
-                  onChange={(event) => setIncludeFhgTciHybrid(event.target.checked)}
-                />
-                <span className="stock-owned-toggle-text">
-                  <span>
-                    Show FHG/TCI Hybrid option
-                    <span
-                      className="data-wip-badge stock-hybrid-wip-badge"
-                      title="Hybrid stock planning is still being verified."
-                    >
-                      WIP
-                    </span>
-                  </span>
                 </span>
               </label>
             </div>
@@ -1538,9 +1541,20 @@ function OwnedInvestmentSummaryPanel({ summary }: { summary: OwnedInvestmentSumm
       <div className="stock-owned-investment-summary">
         <strong>{label}</strong>
         {summary.invested > 0 ? (
-          <span>
-            invested {formatMoney(summary.invested)} - income {formatMoney(summary.dailyIncome)}/day - blended {summary.aprPercent === null ? "-" : formatPercent(summary.aprPercent)} APR
-          </span>
+          <div className="stock-owned-investment-summary-metrics" aria-label="Owned investment summary metrics">
+            <span>
+              <small>Invested</small>
+              <b>{formatMoney(summary.invested)}</b>
+            </span>
+            <span>
+              <small>Income / day</small>
+              <b>{formatMoney(summary.dailyIncome)}</b>
+            </span>
+            <span>
+              <small>Blended APR</small>
+              <b>{summary.aprPercent === null ? "-" : formatPercent(summary.aprPercent)}</b>
+            </span>
+          </div>
         ) : (
           <span>Use the Own column, City Bank toggle, or PI rental count to build a blended APR summary.</span>
         )}
