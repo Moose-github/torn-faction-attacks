@@ -16,7 +16,7 @@ import {
 } from "../api";
 import { getStoredAuthSession } from "../api/client";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
-import { formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
+import { formatNumber, formatRelativeTime } from "../utils/format";
 import {
   ownedSharesMap,
   ownsStockIncrement,
@@ -527,6 +527,8 @@ export function StockInvestments() {
     hideOwnedBlocks,
   ].filter(Boolean).length;
   const disabledStockCount = roiData?.skipped.disabled ?? disabledBenefitStocks.length;
+  const portfolioRefreshedAt = ownedSnapshot?.refreshed_at ?? null;
+  const freshnessLoadedCount = [stockPricesRefreshedAt, benefitValuesRefreshedAt, portfolioRefreshedAt].filter(Boolean).length;
 
   function updateRoiSort(key: StockRoiSortKey) {
     setRoiSort((current) => current.key === key
@@ -568,24 +570,24 @@ export function StockInvestments() {
               ? ownedSnapshot ? "All eligible opportunities already covered" : "No eligible opportunity"
               : "No priced rows"}
         />
+        <OwnedInvestmentSummaryMetric summary={ownedInvestmentSummary} />
         <StatusMetric
-          label="Stock prices"
-          value={formatRelativeTime(stockPricesRefreshedAt)}
-          detail={stockPricesRefreshedAt ? formatLongDateTime(stockPricesRefreshedAt) : "No stock snapshot yet"}
+          label="Data freshness"
+          value={`${formatNumber(freshnessLoadedCount)}/3 loaded`}
+          detail={(
+            <span className="stock-metric-detail-stack">
+              <span>Stock prices: {stockPricesRefreshedAt ? formatRelativeTime(stockPricesRefreshedAt) : "Not loaded"}</span>
+              <span>Benefit values: {benefitValuesRefreshedAt ? formatRelativeTime(benefitValuesRefreshedAt) : "Not loaded"}</span>
+              <span>Portfolio: {portfolioRefreshedAt ? formatRelativeTime(portfolioRefreshedAt) : "Not loaded"}</span>
+            </span>
+          )}
         />
         <MissingValuesMetric
           missingValueCount={missingValueCount}
           disabledCount={disabledStockCount}
           onOpen={openBenefitValues}
         />
-        <StatusMetric
-          label="Benefit values"
-          value={formatRelativeTime(benefitValuesRefreshedAt)}
-          detail={benefitValuesRefreshedAt ? formatLongDateTime(benefitValuesRefreshedAt) : "No market refresh yet"}
-        />
       </section>
-
-      <OwnedInvestmentSummaryPanel summary={ownedInvestmentSummary} />
 
       <CollapsiblePanel
         title="Planner setup"
@@ -1534,10 +1536,11 @@ function StatusMetric({
   );
 }
 
-function OwnedInvestmentSummaryPanel({ summary }: { summary: OwnedInvestmentSummary }) {
+function OwnedInvestmentSummaryMetric({ summary }: { summary: OwnedInvestmentSummary }) {
   const label = ownedInvestmentSummaryLabel(summary);
   return (
-    <section className="panel stock-owned-investment-summary-panel" aria-label="Owned investment summary">
+    <div className="metric-card stock-owned-investment-summary-card" aria-label="Owned investment summary">
+      <span className="panel-kicker">Owned investments</span>
       <div className="stock-owned-investment-summary">
         <strong>{label}</strong>
         {summary.invested > 0 ? (
@@ -1559,7 +1562,7 @@ function OwnedInvestmentSummaryPanel({ summary }: { summary: OwnedInvestmentSumm
           <span>Use the Own column, City Bank toggle, or PI rental count to build a blended APR summary.</span>
         )}
       </div>
-    </section>
+    </div>
   );
 }
 
