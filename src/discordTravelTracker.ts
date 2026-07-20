@@ -41,6 +41,7 @@ type DiscordTravelTrackerState = {
   target_source: string | null;
   faction_id: number | null;
   destination_key: string | null;
+  display_name: string | null;
   message_id: string | null;
   content_hash: string | null;
   last_synced_at: number | null;
@@ -343,7 +344,7 @@ async function stopTravelTrackerMessage(
   checkedAt: number,
   reason: string,
 ): Promise<DiscordTravelTrackerChannelSyncResult> {
-  const message = buildStoppedTravelTrackerMessage(trackerKey, checkedAt, reason);
+  const message = buildStoppedTravelTrackerMessage(trackerKey, state.display_name, checkedAt, reason);
   const hash = contentHash(message.content);
   const enabled = trackerEnabled(trackerKey, state);
 
@@ -360,6 +361,7 @@ async function stopTravelTrackerMessage(
     warId: state.war_id,
     factionId: state.faction_id,
     destinationKey: destination.key,
+    displayName: state.display_name,
     messageId,
     contentHash: hash,
     checkedAt,
@@ -391,7 +393,22 @@ async function updateTravelTrackerMessage(
   const reusableMessageId = sameTarget ? existingMessageId : null;
 
   if (!force && reusableMessageId && state?.content_hash === hash) {
-    await markTravelTrackerChecked(env, trackerKey, checkedAt);
+    if (state.display_name !== message.displayName) {
+      await saveTravelTrackerState(env, {
+        trackerKey,
+        enabled,
+        source,
+        warId,
+        factionId,
+        destinationKey: destination.key,
+        displayName: message.displayName,
+        messageId: reusableMessageId,
+        contentHash: hash,
+        checkedAt,
+      });
+    } else {
+      await markTravelTrackerChecked(env, trackerKey, checkedAt);
+    }
     return trackerResult(trackerKey, enabled, true, "travel tracker unchanged", warId, factionId, source, reusableMessageId, traveling, abroad, false, refreshed);
   }
 
@@ -406,6 +423,7 @@ async function updateTravelTrackerMessage(
     warId,
     factionId,
     destinationKey: destination.key,
+    displayName: message.displayName,
     messageId,
     contentHash: hash,
     checkedAt,
@@ -459,10 +477,11 @@ function buildTravelTrackerMessage(
   target: TravelTrackerTarget | null,
   members: TravelTrackerRow[],
   checkedAt: number,
-): { content: string; color: number } {
+): { content: string; color: number; displayName: string | null } {
   if (!target) {
     return {
       color: TRAVEL_TRACKER_INACTIVE_COLOR,
+      displayName: null,
       content: [
         "Target Travel Tracker: inactive",
         `No active war-room or manual faction travel tracking. Last checked <t:${checkedAt}:R>.`,
@@ -483,18 +502,20 @@ function buildTravelTrackerMessage(
 
   return {
     color: target.source === "home" ? HOME_TRAVEL_TRACKER_COLOR : TARGET_TRAVEL_TRACKER_COLOR,
+    displayName: title,
     content: fitDiscordMessage(lines.join("\n")),
   };
 }
 
 function buildStoppedTravelTrackerMessage(
   trackerKey: TravelTrackerKey,
+  displayName: string | null,
   checkedAt: number,
   reason: string,
 ): { content: string; color: number } {
-  const title = trackerKey === HOME_TRACKER_KEY
-    ? `${HOME_TRACKER_TITLE}: stopped`
-    : "Target Travel Tracker: stopped";
+  const title = displayName
+    ? `${displayName}: stopped`
+    : stoppedTravelTrackerFallbackTitle(trackerKey);
 
   return {
     color: TRAVEL_TRACKER_INACTIVE_COLOR,
@@ -504,6 +525,12 @@ function buildStoppedTravelTrackerMessage(
       reason,
     ].join("\n"),
   };
+}
+
+function stoppedTravelTrackerFallbackTitle(trackerKey: TravelTrackerKey): string {
+  return trackerKey === HOME_TRACKER_KEY
+    ? `${HOME_TRACKER_TITLE}: stopped`
+    : "Target Travel Tracker: stopped";
 }
 
 function isSameTrackerTarget(
@@ -758,6 +785,7 @@ async function saveTravelTrackerState(
     warId: number | null;
     factionId: number | null;
     destinationKey: string;
+    displayName: string | null;
     messageId: string | null;
     contentHash: string;
     checkedAt: number;
@@ -772,19 +800,21 @@ async function saveTravelTrackerState(
       target_source,
       faction_id,
       destination_key,
+      display_name,
       message_id,
       content_hash,
       last_synced_at,
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
     ON CONFLICT(tracker_key) DO UPDATE SET
       enabled = excluded.enabled,
       war_id = excluded.war_id,
       target_source = excluded.target_source,
       faction_id = excluded.faction_id,
       destination_key = excluded.destination_key,
+      display_name = excluded.display_name,
       message_id = excluded.message_id,
       content_hash = excluded.content_hash,
       last_synced_at = excluded.last_synced_at,
@@ -797,6 +827,7 @@ async function saveTravelTrackerState(
     input.source,
     input.factionId,
     input.destinationKey,
+    input.displayName,
     input.messageId,
     input.contentHash,
     input.checkedAt,

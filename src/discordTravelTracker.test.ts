@@ -87,6 +87,7 @@ describe("Discord travel tracker", () => {
       { embedColor: TARGET_TRAVEL_TRACKER_COLOR },
     );
     expect(env.state?.message_id).toBe("message-1");
+    expect(env.state?.display_name).toBe("test-war Travel Tracker");
   });
 
   it("skips Discord edits when the message content has not changed", async () => {
@@ -100,6 +101,25 @@ describe("Discord travel tracker", () => {
       changed: false,
     });
     expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+  });
+
+  it("backfills the display name without editing Discord when existing content is unchanged", async () => {
+    const env = fakeEnv();
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    env.states.target = {
+      ...env.states.target!,
+      display_name: null,
+    };
+    env.state = env.states.target;
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+
+    await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
+      skipped: true,
+      reason: "travel tracker unchanged",
+      changed: false,
+    });
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    expect(env.state?.display_name).toBe("test-war Travel Tracker");
   });
 
   it("edits the existing message when travel details change", async () => {
@@ -157,6 +177,7 @@ describe("Discord travel tracker", () => {
     expect(env.state?.message_id).toBe("message-2");
     expect(env.state?.target_source).toBe("manual");
     expect(env.state?.faction_id).toBe(456);
+    expect(env.state?.display_name).toBe("Manual Faction Travel Tracker");
   });
 
   it("ignores travel tracker webhooks when no bot route is configured", async () => {
@@ -271,6 +292,7 @@ describe("Discord travel tracker", () => {
       message_id: "target-message",
       content_hash: "old-target-hash",
       target_source: "war",
+      display_name: "test-war Travel Tracker",
       war_id: 10,
       faction_id: 123,
     });
@@ -280,6 +302,7 @@ describe("Discord travel tracker", () => {
       message_id: "home-message",
       content_hash: "old-home-hash",
       target_source: "home",
+      display_name: "Buttgrass Travel Tracker",
       faction_id: 8803,
     });
     const request = new Request("https://worker.test/api/admin/discord-travel-tracker/settings", {
@@ -303,7 +326,7 @@ describe("Discord travel tracker", () => {
       env,
       DISCORD_ALERT_KEYS.targetTravelTracker,
       "target-message",
-      expect.stringContaining("Target Travel Tracker: stopped"),
+      expect.stringContaining("test-war Travel Tracker: stopped"),
       { users: [], roles: [] },
       { embedColor: 0x778899 },
     );
@@ -325,6 +348,7 @@ describe("Discord travel tracker", () => {
       message_id: "target-message",
       content_hash: "old-target-hash",
       target_source: "war",
+      display_name: "test-war Travel Tracker",
       war_id: 10,
       faction_id: 123,
     });
@@ -345,11 +369,39 @@ describe("Discord travel tracker", () => {
       env,
       DISCORD_ALERT_KEYS.targetTravelTracker,
       "target-message",
-      expect.stringContaining("Tracking stopped"),
+      expect.stringContaining("test-war Travel Tracker: stopped"),
       { users: [], roles: [] },
       { embedColor: 0x778899 },
     );
     expect(upsertDiscordAlertMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a generic stopped title for older tracker rows without a display name", async () => {
+    vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
+    const env = fakeEnv();
+    env.states.target = trackerState("target", {
+      enabled: 1,
+      message_id: "target-message",
+      content_hash: "old-target-hash",
+      target_source: "war",
+      war_id: 10,
+      faction_id: 123,
+    });
+    env.state = env.states.target;
+
+    await syncDiscordTravelTracker(env, {
+      force: true,
+      scheduledTime: 1_800_000_000_000,
+    });
+
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
+      env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
+      "target-message",
+      expect.stringContaining("Target Travel Tracker: stopped"),
+      { users: [], roles: [] },
+      { embedColor: 0x778899 },
+    );
   });
 
   it("manual-only sync still allows enabled home tracking", async () => {
@@ -428,6 +480,7 @@ describe("Discord travel tracker", () => {
       message_id: "target-message",
       content_hash: "old-target-hash",
       target_source: "war",
+      display_name: "test-war Travel Tracker",
       war_id: 10,
       faction_id: 123,
     });
@@ -437,6 +490,7 @@ describe("Discord travel tracker", () => {
       message_id: "home-message",
       content_hash: "old-home-hash",
       target_source: "home",
+      display_name: "Buttgrass Travel Tracker",
       faction_id: 8803,
     });
 
@@ -448,7 +502,7 @@ describe("Discord travel tracker", () => {
       env,
       DISCORD_ALERT_KEYS.targetTravelTracker,
       "target-message",
-      expect.stringContaining("Target Travel Tracker: stopped"),
+      expect.stringContaining("test-war Travel Tracker: stopped"),
       { users: [], roles: [] },
       { embedColor: 0x778899 },
     );
@@ -613,6 +667,7 @@ type FakeState = {
   target_source: string | null;
   faction_id: number | null;
   destination_key: string | null;
+  display_name: string | null;
   message_id: string | null;
   content_hash: string | null;
   last_synced_at: number | null;
@@ -781,6 +836,7 @@ function fakeEnv(): FakeEnv {
               target_source: env.states[trackerKey]?.target_source ?? null,
               faction_id: env.states[trackerKey]?.faction_id ?? null,
               destination_key: env.states[trackerKey]?.destination_key ?? null,
+              display_name: env.states[trackerKey]?.display_name ?? null,
               message_id: env.states[trackerKey]?.message_id ?? null,
               content_hash: env.states[trackerKey]?.content_hash ?? null,
               last_synced_at: env.states[trackerKey]?.last_synced_at ?? null,
@@ -793,9 +849,10 @@ function fakeEnv(): FakeEnv {
               target_source: values[3] as string | null,
               faction_id: values[4] as number | null,
               destination_key: values[5] as string | null,
-              message_id: values[6] as string | null,
-              content_hash: values[7] as string | null,
-              last_synced_at: values[8] as number | null,
+              display_name: values[6] as string | null,
+              message_id: values[7] as string | null,
+              content_hash: values[8] as string | null,
+              last_synced_at: values[9] as number | null,
             };
           }
           if (trackerKey === "target") {
@@ -862,6 +919,7 @@ function trackerState(
     target_source: null,
     faction_id: null,
     destination_key: null,
+    display_name: null,
     message_id: null,
     content_hash: null,
     last_synced_at: null,
