@@ -8019,6 +8019,20 @@ h2 {
   white-space: normal;
 }
 
+.arrest-scout-hof-results,
+.arrest-scout-collapsible-table {
+  display: grid;
+  gap: 10px;
+}
+
+.arrest-scout-hof-summary {
+  align-items: center;
+}
+
+.arrest-scout-hof-summary .panel-action-button.primary-action {
+  margin-left: auto;
+}
+
 .trade-scout-selected-meta .trade-scout-freshness.fresh {
   border-color: rgba(22, 163, 74, 0.45);
   color: #16a34a;

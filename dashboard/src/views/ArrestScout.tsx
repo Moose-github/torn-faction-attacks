@@ -1,5 +1,5 @@
 import React from "react";
-import { RefreshCw, Search, ShieldCheck, TimerReset, UserSearch } from "lucide-react";
+import { ChevronDown, ChevronRight, RefreshCw, Search, ShieldCheck, TimerReset, UserSearch } from "lucide-react";
 import {
   getArrestScoutSnapshot,
   getArrestScoutFactionHof,
@@ -32,6 +32,14 @@ export function ArrestScout() {
   const [hofLimit, setHofLimit] = React.useState(DEFAULT_HOF_LIMIT);
   const [hofOffset, setHofOffset] = React.useState(DEFAULT_HOF_OFFSET);
   const [hofFactions, setHofFactions] = React.useState<ArrestScoutFactionHofFaction[]>([]);
+  const [isHofTableCollapsed, setIsHofTableCollapsed] = React.useState(true);
+  const [isFutureTargetsCollapsed, setIsFutureTargetsCollapsed] = React.useState(true);
+  const [isRecentScansCollapsed, setIsRecentScansCollapsed] = React.useState(true);
+  const [hofScanAllProgress, setHofScanAllProgress] = React.useState<{
+    current: number;
+    total: number;
+    factionName: string | null;
+  } | null>(null);
   const [scanResult, setScanResult] = React.useState<ArrestScoutScanResponse | null>(null);
   const [snapshots, setSnapshots] = React.useState<ArrestScoutSnapshot[]>([]);
   const [futureTargets, setFutureTargets] = React.useState<ArrestScoutFutureTarget[]>([]);
@@ -49,6 +57,10 @@ export function ArrestScout() {
   const inactiveCount = scanResult?.inactive_count ?? 0;
   const ignoredCount = scanResult?.ignored_count ?? 0;
   const errorCount = scanResult?.error_count ?? 0;
+  const hofMemberCount = React.useMemo(
+    () => hofFactions.reduce((total, faction) => total + (faction.members ?? 0), 0),
+    [hofFactions],
+  );
 
   React.useEffect(() => {
     void loadHistory();
@@ -150,6 +162,7 @@ export function ArrestScout() {
         offset: nonNegativeInteger(hofOffset, 0),
       });
       setHofFactions(response.factions);
+      setIsHofTableCollapsed(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -161,6 +174,44 @@ export function ArrestScout() {
     setScanSource("faction");
     setSourceFactionId(String(faction.faction_id));
     await runScan({ source: "faction", source_faction_id: faction.faction_id });
+  }
+
+  async function scanAllHofFactions() {
+    if (hofFactions.length === 0) return;
+
+    setIsScanning(true);
+    setError(null);
+    setScanSource("faction");
+
+    try {
+      for (const [index, faction] of hofFactions.entries()) {
+        setSourceFactionId(String(faction.faction_id));
+        setHofScanAllProgress({
+          current: index + 1,
+          total: hofFactions.length,
+          factionName: faction.name ?? String(faction.faction_id),
+        });
+
+        const response = await scanArrestScout({
+          source: "faction",
+          source_faction_id: faction.faction_id,
+          lookback_days: positiveInteger(lookbackDays, 7),
+          min_counterfeiting_delta: positiveInteger(minCounterfeitingDelta, 500),
+          min_fraud_delta: positiveInteger(minFraudDelta, 500),
+        });
+        setScanResult(response);
+        setSelectedSnapshot(null);
+        setSelectedSnapshotResults(response.results);
+      }
+
+      await loadHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      await loadHistory();
+    } finally {
+      setHofScanAllProgress(null);
+      setIsScanning(false);
+    }
   }
 
   return (
@@ -272,7 +323,11 @@ export function ArrestScout() {
           <form className="trade-scout-form" onSubmit={loadFactionHof}>
             <label>
               <span>Category</span>
-              <input value={hofCategory} onChange={(event) => setHofCategory(event.target.value)} />
+              <select value={hofCategory} onChange={(event) => setHofCategory(event.target.value)}>
+                <option value="rank">Rank</option>
+                <option value="respect">Respect</option>
+                <option value="chain">Chain</option>
+              </select>
             </label>
             <label>
               <span>Limit</span>
@@ -292,41 +347,72 @@ export function ArrestScout() {
           {hofFactions.length === 0 ? (
             <EmptyState text={isLoadingFactionHof ? "Loading factions" : "No faction HoF rows loaded"} />
           ) : (
-            <div className="table-scroll">
-              <table className="trade-scout-table">
-                <thead>
-                  <tr>
-                    <th>Rank</th>
-                    <th>Faction</th>
-                    <th>Value</th>
-                    <th>Members</th>
-                    <th>Respect</th>
-                    <th>Scan</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hofFactions.map((faction) => (
-                    <tr key={faction.faction_id}>
-                      <td>{nullableNumber(faction.rank)}</td>
-                      <td>{factionCell(faction)}</td>
-                      <td>{nullableNumber(faction.value)}</td>
-                      <td>{nullableNumber(faction.members)}</td>
-                      <td>{nullableNumber(faction.respect)}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="panel-action-button"
-                          disabled={isScanning}
-                          onClick={() => scanHofFaction(faction)}
-                        >
-                          {isScanning ? <RefreshCw size={13} className="spinning-icon" /> : <Search size={13} />}
-                          Scan
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="arrest-scout-hof-results">
+              <div className="trade-scout-selected-meta arrest-scout-hof-summary">
+                <button
+                  type="button"
+                  className="panel-action-button"
+                  onClick={() => setIsHofTableCollapsed((value) => !value)}
+                >
+                  {isHofTableCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  {isHofTableCollapsed ? "Show table" : "Hide table"}
+                </button>
+                <span>{formatNumber(hofFactions.length)} factions</span>
+                <span>{formatNumber(hofMemberCount)} members</span>
+                {hofScanAllProgress ? (
+                  <span>
+                    Scanning {formatNumber(hofScanAllProgress.current)} / {formatNumber(hofScanAllProgress.total)}
+                    {hofScanAllProgress.factionName ? `: ${hofScanAllProgress.factionName}` : ""}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  className="panel-action-button primary-action"
+                  disabled={isScanning || isLoadingFactionHof || hofFactions.length === 0}
+                  onClick={scanAllHofFactions}
+                >
+                  {hofScanAllProgress ? <RefreshCw size={13} className="spinning-icon" /> : <Search size={13} />}
+                  Scan all
+                </button>
+              </div>
+              {!isHofTableCollapsed ? (
+                <div className="table-scroll">
+                  <table className="trade-scout-table">
+                    <thead>
+                      <tr>
+                        <th>Rank</th>
+                        <th>Faction</th>
+                        <th>Value</th>
+                        <th>Members</th>
+                        <th>Respect</th>
+                        <th>Scan</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hofFactions.map((faction) => (
+                        <tr key={faction.faction_id}>
+                          <td>{nullableNumber(faction.rank)}</td>
+                          <td>{factionCell(faction)}</td>
+                          <td>{nullableNumber(faction.value)}</td>
+                          <td>{nullableNumber(faction.members)}</td>
+                          <td>{nullableNumber(faction.respect)}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="panel-action-button"
+                              disabled={isScanning}
+                              onClick={() => scanHofFaction(faction)}
+                            >
+                              {isScanning ? <RefreshCw size={13} className="spinning-icon" /> : <Search size={13} />}
+                              Scan
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </div>
           )}
         </section>
@@ -339,31 +425,46 @@ export function ArrestScout() {
           {futureTargets.length === 0 ? (
             <EmptyState text={isLoading ? "Loading future targets" : "No saved future targets"} />
           ) : (
-            <div className="table-scroll">
-              <table className="trade-scout-table">
-                <thead>
-                  <tr>
-                    <th>Target</th>
-                    <th>Best score</th>
-                    <th>Counterfeiting</th>
-                    <th>Fraud</th>
-                    <th>Jailed</th>
-                    <th>Next check</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {futureTargets.map((target) => (
-                    <tr key={target.target_user_id}>
-                      <td>{targetCell(target.target_user_id, target.name)}</td>
-                      <td>{formatNumber(target.best_score)}</td>
-                      <td>{nullableNumber(target.last_counterfeiting_delta)}</td>
-                      <td>{nullableNumber(target.last_fraud_delta)}</td>
-                      <td>{nullableNumber(target.last_jailed_delta)}</td>
-                      <td>{target.next_check_after ? formatRelativeTime(target.next_check_after) : "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="arrest-scout-collapsible-table">
+              <div className="trade-scout-selected-meta arrest-scout-hof-summary">
+                <button
+                  type="button"
+                  className="panel-action-button"
+                  onClick={() => setIsFutureTargetsCollapsed((value) => !value)}
+                >
+                  {isFutureTargetsCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  {isFutureTargetsCollapsed ? "Show table" : "Hide table"}
+                </button>
+                <span>{formatNumber(futureTargets.length)} saved</span>
+              </div>
+              {!isFutureTargetsCollapsed ? (
+                <div className="table-scroll">
+                  <table className="trade-scout-table">
+                    <thead>
+                      <tr>
+                        <th>Target</th>
+                        <th>Best score</th>
+                        <th>Counterfeiting</th>
+                        <th>Fraud</th>
+                        <th>Jailed</th>
+                        <th>Next check</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {futureTargets.map((target) => (
+                        <tr key={target.target_user_id}>
+                          <td>{targetCell(target.target_user_id, target.name)}</td>
+                          <td>{formatNumber(target.best_score)}</td>
+                          <td>{nullableNumber(target.last_counterfeiting_delta)}</td>
+                          <td>{nullableNumber(target.last_fraud_delta)}</td>
+                          <td>{nullableNumber(target.last_jailed_delta)}</td>
+                          <td>{target.next_check_after ? formatRelativeTime(target.next_check_after) : "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </div>
           )}
         </section>
@@ -373,59 +474,74 @@ export function ArrestScout() {
           {snapshots.length === 0 ? (
             <EmptyState text={isLoading ? "Loading scans" : "No scans yet"} />
           ) : (
-            <div className="table-scroll">
-              <table className="trade-scout-table">
-                <thead>
-                  <tr>
-                    <th>Scan</th>
-                    <th>Status</th>
-                    <th>Checked</th>
-                    <th>Current</th>
-                    <th>Future</th>
-                    <th>Errors</th>
-                    <th>Results</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshots.map((snapshot) => (
-                    <tr key={snapshot.id}>
-                      <td>
-                        <strong>{formatRelativeTime(snapshot.scanned_at)}</strong>
-                        <small>
-                          {snapshotSourceLabel(snapshot)} - min C {formatNumber(snapshot.min_counterfeiting_delta)}
-                          {" / F "}
-                          {formatNumber(snapshot.min_fraud_delta)}
-                        </small>
-                      </td>
-                      <td>
-                        <span className={`trade-quality-badge ${snapshot.status === "ok" ? "good" : "warn"}`}>
-                          {snapshot.status}
-                        </span>
-                        {snapshot.error ? <small>{snapshot.error}</small> : null}
-                      </td>
-                      <td>{formatNumber(snapshot.checked_count)} / {formatNumber(snapshot.target_count)}</td>
-                      <td>{formatNumber(snapshot.current_target_count)}</td>
-                      <td>{formatNumber(snapshot.future_target_count)}</td>
-                      <td>{formatNumber(snapshot.error_count)}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="panel-action-button"
-                          onClick={() => loadSnapshotResults(snapshot)}
-                          disabled={isLoadingSnapshotResults && selectedSnapshot?.id === snapshot.id}
-                        >
-                          {isLoadingSnapshotResults && selectedSnapshot?.id === snapshot.id ? (
-                            <RefreshCw size={13} className="spinning-icon" />
-                          ) : (
-                            <Search size={13} />
-                          )}
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="arrest-scout-collapsible-table">
+              <div className="trade-scout-selected-meta arrest-scout-hof-summary">
+                <button
+                  type="button"
+                  className="panel-action-button"
+                  onClick={() => setIsRecentScansCollapsed((value) => !value)}
+                >
+                  {isRecentScansCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  {isRecentScansCollapsed ? "Show table" : "Hide table"}
+                </button>
+                <span>{formatNumber(snapshots.length)} scans</span>
+              </div>
+              {!isRecentScansCollapsed ? (
+                <div className="table-scroll">
+                  <table className="trade-scout-table">
+                    <thead>
+                      <tr>
+                        <th>Scan</th>
+                        <th>Status</th>
+                        <th>Checked</th>
+                        <th>Current</th>
+                        <th>Future</th>
+                        <th>Errors</th>
+                        <th>Results</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {snapshots.map((snapshot) => (
+                        <tr key={snapshot.id}>
+                          <td>
+                            <strong>{formatRelativeTime(snapshot.scanned_at)}</strong>
+                            <small>
+                              {snapshotSourceLabel(snapshot)} - min C {formatNumber(snapshot.min_counterfeiting_delta)}
+                              {" / F "}
+                              {formatNumber(snapshot.min_fraud_delta)}
+                            </small>
+                          </td>
+                          <td>
+                            <span className={`trade-quality-badge ${snapshot.status === "ok" ? "good" : "warn"}`}>
+                              {snapshot.status}
+                            </span>
+                            {snapshot.error ? <small>{snapshot.error}</small> : null}
+                          </td>
+                          <td>{formatNumber(snapshot.checked_count)} / {formatNumber(snapshot.target_count)}</td>
+                          <td>{formatNumber(snapshot.current_target_count)}</td>
+                          <td>{formatNumber(snapshot.future_target_count)}</td>
+                          <td>{formatNumber(snapshot.error_count)}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="panel-action-button"
+                              onClick={() => loadSnapshotResults(snapshot)}
+                              disabled={isLoadingSnapshotResults && selectedSnapshot?.id === snapshot.id}
+                            >
+                              {isLoadingSnapshotResults && selectedSnapshot?.id === snapshot.id ? (
+                                <RefreshCw size={13} className="spinning-icon" />
+                              ) : (
+                                <Search size={13} />
+                              )}
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </div>
           )}
         </section>
