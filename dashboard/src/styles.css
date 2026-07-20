@@ -1101,6 +1101,51 @@ h2 {
   min-height: 38px;
 }
 
+.stock-private-island-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stock-private-island-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.stock-private-island-grid input {
+  width: 100%;
+  min-height: 38px;
+}
+
+.stock-owned-investment-summary-panel {
+  margin-top: 14px;
+}
+
+.stock-owned-investment-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  min-width: 0;
+}
+
+.stock-owned-investment-summary strong {
+  color: var(--text-heading);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.stock-owned-investment-summary span {
+  color: var(--text-main);
+  font-size: 0.82rem;
+  font-weight: 820;
+}
+
 .stock-investment-table td,
 .stock-benefit-values-table td {
   vertical-align: middle;
@@ -1117,12 +1162,21 @@ h2 {
   padding-inline: 8px;
 }
 
+.stock-investment-table .stock-col-own {
+  width: 5%;
+  text-align: center;
+}
+
+.stock-investment-table .stock-col-own input {
+  min-height: auto;
+}
+
 .stock-investment-table .stock-col-symbol {
   width: 7%;
 }
 
 .stock-investment-table .stock-col-name {
-  width: 18%;
+  width: 17%;
 }
 
 .stock-investment-table .stock-col-shares {
@@ -8162,6 +8216,10 @@ h2 {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .stock-private-island-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .stock-owned-controls-grid {
     grid-template-columns: minmax(260px, 1fr) auto auto;
   }
@@ -8271,6 +8329,7 @@ h2 {
   .stock-investment-control-fields,
   .stock-investment-toggle-list,
   .stock-city-bank-controls,
+  .stock-private-island-grid,
   .stock-table-filter-controls,
   .stock-table-filter-controls .stock-investment-toggle-list {
     grid-template-columns: minmax(0, 1fr);

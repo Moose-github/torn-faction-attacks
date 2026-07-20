@@ -35,9 +35,11 @@ import {
   fhgTciHybridBaselineSharesForRow,
   hasFhgTciHybridBackingShares,
   isFhgTciHybridRow,
+  isPrivateIslandRentalRow,
   recommendBestStockBuy,
   STOCK_SELL_FEE_RATE,
   stockInvestmentRowMetrics,
+  type PrivateIslandRentalRow,
   type StockBuyRecommendation,
   type StockInvestmentRecommendationRow,
   type StockInvestmentRowMetrics,
@@ -50,6 +52,11 @@ const TORN_USER_MERITS_URL = "https://api.torn.com/v2/user/merits";
 const DEFAULT_MINIMUM_ROI = "5";
 const CITY_BANK_TERM_DAYS = 90;
 const MANUAL_BENEFIT_VALUES_SECTION_ID = "stock-benefit-manual-values";
+const PRIVATE_ISLAND_ROW_ID = "private_island:rental";
+const DEFAULT_PRIVATE_ISLAND_COUNT = "0";
+const DEFAULT_PRIVATE_ISLAND_COST = "1675000000";
+const DEFAULT_PRIVATE_ISLAND_DAILY_RENT = "900000";
+const DEFAULT_PRIVATE_ISLAND_VACANT_DAYS = "7";
 
 type StockRoiSortKey = "acronym" | "name" | "shares" | "increment_cost" | "benefit" | "annual_return" | "days_to_break_even" | "roi_percent";
 
@@ -71,6 +78,23 @@ type StockLockOption = {
 
 type StockPanelStorageKey = "plannerSetup" | "benefitValues";
 
+type PrivateIslandInputs = {
+  count: string;
+  costEach: string;
+  dailyRentEach: string;
+  vacantDays: string;
+};
+
+type OwnedInvestmentSummary = {
+  stockBlockCount: number;
+  privateIslandCount: number;
+  cityBankActive: boolean;
+  invested: number;
+  annualReturn: number;
+  dailyIncome: number;
+  aprPercent: number | null;
+};
+
 export function StockInvestments() {
   const storageUserId = React.useMemo(() => getStoredAuthSession()?.user.id ?? null, []);
   const [roiData, setRoiData] = React.useState<StockInvestmentRoiResponse | null>(null);
@@ -86,6 +110,13 @@ export function StockInvestments() {
   const [cityBankActive, setCityBankActive] = React.useState(false);
   const [fhgTciHybridActive, setFhgTciHybridActive] = React.useState(false);
   const [bankMerits, setBankMerits] = React.useState(0);
+  const [manualOwnedRowIds, setManualOwnedRowIds] = React.useState<Set<string>>(() => new Set());
+  const [privateIslandInputs, setPrivateIslandInputs] = React.useState<PrivateIslandInputs>({
+    count: DEFAULT_PRIVATE_ISLAND_COUNT,
+    costEach: DEFAULT_PRIVATE_ISLAND_COST,
+    dailyRentEach: DEFAULT_PRIVATE_ISLAND_DAILY_RENT,
+    vacantDays: DEFAULT_PRIVATE_ISLAND_VACANT_DAYS,
+  });
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
   const [strategyPanelTab, setStrategyPanelTab] = React.useState<StockStrategyPanelTab>("strategy");
   const [isPlannerSetupOpen, setIsPlannerSetupOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "plannerSetup", true));
@@ -257,9 +288,11 @@ export function StockInvestments() {
   function clearOwnedStocks() {
     setOwnedApiKey("");
     setOwnedSnapshot(null);
+    setManualOwnedRowIds(new Set());
     setLockedStockIds(new Set());
     setHideOwnedBlocks(false);
     clearOwnedStocksStorage(storageUserId);
+    saveManualOwnedRowIdsStorage(storageUserId, new Set());
     saveLockedStockIdsStorage(storageUserId, new Set());
     setError(null);
     setMessage("Owned stock highlights cleared");
@@ -274,6 +307,43 @@ export function StockInvestments() {
         next.delete(stockId);
       }
       saveLockedStockIdsStorage(storageUserId, next);
+      return next;
+    });
+  }
+
+  function toggleManualOwnedRow(row: StockInvestmentRecommendationRow, owned: boolean) {
+    if (row.investment_type === "city_bank") {
+      setCityBankActive(owned);
+      saveCityBankStorage(storageUserId, owned, bankMerits);
+      return;
+    }
+
+    if (isPrivateIslandRentalRow(row)) {
+      const nextInputs = {
+        ...privateIslandInputs,
+        count: owned ? (privateIslandRentalCount(privateIslandInputs) > 0 ? privateIslandInputs.count : "1") : "0",
+      };
+      setPrivateIslandInputs(nextInputs);
+      savePrivateIslandStorage(storageUserId, nextInputs);
+      return;
+    }
+
+    setManualOwnedRowIds((current) => {
+      const next = new Set(current);
+      if (owned) {
+        next.add(row.row_id);
+      } else {
+        next.delete(row.row_id);
+      }
+      saveManualOwnedRowIdsStorage(storageUserId, next);
+      return next;
+    });
+  }
+
+  function updatePrivateIslandInput(key: keyof PrivateIslandInputs, value: string) {
+    setPrivateIslandInputs((current) => {
+      const next = { ...current, [key]: value };
+      savePrivateIslandStorage(storageUserId, next);
       return next;
     });
   }
@@ -313,21 +383,37 @@ export function StockInvestments() {
     setOwnedApiKey(stored.apiKey);
     setOwnedSnapshot(stored.snapshot);
     setLockedStockIds(readLockedStockIdsStorage(storageUserId));
+    setManualOwnedRowIds(readManualOwnedRowIdsStorage(storageUserId));
+    setPrivateIslandInputs(readPrivateIslandStorage(storageUserId));
     setCityBankActive(storedCityBank.active);
     setFhgTciHybridActive(storedFhgTciHybridActive);
     setBankMerits(storedCityBank.merits);
     loadData();
   }, []);
 
-  const ownedShares = React.useMemo(() => ownedSharesMap(ownedSnapshot), [ownedSnapshot]);
+  const loadedOwnedShares = React.useMemo(() => ownedSharesMap(ownedSnapshot), [ownedSnapshot]);
   const baseInvestmentRows = React.useMemo(
     () => (roiData?.rows ?? []).map((row) => adjustCityBankRowForMerits(row, bankMerits)),
     [roiData?.rows, bankMerits],
   );
   const fhgTciHybridRow = React.useMemo(() => buildFhgTciHybridRow(baseInvestmentRows), [baseInvestmentRows]);
+  const privateIslandRow = React.useMemo(() => buildPrivateIslandRentalRow(privateIslandInputs), [privateIslandInputs]);
   const investmentRows = React.useMemo<StockInvestmentRecommendationRow[]>(
-    () => includeFhgTciHybrid && fhgTciHybridRow ? [...baseInvestmentRows, fhgTciHybridRow] : baseInvestmentRows,
-    [baseInvestmentRows, fhgTciHybridRow, includeFhgTciHybrid],
+    () => [
+      ...baseInvestmentRows,
+      ...(includeFhgTciHybrid && fhgTciHybridRow ? [fhgTciHybridRow] : []),
+      ...(privateIslandRow ? [privateIslandRow] : []),
+    ],
+    [baseInvestmentRows, fhgTciHybridRow, includeFhgTciHybrid, privateIslandRow],
+  );
+  const ownedShares = React.useMemo(
+    () => effectiveOwnedSharesMap(loadedOwnedShares, investmentRows, manualOwnedRowIds),
+    [loadedOwnedShares, investmentRows, manualOwnedRowIds],
+  );
+  const hasOwnershipState = ownedSnapshot !== null || manualOwnedRowIds.size > 0 || cityBankActive || privateIslandRentalCount(privateIslandInputs) > 0;
+  const effectiveOwnedSnapshot = React.useMemo<OwnedStockSnapshot | null>(
+    () => ownedSnapshotWithShares(ownedSnapshot, ownedShares, manualOwnedRowIds.size > 0),
+    [ownedSnapshot, ownedShares, manualOwnedRowIds],
   );
   const canMarkFhgTciHybridActive = Boolean(
     ownedSnapshot &&
@@ -361,12 +447,12 @@ export function StockInvestments() {
   const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
   const ownedCoveredBlockCount = investmentRows.filter((row) => isStockInvestmentRow(row) && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required ?? 0)).length;
   const nextStockBlockRowIds = React.useMemo(
-    () => nextStockBlockIds(investmentRows, ownedShares, ownedSnapshot !== null, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares),
-    [investmentRows, ownedShares, ownedSnapshot, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares],
+    () => nextStockBlockIds(investmentRows, ownedShares, hasOwnershipState, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares),
+    [investmentRows, ownedShares, hasOwnershipState, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares],
   );
   const lockableHoldings = React.useMemo(
-    () => ownedStockLockOptions(ownedSnapshot, investmentRows),
-    [ownedSnapshot, investmentRows],
+    () => ownedStockLockOptions(effectiveOwnedSnapshot, investmentRows),
+    [effectiveOwnedSnapshot, investmentRows],
   );
   const budget = moneyInputValue(investmentAmount);
   const minRoi = percentInputValue(minimumRoi);
@@ -377,12 +463,12 @@ export function StockInvestments() {
     if (nextBlockOnly && isStockInvestmentRow(row) && !nextStockBlockRowIds.has(row.row_id)) {
       return false;
     }
-    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, ownedSnapshot !== null, cityBankActive, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares)) {
+    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, privateIslandRentalCount(privateIslandInputs) > 0, fhgTciHybridBaselineShares, fhgTciHybridReservedShares)) {
       return false;
     }
     const rowMetrics = stockInvestmentRowMetrics(row, {
       ownedShares,
-      hasOwnedSnapshot: ownedSnapshot !== null,
+      hasOwnedSnapshot: hasOwnershipState,
       fhgTciHybridActive: effectiveFhgTciHybridActive,
       fhgTciHybridBaselineShares,
       fhgTciHybridReservedShares,
@@ -395,36 +481,47 @@ export function StockInvestments() {
     }
     return true;
   });
-  const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, ownedSnapshot !== null, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares);
+  const rows = sortStockRoiRows(filteredRows, roiSort, ownedShares, hasOwnershipState, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares);
   const bestBuyRecommendation = React.useMemo(() => recommendBestStockBuy({
     rows: investmentRows,
-    ownedSnapshot,
+    ownedSnapshot: effectiveOwnedSnapshot,
     cityBankActive,
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
     affordableOnly,
     minimumRoi: minRoi,
-  }), [investmentRows, ownedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi]);
+  }), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi]);
   const rebalanceRecommendations = React.useMemo(() => buildStockRebalanceRecommendations({
     rows: investmentRows,
-    ownedSnapshot,
+    ownedSnapshot: effectiveOwnedSnapshot,
     cityBankActive,
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
     affordableOnly,
     minimumRoi: minRoi,
     lockedStockIds,
-  }, 5), [investmentRows, ownedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
+  }, 5), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
   const strategyPlan = React.useMemo(() => buildStockStrategyPlan({
     rows: investmentRows,
-    ownedSnapshot,
+    ownedSnapshot: effectiveOwnedSnapshot,
     cityBankActive,
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     budget,
     affordableOnly,
     minimumRoi: minRoi,
     lockedStockIds,
-  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, ownedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
+  }, DEFAULT_STOCK_STRATEGY_STEP_LIMIT), [investmentRows, effectiveOwnedSnapshot, cityBankActive, effectiveFhgTciHybridActive, budget, affordableOnly, minRoi, lockedStockIds]);
+  const ownedInvestmentSummary = React.useMemo(() => buildOwnedInvestmentSummary({
+    rows: investmentRows,
+    ownedShares,
+    hasOwnershipState,
+    cityBankActive,
+    fhgTciHybridActive: effectiveFhgTciHybridActive,
+    fhgTciHybridBaselineShares,
+    fhgTciHybridReservedShares,
+    privateIslandRow,
+    privateIslandCount: privateIslandRentalCount(privateIslandInputs),
+  }), [investmentRows, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares, privateIslandRow, privateIslandInputs]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
@@ -496,6 +593,8 @@ export function StockInvestments() {
           detail={benefitValuesRefreshedAt ? formatLongDateTime(benefitValuesRefreshedAt) : "No market refresh yet"}
         />
       </section>
+
+      <OwnedInvestmentSummaryPanel summary={ownedInvestmentSummary} />
 
       <CollapsiblePanel
         title="Planner setup"
@@ -651,6 +750,51 @@ export function StockInvestments() {
                     setBankMerits(nextMerits);
                     saveCityBankStorage(storageUserId, cityBankActive, nextMerits);
                   }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="stock-owned-settings-section">
+            <div className="stock-owned-settings-title">
+              <strong>Private Island rental</strong>
+              <span>{privateIslandRentalCount(privateIslandInputs) > 0 ? "Included in summary" : "Available as an option"}</span>
+            </div>
+            <div className="stock-private-island-grid">
+              <label>
+                <span>How many renting?</span>
+                <input
+                  inputMode="numeric"
+                  value={privateIslandInputs.count}
+                  onChange={(event) => updatePrivateIslandInput("count", event.target.value)}
+                  placeholder="0"
+                />
+              </label>
+              <label>
+                <span>Cost each</span>
+                <input
+                  inputMode="numeric"
+                  value={privateIslandInputs.costEach}
+                  onChange={(event) => updatePrivateIslandInput("costEach", event.target.value)}
+                  placeholder="1,675,000,000"
+                />
+              </label>
+              <label>
+                <span>Daily rent each</span>
+                <input
+                  inputMode="numeric"
+                  value={privateIslandInputs.dailyRentEach}
+                  onChange={(event) => updatePrivateIslandInput("dailyRentEach", event.target.value)}
+                  placeholder="900,000"
+                />
+              </label>
+              <label>
+                <span>Vacant days / yr</span>
+                <input
+                  inputMode="numeric"
+                  value={privateIslandInputs.vacantDays}
+                  onChange={(event) => updatePrivateIslandInput("vacantDays", event.target.value)}
+                  placeholder="7"
                 />
               </label>
             </div>
@@ -869,7 +1013,7 @@ export function StockInvestments() {
         ) : rows.length === 0 ? (
           <EmptyState text="No investment opportunities match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} ownedShares={ownedShares} lockedStockIds={lockedStockIds} hasOwnedSnapshot={ownedSnapshot !== null} cityBankActive={cityBankActive} fhgTciHybridActive={effectiveFhgTciHybridActive} fhgTciHybridBaselineShares={fhgTciHybridBaselineShares} fhgTciHybridReservedShares={fhgTciHybridReservedShares} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} />
+          <StockRoiTable rows={rows} ownedShares={ownedShares} manuallyOwnedRowIds={manualOwnedRowIds} lockedStockIds={lockedStockIds} hasOwnedSnapshot={hasOwnershipState} cityBankActive={cityBankActive} privateIslandActive={privateIslandRentalCount(privateIslandInputs) > 0} fhgTciHybridActive={effectiveFhgTciHybridActive} fhgTciHybridBaselineShares={fhgTciHybridBaselineShares} fhgTciHybridReservedShares={fhgTciHybridReservedShares} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} onToggleOwned={toggleManualOwnedRow} />
         )}
       </section>
 
@@ -920,33 +1064,40 @@ export function StockInvestments() {
 function StockRoiTable({
   rows,
   ownedShares,
+  manuallyOwnedRowIds,
   lockedStockIds,
   hasOwnedSnapshot,
   cityBankActive,
+  privateIslandActive,
   fhgTciHybridActive,
   fhgTciHybridBaselineShares,
   fhgTciHybridReservedShares,
   bankMerits,
   sort,
   onSort,
+  onToggleOwned,
 }: {
   rows: StockInvestmentRecommendationRow[];
   ownedShares: Map<number, number>;
+  manuallyOwnedRowIds: ReadonlySet<string>;
   lockedStockIds: ReadonlySet<number>;
   hasOwnedSnapshot: boolean;
   cityBankActive: boolean;
+  privateIslandActive: boolean;
   fhgTciHybridActive: boolean;
   fhgTciHybridBaselineShares?: ReadonlyMap<number, number>;
   fhgTciHybridReservedShares?: ReadonlyMap<number, number>;
   bankMerits: number;
   sort: StockRoiSort;
   onSort: (key: StockRoiSortKey) => void;
+  onToggleOwned: (row: StockInvestmentRecommendationRow, owned: boolean) => void;
 }) {
   return (
     <div className="table-scroll">
       <table className="stock-status-table stock-investment-table">
         <thead>
           <tr>
+            <th className="stock-col-own">Own</th>
             <SortableHeader label="Ticker" sortKey="acronym" sort={sort} onSort={onSort} className="stock-col-symbol" />
             <SortableHeader label="Name" sortKey="name" sort={sort} onSort={onSort} className="stock-col-name" />
             <SortableHeader label="Shares" sortKey="shares" sort={sort} onSort={onSort} className="stock-col-shares" />
@@ -962,12 +1113,23 @@ function StockRoiTable({
             const isStockRow = isStockInvestmentRow(row);
             const owned = isStockRow ? ownedShares.get(row.stock_id) ?? 0 : 0;
             const isLocked = isStockRow && lockedStockIds.has(row.stock_id);
-            const ownsIncrement = isInvestmentRowCovered(row, ownedShares, hasOwnedSnapshot, cityBankActive, fhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares);
+            const ownsIncrement = isInvestmentRowCovered(row, ownedShares, hasOwnedSnapshot, cityBankActive, fhgTciHybridActive, privateIslandActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares);
             const rowMetrics = stockInvestmentRowMetrics(row, { ownedShares, hasOwnedSnapshot, fhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares });
             const costDetail = stockCostDetail(row, rowMetrics);
             const showRawRoi = rowMetrics.personalized && !rowMetrics.covered && rowMetrics.roi_percent !== row.roi_percent;
+            const ownChecked = investmentRowOwnChecked(row, ownsIncrement, cityBankActive, privateIslandActive, manuallyOwnedRowIds);
+            const ownDisabled = isFhgTciHybridRow(row);
             return (
               <tr key={row.row_id} className={ownsIncrement ? "stock-owned-increment-row" : undefined}>
+                <td className="stock-col-own" data-label="Own">
+                  <input
+                    type="checkbox"
+                    checked={ownChecked}
+                    disabled={ownDisabled}
+                    title={ownDisabled ? "Use the FHG/TCI Hybrid setting for this synthetic option." : undefined}
+                    onChange={(event) => onToggleOwned(row, event.target.checked)}
+                  />
+                </td>
                 <td className="stock-col-symbol" data-label="Ticker">
                   <span className="stock-symbol-chip">{row.acronym ?? (row.stock_id ? `#${row.stock_id}` : "-")}</span>
                 </td>
@@ -980,7 +1142,9 @@ function StockRoiTable({
                 <td className="stock-col-shares" data-label="Shares">
                   <span className="stock-benefit-cell stock-shares-cell">
                     <strong>
-                      {!isStockRow ? (
+                      {isPrivateIslandRentalRow(row) ? (
+                        "Rental"
+                      ) : !isStockRow ? (
                         "-"
                       ) : row.increment === 1 ? (
                         formatNumber(row.required_shares ?? 0)
@@ -1376,6 +1540,24 @@ function StatusMetric({
   );
 }
 
+function OwnedInvestmentSummaryPanel({ summary }: { summary: OwnedInvestmentSummary }) {
+  const label = ownedInvestmentSummaryLabel(summary);
+  return (
+    <section className="panel stock-owned-investment-summary-panel" aria-label="Owned investment summary">
+      <div className="stock-owned-investment-summary">
+        <strong>{label}</strong>
+        {summary.invested > 0 ? (
+          <span>
+            invested {formatMoney(summary.invested)} - income {formatMoney(summary.dailyIncome)}/day - blended {summary.aprPercent === null ? "-" : formatPercent(summary.aprPercent)} APR
+          </span>
+        ) : (
+          <span>Use the Own column, City Bank toggle, or PI rental count to build a blended APR summary.</span>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function RebalanceRecommendationRow({
   recommendation,
   bankMerits,
@@ -1679,6 +1861,157 @@ async function fetchTornUserJson(url: string, apiKey: string, invalidResponseMes
   return data;
 }
 
+function buildPrivateIslandRentalRow(inputs: PrivateIslandInputs): PrivateIslandRentalRow | null {
+  const costEach = moneyInputValue(inputs.costEach);
+  const dailyRentEach = moneyInputValue(inputs.dailyRentEach);
+  if (costEach === null || dailyRentEach === null) {
+    return null;
+  }
+
+  const vacantDays = boundedWholeNumberInputValue(inputs.vacantDays, 0, 365) ?? 0;
+  const rentedDays = Math.max(0, 365 - vacantDays);
+  const annualReturn = dailyRentEach * rentedDays;
+  return {
+    investment_type: "private_island",
+    row_id: PRIVATE_ISLAND_ROW_ID,
+    stock_id: null,
+    acronym: "PI",
+    name: "Private Island Rental",
+    increment: null,
+    required_shares: null,
+    total_shares_required: null,
+    latest_price: null,
+    increment_cost: costEach,
+    total_cost: costEach,
+    benefit_key: "private_island:rental",
+    benefit_description: "Rental income",
+    valuation_source: "cash",
+    frequency_days: 365,
+    benefit_value: annualReturn,
+    annual_return: annualReturn,
+    days_to_break_even: annualReturn > 0 ? costEach / (annualReturn / 365) : Number.POSITIVE_INFINITY,
+    roi_percent: costEach > 0 ? (annualReturn / costEach) * 100 : 0,
+  };
+}
+
+function effectiveOwnedSharesMap(
+  loadedShares: ReadonlyMap<number, number>,
+  rows: StockInvestmentRecommendationRow[],
+  manualRowIds: ReadonlySet<string>,
+): Map<number, number> {
+  const shares = new Map(loadedShares);
+  for (const row of rows) {
+    if (!manualRowIds.has(row.row_id) || !isStockInvestmentRow(row)) {
+      continue;
+    }
+    shares.set(row.stock_id, Math.max(shares.get(row.stock_id) ?? 0, row.total_shares_required));
+  }
+  return shares;
+}
+
+function ownedSnapshotWithShares(
+  snapshot: OwnedStockSnapshot | null,
+  shares: ReadonlyMap<number, number>,
+  hasManualRows: boolean,
+): OwnedStockSnapshot | null {
+  if (!snapshot && !hasManualRows) {
+    return null;
+  }
+
+  return {
+    refreshed_at: snapshot?.refreshed_at ?? Math.floor(Date.now() / 1000),
+    stocks: [...shares.entries()]
+      .filter(([, ownedShares]) => ownedShares > 0)
+      .map(([stock_id, ownedShares]) => ({ stock_id, shares: ownedShares, bonus: null })),
+  };
+}
+
+function buildOwnedInvestmentSummary(input: {
+  rows: StockInvestmentRecommendationRow[];
+  ownedShares: Map<number, number>;
+  hasOwnershipState: boolean;
+  cityBankActive: boolean;
+  fhgTciHybridActive: boolean;
+  privateIslandRow: PrivateIslandRentalRow | null;
+  privateIslandCount: number;
+  fhgTciHybridBaselineShares?: ReadonlyMap<number, number>;
+  fhgTciHybridReservedShares?: ReadonlyMap<number, number>;
+}): OwnedInvestmentSummary {
+  let stockBlockCount = 0;
+  let invested = 0;
+  let annualReturn = 0;
+
+  for (const row of input.rows) {
+    if (!isStockInvestmentRow(row) && !isFhgTciHybridRow(row)) {
+      continue;
+    }
+    const metrics = stockInvestmentRowMetrics(row, {
+      ownedShares: input.ownedShares,
+      hasOwnedSnapshot: input.hasOwnershipState,
+      fhgTciHybridActive: input.fhgTciHybridActive,
+      fhgTciHybridBaselineShares: input.fhgTciHybridBaselineShares,
+      fhgTciHybridReservedShares: input.fhgTciHybridReservedShares,
+    });
+    if (!metrics.covered) {
+      continue;
+    }
+    stockBlockCount += 1;
+    invested += row.increment_cost;
+    annualReturn += row.annual_return;
+  }
+
+  const cityBankRow = input.rows.find((row) => row.investment_type === "city_bank") ?? null;
+  if (input.cityBankActive && cityBankRow) {
+    invested += cityBankRow.increment_cost;
+    annualReturn += cityBankRow.annual_return;
+  }
+
+  if (input.privateIslandRow && input.privateIslandCount > 0) {
+    invested += input.privateIslandRow.increment_cost * input.privateIslandCount;
+    annualReturn += input.privateIslandRow.annual_return * input.privateIslandCount;
+  }
+
+  return {
+    stockBlockCount,
+    privateIslandCount: input.privateIslandCount,
+    cityBankActive: input.cityBankActive,
+    invested,
+    annualReturn,
+    dailyIncome: annualReturn / 365,
+    aprPercent: invested > 0 ? (annualReturn / invested) * 100 : null,
+  };
+}
+
+function ownedInvestmentSummaryLabel(summary: OwnedInvestmentSummary): string {
+  const parts: string[] = [];
+  if (summary.stockBlockCount > 0) {
+    parts.push(`${formatNumber(summary.stockBlockCount)} owned block${summary.stockBlockCount === 1 ? "" : "s"}`);
+  }
+  if (summary.cityBankActive) {
+    parts.push("City Bank");
+  }
+  if (summary.privateIslandCount > 0) {
+    parts.push(`${formatNumber(summary.privateIslandCount)} PI`);
+  }
+  return parts.length > 0 ? parts.join(" + ") : "No owned investments selected";
+}
+
+function investmentRowOwnChecked(
+  row: StockInvestmentRecommendationRow,
+  covered: boolean,
+  cityBankActive: boolean,
+  privateIslandActive: boolean,
+  manualRowIds: ReadonlySet<string>,
+): boolean {
+  if (row.investment_type === "city_bank") {
+    return cityBankActive;
+  }
+  if (isPrivateIslandRentalRow(row)) {
+    return privateIslandActive;
+  }
+  return covered || manualRowIds.has(row.row_id);
+}
+
 function sortStockRoiRows(
   rows: StockInvestmentRecommendationRow[],
   sort: StockRoiSort,
@@ -1708,8 +2041,8 @@ function sortStockRoiRows(
 }
 
 function compareStockRoiRows(
-  a: StockInvestmentRoiRow,
-  b: StockInvestmentRoiRow,
+  a: StockInvestmentRecommendationRow,
+  b: StockInvestmentRecommendationRow,
   key: StockRoiSortKey,
   ownedShares: Map<number, number>,
   hasOwnedSnapshot: boolean,
@@ -1771,11 +2104,15 @@ function isInvestmentRowCovered(
   hasOwnedSnapshot: boolean,
   cityBankActive: boolean,
   fhgTciHybridActive: boolean,
+  privateIslandActive: boolean,
   fhgTciHybridBaselineShares?: ReadonlyMap<number, number>,
   fhgTciHybridReservedShares?: ReadonlyMap<number, number>,
 ): boolean {
   if (row.investment_type === "city_bank") {
     return cityBankActive;
+  }
+  if (isPrivateIslandRentalRow(row)) {
+    return privateIslandActive;
   }
 
   if (isFhgTciHybridRow(row) || isStockInvestmentRow(row)) {
@@ -1861,7 +2198,7 @@ function stockCostDetail(row: StockInvestmentRecommendationRow, metrics: StockIn
       : "Synthetic block";
   }
   if (!isStockInvestmentRow(row)) {
-    return null;
+    return isPrivateIslandRentalRow(row) ? "Per island" : null;
   }
 
   if (metrics.covered) {
@@ -1881,6 +2218,9 @@ function bestOpportunityTitle(row: StockInvestmentRecommendationRow): string {
   if (isFhgTciHybridRow(row)) {
     return "FHG/TCI Hybrid";
   }
+  if (isPrivateIslandRentalRow(row)) {
+    return "Private Island Rental";
+  }
 
   return `${row.acronym ?? `#${row.stock_id}`} Block ${row.increment ?? "-"}`;
 }
@@ -1894,6 +2234,9 @@ function bestBuyRecommendationDetail(recommendation: StockBuyRecommendation, ban
       return `Convert existing ${recommendation.hybrid_conversion.acronym ?? "FHG/TCI"} capital`;
     }
     return "Synthetic block - TCI + 83/90 FHG";
+  }
+  if (isPrivateIslandRentalRow(recommendation.row)) {
+    return "Rental income per island";
   }
 
   if (!recommendation.personalized) {
@@ -1911,12 +2254,18 @@ function stockRowSubtitle(row: StockInvestmentRecommendationRow, isStockRow: boo
   if (isFhgTciHybridRow(row)) {
     return "Synthetic block";
   }
+  if (isPrivateIslandRentalRow(row)) {
+    return "Rental property";
+  }
   return isStockRow ? `Block ${row.increment}` : `${CITY_BANK_TERM_DAYS} days (${bankMerits}/10 Merits)`;
 }
 
 function stockBenefitDetail(row: StockInvestmentRecommendationRow, isStockRow: boolean, bankMerits: number): string {
   if (isFhgTciHybridRow(row)) {
     return "TCI + 83/90 FHG";
+  }
+  if (isPrivateIslandRentalRow(row)) {
+    return "Annualized from rent settings";
   }
   if (isBankInterestBonusRow(row)) {
     return `${formatNumber(row.frequency_days)} days - ${bankMerits}/10 Merits`;
@@ -1990,6 +2339,43 @@ function clearOwnedStocksStorage(userId: number | null): void {
   window.localStorage.removeItem(keys.snapshot);
 }
 
+function readManualOwnedRowIdsStorage(userId: number | null): Set<string> {
+  const key = manualOwnedRowIdsStorageKey(userId);
+  if (!key) {
+    return new Set();
+  }
+
+  const raw = window.localStorage.getItem(key);
+  if (!raw) {
+    return new Set();
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((value): value is string => typeof value === "string" && value.length > 0))
+      : new Set();
+  } catch {
+    window.localStorage.removeItem(key);
+    return new Set();
+  }
+}
+
+function saveManualOwnedRowIdsStorage(userId: number | null, rowIds: ReadonlySet<string>): void {
+  const key = manualOwnedRowIdsStorageKey(userId);
+  if (!key) {
+    return;
+  }
+
+  const values = [...rowIds].filter((rowId) => rowId.length > 0).sort();
+  if (values.length === 0) {
+    window.localStorage.removeItem(key);
+    return;
+  }
+
+  window.localStorage.setItem(key, JSON.stringify(values));
+}
+
 function readLockedStockIdsStorage(userId: number | null): Set<number> {
   const key = lockedStockIdsStorageKey(userId);
   if (!key) {
@@ -2040,6 +2426,52 @@ function ownedStocksStorageKeys(userId: number | null): { apiKey: string; snapsh
 
 function lockedStockIdsStorageKey(userId: number | null): string | null {
   return userId ? `stockRoiLockedStockIds:${userId}` : null;
+}
+
+function manualOwnedRowIdsStorageKey(userId: number | null): string | null {
+  return userId ? `stockRoiManualOwnedRowIds:${userId}` : null;
+}
+
+function readPrivateIslandStorage(userId: number | null): PrivateIslandInputs {
+  const key = privateIslandStorageKey(userId);
+  if (!key) {
+    return defaultPrivateIslandInputs();
+  }
+
+  const raw = window.localStorage.getItem(key);
+  if (!raw) {
+    return defaultPrivateIslandInputs();
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return defaultPrivateIslandInputs();
+    }
+    const record = parsed as Partial<Record<keyof PrivateIslandInputs, unknown>>;
+    return {
+      count: stringInput(record.count, DEFAULT_PRIVATE_ISLAND_COUNT),
+      costEach: stringInput(record.costEach, DEFAULT_PRIVATE_ISLAND_COST),
+      dailyRentEach: stringInput(record.dailyRentEach, DEFAULT_PRIVATE_ISLAND_DAILY_RENT),
+      vacantDays: stringInput(record.vacantDays, DEFAULT_PRIVATE_ISLAND_VACANT_DAYS),
+    };
+  } catch {
+    window.localStorage.removeItem(key);
+    return defaultPrivateIslandInputs();
+  }
+}
+
+function savePrivateIslandStorage(userId: number | null, inputs: PrivateIslandInputs): void {
+  const key = privateIslandStorageKey(userId);
+  if (!key) {
+    return;
+  }
+
+  window.localStorage.setItem(key, JSON.stringify(inputs));
+}
+
+function privateIslandStorageKey(userId: number | null): string | null {
+  return userId ? `stockRoiPrivateIsland:${userId}` : null;
 }
 
 function readCityBankStorage(userId: number | null): { active: boolean; merits: number } {
@@ -2124,9 +2556,34 @@ function clampBankMerits(value: unknown): number {
   return Math.min(10, Math.max(0, parsed));
 }
 
+function defaultPrivateIslandInputs(): PrivateIslandInputs {
+  return {
+    count: DEFAULT_PRIVATE_ISLAND_COUNT,
+    costEach: DEFAULT_PRIVATE_ISLAND_COST,
+    dailyRentEach: DEFAULT_PRIVATE_ISLAND_DAILY_RENT,
+    vacantDays: DEFAULT_PRIVATE_ISLAND_VACANT_DAYS,
+  };
+}
+
+function privateIslandRentalCount(inputs: PrivateIslandInputs): number {
+  return boundedWholeNumberInputValue(inputs.count, 0, 999) ?? 0;
+}
+
 function moneyInputValue(value: string): number | null {
   const parsed = Number(value.replace(/[$,\s]/g, ""));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function boundedWholeNumberInputValue(value: string, min: number, max: number): number | null {
+  const parsed = Math.round(Number(value.replace(/[,\s]/g, "")));
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function stringInput(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
 }
 
 function percentInputValue(value: string): number | null {

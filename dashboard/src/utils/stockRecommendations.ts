@@ -52,6 +52,28 @@ export type FhgTciHybridRow = StockInvestmentRoiRow & {
   };
 };
 
+export type PrivateIslandRentalRow = {
+  investment_type: "private_island";
+  row_id: "private_island:rental";
+  stock_id: null;
+  acronym: "PI";
+  name: "Private Island Rental";
+  increment: null;
+  required_shares: null;
+  total_shares_required: null;
+  latest_price: null;
+  increment_cost: number;
+  total_cost: number;
+  benefit_key: "private_island:rental";
+  benefit_description: "Rental income";
+  valuation_source: "cash";
+  frequency_days: number;
+  benefit_value: number;
+  annual_return: number;
+  days_to_break_even: number;
+  roi_percent: number;
+};
+
 export type FhgTciHybridConversion = {
   component_kind: "fhg" | "tci";
   stock_id: number;
@@ -63,7 +85,7 @@ export type FhgTciHybridConversion = {
   annual_return_gain: number;
 };
 
-export type StockInvestmentRecommendationRow = StockInvestmentRoiRow | FhgTciHybridRow;
+export type StockInvestmentRecommendationRow = StockInvestmentRoiRow | FhgTciHybridRow | PrivateIslandRentalRow;
 
 export type StockBuyRecommendation = {
   row: StockInvestmentRecommendationRow;
@@ -993,6 +1015,21 @@ export function stockBuyRecommendationFromRow(
     };
   }
 
+  if (isPrivateIslandRentalRow(row)) {
+    return {
+      row,
+      owned_shares: 0,
+      target_shares: null,
+      shares_needed: null,
+      estimated_cost: row.increment_cost,
+      annual_return: row.annual_return,
+      roi_percent: row.roi_percent,
+      ranking_roi_percent: row.roi_percent,
+      affordable: affordability(row.increment_cost, options.budget),
+      personalized: options.hasOwnedSnapshot,
+    };
+  }
+
   if (!isStockInvestmentRow(row)) {
     return null;
   }
@@ -1774,6 +1811,10 @@ function netSaleValue(grossSaleValue: number): number {
 
 export function isFhgTciHybridRow(row: StockInvestmentRecommendationRow): row is FhgTciHybridRow {
   return "synthetic_kind" in row && row.synthetic_kind === "fhg_tci_hybrid";
+}
+
+export function isPrivateIslandRentalRow(row: StockInvestmentRecommendationRow): row is PrivateIslandRentalRow {
+  return row.investment_type === "private_island";
 }
 
 function isFhgTciHybridComponentRow(row: StockInvestmentRecommendationRow): boolean {
