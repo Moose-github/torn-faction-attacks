@@ -1082,45 +1082,6 @@ h2 {
   vertical-align: middle;
 }
 
-.stock-locked-holdings-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 8px;
-}
-
-.stock-locked-holding-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 8px;
-  border: 1px solid var(--border-faint);
-  border-radius: var(--radius-sm);
-}
-
-.stock-locked-holding-row input {
-  min-height: auto;
-}
-
-.stock-locked-holding-row span {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.stock-locked-holding-row strong {
-  color: var(--text-heading);
-  font-size: 0.78rem;
-  font-weight: 900;
-}
-
-.stock-locked-holding-row small {
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 760;
-  overflow-wrap: anywhere;
-}
-
 .stock-city-bank-section {
   display: grid;
   gap: 10px;
@@ -1181,6 +1142,44 @@ h2 {
   overflow: hidden;
 }
 
+.stock-data-freshness-card {
+  overflow: hidden;
+}
+
+.stock-data-freshness-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.stock-data-freshness-list span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.stock-data-freshness-list span:last-child {
+  border-bottom: 0;
+}
+
+.stock-data-freshness-list small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.stock-data-freshness-list strong {
+  color: var(--text-heading);
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .stock-owned-investment-summary {
   display: grid;
   grid-template-columns: minmax(180px, auto) minmax(0, 1fr);
@@ -1210,14 +1209,16 @@ h2 {
 
 .stock-owned-investment-summary-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   min-width: 0;
 }
 
 .stock-owned-investment-summary-metrics span {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   min-width: 0;
   padding: 7px 8px;
   border: 1px solid var(--border-faint);
@@ -1240,6 +1241,7 @@ h2 {
   font-size: 0.78rem;
   font-weight: 900;
   line-height: 1.25;
+  text-align: right;
 }
 
 .stock-investment-table td,

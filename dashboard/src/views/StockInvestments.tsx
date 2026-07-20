@@ -69,13 +69,6 @@ type StockRoiSort = {
 
 type StockStrategyPanelTab = "strategy" | "rebalance";
 
-type StockLockOption = {
-  stock_id: number;
-  acronym: string | null;
-  name: string | null;
-  shares: number;
-};
-
 type StockPanelStorageKey = "plannerSetup" | "benefitValues";
 
 type PrivateIslandInputs = {
@@ -297,19 +290,6 @@ export function StockInvestments() {
     setMessage("Owned stock highlights cleared");
   }
 
-  function toggleLockedStock(stockId: number, locked: boolean) {
-    setLockedStockIds((current) => {
-      const next = new Set(current);
-      if (locked) {
-        next.add(stockId);
-      } else {
-        next.delete(stockId);
-      }
-      saveLockedStockIdsStorage(storageUserId, next);
-      return next;
-    });
-  }
-
   function toggleManualOwnedRow(row: StockInvestmentRecommendationRow, owned: boolean) {
     if (row.investment_type === "city_bank") {
       setCityBankActive(owned);
@@ -445,10 +425,6 @@ export function StockInvestments() {
 
   const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
   const ownedCoveredBlockCount = investmentRows.filter((row) => isStockInvestmentRow(row) && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required ?? 0)).length;
-  const lockableHoldings = React.useMemo(
-    () => ownedStockLockOptions(effectiveOwnedSnapshot, investmentRows),
-    [effectiveOwnedSnapshot, investmentRows],
-  );
   const budget = moneyInputValue(investmentAmount);
   const minRoi = percentInputValue(minimumRoi);
   const filteredRows = investmentRows.filter((row) => {
@@ -528,7 +504,6 @@ export function StockInvestments() {
   ].filter(Boolean).length;
   const disabledStockCount = roiData?.skipped.disabled ?? disabledBenefitStocks.length;
   const portfolioRefreshedAt = ownedSnapshot?.refreshed_at ?? null;
-  const freshnessLoadedCount = [stockPricesRefreshedAt, benefitValuesRefreshedAt, portfolioRefreshedAt].filter(Boolean).length;
 
   function updateRoiSort(key: StockRoiSortKey) {
     setRoiSort((current) => current.key === key
@@ -571,16 +546,10 @@ export function StockInvestments() {
               : "No priced rows"}
         />
         <OwnedInvestmentSummaryMetric summary={ownedInvestmentSummary} />
-        <StatusMetric
-          label="Data freshness"
-          value={`${formatNumber(freshnessLoadedCount)}/3 loaded`}
-          detail={(
-            <span className="stock-metric-detail-stack">
-              <span>Stock prices: {stockPricesRefreshedAt ? formatRelativeTime(stockPricesRefreshedAt) : "Not loaded"}</span>
-              <span>Benefit values: {benefitValuesRefreshedAt ? formatRelativeTime(benefitValuesRefreshedAt) : "Not loaded"}</span>
-              <span>Portfolio: {portfolioRefreshedAt ? formatRelativeTime(portfolioRefreshedAt) : "Not loaded"}</span>
-            </span>
-          )}
+        <DataFreshnessMetric
+          stockPricesRefreshedAt={stockPricesRefreshedAt}
+          benefitValuesRefreshedAt={benefitValuesRefreshedAt}
+          portfolioRefreshedAt={portfolioRefreshedAt}
         />
         <MissingValuesMetric
           missingValueCount={missingValueCount}
@@ -624,20 +593,6 @@ export function StockInvestments() {
             <div className="stock-owned-settings-title">
               <strong>Portfolio</strong>
               <span>{ownedSnapshot ? `${formatNumber(ownedCoveredBlockCount)} active blocks covered` : "Used only in this browser"}</span>
-            </div>
-            <div className="stock-owned-summary" aria-label="Owned stock snapshot summary">
-              <span>
-                <strong>{ownedSnapshot ? formatNumber(ownedStockCount) : "-"}</strong>
-                <small>Stocks loaded</small>
-              </span>
-              <span>
-                <strong>{ownedSnapshot ? formatNumber(ownedCoveredBlockCount) : "-"}</strong>
-                <small>Active blocks covered</small>
-              </span>
-              <span>
-                <strong>{ownedSnapshot ? formatRelativeTime(ownedSnapshot.refreshed_at) : "Not loaded"}</strong>
-                <small>Snapshot age</small>
-              </span>
             </div>
             <div className="stock-owned-controls-grid">
               <label>
@@ -717,7 +672,9 @@ export function StockInvestments() {
               <span>{includeFhgTciHybrid ? "Shown in recommendations" : "Hidden from recommendations"}</span>
             </div>
             <p className="stock-owned-settings-description">
-              Treats a TCI block plus 83/90 of an FHG block as one combined option, using the bank interest boost from TCI and rental yield from FHG.
+              Enables the FHG/TCI Hybrid stock option. This simulates owning the TCI block for one week when you refresh your investment,
+              then selling it and holding the FHG block for the remaining time. This give the bank interest boost from TCI while providing
+              the FHG block revenue, minus 1 week every 9 months.
             </p>
             <div className="stock-hybrid-controls">
               <label className="stock-owned-hide-toggle">
@@ -836,29 +793,6 @@ export function StockInvestments() {
             </div>
           </div>
 
-          {lockableHoldings.length > 0 ? (
-            <div className="stock-owned-settings-section stock-planner-wide-section">
-              <div className="stock-owned-settings-title">
-                <strong>Locked holdings</strong>
-                <span>{formatNumber(lockedStockIds.size)} locked</span>
-              </div>
-              <div className="stock-locked-holdings-list">
-                {lockableHoldings.map((holding) => (
-                  <label key={holding.stock_id} className="stock-locked-holding-row">
-                    <input
-                      type="checkbox"
-                      checked={lockedStockIds.has(holding.stock_id)}
-                      onChange={(event) => toggleLockedStock(holding.stock_id, event.target.checked)}
-                    />
-                    <span>
-                      <strong>{holding.acronym ?? `#${holding.stock_id}`}</strong>
-                      <small>{formatNumber(holding.shares)} shares{holding.name ? ` - ${holding.name}` : ""}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
       </CollapsiblePanel>
 
@@ -1536,6 +1470,36 @@ function StatusMetric({
   );
 }
 
+function DataFreshnessMetric({
+  stockPricesRefreshedAt,
+  benefitValuesRefreshedAt,
+  portfolioRefreshedAt,
+}: {
+  stockPricesRefreshedAt: number | null;
+  benefitValuesRefreshedAt: number | null;
+  portfolioRefreshedAt: number | null;
+}) {
+  return (
+    <div className="metric-card stock-data-freshness-card">
+      <span className="panel-kicker">Data freshness</span>
+      <div className="stock-data-freshness-list">
+        <span>
+          <small>Stock prices</small>
+          <strong>{stockPricesRefreshedAt ? formatRelativeTime(stockPricesRefreshedAt) : "Not loaded"}</strong>
+        </span>
+        <span>
+          <small>Benefit values</small>
+          <strong>{benefitValuesRefreshedAt ? formatRelativeTime(benefitValuesRefreshedAt) : "Not loaded"}</strong>
+        </span>
+        <span>
+          <small>Portfolio</small>
+          <strong>{portfolioRefreshedAt ? formatRelativeTime(portfolioRefreshedAt) : "Not loaded"}</strong>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function OwnedInvestmentSummaryMetric({ summary }: { summary: OwnedInvestmentSummary }) {
   const label = ownedInvestmentSummaryLabel(summary);
   return (
@@ -2134,32 +2098,6 @@ function isInvestmentRowCovered(
   }
 
   return false;
-}
-
-function ownedStockLockOptions(snapshot: OwnedStockSnapshot | null, rows: StockInvestmentRecommendationRow[]): StockLockOption[] {
-  if (!snapshot) {
-    return [];
-  }
-
-  const stockLabels = rows.filter(isStockInvestmentRow).reduce((map, row) => {
-    if (!map.has(row.stock_id)) {
-      map.set(row.stock_id, {
-        acronym: row.acronym,
-        name: row.name,
-      });
-    }
-    return map;
-  }, new Map<number, Pick<StockLockOption, "acronym" | "name">>());
-
-  return snapshot.stocks
-    .filter((stock) => stock.shares > 0)
-    .map((stock) => ({
-      stock_id: stock.stock_id,
-      acronym: stockLabels.get(stock.stock_id)?.acronym ?? null,
-      name: stockLabels.get(stock.stock_id)?.name ?? null,
-      shares: stock.shares,
-    }))
-    .sort((left, right) => compareText(left.acronym ?? `#${left.stock_id}`, right.acronym ?? `#${right.stock_id}`));
 }
 
 function stockCostDetail(row: StockInvestmentRecommendationRow, metrics: StockInvestmentRowMetrics): string | null {
