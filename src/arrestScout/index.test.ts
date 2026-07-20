@@ -94,8 +94,15 @@ describe("scanArrestScout", () => {
       current_jailed: 5,
       historical_jailed: 5,
       jailed_delta: 0,
+      estimated_last_arrest_timestamp: 1_800_000_000,
+      estimated_last_arrest_date: "2027-01-15 08:00:00 UTC",
     });
     expect(body.results.map((row: any) => row.target_user_id)).toEqual([111, 222]);
+    expect(body.results[1]).toMatchObject({
+      target_user_id: 222,
+      estimated_last_arrest_timestamp: null,
+      estimated_last_arrest_date: null,
+    });
     expect(db.snapshots).toHaveLength(1);
     expect(db.snapshots[0]).toMatchObject({
       scanned_by_torn_user_id: 3238283,

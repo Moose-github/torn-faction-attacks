@@ -93,6 +93,11 @@ export type ArrestScoutResultRow = {
   created_at: number;
 };
 
+export type ArrestScoutResultResponse = ArrestScoutResultRow & {
+  estimated_last_arrest_timestamp: number | null;
+  estimated_last_arrest_date: string | null;
+};
+
 export type ArrestScoutSnapshotRow = {
   id: string;
   source_type: string;
@@ -164,9 +169,9 @@ export type ArrestScoutScanResponse = {
   inactive_count: number;
   ignored_count: number;
   error_count: number;
-  current_targets: ArrestScoutResultRow[];
-  future_targets: ArrestScoutResultRow[];
-  results: ArrestScoutResultRow[];
+  current_targets: ArrestScoutResultResponse[];
+  future_targets: ArrestScoutResultResponse[];
+  results: ArrestScoutResultResponse[];
 };
 
 export const ARREST_SCOUT_STAT_KEYS = ["jailed", "counterfeiting", "forgeryskill", "fraud", "scammingskill", "criminaloffenses"] as const;

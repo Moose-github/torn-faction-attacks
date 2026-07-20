@@ -23,6 +23,7 @@ import {
   type ArrestScoutFutureTargetRow,
   type ArrestScoutFactionHofFaction,
   type ArrestScoutFactionHofResponse,
+  type ArrestScoutResultResponse,
   type ArrestScoutResultRow,
   type ArrestScoutScanResponse,
   type ArrestScoutSettings,
@@ -805,7 +806,7 @@ function delayFutureTargetStatement(env: Env, result: PendingResult, nextCheckAf
   );
 }
 
-async function readResultsForSnapshot(env: Env, snapshotId: string): Promise<ArrestScoutResultRow[]> {
+async function readResultsForSnapshot(env: Env, snapshotId: string): Promise<ArrestScoutResultResponse[]> {
   const rows = await env.DB.prepare(
     `
     SELECT *
@@ -829,7 +830,7 @@ async function readResultsForSnapshot(env: Env, snapshotId: string): Promise<Arr
     .bind(snapshotId)
     .all<ArrestScoutResultRow>();
 
-  return rows.results ?? [];
+  return (rows.results ?? []).map(withEstimatedLastArrest);
 }
 
 function countResults(results: PendingResult[]) {
@@ -844,6 +845,33 @@ function countResults(results: PendingResult[]) {
     ignored_count: results.filter((row) => row.classification === "ignored").length,
     error_count: results.filter((row) => row.classification === "error").length,
   };
+}
+
+function withEstimatedLastArrest(row: ArrestScoutResultRow): ArrestScoutResultResponse {
+  const timestamp = estimatedLastArrestTimestamp(row);
+  return {
+    ...row,
+    estimated_last_arrest_timestamp: timestamp,
+    estimated_last_arrest_date: timestamp === null ? null : formatReadableUtcTimestamp(timestamp),
+  };
+}
+
+function estimatedLastArrestTimestamp(row: ArrestScoutResultRow): number | null {
+  if (
+    row.current_jailed_timestamp === null ||
+    row.historical_jailed_timestamp === null ||
+    row.current_jailed_timestamp !== row.historical_jailed_timestamp
+  ) {
+    return null;
+  }
+  return row.current_jailed_timestamp;
+}
+
+function formatReadableUtcTimestamp(timestamp: number): string {
+  return new Date(Math.trunc(timestamp) * 1000)
+    .toISOString()
+    .replace("T", " ")
+    .replace(".000Z", " UTC");
 }
 
 function targetStatsFromPersonalStats(stats: TornPersonalStatsResponse): ArrestScoutTargetStats {

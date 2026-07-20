@@ -457,6 +457,7 @@ function ResultPanel({ title, results, emptyText }: { title: string; results: Ar
                 <th>Fraud delta</th>
                 <th>Criminal offenses</th>
                 <th>Jailed delta</th>
+                <th>Estimated last arrest</th>
                 <th>Skills</th>
                 <th>Classification</th>
               </tr>
@@ -470,6 +471,7 @@ function ResultPanel({ title, results, emptyText }: { title: string; results: Ar
                   <td>{nullableNumber(result.fraud_delta)}</td>
                   <td>{nullableNumber(result.criminaloffenses_delta)}</td>
                   <td>{nullableNumber(result.jailed_delta)}</td>
+                  <td>{estimatedLastArrestLabel(result)}</td>
                   <td>
                     <strong>{nullableNumber(result.current_forgeryskill)} / {nullableNumber(result.current_scammingskill)}</strong>
                     <small>forgery / scamming</small>
@@ -516,6 +518,7 @@ function ScanResultsPanel({
                 <th>Fraud</th>
                 <th>Criminal offenses</th>
                 <th>Jailed</th>
+                <th>Estimated last arrest</th>
                 <th>Skills</th>
                 <th>Notes</th>
               </tr>
@@ -546,6 +549,7 @@ function ScanResultsPanel({
                     <strong>{nullableNumber(result.jailed_delta)}</strong>
                     <small>{nullableNumber(result.historical_jailed)} to {nullableNumber(result.current_jailed)}</small>
                   </td>
+                  <td>{estimatedLastArrestLabel(result)}</td>
                   <td>
                     <strong>{nullableNumber(result.current_forgeryskill)} / {nullableNumber(result.current_scammingskill)}</strong>
                     <small>forgery / scamming</small>
@@ -604,6 +608,10 @@ function nonNegativeInteger(value: string, fallback: number): number {
 
 function nullableNumber(value: number | null): string {
   return value === null ? "-" : formatNumber(value);
+}
+
+function estimatedLastArrestLabel(result: ArrestScoutResult): string {
+  return result.estimated_last_arrest_date ?? "-";
 }
 
 function classificationLabel(value: string): string {

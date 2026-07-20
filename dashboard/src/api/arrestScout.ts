@@ -30,6 +30,8 @@ export type ArrestScoutResult = {
   current_jailed: number | null;
   historical_jailed: number | null;
   jailed_delta: number | null;
+  estimated_last_arrest_timestamp: number | null;
+  estimated_last_arrest_date: string | null;
   notes_json: string;
   created_at: number;
 };
