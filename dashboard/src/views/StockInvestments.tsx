@@ -54,7 +54,7 @@ const CITY_BANK_TERM_DAYS = 90;
 const MANUAL_BENEFIT_VALUES_SECTION_ID = "stock-benefit-manual-values";
 const PRIVATE_ISLAND_ROW_ID = "private_island:rental";
 const DEFAULT_PRIVATE_ISLAND_COUNT = "0";
-const DEFAULT_PRIVATE_ISLAND_COST = "1675000000";
+const DEFAULT_PRIVATE_ISLAND_COST = "1700000000";
 const DEFAULT_PRIVATE_ISLAND_DAILY_RENT = "900000";
 const DEFAULT_PRIVATE_ISLAND_VACANT_DAYS = "7";
 
@@ -101,6 +101,7 @@ export function StockInvestments() {
   const [includeFhgTciHybrid, setIncludeFhgTciHybrid] = React.useState(false);
   const [cityBankActive, setCityBankActive] = React.useState(false);
   const [fhgTciHybridActive, setFhgTciHybridActive] = React.useState(false);
+  const [includePrivateIslandRental, setIncludePrivateIslandRental] = React.useState(true);
   const [bankMerits, setBankMerits] = React.useState(0);
   const [manualOwnedRowIds, setManualOwnedRowIds] = React.useState<Set<string>>(() => new Set());
   const [privateIslandInputs, setPrivateIslandInputs] = React.useState<PrivateIslandInputs>({
@@ -302,6 +303,10 @@ export function StockInvestments() {
         ...privateIslandInputs,
         count: owned ? (privateIslandRentalCount(privateIslandInputs) > 0 ? privateIslandInputs.count : "1") : "0",
       };
+      if (owned) {
+        setIncludePrivateIslandRental(true);
+        savePrivateIslandEnabledStorage(storageUserId, true);
+      }
       setPrivateIslandInputs(nextInputs);
       savePrivateIslandStorage(storageUserId, nextInputs);
       return;
@@ -364,6 +369,7 @@ export function StockInvestments() {
     setLockedStockIds(readLockedStockIdsStorage(storageUserId));
     setManualOwnedRowIds(readManualOwnedRowIdsStorage(storageUserId));
     setPrivateIslandInputs(readPrivateIslandStorage(storageUserId));
+    setIncludePrivateIslandRental(readPrivateIslandEnabledStorage(storageUserId));
     setCityBankActive(storedCityBank.active);
     setFhgTciHybridActive(storedFhgTciHybridActive);
     setBankMerits(storedCityBank.merits);
@@ -377,19 +383,21 @@ export function StockInvestments() {
   );
   const fhgTciHybridRow = React.useMemo(() => buildFhgTciHybridRow(baseInvestmentRows), [baseInvestmentRows]);
   const privateIslandRow = React.useMemo(() => buildPrivateIslandRentalRow(privateIslandInputs), [privateIslandInputs]);
+  const effectivePrivateIslandRow = includePrivateIslandRental ? privateIslandRow : null;
+  const activePrivateIslandRentalCount = includePrivateIslandRental ? privateIslandRentalCount(privateIslandInputs) : 0;
   const investmentRows = React.useMemo<StockInvestmentRecommendationRow[]>(
     () => [
       ...baseInvestmentRows,
       ...(includeFhgTciHybrid && fhgTciHybridRow ? [fhgTciHybridRow] : []),
-      ...(privateIslandRow ? [privateIslandRow] : []),
+      ...(effectivePrivateIslandRow ? [effectivePrivateIslandRow] : []),
     ],
-    [baseInvestmentRows, fhgTciHybridRow, includeFhgTciHybrid, privateIslandRow],
+    [baseInvestmentRows, effectivePrivateIslandRow, fhgTciHybridRow, includeFhgTciHybrid],
   );
   const ownedShares = React.useMemo(
     () => effectiveOwnedSharesMap(loadedOwnedShares, investmentRows, manualOwnedRowIds),
     [loadedOwnedShares, investmentRows, manualOwnedRowIds],
   );
-  const hasOwnershipState = ownedSnapshot !== null || manualOwnedRowIds.size > 0 || cityBankActive || privateIslandRentalCount(privateIslandInputs) > 0;
+  const hasOwnershipState = ownedSnapshot !== null || manualOwnedRowIds.size > 0 || cityBankActive || activePrivateIslandRentalCount > 0;
   const effectiveOwnedSnapshot = React.useMemo<OwnedStockSnapshot | null>(
     () => ownedSnapshotWithShares(ownedSnapshot, ownedShares, manualOwnedRowIds.size > 0),
     [ownedSnapshot, ownedShares, manualOwnedRowIds],
@@ -431,7 +439,7 @@ export function StockInvestments() {
     if (isFhgTciHybridRow(row) && !cityBankActive) {
       return false;
     }
-    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, privateIslandRentalCount(privateIslandInputs) > 0, fhgTciHybridBaselineShares, fhgTciHybridReservedShares)) {
+    if (hideOwnedBlocks && isInvestmentRowCovered(row, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, activePrivateIslandRentalCount > 0, fhgTciHybridBaselineShares, fhgTciHybridReservedShares)) {
       return false;
     }
     const rowMetrics = stockInvestmentRowMetrics(row, {
@@ -487,9 +495,9 @@ export function StockInvestments() {
     fhgTciHybridActive: effectiveFhgTciHybridActive,
     fhgTciHybridBaselineShares,
     fhgTciHybridReservedShares,
-    privateIslandRow,
-    privateIslandCount: privateIslandRentalCount(privateIslandInputs),
-  }), [investmentRows, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares, privateIslandRow, privateIslandInputs]);
+    privateIslandRow: effectivePrivateIslandRow,
+    privateIslandCount: activePrivateIslandRentalCount,
+  }), [investmentRows, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares, effectivePrivateIslandRow, activePrivateIslandRentalCount]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
@@ -719,8 +727,20 @@ export function StockInvestments() {
           <div className="stock-owned-settings-section">
             <div className="stock-owned-settings-title">
               <strong>Private Island rental</strong>
-              <span>{privateIslandRentalCount(privateIslandInputs) > 0 ? "Included in summary" : "Available as an option"}</span>
+              <span>{!includePrivateIslandRental ? "Hidden from recommendations" : activePrivateIslandRentalCount > 0 ? "Included in summary" : "Available as an option"}</span>
             </div>
+            <label className="stock-owned-hide-toggle stock-private-island-toggle">
+              <input
+                type="checkbox"
+                checked={includePrivateIslandRental}
+                onChange={(event) => {
+                  const nextEnabled = event.target.checked;
+                  setIncludePrivateIslandRental(nextEnabled);
+                  savePrivateIslandEnabledStorage(storageUserId, nextEnabled);
+                }}
+              />
+              <span>Enable Private Island rental option</span>
+            </label>
             <div className="stock-private-island-grid">
               <label>
                 <span>How many renting?</span>
@@ -737,7 +757,7 @@ export function StockInvestments() {
                   inputMode="numeric"
                   value={privateIslandInputs.costEach}
                   onChange={(event) => updatePrivateIslandInput("costEach", event.target.value)}
-                  placeholder="1,675,000,000"
+                  placeholder="1,700,000,000"
                 />
               </label>
               <label>
@@ -942,7 +962,7 @@ export function StockInvestments() {
         ) : rows.length === 0 ? (
           <EmptyState text="No investment opportunities match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} ownedShares={ownedShares} manuallyOwnedRowIds={manualOwnedRowIds} lockedStockIds={lockedStockIds} hasOwnedSnapshot={hasOwnershipState} cityBankActive={cityBankActive} privateIslandActive={privateIslandRentalCount(privateIslandInputs) > 0} fhgTciHybridActive={effectiveFhgTciHybridActive} fhgTciHybridBaselineShares={fhgTciHybridBaselineShares} fhgTciHybridReservedShares={fhgTciHybridReservedShares} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} onToggleOwned={toggleManualOwnedRow} />
+          <StockRoiTable rows={rows} ownedShares={ownedShares} manuallyOwnedRowIds={manualOwnedRowIds} lockedStockIds={lockedStockIds} hasOwnedSnapshot={hasOwnershipState} cityBankActive={cityBankActive} privateIslandActive={activePrivateIslandRentalCount > 0} fhgTciHybridActive={effectiveFhgTciHybridActive} fhgTciHybridBaselineShares={fhgTciHybridBaselineShares} fhgTciHybridReservedShares={fhgTciHybridReservedShares} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} onToggleOwned={toggleManualOwnedRow} />
         )}
       </section>
 
@@ -2337,7 +2357,7 @@ function readPrivateIslandStorage(userId: number | null): PrivateIslandInputs {
     const record = parsed as Partial<Record<keyof PrivateIslandInputs, unknown>>;
     return {
       count: stringInput(record.count, DEFAULT_PRIVATE_ISLAND_COUNT),
-      costEach: stringInput(record.costEach, DEFAULT_PRIVATE_ISLAND_COST),
+      costEach: privateIslandCostInput(record.costEach),
       dailyRentEach: stringInput(record.dailyRentEach, DEFAULT_PRIVATE_ISLAND_DAILY_RENT),
       vacantDays: stringInput(record.vacantDays, DEFAULT_PRIVATE_ISLAND_VACANT_DAYS),
     };
@@ -2356,8 +2376,31 @@ function savePrivateIslandStorage(userId: number | null, inputs: PrivateIslandIn
   window.localStorage.setItem(key, JSON.stringify(inputs));
 }
 
+function readPrivateIslandEnabledStorage(userId: number | null): boolean {
+  const key = privateIslandEnabledStorageKey(userId);
+  if (!key) {
+    return true;
+  }
+
+  const raw = window.localStorage.getItem(key);
+  return raw === null ? true : raw === "1";
+}
+
+function savePrivateIslandEnabledStorage(userId: number | null, enabled: boolean): void {
+  const key = privateIslandEnabledStorageKey(userId);
+  if (!key) {
+    return;
+  }
+
+  window.localStorage.setItem(key, enabled ? "1" : "0");
+}
+
 function privateIslandStorageKey(userId: number | null): string | null {
   return userId ? `stockRoiPrivateIsland:${userId}` : null;
+}
+
+function privateIslandEnabledStorageKey(userId: number | null): string | null {
+  return userId ? `stockRoiPrivateIslandEnabled:${userId}` : null;
 }
 
 function readCityBankStorage(userId: number | null): { active: boolean; merits: number } {
@@ -2470,6 +2513,11 @@ function boundedWholeNumberInputValue(value: string, min: number, max: number): 
 
 function stringInput(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
+}
+
+function privateIslandCostInput(value: unknown): string {
+  const stored = stringInput(value, DEFAULT_PRIVATE_ISLAND_COST);
+  return stored === "1675000000" ? DEFAULT_PRIVATE_ISLAND_COST : stored;
 }
 
 function percentInputValue(value: string): number | null {
