@@ -8033,6 +8033,59 @@ h2 {
   margin-left: auto;
 }
 
+.arrest-scout-feedback-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.arrest-scout-feedback-summary {
+  align-items: center;
+}
+
+.arrest-scout-feedback-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.arrest-scout-feedback-chart-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
+  background: var(--panel-muted-bg);
+}
+
+.arrest-scout-feedback-chart {
+  min-width: 0;
+  height: 260px;
+}
+
+.arrest-scout-feedback-controls {
+  display: grid;
+  gap: 6px;
+  min-width: 150px;
+}
+
+.arrest-scout-feedback-controls input {
+  min-width: 0;
+  width: 100%;
+}
+
+.arrest-scout-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.arrest-scout-feedback-actions .panel-action-button {
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
 .trade-scout-selected-meta .trade-scout-freshness.fresh {
   border-color: rgba(22, 163, 74, 0.45);
   color: #16a34a;

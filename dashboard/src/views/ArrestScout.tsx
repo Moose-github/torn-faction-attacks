@@ -1,12 +1,26 @@
 import React from "react";
 import { ChevronDown, ChevronRight, RefreshCw, Search, ShieldCheck, TimerReset, UserSearch } from "lucide-react";
 import {
+  CartesianGrid,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  getArrestScoutFeedback,
   getArrestScoutSnapshot,
   getArrestScoutFactionHof,
   getArrestScoutFutureTargets,
   getArrestScoutSnapshots,
   scanArrestScout,
+  submitArrestScoutFeedback,
   type ArrestScoutFactionHofFaction,
+  type ArrestScoutFeedbackOutcome,
+  type ArrestScoutFeedbackPoint,
+  type ArrestScoutFeedbackResponse,
   type ArrestScoutFutureTarget,
   type ArrestScoutResult,
   type ArrestScoutScanResponse,
@@ -20,6 +34,12 @@ const DEFAULT_MIN_COUNTERFEITING_DELTA = "500";
 const DEFAULT_MIN_FRAUD_DELTA = "500";
 const DEFAULT_HOF_LIMIT = "100";
 const DEFAULT_HOF_OFFSET = "0";
+const FEEDBACK_GRAPH_METRICS = [
+  { key: "score", label: "Score" },
+  { key: "counterfeiting_delta", label: "Counterfeiting delta" },
+  { key: "fraud_delta", label: "Fraud delta" },
+  { key: "criminaloffenses_delta", label: "Criminal offenses delta" },
+] as const;
 
 export function ArrestScout() {
   const [targetIds, setTargetIds] = React.useState("");
@@ -43,12 +63,17 @@ export function ArrestScout() {
   const [scanResult, setScanResult] = React.useState<ArrestScoutScanResponse | null>(null);
   const [snapshots, setSnapshots] = React.useState<ArrestScoutSnapshot[]>([]);
   const [futureTargets, setFutureTargets] = React.useState<ArrestScoutFutureTarget[]>([]);
+  const [feedback, setFeedback] = React.useState<ArrestScoutFeedbackResponse | null>(null);
+  const [feedbackProfitInputs, setFeedbackProfitInputs] = React.useState<Record<string, string>>({});
+  const [feedbackNotice, setFeedbackNotice] = React.useState<string | null>(null);
   const [selectedSnapshot, setSelectedSnapshot] = React.useState<ArrestScoutSnapshot | null>(null);
   const [selectedSnapshotResults, setSelectedSnapshotResults] = React.useState<ArrestScoutResult[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoadingFeedback, setIsLoadingFeedback] = React.useState(true);
   const [isLoadingFactionHof, setIsLoadingFactionHof] = React.useState(false);
   const [isLoadingSnapshotResults, setIsLoadingSnapshotResults] = React.useState(false);
   const [isScanning, setIsScanning] = React.useState(false);
+  const [savingFeedbackKey, setSavingFeedbackKey] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const parsedTargetIds = React.useMemo(() => parseTargetIds(targetIds), [targetIds]);
@@ -64,6 +89,7 @@ export function ArrestScout() {
 
   React.useEffect(() => {
     void loadHistory();
+    void loadFeedback();
   }, []);
 
   async function loadHistory() {
@@ -81,6 +107,17 @@ export function ArrestScout() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function loadFeedback() {
+    setIsLoadingFeedback(true);
+    try {
+      setFeedback(await getArrestScoutFeedback());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoadingFeedback(false);
     }
   }
 
@@ -214,9 +251,36 @@ export function ArrestScout() {
     }
   }
 
+  async function submitFeedback(result: ArrestScoutResult, outcome: ArrestScoutFeedbackOutcome) {
+    const profit = outcome === "success" ? profitInputValue(feedbackProfitInputs[result.id] ?? "") : null;
+    if (profit === "invalid") {
+      setError("Profit must be a nonnegative whole number.");
+      return;
+    }
+
+    const feedbackKey = `${result.id}:${outcome}`;
+    setSavingFeedbackKey(feedbackKey);
+    setError(null);
+    setFeedbackNotice(null);
+
+    try {
+      await submitArrestScoutFeedback(result.id, { outcome, profit });
+      setFeedbackNotice(`${outcome === "success" ? "Success" : "Fail"} feedback saved for ${result.name ?? result.target_user_id}.`);
+      if (outcome === "success") {
+        setFeedbackProfitInputs((current) => ({ ...current, [result.id]: "" }));
+      }
+      await loadFeedback();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingFeedbackKey(null);
+    }
+  }
+
   return (
     <>
       {error ? <div className="error-panel">{error}</div> : null}
+      {feedbackNotice ? <div className="dashboard-suggestion-success">{feedbackNotice}</div> : null}
 
       <section className="hero-panel compact-hero-panel">
         <div>
@@ -250,6 +314,8 @@ export function ArrestScout() {
             detail={`${formatNumber(errorCount)} errors`}
           />
         </section>
+
+        <FeedbackPatternPanel feedback={feedback} isLoading={isLoadingFeedback} />
 
         <section className="panel trade-scout-form-panel">
           <PanelHeader
@@ -417,7 +483,17 @@ export function ArrestScout() {
           )}
         </section>
 
-        <ResultPanel title="Current targets" results={currentTargets} emptyText="No current targets in the latest scan" />
+        <ResultPanel
+          title="Current targets"
+          results={currentTargets}
+          emptyText="No current targets in the latest scan"
+          feedbackProfitInputs={feedbackProfitInputs}
+          savingFeedbackKey={savingFeedbackKey}
+          onFeedbackProfitChange={(resultId, value) =>
+            setFeedbackProfitInputs((current) => ({ ...current, [resultId]: value }))
+          }
+          onSubmitFeedback={submitFeedback}
+        />
         <ResultPanel title="Future targets from scan" results={latestFutureTargets} emptyText="No future targets in the latest scan" />
 
         <section className="panel table-panel">
@@ -556,7 +632,190 @@ export function ArrestScout() {
   );
 }
 
-function ResultPanel({ title, results, emptyText }: { title: string; results: ArrestScoutResult[]; emptyText: string }) {
+function FeedbackPatternPanel({
+  feedback,
+  isLoading,
+}: {
+  feedback: ArrestScoutFeedbackResponse | null;
+  isLoading: boolean;
+}) {
+  const points = feedback?.points ?? [];
+  return (
+    <section className="panel table-panel arrest-scout-feedback-panel">
+      <PanelHeader
+        title="Arrest feedback patterns"
+        aside={isLoading ? "Loading" : `${formatNumber(feedback?.total_count ?? 0)} attempts`}
+      />
+      <div className="trade-scout-selected-meta arrest-scout-feedback-summary">
+        <span>{formatNumber(feedback?.success_count ?? 0)} success</span>
+        <span>{formatNumber(feedback?.fail_count ?? 0)} fails</span>
+        <span>{formatMoney(feedback?.total_profit ?? 0)} profit</span>
+      </div>
+      {points.length === 0 ? (
+        <EmptyState text={isLoading ? "Loading feedback" : "No arrest feedback recorded yet"} />
+      ) : (
+        <div className="arrest-scout-feedback-grid">
+          {FEEDBACK_GRAPH_METRICS.map((metric) => (
+            <FeedbackScatterCard key={metric.key} metric={metric} points={points} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function FeedbackScatterCard({
+  metric,
+  points,
+}: {
+  metric: typeof FEEDBACK_GRAPH_METRICS[number];
+  points: ArrestScoutFeedbackPoint[];
+}) {
+  const data: ArrestScoutFeedbackChartPoint[] = [];
+  for (const point of points) {
+    const x = point.days_since_estimated_last_arrest;
+    const y = point[metric.key];
+    if (x === null || y === null) {
+      continue;
+    }
+    data.push({
+      ...point,
+      x,
+      y,
+      yLabel: metric.label,
+    });
+  }
+  const successes = data.filter((point) => point.outcome === "success");
+  const failures = data.filter((point) => point.outcome === "fail");
+
+  return (
+    <div className="arrest-scout-feedback-chart-card">
+      <div className="member-point-chart-header">
+        <strong>{metric.label}</strong>
+        <span>{formatNumber(data.length)} points</span>
+      </div>
+      {data.length === 0 ? (
+        <EmptyState text="No comparable feedback values" />
+      ) : (
+        <div className="arrest-scout-feedback-chart">
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 8, right: 14, left: 0, bottom: 8 }}>
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
+              <XAxis
+                type="number"
+                dataKey="x"
+                name="Days since estimated last arrest"
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "var(--chart-axis)" }}
+              />
+              <YAxis
+                type="number"
+                dataKey="y"
+                name={metric.label}
+                tickLine={false}
+                axisLine={false}
+                width={56}
+                tick={{ fill: "var(--chart-axis)" }}
+              />
+              <Tooltip content={<FeedbackPointTooltip />} />
+              <Scatter name="Success" data={successes} fill="#16a34a" fillOpacity={0.82} />
+              <Scatter name="Fail" data={failures} fill="#dc2626" fillOpacity={0.82} />
+            </ScatterChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ArrestScoutFeedbackChartPoint = ArrestScoutFeedbackPoint & {
+  x: number;
+  y: number;
+  yLabel: string;
+};
+
+function FeedbackPointTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload?: ArrestScoutFeedbackChartPoint }> }) {
+  const point = active ? payload?.[0]?.payload : null;
+  if (!point) return null;
+
+  return (
+    <div className="chart-tooltip-card">
+      <strong>{point.name ?? point.target_user_id}</strong>
+      <span>{point.outcome === "success" ? "Success" : "Fail"}</span>
+      <span>Days since estimated last arrest: {formatNumber(point.x)}</span>
+      <span>{point.yLabel}: {formatNumber(point.y)}</span>
+      {point.profit !== null ? <span>Profit: {formatMoney(point.profit)}</span> : null}
+      <span>Attempt: {formatRelativeTime(point.created_at)}</span>
+    </div>
+  );
+}
+
+function FeedbackControls({
+  result,
+  profitValue,
+  savingFeedbackKey,
+  onProfitChange,
+  onSubmit,
+}: {
+  result: ArrestScoutResult;
+  profitValue: string;
+  savingFeedbackKey: string | null;
+  onProfitChange: (value: string) => void;
+  onSubmit: (outcome: ArrestScoutFeedbackOutcome) => void;
+}) {
+  const successKey = `${result.id}:success`;
+  const failKey = `${result.id}:fail`;
+  return (
+    <div className="arrest-scout-feedback-controls">
+      <input
+        inputMode="numeric"
+        value={profitValue}
+        onChange={(event) => onProfitChange(event.target.value)}
+        placeholder="Profit"
+      />
+      <div className="arrest-scout-feedback-actions">
+        <button
+          type="button"
+          className="panel-action-button primary-action"
+          disabled={savingFeedbackKey !== null}
+          onClick={() => onSubmit("success")}
+        >
+          {savingFeedbackKey === successKey ? <RefreshCw size={13} className="spinning-icon" /> : null}
+          Success
+        </button>
+        <button
+          type="button"
+          className="panel-action-button"
+          disabled={savingFeedbackKey !== null}
+          onClick={() => onSubmit("fail")}
+        >
+          {savingFeedbackKey === failKey ? <RefreshCw size={13} className="spinning-icon" /> : null}
+          Fail
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ResultPanel({
+  title,
+  results,
+  emptyText,
+  feedbackProfitInputs,
+  savingFeedbackKey,
+  onFeedbackProfitChange,
+  onSubmitFeedback,
+}: {
+  title: string;
+  results: ArrestScoutResult[];
+  emptyText: string;
+  feedbackProfitInputs?: Record<string, string>;
+  savingFeedbackKey?: string | null;
+  onFeedbackProfitChange?: (resultId: string, value: string) => void;
+  onSubmitFeedback?: (result: ArrestScoutResult, outcome: ArrestScoutFeedbackOutcome) => void;
+}) {
+  const showFeedback = Boolean(onSubmitFeedback && onFeedbackProfitChange && feedbackProfitInputs);
   return (
     <section className="panel table-panel">
       <PanelHeader title={title} aside={`${results.length}`} />
@@ -576,6 +835,7 @@ function ResultPanel({ title, results, emptyText }: { title: string; results: Ar
                 <th>Estimated last arrest</th>
                 <th>Skills</th>
                 <th>Classification</th>
+                {showFeedback ? <th>Feedback</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -593,6 +853,17 @@ function ResultPanel({ title, results, emptyText }: { title: string; results: Ar
                     <small>forgery / scamming</small>
                   </td>
                   <td><span className="trade-quality-badge good">{classificationLabel(result.classification)}</span></td>
+                  {showFeedback ? (
+                    <td>
+                      <FeedbackControls
+                        result={result}
+                        profitValue={feedbackProfitInputs?.[result.id] ?? ""}
+                        savingFeedbackKey={savingFeedbackKey ?? null}
+                        onProfitChange={(value) => onFeedbackProfitChange?.(result.id, value)}
+                        onSubmit={(outcome) => onSubmitFeedback?.(result, outcome)}
+                      />
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -724,6 +995,18 @@ function nonNegativeInteger(value: string, fallback: number): number {
 
 function nullableNumber(value: number | null): string {
   return value === null ? "-" : formatNumber(value);
+}
+
+function profitInputValue(value: string): number | null | "invalid" {
+  if (!value.trim()) {
+    return null;
+  }
+  const parsed = Math.floor(Number(value.replace(/[,_\s]/g, "")));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : "invalid";
+}
+
+function formatMoney(value: number): string {
+  return `$${formatNumber(value)}`;
 }
 
 function estimatedLastArrestLabel(result: ArrestScoutResult): string {

@@ -26,7 +26,12 @@ vi.mock("../tornKeyPool", () => ({
   TornKeyPoolUnavailableError: mocks.TornKeyPoolUnavailableError,
 }));
 
-import { listArrestScoutFactionHof, scanArrestScout } from "./index";
+import {
+  listArrestScoutFactionHof,
+  listArrestScoutFeedback,
+  recordArrestScoutFeedback,
+  scanArrestScout,
+} from "./index";
 
 describe("scanArrestScout", () => {
   beforeEach(() => {
@@ -95,7 +100,7 @@ describe("scanArrestScout", () => {
       historical_jailed: 5,
       jailed_delta: 0,
       estimated_last_arrest_timestamp: 1_800_000_000,
-      estimated_last_arrest_date: "2027-01-15 08:00:00 UTC",
+      estimated_last_arrest_date: "2027-01-15",
     });
     expect(body.results.map((row: any) => row.target_user_id)).toEqual([111, 222]);
     expect(body.results[1]).toMatchObject({
@@ -407,6 +412,174 @@ describe("listArrestScoutFactionHof", () => {
   });
 });
 
+describe("arrest scout feedback", () => {
+  it("records successful current-target feedback with profit", async () => {
+    const db = new FakeArrestScoutD1({
+      results: [
+        resultFixture({
+          id: "snapshot:0",
+          snapshot_id: "snapshot",
+          target_user_id: 111,
+          classification: "current_target",
+        }),
+      ],
+    });
+
+    const response = await recordArrestScoutFeedback(
+      jsonRequest({ outcome: "success", profit: 123_456 }),
+      { DB: db } as any,
+      "snapshot:0",
+      3238283,
+    );
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(body.feedback).toMatchObject({
+      result_id: "snapshot:0",
+      snapshot_id: "snapshot",
+      target_user_id: 111,
+      outcome: "success",
+      profit: 123_456,
+      submitted_by_torn_user_id: 3238283,
+    });
+    expect(db.feedback).toHaveLength(1);
+    expect(db.feedback[0]).toMatchObject({
+      result_id: "snapshot:0",
+      outcome: "success",
+      profit: 123_456,
+    });
+  });
+
+  it("records failed current-target feedback without profit", async () => {
+    const db = new FakeArrestScoutD1({
+      results: [
+        resultFixture({
+          id: "snapshot:0",
+          snapshot_id: "snapshot",
+          target_user_id: 111,
+          classification: "current_target",
+        }),
+      ],
+    });
+
+    const response = await recordArrestScoutFeedback(
+      jsonRequest({ outcome: "fail", profit: 999_999 }),
+      { DB: db } as any,
+      "snapshot:0",
+      3238283,
+    );
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(body.feedback).toMatchObject({
+      outcome: "fail",
+      profit: null,
+    });
+    expect(db.feedback[0]).toMatchObject({
+      outcome: "fail",
+      profit: null,
+    });
+  });
+
+  it("rejects feedback for unknown or non-current target results", async () => {
+    const db = new FakeArrestScoutD1({
+      results: [
+        resultFixture({
+          id: "snapshot:0",
+          snapshot_id: "snapshot",
+          target_user_id: 111,
+          classification: "future_target",
+        }),
+      ],
+    });
+
+    const missingResponse = await recordArrestScoutFeedback(
+      jsonRequest({ outcome: "success" }),
+      { DB: db } as any,
+      "missing",
+      3238283,
+    );
+    const nonCurrentResponse = await recordArrestScoutFeedback(
+      jsonRequest({ outcome: "success" }),
+      { DB: db } as any,
+      "snapshot:0",
+      3238283,
+    );
+
+    expect(missingResponse.status).toBe(404);
+    expect(await missingResponse.json()).toMatchObject({ code: "RESULT_NOT_FOUND" });
+    expect(nonCurrentResponse.status).toBe(400);
+    expect(await nonCurrentResponse.json()).toMatchObject({ code: "FEEDBACK_NOT_CURRENT_TARGET" });
+    expect(db.feedback).toHaveLength(0);
+  });
+
+  it("returns graph-ready feedback points with days since estimated last arrest", async () => {
+    const db = new FakeArrestScoutD1({
+      results: [
+        resultFixture({
+          id: "snapshot:0",
+          snapshot_id: "snapshot",
+          target_user_id: 111,
+          name: "Target",
+          classification: "current_target",
+          score: 80,
+          counterfeiting_delta: 700,
+          fraud_delta: 600,
+          criminaloffenses_delta: 44,
+          current_jailed_timestamp: 1_800_000_000,
+          historical_jailed_timestamp: 1_800_000_000,
+        }),
+      ],
+      feedback: [
+        {
+          id: "feedback-1",
+          result_id: "snapshot:0",
+          snapshot_id: "snapshot",
+          target_user_id: 111,
+          outcome: "success",
+          profit: 100_000,
+          submitted_by_torn_user_id: 3238283,
+          created_at: 1_800_172_800,
+        },
+        {
+          id: "feedback-2",
+          result_id: "snapshot:0",
+          snapshot_id: "snapshot",
+          target_user_id: 111,
+          outcome: "fail",
+          profit: null,
+          submitted_by_torn_user_id: 3238283,
+          created_at: 1_800_086_400,
+        },
+      ],
+    });
+
+    const response = await listArrestScoutFeedback({ DB: db } as any);
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      ok: true,
+      total_count: 2,
+      success_count: 1,
+      fail_count: 1,
+      total_profit: 100_000,
+    });
+    expect(body.points[0]).toMatchObject({
+      id: "feedback-1",
+      target_user_id: 111,
+      name: "Target",
+      outcome: "success",
+      score: 80,
+      counterfeiting_delta: 700,
+      fraud_delta: 600,
+      criminaloffenses_delta: 44,
+      estimated_last_arrest_date: "2027-01-15",
+      days_since_estimated_last_arrest: 2,
+    });
+  });
+});
+
 function jsonRequest(body: unknown): Request {
   return new Request("https://worker.test/api/arrest-scout/scan", {
     method: "POST",
@@ -419,9 +592,9 @@ function personalStats(values: {
   counterfeiting: number;
   jailed: number;
   forgeryskill: number;
-    fraud?: number;
-    scammingskill?: number;
-    criminaloffenses?: number;
+  fraud?: number;
+  scammingskill?: number;
+  criminaloffenses?: number;
 }) {
   return {
     counterfeiting: { value: values.counterfeiting, timestamp: 1_800_000_000 },
@@ -430,6 +603,50 @@ function personalStats(values: {
     fraud: { value: values.fraud ?? 0, timestamp: 1_800_000_000 },
     scammingskill: { value: values.scammingskill ?? 0, timestamp: 1_800_000_000 },
     criminaloffenses: { value: values.criminaloffenses ?? 0, timestamp: 1_800_000_000 },
+  };
+}
+
+function resultFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "snapshot:0",
+    snapshot_id: "snapshot",
+    target_user_id: 111,
+    name: null,
+    classification: "current_target",
+    score: 50,
+    current_forgeryskill: 100,
+    current_counterfeiting: 1_000,
+    historical_counterfeiting: 400,
+    counterfeiting_delta: 600,
+    current_scammingskill: 0,
+    current_fraud: 0,
+    historical_fraud: 0,
+    fraud_delta: null,
+    current_criminaloffenses: 42_000,
+    historical_criminaloffenses: 41_500,
+    criminaloffenses_delta: 500,
+    current_jailed: 5,
+    historical_jailed: 5,
+    jailed_delta: 0,
+    current_jailed_timestamp: 1_800_000_000,
+    current_counterfeiting_timestamp: 1_800_000_000,
+    current_forgeryskill_timestamp: 1_800_000_000,
+    current_fraud_timestamp: 1_800_000_000,
+    current_scammingskill_timestamp: 1_800_000_000,
+    current_criminaloffenses_timestamp: 1_800_000_000,
+    historical_jailed_timestamp: 1_800_000_000,
+    historical_counterfeiting_timestamp: 1_800_000_000,
+    historical_forgeryskill_timestamp: 1_800_000_000,
+    historical_fraud_timestamp: 1_800_000_000,
+    historical_scammingskill_timestamp: 1_800_000_000,
+    historical_criminaloffenses_timestamp: 1_800_000_000,
+    lookback_seconds: 604_800,
+    historical_timestamp_requested: 1_799_395_200,
+    notes_json: "[]",
+    current_personalstats_json: null,
+    historical_personalstats_json: null,
+    created_at: 1_800_000_000,
+    ...overrides,
   };
 }
 
@@ -447,6 +664,9 @@ class FakeArrestScoutD1Statement {
   }
 
   async all<T>() {
+    if (this.sql.includes("FROM arrest_scout_feedback")) {
+      return { results: this.db.feedbackPoints() as T[] };
+    }
     if (this.sql.includes("FROM arrest_scout_results")) {
       return { results: this.db.results as T[] };
     }
@@ -460,6 +680,9 @@ class FakeArrestScoutD1Statement {
   }
 
   async first<T>() {
+    if (this.sql.includes("FROM arrest_scout_results")) {
+      return (this.db.results.find((result) => result.id === this.args[0]) ?? null) as T | null;
+    }
     if (this.sql.includes("FROM arrest_scout_snapshots")) {
       return (this.db.snapshots.find((snapshot) => snapshot.id === this.args[0]) ?? null) as T | null;
     }
@@ -475,11 +698,18 @@ class FakeArrestScoutD1Statement {
 class FakeArrestScoutD1 {
   snapshots: any[] = [];
   results: any[] = [];
+  feedback: any[] = [];
   futureTargets: Array<{ target_user_id: number; name?: string | null }> = [];
   preparedSql: string[] = [];
 
-  constructor(options: { futureTargets?: Array<{ target_user_id: number; name?: string | null }> } = {}) {
+  constructor(options: {
+    futureTargets?: Array<{ target_user_id: number; name?: string | null }>;
+    results?: any[];
+    feedback?: any[];
+  } = {}) {
     this.futureTargets = options.futureTargets ?? [];
+    this.results = options.results ?? [];
+    this.feedback = options.feedback ?? [];
   }
 
   prepare(sql: string) {
@@ -499,7 +729,30 @@ class FakeArrestScoutD1 {
       this.snapshots.push(snapshotFromArgs(statement.args));
     } else if (statement.sql.includes("INSERT INTO arrest_scout_results")) {
       this.results.push(resultFromArgs(statement.args));
+    } else if (statement.sql.includes("INSERT INTO arrest_scout_feedback")) {
+      this.feedback.push(feedbackFromArgs(statement.args));
     }
+  }
+
+  feedbackPoints() {
+    return this.feedback
+      .map((feedback) => {
+        const result = this.results.find((row) => row.id === feedback.result_id);
+        return result
+          ? {
+              ...feedback,
+              name: result.name,
+              score: result.score,
+              counterfeiting_delta: result.counterfeiting_delta,
+              fraud_delta: result.fraud_delta,
+              criminaloffenses_delta: result.criminaloffenses_delta,
+              current_jailed_timestamp: result.current_jailed_timestamp,
+              historical_jailed_timestamp: result.historical_jailed_timestamp,
+            }
+          : null;
+      })
+      .filter((row): row is Record<string, unknown> => row !== null)
+      .sort((left, right) => Number(right.created_at) - Number(left.created_at));
   }
 }
 
@@ -567,5 +820,18 @@ function resultFromArgs(args: unknown[]) {
     current_personalstats_json: args[35],
     historical_personalstats_json: args[36],
     created_at: args[37],
+  };
+}
+
+function feedbackFromArgs(args: unknown[]) {
+  return {
+    id: args[0],
+    result_id: args[1],
+    snapshot_id: args[2],
+    target_user_id: args[3],
+    outcome: args[4],
+    profit: args[5],
+    submitted_by_torn_user_id: args[6],
+    created_at: args[7],
   };
 }

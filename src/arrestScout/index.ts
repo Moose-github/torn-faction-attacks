@@ -20,6 +20,9 @@ import {
   DEFAULT_MIN_COUNTERFEITING_DELTA,
   DEFAULT_MIN_FRAUD_DELTA,
   DEFAULT_REQUIRED_FORGERYSKILL,
+  type ArrestScoutFeedbackOutcome,
+  type ArrestScoutFeedbackPoint,
+  type ArrestScoutFeedbackResponse,
   type ArrestScoutFutureTargetRow,
   type ArrestScoutFactionHofFaction,
   type ArrestScoutFactionHofResponse,
@@ -44,6 +47,23 @@ type ScanPayload = {
 };
 
 type PendingResult = Omit<ArrestScoutResultRow, "created_at">;
+type ArrestScoutFeedbackQueryRow = {
+  id: string;
+  result_id: string;
+  snapshot_id: string;
+  target_user_id: number;
+  outcome: ArrestScoutFeedbackOutcome;
+  profit: number | null;
+  submitted_by_torn_user_id: number | null;
+  created_at: number;
+  name: string | null;
+  score: number;
+  counterfeiting_delta: number | null;
+  fraud_delta: number | null;
+  criminaloffenses_delta: number | null;
+  current_jailed_timestamp: number | null;
+  historical_jailed_timestamp: number | null;
+};
 
 const TORN_FACTION_HOF_API_URL = "https://api.torn.com/v2/torn/factionhof";
 
@@ -259,6 +279,124 @@ export async function listArrestScoutFactionHof(request: Request, env: Env): Pro
     }
     throw err;
   }
+}
+
+export async function recordArrestScoutFeedback(
+  request: Request,
+  env: Env,
+  resultId: string,
+  submittedByTornUserId: number | null,
+): Promise<Response> {
+  const body = await readJsonObject(request);
+  const outcome = normalizeFeedbackOutcome(body.outcome);
+  if (!outcome) {
+    return json({ ok: false, error: "Invalid arrest feedback outcome", code: "INVALID_FEEDBACK_OUTCOME" }, 400);
+  }
+
+  const profit = outcome === "success" ? normalizeFeedbackProfit(body.profit) : null;
+  if (outcome === "success" && profit === "invalid") {
+    return json({ ok: false, error: "Profit must be a nonnegative integer", code: "INVALID_FEEDBACK_PROFIT" }, 400);
+  }
+
+  const result = await env.DB.prepare(
+    `
+    SELECT id, snapshot_id, target_user_id, classification
+    FROM arrest_scout_results
+    WHERE id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(resultId)
+    .first<Pick<ArrestScoutResultRow, "id" | "snapshot_id" | "target_user_id" | "classification">>();
+
+  if (!result) {
+    return json({ ok: false, error: "Arrest Scout result not found", code: "RESULT_NOT_FOUND" }, 404);
+  }
+  if (result.classification !== "current_target") {
+    return json({ ok: false, error: "Feedback can only be recorded for current targets", code: "FEEDBACK_NOT_CURRENT_TARGET" }, 400);
+  }
+
+  const feedback = {
+    id: crypto.randomUUID(),
+    result_id: result.id,
+    snapshot_id: result.snapshot_id,
+    target_user_id: result.target_user_id,
+    outcome,
+    profit: profit === "invalid" ? null : profit,
+    submitted_by_torn_user_id: submittedByTornUserId,
+    created_at: nowSeconds(),
+  };
+
+  await env.DB.prepare(
+    `
+    INSERT INTO arrest_scout_feedback (
+      id,
+      result_id,
+      snapshot_id,
+      target_user_id,
+      outcome,
+      profit,
+      submitted_by_torn_user_id,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+  )
+    .bind(
+      feedback.id,
+      feedback.result_id,
+      feedback.snapshot_id,
+      feedback.target_user_id,
+      feedback.outcome,
+      feedback.profit,
+      feedback.submitted_by_torn_user_id,
+      feedback.created_at,
+    )
+    .run();
+
+  return json({ ok: true, feedback });
+}
+
+export async function listArrestScoutFeedback(env: Env): Promise<Response> {
+  const rows = await env.DB.prepare(
+    `
+    SELECT
+      feedback.id,
+      feedback.result_id,
+      feedback.snapshot_id,
+      feedback.target_user_id,
+      feedback.outcome,
+      feedback.profit,
+      feedback.submitted_by_torn_user_id,
+      feedback.created_at,
+      results.name,
+      results.score,
+      results.counterfeiting_delta,
+      results.fraud_delta,
+      results.criminaloffenses_delta,
+      results.current_jailed_timestamp,
+      results.historical_jailed_timestamp
+    FROM arrest_scout_feedback feedback
+    JOIN arrest_scout_results results
+      ON results.id = feedback.result_id
+    ORDER BY feedback.created_at DESC
+    LIMIT 500
+    `,
+  ).all<ArrestScoutFeedbackQueryRow>();
+
+  const points = (rows.results ?? []).map(feedbackPointFromRow);
+  const successCount = points.filter((point) => point.outcome === "success").length;
+  const failCount = points.filter((point) => point.outcome === "fail").length;
+  const response: ArrestScoutFeedbackResponse = {
+    ok: true,
+    total_count: points.length,
+    success_count: successCount,
+    fail_count: failCount,
+    total_profit: points.reduce((total, point) => total + (point.profit ?? 0), 0),
+    points,
+  };
+
+  return json(response);
 }
 
 async function scanOneTarget(
@@ -852,11 +990,38 @@ function withEstimatedLastArrest(row: ArrestScoutResultRow): ArrestScoutResultRe
   return {
     ...row,
     estimated_last_arrest_timestamp: timestamp,
-    estimated_last_arrest_date: timestamp === null ? null : formatReadableUtcTimestamp(timestamp),
+    estimated_last_arrest_date: timestamp === null ? null : formatUtcDate(timestamp),
   };
 }
 
-function estimatedLastArrestTimestamp(row: ArrestScoutResultRow): number | null {
+function feedbackPointFromRow(row: ArrestScoutFeedbackQueryRow): ArrestScoutFeedbackPoint {
+  const estimatedTimestamp = estimatedLastArrestTimestamp(row);
+  return {
+    id: row.id,
+    result_id: row.result_id,
+    snapshot_id: row.snapshot_id,
+    target_user_id: row.target_user_id,
+    outcome: row.outcome,
+    profit: row.profit,
+    submitted_by_torn_user_id: row.submitted_by_torn_user_id,
+    created_at: row.created_at,
+    name: row.name,
+    score: row.score,
+    counterfeiting_delta: row.counterfeiting_delta,
+    fraud_delta: row.fraud_delta,
+    criminaloffenses_delta: row.criminaloffenses_delta,
+    estimated_last_arrest_timestamp: estimatedTimestamp,
+    estimated_last_arrest_date: estimatedTimestamp === null ? null : formatUtcDate(estimatedTimestamp),
+    days_since_estimated_last_arrest: estimatedTimestamp === null
+      ? null
+      : Math.max(0, Math.round(((row.created_at - estimatedTimestamp) / 86400) * 100) / 100),
+  };
+}
+
+function estimatedLastArrestTimestamp(row: {
+  current_jailed_timestamp: number | null;
+  historical_jailed_timestamp: number | null;
+}): number | null {
   if (
     row.current_jailed_timestamp === null ||
     row.historical_jailed_timestamp === null ||
@@ -867,11 +1032,22 @@ function estimatedLastArrestTimestamp(row: ArrestScoutResultRow): number | null 
   return row.current_jailed_timestamp;
 }
 
-function formatReadableUtcTimestamp(timestamp: number): string {
+function formatUtcDate(timestamp: number): string {
   return new Date(Math.trunc(timestamp) * 1000)
     .toISOString()
-    .replace("T", " ")
-    .replace(".000Z", " UTC");
+    .slice(0, 10);
+}
+
+function normalizeFeedbackOutcome(value: unknown): ArrestScoutFeedbackOutcome | null {
+  return value === "success" || value === "fail" ? value : null;
+}
+
+function normalizeFeedbackProfit(value: unknown): number | null | "invalid" {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : "invalid";
 }
 
 function targetStatsFromPersonalStats(stats: TornPersonalStatsResponse): ArrestScoutTargetStats {

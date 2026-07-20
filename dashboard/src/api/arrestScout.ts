@@ -8,6 +8,7 @@ export type ArrestScoutClassification =
   | "error";
 
 export type ArrestScoutSourceType = "manual" | "faction" | "future_targets_due";
+export type ArrestScoutFeedbackOutcome = "success" | "fail";
 
 export type ArrestScoutResult = {
   id: string;
@@ -128,6 +129,42 @@ export type ArrestScoutFactionHofResponse = {
   factions: ArrestScoutFactionHofFaction[];
 };
 
+export type ArrestScoutFeedback = {
+  id: string;
+  result_id: string;
+  snapshot_id: string;
+  target_user_id: number;
+  outcome: ArrestScoutFeedbackOutcome;
+  profit: number | null;
+  submitted_by_torn_user_id: number | null;
+  created_at: number;
+};
+
+export type ArrestScoutFeedbackPoint = ArrestScoutFeedback & {
+  name: string | null;
+  score: number;
+  counterfeiting_delta: number | null;
+  fraud_delta: number | null;
+  criminaloffenses_delta: number | null;
+  estimated_last_arrest_timestamp: number | null;
+  estimated_last_arrest_date: string | null;
+  days_since_estimated_last_arrest: number | null;
+};
+
+export type ArrestScoutFeedbackResponse = {
+  ok: true;
+  total_count: number;
+  success_count: number;
+  fail_count: number;
+  total_profit: number;
+  points: ArrestScoutFeedbackPoint[];
+};
+
+export type ArrestScoutFeedbackSubmitResponse = {
+  ok: true;
+  feedback: ArrestScoutFeedback;
+};
+
 export type ArrestScoutSnapshotResponse = {
   ok: boolean;
   snapshot: ArrestScoutSnapshot;
@@ -161,4 +198,18 @@ export async function getArrestScoutFactionHof(options: {
   if (options.offset !== undefined) params.set("offset", String(options.offset));
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return getJson<ArrestScoutFactionHofResponse>(`/api/arrest-scout/faction-hof${suffix}`);
+}
+
+export async function getArrestScoutFeedback(): Promise<ArrestScoutFeedbackResponse> {
+  return getJson<ArrestScoutFeedbackResponse>("/api/arrest-scout/feedback");
+}
+
+export async function submitArrestScoutFeedback(
+  resultId: string,
+  payload: { outcome: ArrestScoutFeedbackOutcome; profit?: number | null },
+): Promise<ArrestScoutFeedbackSubmitResponse> {
+  return postJson<ArrestScoutFeedbackSubmitResponse>(
+    `/api/arrest-scout/results/${encodeURIComponent(resultId)}/feedback`,
+    payload,
+  );
 }

@@ -5,9 +5,11 @@ import {
 } from "../auth";
 import {
   getArrestScoutSnapshot,
+  listArrestScoutFeedback,
   listArrestScoutFactionHof,
   listArrestScoutFutureTargets,
   listArrestScoutSnapshots,
+  recordArrestScoutFeedback,
   scanArrestScout,
 } from "../arrestScout";
 import { jsonResponse, routeContext } from "../testUtils/http";
@@ -20,9 +22,11 @@ vi.mock("../auth", () => ({
 
 vi.mock("../arrestScout", () => ({
   getArrestScoutSnapshot: vi.fn(),
+  listArrestScoutFeedback: vi.fn(),
   listArrestScoutFactionHof: vi.fn(),
   listArrestScoutFutureTargets: vi.fn(),
   listArrestScoutSnapshots: vi.fn(),
+  recordArrestScoutFeedback: vi.fn(),
   scanArrestScout: vi.fn(),
 }));
 
@@ -36,6 +40,8 @@ describe("arrest scout routes", () => {
     vi.mocked(getArrestScoutSnapshot).mockResolvedValue(jsonResponse({ ok: true, route: "snapshot" }));
     vi.mocked(listArrestScoutFutureTargets).mockResolvedValue(jsonResponse({ ok: true, route: "future-targets" }));
     vi.mocked(listArrestScoutFactionHof).mockResolvedValue(jsonResponse({ ok: true, route: "faction-hof" }));
+    vi.mocked(listArrestScoutFeedback).mockResolvedValue(jsonResponse({ ok: true, route: "feedback" }));
+    vi.mocked(recordArrestScoutFeedback).mockResolvedValue(jsonResponse({ ok: true, route: "record-feedback" }));
   });
 
   it("routes scans through member auth with the authenticated member id", async () => {
@@ -55,6 +61,7 @@ describe("arrest scout routes", () => {
   it.each([
     ["/api/arrest-scout/snapshots", listArrestScoutSnapshots, "snapshots"],
     ["/api/arrest-scout/future-targets", listArrestScoutFutureTargets, "future-targets"],
+    ["/api/arrest-scout/feedback", listArrestScoutFeedback, "feedback"],
   ])("routes %s through member auth", async (path, handler, routeName) => {
     const context = routeContext(`https://worker.test${path}`);
 
@@ -87,6 +94,20 @@ describe("arrest scout routes", () => {
     expect(getArrestScoutSnapshot).toHaveBeenCalledWith(context.env, "abc-123");
   });
 
+  it("routes result feedback through member auth with the authenticated member id", async () => {
+    const context = routeContext("https://worker.test/api/arrest-scout/results/snapshot%3A0/feedback", {
+      method: "POST",
+      body: JSON.stringify({ outcome: "success", profit: 12345 }),
+    });
+
+    const response = await routeArrestScoutApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "record-feedback" });
+    expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
+    expect(recordArrestScoutFeedback).toHaveBeenCalledWith(context.request, context.env, "snapshot:0", 12345);
+  });
+
   it("does not resolve member ids when member auth fails", async () => {
     vi.mocked(requireMember).mockResolvedValueOnce(jsonResponse({ ok: false, code: "UNAUTHORIZED" }, 401));
 
@@ -97,6 +118,7 @@ describe("arrest scout routes", () => {
     expect(response?.status).toBe(401);
     expect(readAuthenticatedUserId).not.toHaveBeenCalled();
     expect(scanArrestScout).not.toHaveBeenCalled();
+    expect(recordArrestScoutFeedback).not.toHaveBeenCalled();
   });
 
   it("ignores unmatched arrest scout routes", async () => {
