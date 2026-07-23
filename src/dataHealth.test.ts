@@ -352,21 +352,10 @@ describe("data health severity", () => {
       "env:TORN_API_KEY",
       "key_pool:11f3d22e-c241-4ecb-8159-4edeb36d68a1",
     ]);
-    expect(body.subsystems.find((subsystem) => subsystem.key === "key_health")?.metrics).toContainEqual(
-      expect.objectContaining({
-        label: "Admin fallback key",
-        value: "<0.01/min",
-      }),
-    );
     const fallbackKey = body.details.api_key_health.find((key) => key.key_source === "env:TORN_API_KEY");
     expect(fallbackKey).toMatchObject({ requests: 1 });
     expect(fallbackKey?.calls_per_minute).toBeCloseTo(1 / 1_440, 6);
-    expect(body.subsystems.find((subsystem) => subsystem.key === "key_health")?.metrics).toContainEqual(
-      expect.objectContaining({
-        label: "Dara faction stat key",
-        value: "<0.01/min",
-      }),
-    );
+    expect(body.subsystems.some((subsystem) => subsystem.key === "key_health")).toBe(false);
   });
 
   it("splits daily member stats into personal and gym subsystem tiles", async () => {

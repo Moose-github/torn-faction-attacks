@@ -40,7 +40,7 @@ import {
   readLatestStockRun,
   readPersonalStatsCoverage,
   readPersonalStatsCoverageGaps,
-  readRecentApiCalls,
+  readRecentApiErrors,
   readRosterHealth,
   readStockCoverage,
   readStockLastError,
@@ -114,7 +114,7 @@ export async function getAdminDataHealth(urlOrEnv: URL | Env, maybeEnv?: Env): P
       api_keys: snapshot.apiKeys,
       api_features: snapshot.apiFeatures,
       api_endpoints: snapshot.apiEndpoints,
-      api_recent_calls: snapshot.apiRecentCalls,
+      api_recent_errors: snapshot.apiRecentErrors,
       stock_run: snapshot.stockRun,
       stock_coverage: snapshot.stockCoverage,
       stock_last_error: snapshot.stockLastError,
@@ -162,7 +162,7 @@ async function readDataHealthSnapshot(
     keyPoolCounts,
     apiFeatures,
     apiEndpoints,
-    apiRecentCalls,
+    apiRecentErrors,
     stockRun,
     stockCoverage,
     stockLastError,
@@ -182,7 +182,7 @@ async function readDataHealthSnapshot(
     readKeyPoolCounts(env),
     includeApiUsageBreakdown ? readApiUsageFeatures(env, now, "feature", apiUsageWindowSeconds) : Promise.resolve([]),
     includeApiUsageBreakdown ? readApiUsageFeatures(env, now, "endpoint", apiUsageWindowSeconds) : Promise.resolve([]),
-    options.includeAdminDetail ? readRecentApiCalls(env) : Promise.resolve([]),
+    options.includeAdminDetail ? readRecentApiErrors(env) : Promise.resolve([]),
     readLatestStockRun(env),
     readStockCoverage(env, now, settings),
     readStockLastError(env),
@@ -218,7 +218,7 @@ async function readDataHealthSnapshot(
     keyPoolCounts,
     apiFeatures,
     apiEndpoints,
-    apiRecentCalls,
+    apiRecentErrors,
     stockRun,
     stockCoverage,
     stockLastError,
@@ -259,7 +259,6 @@ function subsystemsFromSnapshot(snapshot: DataHealthSnapshot): DataHealthSubsyst
     personalStatsSubsystem(snapshot),
     gymStatsSubsystem(snapshot),
     apiSubsystem(snapshot),
-    keyHealthSubsystem(snapshot),
     stockSubsystem(snapshot),
     warReportsSubsystem(snapshot),
   ];
@@ -477,30 +476,6 @@ function apiSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   };
 }
 
-function keyHealthSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
-  const keys = snapshot.apiKeyHealth;
-  const totalCallsPerMinute = keys.reduce((sum, key) => sum + Number(key.calls_per_minute ?? 0), 0);
-  return {
-    key: "key_health",
-    label: "Key health",
-    status: keys.length > 0 ? "good" : "unknown",
-    summary: keys.length > 0
-      ? `${keys.length} keys averaged ${formatRate(totalCallsPerMinute)} calls/min over 24h`
-      : "No key calls recorded in the last 24h",
-    updated_at: keys.reduce<number | null>((latest, key) => {
-      const requestedAt = nullableNumber(key.last_requested_at);
-      return requestedAt === null ? latest : Math.max(latest ?? 0, requestedAt);
-    }, null),
-    metrics: keys.length > 0
-      ? keys.map((key) => ({
-        label: formatKeySourceLabel(key.key_source, key.key_label),
-        value: `${formatRate(Number(key.calls_per_minute ?? 0))}/min`,
-        title: `${key.key_source}: ${Number(key.requests ?? 0)} calls in the last 24h`,
-      }))
-      : [{ label: "Calls/min", value: "0/min" }],
-  };
-}
-
 function stockSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const coverage = snapshot.stockCoverage;
   const stockAge = coverage.newest_snapshot_at === null ? null : snapshot.now - coverage.newest_snapshot_at;
@@ -636,33 +611,6 @@ function maxStatus(...statuses: DataHealthStatus[]): DataHealthStatus {
   return statuses.reduce((highest, status) =>
     STATUS_RANK[status] > STATUS_RANK[highest] ? status : highest,
   "good" as DataHealthStatus);
-}
-
-function nullableNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function formatRate(value: number): string {
-  if (!Number.isFinite(value)) return "0.00";
-  if (value > 0 && value < 0.01) return "<0.01";
-  return value.toFixed(2);
-}
-
-function formatKeySourceLabel(keySource: string, keyLabel?: string | null): string {
-  const trimmedLabel = keyLabel?.trim();
-  if (trimmedLabel) return trimmedLabel;
-
-  switch (keySource) {
-    case "env:TORN_API_KEY":
-      return "Admin fallback key";
-    case "member_supplied:auth":
-      return "Member auth key";
-    case "member_supplied:trade_scout":
-      return "Trade Scout member key";
-    default:
-      return keySource;
-  }
 }
 
 function publishedDateLabel(snapshotDate: string | null): string | null {

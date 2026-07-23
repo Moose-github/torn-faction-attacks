@@ -13,6 +13,7 @@ import {
   type ApiUsageFeatureRow,
   type ApiUsageHealthRow,
   type ApiUsageKeyRow,
+  type ApiUsageRecentErrorRow,
   type DataHealthSettings,
   type EnemyScoutingCoverageRow,
   type EnemyScoutingGapRow,
@@ -522,15 +523,29 @@ export async function readKeyPoolCounts(env: Env): Promise<KeyPoolCountRow> {
   };
 }
 
-export async function readRecentApiCalls(env: Env): Promise<unknown[]> {
+export async function readRecentApiErrors(env: Env): Promise<ApiUsageRecentErrorRow[]> {
   const rows = await env.DB.prepare(
     `
-    SELECT *
-    FROM torn_api_call_log
-    ORDER BY requested_at DESC, id DESC
+    SELECT
+      calls.*,
+      COALESCE(
+        NULLIF(keys.label, ''),
+        NULLIF(keys.owner_name, ''),
+        CASE
+          WHEN keys.owner_torn_user_id IS NOT NULL THEN 'Torn user #' || keys.owner_torn_user_id
+          ELSE NULL
+        END
+      ) AS key_label
+    FROM torn_api_call_log calls
+    LEFT JOIN torn_api_keys keys
+      ON calls.key_source LIKE 'key_pool:%'
+      AND keys.id = substr(calls.key_source, 10)
+    WHERE calls.ok = 0
+      OR calls.status >= 400
+    ORDER BY calls.requested_at DESC, calls.id DESC
     LIMIT 12
     `,
-  ).all();
+  ).all<ApiUsageRecentErrorRow>();
   return rows.results ?? [];
 }
 

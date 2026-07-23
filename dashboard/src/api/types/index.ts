@@ -1141,7 +1141,7 @@ export type AdminDataHealthResponse = DataHealthSummaryResponse & {
     api_keys: TornApiUsageKey[];
     api_features: TornApiUsageFeature[];
     api_endpoints: TornApiUsageFeature[];
-    api_recent_calls: TornApiUsageCall[];
+    api_recent_errors: TornApiUsageCall[];
     stock_run: StockIngestionRun | null;
     stock_coverage: StockCoverage;
     stock_last_error: string | null;
@@ -1241,9 +1241,10 @@ export type TornApiUsageKey = {
 export type TornApiUsageCall = {
   id: number;
   requested_at: number;
-  feature: string;
-  key_source: string;
-  method: string;
+  feature: string;
+  key_source: string;
+  key_label?: string | null;
+  method: string;
   endpoint: string;
   status: number | null;
   ok: boolean;

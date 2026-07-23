@@ -139,6 +139,21 @@ export type ApiUsageKeyRow = {
   calls_per_minute?: number;
 };
 
+export type ApiUsageRecentErrorRow = {
+  id: number;
+  requested_at: number;
+  feature: string;
+  key_source: string;
+  key_label?: string | null;
+  method: string;
+  endpoint: string;
+  status: number | null;
+  ok: boolean;
+  error: string | null;
+  duration_ms: number;
+  retry_attempt: number;
+};
+
 export type KeyPoolCountRow = {
   saved_keys: number;
   active_saved_keys: number;
@@ -261,7 +276,7 @@ export type DataHealthSnapshot = {
   keyPoolCounts: KeyPoolCountRow;
   apiFeatures: ApiUsageFeatureRow[];
   apiEndpoints: ApiUsageFeatureRow[];
-  apiRecentCalls: unknown[];
+  apiRecentErrors: ApiUsageRecentErrorRow[];
   stockRun: StockRunRow | null;
   stockCoverage: StockCoverageRow;
   stockLastError: string | null;
@@ -295,7 +310,7 @@ export const KEY_HEALTH_WINDOW_SECONDS = 24 * 60 * 60;
 export const DEFAULT_ADMIN_API_USAGE_WINDOW_SECONDS = 60 * 60;
 export const MAX_ADMIN_API_USAGE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 export const HEALTH_CACHE_TIME_SECONDS = 30;
-export const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "key_health", "war_reports"]);
+export const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "war_reports"]);
 
 export const STATUS_RANK: Record<DataHealthStatus, number> = {
   good: 0,
