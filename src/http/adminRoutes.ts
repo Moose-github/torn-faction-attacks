@@ -39,6 +39,7 @@ import {
   refreshDailyMemberLifestyleStats,
 } from "../lifestyleStats/dailyPersonal";
 import { getLatestMaintenanceRun } from "../maintenance";
+import { refreshMemberAchievementSummaries } from "../memberAchievements";
 import { syncMemberDiscordLinksFromRequest } from "../memberDiscordLinks";
 import { cachedGetJson } from "../responseCache";
 import {
@@ -95,6 +96,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/maintenance-run", "GET")) {
     return withAdmin(routeContext, () => getLatestMaintenanceRun(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/member-achievements/refresh", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "manual_member_achievements_refresh", 60);
+      if (cooldownError) return cooldownError;
+      return json({ ok: true, ...(await refreshMemberAchievementSummaries(env)) });
+    });
   }
 
   if (matchesExactRoute(url, request, "/api/admin/torn-api-usage", "GET")) {

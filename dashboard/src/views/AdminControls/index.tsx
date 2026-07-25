@@ -35,6 +35,7 @@ import {
   pullAttackWindow,
   recordAdminXanaxCompetitionClaim,
   rebuildStats,
+  refreshMemberAchievements,
   refreshAuthSession,
   resetEnemyStatsImageLatches,
   restartLiveEnemyTracking,
@@ -1241,6 +1242,21 @@ export function AdminControls() {
                 onClick={loadTornKeyPool}
               >
                 Refresh key pool
+              </button>
+            </section>
+
+            <section className="admin-tool-section admin-tool-section-wide admin-maintenance-repair" hidden={activeAdminTab !== "maintenance"}>
+              <PanelHeader title="Member highlights" />
+              <p className="panel-description">
+                Recompute dashboard member highlight podiums from the latest complete lifestyle and attack data.
+              </p>
+              <button
+                type="button"
+                className="admin-button primary"
+                disabled={isBusy !== null}
+                onClick={() => runAdminAction("Refresh member highlights", refreshMemberAchievements)}
+              >
+                {isBusy === "Refresh member highlights" ? "Refreshing" : "Refresh member highlights"}
               </button>
             </section>
 

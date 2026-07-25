@@ -26,6 +26,7 @@ import {
   upsertSyncTimestamp,
 } from "../syncState";
 import { refreshStockBenefitItemPrices } from "../stockMarket";
+import { refreshMemberAchievementSummaries } from "../memberAchievements";
 import { listAdminTornApiKeys } from "../tornKeyPool";
 import { routeAdminApi } from "./adminRoutes";
 
@@ -79,6 +80,7 @@ vi.mock("../lifestyleStats", () => ({
 }));
 vi.mock("../maintenance", () => ({ getLatestMaintenanceRun: vi.fn() }));
 vi.mock("../memberDiscordLinks", () => ({ syncMemberDiscordLinksFromRequest: vi.fn() }));
+vi.mock("../memberAchievements", () => ({ refreshMemberAchievementSummaries: vi.fn() }));
 vi.mock("../responseCache", () => ({ cachedGetJson: vi.fn() }));
 vi.mock("../syncState", () => ({
   readSyncTimestamp: vi.fn(),
@@ -131,6 +133,11 @@ describe("admin routes", () => {
     vi.mocked(getAdminDiscordAlertSettings).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings" }));
     vi.mocked(updateAdminDiscordAlertSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings-update" }));
     vi.mocked(listAdminTornApiKeys).mockResolvedValue(jsonResponse({ ok: true, route: "admin-key-pool" }));
+    vi.mocked(refreshMemberAchievementSummaries).mockResolvedValue({
+      writeStatements: 3,
+      changedRows: 3,
+      skipped: false,
+    });
     vi.mocked(refreshStockBenefitItemPrices).mockResolvedValue({
       ok: true,
       refreshed: 1,
@@ -196,6 +203,20 @@ describe("admin routes", () => {
     expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
     expect(readSyncTimestamp).toHaveBeenCalledWith(context.env, "manual_stock_benefit_item_prices");
     expect(refreshStockBenefitItemPrices).toHaveBeenCalledWith(context.env, { force: true });
+  });
+
+  it("routes member achievement refresh through admin auth and cooldown", async () => {
+    const context = routeContext("https://worker.test/api/admin/member-achievements/refresh", {
+      method: "POST",
+    });
+
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({ ok: true, changedRows: 3 });
+    expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
+    expect(readSyncTimestamp).toHaveBeenCalledWith(context.env, "manual_member_achievements_refresh");
+    expect(refreshMemberAchievementSummaries).toHaveBeenCalledWith(context.env);
   });
 
   it("routes war control settings updates through admin auth", async () => {
