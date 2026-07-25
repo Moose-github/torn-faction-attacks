@@ -15,6 +15,7 @@ vi.mock("./xanaxCompetitionImageRenderer", () => rendererMock);
 
 import {
   buildMonthlyXanaxCompetitionDiscordMessage,
+  getXanaxCompetition,
   runMonthlyXanaxCompetitionDiscordReminder,
 } from "./xanaxCompetition";
 
@@ -83,6 +84,50 @@ describe("monthly Xanax competition Discord reminder", () => {
 
     expect(fixture.syncState.has("xanax_competition_discord_reminder:complete:2026-06"))
       .toBe(false);
+  });
+});
+
+describe("monthly Xanax competition progress", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-25T12:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("uses the day before the effective member month start as the baseline", async () => {
+    const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
+    const env = createProgressFixture(calls);
+
+    const response = await getXanaxCompetition(env, 3238283);
+    const body = await response.json() as any;
+
+    expect(body.settings.month_key).toBe("2026-07");
+    expect(body.current_user_progress).toMatchObject({
+      member_id: 3238283,
+      member_name: "M00SE",
+      monthly_xanax: 69,
+      remaining: 31,
+      eligible: false,
+    });
+
+    const progressCall = calls.find((call) =>
+      call.method === "all" && call.sql.includes("baseline.xantaken AS start_xantaken")
+    );
+    expect(progressCall?.sql).toContain("snapshot_date < CASE WHEN members.current_join_date IS NOT NULL");
+    expect(progressCall?.sql).toContain("snapshot_date >= CASE WHEN members.current_join_date IS NOT NULL");
+    expect(progressCall?.params).toEqual([
+      "2026-07-01",
+      "2026-08-01",
+      "2026-07-01",
+      "2026-07-01",
+      "2026-07-01",
+      "2026-07-01",
+      "2026-08-01",
+      8803,
+    ]);
   });
 });
 
@@ -198,6 +243,61 @@ function createReminderFixture(options: ReminderFixtureOptions): {
     settings,
     syncState,
   };
+}
+
+function createProgressFixture(calls: Array<{ method: string; sql: string; params: unknown[] }>): Env {
+  const settings = {
+    id: 1,
+    enabled: 1,
+    base_prize: 10_000_000,
+    rollover_count: 0,
+    last_rollover_month_key: "2026-06",
+    updated_at: 1,
+  };
+  const db = {
+    prepare(sql: string) {
+      let values: unknown[] = [];
+      const statement = {
+        bind(...boundValues: unknown[]) {
+          values = boundValues;
+          return statement;
+        },
+        async first() {
+          const compactSql = compact(sql);
+          calls.push({ method: "first", sql: compactSql, params: values });
+          if (compactSql.includes("FROM xanax_competition_settings")) {
+            return { ...settings };
+          }
+          return null;
+        },
+        async run() {
+          calls.push({ method: "run", sql: compact(sql), params: values });
+          return { meta: { changes: 0 } };
+        },
+        async all() {
+          const compactSql = compact(sql);
+          calls.push({ method: "all", sql: compactSql, params: values });
+          if (compactSql.includes("baseline.xantaken AS start_xantaken")) {
+            return {
+              results: [
+                {
+                  member_id: 3238283,
+                  member_name: "M00SE",
+                  start_xantaken: 2189,
+                  end_xantaken: 2258,
+                  latest_snapshot_date: "2026-07-23",
+                },
+              ],
+            };
+          }
+          return { results: [] };
+        },
+      };
+      return statement;
+    },
+  };
+
+  return { DB: db } as unknown as Env;
 }
 
 function compact(sql: string): string {

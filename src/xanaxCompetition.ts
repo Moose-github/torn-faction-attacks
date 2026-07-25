@@ -465,14 +465,20 @@ async function readCompetitionProgress(
           SELECT MAX(snapshot_date)
           FROM member_lifestyle_stat_snapshots
           WHERE member_id = members.member_id
-            AND snapshot_date <= ?
+            AND snapshot_date < CASE
+              WHEN members.current_join_date IS NOT NULL AND members.current_join_date > ? THEN members.current_join_date
+              ELSE ?
+            END
             AND personal_ready = 1
         ),
         (
           SELECT MIN(snapshot_date)
           FROM member_lifestyle_stat_snapshots
           WHERE member_id = members.member_id
-            AND snapshot_date >= ?
+            AND snapshot_date >= CASE
+              WHEN members.current_join_date IS NOT NULL AND members.current_join_date > ? THEN members.current_join_date
+              ELSE ?
+            END
             AND snapshot_date < ?
             AND personal_ready = 1
         )
@@ -482,7 +488,16 @@ async function readCompetitionProgress(
       AND members.report_exempt = 0
     `,
   )
-    .bind(startDate, nextStartDate, startDate, startDate, nextStartDate, HOME_FACTION_ID)
+    .bind(
+      startDate,
+      nextStartDate,
+      startDate,
+      startDate,
+      startDate,
+      startDate,
+      nextStartDate,
+      HOME_FACTION_ID,
+    )
     .all()).results ?? []) as ProgressQueryRow[];
 
   return rows
