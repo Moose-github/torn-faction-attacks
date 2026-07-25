@@ -59,6 +59,13 @@ describe("member achievement refresh", () => {
       8803,
       "2026-07-23",
     ]);
+    const insertedXanaxRow = fixture.calls.find((call) =>
+      call.method === "run" &&
+      call.sql.includes("INSERT INTO member_achievement_summaries") &&
+      call.params[0] === "xanax_yesterday"
+    );
+    expect(insertedXanaxRow?.params[9]).toBe("2026-07-22");
+    expect(insertedXanaxRow?.params[10]).toBe("2026-07-23");
   });
 
   it("skips the maintenance stale check when it already ran in this refresh window", async () => {
@@ -99,6 +106,7 @@ function achievementEnv(options: { lastCheckedAt?: number; withAvailablePersonal
     DB: {
       prepare(sql: string) {
         const statement = {
+          sql,
           params: [] as unknown[],
           bind(...params: unknown[]) {
             statement.params = params;
@@ -154,6 +162,13 @@ function achievementEnv(options: { lastCheckedAt?: number; withAvailablePersonal
       },
       async batch(statements: unknown[]) {
         calls.push({ sql: "BATCH", method: "run" as const, params: [statements.length] });
+        for (const statement of statements as Array<{ sql?: string; params?: unknown[] }>) {
+          calls.push({
+            sql: statement.sql ?? "UNKNOWN_BATCH_STATEMENT",
+            method: "run" as const,
+            params: statement.params ?? [],
+          });
+        }
         return Array.from({ length: statements.length }, () => ({ meta: { changes: 1 } }));
       },
     },

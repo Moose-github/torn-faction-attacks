@@ -1203,6 +1203,10 @@ function buildHighlightGroups(achievements: MemberAchievementSummary[]): Highlig
 
 function formatHighlightTitle(metric: HighlightGroup["metrics"][number], periodLabel: string): string {
   const row = metric.rows[0];
+  if (metric.key === "xanax_yesterday") {
+    return "Most Daily Xanax";
+  }
+
   if (metric.periodKey === "yesterday" && row) {
     return `${oneDayHighlightTitlePrefix(metric.title)} ${formatDateKey(row.period_start_date)}`;
   }
@@ -1218,6 +1222,10 @@ function formatHighlightPeriodSubtitle(
   metric: HighlightGroup["metrics"][number],
   periodLabel: string,
 ): string {
+  if (metric.key === "xanax_yesterday") {
+    return `Last complete 24h: ${formatAchievementPeriod(metric.rows[0])}`;
+  }
+
   if (metric.periodKey === "yesterday") {
     return periodLabel.toLowerCase();
   }

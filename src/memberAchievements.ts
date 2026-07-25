@@ -207,10 +207,7 @@ export async function refreshMemberAchievementSummaries(
       continue;
     }
 
-    const period = {
-      startDate: baselineDate,
-      endDate: shiftUtcDate(sourceSnapshotDate, -1),
-    };
+    const period = achievementDisplayPeriod(metric, baselineDate, sourceSnapshotDate);
 
     const rankedRows = metric.source === "lifestyle"
       ? await rankedLifestyleRows(env, metric, baselineDate, sourceSnapshotDate)
@@ -686,6 +683,31 @@ function metricHasAvailableWindow(
 
   const readyDates = metric.field.startsWith("gym") ? availableDates.gym : availableDates.personal;
   return readyDates.has(baselineDate) && readyDates.has(sourceSnapshotDate);
+}
+
+function achievementDisplayPeriod(
+  metric: AchievementMetric,
+  baselineDate: string,
+  sourceSnapshotDate: string,
+): { startDate: string; endDate: string } {
+  if (metric.metricKey === "xanax_yesterday") {
+    return {
+      startDate: baselineDate,
+      endDate: sourceSnapshotDate,
+    };
+  }
+
+  if (metric.source === "lifestyle") {
+    return {
+      startDate: shiftUtcDate(sourceSnapshotDate, -(metric.days - 1)),
+      endDate: sourceSnapshotDate,
+    };
+  }
+
+  return {
+    startDate: baselineDate,
+    endDate: shiftUtcDate(sourceSnapshotDate, -1),
+  };
 }
 
 function achievementDetailVersion(detailJson: string | null): number | null {
