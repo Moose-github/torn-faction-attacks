@@ -135,7 +135,7 @@ afterEach(() => {
 });
 
 describe("lifestyle stats workflows", () => {
-  it("uses current faction tenure when checking daily personal stats completion", async () => {
+  it("uses current faction join dates when checking daily personal stats completion", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-27T06:20:00.000Z"));
     const db = new TestD1Database((call) => handleDailyPersonalQuery(call));
@@ -152,8 +152,8 @@ describe("lifestyle stats workflows", () => {
       call.sql.includes("LEFT JOIN member_lifestyle_stat_snapshots snapshots")
     );
     expect(result).toMatchObject({ skipped: false, considered: 0, refreshed: 0, failed: 0 });
-    expect(completionCall?.sql).toContain("members.days_in_faction IS NULL");
-    expect(completionCall?.sql).toContain("? > date(members.updated_at");
+    expect(completionCall?.sql).toContain("members.current_join_date IS NULL");
+    expect(completionCall?.sql).toContain("? >= members.current_join_date");
     expect(completionCall?.params).toEqual(["2026-06-26", 8803, "2026-06-26"]);
     expect(mocks.writeLifestyleSnapshotForDate).toHaveBeenCalledWith(
       env,

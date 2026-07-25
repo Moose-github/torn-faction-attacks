@@ -420,7 +420,7 @@ async function readAvailableSnapshotDates(env: Env, exactDates?: string[]): Prom
       ${candidateDatesSql}
     ),
     reportable_members AS (
-      SELECT member_id, days_in_faction, updated_at
+      SELECT member_id, current_join_date
       FROM home_faction_members
       WHERE faction_id = ?
         AND is_current = 1
@@ -434,9 +434,8 @@ async function readAvailableSnapshotDates(env: Env, exactDates?: string[]): Prom
     FROM candidate_dates
     JOIN reportable_members members
       ON (
-        members.days_in_faction IS NULL
-        OR members.updated_at IS NULL
-        OR candidate_dates.snapshot_date > date(members.updated_at, 'unixepoch', '-' || members.days_in_faction || ' days')
+        members.current_join_date IS NULL
+        OR candidate_dates.snapshot_date >= members.current_join_date
       )
     LEFT JOIN member_lifestyle_stat_snapshots snapshots
       ON snapshots.member_id = members.member_id

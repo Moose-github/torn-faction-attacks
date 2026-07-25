@@ -50,9 +50,8 @@ function currentMembershipDateCondition(
   dateExpression: string,
 ): string {
   return `(
-          ${memberAlias}.days_in_faction IS NULL
-          OR ${memberAlias}.updated_at IS NULL
-          OR ${dateExpression} > date(${memberAlias}.updated_at, 'unixepoch', '-' || ${memberAlias}.days_in_faction || ' days')
+          ${memberAlias}.current_join_date IS NULL
+          OR ${dateExpression} >= ${memberAlias}.current_join_date
         )`;
 }
 

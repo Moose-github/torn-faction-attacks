@@ -110,15 +110,20 @@ export async function syncHomeFactionMemberList(env: Env): Promise<void> {
           position,
           days_in_faction,
           is_current,
+          current_join_date,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, 1, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, 1, date('now'), unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
           level = excluded.level,
           position = excluded.position,
           days_in_faction = excluded.days_in_faction,
+          current_join_date = CASE
+            WHEN home_faction_members.is_current = 0 THEN excluded.current_join_date
+            ELSE COALESCE(home_faction_members.current_join_date, excluded.current_join_date)
+          END,
           is_current = 1,
           updated_at = excluded.updated_at
         `,

@@ -66,10 +66,10 @@ describe("daily lifestyle stats attention", () => {
       call.method === "first" && call.sql.includes("AS stale_personalstats")
     );
 
-    expect(affectedMembersCall?.sql).toContain("members.days_in_faction IS NULL");
-    expect(affectedMembersCall?.sql).toContain("stats.snapshot_date > date(members.updated_at");
-    expect(countsCall?.sql).toContain("members.days_in_faction IS NULL");
-    expect(countsCall?.sql).toContain("stats.snapshot_date > date(members.updated_at");
+    expect(affectedMembersCall?.sql).toContain("members.current_join_date IS NULL");
+    expect(affectedMembersCall?.sql).toContain("stats.snapshot_date >= members.current_join_date");
+    expect(countsCall?.sql).toContain("members.current_join_date IS NULL");
+    expect(countsCall?.sql).toContain("stats.snapshot_date >= members.current_join_date");
   });
 });
 

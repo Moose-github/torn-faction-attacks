@@ -57,15 +57,20 @@ export async function syncHomeFactionMembershipAndSessions(
           position,
           days_in_faction,
           is_current,
+          current_join_date,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, 1, unixepoch())
+        VALUES (?, ?, ?, ?, ?, ?, 1, date('now'), unixepoch())
         ON CONFLICT(member_id) DO UPDATE SET
           faction_id = excluded.faction_id,
           name = excluded.name,
           level = excluded.level,
           position = excluded.position,
           days_in_faction = excluded.days_in_faction,
+          current_join_date = CASE
+            WHEN home_faction_members.is_current = 0 THEN excluded.current_join_date
+            ELSE COALESCE(home_faction_members.current_join_date, excluded.current_join_date)
+          END,
           is_current = 1,
           updated_at = excluded.updated_at
         WHERE home_faction_members.faction_id IS NOT excluded.faction_id
@@ -73,6 +78,7 @@ export async function syncHomeFactionMembershipAndSessions(
           OR home_faction_members.level IS NOT excluded.level
           OR home_faction_members.position IS NOT excluded.position
           OR home_faction_members.days_in_faction IS NOT excluded.days_in_faction
+          OR (home_faction_members.current_join_date IS NULL AND excluded.current_join_date IS NOT NULL)
           OR home_faction_members.is_current IS NOT 1
         `,
       ).bind(

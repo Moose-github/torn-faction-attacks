@@ -487,9 +487,8 @@ async function isPersonalStatsDateComplete(env: Env, targetSnapshotDate: string)
       AND members.is_current = 1
       AND members.report_exempt = 0
       AND (
-        members.days_in_faction IS NULL
-        OR members.updated_at IS NULL
-        OR ? > date(members.updated_at, 'unixepoch', '-' || members.days_in_faction || ' days')
+        members.current_join_date IS NULL
+        OR ? >= members.current_join_date
       )
       AND snapshots.member_id IS NULL
     LIMIT 1

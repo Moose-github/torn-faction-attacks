@@ -29,7 +29,8 @@ describe("member achievement refresh", () => {
     expect(availabilityCall).toBeDefined();
     expect(availabilityCall?.sql).toContain("LIMIT ?");
     expect(availabilityCall?.sql).toContain("date('now', ?)");
-    expect(availabilityCall?.sql).toContain("members.days_in_faction IS NULL");
+    expect(availabilityCall?.sql).toContain("members.current_join_date IS NULL");
+    expect(availabilityCall?.sql).toContain("candidate_dates.snapshot_date >= members.current_join_date");
     expect(availabilityCall?.sql).toContain("GROUP BY candidate_dates.snapshot_date");
     expect(availabilityCall?.sql).not.toContain("NOT EXISTS");
     expect(availabilityCall?.params).toEqual(["-21 days", 30, 8803]);

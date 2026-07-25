@@ -455,7 +455,8 @@ CREATE TABLE home_faction_members (
   is_current INTEGER NOT NULL DEFAULT 1,
   report_exempt INTEGER NOT NULL DEFAULT 0,
   report_exempt_reason TEXT,
-  report_exempt_updated_at INTEGER
+  report_exempt_updated_at INTEGER,
+  current_join_date TEXT
 );
 
 CREATE TABLE home_member_live_status (
@@ -1331,6 +1332,9 @@ CREATE INDEX idx_home_faction_members_ranked
 
 CREATE INDEX idx_home_faction_members_reportable
   ON home_faction_members(faction_id, is_current, report_exempt, member_id);
+
+CREATE INDEX idx_home_faction_members_reportable_join
+  ON home_faction_members(faction_id, is_current, report_exempt, current_join_date, member_id);
 
 CREATE INDEX idx_home_member_live_status_faction
   ON home_member_live_status(faction_id);
