@@ -297,6 +297,10 @@ async function rankedLifestyleRows(
   baselineDate: string,
   sourceSnapshotDate: string,
 ): Promise<MugRow[]> {
+  if (metric.metricKey === "xanax_yesterday") {
+    return rankedSingleDayXanaxRows(env, sourceSnapshotDate);
+  }
+
   const readyColumn = lifestyleReadyColumnForMetric(metric);
   const rows = ((await env.DB.prepare(
     `
@@ -335,6 +339,83 @@ async function rankedLifestyleRows(
         member_id: row.member_id,
         member_name: row.member_name,
         value,
+      };
+    })
+    .filter((row): row is MugRow => row !== null && row.value > 0)
+    .sort(compareRankedRows);
+}
+
+async function rankedSingleDayXanaxRows(
+  env: Env,
+  sourceSnapshotDate: string,
+): Promise<MugRow[]> {
+  const rows = ((await env.DB.prepare(
+    `
+    SELECT
+      latest.member_id,
+      COALESCE(latest.member_name, baseline.member_name, members.name) AS member_name,
+      baseline.xantaken AS start_value,
+      latest.xantaken AS end_value
+    FROM home_faction_members members
+    JOIN member_lifestyle_stat_snapshots latest
+      ON latest.member_id = members.member_id
+     AND latest.snapshot_date = ?
+     AND latest.personal_ready = 1
+    LEFT JOIN member_lifestyle_stat_snapshots baseline
+      ON baseline.member_id = members.member_id
+     AND baseline.snapshot_date = COALESCE(
+        (
+          SELECT MAX(snapshot_date)
+          FROM member_lifestyle_stat_snapshots
+          WHERE member_id = members.member_id
+            AND snapshot_date < CASE
+              WHEN members.current_join_date IS NOT NULL AND members.current_join_date > ? THEN members.current_join_date
+              ELSE ?
+            END
+            AND personal_ready = 1
+        ),
+        (
+          SELECT MIN(snapshot_date)
+          FROM member_lifestyle_stat_snapshots
+          WHERE member_id = members.member_id
+            AND snapshot_date >= CASE
+              WHEN members.current_join_date IS NOT NULL AND members.current_join_date > ? THEN members.current_join_date
+              ELSE ?
+            END
+            AND snapshot_date <= ?
+            AND personal_ready = 1
+        )
+      )
+    WHERE members.faction_id = ?
+      AND members.is_current = 1
+      AND members.report_exempt = 0
+      AND (
+        members.current_join_date IS NULL
+        OR ? >= members.current_join_date
+      )
+    `,
+  )
+    .bind(
+      sourceSnapshotDate,
+      sourceSnapshotDate,
+      sourceSnapshotDate,
+      sourceSnapshotDate,
+      sourceSnapshotDate,
+      sourceSnapshotDate,
+      HOME_FACTION_ID,
+      sourceSnapshotDate,
+    )
+    .all()).results ?? []) as SnapshotValueRow[];
+
+  return rows
+    .map((row) => {
+      if (row.start_value === null || row.end_value === null) {
+        return null;
+      }
+      return {
+        member_id: row.member_id,
+        member_name: row.member_name,
+        value: Math.max(0, Number(row.end_value) - Number(row.start_value)),
       };
     })
     .filter((row): row is MugRow => row !== null && row.value > 0)

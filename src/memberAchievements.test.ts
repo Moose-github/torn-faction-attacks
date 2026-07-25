@@ -36,6 +36,31 @@ describe("member achievement refresh", () => {
     expect(availabilityCall?.params).toEqual(["-21 days", 30, 8803]);
   });
 
+  it("uses Monthly Xanax-style baseline logic for the Most Xanax highlight", async () => {
+    const fixture = achievementEnv({ withAvailablePersonalWindow: true });
+
+    await refreshMemberAchievementSummariesIfStale(fixture.env);
+
+    const xanaxCall = fixture.calls.find((call) =>
+      call.method === "all" && call.sql.includes("baseline.xantaken AS start_value")
+    );
+    expect(xanaxCall).toBeDefined();
+    expect(xanaxCall?.sql).toContain("baseline.snapshot_date = COALESCE");
+    expect(xanaxCall?.sql).toContain("snapshot_date < CASE");
+    expect(xanaxCall?.sql).toContain("members.current_join_date IS NOT NULL");
+    expect(xanaxCall?.sql).toContain("snapshot_date <= ?");
+    expect(xanaxCall?.params).toEqual([
+      "2026-07-23",
+      "2026-07-23",
+      "2026-07-23",
+      "2026-07-23",
+      "2026-07-23",
+      "2026-07-23",
+      8803,
+      "2026-07-23",
+    ]);
+  });
+
   it("skips the maintenance stale check when it already ran in this refresh window", async () => {
     const fixture = achievementEnv({ lastCheckedAt: Date.UTC(2026, 5, 23, 6, 30, 0) / 1000 });
 
@@ -65,7 +90,7 @@ describe("member achievement refresh", () => {
   });
 });
 
-function achievementEnv(options: { lastCheckedAt?: number } = {}): {
+function achievementEnv(options: { lastCheckedAt?: number; withAvailablePersonalWindow?: boolean } = {}): {
   env: Env;
   calls: DbCall[];
 } {
@@ -95,6 +120,29 @@ function achievementEnv(options: { lastCheckedAt?: number } = {}): {
           },
           async all() {
             calls.push({ sql, method: "all" as const, params: statement.params });
+            if (sql.includes("WITH candidate_dates") && options.withAvailablePersonalWindow) {
+              return {
+                results: [
+                  { snapshot_date: "2026-07-22", personal_ready: 1, gym_ready: 0, fully_ready: 0 },
+                  { snapshot_date: "2026-07-23", personal_ready: 1, gym_ready: 0, fully_ready: 0 },
+                ],
+              };
+            }
+            if (sql.includes("FROM member_achievement_summaries")) {
+              return { results: [] };
+            }
+            if (sql.includes("baseline.xantaken AS start_value")) {
+              return {
+                results: [
+                  {
+                    member_id: 3238283,
+                    member_name: "M00SE",
+                    start_value: 2189,
+                    end_value: 2192,
+                  },
+                ],
+              };
+            }
             return { results: [] };
           },
           async run() {
@@ -103,6 +151,10 @@ function achievementEnv(options: { lastCheckedAt?: number } = {}): {
           },
         };
         return statement;
+      },
+      async batch(statements: unknown[]) {
+        calls.push({ sql: "BATCH", method: "run" as const, params: [statements.length] });
+        return Array.from({ length: statements.length }, () => ({ meta: { changes: 1 } }));
       },
     },
   } as unknown as Env;
