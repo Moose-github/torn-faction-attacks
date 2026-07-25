@@ -97,7 +97,7 @@ describe("monthly Xanax competition progress", () => {
     vi.useRealTimers();
   });
 
-  it("uses the day before the effective member month start as the baseline", async () => {
+  it("uses the latest faction-complete personal stats date as the leaderboard cutoff", async () => {
     const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
     const env = createProgressFixture(calls);
 
@@ -120,12 +120,12 @@ describe("monthly Xanax competition progress", () => {
     expect(progressCall?.sql).toContain("snapshot_date >= CASE WHEN members.current_join_date IS NOT NULL");
     expect(progressCall?.params).toEqual([
       "2026-07-01",
-      "2026-08-01",
+      "2026-07-24",
       "2026-07-01",
       "2026-07-01",
       "2026-07-01",
       "2026-07-01",
-      "2026-08-01",
+      "2026-07-24",
       8803,
     ]);
   });
@@ -265,6 +265,9 @@ function createProgressFixture(calls: Array<{ method: string; sql: string; param
         async first() {
           const compactSql = compact(sql);
           calls.push({ method: "first", sql: compactSql, params: values });
+          if (compactSql.includes("MIN(candidate_dates.snapshot_date) AS start_date")) {
+            return { start_date: "2026-04-30", end_date: "2026-07-23" };
+          }
           if (compactSql.includes("FROM xanax_competition_settings")) {
             return { ...settings };
           }

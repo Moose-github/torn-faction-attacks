@@ -2,6 +2,7 @@ import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordAlertMessageWithAttachment } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import { readCompleteLifestyleSnapshotDateRange } from "./lifestyleStats/queries";
 import { claimDailyBatchGate } from "./scheduledGates";
 import { upsertSyncTimestamp } from "./syncState";
 import { Env } from "./types";
@@ -439,6 +440,11 @@ async function readCompetitionProgress(
 ): Promise<XanaxCompetitionProgress[]> {
   const startDate = `${monthKey}-01`;
   const nextStartDate = nextMonthStartDate(monthKey);
+  const completePersonalRange = await readCompleteLifestyleSnapshotDateRange(env, "personal_ready");
+  const latestCompleteDate = completePersonalRange?.end_date ?? null;
+  const endExclusiveDate = latestCompleteDate && latestCompleteDate >= startDate
+    ? minDate(nextStartDate, nextDate(latestCompleteDate))
+    : startDate;
   const rows = ((await env.DB.prepare(
     `
     SELECT
@@ -490,12 +496,12 @@ async function readCompetitionProgress(
   )
     .bind(
       startDate,
-      nextStartDate,
+      endExclusiveDate,
       startDate,
       startDate,
       startDate,
       startDate,
-      nextStartDate,
+      endExclusiveDate,
       HOME_FACTION_ID,
     )
     .all()).results ?? []) as ProgressQueryRow[];
@@ -602,6 +608,16 @@ function nextMonthStartDate(monthKey: string): string {
   const date = new Date(`${monthKey}-01T00:00:00.000Z`);
   date.setUTCMonth(date.getUTCMonth() + 1);
   return date.toISOString().slice(0, 10);
+}
+
+function nextDate(dateKey: string): string {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function minDate(left: string, right: string): string {
+  return left < right ? left : right;
 }
 
 function nextMonthKey(monthKey: string): string {
