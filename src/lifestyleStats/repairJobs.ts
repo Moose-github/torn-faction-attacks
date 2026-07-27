@@ -237,15 +237,6 @@ export async function processMemberLifestyleRepairJobs(env: Env): Promise<{
   details: Record<string, unknown>;
 }> {
   const now = nowSeconds();
-  const keys = await readAvailableRepairKeys(env, now);
-  if (keys.length === 0) {
-    return {
-      writeStatements: 0,
-      changedRows: 0,
-      details: { skipped: true, reason: "no repair API keys available" },
-    };
-  }
-
   const job = (await env.DB.prepare(
     `
     SELECT *
@@ -261,6 +252,15 @@ export async function processMemberLifestyleRepairJobs(env: Env): Promise<{
       writeStatements: 0,
       changedRows: 0,
       details: { skipped: true, reason: "no queued repair job" },
+    };
+  }
+
+  const keys = await readAvailableRepairKeys(env, now);
+  if (keys.length === 0) {
+    return {
+      writeStatements: 0,
+      changedRows: 0,
+      details: { skipped: true, reason: "no repair API keys available" },
     };
   }
 

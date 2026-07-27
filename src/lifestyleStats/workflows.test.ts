@@ -252,6 +252,26 @@ describe("lifestyle stats workflows", () => {
     expect(mocks.bumpMemberLifestyleCacheVersion).not.toHaveBeenCalled();
   });
 
+  it("does not read repair API key secrets when no repair job is queued", async () => {
+    const secretGet = vi.fn(async () => {
+      throw new Error("Secrets Worker: Failed to fetch secret");
+    });
+    const env = repairEnv({
+      job: repairJob({ status: "completed" }),
+      items: [],
+      storageSecret: { get: secretGet },
+    });
+
+    const result = await processMemberLifestyleRepairJobs(env);
+
+    expect(result).toMatchObject({
+      writeStatements: 0,
+      changedRows: 0,
+      details: { skipped: true, reason: "no queued repair job" },
+    });
+    expect(secretGet).not.toHaveBeenCalled();
+  });
+
   it("finalizes an expired daily gym retry as partial and clears retry state", async () => {
     const refreshAt = timestampForDailyPoll("2026-06-06") + 10 * 60;
     const now = refreshAt + 6 * 60 * 60;
@@ -296,6 +316,7 @@ function repairEnv(options: {
   job: LifestyleRepairJobRow;
   items: LifestyleRepairItemRow[];
   syncState?: Map<string, SyncStateRow>;
+  storageSecret?: { get: () => Promise<string> };
 }): Env {
   const syncState = options.syncState ?? new Map<string, SyncStateRow>();
   const db = new TestD1Database((call) => handleRepairQuery(call, {
@@ -306,6 +327,7 @@ function repairEnv(options: {
   return {
     DB: db,
     TORN_API_KEY: "primary-key",
+    TORN_KEY_STORAGE_SECRET: options.storageSecret,
   } as unknown as Env;
 }
 
