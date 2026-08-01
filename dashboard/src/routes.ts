@@ -34,7 +34,7 @@ export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   arrestScout: "/arrest-scout",
   warPayouts: "/war-payouts",
   stockMarketStatus: "/admin/stock-market",
-  stockInvestments: "/admin/stock-investments",
+  stockInvestments: "/stock-roi",
   diceGame: "/dice-game",
   dataHealth: "/data-health",
   settings: "/settings",
@@ -67,6 +67,13 @@ export function parseAppRoute(pathname: string): AppRoute {
     };
   }
 
+  if (lowerPath === "/admin/stock-investments") {
+    return {
+      view: "stockInvestments",
+      warName: null,
+    };
+  }
+
   const matchedPage = Object.entries(PAGE_PATHS).find(([, path]) => path === lowerPath);
   if (matchedPage) {
     return {
@@ -90,7 +97,7 @@ export function pathForView(view: AppView, warName?: string | null): string {
 }
 
 export function isAdminOnlyView(view: AppView): boolean {
-  return view === "admin" || view === "warPayouts" || view === "stockMarketStatus" || view === "stockInvestments";
+  return view === "admin" || view === "warPayouts" || view === "stockMarketStatus";
 }
 
 function safeDecodePathPart(value: string): string | null {

@@ -527,7 +527,10 @@ export function StockInvestments() {
       <section className="hero-panel compact-hero-panel">
         <div>
           <p className="eyebrow">Stocks</p>
-          <h2>Stock ROI</h2>
+          <h2>
+            Stock ROI
+            <span className="data-wip-badge" title="Stock ROI is still being verified.">WIP</span>
+          </h2>
           <p>Active benefit increments priced from current shares and your benefit values.</p>
         </div>
         <button type="button" className="panel-action-button" disabled={isLoading} onClick={loadData}>
