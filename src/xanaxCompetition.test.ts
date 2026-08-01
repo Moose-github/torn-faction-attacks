@@ -97,6 +97,144 @@ describe("monthly Xanax competition progress", () => {
     vi.useRealTimers();
   });
 
+  it("displays the previous month throughout the first five UTC days", async () => {
+    for (const timestamp of [
+      "2026-07-01T00:00:00.000Z",
+      "2026-07-02T12:00:00.000Z",
+      "2026-07-03T12:00:00.000Z",
+      "2026-07-04T12:00:00.000Z",
+      "2026-07-05T23:59:59.000Z",
+    ]) {
+      vi.setSystemTime(new Date(timestamp));
+      const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
+      const env = createProgressFixture(calls, {
+        completeRange: { start_date: "2026-04-30", end_date: "2026-06-29" },
+      });
+
+      const response = await getXanaxCompetition(env, 3238283);
+      const body = await response.json() as any;
+
+      expect(body.settings.month_key).toBe("2026-06");
+      expect(body.display).toMatchObject({
+        mode: "grace_progress",
+        month_key: "2026-06",
+        calendar_month_key: "2026-07",
+        grace_window: true,
+        complete: false,
+      });
+    }
+  });
+
+  it("returns a completed previous-month summary during the grace window when data is complete", async () => {
+    vi.setSystemTime(new Date("2026-07-03T12:00:00.000Z"));
+    const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
+    const env = createProgressFixture(calls, {
+      completeRange: { start_date: "2026-04-30", end_date: "2026-06-30" },
+      progressRows: [
+        {
+          member_id: 111,
+          member_name: "Winner",
+          start_xantaken: 1000,
+          end_xantaken: 1112,
+          latest_snapshot_date: "2026-06-30",
+        },
+        {
+          member_id: 222,
+          member_name: "Runner",
+          start_xantaken: 700,
+          end_xantaken: 803,
+          latest_snapshot_date: "2026-06-30",
+        },
+        {
+          member_id: 333,
+          member_name: "Third",
+          start_xantaken: 500,
+          end_xantaken: 590,
+          latest_snapshot_date: "2026-06-30",
+        },
+        {
+          member_id: 444,
+          member_name: "Fourth",
+          start_xantaken: 400,
+          end_xantaken: 450,
+          latest_snapshot_date: "2026-06-30",
+        },
+      ],
+    });
+
+    const response = await getXanaxCompetition(env, 111);
+    const body = await response.json() as any;
+
+    expect(body.display).toMatchObject({
+      mode: "completed_summary",
+      month_key: "2026-06",
+      calendar_month_key: "2026-07",
+      grace_window: true,
+      complete: true,
+    });
+    expect(body.summary).toMatchObject({
+      month_key: "2026-06",
+      prize: 10_000_000,
+      final_snapshot_date: "2026-06-30",
+      eligible_count: 2,
+      winner: {
+        rank: 1,
+        member_id: 111,
+        member_name: "Winner",
+        monthly_xanax: 112,
+        eligible: true,
+      },
+    });
+    expect(body.summary.top_contenders.map((row: any) => row.member_id)).toEqual([111, 222, 333]);
+    expect(body.current_user_progress).toMatchObject({
+      member_id: 111,
+      monthly_xanax: 112,
+      eligible: true,
+    });
+  });
+
+  it("keeps the previous-month progress display during the grace window when data is incomplete", async () => {
+    vi.setSystemTime(new Date("2026-07-03T12:00:00.000Z"));
+    const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
+    const env = createProgressFixture(calls, {
+      completeRange: { start_date: "2026-04-30", end_date: "2026-06-29" },
+    });
+
+    const response = await getXanaxCompetition(env, 3238283);
+    const body = await response.json() as any;
+
+    expect(body.settings.month_key).toBe("2026-06");
+    expect(body.display.mode).toBe("grace_progress");
+    expect(body.display.complete).toBe(false);
+    expect(body.summary).toBeNull();
+
+    const progressCall = calls.find((call) =>
+      call.method === "all" && call.sql.includes("baseline.xantaken AS start_xantaken")
+    );
+    expect(progressCall?.params.slice(0, 2)).toEqual(["2026-06-01", "2026-06-30"]);
+  });
+
+  it("switches to the calendar month on the sixth UTC day", async () => {
+    vi.setSystemTime(new Date("2026-07-06T00:00:00.000Z"));
+    const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
+    const env = createProgressFixture(calls, {
+      completeRange: { start_date: "2026-04-30", end_date: "2026-07-05" },
+    });
+
+    const response = await getXanaxCompetition(env, 3238283);
+    const body = await response.json() as any;
+
+    expect(body.settings.month_key).toBe("2026-07");
+    expect(body.display).toMatchObject({
+      mode: "active",
+      month_key: "2026-07",
+      calendar_month_key: "2026-07",
+      grace_window: false,
+      complete: false,
+    });
+    expect(body.summary).toBeNull();
+  });
+
   it("uses the latest faction-complete personal stats date as the leaderboard cutoff", async () => {
     const calls: Array<{ method: string; sql: string; params: unknown[] }> = [];
     const env = createProgressFixture(calls);
@@ -245,7 +383,21 @@ function createReminderFixture(options: ReminderFixtureOptions): {
   };
 }
 
-function createProgressFixture(calls: Array<{ method: string; sql: string; params: unknown[] }>): Env {
+type TestProgressRow = {
+  member_id: number;
+  member_name: string | null;
+  start_xantaken: number | null;
+  end_xantaken: number | null;
+  latest_snapshot_date: string | null;
+};
+
+function createProgressFixture(
+  calls: Array<{ method: string; sql: string; params: unknown[] }>,
+  options: {
+    completeRange?: { start_date: string; end_date: string } | null;
+    progressRows?: TestProgressRow[];
+  } = {},
+): Env {
   const settings = {
     id: 1,
     enabled: 1,
@@ -254,6 +406,16 @@ function createProgressFixture(calls: Array<{ method: string; sql: string; param
     last_rollover_month_key: "2026-06",
     updated_at: 1,
   };
+  const completeRange = options.completeRange ?? { start_date: "2026-04-30", end_date: "2026-07-23" };
+  const progressRows = options.progressRows ?? [
+    {
+      member_id: 3238283,
+      member_name: "M00SE",
+      start_xantaken: 2189,
+      end_xantaken: 2258,
+      latest_snapshot_date: "2026-07-23",
+    },
+  ];
   const db = {
     prepare(sql: string) {
       let values: unknown[] = [];
@@ -266,7 +428,7 @@ function createProgressFixture(calls: Array<{ method: string; sql: string; param
           const compactSql = compact(sql);
           calls.push({ method: "first", sql: compactSql, params: values });
           if (compactSql.includes("MIN(candidate_dates.snapshot_date) AS start_date")) {
-            return { start_date: "2026-04-30", end_date: "2026-07-23" };
+            return completeRange;
           }
           if (compactSql.includes("FROM xanax_competition_settings")) {
             return { ...settings };
@@ -282,15 +444,7 @@ function createProgressFixture(calls: Array<{ method: string; sql: string; param
           calls.push({ method: "all", sql: compactSql, params: values });
           if (compactSql.includes("baseline.xantaken AS start_xantaken")) {
             return {
-              results: [
-                {
-                  member_id: 3238283,
-                  member_name: "M00SE",
-                  start_xantaken: 2189,
-                  end_xantaken: 2258,
-                  latest_snapshot_date: "2026-07-23",
-                },
-              ],
+              results: progressRows,
             };
           }
           return { results: [] };

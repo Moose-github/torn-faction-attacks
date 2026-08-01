@@ -13,6 +13,7 @@ const SETTINGS_ID = 1;
 const DEFAULT_BASE_PRIZE = 10_000_000;
 const XANAX_TARGET = 100;
 const LEADERBOARD_LIMIT = 10;
+const MONTH_START_GRACE_DAYS = 5;
 const TORN_XANAX_IMAGE_URL = "https://www.torn.com/images/items/206/medium@2x.png";
 const MONTHLY_DISCORD_REMINDER_STATE_PREFIX = "xanax_competition_discord_reminder";
 const MONTHLY_DISCORD_REMINDER_LOCK_SECONDS = 90;
@@ -47,6 +48,13 @@ type ProgressQueryRow = {
   latest_snapshot_date: string | null;
 };
 
+type CompleteLifestyleSnapshotRange = {
+  start_date: string;
+  end_date: string;
+};
+
+type XanaxCompetitionDisplayMode = "active" | "grace_progress" | "completed_summary";
+
 export type XanaxCompetitionProgress = {
   rank: number;
   member_id: number;
@@ -55,6 +63,15 @@ export type XanaxCompetitionProgress = {
   remaining: number;
   eligible: boolean;
   latest_snapshot_date: string | null;
+};
+
+export type XanaxCompetitionSummary = {
+  month_key: string;
+  prize: number;
+  final_snapshot_date: string | null;
+  eligible_count: number;
+  winner: XanaxCompetitionProgress | null;
+  top_contenders: XanaxCompetitionProgress[];
 };
 
 export async function getXanaxCompetition(
@@ -258,20 +275,40 @@ async function buildCompetitionState(
   options: { currentUserId: number | null; includeClaims: boolean },
 ) {
   const settings = await ensureCompetitionSettings(env);
-  const monthKey = currentMonthKey();
-  const leaderboard = await readCompetitionProgress(env, monthKey);
+  const calendarMonthKey = currentMonthKey();
+  const displayMonthKey = displayMonthKeyForDate(new Date());
+  const graceWindow = displayMonthKey !== calendarMonthKey;
+  const completePersonalRange = await readCompleteLifestyleSnapshotDateRange(env, "personal_ready");
+  const displayComplete = isMonthComplete(displayMonthKey, completePersonalRange);
+  const displayMode: XanaxCompetitionDisplayMode = graceWindow
+    ? displayComplete ? "completed_summary" : "grace_progress"
+    : "active";
+  const leaderboard = await readCompetitionProgress(env, displayMonthKey, completePersonalRange);
+  const serializedSettings = serializeSettings(settings, displayMonthKey);
+  const latestSnapshotDate = latestProgressSnapshotDate(leaderboard);
   const currentUserProgress =
     options.currentUserId === null
       ? null
       : leaderboard.find((row) => row.member_id === options.currentUserId) ?? null;
   const claims = options.includeClaims ? await readRecentClaims(env) : undefined;
+  const summary = displayMode === "completed_summary"
+    ? buildCompetitionSummary(leaderboard, serializedSettings.current_prize, displayMonthKey, latestSnapshotDate)
+    : null;
 
   return {
     ok: true,
-    settings: serializeSettings(settings, monthKey),
+    settings: serializedSettings,
+    display: {
+      mode: displayMode,
+      month_key: displayMonthKey,
+      calendar_month_key: calendarMonthKey,
+      grace_window: graceWindow,
+      complete: displayComplete,
+    },
+    summary,
     current_user_progress: currentUserProgress,
     leaderboard: options.includeClaims ? leaderboard : leaderboard.slice(0, LEADERBOARD_LIMIT),
-    latest_snapshot_date: latestProgressSnapshotDate(leaderboard),
+    latest_snapshot_date: latestSnapshotDate,
     updated_at: settings.updated_at,
     ...(claims ? { claims } : {}),
   };
@@ -437,11 +474,14 @@ async function readCompetitionSettings(env: Env): Promise<CompetitionSettingsRow
 async function readCompetitionProgress(
   env: Env,
   monthKey: string,
+  completePersonalRange?: CompleteLifestyleSnapshotRange | null,
 ): Promise<XanaxCompetitionProgress[]> {
   const startDate = `${monthKey}-01`;
   const nextStartDate = nextMonthStartDate(monthKey);
-  const completePersonalRange = await readCompleteLifestyleSnapshotDateRange(env, "personal_ready");
-  const latestCompleteDate = completePersonalRange?.end_date ?? null;
+  const effectiveCompletePersonalRange = completePersonalRange === undefined
+    ? await readCompleteLifestyleSnapshotDateRange(env, "personal_ready")
+    : completePersonalRange;
+  const latestCompleteDate = effectiveCompletePersonalRange?.end_date ?? null;
   const endExclusiveDate = latestCompleteDate && latestCompleteDate >= startDate
     ? minDate(nextStartDate, nextDate(latestCompleteDate))
     : startDate;
@@ -575,6 +615,22 @@ function latestProgressSnapshotDate(rows: XanaxCompetitionProgress[]): string | 
   }, null);
 }
 
+function buildCompetitionSummary(
+  leaderboard: XanaxCompetitionProgress[],
+  prize: number,
+  monthKey: string,
+  finalSnapshotDate: string | null,
+): XanaxCompetitionSummary {
+  return {
+    month_key: monthKey,
+    prize,
+    final_snapshot_date: finalSnapshotDate,
+    eligible_count: leaderboard.filter((row) => row.eligible).length,
+    winner: leaderboard[0] ?? null,
+    top_contenders: leaderboard.slice(0, 3),
+  };
+}
+
 function parseNonNegativeInteger(value: unknown, fallback: number): number {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -592,6 +648,13 @@ function parseMonthKey(value: unknown): string | null {
 
 function currentMonthKey(): string {
   return new Date().toISOString().slice(0, 7);
+}
+
+function displayMonthKeyForDate(date: Date): string {
+  const monthKey = date.toISOString().slice(0, 7);
+  return date.getUTCDate() <= MONTH_START_GRACE_DAYS
+    ? previousMonthKey(monthKey)
+    : monthKey;
 }
 
 function monthKeyFromTimestamp(timestamp: number): string {
@@ -614,6 +677,16 @@ function nextDate(dateKey: string): string {
   const date = new Date(`${dateKey}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + 1);
   return date.toISOString().slice(0, 10);
+}
+
+function previousDate(dateKey: string): string {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function isMonthComplete(monthKey: string, completePersonalRange: CompleteLifestyleSnapshotRange | null): boolean {
+  return Boolean(completePersonalRange?.end_date && completePersonalRange.end_date >= previousDate(nextMonthStartDate(monthKey)));
 }
 
 function minDate(left: string, right: string): string {

@@ -903,7 +903,28 @@ function XanaxCompetitionSpotlight({
     );
   }
 
-  const contenders = competition.leaderboard.slice(0, 3);
+  const completedSummary = competition.display?.mode === "completed_summary"
+    ? competition.summary ?? null
+    : null;
+  const winner = completedSummary?.winner ?? null;
+  const contenders = completedSummary
+    ? completedSummary.top_contenders
+    : competition.leaderboard.slice(0, 3);
+  const displayMonthLabel = formatMonthKey(competition.settings.month_key);
+  const displayedPrize = completedSummary?.prize ?? competition.settings.current_prize;
+  const finalSnapshotDate = completedSummary?.final_snapshot_date ?? competition.latest_snapshot_date;
+  const detailSuffix = finalSnapshotDate
+    ? completedSummary
+      ? ` | Final data ${formatDateKey(finalSnapshotDate)}`
+      : ` | Updated ${formatDateKey(finalSnapshotDate)}`
+    : "";
+  const summaryDetail = completedSummary
+    ? winner
+      ? `${formatPrize(displayedPrize)} | ${formatNumber(winner.monthly_xanax)} Xanax | ${formatNumber(completedSummary.eligible_count)} eligible${detailSuffix}`
+      : `${formatPrize(displayedPrize)} | ${formatNumber(completedSummary.eligible_count)} eligible${detailSuffix}`
+    : competition.display?.mode === "grace_progress"
+      ? `Previous month remains open while final data settles.${detailSuffix}`
+      : `Take 100 Xanax in a month to win the prize.${detailSuffix}`;
 
   return (
     <section className="panel xanax-competition-panel">
@@ -917,14 +938,9 @@ function XanaxCompetitionSpotlight({
       <div className="xanax-competition-compact">
         <div className="xanax-competition-summary">
           <div>
-            <span>Monthly Xanax prize</span>
-            <strong>{formatPrize(competition.settings.current_prize)}</strong>
-            <small>
-              Take 100 Xanax in a month to win the prize.
-              {competition.latest_snapshot_date
-                ? ` | Updated ${formatDateKey(competition.latest_snapshot_date)}`
-                : ""}
-            </small>
+            <span>{completedSummary ? "Completed Xanax prize" : "Monthly Xanax prize"}</span>
+            <strong>{completedSummary ? winner ? `${winner.member_name ?? `#${winner.member_id}`} won` : "No winner" : formatPrize(displayedPrize)}</strong>
+            <small>{summaryDetail}</small>
           </div>
           <img
             className="xanax-competition-image"
@@ -938,8 +954,8 @@ function XanaxCompetitionSpotlight({
 
         <div className="xanax-leaderboard">
           <div className="xanax-leaderboard-header">
-            <span>Top 3 contenders</span>
-            <small>{competition.settings.month_key}</small>
+            <span>{completedSummary ? "Final top 3" : "Top 3 contenders"}</span>
+            <small>{displayMonthLabel}</small>
           </div>
           {contenders.length === 0 ? (
             <EmptyState text="No contenders yet" />
@@ -952,7 +968,7 @@ function XanaxCompetitionSpotlight({
                 <span className="dashboard-rank-chip">{row.rank}</span>
                 <strong>{row.member_name ?? `#${row.member_id}`}</strong>
                 <small>{formatNumber(row.monthly_xanax)} Xanax</small>
-                {row.eligible ? <em>Eligible</em> : null}
+                {completedSummary && row.rank === 1 ? <em>Winner</em> : row.eligible ? <em>Eligible</em> : null}
               </div>
             ))
           )}
@@ -1272,6 +1288,19 @@ function formatDateKey(dateKey: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
+    timeZone: "UTC",
+  }).format(new Date(timestamp));
+}
+
+function formatMonthKey(monthKey: string): string {
+  const timestamp = Date.parse(`${monthKey}-01T00:00:00.000Z`);
+  if (Number.isNaN(timestamp)) {
+    return monthKey;
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    month: "short",
+    year: "numeric",
     timeZone: "UTC",
   }).format(new Date(timestamp));
 }

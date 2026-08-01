@@ -446,7 +446,7 @@ export function AdminControls() {
       });
       setXanaxClaimForm((current) => ({
         ...current,
-        monthKey: current.monthKey || response.settings.month_key,
+        monthKey: response.settings.month_key,
         prizePaid: current.prizePaid || String(response.settings.current_prize),
       }));
     } catch {
@@ -820,7 +820,7 @@ export function AdminControls() {
 
           <div className="admin-xanax-summary">
             <MetricLine
-              label="Current month"
+              label="Displayed month"
               value={xanaxCompetition?.settings.month_key ?? currentMonthKey()}
             />
             <MetricLine

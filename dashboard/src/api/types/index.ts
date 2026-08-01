@@ -1844,7 +1844,17 @@ export type XanaxCompetitionSettings = {
   month_key: string;
 };
 
-export type XanaxCompetitionClaim = {
+export type XanaxCompetitionDisplayMode = "active" | "grace_progress" | "completed_summary";
+
+export type XanaxCompetitionDisplay = {
+  mode: XanaxCompetitionDisplayMode;
+  month_key: string;
+  calendar_month_key: string;
+  grace_window: boolean;
+  complete: boolean;
+};
+
+export type XanaxCompetitionClaim = {
   id: number;
   month_key: string;
   member_id: number;
@@ -1855,9 +1865,20 @@ export type XanaxCompetitionClaim = {
   claimed_at: number;
 };
 
-export type XanaxCompetitionResponse = {
+export type XanaxCompetitionSummary = {
+  month_key: string;
+  prize: number;
+  final_snapshot_date: string | null;
+  eligible_count: number;
+  winner: XanaxCompetitionProgress | null;
+  top_contenders: XanaxCompetitionProgress[];
+};
+
+export type XanaxCompetitionResponse = {
   ok: boolean;
-  settings: XanaxCompetitionSettings;
+  settings: XanaxCompetitionSettings;
+  display?: XanaxCompetitionDisplay;
+  summary?: XanaxCompetitionSummary | null;
   current_user_progress: XanaxCompetitionProgress | null;
   leaderboard: XanaxCompetitionProgress[];
   latest_snapshot_date: string | null;
