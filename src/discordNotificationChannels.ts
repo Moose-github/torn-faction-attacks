@@ -1,9 +1,14 @@
-import { DISCORD_ALERTS, type DiscordAlertKey } from "./discordAlerts";
+import {
+  DISCORD_ALERT_CHANNEL_ROUTES,
+  DISCORD_DEFAULT_ALERT_ROUTE_KEY,
+  type DiscordAlertKey,
+  type DiscordAlertRouteKey,
+} from "./discordAlerts";
 import type { Env } from "./types";
 
 export type DiscordNotificationChannel = {
   guildId: string;
-  alertKey: DiscordAlertKey;
+  alertKey: DiscordAlertRouteKey;
   alertName: string;
   alertDescription: string;
   channelId: string;
@@ -39,7 +44,7 @@ export async function listDiscordNotificationChannels(
     .all<DiscordNotificationChannelRow>();
 
   const rowsByAlertKey = new Map((result.results ?? []).map((row) => [row.alert_key, row]));
-  return DISCORD_ALERTS
+  return DISCORD_ALERT_CHANNEL_ROUTES
     .map((alert) => rowsByAlertKey.get(alert.key))
     .filter((row): row is DiscordNotificationChannelRow => Boolean(row))
     .map(discordNotificationChannelFromRow);
@@ -48,7 +53,7 @@ export async function listDiscordNotificationChannels(
 export async function readDiscordNotificationChannel(
   env: Env,
   guildId: string,
-  alertKey: DiscordAlertKey,
+  alertKey: DiscordAlertRouteKey,
 ): Promise<DiscordNotificationChannel | null> {
   const row = await env.DB.prepare(
     `
@@ -71,7 +76,12 @@ export async function readConfiguredDiscordNotificationChannel(
   alertKey: DiscordAlertKey,
 ): Promise<DiscordNotificationChannel | null> {
   const guildId = readDiscordNotificationGuildId(env);
-  return guildId ? readDiscordNotificationChannel(env, guildId, alertKey) : null;
+  if (!guildId) {
+    return null;
+  }
+
+  return await readDiscordNotificationChannel(env, guildId, alertKey) ??
+    await readDiscordNotificationChannel(env, guildId, DISCORD_DEFAULT_ALERT_ROUTE_KEY);
 }
 
 export function readDiscordNotificationGuildId(env: Env): string | null {
@@ -89,7 +99,7 @@ export async function setDiscordNotificationChannel(
   env: Env,
   options: {
     guildId: string;
-    alertKey: DiscordAlertKey;
+    alertKey: DiscordAlertRouteKey;
     channelId: string;
     threadId?: string | null;
     updatedByDiscordId: string;
@@ -135,7 +145,7 @@ export async function setDiscordNotificationChannel(
 export async function unsetDiscordNotificationChannel(
   env: Env,
   guildId: string,
-  alertKey: DiscordAlertKey,
+  alertKey: DiscordAlertRouteKey,
 ): Promise<void> {
   await env.DB.prepare(
     `
@@ -149,7 +159,7 @@ export async function unsetDiscordNotificationChannel(
 }
 
 function discordNotificationChannelFromRow(row: DiscordNotificationChannelRow): DiscordNotificationChannel {
-  const alert = DISCORD_ALERTS.find((item) => item.key === row.alert_key);
+  const alert = DISCORD_ALERT_CHANNEL_ROUTES.find((item) => item.key === row.alert_key);
   if (!alert) {
     throw new Error(`Unknown Discord alert route: ${row.alert_key}`);
   }

@@ -6,7 +6,7 @@ import {
   sendDiscordBotMessageWithAttachments,
 } from "./discord";
 import { sendDiscordAlertMessage, upsertDiscordAlertMessage } from "./discordAlertDelivery";
-import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import { DISCORD_ALERT_KEYS, DISCORD_DEFAULT_ALERT_ROUTE_KEY } from "./discordAlerts";
 import { readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
 import type { Env } from "./types";
 
@@ -62,6 +62,20 @@ describe("discord alert delivery", () => {
     await sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push");
 
     expect(createDiscordBotMessage).toHaveBeenCalledWith(env, "thread-1", "Enemy push", undefined);
+  });
+
+  it("sends through a resolved default bot route", async () => {
+    vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue({
+      ...route,
+      alertKey: DISCORD_DEFAULT_ALERT_ROUTE_KEY,
+      alertName: "Default",
+      alertDescription: "Fallback bot delivery channel for alerts without a specific route.",
+      channelId: "default-channel",
+    });
+
+    await sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push");
+
+    expect(createDiscordBotMessage).toHaveBeenCalledWith(env, "default-channel", "Enemy push", undefined);
   });
 
   it("skips delivery when there is no alert route", async () => {

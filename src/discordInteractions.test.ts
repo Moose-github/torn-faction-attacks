@@ -6,7 +6,7 @@ import {
   verifyDiscordRequestSignature,
 } from "./discordInteractions";
 import { DISCORD_COMPONENT_IDS, discordApplicationCommands } from "./discordCommands";
-import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import { DISCORD_ALERT_KEYS, DISCORD_DEFAULT_ALERT_ROUTE_KEY } from "./discordAlerts";
 import type { Env, WarRow } from "./types";
 
 vi.mock("./discord", () => ({
@@ -511,6 +511,40 @@ describe("Discord interactions", () => {
     });
   });
 
+  it("sets the default alert channel route in the configured guild", async () => {
+    const env = fakeDiscordEnv({
+      discordGuildId: "833065345023606805",
+    });
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "833065345023606805",
+      member: { user: { id: "222222222222222222" }, roles: [] },
+      data: {
+        name: "alert-channels",
+        options: [
+          {
+            type: 1,
+            name: "set",
+            options: [
+              { type: 3, name: "alert", value: DISCORD_DEFAULT_ALERT_ROUTE_KEY },
+              { type: 7, name: "channel", value: "333333333333333333" },
+            ],
+          },
+        ],
+      },
+    }, env);
+
+    expect(response.data?.embeds?.[0]?.title).toBe("Alert channel route saved");
+    expect(response.data?.embeds?.[0]?.description).toContain("**Default**");
+    expect(env.notificationRoutes.get("833065345023606805:default")).toMatchObject({
+      guild_id: "833065345023606805",
+      alert_key: DISCORD_DEFAULT_ALERT_ROUTE_KEY,
+      channel_id: "333333333333333333",
+      enabled: 1,
+      updated_by_discord_id: "222222222222222222",
+    });
+  });
+
   it("lists configured alert channel routes", async () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,
@@ -544,10 +578,37 @@ describe("Discord interactions", () => {
       .toHaveLength(1);
     const unsetField = response.data?.embeds?.[0]?.fields?.find((field) => field.name === "Unset");
     expect(unsetField?.value).toContain("Chain watch warning");
+    expect(unsetField?.value).toContain("Default");
     expect(unsetField?.value).not.toContain("Enemy push");
     const enemyPushField = response.data?.embeds?.[0]?.fields?.find((field) => field.name === "Enemy push");
     expect(enemyPushField?.value).not.toContain("Key:");
     expect(enemyPushField?.value).not.toContain(DISCORD_ALERT_KEYS.enemyPush);
+  });
+
+  it("lists configured default alert channel routes", async () => {
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "833065345023606805",
+      member: { user: { id: "222222222222222222" }, roles: ["999999999999999999"] },
+      data: {
+        name: "alert-channels",
+        options: [
+          { type: 1, name: "list" },
+        ],
+      },
+    }, fakeDiscordEnv({
+      discordGuildId: "833065345023606805",
+      notificationRoutes: {
+        [DISCORD_DEFAULT_ALERT_ROUTE_KEY]: "333333333333333333",
+      },
+    }));
+
+    expect(response.data?.embeds?.[0]?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Default",
+        value: expect.stringContaining("<#333333333333333333>"),
+      }),
+    ]));
   });
 
   it("tests alert channel routes against stored thread targets", async () => {
@@ -596,6 +657,47 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).not.toContain("<#333333333333333333>");
   });
 
+  it("tests default alert channel routes", async () => {
+    vi.mocked(createDiscordBotMessage).mockResolvedValue("message-1");
+    const env = fakeDiscordEnv({
+      discordGuildId: "833065345023606805",
+      notificationRoutes: {
+        [DISCORD_DEFAULT_ALERT_ROUTE_KEY]: "333333333333333333",
+      },
+    });
+
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "833065345023606805",
+      member: { user: { id: "222222222222222222" }, roles: [] },
+      data: {
+        name: "alert-channels",
+        options: [
+          {
+            type: 1,
+            name: "test",
+            options: [
+              { type: 3, name: "alert", value: DISCORD_DEFAULT_ALERT_ROUTE_KEY },
+            ],
+          },
+        ],
+      },
+    }, env);
+
+    expect(createDiscordBotMessage).toHaveBeenCalledWith(
+      env,
+      "333333333333333333",
+      "Discord alert route test: Default",
+      { users: [], roles: [] },
+      expect.objectContaining({
+        embeds: [expect.objectContaining({
+          description: "This channel is configured for **Default** alerts.",
+        })],
+      }),
+    );
+    expect(response.data?.embeds?.[0]?.description).toContain("**Default**");
+  });
+
   it("unsets alert channel routes in the configured guild", async () => {
     const env = fakeDiscordEnv({
       discordGuildId: "833065345023606805",
@@ -623,6 +725,36 @@ describe("Discord interactions", () => {
 
     expect(response.data?.embeds?.[0]?.title).toBe("Alert channel route removed");
     expect(env.notificationRoutes.has("833065345023606805:enemy_push")).toBe(false);
+  });
+
+  it("unsets the default alert channel route in the configured guild", async () => {
+    const env = fakeDiscordEnv({
+      discordGuildId: "833065345023606805",
+      notificationRoutes: {
+        [DISCORD_DEFAULT_ALERT_ROUTE_KEY]: "333333333333333333",
+      },
+    });
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      guild_id: "833065345023606805",
+      member: { user: { id: "222222222222222222" }, roles: [] },
+      data: {
+        name: "alert-channels",
+        options: [
+          {
+            type: 1,
+            name: "unset",
+            options: [
+              { type: 3, name: "alert", value: DISCORD_DEFAULT_ALERT_ROUTE_KEY },
+            ],
+          },
+        ],
+      },
+    }, env);
+
+    expect(response.data?.embeds?.[0]?.title).toBe("Alert channel route removed");
+    expect(response.data?.embeds?.[0]?.description).toContain("**Default**");
+    expect(env.notificationRoutes.has("833065345023606805:default")).toBe(false);
   });
 
   it("trusts Discord command permissions for alert channel routes", async () => {

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
-import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import { DISCORD_ALERT_KEYS, DISCORD_DEFAULT_ALERT_ROUTE_KEY } from "./discordAlerts";
 import {
   readCurrentScoutingWar,
   refreshHomeFactionMembers,
@@ -190,6 +190,35 @@ describe("Discord travel tracker", () => {
       home: { skipped: true, reason: "Discord travel tracker route is not configured" },
     });
     expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+  });
+
+  it("syncs target travel through the default bot route when no target route is configured", async () => {
+    const env = fakeEnv();
+    env.notificationRoutes.clear();
+    env.notificationRoutes.set(
+      `guild-1:${DISCORD_DEFAULT_ALERT_ROUTE_KEY}`,
+      notificationRoute(DISCORD_DEFAULT_ALERT_ROUTE_KEY),
+    );
+
+    await expect(syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 })).resolves.toMatchObject({
+      target: {
+        skipped: false,
+        message_id: "message-1",
+        changed: true,
+      },
+      home: {
+        skipped: true,
+        reason: "home travel tracker disabled",
+      },
+    });
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
+      env,
+      DISCORD_ALERT_KEYS.targetTravelTracker,
+      null,
+      expect.stringContaining("test-war Travel Tracker"),
+      { users: [], roles: [] },
+      { embedColor: TARGET_TRAVEL_TRACKER_COLOR },
+    );
   });
 
   it("syncs target travel through a bot route", async () => {

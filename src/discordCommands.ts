@@ -1,4 +1,4 @@
-import { DISCORD_ALERTS } from "./discordAlerts";
+import { DISCORD_ALERT_CHANNEL_ROUTES } from "./discordAlerts";
 
 export const DISCORD_COMMAND_NAMES = {
   bot: "bot",
@@ -46,7 +46,7 @@ type DiscordCommandOption = {
 };
 
 export function discordApplicationCommands(): DiscordApplicationCommand[] {
-  const notificationAlertChoices = DISCORD_ALERTS
+  const notificationAlertChoices = DISCORD_ALERT_CHANNEL_ROUTES
     .map((alert) => ({ name: alert.name, value: alert.key }));
 
   return [

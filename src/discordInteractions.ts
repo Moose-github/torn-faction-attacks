@@ -1,6 +1,12 @@
 import { isRecord } from "./backend/request";
 import { DISCORD_COMMAND_NAMES, DISCORD_COMPONENT_IDS } from "./discordCommands";
-import { DISCORD_ALERT_KEYS, DISCORD_ALERTS, discordAlertByKey } from "./discordAlerts";
+import {
+  DISCORD_ALERT_CHANNEL_ROUTES,
+  DISCORD_ALERT_KEYS,
+  DISCORD_ALERTS,
+  discordAlertByKey,
+  discordAlertRouteByKey,
+} from "./discordAlerts";
 import { createDiscordBotMessage } from "./discord";
 import {
   readDiscordMemberAlertSubscriptionsForDiscordUser,
@@ -772,7 +778,7 @@ async function syncRetaliationBoardAfterRouteChange(env: Env): Promise<void> {
 function alertChannelsListResponse(routes: DiscordNotificationChannel[]): DiscordInteractionResponse {
   const routesByAlertKey = new Map(routes.map((route) => [route.alertKey, route]));
   const unsetAlertNames: string[] = [];
-  const fields: NonNullable<DiscordEmbed["fields"]> = DISCORD_ALERTS.flatMap((alert) => {
+  const fields: NonNullable<DiscordEmbed["fields"]> = DISCORD_ALERT_CHANNEL_ROUTES.flatMap((alert) => {
     const route = routesByAlertKey.get(alert.key);
     if (!route) {
       unsetAlertNames.push(alert.name);
@@ -1244,9 +1250,9 @@ function optionString(option: DiscordOption, name: string): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function alertOption(option: DiscordOption): typeof DISCORD_ALERTS[number] | null {
+function alertOption(option: DiscordOption): typeof DISCORD_ALERT_CHANNEL_ROUTES[number] | null {
   const alertKey = optionString(option, "alert") ?? "";
-  return discordAlertByKey(alertKey);
+  return discordAlertRouteByKey(alertKey);
 }
 
 function interactionDiscordUserId(interaction: DiscordInteraction): string | null {

@@ -97,10 +97,27 @@ export const DISCORD_ALERTS = [
 
 export type DiscordAlertKey = typeof DISCORD_ALERTS[number]["key"];
 
+export const DISCORD_DEFAULT_ALERT_ROUTE_KEY = "default" as const;
+
+export const DISCORD_ALERT_CHANNEL_ROUTES = [
+  {
+    key: DISCORD_DEFAULT_ALERT_ROUTE_KEY,
+    name: "Default",
+    description: "Fallback bot delivery channel for alerts without a specific route.",
+  },
+  ...DISCORD_ALERTS,
+] as const;
+
+export type DiscordAlertRouteKey = DiscordAlertKey | typeof DISCORD_DEFAULT_ALERT_ROUTE_KEY;
+
 export function isDiscordAlertKey(value: string): value is DiscordAlertKey {
   return DISCORD_ALERTS.some((alert) => alert.key === value);
 }
 
 export function discordAlertByKey(key: string): typeof DISCORD_ALERTS[number] | null {
   return DISCORD_ALERTS.find((alert) => alert.key === key) ?? null;
+}
+
+export function discordAlertRouteByKey(key: string): typeof DISCORD_ALERT_CHANNEL_ROUTES[number] | null {
+  return DISCORD_ALERT_CHANNEL_ROUTES.find((alert) => alert.key === key) ?? null;
 }
