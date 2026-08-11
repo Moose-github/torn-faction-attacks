@@ -37,6 +37,7 @@ import {
   personalStatsDataQualityError,
 } from "./dailyPersonal";
 import { readHomeMembersById } from "./queries";
+import { evaluateXantakenSnapshotForRechecks } from "./xantakenRechecks";
 
 export async function createMemberLifestyleRepairJob(request: Request, env: Env): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as {
@@ -442,6 +443,7 @@ async function processRepairItem(
 
     const returnedBucketDate = stats.personalstats_bucket_date!;
     await upsertLifestyleSnapshotForRepair(env, item, stats, returnedBucketDate);
+    await safelyEvaluateXantakenSnapshotForRechecks(env, item.member_id, returnedBucketDate);
     if (returnedBucketDate !== item.snapshot_date) {
       const clearedRows = await clearSnapshotPersonalStatsForDate(env, item.member_id, item.snapshot_date);
       await markRepairItemSkipped(
@@ -928,4 +930,16 @@ function parseOptionalPositiveInteger(value: unknown): number | null {
 
 function repairKeyPauseStateName(keySource: string): string {
   return `${REPAIR_KEY_PAUSE_PREFIX}:${keySource}`;
+}
+
+async function safelyEvaluateXantakenSnapshotForRechecks(
+  env: Env,
+  memberId: number,
+  snapshotDate: string,
+): Promise<void> {
+  try {
+    await evaluateXantakenSnapshotForRechecks(env, memberId, snapshotDate);
+  } catch (err: any) {
+    console.warn("Xantaken recheck evaluation failed:", err?.message || err);
+  }
 }

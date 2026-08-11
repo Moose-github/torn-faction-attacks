@@ -16,5 +16,8 @@ export {
   listMemberLifestyleRepairJobs,
   processMemberLifestyleRepairJobs,
 } from "./repairJobs";
+export {
+  processXantakenRechecks,
+} from "./xantakenRechecks";
 export { getDailyStatsAttention } from "./dailyAttention";
 export type { DailyStatsAttention } from "./model";

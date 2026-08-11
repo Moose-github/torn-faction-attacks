@@ -1,5 +1,6 @@
 import { readJsonObject } from "./backend/request";
 import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
+import { readXantakenRecheckHealth } from "./lifestyleStats/xantakenRechecks";
 import {
   GYM_CONTRIBUTOR_STAT_KEYS,
   GymContributorStatKey,
@@ -106,6 +107,7 @@ export async function getAdminDataHealth(urlOrEnv: URL | Env, maybeEnv?: Env): P
       daily_stats_attention: snapshot.dailyStats,
       personal_stats_coverage_gaps: snapshot.personalStatsCoverageGaps,
       gym_stats_health: snapshot.gymStats,
+      xantaken_rechecks: snapshot.xantakenRechecks,
       roster: snapshot.roster,
       api_usage: snapshot.apiDetailUsage,
       api_usage_window_seconds: snapshot.apiUsageWindowSeconds,
@@ -197,6 +199,7 @@ async function readDataHealthSnapshot(
       : Promise.resolve([]),
     readGymStatsHealth(env, dailyStats.personalstats_target_date, now),
   ]);
+  const xantakenRechecks = await readXantakenRecheckHealth(env, now);
 
   return {
     now,
@@ -209,6 +212,7 @@ async function readDataHealthSnapshot(
     personalStatsCoverage,
     personalStatsCoverageGaps,
     gymStats,
+    xantakenRechecks,
     roster,
     apiUsage,
     apiDetailUsage,
@@ -346,15 +350,17 @@ function maintenanceSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem
 function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const attention = snapshot.dailyStats;
   const affectedCount = attention.stale_personalstats + attention.missing_donator_days;
+  const xantakenNeedsRepair = snapshot.xantakenRechecks.needs_repair;
   const oldestCoverage = snapshot.personalStatsCoverage[0] ?? null;
   const oldestMissingCoverage = oldestCoverage ? Math.max(0, oldestCoverage.total_members - oldestCoverage.ready_members) : 0;
-  const status = !oldestCoverage || oldestCoverage.total_members === 0
+  const coverageStatus = !oldestCoverage || oldestCoverage.total_members === 0
     ? "unknown"
     : statusForCount(
       oldestMissingCoverage,
       snapshot.settings.stale_daily_members_warn,
       snapshot.settings.stale_daily_members_critical,
     );
+  const status = maxStatus(coverageStatus, xantakenNeedsRepair > 0 ? "warn" : "good");
   const coverageMetrics = snapshot.personalStatsCoverage.map((coverage) => ({
     label: coverage.snapshot_date,
     value: `${coverage.ready_members}/${coverage.total_members}`,
@@ -373,6 +379,9 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
     metrics: [
       ...coverageMetrics,
       outstandingMetric,
+      { label: "Xanax rechecks", value: String(snapshot.xantakenRechecks.pending_rechecks) },
+      { label: "Xanax fixed 24h", value: String(snapshot.xantakenRechecks.auto_fixed_24h) },
+      { label: "Xanax repair", value: String(snapshot.xantakenRechecks.needs_repair) },
     ],
   };
 }

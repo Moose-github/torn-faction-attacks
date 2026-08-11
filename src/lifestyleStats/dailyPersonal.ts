@@ -44,6 +44,7 @@ import {
   upsertLifestyleSnapshotPersonalStats,
   writeLifestyleSnapshotForDate,
 } from "./internal";
+import { evaluateXantakenSnapshotForRechecks } from "./xantakenRechecks";
 
 export async function refreshMemberLifestyleStats(
   env: Env,
@@ -87,6 +88,7 @@ export async function refreshMemberLifestyleStats(
           member_name: queueRow.member_name,
           snapshot_date: returnedBucketDate,
         }, stats);
+        await safelyEvaluateXantakenSnapshotForRechecks(env, queueRow.member_id, returnedBucketDate);
         await updateHomeFactionMemberNetworth(env, queueRow.member_id, stats);
         refreshed += 1;
         continue;
@@ -105,6 +107,7 @@ export async function refreshMemberLifestyleStats(
             member_name: queueRow.member_name,
             snapshot_date: returnedBucketDate,
           }, stats);
+          await safelyEvaluateXantakenSnapshotForRechecks(env, queueRow.member_id, returnedBucketDate);
           await updateHomeFactionMemberNetworth(env, queueRow.member_id, stats);
           refreshed += 1;
         }
@@ -781,6 +784,18 @@ function emptyTimedLifestyleStats(): TimedLifestyleStats {
     personalstats_requested_at: null,
     personalstats_key_source: null,
   };
+}
+
+async function safelyEvaluateXantakenSnapshotForRechecks(
+  env: Env,
+  memberId: number,
+  snapshotDate: string,
+): Promise<void> {
+  try {
+    await evaluateXantakenSnapshotForRechecks(env, memberId, snapshotDate);
+  } catch (err: any) {
+    console.warn("Xantaken recheck evaluation failed:", err?.message || err);
+  }
 }
 
 

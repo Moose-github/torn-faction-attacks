@@ -386,6 +386,11 @@ describe("data health severity", () => {
           missing_gym_stats: string[];
           stale_gym_members: number;
         };
+        xantaken_rechecks: {
+          pending_rechecks: number;
+          auto_fixed_24h: number;
+          needs_repair: number;
+        };
       };
     };
 
@@ -396,7 +401,10 @@ describe("data health severity", () => {
       metrics: [
         { label: "2025-12-30", value: "55/60" },
         { label: "2025-12-31", value: "60/60" },
-        { label: "Outstanding", value: "1" },
+        expect.objectContaining({ label: "Outstanding", value: "1" }),
+        { label: "Xanax rechecks", value: "0" },
+        { label: "Xanax fixed 24h", value: "0" },
+        { label: "Xanax repair", value: "0" },
       ],
     });
     expect(body.subsystems.find((subsystem) => subsystem.key === "personal_stats"))
@@ -415,6 +423,11 @@ describe("data health severity", () => {
       completed_gym_stats: ["gymenergy", "gymstrength", "gymspeed"],
       missing_gym_stats: ["gymdefense", "gymdexterity"],
       stale_gym_members: 3,
+    });
+    expect(body.details.xantaken_rechecks).toEqual({
+      pending_rechecks: 0,
+      auto_fixed_24h: 0,
+      needs_repair: 0,
     });
 
     expect(body.subsystems.slice(0, 2).map((subsystem) => subsystem.key)).toEqual(["ingestion", "roster"]);
@@ -520,7 +533,10 @@ describe("data health severity", () => {
       metrics: [
         { label: "2025-12-30", value: "60/60" },
         { label: "2025-12-31", value: "55/60" },
-        { label: "Outstanding", value: "0" },
+        expect.objectContaining({ label: "Outstanding", value: "0" }),
+        { label: "Xanax rechecks", value: "0" },
+        { label: "Xanax fixed 24h", value: "0" },
+        { label: "Xanax repair", value: "0" },
       ],
     });
   });
@@ -643,6 +659,13 @@ function firstRowForDataHealthQuery(
   },
 ): Record<string, unknown> | null {
   if (sql.includes("FROM data_health_settings")) return options.settings;
+  if (sql.includes("FROM member_lifestyle_xantaken_rechecks")) {
+    return {
+      pending_rechecks: 0,
+      auto_fixed_24h: 0,
+      needs_repair: 0,
+    };
+  }
   if (sql.includes("FROM ingestion_runs")) {
     return options.ingestionRun ?? successfulIngestionRun(Math.floor(Date.now() / 1000));
   }

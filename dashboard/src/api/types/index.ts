@@ -1029,6 +1029,12 @@ export type GymStatsHealth = {
   stale_gym_members: number;
 };
 
+export type XantakenRecheckHealth = {
+  pending_rechecks: number;
+  auto_fixed_24h: number;
+  needs_repair: number;
+};
+
 export type MaintenanceRunResponse = {
   ok: boolean;
   run: MaintenanceRun | null;
@@ -1125,6 +1131,7 @@ export type AdminDataHealthResponse = DataHealthSummaryResponse & {
     daily_stats_attention: DailyStatsAttention;
     personal_stats_coverage_gaps: PersonalStatsCoverageGap[];
     gym_stats_health: GymStatsHealth;
+    xantaken_rechecks: XantakenRecheckHealth;
     roster: {
       current_members: number;
       reportable_members: number;

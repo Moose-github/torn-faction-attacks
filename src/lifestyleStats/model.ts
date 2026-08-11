@@ -46,6 +46,11 @@ export const MAX_REPAIR_DATE_RANGE_DAYS = 120;
 export const REPAIR_JOB_PROCESS_LIMIT_SECONDS = 45;
 export const REPAIR_KEY_PAUSE_PREFIX = "member_lifestyle_repair_key_pause";
 export const REPAIR_FAILURE_ALERT_PREFIX = "member_lifestyle_repair_failure_alert";
+export const MAX_DAILY_XANTAKEN_DELTA = 4;
+export const XANTAKEN_RECHECK_INITIAL_DELAY_SECONDS = 6 * 60 * 60;
+export const XANTAKEN_RECHECK_RETRY_DELAY_SECONDS = 6 * 60 * 60;
+export const XANTAKEN_RECHECK_PROCESS_LIMIT = 5;
+export const XANTAKEN_RECHECK_MAX_ATTEMPTS = 3;
 
 export type LifestyleStatKey = (typeof LIFESTYLE_STAT_KEYS)[number];
 export type GymContributorStatKey = (typeof GYM_CONTRIBUTOR_STAT_KEYS)[number];
@@ -169,6 +174,8 @@ export type DailyStatsAttention = {
 
 export type RepairJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type RepairItemStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+export type XantakenRecheckStatus = "pending" | "confirmed_zero" | "auto_fixed" | "needs_repair" | "failed";
+export type XantakenRecheckReason = "zero_delta_recheck" | "impossible_delta";
 
 export type LifestyleRepairJobRow = {
   id: string;
@@ -208,6 +215,34 @@ export type LifestyleRepairItemRow = {
   started_at: number | null;
   finished_at: number | null;
   updated_at: number;
+};
+
+export type XantakenRecheckRow = {
+  member_id: number;
+  snapshot_date: string;
+  member_name: string | null;
+  status: XantakenRecheckStatus;
+  reason: XantakenRecheckReason;
+  requested_at: number;
+  prior_xantaken: number | null;
+  current_xantaken: number | null;
+  next_xantaken: number | null;
+  attempts: number;
+  max_attempts: number;
+  next_check_at: number;
+  returned_bucket_date: string | null;
+  returned_xantaken: number | null;
+  key_source: string | null;
+  last_error: string | null;
+  created_at: number;
+  updated_at: number;
+  finished_at: number | null;
+};
+
+export type XantakenRecheckHealthRow = {
+  pending_rechecks: number;
+  auto_fixed_24h: number;
+  needs_repair: number;
 };
 
 export type RepairKey = {

@@ -6,6 +6,9 @@ import {
   processMemberLifestyleRepairJobs,
 } from "../lifestyleStats/repairJobs";
 import {
+  processXantakenRechecks,
+} from "../lifestyleStats/xantakenRechecks";
+import {
   refreshDailyGymStats,
 } from "../lifestyleStats/dailyGym";
 import {
@@ -129,6 +132,14 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     purpose: "Process queued member lifestyle snapshot backfill and repair jobs using the API key pool.",
     shouldRun: () => true,
     run: (env) => processMemberLifestyleRepairJobs(env),
+  },
+  {
+    label: "Cron xantaken rechecks",
+    cadence: "1m",
+    category: "daily",
+    purpose: "Recheck suspicious xantaken zero deltas and auto-fix stale same-bucket values.",
+    shouldRun: () => true,
+    run: (env) => processXantakenRechecks(env),
   },
 ];
 

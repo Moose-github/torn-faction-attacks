@@ -609,6 +609,29 @@ CREATE TABLE member_lifestyle_repair_jobs (
   member_id INTEGER
 );
 
+CREATE TABLE member_lifestyle_xantaken_rechecks (
+  member_id INTEGER NOT NULL,
+  snapshot_date TEXT NOT NULL,
+  member_name TEXT,
+  status TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  requested_at INTEGER NOT NULL,
+  prior_xantaken INTEGER,
+  current_xantaken INTEGER,
+  next_xantaken INTEGER,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  next_check_at INTEGER NOT NULL,
+  returned_bucket_date TEXT,
+  returned_xantaken INTEGER,
+  key_source TEXT,
+  last_error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  PRIMARY KEY (member_id, snapshot_date)
+);
+
 CREATE TABLE member_lifestyle_stat_snapshots (
   member_id INTEGER NOT NULL,
   snapshot_date TEXT NOT NULL,
@@ -1365,6 +1388,12 @@ CREATE INDEX idx_member_lifestyle_repair_items_status
 
 CREATE INDEX idx_member_lifestyle_repair_jobs_status
   ON member_lifestyle_repair_jobs(status, updated_at);
+
+CREATE INDEX idx_member_lifestyle_xantaken_rechecks_status
+  ON member_lifestyle_xantaken_rechecks(status, next_check_at);
+
+CREATE INDEX idx_member_lifestyle_xantaken_rechecks_member_date
+  ON member_lifestyle_xantaken_rechecks(member_id, snapshot_date);
 
 CREATE INDEX idx_member_lifestyle_snapshots_bucket_date
   ON member_lifestyle_stat_snapshots(personalstats_bucket_date);
