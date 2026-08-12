@@ -22,7 +22,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { CollapsiblePanel, MetricCard, PanelHeader } from "../components/Common";
+import { CollapsiblePanel, PanelHeader } from "../components/Common";
 import {
   calculateBookStrategy,
   defaultBookStrategyInputs,
@@ -42,7 +42,6 @@ type BookStrategyForm = {
   happiness: string;
   naturalEnergy: string;
   xanaxPerDay: string;
-  energyPerXanax: string;
   dailyRefill: string;
   otherDailyEnergy: string;
   privateIslandPercent: string;
@@ -50,23 +49,19 @@ type BookStrategyForm = {
   statEducationPercent: string;
   steadfastPercent: string;
   customPerksPercent: string;
+  gymMultiplier: string;
   statEnhancerPrice: string;
   fhcPrice: string;
   investmentEnabled: boolean;
   annualRoiPercent: string;
   graphDurationDays: string;
-  bookDurationDays: string;
   bookBonusPercent: string;
-  gymMultiplier: string;
-  energyPerTrain: string;
-  fhcEnergy: string;
-  fhcCooldownHours: string;
-  maxBoosterCooldownHours: string;
   enhancerMode: EnhancerModeKind;
   enhancerTargetStat: string;
   enhancerTargetDay: string;
 };
 
+const FIXED_ENERGY_PER_XANAX = 250;
 const DEFAULT_FORM = formFromInputs(defaultBookStrategyInputs);
 
 export function BookStrategy() {
@@ -143,7 +138,6 @@ export function BookStrategy() {
               <div className="book-strategy-input-grid">
                 <NumberField label="Natural" value={form.naturalEnergy} onChange={(value) => updateField("naturalEnergy", value)} />
                 <NumberField label="Xanax/day" value={form.xanaxPerDay} onChange={(value) => updateField("xanaxPerDay", value)} />
-                <NumberField label="Energy/Xanax" value={form.energyPerXanax} onChange={(value) => updateField("energyPerXanax", value)} />
                 <NumberField label="Daily refill" value={form.dailyRefill} onChange={(value) => updateField("dailyRefill", value)} />
                 <NumberField label="Other" value={form.otherDailyEnergy} onChange={(value) => updateField("otherDailyEnergy", value)} />
               </div>
@@ -158,6 +152,7 @@ export function BookStrategy() {
               <NumberField label="Stat education" suffix="%" value={form.statEducationPercent} onChange={(value) => updateField("statEducationPercent", value)} />
               <NumberField label="Steadfast" suffix="%" value={form.steadfastPercent} onChange={(value) => updateField("steadfastPercent", value)} />
               <NumberField label="Other perks" suffix="%" value={form.customPerksPercent} onChange={(value) => updateField("customPerksPercent", value)} />
+              <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
             </div>
           </section>
 
@@ -169,7 +164,7 @@ export function BookStrategy() {
                 checked={form.investmentEnabled}
                 onChange={(event) => updateField("investmentEnabled", event.target.checked)}
               />
-              <span>Enable ROI growth</span>
+              <span>Enable Investment</span>
             </label>
             <div className="book-strategy-input-grid">
               <NumberField label="Annual ROI" suffix="%" value={form.annualRoiPercent} onChange={(value) => updateField("annualRoiPercent", value)} disabled={!form.investmentEnabled} />
@@ -199,97 +194,95 @@ export function BookStrategy() {
             onToggle={() => setAdvancedOpen((current) => !current)}
           >
             <div className="book-strategy-input-grid">
-              <NumberField label="Book duration" suffix="days" value={form.bookDurationDays} onChange={(value) => updateField("bookDurationDays", value)} />
               <NumberField label="Book bonus" suffix="%" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
-              <NumberField label="Gym multiplier" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
-              <NumberField label="Energy/train" value={form.energyPerTrain} onChange={(value) => updateField("energyPerTrain", value)} />
-              <NumberField label="FHC energy" value={form.fhcEnergy} onChange={(value) => updateField("fhcEnergy", value)} />
-              <NumberField label="FHC cooldown" suffix="hours" value={form.fhcCooldownHours} onChange={(value) => updateField("fhcCooldownHours", value)} />
-              <NumberField label="Max booster cooldown" suffix="hours" value={form.maxBoosterCooldownHours} onChange={(value) => updateField("maxBoosterCooldownHours", value)} />
             </div>
           </CollapsiblePanel>
         </div>
 
-        <div className="book-strategy-results">
-          <SummaryCards result={result} />
+        <section className="panel book-strategy-chart-panel">
+          <PanelHeader icon={<Activity size={17} />} title="Expected growth" aside={`${formatCompact(result.inputs.graphDurationDays)} days`} />
+          <div className="book-strategy-chart">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="day"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: "var(--chart-axis)" }}
+                  tickFormatter={(value) => formatCompact(Number(value))}
+                  type="number"
+                  domain={[0, result.inputs.graphDurationDays]}
+                />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: "var(--chart-axis)" }}
+                  tickFormatter={(value) => formatCompact(Number(value))}
+                  width={58}
+                />
+                <Tooltip content={<BookStrategyTooltip />} />
+                <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
+                <ReferenceArea x1={0} x2={result.inputs.bookDurationDays} fill="#fb7185" fillOpacity={0.1} />
+                <ReferenceLine x={result.inputs.bookDurationDays} stroke="#fb7185" strokeDasharray="4 4" />
+                {result.enhancerUse.day !== null && result.enhancerUse.day <= result.inputs.graphDurationDays ? (
+                  <ReferenceLine x={result.enhancerUse.day} stroke="#22c55e" strokeDasharray="4 4" />
+                ) : null}
+                <Line
+                  type="monotone"
+                  dataKey="strategyOneStat"
+                  name="Strategy 1: FHCs"
+                  stroke="#fb7185"
+                  strokeWidth={3}
+                  dot={false}
+                  activeDot={{ r: 5 }}
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="strategyTwoStat"
+                  name="Strategy 2: Invest + enhancers"
+                  stroke="#22d3ee"
+                  strokeWidth={3}
+                  dot={false}
+                  activeDot={{ r: 5 }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
 
-          <section className="panel book-strategy-chart-panel">
-            <PanelHeader icon={<Activity size={17} />} title="Expected growth" aside={`${formatCompact(result.inputs.graphDurationDays)} days`} />
-            <div className="book-strategy-chart">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
-                  <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="day"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fill: "var(--chart-axis)" }}
-                    tickFormatter={(value) => formatCompact(Number(value))}
-                    type="number"
-                    domain={[0, result.inputs.graphDurationDays]}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fill: "var(--chart-axis)" }}
-                    tickFormatter={(value) => formatCompact(Number(value))}
-                    width={58}
-                  />
-                  <Tooltip content={<BookStrategyTooltip />} />
-                  <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
-                  <ReferenceArea x1={0} x2={result.inputs.bookDurationDays} fill="#fb7185" fillOpacity={0.1} />
-                  <ReferenceLine x={result.inputs.bookDurationDays} stroke="#fb7185" strokeDasharray="4 4" />
-                  {result.enhancerUse.day !== null && result.enhancerUse.day <= result.inputs.graphDurationDays ? (
-                    <ReferenceLine x={result.enhancerUse.day} stroke="#22c55e" strokeDasharray="4 4" />
-                  ) : null}
-                  <Line
-                    type="monotone"
-                    dataKey="strategyOneStat"
-                    name="Strategy 1: FHCs"
-                    stroke="#fb7185"
-                    strokeWidth={3}
-                    dot={false}
-                    activeDot={{ r: 5 }}
-                    isAnimationActive={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="strategyTwoStat"
-                    name="Strategy 2: Invest + enhancers"
-                    stroke="#22d3ee"
-                    strokeWidth={3}
-                    dot={false}
-                    activeDot={{ r: 5 }}
-                    isAnimationActive={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
+        <SummaryPanel result={result} />
 
-          <CollapsiblePanel
-            title="Methodology"
-            collapsed={!methodologyOpen}
-            onToggle={() => setMethodologyOpen((current) => !current)}
-          >
-            <div className="book-strategy-methodology">
-              <p>
-                Uses Vladar's community gym formula with the post-50m effective-stat adjustment, fixed happiness,
-                complete 50-energy trains, no random term, and one canonical battle-stat constant set.
-              </p>
-              <p>
-                Strategy 1 uses {formatCompact(result.fhcPlan.totalFhcs)} FHCs during the book. Strategy 2 holds the
-                avoided FHC cost and spends all affordable whole stat enhancers when the selected timing rule triggers.
-              </p>
-            </div>
-          </CollapsiblePanel>
-        </div>
+        <CollapsiblePanel
+          title="Methodology"
+          collapsed={!methodologyOpen}
+          onToggle={() => setMethodologyOpen((current) => !current)}
+        >
+          <div className="book-strategy-methodology">
+            <p>
+              Uses Vladar's community gym formula with the post-50m effective-stat adjustment, fixed happiness,
+              complete 50-energy trains, no random term, and one canonical battle-stat constant set.
+            </p>
+            <p>
+              Strategy 1 uses {formatCompact(result.fhcPlan.totalFhcs)} FHCs during the book. Strategy 2 holds the
+              avoided FHC cost and spends all affordable whole stat enhancers when the selected timing rule triggers.
+            </p>
+            <p>
+              Fixed values: {formatCompact(result.inputs.bookDurationDays)} book days, {formatCompact(result.inputs.fhcEnergy)}
+              energy per FHC, {formatCompact(result.inputs.fhcCooldownHours)}h FHC cooldown, {formatCompact(result.inputs.maxBoosterCooldownHours)}h
+              booster cooldown, {formatCompact(result.inputs.energyPerTrain)} energy per train, and {formatCompact(FIXED_ENERGY_PER_XANAX)}
+              energy per Xanax.
+            </p>
+          </div>
+        </CollapsiblePanel>
       </section>
     </>
   );
 }
 
-function SummaryCards({ result }: { result: BookStrategyResult }) {
+function SummaryPanel({ result }: { result: BookStrategyResult }) {
   const enhancerDetail = result.enhancerUse.day === null
     ? "No overtake in range"
     : `Day ${formatCompact(result.enhancerUse.day)}`;
@@ -301,35 +294,55 @@ function SummaryCards({ result }: { result: BookStrategyResult }) {
         : "Strategy 1";
 
   return (
-    <div className="status-grid book-strategy-summary-grid">
-      <MetricCard
-        icon={<BadgeDollarSign size={16} />}
-        label="Total FHC cost"
-        value={formatMoney(result.fhcPlan.cost)}
-        detail={`${formatCompact(result.fhcPlan.totalFhcs)} coupons`}
-        fitValue
-      />
-      <MetricCard
-        icon={<BookOpen size={16} />}
-        label="FHC lead at book end"
-        value={formatSignedStat(result.bookEnd.lead)}
-        detail={`${formatStat(result.bookEnd.strategyOneStat)} vs ${formatStat(result.bookEnd.strategyTwoStat)}`}
-        fitValue
-      />
-      <MetricCard
-        icon={<Sparkles size={16} />}
-        label="Enhancers used"
-        value={formatCompact(result.enhancerUse.enhancersUsed)}
-        detail={enhancerDetail}
-        fitValue
-      />
-      <MetricCard
-        icon={<Trophy size={16} />}
-        label="Endpoint winner"
-        value={winnerLabel}
-        detail={formatSignedStat(result.endpoint.difference)}
-        fitValue
-      />
+    <section className="panel book-strategy-summary-panel">
+      <PanelHeader icon={<Trophy size={17} />} title="Summary" />
+      <div className="book-strategy-summary-grid">
+        <SummaryItem
+          icon={<BadgeDollarSign size={16} />}
+          label="Total FHC cost"
+          value={formatMoney(result.fhcPlan.cost)}
+          detail={`${formatCompact(result.fhcPlan.totalFhcs)} coupons`}
+        />
+        <SummaryItem
+          icon={<BookOpen size={16} />}
+          label="FHC lead at book end"
+          value={formatSignedStat(result.bookEnd.lead)}
+          detail={`${formatStat(result.bookEnd.strategyOneStat)} vs ${formatStat(result.bookEnd.strategyTwoStat)}`}
+        />
+        <SummaryItem
+          icon={<Sparkles size={16} />}
+          label="Enhancers used"
+          value={formatCompact(result.enhancerUse.enhancersUsed)}
+          detail={enhancerDetail}
+        />
+        <SummaryItem
+          icon={<Trophy size={16} />}
+          label="Endpoint winner"
+          value={winnerLabel}
+          detail={formatSignedStat(result.endpoint.difference)}
+        />
+      </div>
+    </section>
+  );
+}
+
+function SummaryItem({
+  icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className="book-strategy-summary-item">
+      <span className="book-strategy-summary-icon">{icon}</span>
+      <span className="book-strategy-summary-label">{label}</span>
+      <strong>{value}</strong>
+      <span className="book-strategy-summary-detail">{detail}</span>
     </div>
   );
 }
@@ -406,13 +419,8 @@ function inputsFromForm(form: BookStrategyForm, energyMode: EnergyMode): BookStr
     investmentEnabled: form.investmentEnabled,
     annualRoiPercent: parseNumber(form.annualRoiPercent, defaultBookStrategyInputs.annualRoiPercent),
     graphDurationDays: parseNumber(form.graphDurationDays, defaultBookStrategyInputs.graphDurationDays),
-    bookDurationDays: parseNumber(form.bookDurationDays, defaultBookStrategyInputs.bookDurationDays),
     bookBonusPercent: parseNumber(form.bookBonusPercent, defaultBookStrategyInputs.bookBonusPercent),
     gymMultiplier: parseNumber(form.gymMultiplier, defaultBookStrategyInputs.gymMultiplier),
-    energyPerTrain: parseNumber(form.energyPerTrain, defaultBookStrategyInputs.energyPerTrain),
-    fhcEnergy: parseNumber(form.fhcEnergy, defaultBookStrategyInputs.fhcEnergy),
-    fhcCooldownHours: parseNumber(form.fhcCooldownHours, defaultBookStrategyInputs.fhcCooldownHours),
-    maxBoosterCooldownHours: parseNumber(form.maxBoosterCooldownHours, defaultBookStrategyInputs.maxBoosterCooldownHours),
     enhancerUseMode: enhancerModeFromForm(form),
   };
 }
@@ -437,7 +445,6 @@ function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
     happiness: String(inputs.happiness),
     naturalEnergy: "720",
     xanaxPerDay: "3",
-    energyPerXanax: "250",
     dailyRefill: "150",
     otherDailyEnergy: "0",
     privateIslandPercent: String(inputs.privateIslandPercent),
@@ -445,18 +452,13 @@ function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
     statEducationPercent: String(inputs.statEducationPercent),
     steadfastPercent: String(inputs.steadfastPercent),
     customPerksPercent: String(inputs.customPerksPercent),
+    gymMultiplier: String(inputs.gymMultiplier),
     statEnhancerPrice: String(inputs.statEnhancerPrice),
     fhcPrice: String(inputs.fhcPrice),
     investmentEnabled: inputs.investmentEnabled,
     annualRoiPercent: String(inputs.annualRoiPercent),
     graphDurationDays: String(inputs.graphDurationDays),
-    bookDurationDays: String(inputs.bookDurationDays),
     bookBonusPercent: String(inputs.bookBonusPercent),
-    gymMultiplier: String(inputs.gymMultiplier),
-    energyPerTrain: String(inputs.energyPerTrain),
-    fhcEnergy: String(inputs.fhcEnergy),
-    fhcCooldownHours: String(inputs.fhcCooldownHours),
-    maxBoosterCooldownHours: String(inputs.maxBoosterCooldownHours),
     enhancerMode: inputs.enhancerUseMode.kind,
     enhancerTargetStat: "3411000000",
     enhancerTargetDay: "334",
@@ -466,7 +468,7 @@ function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
 function calculatedDailyEnergy(form: BookStrategyForm): number {
   return (
     parseNumber(form.naturalEnergy, 0) +
-    parseNumber(form.xanaxPerDay, 0) * parseNumber(form.energyPerXanax, 0) +
+    parseNumber(form.xanaxPerDay, 0) * FIXED_ENERGY_PER_XANAX +
     parseNumber(form.dailyRefill, 0) +
     parseNumber(form.otherDailyEnergy, 0)
   );
