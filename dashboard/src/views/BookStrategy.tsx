@@ -5,6 +5,7 @@ import {
   BatteryCharging,
   BookOpen,
   CircleDollarSign,
+  Flag,
   RotateCcw,
   SlidersHorizontal,
   Sparkles,
@@ -35,6 +36,9 @@ import {
 type EnergyMode = "total" | "breakdown";
 type EnhancerModeKind = EnhancerUseMode["kind"];
 type PopoutKind = "energy" | "perks" | "investment";
+
+const CHART_Y_AXIS_WIDTH = 58;
+const CHART_RIGHT_MARGIN = 18;
 
 type BookStrategyForm = {
   startingStat: string;
@@ -70,8 +74,18 @@ export function BookStrategy() {
   const [energyMode, setEnergyMode] = React.useState<EnergyMode>("total");
   const [openPopout, setOpenPopout] = React.useState<PopoutKind | null>(null);
   const [methodologyOpen, setMethodologyOpen] = React.useState(false);
+  const [isDraggingEnhancerDay, setIsDraggingEnhancerDay] = React.useState(false);
+  const [chartWidth, setChartWidth] = React.useState(0);
+  const chartRef = React.useRef<HTMLDivElement | null>(null);
   const inputs = React.useMemo(() => inputsFromForm(form, energyMode), [energyMode, form]);
   const result = React.useMemo(() => calculateBookStrategy(inputs), [inputs]);
+  const enhancerMarkerDay = result.enhancerUse.day;
+  const enhancerMarkerLeft =
+    enhancerMarkerDay !== null
+      ? CHART_Y_AXIS_WIDTH +
+        (enhancerMarkerDay / Math.max(1, result.inputs.graphDurationDays)) *
+        Math.max(1, chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
+      : null;
 
   function updateField<K extends keyof BookStrategyForm>(field: K, value: BookStrategyForm[K]) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -81,9 +95,66 @@ export function BookStrategy() {
     setForm(DEFAULT_FORM);
     setEnergyMode("total");
     setOpenPopout(null);
+    setIsDraggingEnhancerDay(false);
   }
 
   const dailyEnergy = energyMode === "breakdown" ? calculatedDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
+
+  const updateEnhancerTargetFromClientX = React.useCallback((clientX: number) => {
+    const rect = chartRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    const plotLeft = rect.left + CHART_Y_AXIS_WIDTH;
+    const plotWidth = Math.max(1, rect.width - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN);
+    const rawRatio = (clientX - plotLeft) / plotWidth;
+    const rawDay = rawRatio * result.inputs.graphDurationDays;
+    const day = clampNumber(Math.round(rawDay), result.inputs.bookDurationDays, result.inputs.graphDurationDays);
+
+    setForm((current) => ({
+      ...current,
+      enhancerMode: "targetDay",
+      enhancerTargetDay: String(day),
+    }));
+  }, [result.inputs.bookDurationDays, result.inputs.graphDurationDays]);
+
+  React.useEffect(() => {
+    const element = chartRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const updateWidth = () => setChartWidth(element.getBoundingClientRect().width);
+    updateWidth();
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    if (!isDraggingEnhancerDay) {
+      return undefined;
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      updateEnhancerTargetFromClientX(event.clientX);
+    }
+
+    function handlePointerUp() {
+      setIsDraggingEnhancerDay(false);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [isDraggingEnhancerDay, updateEnhancerTargetFromClientX]);
 
   return (
     <>
@@ -222,7 +293,10 @@ export function BookStrategy() {
 
         <section className="panel book-strategy-chart-panel">
           <PanelHeader icon={<Activity size={17} />} title="Expected growth" aside={`${formatCompact(result.inputs.graphDurationDays)} days`} />
-          <div className="book-strategy-chart">
+          <div
+            className={`book-strategy-chart ${isDraggingEnhancerDay ? "is-dragging-enhancer" : ""}`}
+            ref={chartRef}
+          >
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
                 <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
@@ -271,6 +345,45 @@ export function BookStrategy() {
                 />
               </LineChart>
             </ResponsiveContainer>
+            {enhancerMarkerDay !== null && enhancerMarkerLeft !== null && chartWidth > 0 && enhancerMarkerDay <= result.inputs.graphDurationDays ? (
+              <div
+                className="book-strategy-enhancer-drag-target"
+                style={{ left: `${enhancerMarkerLeft}px` }}
+                role="slider"
+                tabIndex={0}
+                aria-label="Enhancer use day"
+                aria-valuemin={result.inputs.bookDurationDays}
+                aria-valuemax={result.inputs.graphDurationDays}
+                aria-valuenow={Math.round(enhancerMarkerDay)}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  setIsDraggingEnhancerDay(true);
+                  updateEnhancerTargetFromClientX(event.clientX);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  const direction = event.key === "ArrowLeft" ? -1 : 1;
+                  const nextDay = clampNumber(
+                    Math.round(enhancerMarkerDay) + direction,
+                    result.inputs.bookDurationDays,
+                    result.inputs.graphDurationDays,
+                  );
+                  setForm((current) => ({
+                    ...current,
+                    enhancerMode: "targetDay",
+                    enhancerTargetDay: String(nextDay),
+                  }));
+                }}
+              >
+                <span className="book-strategy-enhancer-handle">
+                  <Sparkles size={14} />
+                </span>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -341,6 +454,18 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
           label="Endpoint winner"
           value={winnerLabel}
           detail={formatSignedStat(result.endpoint.difference)}
+        />
+        <SummaryItem
+          icon={<Flag size={16} />}
+          label="Strategy 1 ending stat"
+          value={formatStat(result.endpoint.strategyOneStat)}
+          detail="FHCs during book"
+        />
+        <SummaryItem
+          icon={<Flag size={16} />}
+          label="Strategy 2 ending stat"
+          value={formatStat(result.endpoint.strategyTwoStat)}
+          detail="Investment + enhancers"
         />
       </div>
     </section>
@@ -522,6 +647,10 @@ function calculatedDailyEnergy(form: BookStrategyForm): number {
 function parseNumber(value: string, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function formatEnergy(value: number): string {
