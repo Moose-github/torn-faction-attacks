@@ -211,9 +211,9 @@ export function BookStrategy() {
               <NumberField label="Starting stat" value={form.startingStat} onChange={(value) => updateField("startingStat", value)} />
               <NumberField label="Starting energy" value={form.startingEnergy} onChange={(value) => updateField("startingEnergy", value)} />
               <NumberField label="Happiness" value={form.happiness} onChange={(value) => updateField("happiness", value)} />
-              <NumberField label="Graph duration" suffix="days" value={form.graphDurationDays} onChange={(value) => updateField("graphDurationDays", value)} />
+              <NumberField label="Graph duration (days)" value={form.graphDurationDays} onChange={(value) => updateField("graphDurationDays", value)} />
               <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
-              <NumberField label="Book bonus" suffix="%" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
+              <NumberField label="Book bonus %" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
             </div>
             {openPopout === "energy" ? (
               <div className="book-strategy-popout" role="dialog" aria-label="Energy">
@@ -353,7 +353,7 @@ export function BookStrategy() {
                 <Line
                   type="monotone"
                   dataKey="strategyTwoStat"
-                  name="Strategy 2: Invest + enhancers"
+                  name="Strategy 2: enhancers"
                   stroke="#22d3ee"
                   strokeWidth={3}
                   dot={false}
@@ -420,12 +420,6 @@ export function BookStrategy() {
               Strategy 1 uses {formatCompact(result.fhcPlan.totalFhcs)} FHCs during the book. Strategy 2 holds the
               avoided FHC cost and spends all affordable whole stat enhancers when the selected timing rule triggers.
             </p>
-            <p>
-              Fixed values: {formatCompact(result.inputs.bookDurationDays)} book days, {formatCompact(result.inputs.fhcEnergy)}
-              energy per FHC, {formatCompact(result.inputs.fhcCooldownHours)}h FHC cooldown, {formatCompact(result.inputs.maxBoosterCooldownHours)}h
-              booster cooldown, {formatCompact(result.inputs.energyPerTrain)} energy per train, and {formatCompact(FIXED_ENERGY_PER_XANAX)}
-              energy per Xanax.
-            </p>
           </div>
         </CollapsiblePanel>
       </section>
@@ -482,7 +476,7 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
           icon={<Flag size={16} />}
           label="Strategy 2 ending stat"
           value={formatStat(result.endpoint.strategyTwoStat)}
-          detail="Investment + enhancers"
+          detail="Enhancers"
         />
       </div>
     </section>
@@ -505,7 +499,7 @@ function EnhancerTimingPanel({
   const resultDay = result.enhancerUse.day === null ? "" : String(Math.round(result.enhancerUse.day));
   const resultStat = result.enhancerUse.strategyTwoBeforeEnhancers === null
     ? ""
-    : String(Math.round(result.enhancerUse.strategyTwoBeforeEnhancers));
+    : formatInputCompact(result.enhancerUse.strategyTwoBeforeEnhancers);
   const useDayValue = form.enhancerMode === "targetDay" ? form.enhancerTargetDay : resultDay;
   const useStatValue = form.enhancerMode === "targetStat" ? form.enhancerTargetStat : resultStat;
 
@@ -614,7 +608,8 @@ function NumberField({
       <span>{label}</span>
       <div>
         <input
-          type="number"
+          type="text"
+          inputMode="decimal"
           value={value}
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
@@ -664,7 +659,7 @@ function enhancerModeFromForm(form: BookStrategyForm): EnhancerUseMode {
 
 function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
   return {
-    startingStat: String(inputs.startingStat),
+    startingStat: formatInputCompact(inputs.startingStat),
     dailyEnergy: String(inputs.dailyEnergy),
     startingEnergy: String(inputs.startingEnergy),
     happiness: String(inputs.happiness),
@@ -678,14 +673,14 @@ function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
     steadfastPercent: String(inputs.steadfastPercent),
     customPerksPercent: String(inputs.customPerksPercent),
     gymMultiplier: String(inputs.gymMultiplier),
-    statEnhancerPrice: String(inputs.statEnhancerPrice),
-    fhcPrice: String(inputs.fhcPrice),
+    statEnhancerPrice: formatInputCompact(inputs.statEnhancerPrice),
+    fhcPrice: formatInputCompact(inputs.fhcPrice),
     investmentEnabled: inputs.investmentEnabled,
     annualRoiPercent: String(inputs.annualRoiPercent),
     graphDurationDays: String(inputs.graphDurationDays),
     bookBonusPercent: String(inputs.bookBonusPercent),
     enhancerMode: inputs.enhancerUseMode.kind,
-    enhancerTargetStat: "3411000000",
+    enhancerTargetStat: "3.411b",
     enhancerTargetDay: "334",
   };
 }
@@ -700,7 +695,23 @@ function calculatedDailyEnergy(form: BookStrategyForm): number {
 }
 
 function parseNumber(value: string, fallback: number): number {
-  const parsed = Number(value);
+  const normalized = value.trim().toLowerCase().replace(/[$,%\s,_]/g, "");
+  if (!normalized) {
+    return fallback;
+  }
+
+  const match = normalized.match(/^(-?(?:\d+|\d*\.\d+))(k|m|b|t)?$/);
+  if (!match) {
+    return fallback;
+  }
+
+  const multiplier = {
+    k: 1_000,
+    m: 1_000_000,
+    b: 1_000_000_000,
+    t: 1_000_000_000_000,
+  }[match[2] ?? ""] ?? 1;
+  const parsed = Number(match[1]) * multiplier;
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
@@ -737,6 +748,28 @@ function formatCompact(value: number): string {
   }
 
   return new Intl.NumberFormat("en-GB", { maximumFractionDigits: abs < 10 ? 2 : 1 }).format(value);
+}
+
+function formatInputCompact(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000_000) {
+    return `${formatInputScaled(value / 1_000_000_000_000)}t`;
+  }
+  if (abs >= 1_000_000_000) {
+    return `${formatInputScaled(value / 1_000_000_000)}b`;
+  }
+  if (abs >= 1_000_000) {
+    return `${formatInputScaled(value / 1_000_000)}m`;
+  }
+  if (abs >= 1_000) {
+    return `${formatInputScaled(value / 1_000)}k`;
+  }
+
+  return String(Math.round(value));
+}
+
+function formatInputScaled(value: number): string {
+  return Number(value.toFixed(3)).toString();
 }
 
 function trimFixed(value: number): string {

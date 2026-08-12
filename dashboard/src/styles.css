@@ -11040,7 +11040,7 @@ tbody tr:not(.attack-row):hover td {
 }
 
 .book-strategy-timing-grid {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .book-strategy-mode-button {
@@ -11252,6 +11252,10 @@ tbody tr:not(.attack-row):hover td {
   }
 
   .book-strategy-popout-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .book-strategy-timing-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
