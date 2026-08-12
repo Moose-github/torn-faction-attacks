@@ -26,7 +26,6 @@ import { CollapsiblePanel, PanelHeader } from "../components/Common";
 import {
   calculateBookStrategy,
   defaultBookStrategyInputs,
-  findEnhancerLeadMilestone,
   type BookStrategyInputs,
   type BookStrategyPoint,
   type BookStrategyResult,
@@ -39,8 +38,6 @@ type PopoutKind = "energy" | "perks" | "investment" | "prices";
 
 const CHART_Y_AXIS_WIDTH = 58;
 const CHART_RIGHT_MARGIN = 18;
-const SUMMARY_LEAD_MILESTONE = 100_000_000;
-const SUMMARY_LEAD_MILESTONE_MAX_DAY = 3_650;
 
 type ChartClickState = {
   activeLabel?: number | string | null;
@@ -468,10 +465,6 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
     () => calculateBookStrategy({ ...result.inputs, enhancerUseMode: { kind: "earliestOvertake" } }),
     [result.inputs],
   );
-  const leadMilestonePoint = React.useMemo(
-    () => findEnhancerLeadMilestone(result.inputs, SUMMARY_LEAD_MILESTONE, SUMMARY_LEAD_MILESTONE_MAX_DAY),
-    [result.inputs],
-  );
   const enhancerDetail = result.enhancerUse.day === null
     ? "No overtake in range"
     : `Day ${formatCompact(result.enhancerUse.day)}`;
@@ -503,9 +496,6 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
     earliestResult.enhancerUse.day === null
       ? "No Enhancers lead is reached with the current inputs."
       : "From that point onward, the Enhancers lead continues to grow.",
-    ...(leadMilestonePoint
-      ? [`Enhancers hit a ${formatSignedStat(SUMMARY_LEAD_MILESTONE)} lead on day ${formatCompact(leadMilestonePoint.day)}.`]
-      : []),
   ];
 
   return (
