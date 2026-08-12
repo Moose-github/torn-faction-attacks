@@ -3,6 +3,7 @@ import {
   calculateBookStrategy,
   calculateFhcPlan,
   defaultBookStrategyInputs,
+  findEnhancerLeadMilestone,
   perkProduct,
 } from "./bookStrategy";
 
@@ -60,6 +61,18 @@ describe("book strategy calculator", () => {
     expect(result.enhancerUse.day).toBeCloseTo(277.81, 1);
     expect(result.enhancerUse.enhancersUsed).toBe(5);
     expect(result.enhancerUse.lead ?? 0).toBeGreaterThan(0);
+  });
+
+  it("finds lead milestones beyond the displayed graph range", () => {
+    expect(findEnhancerLeadMilestone(defaultBookStrategyInputs, 100_000_000, 3_650)).toBeNull();
+
+    const milestone = findEnhancerLeadMilestone({
+      ...defaultBookStrategyInputs,
+      investmentEnabled: true,
+    }, 100_000_000, 3_650);
+
+    expect(milestone?.day).toBeCloseTo(2_188.27, 1);
+    expect(milestone?.lead).toBeGreaterThanOrEqual(100_000_000);
   });
 
   it("matches the 4b example without investment growth", () => {

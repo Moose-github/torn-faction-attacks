@@ -71,6 +71,11 @@ export type BookStrategyResult = {
   series: BookStrategyPoint[];
 };
 
+export type BookStrategyLeadMilestone = {
+  day: number;
+  lead: number;
+};
+
 const CANONICAL_A = 1600;
 const CANONICAL_B = 1700;
 const STAT_ENHANCER_MULTIPLIER = 1.01;
@@ -129,6 +134,68 @@ export function calculateBookStrategy(rawInputs: BookStrategyInputs): BookStrate
     winningStrategy,
     series,
   };
+}
+
+export function findEnhancerLeadMilestone(
+  rawInputs: BookStrategyInputs,
+  targetLead: number,
+  maxDay: number,
+): BookStrategyLeadMilestone | null {
+  const inputs = normalizeInputs({ ...rawInputs, enhancerUseMode: { kind: "earliestOvertake" } });
+  const leadTarget = finiteAtLeast(targetLead, 0);
+  const cappedMaxDay = Math.min(MAX_SIMULATION_DAYS, finiteAtLeast(maxDay, inputs.bookDurationDays));
+  const perkMultiplier = perkProduct(inputs);
+  const fhcPlan = calculateFhcPlan(inputs);
+  const bookEnd = calculateBookEnd(inputs, perkMultiplier, fhcPlan);
+  const bookState = createPostBookState(inputs, bookEnd, fhcPlan);
+  const enhancerUse = findEarliestOvertake(inputs, perkMultiplier, fhcPlan, bookState);
+  if (enhancerUse.day === null || enhancerUse.enhancersUsed <= 0 || enhancerUse.day > cappedMaxDay) {
+    return null;
+  }
+
+  let day = inputs.bookDurationDays;
+  let strategyOneStat = bookState.strategyOneBookStat;
+  let strategyTwoStat = bookState.strategyTwoBookStat;
+  let enhancersApplied = false;
+  let nextStrategyOneTrainDay = inputs.dailyEnergy > 0
+    ? nextPostBookTrainDay(inputs, bookState.strategyOneLeftoverEnergy, 1)
+    : Number.POSITIVE_INFINITY;
+  let nextStrategyTwoTrainDay = inputs.dailyEnergy > 0
+    ? nextPostBookTrainDay(inputs, bookState.strategyTwoLeftoverEnergy, 1)
+    : Number.POSITIVE_INFINITY;
+  const postBookTrainInterval = inputs.dailyEnergy > 0
+    ? inputs.energyPerTrain / inputs.dailyEnergy
+    : Number.POSITIVE_INFINITY;
+
+  while (day <= cappedMaxDay) {
+    if (!enhancersApplied && enhancerUse.day <= day + 1e-10) {
+      strategyTwoStat = applyEnhancers(strategyTwoStat, enhancerUse.enhancersUsed);
+      enhancersApplied = true;
+    }
+
+    const lead = strategyTwoStat - strategyOneStat;
+    if (lead >= leadTarget) {
+      return { day, lead };
+    }
+
+    const nextEnhancerDay = enhancersApplied ? Number.POSITIVE_INFINITY : enhancerUse.day;
+    const nextDay = Math.min(nextStrategyOneTrainDay, nextStrategyTwoTrainDay, nextEnhancerDay);
+    if (!Number.isFinite(nextDay) || nextDay > cappedMaxDay) {
+      break;
+    }
+
+    day = nextDay;
+    while (Math.abs(day - nextStrategyOneTrainDay) < 1e-10) {
+      strategyOneStat += gainPerTrain(strategyOneStat, inputs, perkMultiplier, false);
+      nextStrategyOneTrainDay += postBookTrainInterval;
+    }
+    while (Math.abs(day - nextStrategyTwoTrainDay) < 1e-10) {
+      strategyTwoStat += gainPerTrain(strategyTwoStat, inputs, perkMultiplier, false);
+      nextStrategyTwoTrainDay += postBookTrainInterval;
+    }
+  }
+
+  return null;
 }
 
 export function normalizeInputs(inputs: BookStrategyInputs): BookStrategyInputs {
