@@ -11132,30 +11132,50 @@ tbody tr:not(.attack-row):hover td {
 
 .book-strategy-enhancer-handle {
   position: absolute;
-  bottom: 8px;
+  bottom: 0;
   left: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 2px solid #22c55e;
+  width: 72px;
+  height: 72px;
+  border: 0;
   border-radius: 999px;
-  background: var(--panel-bg-solid);
+  background: transparent;
   color: #16a34a;
   cursor: grab;
-  box-shadow: var(--shadow-panel);
   pointer-events: auto;
   touch-action: none;
   transform: translateX(-50%);
+}
+
+.book-strategy-enhancer-handle::before {
+  content: "";
+  position: absolute;
+  inset: 18px;
+  border: 2px solid #22c55e;
+  border-radius: 999px;
+  background: var(--panel-bg-solid);
+  box-shadow: var(--shadow-panel);
+}
+
+.book-strategy-enhancer-handle svg {
+  position: relative;
+  z-index: 1;
 }
 
 .book-strategy-enhancer-handle:hover,
 .book-strategy-enhancer-drag-target:hover .book-strategy-enhancer-handle,
 .book-strategy-enhancer-drag-target:focus-visible .book-strategy-enhancer-handle,
 .book-strategy-chart.is-dragging-enhancer .book-strategy-enhancer-handle {
-  background: #22c55e;
   color: #ffffff;
+}
+
+.book-strategy-enhancer-handle:hover::before,
+.book-strategy-enhancer-drag-target:hover .book-strategy-enhancer-handle::before,
+.book-strategy-enhancer-drag-target:focus-visible .book-strategy-enhancer-handle::before,
+.book-strategy-chart.is-dragging-enhancer .book-strategy-enhancer-handle::before {
+  background: #22c55e;
 }
 
 .book-strategy-summary-panel {
