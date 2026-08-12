@@ -35,7 +35,7 @@ import {
 
 type EnergyMode = "total" | "breakdown";
 type EnhancerModeKind = EnhancerUseMode["kind"];
-type PopoutKind = "energy" | "perks" | "investment";
+type PopoutKind = "energy" | "perks" | "investment" | "prices";
 
 const CHART_Y_AXIS_WIDTH = 58;
 const CHART_RIGHT_MARGIN = 18;
@@ -198,6 +198,12 @@ export function BookStrategy() {
                     active={openPopout === "investment"}
                     onClick={() => setOpenPopout((current) => current === "investment" ? null : "investment")}
                   />
+                  <PopoutButton
+                    icon={<BadgeDollarSign size={15} />}
+                    label="Prices"
+                    active={openPopout === "prices"}
+                    onClick={() => setOpenPopout((current) => current === "prices" ? null : "prices")}
+                  />
                 </div>
               }
             />
@@ -206,27 +212,8 @@ export function BookStrategy() {
               <NumberField label="Starting energy" value={form.startingEnergy} onChange={(value) => updateField("startingEnergy", value)} />
               <NumberField label="Happiness" value={form.happiness} onChange={(value) => updateField("happiness", value)} />
               <NumberField label="Graph duration" suffix="days" value={form.graphDurationDays} onChange={(value) => updateField("graphDurationDays", value)} />
-              <NumberField label="FHC price" value={form.fhcPrice} onChange={(value) => updateField("fhcPrice", value)} />
-              <NumberField label="Enhancer price" value={form.statEnhancerPrice} onChange={(value) => updateField("statEnhancerPrice", value)} />
               <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
               <NumberField label="Book bonus" suffix="%" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
-              <label className="book-strategy-field">
-                <span>Enhancer timing</span>
-                <select
-                  value={form.enhancerMode}
-                  onChange={(event) => updateField("enhancerMode", event.target.value as EnhancerModeKind)}
-                >
-                  <option value="earliestOvertake">Earliest overtake</option>
-                  <option value="targetStat">Selected stat</option>
-                  <option value="targetDay">Selected day</option>
-                </select>
-              </label>
-              {form.enhancerMode === "targetStat" ? (
-                <NumberField label="Target stat" value={form.enhancerTargetStat} onChange={(value) => updateField("enhancerTargetStat", value)} />
-              ) : null}
-              {form.enhancerMode === "targetDay" ? (
-                <NumberField label="Target day" value={form.enhancerTargetDay} onChange={(value) => updateField("enhancerTargetDay", value)} />
-              ) : null}
             </div>
             {openPopout === "energy" ? (
               <div className="book-strategy-popout" role="dialog" aria-label="Energy">
@@ -288,7 +275,37 @@ export function BookStrategy() {
                 </div>
               </div>
             ) : null}
+            {openPopout === "prices" ? (
+              <div className="book-strategy-popout" role="dialog" aria-label="Prices">
+                <div className="book-strategy-popout-grid">
+                  <NumberField label="FHC price" value={form.fhcPrice} onChange={(value) => updateField("fhcPrice", value)} />
+                  <NumberField label="Enhancer price" value={form.statEnhancerPrice} onChange={(value) => updateField("statEnhancerPrice", value)} />
+                </div>
+              </div>
+            ) : null}
           </section>
+
+          <EnhancerTimingPanel
+            result={result}
+            form={form}
+            onEarliestOvertake={() => {
+              setForm((current) => ({ ...current, enhancerMode: "earliestOvertake" }));
+            }}
+            onUseDayChange={(value) => {
+              setForm((current) => ({
+                ...current,
+                enhancerMode: "targetDay",
+                enhancerTargetDay: value,
+              }));
+            }}
+            onUseStatChange={(value) => {
+              setForm((current) => ({
+                ...current,
+                enhancerMode: "targetStat",
+                enhancerTargetStat: value,
+              }));
+            }}
+          />
         </div>
 
         <section className="panel book-strategy-chart-panel">
@@ -467,6 +484,44 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
           value={formatStat(result.endpoint.strategyTwoStat)}
           detail="Investment + enhancers"
         />
+      </div>
+    </section>
+  );
+}
+
+function EnhancerTimingPanel({
+  result,
+  form,
+  onEarliestOvertake,
+  onUseDayChange,
+  onUseStatChange,
+}: {
+  result: BookStrategyResult;
+  form: BookStrategyForm;
+  onEarliestOvertake: () => void;
+  onUseDayChange: (value: string) => void;
+  onUseStatChange: (value: string) => void;
+}) {
+  const resultDay = result.enhancerUse.day === null ? "" : String(Math.round(result.enhancerUse.day));
+  const resultStat = result.enhancerUse.strategyTwoBeforeEnhancers === null
+    ? ""
+    : String(Math.round(result.enhancerUse.strategyTwoBeforeEnhancers));
+  const useDayValue = form.enhancerMode === "targetDay" ? form.enhancerTargetDay : resultDay;
+  const useStatValue = form.enhancerMode === "targetStat" ? form.enhancerTargetStat : resultStat;
+
+  return (
+    <section className="panel book-strategy-panel book-strategy-timing-panel">
+      <PanelHeader icon={<Sparkles size={17} />} title="Enhancer Timing" />
+      <button
+        type="button"
+        className={`book-strategy-mode-button ${form.enhancerMode === "earliestOvertake" ? "active" : ""}`}
+        onClick={onEarliestOvertake}
+      >
+        Earliest overtake
+      </button>
+      <div className="book-strategy-input-grid book-strategy-timing-grid">
+        <NumberField label="Use day" value={useDayValue} onChange={onUseDayChange} />
+        <NumberField label="Use stat" value={useStatValue} onChange={onUseStatChange} />
       </div>
     </section>
   );

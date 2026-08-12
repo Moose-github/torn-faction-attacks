@@ -10901,7 +10901,7 @@ tbody tr:not(.attack-row):hover td {
 
 .book-strategy-controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -11033,6 +11033,35 @@ tbody tr:not(.attack-row):hover td {
 .book-strategy-popout-heading span {
   color: var(--text-muted);
   font-size: 0.78rem;
+}
+
+.book-strategy-timing-panel {
+  align-content: start;
+}
+
+.book-strategy-timing-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.book-strategy-mode-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  width: 100%;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted-bg);
+  color: var(--text-main);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.book-strategy-mode-button.active {
+  border-color: var(--accent);
+  background: var(--panel-active-bg);
+  color: var(--accent-strong);
 }
 
 .segmented-control {
@@ -11195,9 +11224,9 @@ tbody tr:not(.attack-row):hover td {
   margin: 0;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 900px) {
   .book-strategy-controls {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
