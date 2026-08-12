@@ -374,7 +374,7 @@ export function BookStrategy() {
                 <Line
                   type="monotone"
                   dataKey="strategyOneStat"
-                  name="Strategy 1: FHCs"
+                  name="FHCs"
                   stroke="#fb7185"
                   strokeWidth={3}
                   dot={false}
@@ -384,7 +384,7 @@ export function BookStrategy() {
                 <Line
                   type="monotone"
                   dataKey="strategyTwoStat"
-                  name="Strategy 2: enhancers"
+                  name="Enhancers"
                   stroke="#22d3ee"
                   strokeWidth={3}
                   dot={false}
@@ -468,8 +468,8 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
     result.winningStrategy === "tied"
       ? "Tied"
       : result.winningStrategy === "strategyTwo"
-        ? "Strategy 2"
-        : "Strategy 1";
+        ? "Enhancers"
+        : "FHCs";
   const endpointDay = formatCompact(result.inputs.graphDurationDays);
   const outcomeLabel = result.winningStrategy === "tied"
     ? "Strategies tied"
@@ -484,13 +484,13 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
       <div className="book-strategy-ending-grid">
         <SummaryEndingCard
           accent="strategy-one"
-          label="Strategy 1: FHCs"
+          label="FHCs"
           value={formatStat(result.endpoint.strategyOneStat)}
           detail={`Ending stat at day ${endpointDay}`}
         />
         <SummaryEndingCard
           accent="strategy-two"
-          label="Strategy 2: enhancers"
+          label="Enhancers"
           value={formatStat(result.endpoint.strategyTwoStat)}
           detail={`Ending stat at day ${endpointDay}`}
         />
@@ -623,8 +623,8 @@ function BookStrategyTooltip({
   return (
     <div className="chart-tooltip-card book-strategy-tooltip">
       <strong>Day {formatCompact(point.day)}</strong>
-      <span>Strategy 1: {formatStat(point.strategyOneStat)}</span>
-      <span>Strategy 2: {formatStat(point.strategyTwoStat)}</span>
+      <span>FHCs: {formatStat(point.strategyOneStat)}</span>
+      <span>Enhancers: {formatStat(point.strategyTwoStat)}</span>
       <span>Investment: {formatMoney(point.investmentBalance)}</span>
       <span>Affordable enhancers: {formatCompact(point.enhancersAffordable)}</span>
       <span>Difference: {formatSignedStat(point.difference)}</span>
