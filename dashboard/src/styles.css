@@ -10911,9 +10911,13 @@ tbody tr:not(.attack-row):hover td {
   gap: 14px;
 }
 
+.book-strategy-input-panel {
+  position: relative;
+}
+
 .book-strategy-input-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
@@ -10965,6 +10969,70 @@ tbody tr:not(.attack-row):hover td {
 .book-strategy-check input {
   min-height: auto;
   margin: 0;
+}
+
+.book-strategy-popout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.book-strategy-popout-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted-bg);
+  color: var(--text-main);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.book-strategy-popout-button.active {
+  border-color: var(--accent);
+  background: var(--panel-active-bg);
+  color: var(--accent-strong);
+}
+
+.book-strategy-popout {
+  position: absolute;
+  display: grid;
+  gap: 12px;
+  z-index: 20;
+  top: 54px;
+  right: 16px;
+  width: min(460px, calc(100vw - 64px));
+  padding: 14px;
+  border: 1px solid var(--border-solid);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg-solid);
+  box-shadow: var(--shadow-panel);
+}
+
+.book-strategy-popout-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.book-strategy-popout-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-main);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.book-strategy-popout-heading span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
 }
 
 .segmented-control {
@@ -11112,6 +11180,15 @@ tbody tr:not(.attack-row):hover td {
 
   .book-strategy-chart {
     height: 420px;
+  }
+
+  .book-strategy-popout {
+    position: static;
+    width: 100%;
+  }
+
+  .book-strategy-popout-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .book-strategy-summary-item {

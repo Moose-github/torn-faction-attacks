@@ -34,6 +34,7 @@ import {
 
 type EnergyMode = "total" | "breakdown";
 type EnhancerModeKind = EnhancerUseMode["kind"];
+type PopoutKind = "energy" | "perks" | "investment";
 
 type BookStrategyForm = {
   startingStat: string;
@@ -67,7 +68,7 @@ const DEFAULT_FORM = formFromInputs(defaultBookStrategyInputs);
 export function BookStrategy() {
   const [form, setForm] = React.useState<BookStrategyForm>(DEFAULT_FORM);
   const [energyMode, setEnergyMode] = React.useState<EnergyMode>("total");
-  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const [openPopout, setOpenPopout] = React.useState<PopoutKind | null>(null);
   const [methodologyOpen, setMethodologyOpen] = React.useState(false);
   const inputs = React.useMemo(() => inputsFromForm(form, energyMode), [energyMode, form]);
   const result = React.useMemo(() => calculateBookStrategy(inputs), [inputs]);
@@ -79,7 +80,7 @@ export function BookStrategy() {
   function resetDefaults() {
     setForm(DEFAULT_FORM);
     setEnergyMode("total");
-    setAdvancedOpen(false);
+    setOpenPopout(null);
   }
 
   const dailyEnergy = energyMode === "breakdown" ? calculatedDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
@@ -102,8 +103,33 @@ export function BookStrategy() {
 
       <section className="book-strategy-layout">
         <div className="book-strategy-controls">
-          <section className="panel book-strategy-panel">
-            <PanelHeader icon={<SlidersHorizontal size={17} />} title="Inputs" />
+          <section className="panel book-strategy-panel book-strategy-input-panel">
+            <PanelHeader
+              icon={<SlidersHorizontal size={17} />}
+              title="Inputs"
+              control={
+                <div className="book-strategy-popout-actions">
+                  <PopoutButton
+                    icon={<BatteryCharging size={15} />}
+                    label="Energy"
+                    active={openPopout === "energy"}
+                    onClick={() => setOpenPopout((current) => current === "energy" ? null : "energy")}
+                  />
+                  <PopoutButton
+                    icon={<Sparkles size={15} />}
+                    label="Perks"
+                    active={openPopout === "perks"}
+                    onClick={() => setOpenPopout((current) => current === "perks" ? null : "perks")}
+                  />
+                  <PopoutButton
+                    icon={<CircleDollarSign size={15} />}
+                    label="Investment"
+                    active={openPopout === "investment"}
+                    onClick={() => setOpenPopout((current) => current === "investment" ? null : "investment")}
+                  />
+                </div>
+              }
+            />
             <div className="book-strategy-input-grid">
               <NumberField label="Starting stat" value={form.startingStat} onChange={(value) => updateField("startingStat", value)} />
               <NumberField label="Starting energy" value={form.startingEnergy} onChange={(value) => updateField("startingEnergy", value)} />
@@ -111,63 +137,8 @@ export function BookStrategy() {
               <NumberField label="Graph duration" suffix="days" value={form.graphDurationDays} onChange={(value) => updateField("graphDurationDays", value)} />
               <NumberField label="FHC price" value={form.fhcPrice} onChange={(value) => updateField("fhcPrice", value)} />
               <NumberField label="Enhancer price" value={form.statEnhancerPrice} onChange={(value) => updateField("statEnhancerPrice", value)} />
-            </div>
-          </section>
-
-          <section className="panel book-strategy-panel">
-            <PanelHeader icon={<BatteryCharging size={17} />} title="Energy" aside={`${formatEnergy(dailyEnergy)} daily`} />
-            <div className="segmented-control" aria-label="Daily energy source">
-              <button
-                type="button"
-                className={energyMode === "total" ? "active" : ""}
-                onClick={() => setEnergyMode("total")}
-              >
-                Total
-              </button>
-              <button
-                type="button"
-                className={energyMode === "breakdown" ? "active" : ""}
-                onClick={() => setEnergyMode("breakdown")}
-              >
-                Breakdown
-              </button>
-            </div>
-            {energyMode === "total" ? (
-              <NumberField label="Daily energy" value={form.dailyEnergy} onChange={(value) => updateField("dailyEnergy", value)} />
-            ) : (
-              <div className="book-strategy-input-grid">
-                <NumberField label="Natural" value={form.naturalEnergy} onChange={(value) => updateField("naturalEnergy", value)} />
-                <NumberField label="Xanax/day" value={form.xanaxPerDay} onChange={(value) => updateField("xanaxPerDay", value)} />
-                <NumberField label="Daily refill" value={form.dailyRefill} onChange={(value) => updateField("dailyRefill", value)} />
-                <NumberField label="Other" value={form.otherDailyEnergy} onChange={(value) => updateField("otherDailyEnergy", value)} />
-              </div>
-            )}
-          </section>
-
-          <section className="panel book-strategy-panel">
-            <PanelHeader icon={<Sparkles size={17} />} title="Perks" />
-            <div className="book-strategy-input-grid">
-              <NumberField label="Private Island" suffix="%" value={form.privateIslandPercent} onChange={(value) => updateField("privateIslandPercent", value)} />
-              <NumberField label="General education" suffix="%" value={form.generalEducationPercent} onChange={(value) => updateField("generalEducationPercent", value)} />
-              <NumberField label="Stat education" suffix="%" value={form.statEducationPercent} onChange={(value) => updateField("statEducationPercent", value)} />
-              <NumberField label="Steadfast" suffix="%" value={form.steadfastPercent} onChange={(value) => updateField("steadfastPercent", value)} />
-              <NumberField label="Other perks" suffix="%" value={form.customPerksPercent} onChange={(value) => updateField("customPerksPercent", value)} />
               <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
-            </div>
-          </section>
-
-          <section className="panel book-strategy-panel">
-            <PanelHeader icon={<CircleDollarSign size={17} />} title="Investment" />
-            <label className="book-strategy-check">
-              <input
-                type="checkbox"
-                checked={form.investmentEnabled}
-                onChange={(event) => updateField("investmentEnabled", event.target.checked)}
-              />
-              <span>Enable Investment</span>
-            </label>
-            <div className="book-strategy-input-grid">
-              <NumberField label="Annual ROI" suffix="%" value={form.annualRoiPercent} onChange={(value) => updateField("annualRoiPercent", value)} disabled={!form.investmentEnabled} />
+              <NumberField label="Book bonus" suffix="%" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
               <label className="book-strategy-field">
                 <span>Enhancer timing</span>
                 <select
@@ -186,17 +157,67 @@ export function BookStrategy() {
                 <NumberField label="Target day" value={form.enhancerTargetDay} onChange={(value) => updateField("enhancerTargetDay", value)} />
               ) : null}
             </div>
+            {openPopout === "energy" ? (
+              <div className="book-strategy-popout" role="dialog" aria-label="Energy">
+                <div className="book-strategy-popout-heading">
+                  <strong>Energy</strong>
+                  <span>{formatEnergy(dailyEnergy)} daily</span>
+                </div>
+                <div className="segmented-control" aria-label="Daily energy source">
+                  <button
+                    type="button"
+                    className={energyMode === "total" ? "active" : ""}
+                    onClick={() => setEnergyMode("total")}
+                  >
+                    Total
+                  </button>
+                  <button
+                    type="button"
+                    className={energyMode === "breakdown" ? "active" : ""}
+                    onClick={() => setEnergyMode("breakdown")}
+                  >
+                    Breakdown
+                  </button>
+                </div>
+                {energyMode === "total" ? (
+                  <NumberField label="Daily energy" value={form.dailyEnergy} onChange={(value) => updateField("dailyEnergy", value)} />
+                ) : (
+                  <div className="book-strategy-popout-grid">
+                    <NumberField label="Natural" value={form.naturalEnergy} onChange={(value) => updateField("naturalEnergy", value)} />
+                    <NumberField label="Xanax/day" value={form.xanaxPerDay} onChange={(value) => updateField("xanaxPerDay", value)} />
+                    <NumberField label="Daily refill" value={form.dailyRefill} onChange={(value) => updateField("dailyRefill", value)} />
+                    <NumberField label="Other" value={form.otherDailyEnergy} onChange={(value) => updateField("otherDailyEnergy", value)} />
+                  </div>
+                )}
+              </div>
+            ) : null}
+            {openPopout === "perks" ? (
+              <div className="book-strategy-popout" role="dialog" aria-label="Perks">
+                <div className="book-strategy-popout-grid">
+                  <NumberField label="Property" suffix="%" value={form.privateIslandPercent} onChange={(value) => updateField("privateIslandPercent", value)} />
+                  <NumberField label="Education (General)" suffix="%" value={form.generalEducationPercent} onChange={(value) => updateField("generalEducationPercent", value)} />
+                  <NumberField label="Education (Stat Specific)" suffix="%" value={form.statEducationPercent} onChange={(value) => updateField("statEducationPercent", value)} />
+                  <NumberField label="Faction Steadfast" suffix="%" value={form.steadfastPercent} onChange={(value) => updateField("steadfastPercent", value)} />
+                  <NumberField label="Job Perks" suffix="%" value={form.customPerksPercent} onChange={(value) => updateField("customPerksPercent", value)} />
+                </div>
+              </div>
+            ) : null}
+            {openPopout === "investment" ? (
+              <div className="book-strategy-popout" role="dialog" aria-label="Investment">
+                <label className="book-strategy-check">
+                  <input
+                    type="checkbox"
+                    checked={form.investmentEnabled}
+                    onChange={(event) => updateField("investmentEnabled", event.target.checked)}
+                  />
+                  <span>Enable Investment</span>
+                </label>
+                <div className="book-strategy-popout-grid">
+                  <NumberField label="Annual ROI" suffix="%" value={form.annualRoiPercent} onChange={(value) => updateField("annualRoiPercent", value)} disabled={!form.investmentEnabled} />
+                </div>
+              </div>
+            ) : null}
           </section>
-
-          <CollapsiblePanel
-            title="Advanced"
-            collapsed={!advancedOpen}
-            onToggle={() => setAdvancedOpen((current) => !current)}
-          >
-            <div className="book-strategy-input-grid">
-              <NumberField label="Book bonus" suffix="%" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
-            </div>
-          </CollapsiblePanel>
         </div>
 
         <section className="panel book-strategy-chart-panel">
@@ -368,6 +389,30 @@ function BookStrategyTooltip({
       <span>Affordable enhancers: {formatCompact(point.enhancersAffordable)}</span>
       <span>Difference: {formatSignedStat(point.difference)}</span>
     </div>
+  );
+}
+
+function PopoutButton({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`book-strategy-popout-button ${active ? "active" : ""}`}
+      aria-expanded={active}
+      onClick={onClick}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 
