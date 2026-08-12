@@ -1,0 +1,516 @@
+import React from "react";
+import {
+  Activity,
+  BadgeDollarSign,
+  BatteryCharging,
+  BookOpen,
+  CircleDollarSign,
+  RotateCcw,
+  SlidersHorizontal,
+  Sparkles,
+  Trophy,
+} from "lucide-react";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceArea,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { CollapsiblePanel, MetricCard, PanelHeader } from "../components/Common";
+import {
+  calculateBookStrategy,
+  defaultBookStrategyInputs,
+  type BookStrategyInputs,
+  type BookStrategyPoint,
+  type BookStrategyResult,
+  type EnhancerUseMode,
+} from "../utils/bookStrategy";
+
+type EnergyMode = "total" | "breakdown";
+type EnhancerModeKind = EnhancerUseMode["kind"];
+
+type BookStrategyForm = {
+  startingStat: string;
+  dailyEnergy: string;
+  startingEnergy: string;
+  happiness: string;
+  naturalEnergy: string;
+  xanaxPerDay: string;
+  energyPerXanax: string;
+  dailyRefill: string;
+  otherDailyEnergy: string;
+  privateIslandPercent: string;
+  generalEducationPercent: string;
+  statEducationPercent: string;
+  steadfastPercent: string;
+  customPerksPercent: string;
+  statEnhancerPrice: string;
+  fhcPrice: string;
+  investmentEnabled: boolean;
+  annualRoiPercent: string;
+  graphDurationDays: string;
+  bookDurationDays: string;
+  bookBonusPercent: string;
+  gymMultiplier: string;
+  energyPerTrain: string;
+  fhcEnergy: string;
+  fhcCooldownHours: string;
+  maxBoosterCooldownHours: string;
+  enhancerMode: EnhancerModeKind;
+  enhancerTargetStat: string;
+  enhancerTargetDay: string;
+};
+
+const DEFAULT_FORM = formFromInputs(defaultBookStrategyInputs);
+
+export function BookStrategy() {
+  const [form, setForm] = React.useState<BookStrategyForm>(DEFAULT_FORM);
+  const [energyMode, setEnergyMode] = React.useState<EnergyMode>("total");
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const [methodologyOpen, setMethodologyOpen] = React.useState(false);
+  const inputs = React.useMemo(() => inputsFromForm(form, energyMode), [energyMode, form]);
+  const result = React.useMemo(() => calculateBookStrategy(inputs), [inputs]);
+
+  function updateField<K extends keyof BookStrategyForm>(field: K, value: BookStrategyForm[K]) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function resetDefaults() {
+    setForm(DEFAULT_FORM);
+    setEnergyMode("total");
+    setAdvancedOpen(false);
+  }
+
+  const dailyEnergy = energyMode === "breakdown" ? calculatedDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
+
+  return (
+    <>
+      <section className="hero-panel compact-hero-panel book-strategy-hero">
+        <div>
+          <p className="eyebrow">Calculator</p>
+          <h2>Book Strategy</h2>
+          <p>
+            Expected stat growth from FHC-heavy book training versus saving the cash for later stat enhancers.
+          </p>
+        </div>
+        <button type="button" className="panel-action-button" onClick={resetDefaults}>
+          <RotateCcw size={15} />
+          Reset
+        </button>
+      </section>
+
+      <section className="book-strategy-layout">
+        <div className="book-strategy-controls">
+          <section className="panel book-strategy-panel">
+            <PanelHeader icon={<SlidersHorizontal size={17} />} title="Inputs" />
+            <div className="book-strategy-input-grid">
+              <NumberField label="Starting stat" value={form.startingStat} onChange={(value) => updateField("startingStat", value)} />
+              <NumberField label="Starting energy" value={form.startingEnergy} onChange={(value) => updateField("startingEnergy", value)} />
+              <NumberField label="Happiness" value={form.happiness} onChange={(value) => updateField("happiness", value)} />
+              <NumberField label="Graph duration" suffix="days" value={form.graphDurationDays} onChange={(value) => updateField("graphDurationDays", value)} />
+              <NumberField label="FHC price" value={form.fhcPrice} onChange={(value) => updateField("fhcPrice", value)} />
+              <NumberField label="Enhancer price" value={form.statEnhancerPrice} onChange={(value) => updateField("statEnhancerPrice", value)} />
+            </div>
+          </section>
+
+          <section className="panel book-strategy-panel">
+            <PanelHeader icon={<BatteryCharging size={17} />} title="Energy" aside={`${formatEnergy(dailyEnergy)} daily`} />
+            <div className="segmented-control" aria-label="Daily energy source">
+              <button
+                type="button"
+                className={energyMode === "total" ? "active" : ""}
+                onClick={() => setEnergyMode("total")}
+              >
+                Total
+              </button>
+              <button
+                type="button"
+                className={energyMode === "breakdown" ? "active" : ""}
+                onClick={() => setEnergyMode("breakdown")}
+              >
+                Breakdown
+              </button>
+            </div>
+            {energyMode === "total" ? (
+              <NumberField label="Daily energy" value={form.dailyEnergy} onChange={(value) => updateField("dailyEnergy", value)} />
+            ) : (
+              <div className="book-strategy-input-grid">
+                <NumberField label="Natural" value={form.naturalEnergy} onChange={(value) => updateField("naturalEnergy", value)} />
+                <NumberField label="Xanax/day" value={form.xanaxPerDay} onChange={(value) => updateField("xanaxPerDay", value)} />
+                <NumberField label="Energy/Xanax" value={form.energyPerXanax} onChange={(value) => updateField("energyPerXanax", value)} />
+                <NumberField label="Daily refill" value={form.dailyRefill} onChange={(value) => updateField("dailyRefill", value)} />
+                <NumberField label="Other" value={form.otherDailyEnergy} onChange={(value) => updateField("otherDailyEnergy", value)} />
+              </div>
+            )}
+          </section>
+
+          <section className="panel book-strategy-panel">
+            <PanelHeader icon={<Sparkles size={17} />} title="Perks" />
+            <div className="book-strategy-input-grid">
+              <NumberField label="Private Island" suffix="%" value={form.privateIslandPercent} onChange={(value) => updateField("privateIslandPercent", value)} />
+              <NumberField label="General education" suffix="%" value={form.generalEducationPercent} onChange={(value) => updateField("generalEducationPercent", value)} />
+              <NumberField label="Stat education" suffix="%" value={form.statEducationPercent} onChange={(value) => updateField("statEducationPercent", value)} />
+              <NumberField label="Steadfast" suffix="%" value={form.steadfastPercent} onChange={(value) => updateField("steadfastPercent", value)} />
+              <NumberField label="Other perks" suffix="%" value={form.customPerksPercent} onChange={(value) => updateField("customPerksPercent", value)} />
+            </div>
+          </section>
+
+          <section className="panel book-strategy-panel">
+            <PanelHeader icon={<CircleDollarSign size={17} />} title="Investment" />
+            <label className="book-strategy-check">
+              <input
+                type="checkbox"
+                checked={form.investmentEnabled}
+                onChange={(event) => updateField("investmentEnabled", event.target.checked)}
+              />
+              <span>Enable ROI growth</span>
+            </label>
+            <div className="book-strategy-input-grid">
+              <NumberField label="Annual ROI" suffix="%" value={form.annualRoiPercent} onChange={(value) => updateField("annualRoiPercent", value)} disabled={!form.investmentEnabled} />
+              <label className="book-strategy-field">
+                <span>Enhancer timing</span>
+                <select
+                  value={form.enhancerMode}
+                  onChange={(event) => updateField("enhancerMode", event.target.value as EnhancerModeKind)}
+                >
+                  <option value="earliestOvertake">Earliest overtake</option>
+                  <option value="targetStat">Selected stat</option>
+                  <option value="targetDay">Selected day</option>
+                </select>
+              </label>
+              {form.enhancerMode === "targetStat" ? (
+                <NumberField label="Target stat" value={form.enhancerTargetStat} onChange={(value) => updateField("enhancerTargetStat", value)} />
+              ) : null}
+              {form.enhancerMode === "targetDay" ? (
+                <NumberField label="Target day" value={form.enhancerTargetDay} onChange={(value) => updateField("enhancerTargetDay", value)} />
+              ) : null}
+            </div>
+          </section>
+
+          <CollapsiblePanel
+            title="Advanced"
+            collapsed={!advancedOpen}
+            onToggle={() => setAdvancedOpen((current) => !current)}
+          >
+            <div className="book-strategy-input-grid">
+              <NumberField label="Book duration" suffix="days" value={form.bookDurationDays} onChange={(value) => updateField("bookDurationDays", value)} />
+              <NumberField label="Book bonus" suffix="%" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
+              <NumberField label="Gym multiplier" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
+              <NumberField label="Energy/train" value={form.energyPerTrain} onChange={(value) => updateField("energyPerTrain", value)} />
+              <NumberField label="FHC energy" value={form.fhcEnergy} onChange={(value) => updateField("fhcEnergy", value)} />
+              <NumberField label="FHC cooldown" suffix="hours" value={form.fhcCooldownHours} onChange={(value) => updateField("fhcCooldownHours", value)} />
+              <NumberField label="Max booster cooldown" suffix="hours" value={form.maxBoosterCooldownHours} onChange={(value) => updateField("maxBoosterCooldownHours", value)} />
+            </div>
+          </CollapsiblePanel>
+        </div>
+
+        <div className="book-strategy-results">
+          <SummaryCards result={result} />
+
+          <section className="panel book-strategy-chart-panel">
+            <PanelHeader icon={<Activity size={17} />} title="Expected growth" aside={`${formatCompact(result.inputs.graphDurationDays)} days`} />
+            <div className="book-strategy-chart">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
+                  <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="day"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "var(--chart-axis)" }}
+                    tickFormatter={(value) => formatCompact(Number(value))}
+                    type="number"
+                    domain={[0, result.inputs.graphDurationDays]}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "var(--chart-axis)" }}
+                    tickFormatter={(value) => formatCompact(Number(value))}
+                    width={58}
+                  />
+                  <Tooltip content={<BookStrategyTooltip />} />
+                  <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
+                  <ReferenceArea x1={0} x2={result.inputs.bookDurationDays} fill="#fb7185" fillOpacity={0.1} />
+                  <ReferenceLine x={result.inputs.bookDurationDays} stroke="#fb7185" strokeDasharray="4 4" />
+                  {result.enhancerUse.day !== null && result.enhancerUse.day <= result.inputs.graphDurationDays ? (
+                    <ReferenceLine x={result.enhancerUse.day} stroke="#22c55e" strokeDasharray="4 4" />
+                  ) : null}
+                  <Line
+                    type="monotone"
+                    dataKey="strategyOneStat"
+                    name="Strategy 1: FHCs"
+                    stroke="#fb7185"
+                    strokeWidth={3}
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="strategyTwoStat"
+                    name="Strategy 2: Invest + enhancers"
+                    stroke="#22d3ee"
+                    strokeWidth={3}
+                    dot={false}
+                    activeDot={{ r: 5 }}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </section>
+
+          <CollapsiblePanel
+            title="Methodology"
+            collapsed={!methodologyOpen}
+            onToggle={() => setMethodologyOpen((current) => !current)}
+          >
+            <div className="book-strategy-methodology">
+              <p>
+                Uses Vladar's community gym formula with the post-50m effective-stat adjustment, fixed happiness,
+                complete 50-energy trains, no random term, and one canonical battle-stat constant set.
+              </p>
+              <p>
+                Strategy 1 uses {formatCompact(result.fhcPlan.totalFhcs)} FHCs during the book. Strategy 2 holds the
+                avoided FHC cost and spends all affordable whole stat enhancers when the selected timing rule triggers.
+              </p>
+            </div>
+          </CollapsiblePanel>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function SummaryCards({ result }: { result: BookStrategyResult }) {
+  const enhancerDetail = result.enhancerUse.day === null
+    ? "No overtake in range"
+    : `Day ${formatCompact(result.enhancerUse.day)}`;
+  const winnerLabel =
+    result.winningStrategy === "tied"
+      ? "Tied"
+      : result.winningStrategy === "strategyTwo"
+        ? "Strategy 2"
+        : "Strategy 1";
+
+  return (
+    <div className="status-grid book-strategy-summary-grid">
+      <MetricCard
+        icon={<BadgeDollarSign size={16} />}
+        label="Total FHC cost"
+        value={formatMoney(result.fhcPlan.cost)}
+        detail={`${formatCompact(result.fhcPlan.totalFhcs)} coupons`}
+        fitValue
+      />
+      <MetricCard
+        icon={<BookOpen size={16} />}
+        label="FHC lead at book end"
+        value={formatSignedStat(result.bookEnd.lead)}
+        detail={`${formatStat(result.bookEnd.strategyOneStat)} vs ${formatStat(result.bookEnd.strategyTwoStat)}`}
+        fitValue
+      />
+      <MetricCard
+        icon={<Sparkles size={16} />}
+        label="Enhancers used"
+        value={formatCompact(result.enhancerUse.enhancersUsed)}
+        detail={enhancerDetail}
+        fitValue
+      />
+      <MetricCard
+        icon={<Trophy size={16} />}
+        label="Endpoint winner"
+        value={winnerLabel}
+        detail={formatSignedStat(result.endpoint.difference)}
+        fitValue
+      />
+    </div>
+  );
+}
+
+function BookStrategyTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: BookStrategyPoint }>;
+}) {
+  const point = payload?.[0]?.payload;
+  if (!active || !point) {
+    return null;
+  }
+
+  return (
+    <div className="chart-tooltip-card book-strategy-tooltip">
+      <strong>Day {formatCompact(point.day)}</strong>
+      <span>Strategy 1: {formatStat(point.strategyOneStat)}</span>
+      <span>Strategy 2: {formatStat(point.strategyTwoStat)}</span>
+      <span>Investment: {formatMoney(point.investmentBalance)}</span>
+      <span>Affordable enhancers: {formatCompact(point.enhancersAffordable)}</span>
+      <span>Difference: {formatSignedStat(point.difference)}</span>
+    </div>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+  suffix,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  suffix?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="book-strategy-field">
+      <span>{label}</span>
+      <div>
+        <input
+          type="number"
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        {suffix ? <small>{suffix}</small> : null}
+      </div>
+    </label>
+  );
+}
+
+function inputsFromForm(form: BookStrategyForm, energyMode: EnergyMode): BookStrategyInputs {
+  return {
+    ...defaultBookStrategyInputs,
+    startingStat: parseNumber(form.startingStat, defaultBookStrategyInputs.startingStat),
+    dailyEnergy: energyMode === "breakdown"
+      ? calculatedDailyEnergy(form)
+      : parseNumber(form.dailyEnergy, defaultBookStrategyInputs.dailyEnergy),
+    startingEnergy: parseNumber(form.startingEnergy, defaultBookStrategyInputs.startingEnergy),
+    happiness: parseNumber(form.happiness, defaultBookStrategyInputs.happiness),
+    privateIslandPercent: parseNumber(form.privateIslandPercent, defaultBookStrategyInputs.privateIslandPercent),
+    generalEducationPercent: parseNumber(form.generalEducationPercent, defaultBookStrategyInputs.generalEducationPercent),
+    statEducationPercent: parseNumber(form.statEducationPercent, defaultBookStrategyInputs.statEducationPercent),
+    steadfastPercent: parseNumber(form.steadfastPercent, defaultBookStrategyInputs.steadfastPercent),
+    customPerksPercent: parseNumber(form.customPerksPercent, defaultBookStrategyInputs.customPerksPercent),
+    statEnhancerPrice: parseNumber(form.statEnhancerPrice, defaultBookStrategyInputs.statEnhancerPrice),
+    fhcPrice: parseNumber(form.fhcPrice, defaultBookStrategyInputs.fhcPrice),
+    investmentEnabled: form.investmentEnabled,
+    annualRoiPercent: parseNumber(form.annualRoiPercent, defaultBookStrategyInputs.annualRoiPercent),
+    graphDurationDays: parseNumber(form.graphDurationDays, defaultBookStrategyInputs.graphDurationDays),
+    bookDurationDays: parseNumber(form.bookDurationDays, defaultBookStrategyInputs.bookDurationDays),
+    bookBonusPercent: parseNumber(form.bookBonusPercent, defaultBookStrategyInputs.bookBonusPercent),
+    gymMultiplier: parseNumber(form.gymMultiplier, defaultBookStrategyInputs.gymMultiplier),
+    energyPerTrain: parseNumber(form.energyPerTrain, defaultBookStrategyInputs.energyPerTrain),
+    fhcEnergy: parseNumber(form.fhcEnergy, defaultBookStrategyInputs.fhcEnergy),
+    fhcCooldownHours: parseNumber(form.fhcCooldownHours, defaultBookStrategyInputs.fhcCooldownHours),
+    maxBoosterCooldownHours: parseNumber(form.maxBoosterCooldownHours, defaultBookStrategyInputs.maxBoosterCooldownHours),
+    enhancerUseMode: enhancerModeFromForm(form),
+  };
+}
+
+function enhancerModeFromForm(form: BookStrategyForm): EnhancerUseMode {
+  if (form.enhancerMode === "targetStat") {
+    return { kind: "targetStat", stat: parseNumber(form.enhancerTargetStat, defaultBookStrategyInputs.startingStat) };
+  }
+
+  if (form.enhancerMode === "targetDay") {
+    return { kind: "targetDay", day: parseNumber(form.enhancerTargetDay, defaultBookStrategyInputs.bookDurationDays) };
+  }
+
+  return { kind: "earliestOvertake" };
+}
+
+function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
+  return {
+    startingStat: String(inputs.startingStat),
+    dailyEnergy: String(inputs.dailyEnergy),
+    startingEnergy: String(inputs.startingEnergy),
+    happiness: String(inputs.happiness),
+    naturalEnergy: "720",
+    xanaxPerDay: "3",
+    energyPerXanax: "250",
+    dailyRefill: "150",
+    otherDailyEnergy: "0",
+    privateIslandPercent: String(inputs.privateIslandPercent),
+    generalEducationPercent: String(inputs.generalEducationPercent),
+    statEducationPercent: String(inputs.statEducationPercent),
+    steadfastPercent: String(inputs.steadfastPercent),
+    customPerksPercent: String(inputs.customPerksPercent),
+    statEnhancerPrice: String(inputs.statEnhancerPrice),
+    fhcPrice: String(inputs.fhcPrice),
+    investmentEnabled: inputs.investmentEnabled,
+    annualRoiPercent: String(inputs.annualRoiPercent),
+    graphDurationDays: String(inputs.graphDurationDays),
+    bookDurationDays: String(inputs.bookDurationDays),
+    bookBonusPercent: String(inputs.bookBonusPercent),
+    gymMultiplier: String(inputs.gymMultiplier),
+    energyPerTrain: String(inputs.energyPerTrain),
+    fhcEnergy: String(inputs.fhcEnergy),
+    fhcCooldownHours: String(inputs.fhcCooldownHours),
+    maxBoosterCooldownHours: String(inputs.maxBoosterCooldownHours),
+    enhancerMode: inputs.enhancerUseMode.kind,
+    enhancerTargetStat: "3411000000",
+    enhancerTargetDay: "334",
+  };
+}
+
+function calculatedDailyEnergy(form: BookStrategyForm): number {
+  return (
+    parseNumber(form.naturalEnergy, 0) +
+    parseNumber(form.xanaxPerDay, 0) * parseNumber(form.energyPerXanax, 0) +
+    parseNumber(form.dailyRefill, 0) +
+    parseNumber(form.otherDailyEnergy, 0)
+  );
+}
+
+function parseNumber(value: string, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function formatEnergy(value: number): string {
+  return new Intl.NumberFormat("en-GB", { maximumFractionDigits: 1 }).format(value);
+}
+
+function formatMoney(value: number): string {
+  return `$${formatCompact(value)}`;
+}
+
+function formatStat(value: number): string {
+  return formatCompact(value);
+}
+
+function formatSignedStat(value: number): string {
+  return `${value >= 0 ? "+" : "-"}${formatStat(Math.abs(value))}`;
+}
+
+function formatCompact(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000_000) {
+    return `${trimFixed(value / 1_000_000_000_000)}t`;
+  }
+  if (abs >= 1_000_000_000) {
+    return `${trimFixed(value / 1_000_000_000)}b`;
+  }
+  if (abs >= 1_000_000) {
+    return `${trimFixed(value / 1_000_000)}m`;
+  }
+
+  return new Intl.NumberFormat("en-GB", { maximumFractionDigits: abs < 10 ? 2 : 1 }).format(value);
+}
+
+function trimFixed(value: number): string {
+  return new Intl.NumberFormat("en-GB", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: Math.abs(value) >= 100 ? 1 : 2,
+  }).format(value);
+}

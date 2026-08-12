@@ -10884,3 +10884,177 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .tooltip-value {
   text-decoration-color: rgba(147, 197, 253, 0.5);
 }
+
+.book-strategy-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 16px;
+}
+
+.book-strategy-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.book-strategy-controls,
+.book-strategy-results {
+  display: grid;
+  gap: 16px;
+}
+
+.book-strategy-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.book-strategy-input-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.book-strategy-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.book-strategy-field > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.book-strategy-field input,
+.book-strategy-field select {
+  width: 100%;
+  min-width: 0;
+  color: var(--text-main);
+}
+
+.book-strategy-field small {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.book-strategy-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted-bg);
+  color: var(--text-main);
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.book-strategy-check input {
+  min-height: auto;
+  margin: 0;
+}
+
+.segmented-control {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  width: min(100%, 240px);
+  padding: 3px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted-bg);
+}
+
+.segmented-control button {
+  min-height: 30px;
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.segmented-control button.active {
+  background: var(--panel-bg-solid);
+  color: var(--accent-strong);
+  box-shadow: var(--shadow-panel);
+}
+
+.book-strategy-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.book-strategy-chart-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.book-strategy-chart {
+  height: 520px;
+  min-height: 360px;
+}
+
+.book-strategy-tooltip {
+  display: grid;
+  gap: 4px;
+}
+
+.book-strategy-methodology {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.book-strategy-methodology p {
+  margin: 0;
+}
+
+@media (max-width: 1180px) {
+  .book-strategy-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .book-strategy-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .book-strategy-controls .collapsible-panel {
+    grid-column: 1 / -1;
+  }
+
+  .book-strategy-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .book-strategy-hero,
+  .book-strategy-controls,
+  .book-strategy-input-grid,
+  .book-strategy-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .book-strategy-hero .panel-action-button {
+    width: 100%;
+  }
+
+  .book-strategy-chart {
+    height: 420px;
+  }
+}

@@ -1,0 +1,629 @@
+export type EnhancerUseMode =
+  | { kind: "earliestOvertake" }
+  | { kind: "targetStat"; stat: number }
+  | { kind: "targetDay"; day: number };
+
+export type BookStrategyInputs = {
+  startingStat: number;
+  dailyEnergy: number;
+  startingEnergy: number;
+  happiness: number;
+  privateIslandPercent: number;
+  generalEducationPercent: number;
+  statEducationPercent: number;
+  steadfastPercent: number;
+  customPerksPercent: number;
+  statEnhancerPrice: number;
+  fhcPrice: number;
+  investmentEnabled: boolean;
+  annualRoiPercent: number;
+  graphDurationDays: number;
+  bookDurationDays: number;
+  bookBonusPercent: number;
+  gymMultiplier: number;
+  energyPerTrain: number;
+  fhcEnergy: number;
+  fhcCooldownHours: number;
+  maxBoosterCooldownHours: number;
+  enhancerUseMode: EnhancerUseMode;
+};
+
+export type FhcPlan = {
+  initialFhcs: number;
+  furtherFhcs: number;
+  totalFhcs: number;
+  energy: number;
+  cost: number;
+};
+
+export type BookStrategyPoint = {
+  day: number;
+  strategyOneStat: number;
+  strategyTwoStat: number;
+  strategyTwoBeforeEnhancers: number;
+  investmentBalance: number;
+  enhancersAffordable: number;
+  enhancersUsed: number;
+  difference: number;
+};
+
+export type BookStrategyResult = {
+  inputs: BookStrategyInputs;
+  perkMultiplier: number;
+  fhcPlan: FhcPlan;
+  bookEnd: {
+    strategyOneStat: number;
+    strategyTwoStat: number;
+    lead: number;
+  };
+  enhancerUse: {
+    day: number | null;
+    strategyOneStat: number | null;
+    strategyTwoBeforeEnhancers: number | null;
+    strategyTwoAfterEnhancers: number | null;
+    investmentBalance: number | null;
+    enhancersUsed: number;
+    lead: number | null;
+  };
+  endpoint: BookStrategyPoint;
+  breakEvenDay: number | null;
+  winningStrategy: "strategyOne" | "strategyTwo" | "tied";
+  series: BookStrategyPoint[];
+};
+
+const CANONICAL_A = 1600;
+const CANONICAL_B = 1700;
+const STAT_ENHANCER_MULTIPLIER = 1.01;
+const GRAPH_STEP_DAYS = 1;
+const MAX_SIMULATION_DAYS = 20_000;
+
+export const defaultBookStrategyInputs: BookStrategyInputs = {
+  startingStat: 500_000_000,
+  dailyEnergy: 1_620,
+  startingEnergy: 150,
+  happiness: 5_000,
+  privateIslandPercent: 2,
+  generalEducationPercent: 1,
+  statEducationPercent: 1,
+  steadfastPercent: 18,
+  customPerksPercent: 0,
+  statEnhancerPrice: 450_000_000,
+  fhcPrice: 14_000_000,
+  investmentEnabled: true,
+  annualRoiPercent: 25,
+  graphDurationDays: 450,
+  bookDurationDays: 31,
+  bookBonusPercent: 30,
+  gymMultiplier: 8,
+  energyPerTrain: 50,
+  fhcEnergy: 150,
+  fhcCooldownHours: 6,
+  maxBoosterCooldownHours: 48,
+  enhancerUseMode: { kind: "earliestOvertake" },
+};
+
+export function calculateBookStrategy(rawInputs: BookStrategyInputs): BookStrategyResult {
+  const inputs = normalizeInputs(rawInputs);
+  const perkMultiplier = perkProduct(inputs);
+  const fhcPlan = calculateFhcPlan(inputs);
+  const bookEnd = calculateBookEnd(inputs, perkMultiplier, fhcPlan);
+  const enhancerUse = findEnhancerUse(inputs, perkMultiplier, fhcPlan, bookEnd);
+  const series = buildSeries(inputs, perkMultiplier, fhcPlan, enhancerUse.day, enhancerUse.enhancersUsed);
+  const endpoint = series[series.length - 1];
+  const breakEvenDay = enhancerUse.day ?? firstSeriesOvertake(series);
+  const winningStrategy =
+    Math.abs(endpoint.difference) < 0.5
+      ? "tied"
+      : endpoint.difference > 0
+        ? "strategyTwo"
+        : "strategyOne";
+
+  return {
+    inputs,
+    perkMultiplier,
+    fhcPlan,
+    bookEnd,
+    enhancerUse,
+    endpoint,
+    breakEvenDay,
+    winningStrategy,
+    series,
+  };
+}
+
+export function normalizeInputs(inputs: BookStrategyInputs): BookStrategyInputs {
+  return {
+    ...inputs,
+    startingStat: finiteAtLeast(inputs.startingStat, 0),
+    dailyEnergy: finiteAtLeast(inputs.dailyEnergy, 0),
+    startingEnergy: finiteAtLeast(inputs.startingEnergy, 0),
+    happiness: finiteAtLeast(inputs.happiness, 0),
+    privateIslandPercent: finiteAtLeast(inputs.privateIslandPercent, -99),
+    generalEducationPercent: finiteAtLeast(inputs.generalEducationPercent, -99),
+    statEducationPercent: finiteAtLeast(inputs.statEducationPercent, -99),
+    steadfastPercent: finiteAtLeast(inputs.steadfastPercent, -99),
+    customPerksPercent: finiteAtLeast(inputs.customPerksPercent, -99),
+    statEnhancerPrice: finiteAtLeast(inputs.statEnhancerPrice, 1),
+    fhcPrice: finiteAtLeast(inputs.fhcPrice, 0),
+    annualRoiPercent: finiteAtLeast(inputs.annualRoiPercent, -99),
+    graphDurationDays: Math.min(MAX_SIMULATION_DAYS, finiteAtLeast(inputs.graphDurationDays, 1)),
+    bookDurationDays: finiteAtLeast(inputs.bookDurationDays, 0),
+    bookBonusPercent: finiteAtLeast(inputs.bookBonusPercent, -99),
+    gymMultiplier: finiteAtLeast(inputs.gymMultiplier, 0),
+    energyPerTrain: finiteAtLeast(inputs.energyPerTrain, 1),
+    fhcEnergy: finiteAtLeast(inputs.fhcEnergy, 0),
+    fhcCooldownHours: finiteAtLeast(inputs.fhcCooldownHours, 0.001),
+    maxBoosterCooldownHours: finiteAtLeast(inputs.maxBoosterCooldownHours, 0),
+    enhancerUseMode: normalizeEnhancerUseMode(inputs.enhancerUseMode),
+  };
+}
+
+export function calculateFhcPlan(inputs: BookStrategyInputs): FhcPlan {
+  const initialFhcs = Math.floor(inputs.maxBoosterCooldownHours / inputs.fhcCooldownHours);
+  const bookHours = inputs.bookDurationDays * 24;
+  const furtherFhcs = Math.max(0, Math.ceil(bookHours / inputs.fhcCooldownHours) - 1);
+  const totalFhcs = initialFhcs + furtherFhcs;
+
+  return {
+    initialFhcs,
+    furtherFhcs,
+    totalFhcs,
+    energy: totalFhcs * inputs.fhcEnergy,
+    cost: totalFhcs * inputs.fhcPrice,
+  };
+}
+
+export function perkProduct(inputs: BookStrategyInputs): number {
+  return [
+    inputs.privateIslandPercent,
+    inputs.generalEducationPercent,
+    inputs.statEducationPercent,
+    inputs.steadfastPercent,
+    inputs.customPerksPercent,
+  ].reduce((product, percent) => product * (1 + percent / 100), 1);
+}
+
+export function effectiveStat(stat: number): number {
+  if (stat < 50_000_000) {
+    return stat;
+  }
+
+  return 50_000_000 + (stat - 50_000_000) / (8.77635 * Math.log10(stat));
+}
+
+export function gainPerTrain(
+  stat: number,
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  bookActive: boolean,
+): number {
+  const happy = inputs.happiness;
+  const happyTerm = roundTo(1 + 0.07 * roundTo(Math.log(1 + happy / 250), 4), 4);
+  const baseGain =
+    effectiveStat(stat) * happyTerm +
+    8 * happy ** 1.05 +
+    CANONICAL_A * (1 - (happy / 99_999) ** 2) +
+    CANONICAL_B;
+  const bookMultiplier = bookActive ? 1 + inputs.bookBonusPercent / 100 : 1;
+
+  return (
+    (1 / 200_000) *
+    inputs.gymMultiplier *
+    inputs.energyPerTrain *
+    perkMultiplier *
+    baseGain *
+    bookMultiplier
+  );
+}
+
+function calculateBookEnd(
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  fhcPlan: FhcPlan,
+): BookStrategyResult["bookEnd"] {
+  const normalBookEnergy = inputs.startingEnergy + inputs.dailyEnergy * inputs.bookDurationDays;
+  const strategyTwoTrains = completeTrains(normalBookEnergy, inputs.energyPerTrain);
+  const strategyOneTrains = completeTrains(normalBookEnergy + fhcPlan.energy, inputs.energyPerTrain);
+  const strategyTwoStat = advanceStat(inputs.startingStat, strategyTwoTrains, inputs, perkMultiplier, true);
+  const strategyOneStat = advanceStat(inputs.startingStat, strategyOneTrains, inputs, perkMultiplier, true);
+
+  return {
+    strategyOneStat,
+    strategyTwoStat,
+    lead: strategyOneStat - strategyTwoStat,
+  };
+}
+
+function findEnhancerUse(
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  fhcPlan: FhcPlan,
+  bookEnd: BookStrategyResult["bookEnd"],
+): BookStrategyResult["enhancerUse"] {
+  const mode = inputs.enhancerUseMode;
+  const bookState = createPostBookState(inputs, bookEnd, fhcPlan);
+
+  if (mode.kind === "targetDay") {
+    return enhancerUseAtDay(Math.max(inputs.bookDurationDays, mode.day), inputs, perkMultiplier, fhcPlan, bookState);
+  }
+
+  if (mode.kind === "targetStat") {
+    const day = findDayForTargetStat(inputs, perkMultiplier, fhcPlan, bookState, mode.stat);
+    return day === null
+      ? emptyEnhancerUse()
+      : enhancerUseAtDay(day, inputs, perkMultiplier, fhcPlan, bookState);
+  }
+
+  return findEarliestOvertake(inputs, perkMultiplier, fhcPlan, bookState);
+}
+
+function findEarliestOvertake(
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  fhcPlan: FhcPlan,
+  bookState: PostBookState,
+): BookStrategyResult["enhancerUse"] {
+  const maxDay = Math.max(inputs.graphDurationDays, inputs.bookDurationDays + 730);
+  const maxEnhancers = affordableEnhancers(
+    investmentBalanceAtDay(inputs, fhcPlan.cost, maxDay),
+    inputs.statEnhancerPrice,
+  );
+  const overtakeDays = findOvertakeDaysByEnhancerCount(inputs, perkMultiplier, bookState, maxDay, maxEnhancers);
+  let best: BookStrategyResult["enhancerUse"] = emptyEnhancerUse();
+
+  for (let enhancers = 1; enhancers <= maxEnhancers; enhancers += 1) {
+    const overtakeDay = overtakeDays.get(enhancers);
+    if (overtakeDay === undefined) {
+      continue;
+    }
+
+    const fundingDay = nextEnhancerFundingDay(inputs, fhcPlan.cost, inputs.bookDurationDays, enhancers);
+    const candidateDay = Math.max(inputs.bookDurationDays, overtakeDay, fundingDay);
+    const candidate = enhancerUseAtDay(candidateDay, inputs, perkMultiplier, fhcPlan, bookState);
+    if (
+      candidate.day !== null &&
+      candidate.strategyTwoAfterEnhancers !== null &&
+      candidate.strategyOneStat !== null &&
+      candidate.strategyTwoAfterEnhancers > candidate.strategyOneStat &&
+      (best.day === null || candidate.day < best.day)
+    ) {
+      best = candidate;
+    }
+  }
+
+  return best;
+}
+
+function findOvertakeDaysByEnhancerCount(
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  bookState: PostBookState,
+  maxDay: number,
+  maxEnhancers: number,
+): Map<number, number> {
+  const results = new Map<number, number>();
+  if (maxEnhancers <= 0 || inputs.dailyEnergy <= 0) {
+    return results;
+  }
+
+  let day = inputs.bookDurationDays;
+  let strategyOneStat = bookState.strategyOneBookStat;
+  let strategyTwoStat = bookState.strategyTwoBookStat;
+  let nextStrategyOneTrainDay = nextPostBookTrainDay(inputs, bookState.strategyOneLeftoverEnergy, 1);
+  let nextStrategyTwoTrainDay = nextPostBookTrainDay(inputs, bookState.strategyTwoLeftoverEnergy, 1);
+
+  for (let enhancers = 1; enhancers <= maxEnhancers; enhancers += 1) {
+    const diff = applyEnhancers(strategyTwoStat, enhancers) - strategyOneStat;
+    if (diff > 0) {
+      results.set(enhancers, day);
+    }
+  }
+
+  while (day <= maxDay && results.size < maxEnhancers) {
+    const nextDay = Math.min(nextStrategyOneTrainDay, nextStrategyTwoTrainDay);
+    if (!Number.isFinite(nextDay) || nextDay > maxDay) {
+      break;
+    }
+
+    day = nextDay;
+    if (Math.abs(day - nextStrategyOneTrainDay) < 1e-10) {
+      strategyOneStat += gainPerTrain(strategyOneStat, inputs, perkMultiplier, false);
+      nextStrategyOneTrainDay += inputs.energyPerTrain / inputs.dailyEnergy;
+    }
+    if (Math.abs(day - nextStrategyTwoTrainDay) < 1e-10) {
+      strategyTwoStat += gainPerTrain(strategyTwoStat, inputs, perkMultiplier, false);
+      nextStrategyTwoTrainDay += inputs.energyPerTrain / inputs.dailyEnergy;
+    }
+
+    for (let enhancers = 1; enhancers <= maxEnhancers; enhancers += 1) {
+      if (results.has(enhancers)) {
+        continue;
+      }
+
+      const diff = applyEnhancers(strategyTwoStat, enhancers) - strategyOneStat;
+      if (diff > 0) {
+        results.set(enhancers, day);
+      }
+    }
+  }
+
+  return results;
+}
+
+function nextPostBookTrainDay(inputs: BookStrategyInputs, leftoverEnergy: number, trainNumber: number): number {
+  return inputs.bookDurationDays + (trainNumber * inputs.energyPerTrain - leftoverEnergy) / inputs.dailyEnergy;
+}
+
+function enhancerUseAtDay(
+  day: number,
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  fhcPlan: FhcPlan,
+  bookState: PostBookState,
+): BookStrategyResult["enhancerUse"] {
+  const strategyOneStat = statAtDayWithoutEnhancers(day, "strategyOne", inputs, perkMultiplier, fhcPlan, bookState);
+  const strategyTwoBeforeEnhancers = statAtDayWithoutEnhancers(day, "strategyTwo", inputs, perkMultiplier, fhcPlan, bookState);
+  const investmentBalance = investmentBalanceAtDay(inputs, fhcPlan.cost, day);
+  const enhancersUsed = affordableEnhancers(investmentBalance, inputs.statEnhancerPrice);
+
+  if (enhancersUsed <= 0) {
+    return emptyEnhancerUse();
+  }
+
+  const strategyTwoAfterEnhancers = applyEnhancers(strategyTwoBeforeEnhancers, enhancersUsed);
+
+  return {
+    day,
+    strategyOneStat,
+    strategyTwoBeforeEnhancers,
+    strategyTwoAfterEnhancers,
+    investmentBalance,
+    enhancersUsed,
+    lead: strategyTwoAfterEnhancers - strategyOneStat,
+  };
+}
+
+function buildSeries(
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  fhcPlan: FhcPlan,
+  enhancerDay: number | null,
+  enhancersUsed: number,
+): BookStrategyPoint[] {
+  const bookEnd = calculateBookEnd(inputs, perkMultiplier, fhcPlan);
+  const bookState = createPostBookState(inputs, bookEnd, fhcPlan);
+  const sampleDays = new Set<number>([0, inputs.bookDurationDays, inputs.graphDurationDays]);
+  for (let day = 0; day <= inputs.graphDurationDays; day += GRAPH_STEP_DAYS) {
+    sampleDays.add(Number(day.toFixed(8)));
+  }
+  if (enhancerDay !== null && enhancerDay <= inputs.graphDurationDays) {
+    sampleDays.add(Number(enhancerDay.toFixed(8)));
+  }
+
+  return [...sampleDays]
+    .filter((day) => day >= 0 && day <= inputs.graphDurationDays)
+    .sort((a, b) => a - b)
+    .map((day) => pointAtDay(day, inputs, perkMultiplier, fhcPlan, bookState, enhancerDay, enhancersUsed));
+}
+
+function pointAtDay(
+  day: number,
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  fhcPlan: FhcPlan,
+  bookState: PostBookState,
+  enhancerDay: number | null,
+  enhancersUsed: number,
+): BookStrategyPoint {
+  const strategyOneStat = statAtDayWithoutEnhancers(day, "strategyOne", inputs, perkMultiplier, fhcPlan, bookState);
+  const strategyTwoBeforeEnhancers = statAtDayWithoutEnhancers(day, "strategyTwo", inputs, perkMultiplier, fhcPlan, bookState);
+  let strategyTwoStat = strategyTwoBeforeEnhancers;
+  let used = 0;
+
+  if (enhancerDay !== null && day >= enhancerDay && enhancersUsed > 0) {
+    const eventBeforeStat = statAtDayWithoutEnhancers(enhancerDay, "strategyTwo", inputs, perkMultiplier, fhcPlan, bookState);
+    const eventAfterStat = applyEnhancers(eventBeforeStat, enhancersUsed);
+    const eventPostEnergy = postBookEnergyAtDay(inputs, bookState.strategyTwoLeftoverEnergy, enhancerDay);
+    const eventPostTrains = completeTrains(eventPostEnergy, inputs.energyPerTrain);
+    const currentPostEnergy = postBookEnergyAtDay(inputs, bookState.strategyTwoLeftoverEnergy, day);
+    const currentPostTrains = completeTrains(currentPostEnergy, inputs.energyPerTrain);
+    const trainsAfterEnhancers = Math.max(0, currentPostTrains - eventPostTrains);
+    strategyTwoStat = advanceStat(eventAfterStat, trainsAfterEnhancers, inputs, perkMultiplier, false);
+    used = enhancersUsed;
+  }
+
+  return {
+    day,
+    strategyOneStat,
+    strategyTwoStat,
+    strategyTwoBeforeEnhancers,
+    investmentBalance: investmentBalanceAtDay(inputs, fhcPlan.cost, day),
+    enhancersAffordable: affordableEnhancers(investmentBalanceAtDay(inputs, fhcPlan.cost, day), inputs.statEnhancerPrice),
+    enhancersUsed: used,
+    difference: strategyTwoStat - strategyOneStat,
+  };
+}
+
+function statAtDayWithoutEnhancers(
+  day: number,
+  strategy: "strategyOne" | "strategyTwo",
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  fhcPlan: FhcPlan,
+  bookState: PostBookState,
+): number {
+  if (day <= inputs.bookDurationDays) {
+    const energy = bookEnergyAtDay(day, strategy, inputs, fhcPlan);
+    const trains = completeTrains(energy, inputs.energyPerTrain);
+    return advanceStat(inputs.startingStat, trains, inputs, perkMultiplier, true);
+  }
+
+  const bookEndStat = strategy === "strategyOne" ? bookState.strategyOneBookStat : bookState.strategyTwoBookStat;
+  const leftover = strategy === "strategyOne" ? bookState.strategyOneLeftoverEnergy : bookState.strategyTwoLeftoverEnergy;
+  const trains = completeTrains(postBookEnergyAtDay(inputs, leftover, day), inputs.energyPerTrain);
+  return advanceStat(bookEndStat, trains, inputs, perkMultiplier, false);
+}
+
+function findDayForTargetStat(
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  fhcPlan: FhcPlan,
+  bookState: PostBookState,
+  targetStat: number,
+): number | null {
+  for (let day = inputs.bookDurationDays; day <= MAX_SIMULATION_DAYS; day += GRAPH_STEP_DAYS) {
+    const stat = statAtDayWithoutEnhancers(day, "strategyTwo", inputs, perkMultiplier, fhcPlan, bookState);
+    if (stat >= targetStat) {
+      return day;
+    }
+  }
+
+  return null;
+}
+
+function bookEnergyAtDay(
+  day: number,
+  strategy: "strategyOne" | "strategyTwo",
+  inputs: BookStrategyInputs,
+  fhcPlan: FhcPlan,
+): number {
+  const normalEnergy = inputs.startingEnergy + inputs.dailyEnergy * Math.max(0, day);
+  if (strategy === "strategyTwo") {
+    return normalEnergy;
+  }
+
+  return normalEnergy + fhcsAvailableAtDay(day, inputs, fhcPlan) * inputs.fhcEnergy;
+}
+
+function fhcsAvailableAtDay(day: number, inputs: BookStrategyInputs, fhcPlan: FhcPlan): number {
+  if (day < 0) {
+    return 0;
+  }
+
+  const furtherUsed = Math.min(
+    fhcPlan.furtherFhcs,
+    Math.floor((day * 24 + 1e-9) / inputs.fhcCooldownHours),
+  );
+  return fhcPlan.initialFhcs + furtherUsed;
+}
+
+function createPostBookState(
+  inputs: BookStrategyInputs,
+  bookEnd: BookStrategyResult["bookEnd"],
+  fhcPlan: FhcPlan,
+): PostBookState {
+  const strategyOneBookEnergy = bookEnergyAtDay(inputs.bookDurationDays, "strategyOne", inputs, fhcPlan);
+  const strategyTwoBookEnergy = bookEnergyAtDay(inputs.bookDurationDays, "strategyTwo", inputs, fhcPlan);
+
+  return {
+    strategyOneBookStat: bookEnd.strategyOneStat,
+    strategyTwoBookStat: bookEnd.strategyTwoStat,
+    strategyOneLeftoverEnergy: leftoverEnergy(strategyOneBookEnergy, inputs.energyPerTrain),
+    strategyTwoLeftoverEnergy: leftoverEnergy(strategyTwoBookEnergy, inputs.energyPerTrain),
+  };
+}
+
+function postBookEnergyAtDay(inputs: BookStrategyInputs, leftover: number, day: number): number {
+  return leftover + inputs.dailyEnergy * Math.max(0, day - inputs.bookDurationDays);
+}
+
+function investmentBalanceAtDay(inputs: BookStrategyInputs, principal: number, day: number): number {
+  if (!inputs.investmentEnabled) {
+    return principal;
+  }
+
+  return principal * (1 + inputs.annualRoiPercent / 100) ** (Math.max(0, day) / 365);
+}
+
+function nextEnhancerFundingDay(
+  inputs: BookStrategyInputs,
+  principal: number,
+  currentDay: number,
+  targetEnhancers: number,
+): number {
+  const targetBalance = targetEnhancers * inputs.statEnhancerPrice;
+  if (principal >= targetBalance) {
+    return currentDay;
+  }
+
+  if (!inputs.investmentEnabled || inputs.annualRoiPercent <= 0 || principal <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const growthFactor = 1 + inputs.annualRoiPercent / 100;
+  return 365 * Math.log(targetBalance / principal) / Math.log(growthFactor);
+}
+
+function advanceStat(
+  startingStat: number,
+  trains: number,
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  bookActive: boolean,
+): number {
+  let stat = startingStat;
+  for (let index = 0; index < trains; index += 1) {
+    stat += gainPerTrain(stat, inputs, perkMultiplier, bookActive);
+  }
+  return stat;
+}
+
+function firstSeriesOvertake(series: BookStrategyPoint[]): number | null {
+  return series.find((point) => point.difference > 0)?.day ?? null;
+}
+
+function affordableEnhancers(balance: number, price: number): number {
+  return Math.max(0, Math.floor(balance / price));
+}
+
+function applyEnhancers(stat: number, count: number): number {
+  return stat * STAT_ENHANCER_MULTIPLIER ** count;
+}
+
+function completeTrains(energy: number, energyPerTrain: number): number {
+  return Math.floor((energy + 1e-9) / energyPerTrain);
+}
+
+function leftoverEnergy(energy: number, energyPerTrain: number): number {
+  return energy - completeTrains(energy, energyPerTrain) * energyPerTrain;
+}
+
+function roundTo(value: number, digits: number): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function finiteAtLeast(value: number, minimum: number): number {
+  return Number.isFinite(value) ? Math.max(minimum, value) : minimum;
+}
+
+function normalizeEnhancerUseMode(mode: EnhancerUseMode): EnhancerUseMode {
+  if (mode.kind === "targetDay") {
+    return { kind: "targetDay", day: finiteAtLeast(mode.day, 0) };
+  }
+
+  if (mode.kind === "targetStat") {
+    return { kind: "targetStat", stat: finiteAtLeast(mode.stat, 0) };
+  }
+
+  return { kind: "earliestOvertake" };
+}
+
+function emptyEnhancerUse(): BookStrategyResult["enhancerUse"] {
+  return {
+    day: null,
+    strategyOneStat: null,
+    strategyTwoBeforeEnhancers: null,
+    strategyTwoAfterEnhancers: null,
+    investmentBalance: null,
+    enhancersUsed: 0,
+    lead: null,
+  };
+}
+
+type PostBookState = {
+  strategyOneBookStat: number;
+  strategyTwoBookStat: number;
+  strategyOneLeftoverEnergy: number;
+  strategyTwoLeftoverEnergy: number;
+};

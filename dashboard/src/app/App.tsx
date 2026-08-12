@@ -1,6 +1,7 @@
 import React from "react";
 import {
   BarChart3,
+  BookOpen,
   CircleDollarSign,
   Crosshair,
   Dices,
@@ -102,6 +103,9 @@ const TradeScout = React.lazy(() =>
 );
 const ArrestScout = React.lazy(() =>
   import("../views/ArrestScout").then((module) => ({ default: module.ArrestScout })),
+);
+const BookStrategy = React.lazy(() =>
+  import("../views/BookStrategy").then((module) => ({ default: module.BookStrategy })),
 );
 const WarPayouts = React.lazy(() =>
   import("../views/WarPayouts").then((module) => ({ default: module.WarPayouts })),
@@ -732,6 +736,7 @@ export function App() {
           miscIcon={<Target size={18} />}
           tradeScoutIcon={<ShoppingCart size={18} />}
           arrestScoutIcon={<ShieldCheck size={18} />}
+          bookStrategyIcon={<BookOpen size={18} />}
           warPayoutsIcon={<CircleDollarSign size={18} />}
           stockMarketIcon={<TrendingUp size={18} />}
           dataHealthIcon={<Gauge size={18} />}
@@ -778,6 +783,10 @@ export function App() {
           ) : view === "arrestScout" ? (
             <LazyPage>
               <ArrestScout />
+            </LazyPage>
+          ) : view === "bookStrategy" ? (
+            <LazyPage>
+              <BookStrategy />
             </LazyPage>
           ) : view === "warPayouts" ? (
             <LazyPage>

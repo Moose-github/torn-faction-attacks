@@ -24,6 +24,7 @@ export function Sidebar({
   miscIcon,
   tradeScoutIcon,
   arrestScoutIcon,
+  bookStrategyIcon,
   warPayoutsIcon,
   stockMarketIcon,
   dataHealthIcon,
@@ -48,6 +49,7 @@ export function Sidebar({
   miscIcon: React.ReactNode;
   tradeScoutIcon: React.ReactNode;
   arrestScoutIcon: React.ReactNode;
+  bookStrategyIcon: React.ReactNode;
   warPayoutsIcon: React.ReactNode;
   stockMarketIcon: React.ReactNode;
   dataHealthIcon: React.ReactNode;
@@ -65,7 +67,7 @@ export function Sidebar({
   });
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
-  const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout" || view === "arrestScout" || view === "stockInvestments";
+  const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "stockInvestments";
   const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "admin";
 
   React.useEffect(() => {
@@ -199,6 +201,12 @@ export function Sidebar({
           icon={arrestScoutIcon}
           label="Arrest scout"
           onClick={() => onViewChange("arrestScout")}
+        />
+        <SidebarLink
+          active={view === "bookStrategy"}
+          icon={bookStrategyIcon}
+          label="Book Strategy"
+          onClick={() => onViewChange("bookStrategy")}
         />
         <SidebarLink
           active={view === "stockInvestments"}
