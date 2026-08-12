@@ -444,10 +444,13 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
   const outcomeLabel = result.winningStrategy === "tied"
     ? "Strategies tied"
     : `${winnerLabel} ahead by ${formatSignedStat(Math.abs(result.endpoint.difference))}`;
+  const leftoverMoney = result.enhancerUse.investmentBalance === null
+    ? null
+    : Math.max(0, result.enhancerUse.investmentBalance - result.enhancerUse.enhancersUsed * result.inputs.statEnhancerPrice);
 
   return (
     <section className="panel book-strategy-summary-panel">
-      <PanelHeader icon={<Trophy size={17} />} title="Summary" aside={`Day ${endpointDay}`} />
+      <PanelHeader icon={<Trophy size={17} />} title="Summary" />
       <div className="book-strategy-ending-grid">
         <SummaryEndingCard
           accent="strategy-one"
@@ -483,6 +486,12 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
           label="Enhancers used"
           value={formatCompact(result.enhancerUse.enhancersUsed)}
           detail={enhancerDetail}
+        />
+        <SummaryItem
+          icon={<CircleDollarSign size={16} />}
+          label="Leftover cash"
+          value={leftoverMoney === null ? "N/A" : formatMoney(leftoverMoney)}
+          detail={result.enhancerUse.day === null ? "No enhancer use" : "After enhancers"}
         />
       </div>
     </section>

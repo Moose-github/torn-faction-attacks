@@ -45,6 +45,18 @@ describe("book strategy calculator", () => {
     expect(result.enhancerUse.lead ?? 0).toBeCloseTo(14_600_000, -5);
   });
 
+  it("moves the earliest overtake when FHC price funds enhancers sooner", () => {
+    const result = calculateBookStrategy({
+      ...defaultBookStrategyInputs,
+      fhcPrice: 15_000_000,
+    });
+
+    expect(result.fhcPlan.cost).toBe(1_965_000_000);
+    expect(result.enhancerUse.day).toBeCloseTo(277.81, 1);
+    expect(result.enhancerUse.enhancersUsed).toBe(5);
+    expect(result.enhancerUse.lead ?? 0).toBeGreaterThan(0);
+  });
+
   it("matches the 4b example without investment growth", () => {
     const result = calculateBookStrategy({
       ...defaultBookStrategyInputs,

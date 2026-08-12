@@ -268,86 +268,70 @@ function findEarliestOvertake(
     investmentBalanceAtDay(inputs, fhcPlan.cost, maxDay),
     inputs.statEnhancerPrice,
   );
-  const overtakeDays = findOvertakeDaysByEnhancerCount(inputs, perkMultiplier, bookState, maxDay, maxEnhancers);
-  let best: BookStrategyResult["enhancerUse"] = emptyEnhancerUse();
-
-  for (let enhancers = 1; enhancers <= maxEnhancers; enhancers += 1) {
-    const overtakeDay = overtakeDays.get(enhancers);
-    if (overtakeDay === undefined) {
-      continue;
-    }
-
-    const fundingDay = nextEnhancerFundingDay(inputs, fhcPlan.cost, inputs.bookDurationDays, enhancers);
-    const candidateDay = Math.max(inputs.bookDurationDays, overtakeDay, fundingDay);
-    const candidate = enhancerUseAtDay(candidateDay, inputs, perkMultiplier, fhcPlan, bookState);
-    if (
-      candidate.day !== null &&
-      candidate.strategyTwoAfterEnhancers !== null &&
-      candidate.strategyOneStat !== null &&
-      candidate.strategyTwoAfterEnhancers > candidate.strategyOneStat &&
-      (best.day === null || candidate.day < best.day)
-    ) {
-      best = candidate;
-    }
+  if (maxEnhancers <= 0) {
+    return emptyEnhancerUse();
   }
 
-  return best;
-}
-
-function findOvertakeDaysByEnhancerCount(
-  inputs: BookStrategyInputs,
-  perkMultiplier: number,
-  bookState: PostBookState,
-  maxDay: number,
-  maxEnhancers: number,
-): Map<number, number> {
-  const results = new Map<number, number>();
-  if (maxEnhancers <= 0 || inputs.dailyEnergy <= 0) {
-    return results;
-  }
+  const fundingDays = Array.from({ length: maxEnhancers }, (_, index) =>
+    nextEnhancerFundingDay(inputs, fhcPlan.cost, inputs.bookDurationDays, index + 1),
+  )
+    .map((day) => Math.max(inputs.bookDurationDays, day))
+    .filter((day) => Number.isFinite(day) && day <= maxDay)
+    .sort((a, b) => a - b);
+  let nextFundingIndex = 0;
 
   let day = inputs.bookDurationDays;
   let strategyOneStat = bookState.strategyOneBookStat;
   let strategyTwoStat = bookState.strategyTwoBookStat;
-  let nextStrategyOneTrainDay = nextPostBookTrainDay(inputs, bookState.strategyOneLeftoverEnergy, 1);
-  let nextStrategyTwoTrainDay = nextPostBookTrainDay(inputs, bookState.strategyTwoLeftoverEnergy, 1);
+  let nextStrategyOneTrainDay = inputs.dailyEnergy > 0
+    ? nextPostBookTrainDay(inputs, bookState.strategyOneLeftoverEnergy, 1)
+    : Number.POSITIVE_INFINITY;
+  let nextStrategyTwoTrainDay = inputs.dailyEnergy > 0
+    ? nextPostBookTrainDay(inputs, bookState.strategyTwoLeftoverEnergy, 1)
+    : Number.POSITIVE_INFINITY;
+  const postBookTrainInterval = inputs.dailyEnergy > 0
+    ? inputs.energyPerTrain / inputs.dailyEnergy
+    : Number.POSITIVE_INFINITY;
 
-  for (let enhancers = 1; enhancers <= maxEnhancers; enhancers += 1) {
-    const diff = applyEnhancers(strategyTwoStat, enhancers) - strategyOneStat;
-    if (diff > 0) {
-      results.set(enhancers, day);
-    }
+  const evaluateCurrentDay = (): BookStrategyResult["enhancerUse"] => {
+    return enhancerUseFromStatsAtDay(day, strategyOneStat, strategyTwoStat, inputs, fhcPlan);
+  };
+
+  let candidate = evaluateCurrentDay();
+  if (candidate.strategyTwoAfterEnhancers !== null && candidate.strategyTwoAfterEnhancers > strategyOneStat) {
+    return candidate;
   }
 
-  while (day <= maxDay && results.size < maxEnhancers) {
-    const nextDay = Math.min(nextStrategyOneTrainDay, nextStrategyTwoTrainDay);
+  while (day <= maxDay) {
+    while (nextFundingIndex < fundingDays.length && fundingDays[nextFundingIndex] <= day + 1e-10) {
+      nextFundingIndex += 1;
+    }
+
+    const nextFundingDay = nextFundingIndex < fundingDays.length
+      ? fundingDays[nextFundingIndex]
+      : Number.POSITIVE_INFINITY;
+    const nextDay = Math.min(nextStrategyOneTrainDay, nextStrategyTwoTrainDay, nextFundingDay);
     if (!Number.isFinite(nextDay) || nextDay > maxDay) {
       break;
     }
 
     day = nextDay;
-    if (Math.abs(day - nextStrategyOneTrainDay) < 1e-10) {
+    while (Math.abs(day - nextStrategyOneTrainDay) < 1e-10) {
       strategyOneStat += gainPerTrain(strategyOneStat, inputs, perkMultiplier, false);
-      nextStrategyOneTrainDay += inputs.energyPerTrain / inputs.dailyEnergy;
+      nextStrategyOneTrainDay += postBookTrainInterval;
     }
-    if (Math.abs(day - nextStrategyTwoTrainDay) < 1e-10) {
+    while (Math.abs(day - nextStrategyTwoTrainDay) < 1e-10) {
       strategyTwoStat += gainPerTrain(strategyTwoStat, inputs, perkMultiplier, false);
-      nextStrategyTwoTrainDay += inputs.energyPerTrain / inputs.dailyEnergy;
+      nextStrategyTwoTrainDay += postBookTrainInterval;
     }
 
-    for (let enhancers = 1; enhancers <= maxEnhancers; enhancers += 1) {
-      if (results.has(enhancers)) {
-        continue;
-      }
-
-      const diff = applyEnhancers(strategyTwoStat, enhancers) - strategyOneStat;
-      if (diff > 0) {
-        results.set(enhancers, day);
-      }
+    candidate = evaluateCurrentDay();
+    if (candidate.strategyTwoAfterEnhancers !== null && candidate.strategyTwoAfterEnhancers > strategyOneStat) {
+      return candidate;
     }
   }
 
-  return results;
+  return emptyEnhancerUse();
 }
 
 function nextPostBookTrainDay(inputs: BookStrategyInputs, leftoverEnergy: number, trainNumber: number): number {
@@ -370,6 +354,28 @@ function enhancerUseAtDay(
     return emptyEnhancerUse();
   }
 
+  const strategyTwoAfterEnhancers = applyEnhancers(strategyTwoBeforeEnhancers, enhancersUsed);
+
+  return {
+    day,
+    strategyOneStat,
+    strategyTwoBeforeEnhancers,
+    strategyTwoAfterEnhancers,
+    investmentBalance,
+    enhancersUsed,
+    lead: strategyTwoAfterEnhancers - strategyOneStat,
+  };
+}
+
+function enhancerUseFromStatsAtDay(
+  day: number,
+  strategyOneStat: number,
+  strategyTwoBeforeEnhancers: number,
+  inputs: BookStrategyInputs,
+  fhcPlan: FhcPlan,
+): BookStrategyResult["enhancerUse"] {
+  const investmentBalance = investmentBalanceAtDay(inputs, fhcPlan.cost, day);
+  const enhancersUsed = affordableEnhancers(investmentBalance, inputs.statEnhancerPrice);
   const strategyTwoAfterEnhancers = applyEnhancers(strategyTwoBeforeEnhancers, enhancersUsed);
 
   return {
