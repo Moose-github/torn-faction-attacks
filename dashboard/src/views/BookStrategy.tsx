@@ -185,7 +185,7 @@ export function BookStrategy() {
           <p className="eyebrow">Calculator</p>
           <h2>Book Strategy</h2>
           <p>
-            Expected stat growth from FHC-heavy book training versus saving the cash for later stat enhancers.
+            Compares expected stat growth from FHC book training versus saving the cash for later stat enhancers
           </p>
         </div>
         <button type="button" className="panel-action-button" onClick={resetDefaults}>
@@ -236,6 +236,14 @@ export function BookStrategy() {
               <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
               <NumberField label="Book bonus %" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
             </div>
+            <label className={`book-strategy-check book-strategy-investment-toggle ${form.investmentEnabled ? "" : "is-off"}`}>
+              <input
+                type="checkbox"
+                checked={form.investmentEnabled}
+                onChange={(event) => updateField("investmentEnabled", event.target.checked)}
+              />
+              <span>Enable Investment</span>
+            </label>
             {openPopout === "energy" ? (
               <div className="book-strategy-popout" role="dialog" aria-label="Energy">
                 <div className="book-strategy-popout-heading">
@@ -286,14 +294,6 @@ export function BookStrategy() {
             ) : null}
             {openPopout === "investment" ? (
               <div className="book-strategy-popout" role="dialog" aria-label="Investment">
-                <label className="book-strategy-check">
-                  <input
-                    type="checkbox"
-                    checked={form.investmentEnabled}
-                    onChange={(event) => updateField("investmentEnabled", event.target.checked)}
-                  />
-                  <span>Enable Investment</span>
-                </label>
                 <div className="book-strategy-popout-grid">
                   <NumberField label="Annual ROI" suffix="%" value={form.annualRoiPercent} onChange={(value) => updateField("annualRoiPercent", value)} disabled={!form.investmentEnabled} />
                 </div>
@@ -544,16 +544,17 @@ function EnhancerTimingPanel({
     : formatInputCompact(result.enhancerUse.strategyTwoBeforeEnhancers);
   const useDayValue = form.enhancerMode === "targetDay" ? form.enhancerTargetDay : resultDay;
   const useStatValue = form.enhancerMode === "targetStat" ? form.enhancerTargetStat : resultStat;
+  const earliestOvertakeActive = form.enhancerMode === "earliestOvertake";
 
   return (
     <section className="panel book-strategy-panel book-strategy-timing-panel">
       <PanelHeader icon={<Sparkles size={17} />} title="Enhancer Timing" />
       <button
         type="button"
-        className={`book-strategy-mode-button ${form.enhancerMode === "earliestOvertake" ? "active" : ""}`}
+        className={`book-strategy-mode-button ${earliestOvertakeActive ? "active" : ""}`}
         onClick={onEarliestOvertake}
       >
-        Earliest overtake
+        {earliestOvertakeActive ? "Earliest overtake" : "Set to earliest overtake"}
       </button>
       <div className="book-strategy-input-grid book-strategy-timing-grid">
         <NumberField label="Use day" value={useDayValue} onChange={onUseDayChange} />

@@ -10971,6 +10971,20 @@ tbody tr:not(.attack-row):hover td {
   margin: 0;
 }
 
+.book-strategy-investment-toggle {
+  justify-self: start;
+}
+
+.book-strategy-investment-toggle.is-off {
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
+}
+
+.book-strategy-investment-toggle.is-off input {
+  accent-color: #ef4444;
+}
+
 .book-strategy-popout-actions {
   display: flex;
   flex-wrap: wrap;

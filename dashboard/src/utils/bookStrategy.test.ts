@@ -17,6 +17,7 @@ describe("book strategy calculator", () => {
       energy: 19_650,
       cost: 1_834_000_000,
     });
+    expect(defaultBookStrategyInputs.investmentEnabled).toBe(false);
     expect(perkProduct(defaultBookStrategyInputs)).toBeCloseTo(1.22779236, 8);
   });
 
@@ -35,7 +36,10 @@ describe("book strategy calculator", () => {
   });
 
   it("matches the 500m investment-assisted five-enhancer example", () => {
-    const result = calculateBookStrategy(defaultBookStrategyInputs);
+    const result = calculateBookStrategy({
+      ...defaultBookStrategyInputs,
+      investmentEnabled: true,
+    });
 
     expect(result.enhancerUse.day).toBeCloseTo(334.39, 1);
     expect(result.enhancerUse.enhancersUsed).toBe(5);
@@ -49,6 +53,7 @@ describe("book strategy calculator", () => {
     const result = calculateBookStrategy({
       ...defaultBookStrategyInputs,
       fhcPrice: 15_000_000,
+      investmentEnabled: true,
     });
 
     expect(result.fhcPlan.cost).toBe(1_965_000_000);

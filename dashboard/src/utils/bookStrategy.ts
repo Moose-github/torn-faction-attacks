@@ -89,7 +89,7 @@ export const defaultBookStrategyInputs: BookStrategyInputs = {
   customPerksPercent: 0,
   statEnhancerPrice: 450_000_000,
   fhcPrice: 14_000_000,
-  investmentEnabled: true,
+  investmentEnabled: false,
   annualRoiPercent: 25,
   graphDurationDays: 450,
   bookDurationDays: 31,
