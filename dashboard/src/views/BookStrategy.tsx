@@ -235,15 +235,18 @@ export function BookStrategy() {
               <NumberField label="Graph duration (days)" value={form.graphDurationDays} onChange={(value) => updateField("graphDurationDays", value)} />
               <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
               <NumberField label="Book bonus %" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
+              <div className="book-strategy-toggle-field">
+                <span>Investment</span>
+                <label className={`book-strategy-check book-strategy-investment-toggle ${form.investmentEnabled ? "" : "is-off"}`}>
+                  <input
+                    type="checkbox"
+                    checked={form.investmentEnabled}
+                    onChange={(event) => updateField("investmentEnabled", event.target.checked)}
+                  />
+                  <span>Enable Investment</span>
+                </label>
+              </div>
             </div>
-            <label className={`book-strategy-check book-strategy-investment-toggle ${form.investmentEnabled ? "" : "is-off"}`}>
-              <input
-                type="checkbox"
-                checked={form.investmentEnabled}
-                onChange={(event) => updateField("investmentEnabled", event.target.checked)}
-              />
-              <span>Enable Investment</span>
-            </label>
             {openPopout === "energy" ? (
               <div className="book-strategy-popout" role="dialog" aria-label="Energy">
                 <div className="book-strategy-popout-heading">

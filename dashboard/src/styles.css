@@ -10950,6 +10950,16 @@ tbody tr:not(.attack-row):hover td {
   font-weight: 800;
 }
 
+.book-strategy-toggle-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  align-content: start;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .book-strategy-check {
   display: inline-flex;
   align-items: center;
