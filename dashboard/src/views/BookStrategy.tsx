@@ -39,6 +39,11 @@ type PopoutKind = "energy" | "perks" | "investment" | "prices";
 const CHART_Y_AXIS_WIDTH = 58;
 const CHART_RIGHT_MARGIN = 18;
 
+type ChartClickState = {
+  activeLabel?: number | string | null;
+  activePayload?: Array<{ payload?: { day?: number | string | null } }>;
+} | null;
+
 type BookStrategyForm = {
   startingStat: string;
   dailyEnergy: string;
@@ -99,6 +104,23 @@ export function BookStrategy() {
 
   const dailyEnergy = energyMode === "breakdown" ? calculatedDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
 
+  const setEnhancerTargetDay = React.useCallback((rawDay: number) => {
+    if (
+      !Number.isFinite(rawDay) ||
+      rawDay < result.inputs.bookDurationDays ||
+      rawDay > result.inputs.graphDurationDays
+    ) {
+      return;
+    }
+
+    const day = clampNumber(rawDay, result.inputs.bookDurationDays, result.inputs.graphDurationDays);
+    setForm((current) => ({
+      ...current,
+      enhancerMode: "targetDay",
+      enhancerTargetDay: formatDayInput(day),
+    }));
+  }, [result.inputs.bookDurationDays, result.inputs.graphDurationDays]);
+
   const updateEnhancerTargetFromClientX = React.useCallback((clientX: number) => {
     const rect = chartRef.current?.getBoundingClientRect();
     if (!rect) {
@@ -109,14 +131,15 @@ export function BookStrategy() {
     const plotWidth = Math.max(1, rect.width - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN);
     const rawRatio = (clientX - plotLeft) / plotWidth;
     const rawDay = rawRatio * result.inputs.graphDurationDays;
-    const day = clampNumber(Math.round(rawDay), result.inputs.bookDurationDays, result.inputs.graphDurationDays);
+    setEnhancerTargetDay(Math.round(rawDay));
+  }, [result.inputs.graphDurationDays, setEnhancerTargetDay]);
 
-    setForm((current) => ({
-      ...current,
-      enhancerMode: "targetDay",
-      enhancerTargetDay: String(day),
-    }));
-  }, [result.inputs.bookDurationDays, result.inputs.graphDurationDays]);
+  const handleChartClick = React.useCallback((state: unknown) => {
+    const chartState = state as ChartClickState;
+    const payloadDay = chartState?.activePayload?.find((item) => item.payload?.day !== undefined)?.payload?.day;
+    const day = Number(payloadDay ?? chartState?.activeLabel);
+    setEnhancerTargetDay(day);
+  }, [setEnhancerTargetDay]);
 
   React.useEffect(() => {
     const element = chartRef.current;
@@ -316,7 +339,11 @@ export function BookStrategy() {
             ref={chartRef}
           >
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
+              <LineChart
+                data={result.series}
+                margin={{ top: 12, right: 18, left: 0, bottom: 14 }}
+                onClick={handleChartClick}
+              >
                 <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
                 <XAxis
                   dataKey="day"
@@ -752,6 +779,10 @@ function parseNumber(value: string, fallback: number): number {
 
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function formatDayInput(value: number): string {
+  return Number(value.toFixed(2)).toString();
 }
 
 function formatEnergy(value: number): string {
