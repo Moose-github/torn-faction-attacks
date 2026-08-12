@@ -80,7 +80,7 @@ const MAX_SIMULATION_DAYS = 20_000;
 export const defaultBookStrategyInputs: BookStrategyInputs = {
   startingStat: 500_000_000,
   dailyEnergy: 1_620,
-  startingEnergy: 150,
+  startingEnergy: 1_000,
   happiness: 5_000,
   privateIslandPercent: 2,
   generalEducationPercent: 1,

@@ -26,11 +26,11 @@ describe("book strategy calculator", () => {
       investmentEnabled: false,
     });
 
-    expect(result.bookEnd.strategyOneStat).toBeCloseTo(813_700_000, -5);
-    expect(result.bookEnd.strategyTwoStat).toBeCloseTo(723_500_000, -5);
-    expect(result.bookEnd.lead).toBeCloseTo(90_200_000, -5);
+    expect(result.bookEnd.strategyOneStat).toBeCloseTo(817_700_000, -5);
+    expect(result.bookEnd.strategyTwoStat).toBeCloseTo(727_400_000, -5);
+    expect(result.bookEnd.lead).toBeCloseTo(90_300_000, -5);
     expect(result.enhancerUse.strategyTwoBeforeEnhancers).toBeCloseTo(3_411_000_000, -7);
-    expect(result.enhancerUse.day).toBeCloseTo(410, 0);
+    expect(result.enhancerUse.day).toBeCloseTo(409.1, 1);
     expect(result.enhancerUse.enhancersUsed).toBe(4);
   });
 
@@ -39,10 +39,10 @@ describe("book strategy calculator", () => {
 
     expect(result.enhancerUse.day).toBeCloseTo(334.39, 1);
     expect(result.enhancerUse.enhancersUsed).toBe(5);
-    expect(result.enhancerUse.strategyOneStat ?? 0).toBeCloseTo(2_909_000_000, -6);
-    expect(result.enhancerUse.strategyTwoBeforeEnhancers ?? 0).toBeCloseTo(2_781_600_000, -6);
-    expect(result.enhancerUse.strategyTwoAfterEnhancers ?? 0).toBeCloseTo(2_923_500_000, -6);
-    expect(result.enhancerUse.lead ?? 0).toBeCloseTo(14_400_000, -5);
+    expect(result.enhancerUse.strategyOneStat ?? 0).toBeCloseTo(2_914_600_000, -6);
+    expect(result.enhancerUse.strategyTwoBeforeEnhancers ?? 0).toBeCloseTo(2_787_100_000, -6);
+    expect(result.enhancerUse.strategyTwoAfterEnhancers ?? 0).toBeCloseTo(2_929_200_000, -6);
+    expect(result.enhancerUse.lead ?? 0).toBeCloseTo(14_600_000, -5);
   });
 
   it("matches the 4b example without investment growth", () => {
@@ -52,12 +52,12 @@ describe("book strategy calculator", () => {
       investmentEnabled: false,
     });
 
-    expect(result.bookEnd.strategyOneStat).toBeCloseTo(4_541_900_000, -6);
-    expect(result.bookEnd.strategyTwoStat).toBeCloseTo(4_386_400_000, -6);
+    expect(result.bookEnd.strategyOneStat).toBeCloseTo(4_548_700_000, -6);
+    expect(result.bookEnd.strategyTwoStat).toBeCloseTo(4_393_100_000, -6);
     expect(result.enhancerUse.enhancersUsed).toBe(4);
     expect(result.enhancerUse.day).toBeCloseTo(31, 4);
-    expect(result.enhancerUse.strategyTwoAfterEnhancers ?? 0).toBeCloseTo(4_564_500_000, -6);
-    expect(result.enhancerUse.lead ?? 0).toBeCloseTo(22_600_000, -5);
+    expect(result.enhancerUse.strategyTwoAfterEnhancers ?? 0).toBeCloseTo(4_571_500_000, -6);
+    expect(result.enhancerUse.lead ?? 0).toBeCloseTo(22_800_000, -5);
   });
 
   it("carries energy that is not divisible by train cost", () => {

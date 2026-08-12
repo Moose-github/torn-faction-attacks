@@ -5,7 +5,6 @@ import {
   BatteryCharging,
   BookOpen,
   CircleDollarSign,
-  Flag,
   RotateCcw,
   SlidersHorizontal,
   Sparkles,
@@ -209,7 +208,6 @@ export function BookStrategy() {
             />
             <div className="book-strategy-input-grid">
               <NumberField label="Starting stat" value={form.startingStat} onChange={(value) => updateField("startingStat", value)} />
-              <NumberField label="Starting energy" value={form.startingEnergy} onChange={(value) => updateField("startingEnergy", value)} />
               <NumberField label="Happiness" value={form.happiness} onChange={(value) => updateField("happiness", value)} />
               <NumberField label="Graph duration (days)" value={form.graphDurationDays} onChange={(value) => updateField("graphDurationDays", value)} />
               <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
@@ -247,6 +245,9 @@ export function BookStrategy() {
                     <NumberField label="Other" value={form.otherDailyEnergy} onChange={(value) => updateField("otherDailyEnergy", value)} />
                   </div>
                 )}
+                <div className="book-strategy-popout-grid">
+                  <NumberField label="Starting energy" value={form.startingEnergy} onChange={(value) => updateField("startingEnergy", value)} />
+                </div>
               </div>
             ) : null}
             {openPopout === "perks" ? (
@@ -413,12 +414,14 @@ export function BookStrategy() {
         >
           <div className="book-strategy-methodology">
             <p>
-              Uses Vladar's community gym formula with the post-50m effective-stat adjustment, fixed happiness,
-              complete 50-energy trains, no random term, and one canonical battle-stat constant set.
+              Uses Vladar's community gym formula, a constant happiness value, 50-energy trains, and no random term.
             </p>
             <p>
-              Strategy 1 uses {formatCompact(result.fhcPlan.totalFhcs)} FHCs during the book. Strategy 2 holds the
-              avoided FHC cost and spends all affordable whole stat enhancers when the selected timing rule triggers.
+              Strategy 1 uses {formatCompact(result.fhcPlan.totalFhcs)} FHCs during the 31-day book window.
+            </p>
+            <p>
+              Strategy 2 keeps the FHC budget, applies Investment growth if enabled, and buys all affordable stat
+              enhancers at a selected point.
             </p>
           </div>
         </CollapsiblePanel>
@@ -437,14 +440,35 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
       : result.winningStrategy === "strategyTwo"
         ? "Strategy 2"
         : "Strategy 1";
+  const endpointDay = formatCompact(result.inputs.graphDurationDays);
+  const outcomeLabel = result.winningStrategy === "tied"
+    ? "Strategies tied"
+    : `${winnerLabel} ahead by ${formatSignedStat(Math.abs(result.endpoint.difference))}`;
 
   return (
     <section className="panel book-strategy-summary-panel">
-      <PanelHeader icon={<Trophy size={17} />} title="Summary" />
-      <div className="book-strategy-summary-grid">
+      <PanelHeader icon={<Trophy size={17} />} title="Summary" aside={`Day ${endpointDay}`} />
+      <div className="book-strategy-ending-grid">
+        <SummaryEndingCard
+          accent="strategy-one"
+          label="Strategy 1: FHCs"
+          value={formatStat(result.endpoint.strategyOneStat)}
+          detail={`Ending stat at day ${endpointDay}`}
+        />
+        <SummaryEndingCard
+          accent="strategy-two"
+          label="Strategy 2: enhancers"
+          value={formatStat(result.endpoint.strategyTwoStat)}
+          detail={`Ending stat at day ${endpointDay}`}
+        />
+      </div>
+      <div className={`book-strategy-summary-outcome is-${result.winningStrategy}`}>
+        {outcomeLabel}
+      </div>
+      <div className="book-strategy-summary-support-grid">
         <SummaryItem
           icon={<BadgeDollarSign size={16} />}
-          label="Total FHC cost"
+          label="FHC budget"
           value={formatMoney(result.fhcPlan.cost)}
           detail={`${formatCompact(result.fhcPlan.totalFhcs)} coupons`}
         />
@@ -459,24 +483,6 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
           label="Enhancers used"
           value={formatCompact(result.enhancerUse.enhancersUsed)}
           detail={enhancerDetail}
-        />
-        <SummaryItem
-          icon={<Trophy size={16} />}
-          label="Endpoint winner"
-          value={winnerLabel}
-          detail={formatSignedStat(result.endpoint.difference)}
-        />
-        <SummaryItem
-          icon={<Flag size={16} />}
-          label="Strategy 1 ending stat"
-          value={formatStat(result.endpoint.strategyOneStat)}
-          detail="FHCs during book"
-        />
-        <SummaryItem
-          icon={<Flag size={16} />}
-          label="Strategy 2 ending stat"
-          value={formatStat(result.endpoint.strategyTwoStat)}
-          detail="Enhancers"
         />
       </div>
     </section>
@@ -518,6 +524,26 @@ function EnhancerTimingPanel({
         <NumberField label="Use stat" value={useStatValue} onChange={onUseStatChange} />
       </div>
     </section>
+  );
+}
+
+function SummaryEndingCard({
+  accent,
+  label,
+  value,
+  detail,
+}: {
+  accent: "strategy-one" | "strategy-two";
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className={`book-strategy-ending-card is-${accent}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
   );
 }
 
