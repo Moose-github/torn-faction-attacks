@@ -461,6 +461,10 @@ export function BookStrategy() {
 }
 
 function SummaryPanel({ result }: { result: BookStrategyResult }) {
+  const earliestResult = React.useMemo(
+    () => calculateBookStrategy({ ...result.inputs, enhancerUseMode: { kind: "earliestOvertake" } }),
+    [result.inputs],
+  );
   const enhancerDetail = result.enhancerUse.day === null
     ? "No overtake in range"
     : `Day ${formatCompact(result.enhancerUse.day)}`;
@@ -477,6 +481,22 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
   const leftoverMoney = result.enhancerUse.investmentBalance === null
     ? null
     : Math.max(0, result.enhancerUse.investmentBalance - result.enhancerUse.enhancersUsed * result.inputs.statEnhancerPrice);
+  const earliestEnhancerSpend = earliestResult.enhancerUse.enhancersUsed * result.inputs.statEnhancerPrice;
+  const enhancerBudgetAction = result.inputs.investmentEnabled
+    ? "invest the"
+    : "keep the";
+  const enhancerBudgetDetail = result.inputs.investmentEnabled
+    ? "FHC budget"
+    : "FHC budget as cash";
+  const summaryLines = [
+    `FHCs use ${formatCompact(result.fhcPlan.totalFhcs)} FHCs during the initial 31 days, putting them ahead by ${formatSignedStat(result.bookEnd.lead)} stats at book end.`,
+    earliestResult.enhancerUse.day === null
+      ? `Enhancers ${enhancerBudgetAction} ${formatMoney(result.fhcPlan.cost)} ${enhancerBudgetDetail} and do not break even in the simulated range.`
+      : `Enhancers ${enhancerBudgetAction} ${formatMoney(result.fhcPlan.cost)} ${enhancerBudgetDetail} and break even on day ${formatCompact(earliestResult.enhancerUse.day)} by purchasing ${formatCompact(earliestResult.enhancerUse.enhancersUsed)} enhancers for ${formatMoney(earliestEnhancerSpend)}.`,
+    earliestResult.enhancerUse.day === null
+      ? "No Enhancers lead is reached with the current inputs."
+      : "From that point onward, the Enhancers lead continues to grow.",
+  ];
 
   return (
     <section className="panel book-strategy-summary-panel">
@@ -523,6 +543,11 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
           value={leftoverMoney === null ? "N/A" : formatMoney(leftoverMoney)}
           detail={result.enhancerUse.day === null ? "No enhancer use" : "After enhancers"}
         />
+      </div>
+      <div className="book-strategy-summary-writeup">
+        {summaryLines.map((line) => (
+          <p key={line}>{line}</p>
+        ))}
       </div>
     </section>
   );

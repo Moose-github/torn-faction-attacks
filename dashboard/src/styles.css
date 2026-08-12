@@ -11156,7 +11156,7 @@ tbody tr:not(.attack-row):hover td {
 
 .book-strategy-enhancer-handle {
   position: absolute;
-  bottom: 0;
+  bottom: 10px;
   left: 50%;
   display: inline-flex;
   align-items: center;
@@ -11332,6 +11332,21 @@ tbody tr:not(.attack-row):hover td {
 .book-strategy-summary-detail {
   grid-column: 1 / -1;
   color: var(--text-soft);
+}
+
+.book-strategy-summary-writeup {
+  display: grid;
+  gap: 6px;
+  padding-top: 2px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.book-strategy-summary-writeup p {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .book-strategy-tooltip {
