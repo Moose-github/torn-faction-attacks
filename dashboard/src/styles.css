@@ -11377,6 +11377,67 @@ tbody tr:not(.attack-row):hover td {
   overflow-wrap: anywhere;
 }
 
+.book-timing-reasons-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.book-timing-reasons-panel > p {
+  margin: 0;
+  max-width: 840px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.book-timing-reason-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.book-timing-reason-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px 9px;
+  align-items: start;
+  min-width: 0;
+  padding: 13px 15px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted-bg);
+}
+
+.book-timing-reason-item > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--accent-strong);
+}
+
+.book-timing-reason-item strong,
+.book-timing-reason-item small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.book-timing-reason-item strong {
+  color: var(--text-main);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.book-timing-reason-item small {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 760;
+  line-height: 1.38;
+}
+
 .book-strategy-tooltip {
   display: grid;
   gap: 4px;

@@ -4,8 +4,13 @@ import {
   BadgeDollarSign,
   BatteryCharging,
   BookOpen,
+  Building2,
   CircleDollarSign,
+  Dumbbell,
+  GraduationCap,
+  Home,
   RotateCcw,
+  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Trophy,
@@ -650,6 +655,13 @@ function BookTimingComparisonView({
   const result = React.useMemo(() => calculateBookTimingComparison(inputs), [inputs]);
   const dailyEnergy = energyMode === "breakdown" ? calculatedTimingDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
   const delayedBookEndDay = result.delayedBook.endDay;
+  const delayedBookShadeEndDay = delayedBookEndDay === null
+    ? null
+    : Math.min(delayedBookEndDay, result.inputs.graphDurationDays);
+  const shouldShowDelayedBookWindow =
+    result.delayedBookStartDay !== null &&
+    delayedBookShadeEndDay !== null &&
+    result.delayedBookStartDay < delayedBookShadeEndDay;
 
   return (
     <>
@@ -754,16 +766,16 @@ function BookTimingComparisonView({
               <Tooltip content={<BookTimingTooltip />} />
               <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
               <ReferenceArea x1={0} x2={result.inputs.bookDurationDays} fill="#f59e0b" fillOpacity={0.12} />
-              {result.delayedBookStartDay !== null && delayedBookEndDay !== null && result.delayedBookStartDay <= result.inputs.graphDurationDays ? (
-                <>
-                  <ReferenceArea
-                    x1={result.delayedBookStartDay}
-                    x2={Math.min(delayedBookEndDay, result.inputs.graphDurationDays)}
-                    fill="#22d3ee"
-                    fillOpacity={0.12}
-                  />
-                  <ReferenceLine x={result.delayedBookStartDay} stroke="#22d3ee" strokeDasharray="4 4" />
-                </>
+              {shouldShowDelayedBookWindow ? (
+                <ReferenceArea
+                  x1={result.delayedBookStartDay ?? 0}
+                  x2={delayedBookShadeEndDay ?? 0}
+                  fill="#22d3ee"
+                  fillOpacity={0.12}
+                />
+              ) : null}
+              {result.delayedBookStartDay !== null && result.delayedBookStartDay <= result.inputs.graphDurationDays ? (
+                <ReferenceLine x={result.delayedBookStartDay} stroke="#22d3ee" strokeDasharray="4 4" />
               ) : null}
               <Line
                 type="monotone"
@@ -791,6 +803,7 @@ function BookTimingComparisonView({
       </section>
 
       <BookTimingSummaryPanel result={result} />
+      <BookTimingReasonsPanel />
 
       <CollapsiblePanel
         title="Methodology"
@@ -812,6 +825,55 @@ function BookTimingComparisonView({
         </div>
       </CollapsiblePanel>
     </>
+  );
+}
+
+function BookTimingReasonsPanel() {
+  const reasons = [
+    {
+      icon: <GraduationCap size={17} />,
+      title: "Complete gym-gain education",
+      detail: "A course bonus improves the value of every train inside the book window.",
+    },
+    {
+      icon: <Dumbbell size={17} />,
+      title: "Unlock a better gym",
+      detail: "Higher gym dots change the training baseline before the book multiplier is applied.",
+    },
+    {
+      icon: <Building2 size={17} />,
+      title: "Join a training company",
+      detail: "Company specials can make the same book-window energy produce more stats.",
+    },
+    {
+      icon: <ShieldCheck size={17} />,
+      title: "Wait for Steadfast",
+      detail: "Faction Steadfast improvements compound with the book bonus.",
+    },
+    {
+      icon: <Home size={17} />,
+      title: "Get a Private Island",
+      detail: "Property happiness and perk changes can improve the book-window training setup.",
+    },
+  ];
+
+  return (
+    <section className="panel book-timing-reasons-panel">
+      <PanelHeader icon={<BookOpen size={17} />} title="Reasons to Delay" />
+      <p>
+        Delaying is most defensible when the training conditions during the book window will improve, not simply because
+        the stat number is larger.
+      </p>
+      <div className="book-timing-reason-grid">
+        {reasons.map((reason) => (
+          <div className="book-timing-reason-item" key={reason.title}>
+            <span>{reason.icon}</span>
+            <strong>{reason.title}</strong>
+            <small>{reason.detail}</small>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -992,7 +1054,7 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
     result.endpoint.useNowStat,
     result.endpoint.waitStat,
   );
-  const endpointDifferenceDetail = `${formatSignedStat(Math.abs(result.endpoint.difference))} - ${formatSignedPercent(endpointDifferencePercent)}`;
+  const endpointDifferenceDetail = `${formatSignedStat(Math.abs(result.endpoint.difference))} - ${formatSignedPercentFixed(endpointDifferencePercent, 3)}`;
   const winnerLabel =
     Math.abs(result.endpoint.difference) < 0.5
       ? "Paths tied"
@@ -1387,8 +1449,8 @@ function formatPercent(value: number): string {
   return `${trimFixed(value)}%`;
 }
 
-function formatSignedPercent(value: number): string {
-  return `${value >= 0 ? "+" : "-"}${formatPercent(Math.abs(value))}`;
+function formatSignedPercentFixed(value: number, digits: number): string {
+  return `${value >= 0 ? "+" : "-"}${Math.abs(value).toFixed(digits)}%`;
 }
 
 function relativeDifferencePercent(difference: number, firstValue: number, secondValue: number): number {
