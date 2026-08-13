@@ -268,4 +268,23 @@ describe("player lookup", () => {
       ffBattlestats: null,
     });
   });
+
+  it("reads FFScouter single-player response shapes", async () => {
+    mocks.fetchFfscouterStatsJson.mockResolvedValue({
+      player_id: 4_099_656,
+      fair_fight: 1.02,
+      bs_estimate: 86_262,
+      bs_estimate_human: "86.3k",
+      bss_public: 576,
+      source: "bss",
+    });
+
+    const result = await fetchPlayerLookupBattleStats({
+      FFSCOUTER_API_KEY: "ff-key-1",
+    } as any, 4_099_656);
+
+    expect(result).toMatchObject({
+      ffBattlestats: 86_262,
+    });
+  });
 });

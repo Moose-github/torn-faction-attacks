@@ -274,6 +274,10 @@ function extractFfBattlestatEstimates(data: any): Map<number, { stats: number }>
   const estimates = new Map<number, { stats: number }>();
   const containers = [data?.stats, data?.data, data?.results, data];
 
+  if (data && typeof data === "object") {
+    addFfEstimate(estimates, data.id ?? data.player_id ?? data.target, data);
+  }
+
   for (const container of containers) {
     if (!container) continue;
 
