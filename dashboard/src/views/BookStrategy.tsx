@@ -834,7 +834,7 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
       : `Enhancers ${enhancerBudgetAction} ${formatMoney(result.fhcPlan.cost)} ${enhancerBudgetDetail} and break even on day ${formatCompact(earliestResult.enhancerUse.day)} by purchasing ${formatCompact(earliestResult.enhancerUse.enhancersUsed)} enhancers for ${formatMoney(earliestEnhancerSpend)}.`,
     leadMilestone === null
       ? null
-      : `Enhancers hit +${formatStat(LEAD_MILESTONE_TARGET)} lead on day ${formatCompact(leadMilestone.day)}.`,
+      : `Enhancers can be used for an immediate +${formatStat(LEAD_MILESTONE_TARGET)} lead on day ${formatCompact(leadMilestone.day)}.`,
     earliestResult.enhancerUse.day === null
       ? "No Enhancers lead is reached with the current inputs."
       : "From that point onward, the Enhancers lead continues to grow.",

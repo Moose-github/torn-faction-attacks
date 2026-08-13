@@ -65,15 +65,17 @@ describe("book strategy calculator", () => {
     expect(result.enhancerUse.lead ?? 0).toBeGreaterThan(0);
   });
 
-  it("finds lead milestones beyond the displayed graph range", () => {
-    expect(findEnhancerLeadMilestone(defaultBookStrategyInputs, 100_000_000, 3_650)).toBeNull();
+  it("finds the earliest immediate enhancer lead beyond the displayed graph range", () => {
+    const cashMilestone = findEnhancerLeadMilestone(defaultBookStrategyInputs, 100_000_000, 3_650);
 
     const milestone = findEnhancerLeadMilestone({
       ...defaultBookStrategyInputs,
       investmentEnabled: true,
     }, 100_000_000, 3_650);
 
-    expect(milestone?.day).toBeCloseTo(2_188.27, 1);
+    expect(cashMilestone?.day).toBeCloseTo(801.82, 1);
+    expect(cashMilestone?.lead).toBeGreaterThanOrEqual(100_000_000);
+    expect(milestone?.day).toBeCloseTo(606.14, 1);
     expect(milestone?.lead).toBeGreaterThanOrEqual(100_000_000);
   });
 
@@ -86,6 +88,18 @@ describe("book strategy calculator", () => {
 
     expect(milestone?.day).toBeGreaterThan(defaultBookStrategyInputs.bookDurationDays + 730);
     expect(milestone?.lead).toBeGreaterThanOrEqual(1);
+  });
+
+  it("finds immediate lead milestones independently of selected enhancer timing", () => {
+    const milestone = findEnhancerLeadMilestone({
+      ...defaultBookStrategyInputs,
+      graphDurationDays: 700,
+      investmentEnabled: true,
+      enhancerUseMode: { kind: "targetDay", day: 607 },
+    }, 100_000_000, 3_650);
+
+    expect(milestone?.day).toBeCloseTo(606.14, 1);
+    expect(milestone?.lead).toBeGreaterThanOrEqual(100_000_000);
   });
 
   it("matches the 4b example without investment growth", () => {

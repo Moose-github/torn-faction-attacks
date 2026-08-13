@@ -248,54 +248,12 @@ export function findEnhancerLeadMilestone(
   const fhcPlan = calculateFhcPlan(inputs);
   const bookEnd = calculateBookEnd(inputs, perkMultiplier, fhcPlan);
   const bookState = createPostBookState(inputs, bookEnd, fhcPlan);
-  const enhancerUse = findEarliestOvertake(inputs, perkMultiplier, fhcPlan, bookState, cappedMaxDay);
-  if (enhancerUse.day === null || enhancerUse.enhancersUsed <= 0 || enhancerUse.day > cappedMaxDay) {
+  const enhancerUse = findEarliestOvertake(inputs, perkMultiplier, fhcPlan, bookState, cappedMaxDay, leadTarget);
+  if (enhancerUse.day === null || enhancerUse.lead === null || enhancerUse.enhancersUsed <= 0) {
     return null;
   }
 
-  let day = inputs.bookDurationDays;
-  let strategyOneStat = bookState.strategyOneBookStat;
-  let strategyTwoStat = bookState.strategyTwoBookStat;
-  let enhancersApplied = false;
-  let nextStrategyOneTrainDay = inputs.dailyEnergy > 0
-    ? nextPostBookTrainDay(inputs, bookState.strategyOneLeftoverEnergy, 1)
-    : Number.POSITIVE_INFINITY;
-  let nextStrategyTwoTrainDay = inputs.dailyEnergy > 0
-    ? nextPostBookTrainDay(inputs, bookState.strategyTwoLeftoverEnergy, 1)
-    : Number.POSITIVE_INFINITY;
-  const postBookTrainInterval = inputs.dailyEnergy > 0
-    ? inputs.energyPerTrain / inputs.dailyEnergy
-    : Number.POSITIVE_INFINITY;
-
-  while (day <= cappedMaxDay) {
-    if (!enhancersApplied && enhancerUse.day <= day + 1e-10) {
-      strategyTwoStat = applyEnhancers(strategyTwoStat, enhancerUse.enhancersUsed);
-      enhancersApplied = true;
-    }
-
-    const lead = strategyTwoStat - strategyOneStat;
-    if (lead >= leadTarget) {
-      return { day, lead };
-    }
-
-    const nextEnhancerDay = enhancersApplied ? Number.POSITIVE_INFINITY : enhancerUse.day;
-    const nextDay = Math.min(nextStrategyOneTrainDay, nextStrategyTwoTrainDay, nextEnhancerDay);
-    if (!Number.isFinite(nextDay) || nextDay > cappedMaxDay) {
-      break;
-    }
-
-    day = nextDay;
-    while (Math.abs(day - nextStrategyOneTrainDay) < 1e-10) {
-      strategyOneStat += gainPerTrain(strategyOneStat, inputs, perkMultiplier, false);
-      nextStrategyOneTrainDay += postBookTrainInterval;
-    }
-    while (Math.abs(day - nextStrategyTwoTrainDay) < 1e-10) {
-      strategyTwoStat += gainPerTrain(strategyTwoStat, inputs, perkMultiplier, false);
-      nextStrategyTwoTrainDay += postBookTrainInterval;
-    }
-  }
-
-  return null;
+  return { day: enhancerUse.day, lead: enhancerUse.lead };
 }
 
 function normalizeBookTimingInputs(inputs: BookTimingComparisonInputs): BookTimingComparisonInputs {
@@ -536,6 +494,7 @@ function findEnhancerUse(
   perkMultiplier: number,
   fhcPlan: FhcPlan,
   bookEnd: BookStrategyResult["bookEnd"],
+  earliestSearchMaxDay?: number,
 ): BookStrategyResult["enhancerUse"] {
   const mode = inputs.enhancerUseMode;
   const bookState = createPostBookState(inputs, bookEnd, fhcPlan);
@@ -551,7 +510,7 @@ function findEnhancerUse(
       : enhancerUseAtDay(day, inputs, perkMultiplier, fhcPlan, bookState);
   }
 
-  return findEarliestOvertake(inputs, perkMultiplier, fhcPlan, bookState);
+  return findEarliestOvertake(inputs, perkMultiplier, fhcPlan, bookState, earliestSearchMaxDay);
 }
 
 function findEarliestOvertake(
@@ -560,6 +519,7 @@ function findEarliestOvertake(
   fhcPlan: FhcPlan,
   bookState: PostBookState,
   searchMaxDay?: number,
+  targetLead = 0,
 ): BookStrategyResult["enhancerUse"] {
   const defaultMaxDay = Math.max(inputs.graphDurationDays, inputs.bookDurationDays + 730);
   const maxDay = Math.min(
@@ -600,7 +560,7 @@ function findEarliestOvertake(
   };
 
   let candidate = evaluateCurrentDay();
-  if (candidate.strategyTwoAfterEnhancers !== null && candidate.strategyTwoAfterEnhancers > strategyOneStat) {
+  if (candidate.lead !== null && meetsEnhancerLeadTarget(candidate.lead, targetLead)) {
     return candidate;
   }
 
@@ -628,12 +588,16 @@ function findEarliestOvertake(
     }
 
     candidate = evaluateCurrentDay();
-    if (candidate.strategyTwoAfterEnhancers !== null && candidate.strategyTwoAfterEnhancers > strategyOneStat) {
+    if (candidate.lead !== null && meetsEnhancerLeadTarget(candidate.lead, targetLead)) {
       return candidate;
     }
   }
 
   return emptyEnhancerUse();
+}
+
+function meetsEnhancerLeadTarget(lead: number, targetLead: number): boolean {
+  return targetLead <= 0 ? lead > 0 : lead >= targetLead;
 }
 
 function nextPostBookTrainDay(inputs: BookStrategyInputs, leftoverEnergy: number, trainNumber: number): number {
