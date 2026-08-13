@@ -957,15 +957,13 @@ function BookTimingComparisonView({
       >
         <div className="book-strategy-methodology">
           <p>
-            Uses Vladar's community gym formula, a constant 5000 happiness value, George's Gym (7.3 dots), 50-energy trains,
-            and no random term.
+            Uses Vladar's community gym formula, a constant 5000 happiness value, George's Gym (7.3 dots) & 50-energy trains.
           </p>
           <p>
-            Both paths use the same daily energy timeline with no starting-energy stack and no fresh energy at the delayed
-            book start.
+            Both paths use the same daily energy with no stacking.
           </p>
           <p>
-            Use now applies the book from day 0. Wait trains normally until the selected stat, then applies the same
+            "Use now" applies the book from day 0. "Wait" trains normally until the selected start, then applies the same
             31-day book window.
           </p>
         </div>
@@ -1071,9 +1069,15 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
         ? "Enhancers"
         : "FHCs";
   const endpointDay = formatCompact(result.inputs.graphDurationDays);
+  const endpointDifferencePercent = relativeDifferencePercent(
+    Math.abs(result.endpoint.difference),
+    result.endpoint.strategyOneStat,
+    result.endpoint.strategyTwoStat,
+  );
+  const endpointDifferenceDetail = `${formatSignedStat(Math.abs(result.endpoint.difference))} - ${formatSignedPercentFixed(endpointDifferencePercent, 3)}`;
   const outcomeLabel = result.winningStrategy === "tied"
     ? "Strategies tied"
-    : `${winnerLabel} ahead by ${formatSignedStat(Math.abs(result.endpoint.difference))}`;
+    : `${winnerLabel} ahead by ${endpointDifferenceDetail}`;
   const leftoverMoney = result.enhancerUse.investmentBalance === null
     ? null
     : Math.max(0, result.enhancerUse.investmentBalance - result.enhancerUse.enhancersUsed * result.inputs.statEnhancerPrice);

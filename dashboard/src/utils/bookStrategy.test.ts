@@ -165,8 +165,8 @@ describe("book strategy calculator", () => {
     expect(result.inputs.gymMultiplier).toBe(7.3);
     expect(result.delayedBookStartDay).not.toBeNull();
     expect(result.delayedBookStartDay ?? 0).toBeGreaterThan(0);
-    expect(result.delayedBookStartDay ?? 0).toBeLessThan(250);
-    expect(result.totalTrains).toBe(Math.floor(1_620 * 250 / 50));
+    expect(result.delayedBookStartDay ?? 0).toBeLessThan(300);
+    expect(result.totalTrains).toBe(Math.floor(1_620 * 300 / 50));
     expect(result.endpoint.trainsConsumed).toBe(result.totalTrains);
   });
 

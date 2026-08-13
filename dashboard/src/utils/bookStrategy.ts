@@ -177,7 +177,7 @@ export const defaultBookTimingComparisonInputs: BookTimingComparisonInputs = {
   statEducationPercent: defaultBookStrategyInputs.statEducationPercent,
   steadfastPercent: defaultBookStrategyInputs.steadfastPercent,
   customPerksPercent: defaultBookStrategyInputs.customPerksPercent,
-  graphDurationDays: 250,
+  graphDurationDays: 300,
   bookDurationDays: defaultBookStrategyInputs.bookDurationDays,
   bookBonusPercent: defaultBookStrategyInputs.bookBonusPercent,
   gymMultiplier: 7.3,
