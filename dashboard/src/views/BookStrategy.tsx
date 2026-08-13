@@ -29,6 +29,7 @@ import {
 } from "recharts";
 import { CollapsiblePanel, PanelHeader } from "../components/Common";
 import {
+  bookTimingStatAtDayWithoutBook,
   calculateBookTimingComparison,
   calculateBookStrategy,
   defaultBookTimingComparisonInputs,
@@ -651,6 +652,11 @@ function BookTimingComparisonView({
   onPopoutChange: (popout: BookTimingPopoutKind | null) => void;
   onMethodologyToggle: () => void;
 }) {
+  const [isDraggingDelayedBook, setIsDraggingDelayedBook] = React.useState(false);
+  const [chartWidth, setChartWidth] = React.useState(0);
+  const chartRef = React.useRef<HTMLDivElement | null>(null);
+  const pendingDragClientXRef = React.useRef<number | null>(null);
+  const dragAnimationFrameRef = React.useRef<number | null>(null);
   const inputs = React.useMemo(() => timingInputsFromForm(form, energyMode), [energyMode, form]);
   const result = React.useMemo(() => calculateBookTimingComparison(inputs), [inputs]);
   const dailyEnergy = energyMode === "breakdown" ? calculatedTimingDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
@@ -662,6 +668,111 @@ function BookTimingComparisonView({
     result.delayedBookStartDay !== null &&
     delayedBookShadeEndDay !== null &&
     result.delayedBookStartDay < delayedBookShadeEndDay;
+  const delayedBookHandleDay =
+    result.delayedBookStartDay !== null && delayedBookShadeEndDay !== null
+      ? (result.delayedBookStartDay + delayedBookShadeEndDay) / 2
+      : null;
+  const delayedBookHandleLeft =
+    delayedBookHandleDay !== null
+      ? CHART_Y_AXIS_WIDTH +
+        (delayedBookHandleDay / Math.max(1, result.inputs.graphDurationDays)) *
+        Math.max(1, chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
+      : null;
+
+  const setDelayedBookStartDay = React.useCallback((rawDay: number) => {
+    if (!Number.isFinite(rawDay)) {
+      return;
+    }
+
+    const day = clampNumber(rawDay, 0, result.inputs.graphDurationDays);
+    const targetStat = bookTimingStatAtDayWithoutBook(result.inputs, day);
+    onFieldChange("delayedBookTargetStat", formatInputCompact(targetStat));
+  }, [onFieldChange, result.inputs]);
+
+  const updateDelayedBookTargetFromClientX = React.useCallback((clientX: number) => {
+    const rect = chartRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    const plotLeft = rect.left + CHART_Y_AXIS_WIDTH;
+    const plotWidth = Math.max(1, rect.width - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN);
+    const rawRatio = (clientX - plotLeft) / plotWidth;
+    const handleCenterDay = rawRatio * result.inputs.graphDurationDays;
+    setDelayedBookStartDay(handleCenterDay - result.inputs.bookDurationDays / 2);
+  }, [result.inputs.bookDurationDays, result.inputs.graphDurationDays, setDelayedBookStartDay]);
+
+  const scheduleDelayedBookTargetFromClientX = React.useCallback((clientX: number) => {
+    pendingDragClientXRef.current = clientX;
+    if (dragAnimationFrameRef.current !== null) {
+      return;
+    }
+
+    dragAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      dragAnimationFrameRef.current = null;
+      const nextClientX = pendingDragClientXRef.current;
+      pendingDragClientXRef.current = null;
+      if (nextClientX !== null) {
+        updateDelayedBookTargetFromClientX(nextClientX);
+      }
+    });
+  }, [updateDelayedBookTargetFromClientX]);
+
+  const flushScheduledDelayedBookTarget = React.useCallback(() => {
+    if (dragAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragAnimationFrameRef.current);
+      dragAnimationFrameRef.current = null;
+    }
+
+    const nextClientX = pendingDragClientXRef.current;
+    pendingDragClientXRef.current = null;
+    if (nextClientX !== null) {
+      updateDelayedBookTargetFromClientX(nextClientX);
+    }
+  }, [updateDelayedBookTargetFromClientX]);
+
+  React.useEffect(() => {
+    const element = chartRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const updateWidth = () => setChartWidth(element.getBoundingClientRect().width);
+    updateWidth();
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    if (!isDraggingDelayedBook) {
+      return undefined;
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      scheduleDelayedBookTargetFromClientX(event.clientX);
+    }
+
+    function handlePointerUp() {
+      flushScheduledDelayedBookTarget();
+      setIsDraggingDelayedBook(false);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+
+    return () => {
+      if (dragAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragAnimationFrameRef.current);
+        dragAnimationFrameRef.current = null;
+      }
+      pendingDragClientXRef.current = null;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [flushScheduledDelayedBookTarget, isDraggingDelayedBook, scheduleDelayedBookTargetFromClientX]);
 
   return (
     <>
@@ -743,7 +854,10 @@ function BookTimingComparisonView({
 
       <section className="panel book-strategy-chart-panel">
         <PanelHeader icon={<Activity size={17} />} title="Book timing growth" aside={`${formatCompact(result.inputs.graphDurationDays)} days`} />
-        <div className="book-strategy-chart">
+        <div
+          className={`book-strategy-chart ${isDraggingDelayedBook ? "is-dragging-book-timing" : ""}`}
+          ref={chartRef}
+        >
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
@@ -799,6 +913,41 @@ function BookTimingComparisonView({
               />
             </LineChart>
           </ResponsiveContainer>
+          {shouldShowDelayedBookWindow && delayedBookHandleLeft !== null && chartWidth > 0 ? (
+            <div
+              className="book-timing-book-drag-target"
+              style={{ left: `${delayedBookHandleLeft}px` }}
+              role="slider"
+              tabIndex={0}
+              aria-label="Later book use day"
+              aria-valuemin={0}
+              aria-valuemax={result.inputs.graphDurationDays}
+              aria-valuenow={Math.round(result.delayedBookStartDay ?? 0)}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                setIsDraggingDelayedBook(true);
+                updateDelayedBookTargetFromClientX(event.clientX);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                  return;
+                }
+
+                event.preventDefault();
+                const direction = event.key === "ArrowLeft" ? -1 : 1;
+                const nextDay = clampNumber(
+                  Math.round(result.delayedBookStartDay ?? 0) + direction,
+                  0,
+                  result.inputs.graphDurationDays,
+                );
+                setDelayedBookStartDay(nextDay);
+              }}
+            >
+              <span className="book-timing-book-handle">
+                <BookOpen size={14} />
+              </span>
+            </div>
+          ) : null}
         </div>
       </section>
 

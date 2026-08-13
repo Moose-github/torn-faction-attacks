@@ -236,6 +236,14 @@ export function calculateBookTimingComparison(
   };
 }
 
+export function bookTimingStatAtDayWithoutBook(
+  rawInputs: BookTimingComparisonInputs,
+  day: number,
+): number {
+  const inputs = normalizeBookTimingInputs(rawInputs);
+  return statAtBookTimingDay(inputs.lowStat, finiteAtLeast(day, 0), null, inputs);
+}
+
 export function findEnhancerLeadMilestone(
   rawInputs: BookStrategyInputs,
   targetLead: number,

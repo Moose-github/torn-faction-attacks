@@ -11155,7 +11155,8 @@ tbody tr:not(.attack-row):hover td {
   min-height: 360px;
 }
 
-.book-strategy-chart.is-dragging-enhancer {
+.book-strategy-chart.is-dragging-enhancer,
+.book-strategy-chart.is-dragging-book-timing {
   cursor: grabbing;
 }
 
@@ -11228,6 +11229,68 @@ tbody tr:not(.attack-row):hover td {
 .book-strategy-enhancer-drag-target:focus-visible .book-strategy-enhancer-handle::before,
 .book-strategy-chart.is-dragging-enhancer .book-strategy-enhancer-handle::before {
   background: #22c55e;
+}
+
+.book-timing-book-drag-target {
+  position: absolute;
+  bottom: 56px;
+  width: 72px;
+  height: 72px;
+  margin-left: -36px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.book-timing-book-drag-target:focus-visible {
+  outline: 0;
+}
+
+.book-timing-book-handle {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #0891b2;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  transform: translateX(-50%);
+}
+
+.book-timing-book-handle::before {
+  content: "";
+  position: absolute;
+  inset: 18px;
+  border: 2px solid #22d3ee;
+  border-radius: 999px;
+  background: var(--panel-bg-solid);
+  box-shadow: var(--shadow-panel);
+}
+
+.book-timing-book-handle svg {
+  position: relative;
+  z-index: 1;
+}
+
+.book-timing-book-handle:hover,
+.book-timing-book-drag-target:hover .book-timing-book-handle,
+.book-timing-book-drag-target:focus-visible .book-timing-book-handle,
+.book-strategy-chart.is-dragging-book-timing .book-timing-book-handle {
+  color: #ffffff;
+}
+
+.book-timing-book-handle:hover::before,
+.book-timing-book-drag-target:hover .book-timing-book-handle::before,
+.book-timing-book-drag-target:focus-visible .book-timing-book-handle::before,
+.book-strategy-chart.is-dragging-book-timing .book-timing-book-handle::before {
+  background: #22d3ee;
 }
 
 .book-strategy-summary-panel {

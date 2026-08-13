@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  bookTimingStatAtDayWithoutBook,
   calculateBookTimingComparison,
   calculateBookStrategy,
   calculateFhcPlan,
@@ -178,6 +179,17 @@ describe("book strategy calculator", () => {
     expect(result.delayedBook.startDay).toBe(result.delayedBookStartDay);
     expect(result.delayedBook.startStat ?? 0).toBeGreaterThanOrEqual(1_000_000_000);
     expect(delayedStartPoint?.waitBookActive).toBe(false);
+  });
+
+  it("can convert a dragged delayed-book day into a matching target stat", () => {
+    const targetStat = bookTimingStatAtDayWithoutBook(defaultBookTimingComparisonInputs, 150);
+    const result = calculateBookTimingComparison({
+      ...defaultBookTimingComparisonInputs,
+      delayedBookTargetStat: targetStat,
+    });
+
+    expect(result.delayedBookStartDay).toBeCloseTo(150, 8);
+    expect(result.delayedBook.startStat ?? 0).toBeCloseTo(targetStat, 4);
   });
 
   it("does not apply starting energy or a fresh delayed-book energy stack", () => {
