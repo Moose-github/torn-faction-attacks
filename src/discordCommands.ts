@@ -4,6 +4,7 @@ export const DISCORD_COMMAND_NAMES = {
   bot: "bot",
   alerts: "alerts",
   alertChannels: "alert-channels",
+  lookup: "lookup",
 } as const;
 
 export const DISCORD_COMPONENT_IDS = {
@@ -20,6 +21,7 @@ export const DISCORD_COMPONENT_IDS = {
 export const DISCORD_COMMAND_OPTION_TYPES = {
   subCommand: 1,
   string: 3,
+  integer: 4,
   channel: 7,
 } as const;
 
@@ -135,6 +137,19 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
               choices: notificationAlertChoices,
             },
           ],
+        },
+      ],
+    },
+    {
+      name: DISCORD_COMMAND_NAMES.lookup,
+      description: "Look up a Torn player",
+      options: [
+        {
+          type: DISCORD_COMMAND_OPTION_TYPES.integer,
+          name: "player_id",
+          description: "Torn player ID",
+          required: true,
+          min_value: 1,
         },
       ],
     },

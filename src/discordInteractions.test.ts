@@ -1,4 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  lookupTornPlayer: vi.fn(),
+}));
+
+vi.mock("./playerLookup", () => ({
+  lookupTornPlayer: mocks.lookupTornPlayer,
+}));
+
 import { createDiscordBotMessage } from "./discord";
 import {
   handleDiscordInteractions,
@@ -15,13 +24,20 @@ vi.mock("./discord", () => ({
 
 describe("Discord interactions", () => {
   it("registers bot and alert slash commands", () => {
-    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["bot", "alerts", "alert-channels"]);
+    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["bot", "alerts", "alert-channels", "lookup"]);
     expect(discordApplicationCommands().find((command) => command.name === "alerts")?.options?.map((option) => option.name))
       .toEqual(["list", "manage"]);
     expect(discordApplicationCommands().find((command) => command.name === "alert-channels"))
       .toMatchObject({
         default_member_permissions: "32",
         dm_permission: false,
+      });
+    expect(discordApplicationCommands().find((command) => command.name === "lookup")?.options?.[0])
+      .toMatchObject({
+        name: "player_id",
+        type: 4,
+        required: true,
+        min_value: 1,
       });
   });
 
@@ -132,8 +148,79 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.title).toBe("Butt Dashboard Bot");
     expect(response.data?.embeds?.[0]?.description).toContain("`/alerts list`");
     expect(response.data?.embeds?.[0]?.description).toContain("`/alerts manage`");
+    expect(response.data?.embeds?.[0]?.description).toContain("`/lookup player_id`");
     expect(response.data?.embeds?.[0]?.description).not.toContain("`/alerts subscribe`");
     expect(response.data?.embeds?.[0]?.description).not.toContain("`/alerts unsubscribe`");
+  });
+
+  it("looks up a Torn player from Discord", async () => {
+    mocks.lookupTornPlayer.mockResolvedValue({
+      profile: {
+        id: 123,
+        name: "Alice",
+        level: 75,
+        rank: "Absolute beginner",
+        title: "Pilot",
+        age: 3000,
+        factionId: 8803,
+        factionName: "Buttgrass",
+        propertyName: "Private Island",
+        spouseName: "Bob",
+        spouseId: 456,
+        daysMarried: 789,
+        awards: 250,
+        statusState: "Okay",
+        statusDescription: "Okay",
+        lastActionStatus: "Online",
+        lastActionTimestamp: 1_800_000_000,
+      },
+      currentStats: {},
+      previousStats: {},
+      averages: [
+        { key: "xantaken", current: 130, previous: 70, delta: 60, periodDays: 30, averagePerDay: 2 },
+        { key: "timeplayed", current: 3_600_000, previous: 3_340_800, delta: 259_200, periodDays: 30, averagePerDay: 8_640 },
+        { key: "criminaloffenses", current: 12_300, previous: 12_000, delta: 300, periodDays: 30, averagePerDay: 10 },
+        { key: "refills", current: 90, previous: 60, delta: 30, periodDays: 30, averagePerDay: 1 },
+        { key: "traveltimes", current: 400, previous: 370, delta: 30, periodDays: 30, averagePerDay: 1 },
+        { key: "attackswon", current: 500, previous: 410, delta: 90, periodDays: 30, averagePerDay: 3 },
+        { key: "activestreak", current: 45, previous: null, delta: null, periodDays: null, averagePerDay: null },
+        { key: "bestactivestreak", current: 120, previous: null, delta: null, periodDays: null, averagePerDay: null },
+        { key: "networth", current: 2_000_000, previous: null, delta: null, periodDays: null, averagePerDay: null },
+      ],
+      windowDays: 30,
+      currentTimestamp: 1_800_000_000,
+      previousTimestamp: 1_797_408_000,
+    });
+
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      data: {
+        name: "lookup",
+        options: [
+          { type: 4, name: "player_id", value: 123 },
+        ],
+      },
+    }, fakeDiscordEnv());
+
+    expect(mocks.lookupTornPlayer).toHaveBeenCalledWith(expect.anything(), 123);
+    expect(response.type).toBe(4);
+    expect(response.data?.flags).toBe(64);
+    expect(response.data?.embeds?.[0]?.title).toBe("Alice[123] lvl 75");
+    expect(response.data?.embeds?.[0]?.description).toContain("Absolute beginner Pilot");
+    expect(response.data?.embeds?.[0]?.description).toContain("age: 3,000");
+    expect(response.data?.embeds?.[0]?.description).toContain("Faction: 8,803");
+    expect(response.data?.embeds?.[0]?.description).toContain("property: Private Island");
+    expect(response.data?.embeds?.[0]?.description).toContain("Spouse: Bob[456] 789 days");
+    expect(response.data?.embeds?.[0]?.description).toContain("awards: 250");
+    expect(response.data?.embeds?.[0]?.description).toContain("ActivityStreak: 45(current) - 120(best)");
+    expect(response.data?.embeds?.[0]?.description).toContain("networth: $2,000,000");
+    expect(response.data?.embeds?.[0]?.description).toContain("Personal Stats:");
+    expect(response.data?.embeds?.[0]?.description).toContain("xantaken/day: 2 (60 over 30 days)");
+    expect(response.data?.embeds?.[0]?.description).toContain("timeplayed/day: 2.4h (72h over 30 days)");
+    expect(response.data?.embeds?.[0]?.description?.indexOf("ActivityStreak: 45(current) - 120(best)"))
+      .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("Personal Stats:") ?? 0);
+    expect(response.data?.embeds?.[0]?.description?.indexOf("networth: $2,000,000"))
+      .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("Personal Stats:") ?? 0);
   });
 
   it("does not route the removed war slash command", async () => {

@@ -31,6 +31,12 @@ import {
 import { Env, WarRow, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 import { syncRetaliationDiscordBoard } from "./retaliations";
+import {
+  lookupTornPlayer,
+  type PlayerLookupDailyAverage,
+  type PlayerLookupResult,
+  type TornPlayerLookupProfile,
+} from "./playerLookup";
 
 const DISCORD_INTERACTION_PING = 1;
 const DISCORD_INTERACTION_APPLICATION_COMMAND = 2;
@@ -305,6 +311,10 @@ async function routeDiscordCommand(
     return alertChannelsResponse(interaction, env, subcommand);
   }
 
+  if (command === DISCORD_COMMAND_NAMES.lookup) {
+    return playerResponse(env, interaction.data?.options ?? []);
+  }
+
   return ephemeralMessage("I do not know that command yet.");
 }
 
@@ -516,12 +526,29 @@ function botHelpResponse(): DiscordInteractionResponse {
       {
         title: "Butt Dashboard Bot",
         description: [
+          "`/lookup player_id` - look up a Torn player",
           "`/alerts list` - available alert subscriptions",
           "`/alerts manage` - manage alert subscriptions with a dropdown",
         ].join("\n"),
         color: BOT_COLOR,
       },
     ],
+  });
+}
+
+async function playerResponse(
+  env: Env,
+  options: DiscordOption[],
+): Promise<DiscordInteractionResponse> {
+  const playerId = optionInteger(options, "player_id");
+  if (playerId === null) {
+    return ephemeralMessage("Please provide a valid Torn player ID.");
+  }
+
+  const lookup = await lookupTornPlayer(env, playerId);
+  return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
+    flags: DISCORD_FLAG_EPHEMERAL,
+    embeds: [playerLookupEmbed(lookup)],
   });
 }
 
@@ -1245,9 +1272,111 @@ function chainAttackPair(chain: ChainWatchDiscordRow): string {
   return `${attacker} v ${defender}${chain.last_hit_result ? ` (${chain.last_hit_result})` : ""}`;
 }
 
+function playerLookupEmbed(lookup: PlayerLookupResult): DiscordEmbed {
+  const profile = lookup.profile;
+  return {
+    title: playerHeaderLine(profile),
+    description: playerLookupDescription(lookup),
+    color: BOT_COLOR,
+  };
+}
+
+function playerLookupDescription(lookup: PlayerLookupResult): string {
+  const profile = lookup.profile;
+  return [
+    `${textField(profile.rank)}${profile.title ? ` ${profile.title}` : ""}`,
+    "",
+    `age: ${integerOrUnknown(profile.age)}`,
+    `Faction: ${integerOrUnknown(profile.factionId)}`,
+    `property: ${textField(profile.propertyName)}`,
+    `Spouse: ${spouseField(profile)}`,
+    `awards: ${integerOrUnknown(profile.awards)}`,
+    activityStreakLine(lookup.averages),
+    networthProfileLine(lookup.averages),
+    "",
+    "Personal Stats:",
+    ...playerPersonalStatLines(lookup.averages),
+  ].join("\n");
+}
+
+function playerHeaderLine(profile: TornPlayerLookupProfile): string {
+  return `${profile.name}[${profile.id}] lvl ${integerOrUnknown(profile.level)}`;
+}
+
+function playerPersonalStatLines(averages: PlayerLookupDailyAverage[]): string[] {
+  return [
+    periodStatLine(averages, "xantaken", "xantaken"),
+    periodStatLine(averages, "timeplayed", "timeplayed", durationField, durationField),
+    periodStatLine(averages, "criminaloffenses", "criminaloffenses"),
+    periodStatLine(averages, "refills", "refills"),
+    periodStatLine(averages, "traveltimes", "traveltimes"),
+    periodStatLine(averages, "attackswon", "attackswon"),
+  ];
+}
+
+function periodStatLine(
+  averages: PlayerLookupDailyAverage[],
+  key: PlayerLookupDailyAverage["key"],
+  label: string,
+  averageFormatter: (value: unknown) => string = numberField,
+  deltaFormatter: (value: unknown) => string = integerField,
+): string {
+  const average = averages.find((item) => item.key === key);
+  if (!average || average.averagePerDay === null || average.delta === null || average.periodDays === null) {
+    return `${label}/day: Unknown (${currentValue(average)} current, returned period Unknown)`;
+  }
+  return `${label}/day: ${averageFormatter(average.averagePerDay)} (${deltaFormatter(average.delta)} over ${integerField(average.periodDays)} days)`;
+}
+
+function currentProfileStatLine(
+  averages: PlayerLookupDailyAverage[],
+  key: PlayerLookupDailyAverage["key"],
+  label: string,
+  formatter: (value: unknown) => string = integerField,
+): string {
+  const stat = averages.find((item) => item.key === key);
+  return `${label}: ${currentValue(stat, formatter)}`;
+}
+
+function activityStreakLine(averages: PlayerLookupDailyAverage[]): string {
+  const current = averages.find((item) => item.key === "activestreak");
+  const best = averages.find((item) => item.key === "bestactivestreak");
+  return `ActivityStreak: ${currentValue(current)}(current) - ${currentValue(best)}(best)`;
+}
+
+function networthProfileLine(averages: PlayerLookupDailyAverage[]): string {
+  return currentProfileStatLine(averages, "networth", "networth", currencyField);
+}
+
+function currentValue(
+  stat: PlayerLookupDailyAverage | undefined,
+  formatter: (value: unknown) => string = integerField,
+): string {
+  return stat?.current === null || stat === undefined ? "Unknown" : formatter(stat.current);
+}
+
+function spouseField(profile: TornPlayerLookupProfile): string {
+  return `${textField(profile.spouseName)}[${integerOrUnknown(profile.spouseId)}] ${integerOrUnknown(profile.daysMarried)} days`;
+}
+
+function textField(value: string | null): string {
+  return value?.trim() || "Unknown";
+}
+
+function integerOrUnknown(value: unknown): string {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed).toLocaleString("en-GB") : "Unknown";
+}
+
 function optionString(option: DiscordOption, name: string): string | null {
   const value = option.options?.find((item) => item.name === name)?.value;
   return typeof value === "string" ? value : null;
+}
+
+function optionInteger(options: DiscordOption[], name: string): number | null {
+  const value = options.find((item) => item.name === name)?.value;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function alertOption(option: DiscordOption): typeof DISCORD_ALERT_CHANNEL_ROUTES[number] | null {
@@ -1323,6 +1452,28 @@ function integerField(value: unknown): string {
 function numberField(value: unknown): string {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed.toLocaleString("en-GB", { maximumFractionDigits: 1 }) : "Unknown";
+}
+
+function currencyField(value: unknown): string {
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? `$${Math.round(parsed).toLocaleString("en-GB")}`
+    : "Unknown";
+}
+
+function durationField(value: unknown): string {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) {
+    return "Unknown";
+  }
+
+  const hours = seconds / 3600;
+  if (hours >= 1) {
+    return `${hours.toLocaleString("en-GB", { maximumFractionDigits: 1 })}h`;
+  }
+
+  const minutes = seconds / 60;
+  return `${minutes.toLocaleString("en-GB", { maximumFractionDigits: 0 })}m`;
 }
 
 function discordTimestamp(timestamp: number): string {
