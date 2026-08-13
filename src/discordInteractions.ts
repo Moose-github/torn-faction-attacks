@@ -87,7 +87,7 @@ type DiscordOption = {
 };
 
 type DiscordEmbed = {
-  title: string;
+  title?: string;
   description?: string;
   color?: number;
   fields?: Array<{
@@ -1273,9 +1273,7 @@ function chainAttackPair(chain: ChainWatchDiscordRow): string {
 }
 
 function playerLookupEmbed(lookup: PlayerLookupResult): DiscordEmbed {
-  const profile = lookup.profile;
   return {
-    title: playerHeaderLine(profile),
     description: playerLookupDescription(lookup),
     color: BOT_COLOR,
   };
@@ -1284,13 +1282,14 @@ function playerLookupEmbed(lookup: PlayerLookupResult): DiscordEmbed {
 function playerLookupDescription(lookup: PlayerLookupResult): string {
   const profile = lookup.profile;
   return [
+    `**${playerHeaderLine(profile)}**`,
     `${textField(profile.rank)}${profile.title ? ` ${profile.title}` : ""}`,
     "",
-    `age: ${integerOrUnknown(profile.age)}`,
-    `Faction: ${integerOrUnknown(profile.factionId)}`,
-    `property: ${textField(profile.propertyName)}`,
+    `Age: ${integerOrUnknown(profile.age)}`,
+    `Faction: ${idOrUnknown(profile.factionId)}`,
+    `Property: ${textField(profile.propertyName)}`,
     `Spouse: ${spouseField(profile)}`,
-    `awards: ${integerOrUnknown(profile.awards)}`,
+    `Awards: ${integerOrUnknown(profile.awards)}`,
     activityStreakLine(lookup.averages),
     networthProfileLine(lookup.averages),
     "",
@@ -1305,12 +1304,12 @@ function playerHeaderLine(profile: TornPlayerLookupProfile): string {
 
 function playerPersonalStatLines(averages: PlayerLookupDailyAverage[]): string[] {
   return [
-    periodStatLine(averages, "xantaken", "xantaken"),
-    periodStatLine(averages, "timeplayed", "timeplayed", durationField, durationField),
-    periodStatLine(averages, "criminaloffenses", "criminaloffenses"),
-    periodStatLine(averages, "refills", "refills"),
-    periodStatLine(averages, "traveltimes", "traveltimes"),
-    periodStatLine(averages, "attackswon", "attackswon"),
+    periodStatLine(averages, "xantaken", "Xanax"),
+    periodStatLine(averages, "timeplayed", "Time Played", durationField, durationField),
+    periodStatLine(averages, "criminaloffenses", "Offenses"),
+    periodStatLine(averages, "refills", "Refills"),
+    periodStatLine(averages, "traveltimes", "Travel Times"),
+    periodStatLine(averages, "attackswon", "Attacks Won"),
   ];
 }
 
@@ -1345,7 +1344,7 @@ function activityStreakLine(averages: PlayerLookupDailyAverage[]): string {
 }
 
 function networthProfileLine(averages: PlayerLookupDailyAverage[]): string {
-  return currentProfileStatLine(averages, "networth", "networth", currencyField);
+  return currentProfileStatLine(averages, "networth", "Networth", currencyField);
 }
 
 function currentValue(
@@ -1356,7 +1355,7 @@ function currentValue(
 }
 
 function spouseField(profile: TornPlayerLookupProfile): string {
-  return `${textField(profile.spouseName)}[${integerOrUnknown(profile.spouseId)}] ${integerOrUnknown(profile.daysMarried)} days`;
+  return `${textField(profile.spouseName)}[${idOrUnknown(profile.spouseId)}] ${integerOrUnknown(profile.daysMarried)} days`;
 }
 
 function textField(value: string | null): string {
@@ -1366,6 +1365,11 @@ function textField(value: string | null): string {
 function integerOrUnknown(value: unknown): string {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.round(parsed).toLocaleString("en-GB") : "Unknown";
+}
+
+function idOrUnknown(value: unknown): string {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? String(parsed) : "Unknown";
 }
 
 function optionString(option: DiscordOption, name: string): string | null {

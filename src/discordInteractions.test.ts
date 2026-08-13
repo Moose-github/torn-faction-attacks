@@ -166,7 +166,7 @@ describe("Discord interactions", () => {
         factionName: "Buttgrass",
         propertyName: "Private Island",
         spouseName: "Bob",
-        spouseId: 456,
+        spouseId: 3_242_334,
         daysMarried: 789,
         awards: 250,
         statusState: "Okay",
@@ -205,21 +205,23 @@ describe("Discord interactions", () => {
     expect(mocks.lookupTornPlayer).toHaveBeenCalledWith(expect.anything(), 123);
     expect(response.type).toBe(4);
     expect(response.data?.flags).toBe(64);
-    expect(response.data?.embeds?.[0]?.title).toBe("Alice[123] lvl 75");
+    expect(response.data?.embeds?.[0]?.title).toBeUndefined();
+    expect(response.data?.embeds?.[0]?.description?.startsWith("**Alice[123] lvl 75**\nAbsolute beginner Pilot")).toBe(true);
     expect(response.data?.embeds?.[0]?.description).toContain("Absolute beginner Pilot");
-    expect(response.data?.embeds?.[0]?.description).toContain("age: 3,000");
-    expect(response.data?.embeds?.[0]?.description).toContain("Faction: 8,803");
-    expect(response.data?.embeds?.[0]?.description).toContain("property: Private Island");
-    expect(response.data?.embeds?.[0]?.description).toContain("Spouse: Bob[456] 789 days");
-    expect(response.data?.embeds?.[0]?.description).toContain("awards: 250");
+    expect(response.data?.embeds?.[0]?.description).toContain("Age: 3,000");
+    expect(response.data?.embeds?.[0]?.description).toContain("Faction: 8803");
+    expect(response.data?.embeds?.[0]?.description).toContain("Property: Private Island");
+    expect(response.data?.embeds?.[0]?.description).toContain("Spouse: Bob[3242334] 789 days");
+    expect(response.data?.embeds?.[0]?.description).toContain("Awards: 250");
     expect(response.data?.embeds?.[0]?.description).toContain("ActivityStreak: 45(current) - 120(best)");
-    expect(response.data?.embeds?.[0]?.description).toContain("networth: $2,000,000");
+    expect(response.data?.embeds?.[0]?.description).toContain("Networth: $2,000,000");
     expect(response.data?.embeds?.[0]?.description).toContain("Personal Stats:");
-    expect(response.data?.embeds?.[0]?.description).toContain("xantaken/day: 2 (60 over 30 days)");
-    expect(response.data?.embeds?.[0]?.description).toContain("timeplayed/day: 2.4h (72h over 30 days)");
+    expect(response.data?.embeds?.[0]?.description).toContain("Xanax/day: 2 (60 over 30 days)");
+    expect(response.data?.embeds?.[0]?.description).toContain("Time Played/day: 2.4h (72h over 30 days)");
+    expect(response.data?.embeds?.[0]?.description).toContain("Offenses/day: 10 (300 over 30 days)");
     expect(response.data?.embeds?.[0]?.description?.indexOf("ActivityStreak: 45(current) - 120(best)"))
       .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("Personal Stats:") ?? 0);
-    expect(response.data?.embeds?.[0]?.description?.indexOf("networth: $2,000,000"))
+    expect(response.data?.embeds?.[0]?.description?.indexOf("Networth: $2,000,000"))
       .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("Personal Stats:") ?? 0);
   });
 

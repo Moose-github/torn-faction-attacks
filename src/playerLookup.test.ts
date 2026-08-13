@@ -88,7 +88,7 @@ describe("player lookup", () => {
     const result = await lookupTornPlayer({} as any, 123, 1_800_000_000);
 
     expect(mocks.runWithTornKeyPool).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      feature: "misc_utilities",
+      feature: "enemy_scouting",
       usageCount: 3,
     }));
     expect(mocks.fetchTrackedTornJson).toHaveBeenCalledWith(

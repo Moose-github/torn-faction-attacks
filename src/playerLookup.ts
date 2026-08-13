@@ -86,7 +86,7 @@ export async function lookupTornPlayer(
 ): Promise<PlayerLookupResult> {
   const previousTimestamp = currentTimestamp - THIRTY_DAYS_SECONDS;
   const output = await runWithTornKeyPool(env, {
-    feature: "misc_utilities",
+    feature: "enemy_scouting",
     usageCount: 3,
     run: async ({ key, keySource }) => {
       const [profile, currentStats, previousStats] = await Promise.all([
