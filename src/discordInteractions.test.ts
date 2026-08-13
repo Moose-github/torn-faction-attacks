@@ -209,7 +209,7 @@ describe("Discord interactions", () => {
 
     expect(mocks.lookupTornPlayer).toHaveBeenCalledWith(expect.anything(), 123);
     expect(response.type).toBe(4);
-    expect(response.data?.flags).toBe(64);
+    expect(response.data?.flags).toBeUndefined();
     expect(response.data?.embeds?.[0]?.title).toBeUndefined();
     expect(response.data?.embeds?.[0]?.description?.startsWith("**Alice [123] lvl 75**\nAbsolute beginner Pilot")).toBe(true);
     expect(response.data?.embeds?.[0]?.description).toContain("Absolute beginner Pilot");

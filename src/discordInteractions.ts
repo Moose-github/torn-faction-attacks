@@ -547,7 +547,6 @@ async function playerResponse(
 
   const lookup = await lookupTornPlayer(env, playerId);
   return discordMessageResponse(DISCORD_RESPONSE_CHANNEL_MESSAGE, {
-    flags: DISCORD_FLAG_EPHEMERAL,
     embeds: [playerLookupEmbed(lookup)],
   });
 }
