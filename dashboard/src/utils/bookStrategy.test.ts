@@ -161,6 +161,8 @@ describe("book strategy calculator", () => {
   it("compares book timing with the same flat energy timeline", () => {
     const result = calculateBookTimingComparison(defaultBookTimingComparisonInputs);
 
+    expect(result.inputs.happiness).toBe(5_000);
+    expect(result.inputs.gymMultiplier).toBe(7.3);
     expect(result.delayedBookStartDay).not.toBeNull();
     expect(result.delayedBookStartDay ?? 0).toBeGreaterThan(0);
     expect(result.delayedBookStartDay ?? 0).toBeLessThan(250);

@@ -90,7 +90,6 @@ type BookTimingForm = {
   lowStat: string;
   delayedBookTargetStat: string;
   dailyEnergy: string;
-  happiness: string;
   naturalEnergy: string;
   xanaxPerDay: string;
   dailyRefill: string;
@@ -100,7 +99,6 @@ type BookTimingForm = {
   statEducationPercent: string;
   steadfastPercent: string;
   customPerksPercent: string;
-  gymMultiplier: string;
   graphDurationDays: string;
   bookBonusPercent: string;
 };
@@ -800,9 +798,7 @@ function BookTimingComparisonView({
         <div className="book-strategy-input-grid">
           <NumberField label="Low stat" value={form.lowStat} onChange={(value) => onFieldChange("lowStat", value)} />
           <NumberField label="Use later at stat" value={form.delayedBookTargetStat} onChange={(value) => onFieldChange("delayedBookTargetStat", value)} />
-          <NumberField label="Happiness" value={form.happiness} onChange={(value) => onFieldChange("happiness", value)} />
           <NumberField label="Graph duration (days)" value={form.graphDurationDays} onChange={(value) => onFieldChange("graphDurationDays", value)} />
-          <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => onFieldChange("gymMultiplier", value)} />
           <NumberField label="Book bonus %" value={form.bookBonusPercent} onChange={(value) => onFieldChange("bookBonusPercent", value)} />
         </div>
         {openPopout === "energy" ? (
@@ -961,7 +957,8 @@ function BookTimingComparisonView({
       >
         <div className="book-strategy-methodology">
           <p>
-            Uses Vladar's community gym formula, a constant happiness value, 50-energy trains, and no random term.
+            Uses Vladar's community gym formula, a constant 5000 happiness value, George's Gym (7.3 dots), 50-energy trains,
+            and no random term.
           </p>
           <p>
             Both paths use the same daily energy timeline with no starting-energy stack and no fresh energy at the delayed
@@ -982,27 +979,27 @@ function BookTimingReasonsPanel() {
     {
       icon: <GraduationCap size={17} />,
       title: "Complete gym-gain education",
-      detail: "A course bonus improves the value of every train inside the book window.",
+      detail: "Relevant Sports Science courses improve all training.",
     },
     {
       icon: <Dumbbell size={17} />,
       title: "Unlock a better gym",
-      detail: "Higher gym dots change the training baseline before the book multiplier is applied.",
+      detail: "Unlocking a better or specialist gym increases your base gains.",
     },
     {
       icon: <Building2 size={17} />,
       title: "Join a training company",
-      detail: "Company specials can make the same book-window energy produce more stats.",
+      detail: "Company perks can increase gym gains or reduce happiness loss.",
     },
     {
       icon: <ShieldCheck size={17} />,
-      title: "Wait for Steadfast",
-      detail: "Faction Steadfast improvements compound with the book bonus.",
+      title: "Wait for higher Steadfast",
+      detail: "Higher stat-specific Steadfast increases the return from all training.",
     },
     {
       icon: <Home size={17} />,
-      title: "Get a Private Island",
-      detail: "Property happiness and perk changes can improve the book-window training setup.",
+      title: "Move to a Private Island",
+      detail: "Higher base happiness and the swimming-pool perk improve gym gains.",
     },
   ];
 
@@ -1010,8 +1007,8 @@ function BookTimingReasonsPanel() {
     <section className="panel book-timing-reasons-panel">
       <PanelHeader icon={<BookOpen size={17} />} title="Reasons to Delay" />
       <p>
-        Delaying is most defensible when the training conditions during the book window will improve, not simply because
-        the stat number is larger.
+        Waiting can be worthwhile if your training conditions will improve before using the book. A higher starting stat
+        alone is not a reason to delay.
       </p>
       <div className="book-timing-reason-grid">
         {reasons.map((reason) => (
@@ -1458,7 +1455,7 @@ function timingInputsFromForm(form: BookTimingForm, energyMode: EnergyMode): Boo
     dailyEnergy: energyMode === "breakdown"
       ? calculatedTimingDailyEnergy(form)
       : parseNumber(form.dailyEnergy, defaultBookTimingComparisonInputs.dailyEnergy),
-    happiness: parseNumber(form.happiness, defaultBookTimingComparisonInputs.happiness),
+    happiness: defaultBookTimingComparisonInputs.happiness,
     privateIslandPercent: parseNumber(form.privateIslandPercent, defaultBookTimingComparisonInputs.privateIslandPercent),
     generalEducationPercent: parseNumber(form.generalEducationPercent, defaultBookTimingComparisonInputs.generalEducationPercent),
     statEducationPercent: parseNumber(form.statEducationPercent, defaultBookTimingComparisonInputs.statEducationPercent),
@@ -1466,7 +1463,7 @@ function timingInputsFromForm(form: BookTimingForm, energyMode: EnergyMode): Boo
     customPerksPercent: parseNumber(form.customPerksPercent, defaultBookTimingComparisonInputs.customPerksPercent),
     graphDurationDays: parseNumber(form.graphDurationDays, defaultBookTimingComparisonInputs.graphDurationDays),
     bookBonusPercent: parseNumber(form.bookBonusPercent, defaultBookTimingComparisonInputs.bookBonusPercent),
-    gymMultiplier: parseNumber(form.gymMultiplier, defaultBookTimingComparisonInputs.gymMultiplier),
+    gymMultiplier: defaultBookTimingComparisonInputs.gymMultiplier,
   };
 }
 
@@ -1487,7 +1484,6 @@ function timingFormFromInputs(inputs: BookTimingComparisonInputs): BookTimingFor
     lowStat: formatInputCompact(inputs.lowStat),
     delayedBookTargetStat: formatInputCompact(inputs.delayedBookTargetStat),
     dailyEnergy: String(inputs.dailyEnergy),
-    happiness: String(inputs.happiness),
     naturalEnergy: "720",
     xanaxPerDay: "3",
     dailyRefill: "150",
@@ -1497,7 +1493,6 @@ function timingFormFromInputs(inputs: BookTimingComparisonInputs): BookTimingFor
     statEducationPercent: String(inputs.statEducationPercent),
     steadfastPercent: String(inputs.steadfastPercent),
     customPerksPercent: String(inputs.customPerksPercent),
-    gymMultiplier: String(inputs.gymMultiplier),
     graphDurationDays: String(inputs.graphDurationDays),
     bookBonusPercent: String(inputs.bookBonusPercent),
   };

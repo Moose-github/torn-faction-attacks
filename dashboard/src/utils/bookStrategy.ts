@@ -171,7 +171,7 @@ export const defaultBookTimingComparisonInputs: BookTimingComparisonInputs = {
   lowStat: 5_000_000,
   delayedBookTargetStat: 1_000_000_000,
   dailyEnergy: defaultBookStrategyInputs.dailyEnergy,
-  happiness: defaultBookStrategyInputs.happiness,
+  happiness: 5_000,
   privateIslandPercent: defaultBookStrategyInputs.privateIslandPercent,
   generalEducationPercent: defaultBookStrategyInputs.generalEducationPercent,
   statEducationPercent: defaultBookStrategyInputs.statEducationPercent,
@@ -180,7 +180,7 @@ export const defaultBookTimingComparisonInputs: BookTimingComparisonInputs = {
   graphDurationDays: 250,
   bookDurationDays: defaultBookStrategyInputs.bookDurationDays,
   bookBonusPercent: defaultBookStrategyInputs.bookBonusPercent,
-  gymMultiplier: defaultBookStrategyInputs.gymMultiplier,
+  gymMultiplier: 7.3,
   energyPerTrain: defaultBookStrategyInputs.energyPerTrain,
 };
 
