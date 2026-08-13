@@ -253,7 +253,7 @@ function parseBspBattlestatPrediction(data: any): { stats: number | null; subscr
   }
 
   return {
-    stats: finiteNumber(prediction?.TBS),
+    stats: positiveBattleStat(prediction?.TBS),
     subscriptionExpired,
   };
 }
@@ -302,7 +302,7 @@ function addFfEstimate(estimates: Map<number, { stats: number }>, idValue: unkno
 
   const stats =
     source && typeof source === "object"
-      ? firstFiniteNumber(
+      ? firstPositiveNumber(
           source.total,
           source.total_stats,
           source.bs_estimate,
@@ -311,7 +311,7 @@ function addFfEstimate(estimates: Map<number, { stats: number }>, idValue: unkno
           source.stats,
           source.value,
         )
-      : finiteNumber(source);
+      : positiveBattleStat(source);
 
   if (stats !== null) {
     estimates.set(memberId, { stats });
@@ -443,15 +443,20 @@ function cleanString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function firstFiniteNumber(...values: unknown[]): number | null {
+function firstPositiveNumber(...values: unknown[]): number | null {
   for (const value of values) {
-    const parsed = finiteNumber(value);
+    const parsed = positiveBattleStat(value);
     if (parsed !== null) {
       return parsed;
     }
   }
 
   return null;
+}
+
+function positiveBattleStat(value: unknown): number | null {
+  const parsed = finiteNumber(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
 }
 
 function positiveInteger(value: unknown): number | null {

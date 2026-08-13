@@ -248,4 +248,24 @@ describe("player lookup", () => {
       ffBattlestats: null,
     });
   });
+
+  it("treats zero FFScouter battle stats as missing", async () => {
+    mocks.fetchFfscouterStatsJson.mockResolvedValue({
+      stats: {
+        123: {
+          total: 0,
+        },
+      },
+    });
+
+    const result = await fetchPlayerLookupBattleStats({
+      FFSCOUTER_API_KEY: "ff-key-1",
+    } as any, 123);
+
+    expect(result).toEqual({
+      bspBattlestats: null,
+      bspSubscriptionExpired: false,
+      ffBattlestats: null,
+    });
+  });
 });
