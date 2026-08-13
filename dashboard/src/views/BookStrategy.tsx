@@ -24,18 +24,25 @@ import {
 } from "recharts";
 import { CollapsiblePanel, PanelHeader } from "../components/Common";
 import {
+  calculateBookTimingComparison,
   calculateBookStrategy,
+  defaultBookTimingComparisonInputs,
   defaultBookStrategyInputs,
   findEnhancerLeadMilestone,
+  type BookTimingComparisonInputs,
+  type BookTimingComparisonPoint,
+  type BookTimingComparisonResult,
   type BookStrategyInputs,
   type BookStrategyPoint,
   type BookStrategyResult,
   type EnhancerUseMode,
 } from "../utils/bookStrategy";
 
+type BookStrategyMode = "enhancers" | "timing";
 type EnergyMode = "total" | "breakdown";
 type EnhancerModeKind = EnhancerUseMode["kind"];
 type PopoutKind = "energy" | "perks" | "investment" | "prices";
+type BookTimingPopoutKind = "energy" | "perks";
 
 const CHART_Y_AXIS_WIDTH = 58;
 const CHART_RIGHT_MARGIN = 18;
@@ -73,13 +80,37 @@ type BookStrategyForm = {
   enhancerTargetDay: string;
 };
 
+type BookTimingForm = {
+  lowStat: string;
+  delayedBookTargetStat: string;
+  dailyEnergy: string;
+  happiness: string;
+  naturalEnergy: string;
+  xanaxPerDay: string;
+  dailyRefill: string;
+  otherDailyEnergy: string;
+  privateIslandPercent: string;
+  generalEducationPercent: string;
+  statEducationPercent: string;
+  steadfastPercent: string;
+  customPerksPercent: string;
+  gymMultiplier: string;
+  graphDurationDays: string;
+  bookBonusPercent: string;
+};
+
 const FIXED_ENERGY_PER_XANAX = 250;
 const DEFAULT_FORM = formFromInputs(defaultBookStrategyInputs);
+const DEFAULT_TIMING_FORM = timingFormFromInputs(defaultBookTimingComparisonInputs);
 
 export function BookStrategy() {
+  const [mode, setMode] = React.useState<BookStrategyMode>("enhancers");
   const [form, setForm] = React.useState<BookStrategyForm>(DEFAULT_FORM);
+  const [timingForm, setTimingForm] = React.useState<BookTimingForm>(DEFAULT_TIMING_FORM);
   const [energyMode, setEnergyMode] = React.useState<EnergyMode>("total");
+  const [timingEnergyMode, setTimingEnergyMode] = React.useState<EnergyMode>("total");
   const [openPopout, setOpenPopout] = React.useState<PopoutKind | null>(null);
+  const [openTimingPopout, setOpenTimingPopout] = React.useState<BookTimingPopoutKind | null>(null);
   const [methodologyOpen, setMethodologyOpen] = React.useState(false);
   const [isDraggingEnhancerDay, setIsDraggingEnhancerDay] = React.useState(false);
   const [chartWidth, setChartWidth] = React.useState(0);
@@ -100,10 +131,17 @@ export function BookStrategy() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
+  function updateTimingField<K extends keyof BookTimingForm>(field: K, value: BookTimingForm[K]) {
+    setTimingForm((current) => ({ ...current, [field]: value }));
+  }
+
   function resetDefaults() {
     setForm(DEFAULT_FORM);
+    setTimingForm(DEFAULT_TIMING_FORM);
     setEnergyMode("total");
+    setTimingEnergyMode("total");
     setOpenPopout(null);
+    setOpenTimingPopout(null);
     setIsDraggingEnhancerDay(false);
   }
 
@@ -240,6 +278,29 @@ export function BookStrategy() {
       </section>
 
       <section className="book-strategy-layout">
+        <div className="book-strategy-mode-tabs" role="tablist" aria-label="Book strategy comparison">
+          <button
+            type="button"
+            className={mode === "enhancers" ? "active" : ""}
+            onClick={() => setMode("enhancers")}
+            role="tab"
+            aria-selected={mode === "enhancers"}
+          >
+            Enhancers
+          </button>
+          <button
+            type="button"
+            className={mode === "timing" ? "active" : ""}
+            onClick={() => setMode("timing")}
+            role="tab"
+            aria-selected={mode === "timing"}
+          >
+            Book Timing
+          </button>
+        </div>
+
+        {mode === "enhancers" ? (
+          <>
         <div className="book-strategy-controls">
           <section className="panel book-strategy-panel book-strategy-input-panel">
             <PanelHeader
@@ -500,7 +561,210 @@ export function BookStrategy() {
             </p>
           </div>
         </CollapsiblePanel>
+          </>
+        ) : (
+          <BookTimingComparisonView
+            form={timingForm}
+            energyMode={timingEnergyMode}
+            openPopout={openTimingPopout}
+            methodologyOpen={methodologyOpen}
+            onFieldChange={updateTimingField}
+            onEnergyModeChange={setTimingEnergyMode}
+            onPopoutChange={setOpenTimingPopout}
+            onMethodologyToggle={() => setMethodologyOpen((current) => !current)}
+          />
+        )}
       </section>
+    </>
+  );
+}
+
+function BookTimingComparisonView({
+  form,
+  energyMode,
+  openPopout,
+  methodologyOpen,
+  onFieldChange,
+  onEnergyModeChange,
+  onPopoutChange,
+  onMethodologyToggle,
+}: {
+  form: BookTimingForm;
+  energyMode: EnergyMode;
+  openPopout: BookTimingPopoutKind | null;
+  methodologyOpen: boolean;
+  onFieldChange: <K extends keyof BookTimingForm>(field: K, value: BookTimingForm[K]) => void;
+  onEnergyModeChange: (mode: EnergyMode) => void;
+  onPopoutChange: (popout: BookTimingPopoutKind | null) => void;
+  onMethodologyToggle: () => void;
+}) {
+  const inputs = React.useMemo(() => timingInputsFromForm(form, energyMode), [energyMode, form]);
+  const result = React.useMemo(() => calculateBookTimingComparison(inputs), [inputs]);
+  const dailyEnergy = energyMode === "breakdown" ? calculatedTimingDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
+  const delayedBookEndDay = result.delayedBook.endDay;
+
+  return (
+    <>
+      <section className="panel book-strategy-panel book-strategy-input-panel">
+        <PanelHeader
+          icon={<SlidersHorizontal size={17} />}
+          title="Book Timing Inputs"
+          control={
+            <div className="book-strategy-popout-actions">
+              <PopoutButton
+                icon={<BatteryCharging size={15} />}
+                label="Energy"
+                active={openPopout === "energy"}
+                onClick={() => onPopoutChange(openPopout === "energy" ? null : "energy")}
+              />
+              <PopoutButton
+                icon={<Sparkles size={15} />}
+                label="Perks"
+                active={openPopout === "perks"}
+                onClick={() => onPopoutChange(openPopout === "perks" ? null : "perks")}
+              />
+            </div>
+          }
+        />
+        <div className="book-strategy-input-grid">
+          <NumberField label="Low stat" value={form.lowStat} onChange={(value) => onFieldChange("lowStat", value)} />
+          <NumberField label="Use later at stat" value={form.delayedBookTargetStat} onChange={(value) => onFieldChange("delayedBookTargetStat", value)} />
+          <NumberField label="Happiness" value={form.happiness} onChange={(value) => onFieldChange("happiness", value)} />
+          <NumberField label="Graph duration (days)" value={form.graphDurationDays} onChange={(value) => onFieldChange("graphDurationDays", value)} />
+          <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => onFieldChange("gymMultiplier", value)} />
+          <NumberField label="Book bonus %" value={form.bookBonusPercent} onChange={(value) => onFieldChange("bookBonusPercent", value)} />
+        </div>
+        {openPopout === "energy" ? (
+          <div className="book-strategy-popout" role="dialog" aria-label="Energy">
+            <div className="book-strategy-popout-heading">
+              <strong>Energy</strong>
+              <span>{formatEnergy(dailyEnergy)} daily</span>
+            </div>
+            <div className="segmented-control" aria-label="Daily energy source">
+              <button
+                type="button"
+                className={energyMode === "total" ? "active" : ""}
+                onClick={() => onEnergyModeChange("total")}
+              >
+                Total
+              </button>
+              <button
+                type="button"
+                className={energyMode === "breakdown" ? "active" : ""}
+                onClick={() => onEnergyModeChange("breakdown")}
+              >
+                Breakdown
+              </button>
+            </div>
+            {energyMode === "total" ? (
+              <NumberField label="Daily energy" value={form.dailyEnergy} onChange={(value) => onFieldChange("dailyEnergy", value)} />
+            ) : (
+              <div className="book-strategy-popout-grid">
+                <NumberField label="Natural" value={form.naturalEnergy} onChange={(value) => onFieldChange("naturalEnergy", value)} />
+                <NumberField label="Xanax/day" value={form.xanaxPerDay} onChange={(value) => onFieldChange("xanaxPerDay", value)} />
+                <NumberField label="Daily refill" value={form.dailyRefill} onChange={(value) => onFieldChange("dailyRefill", value)} />
+                <NumberField label="Other" value={form.otherDailyEnergy} onChange={(value) => onFieldChange("otherDailyEnergy", value)} />
+              </div>
+            )}
+          </div>
+        ) : null}
+        {openPopout === "perks" ? (
+          <div className="book-strategy-popout" role="dialog" aria-label="Perks">
+            <div className="book-strategy-popout-grid">
+              <NumberField label="Property" suffix="%" value={form.privateIslandPercent} onChange={(value) => onFieldChange("privateIslandPercent", value)} />
+              <NumberField label="Education (General)" suffix="%" value={form.generalEducationPercent} onChange={(value) => onFieldChange("generalEducationPercent", value)} />
+              <NumberField label="Education (Stat Specific)" suffix="%" value={form.statEducationPercent} onChange={(value) => onFieldChange("statEducationPercent", value)} />
+              <NumberField label="Faction Steadfast" suffix="%" value={form.steadfastPercent} onChange={(value) => onFieldChange("steadfastPercent", value)} />
+              <NumberField label="Job Perks" suffix="%" value={form.customPerksPercent} onChange={(value) => onFieldChange("customPerksPercent", value)} />
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="panel book-strategy-chart-panel">
+        <PanelHeader icon={<Activity size={17} />} title="Book timing growth" aside={`${formatCompact(result.inputs.graphDurationDays)} days`} />
+        <div className="book-strategy-chart">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
+              <XAxis
+                dataKey="day"
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "var(--chart-axis)" }}
+                tickFormatter={(value) => formatCompact(Number(value))}
+                type="number"
+                domain={[0, result.inputs.graphDurationDays]}
+              />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "var(--chart-axis)" }}
+                tickFormatter={(value) => formatCompact(Number(value))}
+                width={58}
+              />
+              <Tooltip content={<BookTimingTooltip />} />
+              <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
+              <ReferenceArea x1={0} x2={result.inputs.bookDurationDays} fill="#f59e0b" fillOpacity={0.12} />
+              {result.delayedBookStartDay !== null ? (
+                <>
+                  <ReferenceLine x={result.delayedBookStartDay} stroke="#22d3ee" strokeDasharray="4 4" />
+                  {delayedBookEndDay !== null && result.delayedBookStartDay <= result.inputs.graphDurationDays ? (
+                    <ReferenceArea
+                      x1={result.delayedBookStartDay}
+                      x2={Math.min(delayedBookEndDay, result.inputs.graphDurationDays)}
+                      fill="#22d3ee"
+                      fillOpacity={0.09}
+                    />
+                  ) : null}
+                </>
+              ) : null}
+              <Line
+                type="monotone"
+                dataKey="useNowStat"
+                name="Use now"
+                stroke="#f59e0b"
+                strokeWidth={3}
+                dot={false}
+                activeDot={{ r: 5 }}
+                isAnimationActive={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="waitStat"
+                name="Wait"
+                stroke="#22d3ee"
+                strokeWidth={3}
+                dot={false}
+                activeDot={{ r: 5 }}
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+
+      <BookTimingSummaryPanel result={result} />
+
+      <CollapsiblePanel
+        title="Methodology"
+        collapsed={!methodologyOpen}
+        onToggle={onMethodologyToggle}
+      >
+        <div className="book-strategy-methodology">
+          <p>
+            Uses Vladar's community gym formula, a constant happiness value, 50-energy trains, and no random term.
+          </p>
+          <p>
+            Both paths use the same daily energy timeline with no starting-energy stack and no fresh energy at the delayed
+            book start.
+          </p>
+          <p>
+            Use now applies the book from day 0. Wait trains normally until the selected stat, then applies the same
+            31-day book window.
+          </p>
+        </div>
+      </CollapsiblePanel>
     </>
   );
 }
@@ -670,6 +934,84 @@ function EnhancerTimingPanel({
   );
 }
 
+function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult }) {
+  const endpointDay = formatCompact(result.inputs.graphDurationDays);
+  const winnerLabel =
+    Math.abs(result.endpoint.difference) < 0.5
+      ? "Paths tied"
+      : result.endpoint.difference > 0
+        ? `Wait ahead by ${formatSignedStat(Math.abs(result.endpoint.difference))}`
+        : `Use now ahead by ${formatSignedStat(Math.abs(result.endpoint.difference))}`;
+  const delayedStartDetail = result.delayedBookStartDay === null
+    ? "Target not reached"
+    : `Day ${formatCompact(result.delayedBookStartDay)}`;
+  const immediatePercent = result.immediateBook.percentGain === null ? "N/A" : formatPercent(result.immediateBook.percentGain);
+  const delayedPercent = result.delayedBook.percentGain === null ? "N/A" : formatPercent(result.delayedBook.percentGain);
+  const immediateExtra = result.immediateBook.extraGain === null ? "N/A" : formatSignedStat(result.immediateBook.extraGain);
+  const delayedExtra = result.delayedBook.extraGain === null ? "N/A" : formatSignedStat(result.delayedBook.extraGain);
+  const timingSummaryLines = [
+    `Use now applies the book from day 0 to day ${formatCompact(result.inputs.bookDurationDays)}, adding ${immediateExtra} stats (${immediatePercent}).`,
+    result.delayedBookStartDay === null
+      ? `Wait does not reach ${formatStat(result.inputs.delayedBookTargetStat)} within ${formatCompact(result.inputs.graphDurationDays)} days.`
+      : `Wait reaches ${formatStat(result.inputs.delayedBookTargetStat)} on day ${formatCompact(result.delayedBookStartDay)} and adds ${delayedExtra} stats (${delayedPercent}).`,
+    `Both paths use ${formatCompact(result.totalTrains)} trains with no starting-energy stack or delayed energy stack.`,
+  ];
+
+  return (
+    <section className="panel book-strategy-summary-panel">
+      <PanelHeader icon={<Trophy size={17} />} title="Book Timing Summary" />
+      <div className="book-strategy-ending-grid">
+        <SummaryEndingCard
+          accent="strategy-one"
+          label="Use now"
+          value={formatStat(result.endpoint.useNowStat)}
+          detail={`Ending stat at day ${endpointDay}`}
+        />
+        <SummaryEndingCard
+          accent="strategy-two"
+          label="Wait"
+          value={formatStat(result.endpoint.waitStat)}
+          detail={`Ending stat at day ${endpointDay}`}
+        />
+      </div>
+      <div className={`book-strategy-summary-outcome ${result.endpoint.difference > 0 ? "is-strategyTwo" : result.endpoint.difference < 0 ? "is-strategyOne" : "is-tied"}`}>
+        {winnerLabel}
+      </div>
+      <div className="book-strategy-summary-support-grid">
+        <SummaryItem
+          icon={<BookOpen size={16} />}
+          label="Use now book gain"
+          value={immediatePercent}
+          detail={immediateExtra}
+        />
+        <SummaryItem
+          icon={<Sparkles size={16} />}
+          label="Wait book gain"
+          value={delayedPercent}
+          detail={delayedExtra}
+        />
+        <SummaryItem
+          icon={<Activity size={16} />}
+          label="Delayed book start"
+          value={delayedStartDetail}
+          detail={`Target ${formatStat(result.inputs.delayedBookTargetStat)}`}
+        />
+        <SummaryItem
+          icon={<BatteryCharging size={16} />}
+          label="Equal energy"
+          value={formatCompact(result.totalTrains)}
+          detail="50-energy trains"
+        />
+      </div>
+      <div className="book-strategy-summary-writeup">
+        {timingSummaryLines.map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function SummaryEndingCard({
   accent,
   label,
@@ -731,6 +1073,32 @@ function BookStrategyTooltip({
       <span>Investment: {formatMoney(point.investmentBalance)}</span>
       <span>Affordable enhancers: {formatCompact(point.enhancersAffordable)}</span>
       <span>Difference: {formatSignedStat(point.difference)}</span>
+    </div>
+  );
+}
+
+function BookTimingTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: BookTimingComparisonPoint }>;
+}) {
+  const point = payload?.[0]?.payload;
+  if (!active || !point) {
+    return null;
+  }
+
+  return (
+    <div className="chart-tooltip-card book-strategy-tooltip">
+      <strong>Day {formatCompact(point.day)}</strong>
+      <span>Use now: {formatStat(point.useNowStat)}</span>
+      <span>Wait: {formatStat(point.waitStat)}</span>
+      <span>Difference: {formatSignedStat(point.difference)}</span>
+      <span>Trains: {formatCompact(point.trainsConsumed)}</span>
+      <span>
+        Book active: {[point.useNowBookActive ? "Use now" : null, point.waitBookActive ? "Wait" : null].filter(Boolean).join(", ") || "None"}
+      </span>
     </div>
   );
 }
@@ -814,6 +1182,26 @@ function inputsFromForm(form: BookStrategyForm, energyMode: EnergyMode): BookStr
   };
 }
 
+function timingInputsFromForm(form: BookTimingForm, energyMode: EnergyMode): BookTimingComparisonInputs {
+  return {
+    ...defaultBookTimingComparisonInputs,
+    lowStat: parseNumber(form.lowStat, defaultBookTimingComparisonInputs.lowStat),
+    delayedBookTargetStat: parseNumber(form.delayedBookTargetStat, defaultBookTimingComparisonInputs.delayedBookTargetStat),
+    dailyEnergy: energyMode === "breakdown"
+      ? calculatedTimingDailyEnergy(form)
+      : parseNumber(form.dailyEnergy, defaultBookTimingComparisonInputs.dailyEnergy),
+    happiness: parseNumber(form.happiness, defaultBookTimingComparisonInputs.happiness),
+    privateIslandPercent: parseNumber(form.privateIslandPercent, defaultBookTimingComparisonInputs.privateIslandPercent),
+    generalEducationPercent: parseNumber(form.generalEducationPercent, defaultBookTimingComparisonInputs.generalEducationPercent),
+    statEducationPercent: parseNumber(form.statEducationPercent, defaultBookTimingComparisonInputs.statEducationPercent),
+    steadfastPercent: parseNumber(form.steadfastPercent, defaultBookTimingComparisonInputs.steadfastPercent),
+    customPerksPercent: parseNumber(form.customPerksPercent, defaultBookTimingComparisonInputs.customPerksPercent),
+    graphDurationDays: parseNumber(form.graphDurationDays, defaultBookTimingComparisonInputs.graphDurationDays),
+    bookBonusPercent: parseNumber(form.bookBonusPercent, defaultBookTimingComparisonInputs.bookBonusPercent),
+    gymMultiplier: parseNumber(form.gymMultiplier, defaultBookTimingComparisonInputs.gymMultiplier),
+  };
+}
+
 function enhancerModeFromForm(form: BookStrategyForm): EnhancerUseMode {
   if (form.enhancerMode === "targetStat") {
     return { kind: "targetStat", stat: parseNumber(form.enhancerTargetStat, defaultBookStrategyInputs.startingStat) };
@@ -824,6 +1212,27 @@ function enhancerModeFromForm(form: BookStrategyForm): EnhancerUseMode {
   }
 
   return { kind: "earliestOvertake" };
+}
+
+function timingFormFromInputs(inputs: BookTimingComparisonInputs): BookTimingForm {
+  return {
+    lowStat: formatInputCompact(inputs.lowStat),
+    delayedBookTargetStat: formatInputCompact(inputs.delayedBookTargetStat),
+    dailyEnergy: String(inputs.dailyEnergy),
+    happiness: String(inputs.happiness),
+    naturalEnergy: "720",
+    xanaxPerDay: "3",
+    dailyRefill: "150",
+    otherDailyEnergy: "0",
+    privateIslandPercent: String(inputs.privateIslandPercent),
+    generalEducationPercent: String(inputs.generalEducationPercent),
+    statEducationPercent: String(inputs.statEducationPercent),
+    steadfastPercent: String(inputs.steadfastPercent),
+    customPerksPercent: String(inputs.customPerksPercent),
+    gymMultiplier: String(inputs.gymMultiplier),
+    graphDurationDays: String(inputs.graphDurationDays),
+    bookBonusPercent: String(inputs.bookBonusPercent),
+  };
 }
 
 function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
@@ -852,6 +1261,15 @@ function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
     enhancerTargetStat: "3.411b",
     enhancerTargetDay: "334",
   };
+}
+
+function calculatedTimingDailyEnergy(form: BookTimingForm): number {
+  return (
+    parseNumber(form.naturalEnergy, 0) +
+    parseNumber(form.xanaxPerDay, 0) * FIXED_ENERGY_PER_XANAX +
+    parseNumber(form.dailyRefill, 0) +
+    parseNumber(form.otherDailyEnergy, 0)
+  );
 }
 
 function calculatedDailyEnergy(form: BookStrategyForm): number {
@@ -906,6 +1324,10 @@ function formatStat(value: number): string {
 
 function formatSignedStat(value: number): string {
   return `${value >= 0 ? "+" : "-"}${formatStat(Math.abs(value))}`;
+}
+
+function formatPercent(value: number): string {
+  return `${trimFixed(value)}%`;
 }
 
 function formatCompact(value: number): string {

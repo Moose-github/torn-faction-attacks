@@ -76,6 +76,66 @@ export type BookStrategyLeadMilestone = {
   lead: number;
 };
 
+export type BookTimingComparisonInputs = {
+  lowStat: number;
+  delayedBookTargetStat: number;
+  dailyEnergy: number;
+  happiness: number;
+  privateIslandPercent: number;
+  generalEducationPercent: number;
+  statEducationPercent: number;
+  steadfastPercent: number;
+  customPerksPercent: number;
+  graphDurationDays: number;
+  bookDurationDays: number;
+  bookBonusPercent: number;
+  gymMultiplier: number;
+  energyPerTrain: number;
+};
+
+export type BookTimingComparisonPoint = {
+  day: number;
+  useNowStat: number;
+  waitStat: number;
+  difference: number;
+  useNowBookActive: boolean;
+  waitBookActive: boolean;
+  trainsConsumed: number;
+};
+
+export type BookTimingBookImpact = {
+  startDay: number | null;
+  endDay: number | null;
+  startStat: number | null;
+  extraGain: number | null;
+  percentGain: number | null;
+};
+
+export type BookTimingComparisonResult = {
+  inputs: BookTimingComparisonInputs;
+  delayedBookStartDay: number | null;
+  totalTrains: number;
+  endpoint: BookTimingComparisonPoint;
+  immediateBook: BookTimingBookImpact;
+  delayedBook: BookTimingBookImpact;
+  series: BookTimingComparisonPoint[];
+};
+
+type PerkPercentInputs = {
+  privateIslandPercent: number;
+  generalEducationPercent: number;
+  statEducationPercent: number;
+  steadfastPercent: number;
+  customPerksPercent: number;
+};
+
+type GymFormulaInputs = {
+  happiness: number;
+  bookBonusPercent: number;
+  gymMultiplier: number;
+  energyPerTrain: number;
+};
+
 const CANONICAL_A = 1600;
 const CANONICAL_B = 1700;
 const STAT_ENHANCER_MULTIPLIER = 1.01;
@@ -107,6 +167,23 @@ export const defaultBookStrategyInputs: BookStrategyInputs = {
   enhancerUseMode: { kind: "earliestOvertake" },
 };
 
+export const defaultBookTimingComparisonInputs: BookTimingComparisonInputs = {
+  lowStat: 5_000_000,
+  delayedBookTargetStat: 500_000_000,
+  dailyEnergy: defaultBookStrategyInputs.dailyEnergy,
+  happiness: defaultBookStrategyInputs.happiness,
+  privateIslandPercent: defaultBookStrategyInputs.privateIslandPercent,
+  generalEducationPercent: defaultBookStrategyInputs.generalEducationPercent,
+  statEducationPercent: defaultBookStrategyInputs.statEducationPercent,
+  steadfastPercent: defaultBookStrategyInputs.steadfastPercent,
+  customPerksPercent: defaultBookStrategyInputs.customPerksPercent,
+  graphDurationDays: defaultBookStrategyInputs.graphDurationDays,
+  bookDurationDays: defaultBookStrategyInputs.bookDurationDays,
+  bookBonusPercent: defaultBookStrategyInputs.bookBonusPercent,
+  gymMultiplier: defaultBookStrategyInputs.gymMultiplier,
+  energyPerTrain: defaultBookStrategyInputs.energyPerTrain,
+};
+
 export function calculateBookStrategy(rawInputs: BookStrategyInputs): BookStrategyResult {
   const inputs = normalizeInputs(rawInputs);
   const perkMultiplier = perkProduct(inputs);
@@ -132,6 +209,29 @@ export function calculateBookStrategy(rawInputs: BookStrategyInputs): BookStrate
     endpoint,
     breakEvenDay,
     winningStrategy,
+    series,
+  };
+}
+
+export function calculateBookTimingComparison(
+  rawInputs: BookTimingComparisonInputs,
+): BookTimingComparisonResult {
+  const inputs = normalizeBookTimingInputs(rawInputs);
+  const delayedBookStartDay = findDelayedBookStartDay(inputs);
+  const series = buildBookTimingSeries(inputs, delayedBookStartDay);
+  const endpoint = series[series.length - 1];
+  const immediateBook = calculateBookTimingImpact(inputs, 0);
+  const delayedBook = delayedBookStartDay === null
+    ? emptyBookTimingImpact()
+    : calculateBookTimingImpact(inputs, delayedBookStartDay);
+
+  return {
+    inputs,
+    delayedBookStartDay,
+    totalTrains: completeTrains(inputs.dailyEnergy * inputs.graphDurationDays, inputs.energyPerTrain),
+    endpoint,
+    immediateBook,
+    delayedBook,
     series,
   };
 }
@@ -198,6 +298,26 @@ export function findEnhancerLeadMilestone(
   return null;
 }
 
+function normalizeBookTimingInputs(inputs: BookTimingComparisonInputs): BookTimingComparisonInputs {
+  return {
+    ...inputs,
+    lowStat: finiteAtLeast(inputs.lowStat, 0),
+    delayedBookTargetStat: finiteAtLeast(inputs.delayedBookTargetStat, 0),
+    dailyEnergy: finiteAtLeast(inputs.dailyEnergy, 0),
+    happiness: finiteAtLeast(inputs.happiness, 0),
+    privateIslandPercent: finiteAtLeast(inputs.privateIslandPercent, -99),
+    generalEducationPercent: finiteAtLeast(inputs.generalEducationPercent, -99),
+    statEducationPercent: finiteAtLeast(inputs.statEducationPercent, -99),
+    steadfastPercent: finiteAtLeast(inputs.steadfastPercent, -99),
+    customPerksPercent: finiteAtLeast(inputs.customPerksPercent, -99),
+    graphDurationDays: Math.min(MAX_SIMULATION_DAYS, finiteAtLeast(inputs.graphDurationDays, 1)),
+    bookDurationDays: finiteAtLeast(inputs.bookDurationDays, 0),
+    bookBonusPercent: finiteAtLeast(inputs.bookBonusPercent, -99),
+    gymMultiplier: finiteAtLeast(inputs.gymMultiplier, 0),
+    energyPerTrain: finiteAtLeast(inputs.energyPerTrain, 1),
+  };
+}
+
 export function normalizeInputs(inputs: BookStrategyInputs): BookStrategyInputs {
   return {
     ...inputs,
@@ -225,6 +345,112 @@ export function normalizeInputs(inputs: BookStrategyInputs): BookStrategyInputs 
   };
 }
 
+function buildBookTimingSeries(
+  inputs: BookTimingComparisonInputs,
+  delayedBookStartDay: number | null,
+): BookTimingComparisonPoint[] {
+  const sampleDays = new Set<number>([0, inputs.bookDurationDays, inputs.graphDurationDays]);
+  if (delayedBookStartDay !== null) {
+    sampleDays.add(delayedBookStartDay);
+    sampleDays.add(delayedBookStartDay + inputs.bookDurationDays);
+  }
+  for (let day = 0; day <= inputs.graphDurationDays; day += GRAPH_STEP_DAYS) {
+    sampleDays.add(Number(day.toFixed(8)));
+  }
+
+  return [...sampleDays]
+    .filter((day) => day >= 0 && day <= inputs.graphDurationDays)
+    .sort((a, b) => a - b)
+    .map((day) => {
+      const useNowStat = statAtBookTimingDay(inputs.lowStat, day, 0, inputs);
+      const waitStat = statAtBookTimingDay(inputs.lowStat, day, delayedBookStartDay, inputs);
+
+      return {
+        day,
+        useNowStat,
+        waitStat,
+        difference: waitStat - useNowStat,
+        useNowBookActive: isBookActiveAtDay(day, 0, inputs.bookDurationDays),
+        waitBookActive: isBookActiveAtDay(day, delayedBookStartDay, inputs.bookDurationDays),
+        trainsConsumed: completeTrains(inputs.dailyEnergy * day, inputs.energyPerTrain),
+      };
+    });
+}
+
+function findDelayedBookStartDay(inputs: BookTimingComparisonInputs): number | null {
+  if (inputs.delayedBookTargetStat <= inputs.lowStat) {
+    return 0;
+  }
+
+  const maxTrains = completeTrains(inputs.dailyEnergy * inputs.graphDurationDays, inputs.energyPerTrain);
+  let stat = inputs.lowStat;
+  const perkMultiplier = perkProductFromPercents(inputs);
+
+  for (let trainNumber = 1; trainNumber <= maxTrains; trainNumber += 1) {
+    stat += gainPerTrain(stat, inputs, perkMultiplier, false);
+    if (stat >= inputs.delayedBookTargetStat) {
+      return trainNumber * inputs.energyPerTrain / inputs.dailyEnergy;
+    }
+  }
+
+  return null;
+}
+
+function calculateBookTimingImpact(
+  inputs: BookTimingComparisonInputs,
+  bookStartDay: number,
+): BookTimingBookImpact {
+  const bookEndDay = bookStartDay + inputs.bookDurationDays;
+  const startStat = statAtBookTimingDay(inputs.lowStat, bookStartDay, null, inputs);
+  const withBookStat = statAtBookTimingDay(inputs.lowStat, bookEndDay, bookStartDay, inputs);
+  const withoutBookStat = statAtBookTimingDay(inputs.lowStat, bookEndDay, null, inputs);
+  const extraGain = withBookStat - withoutBookStat;
+
+  return {
+    startDay: bookStartDay,
+    endDay: bookEndDay,
+    startStat,
+    extraGain,
+    percentGain: startStat > 0 ? extraGain / startStat * 100 : null,
+  };
+}
+
+function emptyBookTimingImpact(): BookTimingBookImpact {
+  return {
+    startDay: null,
+    endDay: null,
+    startStat: null,
+    extraGain: null,
+    percentGain: null,
+  };
+}
+
+function statAtBookTimingDay(
+  startingStat: number,
+  day: number,
+  bookStartDay: number | null,
+  inputs: BookTimingComparisonInputs,
+): number {
+  const perkMultiplier = perkProductFromPercents(inputs);
+  const trains = completeTrains(inputs.dailyEnergy * Math.max(0, day), inputs.energyPerTrain);
+  let stat = startingStat;
+
+  for (let index = 0; index < trains; index += 1) {
+    const trainDay = (index + 1) * inputs.energyPerTrain / inputs.dailyEnergy;
+    stat += gainPerTrain(stat, inputs, perkMultiplier, isBookActiveForTrain(trainDay, bookStartDay, inputs.bookDurationDays));
+  }
+
+  return stat;
+}
+
+function isBookActiveForTrain(trainDay: number, bookStartDay: number | null, bookDurationDays: number): boolean {
+  return bookStartDay !== null && trainDay > bookStartDay + 1e-10 && trainDay <= bookStartDay + bookDurationDays + 1e-10;
+}
+
+function isBookActiveAtDay(day: number, bookStartDay: number | null, bookDurationDays: number): boolean {
+  return bookStartDay !== null && day > bookStartDay && day <= bookStartDay + bookDurationDays;
+}
+
 export function calculateFhcPlan(inputs: BookStrategyInputs): FhcPlan {
   const initialFhcs = Math.floor(inputs.maxBoosterCooldownHours / inputs.fhcCooldownHours);
   const bookHours = inputs.bookDurationDays * 24;
@@ -241,6 +467,10 @@ export function calculateFhcPlan(inputs: BookStrategyInputs): FhcPlan {
 }
 
 export function perkProduct(inputs: BookStrategyInputs): number {
+  return perkProductFromPercents(inputs);
+}
+
+function perkProductFromPercents(inputs: PerkPercentInputs): number {
   return [
     inputs.privateIslandPercent,
     inputs.generalEducationPercent,
@@ -260,7 +490,7 @@ export function effectiveStat(stat: number): number {
 
 export function gainPerTrain(
   stat: number,
-  inputs: BookStrategyInputs,
+  inputs: GymFormulaInputs,
   perkMultiplier: number,
   bookActive: boolean,
 ): number {

@@ -10899,6 +10899,34 @@ tbody tr:not(.attack-row):hover td {
   align-items: start;
 }
 
+.book-strategy-mode-tabs {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  justify-self: start;
+  width: min(100%, 340px);
+  padding: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--panel-muted-bg);
+}
+
+.book-strategy-mode-tabs button {
+  min-height: 34px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.book-strategy-mode-tabs button.active {
+  background: var(--panel-bg-solid);
+  color: var(--accent-strong);
+  box-shadow: var(--shadow-panel);
+}
+
 .book-strategy-controls {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);

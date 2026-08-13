@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateBookTimingComparison,
   calculateBookStrategy,
   calculateFhcPlan,
+  defaultBookTimingComparisonInputs,
   defaultBookStrategyInputs,
   findEnhancerLeadMilestone,
   perkProduct,
@@ -123,5 +125,70 @@ describe("book strategy calculator", () => {
     expect(result.fhcPlan.cost).toBe(131);
     expect(result.enhancerUse.enhancersUsed).toBe(0);
     expect(result.enhancerUse.day).toBeNull();
+  });
+
+  it("compares book timing with the same flat energy timeline", () => {
+    const result = calculateBookTimingComparison(defaultBookTimingComparisonInputs);
+
+    expect(result.delayedBookStartDay).not.toBeNull();
+    expect(result.delayedBookStartDay ?? 0).toBeGreaterThan(0);
+    expect(result.delayedBookStartDay ?? 0).toBeLessThan(450);
+    expect(result.totalTrains).toBe(Math.floor(1_620 * 450 / 50));
+    expect(result.endpoint.trainsConsumed).toBe(result.totalTrains);
+  });
+
+  it("starts the immediate book at day 0 and delayed book at the target stat", () => {
+    const result = calculateBookTimingComparison(defaultBookTimingComparisonInputs);
+    const delayedStartPoint = result.series.find((point) =>
+      Math.abs(point.day - (result.delayedBookStartDay ?? 0)) < 0.000001,
+    );
+
+    expect(result.immediateBook.startDay).toBe(0);
+    expect(result.immediateBook.endDay).toBe(defaultBookTimingComparisonInputs.bookDurationDays);
+    expect(result.delayedBook.startDay).toBe(result.delayedBookStartDay);
+    expect(result.delayedBook.startStat ?? 0).toBeGreaterThanOrEqual(500_000_000);
+    expect(delayedStartPoint?.waitBookActive).toBe(false);
+  });
+
+  it("does not apply starting energy or a fresh delayed-book energy stack", () => {
+    const noBookResult = calculateBookTimingComparison({
+      ...defaultBookTimingComparisonInputs,
+      bookBonusPercent: 0,
+    });
+
+    expect(noBookResult.series[0]).toMatchObject({
+      day: 0,
+      trainsConsumed: 0,
+      useNowStat: defaultBookTimingComparisonInputs.lowStat,
+      waitStat: defaultBookTimingComparisonInputs.lowStat,
+    });
+    expect(noBookResult.endpoint.useNowStat).toBeCloseTo(noBookResult.endpoint.waitStat, 5);
+  });
+
+  it("reports timing book gains as percent of stat at book start", () => {
+    const result = calculateBookTimingComparison(defaultBookTimingComparisonInputs);
+
+    expect(result.immediateBook.extraGain ?? 0).toBeGreaterThan(0);
+    expect(result.delayedBook.extraGain ?? 0).toBeGreaterThan(0);
+    expect(result.immediateBook.percentGain).toBeCloseTo(
+      ((result.immediateBook.extraGain ?? 0) / (result.immediateBook.startStat ?? 1)) * 100,
+      8,
+    );
+    expect(result.delayedBook.percentGain).toBeCloseTo(
+      ((result.delayedBook.extraGain ?? 0) / (result.delayedBook.startStat ?? 1)) * 100,
+      8,
+    );
+  });
+
+  it("handles book timing targets that are not reached in the graph range", () => {
+    const result = calculateBookTimingComparison({
+      ...defaultBookTimingComparisonInputs,
+      delayedBookTargetStat: 10_000_000_000_000,
+    });
+
+    expect(result.delayedBookStartDay).toBeNull();
+    expect(result.delayedBook.startDay).toBeNull();
+    expect(result.delayedBook.percentGain).toBeNull();
+    expect(result.series.every((point) => !point.waitBookActive)).toBe(true);
   });
 });
