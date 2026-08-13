@@ -283,6 +283,56 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).toContain("Faction: None");
   });
 
+  it("does not expose internal returned-period wording for missing personal stat history", async () => {
+    mocks.lookupTornPlayer.mockResolvedValue({
+      profile: {
+        id: 4_099_656,
+        name: "Kagomay34",
+        level: 100,
+        rank: "Absolute beginner",
+        title: "Pilot",
+        age: 3000,
+        factionId: null,
+        factionName: null,
+        propertyName: "Private Island",
+        spouseName: null,
+        spouseId: null,
+        daysMarried: null,
+        awards: 250,
+        statusState: null,
+        statusDescription: null,
+        lastActionStatus: null,
+        lastActionTimestamp: null,
+      },
+      job: {
+        companyType: null,
+        companyRating: null,
+        companyId: null,
+      },
+      currentStats: {},
+      previousStats: {},
+      averages: [
+        { key: "traveltimes", current: 106, previous: null, delta: null, periodDays: null, averagePerDay: null },
+      ],
+      windowDays: 30,
+      currentTimestamp: 1_800_000_000,
+      previousTimestamp: 1_797_408_000,
+    });
+
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      data: {
+        name: "lookup",
+        options: [
+          { type: 4, name: "player_id", value: 4_099_656 },
+        ],
+      },
+    }, fakeDiscordEnv());
+
+    expect(response.data?.embeds?.[0]?.description).toContain("Travel Times/day: Unknown (106 current)");
+    expect(response.data?.embeds?.[0]?.description).not.toContain("returned period Unknown");
+  });
+
   it("does not route the removed war slash command", async () => {
     const response = await handleVerifiedDiscordInteraction({
       type: 2,

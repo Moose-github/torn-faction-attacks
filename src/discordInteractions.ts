@@ -1322,8 +1322,11 @@ function periodStatLine(
   deltaFormatter: (value: unknown) => string = integerField,
 ): string {
   const average = averages.find((item) => item.key === key);
+  if (!average || average.current === null) {
+    return `${label}/day: Unknown`;
+  }
   if (!average || average.averagePerDay === null || average.delta === null || average.periodDays === null) {
-    return `${label}/day: Unknown (${currentValue(average)} current, returned period Unknown)`;
+    return `${label}/day: Unknown (${deltaFormatter(average.current)} current)`;
   }
   return `${label}/day: ${averageFormatter(average.averagePerDay)} (${deltaFormatter(average.delta)} over ${integerField(average.periodDays)} days)`;
 }
