@@ -75,6 +75,17 @@ describe("book strategy calculator", () => {
     expect(milestone?.lead).toBeGreaterThanOrEqual(100_000_000);
   });
 
+  it("uses the milestone horizon when the prerequisite overtake is delayed", () => {
+    const milestone = findEnhancerLeadMilestone({
+      ...defaultBookStrategyInputs,
+      investmentEnabled: true,
+      statEnhancerPrice: 1_200_000_000,
+    }, 1, 3_650);
+
+    expect(milestone?.day).toBeGreaterThan(defaultBookStrategyInputs.bookDurationDays + 730);
+    expect(milestone?.lead).toBeGreaterThanOrEqual(1);
+  });
+
   it("matches the 4b example without investment growth", () => {
     const result = calculateBookStrategy({
       ...defaultBookStrategyInputs,

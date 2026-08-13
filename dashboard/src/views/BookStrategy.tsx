@@ -26,6 +26,7 @@ import { CollapsiblePanel, PanelHeader } from "../components/Common";
 import {
   calculateBookStrategy,
   defaultBookStrategyInputs,
+  findEnhancerLeadMilestone,
   type BookStrategyInputs,
   type BookStrategyPoint,
   type BookStrategyResult,
@@ -38,6 +39,8 @@ type PopoutKind = "energy" | "perks" | "investment" | "prices";
 
 const CHART_Y_AXIS_WIDTH = 58;
 const CHART_RIGHT_MARGIN = 18;
+const LEAD_MILESTONE_TARGET = 100_000_000;
+const LEAD_MILESTONE_MAX_DAY = 3_650;
 
 type ChartClickState = {
   activeLabel?: number | string | null;
@@ -81,6 +84,8 @@ export function BookStrategy() {
   const [isDraggingEnhancerDay, setIsDraggingEnhancerDay] = React.useState(false);
   const [chartWidth, setChartWidth] = React.useState(0);
   const chartRef = React.useRef<HTMLDivElement | null>(null);
+  const pendingDragClientXRef = React.useRef<number | null>(null);
+  const dragAnimationFrameRef = React.useRef<number | null>(null);
   const inputs = React.useMemo(() => inputsFromForm(form, energyMode), [energyMode, form]);
   const result = React.useMemo(() => calculateBookStrategy(inputs), [inputs]);
   const enhancerMarkerDay = result.enhancerUse.day;
@@ -114,11 +119,16 @@ export function BookStrategy() {
     }
 
     const day = clampNumber(rawDay, result.inputs.bookDurationDays, result.inputs.graphDurationDays);
-    setForm((current) => ({
-      ...current,
-      enhancerMode: "targetDay",
-      enhancerTargetDay: formatDayInput(day),
-    }));
+    const formattedDay = formatDayInput(day);
+    setForm((current) => (
+      current.enhancerMode === "targetDay" && current.enhancerTargetDay === formattedDay
+        ? current
+        : {
+            ...current,
+            enhancerMode: "targetDay",
+            enhancerTargetDay: formattedDay,
+          }
+    ));
   }, [result.inputs.bookDurationDays, result.inputs.graphDurationDays]);
 
   const updateEnhancerTargetFromClientX = React.useCallback((clientX: number) => {
@@ -133,6 +143,35 @@ export function BookStrategy() {
     const rawDay = rawRatio * result.inputs.graphDurationDays;
     setEnhancerTargetDay(Math.round(rawDay));
   }, [result.inputs.graphDurationDays, setEnhancerTargetDay]);
+
+  const scheduleEnhancerTargetFromClientX = React.useCallback((clientX: number) => {
+    pendingDragClientXRef.current = clientX;
+    if (dragAnimationFrameRef.current !== null) {
+      return;
+    }
+
+    dragAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      dragAnimationFrameRef.current = null;
+      const nextClientX = pendingDragClientXRef.current;
+      pendingDragClientXRef.current = null;
+      if (nextClientX !== null) {
+        updateEnhancerTargetFromClientX(nextClientX);
+      }
+    });
+  }, [updateEnhancerTargetFromClientX]);
+
+  const flushScheduledEnhancerTarget = React.useCallback(() => {
+    if (dragAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragAnimationFrameRef.current);
+      dragAnimationFrameRef.current = null;
+    }
+
+    const nextClientX = pendingDragClientXRef.current;
+    pendingDragClientXRef.current = null;
+    if (nextClientX !== null) {
+      updateEnhancerTargetFromClientX(nextClientX);
+    }
+  }, [updateEnhancerTargetFromClientX]);
 
   const handleChartClick = React.useCallback((state: unknown) => {
     const chartState = state as ChartClickState;
@@ -162,10 +201,11 @@ export function BookStrategy() {
     }
 
     function handlePointerMove(event: PointerEvent) {
-      updateEnhancerTargetFromClientX(event.clientX);
+      scheduleEnhancerTargetFromClientX(event.clientX);
     }
 
     function handlePointerUp() {
+      flushScheduledEnhancerTarget();
       setIsDraggingEnhancerDay(false);
     }
 
@@ -173,10 +213,15 @@ export function BookStrategy() {
     window.addEventListener("pointerup", handlePointerUp, { once: true });
 
     return () => {
+      if (dragAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragAnimationFrameRef.current);
+        dragAnimationFrameRef.current = null;
+      }
+      pendingDragClientXRef.current = null;
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [isDraggingEnhancerDay, updateEnhancerTargetFromClientX]);
+  }, [flushScheduledEnhancerTarget, isDraggingEnhancerDay, scheduleEnhancerTargetFromClientX]);
 
   return (
     <>
@@ -461,9 +506,39 @@ export function BookStrategy() {
 }
 
 function SummaryPanel({ result }: { result: BookStrategyResult }) {
+  const earliestInputs = React.useMemo<BookStrategyInputs>(() => ({
+    ...result.inputs,
+    enhancerUseMode: { kind: "earliestOvertake" },
+  }), [
+    result.inputs.startingStat,
+    result.inputs.dailyEnergy,
+    result.inputs.startingEnergy,
+    result.inputs.happiness,
+    result.inputs.privateIslandPercent,
+    result.inputs.generalEducationPercent,
+    result.inputs.statEducationPercent,
+    result.inputs.steadfastPercent,
+    result.inputs.customPerksPercent,
+    result.inputs.statEnhancerPrice,
+    result.inputs.fhcPrice,
+    result.inputs.investmentEnabled,
+    result.inputs.annualRoiPercent,
+    result.inputs.graphDurationDays,
+    result.inputs.bookDurationDays,
+    result.inputs.bookBonusPercent,
+    result.inputs.gymMultiplier,
+    result.inputs.energyPerTrain,
+    result.inputs.fhcEnergy,
+    result.inputs.fhcCooldownHours,
+    result.inputs.maxBoosterCooldownHours,
+  ]);
   const earliestResult = React.useMemo(
-    () => calculateBookStrategy({ ...result.inputs, enhancerUseMode: { kind: "earliestOvertake" } }),
-    [result.inputs],
+    () => calculateBookStrategy(earliestInputs),
+    [earliestInputs],
+  );
+  const leadMilestone = React.useMemo(
+    () => findEnhancerLeadMilestone(earliestInputs, LEAD_MILESTONE_TARGET, LEAD_MILESTONE_MAX_DAY),
+    [earliestInputs],
   );
   const enhancerDetail = result.enhancerUse.day === null
     ? "No overtake in range"
@@ -493,10 +568,13 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
     earliestResult.enhancerUse.day === null
       ? `Enhancers ${enhancerBudgetAction} ${formatMoney(result.fhcPlan.cost)} ${enhancerBudgetDetail} and do not break even in the simulated range.`
       : `Enhancers ${enhancerBudgetAction} ${formatMoney(result.fhcPlan.cost)} ${enhancerBudgetDetail} and break even on day ${formatCompact(earliestResult.enhancerUse.day)} by purchasing ${formatCompact(earliestResult.enhancerUse.enhancersUsed)} enhancers for ${formatMoney(earliestEnhancerSpend)}.`,
+    leadMilestone === null
+      ? null
+      : `Enhancers hit +${formatStat(LEAD_MILESTONE_TARGET)} lead on day ${formatCompact(leadMilestone.day)}.`,
     earliestResult.enhancerUse.day === null
       ? "No Enhancers lead is reached with the current inputs."
       : "From that point onward, the Enhancers lead continues to grow.",
-  ];
+  ].filter((line): line is string => line !== null);
 
   return (
     <section className="panel book-strategy-summary-panel">

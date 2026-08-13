@@ -148,7 +148,7 @@ export function findEnhancerLeadMilestone(
   const fhcPlan = calculateFhcPlan(inputs);
   const bookEnd = calculateBookEnd(inputs, perkMultiplier, fhcPlan);
   const bookState = createPostBookState(inputs, bookEnd, fhcPlan);
-  const enhancerUse = findEarliestOvertake(inputs, perkMultiplier, fhcPlan, bookState);
+  const enhancerUse = findEarliestOvertake(inputs, perkMultiplier, fhcPlan, bookState, cappedMaxDay);
   if (enhancerUse.day === null || enhancerUse.enhancersUsed <= 0 || enhancerUse.day > cappedMaxDay) {
     return null;
   }
@@ -329,8 +329,13 @@ function findEarliestOvertake(
   perkMultiplier: number,
   fhcPlan: FhcPlan,
   bookState: PostBookState,
+  searchMaxDay?: number,
 ): BookStrategyResult["enhancerUse"] {
-  const maxDay = Math.max(inputs.graphDurationDays, inputs.bookDurationDays + 730);
+  const defaultMaxDay = Math.max(inputs.graphDurationDays, inputs.bookDurationDays + 730);
+  const maxDay = Math.min(
+    MAX_SIMULATION_DAYS,
+    finiteAtLeast(searchMaxDay ?? defaultMaxDay, inputs.bookDurationDays),
+  );
   const maxEnhancers = affordableEnhancers(
     investmentBalanceAtDay(inputs, fhcPlan.cost, maxDay),
     inputs.statEnhancerPrice,
