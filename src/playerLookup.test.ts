@@ -48,21 +48,34 @@ describe("player lookup", () => {
   });
 
   it("fetches player info and current plus 30-day personal stats", async () => {
-    mocks.fetchTrackedTornJson.mockResolvedValue({
-      profile: {
-        id: 123,
-        name: "Alice",
-        level: 75,
-        rank: "Absolute beginner",
-        title: "Pilot",
-        age: 3000,
-        faction: { id: 8803, name: "Buttgrass" },
-        property: { name: "Private Island" },
-        spouse: { id: 456, name: "Bob", days_married: 789 },
-        awards: 250,
-        status: { state: "Okay", description: "Okay" },
-        last_action: { status: "Online", timestamp: 1_800_000_000 },
-      },
+    mocks.fetchTrackedTornJson.mockImplementation((_env, url) => {
+      if (String(url).endsWith("/job")) {
+        return Promise.resolve({
+          job: {
+            type: "company",
+            id: 987,
+            type_id: 29,
+            rating: 10,
+          },
+        });
+      }
+
+      return Promise.resolve({
+        profile: {
+          id: 123,
+          name: "Alice",
+          level: 75,
+          rank: "Absolute beginner",
+          title: "Pilot",
+          age: 3000,
+          faction: { id: 8803, name: "Buttgrass" },
+          property: { name: "Private Island" },
+          spouse: { id: 456, name: "Bob", days_married: 789 },
+          awards: 250,
+          status: { state: "Okay", description: "Okay" },
+          last_action: { status: "Online", timestamp: 1_800_000_000 },
+        },
+      });
     });
     mocks.fetchTornPersonalStatsWithTimestamps
       .mockResolvedValueOnce({
@@ -89,7 +102,7 @@ describe("player lookup", () => {
 
     expect(mocks.runWithTornKeyPool).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       feature: "enemy_scouting",
-      usageCount: 3,
+      usageCount: 4,
     }));
     expect(mocks.fetchTrackedTornJson).toHaveBeenCalledWith(
       expect.anything(),
@@ -104,6 +117,20 @@ describe("player lookup", () => {
         keySource: "key_pool:key-1",
       }),
       expect.objectContaining({ service: "Torn player lookup" }),
+    );
+    expect(mocks.fetchTrackedTornJson).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ href: "https://api.torn.com/v2/user/123/job" }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "ApiKey api-key-1",
+        }),
+      }),
+      expect.objectContaining({
+        feature: "player-lookup:job",
+        keySource: "key_pool:key-1",
+      }),
+      expect.objectContaining({ service: "Torn player job" }),
     );
     expect(mocks.fetchTornPersonalStatsWithTimestamps).toHaveBeenNthCalledWith(
       1,
@@ -127,6 +154,11 @@ describe("player lookup", () => {
       },
     );
     expect(result.profile.name).toBe("Alice");
+    expect(result.job).toEqual({
+      companyType: "Fitness Center",
+      companyRating: 10,
+      companyId: 987,
+    });
     expect(result.averages.find((average) => average.key === "xantaken")?.periodDays).toBe(20);
     expect(result.averages.find((average) => average.key === "xantaken")?.averagePerDay).toBe(1.5);
     expect(result.averages.find((average) => average.key === "timeplayed")?.averagePerDay).toBe(12960);

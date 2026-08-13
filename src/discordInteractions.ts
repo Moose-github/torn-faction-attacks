@@ -1286,7 +1286,8 @@ function playerLookupDescription(lookup: PlayerLookupResult): string {
     `${textField(profile.rank)}${profile.title ? ` ${profile.title}` : ""}`,
     "",
     `Age: ${integerOrUnknown(profile.age)}`,
-    `Faction: ${idOrUnknown(profile.factionId)}`,
+    `Job: ${jobField(lookup.job)}`,
+    `Faction: ${factionField(profile.factionId)}`,
     `Property: ${textField(profile.propertyName)}`,
     `Spouse: ${spouseField(profile)}`,
     `Awards: ${integerOrUnknown(profile.awards)}`,
@@ -1299,7 +1300,7 @@ function playerLookupDescription(lookup: PlayerLookupResult): string {
 }
 
 function playerHeaderLine(profile: TornPlayerLookupProfile): string {
-  return `${profile.name}[${profile.id}] lvl ${integerOrUnknown(profile.level)}`;
+  return `${profile.name} [${profile.id}] lvl ${integerOrUnknown(profile.level)}`;
 }
 
 function playerPersonalStatLines(averages: PlayerLookupDailyAverage[]): string[] {
@@ -1356,6 +1357,20 @@ function currentValue(
 
 function spouseField(profile: TornPlayerLookupProfile): string {
   return `${textField(profile.spouseName)}[${idOrUnknown(profile.spouseId)}] ${integerOrUnknown(profile.daysMarried)} days`;
+}
+
+function jobField(job: PlayerLookupResult["job"]): string {
+  if (!job.companyType) {
+    return "None";
+  }
+
+  return job.companyRating === null
+    ? job.companyType
+    : `${integerField(job.companyRating)}* ${job.companyType}`;
+}
+
+function factionField(value: unknown): string {
+  return value === null || value === undefined ? "None" : idOrUnknown(value);
 }
 
 function textField(value: string | null): string {

@@ -3,6 +3,7 @@ import {
   fetchTornPersonalStatsWithTimestamps,
   type TornPersonalStatsResponse,
 } from "./personalStats";
+import { parseTornUserJobCompanySnapshot } from "./enemyCompany";
 import { runWithTornKeyPool } from "./tornKeyPool";
 import type { Env } from "./types";
 import { finiteNumber, nowSeconds } from "./utils";
@@ -69,8 +70,15 @@ export type PlayerLookupDailyAverage = {
   averagePerDay: number | null;
 };
 
+export type TornPlayerLookupJob = {
+  companyType: string | null;
+  companyRating: number | null;
+  companyId: number | null;
+};
+
 export type PlayerLookupResult = {
   profile: TornPlayerLookupProfile;
+  job: TornPlayerLookupJob;
   currentStats: TornPersonalStatsResponse;
   previousStats: TornPersonalStatsResponse;
   averages: PlayerLookupDailyAverage[];
@@ -87,10 +95,11 @@ export async function lookupTornPlayer(
   const previousTimestamp = currentTimestamp - THIRTY_DAYS_SECONDS;
   const output = await runWithTornKeyPool(env, {
     feature: "enemy_scouting",
-    usageCount: 3,
+    usageCount: 4,
     run: async ({ key, keySource }) => {
-      const [profile, currentStats, previousStats] = await Promise.all([
+      const [profile, job, currentStats, previousStats] = await Promise.all([
         fetchTornPlayerProfile(env, playerId, { apiKey: key, keySource }),
+        fetchTornPlayerJob(env, playerId, { apiKey: key, keySource }),
         fetchTornPersonalStatsWithTimestamps(env, playerId, PLAYER_LOOKUP_PERSONAL_STAT_KEYS, {
           apiKey: key,
           keySource,
@@ -104,6 +113,7 @@ export async function lookupTornPlayer(
 
       return {
         profile,
+        job,
         currentStats,
         previousStats,
         averages: buildPlayerLookupAverages(currentStats, previousStats, currentTimestamp),
@@ -141,6 +151,41 @@ export async function fetchTornPlayerProfile(
   );
 
   return normalizeTornPlayerProfile(data, playerId);
+}
+
+export async function fetchTornPlayerJob(
+  env: Env,
+  playerId: number,
+  options: { apiKey: string; keySource: string },
+): Promise<TornPlayerLookupJob> {
+  const url = new URL(`${TORN_USER_API_BASE_URL}/${playerId}/job`);
+  const data = await fetchTrackedTornJson<unknown>(
+    env,
+    url,
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: `ApiKey ${options.apiKey}`,
+      },
+    },
+    {
+      feature: "player-lookup:job",
+      keySource: options.keySource,
+      timeoutMs: PLAYER_LOOKUP_FETCH_TIMEOUT_MS,
+    },
+    { service: "Torn player job" },
+  );
+
+  return normalizeTornPlayerJob(data);
+}
+
+export function normalizeTornPlayerJob(data: unknown): TornPlayerLookupJob {
+  const snapshot = parseTornUserJobCompanySnapshot(data);
+  return {
+    companyType: snapshot.company_type,
+    companyRating: snapshot.company_rating,
+    companyId: snapshot.company_id,
+  };
 }
 
 export function buildPlayerLookupAverages(
