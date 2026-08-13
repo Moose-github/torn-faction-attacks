@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  fetchBspBattlestatJson: vi.fn(),
+  fetchFfscouterStatsJson: vi.fn(),
   fetchTornPersonalStatsWithTimestamps: vi.fn(),
   fetchTrackedTornJson: vi.fn(),
   runWithTornKeyPool: vi.fn(),
+}));
+
+vi.mock("./external/bsp", () => ({
+  fetchBspBattlestatJson: mocks.fetchBspBattlestatJson,
+}));
+
+vi.mock("./external/ffscouter", () => ({
+  fetchFfscouterStatsJson: mocks.fetchFfscouterStatsJson,
 }));
 
 vi.mock("./external/torn", () => ({
@@ -21,6 +31,7 @@ vi.mock("./tornKeyPool", () => ({
 import {
   PLAYER_LOOKUP_HISTORICAL_STAT_KEYS,
   PLAYER_LOOKUP_PERSONAL_STAT_KEYS,
+  fetchPlayerLookupBattleStats,
   lookupTornPlayer,
   normalizeTornPlayerProfile,
 } from "./playerLookup";
@@ -97,8 +108,19 @@ describe("player lookup", () => {
         traveltimes: { value: 370, timestamp: 1_798_272_000 },
         attackswon: { value: 410, timestamp: 1_798_272_000 },
       });
+    mocks.fetchBspBattlestatJson.mockResolvedValue({ Result: 1, TBS: 9_876_543_210, Reason: "Estimated from spies" });
+    mocks.fetchFfscouterStatsJson.mockResolvedValue({
+      stats: {
+        123: {
+          total: 8_765_432_100,
+        },
+      },
+    });
 
-    const result = await lookupTornPlayer({} as any, 123, 1_800_000_000);
+    const result = await lookupTornPlayer({
+      BSP_TORN_API_KEY: "bsp-key-1",
+      FFSCOUTER_API_KEY: "ff-key-1",
+    } as any, 123, 1_800_000_000);
 
     expect(mocks.runWithTornKeyPool).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       feature: "enemy_scouting",
@@ -153,11 +175,18 @@ describe("player lookup", () => {
         keySource: "key_pool:key-1",
       },
     );
+    expect(mocks.fetchBspBattlestatJson).toHaveBeenCalledWith("bsp-key-1", 123, 12_000);
+    expect(mocks.fetchFfscouterStatsJson).toHaveBeenCalledWith("ff-key-1", [123], 12_000);
     expect(result.profile.name).toBe("Alice");
     expect(result.job).toEqual({
       companyType: "Fitness Center",
       companyRating: 10,
       companyId: 987,
+    });
+    expect(result.battleStats).toEqual({
+      bspBattlestats: 9_876_543_210,
+      bspSubscriptionExpired: false,
+      ffBattlestats: 8_765_432_100,
     });
     expect(result.averages.find((average) => average.key === "xantaken")?.periodDays).toBe(20);
     expect(result.averages.find((average) => average.key === "xantaken")?.averagePerDay).toBe(1.5);
@@ -198,6 +227,25 @@ describe("player lookup", () => {
       daysMarried: 100,
       awards: 42,
       lastActionStatus: "Idle",
+    });
+  });
+
+  it("detects an expired BSP subscription from the BSP result and reason", async () => {
+    mocks.fetchBspBattlestatJson.mockResolvedValue({
+      Result: 0,
+      Reason: "TBS Predictor subscription expired. Check settings panel for more info",
+    });
+    mocks.fetchFfscouterStatsJson.mockResolvedValue({});
+
+    const result = await fetchPlayerLookupBattleStats({
+      BSP_TORN_API_KEY: "bsp-key-1",
+      FFSCOUTER_API_KEY: "ff-key-1",
+    } as any, 123);
+
+    expect(result).toEqual({
+      bspBattlestats: null,
+      bspSubscriptionExpired: true,
+      ffBattlestats: null,
     });
   });
 });

@@ -179,6 +179,11 @@ describe("Discord interactions", () => {
         companyRating: 10,
         companyId: 987,
       },
+      battleStats: {
+        bspBattlestats: 9_876_543_210,
+        bspSubscriptionExpired: false,
+        ffBattlestats: 8_765_432_100,
+      },
       currentStats: {},
       previousStats: {},
       averages: [
@@ -214,6 +219,9 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description?.startsWith("**Alice [123] lvl 75**\nAbsolute beginner Pilot")).toBe(true);
     expect(response.data?.embeds?.[0]?.description).toContain("Absolute beginner Pilot");
     expect(response.data?.embeds?.[0]?.description).toContain("Age: 3,000");
+    expect(response.data?.embeds?.[0]?.description).toContain("BSP Stats: 9,876,543,210");
+    expect(response.data?.embeds?.[0]?.description).not.toContain("Estimated from spies");
+    expect(response.data?.embeds?.[0]?.description).toContain("FF Stats: 8,765,432,100");
     expect(response.data?.embeds?.[0]?.description).toContain("Job: 10* Fitness Center");
     expect(response.data?.embeds?.[0]?.description).toContain("Faction: 8803");
     expect(response.data?.embeds?.[0]?.description).toContain("Property: Private Island");
@@ -221,6 +229,7 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).toContain("Awards: 250");
     expect(response.data?.embeds?.[0]?.description).toContain("ActivityStreak: 45(current) - 120(best)");
     expect(response.data?.embeds?.[0]?.description).toContain("Networth: $2,000,000");
+    expect(response.data?.embeds?.[0]?.description).toContain("Battle Stats:");
     expect(response.data?.embeds?.[0]?.description).toContain("Personal Stats:");
     expect(response.data?.embeds?.[0]?.description).toContain("Xanax/day: 2 (60 over 30 days)");
     expect(response.data?.embeds?.[0]?.description).toContain("Time Played/day: 2.4h (72h over 30 days)");
@@ -229,6 +238,14 @@ describe("Discord interactions", () => {
       .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("Job: 10* Fitness Center") ?? 0);
     expect(response.data?.embeds?.[0]?.description?.indexOf("Job: 10* Fitness Center"))
       .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("Faction: 8803") ?? 0);
+    expect(response.data?.embeds?.[0]?.description?.indexOf("Networth: $2,000,000"))
+      .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("Battle Stats:") ?? 0);
+    expect(response.data?.embeds?.[0]?.description?.indexOf("Battle Stats:"))
+      .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("BSP Stats: 9,876,543,210") ?? 0);
+    expect(response.data?.embeds?.[0]?.description?.indexOf("BSP Stats: 9,876,543,210"))
+      .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("FF Stats: 8,765,432,100") ?? 0);
+    expect(response.data?.embeds?.[0]?.description?.indexOf("FF Stats: 8,765,432,100"))
+      .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("Personal Stats:") ?? 0);
     expect(response.data?.embeds?.[0]?.description?.indexOf("ActivityStreak: 45(current) - 120(best)"))
       .toBeLessThan(response.data?.embeds?.[0]?.description?.indexOf("Personal Stats:") ?? 0);
     expect(response.data?.embeds?.[0]?.description?.indexOf("Networth: $2,000,000"))
@@ -260,6 +277,11 @@ describe("Discord interactions", () => {
         companyType: null,
         companyRating: null,
         companyId: null,
+      },
+      battleStats: {
+        bspBattlestats: null,
+        bspSubscriptionExpired: false,
+        ffBattlestats: null,
       },
       currentStats: {},
       previousStats: {},
@@ -309,6 +331,11 @@ describe("Discord interactions", () => {
         companyRating: null,
         companyId: null,
       },
+      battleStats: {
+        bspBattlestats: null,
+        bspSubscriptionExpired: false,
+        ffBattlestats: null,
+      },
       currentStats: {},
       previousStats: {},
       averages: [
@@ -331,6 +358,58 @@ describe("Discord interactions", () => {
 
     expect(response.data?.embeds?.[0]?.description).toContain("Travel Times/day: Unknown (106 current)");
     expect(response.data?.embeds?.[0]?.description).not.toContain("returned period Unknown");
+  });
+
+  it("shows a friendly BSP subscription expired message", async () => {
+    mocks.lookupTornPlayer.mockResolvedValue({
+      profile: {
+        id: 4_099_656,
+        name: "Kagomay34",
+        level: 100,
+        rank: "Absolute beginner",
+        title: "Pilot",
+        age: 3000,
+        factionId: null,
+        factionName: null,
+        propertyName: "Private Island",
+        spouseName: null,
+        spouseId: null,
+        daysMarried: null,
+        awards: 250,
+        statusState: null,
+        statusDescription: null,
+        lastActionStatus: null,
+        lastActionTimestamp: null,
+      },
+      job: {
+        companyType: null,
+        companyRating: null,
+        companyId: null,
+      },
+      battleStats: {
+        bspBattlestats: null,
+        bspSubscriptionExpired: true,
+        ffBattlestats: null,
+      },
+      currentStats: {},
+      previousStats: {},
+      averages: [],
+      windowDays: 30,
+      currentTimestamp: 1_800_000_000,
+      previousTimestamp: 1_797_408_000,
+    });
+
+    const response = await handleVerifiedDiscordInteraction({
+      type: 2,
+      data: {
+        name: "lookup",
+        options: [
+          { type: 4, name: "player_id", value: 4_099_656 },
+        ],
+      },
+    }, fakeDiscordEnv());
+
+    expect(response.data?.embeds?.[0]?.description).toContain("BSP Stats: Moose's subscription expired");
   });
 
   it("does not route the removed war slash command", async () => {

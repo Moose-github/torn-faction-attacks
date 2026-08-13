@@ -1,4 +1,6 @@
 import { fetchTrackedTornJson } from "./external/torn";
+import { fetchBspBattlestatJson } from "./external/bsp";
+import { fetchFfscouterStatsJson } from "./external/ffscouter";
 import {
   fetchTornPersonalStatsWithTimestamps,
   type TornPersonalStatsResponse,
@@ -76,9 +78,16 @@ export type TornPlayerLookupJob = {
   companyId: number | null;
 };
 
+export type PlayerLookupBattleStats = {
+  bspBattlestats: number | null;
+  bspSubscriptionExpired: boolean;
+  ffBattlestats: number | null;
+};
+
 export type PlayerLookupResult = {
   profile: TornPlayerLookupProfile;
   job: TornPlayerLookupJob;
+  battleStats: PlayerLookupBattleStats;
   currentStats: TornPersonalStatsResponse;
   previousStats: TornPersonalStatsResponse;
   averages: PlayerLookupDailyAverage[];
@@ -97,9 +106,10 @@ export async function lookupTornPlayer(
     feature: "enemy_scouting",
     usageCount: 4,
     run: async ({ key, keySource }) => {
-      const [profile, job, currentStats, previousStats] = await Promise.all([
+      const [profile, job, battleStats, currentStats, previousStats] = await Promise.all([
         fetchTornPlayerProfile(env, playerId, { apiKey: key, keySource }),
         fetchTornPlayerJob(env, playerId, { apiKey: key, keySource }),
+        fetchPlayerLookupBattleStats(env, playerId),
         fetchTornPersonalStatsWithTimestamps(env, playerId, PLAYER_LOOKUP_PERSONAL_STAT_KEYS, {
           apiKey: key,
           keySource,
@@ -114,6 +124,7 @@ export async function lookupTornPlayer(
       return {
         profile,
         job,
+        battleStats,
         currentStats,
         previousStats,
         averages: buildPlayerLookupAverages(currentStats, previousStats, currentTimestamp),
@@ -186,6 +197,125 @@ export function normalizeTornPlayerJob(data: unknown): TornPlayerLookupJob {
     companyRating: snapshot.company_rating,
     companyId: snapshot.company_id,
   };
+}
+
+export async function fetchPlayerLookupBattleStats(
+  env: Env,
+  playerId: number,
+): Promise<PlayerLookupBattleStats> {
+  const [bsp, ffBattlestats] = await Promise.all([
+    fetchPlayerLookupBspBattlestats(env, playerId).catch(() => ({ stats: null, subscriptionExpired: false })),
+    fetchPlayerLookupFfBattlestats(env, playerId).catch(() => null),
+  ]);
+
+  return {
+    bspBattlestats: bsp.stats,
+    bspSubscriptionExpired: bsp.subscriptionExpired,
+    ffBattlestats,
+  };
+}
+
+async function fetchPlayerLookupBspBattlestats(env: Env, playerId: number): Promise<{ stats: number | null; subscriptionExpired: boolean }> {
+  if (!env.BSP_TORN_API_KEY) {
+    return { stats: null, subscriptionExpired: false };
+  }
+
+  return parseBspBattlestatPrediction(
+    await fetchBspBattlestatJson(env.BSP_TORN_API_KEY, playerId, PLAYER_LOOKUP_FETCH_TIMEOUT_MS),
+  );
+}
+
+async function fetchPlayerLookupFfBattlestats(env: Env, playerId: number): Promise<number | null> {
+  if (!env.FFSCOUTER_API_KEY) {
+    return null;
+  }
+
+  const estimates = extractFfBattlestatEstimates(
+    await fetchFfscouterStatsJson(env.FFSCOUTER_API_KEY, [playerId], PLAYER_LOOKUP_FETCH_TIMEOUT_MS),
+  );
+  return estimates.get(playerId)?.stats ?? null;
+}
+
+function parseBspBattlestatPrediction(data: any): { stats: number | null; subscriptionExpired: boolean } {
+  const prediction = parseBspBattlestatPayload(data);
+  const reason = cleanString(
+    prediction?.Reason ??
+    prediction?.reason ??
+    prediction?.Message ??
+    prediction?.message,
+  );
+  const result = Number.isFinite(Number(prediction?.Result)) ? Number(prediction.Result) : null;
+  const subscriptionExpired =
+    result === 0 &&
+    reason === "TBS Predictor subscription expired. Check settings panel for more info";
+  if (result === 0 || result === 4) {
+    return { stats: null, subscriptionExpired };
+  }
+
+  return {
+    stats: finiteNumber(prediction?.TBS),
+    subscriptionExpired,
+  };
+}
+
+function parseBspBattlestatPayload(data: any): any {
+  if (typeof data !== "string") {
+    return data;
+  }
+
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+}
+
+function extractFfBattlestatEstimates(data: any): Map<number, { stats: number }> {
+  const estimates = new Map<number, { stats: number }>();
+  const containers = [data?.stats, data?.data, data?.results, data];
+
+  for (const container of containers) {
+    if (!container) continue;
+
+    if (Array.isArray(container)) {
+      for (const item of container) {
+        addFfEstimate(estimates, item?.id ?? item?.player_id ?? item?.target, item);
+      }
+      continue;
+    }
+
+    if (typeof container === "object") {
+      for (const [key, value] of Object.entries(container)) {
+        addFfEstimate(estimates, key, value);
+      }
+    }
+  }
+
+  return estimates;
+}
+
+function addFfEstimate(estimates: Map<number, { stats: number }>, idValue: unknown, source: any) {
+  const memberId = Number(idValue);
+  if (!Number.isInteger(memberId) || memberId <= 0) {
+    return;
+  }
+
+  const stats =
+    source && typeof source === "object"
+      ? firstFiniteNumber(
+          source.total,
+          source.total_stats,
+          source.bs_estimate,
+          source.ff_battlestats,
+          source.battle_stats,
+          source.stats,
+          source.value,
+        )
+      : finiteNumber(source);
+
+  if (stats !== null) {
+    estimates.set(memberId, { stats });
+  }
 }
 
 export function buildPlayerLookupAverages(
@@ -311,6 +441,17 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function cleanString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function firstFiniteNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = finiteNumber(value);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+
+  return null;
 }
 
 function positiveInteger(value: unknown): number | null {

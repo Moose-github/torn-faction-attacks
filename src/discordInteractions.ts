@@ -1293,6 +1293,10 @@ function playerLookupDescription(lookup: PlayerLookupResult): string {
     activityStreakLine(lookup.averages),
     networthProfileLine(lookup.averages),
     "",
+    "Battle Stats:",
+    bspStatsLine(lookup.battleStats),
+    `FF Stats: ${integerOrUnknown(lookup.battleStats.ffBattlestats)}`,
+    "",
     "Personal Stats:",
     ...playerPersonalStatLines(lookup.averages),
   ].join("\n");
@@ -1348,6 +1352,14 @@ function activityStreakLine(averages: PlayerLookupDailyAverage[]): string {
 
 function networthProfileLine(averages: PlayerLookupDailyAverage[]): string {
   return currentProfileStatLine(averages, "networth", "Networth", currencyField);
+}
+
+function bspStatsLine(battleStats: PlayerLookupResult["battleStats"]): string {
+  if (battleStats.bspSubscriptionExpired) {
+    return "BSP Stats: Moose's subscription expired";
+  }
+
+  return `BSP Stats: ${integerOrUnknown(battleStats.bspBattlestats)}`;
 }
 
 function currentValue(
