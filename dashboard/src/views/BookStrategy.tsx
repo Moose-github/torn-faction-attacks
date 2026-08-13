@@ -46,7 +46,7 @@ type BookTimingPopoutKind = "energy" | "perks";
 
 const CHART_Y_AXIS_WIDTH = 58;
 const CHART_RIGHT_MARGIN = 18;
-const LEAD_MILESTONE_TARGET = 100_000_000;
+const LEAD_MILESTONE_TARGETS = [25_000_000, 50_000_000, 100_000_000] as const;
 const LEAD_MILESTONE_MAX_DAY = 3_650;
 
 type ChartClickState = {
@@ -99,9 +99,33 @@ type BookTimingForm = {
   bookBonusPercent: string;
 };
 
+type SharedPopoutField =
+  | "dailyEnergy"
+  | "naturalEnergy"
+  | "xanaxPerDay"
+  | "dailyRefill"
+  | "otherDailyEnergy"
+  | "privateIslandPercent"
+  | "generalEducationPercent"
+  | "statEducationPercent"
+  | "steadfastPercent"
+  | "customPerksPercent";
+
 const FIXED_ENERGY_PER_XANAX = 250;
 const DEFAULT_FORM = formFromInputs(defaultBookStrategyInputs);
 const DEFAULT_TIMING_FORM = timingFormFromInputs(defaultBookTimingComparisonInputs);
+const SHARED_POPOUT_FIELDS = new Set<string>([
+  "dailyEnergy",
+  "naturalEnergy",
+  "xanaxPerDay",
+  "dailyRefill",
+  "otherDailyEnergy",
+  "privateIslandPercent",
+  "generalEducationPercent",
+  "statEducationPercent",
+  "steadfastPercent",
+  "customPerksPercent",
+]);
 
 export function BookStrategy() {
   const [mode, setMode] = React.useState<BookStrategyMode>("enhancers");
@@ -127,12 +151,36 @@ export function BookStrategy() {
         Math.max(1, chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
       : null;
 
+  function isSharedPopoutField(field: PropertyKey): field is SharedPopoutField {
+    return typeof field === "string" && SHARED_POPOUT_FIELDS.has(field);
+  }
+
+  function updateSharedPopoutField(field: SharedPopoutField, value: string) {
+    setForm((current) => ({ ...current, [field]: value }));
+    setTimingForm((current) => ({ ...current, [field]: value }));
+  }
+
   function updateField<K extends keyof BookStrategyForm>(field: K, value: BookStrategyForm[K]) {
+    if (isSharedPopoutField(field) && typeof value === "string") {
+      updateSharedPopoutField(field, value);
+      return;
+    }
+
     setForm((current) => ({ ...current, [field]: value }));
   }
 
   function updateTimingField<K extends keyof BookTimingForm>(field: K, value: BookTimingForm[K]) {
+    if (isSharedPopoutField(field) && typeof value === "string") {
+      updateSharedPopoutField(field, value);
+      return;
+    }
+
     setTimingForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateSharedEnergyMode(nextMode: EnergyMode) {
+    setEnergyMode(nextMode);
+    setTimingEnergyMode(nextMode);
   }
 
   function resetDefaults() {
@@ -363,14 +411,14 @@ export function BookStrategy() {
                   <button
                     type="button"
                     className={energyMode === "total" ? "active" : ""}
-                    onClick={() => setEnergyMode("total")}
+                    onClick={() => updateSharedEnergyMode("total")}
                   >
                     Total
                   </button>
                   <button
                     type="button"
                     className={energyMode === "breakdown" ? "active" : ""}
-                    onClick={() => setEnergyMode("breakdown")}
+                    onClick={() => updateSharedEnergyMode("breakdown")}
                   >
                     Breakdown
                   </button>
@@ -569,7 +617,7 @@ export function BookStrategy() {
             openPopout={openTimingPopout}
             methodologyOpen={methodologyOpen}
             onFieldChange={updateTimingField}
-            onEnergyModeChange={setTimingEnergyMode}
+            onEnergyModeChange={updateSharedEnergyMode}
             onPopoutChange={setOpenTimingPopout}
             onMethodologyToggle={() => setMethodologyOpen((current) => !current)}
           />
@@ -706,17 +754,15 @@ function BookTimingComparisonView({
               <Tooltip content={<BookTimingTooltip />} />
               <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
               <ReferenceArea x1={0} x2={result.inputs.bookDurationDays} fill="#f59e0b" fillOpacity={0.12} />
-              {result.delayedBookStartDay !== null ? (
+              {result.delayedBookStartDay !== null && delayedBookEndDay !== null && result.delayedBookStartDay <= result.inputs.graphDurationDays ? (
                 <>
+                  <ReferenceArea
+                    x1={result.delayedBookStartDay}
+                    x2={Math.min(delayedBookEndDay, result.inputs.graphDurationDays)}
+                    fill="#22d3ee"
+                    fillOpacity={0.12}
+                  />
                   <ReferenceLine x={result.delayedBookStartDay} stroke="#22d3ee" strokeDasharray="4 4" />
-                  {delayedBookEndDay !== null && result.delayedBookStartDay <= result.inputs.graphDurationDays ? (
-                    <ReferenceArea
-                      x1={result.delayedBookStartDay}
-                      x2={Math.min(delayedBookEndDay, result.inputs.graphDurationDays)}
-                      fill="#22d3ee"
-                      fillOpacity={0.09}
-                    />
-                  ) : null}
                 </>
               ) : null}
               <Line
@@ -800,8 +846,11 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
     () => calculateBookStrategy(earliestInputs),
     [earliestInputs],
   );
-  const leadMilestone = React.useMemo(
-    () => findEnhancerLeadMilestone(earliestInputs, LEAD_MILESTONE_TARGET, LEAD_MILESTONE_MAX_DAY),
+  const leadMilestones = React.useMemo(
+    () => LEAD_MILESTONE_TARGETS.map((target) => ({
+      target,
+      milestone: findEnhancerLeadMilestone(earliestInputs, target, LEAD_MILESTONE_MAX_DAY),
+    })),
     [earliestInputs],
   );
   const enhancerDetail = result.enhancerUse.day === null
@@ -832,12 +881,14 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
     earliestResult.enhancerUse.day === null
       ? `Enhancers ${enhancerBudgetAction} ${formatMoney(result.fhcPlan.cost)} ${enhancerBudgetDetail} and do not break even in the simulated range.`
       : `Enhancers ${enhancerBudgetAction} ${formatMoney(result.fhcPlan.cost)} ${enhancerBudgetDetail} and break even on day ${formatCompact(earliestResult.enhancerUse.day)} by purchasing ${formatCompact(earliestResult.enhancerUse.enhancersUsed)} enhancers for ${formatMoney(earliestEnhancerSpend)}.`,
-    leadMilestone === null
-      ? null
-      : `Enhancers can be used for an immediate +${formatStat(LEAD_MILESTONE_TARGET)} lead on day ${formatCompact(leadMilestone.day)}.`,
     earliestResult.enhancerUse.day === null
       ? "No Enhancers lead is reached with the current inputs."
       : "From that point onward, the Enhancers lead continues to grow.",
+    ...leadMilestones
+      .filter((entry) => entry.milestone !== null)
+      .map((entry) =>
+        `Enhancers can be used for an immediate +${formatStat(entry.target)} lead on day ${formatCompact(entry.milestone?.day ?? 0)}.`,
+      ),
   ].filter((line): line is string => line !== null);
 
   return (
@@ -936,12 +987,18 @@ function EnhancerTimingPanel({
 
 function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult }) {
   const endpointDay = formatCompact(result.inputs.graphDurationDays);
+  const endpointDifferencePercent = relativeDifferencePercent(
+    result.endpoint.difference,
+    result.endpoint.useNowStat,
+    result.endpoint.waitStat,
+  );
+  const endpointDifferenceDetail = `${formatSignedStat(Math.abs(result.endpoint.difference))} - ${formatSignedPercent(endpointDifferencePercent)}`;
   const winnerLabel =
     Math.abs(result.endpoint.difference) < 0.5
       ? "Paths tied"
       : result.endpoint.difference > 0
-        ? `Wait ahead by ${formatSignedStat(Math.abs(result.endpoint.difference))}`
-        : `Use now ahead by ${formatSignedStat(Math.abs(result.endpoint.difference))}`;
+        ? `Wait ahead by ${endpointDifferenceDetail}`
+        : `Use now ahead by ${endpointDifferenceDetail}`;
   const delayedStartDetail = result.delayedBookStartDay === null
     ? "Target not reached"
     : `Day ${formatCompact(result.delayedBookStartDay)}`;
@@ -1328,6 +1385,15 @@ function formatSignedStat(value: number): string {
 
 function formatPercent(value: number): string {
   return `${trimFixed(value)}%`;
+}
+
+function formatSignedPercent(value: number): string {
+  return `${value >= 0 ? "+" : "-"}${formatPercent(Math.abs(value))}`;
+}
+
+function relativeDifferencePercent(difference: number, firstValue: number, secondValue: number): number {
+  const comparisonBase = Math.min(Math.abs(firstValue), Math.abs(secondValue));
+  return comparisonBase > 0 ? difference / comparisonBase * 100 : 0;
 }
 
 function formatCompact(value: number): string {

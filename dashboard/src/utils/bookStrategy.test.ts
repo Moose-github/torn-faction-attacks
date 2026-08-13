@@ -102,6 +102,22 @@ describe("book strategy calculator", () => {
     expect(milestone?.lead).toBeGreaterThanOrEqual(100_000_000);
   });
 
+  it("finds immediate enhancer lead milestones for smaller lead targets", () => {
+    const inputs = {
+      ...defaultBookStrategyInputs,
+      investmentEnabled: true,
+    };
+    const twentyFiveMillion = findEnhancerLeadMilestone(inputs, 25_000_000, 3_650);
+    const fiftyMillion = findEnhancerLeadMilestone(inputs, 50_000_000, 3_650);
+    const oneHundredMillion = findEnhancerLeadMilestone(inputs, 100_000_000, 3_650);
+
+    expect(twentyFiveMillion?.day).toBeLessThan(fiftyMillion?.day ?? Number.POSITIVE_INFINITY);
+    expect(fiftyMillion?.day).toBeLessThan(oneHundredMillion?.day ?? Number.POSITIVE_INFINITY);
+    expect(twentyFiveMillion?.lead).toBeGreaterThanOrEqual(25_000_000);
+    expect(fiftyMillion?.lead).toBeGreaterThanOrEqual(50_000_000);
+    expect(oneHundredMillion?.lead).toBeGreaterThanOrEqual(100_000_000);
+  });
+
   it("matches the 4b example without investment growth", () => {
     const result = calculateBookStrategy({
       ...defaultBookStrategyInputs,
@@ -146,8 +162,8 @@ describe("book strategy calculator", () => {
 
     expect(result.delayedBookStartDay).not.toBeNull();
     expect(result.delayedBookStartDay ?? 0).toBeGreaterThan(0);
-    expect(result.delayedBookStartDay ?? 0).toBeLessThan(450);
-    expect(result.totalTrains).toBe(Math.floor(1_620 * 450 / 50));
+    expect(result.delayedBookStartDay ?? 0).toBeLessThan(250);
+    expect(result.totalTrains).toBe(Math.floor(1_620 * 250 / 50));
     expect(result.endpoint.trainsConsumed).toBe(result.totalTrains);
   });
 
@@ -160,7 +176,7 @@ describe("book strategy calculator", () => {
     expect(result.immediateBook.startDay).toBe(0);
     expect(result.immediateBook.endDay).toBe(defaultBookTimingComparisonInputs.bookDurationDays);
     expect(result.delayedBook.startDay).toBe(result.delayedBookStartDay);
-    expect(result.delayedBook.startStat ?? 0).toBeGreaterThanOrEqual(500_000_000);
+    expect(result.delayedBook.startStat ?? 0).toBeGreaterThanOrEqual(1_000_000_000);
     expect(delayedStartPoint?.waitBookActive).toBe(false);
   });
 
