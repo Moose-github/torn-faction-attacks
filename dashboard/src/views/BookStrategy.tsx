@@ -1025,14 +1025,14 @@ function ConclusionsView() {
             overtake.
           </p>
           <p>
-            Under the calculator&apos;s default assumptions, the approximate break-even points are:
+            Under the calculator&apos;s default assumptions, the  break-even points are approximately:
           </p>
           <ul>
             <li>
-              <strong>3.2b</strong> in the trained stat when using an <strong>8.0-dot specialist gym</strong>.
+              <strong>3.2b</strong> when using an <strong>8.0-dot specialist gym</strong>.
             </li>
             <li>
-              <strong>2.4b</strong> in the trained stat when using <strong>George&apos;s 7.3-dot gym</strong>.
+              <strong>2.4b</strong> when using <strong>George&apos;s 7.3-dot gym</strong>.
             </li>
           </ul>
           <p>
