@@ -1689,8 +1689,8 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
         />
         <div className={`book-strategy-summary-outcome is-${result.winningStrategy}`}>
           <span>{outcomeLabel}</span>
-          <strong>{outcomePercent}</strong>
-          <small>{outcomeStat}</small>
+          <strong>{outcomeStat}</strong>
+          <small>{outcomePercent}</small>
         </div>
       </div>
       <div className="book-strategy-summary-support-grid">
@@ -2287,15 +2287,11 @@ function buildLogStatTicks(maxStat: number): number[] {
   const maxPower = Math.floor(Math.log10(cappedMax));
   const ticks: number[] = [];
 
-  for (let power = 0; power <= maxPower; power += 1) {
+  for (let power = 0; power <= maxPower; power += 3) {
     ticks.push(10 ** power);
   }
 
-  if (cappedMax > ticks[ticks.length - 1] && Number.isInteger(Math.log10(cappedMax))) {
-    ticks.push(cappedMax);
-  }
-
-  return Array.from(new Set(ticks)).sort((a, b) => a - b);
+  return ticks;
 }
 
 function buildLogPercentDomain(series: IgnoranceIsBlissPoint[]): [number, number] {
@@ -2320,11 +2316,9 @@ function buildLogPercentTicks(minValue: number, maxValue: number): number[] {
   const endPower = Math.ceil(Math.log10(Math.max(minValue, maxValue)));
 
   for (let power = startPower; power <= endPower; power += 1) {
-    for (const multiplier of [1, 2, 5]) {
-      const tick = multiplier * 10 ** power;
-      if (tick >= minValue && tick <= maxValue) {
-        ticks.push(tick);
-      }
+    const tick = 10 ** power;
+    if (tick >= minValue && tick <= maxValue) {
+      ticks.push(tick);
     }
   }
 
