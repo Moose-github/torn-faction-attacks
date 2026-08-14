@@ -64,7 +64,7 @@ describe("book strategy calculator", () => {
     });
 
     expect(result.enhancerUse.strategyTwoBeforeEnhancers).toBeCloseTo(3_411_000_000, -7);
-    expect(result.enhancerUse.day).toBeCloseTo(1525.1, 1);
+    expect(result.enhancerUse.day).toBeCloseTo(1618.1, 1);
     expect(result.enhancerUse.enhancersUsed).toBe(4);
   });
 
@@ -75,13 +75,17 @@ describe("book strategy calculator", () => {
       graphDurationDays: 160,
       investmentEnabled: false,
     });
+    const day31 = result.series.find((point) => point.day === 31);
     const day62 = result.series.find((point) => point.day === 62);
     const day100 = result.series.find((point) => point.day === 100);
     const day156 = result.series.find((point) => point.day === 156);
 
+    expect(day31).toBeDefined();
     expect(day62).toBeDefined();
     expect(day100).toBeDefined();
     expect(day156).toBeDefined();
+    expect(day62?.strategyOneStat).toBeCloseTo(day31?.strategyOneStat ?? 0, 8);
+    expect(day62?.strategyTwoStat).toBeCloseTo(day31?.strategyTwoStat ?? 0, 8);
     expect(day100?.strategyOneStat).toBeCloseTo(day62?.strategyOneStat ?? 0, 8);
     expect(day100?.strategyTwoStat).toBeCloseTo(day62?.strategyTwoStat ?? 0, 8);
     expect(day156?.strategyOneStat ?? 0).toBeGreaterThan(day100?.strategyOneStat ?? 0);

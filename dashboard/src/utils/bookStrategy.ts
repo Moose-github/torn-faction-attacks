@@ -985,17 +985,24 @@ function postBookEnergyAtDay(inputs: BookStrategyInputs, leftover: number, day: 
 }
 
 function activePostBookTrainingDaysAtDay(inputs: BookStrategyInputs, day: number): number {
-  const elapsedDays = Math.max(0, day - inputs.bookDurationDays);
   const trainingMonths = inputs.postBookTrainingMonthsOutOfFour;
-  if (trainingMonths <= 0 || elapsedDays <= 0) {
+  if (trainingMonths <= 0 || day <= inputs.bookDurationDays) {
     return 0;
   }
 
   if (trainingMonths >= 4) {
-    return elapsedDays;
+    return day - inputs.bookDurationDays;
   }
 
+  const totalActiveDays = activeTrainingDaysInCycle(inputs, day);
+  const bookWindowActiveDays = activeTrainingDaysInCycle(inputs, inputs.bookDurationDays);
+  return Math.max(0, totalActiveDays - bookWindowActiveDays);
+}
+
+function activeTrainingDaysInCycle(inputs: BookStrategyInputs, day: number): number {
   const monthLengthDays = Math.max(1, inputs.bookDurationDays);
+  const elapsedDays = Math.max(0, day);
+  const trainingMonths = inputs.postBookTrainingMonthsOutOfFour;
   const cycleDays = monthLengthDays * 4;
   const activeDaysPerCycle = monthLengthDays * trainingMonths;
   const completedCycles = Math.floor(elapsedDays / cycleDays);
@@ -1010,17 +1017,35 @@ function calendarDaysForActivePostBookTraining(inputs: BookStrategyInputs, activ
     return Number.POSITIVE_INFINITY;
   }
 
+  if (activeDaysNeeded <= 0) {
+    return 0;
+  }
+
   if (trainingMonths >= 4) {
     return activeDaysNeeded;
   }
 
   const monthLengthDays = Math.max(1, inputs.bookDurationDays);
   const cycleDays = monthLengthDays * 4;
-  const activeDaysPerCycle = monthLengthDays * trainingMonths;
-  const completedCycles = Math.floor(Math.max(0, activeDaysNeeded - 1e-10) / activeDaysPerCycle);
-  const remainingActiveDays = activeDaysNeeded - completedCycles * activeDaysPerCycle;
+  let low = 0;
+  let high = cycleDays;
+  while (activePostBookTrainingDaysAtDay(inputs, inputs.bookDurationDays + high) < activeDaysNeeded) {
+    high *= 2;
+    if (high > MAX_SIMULATION_DAYS * 2) {
+      return Number.POSITIVE_INFINITY;
+    }
+  }
 
-  return completedCycles * cycleDays + remainingActiveDays;
+  for (let index = 0; index < 64; index += 1) {
+    const mid = (low + high) / 2;
+    if (activePostBookTrainingDaysAtDay(inputs, inputs.bookDurationDays + mid) >= activeDaysNeeded) {
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+
+  return high;
 }
 
 function investmentBalanceAtDay(inputs: BookStrategyInputs, principal: number, day: number): number {

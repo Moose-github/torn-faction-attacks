@@ -669,9 +669,9 @@ export function BookStrategy() {
               because they add complexity without materially changing results.
             </p>
             <p>
-              After the book window, target-stat training uses {formatCompact(result.inputs.postBookTrainingMonthsOutOfFour)}
+              Target-stat training uses {formatCompact(result.inputs.postBookTrainingMonthsOutOfFour)}
               {result.inputs.postBookTrainingMonthsOutOfFour === 1 ? " month" : " months"} out of four, modeled as
-              31-day training blocks followed by off-stat blocks.
+              31-day training blocks followed by off-stat blocks. The book window counts as the first target-stat block.
             </p>
             <p>
               Strategy 1 uses {formatCompact(result.fhcPlan.totalFhcs)} FHCs during the 31-day book window.
