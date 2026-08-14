@@ -140,6 +140,25 @@ type SharedPopoutField =
   | "customPerksPercent";
 
 const FIXED_ENERGY_PER_XANAX = 250;
+const IIB_X_AXIS_TICKS = [
+  1,
+  1_000,
+  100_000,
+  1_000_000,
+  10_000_000,
+  100_000_000,
+  1_000_000_000,
+  10_000_000_000,
+];
+const IIB_Y_AXIS_TICKS = [
+  10,
+  50,
+  100,
+  500,
+  1_000,
+  2_000,
+  5_000,
+];
 const DEFAULT_FORM = formFromInputs(defaultBookStrategyInputs);
 const DEFAULT_TIMING_FORM = timingFormFromInputs(defaultBookTimingComparisonInputs);
 const DEFAULT_IIB_FORM = ignoranceIsBlissFormFromInputs(defaultIgnoranceIsBlissInputs);
@@ -1086,11 +1105,20 @@ function IgnoranceIsBlissView({
   const result = React.useMemo(() => calculateIgnoranceIsBliss(inputs), [inputs]);
   const dailyEnergy = energyMode === "breakdown" ? calculatedIibDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
   const xTicks = React.useMemo(() => buildLogStatTicks(result.inputs.graphMaxStat), [result.inputs.graphMaxStat]);
-  const yDomain = React.useMemo(() => buildLogPercentDomain(result.series), [result.series]);
-  const yTicks = React.useMemo(() => buildLogPercentTicks(yDomain[0], yDomain[1]), [yDomain]);
+  const yTicks = React.useMemo(() => buildLogPercentTicks(), []);
+  const chartSeries = React.useMemo(
+    () => result.series.map((point) => ({
+      ...point,
+      axisPosition: statToEvenTickPosition(point.startingStat, xTicks),
+      percentAxisPosition: percentToEvenTickPosition(point.percentIncrease, yTicks),
+    })),
+    [result.series, xTicks, yTicks],
+  );
+  const xTickPositions = React.useMemo(() => xTicks.map((_, index) => index), [xTicks]);
+  const yTickPositions = React.useMemo(() => yTicks.map((_, index) => index), [yTicks]);
   const startingStatMarkerLeft = chartWidth > 0
     ? CHART_Y_AXIS_WIDTH +
-      (Math.log10(result.inputs.startingStat) / Math.max(1, Math.log10(result.inputs.graphMaxStat))) *
+      (statToEvenTickPosition(result.inputs.startingStat, xTicks) / Math.max(1, xTicks.length - 1)) *
       Math.max(1, chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
     : null;
 
@@ -1112,9 +1140,9 @@ function IgnoranceIsBlissView({
     const plotLeft = rect.left + CHART_Y_AXIS_WIDTH;
     const plotWidth = Math.max(1, rect.width - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN);
     const rawRatio = clampNumber((clientX - plotLeft) / plotWidth, 0, 1);
-    const stat = 10 ** (rawRatio * Math.max(1, Math.log10(result.inputs.graphMaxStat)));
+    const stat = evenTickPositionToStat(rawRatio * Math.max(1, xTicks.length - 1), xTicks);
     setIibStartingStatFromRaw(stat);
-  }, [result.inputs.graphMaxStat, setIibStartingStatFromRaw]);
+  }, [setIibStartingStatFromRaw, xTicks]);
 
   const scheduleIibStartingStatFromClientX = React.useCallback((clientX: number) => {
     pendingDragClientXRef.current = clientX;
@@ -1271,36 +1299,38 @@ function IgnoranceIsBlissView({
           ref={chartRef}
         >
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
+            <LineChart data={chartSeries} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
               <XAxis
-                dataKey="startingStat"
+                dataKey="axisPosition"
                 tickLine={false}
                 axisLine={false}
                 tick={{ fill: "var(--chart-axis)" }}
-                tickFormatter={(value) => formatCompact(Number(value))}
+                tickFormatter={(value) => formatCompact(xTicks[Math.round(Number(value))] ?? Number(value))}
                 type="number"
-                scale="log"
-                domain={[1, result.inputs.graphMaxStat]}
-                ticks={xTicks}
+                domain={[0, Math.max(1, xTicks.length - 1)]}
+                ticks={xTickPositions}
                 allowDataOverflow
               />
               <YAxis
                 tickLine={false}
                 axisLine={false}
                 tick={{ fill: "var(--chart-axis)" }}
-                tickFormatter={(value) => formatLogPercentTick(Number(value))}
-                scale="log"
-                domain={yDomain}
-                ticks={yTicks}
+                tickFormatter={(value) => formatLogPercentTick(yTicks[Math.round(Number(value))] ?? Number(value))}
+                domain={[0, Math.max(1, yTicks.length - 1)]}
+                ticks={yTickPositions}
                 width={64}
               />
               <Tooltip content={<IgnoranceIsBlissTooltip />} />
               <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
-              <ReferenceLine x={result.inputs.startingStat} stroke="#f59e0b" strokeDasharray="4 4" />
+              <ReferenceLine
+                x={statToEvenTickPosition(result.inputs.startingStat, xTicks)}
+                stroke="#f59e0b"
+                strokeDasharray="4 4"
+              />
               <Line
                 type="linear"
-                dataKey="percentIncrease"
+                dataKey="percentAxisPosition"
                 name="IIB gain"
                 stroke="#22d3ee"
                 strokeWidth={3}
@@ -2284,58 +2314,76 @@ function calculatedDailyEnergy(form: BookStrategyForm): number {
 
 function buildLogStatTicks(maxStat: number): number[] {
   const cappedMax = Math.max(1, maxStat);
-  const maxPower = Math.floor(Math.log10(cappedMax));
-  const ticks: number[] = [];
+  const ticks = IIB_X_AXIS_TICKS.filter((tick) => tick <= cappedMax);
 
-  for (let power = 0; power <= maxPower; power += 3) {
-    ticks.push(10 ** power);
+  if (ticks.length === 0) {
+    ticks.push(1);
+  }
+
+  const lastTick = ticks[ticks.length - 1];
+  if (cappedMax > lastTick && !IIB_X_AXIS_TICKS.includes(cappedMax)) {
+    ticks.push(cappedMax);
   }
 
   return ticks;
 }
 
-function buildLogPercentDomain(series: IgnoranceIsBlissPoint[]): [number, number] {
-  const values = series
-    .map((point) => point.percentIncrease)
-    .filter((value) => Number.isFinite(value) && value > 0);
-  if (values.length === 0) {
-    return [1, 100];
+function statToEvenTickPosition(stat: number, ticks: number[]): number {
+  if (ticks.length <= 1) {
+    return 0;
   }
 
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const minPower = 10 ** Math.floor(Math.log10(minValue));
-  const maxTick = nextLogTick(maxValue);
-
-  return [Math.max(0.001, minPower), Math.max(maxTick, minPower * 10)];
-}
-
-function buildLogPercentTicks(minValue: number, maxValue: number): number[] {
-  const ticks: number[] = [];
-  const startPower = Math.floor(Math.log10(Math.max(0.001, minValue)));
-  const endPower = Math.ceil(Math.log10(Math.max(minValue, maxValue)));
-
-  for (let power = startPower; power <= endPower; power += 1) {
-    const tick = 10 ** power;
-    if (tick >= minValue && tick <= maxValue) {
-      ticks.push(tick);
+  const clampedStat = clampNumber(stat, ticks[0], ticks[ticks.length - 1]);
+  for (let index = 0; index < ticks.length - 1; index += 1) {
+    const start = ticks[index];
+    const end = ticks[index + 1];
+    if (clampedStat <= end) {
+      const startLog = Math.log10(start);
+      const endLog = Math.log10(end);
+      const ratio = (Math.log10(clampedStat) - startLog) / Math.max(0.000001, endLog - startLog);
+      return index + clampNumber(ratio, 0, 1);
     }
   }
 
-  return ticks;
+  return ticks.length - 1;
 }
 
-function nextLogTick(value: number): number {
-  const power = Math.floor(Math.log10(Math.max(0.001, value)));
-  const base = 10 ** power;
-  for (const multiplier of [1, 2, 5]) {
-    const tick = multiplier * base;
-    if (value <= tick) {
-      return tick;
+function evenTickPositionToStat(position: number, ticks: number[]): number {
+  if (ticks.length <= 1) {
+    return ticks[0] ?? 1;
+  }
+
+  const clampedPosition = clampNumber(position, 0, ticks.length - 1);
+  const index = Math.min(ticks.length - 2, Math.floor(clampedPosition));
+  const ratio = clampedPosition - index;
+  const startLog = Math.log10(ticks[index]);
+  const endLog = Math.log10(ticks[index + 1]);
+
+  return 10 ** (startLog + (endLog - startLog) * ratio);
+}
+
+function buildLogPercentTicks(): number[] {
+  return IIB_Y_AXIS_TICKS;
+}
+
+function percentToEvenTickPosition(percent: number, ticks: number[]): number {
+  if (ticks.length <= 1) {
+    return 0;
+  }
+
+  const clampedPercent = clampNumber(percent, ticks[0], ticks[ticks.length - 1]);
+  for (let index = 0; index < ticks.length - 1; index += 1) {
+    const start = ticks[index];
+    const end = ticks[index + 1];
+    if (clampedPercent <= end) {
+      const startLog = Math.log10(start);
+      const endLog = Math.log10(end);
+      const ratio = (Math.log10(clampedPercent) - startLog) / Math.max(0.000001, endLog - startLog);
+      return index + clampNumber(ratio, 0, 1);
     }
   }
 
-  return 10 * base;
+  return ticks.length - 1;
 }
 
 function parseNumber(value: string, fallback: number): number {
