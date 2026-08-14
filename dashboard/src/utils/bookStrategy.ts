@@ -378,7 +378,7 @@ function buildIgnoranceIsBlissSeries(
   const sampleStats = new Set<number>([1, inputs.startingStat, inputs.graphMaxStat]);
   const minLog = Math.log10(1);
   const maxLog = Math.log10(inputs.graphMaxStat);
-  const steps = 90;
+  const steps = 240;
 
   for (let index = 0; index <= steps; index += 1) {
     const ratio = index / steps;

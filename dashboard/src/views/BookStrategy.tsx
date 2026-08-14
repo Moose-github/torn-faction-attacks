@@ -1284,17 +1284,17 @@ function IgnoranceIsBlissView({
                 tickLine={false}
                 axisLine={false}
                 tick={{ fill: "var(--chart-axis)" }}
-                tickFormatter={(value) => formatPercent(Number(value))}
+                tickFormatter={(value) => formatLogPercentTick(Number(value))}
                 scale="log"
                 domain={yDomain}
                 ticks={yTicks}
-                width={58}
+                width={64}
               />
               <Tooltip content={<IgnoranceIsBlissTooltip />} />
               <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
               <ReferenceLine x={result.inputs.startingStat} stroke="#f59e0b" strokeDasharray="4 4" />
               <Line
-                type="monotone"
+                type="linear"
                 dataKey="percentIncrease"
                 name="IIB gain uplift"
                 stroke="#22d3ee"
@@ -2125,9 +2125,9 @@ function buildLogPercentDomain(series: IgnoranceIsBlissPoint[]): [number, number
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   const minPower = 10 ** Math.floor(Math.log10(minValue));
-  const maxPower = 10 ** Math.ceil(Math.log10(maxValue));
+  const maxTick = nextLogTick(maxValue);
 
-  return [Math.max(0.001, minPower), Math.max(maxPower, minPower * 10)];
+  return [Math.max(0.001, minPower), Math.max(maxTick, minPower * 10)];
 }
 
 function buildLogPercentTicks(minValue: number, maxValue: number): number[] {
@@ -2145,6 +2145,19 @@ function buildLogPercentTicks(minValue: number, maxValue: number): number[] {
   }
 
   return ticks;
+}
+
+function nextLogTick(value: number): number {
+  const power = Math.floor(Math.log10(Math.max(0.001, value)));
+  const base = 10 ** power;
+  for (const multiplier of [1, 2, 5]) {
+    const tick = multiplier * base;
+    if (value <= tick) {
+      return tick;
+    }
+  }
+
+  return 10 * base;
 }
 
 function parseNumber(value: string, fallback: number): number {
@@ -2194,6 +2207,15 @@ function formatSignedStat(value: number): string {
 
 function formatPercent(value: number): string {
   return `${trimFixed(value)}%`;
+}
+
+function formatLogPercentTick(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000) {
+    return `${trimFixed(value / 1_000)}k%`;
+  }
+
+  return formatPercent(value);
 }
 
 function formatSignedPercentFixed(value: number, digits: number): string {
