@@ -1260,7 +1260,7 @@ function IgnoranceIsBlissView({
       </section>
 
       <section className="panel book-strategy-chart-panel">
-        <PanelHeader icon={<Activity size={17} />} title="Ignorance Is Bliss gain uplift" aside="31 days" />
+        <PanelHeader icon={<Activity size={17} />} title="Ignorance Is Bliss gain" aside="31 days" />
         <div
           className={`book-strategy-chart ${isDraggingStartingStat ? "is-dragging-iib-stat" : ""}`}
           ref={chartRef}
@@ -1296,7 +1296,7 @@ function IgnoranceIsBlissView({
               <Line
                 type="linear"
                 dataKey="percentIncrease"
-                name="IIB gain uplift"
+                name="IIB gain"
                 stroke="#22d3ee"
                 strokeWidth={3}
                 dot={false}
@@ -1367,15 +1367,163 @@ function IgnoranceIsBlissView({
 function FormulaMethodologyNote() {
   return (
     <>
+      <div className="book-formula-block" aria-label="Vladar gym formula">
+        <math display="block">
+          <mrow>
+            <msub>
+              <mi>G</mi>
+              <mtext>train</mtext>
+            </msub>
+            <mo>=</mo>
+            <mfrac>
+              <mrow>
+                <mi>D</mi>
+                <mo>*</mo>
+                <mi>E</mi>
+                <mo>*</mo>
+                <mi>P</mi>
+                <mo>*</mo>
+                <mi>B</mi>
+                <mo>*</mo>
+                <msub>
+                  <mi>G</mi>
+                  <mtext>base</mtext>
+                </msub>
+              </mrow>
+              <mn>200000</mn>
+            </mfrac>
+          </mrow>
+        </math>
+        <math display="block">
+          <mrow>
+            <msub>
+              <mi>G</mi>
+              <mtext>base</mtext>
+            </msub>
+            <mo>=</mo>
+            <msub>
+              <mi>S</mi>
+              <mtext>eff</mtext>
+            </msub>
+            <mo>*</mo>
+            <msub>
+              <mi>H</mi>
+              <mtext>term</mtext>
+            </msub>
+            <mo>+</mo>
+            <mn>8</mn>
+            <mo>*</mo>
+            <msup>
+              <mi>h</mi>
+              <mn>1.05</mn>
+            </msup>
+            <mo>+</mo>
+            <mn>1600</mn>
+            <mo>*</mo>
+            <mrow>
+              <mo>(</mo>
+              <mn>1</mn>
+              <mo>-</mo>
+              <msup>
+                <mrow>
+                  <mo>(</mo>
+                  <mfrac>
+                    <mi>h</mi>
+                    <mn>99999</mn>
+                  </mfrac>
+                  <mo>)</mo>
+                </mrow>
+                <mn>2</mn>
+              </msup>
+              <mo>)</mo>
+            </mrow>
+            <mo>+</mo>
+            <mn>1700</mn>
+          </mrow>
+        </math>
+        <math display="block">
+          <mrow>
+            <msub>
+              <mi>H</mi>
+              <mtext>term</mtext>
+            </msub>
+            <mo>=</mo>
+            <mn>1</mn>
+            <mo>+</mo>
+            <mn>0.07</mn>
+            <mo>*</mo>
+            <mi>ln</mi>
+            <mo>(</mo>
+            <mn>1</mn>
+            <mo>+</mo>
+            <mfrac>
+              <mi>h</mi>
+              <mn>250</mn>
+            </mfrac>
+            <mo>)</mo>
+          </mrow>
+        </math>
+        <math display="block">
+          <mrow>
+            <msub>
+              <mi>S</mi>
+              <mtext>eff</mtext>
+            </msub>
+            <mo>=</mo>
+            <mrow>
+              <mo>{"{"}</mo>
+              <mtable>
+                <mtr>
+                  <mtd>
+                    <mi>S</mi>
+                  </mtd>
+                  <mtd>
+                    <mtext>if </mtext>
+                    <mi>S</mi>
+                    <mo>&lt;</mo>
+                    <mn>50000000</mn>
+                  </mtd>
+                </mtr>
+                <mtr>
+                  <mtd>
+                    <mrow>
+                      <mn>50000000</mn>
+                      <mo>+</mo>
+                      <mfrac>
+                        <mrow>
+                          <mi>S</mi>
+                          <mo>-</mo>
+                          <mn>50000000</mn>
+                        </mrow>
+                        <mrow>
+                          <mn>8.77635</mn>
+                          <mo>*</mo>
+                          <msub>
+                            <mi>log</mi>
+                            <mn>10</mn>
+                          </msub>
+                          <mo>(</mo>
+                          <mi>S</mi>
+                          <mo>)</mo>
+                        </mrow>
+                      </mfrac>
+                    </mrow>
+                  </mtd>
+                  <mtd>
+                    <mtext>if </mtext>
+                    <mi>S</mi>
+                    <mo>&ge;</mo>
+                    <mn>50000000</mn>
+                  </mtd>
+                </mtr>
+              </mtable>
+            </mrow>
+          </mrow>
+        </math>
+      </div>
       <p>
-        Per-train gain = <code>(gym dots * energy per train * perk multiplier * book multiplier * base gain) / 200,000</code>.
-      </p>
-      <p>
-        Base gain = <code>effective stat * happiness term + 8 * happiness^1.05 + 1600 * (1 - (happiness / 99,999)^2) + 1700</code>,
-        where <code>happiness term = 1 + 0.07 * ln(1 + happiness / 250)</code>.
-      </p>
-      <p>
-        Effective stat is the raw stat below 50m, otherwise <code>50m + (stat - 50m) / (8.77635 * log10(stat))</code>.
+        D = gym dots, E = energy per train, P = perk multiplier, B = book multiplier, h = happiness, and S_eff is
+        the effective stat.
       </p>
     </>
   );
@@ -1637,9 +1785,9 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
   ];
 
   return (
-    <section className="panel book-strategy-summary-panel">
+    <section className="panel book-strategy-summary-panel book-timing-summary-panel">
       <PanelHeader icon={<Trophy size={17} />} title="Book Timing Summary" />
-      <div className="book-strategy-ending-grid">
+      <div className="book-summary-primary-grid">
         <SummaryEndingCard
           accent="strategy-one"
           label="Use now"
@@ -1652,9 +1800,9 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
           value={formatStat(result.endpoint.waitStat)}
           detail={`Ending stat at day ${endpointDay}`}
         />
-      </div>
-      <div className={`book-strategy-summary-outcome ${result.endpoint.difference > 0 ? "is-strategyTwo" : result.endpoint.difference < 0 ? "is-strategyOne" : "is-tied"}`}>
-        {winnerLabel}
+        <div className={`book-strategy-summary-outcome ${result.endpoint.difference > 0 ? "is-strategyTwo" : result.endpoint.difference < 0 ? "is-strategyOne" : "is-tied"}`}>
+          {winnerLabel}
+        </div>
       </div>
       <div className="book-strategy-summary-support-grid">
         <SummaryItem
@@ -1701,9 +1849,9 @@ function IgnoranceIsBlissSummaryPanel({ result }: { result: IgnoranceIsBlissResu
   ];
 
   return (
-    <section className="panel book-strategy-summary-panel">
+    <section className="panel book-strategy-summary-panel book-iib-summary-panel">
       <PanelHeader icon={<Trophy size={17} />} title="Ignorance Is Bliss Summary" />
-      <div className="book-strategy-ending-grid">
+      <div className="book-summary-primary-grid">
         <SummaryEndingCard
           accent="strategy-one"
           label="Without book"
@@ -1716,9 +1864,9 @@ function IgnoranceIsBlissSummaryPanel({ result }: { result: IgnoranceIsBlissResu
           value={formatSignedStat(selected.bookGain)}
           detail={`Ends at ${formatStat(selected.bookEndingStat)}`}
         />
-      </div>
-      <div className="book-strategy-summary-outcome is-strategyTwo">
-        Ignorance Is Bliss gain uplift {uplift}
+        <div className="book-strategy-summary-outcome is-strategyTwo">
+          Ignorance Is Bliss gain {uplift}
+        </div>
       </div>
       <div className="book-strategy-summary-support-grid">
         <SummaryItem

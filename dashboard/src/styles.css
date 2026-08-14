@@ -11368,6 +11368,19 @@ tbody tr:not(.attack-row):hover td {
   gap: 12px;
 }
 
+.book-summary-primary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.book-summary-primary-grid .book-strategy-summary-outcome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+}
+
 .book-strategy-ending-card {
   display: grid;
   gap: 7px;
@@ -11582,6 +11595,34 @@ tbody tr:not(.attack-row):hover td {
   margin: 0;
 }
 
+.book-formula-block {
+  display: grid;
+  gap: 10px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.48);
+  color: var(--text-primary);
+}
+
+.book-formula-block math {
+  min-width: max-content;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.book-formula-block mi {
+  color: var(--text-primary);
+}
+
+.book-formula-block mtext,
+.book-formula-block mn,
+.book-formula-block mo {
+  color: var(--text-muted);
+}
+
 @media (max-width: 900px) {
   .book-strategy-controls {
     grid-template-columns: minmax(0, 1fr);
@@ -11593,6 +11634,7 @@ tbody tr:not(.attack-row):hover td {
   .book-strategy-controls,
   .book-strategy-input-grid,
   .book-strategy-ending-grid,
+  .book-summary-primary-grid,
   .book-strategy-summary-support-grid {
     grid-template-columns: minmax(0, 1fr);
   }
