@@ -25,6 +25,7 @@ export type BookStrategyInputs = {
   fhcEnergy: number;
   fhcCooldownHours: number;
   maxBoosterCooldownHours: number;
+  postBookTrainingMonthsOutOfFour: number;
   enhancerUseMode: EnhancerUseMode;
 };
 
@@ -164,6 +165,7 @@ export const defaultBookStrategyInputs: BookStrategyInputs = {
   fhcEnergy: 150,
   fhcCooldownHours: 6,
   maxBoosterCooldownHours: 48,
+  postBookTrainingMonthsOutOfFour: 4,
   enhancerUseMode: { kind: "earliestOvertake" },
 };
 
@@ -307,6 +309,7 @@ export function normalizeInputs(inputs: BookStrategyInputs): BookStrategyInputs 
     fhcEnergy: finiteAtLeast(inputs.fhcEnergy, 0),
     fhcCooldownHours: finiteAtLeast(inputs.fhcCooldownHours, 0.001),
     maxBoosterCooldownHours: finiteAtLeast(inputs.maxBoosterCooldownHours, 0),
+    postBookTrainingMonthsOutOfFour: Math.min(4, finiteAtLeast(inputs.postBookTrainingMonthsOutOfFour, 0)),
     enhancerUseMode: normalizeEnhancerUseMode(inputs.enhancerUseMode),
   };
 }
@@ -529,7 +532,8 @@ function findEarliestOvertake(
   searchMaxDay?: number,
   targetLead = 0,
 ): BookStrategyResult["enhancerUse"] {
-  const defaultMaxDay = Math.max(inputs.graphDurationDays, inputs.bookDurationDays + 730);
+  const trainingMonths = Math.max(1, inputs.postBookTrainingMonthsOutOfFour);
+  const defaultMaxDay = Math.max(inputs.graphDurationDays, inputs.bookDurationDays + 730 * (4 / trainingMonths));
   const maxDay = Math.min(
     MAX_SIMULATION_DAYS,
     finiteAtLeast(searchMaxDay ?? defaultMaxDay, inputs.bookDurationDays),
@@ -553,14 +557,15 @@ function findEarliestOvertake(
   let day = inputs.bookDurationDays;
   let strategyOneStat = bookState.strategyOneBookStat;
   let strategyTwoStat = bookState.strategyTwoBookStat;
-  let nextStrategyOneTrainDay = inputs.dailyEnergy > 0
+  const postBookDailyEnergy = targetStatPostBookDailyEnergy(inputs);
+  let nextStrategyOneTrainDay = postBookDailyEnergy > 0
     ? nextPostBookTrainDay(inputs, bookState.strategyOneLeftoverEnergy, 1)
     : Number.POSITIVE_INFINITY;
-  let nextStrategyTwoTrainDay = inputs.dailyEnergy > 0
+  let nextStrategyTwoTrainDay = postBookDailyEnergy > 0
     ? nextPostBookTrainDay(inputs, bookState.strategyTwoLeftoverEnergy, 1)
     : Number.POSITIVE_INFINITY;
-  const postBookTrainInterval = inputs.dailyEnergy > 0
-    ? inputs.energyPerTrain / inputs.dailyEnergy
+  const postBookTrainInterval = postBookDailyEnergy > 0
+    ? inputs.energyPerTrain / postBookDailyEnergy
     : Number.POSITIVE_INFINITY;
 
   const evaluateCurrentDay = (): BookStrategyResult["enhancerUse"] => {
@@ -609,7 +614,7 @@ function meetsEnhancerLeadTarget(lead: number, targetLead: number): boolean {
 }
 
 function nextPostBookTrainDay(inputs: BookStrategyInputs, leftoverEnergy: number, trainNumber: number): number {
-  return inputs.bookDurationDays + (trainNumber * inputs.energyPerTrain - leftoverEnergy) / inputs.dailyEnergy;
+  return inputs.bookDurationDays + (trainNumber * inputs.energyPerTrain - leftoverEnergy) / targetStatPostBookDailyEnergy(inputs);
 }
 
 function enhancerUseAtDay(
@@ -804,7 +809,11 @@ function createPostBookState(
 }
 
 function postBookEnergyAtDay(inputs: BookStrategyInputs, leftover: number, day: number): number {
-  return leftover + inputs.dailyEnergy * Math.max(0, day - inputs.bookDurationDays);
+  return leftover + targetStatPostBookDailyEnergy(inputs) * Math.max(0, day - inputs.bookDurationDays);
+}
+
+function targetStatPostBookDailyEnergy(inputs: BookStrategyInputs): number {
+  return inputs.dailyEnergy * inputs.postBookTrainingMonthsOutOfFour / 4;
 }
 
 function investmentBalanceAtDay(inputs: BookStrategyInputs, principal: number, day: number): number {

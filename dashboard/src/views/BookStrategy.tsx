@@ -81,6 +81,7 @@ type BookStrategyForm = {
   annualRoiPercent: string;
   graphDurationDays: string;
   bookBonusPercent: string;
+  postBookTrainingMonthsOutOfFour: string;
   enhancerMode: EnhancerModeKind;
   enhancerTargetStat: string;
   enhancerTargetDay: string;
@@ -393,6 +394,7 @@ export function BookStrategy() {
               <NumberField label="Graph duration (days)" value={form.graphDurationDays} onChange={(value) => updateField("graphDurationDays", value)} />
               <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
               <NumberField label="Book bonus %" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
+              <NumberField label="Months spent training stat out of 4" value={form.postBookTrainingMonthsOutOfFour} onChange={(value) => updateField("postBookTrainingMonthsOutOfFour", value)} />
               <div className="book-strategy-toggle-field">
                 <span>Investment</span>
                 <label className={`book-strategy-check book-strategy-investment-toggle ${form.investmentEnabled ? "" : "is-off"}`}>
@@ -602,7 +604,22 @@ export function BookStrategy() {
         >
           <div className="book-strategy-methodology">
             <p>
-              Uses Vladar's community gym formula, a constant happiness value, 50-energy trains, and no random term.
+              Uses Vladar's community gym formula, constant 5,000 happiness, 50-energy trains, and no random term.
+            </p>
+            <p>
+              A fuller model using 150/250-energy batches, happiness loss from training, and happiness regeneration from
+              various sources was tested. At a 500m starting stat, it differed from this simplified model by about 1%,
+              and the invested break-even date was unchanged.
+            </p>
+            <p>
+              Using 2.5% as the threshold for a meaningful difference, break-even timing only differed by more than 2.5%
+              below approximately 130k starting stats without Investment, or 100k with 25% Investment. The FHC advantage
+              itself only changed by more than 2.5% below approximately 31k starting stats. These mechanics are excluded
+              because they add complexity without materially changing results.
+            </p>
+            <p>
+              After the book window, target-stat training uses {formatCompact(result.inputs.postBookTrainingMonthsOutOfFour)}
+              {result.inputs.postBookTrainingMonthsOutOfFour === 1 ? " month" : " months"} out of four.
             </p>
             <p>
               Strategy 1 uses {formatCompact(result.fhcPlan.totalFhcs)} FHCs during the 31-day book window.
@@ -1047,6 +1064,7 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
     result.inputs.fhcEnergy,
     result.inputs.fhcCooldownHours,
     result.inputs.maxBoosterCooldownHours,
+    result.inputs.postBookTrainingMonthsOutOfFour,
   ]);
   const earliestResult = React.useMemo(
     () => calculateBookStrategy(earliestInputs),
@@ -1447,6 +1465,7 @@ function inputsFromForm(form: BookStrategyForm, energyMode: EnergyMode): BookStr
     graphDurationDays: parseNumber(form.graphDurationDays, defaultBookStrategyInputs.graphDurationDays),
     bookBonusPercent: parseNumber(form.bookBonusPercent, defaultBookStrategyInputs.bookBonusPercent),
     gymMultiplier: parseNumber(form.gymMultiplier, defaultBookStrategyInputs.gymMultiplier),
+    postBookTrainingMonthsOutOfFour: parseNumber(form.postBookTrainingMonthsOutOfFour, defaultBookStrategyInputs.postBookTrainingMonthsOutOfFour),
     enhancerUseMode: enhancerModeFromForm(form),
   };
 }
@@ -1524,6 +1543,7 @@ function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
     annualRoiPercent: String(inputs.annualRoiPercent),
     graphDurationDays: String(inputs.graphDurationDays),
     bookBonusPercent: String(inputs.bookBonusPercent),
+    postBookTrainingMonthsOutOfFour: String(inputs.postBookTrainingMonthsOutOfFour),
     enhancerMode: inputs.enhancerUseMode.kind,
     enhancerTargetStat: "3.411b",
     enhancerTargetDay: "334",

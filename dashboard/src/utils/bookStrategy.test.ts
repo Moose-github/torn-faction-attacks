@@ -22,6 +22,7 @@ describe("book strategy calculator", () => {
       cost: 1_834_000_000,
     });
     expect(defaultBookStrategyInputs.investmentEnabled).toBe(false);
+    expect(defaultBookStrategyInputs.postBookTrainingMonthsOutOfFour).toBe(4);
     expect(perkProduct(defaultBookStrategyInputs)).toBeCloseTo(1.22779236, 8);
   });
 
@@ -53,11 +54,24 @@ describe("book strategy calculator", () => {
     expect(result.enhancerUse.lead ?? 0).toBeCloseTo(14_600_000, -5);
   });
 
+  it("supports one-month-in-four target-stat post-book training", () => {
+    const result = calculateBookStrategy({
+      ...defaultBookStrategyInputs,
+      investmentEnabled: false,
+      postBookTrainingMonthsOutOfFour: 1,
+    });
+
+    expect(result.enhancerUse.strategyTwoBeforeEnhancers).toBeCloseTo(3_411_000_000, -7);
+    expect(result.enhancerUse.day).toBeCloseTo(1543.42, 1);
+    expect(result.enhancerUse.enhancersUsed).toBe(4);
+  });
+
   it("moves the earliest overtake when FHC price funds enhancers sooner", () => {
     const result = calculateBookStrategy({
       ...defaultBookStrategyInputs,
       fhcPrice: 15_000_000,
       investmentEnabled: true,
+      postBookTrainingMonthsOutOfFour: 4,
     });
 
     expect(result.fhcPlan.cost).toBe(1_965_000_000);
