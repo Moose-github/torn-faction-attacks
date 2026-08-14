@@ -1808,8 +1808,8 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
         />
         <div className={`book-strategy-summary-outcome ${result.endpoint.difference > 0 ? "is-strategyTwo" : result.endpoint.difference < 0 ? "is-strategyOne" : "is-tied"}`}>
           <span>{comparisonLabel}</span>
-          <strong>{comparisonStat}</strong>
-          <small>{comparisonPercent}</small>
+          <strong>{comparisonPercent}</strong>
+          <small>{comparisonStat}</small>
         </div>
       </div>
       <div className="book-strategy-summary-support-grid">
@@ -2276,17 +2276,16 @@ function calculatedDailyEnergy(form: BookStrategyForm): number {
 }
 
 function buildLogStatTicks(maxStat: number): number[] {
-  const baseTicks = [
-    1,
-    1_000,
-    100_000,
-    10_000_000,
-    1_000_000_000,
-    10_000_000_000,
-  ];
   const cappedMax = Math.max(1, maxStat);
-  const ticks = baseTicks.filter((tick) => tick <= cappedMax);
-  if (!ticks.includes(cappedMax)) {
+  const maxPower = Math.floor(Math.log10(cappedMax));
+  const powerStep = maxPower <= 5 ? 1 : 2;
+  const ticks: number[] = [];
+
+  for (let power = 0; power <= maxPower; power += powerStep) {
+    ticks.push(10 ** power);
+  }
+
+  if (cappedMax > ticks[ticks.length - 1] && Number.isInteger(Math.log10(cappedMax))) {
     ticks.push(cappedMax);
   }
 
