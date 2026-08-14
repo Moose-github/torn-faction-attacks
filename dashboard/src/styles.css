@@ -11164,12 +11164,14 @@ tbody tr:not(.attack-row):hover td {
 
 .book-strategy-enhancer-drag-target {
   position: absolute;
-  top: 12px;
-  bottom: 46px;
-  width: 40px;
-  margin-left: -20px;
-  pointer-events: none;
-  z-index: 4;
+  bottom: 42px;
+  width: 72px;
+  height: 72px;
+  margin-left: -36px;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  z-index: 6;
 }
 
 .book-strategy-enhancer-drag-target:focus-visible {
@@ -11179,7 +11181,10 @@ tbody tr:not(.attack-row):hover td {
 .book-strategy-enhancer-drag-target::before {
   content: "";
   position: absolute;
-  inset: 0 19px;
+  left: 35px;
+  right: 35px;
+  bottom: 36px;
+  height: 18px;
   border-radius: 999px;
   background: rgba(34, 197, 94, 0.08);
   pointer-events: none;
@@ -11187,7 +11192,7 @@ tbody tr:not(.attack-row):hover td {
 
 .book-strategy-enhancer-handle {
   position: absolute;
-  bottom: 10px;
+  bottom: 0;
   left: 50%;
   display: inline-flex;
   align-items: center;
@@ -11198,9 +11203,6 @@ tbody tr:not(.attack-row):hover td {
   border-radius: 999px;
   background: transparent;
   color: #16a34a;
-  cursor: grab;
-  pointer-events: auto;
-  touch-action: none;
   transform: translateX(-50%);
 }
 
