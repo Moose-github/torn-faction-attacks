@@ -9,7 +9,7 @@ import {
   type IgnoranceIsBlissInputs,
 } from "../utils/bookStrategy";
 
-export type BookStrategyMode = "enhancers" | "timing" | "iib";
+export type BookStrategyMode = "enhancers" | "timing" | "iib" | "conclusions";
 export type EnergyMode = "total" | "breakdown";
 export type EnhancerModeKind = EnhancerUseMode["kind"];
 export type PopoutKind = "energy" | "perks" | "investment" | "prices";

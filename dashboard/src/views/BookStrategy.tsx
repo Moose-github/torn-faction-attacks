@@ -336,6 +336,15 @@ export function BookStrategy() {
           >
             Ignorance Is Bliss
           </button>
+          <button
+            type="button"
+            className={mode === "conclusions" ? "active" : ""}
+            onClick={() => setMode("conclusions")}
+            role="tab"
+            aria-selected={mode === "conclusions"}
+          >
+            Conclusions
+          </button>
         </div>
 
         {mode === "enhancers" ? (
@@ -630,7 +639,7 @@ export function BookStrategy() {
             onPopoutChange={setOpenTimingPopout}
             onMethodologyToggle={() => setMethodologyOpen((current) => !current)}
           />
-        ) : (
+        ) : mode === "iib" ? (
           <IgnoranceIsBlissView
             form={iibForm}
             energyMode={iibEnergyMode}
@@ -641,6 +650,8 @@ export function BookStrategy() {
             onPopoutChange={setOpenIibPopout}
             onMethodologyToggle={() => setMethodologyOpen((current) => !current)}
           />
+        ) : (
+          <ConclusionsView />
         )}
       </section>
     </>
@@ -986,6 +997,65 @@ function BookTimingComparisonView({
         </div>
       </CollapsiblePanel>
     </>
+  );
+}
+
+function ConclusionsView() {
+  return (
+    <section className="panel book-strategy-conclusions-panel">
+      <PanelHeader icon={<BookOpen size={17} />} title="Conclusions" />
+      <div className="book-strategy-conclusions">
+        <section>
+          <h3>When should you read the book?</h3>
+          <p>
+            A higher starting stat alone is not a good reason to delay. The book gives approximately the same relative
+            training progress whether it is used now or later.
+          </p>
+          <p>
+            Delaying is worthwhile only when your training conditions will improve significantly, such as unlocking a
+            specialist gym, completing gym-gain education, or gaining better Steadfast or company perks.
+          </p>
+        </section>
+
+        <section>
+          <h3>Should you use FHCs?</h3>
+          <p>
+            Using FHCs throughout the book produces a large immediate stat increase, but it is extremely expensive. If
+            the same money is saved and eventually spent on stat enhancers, FHCs lead at first, but enhancers eventually
+            overtake.
+          </p>
+          <p>
+            Under the calculator&apos;s default assumptions, the approximate break-even points are:
+          </p>
+          <ul>
+            <li>
+              <strong>3.2b</strong> in the trained stat when using an <strong>8.0-dot specialist gym</strong>.
+            </li>
+            <li>
+              <strong>2.4b</strong> in the trained stat when using <strong>George&apos;s 7.3-dot gym</strong>.
+            </li>
+          </ul>
+          <p>
+            After break-even, the enhancer strategy&apos;s advantage continues to grow as the stat increases. Investing
+            the FHC budget can shorten the time needed to reach break-even, but it usually does not change the break-even
+            stat itself unless the returns are enough to buy an additional enhancer.
+          </p>
+        </section>
+
+        <section>
+          <h3>Ignorance Is Bliss</h3>
+          <p>
+            <em>Ignorance Is Bliss</em> provides an enormous increase in training gains at low stats because happiness
+            contributes much more heavily to the training formula at that stage.
+          </p>
+          <p>
+            Its benefit declines as starting stat increases, but it remains valuable at high stats. At 500m and above,
+            this calculator shows roughly <strong>18-20%</strong> additional training gain, putting it in a similar range
+            to a flat 20% gym-gain book such as <em>Get Hard Or Go Home</em>.
+          </p>
+        </section>
+      </div>
+    </section>
   );
 }
 

@@ -10901,9 +10901,9 @@ tbody tr:not(.attack-row):hover td {
 
 .book-strategy-mode-tabs {
   display: inline-grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   justify-self: start;
-  width: min(100%, 560px);
+  width: min(100%, 720px);
   padding: 4px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
@@ -11614,6 +11614,45 @@ tbody tr:not(.attack-row):hover td {
 
 .book-strategy-methodology p {
   margin: 0;
+}
+
+.book-strategy-conclusions-panel {
+  max-width: 980px;
+}
+
+.book-strategy-conclusions {
+  display: grid;
+  gap: 22px;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.book-strategy-conclusions section {
+  display: grid;
+  gap: 10px;
+}
+
+.book-strategy-conclusions h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.book-strategy-conclusions p,
+.book-strategy-conclusions ul {
+  margin: 0;
+}
+
+.book-strategy-conclusions ul {
+  display: grid;
+  gap: 8px;
+  padding-left: 22px;
+}
+
+.book-strategy-conclusions strong {
+  color: var(--text-primary);
 }
 
 .book-formula-block {
