@@ -228,7 +228,7 @@ export const defaultIgnoranceIsBlissInputs: IgnoranceIsBlissInputs = {
   statEducationPercent: defaultBookStrategyInputs.statEducationPercent,
   steadfastPercent: defaultBookStrategyInputs.steadfastPercent,
   customPerksPercent: defaultBookStrategyInputs.customPerksPercent,
-  graphMaxStat: 5_000_000_000,
+  graphMaxStat: 10_000_000_000,
   bookDurationDays: defaultBookStrategyInputs.bookDurationDays,
   gymMultiplier: defaultBookStrategyInputs.gymMultiplier,
   energyPerTrain: defaultBookStrategyInputs.energyPerTrain,

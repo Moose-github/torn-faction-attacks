@@ -276,6 +276,7 @@ describe("book strategy calculator", () => {
     const result = calculateIgnoranceIsBliss(defaultIgnoranceIsBlissInputs);
 
     expect(result.inputs.startingStat).toBe(500_000_000);
+    expect(result.inputs.graphMaxStat).toBe(10_000_000_000);
     expect(result.totalTrains).toBe(Math.floor(1_620 * 31 / 50));
     expect(result.selected.bookGain).toBeGreaterThan(result.selected.normalGain);
     expect(result.selected.percentIncrease).toBeCloseTo(

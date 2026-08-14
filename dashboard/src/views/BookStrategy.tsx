@@ -656,6 +656,7 @@ export function BookStrategy() {
             <p>
               Uses Vladar's community gym formula, constant 5,000 happiness, 50-energy trains, and no random term.
             </p>
+            <FormulaMethodologyNote />
             <p>
               A fuller model using 150/250-energy batches, happiness loss from training, and happiness regeneration from
               various sources was tested. At a 500m starting stat, it differed from this simplified model by about 1%,
@@ -1038,6 +1039,7 @@ function BookTimingComparisonView({
           <p>
             Uses Vladar's community gym formula, a constant 5000 happiness value, George's Gym (7.3 dots) & 50-energy trains.
           </p>
+          <FormulaMethodologyNote />
           <p>
             Both paths use the same daily energy with no stacking.
           </p>
@@ -1070,10 +1072,116 @@ function IgnoranceIsBlissView({
   onPopoutChange: (popout: IgnoranceIsBlissPopoutKind | null) => void;
   onMethodologyToggle: () => void;
 }) {
+  const [isDraggingStartingStat, setIsDraggingStartingStat] = React.useState(false);
+  const [chartWidth, setChartWidth] = React.useState(0);
+  const chartRef = React.useRef<HTMLDivElement | null>(null);
+  const pendingDragClientXRef = React.useRef<number | null>(null);
+  const dragAnimationFrameRef = React.useRef<number | null>(null);
   const inputs = React.useMemo(() => ignoranceIsBlissInputsFromForm(form, energyMode), [energyMode, form]);
   const result = React.useMemo(() => calculateIgnoranceIsBliss(inputs), [inputs]);
   const dailyEnergy = energyMode === "breakdown" ? calculatedIibDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
   const xTicks = React.useMemo(() => buildLogStatTicks(result.inputs.graphMaxStat), [result.inputs.graphMaxStat]);
+  const yDomain = React.useMemo(() => buildLogPercentDomain(result.series), [result.series]);
+  const yTicks = React.useMemo(() => buildLogPercentTicks(yDomain[0], yDomain[1]), [yDomain]);
+  const startingStatMarkerLeft = chartWidth > 0
+    ? CHART_Y_AXIS_WIDTH +
+      (Math.log10(result.inputs.startingStat) / Math.max(1, Math.log10(result.inputs.graphMaxStat))) *
+      Math.max(1, chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
+    : null;
+
+  const setIibStartingStatFromRaw = React.useCallback((rawStat: number) => {
+    if (!Number.isFinite(rawStat)) {
+      return;
+    }
+
+    const stat = clampNumber(rawStat, 1, result.inputs.graphMaxStat);
+    onFieldChange("startingStat", formatInputCompact(stat));
+  }, [onFieldChange, result.inputs.graphMaxStat]);
+
+  const updateIibStartingStatFromClientX = React.useCallback((clientX: number) => {
+    const rect = chartRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    const plotLeft = rect.left + CHART_Y_AXIS_WIDTH;
+    const plotWidth = Math.max(1, rect.width - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN);
+    const rawRatio = clampNumber((clientX - plotLeft) / plotWidth, 0, 1);
+    const stat = 10 ** (rawRatio * Math.max(1, Math.log10(result.inputs.graphMaxStat)));
+    setIibStartingStatFromRaw(stat);
+  }, [result.inputs.graphMaxStat, setIibStartingStatFromRaw]);
+
+  const scheduleIibStartingStatFromClientX = React.useCallback((clientX: number) => {
+    pendingDragClientXRef.current = clientX;
+    if (dragAnimationFrameRef.current !== null) {
+      return;
+    }
+
+    dragAnimationFrameRef.current = window.requestAnimationFrame(() => {
+      dragAnimationFrameRef.current = null;
+      const nextClientX = pendingDragClientXRef.current;
+      pendingDragClientXRef.current = null;
+      if (nextClientX !== null) {
+        updateIibStartingStatFromClientX(nextClientX);
+      }
+    });
+  }, [updateIibStartingStatFromClientX]);
+
+  const flushScheduledIibStartingStat = React.useCallback(() => {
+    if (dragAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragAnimationFrameRef.current);
+      dragAnimationFrameRef.current = null;
+    }
+
+    const nextClientX = pendingDragClientXRef.current;
+    pendingDragClientXRef.current = null;
+    if (nextClientX !== null) {
+      updateIibStartingStatFromClientX(nextClientX);
+    }
+  }, [updateIibStartingStatFromClientX]);
+
+  React.useEffect(() => {
+    const element = chartRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const updateWidth = () => setChartWidth(element.getBoundingClientRect().width);
+    updateWidth();
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    if (!isDraggingStartingStat) {
+      return undefined;
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      scheduleIibStartingStatFromClientX(event.clientX);
+    }
+
+    function handlePointerUp() {
+      flushScheduledIibStartingStat();
+      setIsDraggingStartingStat(false);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+
+    return () => {
+      if (dragAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragAnimationFrameRef.current);
+        dragAnimationFrameRef.current = null;
+      }
+      pendingDragClientXRef.current = null;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [flushScheduledIibStartingStat, isDraggingStartingStat, scheduleIibStartingStatFromClientX]);
 
   return (
     <>
@@ -1153,7 +1261,10 @@ function IgnoranceIsBlissView({
 
       <section className="panel book-strategy-chart-panel">
         <PanelHeader icon={<Activity size={17} />} title="Ignorance Is Bliss gain uplift" aside="31 days" />
-        <div className="book-strategy-chart">
+        <div
+          className={`book-strategy-chart ${isDraggingStartingStat ? "is-dragging-iib-stat" : ""}`}
+          ref={chartRef}
+        >
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
@@ -1174,6 +1285,9 @@ function IgnoranceIsBlissView({
                 axisLine={false}
                 tick={{ fill: "var(--chart-axis)" }}
                 tickFormatter={(value) => formatPercent(Number(value))}
+                scale="log"
+                domain={yDomain}
+                ticks={yTicks}
                 width={58}
               />
               <Tooltip content={<IgnoranceIsBlissTooltip />} />
@@ -1191,6 +1305,36 @@ function IgnoranceIsBlissView({
               />
             </LineChart>
           </ResponsiveContainer>
+          {startingStatMarkerLeft !== null ? (
+            <div
+              className="book-iib-stat-drag-target"
+              style={{ left: `${startingStatMarkerLeft}px` }}
+              role="slider"
+              tabIndex={0}
+              aria-label="Starting stat marker"
+              aria-valuemin={1}
+              aria-valuemax={result.inputs.graphMaxStat}
+              aria-valuenow={Math.round(result.inputs.startingStat)}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                setIsDraggingStartingStat(true);
+                updateIibStartingStatFromClientX(event.clientX);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                  return;
+                }
+
+                event.preventDefault();
+                const multiplier = event.key === "ArrowLeft" ? 1 / 1.1 : 1.1;
+                setIibStartingStatFromRaw(result.inputs.startingStat * multiplier);
+              }}
+            >
+              <span className="book-iib-stat-handle">
+                <Dumbbell size={14} />
+              </span>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -1205,6 +1349,7 @@ function IgnoranceIsBlissView({
           <p>
             Uses Vladar's community gym formula over a fixed 31-day book window with 50-energy trains and no random term.
           </p>
+          <FormulaMethodologyNote />
           <p>
             Ignorance Is Bliss is modeled by treating happiness as restored to 99,999 for the book duration. The baseline
             uses the selected happiness value without the book.
@@ -1215,6 +1360,23 @@ function IgnoranceIsBlissView({
           </p>
         </div>
       </CollapsiblePanel>
+    </>
+  );
+}
+
+function FormulaMethodologyNote() {
+  return (
+    <>
+      <p>
+        Per-train gain = <code>(gym dots * energy per train * perk multiplier * book multiplier * base gain) / 200,000</code>.
+      </p>
+      <p>
+        Base gain = <code>effective stat * happiness term + 8 * happiness^1.05 + 1600 * (1 - (happiness / 99,999)^2) + 1700</code>,
+        where <code>happiness term = 1 + 0.07 * ln(1 + happiness / 250)</code>.
+      </p>
+      <p>
+        Effective stat is the raw stat below 50m, otherwise <code>50m + (stat - 50m) / (8.77635 * log10(stat))</code>.
+      </p>
     </>
   );
 }
@@ -1937,14 +2099,9 @@ function calculatedDailyEnergy(form: BookStrategyForm): number {
 function buildLogStatTicks(maxStat: number): number[] {
   const baseTicks = [
     1,
-    10,
-    100,
     1_000,
-    10_000,
     100_000,
-    1_000_000,
     10_000_000,
-    100_000_000,
     1_000_000_000,
     10_000_000_000,
   ];
@@ -1952,6 +2109,39 @@ function buildLogStatTicks(maxStat: number): number[] {
   const ticks = baseTicks.filter((tick) => tick <= cappedMax);
   if (!ticks.includes(cappedMax)) {
     ticks.push(cappedMax);
+  }
+
+  return ticks;
+}
+
+function buildLogPercentDomain(series: IgnoranceIsBlissPoint[]): [number, number] {
+  const values = series
+    .map((point) => point.percentIncrease)
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (values.length === 0) {
+    return [1, 100];
+  }
+
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const minPower = 10 ** Math.floor(Math.log10(minValue));
+  const maxPower = 10 ** Math.ceil(Math.log10(maxValue));
+
+  return [Math.max(0.001, minPower), Math.max(maxPower, minPower * 10)];
+}
+
+function buildLogPercentTicks(minValue: number, maxValue: number): number[] {
+  const ticks: number[] = [];
+  const startPower = Math.floor(Math.log10(Math.max(0.001, minValue)));
+  const endPower = Math.ceil(Math.log10(Math.max(minValue, maxValue)));
+
+  for (let power = startPower; power <= endPower; power += 1) {
+    for (const multiplier of [1, 2, 5]) {
+      const tick = multiplier * 10 ** power;
+      if (tick >= minValue && tick <= maxValue) {
+        ticks.push(tick);
+      }
+    }
   }
 
   return ticks;

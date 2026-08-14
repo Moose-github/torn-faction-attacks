@@ -11157,7 +11157,8 @@ tbody tr:not(.attack-row):hover td {
 }
 
 .book-strategy-chart.is-dragging-enhancer,
-.book-strategy-chart.is-dragging-book-timing {
+.book-strategy-chart.is-dragging-book-timing,
+.book-strategy-chart.is-dragging-iib-stat {
   cursor: grabbing;
 }
 
@@ -11292,6 +11293,68 @@ tbody tr:not(.attack-row):hover td {
 .book-timing-book-drag-target:focus-visible .book-timing-book-handle::before,
 .book-strategy-chart.is-dragging-book-timing .book-timing-book-handle::before {
   background: #22d3ee;
+}
+
+.book-iib-stat-drag-target {
+  position: absolute;
+  top: 12px;
+  bottom: 46px;
+  width: 72px;
+  margin-left: -36px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.book-iib-stat-drag-target:focus-visible {
+  outline: 0;
+}
+
+.book-iib-stat-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #d97706;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  transform: translate(-50%, -50%);
+}
+
+.book-iib-stat-handle::before {
+  content: "";
+  position: absolute;
+  inset: 18px;
+  border: 2px solid #f59e0b;
+  border-radius: 999px;
+  background: var(--panel-bg-solid);
+  box-shadow: var(--shadow-panel);
+}
+
+.book-iib-stat-handle svg {
+  position: relative;
+  z-index: 1;
+}
+
+.book-iib-stat-handle:hover,
+.book-iib-stat-drag-target:hover .book-iib-stat-handle,
+.book-iib-stat-drag-target:focus-visible .book-iib-stat-handle,
+.book-strategy-chart.is-dragging-iib-stat .book-iib-stat-handle {
+  color: #ffffff;
+}
+
+.book-iib-stat-handle:hover::before,
+.book-iib-stat-drag-target:hover .book-iib-stat-handle::before,
+.book-iib-stat-drag-target:focus-visible .book-iib-stat-handle::before,
+.book-strategy-chart.is-dragging-iib-stat .book-iib-stat-handle::before {
+  background: #f59e0b;
 }
 
 .book-strategy-summary-panel {
