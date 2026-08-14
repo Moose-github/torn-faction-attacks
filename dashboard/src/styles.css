@@ -11616,10 +11616,10 @@ tbody tr:not(.attack-row):hover td {
 
 .book-formula-block {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   max-width: 100%;
   overflow-x: auto;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.48);
@@ -11628,7 +11628,7 @@ tbody tr:not(.attack-row):hover td {
 
 .book-formula-block math {
   min-width: max-content;
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 700;
 }
 

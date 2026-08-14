@@ -661,7 +661,6 @@ export function BookStrategy() {
             <p>
               Uses Vladar's community gym formula, constant 5,000 happiness, 50-energy trains, and no random term.
             </p>
-            <FormulaMethodologyNote />
             <p>
               A fuller model using 150/250-energy batches, happiness loss from training, and happiness regeneration from
               various sources was tested. At a 500m starting stat, it differed from this simplified model by about 1%,
@@ -678,6 +677,7 @@ export function BookStrategy() {
               {result.inputs.postBookTrainingMonthsOutOfFour === 1 ? " month" : " months"} out of four, modeled as
               31-day training blocks followed by off-stat blocks. The book window counts as the first target-stat block.
             </p>
+            <FormulaMethodologyNote />
             <p>
               Strategy 1 uses {formatCompact(result.fhcPlan.totalFhcs)} FHCs during the 31-day book window.
             </p>
@@ -1044,7 +1044,6 @@ function BookTimingComparisonView({
           <p>
             Uses Vladar's community gym formula, a constant 5000 happiness value, George's Gym (7.3 dots) & 50-energy trains.
           </p>
-          <FormulaMethodologyNote />
           <p>
             Both paths use the same daily energy with no stacking.
           </p>
@@ -1052,6 +1051,7 @@ function BookTimingComparisonView({
             "Use now" applies the book from day 0. "Wait" trains normally until the selected start, then applies the same
             31-day book window.
           </p>
+          <FormulaMethodologyNote />
         </div>
       </CollapsiblePanel>
     </>
@@ -1354,7 +1354,6 @@ function IgnoranceIsBlissView({
           <p>
             Uses Vladar's community gym formula over a fixed 31-day book window with 50-energy trains and no random term.
           </p>
-          <FormulaMethodologyNote />
           <p>
             Ignorance Is Bliss is modeled by treating happiness as restored to 99,999 for the book duration. The baseline
             uses the selected happiness value without the book.
@@ -1363,6 +1362,7 @@ function IgnoranceIsBlissView({
             The graph shows the extra 31-day gain from Ignorance Is Bliss as a percentage of the same 31-day gain without
             the book.
           </p>
+          <FormulaMethodologyNote />
         </div>
       </CollapsiblePanel>
     </>
@@ -1637,10 +1637,15 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
     result.endpoint.strategyOneStat,
     result.endpoint.strategyTwoStat,
   );
-  const endpointDifferenceDetail = `${formatSignedStat(Math.abs(result.endpoint.difference))} - ${formatSignedPercentFixed(endpointDifferencePercent, 3)}`;
   const outcomeLabel = result.winningStrategy === "tied"
     ? "Strategies tied"
-    : `${winnerLabel} ahead by ${endpointDifferenceDetail}`;
+    : `${winnerLabel} ahead`;
+  const outcomeStat = result.winningStrategy === "tied"
+    ? formatStat(0)
+    : formatSignedStat(Math.abs(result.endpoint.difference));
+  const outcomePercent = result.winningStrategy === "tied"
+    ? formatSignedPercentFixed(0, 3)
+    : formatSignedPercentFixed(endpointDifferencePercent, 3);
   const leftoverMoney = result.enhancerUse.investmentBalance === null
     ? null
     : Math.max(0, result.enhancerUse.investmentBalance - result.enhancerUse.enhancersUsed * result.inputs.statEnhancerPrice);
@@ -1669,7 +1674,7 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
   return (
     <section className="panel book-strategy-summary-panel">
       <PanelHeader icon={<Trophy size={17} />} title="Summary" />
-      <div className="book-strategy-ending-grid">
+      <div className="book-summary-primary-grid">
         <SummaryEndingCard
           accent="strategy-one"
           label="FHCs"
@@ -1682,9 +1687,11 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
           value={formatStat(result.endpoint.strategyTwoStat)}
           detail={`Ending stat at day ${endpointDay}`}
         />
-      </div>
-      <div className={`book-strategy-summary-outcome is-${result.winningStrategy}`}>
-        {outcomeLabel}
+        <div className={`book-strategy-summary-outcome is-${result.winningStrategy}`}>
+          <span>{outcomeLabel}</span>
+          <strong>{outcomePercent}</strong>
+          <small>{outcomeStat}</small>
+        </div>
       </div>
       <div className="book-strategy-summary-support-grid">
         <SummaryItem
@@ -2278,10 +2285,9 @@ function calculatedDailyEnergy(form: BookStrategyForm): number {
 function buildLogStatTicks(maxStat: number): number[] {
   const cappedMax = Math.max(1, maxStat);
   const maxPower = Math.floor(Math.log10(cappedMax));
-  const powerStep = maxPower <= 5 ? 1 : 2;
   const ticks: number[] = [];
 
-  for (let power = 0; power <= maxPower; power += powerStep) {
+  for (let power = 0; power <= maxPower; power += 1) {
     ticks.push(10 ** power);
   }
 
@@ -2289,7 +2295,7 @@ function buildLogStatTicks(maxStat: number): number[] {
     ticks.push(cappedMax);
   }
 
-  return ticks;
+  return Array.from(new Set(ticks)).sort((a, b) => a - b);
 }
 
 function buildLogPercentDomain(series: IgnoranceIsBlissPoint[]): [number, number] {
@@ -2388,11 +2394,6 @@ function formatPercent(value: number): string {
 }
 
 function formatLogPercentTick(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 1_000) {
-    return `${trimFixed(value / 1_000)}k%`;
-  }
-
   return formatPercent(value);
 }
 
