@@ -193,7 +193,7 @@ export const defaultBookStrategyInputs: BookStrategyInputs = {
   graphDurationDays: 450,
   bookDurationDays: 31,
   bookBonusPercent: 30,
-  gymMultiplier: 7.3,
+  gymMultiplier: 8,
   energyPerTrain: 50,
   fhcEnergy: 150,
   fhcCooldownHours: 6,
