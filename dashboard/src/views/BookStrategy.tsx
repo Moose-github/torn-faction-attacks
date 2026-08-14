@@ -1110,12 +1110,10 @@ function IgnoranceIsBlissView({
     () => result.series.map((point) => ({
       ...point,
       axisPosition: statToEvenTickPosition(point.startingStat, xTicks),
-      percentAxisPosition: percentToEvenTickPosition(point.percentIncrease, yTicks),
     })),
-    [result.series, xTicks, yTicks],
+    [result.series, xTicks],
   );
   const xTickPositions = React.useMemo(() => xTicks.map((_, index) => index), [xTicks]);
-  const yTickPositions = React.useMemo(() => yTicks.map((_, index) => index), [yTicks]);
   const startingStatMarkerLeft = chartWidth > 0
     ? CHART_Y_AXIS_WIDTH +
       (statToEvenTickPosition(result.inputs.startingStat, xTicks) / Math.max(1, xTicks.length - 1)) *
@@ -1316,9 +1314,10 @@ function IgnoranceIsBlissView({
                 tickLine={false}
                 axisLine={false}
                 tick={{ fill: "var(--chart-axis)" }}
-                tickFormatter={(value) => formatLogPercentTick(yTicks[Math.round(Number(value))] ?? Number(value))}
-                domain={[0, Math.max(1, yTicks.length - 1)]}
-                ticks={yTickPositions}
+                tickFormatter={(value) => formatLogPercentTick(Number(value))}
+                scale="log"
+                domain={[IIB_Y_AXIS_TICKS[0], IIB_Y_AXIS_TICKS[IIB_Y_AXIS_TICKS.length - 1]]}
+                ticks={yTicks}
                 width={64}
               />
               <Tooltip content={<IgnoranceIsBlissTooltip />} />
@@ -1330,7 +1329,7 @@ function IgnoranceIsBlissView({
               />
               <Line
                 type="linear"
-                dataKey="percentAxisPosition"
+                dataKey="percentIncrease"
                 name="IIB gain"
                 stroke="#22d3ee"
                 strokeWidth={3}
@@ -2364,26 +2363,6 @@ function evenTickPositionToStat(position: number, ticks: number[]): number {
 
 function buildLogPercentTicks(): number[] {
   return IIB_Y_AXIS_TICKS;
-}
-
-function percentToEvenTickPosition(percent: number, ticks: number[]): number {
-  if (ticks.length <= 1) {
-    return 0;
-  }
-
-  const clampedPercent = clampNumber(percent, ticks[0], ticks[ticks.length - 1]);
-  for (let index = 0; index < ticks.length - 1; index += 1) {
-    const start = ticks[index];
-    const end = ticks[index + 1];
-    if (clampedPercent <= end) {
-      const startLog = Math.log10(start);
-      const endLog = Math.log10(end);
-      const ratio = (Math.log10(clampedPercent) - startLog) / Math.max(0.000001, endLog - startLog);
-      return index + clampNumber(ratio, 0, 1);
-    }
-  }
-
-  return ticks.length - 1;
 }
 
 function parseNumber(value: string, fallback: number): number {
