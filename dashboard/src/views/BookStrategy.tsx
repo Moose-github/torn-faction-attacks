@@ -1008,12 +1008,12 @@ function ConclusionsView() {
         <section>
           <h3>When should you read the book?</h3>
           <p>
-            A higher starting stat alone is not a good reason to delay. The book gives approximately the same relative
+            A higher starting stat is not a good reason to delay. The book gives approximately the same relative
             training progress whether it is used now or later.
           </p>
           <p>
-            Delaying is worthwhile only when your training conditions will improve significantly, such as unlocking a
-            specialist gym, completing gym-gain education, or gaining better Steadfast or company perks.
+            Delaying is worthwhile when your training conditions will improve later, such as unlocking a
+            specialist gym, completing gym-gain educations, gaining better Steadfast or joining a company with trining perks.
           </p>
         </section>
 
@@ -1037,7 +1037,7 @@ function ConclusionsView() {
           </ul>
           <p>
             After break-even, the enhancer strategy&apos;s advantage continues to grow as the stat increases. Investing
-            the FHC budget can shorten the time needed to reach break-even, but it usually does not change the break-even
+            the FHC budget can shorten the time needed to reach break-even, but does not change the break-even
             stat itself unless the returns are enough to buy an additional enhancer.
           </p>
         </section>
@@ -1049,9 +1049,9 @@ function ConclusionsView() {
             contributes much more heavily to the training formula at that stage.
           </p>
           <p>
-            Its benefit declines as starting stat increases, but it remains valuable at high stats. At 500m and above,
-            this calculator shows roughly <strong>18-20%</strong> additional training gain, putting it in a similar range
-            to a flat 20% gym-gain book such as <em>Get Hard Or Go Home</em>.
+            Its benefit declines as starting stat increases, but it remains valuable at high stats. At 35m
+            additional training gain drop to <strong>20%</strong> putting it approximately equal
+            to the 20% gym-gain book <em>Get Hard Or Go Home</em>, after that effectivness continues to showly deline hitting <strong>18%</strong> at 10b stats.
           </p>
         </section>
       </div>
