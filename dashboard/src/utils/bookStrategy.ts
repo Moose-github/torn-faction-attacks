@@ -711,15 +711,14 @@ function findEarliestOvertake(
   let day = inputs.bookDurationDays;
   let strategyOneStat = bookState.strategyOneBookStat;
   let strategyTwoStat = bookState.strategyTwoBookStat;
-  const postBookDailyEnergy = targetStatPostBookDailyEnergy(inputs);
-  let nextStrategyOneTrainDay = postBookDailyEnergy > 0
+  const canTrainPostBook = inputs.dailyEnergy > 0 && inputs.postBookTrainingMonthsOutOfFour > 0;
+  let strategyOnePostBookTrainNumber = 1;
+  let strategyTwoPostBookTrainNumber = 1;
+  let nextStrategyOneTrainDay = canTrainPostBook
     ? nextPostBookTrainDay(inputs, bookState.strategyOneLeftoverEnergy, 1)
     : Number.POSITIVE_INFINITY;
-  let nextStrategyTwoTrainDay = postBookDailyEnergy > 0
+  let nextStrategyTwoTrainDay = canTrainPostBook
     ? nextPostBookTrainDay(inputs, bookState.strategyTwoLeftoverEnergy, 1)
-    : Number.POSITIVE_INFINITY;
-  const postBookTrainInterval = postBookDailyEnergy > 0
-    ? inputs.energyPerTrain / postBookDailyEnergy
     : Number.POSITIVE_INFINITY;
 
   const evaluateCurrentDay = (): BookStrategyResult["enhancerUse"] => {
@@ -747,11 +746,21 @@ function findEarliestOvertake(
     day = nextDay;
     while (Math.abs(day - nextStrategyOneTrainDay) < 1e-10) {
       strategyOneStat += gainPerTrain(strategyOneStat, inputs, perkMultiplier, false);
-      nextStrategyOneTrainDay += postBookTrainInterval;
+      strategyOnePostBookTrainNumber += 1;
+      nextStrategyOneTrainDay = nextPostBookTrainDay(
+        inputs,
+        bookState.strategyOneLeftoverEnergy,
+        strategyOnePostBookTrainNumber,
+      );
     }
     while (Math.abs(day - nextStrategyTwoTrainDay) < 1e-10) {
       strategyTwoStat += gainPerTrain(strategyTwoStat, inputs, perkMultiplier, false);
-      nextStrategyTwoTrainDay += postBookTrainInterval;
+      strategyTwoPostBookTrainNumber += 1;
+      nextStrategyTwoTrainDay = nextPostBookTrainDay(
+        inputs,
+        bookState.strategyTwoLeftoverEnergy,
+        strategyTwoPostBookTrainNumber,
+      );
     }
 
     candidate = evaluateCurrentDay();
@@ -768,7 +777,16 @@ function meetsEnhancerLeadTarget(lead: number, targetLead: number): boolean {
 }
 
 function nextPostBookTrainDay(inputs: BookStrategyInputs, leftoverEnergy: number, trainNumber: number): number {
-  return inputs.bookDurationDays + (trainNumber * inputs.energyPerTrain - leftoverEnergy) / targetStatPostBookDailyEnergy(inputs);
+  if (inputs.dailyEnergy <= 0 || inputs.postBookTrainingMonthsOutOfFour <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const activeDaysNeeded = (trainNumber * inputs.energyPerTrain - leftoverEnergy) / inputs.dailyEnergy;
+  if (activeDaysNeeded <= 0) {
+    return inputs.bookDurationDays;
+  }
+
+  return inputs.bookDurationDays + calendarDaysForActivePostBookTraining(inputs, activeDaysNeeded);
 }
 
 function enhancerUseAtDay(
@@ -963,11 +981,46 @@ function createPostBookState(
 }
 
 function postBookEnergyAtDay(inputs: BookStrategyInputs, leftover: number, day: number): number {
-  return leftover + targetStatPostBookDailyEnergy(inputs) * Math.max(0, day - inputs.bookDurationDays);
+  return leftover + inputs.dailyEnergy * activePostBookTrainingDaysAtDay(inputs, day);
 }
 
-function targetStatPostBookDailyEnergy(inputs: BookStrategyInputs): number {
-  return inputs.dailyEnergy * inputs.postBookTrainingMonthsOutOfFour / 4;
+function activePostBookTrainingDaysAtDay(inputs: BookStrategyInputs, day: number): number {
+  const elapsedDays = Math.max(0, day - inputs.bookDurationDays);
+  const trainingMonths = inputs.postBookTrainingMonthsOutOfFour;
+  if (trainingMonths <= 0 || elapsedDays <= 0) {
+    return 0;
+  }
+
+  if (trainingMonths >= 4) {
+    return elapsedDays;
+  }
+
+  const monthLengthDays = Math.max(1, inputs.bookDurationDays);
+  const cycleDays = monthLengthDays * 4;
+  const activeDaysPerCycle = monthLengthDays * trainingMonths;
+  const completedCycles = Math.floor(elapsedDays / cycleDays);
+  const remainingDays = elapsedDays - completedCycles * cycleDays;
+
+  return completedCycles * activeDaysPerCycle + Math.min(remainingDays, activeDaysPerCycle);
+}
+
+function calendarDaysForActivePostBookTraining(inputs: BookStrategyInputs, activeDaysNeeded: number): number {
+  const trainingMonths = inputs.postBookTrainingMonthsOutOfFour;
+  if (inputs.dailyEnergy <= 0 || trainingMonths <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  if (trainingMonths >= 4) {
+    return activeDaysNeeded;
+  }
+
+  const monthLengthDays = Math.max(1, inputs.bookDurationDays);
+  const cycleDays = monthLengthDays * 4;
+  const activeDaysPerCycle = monthLengthDays * trainingMonths;
+  const completedCycles = Math.floor(Math.max(0, activeDaysNeeded - 1e-10) / activeDaysPerCycle);
+  const remainingActiveDays = activeDaysNeeded - completedCycles * activeDaysPerCycle;
+
+  return completedCycles * cycleDays + remainingActiveDays;
 }
 
 function investmentBalanceAtDay(inputs: BookStrategyInputs, principal: number, day: number): number {

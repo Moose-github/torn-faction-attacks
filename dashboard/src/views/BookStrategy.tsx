@@ -582,7 +582,7 @@ export function BookStrategy() {
                   <ReferenceLine x={result.enhancerUse.day} stroke="#22c55e" strokeDasharray="4 4" />
                 ) : null}
                 <Line
-                  type="monotone"
+                  type="linear"
                   dataKey="strategyOneStat"
                   name="FHCs"
                   stroke="#fb7185"
@@ -592,7 +592,7 @@ export function BookStrategy() {
                   isAnimationActive={false}
                 />
                 <Line
-                  type="monotone"
+                  type="linear"
                   dataKey="strategyTwoStat"
                   name="Enhancers"
                   stroke="#22d3ee"
@@ -669,7 +669,8 @@ export function BookStrategy() {
             </p>
             <p>
               After the book window, target-stat training uses {formatCompact(result.inputs.postBookTrainingMonthsOutOfFour)}
-              {result.inputs.postBookTrainingMonthsOutOfFour === 1 ? " month" : " months"} out of four.
+              {result.inputs.postBookTrainingMonthsOutOfFour === 1 ? " month" : " months"} out of four, modeled as
+              31-day training blocks followed by off-stat blocks.
             </p>
             <p>
               Strategy 1 uses {formatCompact(result.fhcPlan.totalFhcs)} FHCs during the 31-day book window.

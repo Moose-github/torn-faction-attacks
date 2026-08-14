@@ -64,8 +64,28 @@ describe("book strategy calculator", () => {
     });
 
     expect(result.enhancerUse.strategyTwoBeforeEnhancers).toBeCloseTo(3_411_000_000, -7);
-    expect(result.enhancerUse.day).toBeCloseTo(1543.42, 1);
+    expect(result.enhancerUse.day).toBeCloseTo(1525.1, 1);
     expect(result.enhancerUse.enhancersUsed).toBe(4);
+  });
+
+  it("shows flat post-book sections when the target stat is not being trained", () => {
+    const result = calculateBookStrategy({
+      ...defaultBookStrategyInputs,
+      postBookTrainingMonthsOutOfFour: 1,
+      graphDurationDays: 160,
+      investmentEnabled: false,
+    });
+    const day62 = result.series.find((point) => point.day === 62);
+    const day100 = result.series.find((point) => point.day === 100);
+    const day156 = result.series.find((point) => point.day === 156);
+
+    expect(day62).toBeDefined();
+    expect(day100).toBeDefined();
+    expect(day156).toBeDefined();
+    expect(day100?.strategyOneStat).toBeCloseTo(day62?.strategyOneStat ?? 0, 8);
+    expect(day100?.strategyTwoStat).toBeCloseTo(day62?.strategyTwoStat ?? 0, 8);
+    expect(day156?.strategyOneStat ?? 0).toBeGreaterThan(day100?.strategyOneStat ?? 0);
+    expect(day156?.strategyTwoStat ?? 0).toBeGreaterThan(day100?.strategyTwoStat ?? 0);
   });
 
   it("moves the earliest overtake when FHC price funds enhancers sooner", () => {
