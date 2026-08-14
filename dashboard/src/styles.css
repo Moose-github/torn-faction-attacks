@@ -10901,9 +10901,9 @@ tbody tr:not(.attack-row):hover td {
 
 .book-strategy-mode-tabs {
   display: inline-grid;
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   justify-self: start;
-  width: min(100%, 340px);
+  width: min(100%, 560px);
   padding: 4px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
@@ -10911,7 +10911,7 @@ tbody tr:not(.attack-row):hover td {
 }
 
 .book-strategy-mode-tabs button {
-  min-height: 34px;
+  min-height: 38px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -10919,6 +10919,7 @@ tbody tr:not(.attack-row):hover td {
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 900;
+  line-height: 1.15;
 }
 
 .book-strategy-mode-tabs button.active {

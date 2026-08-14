@@ -30,11 +30,16 @@ import {
 import { CollapsiblePanel, PanelHeader } from "../components/Common";
 import {
   bookTimingStatAtDayWithoutBook,
+  calculateIgnoranceIsBliss,
   calculateBookTimingComparison,
   calculateBookStrategy,
+  defaultIgnoranceIsBlissInputs,
   defaultBookTimingComparisonInputs,
   defaultBookStrategyInputs,
   findEnhancerLeadMilestone,
+  type IgnoranceIsBlissInputs,
+  type IgnoranceIsBlissPoint,
+  type IgnoranceIsBlissResult,
   type BookTimingComparisonInputs,
   type BookTimingComparisonPoint,
   type BookTimingComparisonResult,
@@ -44,11 +49,12 @@ import {
   type EnhancerUseMode,
 } from "../utils/bookStrategy";
 
-type BookStrategyMode = "enhancers" | "timing";
+type BookStrategyMode = "enhancers" | "timing" | "iib";
 type EnergyMode = "total" | "breakdown";
 type EnhancerModeKind = EnhancerUseMode["kind"];
 type PopoutKind = "energy" | "perks" | "investment" | "prices";
 type BookTimingPopoutKind = "energy" | "perks";
+type IgnoranceIsBlissPopoutKind = "energy" | "perks";
 
 const CHART_Y_AXIS_WIDTH = 58;
 const CHART_RIGHT_MARGIN = 18;
@@ -104,6 +110,23 @@ type BookTimingForm = {
   bookBonusPercent: string;
 };
 
+type IgnoranceIsBlissForm = {
+  startingStat: string;
+  dailyEnergy: string;
+  normalHappiness: string;
+  naturalEnergy: string;
+  xanaxPerDay: string;
+  dailyRefill: string;
+  otherDailyEnergy: string;
+  privateIslandPercent: string;
+  generalEducationPercent: string;
+  statEducationPercent: string;
+  steadfastPercent: string;
+  customPerksPercent: string;
+  gymMultiplier: string;
+  graphMaxStat: string;
+};
+
 type SharedPopoutField =
   | "dailyEnergy"
   | "naturalEnergy"
@@ -119,6 +142,7 @@ type SharedPopoutField =
 const FIXED_ENERGY_PER_XANAX = 250;
 const DEFAULT_FORM = formFromInputs(defaultBookStrategyInputs);
 const DEFAULT_TIMING_FORM = timingFormFromInputs(defaultBookTimingComparisonInputs);
+const DEFAULT_IIB_FORM = ignoranceIsBlissFormFromInputs(defaultIgnoranceIsBlissInputs);
 const SHARED_POPOUT_FIELDS = new Set<string>([
   "dailyEnergy",
   "naturalEnergy",
@@ -136,10 +160,13 @@ export function BookStrategy() {
   const [mode, setMode] = React.useState<BookStrategyMode>("enhancers");
   const [form, setForm] = React.useState<BookStrategyForm>(DEFAULT_FORM);
   const [timingForm, setTimingForm] = React.useState<BookTimingForm>(DEFAULT_TIMING_FORM);
+  const [iibForm, setIibForm] = React.useState<IgnoranceIsBlissForm>(DEFAULT_IIB_FORM);
   const [energyMode, setEnergyMode] = React.useState<EnergyMode>("total");
   const [timingEnergyMode, setTimingEnergyMode] = React.useState<EnergyMode>("total");
+  const [iibEnergyMode, setIibEnergyMode] = React.useState<EnergyMode>("total");
   const [openPopout, setOpenPopout] = React.useState<PopoutKind | null>(null);
   const [openTimingPopout, setOpenTimingPopout] = React.useState<BookTimingPopoutKind | null>(null);
+  const [openIibPopout, setOpenIibPopout] = React.useState<IgnoranceIsBlissPopoutKind | null>(null);
   const [methodologyOpen, setMethodologyOpen] = React.useState(false);
   const [isDraggingEnhancerDay, setIsDraggingEnhancerDay] = React.useState(false);
   const [chartWidth, setChartWidth] = React.useState(0);
@@ -163,6 +190,7 @@ export function BookStrategy() {
   function updateSharedPopoutField(field: SharedPopoutField, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
     setTimingForm((current) => ({ ...current, [field]: value }));
+    setIibForm((current) => ({ ...current, [field]: value }));
   }
 
   function updateField<K extends keyof BookStrategyForm>(field: K, value: BookStrategyForm[K]) {
@@ -183,18 +211,31 @@ export function BookStrategy() {
     setTimingForm((current) => ({ ...current, [field]: value }));
   }
 
+  function updateIibField<K extends keyof IgnoranceIsBlissForm>(field: K, value: IgnoranceIsBlissForm[K]) {
+    if (isSharedPopoutField(field) && typeof value === "string") {
+      updateSharedPopoutField(field, value);
+      return;
+    }
+
+    setIibForm((current) => ({ ...current, [field]: value }));
+  }
+
   function updateSharedEnergyMode(nextMode: EnergyMode) {
     setEnergyMode(nextMode);
     setTimingEnergyMode(nextMode);
+    setIibEnergyMode(nextMode);
   }
 
   function resetDefaults() {
     setForm(DEFAULT_FORM);
     setTimingForm(DEFAULT_TIMING_FORM);
+    setIibForm(DEFAULT_IIB_FORM);
     setEnergyMode("total");
     setTimingEnergyMode("total");
+    setIibEnergyMode("total");
     setOpenPopout(null);
     setOpenTimingPopout(null);
+    setOpenIibPopout(null);
     setIsDraggingEnhancerDay(false);
   }
 
@@ -349,6 +390,15 @@ export function BookStrategy() {
             aria-selected={mode === "timing"}
           >
             Book Timing
+          </button>
+          <button
+            type="button"
+            className={mode === "iib" ? "active" : ""}
+            onClick={() => setMode("iib")}
+            role="tab"
+            aria-selected={mode === "iib"}
+          >
+            Ignorance Is Bliss
           </button>
         </div>
 
@@ -631,7 +681,7 @@ export function BookStrategy() {
           </div>
         </CollapsiblePanel>
           </>
-        ) : (
+        ) : mode === "timing" ? (
           <BookTimingComparisonView
             form={timingForm}
             energyMode={timingEnergyMode}
@@ -640,6 +690,17 @@ export function BookStrategy() {
             onFieldChange={updateTimingField}
             onEnergyModeChange={updateSharedEnergyMode}
             onPopoutChange={setOpenTimingPopout}
+            onMethodologyToggle={() => setMethodologyOpen((current) => !current)}
+          />
+        ) : (
+          <IgnoranceIsBlissView
+            form={iibForm}
+            energyMode={iibEnergyMode}
+            openPopout={openIibPopout}
+            methodologyOpen={methodologyOpen}
+            onFieldChange={updateIibField}
+            onEnergyModeChange={updateSharedEnergyMode}
+            onPopoutChange={setOpenIibPopout}
             onMethodologyToggle={() => setMethodologyOpen((current) => !current)}
           />
         )}
@@ -989,6 +1050,174 @@ function BookTimingComparisonView({
   );
 }
 
+function IgnoranceIsBlissView({
+  form,
+  energyMode,
+  openPopout,
+  methodologyOpen,
+  onFieldChange,
+  onEnergyModeChange,
+  onPopoutChange,
+  onMethodologyToggle,
+}: {
+  form: IgnoranceIsBlissForm;
+  energyMode: EnergyMode;
+  openPopout: IgnoranceIsBlissPopoutKind | null;
+  methodologyOpen: boolean;
+  onFieldChange: <K extends keyof IgnoranceIsBlissForm>(field: K, value: IgnoranceIsBlissForm[K]) => void;
+  onEnergyModeChange: (mode: EnergyMode) => void;
+  onPopoutChange: (popout: IgnoranceIsBlissPopoutKind | null) => void;
+  onMethodologyToggle: () => void;
+}) {
+  const inputs = React.useMemo(() => ignoranceIsBlissInputsFromForm(form, energyMode), [energyMode, form]);
+  const result = React.useMemo(() => calculateIgnoranceIsBliss(inputs), [inputs]);
+  const dailyEnergy = energyMode === "breakdown" ? calculatedIibDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
+  const xTicks = React.useMemo(() => buildLogStatTicks(result.inputs.graphMaxStat), [result.inputs.graphMaxStat]);
+
+  return (
+    <>
+      <section className="panel book-strategy-panel book-strategy-input-panel">
+        <PanelHeader
+          icon={<BookOpen size={17} />}
+          title="Ignorance Is Bliss Inputs"
+          control={
+            <div className="book-strategy-popout-actions">
+              <PopoutButton
+                icon={<BatteryCharging size={15} />}
+                label="Energy"
+                active={openPopout === "energy"}
+                onClick={() => onPopoutChange(openPopout === "energy" ? null : "energy")}
+              />
+              <PopoutButton
+                icon={<Sparkles size={15} />}
+                label="Perks"
+                active={openPopout === "perks"}
+                onClick={() => onPopoutChange(openPopout === "perks" ? null : "perks")}
+              />
+            </div>
+          }
+        />
+        <div className="book-strategy-input-grid">
+          <NumberField label="Starting stat" value={form.startingStat} onChange={(value) => onFieldChange("startingStat", value)} />
+          <NumberField label="Happiness without book" value={form.normalHappiness} onChange={(value) => onFieldChange("normalHappiness", value)} />
+          <NumberField label="Graph max stat" value={form.graphMaxStat} onChange={(value) => onFieldChange("graphMaxStat", value)} />
+          <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => onFieldChange("gymMultiplier", value)} />
+        </div>
+        {openPopout === "energy" ? (
+          <div className="book-strategy-popout" role="dialog" aria-label="Energy">
+            <div className="book-strategy-popout-heading">
+              <strong>Energy</strong>
+              <span>{formatEnergy(dailyEnergy)} daily</span>
+            </div>
+            <div className="segmented-control" aria-label="Daily energy source">
+              <button
+                type="button"
+                className={energyMode === "total" ? "active" : ""}
+                onClick={() => onEnergyModeChange("total")}
+              >
+                Total
+              </button>
+              <button
+                type="button"
+                className={energyMode === "breakdown" ? "active" : ""}
+                onClick={() => onEnergyModeChange("breakdown")}
+              >
+                Breakdown
+              </button>
+            </div>
+            {energyMode === "total" ? (
+              <NumberField label="Daily energy" value={form.dailyEnergy} onChange={(value) => onFieldChange("dailyEnergy", value)} />
+            ) : (
+              <div className="book-strategy-popout-grid">
+                <NumberField label="Natural" value={form.naturalEnergy} onChange={(value) => onFieldChange("naturalEnergy", value)} />
+                <NumberField label="Xanax/day" value={form.xanaxPerDay} onChange={(value) => onFieldChange("xanaxPerDay", value)} />
+                <NumberField label="Daily refill" value={form.dailyRefill} onChange={(value) => onFieldChange("dailyRefill", value)} />
+                <NumberField label="Other" value={form.otherDailyEnergy} onChange={(value) => onFieldChange("otherDailyEnergy", value)} />
+              </div>
+            )}
+          </div>
+        ) : null}
+        {openPopout === "perks" ? (
+          <div className="book-strategy-popout" role="dialog" aria-label="Perks">
+            <div className="book-strategy-popout-grid">
+              <NumberField label="Property" suffix="%" value={form.privateIslandPercent} onChange={(value) => onFieldChange("privateIslandPercent", value)} />
+              <NumberField label="Education (General)" suffix="%" value={form.generalEducationPercent} onChange={(value) => onFieldChange("generalEducationPercent", value)} />
+              <NumberField label="Education (Stat Specific)" suffix="%" value={form.statEducationPercent} onChange={(value) => onFieldChange("statEducationPercent", value)} />
+              <NumberField label="Faction Steadfast" suffix="%" value={form.steadfastPercent} onChange={(value) => onFieldChange("steadfastPercent", value)} />
+              <NumberField label="Job Perks" suffix="%" value={form.customPerksPercent} onChange={(value) => onFieldChange("customPerksPercent", value)} />
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="panel book-strategy-chart-panel">
+        <PanelHeader icon={<Activity size={17} />} title="Ignorance Is Bliss gain uplift" aside="31 days" />
+        <div className="book-strategy-chart">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
+              <XAxis
+                dataKey="startingStat"
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "var(--chart-axis)" }}
+                tickFormatter={(value) => formatCompact(Number(value))}
+                type="number"
+                scale="log"
+                domain={[1, result.inputs.graphMaxStat]}
+                ticks={xTicks}
+                allowDataOverflow
+              />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "var(--chart-axis)" }}
+                tickFormatter={(value) => formatPercent(Number(value))}
+                width={58}
+              />
+              <Tooltip content={<IgnoranceIsBlissTooltip />} />
+              <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
+              <ReferenceLine x={result.inputs.startingStat} stroke="#f59e0b" strokeDasharray="4 4" />
+              <Line
+                type="monotone"
+                dataKey="percentIncrease"
+                name="IIB gain uplift"
+                stroke="#22d3ee"
+                strokeWidth={3}
+                dot={false}
+                activeDot={{ r: 5 }}
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+
+      <IgnoranceIsBlissSummaryPanel result={result} />
+
+      <CollapsiblePanel
+        title="Methodology"
+        collapsed={!methodologyOpen}
+        onToggle={onMethodologyToggle}
+      >
+        <div className="book-strategy-methodology">
+          <p>
+            Uses Vladar's community gym formula over a fixed 31-day book window with 50-energy trains and no random term.
+          </p>
+          <p>
+            Ignorance Is Bliss is modeled by treating happiness as restored to 99,999 for the book duration. The baseline
+            uses the selected happiness value without the book.
+          </p>
+          <p>
+            The graph shows the extra 31-day gain from Ignorance Is Bliss as a percentage of the same 31-day gain without
+            the book.
+          </p>
+        </div>
+      </CollapsiblePanel>
+    </>
+  );
+}
+
 function BookTimingReasonsPanel() {
   const reasons = [
     {
@@ -1299,6 +1528,70 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
   );
 }
 
+function IgnoranceIsBlissSummaryPanel({ result }: { result: IgnoranceIsBlissResult }) {
+  const selected = result.selected;
+  const uplift = formatSignedPercentFixed(selected.percentIncrease, 3);
+  const summaryLines = [
+    `At ${formatStat(selected.startingStat)} starting stats, Ignorance Is Bliss adds ${formatSignedStat(selected.extraGain)} extra stats over ${formatCompact(result.inputs.bookDurationDays)} days.`,
+    `That is ${uplift} more gain than training the same energy at ${formatCompact(result.inputs.normalHappiness)} happiness.`,
+    `The comparison uses ${formatCompact(result.totalTrains)} trains and does not include a starting-energy stack.`,
+  ];
+
+  return (
+    <section className="panel book-strategy-summary-panel">
+      <PanelHeader icon={<Trophy size={17} />} title="Ignorance Is Bliss Summary" />
+      <div className="book-strategy-ending-grid">
+        <SummaryEndingCard
+          accent="strategy-one"
+          label="Without book"
+          value={formatSignedStat(selected.normalGain)}
+          detail={`Ends at ${formatStat(selected.normalEndingStat)}`}
+        />
+        <SummaryEndingCard
+          accent="strategy-two"
+          label="With IIB"
+          value={formatSignedStat(selected.bookGain)}
+          detail={`Ends at ${formatStat(selected.bookEndingStat)}`}
+        />
+      </div>
+      <div className="book-strategy-summary-outcome is-strategyTwo">
+        Ignorance Is Bliss gain uplift {uplift}
+      </div>
+      <div className="book-strategy-summary-support-grid">
+        <SummaryItem
+          icon={<Dumbbell size={16} />}
+          label="Starting stat"
+          value={formatStat(selected.startingStat)}
+          detail="Selected marker"
+        />
+        <SummaryItem
+          icon={<Sparkles size={16} />}
+          label="Extra gain"
+          value={formatSignedStat(selected.extraGain)}
+          detail="With IIB vs without"
+        />
+        <SummaryItem
+          icon={<BatteryCharging size={16} />}
+          label="Energy used"
+          value={formatCompact(result.totalTrains)}
+          detail="50-energy trains"
+        />
+        <SummaryItem
+          icon={<Activity size={16} />}
+          label="Book happiness"
+          value="99,999"
+          detail={`Baseline ${formatCompact(result.inputs.normalHappiness)}`}
+        />
+      </div>
+      <div className="book-strategy-summary-writeup">
+        {summaryLines.map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function SummaryEndingCard({
   accent,
   label,
@@ -1386,6 +1679,29 @@ function BookTimingTooltip({
       <span>
         Book active: {[point.useNowBookActive ? "Use now" : null, point.waitBookActive ? "Wait" : null].filter(Boolean).join(", ") || "None"}
       </span>
+    </div>
+  );
+}
+
+function IgnoranceIsBlissTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: IgnoranceIsBlissPoint }>;
+}) {
+  const point = payload?.[0]?.payload;
+  if (!active || !point) {
+    return null;
+  }
+
+  return (
+    <div className="chart-tooltip-card book-strategy-tooltip">
+      <strong>Starting stat {formatStat(point.startingStat)}</strong>
+      <span>Without book gain: {formatSignedStat(point.normalGain)}</span>
+      <span>With IIB gain: {formatSignedStat(point.bookGain)}</span>
+      <span>Extra gain: {formatSignedStat(point.extraGain)}</span>
+      <span>Uplift: {formatSignedPercentFixed(point.percentIncrease, 3)}</span>
     </div>
   );
 }
@@ -1490,6 +1806,27 @@ function timingInputsFromForm(form: BookTimingForm, energyMode: EnergyMode): Boo
   };
 }
 
+function ignoranceIsBlissInputsFromForm(
+  form: IgnoranceIsBlissForm,
+  energyMode: EnergyMode,
+): IgnoranceIsBlissInputs {
+  return {
+    ...defaultIgnoranceIsBlissInputs,
+    startingStat: parseNumber(form.startingStat, defaultIgnoranceIsBlissInputs.startingStat),
+    dailyEnergy: energyMode === "breakdown"
+      ? calculatedIibDailyEnergy(form)
+      : parseNumber(form.dailyEnergy, defaultIgnoranceIsBlissInputs.dailyEnergy),
+    normalHappiness: parseNumber(form.normalHappiness, defaultIgnoranceIsBlissInputs.normalHappiness),
+    privateIslandPercent: parseNumber(form.privateIslandPercent, defaultIgnoranceIsBlissInputs.privateIslandPercent),
+    generalEducationPercent: parseNumber(form.generalEducationPercent, defaultIgnoranceIsBlissInputs.generalEducationPercent),
+    statEducationPercent: parseNumber(form.statEducationPercent, defaultIgnoranceIsBlissInputs.statEducationPercent),
+    steadfastPercent: parseNumber(form.steadfastPercent, defaultIgnoranceIsBlissInputs.steadfastPercent),
+    customPerksPercent: parseNumber(form.customPerksPercent, defaultIgnoranceIsBlissInputs.customPerksPercent),
+    graphMaxStat: parseNumber(form.graphMaxStat, defaultIgnoranceIsBlissInputs.graphMaxStat),
+    gymMultiplier: parseNumber(form.gymMultiplier, defaultIgnoranceIsBlissInputs.gymMultiplier),
+  };
+}
+
 function enhancerModeFromForm(form: BookStrategyForm): EnhancerUseMode {
   if (form.enhancerMode === "targetStat") {
     return { kind: "targetStat", stat: parseNumber(form.enhancerTargetStat, defaultBookStrategyInputs.startingStat) };
@@ -1500,6 +1837,25 @@ function enhancerModeFromForm(form: BookStrategyForm): EnhancerUseMode {
   }
 
   return { kind: "earliestOvertake" };
+}
+
+function ignoranceIsBlissFormFromInputs(inputs: IgnoranceIsBlissInputs): IgnoranceIsBlissForm {
+  return {
+    startingStat: formatInputCompact(inputs.startingStat),
+    dailyEnergy: String(inputs.dailyEnergy),
+    normalHappiness: String(inputs.normalHappiness),
+    naturalEnergy: "720",
+    xanaxPerDay: "3",
+    dailyRefill: "150",
+    otherDailyEnergy: "0",
+    privateIslandPercent: String(inputs.privateIslandPercent),
+    generalEducationPercent: String(inputs.generalEducationPercent),
+    statEducationPercent: String(inputs.statEducationPercent),
+    steadfastPercent: String(inputs.steadfastPercent),
+    customPerksPercent: String(inputs.customPerksPercent),
+    gymMultiplier: String(inputs.gymMultiplier),
+    graphMaxStat: formatInputCompact(inputs.graphMaxStat),
+  };
 }
 
 function timingFormFromInputs(inputs: BookTimingComparisonInputs): BookTimingForm {
@@ -1550,6 +1906,15 @@ function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
   };
 }
 
+function calculatedIibDailyEnergy(form: IgnoranceIsBlissForm): number {
+  return (
+    parseNumber(form.naturalEnergy, 0) +
+    parseNumber(form.xanaxPerDay, 0) * FIXED_ENERGY_PER_XANAX +
+    parseNumber(form.dailyRefill, 0) +
+    parseNumber(form.otherDailyEnergy, 0)
+  );
+}
+
 function calculatedTimingDailyEnergy(form: BookTimingForm): number {
   return (
     parseNumber(form.naturalEnergy, 0) +
@@ -1566,6 +1931,29 @@ function calculatedDailyEnergy(form: BookStrategyForm): number {
     parseNumber(form.dailyRefill, 0) +
     parseNumber(form.otherDailyEnergy, 0)
   );
+}
+
+function buildLogStatTicks(maxStat: number): number[] {
+  const baseTicks = [
+    1,
+    10,
+    100,
+    1_000,
+    10_000,
+    100_000,
+    1_000_000,
+    10_000_000,
+    100_000_000,
+    1_000_000_000,
+    10_000_000_000,
+  ];
+  const cappedMax = Math.max(1, maxStat);
+  const ticks = baseTicks.filter((tick) => tick <= cappedMax);
+  if (!ticks.includes(cappedMax)) {
+    ticks.push(cappedMax);
+  }
+
+  return ticks;
 }
 
 function parseNumber(value: string, fallback: number): number {

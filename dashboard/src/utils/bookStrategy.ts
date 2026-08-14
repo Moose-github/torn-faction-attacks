@@ -122,6 +122,38 @@ export type BookTimingComparisonResult = {
   series: BookTimingComparisonPoint[];
 };
 
+export type IgnoranceIsBlissInputs = {
+  startingStat: number;
+  dailyEnergy: number;
+  normalHappiness: number;
+  privateIslandPercent: number;
+  generalEducationPercent: number;
+  statEducationPercent: number;
+  steadfastPercent: number;
+  customPerksPercent: number;
+  graphMaxStat: number;
+  bookDurationDays: number;
+  gymMultiplier: number;
+  energyPerTrain: number;
+};
+
+export type IgnoranceIsBlissPoint = {
+  startingStat: number;
+  normalGain: number;
+  bookGain: number;
+  extraGain: number;
+  percentIncrease: number;
+  normalEndingStat: number;
+  bookEndingStat: number;
+};
+
+export type IgnoranceIsBlissResult = {
+  inputs: IgnoranceIsBlissInputs;
+  selected: IgnoranceIsBlissPoint;
+  totalTrains: number;
+  series: IgnoranceIsBlissPoint[];
+};
+
 type PerkPercentInputs = {
   privateIslandPercent: number;
   generalEducationPercent: number;
@@ -142,6 +174,7 @@ const CANONICAL_B = 1700;
 const STAT_ENHANCER_MULTIPLIER = 1.01;
 const GRAPH_STEP_DAYS = 1;
 const MAX_SIMULATION_DAYS = 20_000;
+const IGNORANCE_IS_BLISS_HAPPINESS = 99_999;
 
 export const defaultBookStrategyInputs: BookStrategyInputs = {
   startingStat: 500_000_000,
@@ -183,6 +216,21 @@ export const defaultBookTimingComparisonInputs: BookTimingComparisonInputs = {
   bookDurationDays: defaultBookStrategyInputs.bookDurationDays,
   bookBonusPercent: defaultBookStrategyInputs.bookBonusPercent,
   gymMultiplier: 7.3,
+  energyPerTrain: defaultBookStrategyInputs.energyPerTrain,
+};
+
+export const defaultIgnoranceIsBlissInputs: IgnoranceIsBlissInputs = {
+  startingStat: 500_000_000,
+  dailyEnergy: defaultBookStrategyInputs.dailyEnergy,
+  normalHappiness: defaultBookStrategyInputs.happiness,
+  privateIslandPercent: defaultBookStrategyInputs.privateIslandPercent,
+  generalEducationPercent: defaultBookStrategyInputs.generalEducationPercent,
+  statEducationPercent: defaultBookStrategyInputs.statEducationPercent,
+  steadfastPercent: defaultBookStrategyInputs.steadfastPercent,
+  customPerksPercent: defaultBookStrategyInputs.customPerksPercent,
+  graphMaxStat: 5_000_000_000,
+  bookDurationDays: defaultBookStrategyInputs.bookDurationDays,
+  gymMultiplier: defaultBookStrategyInputs.gymMultiplier,
   energyPerTrain: defaultBookStrategyInputs.energyPerTrain,
 };
 
@@ -246,6 +294,22 @@ export function bookTimingStatAtDayWithoutBook(
   return statAtBookTimingDay(inputs.lowStat, finiteAtLeast(day, 0), null, inputs);
 }
 
+export function calculateIgnoranceIsBliss(
+  rawInputs: IgnoranceIsBlissInputs,
+): IgnoranceIsBlissResult {
+  const inputs = normalizeIgnoranceIsBlissInputs(rawInputs);
+  const totalTrains = completeTrains(inputs.dailyEnergy * inputs.bookDurationDays, inputs.energyPerTrain);
+  const selected = ignoranceIsBlissPoint(inputs.startingStat, inputs, totalTrains);
+  const series = buildIgnoranceIsBlissSeries(inputs, totalTrains, selected);
+
+  return {
+    inputs,
+    selected,
+    totalTrains,
+    series,
+  };
+}
+
 export function findEnhancerLeadMilestone(
   rawInputs: BookStrategyInputs,
   targetLead: number,
@@ -266,6 +330,26 @@ export function findEnhancerLeadMilestone(
   return { day: enhancerUse.day, lead: enhancerUse.lead };
 }
 
+function normalizeIgnoranceIsBlissInputs(inputs: IgnoranceIsBlissInputs): IgnoranceIsBlissInputs {
+  const startingStat = finiteAtLeast(inputs.startingStat, 1);
+
+  return {
+    ...inputs,
+    startingStat,
+    dailyEnergy: finiteAtLeast(inputs.dailyEnergy, 0),
+    normalHappiness: finiteAtLeast(inputs.normalHappiness, 0),
+    privateIslandPercent: finiteAtLeast(inputs.privateIslandPercent, -99),
+    generalEducationPercent: finiteAtLeast(inputs.generalEducationPercent, -99),
+    statEducationPercent: finiteAtLeast(inputs.statEducationPercent, -99),
+    steadfastPercent: finiteAtLeast(inputs.steadfastPercent, -99),
+    customPerksPercent: finiteAtLeast(inputs.customPerksPercent, -99),
+    graphMaxStat: Math.max(startingStat, finiteAtLeast(inputs.graphMaxStat, 1)),
+    bookDurationDays: finiteAtLeast(inputs.bookDurationDays, 1),
+    gymMultiplier: finiteAtLeast(inputs.gymMultiplier, 0),
+    energyPerTrain: finiteAtLeast(inputs.energyPerTrain, 1),
+  };
+}
+
 function normalizeBookTimingInputs(inputs: BookTimingComparisonInputs): BookTimingComparisonInputs {
   return {
     ...inputs,
@@ -283,6 +367,76 @@ function normalizeBookTimingInputs(inputs: BookTimingComparisonInputs): BookTimi
     bookBonusPercent: finiteAtLeast(inputs.bookBonusPercent, -99),
     gymMultiplier: finiteAtLeast(inputs.gymMultiplier, 0),
     energyPerTrain: finiteAtLeast(inputs.energyPerTrain, 1),
+  };
+}
+
+function buildIgnoranceIsBlissSeries(
+  inputs: IgnoranceIsBlissInputs,
+  totalTrains: number,
+  selected: IgnoranceIsBlissPoint,
+): IgnoranceIsBlissPoint[] {
+  const sampleStats = new Set<number>([1, inputs.startingStat, inputs.graphMaxStat]);
+  const minLog = Math.log10(1);
+  const maxLog = Math.log10(inputs.graphMaxStat);
+  const steps = 90;
+
+  for (let index = 0; index <= steps; index += 1) {
+    const ratio = index / steps;
+    sampleStats.add(10 ** (minLog + (maxLog - minLog) * ratio));
+  }
+
+  return [...sampleStats]
+    .filter((startingStat) => startingStat >= 1 && startingStat <= inputs.graphMaxStat)
+    .sort((a, b) => a - b)
+    .map((startingStat) => (
+      Math.abs(startingStat - selected.startingStat) < 1e-8
+        ? selected
+        : ignoranceIsBlissPoint(startingStat, inputs, totalTrains)
+    ));
+}
+
+function ignoranceIsBlissPoint(
+  startingStat: number,
+  inputs: IgnoranceIsBlissInputs,
+  totalTrains: number,
+): IgnoranceIsBlissPoint {
+  const perkMultiplier = perkProductFromPercents(inputs);
+  const normalEndingStat = advanceStat(
+    startingStat,
+    totalTrains,
+    {
+      happiness: inputs.normalHappiness,
+      bookBonusPercent: 0,
+      gymMultiplier: inputs.gymMultiplier,
+      energyPerTrain: inputs.energyPerTrain,
+    },
+    perkMultiplier,
+    false,
+  );
+  const bookEndingStat = advanceStat(
+    startingStat,
+    totalTrains,
+    {
+      happiness: IGNORANCE_IS_BLISS_HAPPINESS,
+      bookBonusPercent: 0,
+      gymMultiplier: inputs.gymMultiplier,
+      energyPerTrain: inputs.energyPerTrain,
+    },
+    perkMultiplier,
+    false,
+  );
+  const normalGain = normalEndingStat - startingStat;
+  const bookGain = bookEndingStat - startingStat;
+  const extraGain = bookGain - normalGain;
+
+  return {
+    startingStat,
+    normalGain,
+    bookGain,
+    extraGain,
+    percentIncrease: normalGain > 0 ? extraGain / normalGain * 100 : 0,
+    normalEndingStat,
+    bookEndingStat,
   };
 }
 
@@ -846,7 +1000,7 @@ function nextEnhancerFundingDay(
 function advanceStat(
   startingStat: number,
   trains: number,
-  inputs: BookStrategyInputs,
+  inputs: GymFormulaInputs,
   perkMultiplier: number,
   bookActive: boolean,
 ): number {

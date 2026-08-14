@@ -4,8 +4,10 @@ import {
   calculateBookTimingComparison,
   calculateBookStrategy,
   calculateFhcPlan,
+  calculateIgnoranceIsBliss,
   defaultBookTimingComparisonInputs,
   defaultBookStrategyInputs,
+  defaultIgnoranceIsBlissInputs,
   findEnhancerLeadMilestone,
   perkProduct,
 } from "./bookStrategy";
@@ -248,5 +250,31 @@ describe("book strategy calculator", () => {
     expect(result.delayedBook.startDay).toBeNull();
     expect(result.delayedBook.percentGain).toBeNull();
     expect(result.series.every((point) => !point.waitBookActive)).toBe(true);
+  });
+
+  it("calculates Ignorance Is Bliss gain uplift for the selected starting stat", () => {
+    const result = calculateIgnoranceIsBliss(defaultIgnoranceIsBlissInputs);
+
+    expect(result.inputs.startingStat).toBe(500_000_000);
+    expect(result.totalTrains).toBe(Math.floor(1_620 * 31 / 50));
+    expect(result.selected.bookGain).toBeGreaterThan(result.selected.normalGain);
+    expect(result.selected.percentIncrease).toBeCloseTo(
+      (result.selected.extraGain / result.selected.normalGain) * 100,
+      8,
+    );
+    expect(result.series.some((point) => point.startingStat === result.inputs.startingStat)).toBe(true);
+  });
+
+  it("allows Ignorance Is Bliss starting stats as low as 1", () => {
+    const result = calculateIgnoranceIsBliss({
+      ...defaultIgnoranceIsBlissInputs,
+      startingStat: 0,
+      graphMaxStat: 10,
+    });
+
+    expect(result.inputs.startingStat).toBe(1);
+    expect(result.series[0].startingStat).toBe(1);
+    expect(result.series.at(-1)?.startingStat).toBe(10);
+    expect(result.selected.bookEndingStat).toBeGreaterThan(result.selected.normalEndingStat);
   });
 });
