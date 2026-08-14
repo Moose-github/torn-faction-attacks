@@ -11376,9 +11376,28 @@ tbody tr:not(.attack-row):hover td {
 
 .book-summary-primary-grid .book-strategy-summary-outcome {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
   align-items: center;
   justify-content: center;
   min-height: 100%;
+}
+
+.book-summary-primary-grid .book-strategy-summary-outcome span,
+.book-summary-primary-grid .book-strategy-summary-outcome strong,
+.book-summary-primary-grid .book-strategy-summary-outcome small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.book-summary-primary-grid .book-strategy-summary-outcome strong {
+  font-size: clamp(1.55rem, 3.1vw, 2.25rem);
+  line-height: 1;
+}
+
+.book-summary-primary-grid .book-strategy-summary-outcome small {
+  font-size: clamp(1.1rem, 2.2vw, 1.55rem);
+  line-height: 1.1;
 }
 
 .book-strategy-ending-card {

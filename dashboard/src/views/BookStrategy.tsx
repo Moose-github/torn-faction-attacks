@@ -199,7 +199,12 @@ export function BookStrategy() {
       return;
     }
 
-    setForm((current) => ({ ...current, [field]: value }));
+    setForm((current) => {
+      const next = { ...current, [field]: value };
+      return field === "postBookTrainingMonthsOutOfFour" && typeof value === "string"
+        ? expandGraphDurationForEarliestOvertake(next, energyMode)
+        : next;
+    });
   }
 
   function updateTimingField<K extends keyof BookTimingForm>(field: K, value: BookTimingForm[K]) {
@@ -1762,13 +1767,14 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
     result.endpoint.useNowStat,
     result.endpoint.waitStat,
   );
-  const endpointDifferenceDetail = `${formatSignedStat(Math.abs(result.endpoint.difference))} - ${formatSignedPercentFixed(endpointDifferencePercent, 3)}`;
-  const winnerLabel =
+  const comparisonLabel =
     Math.abs(result.endpoint.difference) < 0.5
       ? "Paths tied"
       : result.endpoint.difference > 0
-        ? `Wait ahead by ${endpointDifferenceDetail}`
-        : `Use now ahead by ${endpointDifferenceDetail}`;
+        ? "Wait ahead"
+        : "Use now ahead";
+  const comparisonStat = formatSignedStat(Math.abs(result.endpoint.difference));
+  const comparisonPercent = formatSignedPercentFixed(Math.abs(endpointDifferencePercent), 3);
   const delayedStartDetail = result.delayedBookStartDay === null
     ? "Target not reached"
     : `Day ${formatCompact(result.delayedBookStartDay)}`;
@@ -1801,7 +1807,9 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
           detail={`Ending stat at day ${endpointDay}`}
         />
         <div className={`book-strategy-summary-outcome ${result.endpoint.difference > 0 ? "is-strategyTwo" : result.endpoint.difference < 0 ? "is-strategyOne" : "is-tied"}`}>
-          {winnerLabel}
+          <span>{comparisonLabel}</span>
+          <strong>{comparisonStat}</strong>
+          <small>{comparisonPercent}</small>
         </div>
       </div>
       <div className="book-strategy-summary-support-grid">
@@ -2095,6 +2103,29 @@ function inputsFromForm(form: BookStrategyForm, energyMode: EnergyMode): BookStr
     postBookTrainingMonthsOutOfFour: parseNumber(form.postBookTrainingMonthsOutOfFour, defaultBookStrategyInputs.postBookTrainingMonthsOutOfFour),
     enhancerUseMode: enhancerModeFromForm(form),
   };
+}
+
+function expandGraphDurationForEarliestOvertake(form: BookStrategyForm, energyMode: EnergyMode): BookStrategyForm {
+  const currentDuration = parseNumber(form.graphDurationDays, defaultBookStrategyInputs.graphDurationDays);
+  const earliestInputs = {
+    ...inputsFromForm(form, energyMode),
+    graphDurationDays: currentDuration,
+    enhancerUseMode: { kind: "earliestOvertake" },
+  } satisfies BookStrategyInputs;
+  const earliestResult = calculateBookStrategy(earliestInputs);
+  const earliestDay = earliestResult.enhancerUse.day;
+  if (earliestDay === null || earliestDay <= currentDuration) {
+    return form;
+  }
+
+  return {
+    ...form,
+    graphDurationDays: String(roundGraphDurationPastDay(earliestDay)),
+  };
+}
+
+function roundGraphDurationPastDay(day: number): number {
+  return Math.ceil((day + 51) / 100) * 100;
 }
 
 function timingInputsFromForm(form: BookTimingForm, energyMode: EnergyMode): BookTimingComparisonInputs {
