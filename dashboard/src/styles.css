@@ -11451,6 +11451,80 @@ tbody tr:not(.attack-row):hover td {
   font-size: 0.76rem;
 }
 
+.book-timing-insight-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px 9px;
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border-soft);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+  background: rgba(15, 23, 42, 0.22);
+}
+
+.book-timing-insight-card.is-neutral {
+  border-left-color: var(--accent-strong);
+}
+
+.book-timing-insight-card.is-strategy-one {
+  border-left-color: #fb7185;
+}
+
+.book-timing-insight-card.is-strategy-two {
+  border-left-color: #22d3ee;
+}
+
+.book-timing-insight-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--accent-strong);
+}
+
+.book-timing-insight-card.is-strategy-one .book-timing-insight-icon {
+  color: #fb7185;
+}
+
+.book-timing-insight-card.is-strategy-two .book-timing-insight-icon {
+  color: #22d3ee;
+}
+
+.book-timing-insight-label,
+.book-timing-insight-card small {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.book-timing-insight-card strong {
+  grid-column: 1 / -1;
+  min-width: 0;
+  color: var(--text-main);
+  font-size: clamp(1.35rem, 2.4vw, 2rem);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.book-timing-insight-card.is-strategy-one strong {
+  color: #fb7185;
+}
+
+.book-timing-insight-card.is-strategy-two strong {
+  color: #22d3ee;
+}
+
+.book-timing-insight-card small {
+  grid-column: 1 / -1;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
 .book-strategy-summary-outcome {
   padding: 12px 16px;
   border: 1px solid var(--border-soft);

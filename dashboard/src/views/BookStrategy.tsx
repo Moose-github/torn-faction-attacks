@@ -1785,14 +1785,16 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
     result.endpoint.useNowStat,
     result.endpoint.waitStat,
   );
-  const comparisonLabel =
-    Math.abs(result.endpoint.difference) < 0.5
-      ? "Paths tied"
-      : result.endpoint.difference > 0
-        ? "Wait ahead"
-        : "Use now ahead";
-  const comparisonStat = formatSignedStat(Math.abs(result.endpoint.difference));
-  const comparisonPercent = formatSignedPercentFixed(Math.abs(endpointDifferencePercent), 3);
+  const endpointGapPercent = `${Math.abs(endpointDifferencePercent).toFixed(3)}%`;
+  const endpointGapStat = formatStat(Math.abs(result.endpoint.difference));
+  const endpointLead = Math.abs(result.endpoint.difference) < 0.5
+    ? "No visible lead"
+    : result.endpoint.difference > 0
+      ? "Wait ahead"
+      : "Use now ahead";
+  const longRunVerdict = Math.abs(endpointDifferencePercent) <= 0.1
+    ? "Essentially tied"
+    : endpointLead;
   const delayedStartDetail = result.delayedBookStartDay === null
     ? "Target not reached"
     : `Day ${formatCompact(result.delayedBookStartDay)}`;
@@ -1800,11 +1802,26 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
   const delayedPercent = result.delayedBook.percentGain === null ? "N/A" : formatPercent(result.delayedBook.percentGain);
   const immediateExtra = result.immediateBook.extraGain === null ? "N/A" : formatSignedStat(result.immediateBook.extraGain);
   const delayedExtra = result.delayedBook.extraGain === null ? "N/A" : formatSignedStat(result.delayedBook.extraGain);
+  const liftDifference =
+    result.immediateBook.percentGain !== null && result.delayedBook.percentGain !== null
+      ? result.immediateBook.percentGain - result.delayedBook.percentGain
+      : null;
+  const liftVerdict = liftDifference === null
+    ? "Compare book lifts"
+    : Math.abs(liftDifference) < 0.01
+      ? "Relative lift is close"
+      : liftDifference > 0
+        ? "Use now has more punch"
+        : "Wait has more punch";
+  const liftDetail = liftDifference === null
+    ? "Waiting target is outside the chart window"
+    : `Now ${immediatePercent} vs wait ${delayedPercent}`;
   const timingSummaryLines = [
-    `Use now applies the book from day 0 to day ${formatCompact(result.inputs.bookDurationDays)}, adding ${immediateExtra} stats (${immediatePercent}).`,
+    `${longRunVerdict}: the final gap is ${endpointGapPercent} (${endpointGapStat} stats) at day ${endpointDay}.`,
+    `Use now gives a ${immediatePercent} lift against current strength, while waiting gives ${delayedPercent} at the delayed strength.`,
     result.delayedBookStartDay === null
       ? `Wait does not reach ${formatStat(result.inputs.delayedBookTargetStat)} within ${formatCompact(result.inputs.graphDurationDays)} days.`
-      : `Wait reaches ${formatStat(result.inputs.delayedBookTargetStat)} on day ${formatCompact(result.delayedBookStartDay)} and adds ${delayedExtra} stats (${delayedPercent}).`,
+      : `Wait reaches ${formatStat(result.inputs.delayedBookTargetStat)} on day ${formatCompact(result.delayedBookStartDay)}; that can add more raw stats later, but usually with a smaller relative impact.`,
     `Both paths use ${formatCompact(result.totalTrains)} trains with no starting-energy stack or delayed energy stack.`,
   ];
 
@@ -1812,36 +1829,40 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
     <section className="panel book-strategy-summary-panel book-timing-summary-panel">
       <PanelHeader icon={<Trophy size={17} />} title="Book Timing Summary" />
       <div className="book-summary-primary-grid">
-        <SummaryEndingCard
-          accent="strategy-one"
-          label="Use now"
-          value={formatStat(result.endpoint.useNowStat)}
-          detail={`Ending stat at day ${endpointDay}`}
+        <BookTimingInsightCard
+          icon={<Trophy size={18} />}
+          tone="neutral"
+          label="Long-run verdict"
+          value={longRunVerdict}
+          detail={`Final gap ${endpointGapPercent} / ${endpointGapStat} stats at day ${endpointDay}`}
         />
-        <SummaryEndingCard
-          accent="strategy-two"
-          label="Wait"
-          value={formatStat(result.endpoint.waitStat)}
-          detail={`Ending stat at day ${endpointDay}`}
+        <BookTimingInsightCard
+          icon={<Activity size={18} />}
+          tone="strategy-one"
+          label="Short-term lift"
+          value={liftVerdict}
+          detail={liftDetail}
         />
-        <div className={`book-strategy-summary-outcome ${result.endpoint.difference > 0 ? "is-strategyTwo" : result.endpoint.difference < 0 ? "is-strategyOne" : "is-tied"}`}>
-          <span>{comparisonLabel}</span>
-          <strong>{comparisonPercent}</strong>
-          <small>{comparisonStat}</small>
-        </div>
+        <BookTimingInsightCard
+          icon={<BookOpen size={18} />}
+          tone="strategy-two"
+          label="Timing details"
+          value={delayedStartDetail}
+          detail={`Wait target ${formatStat(result.inputs.delayedBookTargetStat)}`}
+        />
       </div>
       <div className="book-strategy-summary-support-grid">
         <SummaryItem
           icon={<BookOpen size={16} />}
-          label="Use now book gain"
+          label="Use now lift"
           value={immediatePercent}
-          detail={immediateExtra}
+          detail={`${immediateExtra} during first ${formatCompact(result.inputs.bookDurationDays)} days`}
         />
         <SummaryItem
           icon={<Sparkles size={16} />}
-          label="Wait book gain"
+          label="Wait lift"
           value={delayedPercent}
-          detail={delayedExtra}
+          detail={`${delayedExtra} when used at ${formatStat(result.inputs.delayedBookTargetStat)}`}
         />
         <SummaryItem
           icon={<Activity size={16} />}
@@ -1851,7 +1872,7 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
         />
         <SummaryItem
           icon={<BatteryCharging size={16} />}
-          label="Equal energy"
+          label="Same inputs"
           value={formatCompact(result.totalTrains)}
           detail="50-energy trains"
         />
@@ -1862,6 +1883,29 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
         ))}
       </div>
     </section>
+  );
+}
+
+function BookTimingInsightCard({
+  icon,
+  tone,
+  label,
+  value,
+  detail,
+}: {
+  icon: React.ReactNode;
+  tone: "neutral" | "strategy-one" | "strategy-two";
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className={`book-timing-insight-card is-${tone}`}>
+      <span className="book-timing-insight-icon">{icon}</span>
+      <span className="book-timing-insight-label">{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
   );
 }
 
