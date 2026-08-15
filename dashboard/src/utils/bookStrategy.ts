@@ -75,6 +75,12 @@ export type BookStrategyResult = {
 export type BookStrategyLeadMilestone = {
   day: number;
   lead: number;
+  enhancersUsed: number;
+};
+
+export type BookStrategyLeadMilestoneEntry = {
+  target: number;
+  milestone: BookStrategyLeadMilestone | null;
 };
 
 export type BookTimingComparisonInputs = {
@@ -318,19 +324,31 @@ export function findEnhancerLeadMilestone(
   targetLead: number,
   maxDay: number,
 ): BookStrategyLeadMilestone | null {
+  return findEnhancerLeadMilestones(rawInputs, [targetLead], maxDay)[0]?.milestone ?? null;
+}
+
+export function findEnhancerLeadMilestones(
+  rawInputs: BookStrategyInputs,
+  targetLeads: readonly number[],
+  maxDay: number,
+): BookStrategyLeadMilestoneEntry[] {
   const inputs = normalizeInputs({ ...rawInputs, enhancerUseMode: { kind: "earliestOvertake" } });
-  const leadTarget = finiteAtLeast(targetLead, 0);
+  const entries = targetLeads.map((target) => ({
+    target: finiteAtLeast(target, 0),
+    milestone: null as BookStrategyLeadMilestone | null,
+  }));
+  if (entries.length === 0) {
+    return [];
+  }
+
   const cappedMaxDay = Math.min(MAX_SIMULATION_DAYS, finiteAtLeast(maxDay, inputs.bookDurationDays));
   const perkMultiplier = perkProduct(inputs);
   const fhcPlan = calculateFhcPlan(inputs);
   const bookEnd = calculateBookEnd(inputs, perkMultiplier, fhcPlan);
   const bookState = createPostBookState(inputs, bookEnd, fhcPlan);
-  const enhancerUse = findEarliestOvertake(inputs, perkMultiplier, fhcPlan, bookState, cappedMaxDay, leadTarget);
-  if (enhancerUse.day === null || enhancerUse.lead === null || enhancerUse.enhancersUsed <= 0) {
-    return null;
-  }
+  recordEnhancerLeadMilestones(inputs, perkMultiplier, fhcPlan, bookState, cappedMaxDay, entries);
 
-  return { day: enhancerUse.day, lead: enhancerUse.lead };
+  return entries;
 }
 
 function normalizeIgnoranceIsBlissInputs(inputs: IgnoranceIsBlissInputs): IgnoranceIsBlissInputs {
@@ -820,6 +838,104 @@ function findEarliestOvertake(
   }
 
   return emptyEnhancerUse();
+}
+
+function recordEnhancerLeadMilestones(
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+  fhcPlan: FhcPlan,
+  bookState: PostBookState,
+  maxDay: number,
+  entries: BookStrategyLeadMilestoneEntry[],
+): void {
+  const maxEnhancers = affordableEnhancers(
+    investmentBalanceAtDay(inputs, fhcPlan.cost, maxDay),
+    inputs.statEnhancerPrice,
+  );
+  if (maxEnhancers <= 0) {
+    return;
+  }
+
+  const pendingEntries = entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => a.entry.target - b.entry.target || a.index - b.index);
+  const fundingDays = Array.from({ length: maxEnhancers }, (_, index) =>
+    nextEnhancerFundingDay(inputs, fhcPlan.cost, inputs.bookDurationDays, index + 1),
+  )
+    .map((day) => Math.max(inputs.bookDurationDays, day))
+    .filter((day) => Number.isFinite(day) && day <= maxDay)
+    .sort((a, b) => a - b);
+  let nextFundingIndex = 0;
+  let nextPendingIndex = 0;
+
+  let day = inputs.bookDurationDays;
+  let strategyOneStat = bookState.strategyOneBookStat;
+  let strategyTwoStat = bookState.strategyTwoBookStat;
+  const canTrainPostBook = inputs.dailyEnergy > 0 && inputs.postBookTrainingMonthsOutOfFour > 0;
+  let strategyOnePostBookTrainNumber = 1;
+  let strategyTwoPostBookTrainNumber = 1;
+  let nextStrategyOneTrainDay = canTrainPostBook
+    ? nextPostBookTrainDay(inputs, bookState.strategyOneLeftoverEnergy, 1)
+    : Number.POSITIVE_INFINITY;
+  let nextStrategyTwoTrainDay = canTrainPostBook
+    ? nextPostBookTrainDay(inputs, bookState.strategyTwoLeftoverEnergy, 1)
+    : Number.POSITIVE_INFINITY;
+
+  const recordCurrentDay = () => {
+    const candidate = enhancerUseFromStatsAtDay(day, strategyOneStat, strategyTwoStat, inputs, fhcPlan);
+    if (candidate.day === null || candidate.lead === null || candidate.enhancersUsed <= 0) {
+      return;
+    }
+
+    while (
+      nextPendingIndex < pendingEntries.length &&
+      meetsEnhancerLeadTarget(candidate.lead, pendingEntries[nextPendingIndex].entry.target)
+    ) {
+      pendingEntries[nextPendingIndex].entry.milestone = {
+        day: candidate.day,
+        lead: candidate.lead,
+        enhancersUsed: candidate.enhancersUsed,
+      };
+      nextPendingIndex += 1;
+    }
+  };
+
+  recordCurrentDay();
+  while (day <= maxDay && nextPendingIndex < pendingEntries.length) {
+    while (nextFundingIndex < fundingDays.length && fundingDays[nextFundingIndex] <= day + 1e-10) {
+      nextFundingIndex += 1;
+    }
+
+    const nextFundingDay = nextFundingIndex < fundingDays.length
+      ? fundingDays[nextFundingIndex]
+      : Number.POSITIVE_INFINITY;
+    const nextDay = Math.min(nextStrategyOneTrainDay, nextStrategyTwoTrainDay, nextFundingDay);
+    if (!Number.isFinite(nextDay) || nextDay > maxDay) {
+      break;
+    }
+
+    day = nextDay;
+    while (Math.abs(day - nextStrategyOneTrainDay) < 1e-10) {
+      strategyOneStat += gainPerTrain(strategyOneStat, inputs, perkMultiplier, false);
+      strategyOnePostBookTrainNumber += 1;
+      nextStrategyOneTrainDay = nextPostBookTrainDay(
+        inputs,
+        bookState.strategyOneLeftoverEnergy,
+        strategyOnePostBookTrainNumber,
+      );
+    }
+    while (Math.abs(day - nextStrategyTwoTrainDay) < 1e-10) {
+      strategyTwoStat += gainPerTrain(strategyTwoStat, inputs, perkMultiplier, false);
+      strategyTwoPostBookTrainNumber += 1;
+      nextStrategyTwoTrainDay = nextPostBookTrainDay(
+        inputs,
+        bookState.strategyTwoLeftoverEnergy,
+        strategyTwoPostBookTrainNumber,
+      );
+    }
+
+    recordCurrentDay();
+  }
 }
 
 function meetsEnhancerLeadTarget(lead: number, targetLead: number): boolean {

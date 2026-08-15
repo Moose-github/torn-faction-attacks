@@ -35,7 +35,7 @@ import {
   calculateIgnoranceIsBliss,
   calculateBookTimingComparison,
   calculateBookStrategy,
-  findEnhancerLeadMilestone,
+  findEnhancerLeadMilestones,
   type BookStrategyInputs,
   type IgnoranceIsBlissPoint,
   type IgnoranceIsBlissResult,
@@ -1658,17 +1658,12 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
     result.inputs.maxBoosterCooldownHours,
     result.inputs.postBookTrainingMonthsOutOfFour,
   ]);
-  const earliestResult = React.useMemo(
-    () => calculateBookStrategy(earliestInputs),
+  const enhancerLeadMilestones = React.useMemo(
+    () => findEnhancerLeadMilestones(earliestInputs, [0, ...LEAD_MILESTONE_TARGETS], LEAD_MILESTONE_MAX_DAY),
     [earliestInputs],
   );
-  const leadMilestones = React.useMemo(
-    () => LEAD_MILESTONE_TARGETS.map((target) => ({
-      target,
-      milestone: findEnhancerLeadMilestone(earliestInputs, target, LEAD_MILESTONE_MAX_DAY),
-    })),
-    [earliestInputs],
-  );
+  const earliestMilestone = enhancerLeadMilestones[0]?.milestone ?? null;
+  const leadMilestones = enhancerLeadMilestones.slice(1);
   const enhancerDetail = result.enhancerUse.day === null
     ? "No overtake in range"
     : `Day ${formatCompact(result.enhancerUse.day)}`;
@@ -1696,7 +1691,7 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
   const leftoverMoney = result.enhancerUse.investmentBalance === null
     ? null
     : Math.max(0, result.enhancerUse.investmentBalance - result.enhancerUse.enhancersUsed * result.inputs.statEnhancerPrice);
-  const earliestEnhancerSpend = earliestResult.enhancerUse.enhancersUsed * result.inputs.statEnhancerPrice;
+  const earliestEnhancerSpend = (earliestMilestone?.enhancersUsed ?? 0) * result.inputs.statEnhancerPrice;
   const enhancerBudgetAction = result.inputs.investmentEnabled
     ? "invest the"
     : "keep the";
@@ -1705,10 +1700,10 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
     : "FHC budget as cash";
   const summaryLines = [
     `FHCs use ${formatCompact(result.fhcPlan.totalFhcs)} FHCs during the initial 31 days, putting them ahead by ${formatSignedStat(result.bookEnd.lead)} stats at book end.`,
-    earliestResult.enhancerUse.day === null
+    earliestMilestone === null
       ? `Enhancers ${enhancerBudgetAction} ${formatMoney(result.fhcPlan.cost)} ${enhancerBudgetDetail} and do not break even in the simulated range.`
-      : `Enhancers ${enhancerBudgetAction} ${formatMoney(result.fhcPlan.cost)} ${enhancerBudgetDetail} and break even on day ${formatCompact(earliestResult.enhancerUse.day)} by purchasing ${formatCompact(earliestResult.enhancerUse.enhancersUsed)} enhancers for ${formatMoney(earliestEnhancerSpend)}.`,
-    earliestResult.enhancerUse.day === null
+      : `Enhancers ${enhancerBudgetAction} ${formatMoney(result.fhcPlan.cost)} ${enhancerBudgetDetail} and break even on day ${formatCompact(earliestMilestone.day)} by purchasing ${formatCompact(earliestMilestone.enhancersUsed)} enhancers for ${formatMoney(earliestEnhancerSpend)}.`,
+    earliestMilestone === null
       ? "No Enhancers lead is reached with the current inputs."
       : "From that point onward, the Enhancers lead continues to grow.",
     ...leadMilestones

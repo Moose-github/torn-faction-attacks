@@ -9,6 +9,7 @@ import {
   defaultBookStrategyInputs,
   defaultIgnoranceIsBlissInputs,
   findEnhancerLeadMilestone,
+  findEnhancerLeadMilestones,
   perkProduct,
 } from "./bookStrategy";
 
@@ -157,6 +158,21 @@ describe("book strategy calculator", () => {
     expect(twentyFiveMillion?.lead).toBeGreaterThanOrEqual(25_000_000);
     expect(fiftyMillion?.lead).toBeGreaterThanOrEqual(50_000_000);
     expect(oneHundredMillion?.lead).toBeGreaterThanOrEqual(100_000_000);
+  });
+
+  it("finds multiple enhancer lead milestones in one pass", () => {
+    const inputs = {
+      ...defaultBookStrategyInputs,
+      investmentEnabled: true,
+    };
+    const milestones = findEnhancerLeadMilestones(inputs, [0, 25_000_000, 50_000_000, 100_000_000], 3_650);
+
+    expect(milestones.map((entry) => entry.target)).toEqual([0, 25_000_000, 50_000_000, 100_000_000]);
+    expect(milestones[0].milestone?.day).toBeCloseTo(findEnhancerLeadMilestone(inputs, 0, 3_650)?.day ?? 0, 8);
+    expect(milestones[1].milestone?.day).toBeCloseTo(findEnhancerLeadMilestone(inputs, 25_000_000, 3_650)?.day ?? 0, 8);
+    expect(milestones[2].milestone?.day).toBeCloseTo(findEnhancerLeadMilestone(inputs, 50_000_000, 3_650)?.day ?? 0, 8);
+    expect(milestones[3].milestone?.day).toBeCloseTo(findEnhancerLeadMilestone(inputs, 100_000_000, 3_650)?.day ?? 0, 8);
+    expect(milestones.every((entry) => entry.milestone === null || entry.milestone.enhancersUsed > 0)).toBe(true);
   });
 
   it("matches the 4b example without investment growth", () => {
