@@ -5,6 +5,7 @@ import {
   BatteryCharging,
   BookOpen,
   Building2,
+  CircleCheck,
   CircleDollarSign,
   Dumbbell,
   GraduationCap,
@@ -13,6 +14,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  TrendingUp,
   Trophy,
 } from "lucide-react";
 import {
@@ -1546,7 +1548,24 @@ function FormulaMethodologyNote() {
 }
 
 function BookTimingReasonsPanel() {
-  const reasons = [
+  const useNowReasons = [
+    {
+      icon: <Activity size={17} />,
+      title: "Immediate strength increase",
+      detail: "The book boost lands now, when near-term fights, missions, or growth checks can use it.",
+    },
+    {
+      icon: <TrendingUp size={17} />,
+      title: "Greater relative impact",
+      detail: "The same book window is a larger percentage of your current strength at lower stats.",
+    },
+    {
+      icon: <CircleCheck size={17} />,
+      title: "No expected gain improvements",
+      detail: "If your gym, education, housing, company, and perks are stable, waiting adds little timing value.",
+    },
+  ];
+  const delayReasons = [
     {
       icon: <GraduationCap size={17} />,
       title: "Complete gym-gain education",
@@ -1576,19 +1595,36 @@ function BookTimingReasonsPanel() {
 
   return (
     <section className="panel book-timing-reasons-panel">
-      <PanelHeader icon={<BookOpen size={17} />} title="Reasons to Delay" />
+      <PanelHeader icon={<BookOpen size={17} />} title="Timing Considerations" />
       <p>
-        Waiting can be worthwhile if your training conditions will improve before using the book. A higher starting stat
-        alone is not a reason to delay.
+        Book timing is mostly a preference unless training conditions will change. Use now for short-term relative
+        strength; delay only when the book window would benefit from better gains.
       </p>
-      <div className="book-timing-reason-grid">
-        {reasons.map((reason) => (
-          <div className="book-timing-reason-item" key={reason.title}>
-            <span>{reason.icon}</span>
-            <strong>{reason.title}</strong>
-            <small>{reason.detail}</small>
+      <div className="book-timing-reason-columns">
+        <section className="book-timing-reason-section">
+          <h3>Reasons to Use Now</h3>
+          <div className="book-timing-reason-grid">
+            {useNowReasons.map((reason) => (
+              <div className="book-timing-reason-item" key={reason.title}>
+                <span>{reason.icon}</span>
+                <strong>{reason.title}</strong>
+                <small>{reason.detail}</small>
+              </div>
+            ))}
           </div>
-        ))}
+        </section>
+        <section className="book-timing-reason-section">
+          <h3>Reasons to Delay</h3>
+          <div className="book-timing-reason-grid">
+            {delayReasons.map((reason) => (
+              <div className="book-timing-reason-item" key={reason.title}>
+                <span>{reason.icon}</span>
+                <strong>{reason.title}</strong>
+                <small>{reason.detail}</small>
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     </section>
   );
