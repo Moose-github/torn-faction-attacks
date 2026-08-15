@@ -11835,6 +11835,16 @@ tbody tr:not(.attack-row):hover td {
   margin: 0;
 }
 
+.book-strategy-conclusions section > p:first-of-type {
+  padding: 8px 10px;
+  border-left: 3px solid #22d3ee;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: rgba(34, 211, 238, 0.08);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .book-strategy-conclusions ul {
   display: grid;
   gap: 8px;
