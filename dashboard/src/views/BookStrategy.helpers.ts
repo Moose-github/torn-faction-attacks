@@ -99,6 +99,8 @@ export type SharedPopoutField =
   | "steadfastPercent"
   | "customPerksPercent";
 
+export type SharedTrainingSettings = Pick<BookStrategyForm, SharedPopoutField>;
+
 const FIXED_ENERGY_PER_XANAX = 250;
 const IIB_X_AXIS_TICKS = [
   1,
@@ -123,18 +125,17 @@ const IIB_Y_AXIS_TICKS = [
 export const DEFAULT_FORM = formFromInputs(defaultBookStrategyInputs);
 export const DEFAULT_TIMING_FORM = timingFormFromInputs(defaultBookTimingComparisonInputs);
 export const DEFAULT_IIB_FORM = ignoranceIsBlissFormFromInputs(defaultIgnoranceIsBlissInputs);
-export const SHARED_POPOUT_FIELDS = new Set<string>([
-  "dailyEnergy",
-  "naturalEnergy",
-  "xanaxPerDay",
-  "dailyRefill",
-  "otherDailyEnergy",
-  "privateIslandPercent",
-  "generalEducationPercent",
-  "statEducationPercent",
-  "steadfastPercent",
-  "customPerksPercent",
-]);
+export const DEFAULT_SHARED_SETTINGS = sharedTrainingSettingsFromInputs(defaultBookStrategyInputs);
+
+export function applySharedSettings<T extends object>(
+  form: T,
+  sharedSettings: SharedTrainingSettings,
+): T & SharedTrainingSettings {
+  return {
+    ...form,
+    ...sharedSettings,
+  };
+}
 
 export function inputsFromForm(form: BookStrategyForm, energyMode: EnergyMode): BookStrategyInputs {
   return {
@@ -289,6 +290,21 @@ export function formFromInputs(inputs: BookStrategyInputs): BookStrategyForm {
   };
 }
 
+export function sharedTrainingSettingsFromInputs(inputs: BookStrategyInputs): SharedTrainingSettings {
+  return {
+    dailyEnergy: String(inputs.dailyEnergy),
+    naturalEnergy: "720",
+    xanaxPerDay: "3",
+    dailyRefill: "150",
+    otherDailyEnergy: "0",
+    privateIslandPercent: String(inputs.privateIslandPercent),
+    generalEducationPercent: String(inputs.generalEducationPercent),
+    statEducationPercent: String(inputs.statEducationPercent),
+    steadfastPercent: String(inputs.steadfastPercent),
+    customPerksPercent: String(inputs.customPerksPercent),
+  };
+}
+
 export function calculatedIibDailyEnergy(form: IgnoranceIsBlissForm): number {
   return calculatedEnergyFromForm(form);
 }
@@ -299,6 +315,10 @@ export function calculatedTimingDailyEnergy(form: BookTimingForm): number {
 
 export function calculatedDailyEnergy(form: BookStrategyForm): number {
   return calculatedEnergyFromForm(form);
+}
+
+export function calculatedSharedDailyEnergy(settings: SharedTrainingSettings): number {
+  return calculatedEnergyFromForm(settings);
 }
 
 export function buildLogStatTicks(maxStat: number): number[] {

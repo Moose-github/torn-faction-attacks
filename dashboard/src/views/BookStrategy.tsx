@@ -49,15 +49,14 @@ import {
   CHART_Y_AXIS_WIDTH,
   DEFAULT_FORM,
   DEFAULT_IIB_FORM,
+  DEFAULT_SHARED_SETTINGS,
   DEFAULT_TIMING_FORM,
   LEAD_MILESTONE_MAX_DAY,
   LEAD_MILESTONE_TARGETS,
-  SHARED_POPOUT_FIELDS,
+  applySharedSettings,
   buildLogPercentTicks,
   buildLogStatTicks,
-  calculatedDailyEnergy,
-  calculatedIibDailyEnergy,
-  calculatedTimingDailyEnergy,
+  calculatedSharedDailyEnergy,
   clampNumber,
   evenTickPositionToStat,
   expandGraphDurationForEarliestOvertake,
@@ -86,7 +85,7 @@ import {
   type IgnoranceIsBlissForm,
   type IgnoranceIsBlissPopoutKind,
   type PopoutKind,
-  type SharedPopoutField,
+  type SharedTrainingSettings,
 } from "./BookStrategy.helpers";
 
 export function BookStrategy() {
@@ -94,9 +93,8 @@ export function BookStrategy() {
   const [form, setForm] = React.useState<BookStrategyForm>(DEFAULT_FORM);
   const [timingForm, setTimingForm] = React.useState<BookTimingForm>(DEFAULT_TIMING_FORM);
   const [iibForm, setIibForm] = React.useState<IgnoranceIsBlissForm>(DEFAULT_IIB_FORM);
+  const [sharedSettings, setSharedSettings] = React.useState<SharedTrainingSettings>(DEFAULT_SHARED_SETTINGS);
   const [energyMode, setEnergyMode] = React.useState<EnergyMode>("total");
-  const [timingEnergyMode, setTimingEnergyMode] = React.useState<EnergyMode>("total");
-  const [iibEnergyMode, setIibEnergyMode] = React.useState<EnergyMode>("total");
   const [openPopout, setOpenPopout] = React.useState<PopoutKind | null>(null);
   const [openTimingPopout, setOpenTimingPopout] = React.useState<BookTimingPopoutKind | null>(null);
   const [openIibPopout, setOpenIibPopout] = React.useState<IgnoranceIsBlissPopoutKind | null>(null);
@@ -106,7 +104,10 @@ export function BookStrategy() {
   const chartRef = React.useRef<HTMLDivElement | null>(null);
   const pendingDragClientXRef = React.useRef<number | null>(null);
   const dragAnimationFrameRef = React.useRef<number | null>(null);
-  const inputs = React.useMemo(() => inputsFromForm(form, energyMode), [energyMode, form]);
+  const effectiveForm = React.useMemo(() => applySharedSettings(form, sharedSettings), [form, sharedSettings]);
+  const effectiveTimingForm = React.useMemo(() => applySharedSettings(timingForm, sharedSettings), [sharedSettings, timingForm]);
+  const effectiveIibForm = React.useMemo(() => applySharedSettings(iibForm, sharedSettings), [iibForm, sharedSettings]);
+  const inputs = React.useMemo(() => inputsFromForm(effectiveForm, energyMode), [effectiveForm, energyMode]);
   const result = React.useMemo(() => calculateBookStrategy(inputs), [inputs]);
   const enhancerMarkerDay = result.enhancerUse.day;
   const enhancerMarkerLeft =
@@ -116,68 +117,48 @@ export function BookStrategy() {
         Math.max(1, chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
       : null;
 
-  function isSharedPopoutField(field: PropertyKey): field is SharedPopoutField {
-    return typeof field === "string" && SHARED_POPOUT_FIELDS.has(field);
-  }
-
-  function updateSharedPopoutField(field: SharedPopoutField, value: string) {
-    setForm((current) => ({ ...current, [field]: value }));
-    setTimingForm((current) => ({ ...current, [field]: value }));
-    setIibForm((current) => ({ ...current, [field]: value }));
+  function updateSharedSetting<K extends keyof SharedTrainingSettings>(field: K, value: SharedTrainingSettings[K]) {
+    setSharedSettings((current) => ({ ...current, [field]: value }));
   }
 
   function updateField<K extends keyof BookStrategyForm>(field: K, value: BookStrategyForm[K]) {
-    if (isSharedPopoutField(field) && typeof value === "string") {
-      updateSharedPopoutField(field, value);
-      return;
-    }
-
     setForm((current) => {
       const next = { ...current, [field]: value };
-      return field === "postBookTrainingMonthsOutOfFour" && typeof value === "string"
-        ? expandGraphDurationForEarliestOvertake(next, energyMode)
-        : next;
+      if (field !== "postBookTrainingMonthsOutOfFour" || typeof value !== "string") {
+        return next;
+      }
+
+      const expanded = expandGraphDurationForEarliestOvertake(applySharedSettings(next, sharedSettings), energyMode);
+      return {
+        ...next,
+        graphDurationDays: expanded.graphDurationDays,
+      };
     });
   }
 
   function updateTimingField<K extends keyof BookTimingForm>(field: K, value: BookTimingForm[K]) {
-    if (isSharedPopoutField(field) && typeof value === "string") {
-      updateSharedPopoutField(field, value);
-      return;
-    }
-
     setTimingForm((current) => ({ ...current, [field]: value }));
   }
 
   function updateIibField<K extends keyof IgnoranceIsBlissForm>(field: K, value: IgnoranceIsBlissForm[K]) {
-    if (isSharedPopoutField(field) && typeof value === "string") {
-      updateSharedPopoutField(field, value);
-      return;
-    }
-
     setIibForm((current) => ({ ...current, [field]: value }));
-  }
-
-  function updateSharedEnergyMode(nextMode: EnergyMode) {
-    setEnergyMode(nextMode);
-    setTimingEnergyMode(nextMode);
-    setIibEnergyMode(nextMode);
   }
 
   function resetDefaults() {
     setForm(DEFAULT_FORM);
     setTimingForm(DEFAULT_TIMING_FORM);
     setIibForm(DEFAULT_IIB_FORM);
+    setSharedSettings(DEFAULT_SHARED_SETTINGS);
     setEnergyMode("total");
-    setTimingEnergyMode("total");
-    setIibEnergyMode("total");
     setOpenPopout(null);
     setOpenTimingPopout(null);
     setOpenIibPopout(null);
     setIsDraggingEnhancerDay(false);
   }
 
-  const dailyEnergy = energyMode === "breakdown" ? calculatedDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
+  const dailyEnergy = energyMode === "breakdown"
+    ? calculatedSharedDailyEnergy(sharedSettings)
+    : parseNumber(sharedSettings.dailyEnergy, 0);
 
   const setEnhancerTargetDay = React.useCallback((rawDay: number) => {
     if (
@@ -405,52 +386,18 @@ export function BookStrategy() {
               </div>
             </div>
             {openPopout === "energy" ? (
-              <div className="book-strategy-popout" role="dialog" aria-label="Energy">
-                <div className="book-strategy-popout-heading">
-                  <strong>Energy</strong>
-                  <span>{formatEnergy(dailyEnergy)} daily</span>
-                </div>
-                <div className="segmented-control" aria-label="Daily energy source">
-                  <button
-                    type="button"
-                    className={energyMode === "total" ? "active" : ""}
-                    onClick={() => updateSharedEnergyMode("total")}
-                  >
-                    Total
-                  </button>
-                  <button
-                    type="button"
-                    className={energyMode === "breakdown" ? "active" : ""}
-                    onClick={() => updateSharedEnergyMode("breakdown")}
-                  >
-                    Breakdown
-                  </button>
-                </div>
-                {energyMode === "total" ? (
-                  <NumberField label="Daily energy" value={form.dailyEnergy} onChange={(value) => updateField("dailyEnergy", value)} />
-                ) : (
-                  <div className="book-strategy-popout-grid">
-                    <NumberField label="Natural" value={form.naturalEnergy} onChange={(value) => updateField("naturalEnergy", value)} />
-                    <NumberField label="Xanax/day" value={form.xanaxPerDay} onChange={(value) => updateField("xanaxPerDay", value)} />
-                    <NumberField label="Daily refill" value={form.dailyRefill} onChange={(value) => updateField("dailyRefill", value)} />
-                    <NumberField label="Other" value={form.otherDailyEnergy} onChange={(value) => updateField("otherDailyEnergy", value)} />
-                  </div>
-                )}
-                <div className="book-strategy-popout-grid">
-                  <NumberField label="Starting energy" value={form.startingEnergy} onChange={(value) => updateField("startingEnergy", value)} />
-                </div>
-              </div>
+              <EnergyInputs
+                settings={sharedSettings}
+                energyMode={energyMode}
+                dailyEnergy={dailyEnergy}
+                startingEnergy={form.startingEnergy}
+                onEnergyModeChange={setEnergyMode}
+                onSettingChange={updateSharedSetting}
+                onStartingEnergyChange={(value) => updateField("startingEnergy", value)}
+              />
             ) : null}
             {openPopout === "perks" ? (
-              <div className="book-strategy-popout" role="dialog" aria-label="Perks">
-                <div className="book-strategy-popout-grid">
-                  <NumberField label="Property" suffix="%" value={form.privateIslandPercent} onChange={(value) => updateField("privateIslandPercent", value)} />
-                  <NumberField label="Education (General)" suffix="%" value={form.generalEducationPercent} onChange={(value) => updateField("generalEducationPercent", value)} />
-                  <NumberField label="Education (Stat Specific)" suffix="%" value={form.statEducationPercent} onChange={(value) => updateField("statEducationPercent", value)} />
-                  <NumberField label="Faction Steadfast" suffix="%" value={form.steadfastPercent} onChange={(value) => updateField("steadfastPercent", value)} />
-                  <NumberField label="Job Perks" suffix="%" value={form.customPerksPercent} onChange={(value) => updateField("customPerksPercent", value)} />
-                </div>
-              </div>
+              <PerkInputs settings={sharedSettings} onSettingChange={updateSharedSetting} />
             ) : null}
             {openPopout === "investment" ? (
               <div className="book-strategy-popout" role="dialog" aria-label="Investment">
@@ -632,23 +579,27 @@ export function BookStrategy() {
           </>
         ) : mode === "timing" ? (
           <BookTimingComparisonView
-            form={timingForm}
-            energyMode={timingEnergyMode}
+            form={effectiveTimingForm}
+            energyMode={energyMode}
+            sharedSettings={sharedSettings}
             openPopout={openTimingPopout}
             methodologyOpen={methodologyOpen}
             onFieldChange={updateTimingField}
-            onEnergyModeChange={updateSharedEnergyMode}
+            onEnergyModeChange={setEnergyMode}
+            onSharedSettingChange={updateSharedSetting}
             onPopoutChange={setOpenTimingPopout}
             onMethodologyToggle={() => setMethodologyOpen((current) => !current)}
           />
         ) : mode === "iib" ? (
           <IgnoranceIsBlissView
-            form={iibForm}
-            energyMode={iibEnergyMode}
+            form={effectiveIibForm}
+            energyMode={energyMode}
+            sharedSettings={sharedSettings}
             openPopout={openIibPopout}
             methodologyOpen={methodologyOpen}
             onFieldChange={updateIibField}
-            onEnergyModeChange={updateSharedEnergyMode}
+            onEnergyModeChange={setEnergyMode}
+            onSharedSettingChange={updateSharedSetting}
             onPopoutChange={setOpenIibPopout}
             onMethodologyToggle={() => setMethodologyOpen((current) => !current)}
           />
@@ -663,19 +614,23 @@ export function BookStrategy() {
 function BookTimingComparisonView({
   form,
   energyMode,
+  sharedSettings,
   openPopout,
   methodologyOpen,
   onFieldChange,
   onEnergyModeChange,
+  onSharedSettingChange,
   onPopoutChange,
   onMethodologyToggle,
 }: {
   form: BookTimingForm;
   energyMode: EnergyMode;
+  sharedSettings: SharedTrainingSettings;
   openPopout: BookTimingPopoutKind | null;
   methodologyOpen: boolean;
   onFieldChange: <K extends keyof BookTimingForm>(field: K, value: BookTimingForm[K]) => void;
   onEnergyModeChange: (mode: EnergyMode) => void;
+  onSharedSettingChange: <K extends keyof SharedTrainingSettings>(field: K, value: SharedTrainingSettings[K]) => void;
   onPopoutChange: (popout: BookTimingPopoutKind | null) => void;
   onMethodologyToggle: () => void;
 }) {
@@ -686,7 +641,9 @@ function BookTimingComparisonView({
   const dragAnimationFrameRef = React.useRef<number | null>(null);
   const inputs = React.useMemo(() => timingInputsFromForm(form, energyMode), [energyMode, form]);
   const result = React.useMemo(() => calculateBookTimingComparison(inputs), [inputs]);
-  const dailyEnergy = energyMode === "breakdown" ? calculatedTimingDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
+  const dailyEnergy = energyMode === "breakdown"
+    ? calculatedSharedDailyEnergy(sharedSettings)
+    : parseNumber(sharedSettings.dailyEnergy, 0);
   const delayedBookEndDay = result.delayedBook.endDay;
   const delayedBookShadeEndDay = delayedBookEndDay === null
     ? null
@@ -831,49 +788,16 @@ function BookTimingComparisonView({
           <NumberField label="Book bonus %" value={form.bookBonusPercent} onChange={(value) => onFieldChange("bookBonusPercent", value)} />
         </div>
         {openPopout === "energy" ? (
-          <div className="book-strategy-popout" role="dialog" aria-label="Energy">
-            <div className="book-strategy-popout-heading">
-              <strong>Energy</strong>
-              <span>{formatEnergy(dailyEnergy)} daily</span>
-            </div>
-            <div className="segmented-control" aria-label="Daily energy source">
-              <button
-                type="button"
-                className={energyMode === "total" ? "active" : ""}
-                onClick={() => onEnergyModeChange("total")}
-              >
-                Total
-              </button>
-              <button
-                type="button"
-                className={energyMode === "breakdown" ? "active" : ""}
-                onClick={() => onEnergyModeChange("breakdown")}
-              >
-                Breakdown
-              </button>
-            </div>
-            {energyMode === "total" ? (
-              <NumberField label="Daily energy" value={form.dailyEnergy} onChange={(value) => onFieldChange("dailyEnergy", value)} />
-            ) : (
-              <div className="book-strategy-popout-grid">
-                <NumberField label="Natural" value={form.naturalEnergy} onChange={(value) => onFieldChange("naturalEnergy", value)} />
-                <NumberField label="Xanax/day" value={form.xanaxPerDay} onChange={(value) => onFieldChange("xanaxPerDay", value)} />
-                <NumberField label="Daily refill" value={form.dailyRefill} onChange={(value) => onFieldChange("dailyRefill", value)} />
-                <NumberField label="Other" value={form.otherDailyEnergy} onChange={(value) => onFieldChange("otherDailyEnergy", value)} />
-              </div>
-            )}
-          </div>
+          <EnergyInputs
+            settings={sharedSettings}
+            energyMode={energyMode}
+            dailyEnergy={dailyEnergy}
+            onEnergyModeChange={onEnergyModeChange}
+            onSettingChange={onSharedSettingChange}
+          />
         ) : null}
         {openPopout === "perks" ? (
-          <div className="book-strategy-popout" role="dialog" aria-label="Perks">
-            <div className="book-strategy-popout-grid">
-              <NumberField label="Property" suffix="%" value={form.privateIslandPercent} onChange={(value) => onFieldChange("privateIslandPercent", value)} />
-              <NumberField label="Education (General)" suffix="%" value={form.generalEducationPercent} onChange={(value) => onFieldChange("generalEducationPercent", value)} />
-              <NumberField label="Education (Stat Specific)" suffix="%" value={form.statEducationPercent} onChange={(value) => onFieldChange("statEducationPercent", value)} />
-              <NumberField label="Faction Steadfast" suffix="%" value={form.steadfastPercent} onChange={(value) => onFieldChange("steadfastPercent", value)} />
-              <NumberField label="Job Perks" suffix="%" value={form.customPerksPercent} onChange={(value) => onFieldChange("customPerksPercent", value)} />
-            </div>
-          </div>
+          <PerkInputs settings={sharedSettings} onSettingChange={onSharedSettingChange} />
         ) : null}
       </section>
 
@@ -1064,19 +988,23 @@ function ConclusionsView() {
 function IgnoranceIsBlissView({
   form,
   energyMode,
+  sharedSettings,
   openPopout,
   methodologyOpen,
   onFieldChange,
   onEnergyModeChange,
+  onSharedSettingChange,
   onPopoutChange,
   onMethodologyToggle,
 }: {
   form: IgnoranceIsBlissForm;
   energyMode: EnergyMode;
+  sharedSettings: SharedTrainingSettings;
   openPopout: IgnoranceIsBlissPopoutKind | null;
   methodologyOpen: boolean;
   onFieldChange: <K extends keyof IgnoranceIsBlissForm>(field: K, value: IgnoranceIsBlissForm[K]) => void;
   onEnergyModeChange: (mode: EnergyMode) => void;
+  onSharedSettingChange: <K extends keyof SharedTrainingSettings>(field: K, value: SharedTrainingSettings[K]) => void;
   onPopoutChange: (popout: IgnoranceIsBlissPopoutKind | null) => void;
   onMethodologyToggle: () => void;
 }) {
@@ -1087,7 +1015,9 @@ function IgnoranceIsBlissView({
   const dragAnimationFrameRef = React.useRef<number | null>(null);
   const inputs = React.useMemo(() => ignoranceIsBlissInputsFromForm(form, energyMode), [energyMode, form]);
   const result = React.useMemo(() => calculateIgnoranceIsBliss(inputs), [inputs]);
-  const dailyEnergy = energyMode === "breakdown" ? calculatedIibDailyEnergy(form) : parseNumber(form.dailyEnergy, 0);
+  const dailyEnergy = energyMode === "breakdown"
+    ? calculatedSharedDailyEnergy(sharedSettings)
+    : parseNumber(sharedSettings.dailyEnergy, 0);
   const xTicks = React.useMemo(() => buildLogStatTicks(result.inputs.graphMaxStat), [result.inputs.graphMaxStat]);
   const yTicks = React.useMemo(() => buildLogPercentTicks(), []);
   const chartSeries = React.useMemo(
@@ -1228,49 +1158,16 @@ function IgnoranceIsBlissView({
           <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => onFieldChange("gymMultiplier", value)} />
         </div>
         {openPopout === "energy" ? (
-          <div className="book-strategy-popout" role="dialog" aria-label="Energy">
-            <div className="book-strategy-popout-heading">
-              <strong>Energy</strong>
-              <span>{formatEnergy(dailyEnergy)} daily</span>
-            </div>
-            <div className="segmented-control" aria-label="Daily energy source">
-              <button
-                type="button"
-                className={energyMode === "total" ? "active" : ""}
-                onClick={() => onEnergyModeChange("total")}
-              >
-                Total
-              </button>
-              <button
-                type="button"
-                className={energyMode === "breakdown" ? "active" : ""}
-                onClick={() => onEnergyModeChange("breakdown")}
-              >
-                Breakdown
-              </button>
-            </div>
-            {energyMode === "total" ? (
-              <NumberField label="Daily energy" value={form.dailyEnergy} onChange={(value) => onFieldChange("dailyEnergy", value)} />
-            ) : (
-              <div className="book-strategy-popout-grid">
-                <NumberField label="Natural" value={form.naturalEnergy} onChange={(value) => onFieldChange("naturalEnergy", value)} />
-                <NumberField label="Xanax/day" value={form.xanaxPerDay} onChange={(value) => onFieldChange("xanaxPerDay", value)} />
-                <NumberField label="Daily refill" value={form.dailyRefill} onChange={(value) => onFieldChange("dailyRefill", value)} />
-                <NumberField label="Other" value={form.otherDailyEnergy} onChange={(value) => onFieldChange("otherDailyEnergy", value)} />
-              </div>
-            )}
-          </div>
+          <EnergyInputs
+            settings={sharedSettings}
+            energyMode={energyMode}
+            dailyEnergy={dailyEnergy}
+            onEnergyModeChange={onEnergyModeChange}
+            onSettingChange={onSharedSettingChange}
+          />
         ) : null}
         {openPopout === "perks" ? (
-          <div className="book-strategy-popout" role="dialog" aria-label="Perks">
-            <div className="book-strategy-popout-grid">
-              <NumberField label="Property" suffix="%" value={form.privateIslandPercent} onChange={(value) => onFieldChange("privateIslandPercent", value)} />
-              <NumberField label="Education (General)" suffix="%" value={form.generalEducationPercent} onChange={(value) => onFieldChange("generalEducationPercent", value)} />
-              <NumberField label="Education (Stat Specific)" suffix="%" value={form.statEducationPercent} onChange={(value) => onFieldChange("statEducationPercent", value)} />
-              <NumberField label="Faction Steadfast" suffix="%" value={form.steadfastPercent} onChange={(value) => onFieldChange("steadfastPercent", value)} />
-              <NumberField label="Job Perks" suffix="%" value={form.customPerksPercent} onChange={(value) => onFieldChange("customPerksPercent", value)} />
-            </div>
-          </div>
+          <PerkInputs settings={sharedSettings} onSettingChange={onSharedSettingChange} />
         ) : null}
       </section>
 
@@ -2107,6 +2004,129 @@ function IgnoranceIsBlissTooltip({
       <span>With IIB gain: {formatSignedStat(point.bookGain)}</span>
       <span>Extra gain: {formatSignedStat(point.extraGain)}</span>
       <span>Uplift: {formatSignedPercentFixed(point.percentIncrease, 3)}</span>
+    </div>
+  );
+}
+
+function EnergyInputs({
+  settings,
+  energyMode,
+  dailyEnergy,
+  startingEnergy,
+  onEnergyModeChange,
+  onSettingChange,
+  onStartingEnergyChange,
+}: {
+  settings: SharedTrainingSettings;
+  energyMode: EnergyMode;
+  dailyEnergy: number;
+  startingEnergy?: string;
+  onEnergyModeChange: (mode: EnergyMode) => void;
+  onSettingChange: <K extends keyof SharedTrainingSettings>(field: K, value: SharedTrainingSettings[K]) => void;
+  onStartingEnergyChange?: (value: string) => void;
+}) {
+  return (
+    <div className="book-strategy-popout" role="dialog" aria-label="Energy">
+      <div className="book-strategy-popout-heading">
+        <strong>Energy</strong>
+        <span>{formatEnergy(dailyEnergy)} daily</span>
+      </div>
+      <div className="segmented-control" aria-label="Daily energy source">
+        <button
+          type="button"
+          className={energyMode === "total" ? "active" : ""}
+          onClick={() => onEnergyModeChange("total")}
+        >
+          Total
+        </button>
+        <button
+          type="button"
+          className={energyMode === "breakdown" ? "active" : ""}
+          onClick={() => onEnergyModeChange("breakdown")}
+        >
+          Breakdown
+        </button>
+      </div>
+      {energyMode === "total" ? (
+        <NumberField
+          label="Daily energy"
+          value={settings.dailyEnergy}
+          onChange={(value) => onSettingChange("dailyEnergy", value)}
+        />
+      ) : (
+        <div className="book-strategy-popout-grid">
+          <NumberField
+            label="Natural"
+            value={settings.naturalEnergy}
+            onChange={(value) => onSettingChange("naturalEnergy", value)}
+          />
+          <NumberField
+            label="Xanax/day"
+            value={settings.xanaxPerDay}
+            onChange={(value) => onSettingChange("xanaxPerDay", value)}
+          />
+          <NumberField
+            label="Daily refill"
+            value={settings.dailyRefill}
+            onChange={(value) => onSettingChange("dailyRefill", value)}
+          />
+          <NumberField
+            label="Other"
+            value={settings.otherDailyEnergy}
+            onChange={(value) => onSettingChange("otherDailyEnergy", value)}
+          />
+        </div>
+      )}
+      {startingEnergy !== undefined && onStartingEnergyChange ? (
+        <div className="book-strategy-popout-grid">
+          <NumberField label="Starting energy" value={startingEnergy} onChange={onStartingEnergyChange} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PerkInputs({
+  settings,
+  onSettingChange,
+}: {
+  settings: SharedTrainingSettings;
+  onSettingChange: <K extends keyof SharedTrainingSettings>(field: K, value: SharedTrainingSettings[K]) => void;
+}) {
+  return (
+    <div className="book-strategy-popout" role="dialog" aria-label="Perks">
+      <div className="book-strategy-popout-grid">
+        <NumberField
+          label="Property"
+          suffix="%"
+          value={settings.privateIslandPercent}
+          onChange={(value) => onSettingChange("privateIslandPercent", value)}
+        />
+        <NumberField
+          label="Education (General)"
+          suffix="%"
+          value={settings.generalEducationPercent}
+          onChange={(value) => onSettingChange("generalEducationPercent", value)}
+        />
+        <NumberField
+          label="Education (Stat Specific)"
+          suffix="%"
+          value={settings.statEducationPercent}
+          onChange={(value) => onSettingChange("statEducationPercent", value)}
+        />
+        <NumberField
+          label="Faction Steadfast"
+          suffix="%"
+          value={settings.steadfastPercent}
+          onChange={(value) => onSettingChange("steadfastPercent", value)}
+        />
+        <NumberField
+          label="Job Perks"
+          suffix="%"
+          value={settings.customPerksPercent}
+          onChange={(value) => onSettingChange("customPerksPercent", value)}
+        />
+      </div>
     </div>
   );
 }
