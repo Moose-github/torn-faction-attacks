@@ -1601,7 +1601,7 @@ function BookTimingReasonsPanel() {
         strength; delay only when the book window would benefit from better gains.
       </p>
       <div className="book-timing-reason-columns">
-        <section className="book-timing-reason-section">
+        <section className="book-timing-reason-section is-use-now">
           <h3>Reasons to Use Now</h3>
           <div className="book-timing-reason-grid">
             {useNowReasons.map((reason) => (
@@ -1613,7 +1613,7 @@ function BookTimingReasonsPanel() {
             ))}
           </div>
         </section>
-        <section className="book-timing-reason-section">
+        <section className="book-timing-reason-section is-delay">
           <h3>Reasons to Delay</h3>
           <div className="book-timing-reason-grid">
             {delayReasons.map((reason) => (
@@ -1847,8 +1847,8 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
     : Math.abs(liftDifference) < 0.01
       ? "Relative lift is close"
       : liftDifference > 0
-        ? "Use now has more punch"
-        : "Wait has more punch";
+        ? "Use now has greater relative lift"
+        : "Wait has greater relative lift";
   const liftDetail = liftDifference === null
     ? "Waiting target is outside the chart window"
     : `Now ${immediatePercent} vs wait ${delayedPercent}`;
@@ -1874,14 +1874,14 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
         />
         <BookTimingInsightCard
           icon={<Activity size={18} />}
-          tone="strategy-one"
+          tone="neutral"
           label="Short-term lift"
           value={liftVerdict}
           detail={liftDetail}
         />
         <BookTimingInsightCard
           icon={<BookOpen size={18} />}
-          tone="strategy-two"
+          tone="neutral"
           label="Timing details"
           value={delayedStartDetail}
           detail={`Wait target ${formatStat(result.inputs.delayedBookTargetStat)}`}

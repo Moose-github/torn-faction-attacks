@@ -11637,6 +11637,19 @@ tbody tr:not(.attack-row):hover td {
   align-content: start;
   gap: 10px;
   min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.book-timing-reason-section.is-use-now {
+  border-color: rgba(251, 113, 133, 0.28);
+  background: rgba(251, 113, 133, 0.07);
+}
+
+.book-timing-reason-section.is-delay {
+  border-color: rgba(34, 211, 238, 0.28);
+  background: rgba(34, 211, 238, 0.07);
 }
 
 .book-timing-reason-section h3 {
@@ -11661,7 +11674,7 @@ tbody tr:not(.attack-row):hover td {
   padding: 13px 15px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
-  background: var(--panel-muted-bg);
+  background: rgba(15, 23, 42, 0.26);
 }
 
 .book-timing-reason-item > span {
