@@ -11481,11 +11481,7 @@ tbody tr:not(.attack-row):hover td {
 }
 
 .book-timing-insight-card.is-balanced {
-  border-left-color: transparent;
-  border-left-style: solid;
-  background:
-    linear-gradient(#f59e0b 0 50%, #22d3ee 50% 100%) left / 4px 100% no-repeat,
-    rgba(15, 23, 42, 0.22);
+  border-left-color: #22d3ee;
 }
 
 .book-timing-insight-card.is-use-now {
@@ -11510,7 +11506,7 @@ tbody tr:not(.attack-row):hover td {
 }
 
 .book-timing-insight-card.is-balanced .book-timing-insight-icon {
-  color: var(--accent-strong);
+  color: #22d3ee;
 }
 
 .book-timing-insight-card.is-use-now .book-timing-insight-icon {
@@ -11545,10 +11541,6 @@ tbody tr:not(.attack-row):hover td {
 
 .book-timing-insight-card.is-balanced strong {
   color: var(--text-main);
-}
-
-.book-timing-insight-card.is-use-now strong {
-  color: #f59e0b;
 }
 
 .book-timing-insight-card small {

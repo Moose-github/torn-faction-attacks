@@ -1829,7 +1829,7 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
       ? "Wait ahead"
       : "Use now ahead";
   const longRunVerdict = Math.abs(endpointDifferencePercent) <= 0.1
-    ? "Essentially tied"
+    ? "Difference negligible"
     : endpointLead;
   const delayedStartDetail = result.delayedBookStartDay === null
     ? "Target not reached"
