@@ -2292,7 +2292,7 @@ function NumberField({
       <div>
         <input
           type="text"
-          inputMode="decimal"
+          inputMode="text"
           value={value}
           title={title}
           disabled={disabled}
