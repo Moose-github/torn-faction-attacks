@@ -173,8 +173,11 @@ const CANONICAL_A = 1600;
 const CANONICAL_B = 1700;
 const STAT_ENHANCER_MULTIPLIER = 1.01;
 const GRAPH_STEP_DAYS = 1;
+const MAX_GRAPH_DURATION_DAYS = 3_650;
 const MAX_SIMULATION_DAYS = 20_000;
 const IGNORANCE_IS_BLISS_HAPPINESS = 99_999;
+const MIN_STANDARD_HAPPINESS = 1;
+const MAX_STANDARD_HAPPINESS = 10_000;
 
 export const defaultBookStrategyInputs: BookStrategyInputs = {
   startingStat: 500_000_000,
@@ -242,7 +245,7 @@ export function calculateBookStrategy(rawInputs: BookStrategyInputs): BookStrate
   const enhancerUse = findEnhancerUse(inputs, perkMultiplier, fhcPlan, bookEnd);
   const series = buildSeries(inputs, perkMultiplier, fhcPlan, enhancerUse.day, enhancerUse.enhancersUsed);
   const endpoint = series[series.length - 1];
-  const breakEvenDay = enhancerUse.day ?? firstSeriesOvertake(series);
+  const breakEvenDay = calculateBreakEvenDay(enhancerUse, series);
   const winningStrategy =
     Math.abs(endpoint.difference) < 0.5
       ? "tied"
@@ -337,7 +340,11 @@ function normalizeIgnoranceIsBlissInputs(inputs: IgnoranceIsBlissInputs): Ignora
     ...inputs,
     startingStat,
     dailyEnergy: finiteAtLeast(inputs.dailyEnergy, 0),
-    normalHappiness: finiteAtLeast(inputs.normalHappiness, 0),
+    normalHappiness: clamp(
+      finiteAtLeast(inputs.normalHappiness, MIN_STANDARD_HAPPINESS),
+      MIN_STANDARD_HAPPINESS,
+      MAX_STANDARD_HAPPINESS,
+    ),
     privateIslandPercent: finiteAtLeast(inputs.privateIslandPercent, -99),
     generalEducationPercent: finiteAtLeast(inputs.generalEducationPercent, -99),
     statEducationPercent: finiteAtLeast(inputs.statEducationPercent, -99),
@@ -362,7 +369,7 @@ function normalizeBookTimingInputs(inputs: BookTimingComparisonInputs): BookTimi
     statEducationPercent: finiteAtLeast(inputs.statEducationPercent, -99),
     steadfastPercent: finiteAtLeast(inputs.steadfastPercent, -99),
     customPerksPercent: finiteAtLeast(inputs.customPerksPercent, -99),
-    graphDurationDays: Math.min(MAX_SIMULATION_DAYS, finiteAtLeast(inputs.graphDurationDays, 1)),
+    graphDurationDays: Math.min(MAX_GRAPH_DURATION_DAYS, finiteAtLeast(inputs.graphDurationDays, 1)),
     bookDurationDays: finiteAtLeast(inputs.bookDurationDays, 0),
     bookBonusPercent: finiteAtLeast(inputs.bookBonusPercent, -99),
     gymMultiplier: finiteAtLeast(inputs.gymMultiplier, 0),
@@ -455,7 +462,7 @@ export function normalizeInputs(inputs: BookStrategyInputs): BookStrategyInputs 
     statEnhancerPrice: finiteAtLeast(inputs.statEnhancerPrice, 1),
     fhcPrice: finiteAtLeast(inputs.fhcPrice, 0),
     annualRoiPercent: finiteAtLeast(inputs.annualRoiPercent, -99),
-    graphDurationDays: Math.min(MAX_SIMULATION_DAYS, finiteAtLeast(inputs.graphDurationDays, 1)),
+    graphDurationDays: Math.min(MAX_GRAPH_DURATION_DAYS, finiteAtLeast(inputs.graphDurationDays, 1)),
     bookDurationDays: finiteAtLeast(inputs.bookDurationDays, 0),
     bookBonusPercent: finiteAtLeast(inputs.bookBonusPercent, -99),
     gymMultiplier: finiteAtLeast(inputs.gymMultiplier, 0),
@@ -669,7 +676,7 @@ function findEnhancerUse(
   }
 
   if (mode.kind === "targetStat") {
-    const day = findDayForTargetStat(inputs, perkMultiplier, fhcPlan, bookState, mode.stat);
+    const day = findDayForTargetStat(inputs, perkMultiplier, bookState, mode.stat);
     return day === null
       ? emptyEnhancerUse()
       : enhancerUseAtDay(day, inputs, perkMultiplier, fhcPlan, bookState);
@@ -924,12 +931,24 @@ function statAtDayWithoutEnhancers(
 function findDayForTargetStat(
   inputs: BookStrategyInputs,
   perkMultiplier: number,
-  fhcPlan: FhcPlan,
   bookState: PostBookState,
   targetStat: number,
 ): number | null {
-  for (let day = inputs.bookDurationDays; day <= MAX_SIMULATION_DAYS; day += GRAPH_STEP_DAYS) {
-    const stat = statAtDayWithoutEnhancers(day, "strategyTwo", inputs, perkMultiplier, fhcPlan, bookState);
+  if (bookState.strategyTwoBookStat >= targetStat) {
+    return inputs.bookDurationDays;
+  }
+  if (inputs.dailyEnergy <= 0 || inputs.postBookTrainingMonthsOutOfFour <= 0) {
+    return null;
+  }
+
+  let stat = bookState.strategyTwoBookStat;
+  for (let trainNumber = 1; ; trainNumber += 1) {
+    const day = nextPostBookTrainDay(inputs, bookState.strategyTwoLeftoverEnergy, trainNumber);
+    if (!Number.isFinite(day) || day > MAX_SIMULATION_DAYS) {
+      return null;
+    }
+
+    stat += gainPerTrain(stat, inputs, perkMultiplier, false);
     if (stat >= targetStat) {
       return day;
     }
@@ -1093,6 +1112,17 @@ function firstSeriesOvertake(series: BookStrategyPoint[]): number | null {
   return series.find((point) => point.difference > 0)?.day ?? null;
 }
 
+function calculateBreakEvenDay(
+  enhancerUse: BookStrategyResult["enhancerUse"],
+  series: BookStrategyPoint[],
+): number | null {
+  if (enhancerUse.day !== null && enhancerUse.lead !== null && enhancerUse.lead > 0) {
+    return enhancerUse.day;
+  }
+
+  return firstSeriesOvertake(series);
+}
+
 function affordableEnhancers(balance: number, price: number): number {
   return Math.max(0, Math.floor(balance / price));
 }
@@ -1116,6 +1146,10 @@ function roundTo(value: number, digits: number): number {
 
 function finiteAtLeast(value: number, minimum: number): number {
   return Number.isFinite(value) ? Math.max(minimum, value) : minimum;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
 }
 
 function normalizeEnhancerUseMode(mode: EnhancerUseMode): EnhancerUseMode {

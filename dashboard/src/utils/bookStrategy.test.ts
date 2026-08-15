@@ -198,6 +198,34 @@ describe("book strategy calculator", () => {
     expect(result.enhancerUse.day).toBeNull();
   });
 
+  it("does not report manual enhancer use as break-even while enhancers are still behind", () => {
+    const result = calculateBookStrategy({
+      ...defaultBookStrategyInputs,
+      investmentEnabled: false,
+      graphDurationDays: 450,
+      enhancerUseMode: { kind: "targetDay", day: defaultBookStrategyInputs.bookDurationDays },
+    });
+    const firstOvertakePoint = result.series.find((point) => point.difference > 0);
+
+    expect(result.enhancerUse.day).toBe(defaultBookStrategyInputs.bookDurationDays);
+    expect(result.enhancerUse.lead ?? 0).toBeLessThan(0);
+    expect(result.breakEvenDay).toBe(firstOvertakePoint?.day ?? null);
+    expect(result.breakEvenDay).not.toBe(result.enhancerUse.day);
+  });
+
+  it("finds target-stat enhancer use at train-event precision", () => {
+    const result = calculateBookStrategy({
+      ...defaultBookStrategyInputs,
+      graphDurationDays: 120,
+      enhancerUseMode: { kind: "targetStat", stat: 1_000_000_000 },
+    });
+
+    expect(result.enhancerUse.day).not.toBeNull();
+    expect(result.enhancerUse.day ?? 0).toBeGreaterThan(defaultBookStrategyInputs.bookDurationDays);
+    expect(result.enhancerUse.day ?? 0).not.toBe(Math.round(result.enhancerUse.day ?? 0));
+    expect(result.enhancerUse.strategyTwoBeforeEnhancers ?? 0).toBeGreaterThanOrEqual(1_000_000_000);
+  });
+
   it("compares book timing with the same flat energy timeline", () => {
     const result = calculateBookTimingComparison(defaultBookTimingComparisonInputs);
 
@@ -276,6 +304,24 @@ describe("book strategy calculator", () => {
     expect(result.series.every((point) => !point.waitBookActive)).toBe(true);
   });
 
+  it("caps duration-based charts at ten years", () => {
+    const enhancerResult = calculateBookStrategy({
+      ...defaultBookStrategyInputs,
+      dailyEnergy: 0,
+      graphDurationDays: 20_000,
+    });
+    const timingResult = calculateBookTimingComparison({
+      ...defaultBookTimingComparisonInputs,
+      dailyEnergy: 0,
+      graphDurationDays: 20_000,
+    });
+
+    expect(enhancerResult.inputs.graphDurationDays).toBe(3_650);
+    expect(enhancerResult.endpoint.day).toBe(3_650);
+    expect(timingResult.inputs.graphDurationDays).toBe(3_650);
+    expect(timingResult.endpoint.day).toBe(3_650);
+  });
+
   it("calculates Ignorance Is Bliss gain uplift for the selected starting stat", () => {
     const result = calculateIgnoranceIsBliss(defaultIgnoranceIsBlissInputs);
 
@@ -301,5 +347,21 @@ describe("book strategy calculator", () => {
     expect(result.series[0].startingStat).toBe(1);
     expect(result.series.at(-1)?.startingStat).toBe(10);
     expect(result.selected.bookEndingStat).toBeGreaterThan(result.selected.normalEndingStat);
+  });
+
+  it("clamps Ignorance Is Bliss standard happiness to realistic values", () => {
+    const lowResult = calculateIgnoranceIsBliss({
+      ...defaultIgnoranceIsBlissInputs,
+      normalHappiness: 0,
+    });
+    const highResult = calculateIgnoranceIsBliss({
+      ...defaultIgnoranceIsBlissInputs,
+      normalHappiness: 99_999,
+    });
+
+    expect(lowResult.inputs.normalHappiness).toBe(1);
+    expect(highResult.inputs.normalHappiness).toBe(10_000);
+    expect(highResult.selected.extraGain).toBeGreaterThan(0);
+    expect(highResult.selected.percentIncrease).toBeGreaterThan(0);
   });
 });
