@@ -58,7 +58,6 @@ import {
   buildLogStatTicks,
   calculatedSharedDailyEnergy,
   clampNumber,
-  evenTickPositionToStat,
   expandGraphDurationForEarliestOvertake,
   formatCompact,
   formatDayInput,
@@ -74,7 +73,6 @@ import {
   inputsFromForm,
   parseNumber,
   relativeDifferencePercent,
-  statToEvenTickPosition,
   timingInputsFromForm,
   type BookStrategyForm,
   type BookStrategyMode,
@@ -862,14 +860,8 @@ function IgnoranceIsBlissView({
     : parseNumber(sharedSettings.dailyEnergy, 0);
   const xTicks = React.useMemo(() => buildLogStatTicks(result.inputs.graphMaxStat), [result.inputs.graphMaxStat]);
   const yTicks = React.useMemo(() => buildLogPercentTicks(), []);
-  const chartSeries = React.useMemo(
-    () => result.series.map((point) => ({
-      ...point,
-      axisPosition: statToEvenTickPosition(point.startingStat, xTicks),
-    })),
-    [result.series, xTicks],
-  );
-  const xTickPositions = React.useMemo(() => xTicks.map((_, index) => index), [xTicks]);
+  const xDomainStart = 1;
+  const xDomainEnd = Math.max(xDomainStart, result.inputs.graphMaxStat);
 
   const setIibStartingStatFromRaw = React.useCallback((rawStat: number) => {
     if (!Number.isFinite(rawStat)) {
@@ -885,25 +877,25 @@ function IgnoranceIsBlissView({
     const plotLeft = rect.left + CHART_Y_AXIS_WIDTH;
     const plotWidth = Math.max(1, rect.width - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN);
     const rawRatio = clampNumber((clientX - plotLeft) / plotWidth, 0, 1);
-    const stat = evenTickPositionToStat(rawRatio * Math.max(1, xTicks.length - 1), xTicks);
+    const stat = statFromLogRatio(rawRatio, xDomainStart, xDomainEnd);
     setIibStartingStatFromRaw(stat);
-  }, [setIibStartingStatFromRaw, xTicks]);
+  }, [setIibStartingStatFromRaw, xDomainEnd]);
   const iibStatDrag = useChartMarkerDrag({ onClientX: updateIibStartingStatFromClientX });
   const handleIibChartClick = React.useCallback((state: unknown) => {
     const chartState = state as ChartClickState;
-    const payloadPosition = chartState?.activePayload
-      ?.find((item) => item.payload?.axisPosition !== undefined)
-      ?.payload?.axisPosition;
-    const axisPosition = Number(payloadPosition ?? chartState?.activeLabel);
-    if (!Number.isFinite(axisPosition)) {
+    const payloadStartingStat = chartState?.activePayload
+      ?.find((item) => item.payload?.startingStat !== undefined)
+      ?.payload?.startingStat;
+    const startingStat = Number(payloadStartingStat ?? chartState?.activeLabel);
+    if (!Number.isFinite(startingStat)) {
       return;
     }
 
-    setIibStartingStatFromRaw(evenTickPositionToStat(axisPosition, xTicks));
-  }, [setIibStartingStatFromRaw, xTicks]);
+    setIibStartingStatFromRaw(startingStat);
+  }, [setIibStartingStatFromRaw]);
   const startingStatMarkerLeft = iibStatDrag.chartWidth > 0
     ? CHART_Y_AXIS_WIDTH +
-      (statToEvenTickPosition(result.inputs.startingStat, xTicks) / Math.max(1, xTicks.length - 1)) *
+      logRatioForStat(result.inputs.startingStat, xDomainStart, xDomainEnd) *
       Math.max(1, iibStatDrag.chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
     : null;
 
@@ -958,20 +950,21 @@ function IgnoranceIsBlissView({
         >
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
-              data={chartSeries}
+              data={result.series}
               margin={{ top: 12, right: 18, left: 0, bottom: 14 }}
               onClick={handleIibChartClick}
             >
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
               <XAxis
-                dataKey="axisPosition"
+                dataKey="startingStat"
                 tickLine={false}
                 axisLine={false}
                 tick={{ fill: "var(--chart-axis)" }}
-                tickFormatter={(value) => formatCompact(xTicks[Math.round(Number(value))] ?? Number(value))}
+                tickFormatter={(value) => formatCompact(Number(value))}
                 type="number"
-                domain={[0, Math.max(1, xTicks.length - 1)]}
-                ticks={xTickPositions}
+                scale="log"
+                domain={[xDomainStart, xDomainEnd]}
+                ticks={xTicks}
                 allowDataOverflow
               />
               <YAxis
@@ -987,7 +980,7 @@ function IgnoranceIsBlissView({
               <Tooltip content={<IgnoranceIsBlissTooltip />} />
               <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
               <ReferenceLine
-                x={statToEvenTickPosition(result.inputs.startingStat, xTicks)}
+                x={result.inputs.startingStat}
                 stroke="#f59e0b"
                 strokeDasharray="4 4"
               />
@@ -1906,6 +1899,30 @@ function useChartMarkerDrag({
     isDragging,
     startDrag,
   };
+}
+
+function logRatioForStat(stat: number, domainStart: number, domainEnd: number): number {
+  const start = Math.max(1, domainStart);
+  const end = Math.max(start, domainEnd);
+  if (end <= start) {
+    return 0;
+  }
+
+  const startLog = Math.log10(start);
+  const endLog = Math.log10(end);
+  return clampNumber((Math.log10(clampNumber(stat, start, end)) - startLog) / Math.max(0.000001, endLog - startLog), 0, 1);
+}
+
+function statFromLogRatio(ratio: number, domainStart: number, domainEnd: number): number {
+  const start = Math.max(1, domainStart);
+  const end = Math.max(start, domainEnd);
+  if (end <= start) {
+    return start;
+  }
+
+  const startLog = Math.log10(start);
+  const endLog = Math.log10(end);
+  return 10 ** (startLog + clampNumber(ratio, 0, 1) * (endLog - startLog));
 }
 
 function EnergyInputs({

@@ -23,7 +23,7 @@ export const LEAD_MILESTONE_MAX_DAY = 3_650;
 
 export type ChartClickState = {
   activeLabel?: number | string | null;
-  activePayload?: Array<{ payload?: { axisPosition?: number | string | null; day?: number | string | null } }>;
+  activePayload?: Array<{ payload?: { day?: number | string | null; startingStat?: number | string | null } }>;
 } | null;
 
 export type BookStrategyForm = {
@@ -335,40 +335,6 @@ export function buildLogStatTicks(maxStat: number): number[] {
   }
 
   return ticks;
-}
-
-export function statToEvenTickPosition(stat: number, ticks: number[]): number {
-  if (ticks.length <= 1) {
-    return 0;
-  }
-
-  const clampedStat = clampNumber(stat, ticks[0], ticks[ticks.length - 1]);
-  for (let index = 0; index < ticks.length - 1; index += 1) {
-    const start = ticks[index];
-    const end = ticks[index + 1];
-    if (clampedStat <= end) {
-      const startLog = Math.log10(start);
-      const endLog = Math.log10(end);
-      const ratio = (Math.log10(clampedStat) - startLog) / Math.max(0.000001, endLog - startLog);
-      return index + clampNumber(ratio, 0, 1);
-    }
-  }
-
-  return ticks.length - 1;
-}
-
-export function evenTickPositionToStat(position: number, ticks: number[]): number {
-  if (ticks.length <= 1) {
-    return ticks[0] ?? 1;
-  }
-
-  const clampedPosition = clampNumber(position, 0, ticks.length - 1);
-  const index = Math.min(ticks.length - 2, Math.floor(clampedPosition));
-  const ratio = clampedPosition - index;
-  const startLog = Math.log10(ticks[index]);
-  const endLog = Math.log10(ticks[index + 1]);
-
-  return 10 ** (startLog + (endLog - startLog) * ratio);
 }
 
 export function buildLogPercentTicks(): number[] {
