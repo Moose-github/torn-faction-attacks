@@ -1866,25 +1866,18 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
       <PanelHeader icon={<Trophy size={17} />} title="Book Timing Summary" />
       <div className="book-summary-primary-grid">
         <BookTimingInsightCard
-          icon={<Trophy size={18} />}
-          tone="neutral"
-          label="Long-run verdict"
-          value={longRunVerdict}
-          detail={`Final gap ${endpointGapPercent} / ${endpointGapStat} stats at day ${endpointDay}`}
-        />
-        <BookTimingInsightCard
           icon={<Activity size={18} />}
-          tone="neutral"
-          label="Short-term lift"
+          tone="use-now"
+          label="Short-term"
           value={liftVerdict}
           detail={liftDetail}
         />
         <BookTimingInsightCard
-          icon={<BookOpen size={18} />}
-          tone="neutral"
-          label="Timing details"
-          value={delayedStartDetail}
-          detail={`Wait target ${formatStat(result.inputs.delayedBookTargetStat)}`}
+          icon={<Trophy size={18} />}
+          tone="balanced"
+          label="Long-run"
+          value={longRunVerdict}
+          detail={`Final gap ${endpointGapPercent} / ${endpointGapStat} stats at day ${endpointDay}`}
         />
       </div>
       <div className="book-strategy-summary-support-grid">
@@ -1930,7 +1923,7 @@ function BookTimingInsightCard({
   detail,
 }: {
   icon: React.ReactNode;
-  tone: "neutral" | "strategy-one" | "strategy-two";
+  tone: "neutral" | "strategy-one" | "strategy-two" | "balanced" | "use-now";
   label: string;
   value: string;
   detail: string;

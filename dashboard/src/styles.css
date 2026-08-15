@@ -11376,6 +11376,10 @@ tbody tr:not(.attack-row):hover td {
   gap: 12px;
 }
 
+.book-timing-summary-panel .book-summary-primary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .book-summary-primary-grid .book-strategy-summary-outcome {
   display: flex;
   flex-direction: column;
@@ -11476,6 +11480,18 @@ tbody tr:not(.attack-row):hover td {
   border-left-color: #22d3ee;
 }
 
+.book-timing-insight-card.is-balanced {
+  border-left-color: transparent;
+  border-left-style: solid;
+  background:
+    linear-gradient(#f59e0b 0 50%, #22d3ee 50% 100%) left / 4px 100% no-repeat,
+    rgba(15, 23, 42, 0.22);
+}
+
+.book-timing-insight-card.is-use-now {
+  border-left-color: #f59e0b;
+}
+
 .book-timing-insight-icon {
   display: inline-flex;
   align-items: center;
@@ -11491,6 +11507,14 @@ tbody tr:not(.attack-row):hover td {
 
 .book-timing-insight-card.is-strategy-two .book-timing-insight-icon {
   color: #22d3ee;
+}
+
+.book-timing-insight-card.is-balanced .book-timing-insight-icon {
+  color: var(--accent-strong);
+}
+
+.book-timing-insight-card.is-use-now .book-timing-insight-icon {
+  color: #f59e0b;
 }
 
 .book-timing-insight-label,
@@ -11517,6 +11541,14 @@ tbody tr:not(.attack-row):hover td {
 
 .book-timing-insight-card.is-strategy-two strong {
   color: #22d3ee;
+}
+
+.book-timing-insight-card.is-balanced strong {
+  color: var(--text-main);
+}
+
+.book-timing-insight-card.is-use-now strong {
+  color: #f59e0b;
 }
 
 .book-timing-insight-card small {
@@ -11643,8 +11675,8 @@ tbody tr:not(.attack-row):hover td {
 }
 
 .book-timing-reason-section.is-use-now {
-  border-color: rgba(251, 113, 133, 0.28);
-  background: rgba(251, 113, 133, 0.07);
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.08);
 }
 
 .book-timing-reason-section.is-delay {
