@@ -10959,6 +10959,65 @@ tbody tr:not(.attack-row):hover td {
   font-weight: 800;
 }
 
+.book-strategy-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.book-strategy-field-help {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-solid);
+  border-radius: 50%;
+  background: var(--panel-muted-bg);
+  color: var(--text-soft);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: help;
+}
+
+.book-strategy-field-help:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.book-strategy-field-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: max-content;
+  max-width: min(260px, 80vw);
+  padding: 7px 9px;
+  border: 1px solid var(--chart-tooltip-border);
+  border-radius: var(--radius-sm);
+  background: var(--chart-tooltip-bg);
+  box-shadow: var(--shadow-panel);
+  color: var(--text-main);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  text-align: left;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.book-strategy-field-help:hover .book-strategy-field-tooltip,
+.book-strategy-field-help:focus-visible .book-strategy-field-tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 .book-strategy-field > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

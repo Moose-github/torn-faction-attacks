@@ -1468,6 +1468,7 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
   const leftoverMoney = result.enhancerUse.investmentBalance === null
     ? null
     : Math.max(0, result.enhancerUse.investmentBalance - result.enhancerUse.enhancersUsed * result.inputs.statEnhancerPrice);
+  const enhancerSpend = result.enhancerUse.enhancersUsed * result.inputs.statEnhancerPrice;
   const earliestEnhancerSpend = (earliestMilestone?.enhancersUsed ?? 0) * result.inputs.statEnhancerPrice;
   const enhancerBudgetAction = result.inputs.investmentEnabled
     ? "invest the"
@@ -1533,9 +1534,9 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
         />
         <SummaryItem
           icon={<CircleDollarSign size={16} />}
-          label="Leftover cash"
-          value={leftoverMoney === null ? "N/A" : formatMoney(leftoverMoney)}
-          detail={result.enhancerUse.day === null ? "No enhancer use" : "After enhancers"}
+          label="Enhancers cost"
+          value={formatMoney(enhancerSpend)}
+          detail={`${leftoverMoney === null ? "N/A" : formatMoney(leftoverMoney)} leftover`}
         />
       </div>
       <div className="book-strategy-summary-writeup">
@@ -2287,14 +2288,27 @@ function NumberField({
   disabled?: boolean;
 }) {
   return (
-    <label className="book-strategy-field" title={title}>
-      <span>{label}</span>
+    <label className="book-strategy-field">
+      <span className="book-strategy-field-label">
+        {label}
+        {title ? (
+          <span
+            className="book-strategy-field-help"
+            tabIndex={0}
+            aria-label={title}
+          >
+            ?
+            <span className="book-strategy-field-tooltip" role="tooltip">
+              {title}
+            </span>
+          </span>
+        ) : null}
+      </span>
       <div>
         <input
           type="text"
           inputMode="text"
           value={value}
-          title={title}
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
         />
