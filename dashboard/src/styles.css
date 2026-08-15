@@ -11223,7 +11223,7 @@ tbody tr:not(.attack-row):hover td {
 
 .book-strategy-enhancer-drag-target {
   position: absolute;
-  bottom: 42px;
+  bottom: 56px;
   width: 72px;
   height: 72px;
   margin-left: -36px;

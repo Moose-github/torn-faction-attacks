@@ -438,7 +438,7 @@ export function BookStrategy() {
         </div>
 
         <BookStrategyChartShell
-          title="Expected growth"
+          title="FHCs vs Enhancers"
           aside={`${formatCompact(result.inputs.graphDurationDays)} days`}
           chartRef={enhancerDrag.chartRef}
           isDragging={enhancerDrag.isDragging}
@@ -739,7 +739,7 @@ function BookTimingComparisonView({
       </section>
 
       <BookStrategyChartShell
-        title="Book timing growth"
+        title="Book Timings"
         aside={`${formatCompact(result.inputs.graphDurationDays)} days`}
         chartRef={delayedBookDrag.chartRef}
         isDragging={delayedBookDrag.isDragging}
@@ -828,7 +828,7 @@ function BookTimingComparisonView({
               <Line
                 type="monotone"
                 dataKey="waitStat"
-                name="Wait"
+                name="Use later"
                 stroke="#22d3ee"
                 strokeWidth={3}
                 dot={false}
@@ -870,15 +870,18 @@ function ConclusionsView() {
       <PanelHeader icon={<BookOpen size={17} />} title="Conclusions" />
       <div className="book-strategy-conclusions">
         <section>
-          <h3>When should you read the book?</h3>
+          <h3>Book Timing</h3>
           <p>
-            A higher starting stat alone is not a good reason to delay. When training conditions remain the same,
-            using the book now or later produces an almost identical long-term result.
+            <strong>Using the book now and using it later are essentially tied long-term, but using it now gives
+              the better short-term relative impact.</strong>
           </p>
           <p>
-            However, reading the book earlier can be more valuable in the short term. The additional stats represent a
-            much larger proportion of your current stat and are available immediately, allowing you to benefit from the
-            increased strength sooner.
+            Long-term, a higher starting stat alone is not a good reason to delay. When training conditions remain the
+            same, using the book now or later produces an almost identical final result.
+          </p>
+          <p>
+            Short-term, reading the book earlier is usually more valuable. The additional stats represent a much larger
+            proportion of your current strength and are available immediately, letting you benefit from the increase sooner.
           </p>
           <p>
             Delaying may still be worthwhile if your training conditions will improve later, such as unlocking a
@@ -887,14 +890,18 @@ function ConclusionsView() {
         </section>
 
         <section>
-          <h3>Should you use FHCs?</h3>
+          <h3>FHCs vs Enhancers</h3>
           <p>
-            Using FHCs throughout the book produces a large immediate stat increase, but it is extremely expensive. If
+            <strong>FHCs give the early lead, but enhancers become the better long-term value once enough
+              can be bought.</strong>
+          </p>
+          <p>
+            Using FHCs during the book window produces a large immediate stat increase, but it is extremely expensive. If
             the same money is saved and eventually spent on stat enhancers, FHCs lead at first, but enhancers eventually
             overtake.
           </p>
           <p>
-            Under the calculator&apos;s default assumptions, the  break-even points are approximately:
+            Under the calculator&apos;s default assumptions, the break-even points are approximately:
           </p>
           <ul>
             <li>
@@ -913,6 +920,9 @@ function ConclusionsView() {
 
         <section>
           <h3>Ignorance Is Bliss</h3>
+          <p>
+            <strong>Ignorance Is Bliss is strongest at low stats and gradually declines as starting stat rises.</strong>
+          </p>
           <p>
             <em>Ignorance Is Bliss</em> provides an enormous increase in training gains at low stats because happiness
             contributes much more heavily to the training formula at that stage.
@@ -1050,7 +1060,7 @@ function IgnoranceIsBlissView({
       </section>
 
       <BookStrategyChartShell
-        title="Ignorance Is Bliss gain"
+        title="Ignorance Is Bliss"
         aside="31 days"
         chartRef={iibStatDrag.chartRef}
         isDragging={iibStatDrag.isDragging}
@@ -1123,7 +1133,7 @@ function IgnoranceIsBlissView({
               <Line
                 type="linear"
                 dataKey="percentIncrease"
-                name="IIB gain"
+                name="Ignorance Is Bliss gain"
                 stroke="#22d3ee"
                 strokeWidth={3}
                 dot={false}
@@ -1529,8 +1539,8 @@ function SummaryPanel({ result }: { result: BookStrategyResult }) {
         <SummaryItem
           icon={<Sparkles size={16} />}
           label="Enhancers used"
-          value={formatCompact(result.enhancerUse.enhancersUsed)}
-          detail={enhancerDetail}
+          value={enhancerDetail}
+          detail={`${formatCompact(result.enhancerUse.enhancersUsed)} enhancers used`}
         />
         <SummaryItem
           icon={<CircleDollarSign size={16} />}
@@ -1866,11 +1876,11 @@ function BookTimingTooltip({
     <div className="chart-tooltip-card book-strategy-tooltip">
       <strong>Day {formatCompact(point.day)}</strong>
       <span>Use now: {formatStat(point.useNowStat)}</span>
-      <span>Wait: {formatStat(point.waitStat)}</span>
+      <span>Use later: {formatStat(point.waitStat)}</span>
       <span>Difference: {formatSignedStat(point.difference)}</span>
       <span>Trains: {formatCompact(point.trainsConsumed)}</span>
       <span>
-        Book active: {[point.useNowBookActive ? "Use now" : null, point.waitBookActive ? "Wait" : null].filter(Boolean).join(", ") || "None"}
+        Book active: {[point.useNowBookActive ? "Use now" : null, point.waitBookActive ? "Use later" : null].filter(Boolean).join(", ") || "None"}
       </span>
     </div>
   );
