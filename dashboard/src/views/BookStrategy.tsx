@@ -99,23 +99,12 @@ export function BookStrategy() {
   const [openTimingPopout, setOpenTimingPopout] = React.useState<BookTimingPopoutKind | null>(null);
   const [openIibPopout, setOpenIibPopout] = React.useState<IgnoranceIsBlissPopoutKind | null>(null);
   const [methodologyOpen, setMethodologyOpen] = React.useState(false);
-  const [isDraggingEnhancerDay, setIsDraggingEnhancerDay] = React.useState(false);
-  const [chartWidth, setChartWidth] = React.useState(0);
-  const chartRef = React.useRef<HTMLDivElement | null>(null);
-  const pendingDragClientXRef = React.useRef<number | null>(null);
-  const dragAnimationFrameRef = React.useRef<number | null>(null);
   const effectiveForm = React.useMemo(() => applySharedSettings(form, sharedSettings), [form, sharedSettings]);
   const effectiveTimingForm = React.useMemo(() => applySharedSettings(timingForm, sharedSettings), [sharedSettings, timingForm]);
   const effectiveIibForm = React.useMemo(() => applySharedSettings(iibForm, sharedSettings), [iibForm, sharedSettings]);
   const inputs = React.useMemo(() => inputsFromForm(effectiveForm, energyMode), [effectiveForm, energyMode]);
   const result = React.useMemo(() => calculateBookStrategy(inputs), [inputs]);
   const enhancerMarkerDay = result.enhancerUse.day;
-  const enhancerMarkerLeft =
-    enhancerMarkerDay !== null
-      ? CHART_Y_AXIS_WIDTH +
-        (enhancerMarkerDay / Math.max(1, result.inputs.graphDurationDays)) *
-        Math.max(1, chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
-      : null;
 
   function updateSharedSetting<K extends keyof SharedTrainingSettings>(field: K, value: SharedTrainingSettings[K]) {
     setSharedSettings((current) => ({ ...current, [field]: value }));
@@ -153,7 +142,6 @@ export function BookStrategy() {
     setOpenPopout(null);
     setOpenTimingPopout(null);
     setOpenIibPopout(null);
-    setIsDraggingEnhancerDay(false);
   }
 
   const dailyEnergy = energyMode === "breakdown"
@@ -182,47 +170,21 @@ export function BookStrategy() {
     ));
   }, [result.inputs.bookDurationDays, result.inputs.graphDurationDays]);
 
-  const updateEnhancerTargetFromClientX = React.useCallback((clientX: number) => {
-    const rect = chartRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return;
-    }
-
+  const updateEnhancerTargetFromClientX = React.useCallback((clientX: number, chartElement: HTMLDivElement) => {
+    const rect = chartElement.getBoundingClientRect();
     const plotLeft = rect.left + CHART_Y_AXIS_WIDTH;
     const plotWidth = Math.max(1, rect.width - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN);
     const rawRatio = (clientX - plotLeft) / plotWidth;
     const rawDay = rawRatio * result.inputs.graphDurationDays;
     setEnhancerTargetDay(Math.round(rawDay));
   }, [result.inputs.graphDurationDays, setEnhancerTargetDay]);
-
-  const scheduleEnhancerTargetFromClientX = React.useCallback((clientX: number) => {
-    pendingDragClientXRef.current = clientX;
-    if (dragAnimationFrameRef.current !== null) {
-      return;
-    }
-
-    dragAnimationFrameRef.current = window.requestAnimationFrame(() => {
-      dragAnimationFrameRef.current = null;
-      const nextClientX = pendingDragClientXRef.current;
-      pendingDragClientXRef.current = null;
-      if (nextClientX !== null) {
-        updateEnhancerTargetFromClientX(nextClientX);
-      }
-    });
-  }, [updateEnhancerTargetFromClientX]);
-
-  const flushScheduledEnhancerTarget = React.useCallback(() => {
-    if (dragAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragAnimationFrameRef.current);
-      dragAnimationFrameRef.current = null;
-    }
-
-    const nextClientX = pendingDragClientXRef.current;
-    pendingDragClientXRef.current = null;
-    if (nextClientX !== null) {
-      updateEnhancerTargetFromClientX(nextClientX);
-    }
-  }, [updateEnhancerTargetFromClientX]);
+  const enhancerDrag = useChartMarkerDrag({ onClientX: updateEnhancerTargetFromClientX });
+  const enhancerMarkerLeft =
+    enhancerMarkerDay !== null
+      ? CHART_Y_AXIS_WIDTH +
+        (enhancerMarkerDay / Math.max(1, result.inputs.graphDurationDays)) *
+        Math.max(1, enhancerDrag.chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
+      : null;
 
   const handleChartClick = React.useCallback((state: unknown) => {
     const chartState = state as ChartClickState;
@@ -230,49 +192,6 @@ export function BookStrategy() {
     const day = Number(payloadDay ?? chartState?.activeLabel);
     setEnhancerTargetDay(day);
   }, [setEnhancerTargetDay]);
-
-  React.useEffect(() => {
-    const element = chartRef.current;
-    if (!element) {
-      return undefined;
-    }
-
-    const updateWidth = () => setChartWidth(element.getBoundingClientRect().width);
-    updateWidth();
-
-    const observer = new ResizeObserver(updateWidth);
-    observer.observe(element);
-
-    return () => observer.disconnect();
-  }, []);
-
-  React.useEffect(() => {
-    if (!isDraggingEnhancerDay) {
-      return undefined;
-    }
-
-    function handlePointerMove(event: PointerEvent) {
-      scheduleEnhancerTargetFromClientX(event.clientX);
-    }
-
-    function handlePointerUp() {
-      flushScheduledEnhancerTarget();
-      setIsDraggingEnhancerDay(false);
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp, { once: true });
-
-    return () => {
-      if (dragAnimationFrameRef.current !== null) {
-        window.cancelAnimationFrame(dragAnimationFrameRef.current);
-        dragAnimationFrameRef.current = null;
-      }
-      pendingDragClientXRef.current = null;
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [flushScheduledEnhancerTarget, isDraggingEnhancerDay, scheduleEnhancerTargetFromClientX]);
 
   return (
     <>
@@ -442,8 +361,8 @@ export function BookStrategy() {
         <section className="panel book-strategy-chart-panel">
           <PanelHeader icon={<Activity size={17} />} title="Expected growth" aside={`${formatCompact(result.inputs.graphDurationDays)} days`} />
           <div
-            className={`book-strategy-chart ${isDraggingEnhancerDay ? "is-dragging-enhancer" : ""}`}
-            ref={chartRef}
+            className={`book-strategy-chart ${enhancerDrag.isDragging ? "is-dragging-enhancer" : ""}`}
+            ref={enhancerDrag.chartRef}
           >
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
@@ -497,7 +416,7 @@ export function BookStrategy() {
                 />
               </LineChart>
             </ResponsiveContainer>
-            {enhancerMarkerDay !== null && enhancerMarkerLeft !== null && chartWidth > 0 && enhancerMarkerDay <= result.inputs.graphDurationDays ? (
+            {enhancerMarkerDay !== null && enhancerMarkerLeft !== null && enhancerDrag.chartWidth > 0 && enhancerMarkerDay <= result.inputs.graphDurationDays ? (
               <div
                 className="book-strategy-enhancer-drag-target"
                 style={{ left: `${enhancerMarkerLeft}px` }}
@@ -509,8 +428,7 @@ export function BookStrategy() {
                 aria-valuenow={Math.round(enhancerMarkerDay)}
                 onPointerDown={(event) => {
                   event.preventDefault();
-                  setIsDraggingEnhancerDay(true);
-                  updateEnhancerTargetFromClientX(event.clientX);
+                  enhancerDrag.startDrag(event.clientX);
                 }}
                 onKeyDown={(event) => {
                   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
@@ -634,11 +552,6 @@ function BookTimingComparisonView({
   onPopoutChange: (popout: BookTimingPopoutKind | null) => void;
   onMethodologyToggle: () => void;
 }) {
-  const [isDraggingDelayedBook, setIsDraggingDelayedBook] = React.useState(false);
-  const [chartWidth, setChartWidth] = React.useState(0);
-  const chartRef = React.useRef<HTMLDivElement | null>(null);
-  const pendingDragClientXRef = React.useRef<number | null>(null);
-  const dragAnimationFrameRef = React.useRef<number | null>(null);
   const inputs = React.useMemo(() => timingInputsFromForm(form, energyMode), [energyMode, form]);
   const result = React.useMemo(() => calculateBookTimingComparison(inputs), [inputs]);
   const dailyEnergy = energyMode === "breakdown"
@@ -656,12 +569,6 @@ function BookTimingComparisonView({
     result.delayedBookStartDay !== null && delayedBookShadeEndDay !== null
       ? (result.delayedBookStartDay + delayedBookShadeEndDay) / 2
       : null;
-  const delayedBookHandleLeft =
-    delayedBookHandleDay !== null
-      ? CHART_Y_AXIS_WIDTH +
-        (delayedBookHandleDay / Math.max(1, result.inputs.graphDurationDays)) *
-        Math.max(1, chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
-      : null;
 
   const setDelayedBookStartDay = React.useCallback((rawDay: number) => {
     if (!Number.isFinite(rawDay)) {
@@ -673,90 +580,21 @@ function BookTimingComparisonView({
     onFieldChange("delayedBookTargetStat", formatInputCompact(targetStat));
   }, [onFieldChange, result.inputs]);
 
-  const updateDelayedBookTargetFromClientX = React.useCallback((clientX: number) => {
-    const rect = chartRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return;
-    }
-
+  const updateDelayedBookTargetFromClientX = React.useCallback((clientX: number, chartElement: HTMLDivElement) => {
+    const rect = chartElement.getBoundingClientRect();
     const plotLeft = rect.left + CHART_Y_AXIS_WIDTH;
     const plotWidth = Math.max(1, rect.width - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN);
     const rawRatio = (clientX - plotLeft) / plotWidth;
     const handleCenterDay = rawRatio * result.inputs.graphDurationDays;
     setDelayedBookStartDay(handleCenterDay - result.inputs.bookDurationDays / 2);
   }, [result.inputs.bookDurationDays, result.inputs.graphDurationDays, setDelayedBookStartDay]);
-
-  const scheduleDelayedBookTargetFromClientX = React.useCallback((clientX: number) => {
-    pendingDragClientXRef.current = clientX;
-    if (dragAnimationFrameRef.current !== null) {
-      return;
-    }
-
-    dragAnimationFrameRef.current = window.requestAnimationFrame(() => {
-      dragAnimationFrameRef.current = null;
-      const nextClientX = pendingDragClientXRef.current;
-      pendingDragClientXRef.current = null;
-      if (nextClientX !== null) {
-        updateDelayedBookTargetFromClientX(nextClientX);
-      }
-    });
-  }, [updateDelayedBookTargetFromClientX]);
-
-  const flushScheduledDelayedBookTarget = React.useCallback(() => {
-    if (dragAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragAnimationFrameRef.current);
-      dragAnimationFrameRef.current = null;
-    }
-
-    const nextClientX = pendingDragClientXRef.current;
-    pendingDragClientXRef.current = null;
-    if (nextClientX !== null) {
-      updateDelayedBookTargetFromClientX(nextClientX);
-    }
-  }, [updateDelayedBookTargetFromClientX]);
-
-  React.useEffect(() => {
-    const element = chartRef.current;
-    if (!element) {
-      return undefined;
-    }
-
-    const updateWidth = () => setChartWidth(element.getBoundingClientRect().width);
-    updateWidth();
-
-    const observer = new ResizeObserver(updateWidth);
-    observer.observe(element);
-
-    return () => observer.disconnect();
-  }, []);
-
-  React.useEffect(() => {
-    if (!isDraggingDelayedBook) {
-      return undefined;
-    }
-
-    function handlePointerMove(event: PointerEvent) {
-      scheduleDelayedBookTargetFromClientX(event.clientX);
-    }
-
-    function handlePointerUp() {
-      flushScheduledDelayedBookTarget();
-      setIsDraggingDelayedBook(false);
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp, { once: true });
-
-    return () => {
-      if (dragAnimationFrameRef.current !== null) {
-        window.cancelAnimationFrame(dragAnimationFrameRef.current);
-        dragAnimationFrameRef.current = null;
-      }
-      pendingDragClientXRef.current = null;
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [flushScheduledDelayedBookTarget, isDraggingDelayedBook, scheduleDelayedBookTargetFromClientX]);
+  const delayedBookDrag = useChartMarkerDrag({ onClientX: updateDelayedBookTargetFromClientX });
+  const delayedBookHandleLeft =
+    delayedBookHandleDay !== null
+      ? CHART_Y_AXIS_WIDTH +
+        (delayedBookHandleDay / Math.max(1, result.inputs.graphDurationDays)) *
+        Math.max(1, delayedBookDrag.chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
+      : null;
 
   return (
     <>
@@ -804,8 +642,8 @@ function BookTimingComparisonView({
       <section className="panel book-strategy-chart-panel">
         <PanelHeader icon={<Activity size={17} />} title="Book timing growth" aside={`${formatCompact(result.inputs.graphDurationDays)} days`} />
         <div
-          className={`book-strategy-chart ${isDraggingDelayedBook ? "is-dragging-book-timing" : ""}`}
-          ref={chartRef}
+          className={`book-strategy-chart ${delayedBookDrag.isDragging ? "is-dragging-book-timing" : ""}`}
+          ref={delayedBookDrag.chartRef}
         >
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
@@ -862,7 +700,7 @@ function BookTimingComparisonView({
               />
             </LineChart>
           </ResponsiveContainer>
-          {shouldShowDelayedBookWindow && delayedBookHandleLeft !== null && chartWidth > 0 ? (
+          {shouldShowDelayedBookWindow && delayedBookHandleLeft !== null && delayedBookDrag.chartWidth > 0 ? (
             <div
               className="book-timing-book-drag-target"
               style={{ left: `${delayedBookHandleLeft}px` }}
@@ -874,8 +712,7 @@ function BookTimingComparisonView({
               aria-valuenow={Math.round(result.delayedBookStartDay ?? 0)}
               onPointerDown={(event) => {
                 event.preventDefault();
-                setIsDraggingDelayedBook(true);
-                updateDelayedBookTargetFromClientX(event.clientX);
+                delayedBookDrag.startDrag(event.clientX);
               }}
               onKeyDown={(event) => {
                 if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
@@ -1008,11 +845,6 @@ function IgnoranceIsBlissView({
   onPopoutChange: (popout: IgnoranceIsBlissPopoutKind | null) => void;
   onMethodologyToggle: () => void;
 }) {
-  const [isDraggingStartingStat, setIsDraggingStartingStat] = React.useState(false);
-  const [chartWidth, setChartWidth] = React.useState(0);
-  const chartRef = React.useRef<HTMLDivElement | null>(null);
-  const pendingDragClientXRef = React.useRef<number | null>(null);
-  const dragAnimationFrameRef = React.useRef<number | null>(null);
   const inputs = React.useMemo(() => ignoranceIsBlissInputsFromForm(form, energyMode), [energyMode, form]);
   const result = React.useMemo(() => calculateIgnoranceIsBliss(inputs), [inputs]);
   const dailyEnergy = energyMode === "breakdown"
@@ -1028,11 +860,6 @@ function IgnoranceIsBlissView({
     [result.series, xTicks],
   );
   const xTickPositions = React.useMemo(() => xTicks.map((_, index) => index), [xTicks]);
-  const startingStatMarkerLeft = chartWidth > 0
-    ? CHART_Y_AXIS_WIDTH +
-      (statToEvenTickPosition(result.inputs.startingStat, xTicks) / Math.max(1, xTicks.length - 1)) *
-      Math.max(1, chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
-    : null;
 
   const setIibStartingStatFromRaw = React.useCallback((rawStat: number) => {
     if (!Number.isFinite(rawStat)) {
@@ -1043,90 +870,20 @@ function IgnoranceIsBlissView({
     onFieldChange("startingStat", formatInputCompact(stat));
   }, [onFieldChange, result.inputs.graphMaxStat]);
 
-  const updateIibStartingStatFromClientX = React.useCallback((clientX: number) => {
-    const rect = chartRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return;
-    }
-
+  const updateIibStartingStatFromClientX = React.useCallback((clientX: number, chartElement: HTMLDivElement) => {
+    const rect = chartElement.getBoundingClientRect();
     const plotLeft = rect.left + CHART_Y_AXIS_WIDTH;
     const plotWidth = Math.max(1, rect.width - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN);
     const rawRatio = clampNumber((clientX - plotLeft) / plotWidth, 0, 1);
     const stat = evenTickPositionToStat(rawRatio * Math.max(1, xTicks.length - 1), xTicks);
     setIibStartingStatFromRaw(stat);
   }, [setIibStartingStatFromRaw, xTicks]);
-
-  const scheduleIibStartingStatFromClientX = React.useCallback((clientX: number) => {
-    pendingDragClientXRef.current = clientX;
-    if (dragAnimationFrameRef.current !== null) {
-      return;
-    }
-
-    dragAnimationFrameRef.current = window.requestAnimationFrame(() => {
-      dragAnimationFrameRef.current = null;
-      const nextClientX = pendingDragClientXRef.current;
-      pendingDragClientXRef.current = null;
-      if (nextClientX !== null) {
-        updateIibStartingStatFromClientX(nextClientX);
-      }
-    });
-  }, [updateIibStartingStatFromClientX]);
-
-  const flushScheduledIibStartingStat = React.useCallback(() => {
-    if (dragAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragAnimationFrameRef.current);
-      dragAnimationFrameRef.current = null;
-    }
-
-    const nextClientX = pendingDragClientXRef.current;
-    pendingDragClientXRef.current = null;
-    if (nextClientX !== null) {
-      updateIibStartingStatFromClientX(nextClientX);
-    }
-  }, [updateIibStartingStatFromClientX]);
-
-  React.useEffect(() => {
-    const element = chartRef.current;
-    if (!element) {
-      return undefined;
-    }
-
-    const updateWidth = () => setChartWidth(element.getBoundingClientRect().width);
-    updateWidth();
-
-    const observer = new ResizeObserver(updateWidth);
-    observer.observe(element);
-
-    return () => observer.disconnect();
-  }, []);
-
-  React.useEffect(() => {
-    if (!isDraggingStartingStat) {
-      return undefined;
-    }
-
-    function handlePointerMove(event: PointerEvent) {
-      scheduleIibStartingStatFromClientX(event.clientX);
-    }
-
-    function handlePointerUp() {
-      flushScheduledIibStartingStat();
-      setIsDraggingStartingStat(false);
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp, { once: true });
-
-    return () => {
-      if (dragAnimationFrameRef.current !== null) {
-        window.cancelAnimationFrame(dragAnimationFrameRef.current);
-        dragAnimationFrameRef.current = null;
-      }
-      pendingDragClientXRef.current = null;
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [flushScheduledIibStartingStat, isDraggingStartingStat, scheduleIibStartingStatFromClientX]);
+  const iibStatDrag = useChartMarkerDrag({ onClientX: updateIibStartingStatFromClientX });
+  const startingStatMarkerLeft = iibStatDrag.chartWidth > 0
+    ? CHART_Y_AXIS_WIDTH +
+      (statToEvenTickPosition(result.inputs.startingStat, xTicks) / Math.max(1, xTicks.length - 1)) *
+      Math.max(1, iibStatDrag.chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
+    : null;
 
   return (
     <>
@@ -1174,8 +931,8 @@ function IgnoranceIsBlissView({
       <section className="panel book-strategy-chart-panel">
         <PanelHeader icon={<Activity size={17} />} title="Ignorance Is Bliss gain" aside="31 days" />
         <div
-          className={`book-strategy-chart ${isDraggingStartingStat ? "is-dragging-iib-stat" : ""}`}
-          ref={chartRef}
+          className={`book-strategy-chart ${iibStatDrag.isDragging ? "is-dragging-iib-stat" : ""}`}
+          ref={iibStatDrag.chartRef}
         >
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartSeries} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
@@ -1232,8 +989,7 @@ function IgnoranceIsBlissView({
               aria-valuenow={Math.round(result.inputs.startingStat)}
               onPointerDown={(event) => {
                 event.preventDefault();
-                setIsDraggingStartingStat(true);
-                updateIibStartingStatFromClientX(event.clientX);
+                iibStatDrag.startDrag(event.clientX);
               }}
               onKeyDown={(event) => {
                 if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
@@ -2006,6 +1762,113 @@ function IgnoranceIsBlissTooltip({
       <span>Uplift: {formatSignedPercentFixed(point.percentIncrease, 3)}</span>
     </div>
   );
+}
+
+function useChartMarkerDrag({
+  onClientX,
+}: {
+  onClientX: (clientX: number, chartElement: HTMLDivElement) => void;
+}) {
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [chartWidth, setChartWidth] = React.useState(0);
+  const chartRef = React.useRef<HTMLDivElement | null>(null);
+  const pendingClientXRef = React.useRef<number | null>(null);
+  const animationFrameRef = React.useRef<number | null>(null);
+
+  const applyClientX = React.useCallback((clientX: number) => {
+    const chartElement = chartRef.current;
+    if (!chartElement) {
+      return;
+    }
+
+    onClientX(clientX, chartElement);
+  }, [onClientX]);
+
+  const scheduleClientX = React.useCallback((clientX: number) => {
+    pendingClientXRef.current = clientX;
+    if (animationFrameRef.current !== null) {
+      return;
+    }
+
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      const nextClientX = pendingClientXRef.current;
+      pendingClientXRef.current = null;
+      if (nextClientX !== null) {
+        applyClientX(nextClientX);
+      }
+    });
+  }, [applyClientX]);
+
+  const flushScheduledClientX = React.useCallback(() => {
+    if (animationFrameRef.current !== null) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    const nextClientX = pendingClientXRef.current;
+    pendingClientXRef.current = null;
+    if (nextClientX !== null) {
+      applyClientX(nextClientX);
+    }
+  }, [applyClientX]);
+
+  const startDrag = React.useCallback((clientX: number) => {
+    setIsDragging(true);
+    applyClientX(clientX);
+  }, [applyClientX]);
+
+  React.useEffect(() => {
+    const element = chartRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const updateWidth = () => setChartWidth(element.getBoundingClientRect().width);
+    updateWidth();
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    if (!isDragging) {
+      return undefined;
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      scheduleClientX(event.clientX);
+    }
+
+    function handlePointerUp() {
+      flushScheduledClientX();
+      setIsDragging(false);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+    window.addEventListener("pointercancel", handlePointerUp, { once: true });
+
+    return () => {
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      pendingClientXRef.current = null;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [flushScheduledClientX, isDragging, scheduleClientX]);
+
+  return {
+    chartRef,
+    chartWidth,
+    isDragging,
+    startDrag,
+  };
 }
 
 function EnergyInputs({
