@@ -872,16 +872,17 @@ function ConclusionsView() {
         <section>
           <h3>Book Timing</h3>
           <p>
-            <strong>Using the book now and using it later are essentially tied long-term, but using it now gives
-              the better short-term relative impact.</strong>
+            <strong>Gains from using a stat-gain percentage book now vs later are essentially tied long-term, but using
+              it now gives the better short-term impact.</strong>
           </p>
           <p>
-            Long-term, a higher starting stat alone is not a good reason to delay. When training conditions remain the
-            same, using the book now or later produces an almost identical final result.
+            Long-term, a higher starting stat is not a good reason to delay. With the same training conditions, using
+            a stat-gain percentage book now or later produces almost identical results.
           </p>
           <p>
-            Short-term, reading the book earlier is usually more valuable. The additional stats represent a much larger
-            proportion of your current strength and are available immediately, letting you benefit from the increase sooner.
+            Short-term, reading the book earlier has more impact. The additional stats represent a larger proportion of
+            your current strength and are available immediately, letting you benefit from the increase sooner. This effect
+            is most noticeable at lower stats but tapers as stats increase.
           </p>
           <p>
             Delaying may still be worthwhile if your training conditions will improve later, such as unlocking a
@@ -896,25 +897,24 @@ function ConclusionsView() {
               can be bought.</strong>
           </p>
           <p>
-            Using FHCs during the book window produces a large immediate stat increase, but it is extremely expensive. If
-            the same money is saved and eventually spent on stat enhancers, FHCs lead at first, but enhancers eventually
-            overtake.
+            Using FHCs during the book window produces a large immediate stat increase at a high monetary cost. If the
+            same money is saved and eventually spent on stat enhancers, FHCs lead at first, but enhancers eventually overtake.
           </p>
           <p>
             Under the calculator&apos;s default assumptions, the break-even points are approximately:
           </p>
           <ul>
             <li>
-              <strong>3.4b</strong> when using an <strong>8.0-dot specialist gym</strong>.
+              3.4b when using an 8.0-dot specialist gym.
             </li>
             <li>
-              <strong>2.9b</strong> when using <strong>George&apos;s 7.3-dot gym</strong>.
+              2.9b when using George&apos;s 7.3-dot gym.
             </li>
           </ul>
           <p>
-            After break-even, the enhancer strategy&apos;s advantage continues to grow as the stat increases. Investing
-            the FHC budget can shorten the time needed to reach break-even, but does not change the break-even
-            stat itself unless the returns are enough to buy an additional enhancer.
+            After the break-even point, the enhancer strategy&apos;s advantage continues to grow as the stat increases,
+            making it the long-term winner. Investing the FHC budget can shorten the time needed to reach break-even,
+            but does not change the break-even stat itself unless the returns are enough to buy an additional enhancer.
           </p>
         </section>
 
@@ -924,14 +924,14 @@ function ConclusionsView() {
             <strong>Ignorance Is Bliss is strongest at low stats and gradually declines as starting stat rises.</strong>
           </p>
           <p>
-            <em>Ignorance Is Bliss</em> provides an enormous increase in training gains at low stats because happiness
-            contributes much more heavily to the training formula at that stage.
+            <em>Ignorance Is Bliss</em> provides an enormous increase in training gains at low stats, as happiness
+            contributes more heavily to the training formula at that stage.
           </p>
           <p>
-            Its benefit declines as starting stat increases, but it remains valuable at high stats. At 35m
-            additional training gain drops to <strong>20%</strong>, putting it approximately equal
-            to the 20% gym-gain book <em>Get Hard Or Go Home</em>. After that, effectiveness continues to slowly decline,
-            hitting <strong>18%</strong> at 10b stats.
+            Its benefit declines as the stat increases, but it remains a valuable training book at high stats. At 35m,
+            training gain drops to about <strong>20%</strong>, making it comparable to the 20% gym-gain book{" "}
+            <em>Get Hard Or Go Home</em>. After that, effectiveness slowly declines, reaching about{" "}
+            <strong>18%</strong> at 10b stats and approaching <strong>17.2%</strong> with stats in the quintillions.
           </p>
         </section>
       </div>
