@@ -185,10 +185,10 @@ export function BookStrategy() {
       : null;
 
   const handleChartClick = React.useCallback((state: unknown) => {
-    const chartState = state as ChartClickState;
-    const payloadDay = chartState?.activePayload?.find((item) => item.payload?.day !== undefined)?.payload?.day;
-    const day = Number(payloadDay ?? chartState?.activeLabel);
-    setEnhancerTargetDay(day);
+    const day = getClickedChartValue(state, "day");
+    if (day !== null) {
+      setEnhancerTargetDay(day);
+    }
   }, [setEnhancerTargetDay]);
 
   return (
@@ -356,13 +356,51 @@ export function BookStrategy() {
           />
         </div>
 
-        <section className="panel book-strategy-chart-panel">
-          <PanelHeader icon={<Activity size={17} />} title="Expected growth" aside={`${formatCompact(result.inputs.graphDurationDays)} days`} />
-          <div
-            className={`book-strategy-chart ${enhancerDrag.isDragging ? "is-dragging-enhancer" : ""}`}
-            ref={enhancerDrag.chartRef}
-          >
-            <ResponsiveContainer width="100%" height="100%">
+        <BookStrategyChartShell
+          title="Expected growth"
+          aside={`${formatCompact(result.inputs.graphDurationDays)} days`}
+          chartRef={enhancerDrag.chartRef}
+          isDragging={enhancerDrag.isDragging}
+          dragClassName="is-dragging-enhancer"
+          overlay={enhancerMarkerDay !== null && enhancerMarkerLeft !== null && enhancerDrag.chartWidth > 0 && enhancerMarkerDay <= result.inputs.graphDurationDays ? (
+            <div
+              className="book-strategy-enhancer-drag-target"
+              style={{ left: `${enhancerMarkerLeft}px` }}
+              role="slider"
+              tabIndex={0}
+              aria-label="Enhancer use day"
+              aria-valuemin={result.inputs.bookDurationDays}
+              aria-valuemax={result.inputs.graphDurationDays}
+              aria-valuenow={Math.round(enhancerMarkerDay)}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                enhancerDrag.startDrag(event.clientX);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                  return;
+                }
+
+                event.preventDefault();
+                const direction = event.key === "ArrowLeft" ? -1 : 1;
+                const nextDay = clampNumber(
+                  Math.round(enhancerMarkerDay) + direction,
+                  result.inputs.bookDurationDays,
+                  result.inputs.graphDurationDays,
+                );
+                setForm((current) => ({
+                  ...current,
+                  enhancerMode: "targetDay",
+                  enhancerTargetDay: String(nextDay),
+                }));
+              }}
+            >
+              <span className="book-strategy-enhancer-handle">
+                <Sparkles size={14} />
+              </span>
+            </div>
+          ) : null}
+        >
               <LineChart
                 data={result.series}
                 margin={{ top: 12, right: 18, left: 0, bottom: 14 }}
@@ -413,47 +451,7 @@ export function BookStrategy() {
                   isAnimationActive={false}
                 />
               </LineChart>
-            </ResponsiveContainer>
-            {enhancerMarkerDay !== null && enhancerMarkerLeft !== null && enhancerDrag.chartWidth > 0 && enhancerMarkerDay <= result.inputs.graphDurationDays ? (
-              <div
-                className="book-strategy-enhancer-drag-target"
-                style={{ left: `${enhancerMarkerLeft}px` }}
-                role="slider"
-                tabIndex={0}
-                aria-label="Enhancer use day"
-                aria-valuemin={result.inputs.bookDurationDays}
-                aria-valuemax={result.inputs.graphDurationDays}
-                aria-valuenow={Math.round(enhancerMarkerDay)}
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  enhancerDrag.startDrag(event.clientX);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-                    return;
-                  }
-
-                  event.preventDefault();
-                  const direction = event.key === "ArrowLeft" ? -1 : 1;
-                  const nextDay = clampNumber(
-                    Math.round(enhancerMarkerDay) + direction,
-                    result.inputs.bookDurationDays,
-                    result.inputs.graphDurationDays,
-                  );
-                  setForm((current) => ({
-                    ...current,
-                    enhancerMode: "targetDay",
-                    enhancerTargetDay: String(nextDay),
-                  }));
-                }}
-              >
-                <span className="book-strategy-enhancer-handle">
-                  <Sparkles size={14} />
-                </span>
-              </div>
-            ) : null}
-          </div>
-        </section>
+        </BookStrategyChartShell>
 
         <SummaryPanel result={result} />
 
@@ -588,10 +586,10 @@ function BookTimingComparisonView({
   }, [result.inputs.bookDurationDays, result.inputs.graphDurationDays, setDelayedBookStartDay]);
   const delayedBookDrag = useChartMarkerDrag({ onClientX: updateDelayedBookTargetFromClientX });
   const handleBookTimingChartClick = React.useCallback((state: unknown) => {
-    const chartState = state as ChartClickState;
-    const payloadDay = chartState?.activePayload?.find((item) => item.payload?.day !== undefined)?.payload?.day;
-    const day = Number(payloadDay ?? chartState?.activeLabel);
-    setDelayedBookStartDay(day - result.inputs.bookDurationDays / 2);
+    const day = getClickedChartValue(state, "day");
+    if (day !== null) {
+      setDelayedBookStartDay(day - result.inputs.bookDurationDays / 2);
+    }
   }, [result.inputs.bookDurationDays, setDelayedBookStartDay]);
   const delayedBookHandleLeft =
     delayedBookHandleDay !== null
@@ -643,13 +641,47 @@ function BookTimingComparisonView({
         ) : null}
       </section>
 
-      <section className="panel book-strategy-chart-panel">
-        <PanelHeader icon={<Activity size={17} />} title="Book timing growth" aside={`${formatCompact(result.inputs.graphDurationDays)} days`} />
-        <div
-          className={`book-strategy-chart ${delayedBookDrag.isDragging ? "is-dragging-book-timing" : ""}`}
-          ref={delayedBookDrag.chartRef}
-        >
-          <ResponsiveContainer width="100%" height="100%">
+      <BookStrategyChartShell
+        title="Book timing growth"
+        aside={`${formatCompact(result.inputs.graphDurationDays)} days`}
+        chartRef={delayedBookDrag.chartRef}
+        isDragging={delayedBookDrag.isDragging}
+        dragClassName="is-dragging-book-timing"
+        overlay={shouldShowDelayedBookWindow && delayedBookHandleLeft !== null && delayedBookDrag.chartWidth > 0 ? (
+          <div
+            className="book-timing-book-drag-target"
+            style={{ left: `${delayedBookHandleLeft}px` }}
+            role="slider"
+            tabIndex={0}
+            aria-label="Later book use day"
+            aria-valuemin={0}
+            aria-valuemax={result.inputs.graphDurationDays}
+            aria-valuenow={Math.round(result.delayedBookStartDay ?? 0)}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              delayedBookDrag.startDrag(event.clientX);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                return;
+              }
+
+              event.preventDefault();
+              const direction = event.key === "ArrowLeft" ? -1 : 1;
+              const nextDay = clampNumber(
+                Math.round(result.delayedBookStartDay ?? 0) + direction,
+                0,
+                result.inputs.graphDurationDays,
+              );
+              setDelayedBookStartDay(nextDay);
+            }}
+          >
+            <span className="book-timing-book-handle">
+              <BookOpen size={14} />
+            </span>
+          </div>
+        ) : null}
+      >
             <LineChart
               data={result.series}
               margin={{ top: 12, right: 18, left: 0, bottom: 14 }}
@@ -707,43 +739,7 @@ function BookTimingComparisonView({
                 isAnimationActive={false}
               />
             </LineChart>
-          </ResponsiveContainer>
-          {shouldShowDelayedBookWindow && delayedBookHandleLeft !== null && delayedBookDrag.chartWidth > 0 ? (
-            <div
-              className="book-timing-book-drag-target"
-              style={{ left: `${delayedBookHandleLeft}px` }}
-              role="slider"
-              tabIndex={0}
-              aria-label="Later book use day"
-              aria-valuemin={0}
-              aria-valuemax={result.inputs.graphDurationDays}
-              aria-valuenow={Math.round(result.delayedBookStartDay ?? 0)}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                delayedBookDrag.startDrag(event.clientX);
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-                  return;
-                }
-
-                event.preventDefault();
-                const direction = event.key === "ArrowLeft" ? -1 : 1;
-                const nextDay = clampNumber(
-                  Math.round(result.delayedBookStartDay ?? 0) + direction,
-                  0,
-                  result.inputs.graphDurationDays,
-                );
-                setDelayedBookStartDay(nextDay);
-              }}
-            >
-              <span className="book-timing-book-handle">
-                <BookOpen size={14} />
-              </span>
-            </div>
-          ) : null}
-        </div>
-      </section>
+      </BookStrategyChartShell>
 
       <BookTimingSummaryPanel result={result} />
       <BookTimingReasonsPanel />
@@ -882,16 +878,10 @@ function IgnoranceIsBlissView({
   }, [setIibStartingStatFromRaw, xDomainEnd]);
   const iibStatDrag = useChartMarkerDrag({ onClientX: updateIibStartingStatFromClientX });
   const handleIibChartClick = React.useCallback((state: unknown) => {
-    const chartState = state as ChartClickState;
-    const payloadStartingStat = chartState?.activePayload
-      ?.find((item) => item.payload?.startingStat !== undefined)
-      ?.payload?.startingStat;
-    const startingStat = Number(payloadStartingStat ?? chartState?.activeLabel);
-    if (!Number.isFinite(startingStat)) {
-      return;
+    const startingStat = getClickedChartValue(state, "startingStat");
+    if (startingStat !== null) {
+      setIibStartingStatFromRaw(startingStat);
     }
-
-    setIibStartingStatFromRaw(startingStat);
   }, [setIibStartingStatFromRaw]);
   const startingStatMarkerLeft = iibStatDrag.chartWidth > 0
     ? CHART_Y_AXIS_WIDTH +
@@ -942,13 +932,42 @@ function IgnoranceIsBlissView({
         ) : null}
       </section>
 
-      <section className="panel book-strategy-chart-panel">
-        <PanelHeader icon={<Activity size={17} />} title="Ignorance Is Bliss gain" aside="31 days" />
-        <div
-          className={`book-strategy-chart ${iibStatDrag.isDragging ? "is-dragging-iib-stat" : ""}`}
-          ref={iibStatDrag.chartRef}
-        >
-          <ResponsiveContainer width="100%" height="100%">
+      <BookStrategyChartShell
+        title="Ignorance Is Bliss gain"
+        aside="31 days"
+        chartRef={iibStatDrag.chartRef}
+        isDragging={iibStatDrag.isDragging}
+        dragClassName="is-dragging-iib-stat"
+        overlay={startingStatMarkerLeft !== null ? (
+          <div
+            className="book-iib-stat-drag-target"
+            style={{ left: `${startingStatMarkerLeft}px` }}
+            role="slider"
+            tabIndex={0}
+            aria-label="Starting stat marker"
+            aria-valuemin={1}
+            aria-valuemax={result.inputs.graphMaxStat}
+            aria-valuenow={Math.round(result.inputs.startingStat)}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              iibStatDrag.startDrag(event.clientX);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                return;
+              }
+
+              event.preventDefault();
+              const multiplier = event.key === "ArrowLeft" ? 1 / 1.1 : 1.1;
+              setIibStartingStatFromRaw(result.inputs.startingStat * multiplier);
+            }}
+          >
+            <span className="book-iib-stat-handle">
+              <Dumbbell size={14} />
+            </span>
+          </div>
+        ) : null}
+      >
             <LineChart
               data={result.series}
               margin={{ top: 12, right: 18, left: 0, bottom: 14 }}
@@ -995,38 +1014,7 @@ function IgnoranceIsBlissView({
                 isAnimationActive={false}
               />
             </LineChart>
-          </ResponsiveContainer>
-          {startingStatMarkerLeft !== null ? (
-            <div
-              className="book-iib-stat-drag-target"
-              style={{ left: `${startingStatMarkerLeft}px` }}
-              role="slider"
-              tabIndex={0}
-              aria-label="Starting stat marker"
-              aria-valuemin={1}
-              aria-valuemax={result.inputs.graphMaxStat}
-              aria-valuenow={Math.round(result.inputs.startingStat)}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                iibStatDrag.startDrag(event.clientX);
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-                  return;
-                }
-
-                event.preventDefault();
-                const multiplier = event.key === "ArrowLeft" ? 1 / 1.1 : 1.1;
-                setIibStartingStatFromRaw(result.inputs.startingStat * multiplier);
-              }}
-            >
-              <span className="book-iib-stat-handle">
-                <Dumbbell size={14} />
-              </span>
-            </div>
-          ) : null}
-        </div>
-      </section>
+      </BookStrategyChartShell>
 
       <IgnoranceIsBlissSummaryPanel result={result} />
 
@@ -1781,6 +1769,46 @@ function IgnoranceIsBlissTooltip({
       <span>Uplift: {formatSignedPercentFixed(point.percentIncrease, 3)}</span>
     </div>
   );
+}
+
+function BookStrategyChartShell({
+  title,
+  aside,
+  chartRef,
+  isDragging,
+  dragClassName,
+  overlay,
+  children,
+}: {
+  title: string;
+  aside: string;
+  chartRef: React.Ref<HTMLDivElement>;
+  isDragging: boolean;
+  dragClassName: string;
+  overlay?: React.ReactNode;
+  children: React.ReactElement;
+}) {
+  return (
+    <section className="panel book-strategy-chart-panel">
+      <PanelHeader icon={<Activity size={17} />} title={title} aside={aside} />
+      <div className={`book-strategy-chart ${isDragging ? dragClassName : ""}`} ref={chartRef}>
+        <ResponsiveContainer width="100%" height="100%">
+          {children}
+        </ResponsiveContainer>
+        {overlay ?? null}
+      </div>
+    </section>
+  );
+}
+
+function getClickedChartValue(state: unknown, payloadKey: "day" | "startingStat"): number | null {
+  const chartState = state as ChartClickState;
+  const payloadValue = chartState?.activePayload
+    ?.find((item) => item.payload?.[payloadKey] !== undefined)
+    ?.payload?.[payloadKey];
+  const value = Number(payloadValue ?? chartState?.activeLabel);
+
+  return Number.isFinite(value) ? value : null;
 }
 
 function useChartMarkerDrag({
