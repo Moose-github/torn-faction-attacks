@@ -43,6 +43,21 @@ describe("book strategy calculator", () => {
     expect(result.enhancerUse.enhancersUsed).toBe(4);
   });
 
+  it("applies enhancers at the exact event point in the graph series", () => {
+    const result = calculateBookStrategy({
+      ...defaultBookStrategyInputs,
+      investmentEnabled: false,
+    });
+    const eventDay = result.enhancerUse.day;
+
+    expect(eventDay).not.toBeNull();
+    const eventPoint = result.series.find((point) => point.day === eventDay);
+    expect(eventPoint).toBeDefined();
+    expect(eventPoint?.enhancersUsed).toBe(result.enhancerUse.enhancersUsed);
+    expect(eventPoint?.strategyTwoBeforeEnhancers).toBeCloseTo(result.enhancerUse.strategyTwoBeforeEnhancers ?? 0, 8);
+    expect(eventPoint?.strategyTwoStat).toBeCloseTo(result.enhancerUse.strategyTwoAfterEnhancers ?? 0, 8);
+  });
+
   it("matches the 500m investment-assisted five-enhancer example", () => {
     const result = calculateBookStrategy({
       ...defaultBookStrategyInputs,

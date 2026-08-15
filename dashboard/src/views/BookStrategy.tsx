@@ -86,6 +86,12 @@ import {
   type SharedTrainingSettings,
 } from "./BookStrategy.helpers";
 
+const MIN_GRAPH_DURATION_DAYS = 31;
+const MAX_GRAPH_DURATION_DAYS = 3_650;
+const GRAPH_DURATION_TOOLTIP = "Capped range: 31-3,650 days";
+const GYM_DOTS_TOOLTIP = "Capped range: 1-10 gym dots";
+const TRAINING_MONTHS_TOOLTIP = "Months spent training target stat out of a standard 4 month steadfast rotation";
+
 export function BookStrategy() {
   const [mode, setMode] = React.useState<BookStrategyMode>("enhancers");
   const [form, setForm] = React.useState<BookStrategyForm>(DEFAULT_FORM);
@@ -123,12 +129,72 @@ export function BookStrategy() {
     });
   }
 
+  function updateStartingStat(value: string) {
+    updateField("startingStat", cappedMinimumStatValue(value));
+  }
+
+  function updateGraphDuration(value: string) {
+    updateField("graphDurationDays", cappedGraphDurationValue(value));
+  }
+
+  function updateGymDots(value: string) {
+    updateField("gymMultiplier", cappedGymDotsValue(value));
+  }
+
+  function updatePostBookTrainingMonths(value: string) {
+    updateField("postBookTrainingMonthsOutOfFour", cappedTrainingMonthsValue(value));
+  }
+
   function updateTimingField<K extends keyof BookTimingForm>(field: K, value: BookTimingForm[K]) {
     setTimingForm((current) => ({ ...current, [field]: value }));
   }
 
+  function updateTimingLowStat(value: string) {
+    const nextLowStat = cappedMinimumStatValue(value);
+    setTimingForm((current) => {
+      const lowStat = parseNumber(nextLowStat, 1);
+      const delayedTarget = parseNumber(current.delayedBookTargetStat, lowStat + 1);
+
+      return {
+        ...current,
+        lowStat: nextLowStat,
+        delayedBookTargetStat: delayedTarget <= lowStat
+          ? formatInputCompact(lowStat + 1)
+          : current.delayedBookTargetStat,
+      };
+    });
+  }
+
+  function updateTimingDelayedBookTarget(value: string) {
+    const lowStat = parseNumber(timingForm.lowStat, 1);
+    updateTimingField("delayedBookTargetStat", cappedMinimumStatValue(value, lowStat + 1));
+  }
+
+  function updateTimingGraphDuration(value: string) {
+    updateTimingField("graphDurationDays", cappedGraphDurationValue(value));
+  }
+
   function updateIibField<K extends keyof IgnoranceIsBlissForm>(field: K, value: IgnoranceIsBlissForm[K]) {
     setIibForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateIibNormalHappiness(value: string) {
+    if (value.trim() === "") {
+      updateIibField("normalHappiness", value);
+      return;
+    }
+
+    const parsed = parseNumber(value, Number.NaN);
+    updateIibField(
+      "normalHappiness",
+      Number.isFinite(parsed)
+        ? formatInputCompact(clampNumber(parsed, 1, 10_000))
+        : value,
+    );
+  }
+
+  function updateIibGymDots(value: string) {
+    updateIibField("gymMultiplier", cappedGymDotsValue(value));
   }
 
   function resetDefaults() {
@@ -284,12 +350,27 @@ export function BookStrategy() {
               }
             />
             <div className="book-strategy-input-grid">
-              <NumberField label="Starting stat" value={form.startingStat} onChange={(value) => updateField("startingStat", value)} />
+              <NumberField label="Starting stat" value={form.startingStat} onChange={updateStartingStat} />
               <NumberField label="Happiness" value={form.happiness} onChange={(value) => updateField("happiness", value)} />
-              <NumberField label="Graph duration (days)" value={form.graphDurationDays} onChange={(value) => updateField("graphDurationDays", value)} />
-              <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} />
+              <NumberField
+                label="Graph duration (days)"
+                value={form.graphDurationDays}
+                onChange={updateGraphDuration}
+                title={GRAPH_DURATION_TOOLTIP}
+              />
+              <NumberField
+                label="Gym dots"
+                value={form.gymMultiplier}
+                onChange={updateGymDots}
+                title={GYM_DOTS_TOOLTIP}
+              />
               <NumberField label="Book bonus %" value={form.bookBonusPercent} onChange={(value) => updateField("bookBonusPercent", value)} />
-              <NumberField label="Months spent training stat out of 4" value={form.postBookTrainingMonthsOutOfFour} onChange={(value) => updateField("postBookTrainingMonthsOutOfFour", value)} />
+              <NumberField
+                label="Months spent training stat"
+                value={form.postBookTrainingMonthsOutOfFour}
+                onChange={updatePostBookTrainingMonths}
+                title={TRAINING_MONTHS_TOOLTIP}
+              />
               <div className="book-strategy-toggle-field">
                 <span>Investment</span>
                 <label className={`book-strategy-check book-strategy-investment-toggle ${form.investmentEnabled ? "" : "is-off"}`}>
@@ -499,6 +580,9 @@ export function BookStrategy() {
             openPopout={openTimingPopout}
             methodologyOpen={methodologyOpen}
             onFieldChange={updateTimingField}
+            onLowStatChange={updateTimingLowStat}
+            onDelayedBookTargetChange={updateTimingDelayedBookTarget}
+            onGraphDurationChange={updateTimingGraphDuration}
             onEnergyModeChange={setEnergyMode}
             onSharedSettingChange={updateSharedSetting}
             onPopoutChange={setOpenTimingPopout}
@@ -512,6 +596,8 @@ export function BookStrategy() {
             openPopout={openIibPopout}
             methodologyOpen={methodologyOpen}
             onFieldChange={updateIibField}
+            onNormalHappinessChange={updateIibNormalHappiness}
+            onGymDotsChange={updateIibGymDots}
             onEnergyModeChange={setEnergyMode}
             onSharedSettingChange={updateSharedSetting}
             onPopoutChange={setOpenIibPopout}
@@ -532,6 +618,9 @@ function BookTimingComparisonView({
   openPopout,
   methodologyOpen,
   onFieldChange,
+  onLowStatChange,
+  onDelayedBookTargetChange,
+  onGraphDurationChange,
   onEnergyModeChange,
   onSharedSettingChange,
   onPopoutChange,
@@ -543,6 +632,9 @@ function BookTimingComparisonView({
   openPopout: BookTimingPopoutKind | null;
   methodologyOpen: boolean;
   onFieldChange: <K extends keyof BookTimingForm>(field: K, value: BookTimingForm[K]) => void;
+  onLowStatChange: (value: string) => void;
+  onDelayedBookTargetChange: (value: string) => void;
+  onGraphDurationChange: (value: string) => void;
   onEnergyModeChange: (mode: EnergyMode) => void;
   onSharedSettingChange: <K extends keyof SharedTrainingSettings>(field: K, value: SharedTrainingSettings[K]) => void;
   onPopoutChange: (popout: BookTimingPopoutKind | null) => void;
@@ -622,9 +714,14 @@ function BookTimingComparisonView({
           }
         />
         <div className="book-strategy-input-grid">
-          <NumberField label="Low stat" value={form.lowStat} onChange={(value) => onFieldChange("lowStat", value)} />
-          <NumberField label="Use later at stat" value={form.delayedBookTargetStat} onChange={(value) => onFieldChange("delayedBookTargetStat", value)} />
-          <NumberField label="Graph duration (days)" value={form.graphDurationDays} onChange={(value) => onFieldChange("graphDurationDays", value)} />
+          <NumberField label="Low stat" value={form.lowStat} onChange={onLowStatChange} />
+          <NumberField label="Use later at stat" value={form.delayedBookTargetStat} onChange={onDelayedBookTargetChange} />
+          <NumberField
+            label="Graph duration (days)"
+            value={form.graphDurationDays}
+            onChange={onGraphDurationChange}
+            title={GRAPH_DURATION_TOOLTIP}
+          />
           <NumberField label="Book bonus %" value={form.bookBonusPercent} onChange={(value) => onFieldChange("bookBonusPercent", value)} />
         </div>
         {openPopout === "energy" ? (
@@ -775,12 +872,17 @@ function ConclusionsView() {
         <section>
           <h3>When should you read the book?</h3>
           <p>
-            A higher starting stat is not a good reason to delay. The book gives approximately the same relative
-            training progress whether it is used now or later.
+            A higher starting stat alone is not a good reason to delay. When training conditions remain the same,
+            using the book now or later produces an almost identical long-term result.
           </p>
           <p>
-            Delaying is worthwhile when your training conditions will improve later, such as unlocking a
-            specialist gym, completing gym-gain educations, gaining better Steadfast or joining a company with trining perks.
+            However, reading the book earlier can be more valuable in the short term. The additional stats represent a
+            much larger proportion of your current stat and are available immediately, allowing you to benefit from the
+            increased strength sooner.
+          </p>
+          <p>
+            Delaying may still be worthwhile if your training conditions will improve later, such as unlocking a
+            specialist gym, completing gym-gain educations, gaining better Steadfast, or joining a company with training perks.
           </p>
         </section>
 
@@ -817,8 +919,9 @@ function ConclusionsView() {
           </p>
           <p>
             Its benefit declines as starting stat increases, but it remains valuable at high stats. At 35m
-            additional training gain drop to <strong>20%</strong> putting it approximately equal
-            to the 20% gym-gain book <em>Get Hard Or Go Home</em>, after that effectivness continues to showly deline hitting <strong>18%</strong> at 10b stats.
+            additional training gain drops to <strong>20%</strong>, putting it approximately equal
+            to the 20% gym-gain book <em>Get Hard Or Go Home</em>. After that, effectiveness continues to slowly decline,
+            hitting <strong>18%</strong> at 10b stats.
           </p>
         </section>
       </div>
@@ -833,6 +936,8 @@ function IgnoranceIsBlissView({
   openPopout,
   methodologyOpen,
   onFieldChange,
+  onNormalHappinessChange,
+  onGymDotsChange,
   onEnergyModeChange,
   onSharedSettingChange,
   onPopoutChange,
@@ -844,6 +949,8 @@ function IgnoranceIsBlissView({
   openPopout: IgnoranceIsBlissPopoutKind | null;
   methodologyOpen: boolean;
   onFieldChange: <K extends keyof IgnoranceIsBlissForm>(field: K, value: IgnoranceIsBlissForm[K]) => void;
+  onNormalHappinessChange: (value: string) => void;
+  onGymDotsChange: (value: string) => void;
   onEnergyModeChange: (mode: EnergyMode) => void;
   onSharedSettingChange: <K extends keyof SharedTrainingSettings>(field: K, value: SharedTrainingSettings[K]) => void;
   onPopoutChange: (popout: IgnoranceIsBlissPopoutKind | null) => void;
@@ -914,9 +1021,19 @@ function IgnoranceIsBlissView({
         />
         <div className="book-strategy-input-grid">
           <NumberField label="Starting stat" value={form.startingStat} onChange={(value) => onFieldChange("startingStat", value)} />
-          <NumberField label="Happiness without book" value={form.normalHappiness} onChange={(value) => onFieldChange("normalHappiness", value)} />
+          <NumberField
+            label="Happiness without book"
+            value={form.normalHappiness}
+            onChange={onNormalHappinessChange}
+            title="Capped range: 1-10,000 standard happiness"
+          />
           <NumberField label="Graph max stat" value={form.graphMaxStat} onChange={(value) => onFieldChange("graphMaxStat", value)} />
-          <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => onFieldChange("gymMultiplier", value)} />
+          <NumberField
+            label="Gym dots"
+            value={form.gymMultiplier}
+            onChange={onGymDotsChange}
+            title={GYM_DOTS_TOOLTIP}
+          />
         </div>
         {openPopout === "energy" ? (
           <EnergyInputs
@@ -1483,9 +1600,17 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
     : result.endpoint.difference > 0
       ? "Wait ahead"
       : "Use now ahead";
-  const longRunVerdict = Math.abs(endpointDifferencePercent) <= 0.1
-    ? "Difference negligible"
-    : endpointLead;
+  const comparisonComplete =
+    result.delayedBook.endDay !== null &&
+    result.delayedBook.endDay <= result.inputs.graphDurationDays;
+  const longRunVerdict = !comparisonComplete
+    ? "Comparison incomplete"
+    : Math.abs(endpointDifferencePercent) <= 0.1
+      ? "Difference negligible"
+      : endpointLead;
+  const longRunDetail = comparisonComplete
+    ? `Final gap ${endpointGapPercent} / ${endpointGapStat} stats at day ${endpointDay}`
+    : "Extend the graph to compare both completed book paths";
   const delayedStartDetail = result.delayedBookStartDay === null
     ? "Target not reached"
     : `Day ${formatCompact(result.delayedBookStartDay)}`;
@@ -1508,7 +1633,9 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
     ? "Waiting target is outside the chart window"
     : `Now ${immediatePercent} vs wait ${delayedPercent}`;
   const timingSummaryLines = [
-    `${longRunVerdict}: the final gap is ${endpointGapPercent} (${endpointGapStat} stats) at day ${endpointDay}.`,
+    comparisonComplete
+      ? `${longRunVerdict}: the final gap is ${endpointGapPercent} (${endpointGapStat} stats) at day ${endpointDay}.`
+      : "Comparison incomplete: extend the graph so the delayed book's 31-day window finishes before reading the long-run result.",
     `Use now gives a ${immediatePercent} lift against current strength, while waiting gives ${delayedPercent} at the delayed strength.`,
     result.delayedBookStartDay === null
       ? `Wait does not reach ${formatStat(result.inputs.delayedBookTargetStat)} within ${formatCompact(result.inputs.graphDurationDays)} days.`
@@ -1532,7 +1659,7 @@ function BookTimingSummaryPanel({ result }: { result: BookTimingComparisonResult
           tone="balanced"
           label="Long-run"
           value={longRunVerdict}
-          detail={`Final gap ${endpointGapPercent} / ${endpointGapStat} stats at day ${endpointDay}`}
+          detail={longRunDetail}
         />
       </div>
       <div className="book-strategy-summary-support-grid">
@@ -1953,6 +2080,50 @@ function statFromLogRatio(ratio: number, domainStart: number, domainEnd: number)
   return 10 ** (startLog + clampNumber(ratio, 0, 1) * (endLog - startLog));
 }
 
+function cappedGraphDurationValue(value: string): string {
+  if (value.trim() === "") {
+    return value;
+  }
+
+  const parsed = parseNumber(value, Number.NaN);
+  return Number.isFinite(parsed)
+    ? formatInputCompact(clampNumber(parsed, MIN_GRAPH_DURATION_DAYS, MAX_GRAPH_DURATION_DAYS))
+    : value;
+}
+
+function cappedGymDotsValue(value: string): string {
+  if (value.trim() === "") {
+    return value;
+  }
+
+  const parsed = parseNumber(value, Number.NaN);
+  return Number.isFinite(parsed)
+    ? Number(clampNumber(parsed, 1, 10).toFixed(2)).toString()
+    : value;
+}
+
+function cappedTrainingMonthsValue(value: string): string {
+  if (value.trim() === "") {
+    return value;
+  }
+
+  const parsed = parseNumber(value, Number.NaN);
+  return Number.isFinite(parsed)
+    ? Number(clampNumber(parsed, 1, 4).toFixed(2)).toString()
+    : value;
+}
+
+function cappedMinimumStatValue(value: string, minimum = 1): string {
+  if (value.trim() === "") {
+    return value;
+  }
+
+  const parsed = parseNumber(value, Number.NaN);
+  return Number.isFinite(parsed)
+    ? formatInputCompact(Math.max(minimum, parsed))
+    : value;
+}
+
 function EnergyInputs({
   settings,
   energyMode,
@@ -2105,22 +2276,25 @@ function NumberField({
   value,
   onChange,
   suffix,
+  title,
   disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   suffix?: string;
+  title?: string;
   disabled?: boolean;
 }) {
   return (
-    <label className="book-strategy-field">
+    <label className="book-strategy-field" title={title}>
       <span>{label}</span>
       <div>
         <input
           type="text"
           inputMode="decimal"
           value={value}
+          title={title}
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
         />

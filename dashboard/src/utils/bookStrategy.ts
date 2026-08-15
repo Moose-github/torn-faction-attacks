@@ -1075,7 +1075,7 @@ function bookStrategySampleDays(
     sampleDays.add(Number(day.toFixed(8)));
   }
   if (enhancerDay !== null && enhancerDay <= inputs.graphDurationDays) {
-    sampleDays.add(Number(enhancerDay.toFixed(8)));
+    sampleDays.add(enhancerDay);
   }
 
   return [...sampleDays]
