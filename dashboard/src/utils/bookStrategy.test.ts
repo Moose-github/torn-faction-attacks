@@ -307,12 +307,10 @@ describe("book strategy calculator", () => {
   it("caps duration-based charts at ten years", () => {
     const enhancerResult = calculateBookStrategy({
       ...defaultBookStrategyInputs,
-      dailyEnergy: 0,
       graphDurationDays: 20_000,
     });
     const timingResult = calculateBookTimingComparison({
       ...defaultBookTimingComparisonInputs,
-      dailyEnergy: 0,
       graphDurationDays: 20_000,
     });
 

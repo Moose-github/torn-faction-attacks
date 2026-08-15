@@ -479,6 +479,30 @@ function buildBookTimingSeries(
   inputs: BookTimingComparisonInputs,
   delayedBookStartDay: number | null,
 ): BookTimingComparisonPoint[] {
+  const sampleDays = bookTimingSampleDays(inputs, delayedBookStartDay);
+  const useNowState = createBookTimingTimelineState(inputs.lowStat);
+  const waitState = createBookTimingTimelineState(inputs.lowStat);
+
+  return sampleDays.map((day) => {
+    const useNowStat = advanceBookTimingTimelineToDay(useNowState, day, 0, inputs);
+    const waitStat = advanceBookTimingTimelineToDay(waitState, day, delayedBookStartDay, inputs);
+
+    return {
+      day,
+      useNowStat,
+      waitStat,
+      difference: waitStat - useNowStat,
+      useNowBookActive: isBookActiveAtDay(day, 0, inputs.bookDurationDays),
+      waitBookActive: isBookActiveAtDay(day, delayedBookStartDay, inputs.bookDurationDays),
+      trainsConsumed: completeTrains(inputs.dailyEnergy * day, inputs.energyPerTrain),
+    };
+  });
+}
+
+function bookTimingSampleDays(
+  inputs: BookTimingComparisonInputs,
+  delayedBookStartDay: number | null,
+): number[] {
   const sampleDays = new Set<number>([0, inputs.bookDurationDays, inputs.graphDurationDays]);
   if (delayedBookStartDay !== null) {
     sampleDays.add(delayedBookStartDay);
@@ -490,21 +514,40 @@ function buildBookTimingSeries(
 
   return [...sampleDays]
     .filter((day) => day >= 0 && day <= inputs.graphDurationDays)
-    .sort((a, b) => a - b)
-    .map((day) => {
-      const useNowStat = statAtBookTimingDay(inputs.lowStat, day, 0, inputs);
-      const waitStat = statAtBookTimingDay(inputs.lowStat, day, delayedBookStartDay, inputs);
+    .sort((a, b) => a - b);
+}
 
-      return {
-        day,
-        useNowStat,
-        waitStat,
-        difference: waitStat - useNowStat,
-        useNowBookActive: isBookActiveAtDay(day, 0, inputs.bookDurationDays),
-        waitBookActive: isBookActiveAtDay(day, delayedBookStartDay, inputs.bookDurationDays),
-        trainsConsumed: completeTrains(inputs.dailyEnergy * day, inputs.energyPerTrain),
-      };
-    });
+function createBookTimingTimelineState(startingStat: number): BookTimingTimelineState {
+  return {
+    stat: startingStat,
+    nextTrainNumber: 1,
+  };
+}
+
+function advanceBookTimingTimelineToDay(
+  state: BookTimingTimelineState,
+  day: number,
+  bookStartDay: number | null,
+  inputs: BookTimingComparisonInputs,
+): number {
+  if (inputs.dailyEnergy <= 0) {
+    return state.stat;
+  }
+
+  const perkMultiplier = perkProductFromPercents(inputs);
+  let nextTrainDay = state.nextTrainNumber * inputs.energyPerTrain / inputs.dailyEnergy;
+  while (nextTrainDay <= day + 1e-10) {
+    state.stat += gainPerTrain(
+      state.stat,
+      inputs,
+      perkMultiplier,
+      isBookActiveForTrain(nextTrainDay, bookStartDay, inputs.bookDurationDays),
+    );
+    state.nextTrainNumber += 1;
+    nextTrainDay = state.nextTrainNumber * inputs.energyPerTrain / inputs.dailyEnergy;
+  }
+
+  return state.stat;
 }
 
 function findDelayedBookStartDay(inputs: BookTimingComparisonInputs): number | null {
@@ -856,6 +899,61 @@ function buildSeries(
 ): BookStrategyPoint[] {
   const bookEnd = calculateBookEnd(inputs, perkMultiplier, fhcPlan);
   const bookState = createPostBookState(inputs, bookEnd, fhcPlan);
+  const sampleDays = bookStrategySampleDays(inputs, enhancerDay);
+  const series: BookStrategyPoint[] = [];
+  const oneState = createPostBookTimelineState(bookState.strategyOneBookStat, bookState.strategyOneLeftoverEnergy);
+  const twoBeforeState = createPostBookTimelineState(bookState.strategyTwoBookStat, bookState.strategyTwoLeftoverEnergy);
+  let enhancedState: PostBookTimelineState | null = null;
+
+  if (enhancerDay !== null && enhancerDay <= inputs.bookDurationDays && enhancersUsed > 0) {
+    enhancedState = createPostBookTimelineState(
+      applyEnhancers(bookState.strategyTwoBookStat, enhancersUsed),
+      bookState.strategyTwoLeftoverEnergy,
+    );
+  }
+
+  for (const day of sampleDays) {
+    if (day <= inputs.bookDurationDays) {
+      series.push(pointAtDay(day, inputs, perkMultiplier, fhcPlan, bookState, enhancerDay, enhancersUsed));
+      continue;
+    }
+
+    const strategyOneStat = advancePostBookTimelineToDay(oneState, day, inputs, perkMultiplier);
+    const strategyTwoBeforeEnhancers = advancePostBookTimelineToDay(twoBeforeState, day, inputs, perkMultiplier);
+    let strategyTwoStat = strategyTwoBeforeEnhancers;
+    let used = 0;
+
+    if (enhancerDay !== null && day >= enhancerDay && enhancersUsed > 0) {
+      if (enhancedState === null) {
+        enhancedState = createPostBookTimelineState(
+          applyEnhancers(strategyTwoBeforeEnhancers, enhancersUsed),
+          bookState.strategyTwoLeftoverEnergy,
+          completeTrains(postBookEnergyAtDay(inputs, bookState.strategyTwoLeftoverEnergy, day), inputs.energyPerTrain) + 1,
+        );
+      }
+
+      strategyTwoStat = advancePostBookTimelineToDay(enhancedState, day, inputs, perkMultiplier);
+      used = enhancersUsed;
+    }
+
+    series.push(bookStrategyPointFromStats(
+      day,
+      strategyOneStat,
+      strategyTwoStat,
+      strategyTwoBeforeEnhancers,
+      used,
+      inputs,
+      fhcPlan,
+    ));
+  }
+
+  return series;
+}
+
+function bookStrategySampleDays(
+  inputs: BookStrategyInputs,
+  enhancerDay: number | null,
+): number[] {
   const sampleDays = new Set<number>([0, inputs.bookDurationDays, inputs.graphDurationDays]);
   for (let day = 0; day <= inputs.graphDurationDays; day += GRAPH_STEP_DAYS) {
     sampleDays.add(Number(day.toFixed(8)));
@@ -866,8 +964,7 @@ function buildSeries(
 
   return [...sampleDays]
     .filter((day) => day >= 0 && day <= inputs.graphDurationDays)
-    .sort((a, b) => a - b)
-    .map((day) => pointAtDay(day, inputs, perkMultiplier, fhcPlan, bookState, enhancerDay, enhancersUsed));
+    .sort((a, b) => a - b);
 }
 
 function pointAtDay(
@@ -897,13 +994,37 @@ function pointAtDay(
   }
 
   return {
+    ...bookStrategyPointFromStats(
+      day,
+      strategyOneStat,
+      strategyTwoStat,
+      strategyTwoBeforeEnhancers,
+      used,
+      inputs,
+      fhcPlan,
+    ),
+  };
+}
+
+function bookStrategyPointFromStats(
+  day: number,
+  strategyOneStat: number,
+  strategyTwoStat: number,
+  strategyTwoBeforeEnhancers: number,
+  enhancersUsed: number,
+  inputs: BookStrategyInputs,
+  fhcPlan: FhcPlan,
+): BookStrategyPoint {
+  const investmentBalance = investmentBalanceAtDay(inputs, fhcPlan.cost, day);
+
+  return {
     day,
     strategyOneStat,
     strategyTwoStat,
     strategyTwoBeforeEnhancers,
-    investmentBalance: investmentBalanceAtDay(inputs, fhcPlan.cost, day),
-    enhancersAffordable: affordableEnhancers(investmentBalanceAtDay(inputs, fhcPlan.cost, day), inputs.statEnhancerPrice),
-    enhancersUsed: used,
+    investmentBalance,
+    enhancersAffordable: affordableEnhancers(investmentBalance, inputs.statEnhancerPrice),
+    enhancersUsed,
     difference: strategyTwoStat - strategyOneStat,
   };
 }
@@ -1001,6 +1122,38 @@ function createPostBookState(
 
 function postBookEnergyAtDay(inputs: BookStrategyInputs, leftover: number, day: number): number {
   return leftover + inputs.dailyEnergy * activePostBookTrainingDaysAtDay(inputs, day);
+}
+
+function createPostBookTimelineState(
+  stat: number,
+  leftoverEnergy: number,
+  nextTrainNumber = 1,
+): PostBookTimelineState {
+  return {
+    stat,
+    leftoverEnergy,
+    nextTrainNumber,
+  };
+}
+
+function advancePostBookTimelineToDay(
+  state: PostBookTimelineState,
+  day: number,
+  inputs: BookStrategyInputs,
+  perkMultiplier: number,
+): number {
+  if (inputs.dailyEnergy <= 0 || inputs.postBookTrainingMonthsOutOfFour <= 0) {
+    return state.stat;
+  }
+
+  let nextTrainDay = nextPostBookTrainDay(inputs, state.leftoverEnergy, state.nextTrainNumber);
+  while (nextTrainDay <= day + 1e-10) {
+    state.stat += gainPerTrain(state.stat, inputs, perkMultiplier, false);
+    state.nextTrainNumber += 1;
+    nextTrainDay = nextPostBookTrainDay(inputs, state.leftoverEnergy, state.nextTrainNumber);
+  }
+
+  return state.stat;
 }
 
 function activePostBookTrainingDaysAtDay(inputs: BookStrategyInputs, day: number): number {
@@ -1181,4 +1334,15 @@ type PostBookState = {
   strategyTwoBookStat: number;
   strategyOneLeftoverEnergy: number;
   strategyTwoLeftoverEnergy: number;
+};
+
+type BookTimingTimelineState = {
+  stat: number;
+  nextTrainNumber: number;
+};
+
+type PostBookTimelineState = {
+  stat: number;
+  leftoverEnergy: number;
+  nextTrainNumber: number;
 };
