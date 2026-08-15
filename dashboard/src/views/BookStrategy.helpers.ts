@@ -23,7 +23,7 @@ export const LEAD_MILESTONE_MAX_DAY = 3_650;
 
 export type ChartClickState = {
   activeLabel?: number | string | null;
-  activePayload?: Array<{ payload?: { day?: number | string | null } }>;
+  activePayload?: Array<{ payload?: { axisPosition?: number | string | null; day?: number | string | null } }>;
 } | null;
 
 export type BookStrategyForm = {

@@ -589,6 +589,12 @@ function BookTimingComparisonView({
     setDelayedBookStartDay(handleCenterDay - result.inputs.bookDurationDays / 2);
   }, [result.inputs.bookDurationDays, result.inputs.graphDurationDays, setDelayedBookStartDay]);
   const delayedBookDrag = useChartMarkerDrag({ onClientX: updateDelayedBookTargetFromClientX });
+  const handleBookTimingChartClick = React.useCallback((state: unknown) => {
+    const chartState = state as ChartClickState;
+    const payloadDay = chartState?.activePayload?.find((item) => item.payload?.day !== undefined)?.payload?.day;
+    const day = Number(payloadDay ?? chartState?.activeLabel);
+    setDelayedBookStartDay(day - result.inputs.bookDurationDays / 2);
+  }, [result.inputs.bookDurationDays, setDelayedBookStartDay]);
   const delayedBookHandleLeft =
     delayedBookHandleDay !== null
       ? CHART_Y_AXIS_WIDTH +
@@ -646,7 +652,11 @@ function BookTimingComparisonView({
           ref={delayedBookDrag.chartRef}
         >
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={result.series} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
+            <LineChart
+              data={result.series}
+              margin={{ top: 12, right: 18, left: 0, bottom: 14 }}
+              onClick={handleBookTimingChartClick}
+            >
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
               <XAxis
                 dataKey="day"
@@ -879,6 +889,18 @@ function IgnoranceIsBlissView({
     setIibStartingStatFromRaw(stat);
   }, [setIibStartingStatFromRaw, xTicks]);
   const iibStatDrag = useChartMarkerDrag({ onClientX: updateIibStartingStatFromClientX });
+  const handleIibChartClick = React.useCallback((state: unknown) => {
+    const chartState = state as ChartClickState;
+    const payloadPosition = chartState?.activePayload
+      ?.find((item) => item.payload?.axisPosition !== undefined)
+      ?.payload?.axisPosition;
+    const axisPosition = Number(payloadPosition ?? chartState?.activeLabel);
+    if (!Number.isFinite(axisPosition)) {
+      return;
+    }
+
+    setIibStartingStatFromRaw(evenTickPositionToStat(axisPosition, xTicks));
+  }, [setIibStartingStatFromRaw, xTicks]);
   const startingStatMarkerLeft = iibStatDrag.chartWidth > 0
     ? CHART_Y_AXIS_WIDTH +
       (statToEvenTickPosition(result.inputs.startingStat, xTicks) / Math.max(1, xTicks.length - 1)) *
@@ -935,7 +957,11 @@ function IgnoranceIsBlissView({
           ref={iibStatDrag.chartRef}
         >
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartSeries} margin={{ top: 12, right: 18, left: 0, bottom: 14 }}>
+            <LineChart
+              data={chartSeries}
+              margin={{ top: 12, right: 18, left: 0, bottom: 14 }}
+              onClick={handleIibChartClick}
+            >
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
               <XAxis
                 dataKey="axisPosition"
@@ -1772,6 +1798,7 @@ function useChartMarkerDrag({
   const [isDragging, setIsDragging] = React.useState(false);
   const [chartWidth, setChartWidth] = React.useState(0);
   const chartRef = React.useRef<HTMLDivElement | null>(null);
+  const resizeObserverRef = React.useRef<ResizeObserver | null>(null);
   const pendingClientXRef = React.useRef<number | null>(null);
   const animationFrameRef = React.useRef<number | null>(null);
 
@@ -1818,10 +1845,14 @@ function useChartMarkerDrag({
     applyClientX(clientX);
   }, [applyClientX]);
 
-  React.useEffect(() => {
-    const element = chartRef.current;
+  const setChartElement = React.useCallback((element: HTMLDivElement | null) => {
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+    chartRef.current = element;
+
     if (!element) {
-      return undefined;
+      setChartWidth(0);
+      return;
     }
 
     const updateWidth = () => setChartWidth(element.getBoundingClientRect().width);
@@ -1829,9 +1860,15 @@ function useChartMarkerDrag({
 
     const observer = new ResizeObserver(updateWidth);
     observer.observe(element);
-
-    return () => observer.disconnect();
+    resizeObserverRef.current = observer;
   }, []);
+
+  React.useEffect(() => (
+    () => {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+    }
+  ), []);
 
   React.useEffect(() => {
     if (!isDragging) {
@@ -1864,7 +1901,7 @@ function useChartMarkerDrag({
   }, [flushScheduledClientX, isDragging, scheduleClientX]);
 
   return {
-    chartRef,
+    chartRef: setChartElement,
     chartWidth,
     isDragging,
     startDrag,
