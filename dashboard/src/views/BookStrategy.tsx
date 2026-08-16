@@ -91,6 +91,7 @@ const MAX_GRAPH_DURATION_DAYS = 3_650;
 const GRAPH_DURATION_TOOLTIP = "Capped range: 31-3,650 days";
 const GYM_DOTS_TOOLTIP = "Capped range: 1-10 gym dots";
 const TRAINING_MONTHS_TOOLTIP = "Months spent training target stat out of a standard 4 month steadfast rotation";
+const IIB_X_WARP_POWER = 3;
 
 export function BookStrategy() {
   const [mode, setMode] = React.useState<BookStrategyMode>("enhancers");
@@ -975,6 +976,17 @@ function IgnoranceIsBlissView({
   const yTicks = React.useMemo(() => buildLogPercentTicks(), []);
   const xDomainStart = 1;
   const xDomainEnd = Math.max(xDomainStart, result.inputs.graphMaxStat);
+  const chartSeries = React.useMemo(
+    () => result.series.map((point) => ({
+      ...point,
+      warpedStatPosition: warpedLogStatPosition(point.startingStat, xDomainStart, xDomainEnd),
+    })),
+    [result.series, xDomainEnd],
+  );
+  const xWarpedTicks = React.useMemo(
+    () => xTicks.map((tick) => warpedLogStatPosition(tick, xDomainStart, xDomainEnd)),
+    [xDomainEnd, xTicks],
+  );
 
   const setIibStartingStatFromRaw = React.useCallback((rawStat: number) => {
     if (!Number.isFinite(rawStat)) {
@@ -990,7 +1002,7 @@ function IgnoranceIsBlissView({
     const plotLeft = rect.left + CHART_Y_AXIS_WIDTH;
     const plotWidth = Math.max(1, rect.width - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN);
     const rawRatio = clampNumber((clientX - plotLeft) / plotWidth, 0, 1);
-    const stat = statFromLogRatio(rawRatio, xDomainStart, xDomainEnd);
+    const stat = statFromWarpedLogPosition(rawRatio, xDomainStart, xDomainEnd);
     setIibStartingStatFromRaw(stat);
   }, [setIibStartingStatFromRaw, xDomainEnd]);
   const iibStatDrag = useChartMarkerDrag({ onClientX: updateIibStartingStatFromClientX });
@@ -1002,7 +1014,7 @@ function IgnoranceIsBlissView({
   }, [setIibStartingStatFromRaw]);
   const startingStatMarkerLeft = iibStatDrag.chartWidth > 0
     ? CHART_Y_AXIS_WIDTH +
-      logRatioForStat(result.inputs.startingStat, xDomainStart, xDomainEnd) *
+      warpedLogStatPosition(result.inputs.startingStat, xDomainStart, xDomainEnd) *
       Math.max(1, iibStatDrag.chartWidth - CHART_Y_AXIS_WIDTH - CHART_RIGHT_MARGIN)
     : null;
 
@@ -1096,21 +1108,20 @@ function IgnoranceIsBlissView({
         ) : null}
       >
             <LineChart
-              data={result.series}
+              data={chartSeries}
               margin={{ top: 12, right: 18, left: 0, bottom: 14 }}
               onClick={handleIibChartClick}
             >
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
               <XAxis
-                dataKey="startingStat"
+                dataKey="warpedStatPosition"
                 tickLine={false}
                 axisLine={false}
                 tick={{ fill: "var(--chart-axis)" }}
-                tickFormatter={(value) => formatCompact(Number(value))}
+                tickFormatter={(value) => formatCompact(statFromWarpedLogPosition(Number(value), xDomainStart, xDomainEnd))}
                 type="number"
-                scale="log"
-                domain={[xDomainStart, xDomainEnd]}
-                ticks={xTicks}
+                domain={[0, 1]}
+                ticks={xWarpedTicks}
                 allowDataOverflow
               />
               <YAxis
@@ -1126,7 +1137,7 @@ function IgnoranceIsBlissView({
               <Tooltip content={<IgnoranceIsBlissTooltip />} />
               <Legend wrapperStyle={{ color: "var(--text-muted)", fontWeight: 800 }} />
               <ReferenceLine
-                x={result.inputs.startingStat}
+                x={warpedLogStatPosition(result.inputs.startingStat, xDomainStart, xDomainEnd)}
                 stroke="#f59e0b"
                 strokeDasharray="4 4"
               />
@@ -2067,7 +2078,7 @@ function useChartMarkerDrag({
   };
 }
 
-function logRatioForStat(stat: number, domainStart: number, domainEnd: number): number {
+function warpedLogStatPosition(stat: number, domainStart: number, domainEnd: number): number {
   const start = Math.max(1, domainStart);
   const end = Math.max(start, domainEnd);
   if (end <= start) {
@@ -2076,10 +2087,11 @@ function logRatioForStat(stat: number, domainStart: number, domainEnd: number): 
 
   const startLog = Math.log10(start);
   const endLog = Math.log10(end);
-  return clampNumber((Math.log10(clampNumber(stat, start, end)) - startLog) / Math.max(0.000001, endLog - startLog), 0, 1);
+  const ratio = clampNumber((Math.log10(clampNumber(stat, start, end)) - startLog) / Math.max(0.000001, endLog - startLog), 0, 1);
+  return ratio ** IIB_X_WARP_POWER;
 }
 
-function statFromLogRatio(ratio: number, domainStart: number, domainEnd: number): number {
+function statFromWarpedLogPosition(position: number, domainStart: number, domainEnd: number): number {
   const start = Math.max(1, domainStart);
   const end = Math.max(start, domainEnd);
   if (end <= start) {
@@ -2088,7 +2100,8 @@ function statFromLogRatio(ratio: number, domainStart: number, domainEnd: number)
 
   const startLog = Math.log10(start);
   const endLog = Math.log10(end);
-  return 10 ** (startLog + clampNumber(ratio, 0, 1) * (endLog - startLog));
+  const ratio = clampNumber(position, 0, 1) ** (1 / IIB_X_WARP_POWER);
+  return 10 ** (startLog + ratio * (endLog - startLog));
 }
 
 function cappedGraphDurationValue(value: string): string {
