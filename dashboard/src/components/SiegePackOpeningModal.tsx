@@ -86,7 +86,7 @@ export const TORN_PACK_REWARDS: PackReward[] = [
   },
 ];
 
-type PackPhase = "sealed" | "tearing" | "burst" | "emerging" | "card" | "revealing" | "complete";
+type PackPhase = "sealed" | "dragging" | "burst" | "emerging" | "card" | "revealing" | "complete";
 
 type SiegePackOpeningModalProps = {
   open: boolean;
@@ -97,11 +97,12 @@ type SiegePackOpeningModalProps = {
 
 const REVEAL_PARTICLES = Array.from({ length: 22 }, (_, index) => index);
 const PACK_PHASE_TIMING = {
-  tearMs: 680,
+  autoTearMs: 720,
   burstMs: 520,
   emergeMs: 860,
   revealMs: 860,
 };
+const TEAR_COMPLETE_THRESHOLD = 0.94;
 
 const rarityMeta: Record<PackRewardRarity, { label: string; color: string; glow: string }> = {
   standard: {
@@ -188,8 +189,13 @@ export function SiegePackOpeningModal({
     "--pack-tear-inset": `${(1 - tearProgress) * 100}%`,
     "--pack-tear-handle-left": `${17 + tearProgress * 65}%`,
     "--pack-shell-highlight-opacity": String(0.28 + tearProgress * 0.58),
+    "--pack-tear-opacity": String(Math.min(1, tearProgress * 1.6)),
+    "--pack-top-free-opacity": String(Math.min(1, tearProgress * 8)),
+    "--pack-open-body-opacity": String(Math.min(1, tearProgress * 1.25)),
+    "--pack-glow-opacity": String(Math.min(0.95, tearProgress * 1.15)),
   } as React.CSSProperties;
-  const isAnimating = phase === "tearing" || phase === "burst" || phase === "emerging" || phase === "revealing";
+  const isAnimating = phase === "burst" || phase === "emerging" || phase === "revealing";
+  const isOpeningLocked = phase === "dragging" || isAnimating;
   const canRevealCard = phase === "card" && activeReward;
 
   function clearTimers() {
@@ -208,14 +214,33 @@ export function SiegePackOpeningModal({
   }
 
   function beginOpening() {
-    if (phase !== "sealed" || isAnimating || rewards.length === 0) {
+    if (phase !== "sealed" || isOpeningLocked || rewards.length === 0) {
       return;
     }
 
     clearTimers();
     const nextReward = pickReward(rewards);
     setReward(nextReward);
+
+    if (prefersReducedMotion) {
+      setTearProgressValue(1);
+      onRewardResolved?.(nextReward);
+      setPhase("card");
+      return;
+    }
+
+    setPhase("dragging");
+    setTearProgressValue(0);
+    schedule(() => setTearProgressValue(1), 24);
+    schedule(() => finishOpening(nextReward), PACK_PHASE_TIMING.autoTearMs);
+  }
+
+  function finishOpening(resolvedReward?: PackReward) {
+    const nextReward = resolvedReward ?? reward ?? pickReward(rewards);
+    clearTimers();
+    setReward(nextReward);
     setTearProgressValue(1);
+    setIsDraggingTear(false);
     setAnimationRun((current) => current + 1);
     onRewardResolved?.(nextReward);
 
@@ -224,10 +249,9 @@ export function SiegePackOpeningModal({
       return;
     }
 
-    setPhase("tearing");
-    schedule(() => setPhase("burst"), PACK_PHASE_TIMING.tearMs);
-    schedule(() => setPhase("emerging"), PACK_PHASE_TIMING.tearMs + PACK_PHASE_TIMING.burstMs);
-    schedule(() => setPhase("card"), PACK_PHASE_TIMING.tearMs + PACK_PHASE_TIMING.burstMs + PACK_PHASE_TIMING.emergeMs);
+    setPhase("burst");
+    schedule(() => setPhase("emerging"), PACK_PHASE_TIMING.burstMs);
+    schedule(() => setPhase("card"), PACK_PHASE_TIMING.burstMs + PACK_PHASE_TIMING.emergeMs);
   }
 
   function revealCard() {
@@ -256,17 +280,20 @@ export function SiegePackOpeningModal({
   }
 
   function handleTearPointerDown(event: React.PointerEvent<HTMLButtonElement>) {
-    if (phase !== "sealed") {
+    if (phase !== "sealed" || rewards.length === 0) {
       return;
     }
 
+    clearTimers();
+    setReward(pickReward(rewards));
+    setPhase("dragging");
     setIsDraggingTear(true);
     event.currentTarget.setPointerCapture(event.pointerId);
     updateTearProgress(event.clientX);
   }
 
   function handleTearPointerMove(event: React.PointerEvent<HTMLButtonElement>) {
-    if (!isDraggingTear || phase !== "sealed") {
+    if (!isDraggingTear || phase !== "dragging") {
       return;
     }
 
@@ -279,10 +306,15 @@ export function SiegePackOpeningModal({
     }
 
     setIsDraggingTear(false);
-    event.currentTarget.releasePointerCapture(event.pointerId);
-    if (tearProgressRef.current >= 0.74) {
-      beginOpening();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (tearProgressRef.current >= TEAR_COMPLETE_THRESHOLD) {
+      finishOpening();
     } else {
+      setPhase("sealed");
+      setReward(null);
       setTearProgressValue(0);
     }
   }
@@ -312,7 +344,7 @@ export function SiegePackOpeningModal({
     }}>
       <div
         ref={modalRef}
-        className={`siege-pack-modal phase-${phase}`}
+        className={`siege-pack-modal phase-${phase}${isDraggingTear ? " is-dragging" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="siege-pack-title"
@@ -360,8 +392,10 @@ export function SiegePackOpeningModal({
           ) : null}
 
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
-            <img className="siege-pack-shell-art sealed" src={energyCachePackFront} alt="" aria-hidden="true" />
             <img className="siege-pack-shell-art open" src={energyCachePackOpenBody} alt="" aria-hidden="true" />
+            <img className="siege-pack-shell-art sealed-body" src={energyCachePackFront} alt="" aria-hidden="true" />
+            <img className="siege-pack-shell-art sealed-top-attached" src={energyCachePackFront} alt="" aria-hidden="true" />
+            <img className="siege-pack-shell-art sealed-top-free" src={energyCachePackFront} alt="" aria-hidden="true" />
             <div className="siege-pack-open-glow" aria-hidden="true" />
             <div className="siege-pack-tear-teeth" aria-hidden="true" />
             <img className="siege-pack-tear-strip-art" src={energyCacheTearStrip} alt="" aria-hidden="true" />
@@ -375,7 +409,7 @@ export function SiegePackOpeningModal({
               onPointerMove={handleTearPointerMove}
               onPointerUp={handleTearPointerUp}
               onPointerCancel={handleTearPointerUp}
-              disabled={phase !== "sealed"}
+              disabled={phase !== "sealed" && phase !== "dragging"}
               aria-label="Drag right to tear open the pack"
               title="Drag right to tear open"
             >
@@ -405,6 +439,8 @@ export function SiegePackOpeningModal({
             <p>
               {phase === "sealed"
                 ? "Drag the zipper right or use the open button."
+                : phase === "dragging"
+                  ? "Keep dragging across the seal."
                 : phase === "emerging"
                   ? "Reward card emerging."
                 : phase === "card"
@@ -427,14 +463,14 @@ export function SiegePackOpeningModal({
               type="button"
               className="panel-action-button primary-action"
               onClick={phase === "complete" ? resetPack : phase === "card" ? revealCard : beginOpening}
-              disabled={isAnimating || rewards.length === 0}
+              disabled={isOpeningLocked || rewards.length === 0}
             >
               <PackageOpen size={15} />
               {phase === "complete"
                 ? "Open another"
                 : phase === "card"
                   ? "Reveal reward"
-                  : isAnimating
+                  : isOpeningLocked
                     ? "Opening"
                     : "Open pack"}
             </button>
