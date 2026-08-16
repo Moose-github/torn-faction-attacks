@@ -28,6 +28,7 @@ import {
 import { refreshStockBenefitItemPrices } from "../stockMarket";
 import { refreshMemberAchievementSummaries } from "../memberAchievements";
 import { listAdminTornApiKeys } from "../tornKeyPool";
+import { listPacks } from "../packs";
 import { routeAdminApi } from "./adminRoutes";
 
 vi.mock("../auth", () => ({
@@ -103,6 +104,7 @@ vi.mock("../warStats", () => ({ rebuildWarStatsFromRaw: vi.fn() }));
 vi.mock("../suggestions", () => ({ listMemberSuggestionsForAdmin: vi.fn() }));
 vi.mock("../tornApiUsage", () => ({ getTornApiUsage: vi.fn() }));
 vi.mock("../tornKeyPool", () => ({ listAdminTornApiKeys: vi.fn() }));
+vi.mock("../packs", () => ({ listPacks: vi.fn() }));
 vi.mock("../warControl", () => ({
   getWarControlSettings: vi.fn(),
   updateWarControlSettingsFromRequest: vi.fn(),
@@ -133,6 +135,7 @@ describe("admin routes", () => {
     vi.mocked(getAdminDiscordAlertSettings).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings" }));
     vi.mocked(updateAdminDiscordAlertSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings-update" }));
     vi.mocked(listAdminTornApiKeys).mockResolvedValue(jsonResponse({ ok: true, route: "admin-key-pool" }));
+    vi.mocked(listPacks).mockResolvedValue(jsonResponse({ ok: true, route: "packs" }));
     vi.mocked(refreshMemberAchievementSummaries).mockResolvedValue({
       writeStatements: 3,
       changedRows: 3,
@@ -189,6 +192,16 @@ describe("admin routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "admin-key-pool" });
     expect(requireAdmin).toHaveBeenCalledOnce();
     expect(listAdminTornApiKeys).toHaveBeenCalledWith(context.env);
+  });
+
+  it("routes admin packs through admin auth", async () => {
+    const context = routeContext("https://worker.test/api/admin/packs");
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "packs" });
+    expect(requireAdmin).toHaveBeenCalledOnce();
+    expect(listPacks).toHaveBeenCalledWith(context.env);
   });
 
   it("routes stock benefit item price refresh through admin auth and cooldown", async () => {

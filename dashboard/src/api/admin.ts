@@ -1,6 +1,6 @@
 import { API_BASE_URL, authHeaders, deleteJson, getJson, postJson } from "./client";
 import { queryString } from "./query";
-import type { AdminDiscordAlertSettingsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
+import type { AdminDiscordAlertSettingsResponse, AdminPacksResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
 
 export type DiscordTravelTrackerTarget = {
   faction_id: number;
@@ -86,7 +86,11 @@ export async function getTornApiUsage(windowSeconds = 24 * 60 * 60): Promise<Tor
   return getJson<TornApiUsageResponse>(`/api/admin/torn-api-usage${queryString({ window_seconds: windowSeconds })}`, true);
 }
 
-export async function updateHomeFactionReportExemption(payload: {
+export async function getAdminPacks(): Promise<AdminPacksResponse> {
+  return getJson<AdminPacksResponse>("/api/admin/packs", true);
+}
+
+export async function updateHomeFactionReportExemption(payload: {
   member_id: number;
   report_exempt: boolean;
   reason?: string;
