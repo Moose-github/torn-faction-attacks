@@ -83,7 +83,7 @@ export const TORN_PACK_REWARDS: PackReward[] = [
   },
 ];
 
-type PackPhase = "sealed" | "tearing" | "revealing" | "complete";
+type PackPhase = "sealed" | "tearing" | "burst" | "card" | "revealing" | "complete";
 
 type SiegePackOpeningModalProps = {
   open: boolean;
@@ -94,8 +94,9 @@ type SiegePackOpeningModalProps = {
 
 const REVEAL_PARTICLES = Array.from({ length: 22 }, (_, index) => index);
 const PACK_PHASE_TIMING = {
-  tearMs: 980,
-  revealMs: 980,
+  tearMs: 680,
+  burstMs: 760,
+  revealMs: 860,
 };
 
 const rarityMeta: Record<PackRewardRarity, { label: string; color: string; glow: string }> = {
@@ -131,7 +132,7 @@ export function SiegePackOpeningModal({
   const [reward, setReward] = React.useState<PackReward | null>(null);
   const [tearProgress, setTearProgress] = React.useState(0);
   const [isDraggingTear, setIsDraggingTear] = React.useState(false);
-  const [revealCount, setRevealCount] = React.useState(0);
+  const [animationRun, setAnimationRun] = React.useState(0);
   const shellRef = React.useRef<HTMLDivElement | null>(null);
   const modalRef = React.useRef<HTMLDivElement | null>(null);
   const timersRef = React.useRef<number[]>([]);
@@ -181,10 +182,11 @@ export function SiegePackOpeningModal({
     "--pack-tear-progress": String(tearProgress),
     "--pack-tear-percent": `${tearProgress * 100}%`,
     "--pack-tear-inset": `${(1 - tearProgress) * 100}%`,
-    "--pack-tear-handle-top": `${18 + tearProgress * 56}%`,
+    "--pack-tear-handle-left": `${12 + tearProgress * 76}%`,
     "--pack-shell-highlight-opacity": String(0.28 + tearProgress * 0.58),
   } as React.CSSProperties;
-  const isAnimating = phase === "tearing" || phase === "revealing";
+  const isAnimating = phase === "tearing" || phase === "burst" || phase === "revealing";
+  const canRevealCard = phase === "card" && activeReward;
 
   function clearTimers() {
     for (const timer of timersRef.current) {
@@ -202,7 +204,7 @@ export function SiegePackOpeningModal({
   }
 
   function beginOpening() {
-    if (isAnimating || rewards.length === 0) {
+    if (phase !== "sealed" || isAnimating || rewards.length === 0) {
       return;
     }
 
@@ -210,17 +212,34 @@ export function SiegePackOpeningModal({
     const nextReward = pickReward(rewards);
     setReward(nextReward);
     setTearProgressValue(1);
-    setRevealCount((current) => current + 1);
+    setAnimationRun((current) => current + 1);
     onRewardResolved?.(nextReward);
+
+    if (prefersReducedMotion) {
+      setPhase("card");
+      return;
+    }
+
+    setPhase("tearing");
+    schedule(() => setPhase("burst"), PACK_PHASE_TIMING.tearMs);
+    schedule(() => setPhase("card"), PACK_PHASE_TIMING.tearMs + PACK_PHASE_TIMING.burstMs);
+  }
+
+  function revealCard() {
+    if (!canRevealCard) {
+      return;
+    }
+
+    clearTimers();
+    setAnimationRun((current) => current + 1);
 
     if (prefersReducedMotion) {
       setPhase("complete");
       return;
     }
 
-    setPhase("tearing");
-    schedule(() => setPhase("revealing"), PACK_PHASE_TIMING.tearMs);
-    schedule(() => setPhase("complete"), PACK_PHASE_TIMING.tearMs + PACK_PHASE_TIMING.revealMs);
+    setPhase("revealing");
+    schedule(() => setPhase("complete"), PACK_PHASE_TIMING.revealMs);
   }
 
   function resetPack() {
@@ -238,7 +257,7 @@ export function SiegePackOpeningModal({
 
     setIsDraggingTear(true);
     event.currentTarget.setPointerCapture(event.pointerId);
-    updateTearProgress(event.clientY);
+    updateTearProgress(event.clientX);
   }
 
   function handleTearPointerMove(event: React.PointerEvent<HTMLButtonElement>) {
@@ -246,7 +265,7 @@ export function SiegePackOpeningModal({
       return;
     }
 
-    updateTearProgress(event.clientY);
+    updateTearProgress(event.clientX);
   }
 
   function handleTearPointerUp(event: React.PointerEvent<HTMLButtonElement>) {
@@ -263,15 +282,15 @@ export function SiegePackOpeningModal({
     }
   }
 
-  function updateTearProgress(clientY: number) {
+  function updateTearProgress(clientX: number) {
     const rect = shellRef.current?.getBoundingClientRect();
     if (!rect) {
       return;
     }
 
-    const start = rect.top + rect.height * 0.18;
-    const distance = rect.height * 0.56;
-    const nextProgress = Math.min(1, Math.max(0, (clientY - start) / distance));
+    const start = rect.left + rect.width * 0.12;
+    const distance = rect.width * 0.76;
+    const nextProgress = Math.min(1, Math.max(0, (clientX - start) / distance));
     setTearProgressValue(nextProgress);
   }
 
@@ -310,20 +329,42 @@ export function SiegePackOpeningModal({
           <div className="siege-pack-reward-aura" aria-hidden="true" />
 
           {activeReward ? (
-            <div key={`${activeReward.id}-${revealCount}`} className="siege-pack-reward-display">
+            <div key={`reward-${activeReward.id}-${animationRun}`} className="siege-pack-reward-display">
               <img src={activeReward.imageUrl} alt={activeReward.name} />
               <span>{meta.label}</span>
             </div>
           ) : null}
 
+          {activeReward ? (
+            <button
+              key={`card-${activeReward.id}-${animationRun}`}
+              type="button"
+              className="siege-pack-card"
+              onClick={revealCard}
+              disabled={!canRevealCard}
+              aria-label={`Reveal ${meta.label} reward`}
+              title="Reveal reward"
+            >
+              <span className="siege-pack-card-top" />
+              <span className="siege-pack-card-lock">
+                <Sparkles size={18} />
+              </span>
+              <strong>Faction Reward</strong>
+              <small>{phase === "card" ? "Press to reveal" : meta.label}</small>
+            </button>
+          ) : null}
+
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
+            <div className="siege-pack-open-glow" aria-hidden="true" />
+            <div className="siege-pack-torn-flap left" aria-hidden="true" />
+            <div className="siege-pack-torn-flap right" aria-hidden="true" />
             <div className="siege-pack-shell-top">
               <span>BG</span>
             </div>
             <div className="siege-pack-shell-body">
               <Sparkles size={30} />
               <strong>Faction Pack</strong>
-              <small>{phase === "sealed" ? "Tear to reveal" : "Opening"}</small>
+              <small>{phase === "sealed" ? "Drag zipper to open" : "Opening"}</small>
             </div>
             <div className="siege-pack-tear-track">
               <span />
@@ -336,8 +377,8 @@ export function SiegePackOpeningModal({
               onPointerUp={handleTearPointerUp}
               onPointerCancel={handleTearPointerUp}
               disabled={phase !== "sealed"}
-              aria-label="Drag down to tear open the pack"
-              title="Drag down to tear open"
+              aria-label="Drag right to tear open the pack"
+              title="Drag right to tear open"
             >
               <Zap size={16} />
             </button>
@@ -364,10 +405,12 @@ export function SiegePackOpeningModal({
             <h2 id="siege-pack-title">{phase === "complete" && activeReward ? activeReward.name : "Tear the pack"}</h2>
             <p>
               {phase === "sealed"
-                ? "Drag the charge strip down or use the open button."
+                ? "Drag the zipper right or use the open button."
+                : phase === "card"
+                  ? "Rarity decrypted. Press the card to reveal your reward."
                 : phase === "complete" && activeReward
                   ? `${meta.label} reward revealed.`
-                  : "Reward decrypting."}
+                  : "Pack seal opening."}
             </p>
           </div>
           <div className="siege-pack-actions">
@@ -380,11 +423,17 @@ export function SiegePackOpeningModal({
             <button
               type="button"
               className="panel-action-button primary-action"
-              onClick={phase === "complete" ? resetPack : beginOpening}
+              onClick={phase === "complete" ? resetPack : phase === "card" ? revealCard : beginOpening}
               disabled={isAnimating || rewards.length === 0}
             >
               <PackageOpen size={15} />
-              {phase === "complete" ? "Open another" : isAnimating ? "Opening" : "Open pack"}
+              {phase === "complete"
+                ? "Open another"
+                : phase === "card"
+                  ? "Reveal reward"
+                  : isAnimating
+                    ? "Opening"
+                    : "Open pack"}
             </button>
           </div>
         </section>
