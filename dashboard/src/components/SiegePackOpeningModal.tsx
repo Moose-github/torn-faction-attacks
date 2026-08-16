@@ -6,16 +6,9 @@ import {
   Zap,
 } from "lucide-react";
 import energyCacheCardBack from "../assets/packs/energy-cache-card-back.png";
+import energyCachePackFront from "../assets/packs/energy-cache-pack-front.png";
+import energyCachePackOpenBody from "../assets/packs/energy-cache-pack-open-body.png";
 import energyCacheTearStrip from "../assets/packs/energy-cache-tear-strip.png";
-import energyCacheTearFrame00 from "../assets/packs/energy-cache-tear-frame-00.webp";
-import energyCacheTearFrame01 from "../assets/packs/energy-cache-tear-frame-01.webp";
-import energyCacheTearFrame02 from "../assets/packs/energy-cache-tear-frame-02.webp";
-import energyCacheTearFrame03 from "../assets/packs/energy-cache-tear-frame-03.webp";
-import energyCacheTearFrame04 from "../assets/packs/energy-cache-tear-frame-04.webp";
-import energyCacheTearFrame05 from "../assets/packs/energy-cache-tear-frame-05.webp";
-import energyCacheTearFrame06 from "../assets/packs/energy-cache-tear-frame-06.webp";
-import energyCacheTearFrame07 from "../assets/packs/energy-cache-tear-frame-07.webp";
-import energyCacheTearFrame08 from "../assets/packs/energy-cache-tear-frame-08.webp";
 
 export type PackRewardRarity = "standard" | "select" | "elite" | "legendary";
 
@@ -110,17 +103,8 @@ const PACK_PHASE_TIMING = {
   revealMs: 860,
 };
 const TEAR_COMPLETE_THRESHOLD = 0.94;
-const ENERGY_CACHE_TEAR_FRAMES = [
-  energyCacheTearFrame00,
-  energyCacheTearFrame01,
-  energyCacheTearFrame02,
-  energyCacheTearFrame03,
-  energyCacheTearFrame04,
-  energyCacheTearFrame05,
-  energyCacheTearFrame06,
-  energyCacheTearFrame07,
-  energyCacheTearFrame08,
-];
+const CANVAS_PACK_WIDTH = 1122;
+const CANVAS_PACK_HEIGHT = 1402;
 
 const rarityMeta: Record<PackRewardRarity, { label: string; color: string; glow: string }> = {
   standard: {
@@ -156,10 +140,13 @@ export function SiegePackOpeningModal({
   const [tearProgress, setTearProgress] = React.useState(0);
   const [isDraggingTear, setIsDraggingTear] = React.useState(false);
   const [animationRun, setAnimationRun] = React.useState(0);
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const shellRef = React.useRef<HTMLDivElement | null>(null);
   const modalRef = React.useRef<HTMLDivElement | null>(null);
   const timersRef = React.useRef<number[]>([]);
+  const tearAnimationRef = React.useRef<number | null>(null);
   const tearProgressRef = React.useRef(0);
+  const packImagesRef = React.useRef<CanvasPackImages | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
 
   React.useEffect(() => {
@@ -193,16 +180,33 @@ export function SiegePackOpeningModal({
     return clearTimers;
   }, []);
 
+  React.useEffect(() => {
+    let isCancelled = false;
+
+    void loadCanvasPackImages().then((images) => {
+      if (isCancelled) {
+        return;
+      }
+
+      packImagesRef.current = images;
+      drawCanvasPack(canvasRef.current, images, tearProgressRef.current);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    drawCanvasPack(canvasRef.current, packImagesRef.current, tearProgress);
+  }, [tearProgress, open]);
+
   if (!open) {
     return null;
   }
 
   const activeReward = reward ?? rewards[0] ?? null;
   const meta = activeReward ? rarityMeta[activeReward.rarity] : rarityMeta.standard;
-  const tearFramePosition = tearProgress * (ENERGY_CACHE_TEAR_FRAMES.length - 1);
-  const tearFrameIndex = Math.min(ENERGY_CACHE_TEAR_FRAMES.length - 1, Math.floor(tearFramePosition));
-  const nextTearFrameIndex = Math.min(ENERGY_CACHE_TEAR_FRAMES.length - 1, tearFrameIndex + 1);
-  const tearFrameBlend = tearFramePosition - tearFrameIndex;
   const style = {
     "--pack-rarity-color": meta.color,
     "--pack-rarity-glow": meta.glow,
@@ -212,7 +216,6 @@ export function SiegePackOpeningModal({
     "--pack-tear-handle-left": `${17 + tearProgress * 65}%`,
     "--pack-shell-highlight-opacity": String(0.28 + tearProgress * 0.58),
     "--pack-tear-opacity": String(Math.min(1, tearProgress * 1.6)),
-    "--pack-tear-frame-blend": String(tearFrameBlend),
     "--pack-glow-opacity": String(Math.min(0.95, tearProgress * 1.15)),
   } as React.CSSProperties;
   const isAnimating = phase === "burst" || phase === "emerging" || phase === "revealing";
@@ -224,6 +227,10 @@ export function SiegePackOpeningModal({
       window.clearTimeout(timer);
     }
     timersRef.current = [];
+    if (tearAnimationRef.current !== null) {
+      window.cancelAnimationFrame(tearAnimationRef.current);
+      tearAnimationRef.current = null;
+    }
   }
 
   function schedule(callback: () => void, delayMs: number) {
@@ -252,8 +259,28 @@ export function SiegePackOpeningModal({
 
     setPhase("dragging");
     setTearProgressValue(0);
-    schedule(() => setTearProgressValue(1), 24);
-    schedule(() => finishOpening(nextReward), PACK_PHASE_TIMING.autoTearMs);
+    animateTearToEnd(nextReward);
+  }
+
+  function animateTearToEnd(nextReward: PackReward) {
+    const startedAt = window.performance.now();
+
+    function tick(now: number) {
+      const elapsed = now - startedAt;
+      const linearProgress = Math.min(1, elapsed / PACK_PHASE_TIMING.autoTearMs);
+      const easedProgress = 1 - Math.pow(1 - linearProgress, 1.55);
+      setTearProgressValue(easedProgress);
+
+      if (linearProgress < 1) {
+        tearAnimationRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      tearAnimationRef.current = null;
+      finishOpening(nextReward);
+    }
+
+    tearAnimationRef.current = window.requestAnimationFrame(tick);
   }
 
   function finishOpening(resolvedReward?: PackReward) {
@@ -413,16 +440,11 @@ export function SiegePackOpeningModal({
           ) : null}
 
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
-            <img
-              className="siege-pack-tear-frame base"
-              src={ENERGY_CACHE_TEAR_FRAMES[tearFrameIndex]}
-              alt=""
-              aria-hidden="true"
-            />
-            <img
-              className="siege-pack-tear-frame blend"
-              src={ENERGY_CACHE_TEAR_FRAMES[nextTearFrameIndex]}
-              alt=""
+            <canvas
+              ref={canvasRef}
+              className="siege-pack-canvas"
+              width={CANVAS_PACK_WIDTH}
+              height={CANVAS_PACK_HEIGHT}
               aria-hidden="true"
             />
             <div className="siege-pack-open-glow" aria-hidden="true" />
@@ -525,6 +547,210 @@ export function pickReward(rewards: PackReward[]): PackReward {
   }
 
   return rewards[rewards.length - 1];
+}
+
+type CanvasPackImages = {
+  front: HTMLImageElement;
+  openBody: HTMLImageElement;
+};
+
+async function loadCanvasPackImages(): Promise<CanvasPackImages> {
+  const [front, openBody] = await Promise.all([
+    loadCanvasImage(energyCachePackFront),
+    loadCanvasImage(energyCachePackOpenBody),
+  ]);
+
+  return { front, openBody };
+}
+
+function loadCanvasImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Failed to load pack image: ${src}`));
+    image.src = src;
+  });
+}
+
+function drawCanvasPack(
+  canvas: HTMLCanvasElement | null,
+  images: CanvasPackImages | null,
+  rawProgress: number,
+) {
+  if (!canvas || !images) {
+    return;
+  }
+
+  const width = images.front.naturalWidth || CANVAS_PACK_WIDTH;
+  const height = images.front.naturalHeight || CANVAS_PACK_HEIGHT;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+
+  const progress = clamp(rawProgress, 0, 1);
+  context.clearRect(0, 0, width, height);
+
+  if (progress <= 0.001) {
+    context.drawImage(images.front, 0, 0, width, height);
+    return;
+  }
+
+  const seamY = height * 0.158;
+  const seamHeight = height * 0.029;
+  const topHeight = height * 0.184;
+  const tearStart = width * 0.15;
+  const tearEnd = width * 0.84;
+  const tearX = tearStart + (tearEnd - tearStart) * progress;
+
+  context.save();
+  context.globalAlpha = Math.min(1, progress * 1.3);
+  context.drawImage(images.openBody, 0, 0, width, height);
+  context.restore();
+
+  context.save();
+  context.beginPath();
+  context.rect(0, seamY + seamHeight * 0.32, width, height);
+  context.clip();
+  context.globalAlpha = 1 - progress * 0.1;
+  context.drawImage(images.front, 0, 0, width, height);
+  context.restore();
+
+  context.save();
+  context.beginPath();
+  context.rect(tearX, 0, width - tearX, topHeight + seamHeight);
+  context.clip();
+  context.globalAlpha = 1 - progress * 0.04;
+  context.drawImage(images.front, 0, 0, width, height);
+  context.restore();
+
+  drawPulledTopStrip(context, images.front, {
+    progress,
+    seamY,
+    seamHeight,
+    tearX,
+    topHeight,
+    width,
+  });
+  drawCanvasTornEdge(context, {
+    progress,
+    seamY,
+    seamHeight,
+    tearX,
+    width,
+    height,
+  });
+}
+
+function drawPulledTopStrip(
+  context: CanvasRenderingContext2D,
+  source: HTMLImageElement,
+  geometry: {
+    progress: number;
+    seamY: number;
+    seamHeight: number;
+    tearX: number;
+    topHeight: number;
+    width: number;
+  },
+) {
+  const { progress, tearX, topHeight, width } = geometry;
+  const visibleWidth = Math.max(1, tearX);
+  const columns = 132;
+  const sourceColumnWidth = visibleWidth / columns;
+  const lift = progress;
+
+  context.save();
+  context.globalAlpha = Math.min(1, progress * 10);
+  context.shadowColor = "rgba(57, 255, 20, 0.18)";
+  context.shadowBlur = 18 * progress;
+
+  for (let column = 0; column < columns; column += 1) {
+    const sourceX = column * sourceColumnWidth;
+    const sourceWidth = Math.ceil(sourceColumnWidth) + 1;
+    const t = columns <= 1 ? 0 : column / (columns - 1);
+    const leadingLift = Math.pow(1 - t, 0.58);
+    const trailingLift = Math.pow(t, 1.7);
+    const arc = Math.sin(t * Math.PI);
+    const flutter = Math.sin(column * 0.64 + progress * 4.8) * 2.5 * progress;
+    const curlTowardViewer = Math.sin(t * Math.PI * 1.18) * progress;
+    const destX = sourceX + lift * (width * 0.034 * leadingLift + width * 0.014 * trailingLift) + arc * lift * 10;
+    const destY = -lift * (108 * leadingLift + 48 * arc + 18 * trailingLift) + flutter;
+    const scaleY = 1 - lift * (0.035 * leadingLift + 0.02 * arc);
+    const scaleX = 1 + curlTowardViewer * 0.018;
+    const rotation = -lift * (0.08 * leadingLift - 0.04 * trailingLift + 0.035 * arc);
+    const skewX = lift * (0.055 * arc - 0.035 * leadingLift);
+    const destHeight = topHeight * scaleY;
+
+    context.save();
+    context.translate(destX, destY);
+    context.transform(scaleX, Math.sin(rotation) * 0.16, skewX, 1, 0, 0);
+    context.rotate(rotation);
+    context.drawImage(source, sourceX, 0, sourceWidth, topHeight, 0, 0, sourceWidth + 1.5, destHeight);
+    context.restore();
+  }
+
+  context.restore();
+}
+
+function drawCanvasTornEdge(
+  context: CanvasRenderingContext2D,
+  geometry: {
+    progress: number;
+    seamY: number;
+    seamHeight: number;
+    tearX: number;
+    width: number;
+    height: number;
+  },
+) {
+  const { progress, seamY, seamHeight, tearX, width, height } = geometry;
+  const teeth = 46;
+
+  context.save();
+  context.beginPath();
+  context.moveTo(0, seamY + seamHeight * 0.34);
+  for (let index = 0; index <= teeth; index += 1) {
+    const x = (tearX / teeth) * index;
+    const jag = Math.sin(index * 1.71) * 3.2 + Math.sin(index * 0.63 + 1.2) * 2.4;
+    const y = seamY + seamHeight * (index % 2 === 0 ? 0.12 : 0.82) + jag;
+    context.lineTo(x, y);
+  }
+  context.lineTo(tearX, seamY + seamHeight * 1.12);
+  context.lineTo(0, seamY + seamHeight * 1.04);
+  context.closePath();
+
+  const seamGradient = context.createLinearGradient(0, seamY, tearX, seamY);
+  seamGradient.addColorStop(0, "rgba(190, 255, 184, 0.1)");
+  seamGradient.addColorStop(0.6, "rgba(255, 255, 255, 0.72)");
+  seamGradient.addColorStop(1, "rgba(57, 255, 20, 0.68)");
+  context.fillStyle = seamGradient;
+  context.globalAlpha = Math.min(1, progress * 1.5);
+  context.shadowColor = "rgba(57, 255, 20, 0.7)";
+  context.shadowBlur = 18 * progress;
+  context.fill();
+  context.restore();
+
+  context.save();
+  const flare = context.createRadialGradient(tearX, seamY + 10, 2, tearX, seamY + 10, width * 0.13);
+  flare.addColorStop(0, "rgba(255, 255, 255, 0.96)");
+  flare.addColorStop(0.18, "rgba(57, 255, 20, 0.78)");
+  flare.addColorStop(1, "rgba(57, 255, 20, 0)");
+  context.globalCompositeOperation = "screen";
+  context.globalAlpha = Math.min(0.78, progress * 1.1);
+  context.fillStyle = flare;
+  context.fillRect(tearX - width * 0.14, seamY - height * 0.05, width * 0.28, height * 0.12);
+  context.restore();
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function usePrefersReducedMotion(): boolean {
