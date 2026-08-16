@@ -6698,8 +6698,7 @@ h2 {
   --pack-tear-handle-left: 12%;
   --pack-shell-highlight-opacity: 0.28;
   --pack-tear-opacity: 0;
-  --pack-top-free-opacity: 0;
-  --pack-open-body-opacity: 0;
+  --pack-tear-frame-blend: 0;
   --pack-glow-opacity: 0;
   position: relative;
   display: grid;
@@ -6880,9 +6879,10 @@ h2 {
   display: none;
 }
 
-.siege-pack-shell-art {
+.siege-pack-tear-frame {
   position: absolute;
   inset: 0;
+  z-index: 3;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -6896,45 +6896,8 @@ h2 {
     transform 640ms cubic-bezier(0.2, 0.85, 0.2, 1);
 }
 
-.siege-pack-shell-art.open {
-  z-index: 1;
-  opacity: var(--pack-open-body-opacity);
-  clip-path: inset(0 0 0 0);
-  transform: translateY(0) scale(1);
-}
-
-.siege-pack-shell-art.sealed-body {
-  z-index: 3;
-  clip-path: inset(16.1% 0 0 0);
-  opacity: calc(1 - (var(--pack-tear-progress) * 0.12));
-}
-
-.siege-pack-shell-art.sealed-top-attached {
-  z-index: 5;
-  clip-path: polygon(
-    var(--pack-tear-percent) 0,
-    100% 0,
-    100% 17.1%,
-    calc(var(--pack-tear-percent) + 1%) 17.1%
-  );
-  opacity: calc(1 - (var(--pack-tear-progress) * 0.05));
-  transform-origin: 88% 16%;
-}
-
-.siege-pack-shell-art.sealed-top-free {
-  z-index: 6;
-  clip-path: polygon(
-    0 0,
-    var(--pack-tear-percent) 0,
-    var(--pack-tear-percent) 17.4%,
-    0 16.8%
-  );
-  opacity: var(--pack-top-free-opacity);
-  transform:
-    translate(calc(var(--pack-tear-progress) * 8%), calc(var(--pack-tear-progress) * -15%))
-    rotate(calc(var(--pack-tear-progress) * -7deg))
-    scale(calc(1 - (var(--pack-tear-progress) * 0.03)));
-  transform-origin: 16% 15%;
+.siege-pack-tear-frame.blend {
+  opacity: var(--pack-tear-frame-blend);
 }
 
 .siege-pack-open-glow {
@@ -7019,11 +6982,11 @@ h2 {
     drop-shadow(0 18px 22px rgba(0, 0, 0, 0.42));
 }
 
-.phase-dragging:not(.is-dragging) .siege-pack-shell-art,
+.phase-dragging:not(.is-dragging) .siege-pack-tear-frame,
 .phase-dragging:not(.is-dragging) .siege-pack-tear-teeth,
 .phase-dragging:not(.is-dragging) .siege-pack-open-glow,
 .phase-dragging:not(.is-dragging) .siege-pack-tear-track span,
-.phase-sealed:not(.is-dragging) .siege-pack-shell-art,
+.phase-sealed:not(.is-dragging) .siege-pack-tear-frame,
 .phase-sealed:not(.is-dragging) .siege-pack-tear-teeth,
 .phase-sealed:not(.is-dragging) .siege-pack-open-glow,
 .phase-sealed:not(.is-dragging) .siege-pack-tear-track span {
@@ -7034,7 +6997,7 @@ h2 {
     filter 260ms ease;
 }
 
-.is-dragging .siege-pack-shell-art,
+.is-dragging .siege-pack-tear-frame,
 .is-dragging .siege-pack-tear-teeth,
 .is-dragging .siege-pack-open-glow,
 .is-dragging .siege-pack-tear-track span {
@@ -7408,24 +7371,19 @@ h2 {
   opacity: 0;
 }
 
-.phase-burst .siege-pack-shell-art.open,
-.phase-emerging .siege-pack-shell-art.open,
-.phase-card .siege-pack-shell-art.open {
+.phase-burst .siege-pack-tear-frame,
+.phase-emerging .siege-pack-tear-frame,
+.phase-card .siege-pack-tear-frame {
   opacity: 1;
-  clip-path: inset(0 0 0 0);
   filter:
     drop-shadow(0 0 28px rgba(57, 255, 20, 0.36))
     drop-shadow(0 24px 34px rgba(0, 0, 0, 0.46));
 }
 
-.phase-burst .siege-pack-shell-art.sealed-body,
-.phase-burst .siege-pack-shell-art.sealed-top-attached,
-.phase-burst .siege-pack-shell-art.sealed-top-free,
-.phase-emerging .siege-pack-shell-art.sealed-body,
-.phase-emerging .siege-pack-shell-art.sealed-top-attached,
-.phase-emerging .siege-pack-shell-art.sealed-top-free {
+.phase-burst .siege-pack-tear-frame.blend,
+.phase-emerging .siege-pack-tear-frame.blend,
+.phase-card .siege-pack-tear-frame.blend {
   opacity: 0;
-  transform: scale(0.96);
 }
 
 .phase-burst .siege-pack-tear-teeth,

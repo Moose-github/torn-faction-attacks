@@ -6,9 +6,16 @@ import {
   Zap,
 } from "lucide-react";
 import energyCacheCardBack from "../assets/packs/energy-cache-card-back.png";
-import energyCachePackFront from "../assets/packs/energy-cache-pack-front.png";
-import energyCachePackOpenBody from "../assets/packs/energy-cache-pack-open-body.png";
 import energyCacheTearStrip from "../assets/packs/energy-cache-tear-strip.png";
+import energyCacheTearFrame00 from "../assets/packs/energy-cache-tear-frame-00.webp";
+import energyCacheTearFrame01 from "../assets/packs/energy-cache-tear-frame-01.webp";
+import energyCacheTearFrame02 from "../assets/packs/energy-cache-tear-frame-02.webp";
+import energyCacheTearFrame03 from "../assets/packs/energy-cache-tear-frame-03.webp";
+import energyCacheTearFrame04 from "../assets/packs/energy-cache-tear-frame-04.webp";
+import energyCacheTearFrame05 from "../assets/packs/energy-cache-tear-frame-05.webp";
+import energyCacheTearFrame06 from "../assets/packs/energy-cache-tear-frame-06.webp";
+import energyCacheTearFrame07 from "../assets/packs/energy-cache-tear-frame-07.webp";
+import energyCacheTearFrame08 from "../assets/packs/energy-cache-tear-frame-08.webp";
 
 export type PackRewardRarity = "standard" | "select" | "elite" | "legendary";
 
@@ -103,6 +110,17 @@ const PACK_PHASE_TIMING = {
   revealMs: 860,
 };
 const TEAR_COMPLETE_THRESHOLD = 0.94;
+const ENERGY_CACHE_TEAR_FRAMES = [
+  energyCacheTearFrame00,
+  energyCacheTearFrame01,
+  energyCacheTearFrame02,
+  energyCacheTearFrame03,
+  energyCacheTearFrame04,
+  energyCacheTearFrame05,
+  energyCacheTearFrame06,
+  energyCacheTearFrame07,
+  energyCacheTearFrame08,
+];
 
 const rarityMeta: Record<PackRewardRarity, { label: string; color: string; glow: string }> = {
   standard: {
@@ -181,6 +199,10 @@ export function SiegePackOpeningModal({
 
   const activeReward = reward ?? rewards[0] ?? null;
   const meta = activeReward ? rarityMeta[activeReward.rarity] : rarityMeta.standard;
+  const tearFramePosition = tearProgress * (ENERGY_CACHE_TEAR_FRAMES.length - 1);
+  const tearFrameIndex = Math.min(ENERGY_CACHE_TEAR_FRAMES.length - 1, Math.floor(tearFramePosition));
+  const nextTearFrameIndex = Math.min(ENERGY_CACHE_TEAR_FRAMES.length - 1, tearFrameIndex + 1);
+  const tearFrameBlend = tearFramePosition - tearFrameIndex;
   const style = {
     "--pack-rarity-color": meta.color,
     "--pack-rarity-glow": meta.glow,
@@ -190,8 +212,7 @@ export function SiegePackOpeningModal({
     "--pack-tear-handle-left": `${17 + tearProgress * 65}%`,
     "--pack-shell-highlight-opacity": String(0.28 + tearProgress * 0.58),
     "--pack-tear-opacity": String(Math.min(1, tearProgress * 1.6)),
-    "--pack-top-free-opacity": String(Math.min(1, tearProgress * 8)),
-    "--pack-open-body-opacity": String(Math.min(1, tearProgress * 1.25)),
+    "--pack-tear-frame-blend": String(tearFrameBlend),
     "--pack-glow-opacity": String(Math.min(0.95, tearProgress * 1.15)),
   } as React.CSSProperties;
   const isAnimating = phase === "burst" || phase === "emerging" || phase === "revealing";
@@ -392,10 +413,18 @@ export function SiegePackOpeningModal({
           ) : null}
 
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
-            <img className="siege-pack-shell-art open" src={energyCachePackOpenBody} alt="" aria-hidden="true" />
-            <img className="siege-pack-shell-art sealed-body" src={energyCachePackFront} alt="" aria-hidden="true" />
-            <img className="siege-pack-shell-art sealed-top-attached" src={energyCachePackFront} alt="" aria-hidden="true" />
-            <img className="siege-pack-shell-art sealed-top-free" src={energyCachePackFront} alt="" aria-hidden="true" />
+            <img
+              className="siege-pack-tear-frame base"
+              src={ENERGY_CACHE_TEAR_FRAMES[tearFrameIndex]}
+              alt=""
+              aria-hidden="true"
+            />
+            <img
+              className="siege-pack-tear-frame blend"
+              src={ENERGY_CACHE_TEAR_FRAMES[nextTearFrameIndex]}
+              alt=""
+              aria-hidden="true"
+            />
             <div className="siege-pack-open-glow" aria-hidden="true" />
             <div className="siege-pack-tear-teeth" aria-hidden="true" />
             <img className="siege-pack-tear-strip-art" src={energyCacheTearStrip} alt="" aria-hidden="true" />
