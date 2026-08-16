@@ -6845,19 +6845,13 @@ h2 {
 .siege-pack-shell {
   position: absolute;
   z-index: 7;
-  display: grid;
-  grid-template-rows: 108px minmax(0, 1fr);
-  width: min(390px, 74vw);
-  aspect-ratio: 0.67;
-  overflow: hidden;
-  border: 1px solid rgba(226, 232, 240, 0.2);
-  border-radius: var(--radius-md);
-  background:
-    linear-gradient(100deg, rgba(255, 255, 255, 0.11), transparent 22% 74%, rgba(255, 255, 255, 0.08)),
-    linear-gradient(145deg, #1f2937, #0f172a 62%, #020617);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 22px 48px rgba(0, 0, 0, 0.46);
+  width: min(430px, 78vw);
+  aspect-ratio: 1122 / 1402;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   transform-origin: center;
   transition:
     opacity 260ms ease,
@@ -6875,34 +6869,45 @@ h2 {
 }
 
 .siege-pack-shell::before {
-  z-index: 2;
-  background:
-    linear-gradient(98deg, transparent 26%, rgba(248, 250, 252, 0.22) 48%, transparent 66%),
-    repeating-linear-gradient(112deg, transparent 0 20px, rgba(255, 255, 255, 0.04) 20px 22px);
-  opacity: var(--pack-shell-highlight-opacity);
+  display: none;
 }
 
 .siege-pack-shell::after {
-  z-index: 3;
-  inset: 21% 12% auto;
-  height: 3px;
-  border-radius: 999px;
-  background:
-    linear-gradient(90deg, var(--pack-rarity-color) var(--pack-tear-percent), rgba(248, 250, 252, 0.4) 0),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.9) 0 6px, transparent 6px 11px);
-  box-shadow: 0 0 18px var(--pack-rarity-glow);
+  display: none;
+}
+
+.siege-pack-shell-art {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 0 18px rgba(57, 255, 20, 0.12))
+    drop-shadow(0 24px 34px rgba(0, 0, 0, 0.46));
+  pointer-events: none;
+  transition:
+    opacity 420ms ease,
+    filter 420ms ease,
+    transform 640ms cubic-bezier(0.2, 0.85, 0.2, 1);
+}
+
+.siege-pack-shell-art.open {
+  opacity: 0;
+  transform: translateY(-6px) scale(1.02);
 }
 
 .siege-pack-open-glow {
   position: absolute;
-  left: 10%;
-  right: 10%;
-  top: 18%;
+  left: 13%;
+  right: 13%;
+  top: 13%;
   z-index: 4;
-  height: 46px;
+  height: 82px;
   border-radius: 999px;
-  background: radial-gradient(ellipse, rgba(255, 255, 255, 0.96), var(--pack-rarity-glow) 38%, transparent 72%);
-  filter: blur(7px);
+  background: radial-gradient(ellipse, rgba(255, 255, 255, 0.94), rgba(57, 255, 20, 0.88) 36%, transparent 72%);
+  filter: blur(10px);
   opacity: 0;
   transform: scaleX(0.2);
   pointer-events: none;
@@ -7006,16 +7011,17 @@ h2 {
 
 .siege-pack-tear-track {
   position: absolute;
-  top: 21%;
-  left: 12%;
-  right: 12%;
+  top: 15.85%;
+  left: 17%;
+  right: 18%;
   z-index: 6;
-  height: 18px;
+  height: 12px;
   overflow: hidden;
   border-radius: 999px;
   background:
-    repeating-linear-gradient(90deg, rgba(248, 250, 252, 0.56) 0 6px, transparent 6px 11px),
-    rgba(15, 23, 42, 0.68);
+    repeating-linear-gradient(90deg, rgba(248, 250, 252, 0.42) 0 6px, transparent 6px 11px),
+    rgba(2, 6, 23, 0.36);
+  box-shadow: 0 0 18px rgba(57, 255, 20, 0.22);
 }
 
 .siege-pack-tear-track span {
@@ -7029,17 +7035,19 @@ h2 {
 .siege-pack-tear-handle {
   position: absolute;
   left: var(--pack-tear-handle-left);
-  top: calc(21% + 9px);
+  top: calc(15.85% + 6px);
   z-index: 8;
   display: inline-grid;
   place-items: center;
-  width: 44px;
-  height: 38px;
-  border: 1px solid rgba(248, 250, 252, 0.7);
+  width: 42px;
+  height: 34px;
+  border: 1px solid rgba(240, 253, 244, 0.76);
   border-radius: var(--radius-md);
-  background: #f8fafc;
+  background: #39ff14;
   color: #020617;
-  box-shadow: 0 0 24px var(--pack-rarity-glow);
+  box-shadow:
+    0 0 24px rgba(57, 255, 20, 0.5),
+    0 8px 18px rgba(0, 0, 0, 0.34);
   cursor: grab;
   touch-action: none;
   transform: translate(-50%, -50%);
@@ -7057,22 +7065,15 @@ h2 {
 .siege-pack-card {
   position: absolute;
   z-index: 6;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 12px;
-  width: min(250px, 54vw);
-  aspect-ratio: 0.68;
-  border: 1px solid rgba(226, 232, 240, 0.18);
-  border-radius: var(--radius-md);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 42%),
-    radial-gradient(circle at 50% 22%, var(--pack-rarity-glow), transparent 34%),
-    linear-gradient(145deg, #1f2937, #050816);
+  display: block;
+  width: min(270px, 56vw);
+  aspect-ratio: 2 / 3;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #f8fafc;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 24px 54px rgba(0, 0, 0, 0.42);
+  box-shadow: none;
   opacity: 0;
   transform: translateY(38px) scale(0.84) rotateY(-18deg);
   transition:
@@ -7080,62 +7081,123 @@ h2 {
     transform 640ms cubic-bezier(0.2, 0.85, 0.2, 1),
     filter 300ms ease;
   cursor: pointer;
+  perspective: 1100px;
+  transform-style: preserve-3d;
 }
 
 .siege-pack-card::before {
-  content: "";
-  position: absolute;
-  inset: 18% 14%;
-  background-image: radial-gradient(rgba(248, 250, 252, 0.24) 1px, transparent 1px);
-  background-size: 14px 14px;
-  opacity: 0.32;
-  pointer-events: none;
+  display: none;
 }
 
 .siege-pack-card:disabled {
   cursor: default;
 }
 
-.siege-pack-card-top {
+.siege-pack-card-inner,
+.siege-pack-card-face {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 12px;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-  background: var(--pack-rarity-color);
-  box-shadow: 0 0 24px var(--pack-rarity-glow);
+  inset: 0;
 }
 
-.siege-pack-card-lock {
-  position: relative;
-  z-index: 1;
+.siege-pack-card-inner {
+  display: block;
+  transform-style: preserve-3d;
+  transition: transform 780ms cubic-bezier(0.16, 0.92, 0.18, 1);
+}
+
+.siege-pack-card-face {
+  display: grid;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.siege-pack-card-face.back {
+  transform: rotateY(0deg);
+}
+
+.siege-pack-card-face.front {
+  align-content: start;
+  justify-items: center;
+  gap: 10px;
+  padding: 18px 16px 16px;
+  border: 1px solid rgba(226, 232, 240, 0.18);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--pack-rarity-color) 26%, transparent), transparent 25%),
+    radial-gradient(circle at 50% 30%, var(--pack-rarity-glow), transparent 42%),
+    linear-gradient(145deg, #111827, #030712 68%, #0f172a);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+  transform: rotateY(180deg);
+}
+
+.siege-pack-card-art {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  filter:
+    drop-shadow(0 0 24px rgba(57, 255, 20, 0.2))
+    drop-shadow(0 22px 32px rgba(0, 0, 0, 0.46));
+}
+
+.siege-pack-card-rarity {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--pack-rarity-color) 62%, rgba(255, 255, 255, 0.22));
+  border-radius: var(--radius-sm);
+  background: rgba(2, 6, 23, 0.68);
+  color: var(--pack-rarity-color);
+  font-size: 0.72rem;
+  font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.siege-pack-card-item-frame {
   display: grid;
   place-items: center;
-  width: 54px;
-  height: 54px;
-  border: 1px solid rgba(248, 250, 252, 0.32);
-  border-radius: 50%;
-  background: rgba(15, 23, 42, 0.72);
-  color: var(--pack-rarity-color);
-  box-shadow: 0 0 22px var(--pack-rarity-glow);
+  width: 86%;
+  aspect-ratio: 1;
+  margin-top: 4px;
+  border: 1px solid rgba(248, 250, 252, 0.14);
+  border-radius: var(--radius-sm);
+  background:
+    radial-gradient(circle, rgba(248, 250, 252, 0.11), transparent 58%),
+    rgba(15, 23, 42, 0.54);
+  box-shadow:
+    inset 0 0 28px rgba(0, 0, 0, 0.24),
+    0 0 28px var(--pack-rarity-glow);
 }
 
-.siege-pack-card strong {
-  position: relative;
-  z-index: 1;
-  font-size: 1.08rem;
+.siege-pack-card-item-frame img {
+  width: 84%;
+  height: 84%;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 0 18px var(--pack-rarity-glow))
+    drop-shadow(0 18px 24px rgba(0, 0, 0, 0.38));
+}
+
+.siege-pack-card-face.front strong {
+  width: 100%;
+  color: #f8fafc;
+  font-size: clamp(0.92rem, 2.4vw, 1.16rem);
   font-weight: 950;
   line-height: 1.1;
   text-align: center;
 }
 
-.siege-pack-card small {
-  position: relative;
-  z-index: 1;
-  color: var(--pack-rarity-color);
-  font-size: 0.74rem;
-  font-weight: 950;
+.siege-pack-card-face.front small {
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -7214,6 +7276,30 @@ h2 {
   filter: brightness(1.16);
 }
 
+.phase-tearing .siege-pack-tear-track,
+.phase-burst .siege-pack-tear-track {
+  opacity: 0;
+}
+
+.phase-tearing .siege-pack-shell-art.sealed {
+  opacity: 0.24;
+}
+
+.phase-tearing .siege-pack-shell-art.open,
+.phase-burst .siege-pack-shell-art.open,
+.phase-emerging .siege-pack-shell-art.open {
+  opacity: 1;
+  filter:
+    drop-shadow(0 0 28px rgba(57, 255, 20, 0.36))
+    drop-shadow(0 24px 34px rgba(0, 0, 0, 0.46));
+}
+
+.phase-burst .siege-pack-shell-art.sealed,
+.phase-emerging .siege-pack-shell-art.sealed {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
 .phase-tearing .siege-pack-torn-flap,
 .phase-burst .siege-pack-torn-flap {
   opacity: 1;
@@ -7234,7 +7320,14 @@ h2 {
   filter: brightness(1.55);
 }
 
+.phase-emerging .siege-pack-shell {
+  transform: translateY(54px) scale(0.92);
+  filter: brightness(0.96);
+  opacity: 0.64;
+}
+
 .phase-burst .siege-pack-open-glow,
+.phase-emerging .siege-pack-open-glow,
 .phase-card .siege-pack-open-glow {
   opacity: 1;
   transform: scaleX(1);
@@ -7250,8 +7343,18 @@ h2 {
 }
 
 .phase-card .siege-pack-card {
+  z-index: 8;
   opacity: 1;
   transform: translateY(0) scale(1) rotateY(0);
+}
+
+.phase-emerging .siege-pack-card {
+  z-index: 8;
+  opacity: 1;
+  pointer-events: none;
+  cursor: default;
+  transform: translateY(-42px) scale(0.94) rotateY(-4deg);
+  animation: siegeCardEmerge 860ms cubic-bezier(0.15, 0.86, 0.24, 1) both;
 }
 
 .phase-card .siege-pack-card:hover {
@@ -7260,11 +7363,27 @@ h2 {
 }
 
 .phase-revealing .siege-pack-card {
-  opacity: 0;
-  transform: translateX(-30vw) scale(0.9) rotateY(64deg);
+  z-index: 8;
+  opacity: 1;
+  pointer-events: none;
+  transform: translateY(-4px) scale(1.03) rotateY(0);
+}
+
+.phase-complete .siege-pack-card {
+  z-index: 8;
+  opacity: 1;
+  pointer-events: none;
+  cursor: default;
+  transform: translateY(0) scale(1) rotateY(0);
+}
+
+.phase-revealing .siege-pack-card-inner,
+.phase-complete .siege-pack-card-inner {
+  transform: rotateY(180deg);
 }
 
 .phase-burst .siege-pack-reward-aura,
+.phase-emerging .siege-pack-reward-aura,
 .phase-card .siege-pack-reward-aura,
 .phase-revealing .siege-pack-reward-aura,
 .phase-complete .siege-pack-reward-aura {
@@ -7272,13 +7391,8 @@ h2 {
   transform: scale(1);
 }
 
-.phase-revealing .siege-pack-reward-display,
-.phase-complete .siege-pack-reward-display {
-  opacity: 1;
-  transform: translateX(0) scale(1);
-}
-
 .phase-burst .siege-pack-shards span,
+.phase-emerging .siege-pack-shards span,
 .phase-revealing .siege-pack-shards span {
   animation: siegeShardBurst 920ms cubic-bezier(0.18, 0.82, 0.22, 1) both;
   animation-delay: var(--particle-delay);
@@ -7329,6 +7443,29 @@ h2 {
   }
 }
 
+@keyframes siegeCardEmerge {
+  0% {
+    opacity: 0;
+    transform: translateY(118px) scale(0.56) rotateX(24deg) rotateY(-10deg);
+    filter: brightness(0.78) blur(1px);
+  }
+  28% {
+    opacity: 0.72;
+    transform: translateY(62px) scale(0.68) rotateX(14deg) rotateY(-8deg);
+    filter: brightness(1.15) blur(0.5px);
+  }
+  68% {
+    opacity: 1;
+    transform: translateY(-4px) scale(0.84) rotateX(4deg) rotateY(-5deg);
+    filter: brightness(1.08) blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(-42px) scale(0.94) rotateX(0) rotateY(-4deg);
+    filter: brightness(1) blur(0);
+  }
+}
+
 @keyframes siegeShardBurst {
   0% {
     opacity: 0;
@@ -7358,12 +7495,15 @@ h2 {
   .phase-burst .siege-pack-torn-flap.right,
   .phase-burst .siege-pack-open-glow,
   .phase-burst .siege-pack-shards span,
+  .phase-emerging .siege-pack-card,
+  .phase-emerging .siege-pack-shards span,
   .phase-revealing .siege-pack-shards span {
     animation: none;
   }
 
   .siege-pack-shell,
   .siege-pack-card,
+  .siege-pack-card-inner,
   .siege-pack-reward-aura,
   .siege-pack-reward-display {
     transition: none;

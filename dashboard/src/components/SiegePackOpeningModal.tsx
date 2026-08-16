@@ -2,10 +2,12 @@ import React from "react";
 import {
   PackageOpen,
   RotateCcw,
-  Sparkles,
   X,
   Zap,
 } from "lucide-react";
+import energyCacheCardBack from "../assets/packs/energy-cache-card-back.png";
+import energyCachePackFront from "../assets/packs/energy-cache-pack-front.png";
+import energyCachePackOpen from "../assets/packs/energy-cache-pack-open.png";
 
 export type PackRewardRarity = "standard" | "select" | "elite" | "legendary";
 
@@ -83,7 +85,7 @@ export const TORN_PACK_REWARDS: PackReward[] = [
   },
 ];
 
-type PackPhase = "sealed" | "tearing" | "burst" | "card" | "revealing" | "complete";
+type PackPhase = "sealed" | "tearing" | "burst" | "emerging" | "card" | "revealing" | "complete";
 
 type SiegePackOpeningModalProps = {
   open: boolean;
@@ -95,7 +97,8 @@ type SiegePackOpeningModalProps = {
 const REVEAL_PARTICLES = Array.from({ length: 22 }, (_, index) => index);
 const PACK_PHASE_TIMING = {
   tearMs: 680,
-  burstMs: 760,
+  burstMs: 520,
+  emergeMs: 860,
   revealMs: 860,
 };
 
@@ -182,10 +185,10 @@ export function SiegePackOpeningModal({
     "--pack-tear-progress": String(tearProgress),
     "--pack-tear-percent": `${tearProgress * 100}%`,
     "--pack-tear-inset": `${(1 - tearProgress) * 100}%`,
-    "--pack-tear-handle-left": `${12 + tearProgress * 76}%`,
+    "--pack-tear-handle-left": `${17 + tearProgress * 65}%`,
     "--pack-shell-highlight-opacity": String(0.28 + tearProgress * 0.58),
   } as React.CSSProperties;
-  const isAnimating = phase === "tearing" || phase === "burst" || phase === "revealing";
+  const isAnimating = phase === "tearing" || phase === "burst" || phase === "emerging" || phase === "revealing";
   const canRevealCard = phase === "card" && activeReward;
 
   function clearTimers() {
@@ -222,7 +225,8 @@ export function SiegePackOpeningModal({
 
     setPhase("tearing");
     schedule(() => setPhase("burst"), PACK_PHASE_TIMING.tearMs);
-    schedule(() => setPhase("card"), PACK_PHASE_TIMING.tearMs + PACK_PHASE_TIMING.burstMs);
+    schedule(() => setPhase("emerging"), PACK_PHASE_TIMING.tearMs + PACK_PHASE_TIMING.burstMs);
+    schedule(() => setPhase("card"), PACK_PHASE_TIMING.tearMs + PACK_PHASE_TIMING.burstMs + PACK_PHASE_TIMING.emergeMs);
   }
 
   function revealCard() {
@@ -288,8 +292,8 @@ export function SiegePackOpeningModal({
       return;
     }
 
-    const start = rect.left + rect.width * 0.12;
-    const distance = rect.width * 0.76;
+    const start = rect.left + rect.width * 0.17;
+    const distance = rect.width * 0.65;
     const nextProgress = Math.min(1, Math.max(0, (clientX - start) / distance));
     setTearProgressValue(nextProgress);
   }
@@ -329,13 +333,6 @@ export function SiegePackOpeningModal({
           <div className="siege-pack-reward-aura" aria-hidden="true" />
 
           {activeReward ? (
-            <div key={`reward-${activeReward.id}-${animationRun}`} className="siege-pack-reward-display">
-              <img src={activeReward.imageUrl} alt={activeReward.name} />
-              <span>{meta.label}</span>
-            </div>
-          ) : null}
-
-          {activeReward ? (
             <button
               key={`card-${activeReward.id}-${animationRun}`}
               type="button"
@@ -345,27 +342,26 @@ export function SiegePackOpeningModal({
               aria-label={`Reveal ${meta.label} reward`}
               title="Reveal reward"
             >
-              <span className="siege-pack-card-top" />
-              <span className="siege-pack-card-lock">
-                <Sparkles size={18} />
+              <span className="siege-pack-card-inner">
+                <span className="siege-pack-card-face back">
+                  <img className="siege-pack-card-art" src={energyCacheCardBack} alt="" aria-hidden="true" />
+                </span>
+                <span className="siege-pack-card-face front">
+                  <span className="siege-pack-card-rarity">{meta.label}</span>
+                  <span className="siege-pack-card-item-frame">
+                    <img src={activeReward.imageUrl} alt={activeReward.name} />
+                  </span>
+                  <strong>{activeReward.name}</strong>
+                  <small>Reward acquired</small>
+                </span>
               </span>
-              <strong>Faction Reward</strong>
-              <small>{phase === "card" ? "Press to reveal" : meta.label}</small>
             </button>
           ) : null}
 
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
+            <img className="siege-pack-shell-art sealed" src={energyCachePackFront} alt="" aria-hidden="true" />
+            <img className="siege-pack-shell-art open" src={energyCachePackOpen} alt="" aria-hidden="true" />
             <div className="siege-pack-open-glow" aria-hidden="true" />
-            <div className="siege-pack-torn-flap left" aria-hidden="true" />
-            <div className="siege-pack-torn-flap right" aria-hidden="true" />
-            <div className="siege-pack-shell-top">
-              <span>BG</span>
-            </div>
-            <div className="siege-pack-shell-body">
-              <Sparkles size={30} />
-              <strong>Faction Pack</strong>
-              <small>{phase === "sealed" ? "Drag zipper to open" : "Opening"}</small>
-            </div>
             <div className="siege-pack-tear-track">
               <span />
             </div>
@@ -406,10 +402,14 @@ export function SiegePackOpeningModal({
             <p>
               {phase === "sealed"
                 ? "Drag the zipper right or use the open button."
+                : phase === "emerging"
+                  ? "Reward card emerging."
                 : phase === "card"
                   ? "Rarity decrypted. Press the card to reveal your reward."
+                : phase === "revealing"
+                  ? "Reward card decrypting."
                 : phase === "complete" && activeReward
-                  ? `${meta.label} reward revealed.`
+                  ? `${meta.label} reward secured.`
                   : "Pack seal opening."}
             </p>
           </div>
