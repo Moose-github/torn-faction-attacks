@@ -365,16 +365,8 @@ async function scanWatchlistItems(env: Env, watchlist: TradeWatchlist, tornKey: 
   const rows: TradeOpportunity[] = [];
 
   for (const itemId of watchlist.item_ids) {
-    if (watchlist.item_source === "weav3r_verified") {
-      const [weav3rData, tornData] = await Promise.all([
-        fetchWeav3rJson(`/marketplace/${itemId}`),
-        fetchTornJson(env, `/market/${itemId}/itemmarket`, tornKey, { limit: "20", offset: "0" }),
-      ]);
-      rows.push(...buildWeav3rRows(watchlist, itemId, weav3rData, itemMarketReference(tornData)));
-    } else {
-      const data = await fetchTornJson(env, `/market/${itemId}`, tornKey, { selections: "itemmarket,bazaar" });
-      rows.push(...buildTornRows(watchlist, itemId, data));
-    }
+    const result = await scanItemOffers(env, itemId, watchlist.item_source, tornKey);
+    rows.push(...result.offers.map((offer) => opportunityFromScannedOffer(offer, watchlist)));
   }
 
   return rows
@@ -391,6 +383,35 @@ async function scanWatchlistItems(env: Env, watchlist: TradeWatchlist, tornKey: 
     .slice(0, MAX_SAVED_OPPORTUNITIES);
 }
 
+function opportunityFromScannedOffer(offer: StoredTradeOffer, search: TradeSearchPayload): TradeOpportunity {
+  const listingPrice = Math.round(Number(offer.listing_price));
+  const referencePrice = Math.round(Number(offer.reference_price));
+  const resale = resalePrice(referencePrice);
+  const feeRate = offer.fee_applies ? search.market_fee_percent / 100 : 0;
+  const profit = Math.round(resale * Math.max(0, 1 - feeRate) - listingPrice);
+  const quantity = Math.max(1, Math.floor(Number(offer.quantity)));
+  const bulkProfit = Math.round(profit * quantity);
+  const neededQuantity = profit > 0 ? Math.ceil(search.min_profit / profit) : null;
+
+  return {
+    item_id: offer.item_id,
+    item_name: offer.item_name,
+    item_source: offer.item_source,
+    source: offer.source,
+    listing_price: listingPrice,
+    resale_price: resale,
+    profit,
+    roi_percent: listingPrice > 0 ? (profit / listingPrice) * 100 : 0,
+    quantity,
+    bulk_profit: bulkProfit,
+    needed_quantity: neededQuantity,
+    seller_id: offer.seller_id,
+    seller_name: offer.seller_name,
+    reference_label: resaleLabel(offer.reference_label ?? "Reference price", referencePrice, resale),
+    raw_json: offer.raw_json,
+  };
+}
+
 async function readDerivedTradeSearch(
   env: Env,
   payload: TradeSearchPayload,
@@ -403,11 +424,28 @@ async function readDerivedTradeSearch(
   const placeholders = payload.item_ids.map(() => "?").join(", ");
   const rows = await env.DB.prepare(
     `
-    SELECT *
-    FROM trade_item_current_offers
-    WHERE item_source = ?
-      AND item_id IN (${placeholders})
-    ORDER BY item_id ASC, listing_price ASC
+    SELECT
+      o.id,
+      o.market_state_id,
+      o.item_id,
+      COALESCE(o.item_name, i.name) AS item_name,
+      o.item_source,
+      o.source,
+      o.listing_price,
+      o.reference_price,
+      o.quantity,
+      o.fee_applies,
+      o.seller_id,
+      o.seller_name,
+      o.reference_label,
+      o.raw_json,
+      o.fetched_at
+    FROM trade_item_current_offers o
+    LEFT JOIN torn_items i
+      ON i.torn_item_id = o.item_id
+    WHERE o.item_source = ?
+      AND o.item_id IN (${placeholders})
+    ORDER BY o.item_id ASC, o.listing_price ASC
     `,
   )
     .bind(payload.item_source, ...payload.item_ids)
@@ -440,13 +478,23 @@ async function latestItemSnapshotsForSearch(
       env.DB.prepare(
         `
         SELECT
-          s.*,
+          s.id,
+          s.item_id,
+          s.item_source,
+          COALESCE(s.item_name, i.name) AS item_name,
+          s.scanned_by_torn_user_id,
+          s.scanned_at,
+          s.status,
+          s.error,
+          s.raw_json,
           (
             SELECT COUNT(*)
             FROM trade_item_current_offers o
             WHERE o.market_state_id = s.id
           ) AS offer_count
         FROM trade_item_market_state s
+        LEFT JOIN torn_items i
+          ON i.torn_item_id = s.item_id
         WHERE s.item_id = ?
           AND s.item_source = ?
         LIMIT 1
@@ -487,10 +535,11 @@ async function scanAndSaveItems(
         offers: result.offers,
       });
     } catch (err: any) {
+      const knownItemName = await readKnownTradeItemName(env, itemId, input.itemSource).catch(() => null);
       await saveItemMarketState(env, {
         itemId,
         itemSource: input.itemSource,
-        itemName: null,
+        itemName: knownItemName,
         scannedByTornUserId: input.scannedByTornUserId,
         scannedAt,
         status: "error",
@@ -509,16 +558,7 @@ async function scanItemOffers(
   tornKey: string,
 ): Promise<{ itemName: string | null; rawJson: string | null; offers: StoredTradeOffer[] }> {
   if (itemSource === "weav3r_verified") {
-    const [weav3rData, tornData] = await Promise.all([
-      fetchWeav3rJson(`/marketplace/${itemId}`),
-      fetchTornJson(env, `/market/${itemId}/itemmarket`, tornKey, { limit: "20", offset: "0" }),
-    ]);
-    const itemName = cleanString(weav3rData?.item_name);
-    return {
-      itemName,
-      rawJson: JSON.stringify({ weav3r: weav3rData, torn_itemmarket: tornData }),
-      offers: buildWeav3rStoredOffers(itemId, weav3rData, itemMarketReference(tornData)),
-    };
+    return scanWeav3rVerifiedItemOffers(env, itemId, tornKey);
   }
 
   const tornData = await fetchTornJson(env, `/market/${itemId}`, tornKey, { selections: "itemmarket,bazaar" });
@@ -526,6 +566,42 @@ async function scanItemOffers(
     itemName: cleanString(tornData?.item?.name ?? tornData?.name),
     rawJson: JSON.stringify(tornData),
     offers: buildTornStoredOffers(itemId, tornData),
+  };
+}
+
+async function scanWeav3rVerifiedItemOffers(
+  env: Env,
+  itemId: number,
+  tornKey: string,
+): Promise<{ itemName: string | null; rawJson: string | null; offers: StoredTradeOffer[] }> {
+  const [weav3rResult, tornReferenceResult] = await Promise.allSettled([
+    fetchWeav3rJson(`/marketplace/${itemId}`),
+    fetchTornJson(env, `/market/${itemId}/itemmarket`, tornKey, { limit: "20", offset: "0" }),
+  ]);
+
+  if (weav3rResult.status === "fulfilled") {
+    const weav3rData = weav3rResult.value;
+    const tornReferenceData = tornReferenceResult.status === "fulfilled" ? tornReferenceResult.value : null;
+    const itemName = cleanString(weav3rData?.item_name);
+    return {
+      itemName,
+      rawJson: JSON.stringify({
+        weav3r: weav3rData,
+        torn_itemmarket: tornReferenceData,
+        torn_itemmarket_error: tornReferenceResult.status === "rejected" ? upstreamErrorMessage(tornReferenceResult.reason) : null,
+      }),
+      offers: buildWeav3rStoredOffers(itemId, weav3rData, itemMarketReference(tornReferenceData)),
+    };
+  }
+
+  const fallbackData = await fetchTornJson(env, `/market/${itemId}`, tornKey, { selections: "itemmarket,bazaar" });
+  return {
+    itemName: cleanString(fallbackData?.item?.name ?? fallbackData?.name),
+    rawJson: JSON.stringify({
+      weav3r_error: upstreamErrorMessage(weav3rResult.reason),
+      torn_fallback: fallbackData,
+    }),
+    offers: buildTornStoredOffers(itemId, fallbackData, "weav3r_verified"),
   };
 }
 
@@ -569,7 +645,11 @@ function buildWeav3rStoredOffers(
     }));
 }
 
-function buildTornStoredOffers(itemId: number, data: any): StoredTradeOffer[] {
+function buildTornStoredOffers(
+  itemId: number,
+  data: any,
+  itemSource: TradeItemSource = "torn",
+): StoredTradeOffer[] {
   const marketOffers = normalizeOffers(data, "itemmarket");
   const bazaarOffers = normalizeOffers(data, "bazaar");
   const lowestMarket = priceAtCumulativeQuantity(marketOffers, 5);
@@ -579,7 +659,7 @@ function buildTornStoredOffers(itemId: number, data: any): StoredTradeOffer[] {
   if (bazaarOffers[0] && lowestMarket) {
     rows.push(storedOfferFromListing({
       itemId,
-      itemSource: "torn",
+      itemSource,
       itemName: cleanString(data?.item?.name ?? data?.name),
       source: "Torn Bazaar",
       listing: bazaarOffers[0],
@@ -592,7 +672,7 @@ function buildTornStoredOffers(itemId: number, data: any): StoredTradeOffer[] {
   if (marketOffers[0] && lowestBazaar) {
     rows.push(storedOfferFromListing({
       itemId,
-      itemSource: "torn",
+      itemSource,
       itemName: cleanString(data?.item?.name ?? data?.name),
       source: "Torn Item Market",
       listing: marketOffers[0],
@@ -641,161 +721,25 @@ function storedOfferFromListing({
 }
 
 function opportunityFromStoredOffer(offer: TradeItemCurrentOfferRow, search: TradeSearchPayload): TradeOpportunity {
-  const listingPrice = Math.round(Number(offer.listing_price));
-  const referencePrice = Math.round(Number(offer.reference_price));
-  const resale = resalePrice(referencePrice);
-  const feeRate = offer.fee_applies ? search.market_fee_percent / 100 : 0;
-  const profit = Math.round(resale * Math.max(0, 1 - feeRate) - listingPrice);
-  const quantity = Math.max(1, Math.floor(Number(offer.quantity)));
-  const bulkProfit = Math.round(profit * quantity);
-  const neededQuantity = profit > 0 ? Math.ceil(search.min_profit / profit) : null;
-
   return {
+    ...opportunityFromScannedOffer({
+      item_id: Number(offer.item_id),
+      item_name: offer.item_name,
+      item_source: normalizeItemSource(offer.item_source) ?? search.item_source,
+      source: offer.source,
+      listing_price: offer.listing_price,
+      reference_price: offer.reference_price,
+      quantity: offer.quantity,
+      fee_applies: Boolean(offer.fee_applies),
+      seller_id: offer.seller_id === null ? null : Number(offer.seller_id),
+      seller_name: offer.seller_name,
+      reference_label: offer.reference_label,
+      raw_json: offer.raw_json,
+    }, search),
     id: offer.id,
     snapshot_id: offer.market_state_id,
     watchlist_id: null,
-    item_id: Number(offer.item_id),
-    item_name: offer.item_name,
-    item_source: normalizeItemSource(offer.item_source) ?? search.item_source,
-    source: offer.source,
-    listing_price: listingPrice,
-    resale_price: resale,
-    profit,
-    roi_percent: listingPrice > 0 ? (profit / listingPrice) * 100 : 0,
-    quantity,
-    bulk_profit: bulkProfit,
-    needed_quantity: neededQuantity,
-    seller_id: offer.seller_id === null ? null : Number(offer.seller_id),
-    seller_name: offer.seller_name,
-    reference_label: resaleLabel(offer.reference_label ?? "Reference price", referencePrice, resale),
-    raw_json: offer.raw_json,
     created_at: Number(offer.fetched_at),
-  };
-}
-
-function buildWeav3rRows(
-  watchlist: TradeWatchlist,
-  itemId: number,
-  data: any,
-  verifiedReference: number | null,
-): TradeOpportunity[] {
-  const listings: any[] = Array.isArray(data?.listings) ? data.listings : [];
-  const weav3rMarketPrice = finitePositiveNumber(data?.market_price);
-  const bazaarAverage = finitePositiveNumber(data?.bazaar_average);
-  const reference = verifiedReference && verifiedReference > 0 ? verifiedReference : weav3rMarketPrice;
-  if (!reference) {
-    return [];
-  }
-
-  const adjustedReference = resalePrice(reference);
-  const referenceLabel = verifiedReference && verifiedReference > 0
-    ? `Verified Torn 5-item Market price${bazaarAverage ? `; Bazaar avg ${bazaarAverage}` : ""}`
-    : "Weav3r market price";
-
-  return listings
-    .map((listing: any): NormalizedOffer => ({
-      price: Number(listing?.price ?? 0),
-      quantity: positiveInteger(listing?.quantity, 1),
-      playerId: positiveIntegerOrNull(listing?.player_id),
-      playerName: cleanString(listing?.player_name),
-      raw: listing,
-    }))
-    .filter((listing) => listing.price > 0)
-    .sort((a, b) => a.price - b.price)
-    .slice(0, 10)
-    .map((listing) =>
-      opportunityFromListing({
-        watchlist,
-        itemId,
-        itemName: cleanString(data?.item_name),
-        source: "Weav3r Bazaar",
-        listing,
-        reference: adjustedReference,
-        sellFeeRate: watchlist.market_fee_percent / 100,
-        referenceLabel: resaleLabel(referenceLabel, reference, adjustedReference),
-      }),
-    );
-}
-
-function buildTornRows(watchlist: TradeWatchlist, itemId: number, data: any): TradeOpportunity[] {
-  const marketOffers = normalizeOffers(data, "itemmarket");
-  const bazaarOffers = normalizeOffers(data, "bazaar");
-  const lowestMarket = priceAtCumulativeQuantity(marketOffers, 5);
-  const lowestBazaar = bazaarOffers[0]?.price ?? null;
-  const rows: TradeOpportunity[] = [];
-
-  if (bazaarOffers[0] && lowestMarket) {
-    const adjustedReference = resalePrice(lowestMarket);
-    rows.push(opportunityFromListing({
-      watchlist,
-      itemId,
-      itemName: null,
-      source: "Torn Bazaar",
-      listing: bazaarOffers[0],
-      reference: adjustedReference,
-      sellFeeRate: watchlist.market_fee_percent / 100,
-      referenceLabel: resaleLabel("Torn 5-item Market price less fee", lowestMarket, adjustedReference),
-    }));
-  }
-
-  if (marketOffers[0] && lowestBazaar) {
-    const adjustedReference = resalePrice(lowestBazaar);
-    rows.push(opportunityFromListing({
-      watchlist,
-      itemId,
-      itemName: null,
-      source: "Torn Item Market",
-      listing: marketOffers[0],
-      reference: adjustedReference,
-      sellFeeRate: 0,
-      referenceLabel: resaleLabel("Lowest Torn Bazaar price, no fee", lowestBazaar, adjustedReference),
-    }));
-  }
-
-  return rows;
-}
-
-function opportunityFromListing({
-  watchlist,
-  itemId,
-  itemName,
-  source,
-  listing,
-  reference,
-  sellFeeRate,
-  referenceLabel,
-}: {
-  watchlist: TradeWatchlist;
-  itemId: number;
-  itemName: string | null;
-  source: string;
-  listing: NormalizedOffer;
-  reference: number;
-  sellFeeRate: number;
-  referenceLabel: string;
-}): TradeOpportunity {
-  const listingPrice = Math.round(listing.price);
-  const resale = Math.round(reference);
-  const profit = Math.round(resale * Math.max(0, 1 - sellFeeRate) - listingPrice);
-  const quantity = Math.max(1, Math.floor(listing.quantity));
-  const bulkProfit = Math.round(profit * quantity);
-  const neededQuantity = profit > 0 ? Math.ceil(watchlist.min_profit / profit) : null;
-
-  return {
-    item_id: itemId,
-    item_name: itemName,
-    source,
-    listing_price: listingPrice,
-    resale_price: resale,
-    profit,
-    roi_percent: listingPrice > 0 ? (profit / listingPrice) * 100 : 0,
-    quantity,
-    bulk_profit: bulkProfit,
-    needed_quantity: neededQuantity,
-    seller_id: listing.playerId,
-    seller_name: listing.playerName,
-    reference_label: referenceLabel,
-    raw_json: JSON.stringify(listing.raw ?? null),
   };
 }
 
@@ -868,6 +812,32 @@ async function fetchTornJson(env: Env, endpoint: string, tornKey: string, params
 
 async function fetchWeav3rJson(endpoint: string): Promise<any> {
   return fetchWeav3rClientJson(endpoint, REQUEST_TIMEOUT_MS);
+}
+
+function upstreamErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function readKnownTradeItemName(
+  env: Env,
+  itemId: number,
+  itemSource: TradeItemSource,
+): Promise<string | null> {
+  const row = await env.DB.prepare(
+    `
+    SELECT COALESCE(s.item_name, i.name) AS item_name
+    FROM torn_items i
+    LEFT JOIN trade_item_market_state s
+      ON s.item_id = i.torn_item_id
+      AND s.item_source = ?
+    WHERE i.torn_item_id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(itemSource, itemId)
+    .first<{ item_name: string | null }>();
+
+  return row?.item_name ?? null;
 }
 
 async function readWatchlistPayload(request: Request): Promise<
@@ -1175,7 +1145,7 @@ async function saveItemMarketState(
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(item_id, item_source) DO UPDATE SET
         id = excluded.id,
-        item_name = excluded.item_name,
+        item_name = COALESCE(excluded.item_name, trade_item_market_state.item_name),
         scanned_by_torn_user_id = excluded.scanned_by_torn_user_id,
         scanned_at = excluded.scanned_at,
         status = excluded.status,
