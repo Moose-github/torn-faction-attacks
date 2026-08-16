@@ -6879,7 +6879,6 @@ h2 {
 .siege-pack-shell-art {
   position: absolute;
   inset: 0;
-  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -6893,9 +6892,15 @@ h2 {
     transform 640ms cubic-bezier(0.2, 0.85, 0.2, 1);
 }
 
+.siege-pack-shell-art.sealed {
+  z-index: 3;
+}
+
 .siege-pack-shell-art.open {
+  z-index: 2;
   opacity: 0;
-  transform: translateY(-6px) scale(1.02);
+  clip-path: inset(0 100% 0 0);
+  transform: translateY(0) scale(1);
 }
 
 .siege-pack-open-glow {
@@ -6911,6 +6916,72 @@ h2 {
   opacity: 0;
   transform: scaleX(0.2);
   pointer-events: none;
+}
+
+.siege-pack-tear-teeth {
+  position: absolute;
+  top: 14.7%;
+  left: 16%;
+  right: 14%;
+  z-index: 5;
+  height: 20px;
+  opacity: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(57, 255, 20, 0.2), rgba(255, 255, 255, 0.86), rgba(57, 255, 20, 0.34)),
+    repeating-linear-gradient(135deg, transparent 0 8px, rgba(248, 250, 252, 0.78) 8px 12px, transparent 12px 18px);
+  clip-path: polygon(
+    0 38%,
+    4% 72%,
+    8% 36%,
+    12% 74%,
+    16% 35%,
+    20% 76%,
+    24% 34%,
+    28% 72%,
+    32% 36%,
+    36% 75%,
+    40% 37%,
+    44% 74%,
+    48% 35%,
+    52% 76%,
+    56% 34%,
+    60% 72%,
+    64% 36%,
+    68% 75%,
+    72% 37%,
+    76% 74%,
+    80% 35%,
+    84% 76%,
+    88% 34%,
+    92% 72%,
+    96% 36%,
+    100% 74%,
+    100% 100%,
+    0 100%
+  );
+  filter: drop-shadow(0 0 12px rgba(57, 255, 20, 0.52));
+  pointer-events: none;
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.siege-pack-tear-strip-art {
+  position: absolute;
+  top: -3%;
+  left: -6%;
+  z-index: 6;
+  width: 112%;
+  height: auto;
+  opacity: 0;
+  object-fit: contain;
+  clip-path: inset(0 100% 0 0);
+  pointer-events: none;
+  transform: translateY(0) rotate(0deg) scale(0.92);
+  transform-origin: 17% 58%;
+  filter:
+    drop-shadow(0 0 18px rgba(57, 255, 20, 0.26))
+    drop-shadow(0 18px 22px rgba(0, 0, 0, 0.42));
 }
 
 .siege-pack-torn-flap {
@@ -7282,13 +7353,18 @@ h2 {
 }
 
 .phase-tearing .siege-pack-shell-art.sealed {
-  opacity: 0.24;
+  animation: siegeSealedBodyTear 680ms cubic-bezier(0.2, 0.85, 0.2, 1) both;
 }
 
-.phase-tearing .siege-pack-shell-art.open,
+.phase-tearing .siege-pack-shell-art.open {
+  animation: siegeOpenBodyReveal 680ms cubic-bezier(0.18, 0.82, 0.22, 1) both;
+}
+
 .phase-burst .siege-pack-shell-art.open,
-.phase-emerging .siege-pack-shell-art.open {
+.phase-emerging .siege-pack-shell-art.open,
+.phase-card .siege-pack-shell-art.open {
   opacity: 1;
+  clip-path: inset(0 0 0 0);
   filter:
     drop-shadow(0 0 28px rgba(57, 255, 20, 0.36))
     drop-shadow(0 24px 34px rgba(0, 0, 0, 0.46));
@@ -7298,6 +7374,35 @@ h2 {
 .phase-emerging .siege-pack-shell-art.sealed {
   opacity: 0;
   transform: scale(0.96);
+}
+
+.phase-tearing .siege-pack-tear-teeth,
+.phase-burst .siege-pack-tear-teeth,
+.phase-emerging .siege-pack-tear-teeth {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.phase-tearing .siege-pack-tear-teeth {
+  animation: siegeTearTeethReveal 680ms cubic-bezier(0.18, 0.82, 0.22, 1) both;
+}
+
+.phase-tearing .siege-pack-tear-strip-art {
+  opacity: 1;
+  animation: siegeStripPeel 680ms cubic-bezier(0.18, 0.82, 0.22, 1) both;
+}
+
+.phase-burst .siege-pack-tear-strip-art {
+  opacity: 1;
+  animation: siegeStripFly 520ms cubic-bezier(0.16, 0.84, 0.18, 1) both;
+}
+
+.phase-emerging .siege-pack-tear-strip-art,
+.phase-card .siege-pack-tear-strip-art,
+.phase-revealing .siege-pack-tear-strip-art,
+.phase-complete .siege-pack-tear-strip-art {
+  opacity: 0;
+  transform: translate(44%, -82%) rotate(27deg) scale(0.78);
 }
 
 .phase-tearing .siege-pack-torn-flap,
@@ -7327,6 +7432,7 @@ h2 {
 }
 
 .phase-burst .siege-pack-open-glow,
+.phase-tearing .siege-pack-open-glow,
 .phase-emerging .siege-pack-open-glow,
 .phase-card .siege-pack-open-glow {
   opacity: 1;
@@ -7443,6 +7549,93 @@ h2 {
   }
 }
 
+@keyframes siegeOpenBodyReveal {
+  0% {
+    opacity: 0.2;
+    clip-path: inset(0 100% 0 0);
+    transform: translateY(0) scale(0.99);
+  }
+  38% {
+    opacity: 0.92;
+    clip-path: inset(0 48% 0 0);
+    transform: translateY(0) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes siegeSealedBodyTear {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: brightness(1);
+  }
+  48% {
+    opacity: 0.56;
+    transform: translateY(0) scale(1.012);
+    filter: brightness(1.28);
+  }
+  100% {
+    opacity: 0.08;
+    transform: translateY(-2px) scale(0.99);
+    filter: brightness(0.85);
+  }
+}
+
+@keyframes siegeTearTeethReveal {
+  0% {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  24% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes siegeStripPeel {
+  0% {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+    transform: translate(0, 0) rotate(0deg) scale(0.92);
+  }
+  18% {
+    opacity: 1;
+  }
+  58% {
+    clip-path: inset(0 22% 0 0);
+    transform: translate(0.5%, -2%) rotate(-2deg) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    transform: translate(2%, -10%) rotate(-7deg) scale(0.96);
+  }
+}
+
+@keyframes siegeStripFly {
+  0% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    transform: translate(2%, -10%) rotate(-7deg) scale(0.96);
+  }
+  36% {
+    opacity: 1;
+    transform: translate(16%, -42%) rotate(10deg) scale(0.9);
+  }
+  100% {
+    opacity: 0;
+    clip-path: inset(0 0 0 0);
+    transform: translate(44%, -92%) rotate(28deg) scale(0.78);
+  }
+}
+
 @keyframes siegeCardEmerge {
   0% {
     opacity: 0;
@@ -7495,6 +7688,11 @@ h2 {
   .phase-burst .siege-pack-torn-flap.right,
   .phase-burst .siege-pack-open-glow,
   .phase-burst .siege-pack-shards span,
+  .phase-tearing .siege-pack-shell-art.sealed,
+  .phase-tearing .siege-pack-shell-art.open,
+  .phase-tearing .siege-pack-tear-teeth,
+  .phase-tearing .siege-pack-tear-strip-art,
+  .phase-burst .siege-pack-tear-strip-art,
   .phase-emerging .siege-pack-card,
   .phase-emerging .siege-pack-shards span,
   .phase-revealing .siege-pack-shards span {

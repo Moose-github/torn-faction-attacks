@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import energyCacheCardBack from "../assets/packs/energy-cache-card-back.png";
 import energyCachePackFront from "../assets/packs/energy-cache-pack-front.png";
-import energyCachePackOpen from "../assets/packs/energy-cache-pack-open.png";
+import energyCachePackOpenBody from "../assets/packs/energy-cache-pack-open-body.png";
+import energyCacheTearStrip from "../assets/packs/energy-cache-tear-strip.png";
 
 export type PackRewardRarity = "standard" | "select" | "elite" | "legendary";
 
@@ -360,8 +361,10 @@ export function SiegePackOpeningModal({
 
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
             <img className="siege-pack-shell-art sealed" src={energyCachePackFront} alt="" aria-hidden="true" />
-            <img className="siege-pack-shell-art open" src={energyCachePackOpen} alt="" aria-hidden="true" />
+            <img className="siege-pack-shell-art open" src={energyCachePackOpenBody} alt="" aria-hidden="true" />
             <div className="siege-pack-open-glow" aria-hidden="true" />
+            <div className="siege-pack-tear-teeth" aria-hidden="true" />
+            <img className="siege-pack-tear-strip-art" src={energyCacheTearStrip} alt="" aria-hidden="true" />
             <div className="siege-pack-tear-track">
               <span />
             </div>
