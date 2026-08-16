@@ -103,9 +103,9 @@ export type TradeItemSnapshotRow = {
   offer_count?: number | null;
 };
 
-export type TradeItemOfferRow = {
+export type TradeItemCurrentOfferRow = {
   id: string;
-  item_snapshot_id: string;
+  market_state_id: string;
   item_id: number;
   item_name: string | null;
   item_source: string;
@@ -118,7 +118,7 @@ export type TradeItemOfferRow = {
   seller_name: string | null;
   reference_label: string | null;
   raw_json: string | null;
-  created_at: number;
+  fetched_at: number;
 };
 
 export type TradeSearchPayload = {

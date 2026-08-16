@@ -22,7 +22,7 @@ import {
 import type {
   NormalizedOffer,
   StoredTradeOffer,
-  TradeItemOfferRow,
+  TradeItemCurrentOfferRow,
   TradeItemSnapshotRow,
   TradeItemSnapshotSummary,
   TradeItemSource,
@@ -116,6 +116,7 @@ export async function createTradeWatchlist(
       .run();
 
     const id = Number((result.meta as { last_row_id?: unknown } | undefined)?.last_row_id);
+    await replaceTradeWatchlistItems(env, id, validated.payload.item_ids);
     return json({
       ok: true,
       watchlist: await readTradeWatchlist(env, id),
@@ -173,6 +174,7 @@ export async function updateTradeWatchlist(request: Request, env: Env, id: numbe
       return json({ ok: false, error: "Watchlist not found", code: "WATCHLIST_NOT_FOUND" }, 404);
     }
 
+    await replaceTradeWatchlistItems(env, id, validated.payload.item_ids);
     return json({
       ok: true,
       watchlist: await readTradeWatchlist(env, id),
@@ -394,22 +396,22 @@ async function readDerivedTradeSearch(
   payload: TradeSearchPayload,
 ): Promise<{ snapshots: TradeItemSnapshotSummary[]; opportunities: TradeOpportunity[] }> {
   const snapshots = await latestItemSnapshotsForSearch(env, payload.item_ids, payload.item_source);
-  const snapshotIds = snapshots.map((snapshot) => snapshot.id);
-  if (snapshotIds.length === 0) {
+  if (snapshots.length === 0) {
     return { snapshots: [], opportunities: [] };
   }
 
-  const placeholders = snapshotIds.map(() => "?").join(", ");
+  const placeholders = payload.item_ids.map(() => "?").join(", ");
   const rows = await env.DB.prepare(
     `
     SELECT *
-    FROM trade_item_offers
-    WHERE item_snapshot_id IN (${placeholders})
+    FROM trade_item_current_offers
+    WHERE item_source = ?
+      AND item_id IN (${placeholders})
     ORDER BY item_id ASC, listing_price ASC
     `,
   )
-    .bind(...snapshotIds)
-    .all<TradeItemOfferRow>();
+    .bind(payload.item_source, ...payload.item_ids)
+    .all<TradeItemCurrentOfferRow>();
 
   const opportunities = (rows.results ?? [])
     .map((offer) => opportunityFromStoredOffer(offer, payload))
@@ -441,13 +443,12 @@ async function latestItemSnapshotsForSearch(
           s.*,
           (
             SELECT COUNT(*)
-            FROM trade_item_offers o
-            WHERE o.item_snapshot_id = s.id
+            FROM trade_item_current_offers o
+            WHERE o.market_state_id = s.id
           ) AS offer_count
-        FROM trade_item_snapshots s
+        FROM trade_item_market_state s
         WHERE s.item_id = ?
           AND s.item_source = ?
-        ORDER BY s.scanned_at DESC
         LIMIT 1
         `,
       )
@@ -471,12 +472,10 @@ async function scanAndSaveItems(
   },
 ): Promise<void> {
   for (const itemId of input.itemIds) {
-    const snapshotId = crypto.randomUUID();
     const scannedAt = nowSeconds();
     try {
       const result = await scanItemOffers(env, itemId, input.itemSource, input.tornKey);
-      await saveItemSnapshot(env, {
-        snapshotId,
+      await saveItemMarketState(env, {
         itemId,
         itemSource: input.itemSource,
         itemName: result.itemName,
@@ -488,8 +487,7 @@ async function scanAndSaveItems(
         offers: result.offers,
       });
     } catch (err: any) {
-      await saveItemSnapshot(env, {
-        snapshotId,
+      await saveItemMarketState(env, {
         itemId,
         itemSource: input.itemSource,
         itemName: null,
@@ -642,7 +640,7 @@ function storedOfferFromListing({
   };
 }
 
-function opportunityFromStoredOffer(offer: TradeItemOfferRow, search: TradeSearchPayload): TradeOpportunity {
+function opportunityFromStoredOffer(offer: TradeItemCurrentOfferRow, search: TradeSearchPayload): TradeOpportunity {
   const listingPrice = Math.round(Number(offer.listing_price));
   const referencePrice = Math.round(Number(offer.reference_price));
   const resale = resalePrice(referencePrice);
@@ -654,7 +652,7 @@ function opportunityFromStoredOffer(offer: TradeItemOfferRow, search: TradeSearc
 
   return {
     id: offer.id,
-    snapshot_id: offer.item_snapshot_id,
+    snapshot_id: offer.market_state_id,
     watchlist_id: null,
     item_id: Number(offer.item_id),
     item_name: offer.item_name,
@@ -671,7 +669,7 @@ function opportunityFromStoredOffer(offer: TradeItemOfferRow, search: TradeSearc
     seller_name: offer.seller_name,
     reference_label: resaleLabel(offer.reference_label ?? "Reference price", referencePrice, resale),
     raw_json: offer.raw_json,
-    created_at: Number(offer.created_at),
+    created_at: Number(offer.fetched_at),
   };
 }
 
@@ -1122,10 +1120,9 @@ async function saveScanSnapshot(
   }
 }
 
-async function saveItemSnapshot(
+async function saveItemMarketState(
   env: Env,
   input: {
-    snapshotId: string;
     itemId: number;
     itemSource: TradeItemSource;
     itemName: string | null;
@@ -1137,10 +1134,34 @@ async function saveItemSnapshot(
     offers: StoredTradeOffer[];
   },
 ): Promise<void> {
+  const marketStateId = tradeItemMarketStateId(input.itemId, input.itemSource);
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
       `
-      INSERT INTO trade_item_snapshots (
+      INSERT INTO torn_items (
+        torn_item_id,
+        name,
+        image_url,
+        image_url_large,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(torn_item_id) DO UPDATE SET
+        name = COALESCE(excluded.name, torn_items.name),
+        image_url = COALESCE(excluded.image_url, torn_items.image_url),
+        image_url_large = COALESCE(excluded.image_url_large, torn_items.image_url_large),
+        updated_at = excluded.updated_at
+      `,
+    ).bind(
+      input.itemId,
+      input.itemName,
+      tornItemImageUrl(input.itemId, "medium"),
+      tornItemImageUrl(input.itemId, "large"),
+      input.scannedAt,
+    ),
+    env.DB.prepare(
+      `
+      INSERT INTO trade_item_market_state (
         id,
         item_id,
         item_source,
@@ -1152,9 +1173,17 @@ async function saveItemSnapshot(
         raw_json
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(item_id, item_source) DO UPDATE SET
+        id = excluded.id,
+        item_name = excluded.item_name,
+        scanned_by_torn_user_id = excluded.scanned_by_torn_user_id,
+        scanned_at = excluded.scanned_at,
+        status = excluded.status,
+        error = excluded.error,
+        raw_json = excluded.raw_json
       `,
     ).bind(
-      input.snapshotId,
+      marketStateId,
       input.itemId,
       input.itemSource,
       input.itemName,
@@ -1164,15 +1193,22 @@ async function saveItemSnapshot(
       input.error,
       input.rawJson,
     ),
+    env.DB.prepare(
+      `
+      DELETE FROM trade_item_current_offers
+      WHERE item_id = ?
+        AND item_source = ?
+      `,
+    ).bind(input.itemId, input.itemSource),
   ];
 
   input.offers.forEach((offer, index) => {
     statements.push(
       env.DB.prepare(
         `
-        INSERT INTO trade_item_offers (
+        INSERT INTO trade_item_current_offers (
           id,
-          item_snapshot_id,
+          market_state_id,
           item_id,
           item_name,
           item_source,
@@ -1185,13 +1221,13 @@ async function saveItemSnapshot(
           seller_name,
           reference_label,
           raw_json,
-          created_at
+          fetched_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       ).bind(
-        `${input.snapshotId}:${index}`,
-        input.snapshotId,
+        `${marketStateId}:${index}`,
+        marketStateId,
         offer.item_id,
         offer.item_name,
         offer.item_source,
@@ -1226,6 +1262,60 @@ function mapTradeItemSnapshotRow(row: TradeItemSnapshotRow): TradeItemSnapshotSu
     error: row.error,
     offer_count: Number(row.offer_count ?? 0),
   };
+}
+
+async function replaceTradeWatchlistItems(env: Env, watchlistId: number, itemIds: number[]): Promise<void> {
+  const now = nowSeconds();
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(`DELETE FROM trade_watchlist_items WHERE watchlist_id = ?`).bind(watchlistId),
+  ];
+
+  itemIds.forEach((itemId, index) => {
+    statements.push(
+      env.DB.prepare(
+        `
+        INSERT INTO torn_items (
+          torn_item_id,
+          image_url,
+          image_url_large,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(torn_item_id) DO UPDATE SET
+          image_url = COALESCE(torn_items.image_url, excluded.image_url),
+          image_url_large = COALESCE(torn_items.image_url_large, excluded.image_url_large)
+        `,
+      ).bind(
+        itemId,
+        tornItemImageUrl(itemId, "medium"),
+        tornItemImageUrl(itemId, "large"),
+        now,
+      ),
+      env.DB.prepare(
+        `
+        INSERT INTO trade_watchlist_items (
+          watchlist_id,
+          torn_item_id,
+          display_order,
+          created_at
+        )
+        VALUES (?, ?, ?, ?)
+        `,
+      ).bind(watchlistId, itemId, index, now),
+    );
+  });
+
+  for (let index = 0; index < statements.length; index += 50) {
+    await env.DB.batch(statements.slice(index, index + 50));
+  }
+}
+
+function tradeItemMarketStateId(itemId: number, itemSource: TradeItemSource): string {
+  return `${itemSource}:${itemId}`;
+}
+
+function tornItemImageUrl(itemId: number, size: "medium" | "large"): string {
+  return `https://www.torn.com/images/items/${itemId}/${size}@2x.png`;
 }
 
 function mapTradeWatchlistRow(row: TradeWatchlistListRow): TradeWatchlist {

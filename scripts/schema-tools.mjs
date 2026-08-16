@@ -20,7 +20,7 @@ const explainQueries = [
   "EXPLAIN QUERY PLAN SELECT * FROM stock_paper_trades WHERE account_id = ? ORDER BY executed_at DESC LIMIT 20;",
   "EXPLAIN QUERY PLAN SELECT * FROM stock_copy_movement_events WHERE source_player_id = ? ORDER BY observed_at DESC LIMIT 20;",
   "EXPLAIN QUERY PLAN SELECT * FROM member_personal_stats_recent WHERE member_id = ? AND stat_name = ?;",
-  "EXPLAIN QUERY PLAN SELECT * FROM trade_item_snapshots WHERE item_id = ? ORDER BY observed_at DESC LIMIT 1;",
+  "EXPLAIN QUERY PLAN SELECT * FROM trade_item_market_state WHERE item_id = ? AND item_source = ? LIMIT 1;",
 ];
 
 const migrationFiles = readdirSync(migrationDir)

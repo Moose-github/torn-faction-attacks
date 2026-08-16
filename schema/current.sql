@@ -982,9 +982,77 @@ CREATE TABLE torn_shoplifting_cache (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
-CREATE TABLE trade_item_offers (
+CREATE TABLE torn_items (
+  torn_item_id INTEGER PRIMARY KEY,
+  name TEXT,
+  image_url TEXT,
+  image_url_large TEXT,
+  category TEXT,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE TABLE item_groups (
   id TEXT PRIMARY KEY,
-  item_snapshot_id TEXT NOT NULL REFERENCES trade_item_snapshots(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE TABLE item_group_items (
+  group_id TEXT NOT NULL REFERENCES item_groups(id) ON DELETE CASCADE,
+  torn_item_id INTEGER NOT NULL REFERENCES torn_items(torn_item_id) ON DELETE CASCADE,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (group_id, torn_item_id)
+);
+
+CREATE TABLE pack_definitions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE TABLE pack_reward_entries (
+  id TEXT PRIMARY KEY,
+  pack_id TEXT NOT NULL REFERENCES pack_definitions(id) ON DELETE CASCADE,
+  torn_item_id INTEGER NOT NULL REFERENCES torn_items(torn_item_id),
+  rarity TEXT NOT NULL CHECK (rarity IN ('standard', 'select', 'elite', 'legendary')),
+  weight INTEGER NOT NULL CHECK (weight >= 0),
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  UNIQUE(pack_id, torn_item_id)
+);
+
+CREATE TABLE trade_watchlist_items (
+  watchlist_id INTEGER NOT NULL REFERENCES trade_watchlists(id) ON DELETE CASCADE,
+  torn_item_id INTEGER NOT NULL REFERENCES torn_items(torn_item_id),
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (watchlist_id, torn_item_id)
+);
+
+CREATE TABLE trade_item_market_state (
+  id TEXT PRIMARY KEY,
+  item_id INTEGER NOT NULL REFERENCES torn_items(torn_item_id),
+  item_source TEXT NOT NULL,
+  item_name TEXT,
+  scanned_by_torn_user_id INTEGER,
+  scanned_at INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  error TEXT,
+  raw_json TEXT,
+  UNIQUE(item_id, item_source)
+);
+
+CREATE TABLE trade_item_current_offers (
+  id TEXT PRIMARY KEY,
+  market_state_id TEXT NOT NULL REFERENCES trade_item_market_state(id) ON DELETE CASCADE,
   item_id INTEGER NOT NULL,
   item_name TEXT,
   item_source TEXT NOT NULL,
@@ -997,19 +1065,7 @@ CREATE TABLE trade_item_offers (
   seller_name TEXT,
   reference_label TEXT,
   raw_json TEXT,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-
-CREATE TABLE trade_item_snapshots (
-  id TEXT PRIMARY KEY,
-  item_id INTEGER NOT NULL,
-  item_source TEXT NOT NULL,
-  item_name TEXT,
-  scanned_by_torn_user_id INTEGER,
-  scanned_at INTEGER NOT NULL,
-  status TEXT NOT NULL,
-  error TEXT,
-  raw_json TEXT
+  fetched_at INTEGER NOT NULL
 );
 
 CREATE TABLE trade_opportunities (
@@ -1470,11 +1526,29 @@ CREATE INDEX idx_torn_api_call_log_status_requested_at
 CREATE INDEX idx_torn_api_usage_rollup_type_bucket
   ON torn_api_usage_rollup_15m(group_type, bucket_start DESC);
 
-CREATE INDEX idx_trade_item_offers_snapshot
-  ON trade_item_offers(item_snapshot_id);
+CREATE INDEX idx_torn_items_name
+  ON torn_items(name);
 
-CREATE INDEX idx_trade_item_snapshots_latest
-  ON trade_item_snapshots(item_id, item_source, scanned_at DESC);
+CREATE INDEX idx_item_group_items_item
+  ON item_group_items(torn_item_id);
+
+CREATE INDEX idx_pack_reward_entries_pack
+  ON pack_reward_entries(pack_id, enabled, display_order);
+
+CREATE INDEX idx_pack_reward_entries_item
+  ON pack_reward_entries(torn_item_id);
+
+CREATE INDEX idx_trade_watchlist_items_item
+  ON trade_watchlist_items(torn_item_id);
+
+CREATE INDEX idx_trade_item_market_state_scanned
+  ON trade_item_market_state(item_source, scanned_at DESC);
+
+CREATE INDEX idx_trade_item_current_offers_item
+  ON trade_item_current_offers(item_id, item_source, listing_price);
+
+CREATE INDEX idx_trade_item_current_offers_state
+  ON trade_item_current_offers(market_state_id);
 
 CREATE INDEX idx_trade_opportunities_snapshot_profit
   ON trade_opportunities(snapshot_id, profit DESC);

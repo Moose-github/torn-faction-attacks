@@ -1,0 +1,429 @@
+import React from "react";
+import {
+  PackageOpen,
+  RotateCcw,
+  Sparkles,
+  X,
+  Zap,
+} from "lucide-react";
+
+export type PackRewardRarity = "standard" | "select" | "elite" | "legendary";
+
+export type PackReward = {
+  id: string;
+  name: string;
+  imageUrl: string;
+  rarity: PackRewardRarity;
+  weight: number;
+};
+
+export const TORN_PACK_REWARDS: PackReward[] = [
+  {
+    id: "530",
+    name: "Torn item 530",
+    imageUrl: "https://www.torn.com/images/items/530/large@2x.png",
+    rarity: "standard",
+    weight: 24,
+  },
+  {
+    id: "532",
+    name: "Torn item 532",
+    imageUrl: "https://www.torn.com/images/items/532/large@2x.png",
+    rarity: "standard",
+    weight: 22,
+  },
+  {
+    id: "533",
+    name: "Torn item 533",
+    imageUrl: "https://www.torn.com/images/items/533/large@2x.png",
+    rarity: "select",
+    weight: 16,
+  },
+  {
+    id: "553",
+    name: "Torn item 553",
+    imageUrl: "https://www.torn.com/images/items/553/large@2x.png",
+    rarity: "select",
+    weight: 14,
+  },
+  {
+    id: "554",
+    name: "Torn item 554",
+    imageUrl: "https://www.torn.com/images/items/554/large@2x.png",
+    rarity: "elite",
+    weight: 10,
+  },
+  {
+    id: "555",
+    name: "Torn item 555",
+    imageUrl: "https://www.torn.com/images/items/555/large@2x.png",
+    rarity: "elite",
+    weight: 8,
+  },
+  {
+    id: "985",
+    name: "Torn item 985",
+    imageUrl: "https://www.torn.com/images/items/985/large@2x.png",
+    rarity: "legendary",
+    weight: 3,
+  },
+  {
+    id: "986",
+    name: "Torn item 986",
+    imageUrl: "https://www.torn.com/images/items/986/large@2x.png",
+    rarity: "legendary",
+    weight: 2,
+  },
+  {
+    id: "987",
+    name: "Torn item 987",
+    imageUrl: "https://www.torn.com/images/items/987/large@2x.png",
+    rarity: "legendary",
+    weight: 1,
+  },
+];
+
+type PackPhase = "sealed" | "tearing" | "revealing" | "complete";
+
+type SiegePackOpeningModalProps = {
+  open: boolean;
+  rewards?: PackReward[];
+  onClose: () => void;
+  onRewardResolved?: (reward: PackReward) => void;
+};
+
+const REVEAL_PARTICLES = Array.from({ length: 22 }, (_, index) => index);
+const PACK_PHASE_TIMING = {
+  tearMs: 980,
+  revealMs: 980,
+};
+
+const rarityMeta: Record<PackRewardRarity, { label: string; color: string; glow: string }> = {
+  standard: {
+    label: "Standard",
+    color: "#38bdf8",
+    glow: "rgba(56, 189, 248, 0.34)",
+  },
+  select: {
+    label: "Select",
+    color: "#22c55e",
+    glow: "rgba(34, 197, 94, 0.34)",
+  },
+  elite: {
+    label: "Elite",
+    color: "#f59e0b",
+    glow: "rgba(245, 158, 11, 0.38)",
+  },
+  legendary: {
+    label: "Legendary",
+    color: "#fb7185",
+    glow: "rgba(251, 113, 133, 0.42)",
+  },
+};
+
+export function SiegePackOpeningModal({
+  open,
+  rewards = TORN_PACK_REWARDS,
+  onClose,
+  onRewardResolved,
+}: SiegePackOpeningModalProps) {
+  const [phase, setPhase] = React.useState<PackPhase>("sealed");
+  const [reward, setReward] = React.useState<PackReward | null>(null);
+  const [tearProgress, setTearProgress] = React.useState(0);
+  const [isDraggingTear, setIsDraggingTear] = React.useState(false);
+  const [revealCount, setRevealCount] = React.useState(0);
+  const shellRef = React.useRef<HTMLDivElement | null>(null);
+  const modalRef = React.useRef<HTMLDivElement | null>(null);
+  const timersRef = React.useRef<number[]>([]);
+  const tearProgressRef = React.useRef(0);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  React.useEffect(() => {
+    if (!open) {
+      clearTimers();
+      setPhase("sealed");
+      setReward(null);
+      setTearProgressValue(0);
+      setIsDraggingTear(false);
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.setTimeout(() => modalRef.current?.focus(), 0);
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, open]);
+
+  React.useEffect(() => {
+    return clearTimers;
+  }, []);
+
+  if (!open) {
+    return null;
+  }
+
+  const activeReward = reward ?? rewards[0] ?? null;
+  const meta = activeReward ? rarityMeta[activeReward.rarity] : rarityMeta.standard;
+  const style = {
+    "--pack-rarity-color": meta.color,
+    "--pack-rarity-glow": meta.glow,
+    "--pack-tear-progress": String(tearProgress),
+    "--pack-tear-percent": `${tearProgress * 100}%`,
+    "--pack-tear-inset": `${(1 - tearProgress) * 100}%`,
+    "--pack-tear-handle-top": `${18 + tearProgress * 56}%`,
+    "--pack-shell-highlight-opacity": String(0.28 + tearProgress * 0.58),
+  } as React.CSSProperties;
+  const isAnimating = phase === "tearing" || phase === "revealing";
+
+  function clearTimers() {
+    for (const timer of timersRef.current) {
+      window.clearTimeout(timer);
+    }
+    timersRef.current = [];
+  }
+
+  function schedule(callback: () => void, delayMs: number) {
+    const timer = window.setTimeout(() => {
+      timersRef.current = timersRef.current.filter((candidate) => candidate !== timer);
+      callback();
+    }, delayMs);
+    timersRef.current.push(timer);
+  }
+
+  function beginOpening() {
+    if (isAnimating || rewards.length === 0) {
+      return;
+    }
+
+    clearTimers();
+    const nextReward = pickReward(rewards);
+    setReward(nextReward);
+    setTearProgressValue(1);
+    setRevealCount((current) => current + 1);
+    onRewardResolved?.(nextReward);
+
+    if (prefersReducedMotion) {
+      setPhase("complete");
+      return;
+    }
+
+    setPhase("tearing");
+    schedule(() => setPhase("revealing"), PACK_PHASE_TIMING.tearMs);
+    schedule(() => setPhase("complete"), PACK_PHASE_TIMING.tearMs + PACK_PHASE_TIMING.revealMs);
+  }
+
+  function resetPack() {
+    clearTimers();
+    setPhase("sealed");
+    setReward(null);
+    setTearProgressValue(0);
+    setIsDraggingTear(false);
+  }
+
+  function handleTearPointerDown(event: React.PointerEvent<HTMLButtonElement>) {
+    if (phase !== "sealed") {
+      return;
+    }
+
+    setIsDraggingTear(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateTearProgress(event.clientY);
+  }
+
+  function handleTearPointerMove(event: React.PointerEvent<HTMLButtonElement>) {
+    if (!isDraggingTear || phase !== "sealed") {
+      return;
+    }
+
+    updateTearProgress(event.clientY);
+  }
+
+  function handleTearPointerUp(event: React.PointerEvent<HTMLButtonElement>) {
+    if (!isDraggingTear) {
+      return;
+    }
+
+    setIsDraggingTear(false);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (tearProgressRef.current >= 0.74) {
+      beginOpening();
+    } else {
+      setTearProgressValue(0);
+    }
+  }
+
+  function updateTearProgress(clientY: number) {
+    const rect = shellRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    const start = rect.top + rect.height * 0.18;
+    const distance = rect.height * 0.56;
+    const nextProgress = Math.min(1, Math.max(0, (clientY - start) / distance));
+    setTearProgressValue(nextProgress);
+  }
+
+  function setTearProgressValue(nextProgress: number) {
+    tearProgressRef.current = nextProgress;
+    setTearProgress(nextProgress);
+  }
+
+  return (
+    <div className="siege-pack-modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) {
+        onClose();
+      }
+    }}>
+      <div
+        ref={modalRef}
+        className={`siege-pack-modal phase-${phase}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="siege-pack-title"
+        tabIndex={-1}
+        style={style}
+      >
+        <button
+          type="button"
+          className="siege-pack-close"
+          onClick={onClose}
+          title="Close pack opener"
+          aria-label="Close pack opener"
+        >
+          <X size={18} />
+        </button>
+
+        <section className="siege-pack-stage" aria-live="polite">
+          <div className="siege-pack-stage-light" aria-hidden="true" />
+          <div className="siege-pack-reward-aura" aria-hidden="true" />
+
+          {activeReward ? (
+            <div key={`${activeReward.id}-${revealCount}`} className="siege-pack-reward-display">
+              <img src={activeReward.imageUrl} alt={activeReward.name} />
+              <span>{meta.label}</span>
+            </div>
+          ) : null}
+
+          <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
+            <div className="siege-pack-shell-top">
+              <span>BG</span>
+            </div>
+            <div className="siege-pack-shell-body">
+              <Sparkles size={30} />
+              <strong>Faction Pack</strong>
+              <small>{phase === "sealed" ? "Tear to reveal" : "Opening"}</small>
+            </div>
+            <div className="siege-pack-tear-track">
+              <span />
+            </div>
+            <button
+              type="button"
+              className="siege-pack-tear-handle"
+              onPointerDown={handleTearPointerDown}
+              onPointerMove={handleTearPointerMove}
+              onPointerUp={handleTearPointerUp}
+              onPointerCancel={handleTearPointerUp}
+              disabled={phase !== "sealed"}
+              aria-label="Drag down to tear open the pack"
+              title="Drag down to tear open"
+            >
+              <Zap size={16} />
+            </button>
+          </div>
+
+          <div className="siege-pack-shards" aria-hidden="true">
+            {REVEAL_PARTICLES.map((particle) => (
+              <span
+                key={particle}
+                style={{
+                  "--particle-start-angle": `${particle * 23}deg`,
+                  "--particle-end-angle": `${particle * 37}deg`,
+                  "--particle-travel": `-${90 + particle * 5}px`,
+                  "--particle-delay": `${(particle % 7) * 22}ms`,
+                } as React.CSSProperties}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section className="siege-pack-controls">
+          <div>
+            <p className="eyebrow">Pack opening</p>
+            <h2 id="siege-pack-title">{phase === "complete" && activeReward ? activeReward.name : "Tear the pack"}</h2>
+            <p>
+              {phase === "sealed"
+                ? "Drag the charge strip down or use the open button."
+                : phase === "complete" && activeReward
+                  ? `${meta.label} reward revealed.`
+                  : "Reward decrypting."}
+            </p>
+          </div>
+          <div className="siege-pack-actions">
+            {phase === "complete" ? (
+              <button type="button" className="panel-action-button secondary" onClick={resetPack}>
+                <RotateCcw size={15} />
+                Reset
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="panel-action-button primary-action"
+              onClick={phase === "complete" ? resetPack : beginOpening}
+              disabled={isAnimating || rewards.length === 0}
+            >
+              <PackageOpen size={15} />
+              {phase === "complete" ? "Open another" : isAnimating ? "Opening" : "Open pack"}
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+export function pickReward(rewards: PackReward[]): PackReward {
+  const totalWeight = rewards.reduce((sum, reward) => sum + Math.max(0, reward.weight), 0);
+  if (totalWeight <= 0) {
+    return rewards[Math.floor(Math.random() * rewards.length)];
+  }
+
+  let roll = Math.random() * totalWeight;
+  for (const reward of rewards) {
+    roll -= Math.max(0, reward.weight);
+    if (roll <= 0) {
+      return reward;
+    }
+  }
+
+  return rewards[rewards.length - 1];
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = React.useState(false);
+
+  React.useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setPrefersReducedMotion(media.matches);
+
+    function handleChange(event: MediaQueryListEvent) {
+      setPrefersReducedMotion(event.matches);
+    }
+
+    media.addEventListener("change", handleChange);
+    return () => media.removeEventListener("change", handleChange);
+  }, []);
+
+  return prefersReducedMotion;
+}

@@ -27,6 +27,7 @@ export function Sidebar({
   bookStrategyIcon,
   warPayoutsIcon,
   stockMarketIcon,
+  packsIcon,
   dataHealthIcon,
   settingsIcon,
   diceGameIcon,
@@ -52,6 +53,7 @@ export function Sidebar({
   bookStrategyIcon: React.ReactNode;
   warPayoutsIcon: React.ReactNode;
   stockMarketIcon: React.ReactNode;
+  packsIcon: React.ReactNode;
   dataHealthIcon: React.ReactNode;
   settingsIcon: React.ReactNode;
   diceGameIcon: React.ReactNode;
@@ -68,7 +70,7 @@ export function Sidebar({
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
   const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "stockInvestments";
-  const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "admin";
+  const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "packs" || view === "admin";
 
   React.useEffect(() => {
     setCollapsedGroups((current) => {
@@ -234,6 +236,12 @@ export function Sidebar({
             icon={stockMarketIcon}
             label="Stock market"
             onClick={() => onViewChange("stockMarketStatus")}
+          />
+          <SidebarLink
+            active={view === "packs"}
+            icon={packsIcon}
+            label="Packs"
+            onClick={() => onViewChange("packs")}
           />
           <SidebarLink
             active={view === "admin"}

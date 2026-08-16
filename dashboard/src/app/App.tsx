@@ -9,6 +9,7 @@ import {
   House,
   LogIn,
   Moon,
+  PackageOpen,
   Pill,
   Radar,
   ShoppingCart,
@@ -106,6 +107,9 @@ const ArrestScout = React.lazy(() =>
 );
 const BookStrategy = React.lazy(() =>
   import("../views/BookStrategy").then((module) => ({ default: module.BookStrategy })),
+);
+const Packs = React.lazy(() =>
+  import("../views/Packs").then((module) => ({ default: module.Packs })),
 );
 const WarPayouts = React.lazy(() =>
   import("../views/WarPayouts").then((module) => ({ default: module.WarPayouts })),
@@ -739,6 +743,7 @@ export function App() {
           bookStrategyIcon={<BookOpen size={18} />}
           warPayoutsIcon={<CircleDollarSign size={18} />}
           stockMarketIcon={<TrendingUp size={18} />}
+          packsIcon={<PackageOpen size={18} />}
           dataHealthIcon={<Gauge size={18} />}
           settingsIcon={<SettingsIcon size={18} />}
           diceGameIcon={<Dices size={18} />}
@@ -791,6 +796,10 @@ export function App() {
           ) : view === "warPayouts" ? (
             <LazyPage>
               <WarPayouts />
+            </LazyPage>
+          ) : view === "packs" ? (
+            <LazyPage>
+              <Packs />
             </LazyPage>
           ) : view === "stockMarketStatus" ? (
             <LazyPage>
