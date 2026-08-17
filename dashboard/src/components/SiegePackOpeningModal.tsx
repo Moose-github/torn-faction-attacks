@@ -3,7 +3,6 @@ import {
   PackageOpen,
   RotateCcw,
   X,
-  Zap,
 } from "lucide-react";
 import {
   Application,
@@ -18,7 +17,6 @@ import {
 import energyCacheCardBack from "../assets/packs/energy-cache-card-back.png";
 import energyCachePackFront from "../assets/packs/energy-cache-pack-front.png";
 import energyCachePackOpenBody from "../assets/packs/energy-cache-pack-open-body.png";
-import energyCacheTearStrip from "../assets/packs/energy-cache-tear-strip.png";
 
 export type PackRewardRarity = "standard" | "select" | "elite" | "legendary";
 
@@ -237,10 +235,7 @@ export function SiegePackOpeningModal({
     "--pack-rarity-glow": meta.glow,
     "--pack-tear-progress": String(tearProgress),
     "--pack-tear-percent": `${tearProgress * 100}%`,
-    "--pack-tear-inset": `${(1 - tearProgress) * 100}%`,
-    "--pack-tear-handle-left": `${17 + tearProgress * 65}%`,
     "--pack-shell-highlight-opacity": String(0.28 + tearProgress * 0.58),
-    "--pack-tear-opacity": String(Math.min(1, tearProgress * 1.6)),
     "--pack-glow-opacity": String(Math.min(0.95, tearProgress * 1.15)),
   } as React.CSSProperties;
   const isAnimating = phase === "burst" || phase === "emerging" || phase === "revealing";
@@ -467,14 +462,12 @@ export function SiegePackOpeningModal({
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
             <div ref={pixiHostRef} className="siege-pack-pixi" aria-hidden="true" />
             <div className="siege-pack-open-glow" aria-hidden="true" />
-            <div className="siege-pack-tear-teeth" aria-hidden="true" />
-            <img className="siege-pack-tear-strip-art" src={energyCacheTearStrip} alt="" aria-hidden="true" />
             <div className="siege-pack-tear-track">
               <span />
             </div>
             <button
               type="button"
-              className="siege-pack-tear-handle"
+              className="siege-pack-tear-zone"
               onPointerDown={handleTearPointerDown}
               onPointerMove={handleTearPointerMove}
               onPointerUp={handleTearPointerUp}
@@ -482,9 +475,7 @@ export function SiegePackOpeningModal({
               disabled={phase !== "sealed" && phase !== "dragging"}
               aria-label="Drag right to tear open the pack"
               title="Drag right to tear open"
-            >
-              <Zap size={16} />
-            </button>
+            />
           </div>
 
           <div className="siege-pack-shards" aria-hidden="true">
