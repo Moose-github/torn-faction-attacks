@@ -234,8 +234,10 @@ export function SiegePackOpeningModal({
     "--pack-rarity-color": meta.color,
     "--pack-rarity-glow": meta.glow,
     "--pack-tear-progress": String(tearProgress),
-    "--pack-tear-glow-x": `${15 + tearProgress * 69}%`,
-    "--pack-tear-glow-opacity": String(Math.min(0.95, Math.max(0, (tearProgress - 0.02) * 1.9))),
+    "--pack-tear-glow-x": `${tearProgress * 100}%`,
+    "--pack-tear-glow-progress": `${tearProgress * 100}%`,
+    "--pack-tear-glow-opacity": String(Math.min(0.82, Math.max(0, (tearProgress - 0.02) * 1.45))),
+    "--pack-tear-hotspot-opacity": String(Math.min(0.9, 0.54 + tearProgress * 0.26)),
     "--pack-shell-highlight-opacity": String(0.28 + tearProgress * 0.58),
   } as React.CSSProperties;
   const isAnimating = phase === "burst" || phase === "emerging" || phase === "revealing";
