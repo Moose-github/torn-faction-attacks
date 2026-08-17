@@ -234,6 +234,8 @@ export function SiegePackOpeningModal({
     "--pack-rarity-color": meta.color,
     "--pack-rarity-glow": meta.glow,
     "--pack-tear-progress": String(tearProgress),
+    "--pack-tear-glow-x": `${15 + tearProgress * 69}%`,
+    "--pack-tear-glow-opacity": String(Math.min(0.95, Math.max(0, (tearProgress - 0.02) * 1.9))),
     "--pack-shell-highlight-opacity": String(0.28 + tearProgress * 0.58),
   } as React.CSSProperties;
   const isAnimating = phase === "burst" || phase === "emerging" || phase === "revealing";
@@ -459,6 +461,7 @@ export function SiegePackOpeningModal({
 
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
             <div ref={pixiHostRef} className="siege-pack-pixi" aria-hidden="true" />
+            <div className="siege-pack-rarity-seam-glow" aria-hidden="true" />
             <button
               type="button"
               className="siege-pack-tear-zone"
@@ -677,7 +680,7 @@ function updatePixiPackScene(scene: PixiPackScene | null, rawProgress: number) {
   const height = PIXI_PACK_HEIGHT;
   const seamY = height * 0.158;
   const seamHeight = height * 0.029;
-  const topHeight = height * 0.184;
+  const tearLineY = seamY + seamHeight * 0.3;
   const tearStart = width * 0.15;
   const tearEnd = width * 0.84;
   const tearX = tearStart + (tearEnd - tearStart) * progress;
@@ -690,11 +693,11 @@ function updatePixiPackScene(scene: PixiPackScene | null, rawProgress: number) {
   scene.pulledTop.visible = hasTear;
 
   scene.lowerBodyMask.clear();
-  scene.lowerBodyMask.rect(0, seamY + seamHeight * 0.3, width, height).fill(0xffffff);
+  scene.lowerBodyMask.rect(0, tearLineY, width, height).fill(0xffffff);
   scene.lowerBody.alpha = 1 - progress * 0.1;
 
-  updateAttachedTopGeometry(scene, tearX, topHeight + seamHeight, width, height);
-  updatePulledTopGeometry(scene, progress, tearX, topHeight, width, height);
+  updateAttachedTopGeometry(scene, tearX, tearLineY, width, height);
+  updatePulledTopGeometry(scene, progress, tearX, tearLineY, width, height);
 }
 
 function updateAttachedTopGeometry(
@@ -731,20 +734,20 @@ function updatePulledTopGeometry(
       const horizontalRatio = column / PIXI_STRIP_COLUMNS;
       const sourceX = visibleWidth * horizontalRatio;
       const sourceY = topHeight * verticalRatio;
+      const looseEdge = 1 - verticalRatio;
       const leadingLift = Math.pow(1 - horizontalRatio, 0.56);
       const trailingLift = Math.pow(horizontalRatio, 1.7);
       const arc = Math.sin(horizontalRatio * Math.PI);
       const rowCurl = Math.sin(verticalRatio * Math.PI);
-      const flutter = Math.sin(column * 0.58 + row * 1.17 + progress * 5.4) * 3.2 * progress;
-      const lowerEdgeDrag = verticalRatio * progress;
+      const flutter = Math.sin(column * 0.58 + row * 1.17 + progress * 5.4) * 3.2 * progress * looseEdge;
       const destX = sourceX
-        + progress * (width * 0.036 * leadingLift + width * 0.016 * trailingLift)
-        + arc * progress * 15
-        + lowerEdgeDrag * (20 * arc - 14 * leadingLift);
+        + looseEdge * (
+          progress * (width * 0.036 * leadingLift + width * 0.016 * trailingLift)
+          + arc * progress * 15
+        );
       const destY = sourceY
-        - progress * (118 * leadingLift + 56 * arc + 20 * trailingLift)
-        + rowCurl * progress * (18 * arc - 12 * leadingLift)
-        + lowerEdgeDrag * 34
+        - progress * looseEdge * (118 * leadingLift + 56 * arc + 20 * trailingLift)
+        + rowCurl * progress * looseEdge * (18 * arc - 12 * leadingLift)
         + flutter;
 
       positions[offset] = destX;
