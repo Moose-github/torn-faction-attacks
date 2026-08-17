@@ -463,7 +463,9 @@ export function SiegePackOpeningModal({
 
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
             <div ref={pixiHostRef} className="siege-pack-pixi" aria-hidden="true" />
-            <div className="siege-pack-rarity-seam-glow" aria-hidden="true" />
+            <div className="siege-pack-rarity-seam-glow" aria-hidden="true">
+              <span className="siege-pack-rarity-seam-trail" />
+            </div>
             <button
               type="button"
               className="siege-pack-tear-zone"
@@ -737,19 +739,21 @@ function updatePulledTopGeometry(
       const sourceX = visibleWidth * horizontalRatio;
       const sourceY = topHeight * verticalRatio;
       const looseEdge = 1 - verticalRatio;
+      const releasedEdge = Math.pow(1 - horizontalRatio, 0.42);
+      const liftInfluence = looseEdge + (1 - looseEdge) * releasedEdge * 0.42;
       const leadingLift = Math.pow(1 - horizontalRatio, 0.56);
       const trailingLift = Math.pow(horizontalRatio, 1.7);
       const arc = Math.sin(horizontalRatio * Math.PI);
       const rowCurl = Math.sin(verticalRatio * Math.PI);
-      const flutter = Math.sin(column * 0.58 + row * 1.17 + progress * 5.4) * 3.2 * progress * looseEdge;
+      const flutter = Math.sin(column * 0.58 + row * 1.17 + progress * 5.4) * 3.2 * progress * liftInfluence;
       const destX = sourceX
-        + looseEdge * (
+        + liftInfluence * (
           progress * (width * 0.036 * leadingLift + width * 0.016 * trailingLift)
           + arc * progress * 15
         );
       const destY = sourceY
-        - progress * looseEdge * (118 * leadingLift + 56 * arc + 20 * trailingLift)
-        + rowCurl * progress * looseEdge * (18 * arc - 12 * leadingLift)
+        - progress * liftInfluence * (118 * leadingLift + 56 * arc + 20 * trailingLift)
+        + rowCurl * progress * liftInfluence * (18 * arc - 12 * leadingLift)
         + flutter;
 
       positions[offset] = destX;
