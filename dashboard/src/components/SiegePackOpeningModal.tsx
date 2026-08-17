@@ -234,9 +234,7 @@ export function SiegePackOpeningModal({
     "--pack-rarity-color": meta.color,
     "--pack-rarity-glow": meta.glow,
     "--pack-tear-progress": String(tearProgress),
-    "--pack-tear-percent": `${tearProgress * 100}%`,
     "--pack-shell-highlight-opacity": String(0.28 + tearProgress * 0.58),
-    "--pack-glow-opacity": String(Math.min(0.95, tearProgress * 1.15)),
   } as React.CSSProperties;
   const isAnimating = phase === "burst" || phase === "emerging" || phase === "revealing";
   const isOpeningLocked = phase === "dragging" || isAnimating;
@@ -461,10 +459,6 @@ export function SiegePackOpeningModal({
 
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
             <div ref={pixiHostRef} className="siege-pack-pixi" aria-hidden="true" />
-            <div className="siege-pack-open-glow" aria-hidden="true" />
-            <div className="siege-pack-tear-track">
-              <span />
-            </div>
             <button
               type="button"
               className="siege-pack-tear-zone"
@@ -573,8 +567,6 @@ type PixiPackScene = {
   pulledUvs: Float32Array;
   attachedPositions: Float32Array;
   attachedUvs: Float32Array;
-  tornEdge: Graphics;
-  flare: Graphics;
 };
 
 type GridGeometry = {
@@ -609,11 +601,9 @@ async function createPixiPackScene(): Promise<PixiPackScene> {
   const attachedTop = new Mesh({ texture: frontTexture, geometry: attachedGeometry });
   const pulledGrid = createGridGeometry(PIXI_STRIP_COLUMNS, PIXI_STRIP_ROWS);
   const pulledTop = new Mesh({ texture: frontTexture, geometry: pulledGrid.geometry });
-  const tornEdge = new Graphics();
-  const flare = new Graphics();
 
   lowerBody.mask = lowerBodyMask;
-  root.addChild(sealedPack, openBody, lowerBody, attachedTop, pulledTop, tornEdge, flare, lowerBodyMask);
+  root.addChild(sealedPack, openBody, lowerBody, attachedTop, pulledTop, lowerBodyMask);
   app.stage.addChild(root);
   openBody.alpha = 0;
 
@@ -631,8 +621,6 @@ async function createPixiPackScene(): Promise<PixiPackScene> {
     pulledUvs: pulledGrid.uvs,
     attachedPositions: attachedGeometry.positions,
     attachedUvs: attachedGeometry.uvs,
-    tornEdge,
-    flare,
   };
 }
 
@@ -700,8 +688,6 @@ function updatePixiPackScene(scene: PixiPackScene | null, rawProgress: number) {
   scene.lowerBody.visible = hasTear;
   scene.attachedTop.visible = hasTear && tearX < width - 1;
   scene.pulledTop.visible = hasTear;
-  scene.tornEdge.visible = hasTear;
-  scene.flare.visible = hasTear;
 
   scene.lowerBodyMask.clear();
   scene.lowerBodyMask.rect(0, seamY + seamHeight * 0.3, width, height).fill(0xffffff);
@@ -709,7 +695,6 @@ function updatePixiPackScene(scene: PixiPackScene | null, rawProgress: number) {
 
   updateAttachedTopGeometry(scene, tearX, topHeight + seamHeight, width, height);
   updatePulledTopGeometry(scene, progress, tearX, topHeight, width, height);
-  drawPixiTornEdge(scene, progress, seamY, seamHeight, tearX, width, height);
 }
 
 function updateAttachedTopGeometry(
@@ -773,44 +758,6 @@ function updatePulledTopGeometry(
   scene.pulledTop.alpha = Math.min(1, progress * 10);
   scene.pulledGeometry.positions = positions;
   scene.pulledGeometry.uvs = uvs;
-}
-
-function drawPixiTornEdge(
-  scene: PixiPackScene,
-  progress: number,
-  seamY: number,
-  seamHeight: number,
-  tearX: number,
-  width: number,
-  height: number,
-) {
-  const teeth = 52;
-  scene.tornEdge.clear();
-  scene.tornEdge
-    .moveTo(0, seamY + seamHeight * 0.34);
-
-  for (let index = 0; index <= teeth; index += 1) {
-    const x = (tearX / teeth) * index;
-    const jag = Math.sin(index * 1.71) * 3.2 + Math.sin(index * 0.63 + 1.2) * 2.4;
-    const y = seamY + seamHeight * (index % 2 === 0 ? 0.12 : 0.82) + jag;
-    scene.tornEdge.lineTo(x, y);
-  }
-
-  scene.tornEdge
-    .lineTo(tearX, seamY + seamHeight * 1.14)
-    .lineTo(0, seamY + seamHeight * 1.04)
-    .closePath()
-    .fill({ color: 0xeaffea, alpha: Math.min(0.74, progress * 1.08) })
-    .stroke({ color: 0x39ff14, width: 2.8, alpha: Math.min(0.74, progress * 1.15) });
-
-  scene.flare.clear();
-  scene.flare
-    .ellipse(tearX, seamY + 10, width * 0.13, height * 0.035)
-    .fill({ color: 0x39ff14, alpha: Math.min(0.28, progress * 0.35) })
-    .circle(tearX, seamY + 10, width * 0.042)
-    .fill({ color: 0xffffff, alpha: Math.min(0.72, progress * 0.9) })
-    .circle(tearX, seamY + 10, width * 0.018)
-    .fill({ color: 0xd8ffd6, alpha: Math.min(0.92, progress) });
 }
 
 function clamp(value: number, min: number, max: number) {
