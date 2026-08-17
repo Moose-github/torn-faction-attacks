@@ -6878,7 +6878,7 @@ h2 {
   display: none;
 }
 
-.siege-pack-canvas {
+.siege-pack-pixi {
   position: absolute;
   inset: 0;
   z-index: 3;
@@ -6892,6 +6892,12 @@ h2 {
     opacity 420ms ease,
     filter 420ms ease,
     transform 640ms cubic-bezier(0.2, 0.85, 0.2, 1);
+}
+
+.siege-pack-pixi canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .siege-pack-open-glow {
@@ -6976,11 +6982,11 @@ h2 {
     drop-shadow(0 18px 22px rgba(0, 0, 0, 0.42));
 }
 
-.phase-dragging:not(.is-dragging) .siege-pack-canvas,
+.phase-dragging:not(.is-dragging) .siege-pack-pixi,
 .phase-dragging:not(.is-dragging) .siege-pack-tear-teeth,
 .phase-dragging:not(.is-dragging) .siege-pack-open-glow,
 .phase-dragging:not(.is-dragging) .siege-pack-tear-track span,
-.phase-sealed:not(.is-dragging) .siege-pack-canvas,
+.phase-sealed:not(.is-dragging) .siege-pack-pixi,
 .phase-sealed:not(.is-dragging) .siege-pack-tear-teeth,
 .phase-sealed:not(.is-dragging) .siege-pack-open-glow,
 .phase-sealed:not(.is-dragging) .siege-pack-tear-track span {
@@ -6991,7 +6997,7 @@ h2 {
     filter 260ms ease;
 }
 
-.is-dragging .siege-pack-canvas,
+.is-dragging .siege-pack-pixi,
 .is-dragging .siege-pack-tear-teeth,
 .is-dragging .siege-pack-open-glow,
 .is-dragging .siege-pack-tear-track span {
@@ -7365,9 +7371,9 @@ h2 {
   opacity: 0;
 }
 
-.phase-burst .siege-pack-canvas,
-.phase-emerging .siege-pack-canvas,
-.phase-card .siege-pack-canvas {
+.phase-burst .siege-pack-pixi,
+.phase-emerging .siege-pack-pixi,
+.phase-card .siege-pack-pixi {
   opacity: 1;
   filter:
     drop-shadow(0 0 28px rgba(57, 255, 20, 0.36))

@@ -5,6 +5,16 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import {
+  Application,
+  Assets,
+  Container,
+  Graphics,
+  Mesh,
+  MeshGeometry,
+  Sprite,
+  Texture,
+} from "pixi.js";
 import energyCacheCardBack from "../assets/packs/energy-cache-card-back.png";
 import energyCachePackFront from "../assets/packs/energy-cache-pack-front.png";
 import energyCachePackOpenBody from "../assets/packs/energy-cache-pack-open-body.png";
@@ -103,8 +113,10 @@ const PACK_PHASE_TIMING = {
   revealMs: 860,
 };
 const TEAR_COMPLETE_THRESHOLD = 0.94;
-const CANVAS_PACK_WIDTH = 1122;
-const CANVAS_PACK_HEIGHT = 1402;
+const PIXI_PACK_WIDTH = 1122;
+const PIXI_PACK_HEIGHT = 1402;
+const PIXI_STRIP_COLUMNS = 56;
+const PIXI_STRIP_ROWS = 6;
 
 const rarityMeta: Record<PackRewardRarity, { label: string; color: string; glow: string }> = {
   standard: {
@@ -140,13 +152,13 @@ export function SiegePackOpeningModal({
   const [tearProgress, setTearProgress] = React.useState(0);
   const [isDraggingTear, setIsDraggingTear] = React.useState(false);
   const [animationRun, setAnimationRun] = React.useState(0);
-  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const pixiHostRef = React.useRef<HTMLDivElement | null>(null);
   const shellRef = React.useRef<HTMLDivElement | null>(null);
   const modalRef = React.useRef<HTMLDivElement | null>(null);
   const timersRef = React.useRef<number[]>([]);
   const tearAnimationRef = React.useRef<number | null>(null);
   const tearProgressRef = React.useRef(0);
-  const packImagesRef = React.useRef<CanvasPackImages | null>(null);
+  const pixiSceneRef = React.useRef<PixiPackScene | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
 
   React.useEffect(() => {
@@ -181,24 +193,37 @@ export function SiegePackOpeningModal({
   }, []);
 
   React.useEffect(() => {
-    let isCancelled = false;
+    if (!open) {
+      return;
+    }
 
-    void loadCanvasPackImages().then((images) => {
+    let isCancelled = false;
+    const host = pixiHostRef.current;
+    if (!host) {
+      return;
+    }
+
+    void createPixiPackScene().then((scene) => {
       if (isCancelled) {
+        scene.app.destroy(true, true);
         return;
       }
 
-      packImagesRef.current = images;
-      drawCanvasPack(canvasRef.current, images, tearProgressRef.current);
+      pixiSceneRef.current = scene;
+      host?.appendChild(scene.app.canvas);
+      updatePixiPackScene(scene, tearProgressRef.current);
     });
 
     return () => {
       isCancelled = true;
+      const scene = pixiSceneRef.current;
+      pixiSceneRef.current = null;
+      scene?.app.destroy(true, true);
     };
-  }, []);
+  }, [open]);
 
   React.useEffect(() => {
-    drawCanvasPack(canvasRef.current, packImagesRef.current, tearProgress);
+    updatePixiPackScene(pixiSceneRef.current, tearProgress);
   }, [tearProgress, open]);
 
   if (!open) {
@@ -440,13 +465,7 @@ export function SiegePackOpeningModal({
           ) : null}
 
           <div ref={shellRef} className="siege-pack-shell" aria-hidden={phase !== "sealed" ? "true" : undefined}>
-            <canvas
-              ref={canvasRef}
-              className="siege-pack-canvas"
-              width={CANVAS_PACK_WIDTH}
-              height={CANVAS_PACK_HEIGHT}
-              aria-hidden="true"
-            />
+            <div ref={pixiHostRef} className="siege-pack-pixi" aria-hidden="true" />
             <div className="siege-pack-open-glow" aria-hidden="true" />
             <div className="siege-pack-tear-teeth" aria-hidden="true" />
             <img className="siege-pack-tear-strip-art" src={energyCacheTearStrip} alt="" aria-hidden="true" />
@@ -549,204 +568,258 @@ export function pickReward(rewards: PackReward[]): PackReward {
   return rewards[rewards.length - 1];
 }
 
-type CanvasPackImages = {
-  front: HTMLImageElement;
-  openBody: HTMLImageElement;
+type PixiPackScene = {
+  app: Application;
+  sealedPack: Sprite;
+  openBody: Sprite;
+  lowerBody: Sprite;
+  lowerBodyMask: Graphics;
+  attachedTop: Mesh<MeshGeometry>;
+  attachedGeometry: MeshGeometry;
+  pulledTop: Mesh<MeshGeometry>;
+  pulledGeometry: MeshGeometry;
+  pulledPositions: Float32Array;
+  pulledUvs: Float32Array;
+  attachedPositions: Float32Array;
+  attachedUvs: Float32Array;
+  tornEdge: Graphics;
+  flare: Graphics;
 };
 
-async function loadCanvasPackImages(): Promise<CanvasPackImages> {
-  const [front, openBody] = await Promise.all([
-    loadCanvasImage(energyCachePackFront),
-    loadCanvasImage(energyCachePackOpenBody),
+type GridGeometry = {
+  geometry: MeshGeometry;
+  positions: Float32Array;
+  uvs: Float32Array;
+};
+
+async function createPixiPackScene(): Promise<PixiPackScene> {
+  const app = new Application();
+  await app.init({
+    width: PIXI_PACK_WIDTH,
+    height: PIXI_PACK_HEIGHT,
+    backgroundAlpha: 0,
+    antialias: true,
+    autoDensity: true,
+    resolution: Math.min(window.devicePixelRatio || 1, 2),
+    preference: "webgl",
+  });
+
+  const [frontTexture, openBodyTexture] = await Promise.all([
+    Assets.load<Texture>(energyCachePackFront),
+    Assets.load<Texture>(energyCachePackOpenBody),
   ]);
 
-  return { front, openBody };
+  const root = new Container();
+  const sealedPack = createPackSprite(frontTexture);
+  const openBody = createPackSprite(openBodyTexture);
+  const lowerBody = createPackSprite(frontTexture);
+  const lowerBodyMask = new Graphics();
+  const attachedGeometry = createAttachedTopGeometry().geometry;
+  const attachedTop = new Mesh({ texture: frontTexture, geometry: attachedGeometry });
+  const pulledGrid = createGridGeometry(PIXI_STRIP_COLUMNS, PIXI_STRIP_ROWS);
+  const pulledTop = new Mesh({ texture: frontTexture, geometry: pulledGrid.geometry });
+  const tornEdge = new Graphics();
+  const flare = new Graphics();
+
+  lowerBody.mask = lowerBodyMask;
+  root.addChild(sealedPack, openBody, lowerBody, attachedTop, pulledTop, tornEdge, flare, lowerBodyMask);
+  app.stage.addChild(root);
+  openBody.alpha = 0;
+
+  return {
+    app,
+    sealedPack,
+    openBody,
+    lowerBody,
+    lowerBodyMask,
+    attachedTop,
+    attachedGeometry,
+    pulledTop,
+    pulledGeometry: pulledGrid.geometry,
+    pulledPositions: pulledGrid.positions,
+    pulledUvs: pulledGrid.uvs,
+    attachedPositions: attachedGeometry.positions,
+    attachedUvs: attachedGeometry.uvs,
+    tornEdge,
+    flare,
+  };
 }
 
-function loadCanvasImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.decoding = "async";
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error(`Failed to load pack image: ${src}`));
-    image.src = src;
-  });
+function createPackSprite(texture: Texture) {
+  const sprite = new Sprite(texture);
+  sprite.width = PIXI_PACK_WIDTH;
+  sprite.height = PIXI_PACK_HEIGHT;
+  return sprite;
 }
 
-function drawCanvasPack(
-  canvas: HTMLCanvasElement | null,
-  images: CanvasPackImages | null,
-  rawProgress: number,
-) {
-  if (!canvas || !images) {
-    return;
+function createAttachedTopGeometry(): GridGeometry {
+  const positions = new Float32Array(8);
+  const uvs = new Float32Array(8);
+  const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
+  const geometry = new MeshGeometry({ positions, uvs, indices });
+  return { geometry, positions, uvs };
+}
+
+function createGridGeometry(columns: number, rows: number): GridGeometry {
+  const vertexCount = (columns + 1) * (rows + 1);
+  const positions = new Float32Array(vertexCount * 2);
+  const uvs = new Float32Array(vertexCount * 2);
+  const indices = new Uint32Array(columns * rows * 6);
+  let index = 0;
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const topLeft = row * (columns + 1) + column;
+      const topRight = topLeft + 1;
+      const bottomLeft = topLeft + columns + 1;
+      const bottomRight = bottomLeft + 1;
+
+      indices[index] = topLeft;
+      indices[index + 1] = topRight;
+      indices[index + 2] = bottomRight;
+      indices[index + 3] = topLeft;
+      indices[index + 4] = bottomRight;
+      indices[index + 5] = bottomLeft;
+      index += 6;
+    }
   }
 
-  const width = images.front.naturalWidth || CANVAS_PACK_WIDTH;
-  const height = images.front.naturalHeight || CANVAS_PACK_HEIGHT;
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-  }
+  const geometry = new MeshGeometry({ positions, uvs, indices });
+  return { geometry, positions, uvs };
+}
 
-  const context = canvas.getContext("2d");
-  if (!context) {
+function updatePixiPackScene(scene: PixiPackScene | null, rawProgress: number) {
+  if (!scene) {
     return;
   }
 
   const progress = clamp(rawProgress, 0, 1);
-  context.clearRect(0, 0, width, height);
-
-  if (progress <= 0.001) {
-    context.drawImage(images.front, 0, 0, width, height);
-    return;
-  }
-
+  const width = PIXI_PACK_WIDTH;
+  const height = PIXI_PACK_HEIGHT;
   const seamY = height * 0.158;
   const seamHeight = height * 0.029;
   const topHeight = height * 0.184;
   const tearStart = width * 0.15;
   const tearEnd = width * 0.84;
   const tearX = tearStart + (tearEnd - tearStart) * progress;
+  const hasTear = progress > 0.001;
 
-  context.save();
-  context.globalAlpha = Math.min(1, progress * 1.3);
-  context.drawImage(images.openBody, 0, 0, width, height);
-  context.restore();
+  scene.sealedPack.alpha = hasTear ? 0 : 1;
+  scene.openBody.alpha = hasTear ? Math.min(1, progress * 1.35) : 0;
+  scene.lowerBody.visible = hasTear;
+  scene.attachedTop.visible = hasTear && tearX < width - 1;
+  scene.pulledTop.visible = hasTear;
+  scene.tornEdge.visible = hasTear;
+  scene.flare.visible = hasTear;
 
-  context.save();
-  context.beginPath();
-  context.rect(0, seamY + seamHeight * 0.32, width, height);
-  context.clip();
-  context.globalAlpha = 1 - progress * 0.1;
-  context.drawImage(images.front, 0, 0, width, height);
-  context.restore();
+  scene.lowerBodyMask.clear();
+  scene.lowerBodyMask.rect(0, seamY + seamHeight * 0.3, width, height).fill(0xffffff);
+  scene.lowerBody.alpha = 1 - progress * 0.1;
 
-  context.save();
-  context.beginPath();
-  context.rect(tearX, 0, width - tearX, topHeight + seamHeight);
-  context.clip();
-  context.globalAlpha = 1 - progress * 0.04;
-  context.drawImage(images.front, 0, 0, width, height);
-  context.restore();
-
-  drawPulledTopStrip(context, images.front, {
-    progress,
-    seamY,
-    seamHeight,
-    tearX,
-    topHeight,
-    width,
-  });
-  drawCanvasTornEdge(context, {
-    progress,
-    seamY,
-    seamHeight,
-    tearX,
-    width,
-    height,
-  });
+  updateAttachedTopGeometry(scene, tearX, topHeight + seamHeight, width, height);
+  updatePulledTopGeometry(scene, progress, tearX, topHeight, width, height);
+  drawPixiTornEdge(scene, progress, seamY, seamHeight, tearX, width, height);
 }
 
-function drawPulledTopStrip(
-  context: CanvasRenderingContext2D,
-  source: HTMLImageElement,
-  geometry: {
-    progress: number;
-    seamY: number;
-    seamHeight: number;
-    tearX: number;
-    topHeight: number;
-    width: number;
-  },
+function updateAttachedTopGeometry(
+  scene: PixiPackScene,
+  tearX: number,
+  attachedHeight: number,
+  width: number,
+  height: number,
 ) {
-  const { progress, tearX, topHeight, width } = geometry;
+  const positions = scene.attachedPositions;
+  const uvs = scene.attachedUvs;
+  positions.set([tearX, 0, width, 0, width, attachedHeight, tearX, attachedHeight]);
+  uvs.set([tearX / width, 0, 1, 0, 1, attachedHeight / height, tearX / width, attachedHeight / height]);
+  scene.attachedGeometry.positions = positions;
+  scene.attachedGeometry.uvs = uvs;
+}
+
+function updatePulledTopGeometry(
+  scene: PixiPackScene,
+  progress: number,
+  tearX: number,
+  topHeight: number,
+  width: number,
+  height: number,
+) {
   const visibleWidth = Math.max(1, tearX);
-  const columns = 132;
-  const sourceColumnWidth = visibleWidth / columns;
-  const lift = progress;
+  const positions = scene.pulledPositions;
+  const uvs = scene.pulledUvs;
+  let offset = 0;
 
-  context.save();
-  context.globalAlpha = Math.min(1, progress * 10);
-  context.shadowColor = "rgba(57, 255, 20, 0.18)";
-  context.shadowBlur = 18 * progress;
+  for (let row = 0; row <= PIXI_STRIP_ROWS; row += 1) {
+    const verticalRatio = row / PIXI_STRIP_ROWS;
+    for (let column = 0; column <= PIXI_STRIP_COLUMNS; column += 1) {
+      const horizontalRatio = column / PIXI_STRIP_COLUMNS;
+      const sourceX = visibleWidth * horizontalRatio;
+      const sourceY = topHeight * verticalRatio;
+      const leadingLift = Math.pow(1 - horizontalRatio, 0.56);
+      const trailingLift = Math.pow(horizontalRatio, 1.7);
+      const arc = Math.sin(horizontalRatio * Math.PI);
+      const rowCurl = Math.sin(verticalRatio * Math.PI);
+      const flutter = Math.sin(column * 0.58 + row * 1.17 + progress * 5.4) * 3.2 * progress;
+      const lowerEdgeDrag = verticalRatio * progress;
+      const destX = sourceX
+        + progress * (width * 0.036 * leadingLift + width * 0.016 * trailingLift)
+        + arc * progress * 15
+        + lowerEdgeDrag * (20 * arc - 14 * leadingLift);
+      const destY = sourceY
+        - progress * (118 * leadingLift + 56 * arc + 20 * trailingLift)
+        + rowCurl * progress * (18 * arc - 12 * leadingLift)
+        + lowerEdgeDrag * 34
+        + flutter;
 
-  for (let column = 0; column < columns; column += 1) {
-    const sourceX = column * sourceColumnWidth;
-    const sourceWidth = Math.ceil(sourceColumnWidth) + 1;
-    const t = columns <= 1 ? 0 : column / (columns - 1);
-    const leadingLift = Math.pow(1 - t, 0.58);
-    const trailingLift = Math.pow(t, 1.7);
-    const arc = Math.sin(t * Math.PI);
-    const flutter = Math.sin(column * 0.64 + progress * 4.8) * 2.5 * progress;
-    const curlTowardViewer = Math.sin(t * Math.PI * 1.18) * progress;
-    const destX = sourceX + lift * (width * 0.034 * leadingLift + width * 0.014 * trailingLift) + arc * lift * 10;
-    const destY = -lift * (108 * leadingLift + 48 * arc + 18 * trailingLift) + flutter;
-    const scaleY = 1 - lift * (0.035 * leadingLift + 0.02 * arc);
-    const scaleX = 1 + curlTowardViewer * 0.018;
-    const rotation = -lift * (0.08 * leadingLift - 0.04 * trailingLift + 0.035 * arc);
-    const skewX = lift * (0.055 * arc - 0.035 * leadingLift);
-    const destHeight = topHeight * scaleY;
-
-    context.save();
-    context.translate(destX, destY);
-    context.transform(scaleX, Math.sin(rotation) * 0.16, skewX, 1, 0, 0);
-    context.rotate(rotation);
-    context.drawImage(source, sourceX, 0, sourceWidth, topHeight, 0, 0, sourceWidth + 1.5, destHeight);
-    context.restore();
+      positions[offset] = destX;
+      positions[offset + 1] = destY;
+      uvs[offset] = sourceX / width;
+      uvs[offset + 1] = sourceY / height;
+      offset += 2;
+    }
   }
 
-  context.restore();
+  scene.pulledTop.alpha = Math.min(1, progress * 10);
+  scene.pulledGeometry.positions = positions;
+  scene.pulledGeometry.uvs = uvs;
 }
 
-function drawCanvasTornEdge(
-  context: CanvasRenderingContext2D,
-  geometry: {
-    progress: number;
-    seamY: number;
-    seamHeight: number;
-    tearX: number;
-    width: number;
-    height: number;
-  },
+function drawPixiTornEdge(
+  scene: PixiPackScene,
+  progress: number,
+  seamY: number,
+  seamHeight: number,
+  tearX: number,
+  width: number,
+  height: number,
 ) {
-  const { progress, seamY, seamHeight, tearX, width, height } = geometry;
-  const teeth = 46;
+  const teeth = 52;
+  scene.tornEdge.clear();
+  scene.tornEdge
+    .moveTo(0, seamY + seamHeight * 0.34);
 
-  context.save();
-  context.beginPath();
-  context.moveTo(0, seamY + seamHeight * 0.34);
   for (let index = 0; index <= teeth; index += 1) {
     const x = (tearX / teeth) * index;
     const jag = Math.sin(index * 1.71) * 3.2 + Math.sin(index * 0.63 + 1.2) * 2.4;
     const y = seamY + seamHeight * (index % 2 === 0 ? 0.12 : 0.82) + jag;
-    context.lineTo(x, y);
+    scene.tornEdge.lineTo(x, y);
   }
-  context.lineTo(tearX, seamY + seamHeight * 1.12);
-  context.lineTo(0, seamY + seamHeight * 1.04);
-  context.closePath();
 
-  const seamGradient = context.createLinearGradient(0, seamY, tearX, seamY);
-  seamGradient.addColorStop(0, "rgba(190, 255, 184, 0.1)");
-  seamGradient.addColorStop(0.6, "rgba(255, 255, 255, 0.72)");
-  seamGradient.addColorStop(1, "rgba(57, 255, 20, 0.68)");
-  context.fillStyle = seamGradient;
-  context.globalAlpha = Math.min(1, progress * 1.5);
-  context.shadowColor = "rgba(57, 255, 20, 0.7)";
-  context.shadowBlur = 18 * progress;
-  context.fill();
-  context.restore();
+  scene.tornEdge
+    .lineTo(tearX, seamY + seamHeight * 1.14)
+    .lineTo(0, seamY + seamHeight * 1.04)
+    .closePath()
+    .fill({ color: 0xeaffea, alpha: Math.min(0.74, progress * 1.08) })
+    .stroke({ color: 0x39ff14, width: 2.8, alpha: Math.min(0.74, progress * 1.15) });
 
-  context.save();
-  const flare = context.createRadialGradient(tearX, seamY + 10, 2, tearX, seamY + 10, width * 0.13);
-  flare.addColorStop(0, "rgba(255, 255, 255, 0.96)");
-  flare.addColorStop(0.18, "rgba(57, 255, 20, 0.78)");
-  flare.addColorStop(1, "rgba(57, 255, 20, 0)");
-  context.globalCompositeOperation = "screen";
-  context.globalAlpha = Math.min(0.78, progress * 1.1);
-  context.fillStyle = flare;
-  context.fillRect(tearX - width * 0.14, seamY - height * 0.05, width * 0.28, height * 0.12);
-  context.restore();
+  scene.flare.clear();
+  scene.flare
+    .ellipse(tearX, seamY + 10, width * 0.13, height * 0.035)
+    .fill({ color: 0x39ff14, alpha: Math.min(0.28, progress * 0.35) })
+    .circle(tearX, seamY + 10, width * 0.042)
+    .fill({ color: 0xffffff, alpha: Math.min(0.72, progress * 0.9) })
+    .circle(tearX, seamY + 10, width * 0.018)
+    .fill({ color: 0xd8ffd6, alpha: Math.min(0.92, progress) });
 }
 
 function clamp(value: number, min: number, max: number) {
