@@ -114,7 +114,7 @@ const TEAR_COMPLETE_THRESHOLD = 0.94;
 const PIXI_PACK_WIDTH = 1122;
 const PIXI_PACK_HEIGHT = 1402;
 const PIXI_STRIP_COLUMNS = 56;
-const PIXI_STRIP_ROWS = 6;
+const PIXI_STRIP_ROWS = 10;
 
 const rarityMeta: Record<PackRewardRarity, { label: string; color: string; glow: string }> = {
   standard: {
@@ -689,6 +689,7 @@ function updatePixiPackScene(scene: PixiPackScene | null, rawProgress: number) {
   const tearEnd = width * 0.84;
   const tearX = tearStart + (tearEnd - tearStart) * progress;
   const hasTear = progress > 0.001;
+  const tornFlapBottomY = tearLineY - (hasTear ? 10 + progress * 14 : 0);
 
   scene.sealedPack.alpha = hasTear ? 0 : 1;
   scene.openBody.alpha = hasTear ? Math.min(1, progress * 1.35) : 0;
@@ -701,7 +702,7 @@ function updatePixiPackScene(scene: PixiPackScene | null, rawProgress: number) {
   scene.lowerBody.alpha = 1 - progress * 0.1;
 
   updateAttachedTopGeometry(scene, tearX, tearLineY, width, height);
-  updatePulledTopGeometry(scene, progress, tearX, tearLineY, width, height);
+  updatePulledTopGeometry(scene, progress, tearX, tornFlapBottomY, width, height);
 }
 
 function updateAttachedTopGeometry(
@@ -738,22 +739,25 @@ function updatePulledTopGeometry(
       const horizontalRatio = column / PIXI_STRIP_COLUMNS;
       const sourceX = visibleWidth * horizontalRatio;
       const sourceY = topHeight * verticalRatio;
+      const release = Math.pow(1 - horizontalRatio, 0.72);
       const looseEdge = 1 - verticalRatio;
-      const releasedEdge = Math.pow(1 - horizontalRatio, 0.42);
-      const liftInfluence = looseEdge + (1 - looseEdge) * releasedEdge * 0.42;
-      const leadingLift = Math.pow(1 - horizontalRatio, 0.56);
+      const hingeWeight = Math.pow(looseEdge, 0.38);
+      const topLift = 0.36 + looseEdge * 0.82;
+      const seamLift = Math.pow(1 - horizontalRatio, 1.12) * verticalRatio * 0.22 * hingeWeight;
+      const peelInfluence = progress * (release * topLift + seamLift);
+      const leadingLift = Math.pow(1 - horizontalRatio, 0.54);
       const trailingLift = Math.pow(horizontalRatio, 1.7);
       const arc = Math.sin(horizontalRatio * Math.PI);
       const rowCurl = Math.sin(verticalRatio * Math.PI);
-      const flutter = Math.sin(column * 0.58 + row * 1.17 + progress * 5.4) * 3.2 * progress * liftInfluence;
+      const foldCurl = Math.sin((1 - verticalRatio) * Math.PI) * release * progress;
+      const flutter = Math.sin(column * 0.58 + row * 1.17 + progress * 5.4) * 2.8 * peelInfluence * hingeWeight;
       const destX = sourceX
-        + liftInfluence * (
-          progress * (width * 0.036 * leadingLift + width * 0.016 * trailingLift)
-          + arc * progress * 15
-        );
+        + peelInfluence * hingeWeight * (width * 0.022 * leadingLift + width * 0.008 * trailingLift)
+        + foldCurl * (width * 0.035 + arc * 12);
       const destY = sourceY
-        - progress * liftInfluence * (118 * leadingLift + 56 * arc + 20 * trailingLift)
-        + rowCurl * progress * liftInfluence * (18 * arc - 12 * leadingLift)
+        - peelInfluence * hingeWeight * (112 * leadingLift + 54 * arc + 16 * trailingLift)
+        - seamLift * progress * 44
+        + rowCurl * progress * release * hingeWeight * (20 * arc - 10 * leadingLift)
         + flutter;
 
       positions[offset] = destX;
