@@ -190,21 +190,37 @@ export async function testAdminDiscordAlertRouteFromRequest(request: Request, en
     );
   }
 
-  const messageId = await createDiscordBotMessage(
-    env,
-    discordNotificationChannelTargetId(route),
-    `Discord alert route test: ${alert.name}`,
-    { users: [], roles: [] },
-    {
-      embeds: [
-        {
-          title: "Discord alert route test",
-          description: `This message was sent from Admin controls for **${alert.name}**.`,
-          color: 0x2f80ed,
-        },
-      ],
-    },
-  );
+  let messageId: string | null;
+  try {
+    messageId = await createDiscordBotMessage(
+      env,
+      discordNotificationChannelTargetId(route),
+      `Discord alert route test: ${alert.name}`,
+      { users: [], roles: [] },
+      {
+        embeds: [
+          {
+            title: "Discord alert route test",
+            description: `This message was sent from Admin controls for **${alert.name}**.`,
+            color: 0x2f80ed,
+          },
+        ],
+      },
+    );
+  } catch (err: any) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`Discord alert route test failed for ${alert.key}:`, message);
+    return json(
+      {
+        ok: false,
+        error: message || "Discord alert route test failed",
+        code: "DISCORD_ALERT_TEST_FAILED",
+        alert_key: alert.key,
+        route: discordAlertRouteSummary(route),
+      },
+      502,
+    );
+  }
 
   return json({
     ok: true,

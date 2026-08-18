@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createDiscordBotMessage } from "./discord";
 import {
   getAdminDiscordAlertSettings,
   isDiscordAlertEnabled,
   readShopliftingSecurityAlertSettings,
+  testAdminDiscordAlertRouteFromRequest,
   updateAdminDiscordAlertSettingsFromRequest,
   updateEnemyPushAlertSetting,
 } from "./discordAlertSettings";
@@ -18,12 +20,17 @@ vi.mock("./syncLatches", () => ({
   clearSyncLatchesByPrefix: vi.fn(),
 }));
 
+vi.mock("./discord", () => ({
+  createDiscordBotMessage: vi.fn(),
+}));
+
 describe("Discord alert settings", () => {
   let db: TestD1Database;
   let env: Env;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(createDiscordBotMessage).mockResolvedValue("message-1");
     db = new TestD1Database([
       ["chain_watch", { enabled: 0, configurable: 1 }],
       ["enemy_push", { enabled: 1, configurable: 1 }],
@@ -189,6 +196,26 @@ describe("Discord alert settings", () => {
       code: "UNKNOWN_ALERT",
     });
   });
+
+  it("returns JSON when Discord alert route tests fail to send", async () => {
+    vi.mocked(createDiscordBotMessage).mockRejectedValue(new Error("missing access"));
+
+    const response = await testAdminDiscordAlertRouteFromRequest(
+      jsonRequest({ alert_key: DISCORD_ALERT_KEYS.enemyPush }),
+      env,
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      code: "DISCORD_ALERT_TEST_FAILED",
+      error: "missing access",
+      alert_key: DISCORD_ALERT_KEYS.enemyPush,
+      route: {
+        target_id: "thread-1",
+      },
+    });
+  });
 });
 
 class TestD1PreparedStatement {
@@ -242,6 +269,12 @@ class TestD1Database {
       const key = String(args[0] ?? "");
       const row = this.settings.get(key);
       return row ? { alert_key: key, ...row } : null;
+    }
+    if (sql.includes("FROM discord_notification_channels")) {
+      const guildId = String(args[0] ?? "");
+      const alertKey = String(args[1] ?? "");
+      const route = this.routes.get(alertKey);
+      return route && route.guild_id === guildId && route.enabled === 1 ? route : null;
     }
     return null;
   }
