@@ -14,6 +14,7 @@ import {
 } from "../discordTravelTracker";
 import {
   getAdminDiscordAlertSettings,
+  testAdminDiscordAlertRouteFromRequest,
   updateAdminDiscordAlertSettingsFromRequest,
 } from "../discordAlertSettings";
 import {
@@ -274,6 +275,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
     matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "POST")
   ) {
     return withAdmin(routeContext, () => updateAdminDiscordAlertSettingsFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-alerts/test", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "discord_alert_route_test", 10);
+      if (cooldownError) return cooldownError;
+      return testAdminDiscordAlertRouteFromRequest(request, env);
+    });
   }
 
   if (matchesExactRoute(url, request, "/api/admin/enemy-stats-image/reset", "POST")) {

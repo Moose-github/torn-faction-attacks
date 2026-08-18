@@ -11,6 +11,7 @@ import {
   setDiscordTravelTrackerTarget,
   ShopliftingAlertSetting,
   syncDiscordTravelTracker,
+  testAdminDiscordAlertRoute,
   updateAdminChainWatchDiscordAlert,
   updateAdminEnemyPushDiscordAlert,
   updateAdminEnemyScoutingReportDiscordAlert,
@@ -282,7 +283,15 @@ export function DiscordAdminControls({
                   onChange={alert.onChange}
                 />
               )}
-              <AlertRoute route={discordAlertRoutes[alert.key] ?? null} />
+              <AlertRoute
+                route={discordAlertRoutes[alert.key] ?? null}
+                testBusy={isBusy === `Test ${alert.label}`}
+                testDisabled={isBusy !== null || isLoadingDiscordAlertSettings}
+                testLabel={`Test ${alert.label}`}
+                onTest={() =>
+                  runAdminAction(`Test ${alert.label}`, () => testAdminDiscordAlertRoute(alert.key))
+                }
+              />
             </React.Fragment>
           ))}
         </div>
@@ -460,12 +469,32 @@ function AlertRouteStatus({ label }: { label: string }) {
   );
 }
 
-function AlertRoute({ route }: { route: DiscordAlertRouteSummary | null }) {
+function AlertRoute({
+  route,
+  testBusy,
+  testDisabled,
+  testLabel,
+  onTest,
+}: {
+  route: DiscordAlertRouteSummary | null;
+  testBusy: boolean;
+  testDisabled: boolean;
+  testLabel: string;
+  onTest: () => void;
+}) {
   if (!route) {
     return (
       <div className="admin-alert-route-target is-unset">
         <strong>Unset</strong>
         <small>No bot channel route</small>
+        <button
+          type="button"
+          className="admin-alert-route-test"
+          disabled={testDisabled}
+          onClick={onTest}
+        >
+          {testBusy ? "Testing" : "Test"}
+        </button>
       </div>
     );
   }
@@ -477,6 +506,15 @@ function AlertRoute({ route }: { route: DiscordAlertRouteSummary | null }) {
         {route.thread_id ? `Parent ${route.channel_id}` : `Target ${route.target_id}`}
         {route.updated_at ? ` - ${formatLongDateTime(route.updated_at)}` : ""}
       </small>
+      <button
+        type="button"
+        className="admin-alert-route-test"
+        disabled={testDisabled}
+        onClick={onTest}
+        title={testLabel}
+      >
+        {testBusy ? "Testing" : "Test"}
+      </button>
     </div>
   );
 }

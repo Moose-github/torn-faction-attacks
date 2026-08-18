@@ -8820,6 +8820,24 @@ h2 {
   color: var(--text-muted);
 }
 
+.admin-alert-route-test {
+  justify-self: start;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid rgba(47, 128, 237, 0.28);
+  border-radius: 7px;
+  background: rgba(47, 128, 237, 0.08);
+  color: var(--accent-strong);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.admin-alert-route-test:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
 .admin-alert-route-grid > :nth-last-child(-n + 3) {
   border-bottom: 0;
 }

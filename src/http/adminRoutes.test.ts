@@ -19,6 +19,7 @@ import {
 } from "../discordTravelTracker";
 import {
   getAdminDiscordAlertSettings,
+  testAdminDiscordAlertRouteFromRequest,
   updateAdminDiscordAlertSettingsFromRequest,
 } from "../discordAlertSettings";
 import {
@@ -56,6 +57,7 @@ vi.mock("../discordTravelTracker", () => ({
 }));
 vi.mock("../discordAlertSettings", () => ({
   getAdminDiscordAlertSettings: vi.fn(),
+  testAdminDiscordAlertRouteFromRequest: vi.fn(),
   updateAdminDiscordAlertSettingsFromRequest: vi.fn(),
 }));
 vi.mock("../enemyScoutingCron", () => ({
@@ -133,6 +135,7 @@ describe("admin routes", () => {
     vi.mocked(syncDiscordTravelTrackerFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-travel" }));
     vi.mocked(updateDiscordTravelTrackerSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-travel-settings" }));
     vi.mocked(getAdminDiscordAlertSettings).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings" }));
+    vi.mocked(testAdminDiscordAlertRouteFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-test" }));
     vi.mocked(updateAdminDiscordAlertSettingsFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "discord-alert-settings-update" }));
     vi.mocked(listAdminTornApiKeys).mockResolvedValue(jsonResponse({ ok: true, route: "admin-key-pool" }));
     vi.mocked(listPacks).mockResolvedValue(jsonResponse({ ok: true, route: "packs" }));
@@ -408,6 +411,21 @@ describe("admin routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "discord-alert-settings-update" });
     expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
     expect(updateAdminDiscordAlertSettingsFromRequest).toHaveBeenCalledWith(context.request, context.env);
+  });
+
+  it("routes Discord alert tests through admin auth", async () => {
+    const context = routeContext("https://worker.test/api/admin/discord-alerts/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alert_key: "enemy_scouting_report" }),
+    });
+
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "discord-alert-test" });
+    expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
+    expect(testAdminDiscordAlertRouteFromRequest).toHaveBeenCalledWith(context.request, context.env);
   });
 
   it("keeps the old shoplifting alerts route as a Discord alert settings alias", async () => {

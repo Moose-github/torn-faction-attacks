@@ -249,6 +249,10 @@ export async function getAdminDiscordAlertSettings(): Promise<AdminDiscordAlertS
 
 }
 
+export async function testAdminDiscordAlertRoute(alertKey: string): Promise<unknown> {
+  return postJson("/api/admin/discord-alerts/test", { alert_key: alertKey });
+}
+
 export async function updateAdminShopliftingDiscordAlert(payload: {
 
   shop_key: ShopliftingAlertSetting["shop_key"];

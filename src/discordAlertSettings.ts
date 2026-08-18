@@ -1,8 +1,18 @@
 import { readJsonObject } from "./backend/request";
-import { DISCORD_ALERT_CHANNEL_ROUTES, DISCORD_ALERT_KEYS, type DiscordAlertKey, type DiscordAlertRouteKey } from "./discordAlerts";
+import { createDiscordBotMessage } from "./discord";
+import {
+  DISCORD_ALERT_CHANNEL_ROUTES,
+  DISCORD_ALERT_KEYS,
+  DISCORD_DEFAULT_ALERT_ROUTE_KEY,
+  discordAlertRouteByKey,
+  type DiscordAlertKey,
+  type DiscordAlertRouteKey,
+} from "./discordAlerts";
 import {
   discordNotificationChannelTargetId,
   listDiscordNotificationChannels,
+  readConfiguredDiscordNotificationChannel,
+  readDiscordNotificationChannel,
   readDiscordNotificationGuildId,
   type DiscordNotificationChannel,
 } from "./discordNotificationChannels";
@@ -145,6 +155,62 @@ export async function getAdminDiscordAlertSettings(env: Env): Promise<Response> 
     termed_war_auto_end_alert: await readTermedWarAutoEndAlertSetting(env),
     alerts: await readShopliftingSecurityAlertSettings(env),
     routes,
+  });
+}
+
+export async function testAdminDiscordAlertRouteFromRequest(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonObject(request);
+  const alertKey = typeof body.alert_key === "string" ? body.alert_key : "";
+  const alert = discordAlertRouteByKey(alertKey);
+  if (!alert) {
+    return json({ ok: false, error: "Unknown alert route", code: "UNKNOWN_ALERT_ROUTE" }, 400);
+  }
+
+  const guildId = readDiscordNotificationGuildId(env);
+  if (!guildId) {
+    return json(
+      { ok: false, error: "DISCORD_GUILD_ID is not configured", code: "MISSING_DISCORD_GUILD_ID" },
+      500,
+    );
+  }
+
+  const route = alert.key === DISCORD_DEFAULT_ALERT_ROUTE_KEY
+    ? await readDiscordNotificationChannel(env, guildId, DISCORD_DEFAULT_ALERT_ROUTE_KEY)
+    : await readConfiguredDiscordNotificationChannel(env, alert.key);
+  if (!route) {
+    return json(
+      {
+        ok: false,
+        error: alert.key === DISCORD_DEFAULT_ALERT_ROUTE_KEY
+          ? "No default Discord alert route is configured"
+          : "No Discord alert route or default route is configured",
+        code: "NO_DISCORD_ALERT_ROUTE",
+      },
+      409,
+    );
+  }
+
+  const messageId = await createDiscordBotMessage(
+    env,
+    discordNotificationChannelTargetId(route),
+    `Discord alert route test: ${alert.name}`,
+    { users: [], roles: [] },
+    {
+      embeds: [
+        {
+          title: "Discord alert route test",
+          description: `This message was sent from Admin controls for **${alert.name}**.`,
+          color: 0x2f80ed,
+        },
+      ],
+    },
+  );
+
+  return json({
+    ok: true,
+    alert_key: alert.key,
+    message_id: messageId,
+    route: discordAlertRouteSummary(route),
   });
 }
 
@@ -353,19 +419,21 @@ async function readDiscordAlertRouteSummaries(
       const route = routesByAlertKey.get(alert.key);
       return [
         alert.key,
-        route
-          ? {
-              alert_key: route.alertKey,
-              channel_id: route.channelId,
-              thread_id: route.threadId,
-              target_id: discordNotificationChannelTargetId(route),
-              updated_by_discord_id: route.updatedByDiscordId,
-              updated_at: route.updatedAt,
-            }
-          : null,
+        route ? discordAlertRouteSummary(route) : null,
       ];
     }),
   ) as Record<DiscordAlertRouteKey, DiscordAlertRouteSummary | null>;
+}
+
+function discordAlertRouteSummary(route: DiscordNotificationChannel): DiscordAlertRouteSummary {
+  return {
+    alert_key: route.alertKey,
+    channel_id: route.channelId,
+    thread_id: route.threadId,
+    target_id: discordNotificationChannelTargetId(route),
+    updated_by_discord_id: route.updatedByDiscordId,
+    updated_at: route.updatedAt,
+  };
 }
 
 function alertConfig(alertKey: DiscordAlertKey): AlertSettingConfig {
