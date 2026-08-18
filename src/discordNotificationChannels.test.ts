@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DISCORD_ALERT_KEYS, DISCORD_DEFAULT_ALERT_ROUTE_KEY } from "./discordAlerts";
-import { readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
+import {
+  listDiscordNotificationChannels,
+  readConfiguredDiscordNotificationChannel,
+} from "./discordNotificationChannels";
 import type { Env } from "./types";
 
 describe("Discord notification channels", () => {
@@ -67,6 +70,22 @@ describe("Discord notification channels", () => {
     ]);
   });
 
+  it("does not list disabled default routes as configured", async () => {
+    const env = envWithRoutes([], {
+      [`guild-1:${DISCORD_DEFAULT_ALERT_ROUTE_KEY}`]: {
+        guild_id: "guild-1",
+        alert_key: DISCORD_DEFAULT_ALERT_ROUTE_KEY,
+        channel_id: "disabled-default-channel",
+        thread_id: null,
+        enabled: 0,
+        updated_by_discord_id: "user-1",
+        updated_at: 1,
+      },
+    });
+
+    await expect(listDiscordNotificationChannels(env, "guild-1")).resolves.toEqual([]);
+  });
+
   it("returns null when neither the alert route nor the default route is configured", async () => {
     const binds: unknown[][] = [];
     const env = envWithRoutes(binds, {});
@@ -119,6 +138,16 @@ function envWithRoutes(
               first() {
                 const row = routes[`${String(values[0])}:${String(values[1])}`] ?? null;
                 return Promise.resolve(row && row.enabled === 1 ? row : null);
+              },
+              all() {
+                const guildId = String(values[0]);
+                return Promise.resolve({
+                  results: Object.values(routes).filter((row) =>
+                    row.guild_id === guildId && row.enabled === 1
+                  ),
+                  success: true,
+                  meta: {},
+                });
               },
             };
           },

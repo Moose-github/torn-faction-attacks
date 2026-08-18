@@ -936,7 +936,7 @@ async function sendPendingEnemyStatsComparisonImageForContext(
   });
   const startAt = scoutingWar.official_start_time ?? scoutingWar.practical_start_time;
 
-  await sendDiscordAlertMessageWithAttachments(env, DISCORD_ALERT_KEYS.enemyScoutingReport, {
+  const messageId = await sendDiscordAlertMessageWithAttachments(env, DISCORD_ALERT_KEYS.enemyScoutingReport, {
     content: `War matchup announced: Buttgrass vs ${scoutingWar.name}. Starts <t:${startAt}:R>`,
     attachments: [
       {
@@ -951,6 +951,9 @@ async function sendPendingEnemyStatsComparisonImageForContext(
       },
     ],
   });
+  if (!messageId) {
+    return { sent: false, skipped: true, reason: "Discord delivery returned no message id" };
+  }
 
   await setSyncLatch(env, sentLatchName, nowSeconds());
   await clearSyncLatch(env, pendingLatchName);

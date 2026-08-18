@@ -8767,6 +8767,7 @@ h2 {
 .admin-alert-route-heading,
 .admin-alert-route-copy,
 .admin-alert-route-toggle,
+.admin-alert-route-status,
 .admin-alert-route-target {
   min-width: 0;
   padding: 10px 12px;
@@ -8805,7 +8806,8 @@ h2 {
   line-height: 1.35;
 }
 
-.admin-alert-route-toggle {
+.admin-alert-route-toggle,
+.admin-alert-route-status {
   display: flex;
   align-items: center;
   gap: 8px;

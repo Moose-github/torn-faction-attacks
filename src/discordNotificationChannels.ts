@@ -37,6 +37,7 @@ export async function listDiscordNotificationChannels(
     SELECT guild_id, alert_key, channel_id, thread_id, enabled, updated_by_discord_id, updated_at
     FROM discord_notification_channels
     WHERE guild_id = ?
+      AND enabled = 1
     ORDER BY alert_key
     `,
   )

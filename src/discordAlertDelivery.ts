@@ -37,7 +37,7 @@ export async function sendDiscordAlertMessage(
 ): Promise<void> {
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (!route) {
-    console.warn(`Discord alert ${alertKey} skipped: no bot channel route is configured.`);
+    console.warn(`Discord alert ${alertKey} skipped: no enabled bot channel route or default route is configured.`);
     return;
   }
 
@@ -51,7 +51,7 @@ export async function sendDiscordAlertMessageWithAttachment(
 ): Promise<string | null> {
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (!route) {
-    console.warn(`Discord alert ${alertKey} attachment skipped: no bot channel route is configured.`);
+    console.warn(`Discord alert ${alertKey} attachment skipped: no enabled bot channel route or default route is configured.`);
     return null;
   }
 
@@ -65,7 +65,7 @@ export async function sendDiscordAlertMessageWithAttachments(
 ): Promise<string | null> {
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (!route) {
-    console.warn(`Discord alert ${alertKey} attachments skipped: no bot channel route is configured.`);
+    console.warn(`Discord alert ${alertKey} attachments skipped: no enabled bot channel route or default route is configured.`);
     return null;
   }
 
@@ -82,7 +82,7 @@ export async function upsertDiscordAlertMessage(
 ): Promise<string | null> {
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (!route) {
-    console.warn(`Discord alert ${alertKey} upsert skipped: no bot channel route is configured.`);
+    console.warn(`Discord alert ${alertKey} upsert skipped: no enabled bot channel route or default route is configured.`);
     return null;
   }
 

@@ -25,10 +25,32 @@ import {
 import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime } from "../../utils/format";
 
+const DEFAULT_DISCORD_ALERT_ROUTE_KEY = "default";
+
 export type DiscordTravelTargetForm = {
   factionId: string;
   factionName: string;
 };
+
+type DiscordAlertRouteRow = {
+  kind: "alert";
+  key: string;
+  checked: boolean;
+  configurable: boolean;
+  description: string;
+  label: string;
+  onChange: (enabled: boolean) => void;
+};
+
+type DiscordDefaultRouteRow = {
+  kind: "default";
+  key: typeof DEFAULT_DISCORD_ALERT_ROUTE_KEY;
+  description: string;
+  label: string;
+  statusLabel: string;
+};
+
+type DiscordAlertDisplayRow = DiscordAlertRouteRow | DiscordDefaultRouteRow;
 
 type DiscordAdminControlsProps = {
   isBusy: string | null;
@@ -100,9 +122,17 @@ export function DiscordAdminControls({
     isBusy === null &&
     Number.isInteger(Number(discordTravelTargetForm.factionId)) &&
     Number(discordTravelTargetForm.factionId) > 0;
-  const discordAlertRows = [
+  const discordAlertRows: DiscordAlertDisplayRow[] = [
+    {
+      kind: "default",
+      key: DEFAULT_DISCORD_ALERT_ROUTE_KEY,
+      description: "Fallback bot channel used when an alert does not have its own route.",
+      label: "Default fallback",
+      statusLabel: "Fallback",
+    },
     chainWatchAlert
       ? {
+          kind: "alert",
           key: chainWatchAlert.key,
           checked: chainWatchAlert.enabled,
           configurable: chainWatchAlert.configurable,
@@ -120,6 +150,7 @@ export function DiscordAdminControls({
       : null,
     retaliationBoardAlert
       ? {
+          kind: "alert",
           key: retaliationBoardAlert.key,
           checked: retaliationBoardAlert.enabled,
           configurable: retaliationBoardAlert.configurable,
@@ -137,6 +168,7 @@ export function DiscordAdminControls({
       : null,
     enemyPushAlert
       ? {
+          kind: "alert",
           key: enemyPushAlert.key,
           checked: enemyPushAlert.enabled,
           configurable: enemyPushAlert.configurable,
@@ -154,6 +186,7 @@ export function DiscordAdminControls({
       : null,
     enemyScoutingReportAlert
       ? {
+          kind: "alert",
           key: enemyScoutingReportAlert.key,
           checked: enemyScoutingReportAlert.enabled,
           configurable: enemyScoutingReportAlert.configurable,
@@ -171,6 +204,7 @@ export function DiscordAdminControls({
       : null,
     xanaxCompetitionAlert
       ? {
+          kind: "alert",
           key: xanaxCompetitionAlert.key,
           checked: xanaxCompetitionAlert.enabled,
           configurable: xanaxCompetitionAlert.configurable,
@@ -188,6 +222,7 @@ export function DiscordAdminControls({
       : null,
     termedWarAutoEndAlert
       ? {
+          kind: "alert",
           key: termedWarAutoEndAlert.key,
           checked: termedWarAutoEndAlert.enabled,
           configurable: termedWarAutoEndAlert.configurable,
@@ -204,6 +239,7 @@ export function DiscordAdminControls({
         }
       : null,
     ...shopliftingAlerts.map((alert) => ({
+      kind: "alert" as const,
       key: `shoplifting_security_alert:${alert.shop_key}`,
       checked: alert.enabled,
       configurable: alert.configurable,
@@ -221,14 +257,7 @@ export function DiscordAdminControls({
         );
       },
     })),
-  ].filter((row): row is {
-    key: string;
-    checked: boolean;
-    configurable: boolean;
-    description: string;
-    label: string;
-    onChange: (enabled: boolean) => void;
-  } => Boolean(row));
+  ].filter((row): row is DiscordAlertDisplayRow => Boolean(row));
 
   return (
     <>
@@ -244,11 +273,15 @@ export function DiscordAdminControls({
                 <strong>{alert.label}</strong>
                 <small>{alert.description}</small>
               </div>
-              <AlertToggle
-                checked={alert.checked}
-                disabled={!alert.configurable || isBusy !== null || isLoadingDiscordAlertSettings}
-                onChange={alert.onChange}
-              />
+              {alert.kind === "default" ? (
+                <AlertRouteStatus label={alert.statusLabel} />
+              ) : (
+                <AlertToggle
+                  checked={alert.checked}
+                  disabled={!alert.configurable || isBusy !== null || isLoadingDiscordAlertSettings}
+                  onChange={alert.onChange}
+                />
+              )}
               <AlertRoute route={discordAlertRoutes[alert.key] ?? null} />
             </React.Fragment>
           ))}
@@ -416,6 +449,14 @@ function AlertToggle({ checked, disabled, onChange }: {
       />
       <span>{checked ? "On" : "Off"}</span>
     </label>
+  );
+}
+
+function AlertRouteStatus({ label }: { label: string }) {
+  return (
+    <div className="admin-alert-route-status">
+      <span>{label}</span>
+    </div>
   );
 }
 
