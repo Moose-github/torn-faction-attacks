@@ -285,8 +285,9 @@ function buildEnemyMemberStatsTableSvg({
   const footerHeight = 24;
   const nameX = 48;
   const levelX = 330;
-  const ffStatsX = 590;
-  const bspStatsX = 820;
+  const jobX = 374;
+  const ffStatsX = 660;
+  const bspStatsX = 850;
   const members = [...enemyMembers].sort(compareEnemyMemberStatsRows);
   const bodyRows = Math.max(1, members.length);
   const tableHeight = tableHeaderHeight + bodyRows * rowHeight;
@@ -305,15 +306,20 @@ function buildEnemyMemberStatsTableSvg({
           const rowY = tableTop + tableHeaderHeight + index * rowHeight;
           return [
             `<rect x="24" y="${rowY}" width="${contentWidth}" height="${rowHeight}" fill="${index % 2 === 0 ? "#ffffff" : "#f1f5f9"}"/>`,
-            svgText(nameX, rowY + 17, member.name ?? `#${member.member_id}`, {
+            svgText(nameX, rowY + 17, formatEnemyMemberName(member), {
               size: 12,
               fill: "#0f172a",
-              maxLength: 26,
+              maxLength: 34,
             }),
             svgText(levelX, rowY + 17, formatNullableInteger(member.level), {
               size: 12,
               fill: "#334155",
               anchor: "end",
+            }),
+            svgText(jobX, rowY + 17, formatEnemyMemberJob(member), {
+              size: 12,
+              fill: "#334155",
+              maxLength: 28,
             }),
             svgText(ffStatsX, rowY + 17, formatNullableInteger(member.ff_battlestats), {
               size: 12,
@@ -349,6 +355,11 @@ function buildEnemyMemberStatsTableSvg({
       weight: 700,
       fill: "#475569",
       anchor: "end",
+    }),
+    svgText(jobX, tableTop + 20, "Job", {
+      size: 11,
+      weight: 700,
+      fill: "#475569",
     }),
     svgText(ffStatsX, tableTop + 20, "FF stats", {
       size: 11,
@@ -480,6 +491,21 @@ function formatNullableInteger(value: number | null | undefined): string {
   return Number.isFinite(numberValue) && numberValue > 0
     ? Math.round(numberValue).toLocaleString("en-US")
     : "-";
+}
+
+function formatEnemyMemberName(member: EnemyFactionMemberRow): string {
+  const name = member.name || `#${member.member_id}`;
+  return `${name} [${member.member_id}]`;
+}
+
+function formatEnemyMemberJob(member: EnemyFactionMemberRow): string {
+  if (!member.company_type) {
+    return "-";
+  }
+
+  return member.company_rating === null
+    ? member.company_type
+    : `${formatNullableInteger(member.company_rating)}* ${member.company_type}`;
 }
 
 function formatCompactNumber(value: number | null): string {
