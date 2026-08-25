@@ -4,7 +4,7 @@ import {
   HOME_FACTION_ID,
   POSITIVE_RESULTS_SQL,
 } from "../constants";
-import { DEFENSE_ACTION_WINDOW_SQL, OUTGOING_ACTION_WINDOW_SQL } from "../sql";
+import { OUTGOING_ACTION_WINDOW_SQL } from "../sql";
 import { Env } from "../types";
 import { d1Changes, nowSeconds } from "../utils";
 import { ATTACK_MEMBER_STAT_MERGE_SQL, DEFEND_MEMBER_STAT_MERGE_SQL } from "./sqlFragments";
@@ -13,6 +13,7 @@ import { rebuildWarSummaryFromMemberStats } from "./warSummary";
 const MEMBER_ACTIVITY_BUCKET_SECONDS = 15 * 60;
 const WAR_STATS_REBUILD_LEASE_SECONDS = 15 * 60;
 const WAR_STATS_REBUILD_LEASE_PREFIX = "war_stats_rebuild";
+const PRACTICAL_DEFENSE_ACTION_WINDOW_SQL = OUTGOING_ACTION_WINDOW_SQL;
 
 export type WarStatsRebuildScope = "single-war" | "open-wars" | "all-wars";
 
@@ -545,7 +546,7 @@ async function refreshWarDefendChainBonusAdjustmentsFromRaw(
         AND a.attacker_faction_id = w.enemy_faction_id
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
-        AND ${DEFENSE_ACTION_WINDOW_SQL}
+        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
     ),
     member_averages AS (
       SELECT
@@ -560,7 +561,7 @@ async function refreshWarDefendChainBonusAdjustmentsFromRaw(
         AND a.attacker_faction_id = w.enemy_faction_id
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
-        AND ${DEFENSE_ACTION_WINDOW_SQL}
+        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
       GROUP BY a.attacker_id
     ),
     war_average AS (
@@ -574,7 +575,7 @@ async function refreshWarDefendChainBonusAdjustmentsFromRaw(
         AND a.attacker_faction_id = w.enemy_faction_id
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
-        AND ${DEFENSE_ACTION_WINDOW_SQL}
+        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
     )
     INSERT INTO war_member_stats (
       war_id,
@@ -651,7 +652,7 @@ async function refreshWarDefendChainBonusAdjustmentsFromRaw(
       AND a.defender_id IS NOT NULL
       AND w.enemy_faction_id IS NOT NULL
       AND a.attacker_faction_id = w.enemy_faction_id
-      AND ${DEFENSE_ACTION_WINDOW_SQL}
+      AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
       member_name = COALESCE(excluded.member_name, war_member_stats.member_name),
@@ -1001,7 +1002,7 @@ async function upsertWarMemberCombatBuckets(
         AND a.attacker_faction_id = w.enemy_faction_id
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
-        AND ${DEFENSE_ACTION_WINDOW_SQL}
+        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
       GROUP BY a.attacker_id
     ),
     defend_war_average AS (
@@ -1015,7 +1016,7 @@ async function upsertWarMemberCombatBuckets(
         AND a.attacker_faction_id = w.enemy_faction_id
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
-        AND ${DEFENSE_ACTION_WINDOW_SQL}
+        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
     ),
     bucket_rows AS (
       SELECT
@@ -1124,7 +1125,7 @@ async function upsertWarMemberCombatBuckets(
         AND a.defender_id IS NOT NULL
         AND w.enemy_faction_id IS NOT NULL
         AND a.attacker_faction_id = w.enemy_faction_id
-        AND ${DEFENSE_ACTION_WINDOW_SQL}
+        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
       GROUP BY a.war_id, a.defender_id, bucket_start
       HAVING defends_lost > 0
         OR defends_won > 0
@@ -1335,7 +1336,7 @@ async function upsertIngestedWarMemberCombatBuckets(
         AND a.defender_id IS NOT NULL
         AND w.enemy_faction_id IS NOT NULL
         AND a.attacker_faction_id = w.enemy_faction_id
-        AND ${DEFENSE_ACTION_WINDOW_SQL}
+        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
       GROUP BY a.war_id, a.defender_id, bucket_start
       HAVING defends_lost > 0
         OR defends_won > 0
@@ -1714,7 +1715,7 @@ async function upsertIngestedWarMemberDefendStats(
       AND a.defender_id IS NOT NULL
       AND w.enemy_faction_id IS NOT NULL
       AND a.attacker_faction_id = w.enemy_faction_id
-      AND ${DEFENSE_ACTION_WINDOW_SQL}
+      AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
 ${DEFEND_MEMBER_STAT_MERGE_SQL}
@@ -1743,7 +1744,7 @@ async function upsertWarMemberDefendStats(
         AND a.attacker_faction_id = w.enemy_faction_id
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
-        AND ${DEFENSE_ACTION_WINDOW_SQL}
+        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
       GROUP BY a.attacker_id
     ),
     war_average AS (
@@ -1757,7 +1758,7 @@ async function upsertWarMemberDefendStats(
         AND a.attacker_faction_id = w.enemy_faction_id
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
-        AND ${DEFENSE_ACTION_WINDOW_SQL}
+        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
     )
     INSERT INTO war_member_stats (
       war_id,
@@ -1860,7 +1861,7 @@ async function upsertWarMemberDefendStats(
       AND a.defender_id IS NOT NULL
       AND w.enemy_faction_id IS NOT NULL
       AND a.attacker_faction_id = w.enemy_faction_id
-      AND ${DEFENSE_ACTION_WINDOW_SQL}
+      AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
 ${DEFEND_MEMBER_STAT_MERGE_SQL}

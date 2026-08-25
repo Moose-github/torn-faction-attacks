@@ -10,6 +10,7 @@ import {
   fetchEnemyScoutingOnceForWar,
 } from "../enemyScouting";
 import { rebuildWarStatsFromRaw } from "../warStats";
+import { DEFENSE_ACTION_WINDOW_SQL } from "../sql";
 import { isSyncLatchSet, setSyncLatch } from "../syncLatches";
 import type { Env } from "../types";
 import { nowSeconds } from "../utils";
@@ -108,6 +109,14 @@ export async function runWarOfficiallyEndedHooks(
 ): Promise<void> {
   await runWarLifecycleHandlersOnce(env, "officially_ended", options.warId, [
     {
+      name: "official_attack_assignments_backfilled",
+      run: () => backfillOfficialWarAssignments(env, options.warId),
+    },
+    {
+      name: "derived_stats_refreshed",
+      run: () => refreshWarDerivedStats(env, options.warId),
+    },
+    {
       name: "live_enemy_tracking_stopped",
       run: () => stopLiveEnemyTracking(env, options.warId, options.enemyFactionId),
     },
@@ -193,6 +202,38 @@ async function backfillWarAssignments(
     `,
   )
     .bind(warId, startedAt, HOME_FACTION_ID, HOME_FACTION_ID)
+    .run();
+}
+
+async function backfillOfficialWarAssignments(
+  env: Env,
+  warId: number,
+): Promise<void> {
+  await env.DB.prepare(
+    `
+    UPDATE attacks
+    SET war_id = ?
+    WHERE id IN (
+      SELECT a.id
+      FROM attacks a
+      JOIN wars w ON w.id = ?
+      WHERE a.war_id IS NULL
+        AND (
+          (
+            a.attacker_faction_id = ${HOME_FACTION_ID}
+            AND ${DEFENSE_ACTION_WINDOW_SQL}
+          )
+          OR (
+            w.enemy_faction_id IS NOT NULL
+            AND a.attacker_faction_id = w.enemy_faction_id
+            AND a.defender_faction_id = ${HOME_FACTION_ID}
+            AND ${DEFENSE_ACTION_WINDOW_SQL}
+          )
+        )
+    )
+    `,
+  )
+    .bind(warId, warId)
     .run();
 }
 

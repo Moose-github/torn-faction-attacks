@@ -43,6 +43,31 @@ describe("war stats rebuilds", () => {
     expect(db.calls.some((call) => call.sql.includes("INSERT INTO war_summary"))).toBe(true);
   });
 
+  it("keeps rebuilt member stats on the practical window after official attacks are linked", async () => {
+    const db = fakeDb({
+      firstResults: [
+        { match: "FROM wars", result: { id: 7 } },
+        { match: "COUNT(*) AS count", result: { count: 3 } },
+      ],
+    });
+
+    await rebuildWarStatsFromRaw(envWithDb(db), {
+      scope: "single-war",
+      warId: 7,
+      reason: "relink",
+    });
+
+    const derivedStatQueries = db.calls.filter((call) =>
+      call.sql.includes("INSERT INTO war_member_stats") ||
+      call.sql.includes("INSERT INTO war_member_combat_buckets")
+    );
+    expect(derivedStatQueries.length).toBeGreaterThan(0);
+    expect(derivedStatQueries.some((call) => call.sql.includes("official_end_time IS NOT NULL")))
+      .toBe(false);
+    expect(derivedStatQueries.every((call) => call.sql.includes("w.practical_start_time")))
+      .toBe(true);
+  });
+
   it("throws before clearing stats when the per-war rebuild lease is held", async () => {
     const db = fakeDb({
       firstResults: [

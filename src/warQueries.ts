@@ -19,6 +19,7 @@ import { readWarFromUrl } from "./warRequest";
 
 const REPORTABLE_HOME_MEMBER_FILTER_SQL = "COALESCE(h.report_exempt, 0) = 0";
 const CURRENT_HOME_MEMBER_FILTER_SQL = "COALESCE(h.is_current, 0) = 1";
+const PRACTICAL_DEFENSE_ACTION_WINDOW_SQL = OUTGOING_ACTION_WINDOW_SQL;
 type ReportableHomeMemberJoinTarget = "wms.member_id" | "buckets.member_id";
 type WarIdentityRow = { id: number; name: string };
 type WarMemberAttacksRouteWar = {
@@ -324,7 +325,7 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.defender_id = ?
-        AND ${DEFENSE_ACTION_WINDOW_SQL}
+        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
       )
       ORDER BY started DESC
       `,

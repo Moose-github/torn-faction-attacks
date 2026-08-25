@@ -33,6 +33,7 @@ import {
   stopDiscordTravelTrackersForWar,
 } from "./discordTravelTracker";
 import { fetchEnemyScoutingOnceForWar } from "./enemyScouting";
+import { rebuildWarStatsFromRaw } from "./warStats";
 
 describe("war lifecycle global state", () => {
   beforeEach(() => {
@@ -176,6 +177,31 @@ describe("war lifecycle global state", () => {
       call.sql.includes("active_war_id = NULL") && call.sql.includes("war_state = 'none'")
     )).toBe(true);
     expect(stopDiscordTravelTrackersForWar).toHaveBeenCalledWith(env);
+  });
+
+  it("official Torn end backfills official-window attacks before refreshing derived stats", async () => {
+    const db = fakeDb([
+      {
+        match: "WHERE status = 'scheduled'",
+        result: null,
+      },
+    ]);
+    const env = envWithDb(db);
+
+    await applyTornOfficialWarEnd(env, officialEndOptions());
+
+    const backfill = db.calls.find((call) =>
+      call.sql.includes("UPDATE attacks") && call.sql.includes("official_end_time IS NOT NULL"),
+    );
+    expect(backfill?.params).toEqual([7, 7]);
+    expect(backfill?.sql).toContain("a.attacker_faction_id = 8803");
+    expect(backfill?.sql).toContain("a.attacker_faction_id = w.enemy_faction_id");
+    expect(backfill?.sql).toContain("a.defender_faction_id = 8803");
+    expect(rebuildWarStatsFromRaw).toHaveBeenCalledWith(env, {
+      scope: "single-war",
+      warId: 7,
+      reason: "lifecycle",
+    });
   });
 
   it("official Torn end moves global state to the next scheduled war when one exists", async () => {
