@@ -1,4 +1,8 @@
-import { refreshTornStockHistoryBatch, refreshTornStockMarketMinute } from "../../../src/stockMarket";
+import {
+  refreshTornStockHistoryBatch,
+  refreshTornStockMarketMinute,
+  runStockStorageMaintenance,
+} from "../../../src/stockMarket";
 import { runLiveStockPaperBotTick } from "../../../src/stockPaperTrading";
 import { Env } from "../../../src/types";
 import { json } from "../../../src/utils";
@@ -26,8 +30,16 @@ async function runStockCron(env: Env, scheduledTime: number): Promise<void> {
   if (shouldRunStockRecovery(scheduledTime)) {
     await refreshTornStockHistoryBatch(env, scheduledTime);
   }
+
+  if (shouldRunStockStorageMaintenance(scheduledTime)) {
+    await runStockStorageMaintenance(env, scheduledTime);
+  }
 }
 
 function shouldRunStockRecovery(scheduledTime: number): boolean {
   return new Date(scheduledTime).getUTCMinutes() % 30 === 0;
+}
+
+function shouldRunStockStorageMaintenance(scheduledTime: number): boolean {
+  return new Date(scheduledTime).getUTCMinutes() === 7;
 }

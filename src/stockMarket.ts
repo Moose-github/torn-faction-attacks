@@ -3,7 +3,7 @@ import { fetchTrackedTornJson } from "./external/torn";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { withTornKeyPool } from "./tornKeyPool";
 import { Env } from "./types";
-import { json, nowSeconds, parseLimit } from "./utils";
+import { d1Changes, json, nowSeconds, parseLimit } from "./utils";
 
 type StockProfile = {
   stock_id: number;
@@ -51,6 +51,29 @@ type StockIngestionRun = {
   unrecoverable_gap_count: number;
   error: string | null;
   details_json: string | null;
+};
+
+export type StockStorageMaintenanceResult = {
+  hourly_rollups: StockRollupMaintenanceMetrics;
+  daily_rollups: StockRollupMaintenanceMetrics;
+  ingestion_run_daily_stats: StockRollupMaintenanceMetrics;
+  retention: {
+    minute_snapshot_cutoff_at: number;
+    minute_snapshot_delete_before: number | null;
+    minute_snapshots_deleted: number;
+    ingestion_run_cutoff_at: number;
+    ingestion_runs_deleted: number;
+  };
+};
+
+type StockRollupMaintenanceMetrics = {
+  rolling_start_at: number | null;
+  rolling_end_at: number | null;
+  backfill_start_at: number | null;
+  backfill_end_at: number | null;
+  progress_before: number | null;
+  progress_after: number | null;
+  changed_rows: number;
 };
 
 type StockCoverageRow = {
@@ -220,6 +243,18 @@ const STALE_STOCK_SECONDS = 5 * 60;
 const DEFAULT_STOCK_IDS = Array.from({ length: 35 }, (_, index) => index + 1);
 const PRIMARY_STOCK_CADENCE = "1m all-stocks";
 const RECOVERY_STOCK_CADENCE = "30m stale-stock history fallback";
+const STOCK_MINUTE_RETENTION_SECONDS = 60 * 24 * 60 * 60;
+const STOCK_INGESTION_RUN_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+const STOCK_ROLLING_ROLLUP_REFRESH_SECONDS = 3 * 24 * 60 * 60;
+const STOCK_HOURLY_ROLLUP_BACKFILL_SECONDS = 7 * 24 * 60 * 60;
+const STOCK_DAILY_ROLLUP_BACKFILL_SECONDS = 30 * 24 * 60 * 60;
+const STOCK_RAW_DELETE_LIMIT = 25_000;
+const STOCK_INGESTION_RUN_DELETE_LIMIT = 10_000;
+const STOCK_HOURLY_ROLLUP_STATE = "stock_price_rollup_hourly";
+const STOCK_DAILY_ROLLUP_STATE = "stock_price_rollup_daily";
+const STOCK_INGESTION_RUN_DAILY_ROLLUP_STATE = "stock_ingestion_run_daily_rollup";
+const HOUR_SECONDS = 60 * 60;
+const DAY_SECONDS = 24 * 60 * 60;
 const MAX_ROI_INCREMENTS = 10;
 const CITY_BANK_TERM_DAYS = 90;
 const CITY_BANK_PRINCIPAL = 2_000_000_000;
@@ -407,6 +442,46 @@ export async function refreshTornStockHistoryBatch(
     await updateStockIngestionRun(env, run);
     return run;
   }
+}
+
+export async function runStockStorageMaintenance(
+  env: Env,
+  scheduledTime: number = Date.now(),
+): Promise<StockStorageMaintenanceResult> {
+  const now = minuteFromScheduledTime(scheduledTime);
+  const hourly = await maintainHourlyStockRollups(env, now);
+  const daily = await maintainDailyStockRollups(env, now);
+  const ingestionRuns = await maintainStockIngestionRunDailyStats(env, now);
+
+  const minuteSnapshotCutoff = now - STOCK_MINUTE_RETENTION_SECONDS;
+  const hourlyProgress = hourly.progress_after ?? await readSyncTimestamp(env, STOCK_HOURLY_ROLLUP_STATE);
+  const minuteSnapshotDeleteBefore =
+    hourlyProgress > 0 ? Math.min(minuteSnapshotCutoff, hourlyProgress) : null;
+  const minuteSnapshotsDeleted =
+    minuteSnapshotDeleteBefore !== null && minuteSnapshotDeleteBefore > 0
+      ? await deleteOldMinuteStockSnapshots(env, minuteSnapshotDeleteBefore)
+      : 0;
+
+  const ingestionRunCutoff = now - STOCK_INGESTION_RUN_RETENTION_SECONDS;
+  const runProgress = ingestionRuns.progress_after ?? await readSyncTimestamp(env, STOCK_INGESTION_RUN_DAILY_ROLLUP_STATE);
+  const ingestionRunDeleteBefore = runProgress > 0 ? Math.min(ingestionRunCutoff, runProgress) : 0;
+  const ingestionRunsDeleted =
+    ingestionRunDeleteBefore > 0
+      ? await deleteOldSuccessfulStockIngestionRuns(env, ingestionRunDeleteBefore)
+      : 0;
+
+  return {
+    hourly_rollups: hourly,
+    daily_rollups: daily,
+    ingestion_run_daily_stats: ingestionRuns,
+    retention: {
+      minute_snapshot_cutoff_at: minuteSnapshotCutoff,
+      minute_snapshot_delete_before: minuteSnapshotDeleteBefore,
+      minute_snapshots_deleted: minuteSnapshotsDeleted,
+      ingestion_run_cutoff_at: ingestionRunCutoff,
+      ingestion_runs_deleted: ingestionRunsDeleted,
+    },
+  };
 }
 
 export type StockBenefitItemPriceRefreshResult = {
@@ -1741,6 +1816,9 @@ function positiveNumber(value: unknown): number | null {
 }
 
 function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -1816,6 +1894,415 @@ async function readStockCoverage(env: Env, now: number): Promise<StockCoverageRo
       : Number(row.newest_snapshot_at),
     stale_stocks: Number(row?.stale_stocks ?? 0),
   };
+}
+
+async function maintainHourlyStockRollups(
+  env: Env,
+  now: number,
+): Promise<StockRollupMaintenanceMetrics> {
+  const completeEnd = hourBucketStart(now);
+  const progressBefore = await readSyncTimestamp(env, STOCK_HOURLY_ROLLUP_STATE);
+  const rollingStart = Math.max(0, completeEnd - STOCK_ROLLING_ROLLUP_REFRESH_SECONDS);
+  let changedRows = completeEnd > rollingStart
+    ? await upsertHourlyStockRollups(env, rollingStart, completeEnd)
+    : 0;
+
+  let backfillStart = progressBefore > 0 ? progressBefore : null;
+  if (backfillStart === null) {
+    const oldestSnapshotAt = await readOldestStockSnapshotAt(env);
+    backfillStart = oldestSnapshotAt === null ? null : hourBucketStart(oldestSnapshotAt);
+  }
+
+  let backfillEnd: number | null = null;
+  let progressAfter = progressBefore > 0 ? progressBefore : null;
+  if (backfillStart !== null && backfillStart < completeEnd) {
+    backfillEnd = Math.min(backfillStart + STOCK_HOURLY_ROLLUP_BACKFILL_SECONDS, completeEnd);
+    changedRows += await upsertHourlyStockRollups(env, backfillStart, backfillEnd);
+    await upsertSyncTimestamp(env, STOCK_HOURLY_ROLLUP_STATE, backfillEnd, null);
+    progressAfter = backfillEnd;
+  }
+
+  return {
+    rolling_start_at: rollingStart,
+    rolling_end_at: completeEnd,
+    backfill_start_at: backfillStart,
+    backfill_end_at: backfillEnd,
+    progress_before: progressBefore || null,
+    progress_after: progressAfter,
+    changed_rows: changedRows,
+  };
+}
+
+async function maintainDailyStockRollups(
+  env: Env,
+  now: number,
+): Promise<StockRollupMaintenanceMetrics> {
+  const completeEnd = dayBucketStart(now);
+  const progressBefore = await readSyncTimestamp(env, STOCK_DAILY_ROLLUP_STATE);
+  const rollingStart = Math.max(0, completeEnd - 7 * DAY_SECONDS);
+  let changedRows = completeEnd > rollingStart
+    ? await upsertDailyStockRollups(env, rollingStart, completeEnd)
+    : 0;
+
+  const hourlyProgress = await readSyncTimestamp(env, STOCK_HOURLY_ROLLUP_STATE);
+  const progressLimit = hourlyProgress > 0 ? Math.min(completeEnd, dayBucketStart(hourlyProgress)) : completeEnd;
+  let backfillStart = progressBefore > 0 ? progressBefore : null;
+  if (backfillStart === null) {
+    const oldestHourlyAt = await readOldestStockHourlyRollupAt(env);
+    backfillStart = oldestHourlyAt === null ? null : dayBucketStart(oldestHourlyAt);
+  }
+
+  let backfillEnd: number | null = null;
+  let progressAfter = progressBefore > 0 ? progressBefore : null;
+  if (backfillStart !== null && backfillStart < progressLimit) {
+    backfillEnd = Math.min(backfillStart + STOCK_DAILY_ROLLUP_BACKFILL_SECONDS, progressLimit);
+    changedRows += await upsertDailyStockRollups(env, backfillStart, backfillEnd);
+    await upsertSyncTimestamp(env, STOCK_DAILY_ROLLUP_STATE, backfillEnd, null);
+    progressAfter = backfillEnd;
+  }
+
+  return {
+    rolling_start_at: rollingStart,
+    rolling_end_at: completeEnd,
+    backfill_start_at: backfillStart,
+    backfill_end_at: backfillEnd,
+    progress_before: progressBefore || null,
+    progress_after: progressAfter,
+    changed_rows: changedRows,
+  };
+}
+
+async function maintainStockIngestionRunDailyStats(
+  env: Env,
+  now: number,
+): Promise<StockRollupMaintenanceMetrics> {
+  const completeEnd = dayBucketStart(now);
+  const progressBefore = await readSyncTimestamp(env, STOCK_INGESTION_RUN_DAILY_ROLLUP_STATE);
+  const rollingStart = Math.max(0, completeEnd - 7 * DAY_SECONDS);
+  let changedRows = completeEnd > rollingStart
+    ? await upsertStockIngestionRunDailyStats(env, rollingStart, completeEnd)
+    : 0;
+
+  let backfillStart = progressBefore > 0 ? progressBefore : null;
+  if (backfillStart === null) {
+    const oldestRunAt = await readOldestStockIngestionRunAt(env);
+    backfillStart = oldestRunAt === null ? null : dayBucketStart(oldestRunAt);
+  }
+
+  let backfillEnd: number | null = null;
+  let progressAfter = progressBefore > 0 ? progressBefore : null;
+  if (backfillStart !== null && backfillStart < completeEnd) {
+    backfillEnd = Math.min(backfillStart + STOCK_DAILY_ROLLUP_BACKFILL_SECONDS, completeEnd);
+    changedRows += await upsertStockIngestionRunDailyStats(env, backfillStart, backfillEnd);
+    await upsertSyncTimestamp(env, STOCK_INGESTION_RUN_DAILY_ROLLUP_STATE, backfillEnd, null);
+    progressAfter = backfillEnd;
+  }
+
+  return {
+    rolling_start_at: rollingStart,
+    rolling_end_at: completeEnd,
+    backfill_start_at: backfillStart,
+    backfill_end_at: backfillEnd,
+    progress_before: progressBefore || null,
+    progress_after: progressAfter,
+    changed_rows: changedRows,
+  };
+}
+
+async function upsertHourlyStockRollups(env: Env, startAt: number, endAt: number): Promise<number> {
+  if (endAt <= startAt) {
+    return 0;
+  }
+
+  const result = await env.DB.prepare(
+    `
+    WITH grouped AS (
+      SELECT
+        stock_id,
+        CAST((observed_at / ?) AS INTEGER) * ? AS bucket_start,
+        MIN(observed_at) AS first_observed_at,
+        MAX(observed_at) AS last_observed_at,
+        MIN(price) AS low_price,
+        MAX(price) AS high_price,
+        AVG(price) AS avg_price,
+        COUNT(*) AS sample_count
+      FROM stock_price_snapshots
+      WHERE observed_at >= ?
+        AND observed_at < ?
+      GROUP BY stock_id, bucket_start
+    )
+    INSERT INTO stock_price_rollups_hourly (
+      stock_id,
+      bucket_start,
+      open_price,
+      high_price,
+      low_price,
+      close_price,
+      avg_price,
+      sample_count,
+      first_observed_at,
+      last_observed_at,
+      updated_at
+    )
+    SELECT
+      grouped.stock_id,
+      grouped.bucket_start,
+      first_snapshot.price AS open_price,
+      grouped.high_price,
+      grouped.low_price,
+      last_snapshot.price AS close_price,
+      grouped.avg_price,
+      grouped.sample_count,
+      grouped.first_observed_at,
+      grouped.last_observed_at,
+      unixepoch()
+    FROM grouped
+    JOIN stock_price_snapshots first_snapshot
+      ON first_snapshot.stock_id = grouped.stock_id
+     AND first_snapshot.observed_at = grouped.first_observed_at
+    JOIN stock_price_snapshots last_snapshot
+      ON last_snapshot.stock_id = grouped.stock_id
+     AND last_snapshot.observed_at = grouped.last_observed_at
+    WHERE true
+    ON CONFLICT(stock_id, bucket_start) DO UPDATE SET
+      open_price = excluded.open_price,
+      high_price = excluded.high_price,
+      low_price = excluded.low_price,
+      close_price = excluded.close_price,
+      avg_price = excluded.avg_price,
+      sample_count = excluded.sample_count,
+      first_observed_at = excluded.first_observed_at,
+      last_observed_at = excluded.last_observed_at,
+      updated_at = excluded.updated_at
+    `,
+  )
+    .bind(HOUR_SECONDS, HOUR_SECONDS, startAt, endAt)
+    .run();
+
+  return d1Changes(result);
+}
+
+async function upsertDailyStockRollups(env: Env, startAt: number, endAt: number): Promise<number> {
+  if (endAt <= startAt) {
+    return 0;
+  }
+
+  const result = await env.DB.prepare(
+    `
+    WITH grouped AS (
+      SELECT
+        stock_id,
+        CAST((bucket_start / ?) AS INTEGER) * ? AS day_start,
+        MIN(bucket_start) AS first_bucket_start,
+        MAX(bucket_start) AS last_bucket_start,
+        MIN(low_price) AS low_price,
+        MAX(high_price) AS high_price,
+        SUM(avg_price * sample_count) / SUM(sample_count) AS avg_price,
+        SUM(sample_count) AS sample_count,
+        MIN(first_observed_at) AS first_observed_at,
+        MAX(last_observed_at) AS last_observed_at
+      FROM stock_price_rollups_hourly
+      WHERE bucket_start >= ?
+        AND bucket_start < ?
+      GROUP BY stock_id, day_start
+      HAVING sample_count > 0
+    )
+    INSERT INTO stock_price_rollups_daily (
+      stock_id,
+      bucket_start,
+      open_price,
+      high_price,
+      low_price,
+      close_price,
+      avg_price,
+      sample_count,
+      first_observed_at,
+      last_observed_at,
+      updated_at
+    )
+    SELECT
+      grouped.stock_id,
+      grouped.day_start,
+      first_hour.open_price,
+      grouped.high_price,
+      grouped.low_price,
+      last_hour.close_price,
+      grouped.avg_price,
+      grouped.sample_count,
+      grouped.first_observed_at,
+      grouped.last_observed_at,
+      unixepoch()
+    FROM grouped
+    JOIN stock_price_rollups_hourly first_hour
+      ON first_hour.stock_id = grouped.stock_id
+     AND first_hour.bucket_start = grouped.first_bucket_start
+    JOIN stock_price_rollups_hourly last_hour
+      ON last_hour.stock_id = grouped.stock_id
+     AND last_hour.bucket_start = grouped.last_bucket_start
+    WHERE true
+    ON CONFLICT(stock_id, bucket_start) DO UPDATE SET
+      open_price = excluded.open_price,
+      high_price = excluded.high_price,
+      low_price = excluded.low_price,
+      close_price = excluded.close_price,
+      avg_price = excluded.avg_price,
+      sample_count = excluded.sample_count,
+      first_observed_at = excluded.first_observed_at,
+      last_observed_at = excluded.last_observed_at,
+      updated_at = excluded.updated_at
+    `,
+  )
+    .bind(DAY_SECONDS, DAY_SECONDS, startAt, endAt)
+    .run();
+
+  return d1Changes(result);
+}
+
+async function upsertStockIngestionRunDailyStats(env: Env, startAt: number, endAt: number): Promise<number> {
+  if (endAt <= startAt) {
+    return 0;
+  }
+
+  const result = await env.DB.prepare(
+    `
+    WITH grouped AS (
+      SELECT
+        CAST((started_at / ?) AS INTEGER) * ? AS day_start,
+        COUNT(*) AS total_runs,
+        SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) AS ok_runs,
+        SUM(CASE WHEN status = 'partial' THEN 1 ELSE 0 END) AS partial_runs,
+        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS error_runs,
+        SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running_runs,
+        SUM(stocks_attempted) AS stocks_attempted,
+        SUM(stocks_succeeded) AS stocks_succeeded,
+        SUM(stocks_failed) AS stocks_failed,
+        SUM(points_seen) AS points_seen,
+        SUM(points_written) AS points_written,
+        SUM(recoverable_gap_count) AS recoverable_gap_count,
+        SUM(unrecoverable_gap_count) AS unrecoverable_gap_count,
+        MIN(started_at) AS first_started_at,
+        MAX(started_at) AS last_started_at
+      FROM stock_ingestion_runs
+      WHERE started_at >= ?
+        AND started_at < ?
+      GROUP BY day_start
+    )
+    INSERT INTO stock_ingestion_run_daily_stats (
+      bucket_start,
+      total_runs,
+      ok_runs,
+      partial_runs,
+      error_runs,
+      running_runs,
+      stocks_attempted,
+      stocks_succeeded,
+      stocks_failed,
+      points_seen,
+      points_written,
+      recoverable_gap_count,
+      unrecoverable_gap_count,
+      first_started_at,
+      last_started_at,
+      updated_at
+    )
+    SELECT
+      day_start,
+      total_runs,
+      ok_runs,
+      partial_runs,
+      error_runs,
+      running_runs,
+      stocks_attempted,
+      stocks_succeeded,
+      stocks_failed,
+      points_seen,
+      points_written,
+      recoverable_gap_count,
+      unrecoverable_gap_count,
+      first_started_at,
+      last_started_at,
+      unixepoch()
+    FROM grouped
+    WHERE true
+    ON CONFLICT(bucket_start) DO UPDATE SET
+      total_runs = excluded.total_runs,
+      ok_runs = excluded.ok_runs,
+      partial_runs = excluded.partial_runs,
+      error_runs = excluded.error_runs,
+      running_runs = excluded.running_runs,
+      stocks_attempted = excluded.stocks_attempted,
+      stocks_succeeded = excluded.stocks_succeeded,
+      stocks_failed = excluded.stocks_failed,
+      points_seen = excluded.points_seen,
+      points_written = excluded.points_written,
+      recoverable_gap_count = excluded.recoverable_gap_count,
+      unrecoverable_gap_count = excluded.unrecoverable_gap_count,
+      first_started_at = excluded.first_started_at,
+      last_started_at = excluded.last_started_at,
+      updated_at = excluded.updated_at
+    `,
+  )
+    .bind(DAY_SECONDS, DAY_SECONDS, startAt, endAt)
+    .run();
+
+  return d1Changes(result);
+}
+
+async function deleteOldMinuteStockSnapshots(env: Env, deleteBefore: number): Promise<number> {
+  const result = await env.DB.prepare(
+    `
+    DELETE FROM stock_price_snapshots
+    WHERE rowid IN (
+      SELECT rowid
+      FROM stock_price_snapshots
+      WHERE observed_at < ?
+      ORDER BY observed_at ASC, stock_id ASC
+      LIMIT ?
+    )
+    `,
+  )
+    .bind(deleteBefore, STOCK_RAW_DELETE_LIMIT)
+    .run();
+
+  return d1Changes(result);
+}
+
+async function deleteOldSuccessfulStockIngestionRuns(env: Env, deleteBefore: number): Promise<number> {
+  const result = await env.DB.prepare(
+    `
+    DELETE FROM stock_ingestion_runs
+    WHERE rowid IN (
+      SELECT rowid
+      FROM stock_ingestion_runs
+      WHERE started_at < ?
+        AND status = 'ok'
+      ORDER BY started_at ASC
+      LIMIT ?
+    )
+    `,
+  )
+    .bind(deleteBefore, STOCK_INGESTION_RUN_DELETE_LIMIT)
+    .run();
+
+  return d1Changes(result);
+}
+
+async function readOldestStockSnapshotAt(env: Env): Promise<number | null> {
+  const row = await env.DB.prepare("SELECT MIN(observed_at) AS observed_at FROM stock_price_snapshots")
+    .first<{ observed_at: number | null }>();
+  return nullableNumber(row?.observed_at);
+}
+
+async function readOldestStockHourlyRollupAt(env: Env): Promise<number | null> {
+  const row = await env.DB.prepare("SELECT MIN(bucket_start) AS bucket_start FROM stock_price_rollups_hourly")
+    .first<{ bucket_start: number | null }>();
+  return nullableNumber(row?.bucket_start);
+}
+
+async function readOldestStockIngestionRunAt(env: Env): Promise<number | null> {
+  const row = await env.DB.prepare("SELECT MIN(started_at) AS started_at FROM stock_ingestion_runs")
+    .first<{ started_at: number | null }>();
+  return nullableNumber(row?.started_at);
 }
 
 async function saveStockProfiles(env: Env, profiles: StockProfile[]): Promise<void> {
@@ -2346,6 +2833,14 @@ function stockInvestorsFromValue(value: Record<string, unknown>): number | null 
 
 function minuteFromScheduledTime(scheduledTime: number): number {
   return Math.floor(Math.floor(scheduledTime / 1000) / 60) * 60;
+}
+
+function hourBucketStart(timestamp: number): number {
+  return Math.floor(timestamp / HOUR_SECONDS) * HOUR_SECONDS;
+}
+
+function dayBucketStart(timestamp: number): number {
+  return Math.floor(timestamp / DAY_SECONDS) * DAY_SECONDS;
 }
 
 function tupleSnapshot(value: unknown[]): { timestamp: number; price: number } | null {
