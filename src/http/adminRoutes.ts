@@ -62,7 +62,7 @@ import {
   resetStockPaperAccount,
   simulateStockPaperBotFromRequest,
 } from "../stockPaperTrading";
-import { rebuildWarStatsFromRaw } from "../warStats";
+import { rebuildWarStatsFromRaw, WarStatsRebuildLeaseError } from "../warStats";
 import { listMemberSuggestionsForAdmin } from "../suggestions";
 import { getTornApiUsage } from "../tornApiUsage";
 import { listAdminTornApiKeys } from "../tornKeyPool";
@@ -354,9 +354,23 @@ async function rebuildStatsFromRequest(request: Request, env: Env): Promise<Resp
   );
   if (cooldownError) return cooldownError;
 
-  const result = await rebuildWarStatsFromRaw(env, warId === undefined
-    ? { scope: "all-wars", reason: "admin" }
-    : { scope: "single-war", warId, reason: "admin" });
+  let result;
+  try {
+    result = await rebuildWarStatsFromRaw(env, warId === undefined
+      ? { scope: "all-wars", reason: "admin" }
+      : { scope: "single-war", warId, reason: "admin" });
+  } catch (err) {
+    if (err instanceof WarStatsRebuildLeaseError) {
+      return json({
+        ok: false,
+        error: err.message,
+        code: err.code,
+        war_id: err.warId,
+      }, 409);
+    }
+
+    throw err;
+  }
   if (warId !== undefined && result.wars_rebuilt === 0) {
     return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
   }

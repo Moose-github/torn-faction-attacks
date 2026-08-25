@@ -14,7 +14,10 @@ import {
 import {
   refreshDailyMemberLifestyleStats,
 } from "../lifestyleStats/dailyPersonal";
-import { runScheduledMaintenance } from "../maintenance";
+import {
+  markOpenWarMemberStatsRebuildComplete,
+  runScheduledMaintenance,
+} from "../maintenance";
 import { refreshTornShoplifting } from "../miscellaneous";
 import { syncRetaliationDiscordBoard } from "../retaliations";
 import {
@@ -38,21 +41,20 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     label: "Cron ingestion",
     cadence: "1m",
     category: "attacks",
-    purpose: "Import recent attacks every minute, then refresh Chain Watch state and alarms.",
+    purpose: "Import recent attacks every minute, run the hourly exact rebuild when due, then refresh Chain Watch state and alarms.",
     shouldRun: () => true,
+    fullWarStatsRebuild: shouldRunHourlyExactWarSummaries,
     run: async (env, scheduledTime) => {
       await runIngestion(env, "cron", { scheduledTime });
+      if (shouldRunHourlyExactWarSummaries(new Date(scheduledTime))) {
+        const result = await rebuildWarStatsFromRaw(env, { scope: "open-wars", reason: "cron" });
+        if (!result.wars_skipped) {
+          await markOpenWarMemberStatsRebuildComplete(env, Math.floor(scheduledTime / 1000));
+        }
+      }
       await runChainWatchCron(env, scheduledTime);
       await syncRetaliationDiscordBoard(env, Math.floor(scheduledTime / 1000));
     },
-  },
-  {
-    label: "Cron hourly exact war summaries",
-    cadence: "1h active",
-    category: "attacks",
-    purpose: "Rebuild current war summaries from raw attacks hourly so chain-bonus adjustments catch up outside the minute path.",
-    shouldRun: (date) => date.getUTCMinutes() === 0,
-    run: (env) => rebuildWarStatsFromRaw(env, { scope: "open-wars", reason: "cron" }),
   },
   {
     label: "Cron targeted chain bonus correction",
@@ -142,6 +144,10 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     run: (env) => processXantakenRechecks(env),
   },
 ];
+
+function shouldRunHourlyExactWarSummaries(date: Date): boolean {
+  return date.getUTCMinutes() === 0;
+}
 
 export function shouldRunMonthlyXanaxCompetitionDiscordReminder(date: Date): boolean {
   return (

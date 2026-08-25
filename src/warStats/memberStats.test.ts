@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Env } from "../types";
-import { clearWarStats, rebuildWarStatsFromRaw } from "./memberStats";
+import { clearWarStats, rebuildWarStatsFromRaw, WarStatsRebuildLeaseError } from "./memberStats";
 
 describe("war stats rebuilds", () => {
   it("returns an empty result when a single-war rebuild targets a missing war", async () => {
@@ -43,6 +43,26 @@ describe("war stats rebuilds", () => {
     expect(db.calls.some((call) => call.sql.includes("INSERT INTO war_summary"))).toBe(true);
   });
 
+  it("throws before clearing stats when the per-war rebuild lease is held", async () => {
+    const db = fakeDb({
+      firstResults: [
+        { match: "FROM wars", result: { id: 7 } },
+      ],
+      runResults: [
+        { match: "INSERT INTO sync_state", result: { success: true, meta: { changes: 0 } } },
+      ],
+    });
+
+    await expect(rebuildWarStatsFromRaw(envWithDb(db), {
+      scope: "single-war",
+      warId: 7,
+      reason: "admin",
+    })).rejects.toBeInstanceOf(WarStatsRebuildLeaseError);
+
+    expect(db.calls.some((call) => call.sql.includes("DELETE FROM war_member_stats"))).toBe(false);
+    expect(db.calls.some((call) => call.sql.includes("DELETE FROM war_member_combat_buckets"))).toBe(false);
+  });
+
   it("clears every calculated war stats table for a war", async () => {
     const db = fakeDb();
 
@@ -65,9 +85,11 @@ function envWithDb(db: ReturnType<typeof fakeDb>): Env {
 function fakeDb(options?: {
   firstResults?: Array<{ match: string; result: unknown }>;
   allResults?: Array<{ match: string; result: unknown[] }>;
+  runResults?: Array<{ match: string; result: unknown }>;
 }) {
   const firstResults = [...(options?.firstResults ?? [])];
   const allResults = [...(options?.allResults ?? [])];
+  const runResults = [...(options?.runResults ?? [])];
   const calls: Array<{ sql: string; params: unknown[] }> = [];
   const batchCalls: Array<Array<{ sql: string; params: unknown[] }>> = [];
 
@@ -87,6 +109,12 @@ function fakeDb(options?: {
           return this;
         },
         async run() {
+          const index = runResults.findIndex((entry) => call.sql.includes(entry.match));
+          if (index >= 0) {
+            const [entry] = runResults.splice(index, 1);
+            return entry.result;
+          }
+
           return { success: true, meta: { changes: 1 } };
         },
         async first() {

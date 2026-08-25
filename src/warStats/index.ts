@@ -7,6 +7,7 @@ export {
   rebuildWarStatsFromRaw,
   rebuildWarMemberStatsFromRaw,
   refreshOpenWarChainBonusAdjustmentsFromRaw,
+  WarStatsRebuildLeaseError,
   type WarStatsRebuildOptions,
   type WarStatsRebuildReason,
   type WarStatsRebuildResult,

@@ -6,11 +6,13 @@ import {
 } from "../constants";
 import { DEFENSE_ACTION_WINDOW_SQL, OUTGOING_ACTION_WINDOW_SQL } from "../sql";
 import { Env } from "../types";
-import { d1Changes } from "../utils";
+import { d1Changes, nowSeconds } from "../utils";
 import { ATTACK_MEMBER_STAT_MERGE_SQL, DEFEND_MEMBER_STAT_MERGE_SQL } from "./sqlFragments";
 import { rebuildWarSummaryFromMemberStats } from "./warSummary";
 
 const MEMBER_ACTIVITY_BUCKET_SECONDS = 15 * 60;
+const WAR_STATS_REBUILD_LEASE_SECONDS = 15 * 60;
+const WAR_STATS_REBUILD_LEASE_PREFIX = "war_stats_rebuild";
 
 export type WarStatsRebuildScope = "single-war" | "open-wars" | "all-wars";
 
@@ -32,7 +34,25 @@ export type WarStatsRebuildOptions = {
 export type WarStatsRebuildResult = {
   wars_rebuilt: number;
   combat_bucket_rows: number;
+  wars_skipped?: number;
 };
+
+type WarStatsRebuildLease = {
+  name: string;
+  warId: number;
+  claimedAt: number;
+};
+
+export class WarStatsRebuildLeaseError extends Error {
+  readonly code = "WAR_STATS_REBUILD_LOCKED";
+  readonly warId: number;
+
+  constructor(warId: number) {
+    super(`War stats rebuild is already running for war ${warId}`);
+    this.name = "WarStatsRebuildLeaseError";
+    this.warId = warId;
+  }
+}
 
 export async function clearWarStats(env: Env, warId: number): Promise<void> {
   await env.DB.batch([
@@ -59,15 +79,17 @@ export async function rebuildWarStatsFromRaw(
   env: Env,
   options: WarStatsRebuildOptions,
 ): Promise<WarStatsRebuildResult> {
+  const throwOnLeaseConflict = options.reason !== "cron";
+
   if (options.scope === "single-war") {
-    return rebuildSingleWarStatsFromRaw(env, options.warId);
+    return rebuildSingleWarStatsFromRaw(env, options.warId, throwOnLeaseConflict);
   }
 
   if (options.scope === "open-wars") {
-    return rebuildOpenWarStatsFromRaw(env);
+    return rebuildOpenWarStatsFromRaw(env, throwOnLeaseConflict);
   }
 
-  return rebuildAllWarStatsFromRaw(env);
+  return rebuildAllWarStatsFromRaw(env, throwOnLeaseConflict);
 }
 
 export async function rebuildOpenWarMemberStatsFromRaw(env: Env): Promise<{ wars_rebuilt: number }> {
@@ -81,7 +103,10 @@ export async function rebuildOpenWarMemberStatsFromRaw(env: Env): Promise<{ wars
   };
 }
 
-async function rebuildOpenWarStatsFromRaw(env: Env): Promise<WarStatsRebuildResult> {
+async function rebuildOpenWarStatsFromRaw(
+  env: Env,
+  throwOnLeaseConflict: boolean,
+): Promise<WarStatsRebuildResult> {
   const rows = await env.DB.prepare(
     `
     SELECT id
@@ -94,15 +119,22 @@ async function rebuildOpenWarStatsFromRaw(env: Env): Promise<WarStatsRebuildResu
   ).all();
 
   const wars = (rows.results ?? []) as { id: number }[];
+  let warsRebuilt = 0;
+  let warsSkipped = 0;
 
   for (const war of wars) {
-    await rebuildSingleWarStatsFromRaw(env, war.id);
+    const rebuilt = await rebuildKnownWarStatsFromRaw(env, war.id, throwOnLeaseConflict);
+    if (rebuilt) {
+      warsRebuilt += 1;
+    } else {
+      warsSkipped += 1;
+    }
   }
 
-  return {
-    wars_rebuilt: wars.length,
+  return withSkippedWars({
+    wars_rebuilt: warsRebuilt,
     combat_bucket_rows: await countWarMemberCombatBuckets(env),
-  };
+  }, warsSkipped);
 }
 
 export async function refreshOpenWarChainBonusAdjustmentsFromRaw(env: Env): Promise<{
@@ -190,6 +222,7 @@ export async function rebuildDerivedStatsFromRaw(env: Env, warId?: number): Prom
 async function rebuildSingleWarStatsFromRaw(
   env: Env,
   warId: number | undefined,
+  throwOnLeaseConflict: boolean,
 ): Promise<WarStatsRebuildResult> {
   if (warId === undefined) {
     return { wars_rebuilt: 0, combat_bucket_rows: 0 };
@@ -210,18 +243,18 @@ async function rebuildSingleWarStatsFromRaw(
     return { wars_rebuilt: 0, combat_bucket_rows: 0 };
   }
 
-  await rebuildWarMemberStatsFromRaw(env, war.id);
-  await rebuildWarSummaryFromMemberStats(env, war.id);
+  const rebuilt = await rebuildKnownWarStatsFromRaw(env, war.id, throwOnLeaseConflict);
 
-  return {
-    wars_rebuilt: 1,
+  return withSkippedWars({
+    wars_rebuilt: rebuilt ? 1 : 0,
     combat_bucket_rows: await countWarMemberCombatBuckets(env, war.id),
-  };
+  }, rebuilt ? 0 : 1);
 }
 
-async function rebuildAllWarStatsFromRaw(env: Env): Promise<WarStatsRebuildResult> {
-  await resetDerivedWarMemberStats(env);
-
+async function rebuildAllWarStatsFromRaw(
+  env: Env,
+  throwOnLeaseConflict: boolean,
+): Promise<WarStatsRebuildResult> {
   const rows = await env.DB.prepare(
     `
     SELECT id, status
@@ -231,15 +264,99 @@ async function rebuildAllWarStatsFromRaw(env: Env): Promise<WarStatsRebuildResul
   ).all();
 
   const wars = (rows.results ?? []) as { id: number; status: string }[];
+  let warsRebuilt = 0;
+  let warsSkipped = 0;
 
   for (const war of wars) {
-    await rebuildSingleWarStatsFromRaw(env, war.id);
+    const rebuilt = await rebuildKnownWarStatsFromRaw(env, war.id, throwOnLeaseConflict);
+    if (rebuilt) {
+      warsRebuilt += 1;
+    } else {
+      warsSkipped += 1;
+    }
   }
 
-  return {
-    wars_rebuilt: wars.length,
+  return withSkippedWars({
+    wars_rebuilt: warsRebuilt,
     combat_bucket_rows: await countWarMemberCombatBuckets(env),
-  };
+  }, warsSkipped);
+}
+
+async function rebuildKnownWarStatsFromRaw(
+  env: Env,
+  warId: number,
+  throwOnLeaseConflict: boolean,
+): Promise<boolean> {
+  const lease = await claimWarStatsRebuildLease(env, warId);
+  if (!lease) {
+    if (throwOnLeaseConflict) {
+      throw new WarStatsRebuildLeaseError(warId);
+    }
+
+    console.warn(`Skipped war stats rebuild for war ${warId}: rebuild lease is already held.`);
+    return false;
+  }
+
+  try {
+    await rebuildWarMemberStatsFromRaw(env, warId);
+    await rebuildWarSummaryFromMemberStats(env, warId);
+    return true;
+  } finally {
+    await releaseWarStatsRebuildLease(env, lease);
+  }
+}
+
+async function claimWarStatsRebuildLease(
+  env: Env,
+  warId: number,
+): Promise<WarStatsRebuildLease | null> {
+  const claimedAt = nowSeconds();
+  const name = warStatsRebuildLeaseName(warId);
+  const result = await env.DB.prepare(
+    `
+    INSERT INTO sync_state (name, last_started, active_war_id, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(name) DO UPDATE SET
+      last_started = excluded.last_started,
+      active_war_id = excluded.active_war_id,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE sync_state.last_started < ?
+    `,
+  )
+    .bind(name, claimedAt, warId, claimedAt - WAR_STATS_REBUILD_LEASE_SECONDS)
+    .run();
+
+  return d1Changes(result) > 0 ? { name, warId, claimedAt } : null;
+}
+
+async function releaseWarStatsRebuildLease(
+  env: Env,
+  lease: WarStatsRebuildLease,
+): Promise<void> {
+  await env.DB.prepare(
+    `
+    DELETE FROM sync_state
+    WHERE name = ?
+      AND last_started = ?
+      AND active_war_id = ?
+    `,
+  )
+    .bind(lease.name, lease.claimedAt, lease.warId)
+    .run()
+    .catch((err: any) => {
+      console.warn("Unable to release war stats rebuild lease:", err?.message || err);
+    });
+}
+
+function warStatsRebuildLeaseName(warId: number): string {
+  return `${WAR_STATS_REBUILD_LEASE_PREFIX}:${warId}`;
+}
+
+function withSkippedWars(
+  result: WarStatsRebuildResult,
+  warsSkipped: number,
+): WarStatsRebuildResult {
+  return warsSkipped > 0 ? { ...result, wars_skipped: warsSkipped } : result;
 }
 
 async function countWarMemberCombatBuckets(env: Env, warId?: number): Promise<number> {

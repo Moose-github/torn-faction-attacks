@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./enemyScoutingCron", () => ({
   runEnemyScoutingCronTick: vi.fn(),
@@ -18,6 +18,7 @@ vi.mock("./lifestyleStats", () => ({
   refreshDailyMemberLifestyleStats: vi.fn(),
 }));
 vi.mock("./maintenance", () => ({
+  markOpenWarMemberStatsRebuildComplete: vi.fn(),
   runScheduledMaintenance: vi.fn(),
 }));
 vi.mock("./miscellaneous", () => ({
@@ -39,9 +40,72 @@ import {
   buildCronPlan,
   shouldRunMonthlyXanaxCompetitionDiscordReminder,
 } from "./cronPlan";
+import { runChainWatchCron } from "./chainWatch";
+import { runIngestion } from "./ingestion";
+import { markOpenWarMemberStatsRebuildComplete } from "./maintenance";
+import { syncRetaliationDiscordBoard } from "./retaliations";
 import type { Env } from "./types";
+import { rebuildWarStatsFromRaw } from "./warStats";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("monthly Xanax competition cron", () => {
+  it("never schedules more than one full war-stat rebuild in the same tick", () => {
+    for (let hour = 0; hour < 24; hour += 1) {
+      for (let minute = 0; minute < 60; minute += 1) {
+        const fullRebuildJobs = buildCronPlan({} as Env, Date.UTC(2026, 5, 1, hour, minute, 0))
+          .filter((job) => job.fullWarStatsRebuild);
+
+        expect(fullRebuildJobs.length).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("runs top-hour attack ingestion, exact rebuild, latch update, and alert refresh in order", async () => {
+    const calls: string[] = [];
+    vi.mocked(runIngestion).mockImplementation(async () => {
+      calls.push("ingestion");
+    });
+    vi.mocked(rebuildWarStatsFromRaw).mockImplementation(async () => {
+      calls.push("exact-rebuild");
+      return { wars_rebuilt: 1, combat_bucket_rows: 3 };
+    });
+    vi.mocked(markOpenWarMemberStatsRebuildComplete).mockImplementation(async () => {
+      calls.push("latch");
+    });
+    vi.mocked(runChainWatchCron).mockImplementation(async () => {
+      calls.push("chain-watch");
+    });
+    vi.mocked(syncRetaliationDiscordBoard).mockImplementation(async () => {
+      calls.push("retaliation");
+      return { active: false, nextRefreshAt: 0, edited: false };
+    });
+
+    const scheduledTime = Date.UTC(2026, 5, 1, 6, 0, 0);
+    const ingestionJob = buildCronPlan({} as Env, scheduledTime)
+      .find((job) => job.label === "Cron ingestion");
+
+    await ingestionJob?.run();
+
+    expect(calls).toEqual([
+      "ingestion",
+      "exact-rebuild",
+      "latch",
+      "chain-watch",
+      "retaliation",
+    ]);
+    expect(rebuildWarStatsFromRaw).toHaveBeenCalledWith(
+      expect.anything(),
+      { scope: "open-wars", reason: "cron" },
+    );
+    expect(markOpenWarMemberStatsRebuildComplete).toHaveBeenCalledWith(
+      expect.anything(),
+      Math.floor(scheduledTime / 1000),
+    );
+  });
+
   it("keeps personal lifestyle imports on the four daily UTC slots", () => {
     expect(buildCronPlan({} as Env, Date.UTC(2026, 5, 1, 0, 10, 0)).map((job) => job.label))
       .toContain("Cron personal lifestyle stats");

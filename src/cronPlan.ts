@@ -13,6 +13,7 @@ export function buildCronPlan(env: Env, scheduledTime: number): CronJob[] {
     cadence: job.cadence,
     category: job.category,
     purpose: job.purpose,
+    fullWarStatsRebuild: job.fullWarStatsRebuild?.(date) ?? false,
     run: () => job.run(env, scheduledTime),
   }));
 }

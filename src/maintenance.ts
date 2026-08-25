@@ -3,7 +3,6 @@ import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
 import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
 import { refreshMemberAchievementSummariesIfStale } from "./memberAchievements";
-import { rebuildWarStatsFromRaw } from "./warStats";
 import { readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { refreshTornApiUsageRollups } from "./tornApiUsage";
 import { Env, TornFactionMember } from "./types";
@@ -40,6 +39,13 @@ const METRICS_RETENTION_STATE_NAME = "scheduled_metrics_retention";
 const MEMBER_STAT_CORRECTION_INTERVAL_SECONDS = 60 * 60;
 const MEMBER_STAT_CORRECTION_STATE_NAME = "open_war_member_stats_rebuild";
 const NOOP_MAINTENANCE_METRIC_INTERVAL_SECONDS = 60 * 60;
+
+export async function markOpenWarMemberStatsRebuildComplete(
+  env: Env,
+  completedAt = nowSeconds(),
+): Promise<void> {
+  await upsertSyncTimestamp(env, MEMBER_STAT_CORRECTION_STATE_NAME, completedAt);
+}
 
 export async function runScheduledMaintenance(
   env: Env,
@@ -324,24 +330,14 @@ async function runMemberStatCorrectionIfDue(env: Env): Promise<MaintenanceTaskMe
     };
   }
 
-  const result = await rebuildWarStatsFromRaw(env, {
-    scope: "open-wars",
-    reason: "maintenance",
-  });
-  if (result.wars_rebuilt === 0) {
-    return {
-      writeStatements: 0,
-      changedRows: 0,
-      details: result,
-    };
-  }
-
-  await upsertSyncTimestamp(env, MEMBER_STAT_CORRECTION_STATE_NAME, now);
-
   return {
-    writeStatements: result.wars_rebuilt + 1,
-    changedRows: result.wars_rebuilt + 1,
-    details: result,
+    writeStatements: 0,
+    changedRows: 0,
+    details: {
+      skipped: true,
+      reason: "member stat correction is handled by the hourly exact war summaries job",
+      last_rebuild_at: lastCorrectionAt || null,
+    },
   };
 }
 
