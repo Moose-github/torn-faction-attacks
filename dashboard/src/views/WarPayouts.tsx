@@ -1,6 +1,13 @@
 import { WarPayoutCalculator } from "./Miscellaneous";
+import type { WarSummary } from "../api";
 
-export function WarPayouts() {
+export function WarPayouts({
+  isLoadingWars,
+  wars,
+}: {
+  isLoadingWars: boolean;
+  wars: WarSummary[];
+}) {
   return (
     <>
       <section className="hero-panel compact-hero-panel">
@@ -20,7 +27,7 @@ export function WarPayouts() {
       </section>
 
       <section className="panel table-panel payout-calculator-panel">
-        <WarPayoutCalculator />
+        <WarPayoutCalculator initialWars={wars} isLoadingInitialWars={isLoadingWars} />
       </section>
     </>
   );

@@ -1,6 +1,6 @@
 import { API_BASE_URL, authHeaders, filenameFromContentDisposition, getJson, postJson } from "./client";
 import { queryString } from "./query";
-import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyBigHittersResponse, EnemyMemberActivityHeatmapResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarControlResponse, WarDetailResponse, WarMemberCombatHeatmapResponse, WarsResponse, WarType } from "./types";
+import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyBigHittersResponse, EnemyMemberActivityHeatmapResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, GlobalWarStateResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarControlResponse, WarDetailResponse, WarMemberCombatHeatmapResponse, WarsResponse, WarType } from "./types";
 
 export async function getStats(
   warType: WarType,
@@ -13,11 +13,15 @@ export async function getStats(
   return getJson<StatsResponse>(`/api/stats${suffix}`);
 }
 
-export async function getWars(warType: WarType): Promise<WarsResponse> {
-  return getJson<WarsResponse>(`/api/wars${queryForWarType(warType)}`);
+export async function getWars(warType: WarType): Promise<WarsResponse> {
+  return getJson<WarsResponse>(`/api/wars${queryForWarType(warType)}`);
 }
 
-export async function getWar(name: string): Promise<WarDetailResponse> {
+export async function getGlobalWarState(): Promise<GlobalWarStateResponse> {
+  return getJson<GlobalWarStateResponse>("/api/global-war-state");
+}
+
+export async function getWar(name: string): Promise<WarDetailResponse> {
   return getJson<WarDetailResponse>(`/api/wars/${encodeURIComponent(name)}`);
 }
 

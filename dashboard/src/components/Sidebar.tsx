@@ -34,6 +34,7 @@ export function Sidebar({
   adminIcon,
   isAdmin,
   onWarSelect,
+  onRecordedWarsOpenChange,
 }: {
   warType: WarType;
   onWarTypeChange: (value: WarType) => void;
@@ -60,6 +61,7 @@ export function Sidebar({
   adminIcon: React.ReactNode;
   isAdmin: boolean;
   onWarSelect: (name: string) => void;
+  onRecordedWarsOpenChange?: (open: boolean) => void;
 }) {
   const [collapsedGroups, setCollapsedGroups] = React.useState<Record<SidebarGroupId, boolean>>({
     members: true,
@@ -71,6 +73,7 @@ export function Sidebar({
   const recordedWarsActive = view === "war";
   const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "stockInvestments";
   const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "packs" || view === "admin";
+  const recordedWarsOpen = !(collapsedGroups.recordedWars ?? false);
 
   React.useEffect(() => {
     setCollapsedGroups((current) => {
@@ -82,6 +85,10 @@ export function Sidebar({
       return next;
     });
   }, [adminActive, membersActive, miscellaneousActive, recordedWarsActive]);
+
+  React.useEffect(() => {
+    onRecordedWarsOpenChange?.(recordedWarsOpen);
+  }, [onRecordedWarsOpenChange, recordedWarsOpen]);
 
   function toggleGroup(group: SidebarGroupId) {
     setCollapsedGroups((current) => ({
@@ -149,16 +156,16 @@ export function Sidebar({
         className={[
           "panel sidebar-panel sidebar-wars-panel",
           recordedWarsActive ? "active" : "",
-          collapsedGroups.recordedWars ? "collapsed" : "",
+          !recordedWarsOpen ? "collapsed" : "",
         ].filter(Boolean).join(" ")}
       >
         <SidebarGroupHeader
           title="Recorded wars"
           active={recordedWarsActive}
-          collapsed={collapsedGroups.recordedWars ?? false}
+          collapsed={!recordedWarsOpen}
           onToggle={() => toggleGroup("recordedWars")}
         />
-        {collapsedGroups.recordedWars ? null : (
+        {!recordedWarsOpen ? null : (
           <>
             <div className="sidebar-wars-controls">
               <WarTypeSelect value={warType} onChange={onWarTypeChange} />

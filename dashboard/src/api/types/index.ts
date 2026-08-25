@@ -180,14 +180,19 @@ export type WarSummary = {
   summary_updated_at: number | null;
 };
 
-export type WarsResponse = {
-  ok: boolean;
+export type WarsResponse = {
+  ok: boolean;
   war_state: GlobalWarState;
-
   active_war_id: number | null;
-
   wars: WarSummary[];
-};
+};
+
+export type GlobalWarStateResponse = {
+  ok: boolean;
+  war_state: GlobalWarState;
+  active_war_id: number | null;
+  active_war: WarSummary | null;
+};
 
 export type WarDetailResponse = {
   ok: boolean;

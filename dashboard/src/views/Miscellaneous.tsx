@@ -127,6 +127,10 @@ const DEFAULT_FLAT_PAYMENT_RULES: FlatPaymentRule[] = [
   { id: "flat-friendly-hosps", metric: "friendly_hosps", amount: "2000000" },
 ];
 
+function payoutWars(wars: WarSummary[]): WarSummary[] {
+  return wars.filter((war) => war.status !== "scheduled");
+}
+
 export function Miscellaneous() {
   const [data, setData] = React.useState<MiscellaneousResponse | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -236,11 +240,20 @@ export function Miscellaneous() {
   );
 }
 
-export function WarPayoutCalculator() {
-  const [wars, setWars] = React.useState<WarSummary[]>([]);
+type WarPayoutCalculatorProps = {
+  initialWars?: WarSummary[];
+  isLoadingInitialWars?: boolean;
+};
+
+export function WarPayoutCalculator({
+  initialWars,
+  isLoadingInitialWars = false,
+}: WarPayoutCalculatorProps = {}) {
+  const usesInitialWars = initialWars !== undefined;
+  const [wars, setWars] = React.useState<WarSummary[]>(() => payoutWars(initialWars ?? []));
   const [selectedWarName, setSelectedWarName] = React.useState("");
   const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
-  const [isLoadingWars, setIsLoadingWars] = React.useState(true);
+  const [isLoadingWars, setIsLoadingWars] = React.useState(usesInitialWars ? isLoadingInitialWars : true);
   const [isLoadingWar, setIsLoadingWar] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [poolInput, setPoolInput] = React.useState("");
@@ -259,6 +272,10 @@ export function WarPayoutCalculator() {
     let cancelled = false;
 
     async function loadWars() {
+      if (usesInitialWars) {
+        return;
+      }
+
       setIsLoadingWars(true);
       setError(null);
 
@@ -268,9 +285,9 @@ export function WarPayoutCalculator() {
           return;
         }
 
-        const payoutWars = response.wars.filter((war) => war.status !== "scheduled");
-        setWars(payoutWars);
-        setSelectedWarName((current) => current || payoutWars[0]?.name || "");
+        const loadedWars = payoutWars(response.wars);
+        setWars(loadedWars);
+        setSelectedWarName((current) => current || loadedWars[0]?.name || "");
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
@@ -286,7 +303,22 @@ export function WarPayoutCalculator() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [usesInitialWars]);
+
+  React.useEffect(() => {
+    if (!usesInitialWars) {
+      return;
+    }
+
+    const loadedWars = payoutWars(initialWars ?? []);
+    setWars(loadedWars);
+    setSelectedWarName((current) =>
+      current && loadedWars.some((war) => war.name === current)
+        ? current
+        : loadedWars[0]?.name || "",
+    );
+    setIsLoadingWars(isLoadingInitialWars);
+  }, [initialWars, isLoadingInitialWars, usesInitialWars]);
 
   React.useEffect(() => {
     let cancelled = false;

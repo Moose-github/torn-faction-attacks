@@ -25,6 +25,7 @@ import {
   previewMyTornApiKey,
   updateMyTornApiKey,
 } from "../tornKeyPool";
+import { getGlobalWarState } from "../wars";
 import { routeMemberUtilityApi } from "./memberRoutes";
 
 vi.mock("../auth", () => ({
@@ -96,6 +97,7 @@ vi.mock("../tornKeyPool", () => ({
   updateMyTornApiKey: vi.fn(),
 }));
 vi.mock("../wars", () => ({
+  getGlobalWarState: vi.fn(),
   getOverallStats: vi.fn(),
 }));
 vi.mock("../xanaxCompetition", () => ({
@@ -131,6 +133,7 @@ describe("member utility routes", () => {
     vi.mocked(getStockBenefitValues).mockResolvedValue(jsonResponse({ ok: true, route: "stock-benefits" }));
     vi.mocked(updateStockBenefitDisabledStockFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "stock-benefits-disabled" }));
     vi.mocked(updateStockBenefitValueFromRequest).mockResolvedValue(jsonResponse({ ok: true, route: "stock-benefits-update" }));
+    vi.mocked(getGlobalWarState).mockResolvedValue(jsonResponse({ ok: true, route: "global-war-state" }));
   });
 
   it("routes retaliation checks through member auth", async () => {
@@ -192,6 +195,17 @@ describe("member utility routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "data-health" });
     expect(requireMember).toHaveBeenCalledOnce();
     expect(getDataHealthSummary).toHaveBeenCalledOnce();
+  });
+
+  it("routes global war state through member auth and the simple cache", async () => {
+    const context = routeContext("https://worker.test/api/global-war-state");
+
+    const response = await routeMemberUtilityApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "global-war-state" });
+    expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
+    expect(getGlobalWarState).toHaveBeenCalledWith(context.env);
   });
 
   it("routes stock ROI reads through member auth with the current user id", async () => {

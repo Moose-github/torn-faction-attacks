@@ -89,6 +89,26 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
   }
 }
 
+export async function getGlobalWarState(env: Env): Promise<Response> {
+  try {
+    const syncState = await readSyncState(env, SOURCE_NAME);
+    const warState = syncState?.war_state ?? "none";
+    const activeWarId = warState !== "none" ? syncState?.active_war_id ?? null : null;
+    const activeWar = activeWarId === null
+      ? null
+      : await readWarSummaryById(env, activeWarId);
+
+    return json({
+      ok: true,
+      war_state: warState,
+      active_war_id: activeWarId,
+      active_war: activeWar,
+    });
+  } catch (err: any) {
+    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
+  }
+}
+
 export async function getWar(url: URL, env: Env): Promise<Response> {
   try {
     const war = await readWarFromUrl(url, env);
@@ -132,6 +152,32 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
   }
+}
+
+async function readWarSummaryById(env: Env, warId: number): Promise<unknown | null> {
+  return await env.DB.prepare(
+    `
+    SELECT
+      ${WAR_SELECT_COLUMNS_WITH_ALIAS},
+      COALESCE(ws.attacks_vs_enemy_total, 0) AS attacks_vs_enemy_total,
+      COALESCE(ws.attacks_from_enemy_total, 0) AS attacks_from_enemy_total,
+      COALESCE(ws.outside_hits, 0) AS outside_hits,
+      COALESCE(ws.total_respect_gain, 0) AS total_respect_gain,
+      COALESCE(ws.total_respect_gain_raw, 0) AS total_respect_gain_raw,
+      COALESCE(ws.total_respect_lost, 0) AS total_respect_lost,
+      COALESCE(ws.total_respect_lost_raw, 0) AS total_respect_lost_raw,
+      COALESCE(ws.unique_attackers, 0) AS unique_attackers,
+      ws.first_attack_at,
+      ws.last_attack_at,
+      ws.updated_at AS summary_updated_at
+    FROM wars w
+    LEFT JOIN war_summary ws ON ws.war_id = w.id
+    WHERE w.id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first();
 }
 
 export async function getWarChainBonusesForWar(url: URL, env: Env): Promise<Response> {

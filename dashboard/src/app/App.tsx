@@ -24,6 +24,7 @@ import {
 import {
   authenticateTornKey,
   clearStoredAuthSession,
+  getGlobalWarState,
   getWar,
   getWarActivity,
   getWarChainBonuses,
@@ -71,6 +72,9 @@ import type { AppView } from "../routes";
 const ACTIVE_WAR_REFRESH_MS = 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
 const PRACTICAL_FINISH_REFRESH_MS = 15 * 60_000;
+const GLOBAL_WAR_STATE_REFRESH_MS = 60_000;
+const AUTH_SESSION_REFRESH_SKEW_MS = 15 * 60_000;
+const AUTH_SESSION_REFRESH_MS = 30 * 60_000;
 
 const AdminControls = React.lazy(() =>
   import("../views/AdminControls").then((module) => ({ default: module.AdminControls })),
@@ -139,6 +143,7 @@ export function App() {
   const [wars, setWars] = React.useState<WarSummary[]>([]);
   const [warState, setWarState] = React.useState<GlobalWarState>("none");
   const [activeWarId, setActiveWarId] = React.useState<number | null>(null);
+  const [globalWar, setGlobalWar] = React.useState<WarSummary | null>(null);
   const [selectedWarName, setSelectedWarName] = React.useState<string | null>(null);
   const [warDetail, setWarDetail] = React.useState<WarDetailResponse | null>(null);
   const [chainBonuses, setChainBonuses] = React.useState<ChainBonusAttack[]>([]);
@@ -165,22 +170,54 @@ export function App() {
   const [selectedMember, setSelectedMember] = React.useState<MemberStats | null>(null);
   const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
   const [isLoadingMemberAttacks, setIsLoadingMemberAttacks] = React.useState(false);
+  const [isRecordedWarsOpen, setIsRecordedWarsOpen] = React.useState(false);
+  const shouldLoadFullWars = Boolean(authSession) && shouldLoadFullWarList(view, isRecordedWarsOpen);
 
   React.useEffect(() => {
+    if (!authSession) {
+      return;
+    }
+
     let cancelled = false;
+    let dueRefreshTimer: number | null = null;
+    let expiryTimer: number | null = null;
+    let refreshTimer: number | null = null;
 
     async function refreshSession() {
-      const session = await refreshAuthSession();
+      const refreshedSession = await refreshAuthSession();
       if (!cancelled) {
-        setAuthSession(session ?? getStoredAuthSession());
+        setAuthSession(refreshedSession ?? getStoredAuthSession());
       }
     }
 
-    refreshSession();
+    const expiresInMs = authSession.expires_at * 1000 - Date.now();
+    if (expiresInMs <= 0) {
+      setAuthSession(null);
+      return;
+    }
+
+    const refreshDueInMs = Math.max(0, expiresInMs - AUTH_SESSION_REFRESH_SKEW_MS);
+    dueRefreshTimer = window.setTimeout(refreshSession, refreshDueInMs);
+    refreshTimer = window.setInterval(refreshSession, AUTH_SESSION_REFRESH_MS);
+    expiryTimer = window.setTimeout(() => {
+      if (!cancelled) {
+        setAuthSession(getStoredAuthSession());
+      }
+    }, expiresInMs + 1000);
+
     return () => {
       cancelled = true;
+      if (dueRefreshTimer !== null) {
+        window.clearTimeout(dueRefreshTimer);
+      }
+      if (expiryTimer !== null) {
+        window.clearTimeout(expiryTimer);
+      }
+      if (refreshTimer !== null) {
+        window.clearInterval(refreshTimer);
+      }
     };
-  }, [view]);
+  }, [authSession?.access_level, authSession?.expires_at, authSession?.user.id]);
 
   React.useEffect(() => {
     persistThemeMode(themeMode);
@@ -203,98 +240,146 @@ export function App() {
   }, []);
 
   React.useEffect(() => {
-  let cancelled = false;
+    let cancelled = false;
 
-  async function loadWars() {
-    if (!authSession) {
-      setWars([]);
-      setWarState("none");
-      setActiveWarId(null);
-      setSelectedWarName(null);
-      setIsLoadingWars(false);
-      return;
-    }
+    async function loadWars() {
+      if (!authSession) {
+        setWars([]);
+        setWarState("none");
+        setActiveWarId(null);
+        setGlobalWar(null);
+        setSelectedWarName(null);
+        setIsLoadingWars(false);
+        return;
+      }
 
-    setIsLoadingWars(true);
-    setError(null);
+      if (!shouldLoadFullWars) {
+        setWars([]);
+        setIsLoadingWars(false);
+        return;
+      }
 
-    try {
-      const warsResponse = await getWars(warType);
+      setIsLoadingWars(true);
+      setError(null);
 
-      if (cancelled) return;
+      try {
+        const warsResponse = await getWars(warType);
 
-      setWars(warsResponse.wars);
-      setWarState(warsResponse.war_state);
-      setActiveWarId(warsResponse.active_war_id);
+        if (cancelled) return;
 
-      setSelectedWarName((currentSelectedWarName) => {
-        if (routedWarName && warsResponse.wars.some((war) => war.name === routedWarName)) {
-          return routedWarName;
+        setWars(warsResponse.wars);
+        setWarState(warsResponse.war_state);
+        setActiveWarId(warsResponse.active_war_id);
+        if (warsResponse.war_state === "none") {
+          setGlobalWar(null);
+        } else {
+          const activeWarSummary = warsResponse.active_war_id === null
+            ? null
+            : warsResponse.wars.find((war) => war.id === warsResponse.active_war_id) ?? null;
+          if (activeWarSummary) {
+            setGlobalWar(activeWarSummary);
+          }
         }
 
-        const selectedStillVisible = warsResponse.wars.some(
-          (war) => war.name === currentSelectedWarName,
-        );
+        setSelectedWarName((currentSelectedWarName) => {
+          if (routedWarName && warsResponse.wars.some((war) => war.name === routedWarName)) {
+            return routedWarName;
+          }
 
-        return selectedStillVisible
-          ? currentSelectedWarName
-          : preferredWarName(warsResponse.wars, warsResponse.active_war_id) ??
-            warsResponse.wars[0]?.name ??
-            null;
-      });
-    } catch (err) {
-      if (!cancelled) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    } finally {
-      if (!cancelled) {
-        setIsLoadingWars(false);
+          const selectedStillVisible = warsResponse.wars.some(
+            (war) => war.name === currentSelectedWarName,
+          );
+
+          return selectedStillVisible
+            ? currentSelectedWarName
+            : preferredWarName(warsResponse.wars, warsResponse.active_war_id) ??
+              warsResponse.wars[0]?.name ??
+              null;
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingWars(false);
+        }
       }
     }
-  }
 
-  loadWars();
+    loadWars();
 
-  return () => {
-    cancelled = true;
-  };
-}, [authSession, routedWarName, warType]);
+    return () => {
+      cancelled = true;
+    };
+  }, [authSession, routedWarName, shouldLoadFullWars, warType]);
 
   React.useEffect(() => {
-  let cancelled = false;
-
-  async function loadWarDetail() {
-    if (!authSession || !selectedWarName) {
-      setWarDetail(null);
+    if (!authSession || shouldLoadFullWars) {
       return;
     }
 
-    setWarDetail(null);
-    setIsLoadingDetail(true);
-    setError(null);
+    let cancelled = false;
 
-    try {
-      const detail = await getWar(selectedWarName);
-      if (!cancelled) {
-        setWarDetail(detail);
-      }
-    } catch (err) {
-      if (!cancelled) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    } finally {
-      if (!cancelled) {
-        setIsLoadingDetail(false);
+    async function loadGlobalWarState() {
+      try {
+        const response = await getGlobalWarState();
+        if (!cancelled) {
+          setWarState(response.war_state);
+          setActiveWarId(response.active_war_id);
+          setGlobalWar(response.active_war);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
       }
     }
-  }
 
-  loadWarDetail();
+    loadGlobalWarState();
+    const timer = window.setInterval(loadGlobalWarState, GLOBAL_WAR_STATE_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [authSession, shouldLoadFullWars]);
 
-  return () => {
-    cancelled = true;
-  };
-}, [authSession, selectedWarName]);
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadWarDetail() {
+      if (!authSession || view !== "war" || !selectedWarName) {
+        setWarDetail(null);
+        setIsLoadingDetail(false);
+        return;
+      }
+
+      setWarDetail(null);
+      setIsLoadingDetail(true);
+      setError(null);
+
+      try {
+        const detail = await getWar(selectedWarName);
+        if (!cancelled) {
+          setWarDetail(detail);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingDetail(false);
+        }
+      }
+    }
+
+    loadWarDetail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authSession, selectedWarName, view]);
 
   React.useEffect(() => {
     setSelectedMember(null);
@@ -302,10 +387,14 @@ export function App() {
     setActivityBuckets([]);
     setChainBonuses([]);
     setReportDiscrepancies(null);
-}, [selectedWarName]);
+  }, [selectedWarName]);
 
-  const selectedWar = warDetail?.war ?? wars.find((war) => war.name === selectedWarName) ?? null;
-  const activeWar = findGlobalWar(wars, selectedWar, activeWarId, warState === "current");
+  const selectedWar =
+    warDetail?.war ??
+    wars.find((war) => war.name === selectedWarName) ??
+    (globalWar?.name === selectedWarName ? globalWar : null);
+  const globalStateWar = findGlobalWar(wars, selectedWar, globalWar, activeWarId, warState !== "none");
+  const activeWar = warState === "current" ? globalStateWar : null;
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
   const isAdmin = authSession?.access_level === "admin";
   const isActivityPanelOpen =
@@ -551,10 +640,11 @@ export function App() {
     let cancelled = false;
 
     async function loadReportDiscrepancies() {
-      if (!authSession || !selectedWarName || !hasTornReport || !shouldLoadReportDiscrepancies) {
-        if (!hasTornReport) {
+      if (!authSession || view !== "war" || !selectedWarName || !hasTornReport || !shouldLoadReportDiscrepancies) {
+        if (view !== "war" || !hasTornReport) {
           setReportDiscrepancies(null);
         }
+        setIsLoadingReportDiscrepancies(false);
         return;
       }
 
@@ -581,14 +671,15 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authSession, hasTornReport, shouldLoadReportDiscrepancies, selectedWarName]);
+  }, [authSession, hasTornReport, shouldLoadReportDiscrepancies, selectedWarName, view]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadMemberAttacks() {
-      if (!authSession || !selectedWarName || !selectedMember) {
+      if (!authSession || view !== "war" || !selectedWarName || !selectedMember) {
         setMemberAttacks([]);
+        setIsLoadingMemberAttacks(false);
         return;
       }
 
@@ -624,7 +715,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeWarId, authSession, selectedMember, selectedWar?.id, selectedWarName, warState]);
+  }, [activeWarId, authSession, selectedMember, selectedWar?.id, selectedWarName, view, warState]);
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -650,8 +741,11 @@ export function App() {
       return;
     }
 
-    if ((nextView === "dashboard" || nextView === "warRoom") && wars[0]) {
-      setSelectedWarName(preferredWarName(wars, activeWarId) ?? wars[0].name);
+    if (nextView === "dashboard" || nextView === "warRoom") {
+      const preferredName = preferredWarName(wars, activeWarId) ?? globalWar?.name ?? wars[0]?.name ?? null;
+      if (preferredName) {
+        setSelectedWarName(preferredName);
+      }
     }
 
     setRoutedWarName(null);
@@ -750,6 +844,7 @@ export function App() {
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
           onWarSelect={selectWar}
+          onRecordedWarsOpenChange={setIsRecordedWarsOpen}
         />
 
         <section className="main-content">
@@ -795,7 +890,7 @@ export function App() {
             </LazyPage>
           ) : view === "warPayouts" ? (
             <LazyPage>
-              <WarPayouts />
+              <WarPayouts isLoadingWars={isLoadingWars} wars={wars} />
             </LazyPage>
           ) : view === "packs" ? (
             <LazyPage>
@@ -1012,9 +1107,18 @@ function isGlobalCurrentWar(
   return warState === "current" && activeWarId !== null && war?.id === activeWarId;
 }
 
+function shouldLoadFullWarList(view: AppView, isRecordedWarsOpen: boolean): boolean {
+  return view === "dashboard" ||
+    view === "war" ||
+    view === "warRoom" ||
+    view === "warPayouts" ||
+    isRecordedWarsOpen;
+}
+
 function findGlobalWar(
   wars: WarSummary[],
   selectedWar: WarSummary | null,
+  globalWar: WarSummary | null,
   activeWarId: number | null,
   shouldUseGlobalWar: boolean,
 ): WarSummary | null {
@@ -1023,7 +1127,8 @@ function findGlobalWar(
   }
 
   return wars.find((war) => war.id === activeWarId) ??
-    (selectedWar?.id === activeWarId ? selectedWar : null);
+    (selectedWar?.id === activeWarId ? selectedWar : null) ??
+    (globalWar?.id === activeWarId ? globalWar : null);
 }
 
 function preferredWarName(wars: WarSummary[], activeWarId: number | null): string | null {

@@ -40,7 +40,7 @@ import {
   updateMyTornApiKey,
 } from "../tornKeyPool";
 import { json } from "../utils";
-import { getOverallStats } from "../wars";
+import { getGlobalWarState, getOverallStats } from "../wars";
 import { getXanaxCompetition } from "../xanaxCompetition";
 import {
   cachedMemberGet,
@@ -85,6 +85,10 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
 
   if (matchesExactRoute(url, request, "/api/data-health/summary", "GET")) {
     return cachedMemberGet(routeContext, 30, () => getDataHealthSummary(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/global-war-state", "GET")) {
+    return cachedMemberGet(routeContext, 15, () => getGlobalWarState(env));
   }
 
   if (matchesExactRoute(url, request, "/api/xanax-competition", "GET")) {

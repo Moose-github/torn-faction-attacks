@@ -26,6 +26,7 @@ import {
 } from "./warLifecycle";
 export { exportWarAttacksCsv } from "./warExports";
 export {
+  getGlobalWarState,
   getOverallStats,
   getWar,
   getWarActivity,
