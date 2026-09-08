@@ -339,11 +339,11 @@ export function TradeScout({ isAdmin }: { isAdmin: boolean }) {
     downloadCsv(
       `${sanitizeCsvFilename(form.name.trim() || "trade-search")}-trade-scout.csv`,
       [
+        { label: "player_name", value: (row) => row.seller_name ?? "" },
+        { label: "player_id", value: (row) => row.seller_id ?? "" },
         { label: "Item ID", value: (row) => row.item_id },
         { label: "Item", value: (row) => row.item_name ?? `Item ${row.item_id}` },
         { label: "Source", value: (row) => row.source },
-        { label: "Seller ID", value: (row) => row.seller_id ?? "" },
-        { label: "Seller", value: (row) => row.seller_name ?? "" },
         { label: "Listing price", value: (row) => row.listing_price },
         { label: "Resale price", value: (row) => row.resale_price },
         { label: "Profit", value: (row) => row.profit },

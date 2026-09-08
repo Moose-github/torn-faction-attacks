@@ -465,8 +465,8 @@ function exportLifestyleCsv(
     label: string;
     value: (member: MemberLifestyleStats) => string | number | null | undefined;
   }> = [
-    { label: "Player name", value: (member) => member.member_name ?? member.member_id },
-    { label: "Member ID", value: (member) => member.member_id },
+    { label: "player_name", value: (member) => member.member_name ?? member.member_id },
+    { label: "player_id", value: (member) => member.member_id },
     { label: "ODs", value: (member) => member.overdosed },
     { label: "Daily Xanax", value: (member) => member.average_xantaken },
     { label: "Adjusted Xanax", value: (member) => member.adjusted_average_xantaken },

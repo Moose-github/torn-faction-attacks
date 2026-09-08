@@ -557,8 +557,8 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
     value: (member: MemberStats) => string | number | null | undefined;
   }> = termed
     ? [
-        { label: "Player name", value: (member) => displayMember(member) },
-        { label: "Member ID", value: (member) => member.member_id },
+        { label: "player_name", value: (member) => displayMember(member) },
+        { label: "player_id", value: (member) => member.member_id },
         { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
         { label: "Defends", value: (member) => member.defends_total },
         { label: "Defends lost", value: (member) => memberDefendsLost(member) },
@@ -572,8 +572,8 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
         { label: "Percent limit", value: (member) => formatCsvDecimal(member.member_respect_limit_percent) },
       ]
     : [
-        { label: "Player name", value: (member) => displayMember(member) },
-        { label: "Member ID", value: (member) => member.member_id },
+        { label: "player_name", value: (member) => displayMember(member) },
+        { label: "player_id", value: (member) => member.member_id },
         { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
         { label: "Defends", value: (member) => member.defends_total },
         { label: "Defends lost", value: (member) => memberDefendsLost(member) },
@@ -665,8 +665,8 @@ function exportMemberAttacksCsv(
     label: string;
     value: (attack: MemberAttack) => string | number | null | undefined;
   }> = [
-    { label: "Player name", value: () => displayMember(member) },
-    { label: "Member ID", value: () => member.member_id },
+    { label: "player_name", value: () => displayMember(member) },
+    { label: "player_id", value: () => member.member_id },
     { label: "Time", value: (attack) => attack.started },
     { label: "Type", value: (attack) => attack.classification },
     { label: "Attacker", value: (attack) => attack.attacker_name ?? attack.attacker_id },
