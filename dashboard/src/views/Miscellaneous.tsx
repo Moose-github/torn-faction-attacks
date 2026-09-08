@@ -9,6 +9,7 @@ import {
   WarSummary,
 } from "../api";
 import { EmptyState, PanelHeader } from "../components/Common";
+import { downloadCsv, sanitizeCsvFilename } from "../utils/csv";
 import { detailNumber, formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
 import { displayMember, memberDefendsLost } from "../utils/members";
 
@@ -748,6 +749,20 @@ export function WarPayoutCalculator({
       {payout.flatTotal > payout.totalPool && payout.totalPool > 0 ? (
         <p className="form-error">Flat payments exceed the total pool, so no remaining pool is distributed.</p>
       ) : null}
+      <div className="payout-section-header payout-section-divider">
+        <div>
+          <strong>Calculated payouts</strong>
+          <p>Export the current payout calculation with the selected rules and pool.</p>
+        </div>
+        <button
+          type="button"
+          className="panel-action-button"
+          onClick={() => exportPayoutRowsCsv(payout.rows, warDetail?.war.name ?? selectedWarName, mode)}
+          disabled={payout.rows.length === 0}
+        >
+          CSV
+        </button>
+      </div>
       {members.length === 0 ? (
         <EmptyState text={isLoadingWar || isLoadingWars ? "Loading payout data" : "No member stats for this war"} />
       ) : (
@@ -787,6 +802,24 @@ export function WarPayoutCalculator({
         </div>
       )}
     </>
+  );
+}
+
+function exportPayoutRowsCsv(rows: PayoutRow[], warName: string, mode: PayoutMode) {
+  downloadCsv(
+    `${sanitizeCsvFilename(warName || "war")}-payouts.csv`,
+    [
+      { label: "player_name", value: (row) => displayMember(row.member) },
+      { label: "player_id", value: (row) => row.member.member_id },
+      { label: mode === "points" ? "points" : "respect", value: (row) => csvDecimal(row.basis) },
+      { label: "bonus_percent", value: (row) => csvDecimal(row.bonusPercent) },
+      { label: "penalty_percent", value: (row) => csvDecimal(row.penaltyPercent) },
+      { label: "net_percent", value: (row) => csvDecimal(row.netPercent) },
+      { label: "flat_payout", value: (row) => csvMoney(row.flatPayment) },
+      { label: "variable_payout", value: (row) => csvMoney(row.variablePayment) },
+      { label: "final_payout", value: (row) => csvMoney(row.finalPayment) },
+    ],
+    rows,
   );
 }
 
@@ -959,6 +992,14 @@ function formatDecimal(value: number): string {
   return Number(value).toLocaleString(undefined, {
     maximumFractionDigits: 2,
   });
+}
+
+function csvDecimal(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(2) : "";
+}
+
+function csvMoney(value: number): number | string {
+  return Number.isFinite(value) ? Math.round(value) : "";
 }
 
 function shopliftingRows(shoplifting: MiscellaneousResponse["shoplifting"]): Array<{
