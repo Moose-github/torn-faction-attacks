@@ -149,6 +149,10 @@ export function WarDetailView({
     (total, member) => total + memberDefendsLost(member),
     0,
   );
+  const derivedDefendsWon = detailNumber(
+    warDetail?.summary?.defends_won,
+    selectedWar.defends_won,
+  );
   const officialRespectGained = selectedWar.official_home_score ?? derivedRespectGained;
   const memberActionTotal =
     derivedSuccessfulAttacks +
@@ -307,6 +311,7 @@ export function WarDetailView({
                     <div className="metric-list">
                       <InlineMetric label="Respect gained" value={officialRespectGained} />
                       <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
+                      {isEvent ? <InlineMetric label="Defends won" value={derivedDefendsWon} /> : null}
                       <InlineMetric label="Assists" value={sumMembers(members, "assists_vs_enemy")} />
                       <InlineMetric label="Retaliations" value={sumMembers(members, "retaliations_vs_enemy")} />
                     </div>
@@ -413,6 +418,7 @@ export function WarDetailView({
                   </p>
                   <MemberPointGraphs
                     members={members}
+                    isEvent={isEvent}
                     showTermedGraph={selectedWar.war_type === "termed"}
                   />
                 </CollapsiblePanel>
@@ -518,6 +524,7 @@ export function WarDetailView({
                     sort={memberSort}
                     onSortChange={onMemberSortChange}
                     showTermedColumns={selectedWar.war_type === "termed"}
+                    showDefendsWonColumn={isEvent}
                     showOutsideColumns={!isEvent}
                     showRowNumbers
                     selectedMemberId={selectedMember?.member_id ?? null}
@@ -581,6 +588,7 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
         { label: "player_id", value: (member) => member.member_id },
         { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
         { label: "Defends", value: (member) => member.defends_total },
+        { label: "Defends won", value: (member) => member.defends_won },
         { label: "Defends lost", value: (member) => memberDefendsLost(member) },
         { label: "Non-hosp defends lost", value: (member) => memberNonHospitalizedDefendsLost(member) },
         { label: "Respect gained", value: (member) => formatCsvDecimal(member.respect_gained) },

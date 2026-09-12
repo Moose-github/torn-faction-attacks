@@ -19,6 +19,7 @@ export function MemberTable({
   onSortChange,
   showTermedColumns,
   termedColumnVariant = "war",
+  showDefendsWonColumn = false,
   showOutsideColumns = true,
   showRowNumbers,
   selectedMemberId,
@@ -29,6 +30,7 @@ export function MemberTable({
   onSortChange: (sort: MemberSort) => void;
   showTermedColumns?: boolean;
   termedColumnVariant?: "war" | "overview";
+  showDefendsWonColumn?: boolean;
   showOutsideColumns?: boolean;
   showRowNumbers?: boolean;
   selectedMemberId?: number | null;
@@ -44,6 +46,9 @@ export function MemberTable({
       <SortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={onSortChange} />
       <SortableHeader label="Attacks" sortKey="attacks_vs_enemy_successful" sort={sort} onSortChange={onSortChange} />
       <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
+      {showDefendsWonColumn ? (
+        <SortableHeader label={<>Defends<br />won</>} sortKey="defends_won" sort={sort} onSortChange={onSortChange} />
+      ) : null}
       <SortableHeader label={<>Defends<br />lost</>} sortKey="defends_lost" sort={sort} onSortChange={onSortChange} />
       <SortableHeader
         label={<span title="Defends lost where the enemy result was not Hospitalized.">Non-hosp<br />defends lost</span>}
@@ -135,6 +140,7 @@ export function MemberTable({
           <td>
             <DefendBreakdown member={member} />
           </td>
+          {showDefendsWonColumn ? <td>{formatNumber(member.defends_won)}</td> : null}
           <td>{formatNumber(memberDefendsLost(member))}</td>
           <td>{formatNumber(memberNonHospitalizedDefendsLost(member))}</td>
           {showTermedColumns || !showOutsideColumns ? null : <td>{formatNumber(member.outside_hits)}</td>}

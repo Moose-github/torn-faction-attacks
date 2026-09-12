@@ -315,6 +315,19 @@ const baseMemberPointGraphs: MemberPointGraph[] = [
   },
 ];
 
+const eventDefendsPointGraph: MemberPointGraph = {
+  title: "Defends won vs defends lost",
+  x: {
+    label: "Defends lost",
+    value: memberDefendsLost,
+  },
+  y: {
+    label: "Defends won",
+    value: (member) => member.defends_won,
+  },
+  color: "#ea580c",
+};
+
 const termedMemberPointGraph: MemberPointGraph = {
   title: "Average fair fight vs member respect limit %",
   x: {
@@ -356,16 +369,21 @@ const tacendaJokeYAxisLabels: Record<number, string> = {
 
 export function MemberPointGraphs({
   members,
+  isEvent,
   showTermedGraph,
 }: {
   members: MemberStats[];
+  isEvent: boolean;
   showTermedGraph: boolean;
 }) {
   const listId = React.useId();
   const [focusedMemberInput, setFocusedMemberInput] = React.useState("");
-  const graphs = showTermedGraph
-    ? [...baseMemberPointGraphs.slice(0, 3), termedMemberPointGraph, ...baseMemberPointGraphs.slice(3)]
+  const eventGraphs = isEvent
+    ? [...baseMemberPointGraphs.slice(0, 4), eventDefendsPointGraph, ...baseMemberPointGraphs.slice(5)]
     : baseMemberPointGraphs;
+  const graphs = showTermedGraph
+    ? [...eventGraphs.slice(0, 3), termedMemberPointGraph, ...eventGraphs.slice(3)]
+    : eventGraphs;
   const memberOptions = React.useMemo(
     () =>
       members.map((member) => ({

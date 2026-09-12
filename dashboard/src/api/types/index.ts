@@ -33,7 +33,9 @@ export type EnemyStatsImagePreviewType = "comparison" | "members";
 export type OverallStats = {
   total_wars: number;
   attacks_vs_enemy_total: number;
-  attacks_from_enemy_total: number;
+  attacks_from_enemy_total: number;
+
+  defends_won: number;
   outside_hits: number;
   total_respect_gain: number;
   total_respect_gain_raw: number;
@@ -169,7 +171,9 @@ export type WarSummary = {
   enemy_scouting_status_checked_at: number | null;
   finalized_at: number | null;
   attacks_vs_enemy_total: number;
-  attacks_from_enemy_total: number;
+  attacks_from_enemy_total: number;
+
+  defends_won: number;
   outside_hits: number;
   total_respect_gain: number;
   total_respect_gain_raw: number;
@@ -201,7 +205,9 @@ export type WarDetailResponse = {
   summary: {
     war_id: number;
     attacks_vs_enemy_total: number;
-    attacks_from_enemy_total: number;
+    attacks_from_enemy_total: number;
+
+    defends_won: number;
     outside_hits: number;
     total_respect_gain: number;
     total_respect_gain_raw: number;

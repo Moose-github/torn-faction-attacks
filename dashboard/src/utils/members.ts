@@ -4,6 +4,7 @@ export type MemberSortKey =
   | "member_name"
   | "attacks_vs_enemy_successful"
   | "defends_total"
+  | "defends_won"
   | "defends_lost"
   | "defends_lost_non_hospitalized"
   | "outside_hits"
@@ -209,6 +210,8 @@ export function memberSortLabel(key: MemberSortKey): string {
       return "Attacks";
     case "defends_total":
       return "Defends";
+    case "defends_won":
+      return "Defends won";
     case "defends_lost":
       return "Defends lost";
     case "defends_lost_non_hospitalized":

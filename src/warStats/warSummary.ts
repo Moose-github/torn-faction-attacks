@@ -7,6 +7,7 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
       war_id,
       attacks_vs_enemy_total,
       attacks_from_enemy_total,
+      defends_won,
       outside_hits,
       total_respect_gain,
       total_respect_gain_raw,
@@ -21,6 +22,7 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
       w.id,
       COALESCE(SUM(wms.attacks_vs_enemy_total), 0) AS attacks_vs_enemy_total,
       COALESCE(SUM(wms.defends_total), 0) AS attacks_from_enemy_total,
+      COALESCE(SUM(wms.defends_won), 0) AS defends_won,
       COALESCE(SUM(wms.outside_hits), 0) AS outside_hits,
       COALESCE(SUM(wms.respect_gained), 0) AS total_respect_gain,
       COALESCE(SUM(wms.respect_gained_raw), 0) AS total_respect_gain_raw,
@@ -43,6 +45,7 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
     ON CONFLICT(war_id) DO UPDATE SET
       attacks_vs_enemy_total = excluded.attacks_vs_enemy_total,
       attacks_from_enemy_total = excluded.attacks_from_enemy_total,
+      defends_won = excluded.defends_won,
       outside_hits = excluded.outside_hits,
       total_respect_gain = excluded.total_respect_gain,
       total_respect_gain_raw = excluded.total_respect_gain_raw,

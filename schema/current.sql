@@ -1289,6 +1289,7 @@ CREATE TABLE war_summary (
 
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   attacks_from_enemy_total INTEGER NOT NULL DEFAULT 0,
+  defends_won INTEGER NOT NULL DEFAULT 0,
   outside_hits INTEGER NOT NULL DEFAULT 0,
   total_respect_gain_raw REAL NOT NULL DEFAULT 0,
   total_respect_lost_raw REAL NOT NULL DEFAULT 0,
