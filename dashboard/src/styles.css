@@ -164,30 +164,10 @@ input:disabled {
   gap: 12px;
 }
 
-.theme-toggle-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--border-solid);
-  border-radius: var(--radius-sm);
-  background: var(--panel-bg-solid);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.theme-toggle-button:hover {
+.topbar-settings-button.active {
   border-color: var(--accent);
-  background: var(--panel-hover-bg);
+  background: var(--panel-active-bg);
   color: var(--accent-strong);
-}
-
-.theme-toggle-button:disabled {
-  cursor: not-allowed;
-  opacity: 1;
 }
 
 .access-level-pill {
@@ -8610,6 +8590,82 @@ h2 {
   margin: 12px 0 0;
 }
 
+.settings-preference-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.settings-preference-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  min-height: 60px;
+  padding: 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--panel-bg-solid);
+}
+
+.settings-preference-row > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-preference-row strong {
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.settings-preference-row small {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.settings-segmented-control {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--panel-muted-bg);
+}
+
+.settings-segmented-control button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 78px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.settings-segmented-control button:hover,
+.settings-segmented-control button:focus-visible {
+  color: var(--accent-strong);
+}
+
+.settings-segmented-control button.active {
+  border-color: var(--border-solid);
+  background: var(--panel-bg-solid);
+  color: var(--accent-strong);
+  box-shadow: var(--shadow-subtle);
+}
+
 .settings-alert-list {
   display: grid;
   gap: 10px;
@@ -10306,9 +10362,18 @@ tbody tr:not(.attack-row):hover td {
   .trade-scout-summary-grid,
   .trade-scout-form,
   .settings-key-card-header,
+  .settings-preference-row,
   .stock-backtest-controls,
   .dashboard-layout {
     grid-template-columns: 1fr;
+  }
+
+  .settings-segmented-control {
+    width: 100%;
+  }
+
+  .settings-segmented-control button {
+    min-width: 0;
   }
 
   .payout-section-header {
@@ -10979,7 +11044,7 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .war-nav button,
 :root[data-theme="dark"] .war-type-select,
 :root[data-theme="dark"] .panel-action-button,
-:root[data-theme="dark"] .theme-toggle-button,
+:root[data-theme="dark"] .settings-segmented-control button.active,
 :root[data-theme="dark"] .icon-text-button,
 :root[data-theme="dark"] .admin-button,
 :root[data-theme="dark"] .toggle-chip,

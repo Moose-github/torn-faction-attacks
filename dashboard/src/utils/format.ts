@@ -1,3 +1,5 @@
+import { currentTimeZoneMode } from "../app/timeZone";
+
 const numberFormatter = new Intl.NumberFormat("en-GB", {
   maximumFractionDigits: 1,
 });
@@ -30,12 +32,13 @@ export function formatDate(timestamp: number | null): string {
     return "-";
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
+  return `${new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(timestamp * 1000));
+    ...timeZoneFormatOptions(),
+  }).format(new Date(timestamp * 1000))}${timeZoneSuffix()}`;
 }
 
 export function formatLongDateTime(timestamp: number | null): string {
@@ -44,16 +47,23 @@ export function formatLongDateTime(timestamp: number | null): string {
   }
 
   const date = new Date(timestamp * 1000);
-  const day = date.getDate();
-  const month = new Intl.DateTimeFormat("en-GB", { month: "long" }).format(date);
-  const year = date.getFullYear();
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    ...timeZoneFormatOptions(),
+  }).formatToParts(date);
+  const day = Number(datePart(parts, "day"));
+  const month = datePart(parts, "month");
+  const year = datePart(parts, "year");
   const time = new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    ...timeZoneFormatOptions(),
   }).format(date);
 
-  return `${day}${ordinalSuffix(day)} ${month} ${year}, ${time}`;
+  return `${day}${ordinalSuffix(day)} ${month} ${year}, ${time}${timeZoneSuffix()}`;
 }
 
 export function formatWarDateRange(
@@ -73,10 +83,23 @@ export function formatTime(timestamp: number | null): string {
     return "-";
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
+  return `${new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(timestamp * 1000));
+    ...timeZoneFormatOptions(),
+  }).format(new Date(timestamp * 1000))}${timeZoneSuffix()}`;
+}
+
+function timeZoneFormatOptions(): { timeZone?: "UTC" } {
+  return currentTimeZoneMode() === "utc" ? { timeZone: "UTC" } : {};
+}
+
+function timeZoneSuffix(): string {
+  return currentTimeZoneMode() === "utc" ? " UTC" : "";
+}
+
+function datePart(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
+  return parts.find((part) => part.type === type)?.value ?? "";
 }
 
 export function formatRelativeTime(timestamp: number | null): string {

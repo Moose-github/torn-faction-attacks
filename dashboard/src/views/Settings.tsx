@@ -1,5 +1,5 @@
 import React from "react";
-import { Bell, KeyRound, Link2, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Bell, Clock3, KeyRound, Link2, Moon, RefreshCw, Save, Sun, Trash2 } from "lucide-react";
 import {
   AuthSession,
   DiscordMemberAlertSubscriptionsResponse,
@@ -16,6 +16,8 @@ import {
   type TornKeyPreviewMetadata,
 } from "../api";
 import { EmptyState, PanelHeader } from "../components/Common";
+import type { ThemeMode } from "../app/theme";
+import type { TimeZoneMode } from "../app/timeZone";
 
 type NewKeyPreviewState =
   | { status: "idle" }
@@ -28,7 +30,19 @@ const DEFAULT_KEY_RATE_LIMIT = 35;
 const MIN_KEY_RATE_LIMIT = 10;
 const MAX_KEY_RATE_LIMIT = 75;
 
-export function Settings({ authSession }: { authSession: AuthSession }) {
+export function Settings({
+  authSession,
+  themeMode,
+  timeZoneMode,
+  onThemeModeChange,
+  onTimeZoneModeChange,
+}: {
+  authSession: AuthSession;
+  themeMode: ThemeMode;
+  timeZoneMode: TimeZoneMode;
+  onThemeModeChange: (themeMode: ThemeMode) => void;
+  onTimeZoneModeChange: (timeZoneMode: TimeZoneMode) => void;
+}) {
   const [data, setData] = React.useState<DiscordMemberAlertSubscriptionsResponse | null>(null);
   const [keyPool, setKeyPool] = React.useState<MyTornKeyPoolResponse | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -201,6 +215,60 @@ export function Settings({ authSession }: { authSession: AuthSession }) {
             <span>Discord link</span>
             <strong>{linkedDiscordId ? "Linked" : "Not linked"}</strong>
             {linkedDiscordId ? <small>Discord ID {linkedDiscordId}</small> : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="panel settings-display-panel">
+        <PanelHeader title="Appearance and time" aside="Stored in this browser" icon={<Sun size={18} />} />
+        <div className="settings-preference-list">
+          <div className="settings-preference-row">
+            <span>
+              <strong>Theme</strong>
+              <small>Choose the dashboard colour mode for this browser.</small>
+            </span>
+            <div className="settings-segmented-control" role="group" aria-label="Theme mode">
+              <button
+                type="button"
+                className={themeMode === "light" ? "active" : ""}
+                onClick={() => onThemeModeChange("light")}
+              >
+                <Sun size={14} />
+                <span>Light</span>
+              </button>
+              <button
+                type="button"
+                className={themeMode === "dark" ? "active" : ""}
+                onClick={() => onThemeModeChange("dark")}
+              >
+                <Moon size={14} />
+                <span>Dark</span>
+              </button>
+            </div>
+          </div>
+          <div className="settings-preference-row">
+            <span>
+              <strong>Displayed times</strong>
+              <small>Switch date and time labels between your browser timezone and UTC.</small>
+            </span>
+            <div className="settings-segmented-control" role="group" aria-label="Displayed time zone">
+              <button
+                type="button"
+                className={timeZoneMode === "local" ? "active" : ""}
+                onClick={() => onTimeZoneModeChange("local")}
+              >
+                <Clock3 size={14} />
+                <span>Local</span>
+              </button>
+              <button
+                type="button"
+                className={timeZoneMode === "utc" ? "active" : ""}
+                onClick={() => onTimeZoneModeChange("utc")}
+              >
+                <Clock3 size={14} />
+                <span>UTC</span>
+              </button>
+            </div>
           </div>
         </div>
       </section>

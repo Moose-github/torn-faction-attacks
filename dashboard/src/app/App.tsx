@@ -8,14 +8,12 @@ import {
   Gauge,
   House,
   LogIn,
-  Moon,
   PackageOpen,
   Pill,
   Radar,
   ShoppingCart,
   ShieldCheck,
   Settings as SettingsIcon,
-  Sun,
   Target,
   TrendingUp,
   UserRound,
@@ -66,6 +64,11 @@ import {
   persistThemeMode,
   type ThemeMode,
 } from "./theme";
+import {
+  initialTimeZoneMode,
+  persistTimeZoneMode,
+  type TimeZoneMode,
+} from "./timeZone";
 import { useCurrentTimeMs } from "../utils/time";
 import type { AppView } from "../routes";
 
@@ -134,6 +137,7 @@ const Retaliations = React.lazy(() =>
 export function App() {
   const initialRoute = React.useMemo(() => parseAppRoute(window.location.pathname), []);
   const [themeMode, setThemeMode] = React.useState<ThemeMode>(() => initialThemeMode());
+  const [timeZoneMode, setTimeZoneMode] = React.useState<TimeZoneMode>(() => initialTimeZoneMode());
   const [warType, setWarType] = React.useState<WarType>("all");
   const [view, setView] = React.useState<AppView>(initialRoute.view);
   const [routedWarName, setRoutedWarName] = React.useState<string | null>(initialRoute.warName);
@@ -222,6 +226,10 @@ export function App() {
   React.useEffect(() => {
     persistThemeMode(themeMode);
   }, [themeMode]);
+
+  React.useEffect(() => {
+    persistTimeZoneMode(timeZoneMode);
+  }, [timeZoneMode]);
 
   React.useEffect(() => {
     function applyBrowserRoute() {
@@ -769,6 +777,16 @@ export function App() {
     setError(null);
   }
 
+  function changeThemeMode(nextThemeMode: ThemeMode) {
+    persistThemeMode(nextThemeMode);
+    setThemeMode(nextThemeMode);
+  }
+
+  function changeTimeZoneMode(nextTimeZoneMode: TimeZoneMode) {
+    persistTimeZoneMode(nextTimeZoneMode);
+    setTimeZoneMode(nextTimeZoneMode);
+  }
+
   return (
     <main className={authSession ? "app-shell" : "app-shell app-shell-auth"}>
       <header className="topbar">
@@ -788,16 +806,19 @@ export function App() {
               {isAdmin ? "Admin" : "Member"}
             </span>
           ) : null}
-          <button
-            type="button"
-            className="theme-toggle-button"
-            onClick={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
-            title={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            aria-label={themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-            <span>{themeMode === "dark" ? "Light" : "Dark"}</span>
-          </button>
+          {authSession ? (
+            <button
+              type="button"
+              className={view === "settings" ? "panel-action-button topbar-settings-button active" : "panel-action-button topbar-settings-button"}
+              onClick={() => changeView("settings")}
+              title="Open settings"
+              aria-label="Open settings"
+              aria-current={view === "settings" ? "page" : undefined}
+            >
+              <SettingsIcon size={15} />
+              <span>Settings</span>
+            </button>
+          ) : null}
           {authSession ? (
             <button type="button" className="panel-action-button" onClick={signOut}>
               Sign out
@@ -839,7 +860,6 @@ export function App() {
           stockMarketIcon={<TrendingUp size={18} />}
           packsIcon={<PackageOpen size={18} />}
           dataHealthIcon={<Gauge size={18} />}
-          settingsIcon={<SettingsIcon size={18} />}
           diceGameIcon={<Dices size={18} />}
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
@@ -910,7 +930,13 @@ export function App() {
             </LazyPage>
           ) : view === "settings" ? (
             <LazyPage>
-              <SettingsPage authSession={authSession} />
+              <SettingsPage
+                authSession={authSession}
+                themeMode={themeMode}
+                timeZoneMode={timeZoneMode}
+                onThemeModeChange={changeThemeMode}
+                onTimeZoneModeChange={changeTimeZoneMode}
+              />
             </LazyPage>
           ) : view === "members" ? (
             <LazyPage>

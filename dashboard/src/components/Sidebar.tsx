@@ -29,7 +29,6 @@ export function Sidebar({
   stockMarketIcon,
   packsIcon,
   dataHealthIcon,
-  settingsIcon,
   diceGameIcon,
   adminIcon,
   isAdmin,
@@ -56,7 +55,6 @@ export function Sidebar({
   stockMarketIcon: React.ReactNode;
   packsIcon: React.ReactNode;
   dataHealthIcon: React.ReactNode;
-  settingsIcon: React.ReactNode;
   diceGameIcon: React.ReactNode;
   adminIcon: React.ReactNode;
   isAdmin: boolean;
@@ -123,12 +121,6 @@ export function Sidebar({
           icon={dataHealthIcon}
           label="Data health"
           onClick={() => onViewChange("dataHealth")}
-        />
-        <SidebarLink
-          active={view === "settings"}
-          icon={settingsIcon}
-          label="Settings"
-          onClick={() => onViewChange("settings")}
         />
       </section>
 
