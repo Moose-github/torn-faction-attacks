@@ -1,5 +1,5 @@
 import React from "react";
-import { CalendarClock, CheckCircle2, ChevronDown, ChevronRight, Radar, Swords, Target, TriangleAlert } from "lucide-react";
+import { CalendarClock, CheckCircle2, ChevronDown, ChevronRight, Radar, Swords, Target, TriangleAlert, Trophy } from "lucide-react";
 import {
   ChainBonusAttack,
   MemberAttack,
@@ -12,7 +12,7 @@ import {
 } from "../api";
 import { ActivityChart, AttackChart, MemberPointGraphs } from "../components/Charts";
 import { ChainBonusList } from "../components/ChainBonuses";
-import { CollapsiblePanel, InlineMetric, MetricCard, PanelHeader } from "../components/Common";
+import { CollapsiblePanel, EmptyState, InlineMetric, MetricCard, PanelHeader } from "../components/Common";
 import { MemberCombatHeatmap } from "../components/MemberCombatHeatmap";
 import { MemberAttackList, MemberTable } from "../components/MemberTables";
 import {
@@ -405,6 +405,10 @@ export function WarDetailView({
                 </CollapsiblePanel>
               ) : null}
 
+              {showMemberBreakdown && isEvent ? (
+                <EventLeaderboardPanel members={members} />
+              ) : null}
+
               {showMemberBreakdown ? (
                 <CollapsiblePanel
                   title="Tacenda's point graphs"
@@ -562,6 +566,105 @@ export function WarDetailView({
               ) : null}
     </>
   );
+}
+
+type EventLeaderboardMetric = {
+  key: string;
+  label: string;
+  valueLabel: string;
+  value: (member: MemberStats) => number;
+};
+
+const eventLeaderboardMetrics: EventLeaderboardMetric[] = [
+  {
+    key: "successful-attacks",
+    label: "Successful attacks",
+    valueLabel: "attacks",
+    value: (member) => member.attacks_vs_enemy_successful,
+  },
+  {
+    key: "respect-gained",
+    label: "Respect gained",
+    valueLabel: "respect",
+    value: (member) => member.respect_gained,
+  },
+  {
+    key: "defends-won",
+    label: "Defends won",
+    valueLabel: "won",
+    value: (member) => member.defends_won,
+  },
+  {
+    key: "defends-lost",
+    label: "Defends lost",
+    valueLabel: "lost",
+    value: memberDefendsLost,
+  },
+];
+
+function EventLeaderboardPanel({ members }: { members: MemberStats[] }) {
+  return (
+    <section className="panel event-leaderboard-panel">
+      <PanelHeader
+        icon={<Trophy size={17} />}
+        title="Event leaderboard"
+        aside="Top 3 members"
+      />
+      <div className="dashboard-highlight-grid event-leaderboard-grid">
+        {eventLeaderboardMetrics.map((metric) => (
+          <EventLeaderboardTile key={metric.key} metric={metric} members={members} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EventLeaderboardTile({
+  metric,
+  members,
+}: {
+  metric: EventLeaderboardMetric;
+  members: MemberStats[];
+}) {
+  const rows = members
+    .map((member) => ({
+      member,
+      value: metric.value(member),
+    }))
+    .filter((row) => Number.isFinite(row.value) && row.value > 0)
+    .sort((left, right) =>
+      right.value - left.value ||
+      right.member.attacks_vs_enemy_successful - left.member.attacks_vs_enemy_successful ||
+      displayMember(left.member).localeCompare(displayMember(right.member)),
+    )
+    .slice(0, 3);
+
+  return (
+    <article className="dashboard-highlight-tile event-leaderboard-tile">
+      <div className="dashboard-highlight-heading">
+        <span>{metric.label}</span>
+        <strong>{rows[0] ? displayMember(rows[0].member) : "No leader yet"}</strong>
+        <small>{rows[0] ? formatEventLeaderboardValue(rows[0].value, metric.valueLabel) : metric.valueLabel}</small>
+      </div>
+      <div className="dashboard-podium-list">
+        {rows.length === 0 ? (
+          <EmptyState text="No podium yet" />
+        ) : (
+          rows.map((row, index) => (
+            <div key={`${metric.key}-${row.member.member_id}`} className={`dashboard-podium-row rank-${index + 1}`}>
+              <span className="dashboard-rank-chip">{index + 1}</span>
+              <strong>{displayMember(row.member)}</strong>
+              <small>{formatEventLeaderboardValue(row.value, metric.valueLabel)}</small>
+            </div>
+          ))
+        )}
+      </div>
+    </article>
+  );
+}
+
+function formatEventLeaderboardValue(value: number, label: string): string {
+  return `${formatNumber(value)} ${label}`;
 }
 
 function formatWarType(war: WarSummary): string {
