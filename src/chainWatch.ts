@@ -106,6 +106,78 @@ export async function ensureChainWatchEnabledForWar(env: Env, warId: number): Pr
     .run();
 }
 
+export async function setChainWatchEnabledForWar(
+  env: Env,
+  warId: number,
+  enabled: boolean,
+  options: {
+    checkedAt?: number;
+    refreshIfActive?: boolean;
+    syncStoppedMessage?: boolean;
+    warName?: string | null;
+  } = {},
+): Promise<ChainWatchStateRow | null> {
+  const checkedAt = options.checkedAt ?? nowSeconds();
+
+  await env.DB.prepare(
+    `
+    UPDATE wars
+    SET chain_watch_enabled = ?
+    WHERE id = ?
+    `,
+  )
+    .bind(enabled ? 1 : 0, warId)
+    .run();
+
+  if (!enabled) {
+    const existing = await readChainWatchState(env, warId);
+    if (!existing) {
+      await cancelChainWatchAlarm(env, warId);
+      return null;
+    }
+
+    await env.DB.prepare(
+      `
+      UPDATE chain_watch_state
+      SET enabled = 0,
+          last_checked_at = ?,
+          updated_at = ?
+      WHERE war_id = ?
+      `,
+    )
+      .bind(checkedAt, checkedAt, warId)
+      .run();
+    const disabledState = await readChainWatchState(env, warId);
+
+    if (options.syncStoppedMessage !== false && disabledState) {
+      const warName = options.warName ?? (await readWarById(env, warId))?.name ?? null;
+      await syncChainWatchStoppedDiscordMessage(env, disabledState, checkedAt, warName);
+    }
+    await cancelChainWatchAlarm(env, warId);
+    return disabledState;
+  }
+
+  await ensureChainWatchEnabledForWar(env, warId);
+  await env.DB.prepare(
+    `
+    UPDATE chain_watch_state
+    SET enabled = 1,
+        last_checked_at = ?,
+        updated_at = ?
+    WHERE war_id = ?
+    `,
+  )
+    .bind(checkedAt, checkedAt, warId)
+    .run();
+
+  const war = await readWarById(env, warId);
+  if (war && options.refreshIfActive && isWarChainWatchActive(war, checkedAt)) {
+    return await refreshChainWatchForWar(env, war, checkedAt);
+  }
+
+  return await readChainWatchState(env, warId);
+}
+
 export async function runChainWatchCron(env: Env, scheduledTime: number): Promise<void> {
   const checkedAt = Math.floor(scheduledTime / 1000);
   const war = await readActiveChainWatchWar(env);
@@ -146,31 +218,14 @@ export async function updateChainWatchForWar(request: Request, url: URL, env: En
     const enabled = Boolean(body.enabled);
     const now = nowSeconds();
 
-    await ensureChainWatchEnabledForWar(env, war.id);
-    await env.DB.prepare(
-      `
-      UPDATE chain_watch_state
-      SET enabled = ?,
-          last_checked_at = ?,
-          updated_at = ?
-      WHERE war_id = ?
-      `,
-    )
-      .bind(enabled ? 1 : 0, now, now, war.id)
-      .run();
+    const state = await setChainWatchEnabledForWar(env, war.id, enabled, {
+      checkedAt: now,
+      refreshIfActive: true,
+      warName: war.name,
+    });
+    const updatedWar = await readWarById(env, war.id);
 
-    if (!enabled) {
-      const disabledState = await readChainWatchState(env, war.id);
-      if (disabledState) {
-        await syncChainWatchStoppedDiscordMessage(env, disabledState, now, war.name);
-      }
-      await cancelChainWatchAlarm(env, war.id);
-    } else if (isWarChainWatchActive(war)) {
-      await refreshChainWatchForWar(env, war, now);
-    }
-
-    const state = await readChainWatchState(env, war.id);
-    return json(chainWatchResponse(war, state, nowSeconds()));
+    return json(chainWatchResponse(updatedWar ?? war, state, nowSeconds()));
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
   }
@@ -487,7 +542,7 @@ export async function handleChainWatchAlarm(env: Env, warId: number): Promise<vo
   const now = nowSeconds();
   const stateBefore = await readChainWatchState(env, warId);
   const war = await readWarById(env, warId);
-  if (!war || !isWarChainWatchActive(war)) {
+  if (!war || !isWarChainWatchActive(war, now)) {
     if (stateBefore) {
       await syncChainWatchStoppedDiscordMessage(env, stateBefore, now, war?.name ?? null);
     }
@@ -1102,6 +1157,8 @@ async function upsertChainWatchDiscordMessage(
 }
 
 async function readActiveChainWatchWar(env: Env): Promise<WarRow | null> {
+  const now = nowSeconds();
+
   return (await env.DB.prepare(
     `
     SELECT ${WAR_SELECT_COLUMNS_WITH_ALIAS}
@@ -1110,12 +1167,16 @@ async function readActiveChainWatchWar(env: Env): Promise<WarRow | null> {
     WHERE state.name = ?
       AND state.war_state = 'current'
       AND w.status = 'active'
-      AND w.practical_finish_time IS NULL
+      AND COALESCE(w.chain_watch_enabled, CASE WHEN COALESCE(w.war_type, 'real') = 'event' THEN 0 ELSE 1 END) = 1
+      AND (
+        w.practical_finish_time IS NULL
+        OR w.practical_finish_time > ?
+      )
       AND w.official_end_time IS NULL
     LIMIT 1
     `,
   )
-    .bind(SOURCE_NAME)
+    .bind(SOURCE_NAME, now)
     .first()) as WarRow | null;
 }
 
@@ -1160,10 +1221,11 @@ function chainWatchResponse(war: WarRow, state: ChainWatchStateRow | null, now: 
       status: war.status,
       practical_finish_time: war.practical_finish_time,
       official_end_time: war.official_end_time,
+      chain_watch_enabled: war.chain_watch_enabled,
     },
     state,
     computed: {
-      active: isWarChainWatchActive(war) && state?.enabled === 1,
+      active: isWarChainWatchActive(war, now) && state?.enabled === 1,
       alert_eligible: chainWatchAlertEligible(state?.current_chain ?? null),
       remaining_seconds: remainingSeconds,
       dropped: remainingSeconds !== null && remainingSeconds <= 0,
@@ -1171,8 +1233,19 @@ function chainWatchResponse(war: WarRow, state: ChainWatchStateRow | null, now: 
   };
 }
 
-function isWarChainWatchActive(war: WarRow): boolean {
-  return war.status === "active" && war.practical_finish_time === null;
+function isWarChainWatchActive(war: WarRow, now: number = nowSeconds()): boolean {
+  const defaultEnabled = (war.war_type ?? "real") === "event" ? 0 : 1;
+  const chainWatchEnabled = Number(war.chain_watch_enabled ?? defaultEnabled) === 1;
+
+  return (
+    chainWatchEnabled &&
+    war.status === "active" &&
+    war.official_end_time === null &&
+    (
+      war.practical_finish_time === null ||
+      war.practical_finish_time > now
+    )
+  );
 }
 
 function chainWatchAlarmStub(env: Env, warId: number): ChainWatchAlarmStub {

@@ -1308,6 +1308,7 @@ CREATE TABLE wars (
   war_type TEXT,
   torn_war_id INTEGER,
   auto_end_enabled INTEGER NOT NULL DEFAULT 0,
+  chain_watch_enabled INTEGER NOT NULL DEFAULT 1,
   faction_respect_limit REAL,
   member_respect_limit REAL,
   winner_faction_id INTEGER,

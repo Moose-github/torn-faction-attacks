@@ -10,6 +10,7 @@ const WAR_COLUMN_NAMES = [
   "war_type",
   "torn_war_id",
   "auto_end_enabled",
+  "chain_watch_enabled",
   "faction_respect_limit",
   "member_respect_limit",
   "winner_faction_id",

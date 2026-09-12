@@ -155,7 +155,8 @@ export type WarSummary = {
   enemy_faction_id: number | null;
   war_type: Exclude<WarType, "all"> | null;
   torn_war_id: number | null;
-  auto_end_enabled: number;
+  auto_end_enabled: number;
+  chain_watch_enabled: number;
   faction_respect_limit: number | null;
   member_respect_limit: number | null;
   winner_faction_id: number | null;
@@ -653,6 +654,7 @@ export type ChainWatchResponse = {
     status: string;
     practical_finish_time: number | null;
     official_end_time: number | null;
+    chain_watch_enabled: number;
   };
   state: ChainWatchState | null;
   computed: {
@@ -837,6 +839,7 @@ export type AdminWarPayload = {
   war_type: Exclude<WarType, "all">;
   torn_war_id?: number | null;
   auto_end_enabled?: boolean;
+  chain_watch_enabled?: boolean;
   faction_respect_limit?: number | null;
   member_respect_limit?: number | null;
   fetch_missing?: boolean;
@@ -1990,10 +1993,10 @@ export type EnemyPushPressureSnapshot = {
 export type EnemyPushPressureResponse = {
   ok: boolean;
   war: {
-    id: number;
-    name: string;
-    status: string;
-    practical_finish_time: number | null;
+    id: number;
+    name: string;
+    status: string;
+    practical_finish_time: number | null;
     official_end_time: number | null;
     enemy_faction_id: number | null;
   };

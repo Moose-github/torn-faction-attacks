@@ -159,7 +159,7 @@ describe("war lifecycle global state", () => {
     const db = fakeDb([
       {
         match: "SELECT war_type",
-        result: { war_type: "event" },
+        result: { war_type: "event", chain_watch_enabled: 0 },
       },
     ]);
     const env = envWithDb(db);
@@ -170,6 +170,28 @@ describe("war lifecycle global state", () => {
     });
 
     expect(ensureChainWatchEnabledForWar).not.toHaveBeenCalled();
+    expect(rebuildWarStatsFromRaw).toHaveBeenCalledWith(env, {
+      scope: "single-war",
+      warId: 7,
+      reason: "lifecycle",
+    });
+  });
+
+  it("starts opted-in events with chain watch", async () => {
+    const db = fakeDb([
+      {
+        match: "SELECT war_type",
+        result: { war_type: "event", chain_watch_enabled: 1 },
+      },
+    ]);
+    const env = envWithDb(db);
+
+    await runWarStartedHooks(env, {
+      warId: 7,
+      startedAt: 100,
+    });
+
+    expect(ensureChainWatchEnabledForWar).toHaveBeenCalledWith(env, 7);
     expect(rebuildWarStatsFromRaw).toHaveBeenCalledWith(env, {
       scope: "single-war",
       warId: 7,

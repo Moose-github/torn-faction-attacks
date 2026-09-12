@@ -34,8 +34,8 @@ type EnemyWarLifecycleOptions = {
 };
 
 export async function runWarScheduledHooks(env: Env, warId: number): Promise<void> {
-  const warType = await readWarLifecycleType(env, warId);
-  if (warType === "event") {
+  const config = await readWarLifecycleConfig(env, warId);
+  if (config.warType === "event") {
     await runWarLifecycleHandlersOnce(env, "war_scheduled", warId, []);
     return;
   }
@@ -49,8 +49,8 @@ export async function runWarScheduledHooks(env: Env, warId: number): Promise<voi
 }
 
 export async function runWarPreLiveStartedHooks(env: Env, warId: number): Promise<void> {
-  const warType = await readWarLifecycleType(env, warId);
-  if (warType === "event") {
+  const config = await readWarLifecycleConfig(env, warId);
+  if (config.warType === "event") {
     await runWarLifecycleHandlersOnce(env, "pre_live_started", warId, []);
     return;
   }
@@ -75,7 +75,7 @@ export async function runWarStartedHooks(
   env: Env,
   options: { warId: number; startedAt: number },
 ): Promise<void> {
-  const warType = await readWarLifecycleType(env, options.warId);
+  const config = await readWarLifecycleConfig(env, options.warId);
   const handlers: WarLifecycleHandler[] = [
     {
       name: "attack_assignments_backfilled",
@@ -87,7 +87,7 @@ export async function runWarStartedHooks(
     },
   ];
 
-  if (warType !== "event") {
+  if (shouldEnableChainWatch(config)) {
     handlers.unshift({
       name: "chain_watch_enabled",
       run: () => ensureChainWatchEnabledForWar(env, options.warId),
@@ -267,19 +267,33 @@ async function stopLiveEnemyTracking(
   await clearLiveEnemyTrackingData(env, warId, enemyFactionId);
 }
 
-async function readWarLifecycleType(env: Env, warId: number): Promise<string | null> {
+async function readWarLifecycleConfig(env: Env, warId: number): Promise<{
+  warType: string | null;
+  chainWatchEnabled: number | null;
+}> {
   const row = (await env.DB.prepare(
     `
-    SELECT war_type
+    SELECT war_type, chain_watch_enabled
     FROM wars
     WHERE id = ?
     LIMIT 1
     `,
   )
     .bind(warId)
-    .first()) as { war_type: string | null } | null;
+    .first()) as { war_type: string | null; chain_watch_enabled: number | null } | null;
 
-  return row?.war_type ?? null;
+  return {
+    warType: row?.war_type ?? null,
+    chainWatchEnabled: row?.chain_watch_enabled ?? null,
+  };
+}
+
+function shouldEnableChainWatch(config: {
+  warType: string | null;
+  chainWatchEnabled: number | null;
+}): boolean {
+  const defaultEnabled = (config.warType ?? "real") === "event" ? 0 : 1;
+  return Number(config.chainWatchEnabled ?? defaultEnabled) === 1;
 }
 
 function warLifecycleHandlerLatchName(

@@ -143,6 +143,7 @@ export type WarRow = {
   war_type: string | null;
   torn_war_id: number | null;
   auto_end_enabled: number;
+  chain_watch_enabled: number;
   faction_respect_limit: number | null;
   member_respect_limit: number | null;
   winner_faction_id: number | null;

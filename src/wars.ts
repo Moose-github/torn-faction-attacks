@@ -6,6 +6,7 @@ import {
 import {
   bumpWarCacheVersion,
 } from "./cacheVersions";
+import { setChainWatchEnabledForWar } from "./chainWatch";
 import {
   ingestHistoricalWarWindow,
   previewHistoricalWarWindow,
@@ -51,6 +52,7 @@ type EventMutationPayload = {
   practical_finish_time?: unknown;
   finish_time?: unknown;
   fetch_missing?: unknown;
+  chain_watch_enabled?: unknown;
 };
 
 type TrackerOverlapRow = {
@@ -81,6 +83,7 @@ export async function createManualEvent(request: Request, env: Env): Promise<Res
     }
 
     const eventInput = parseEventInput(body, { requireName: true, requireFinishTime: false });
+    const chainWatchEnabled = parseEventChainWatchEnabled(body.chain_watch_enabled, false);
     const now = nowSeconds();
     const statusResult = resolveEventStatus(body.status, eventInput.startTime, eventInput.finishTime, now);
     if (statusResult instanceof Response) {
@@ -105,10 +108,11 @@ export async function createManualEvent(request: Request, env: Env): Promise<Res
         war_type,
         torn_war_id,
         auto_end_enabled,
+        chain_watch_enabled,
         faction_respect_limit,
         member_respect_limit
       )
-      VALUES (?, ?, ?, ?, NULL, NULL, NULL, 'event', NULL, 0, NULL, NULL)
+      VALUES (?, ?, ?, ?, NULL, NULL, NULL, 'event', NULL, 0, ?, NULL, NULL)
       RETURNING
         ${WAR_RETURNING_COLUMNS}
       `,
@@ -118,6 +122,7 @@ export async function createManualEvent(request: Request, env: Env): Promise<Res
         statusResult === "active" ? "scheduled" : statusResult,
         eventInput.startTime,
         eventInput.finishTime,
+        chainWatchEnabled ? 1 : 0,
       )
       .first()) as WarRow | null;
 
@@ -132,6 +137,7 @@ export async function createManualEvent(request: Request, env: Env): Promise<Res
       startTime: eventInput.startTime,
       finishTime: eventInput.finishTime,
       fetchMissing: parseOptionalBoolean(body.fetch_missing, "fetch_missing"),
+      chainWatchEnabled,
     });
     const war = await readWarById(env, inserted.id);
 
@@ -188,10 +194,11 @@ export async function importHistoricalEvent(request: Request, env: Env): Promise
         war_type,
         torn_war_id,
         auto_end_enabled,
+        chain_watch_enabled,
         faction_respect_limit,
         member_respect_limit
       )
-      VALUES (?, 'ended', ?, ?, NULL, NULL, NULL, 'event', NULL, 0, NULL, NULL)
+      VALUES (?, 'ended', ?, ?, NULL, NULL, NULL, 'event', NULL, 0, 0, NULL, NULL)
       RETURNING
         ${WAR_RETURNING_COLUMNS}
       `,
@@ -278,6 +285,10 @@ export async function updateEvent(request: Request, env: Env): Promise<Response>
     }
 
     const hasFinish = hasEventFinishField(body);
+    const chainWatchEnabled = parseEventChainWatchEnabled(
+      body.chain_watch_enabled,
+      existing.chain_watch_enabled === 1,
+    );
     const eventInput = parseEventInput({
       ...body,
       name: body.name ?? existing.name,
@@ -315,6 +326,7 @@ export async function updateEvent(request: Request, env: Env): Promise<Response>
           war_type = 'event',
           torn_war_id = NULL,
           auto_end_enabled = 0,
+          chain_watch_enabled = ?,
           faction_respect_limit = NULL,
           member_respect_limit = NULL,
           finalized_at = CASE WHEN ? = 'ended' THEN finalized_at ELSE NULL END
@@ -326,6 +338,7 @@ export async function updateEvent(request: Request, env: Env): Promise<Response>
         statusResult === "active" ? "scheduled" : statusResult,
         eventInput.startTime,
         eventInput.finishTime,
+        chainWatchEnabled ? 1 : 0,
         statusResult,
         warId,
       )
@@ -339,6 +352,7 @@ export async function updateEvent(request: Request, env: Env): Promise<Response>
       startTime: eventInput.startTime,
       finishTime: eventInput.finishTime,
       fetchMissing: parseOptionalBoolean(body.fetch_missing, "fetch_missing"),
+      chainWatchEnabled,
     });
     const updatedWar = await readWarById(env, warId);
 
@@ -1241,6 +1255,7 @@ async function applyEventStatusSideEffects(
     startTime: number;
     finishTime: number | null;
     fetchMissing: boolean;
+    chainWatchEnabled: boolean;
   },
 ): Promise<{
   fetch_missing?: boolean;
@@ -1258,6 +1273,11 @@ async function applyEventStatusSideEffects(
       warId: options.warId,
       startedAt: options.startTime,
     });
+    if (!options.chainWatchEnabled) {
+      await setChainWatchEnabledForWar(env, options.warId, false, {
+        warName: options.name,
+      });
+    }
     const linkedAttackCount = await linkStoredEventAttacks(
       env,
       options.warId,
@@ -1485,6 +1505,12 @@ function trackerOverlapResponse(overlap: TrackerOverlapRow): Response {
 
 function trackerTypeLabel(war: { war_type: string | null }): string {
   return (war.war_type ?? "real") === "event" ? "event" : "war";
+}
+
+function parseEventChainWatchEnabled(value: unknown, fallback: boolean): boolean {
+  return value === undefined || value === null || value === ""
+    ? fallback
+    : parseOptionalBoolean(value, "chain_watch_enabled");
 }
 
 async function refreshUpcomingTrackerState(env: Env): Promise<void> {

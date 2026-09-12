@@ -1104,6 +1104,19 @@ export function AdminControls() {
                 breakAfterWarType
                 allowedWarTypes={["event"]}
               />
+              <label className="checkbox-row admin-form-wide">
+                <input
+                  type="checkbox"
+                  checked={createEventForm.chainWatchEnabled}
+                  onChange={(event) =>
+                    setCreateEventForm((current) => ({
+                      ...current,
+                      chainWatchEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Enable Chain Watch</span>
+              </label>
               <button
                 type="button"
                 className="admin-button"
@@ -1183,6 +1196,19 @@ export function AdminControls() {
                 breakAfterWarType
                 allowedWarTypes={["event"]}
               />
+              <label className="checkbox-row admin-form-wide">
+                <input
+                  type="checkbox"
+                  checked={eventEditForm.chainWatchEnabled}
+                  onChange={(event) =>
+                    setEventEditForm((current) => ({
+                      ...current,
+                      chainWatchEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Enable Chain Watch</span>
+              </label>
               <button
                 type="button"
                 className="admin-button"
@@ -2296,6 +2322,7 @@ type AdminWarFormState = {
   warType: Exclude<WarType, "all">;
   tornWarId: string;
   autoEndEnabled: boolean;
+  chainWatchEnabled: boolean;
   factionRespectLimit: string;
   memberRespectLimit: string;
 };
@@ -2697,6 +2724,7 @@ function defaultWarForm(): AdminWarFormState {
     warType: "real",
     tornWarId: "",
     autoEndEnabled: false,
+    chainWatchEnabled: true,
     factionRespectLimit: "",
     memberRespectLimit: "",
   };
@@ -2707,6 +2735,7 @@ function defaultEventForm(): AdminWarFormState {
     ...defaultWarForm(),
     status: "active",
     warType: "event",
+    chainWatchEnabled: false,
   };
 }
 
@@ -2754,6 +2783,7 @@ function toEventPayload(
     status: options.status ?? form.status,
     practical_start_time: secondsFromFormTime(form, "start"),
     practical_finish_time: optionalSecondsFromFormTime(form, "finish"),
+    chain_watch_enabled: form.chainWatchEnabled,
   };
 
   if (options.id !== undefined) {
@@ -2817,6 +2847,7 @@ function warToForm(war: WarSummary): AdminWarFormState {
     warType: war.war_type ?? "real",
     tornWarId: war.torn_war_id === null ? "" : String(war.torn_war_id),
     autoEndEnabled: Boolean(war.auto_end_enabled),
+    chainWatchEnabled: Boolean(war.chain_watch_enabled),
     factionRespectLimit: war.faction_respect_limit === null ? "" : String(war.faction_respect_limit),
     memberRespectLimit: war.member_respect_limit === null ? "" : String(war.member_respect_limit),
   };
