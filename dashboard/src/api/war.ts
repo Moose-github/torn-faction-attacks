@@ -174,11 +174,23 @@ export async function updateOfficialWar(payload: AdminWarPayload): Promise<unkno
   return postJson("/api/wars/update-official", payload);
 }
 
-export async function importWar(payload: AdminWarPayload): Promise<unknown> {
+export async function createEvent(payload: AdminWarPayload): Promise<unknown> {
+  return postJson("/api/wars", { ...payload, war_type: "event" });
+}
+
+export async function updateEvent(payload: AdminWarPayload): Promise<unknown> {
+  return postJson("/api/wars/update-event", { ...payload, war_type: "event" });
+}
+
+export async function importWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars/import", payload);
 }
 
-export async function previewImportWar(payload: AdminWarPayload): Promise<unknown> {
+export async function importEvent(payload: AdminWarPayload): Promise<unknown> {
+  return postJson("/api/wars/import-event", { ...payload, war_type: "event" });
+}
+
+export async function previewImportWar(payload: AdminWarPayload): Promise<unknown> {
   return postJson("/api/wars/import/preview", {
     practical_start_time: payload.practical_start_time,
     practical_finish_time: payload.practical_finish_time,
@@ -193,7 +205,16 @@ export async function pullAttackWindow(payload: AttackWindowPayload): Promise<un
   return postJson("/api/attacks/window", payload);
 }
 
-export async function deleteWar(payload: {
+export async function previewImportEvent(payload: AdminWarPayload): Promise<unknown> {
+  return postJson("/api/wars/import-event/preview", {
+    practical_start_time: payload.practical_start_time,
+    practical_finish_time: payload.practical_finish_time,
+    fetch_missing: payload.fetch_missing,
+    war_type: "event",
+  });
+}
+
+export async function deleteWar(payload: {
   torn_war_id?: number;
   name?: string;
 }): Promise<unknown> {

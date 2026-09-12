@@ -30,7 +30,6 @@ import {
   matchesExactRoute,
   warNameFromWarRoute,
 } from "../routes";
-import { json } from "../utils";
 import {
   deleteWar,
   endActiveWar,
@@ -41,10 +40,14 @@ import {
   getWarChainBonusesForWar,
   getWarMemberCombatHeatmap,
   getWarMemberAttacks,
+  createManualEvent,
+  importHistoricalEvent,
   importHistoricalWar,
   listWars,
+  previewHistoricalEventImport,
   previewHistoricalWarImport,
   relinkWarAttacks,
+  updateEvent,
   updateOfficialWar,
 } from "../wars";
 import {
@@ -110,12 +113,7 @@ function warCommandExactRoutes(request: Request, env: RouteContext["env"]): Exac
       path: "/api/wars",
       method: "POST",
       handle: (routeContext) =>
-        withAdmin(routeContext, () =>
-          disabledWarCommandResponse(
-            "Manual war creation is disabled. Wars are auto-created from Torn or imported after they finish.",
-            "MANUAL_WAR_CREATION_DISABLED",
-          ),
-        ),
+        withAdmin(routeContext, () => createManualEvent(request, env)),
     },
     {
       path: "/api/wars/import",
@@ -125,13 +123,7 @@ function warCommandExactRoutes(request: Request, env: RouteContext["env"]): Exac
     {
       path: "/api/wars/import-event",
       method: "POST",
-      handle: (routeContext) =>
-        withAdmin(routeContext, () =>
-          disabledWarCommandResponse(
-            "Manual event import is disabled. Use historical war import for war records.",
-            "MANUAL_EVENT_IMPORT_DISABLED",
-          ),
-        ),
+      handle: (routeContext) => withAdmin(routeContext, () => importHistoricalEvent(request, env)),
     },
     {
       path: "/api/wars/import/preview",
@@ -141,13 +133,7 @@ function warCommandExactRoutes(request: Request, env: RouteContext["env"]): Exac
     {
       path: "/api/wars/import-event/preview",
       method: "POST",
-      handle: (routeContext) =>
-        withAdmin(routeContext, () =>
-          disabledWarCommandResponse(
-            "Manual event import preview is disabled.",
-            "MANUAL_EVENT_IMPORT_DISABLED",
-          ),
-        ),
+      handle: (routeContext) => withAdmin(routeContext, () => previewHistoricalEventImport(request, env)),
     },
     {
       path: "/api/wars/update-official",
@@ -157,13 +143,7 @@ function warCommandExactRoutes(request: Request, env: RouteContext["env"]): Exac
     {
       path: "/api/wars/update-event",
       method: "POST",
-      handle: (routeContext) =>
-        withAdmin(routeContext, () =>
-          disabledWarCommandResponse(
-            "Manual event editing is disabled.",
-            "MANUAL_EVENT_EDIT_DISABLED",
-          ),
-        ),
+      handle: (routeContext) => withAdmin(routeContext, () => updateEvent(request, env)),
     },
     {
       path: "/api/wars/delete",
@@ -181,10 +161,6 @@ function warCommandExactRoutes(request: Request, env: RouteContext["env"]): Exac
       handle: (routeContext) => withAdmin(routeContext, () => endActiveWar(request, env)),
     },
   ];
-}
-
-function disabledWarCommandResponse(error: string, code: string): Response {
-  return json({ ok: false, error, code }, 410);
 }
 
 export async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {

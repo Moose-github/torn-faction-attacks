@@ -19,6 +19,7 @@ type RelinkWarRow = Pick<
   | "official_end_time"
   | "status"
   | "enemy_faction_id"
+  | "war_type"
   | "torn_war_id"
 >;
 
@@ -115,6 +116,7 @@ async function readRelinkWars(
       official_end_time,
       status,
       enemy_faction_id,
+      war_type,
       torn_war_id
     FROM wars
     ${filterSql}
@@ -244,8 +246,17 @@ const RELINK_ATTACK_MATCH_SQL = `
       AND ${DEFENSE_ACTION_WINDOW_SQL}
     )
     OR (
-      w.enemy_faction_id IS NOT NULL
-      AND a.attacker_faction_id = w.enemy_faction_id
+      (
+        (
+          COALESCE(w.war_type, 'real') = 'event'
+          AND a.defender_faction_id = ${HOME_FACTION_ID}
+        )
+        OR (
+          COALESCE(w.war_type, 'real') != 'event'
+          AND w.enemy_faction_id IS NOT NULL
+          AND a.attacker_faction_id = w.enemy_faction_id
+        )
+      )
       AND a.defender_faction_id = ${HOME_FACTION_ID}
       AND ${DEFENSE_ACTION_WINDOW_SQL}
     )

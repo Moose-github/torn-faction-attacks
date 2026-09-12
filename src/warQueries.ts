@@ -20,6 +20,20 @@ import { readWarFromUrl } from "./warRequest";
 const REPORTABLE_HOME_MEMBER_FILTER_SQL = "COALESCE(h.report_exempt, 0) = 0";
 const CURRENT_HOME_MEMBER_FILTER_SQL = "COALESCE(h.is_current, 0) = 1";
 const PRACTICAL_DEFENSE_ACTION_WINDOW_SQL = OUTGOING_ACTION_WINDOW_SQL;
+const RELEVANT_DEFEND_SQL = `
+  (
+    (
+      COALESCE(w.war_type, 'real') = 'event'
+      AND a.defender_faction_id = ${HOME_FACTION_ID}
+    )
+    OR (
+      COALESCE(w.war_type, 'real') != 'event'
+      AND w.enemy_faction_id IS NOT NULL
+      AND a.attacker_faction_id = w.enemy_faction_id
+      AND a.defender_faction_id = ${HOME_FACTION_ID}
+    )
+  )
+`;
 type ReportableHomeMemberJoinTarget = "wms.member_id" | "buckets.member_id";
 type WarIdentityRow = { id: number; name: string };
 type WarMemberAttacksRouteWar = {
@@ -31,11 +45,13 @@ type WarMemberAttacksRouteWar = {
   official_end_time: number | null;
   status: string;
   enemy_faction_id: number | null;
+  war_type: string | null;
 };
 type WarActivityRouteWar = {
   id: number;
   name: string;
   enemy_faction_id: number | null;
+  war_type: string | null;
   practical_start_time: number;
   practical_finish_time: number | null;
   official_start_time: number | null;
@@ -273,7 +289,7 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
     }
 
     const war = await readWarFromUrl<WarMemberAttacksRouteWar>(url, env, {
-      select: "id, name, practical_start_time, practical_finish_time, official_start_time, official_end_time, status, enemy_faction_id",
+      select: "id, name, practical_start_time, practical_finish_time, official_start_time, official_end_time, status, enemy_faction_id, war_type",
     });
     if (war instanceof Response) return war;
 
@@ -335,7 +351,7 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
 
     const attacks = (rows.results ?? []).map((attack: any) => ({
       ...attack,
-      classification: classifyMemberAttack(attack, memberId, war.enemy_faction_id),
+      classification: classifyMemberAttack(attack, memberId, war.enemy_faction_id, war.war_type),
     }));
 
     return json({
@@ -345,6 +361,7 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
         name: war.name,
         status: war.status,
         enemy_faction_id: war.enemy_faction_id,
+        war_type: war.war_type,
         practical_finish_time: war.practical_finish_time,
         official_end_time: war.official_end_time,
       },
@@ -377,6 +394,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
         id,
         name,
         enemy_faction_id,
+        war_type,
         practical_start_time,
         practical_finish_time,
         official_start_time,
@@ -447,27 +465,21 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
             ELSE 0
           END) AS outside,
           SUM(CASE
-            WHEN ? IS NOT NULL
-             AND a.attacker_faction_id = ?
-             AND a.defender_faction_id = ${HOME_FACTION_ID}
+            WHEN ${RELEVANT_DEFEND_SQL}
              AND a.result IN (${POSITIVE_RESULTS_SQL})
              AND ${DEFENSE_ACTION_WINDOW_SQL}
             THEN 1
             ELSE 0
           END) AS defend_lost,
           SUM(CASE
-            WHEN ? IS NOT NULL
-             AND a.attacker_faction_id = ?
-             AND a.defender_faction_id = ${HOME_FACTION_ID}
-              AND a.result IN (${DEFEND_WON_RESULTS_SQL})
-              AND ${DEFENSE_ACTION_WINDOW_SQL}
+            WHEN ${RELEVANT_DEFEND_SQL}
+             AND a.result IN (${DEFEND_WON_RESULTS_SQL})
+             AND ${DEFENSE_ACTION_WINDOW_SQL}
             THEN 1
             ELSE 0
           END) AS defend_won,
           SUM(CASE
-            WHEN ? IS NOT NULL
-             AND a.attacker_faction_id = ?
-             AND a.defender_faction_id = ${HOME_FACTION_ID}
+            WHEN ${RELEVANT_DEFEND_SQL}
              AND (
                a.result IS NULL
                OR (
@@ -491,12 +503,6 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
         .bind(
           bucketSeconds,
           bucketSeconds,
-          war.enemy_faction_id,
-          war.enemy_faction_id,
-          war.enemy_faction_id,
-          war.enemy_faction_id,
-          war.enemy_faction_id,
-          war.enemy_faction_id,
           war.enemy_faction_id,
           war.enemy_faction_id,
           war.enemy_faction_id,
@@ -528,6 +534,7 @@ export async function getWarActivity(url: URL, env: Env): Promise<Response> {
         id: war.id,
         name: war.name,
         enemy_faction_id: war.enemy_faction_id,
+        war_type: war.war_type,
         practical_start_time: war.practical_start_time,
         practical_finish_time: war.practical_finish_time,
         official_start_time: war.official_start_time,
@@ -551,6 +558,7 @@ export async function getWarMemberCombatHeatmap(url: URL, env: Env): Promise<Res
         id,
         name,
         enemy_faction_id,
+        war_type,
         practical_start_time,
         practical_finish_time,
         official_start_time,
@@ -626,6 +634,7 @@ export async function getWarMemberCombatHeatmap(url: URL, env: Env): Promise<Res
         id: war.id,
         name: war.name,
         enemy_faction_id: war.enemy_faction_id,
+        war_type: war.war_type,
         practical_start_time: war.practical_start_time,
         practical_finish_time: war.practical_finish_time,
         official_start_time: war.official_start_time,
@@ -896,6 +905,7 @@ function classifyMemberAttack(
   },
   memberId: number,
   enemyFactionId: number | null,
+  warType: string | null,
 ): string {
   const positiveResult = POSITIVE_ATTACK_RESULTS.includes(
     attack.result as (typeof POSITIVE_ATTACK_RESULTS)[number],
@@ -922,8 +932,13 @@ function classifyMemberAttack(
 
   if (
     attack.defender_id === memberId &&
-    enemyFactionId !== null &&
-    attack.attacker_faction_id === enemyFactionId &&
+    (
+      warType === "event" ||
+      (
+        enemyFactionId !== null &&
+        attack.attacker_faction_id === enemyFactionId
+      )
+    ) &&
     attack.defender_faction_id === HOME_FACTION_ID
   ) {
     if (positiveResult) {

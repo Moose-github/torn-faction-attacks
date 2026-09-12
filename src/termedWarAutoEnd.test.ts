@@ -7,6 +7,7 @@ import {
   type TermedWarCrossingAttackRow,
   type WarWindowForAttackAssignment,
 } from "./ingestion";
+import { HOME_FACTION_ID } from "./constants";
 
 describe("termed war auto-end cutoff", () => {
   it("uses the ended timestamp from the first raw respect crossing hit", () => {
@@ -50,6 +51,29 @@ describe("termed war auto-end cutoff", () => {
 
     expect(attackFallsWithinLiveWarWindow({ started: 290, ended: 301 }, war)).toBe(false);
     expect(attackFallsWithinLiveWarWindow({ started: 290, ended: null }, war)).toBe(true);
+  });
+
+  it("assigns event attacks only when the home faction participates", () => {
+    const event = assignmentWindow({ war_type: "event" });
+
+    expect(attackFallsWithinLiveWarWindow({
+      started: 150,
+      ended: 160,
+      attacker: { faction: { id: HOME_FACTION_ID } },
+      defender: { faction: { id: 123 } },
+    }, event)).toBe(true);
+    expect(attackFallsWithinLiveWarWindow({
+      started: 150,
+      ended: 160,
+      attacker: { faction: { id: 123 } },
+      defender: { faction: { id: HOME_FACTION_ID } },
+    }, event)).toBe(true);
+    expect(attackFallsWithinLiveWarWindow({
+      started: 150,
+      ended: 160,
+      attacker: { faction: { id: 123 } },
+      defender: { faction: { id: 456 } },
+    }, event)).toBe(false);
   });
 
   it("formats the Discord auto-end message with score, last attack, and finish time", () => {

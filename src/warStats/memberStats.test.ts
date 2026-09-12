@@ -68,6 +68,55 @@ describe("war stats rebuilds", () => {
       .toBe(true);
   });
 
+  it("uses event-aware defend predicates when rebuilding member stats", async () => {
+    const db = fakeDb({
+      firstResults: [
+        { match: "FROM wars", result: { id: 7 } },
+        { match: "COUNT(*) AS count", result: { count: 3 } },
+      ],
+    });
+
+    await rebuildWarStatsFromRaw(envWithDb(db), {
+      scope: "single-war",
+      warId: 7,
+      reason: "admin",
+    });
+
+    const defendQueries = db.calls.filter((call) =>
+      call.sql.includes("defends_total") &&
+      call.sql.includes("a.defender_faction_id = 8803")
+    );
+    expect(defendQueries.length).toBeGreaterThan(0);
+    expect(defendQueries.some((call) =>
+      call.sql.includes("COALESCE(w.war_type, 'real') = 'event'") &&
+      call.sql.includes("COALESCE(w.war_type, 'real') != 'event'")
+    )).toBe(true);
+  });
+
+  it("uses event-aware defend predicates in combat buckets", async () => {
+    const db = fakeDb({
+      firstResults: [
+        { match: "FROM wars", result: { id: 7 } },
+        { match: "COUNT(*) AS count", result: { count: 3 } },
+      ],
+    });
+
+    await rebuildWarStatsFromRaw(envWithDb(db), {
+      scope: "single-war",
+      warId: 7,
+      reason: "admin",
+    });
+
+    const bucketQueries = db.calls.filter((call) =>
+      call.sql.includes("INSERT INTO war_member_combat_buckets")
+    );
+    expect(bucketQueries.length).toBeGreaterThan(0);
+    expect(bucketQueries.some((call) =>
+      call.sql.includes("COALESCE(w.war_type, 'real') = 'event'") &&
+      call.sql.includes("a.defender_faction_id = 8803")
+    )).toBe(true);
+  });
+
   it("throws before clearing stats when the per-war rebuild lease is held", async () => {
     const db = fakeDb({
       firstResults: [

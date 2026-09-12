@@ -34,6 +34,7 @@ import { withTornKeyPool } from "../tornKeyPool";
 import { boolToInt, d1Changes, json, normalizeAttacks, nowSeconds } from "../utils";
 import {
   applyTornOfficialWarEnd,
+  finishEventTracking,
   recordTermedWarPracticalFinish,
   setUpcomingWarState,
   startWarTracking,
@@ -77,11 +78,14 @@ export type WarWindowForAttackAssignment = {
   practical_start_time: number;
   practical_finish_time: number | null;
   official_end_time: number | null;
+  war_type?: string | null;
 };
 
 export type AttackTiming = {
   started?: number | null;
   ended?: number | null;
+  attacker?: { faction?: { id?: number } | null } | null;
+  defender?: { faction?: { id?: number } | null } | null;
 };
 
 export type RecentAttackIngestionResult = {
@@ -278,7 +282,9 @@ export async function runIngestion(
       metrics.reportFinishedAt = nowSeconds();
       metrics.statsFinishedAt = metrics.reportFinishedAt;
     } else if (ingestionWar) {
-      const autoEnded = await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
+      const eventAutoEnded = await autoEndEventIfFinishDue(env, ingestionWar);
+      const autoEnded = eventAutoEnded ||
+        await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
       if (autoEnded) {
         metrics.reportWriteOperations += 1;
         metrics.statWriteOperations += 1;
@@ -660,7 +666,8 @@ async function activateScheduledWarIfDue(env: Env): Promise<void> {
     WHERE status = 'active'
     LIMIT 1
     `,
-  ).first()) as { id: number } | null;
+  )
+    .first()) as { id: number } | null;
 
   if (activeWar) {
     return;
@@ -787,6 +794,26 @@ export async function ingestRecentFactionAttacks(
   };
 }
 
+async function autoEndEventIfFinishDue(
+  env: Env,
+  activeWar: ActiveWarForIngestion,
+): Promise<boolean> {
+  if (activeWar.war_type !== "event" || activeWar.practical_finish_time === null) {
+    return false;
+  }
+
+  if (activeWar.practical_finish_time > nowSeconds()) {
+    return false;
+  }
+
+  await finishEventTracking(env, {
+    warId: activeWar.id,
+    finishAt: activeWar.practical_finish_time,
+    preserveExistingFinish: true,
+  });
+  return true;
+}
+
 async function autoEndTermedWarIfLimitReached(
   env: Env,
   activeWar: ActiveWarForIngestion,
@@ -852,6 +879,14 @@ export function attackFallsWithinLiveWarWindow(
   attack: AttackTiming,
   war: WarWindowForAttackAssignment,
 ): boolean {
+  if (
+    war.war_type === "event" &&
+    attack.attacker?.faction?.id !== HOME_FACTION_ID &&
+    attack.defender?.faction?.id !== HOME_FACTION_ID
+  ) {
+    return false;
+  }
+
   if (attack.started == null || attack.started < war.practical_start_time) {
     return false;
   }
@@ -1234,9 +1269,15 @@ async function syncUpcomingRankedWar(
     SELECT id
     FROM wars
     WHERE status = 'scheduled'
+      AND (
+        practical_finish_time IS NULL
+        OR practical_finish_time >= ?
+      )
     LIMIT 1
     `,
-  ).first()) as { id: number } | null;
+  )
+    .bind(rankedWar.start)
+    .first()) as { id: number } | null;
 
   if (existingScheduledWar) {
     await setUpcomingWarState(env, existingScheduledWar.id);

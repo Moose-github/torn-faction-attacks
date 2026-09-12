@@ -836,10 +836,11 @@ export type AdminWarPayload = {
   enemy_faction_id?: number | null;
   war_type: Exclude<WarType, "all">;
   torn_war_id?: number | null;
-  auto_end_enabled?: boolean;
-  faction_respect_limit?: number | null;
-  member_respect_limit?: number | null;
-};
+  auto_end_enabled?: boolean;
+  faction_respect_limit?: number | null;
+  member_respect_limit?: number | null;
+  fetch_missing?: boolean;
+};
 
 export type ShopliftingAlertSetting = {
 

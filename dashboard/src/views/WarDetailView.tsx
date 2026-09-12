@@ -134,6 +134,7 @@ export function WarDetailView({
       : "Open to load";
   const members = sortMembers(warDetail?.members ?? [], memberSort);
   const sortedMemberAttacks = sortMemberAttacks(memberAttacks, memberAttackSort);
+  const isEvent = selectedWar.war_type === "event";
   const hasTornReport = Boolean(selectedWar.torn_report_fetched_at);
   const derivedRespectGained = detailNumber(
     warDetail?.summary?.total_respect_gain,
@@ -235,17 +236,19 @@ export function WarDetailView({
                           : formatWarDateRange(selectedWar.practical_start_time, selectedWar.practical_finish_time)
                       }
                     />
-                    <WarTimeLine
-                      label={isScheduledWar ? "Torn official start time" : "Torn official times"}
-                      value={
-                        isScheduledWar
-                          ? formatLongDateTime(selectedWar.official_start_time ?? selectedWar.practical_start_time)
-                          : formatWarDateRange(
-                              selectedWar.official_start_time ?? selectedWar.practical_start_time,
-                              selectedWar.official_end_time,
-                            )
-                      }
-                    />
+                    {!isEvent ? (
+                      <WarTimeLine
+                        label={isScheduledWar ? "Torn official start time" : "Torn official times"}
+                        value={
+                          isScheduledWar
+                            ? formatLongDateTime(selectedWar.official_start_time ?? selectedWar.practical_start_time)
+                            : formatWarDateRange(
+                                selectedWar.official_start_time ?? selectedWar.practical_start_time,
+                                selectedWar.official_end_time,
+                              )
+                        }
+                      />
+                    ) : null}
                   </div>
                 </div>
                 {selectedWar.war_type === "termed" ? (
@@ -269,8 +272,8 @@ export function WarDetailView({
                     icon={<Swords size={18} />}
                   />
                   <MetricCard
-                    label="Victory / loss"
-                    value={warOutcome(selectedWar, derivedRespectGained, derivedRespectLost)}
+                    label={isEvent ? "Event status" : "Victory / loss"}
+                    value={isEvent ? displayWarStatus(selectedWar) : warOutcome(selectedWar, derivedRespectGained, derivedRespectLost)}
                     icon={<CalendarClock size={18} />}
                     fitValue
                   />
@@ -281,6 +284,7 @@ export function WarDetailView({
                 <UpcomingWarEmptyPanel
                   war={selectedWar}
                   onOpenWarRoom={onOpenWarRoom}
+                  isEvent={isEvent}
                 />
               ) : null}
 
@@ -299,7 +303,7 @@ export function WarDetailView({
                   </section>
 
                   <section className="panel">
-                    <PanelHeader title="War totals" />
+                    <PanelHeader title={isEvent ? "Event totals" : "War totals"} />
                     <div className="metric-list">
                       <InlineMetric label="Respect gained" value={officialRespectGained} />
                       <InlineMetric label="Successful attacks" value={derivedSuccessfulAttacks} />
@@ -422,34 +426,44 @@ export function WarDetailView({
                   onToggle={() => onTogglePanel("factionActivity")}
                   className="activity-panel"
                 >
-                  <ActivityWindowToggle
-                    value={factionActivityWindow}
-                    onChange={onMemberActivityWindowChange}
-                    label="Buttgrass activity time range"
-                  />
+                  {!isEvent ? (
+                    <ActivityWindowToggle
+                      value={factionActivityWindow}
+                      onChange={onMemberActivityWindowChange}
+                      label="Buttgrass activity time range"
+                    />
+                  ) : null}
                   <p className="panel-description">
-                    Shows Buttgrass attack activity across the selected time range, grouped into successful
-                    attacks, assists, and outside hits.
+                    {isEvent
+                      ? "Shows Buttgrass event attack activity across the selected time range, grouped into successful attacks and assists."
+                      : "Shows Buttgrass attack activity across the selected time range, grouped into successful attacks, assists, and outside hits."}
                   </p>
-                  <ActivityChart buckets={activityBuckets} keys={["enemy_success", "enemy_assist", "outside"]} />
+                  <ActivityChart
+                    buckets={activityBuckets}
+                    keys={isEvent ? ["enemy_success", "enemy_assist"] : ["enemy_success", "enemy_assist", "outside"]}
+                  />
                 </CollapsiblePanel>
               ) : null}
 
               {showEnemyActivity ? (
                 <CollapsiblePanel
-                  title={`${selectedWar.name} attacks over time`}
+                  title={isEvent ? "Defends over time" : `${selectedWar.name} attacks over time`}
                   aside={isLoadingActivity && collapsedPanels.enemyActivity === false ? "Loading" : undefined}
                   collapsed={collapsedPanels.enemyActivity ?? true}
                   onToggle={() => onTogglePanel("enemyActivity")}
                   className="activity-panel"
                 >
-                  <ActivityWindowToggle
-                    value={factionActivityWindow}
-                    onChange={onMemberActivityWindowChange}
-                    label={`${selectedWar.name} activity time range`}
-                  />
+                  {!isEvent ? (
+                    <ActivityWindowToggle
+                      value={factionActivityWindow}
+                      onChange={onMemberActivityWindowChange}
+                      label={`${selectedWar.name} activity time range`}
+                    />
+                  ) : null}
                   <p className="panel-description">
-                    Shows enemy attacks against Buttgrass over time, split by lost, won, and other defend outcomes.
+                    {isEvent
+                      ? "Shows attacks against Buttgrass during this event, split by lost, won, and other defend outcomes."
+                      : "Shows enemy attacks against Buttgrass over time, split by lost, won, and other defend outcomes."}
                   </p>
                   <ActivityChart buckets={activityBuckets} keys={["defend_lost", "defend_won", "defend_other"]} />
                 </CollapsiblePanel>
@@ -464,7 +478,9 @@ export function WarDetailView({
                   className="member-combat-panel"
                 >
                   <p className="panel-description">
-                    Shows member attacks, outside hits, defends lost, and respect by 15-minute war bucket.
+                    {isEvent
+                      ? "Shows member event attacks, defends lost, and respect by 15-minute bucket."
+                      : "Shows member attacks, outside hits, defends lost, and respect by 15-minute war bucket."}
                     Drag cells, rows, or time columns to total a selection.
                   </p>
                   <MemberCombatHeatmap
@@ -493,13 +509,16 @@ export function WarDetailView({
                   }
                 >
                   <p className="panel-description">
-                    Summarises each faction member's war performance. Click a member name to see their attacks.
+                    {isEvent
+                      ? "Summarises each faction member's event performance. Click a member name to see their attacks."
+                      : "Summarises each faction member's war performance. Click a member name to see their attacks."}
                   </p>
                   <MemberTable
                     members={members}
                     sort={memberSort}
                     onSortChange={onMemberSortChange}
                     showTermedColumns={selectedWar.war_type === "termed"}
+                    showOutsideColumns={!isEvent}
                     showRowNumbers
                     selectedMemberId={selectedMember?.member_id ?? null}
                     onMemberSelect={onMemberSelect}
@@ -552,10 +571,28 @@ function exportMembersCsv(members: MemberStats[], war: WarSummary | null) {
   }
 
   const termed = war.war_type === "termed";
+  const event = war.war_type === "event";
   const columns: Array<{
     label: string;
     value: (member: MemberStats) => string | number | null | undefined;
-  }> = termed
+  }> = event
+    ? [
+        { label: "player_name", value: (member) => displayMember(member) },
+        { label: "player_id", value: (member) => member.member_id },
+        { label: "Attacks", value: (member) => member.attacks_vs_enemy_successful },
+        { label: "Defends", value: (member) => member.defends_total },
+        { label: "Defends lost", value: (member) => memberDefendsLost(member) },
+        { label: "Non-hosp defends lost", value: (member) => memberNonHospitalizedDefendsLost(member) },
+        { label: "Respect gained", value: (member) => formatCsvDecimal(member.respect_gained) },
+        { label: "Respect lost", value: (member) => formatCsvDecimal(member.respect_lost) },
+        { label: "Non-hosp respect lost", value: (member) => formatCsvDecimal(memberNonHospitalizedRespectLost(member)) },
+        { label: "Respect lost raw", value: (member) => formatCsvDecimal(member.respect_lost_raw) },
+        { label: "Assists", value: (member) => member.assists_vs_enemy },
+        { label: "Average fair fight", value: (member) => formatCsvDecimal(member.average_fair_fight) },
+        { label: "Friendly hosps", value: (member) => member.friendly_hosps },
+        { label: "Retaliations", value: (member) => member.retaliations_vs_enemy },
+      ]
+    : termed
     ? [
         { label: "player_name", value: (member) => displayMember(member) },
         { label: "player_id", value: (member) => member.member_id },
@@ -720,9 +757,11 @@ function TermProgress({
 function UpcomingWarEmptyPanel({
   war,
   onOpenWarRoom,
+  isEvent,
 }: {
   war: WarSummary;
   onOpenWarRoom: () => void;
+  isEvent?: boolean;
 }) {
   const nowMs = useCurrentTimeMs();
   const startTime = war.official_start_time ?? war.practical_start_time;
@@ -730,15 +769,18 @@ function UpcomingWarEmptyPanel({
 
   return (
     <section className="panel upcoming-war-panel">
-      <PanelHeader title="War starts in" aside={formatCountdownDuration(remainingSeconds)} />
+      <PanelHeader title={isEvent ? "Event starts in" : "War starts in"} aside={formatCountdownDuration(remainingSeconds)} />
       <p className="panel-description">
-        Performance panels will appear once attacks or official report data exists. Use the War room for scouting,
-        stat comparison, and activity heatmaps before the war starts.
+        {isEvent
+          ? "Performance panels will appear once event attacks or defends are linked."
+          : "Performance panels will appear once attacks or official report data exists. Use the War room for scouting, stat comparison, and activity heatmaps before the war starts."}
       </p>
-      <button type="button" className="icon-text-button" onClick={onOpenWarRoom}>
-        <Radar size={15} />
-        Open War room
-      </button>
+      {!isEvent ? (
+        <button type="button" className="icon-text-button" onClick={onOpenWarRoom}>
+          <Radar size={15} />
+          Open War room
+        </button>
+      ) : null}
     </section>
   );
 }

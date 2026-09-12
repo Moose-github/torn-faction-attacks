@@ -11,7 +11,7 @@ import {
   previewHistoricalWarWindow,
   pullAttackWindow,
 } from "./ingestion";
-import { clearWarStats, finalizeWar } from "./warStats";
+import { clearWarStats, finalizeWar, rebuildWarStatsFromRaw } from "./warStats";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "./reports";
 import {
   WAR_RETURNING_COLUMNS,
@@ -22,7 +22,10 @@ import { readSyncState } from "./syncState";
 import {
   clearCurrentWarState,
   endWarPractically,
+  finishEventTracking,
   setWarPracticalWindow,
+  setUpcomingWarState,
+  startWarTracking,
 } from "./warLifecycle";
 export { exportWarAttacksCsv } from "./warExports";
 export {
@@ -37,6 +40,317 @@ export {
   listWars,
 } from "./warQueries";
 export { relinkWarAttacks } from "./warRelink";
+
+type EventStatus = "scheduled" | "active" | "ended";
+
+type EventMutationPayload = {
+  name?: unknown;
+  status?: unknown;
+  practical_start_time?: unknown;
+  start_time?: unknown;
+  practical_finish_time?: unknown;
+  finish_time?: unknown;
+  fetch_missing?: unknown;
+};
+
+type TrackerOverlapRow = {
+  id: number;
+  name: string;
+  status: string;
+  war_type: string | null;
+  practical_start_time: number;
+  practical_finish_time: number | null;
+  official_end_time: number | null;
+};
+
+const OPEN_ENDED_TIMESTAMP = 9_223_372_036_854_775_807;
+
+export async function createManualEvent(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as EventMutationPayload & { war_type?: unknown };
+    const warType = parseWarType(body.war_type, "event");
+    if (warType !== "event") {
+      return json(
+        {
+          ok: false,
+          error: "Manual war creation is disabled. Use this endpoint only for event trackers.",
+          code: "MANUAL_WAR_CREATION_DISABLED",
+        },
+        410,
+      );
+    }
+
+    const eventInput = parseEventInput(body, { requireName: true, requireFinishTime: false });
+    const now = nowSeconds();
+    const statusResult = resolveEventStatus(body.status, eventInput.startTime, eventInput.finishTime, now);
+    if (statusResult instanceof Response) {
+      return statusResult;
+    }
+
+    const overlap = await readTrackerOverlap(env, eventInput.startTime, eventInput.finishTime, null);
+    if (overlap) {
+      return trackerOverlapResponse(overlap);
+    }
+
+    const inserted = (await env.DB.prepare(
+      `
+      INSERT INTO wars (
+        name,
+        status,
+        practical_start_time,
+        practical_finish_time,
+        official_start_time,
+        official_end_time,
+        enemy_faction_id,
+        war_type,
+        torn_war_id,
+        auto_end_enabled,
+        faction_respect_limit,
+        member_respect_limit
+      )
+      VALUES (?, ?, ?, ?, NULL, NULL, NULL, 'event', NULL, 0, NULL, NULL)
+      RETURNING
+        ${WAR_RETURNING_COLUMNS}
+      `,
+    )
+      .bind(
+        eventInput.name,
+        statusResult === "active" ? "scheduled" : statusResult,
+        eventInput.startTime,
+        eventInput.finishTime,
+      )
+      .first()) as WarRow | null;
+
+    if (!inserted) {
+      throw new Error("Failed to create event");
+    }
+
+    const importResult = await applyEventStatusSideEffects(env, {
+      warId: inserted.id,
+      name: inserted.name,
+      status: statusResult,
+      startTime: eventInput.startTime,
+      finishTime: eventInput.finishTime,
+      fetchMissing: parseOptionalBoolean(body.fetch_missing, "fetch_missing"),
+    });
+    const war = await readWarById(env, inserted.id);
+
+    return json(
+      {
+        ok: true,
+        war_id: inserted.id,
+        name: inserted.name,
+        war,
+        status: war?.status ?? statusResult,
+        practical_start_time: eventInput.startTime,
+        practical_finish_time: eventInput.finishTime,
+        ...importResult,
+      },
+      201,
+    );
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
+}
+
+export async function importHistoricalEvent(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as EventMutationPayload;
+    const eventInput = parseEventInput(body, { requireName: true, requireFinishTime: true });
+    const now = nowSeconds();
+
+    if (eventInput.finishTime === null || eventInput.finishTime > now) {
+      return json(
+        {
+          ok: false,
+          error: "practical_finish_time must be in the past for historical event import",
+          code: "FINISH_TIME_NOT_HISTORICAL",
+        },
+        400,
+      );
+    }
+
+    const overlap = await readTrackerOverlap(env, eventInput.startTime, eventInput.finishTime, null);
+    if (overlap) {
+      return trackerOverlapResponse(overlap);
+    }
+
+    const war = (await env.DB.prepare(
+      `
+      INSERT INTO wars (
+        name,
+        status,
+        practical_start_time,
+        practical_finish_time,
+        official_start_time,
+        official_end_time,
+        enemy_faction_id,
+        war_type,
+        torn_war_id,
+        auto_end_enabled,
+        faction_respect_limit,
+        member_respect_limit
+      )
+      VALUES (?, 'ended', ?, ?, NULL, NULL, NULL, 'event', NULL, 0, NULL, NULL)
+      RETURNING
+        ${WAR_RETURNING_COLUMNS}
+      `,
+    )
+      .bind(eventInput.name, eventInput.startTime, eventInput.finishTime)
+      .first()) as WarRow | null;
+
+    if (!war) {
+      throw new Error("Failed to create event");
+    }
+
+    const importResult = await importEventAttackWindow(env, {
+      warId: war.id,
+      startTime: eventInput.startTime,
+      finishTime: eventInput.finishTime,
+      fetchMissing: parseOptionalBoolean(body.fetch_missing, "fetch_missing"),
+    });
+
+    await finalizeWar(env, war.id);
+    await bumpWarCacheVersion(env, war.name);
+
+    return json(
+      {
+        ok: true,
+        war_id: war.id,
+        name: war.name,
+        war: await readWarById(env, war.id),
+        practical_start_time: eventInput.startTime,
+        practical_finish_time: eventInput.finishTime,
+        ...importResult,
+      },
+      201,
+    );
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
+}
+
+export async function previewHistoricalEventImport(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as EventMutationPayload;
+    const eventInput = parseEventInput(body, { requireName: false, requireFinishTime: true });
+    const fetchMissing = parseOptionalBoolean(body.fetch_missing, "fetch_missing");
+    const overlap = await readTrackerOverlap(env, eventInput.startTime, eventInput.finishTime, null);
+    if (overlap) {
+      return trackerOverlapResponse(overlap);
+    }
+
+    const preview = fetchMissing
+      ? await previewHistoricalWarWindow(env, eventInput.startTime, eventInput.finishTime!)
+      : await previewStoredEventAttackWindow(env, eventInput.startTime, eventInput.finishTime!);
+
+    return json({
+      ok: true,
+      fetch_missing: fetchMissing,
+      practical_start_time: eventInput.startTime,
+      practical_finish_time: eventInput.finishTime,
+      duration_seconds: eventInput.finishTime! - eventInput.startTime,
+      ...preview,
+    });
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
+}
+
+export async function updateEvent(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as EventMutationPayload & { id?: unknown };
+    const warId = Number(body.id);
+    if (!Number.isInteger(warId) || warId <= 0) {
+      return json({ ok: false, error: "Invalid event id", code: "INVALID_WAR_ID" }, 400);
+    }
+
+    const existing = await readWarById(env, warId);
+    if (!existing) {
+      return json({ ok: false, error: "Event not found", code: "WAR_NOT_FOUND" }, 404);
+    }
+
+    if ((existing.war_type ?? "real") !== "event") {
+      return json(
+        { ok: false, error: "Use the war editor for real or termed wars", code: "WRONG_EDITOR" },
+        400,
+      );
+    }
+
+    const hasFinish = hasEventFinishField(body);
+    const eventInput = parseEventInput({
+      ...body,
+      name: body.name ?? existing.name,
+      practical_start_time: body.practical_start_time ?? body.start_time ?? existing.practical_start_time,
+      practical_finish_time: hasFinish
+        ? body.practical_finish_time ?? body.finish_time
+        : existing.practical_finish_time,
+    }, { requireName: true, requireFinishTime: false });
+    const now = nowSeconds();
+    const statusResult = resolveEventStatus(
+      body.status,
+      eventInput.startTime,
+      eventInput.finishTime,
+      now,
+    );
+    if (statusResult instanceof Response) {
+      return statusResult;
+    }
+
+    const overlap = await readTrackerOverlap(env, eventInput.startTime, eventInput.finishTime, warId);
+    if (overlap) {
+      return trackerOverlapResponse(overlap);
+    }
+
+    await env.DB.prepare(
+      `
+      UPDATE wars
+      SET name = ?,
+          status = ?,
+          practical_start_time = ?,
+          practical_finish_time = ?,
+          official_start_time = NULL,
+          official_end_time = NULL,
+          enemy_faction_id = NULL,
+          war_type = 'event',
+          torn_war_id = NULL,
+          auto_end_enabled = 0,
+          faction_respect_limit = NULL,
+          member_respect_limit = NULL,
+          finalized_at = CASE WHEN ? = 'ended' THEN finalized_at ELSE NULL END
+      WHERE id = ?
+      `,
+    )
+      .bind(
+        eventInput.name,
+        statusResult === "active" ? "scheduled" : statusResult,
+        eventInput.startTime,
+        eventInput.finishTime,
+        statusResult,
+        warId,
+      )
+      .run();
+
+    await unassignEventAttacksOutsideWindow(env, warId, eventInput.startTime, eventInput.finishTime);
+    const importResult = await applyEventStatusSideEffects(env, {
+      warId,
+      name: eventInput.name,
+      status: statusResult,
+      startTime: eventInput.startTime,
+      finishTime: eventInput.finishTime,
+      fetchMissing: parseOptionalBoolean(body.fetch_missing, "fetch_missing"),
+    });
+    const updatedWar = await readWarById(env, warId);
+
+    return json({
+      ok: true,
+      war: updatedWar,
+      ...importResult,
+    });
+  } catch (err: any) {
+    return handleMutationError(err);
+  }
+}
 
 export async function importHistoricalWar(request: Request, env: Env): Promise<Response> {
   try {
@@ -728,14 +1042,18 @@ export async function endActiveWar(request: Request, env: Env): Promise<Response
 
   const activeWar = (await env.DB.prepare(
     `
-    SELECT practical_start_time, enemy_faction_id
+    SELECT practical_start_time, enemy_faction_id, war_type
     FROM wars
     WHERE id = ?
     LIMIT 1
     `,
   )
     .bind(activeWarId)
-    .first()) as { practical_start_time: number; enemy_faction_id: number | null } | null;
+    .first()) as {
+    practical_start_time: number;
+    enemy_faction_id: number | null;
+    war_type: string | null;
+  } | null;
 
   if (!activeWar) {
     return json({ ok: false, error: "Current war not found", code: "WAR_NOT_FOUND" }, 404);
@@ -773,14 +1091,434 @@ export async function endActiveWar(request: Request, env: Env): Promise<Response
     );
   }
 
-  await endWarPractically(env, {
-    warId: activeWarId,
-    finishAt: endedAt,
-    enemyFactionId: activeWar.enemy_faction_id,
-  });
+  if ((activeWar.war_type ?? "real") === "event") {
+    await finishEventTracking(env, {
+      warId: activeWarId,
+      finishAt: endedAt,
+    });
+  } else {
+    await endWarPractically(env, {
+      warId: activeWarId,
+      finishAt: endedAt,
+      enemyFactionId: activeWar.enemy_faction_id,
+    });
+  }
 
   return json({ ok: true, war_id: activeWarId, practical_finish_time: endedAt });
 }
+
+async function readWarById(env: Env, warId: number): Promise<WarRow | null> {
+  return (await env.DB.prepare(
+    `
+    SELECT
+      ${WAR_RETURNING_COLUMNS}
+    FROM wars
+    WHERE id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first()) as WarRow | null;
+}
+
+function parseEventInput(
+  body: EventMutationPayload,
+  options: { requireName: boolean; requireFinishTime: boolean },
+): { name: string; startTime: number; finishTime: number | null } {
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (options.requireName && !name) {
+    throw new ValidationError("Event name is required", "MISSING_EVENT_NAME");
+  }
+
+  if (name && !/^[a-zA-Z0-9 _-]{1,50}$/.test(name)) {
+    throw new ValidationError("Invalid event name", "INVALID_NAME");
+  }
+
+  const startTime = Number(body.practical_start_time ?? body.start_time);
+  const finishTime = parseOptionalInteger(
+    body.practical_finish_time ?? body.finish_time,
+    "practical_finish_time",
+  );
+
+  if (!Number.isInteger(startTime) || startTime < 0) {
+    throw new ValidationError("Invalid practical_start_time", "INVALID_START_TIME");
+  }
+
+  if (options.requireFinishTime && finishTime === null) {
+    throw new ValidationError("practical_finish_time is required", "MISSING_FINISH_TIME");
+  }
+
+  if (finishTime !== null && finishTime < startTime) {
+    throw new ValidationError(
+      "practical_finish_time must be greater than or equal to practical_start_time",
+      "INVALID_TIME_RANGE",
+    );
+  }
+
+  return { name, startTime, finishTime };
+}
+
+function hasEventFinishField(body: EventMutationPayload): boolean {
+  return Object.prototype.hasOwnProperty.call(body, "practical_finish_time") ||
+    Object.prototype.hasOwnProperty.call(body, "finish_time");
+}
+
+function resolveEventStatus(
+  value: unknown,
+  startTime: number,
+  finishTime: number | null,
+  now: number,
+): EventStatus | Response {
+  const rawStatus =
+    value === undefined || value === null || value === ""
+      ? null
+      : String(value).trim().toLowerCase();
+  const status = rawStatus === null
+    ? finishTime !== null && finishTime <= now
+      ? "ended"
+      : startTime > now
+        ? "scheduled"
+        : "active"
+    : rawStatus;
+
+  if (status !== "scheduled" && status !== "active" && status !== "ended") {
+    return json({ ok: false, error: "Invalid event status", code: "INVALID_STATUS" }, 400);
+  }
+
+  if (status === "scheduled" && startTime <= now) {
+    return json(
+      {
+        ok: false,
+        error: "Scheduled events must start in the future",
+        code: "SCHEDULED_START_NOT_FUTURE",
+      },
+      400,
+    );
+  }
+
+  if (status === "active" && startTime > now) {
+    return json(
+      {
+        ok: false,
+        error: "Active events cannot start in the future",
+        code: "ACTIVE_START_IN_FUTURE",
+      },
+      400,
+    );
+  }
+
+  if (status === "active" && finishTime !== null && finishTime <= now) {
+    return json(
+      {
+        ok: false,
+        error: "Active events cannot have a finish time in the past",
+        code: "ACTIVE_FINISH_IN_PAST",
+      },
+      400,
+    );
+  }
+
+  if (status === "ended" && (finishTime === null || finishTime > now)) {
+    return json(
+      {
+        ok: false,
+        error: "Ended events require a finish time in the past",
+        code: "ENDED_FINISH_NOT_PAST",
+      },
+      400,
+    );
+  }
+
+  return status;
+}
+
+async function applyEventStatusSideEffects(
+  env: Env,
+  options: {
+    warId: number;
+    name: string;
+    status: EventStatus;
+    startTime: number;
+    finishTime: number | null;
+    fetchMissing: boolean;
+  },
+): Promise<{
+  fetch_missing?: boolean;
+  imported_attack_count?: number;
+  linked_attack_count?: number;
+}> {
+  if (options.status === "scheduled") {
+    await refreshUpcomingTrackerState(env);
+    await bumpWarCacheVersion(env, options.name);
+    return {};
+  }
+
+  if (options.status === "active") {
+    await startWarTracking(env, {
+      warId: options.warId,
+      startedAt: options.startTime,
+    });
+    const linkedAttackCount = await linkStoredEventAttacks(
+      env,
+      options.warId,
+      options.startTime,
+      options.finishTime,
+    );
+    if (linkedAttackCount > 0) {
+      await rebuildWarStatsFromRaw(env, {
+        scope: "single-war",
+        warId: options.warId,
+        reason: "relink",
+      });
+    }
+    await bumpWarCacheVersion(env, options.name);
+    return { linked_attack_count: linkedAttackCount };
+  }
+
+  const importResult = await importEventAttackWindow(env, {
+    warId: options.warId,
+    startTime: options.startTime,
+    finishTime: options.finishTime!,
+    fetchMissing: options.fetchMissing,
+  });
+  await finishEventTracking(env, {
+    warId: options.warId,
+    finishAt: options.finishTime!,
+  });
+  await bumpWarCacheVersion(env, options.name);
+  return importResult;
+}
+
+async function importEventAttackWindow(
+  env: Env,
+  options: {
+    warId: number;
+    startTime: number;
+    finishTime: number;
+    fetchMissing: boolean;
+  },
+): Promise<{
+  fetch_missing: boolean;
+  imported_attack_count: number;
+  linked_attack_count: number;
+}> {
+  const importedAttackCount = options.fetchMissing
+    ? await ingestHistoricalWarWindow(env, options.warId, options.startTime, options.finishTime)
+    : 0;
+  const linkedAttackCount = await linkStoredEventAttacks(
+    env,
+    options.warId,
+    options.startTime,
+    options.finishTime,
+  );
+
+  return {
+    fetch_missing: options.fetchMissing,
+    imported_attack_count: importedAttackCount,
+    linked_attack_count: linkedAttackCount,
+  };
+}
+
+async function previewStoredEventAttackWindow(
+  env: Env,
+  startTime: number,
+  finishTime: number,
+): Promise<{
+  matching_attack_count: number;
+  first_attack_started: number | null;
+  last_attack_started: number | null;
+  sampled_attacks: Array<{
+    id: number;
+    started: number | null;
+    attacker_name: string | null;
+    attacker_faction_id: number | null;
+    defender_name: string | null;
+    defender_faction_id: number | null;
+    result: string | null;
+    respect_gain: number;
+  }>;
+}> {
+  const row = (await env.DB.prepare(
+    `
+    SELECT
+      COUNT(*) AS matching_attack_count,
+      MIN(started) AS first_attack_started,
+      MAX(started) AS last_attack_started
+    FROM attacks
+    WHERE ${EVENT_ATTACK_WINDOW_SQL}
+    `,
+  )
+    .bind(startTime, finishTime)
+    .first()) as {
+    matching_attack_count: number;
+    first_attack_started: number | null;
+    last_attack_started: number | null;
+  } | null;
+  const sampleRows = await env.DB.prepare(
+    `
+    SELECT
+      id,
+      started,
+      attacker_name,
+      attacker_faction_id,
+      defender_name,
+      defender_faction_id,
+      result,
+      respect_gain
+    FROM attacks
+    WHERE ${EVENT_ATTACK_WINDOW_SQL}
+    ORDER BY started ASC, id ASC
+    LIMIT 10
+    `,
+  )
+    .bind(startTime, finishTime)
+    .all();
+
+  return {
+    matching_attack_count: Number(row?.matching_attack_count ?? 0),
+    first_attack_started: row?.first_attack_started ?? null,
+    last_attack_started: row?.last_attack_started ?? null,
+    sampled_attacks: ((sampleRows.results ?? []) as any[]).map((attack) => ({
+      id: Number(attack.id),
+      started: attack.started === null ? null : Number(attack.started),
+      attacker_name: attack.attacker_name ?? null,
+      attacker_faction_id: attack.attacker_faction_id === null ? null : Number(attack.attacker_faction_id),
+      defender_name: attack.defender_name ?? null,
+      defender_faction_id: attack.defender_faction_id === null ? null : Number(attack.defender_faction_id),
+      result: attack.result ?? null,
+      respect_gain: Number(attack.respect_gain ?? 0),
+    })),
+  };
+}
+
+async function linkStoredEventAttacks(
+  env: Env,
+  warId: number,
+  startTime: number,
+  finishTime: number | null,
+): Promise<number> {
+  const result = await env.DB.prepare(
+    `
+    UPDATE attacks
+    SET war_id = ?
+    WHERE war_id IS NULL
+      AND ${EVENT_ATTACK_WINDOW_SQL}
+    `,
+  )
+    .bind(warId, startTime, finishTime ?? OPEN_ENDED_TIMESTAMP)
+    .run();
+
+  return Number(result.meta?.changes ?? 0);
+}
+
+async function unassignEventAttacksOutsideWindow(
+  env: Env,
+  warId: number,
+  startTime: number,
+  finishTime: number | null,
+): Promise<void> {
+  await env.DB.prepare(
+    `
+    UPDATE attacks
+    SET war_id = NULL
+    WHERE war_id = ?
+      AND (
+        started IS NULL
+        OR started < ?
+        OR COALESCE(ended, started) > ?
+        OR NOT (
+          attacker_faction_id = ${HOME_FACTION_ID}
+          OR defender_faction_id = ${HOME_FACTION_ID}
+        )
+      )
+    `,
+  )
+    .bind(warId, startTime, finishTime ?? OPEN_ENDED_TIMESTAMP)
+    .run();
+}
+
+async function readTrackerOverlap(
+  env: Env,
+  startTime: number,
+  finishTime: number | null,
+  excludeWarId: number | null,
+): Promise<TrackerOverlapRow | null> {
+  return (await env.DB.prepare(
+    `
+    SELECT
+      id,
+      name,
+      status,
+      war_type,
+      practical_start_time,
+      practical_finish_time,
+      official_end_time
+    FROM wars
+    WHERE (? IS NULL OR id != ?)
+      AND practical_start_time <= ?
+      AND COALESCE(practical_finish_time, official_end_time, ?) >= ?
+    ORDER BY practical_start_time ASC, id ASC
+    LIMIT 1
+    `,
+  )
+    .bind(
+      excludeWarId,
+      excludeWarId,
+      finishTime ?? OPEN_ENDED_TIMESTAMP,
+      OPEN_ENDED_TIMESTAMP,
+      startTime,
+    )
+    .first()) as TrackerOverlapRow | null;
+}
+
+function trackerOverlapResponse(overlap: TrackerOverlapRow): Response {
+  return json(
+    {
+      ok: false,
+      error: `Event overlaps ${trackerTypeLabel(overlap)} ${overlap.name}`,
+      code: "TRACKER_OVERLAP",
+      overlap,
+    },
+    400,
+  );
+}
+
+function trackerTypeLabel(war: { war_type: string | null }): string {
+  return (war.war_type ?? "real") === "event" ? "event" : "war";
+}
+
+async function refreshUpcomingTrackerState(env: Env): Promise<void> {
+  const currentState = await readSyncState(env, SOURCE_NAME);
+  if (currentState?.war_state === "current") {
+    return;
+  }
+
+  const scheduledWar = (await env.DB.prepare(
+    `
+    SELECT id
+    FROM wars
+    WHERE status = 'scheduled'
+    ORDER BY practical_start_time ASC, id ASC
+    LIMIT 1
+    `,
+  ).first()) as { id: number } | null;
+
+  if (scheduledWar) {
+    await setUpcomingWarState(env, scheduledWar.id);
+    return;
+  }
+
+  await clearCurrentWarState(env);
+}
+
+const EVENT_ATTACK_WINDOW_SQL = `
+  started >= ?
+  AND COALESCE(ended, started) <= ?
+  AND (
+    attacker_faction_id = ${HOME_FACTION_ID}
+    OR defender_faction_id = ${HOME_FACTION_ID}
+  )
+`;
 
 function handleMutationError(err: any): Response {
   if (err instanceof ValidationError) {
@@ -854,7 +1592,7 @@ async function uniqueWarName(
   return `${baseName.slice(0, 50 - fallbackSuffix.length)}${fallbackSuffix}`;
 }
 
-function parseOptionalBoolean(value: unknown): boolean {
+function parseOptionalBoolean(value: unknown, field = "auto_end_enabled"): boolean {
   if (value === undefined || value === null) {
     return false;
   }
@@ -871,7 +1609,7 @@ function parseOptionalBoolean(value: unknown): boolean {
     return false;
   }
 
-  throw new ValidationError("Invalid auto_end_enabled", "INVALID_AUTO_END_ENABLED");
+  throw new ValidationError(`Invalid ${field}`, `INVALID_${field.toUpperCase()}`);
 }
 
 function parseOptionalInteger(value: unknown, field: string): number | null {

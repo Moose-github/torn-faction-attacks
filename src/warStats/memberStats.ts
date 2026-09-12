@@ -14,6 +14,20 @@ const MEMBER_ACTIVITY_BUCKET_SECONDS = 15 * 60;
 const WAR_STATS_REBUILD_LEASE_SECONDS = 15 * 60;
 const WAR_STATS_REBUILD_LEASE_PREFIX = "war_stats_rebuild";
 const PRACTICAL_DEFENSE_ACTION_WINDOW_SQL = OUTGOING_ACTION_WINDOW_SQL;
+const RELEVANT_DEFEND_SQL = `
+  (
+    (
+      COALESCE(w.war_type, 'real') = 'event'
+      AND a.defender_faction_id = ${HOME_FACTION_ID}
+    )
+    OR (
+      COALESCE(w.war_type, 'real') != 'event'
+      AND w.enemy_faction_id IS NOT NULL
+      AND a.attacker_faction_id = w.enemy_faction_id
+      AND a.defender_faction_id = ${HOME_FACTION_ID}
+    )
+  )
+`;
 
 export type WarStatsRebuildScope = "single-war" | "open-wars" | "all-wars";
 
@@ -542,8 +556,7 @@ async function refreshWarDefendChainBonusAdjustmentsFromRaw(
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
-        AND w.enemy_faction_id IS NOT NULL
-        AND a.attacker_faction_id = w.enemy_faction_id
+        AND ${RELEVANT_DEFEND_SQL}
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
@@ -557,8 +570,7 @@ async function refreshWarDefendChainBonusAdjustmentsFromRaw(
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
-        AND w.enemy_faction_id IS NOT NULL
-        AND a.attacker_faction_id = w.enemy_faction_id
+        AND ${RELEVANT_DEFEND_SQL}
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
@@ -571,8 +583,7 @@ async function refreshWarDefendChainBonusAdjustmentsFromRaw(
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
-        AND w.enemy_faction_id IS NOT NULL
-        AND a.attacker_faction_id = w.enemy_faction_id
+        AND ${RELEVANT_DEFEND_SQL}
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
@@ -650,8 +661,7 @@ async function refreshWarDefendChainBonusAdjustmentsFromRaw(
     WHERE a.war_id = ?
       AND a.defender_faction_id = ${HOME_FACTION_ID}
       AND a.defender_id IS NOT NULL
-      AND w.enemy_faction_id IS NOT NULL
-      AND a.attacker_faction_id = w.enemy_faction_id
+      AND ${RELEVANT_DEFEND_SQL}
       AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
@@ -998,8 +1008,7 @@ async function upsertWarMemberCombatBuckets(
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
-        AND w.enemy_faction_id IS NOT NULL
-        AND a.attacker_faction_id = w.enemy_faction_id
+        AND ${RELEVANT_DEFEND_SQL}
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
@@ -1012,8 +1021,7 @@ async function upsertWarMemberCombatBuckets(
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
-        AND w.enemy_faction_id IS NOT NULL
-        AND a.attacker_faction_id = w.enemy_faction_id
+        AND ${RELEVANT_DEFEND_SQL}
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
@@ -1123,8 +1131,7 @@ async function upsertWarMemberCombatBuckets(
         AND a.started IS NOT NULL
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
-        AND w.enemy_faction_id IS NOT NULL
-        AND a.attacker_faction_id = w.enemy_faction_id
+        AND ${RELEVANT_DEFEND_SQL}
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
       GROUP BY a.war_id, a.defender_id, bucket_start
       HAVING defends_lost > 0
@@ -1334,8 +1341,7 @@ async function upsertIngestedWarMemberCombatBuckets(
         AND a.started IS NOT NULL
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
-        AND w.enemy_faction_id IS NOT NULL
-        AND a.attacker_faction_id = w.enemy_faction_id
+        AND ${RELEVANT_DEFEND_SQL}
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
       GROUP BY a.war_id, a.defender_id, bucket_start
       HAVING defends_lost > 0
@@ -1713,8 +1719,7 @@ async function upsertIngestedWarMemberDefendStats(
       AND a.ingest_run_id = ?
       AND a.defender_faction_id = ${HOME_FACTION_ID}
       AND a.defender_id IS NOT NULL
-      AND w.enemy_faction_id IS NOT NULL
-      AND a.attacker_faction_id = w.enemy_faction_id
+      AND ${RELEVANT_DEFEND_SQL}
       AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET
@@ -1740,8 +1745,7 @@ async function upsertWarMemberDefendStats(
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
-        AND w.enemy_faction_id IS NOT NULL
-        AND a.attacker_faction_id = w.enemy_faction_id
+        AND ${RELEVANT_DEFEND_SQL}
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
@@ -1754,8 +1758,7 @@ async function upsertWarMemberDefendStats(
       WHERE a.war_id = ?
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
-        AND w.enemy_faction_id IS NOT NULL
-        AND a.attacker_faction_id = w.enemy_faction_id
+        AND ${RELEVANT_DEFEND_SQL}
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
@@ -1859,8 +1862,7 @@ async function upsertWarMemberDefendStats(
     WHERE a.war_id = ?
       AND a.defender_faction_id = ?
       AND a.defender_id IS NOT NULL
-      AND w.enemy_faction_id IS NOT NULL
-      AND a.attacker_faction_id = w.enemy_faction_id
+      AND ${RELEVANT_DEFEND_SQL}
       AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
     GROUP BY a.war_id, a.defender_id
     ON CONFLICT(war_id, member_id) DO UPDATE SET

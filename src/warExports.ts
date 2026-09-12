@@ -60,13 +60,23 @@ export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response>
         (
           a.attacker_faction_id = ${HOME_FACTION_ID}
           OR (
-            ? IS NOT NULL
-            AND a.attacker_faction_id = ?
-            AND a.defender_faction_id = ${HOME_FACTION_ID}
+            (
+              (
+                ? = 'event'
+                AND a.defender_faction_id = ${HOME_FACTION_ID}
+              )
+              OR (
+                ? != 'event'
+                AND ? IS NOT NULL
+                AND a.attacker_faction_id = ?
+                AND a.defender_faction_id = ${HOME_FACTION_ID}
+              )
+            )
           )
         )
       `);
-      binds.push(war.enemy_faction_id, war.enemy_faction_id);
+      const warType = war.war_type ?? "real";
+      binds.push(warType, warType, war.enemy_faction_id, war.enemy_faction_id);
     }
 
     const rows = await env.DB.prepare(

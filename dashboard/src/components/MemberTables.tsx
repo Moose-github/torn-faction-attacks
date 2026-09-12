@@ -19,6 +19,7 @@ export function MemberTable({
   onSortChange,
   showTermedColumns,
   termedColumnVariant = "war",
+  showOutsideColumns = true,
   showRowNumbers,
   selectedMemberId,
   onMemberSelect,
@@ -28,6 +29,7 @@ export function MemberTable({
   onSortChange: (sort: MemberSort) => void;
   showTermedColumns?: boolean;
   termedColumnVariant?: "war" | "overview";
+  showOutsideColumns?: boolean;
   showRowNumbers?: boolean;
   selectedMemberId?: number | null;
   onMemberSelect?: (member: MemberStats) => void;
@@ -49,7 +51,7 @@ export function MemberTable({
         sort={sort}
         onSortChange={onSortChange}
       />
-      {showTermedColumns ? null : (
+      {showTermedColumns || !showOutsideColumns ? null : (
         <SortableHeader label={<>Outside<br />hits</>} sortKey="outside_hits" sort={sort} onSortChange={onSortChange} />
       )}
       <SortableHeader
@@ -135,7 +137,7 @@ export function MemberTable({
           </td>
           <td>{formatNumber(memberDefendsLost(member))}</td>
           <td>{formatNumber(memberNonHospitalizedDefendsLost(member))}</td>
-          {showTermedColumns ? null : <td>{formatNumber(member.outside_hits)}</td>}
+          {showTermedColumns || !showOutsideColumns ? null : <td>{formatNumber(member.outside_hits)}</td>}
           <td>
             <RespectAdjustmentCell
               adjusted={member.respect_gained}

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyTornOfficialWarEnd, endWarPractically, startWarTracking } from "./warLifecycle";
+import { applyTornOfficialWarEnd, endWarPractically, finishEventTracking, startWarTracking } from "./warLifecycle";
 import {
   runWarLiveStartedHooks,
   runWarPreLiveStartedHooks,
+  runWarStartedHooks,
 } from "./warLifecycleHooks";
 import type { Env } from "./types";
 
@@ -25,6 +26,7 @@ vi.mock("./enemyScouting", () => ({
 }));
 
 vi.mock("./warStats", () => ({
+  finalizeWar: vi.fn(),
   rebuildWarStatsFromRaw: vi.fn(),
 }));
 
@@ -32,8 +34,9 @@ import {
   enableDiscordTravelTrackersForWar,
   stopDiscordTravelTrackersForWar,
 } from "./discordTravelTracker";
+import { ensureChainWatchEnabledForWar } from "./chainWatch";
 import { fetchEnemyScoutingOnceForWar } from "./enemyScouting";
-import { rebuildWarStatsFromRaw } from "./warStats";
+import { finalizeWar, rebuildWarStatsFromRaw } from "./warStats";
 
 describe("war lifecycle global state", () => {
   beforeEach(() => {
@@ -135,6 +138,45 @@ describe("war lifecycle global state", () => {
     }));
   });
 
+  it("skips enemy pre-live hooks for events", async () => {
+    const db = fakeDb([
+      {
+        match: "SELECT war_type",
+        result: { war_type: "event" },
+      },
+    ]);
+    const env = envWithDb(db);
+
+    await runWarPreLiveStartedHooks(env, 7);
+
+    expect(enableDiscordTravelTrackersForWar).not.toHaveBeenCalled();
+    expect(fetchEnemyScoutingOnceForWar).not.toHaveBeenCalled();
+    expect(db.calls.some((call) => call.params[0] === "war_lifecycle:pre_live_started:7"))
+      .toBe(true);
+  });
+
+  it("starts events without enabling chain watch", async () => {
+    const db = fakeDb([
+      {
+        match: "SELECT war_type",
+        result: { war_type: "event" },
+      },
+    ]);
+    const env = envWithDb(db);
+
+    await runWarStartedHooks(env, {
+      warId: 7,
+      startedAt: 100,
+    });
+
+    expect(ensureChainWatchEnabledForWar).not.toHaveBeenCalled();
+    expect(rebuildWarStatsFromRaw).toHaveBeenCalledWith(env, {
+      scope: "single-war",
+      warId: 7,
+      reason: "lifecycle",
+    });
+  });
+
   it("manual practical finish keeps the war active and marks the global state practically finished", async () => {
     const db = fakeDb([
       {
@@ -219,6 +261,32 @@ describe("war lifecycle global state", () => {
     }));
     expect(db.calls.some((call) => call.params[0] === "war_lifecycle:war_scheduled:12"))
       .toBe(true);
+  });
+
+  it("event finish marks the event ended, finalizes stats, and clears global state", async () => {
+    const db = fakeDb([
+      {
+        match: "SELECT practical_finish_time",
+        result: { practical_finish_time: 300 },
+      },
+      {
+        match: "WHERE status = 'scheduled'",
+        result: null,
+      },
+    ]);
+    const env = envWithDb(db);
+
+    await finishEventTracking(env, {
+      warId: 7,
+      finishAt: 300,
+    });
+
+    expect(db.calls.find((call) => call.sql.includes("UPDATE wars"))?.sql)
+      .toContain("status = 'ended'");
+    expect(finalizeWar).toHaveBeenCalledWith(env, 7);
+    expect(db.calls.some((call) =>
+      call.sql.includes("active_war_id = NULL") && call.sql.includes("war_state = 'none'")
+    )).toBe(true);
   });
 });
 

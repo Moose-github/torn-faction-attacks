@@ -6,6 +6,7 @@ import { readSyncState, setSyncGlobalWarState } from "../syncState";
 import type { GlobalWarState } from "../syncState";
 import { Env, WarRow } from "../types";
 import { d1Changes, nowSeconds } from "../utils";
+import { finalizeWar } from "../warStats";
 import {
   refreshWarDerivedStats,
   runWarOfficiallyEndedHooks,
@@ -128,6 +129,40 @@ export async function recordTermedWarPracticalFinish(
   },
 ): Promise<void> {
   await recordWarPracticalFinish(env, options);
+}
+
+export async function finishEventTracking(
+  env: Env,
+  options: {
+    warId: number;
+    finishAt: number;
+    preserveExistingFinish?: boolean;
+  },
+): Promise<void> {
+  const finishAssignment = options.preserveExistingFinish
+    ? "practical_finish_time = COALESCE(practical_finish_time, ?)"
+    : "practical_finish_time = ?";
+
+  await env.DB.prepare(
+    `
+    UPDATE wars
+    SET status = 'ended',
+        ${finishAssignment}
+    WHERE id = ?
+      AND COALESCE(war_type, 'real') = 'event'
+    `,
+  )
+    .bind(options.finishAt, options.warId)
+    .run();
+
+  const practicalFinishTime = await readWarPracticalFinishTime(env, options.warId);
+  if (practicalFinishTime !== null) {
+    await unassignWarAttacksAfterPracticalFinish(env, options.warId, practicalFinishTime);
+  }
+
+  await finalizeWar(env, options.warId);
+  await setNextGlobalWarStateAfterOfficialEnd(env);
+  await bumpWarCacheVersionById(env, options.warId);
 }
 
 export async function setWarPracticalWindow(

@@ -6,12 +6,14 @@ import {
   authenticateTornKey,
   cancelMemberLifestyleRepairJob,
   clearStoredAuthSession,
+  createEvent,
   createMemberLifestyleRepairJob,
   deleteWar,
   AdminDiscordAlertSettingsResponse,
   DiscordAlertRouteSummary,
   DiscordTravelTrackerTargetResponse,
   EnemyStatsImagePreviewType,
+  endActiveWar,
   exportWarAttacksCsv,
   fetchTornWarReport,
   getDiscordTravelTrackerTarget,
@@ -26,9 +28,11 @@ import {
   getStoredAuthSession,
   grantAdminAccess,
   IngestionRun,
+  importEvent,
   importWar,
   listAdminUsers,
   previewEnemyStatsImage,
+  previewImportEvent,
   previewImportWar,
   previewRelinkAttacks,
   previewXanaxCompetitionImage,
@@ -51,6 +55,7 @@ import {
   updateAdminXanaxCompetitionSettings,
   updateHomeFactionReportExemption,
   updateOfficialWar,
+  updateEvent,
   TornApiUsageResponse,
   AdminXanaxCompetitionResponse,
   AdminTornKeyPoolResponse,
@@ -91,6 +96,18 @@ export function AdminControls() {
     finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
     finishEpoch: String(Math.floor(Date.now() / 1000)),
   }));
+  const [createEventForm, setCreateEventForm] = React.useState<AdminWarFormState>(() =>
+    defaultEventForm(),
+  );
+  const [eventImportForm, setEventImportForm] = React.useState<AdminWarFormState>(() => ({
+    ...defaultEventForm(),
+    startTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000) - 3600),
+    startEpoch: String(Math.floor(Date.now() / 1000) - 3600),
+    finishTime: dateTimeLocalFromSeconds(Math.floor(Date.now() / 1000)),
+    finishEpoch: String(Math.floor(Date.now() / 1000)),
+    status: "ended",
+  }));
+  const [eventImportFetchMissing, setEventImportFetchMissing] = React.useState(false);
   const [deleteForm, setDeleteForm] = React.useState({ tornWarId: "", name: "" });
   const [relinkForm, setRelinkForm] = React.useState({
     tornWarId: "",
@@ -105,6 +122,10 @@ export function AdminControls() {
     defaultWarForm(),
   );
   const [selectedHistoricalWarId, setSelectedHistoricalWarId] = React.useState("");
+  const [eventEditForm, setEventEditForm] = React.useState<AdminWarFormState>(() =>
+    defaultEventForm(),
+  );
+  const [selectedEventId, setSelectedEventId] = React.useState("");
   const [exportForm, setExportForm] = React.useState<AdminExportFormState>({
     warName: "",
     scope: "war_relevant" as "all" | "outgoing" | "war_relevant",
@@ -281,6 +302,17 @@ export function AdminControls() {
         : current,
     );
 
+    const loadedEvents = loadedWars.filter(isEventWar);
+    const firstEvent = loadedEvents[0] ?? null;
+    const selectedEvent =
+      loadedEvents.find((war) => war.id === Number(selectedEventId)) ?? firstEvent;
+    setSelectedEventId(selectedEvent ? String(selectedEvent.id) : "");
+    setEventEditForm((current) =>
+      selectedEvent
+        ? convertWarFormTimeMode(warToForm(selectedEvent), adminTimeMode)
+        : current,
+    );
+
   }
 
   async function login(event: React.FormEvent<HTMLFormElement>) {
@@ -309,6 +341,9 @@ export function AdminControls() {
     const timeMode: AdminWarFormState["timeMode"] = useEpoch ? "epoch" : "datetime";
     setUseEpochTime(useEpoch);
     setImportWarForm((current) => convertWarFormTimeMode(current, timeMode));
+    setCreateEventForm((current) => convertWarFormTimeMode(current, timeMode));
+    setEventImportForm((current) => convertWarFormTimeMode(current, timeMode));
+    setEventEditForm((current) => convertWarFormTimeMode(current, timeMode));
     setCurrentWarEditForm((current) => convertWarFormTimeMode(current, timeMode));
     setHistoricalWarEditForm((current) => convertWarFormTimeMode(current, timeMode));
     setExportForm((current) => convertExportFormTimeMode(current, timeMode));
@@ -360,6 +395,27 @@ export function AdminControls() {
   function confirmDeleteWar(): boolean {
     const target = deleteForm.name.trim() || (deleteForm.tornWarId.trim() ? `Torn war #${deleteForm.tornWarId.trim()}` : "this war/event");
     return window.confirm(`Delete ${target}? This cannot be undone from the admin dashboard.`);
+  }
+
+  function applyEventResponse(response: unknown) {
+    const updatedWar = (response as { war?: WarSummary }).war;
+    if (!updatedWar) {
+      return;
+    }
+
+    setWars((current) => {
+      const existing = current.some((war) => war.id === updatedWar.id);
+      return existing
+        ? current.map((war) => (war.id === updatedWar.id ? { ...war, ...updatedWar } : war))
+        : [updatedWar, ...current];
+    });
+    setSelectedEventId(String(updatedWar.id));
+    setEventEditForm(convertWarFormTimeMode(warToForm(updatedWar), adminTimeMode));
+    setExportForm((current) =>
+      current.warName === updatedWar.name || current.warName === ""
+        ? exportFormForWar({ ...current, warName: updatedWar.name }, updatedWar)
+        : current,
+    );
   }
 
   async function loadLatestIngestionRun() {
@@ -517,8 +573,11 @@ export function AdminControls() {
 
   const exportableWars = wars.filter(isExportableWar);
   const officialWars = wars.filter(isOfficialWar);
+  const events = wars.filter(isEventWar);
   const currentOfficialWar = officialWars.find(isCurrentOfficialWar) ?? null;
   const historicalOfficialWars = officialWars.filter(isHistoricalOfficialWar);
+  const currentEvent = events.find((war) => war.status === "active") ?? null;
+  const historicalEvents = events.filter((war) => war.status === "ended");
   const currentReportableMembers = reportExemptionMembers.filter(
     (member) => member.is_current === 1 && member.report_exempt === 0,
   );
@@ -845,6 +904,11 @@ export function AdminControls() {
           ) : null}
         </section>
 
+        <div className="admin-section-divider admin-section-divider-wars">
+          <span>Wars</span>
+          <strong>Official ranked and termed war records</strong>
+        </div>
+
         {currentOfficialWar ? (
           <section className="panel admin-panel-edit-official">
             <PanelHeader title="Edit open war" aside={currentOfficialWar.name} />
@@ -1009,6 +1073,230 @@ export function AdminControls() {
               onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
             />
           </div>
+        </section>
+
+        <div className="admin-section-divider admin-section-divider-events">
+          <span>Events</span>
+          <strong>Manual attack and defend tracking windows</strong>
+        </div>
+
+        <section className="admin-event-grid admin-event-controls-grid">
+          <section className="panel admin-event-command">
+            <PanelHeader title="Create event" aside="Schedule or start" />
+            <form
+              className="admin-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                runAdminAction("Create event", () =>
+                  createEvent(toEventPayload(createEventForm)).then((response) => {
+                    applyEventResponse(response);
+                    return response;
+                  }),
+                );
+              }}
+            >
+              <WarFields
+                form={createEventForm}
+                onChange={setCreateEventForm}
+                showStatus
+                showFinishTimes
+                showTornFields={false}
+                breakAfterWarType
+                allowedWarTypes={["event"]}
+              />
+              <button
+                type="button"
+                className="admin-button"
+                disabled={isBusy !== null}
+                onClick={() => {
+                  const now = Math.floor(Date.now() / 1000);
+                  setCreateEventForm((current) =>
+                    convertWarFormTimeMode({
+                      ...current,
+                      status: "active",
+                      startTime: dateTimeLocalFromSeconds(now),
+                      startEpoch: String(now),
+                    }, adminTimeMode),
+                  );
+                }}
+              >
+                Start now
+              </button>
+              <button
+                type="submit"
+                className="admin-button primary admin-form-wide"
+                disabled={isBusy !== null}
+              >
+                Create event
+              </button>
+            </form>
+          </section>
+
+          <section className="panel admin-event-command">
+            <PanelHeader
+              title="Edit event"
+              aside={events.length === 0 ? "No events" : currentEvent ? `Active: ${currentEvent.name}` : `${events.length} events`}
+            />
+            <form
+              className="admin-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                runAdminAction("Update event", () =>
+                  updateEvent(toEventPayload(eventEditForm, {
+                    id: Number(selectedEventId),
+                  })).then((response) => {
+                    applyEventResponse(response);
+                    return response;
+                  }),
+                );
+              }}
+            >
+              <label className="admin-form-wide">
+                <span>Event</span>
+                <select
+                  value={selectedEventId}
+                  onChange={(event) => {
+                    const selected = events.find((candidate) => candidate.id === Number(event.target.value));
+                    setSelectedEventId(event.target.value);
+                    if (selected) {
+                      setEventEditForm(convertWarFormTimeMode(warToForm(selected), adminTimeMode));
+                    }
+                  }}
+                  required
+                >
+                  <option value="" disabled>
+                    Select event
+                  </option>
+                  {events.map((eventWar) => (
+                    <option value={eventWar.id} key={eventWar.id}>
+                      {eventWar.name} / {eventWar.status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <WarFields
+                form={eventEditForm}
+                onChange={setEventEditForm}
+                showStatus
+                showFinishTimes
+                showTornFields={false}
+                breakAfterWarType
+                allowedWarTypes={["event"]}
+              />
+              <button
+                type="button"
+                className="admin-button"
+                disabled={isBusy !== null || !selectedEventId}
+                onClick={() => {
+                  const now = Math.floor(Date.now() / 1000);
+                  setEventEditForm((current) =>
+                    convertWarFormTimeMode({
+                      ...current,
+                      status: "active",
+                      startTime: dateTimeLocalFromSeconds(now),
+                      startEpoch: String(now),
+                    }, adminTimeMode),
+                  );
+                }}
+              >
+                Start selected now
+              </button>
+              <button
+                type="button"
+                className="admin-button"
+                disabled={isBusy !== null || currentEvent === null}
+                onClick={() =>
+                  runAdminAction("Stop active event", () =>
+                    endActiveWar().then((response) => {
+                      const now = Math.floor(Date.now() / 1000);
+                      if (currentEvent) {
+                        const stoppedWar = {
+                          ...currentEvent,
+                          status: "ended",
+                          practical_finish_time: currentEvent.practical_finish_time ?? now,
+                        };
+                        setWars((current) =>
+                          current.map((war) => (war.id === stoppedWar.id ? stoppedWar : war)),
+                        );
+                        setEventEditForm(convertWarFormTimeMode(warToForm(stoppedWar), adminTimeMode));
+                      }
+                      return response;
+                    }),
+                  )
+                }
+              >
+                Stop active event
+              </button>
+              <button
+                type="submit"
+                className="admin-button primary admin-form-wide"
+                disabled={isBusy !== null || !selectedEventId}
+              >
+                Save event
+              </button>
+            </form>
+          </section>
+
+          <section className="panel admin-event-command">
+            <PanelHeader
+              title="Import historical event"
+              aside={historicalEvents.length > 0 ? `${historicalEvents.length} saved` : "Past window"}
+            />
+            <form
+              className="admin-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                runAdminAction("Import historical event", () =>
+                  importEvent(toEventPayload(eventImportForm, {
+                    status: "ended",
+                    fetchMissing: eventImportFetchMissing,
+                  })).then((response) => {
+                    applyEventResponse(response);
+                    return response;
+                  }),
+                );
+              }}
+            >
+              <WarFields
+                form={eventImportForm}
+                onChange={setEventImportForm}
+                showFinishTimes
+                showTornFields={false}
+                breakAfterWarType
+                allowedWarTypes={["event"]}
+              />
+              <label className="checkbox-row admin-form-wide">
+                <input
+                  type="checkbox"
+                  checked={eventImportFetchMissing}
+                  onChange={(event) => setEventImportFetchMissing(event.target.checked)}
+                />
+                <span>Fetch missing attacks from Torn before linking</span>
+              </label>
+              <button
+                type="button"
+                className="admin-button admin-form-wide"
+                disabled={isBusy !== null}
+                onClick={() =>
+                  runAdminAction("Preview event import", () =>
+                    previewImportEvent(toEventPayload(eventImportForm, {
+                      status: "ended",
+                      fetchMissing: eventImportFetchMissing,
+                    })),
+                  )
+                }
+              >
+                Preview event import
+              </button>
+              <button
+                type="submit"
+                className="admin-button primary admin-form-wide"
+                disabled={isBusy !== null}
+              >
+                Import historical event
+              </button>
+            </form>
+          </section>
         </section>
 
         </>
@@ -2414,6 +2702,14 @@ function defaultWarForm(): AdminWarFormState {
   };
 }
 
+function defaultEventForm(): AdminWarFormState {
+  return {
+    ...defaultWarForm(),
+    status: "active",
+    warType: "event",
+  };
+}
+
 function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): AdminWarPayload {
   const payload: AdminWarPayload = {
     war_type: form.warType,
@@ -2445,8 +2741,42 @@ function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): Admi
   return payload;
 }
 
+function toEventPayload(
+  form: AdminWarFormState,
+  options: {
+    id?: number;
+    status?: "scheduled" | "active" | "ended";
+    fetchMissing?: boolean;
+  } = {},
+): AdminWarPayload {
+  const payload: AdminWarPayload = {
+    war_type: "event",
+    status: options.status ?? form.status,
+    practical_start_time: secondsFromFormTime(form, "start"),
+    practical_finish_time: optionalSecondsFromFormTime(form, "finish"),
+  };
+
+  if (options.id !== undefined) {
+    payload.id = options.id;
+  }
+
+  if (form.name.trim() !== "") {
+    payload.name = form.name.trim();
+  }
+
+  if (options.fetchMissing !== undefined) {
+    payload.fetch_missing = options.fetchMissing;
+  }
+
+  return payload;
+}
+
 function isOfficialWar(war: WarSummary): boolean {
   return war.war_type !== "event";
+}
+
+function isEventWar(war: WarSummary): boolean {
+  return war.war_type === "event";
 }
 
 function isCurrentOfficialWar(war: WarSummary): boolean {

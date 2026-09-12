@@ -16,11 +16,15 @@ import {
 } from "../syncState";
 import { jsonResponse, routeContext } from "../testUtils/http";
 import {
+  createManualEvent,
   deleteWar,
   endActiveWar,
+  importHistoricalEvent,
   importHistoricalWar,
+  previewHistoricalEventImport,
   previewHistoricalWarImport,
   relinkWarAttacks,
+  updateEvent,
   updateOfficialWar,
 } from "../wars";
 import { routeWarCommands } from "./warRoutes";
@@ -89,10 +93,14 @@ vi.mock("../wars", () => ({
   getWarChainBonusesForWar: vi.fn(),
   getWarMemberCombatHeatmap: vi.fn(),
   getWarMemberAttacks: vi.fn(),
+  createManualEvent: vi.fn(),
+  importHistoricalEvent: vi.fn(),
   importHistoricalWar: vi.fn(),
   listWars: vi.fn(),
+  previewHistoricalEventImport: vi.fn(),
   previewHistoricalWarImport: vi.fn(),
   relinkWarAttacks: vi.fn(),
+  updateEvent: vi.fn(),
   updateOfficialWar: vi.fn(),
 }));
 
@@ -103,8 +111,12 @@ describe("war command routes", () => {
     vi.mocked(readSyncTimestamp).mockResolvedValue(0);
     vi.mocked(upsertSyncTimestamp).mockResolvedValue(undefined);
     vi.mocked(importHistoricalWar).mockResolvedValue(jsonResponse({ ok: true, route: "import" }));
+    vi.mocked(importHistoricalEvent).mockResolvedValue(jsonResponse({ ok: true, route: "import-event" }));
     vi.mocked(previewHistoricalWarImport).mockResolvedValue(jsonResponse({ ok: true, route: "preview" }));
+    vi.mocked(previewHistoricalEventImport).mockResolvedValue(jsonResponse({ ok: true, route: "preview-event" }));
+    vi.mocked(createManualEvent).mockResolvedValue(jsonResponse({ ok: true, route: "create-event" }));
     vi.mocked(updateOfficialWar).mockResolvedValue(jsonResponse({ ok: true, route: "update-official" }));
+    vi.mocked(updateEvent).mockResolvedValue(jsonResponse({ ok: true, route: "update-event" }));
     vi.mocked(deleteWar).mockResolvedValue(jsonResponse({ ok: true, route: "delete" }));
     vi.mocked(relinkWarAttacks).mockResolvedValue(jsonResponse({ ok: true, route: "relink" }));
     vi.mocked(endActiveWar).mockResolvedValue(jsonResponse({ ok: true, route: "end" }));
@@ -139,22 +151,24 @@ describe("war command routes", () => {
     expect(deleteWar).not.toHaveBeenCalled();
   });
 
-  it("keeps disabled manual war creation behind admin auth", async () => {
+  it("routes manual event creation through admin auth", async () => {
     const response = await routeWarCommands(routeContext("https://worker.test/api/wars", {
       method: "POST",
+      body: JSON.stringify({ war_type: "event", name: "event" }),
     }));
 
-    expect(response?.status).toBe(410);
-    expect(await response?.json()).toMatchObject({
-      ok: false,
-      code: "MANUAL_WAR_CREATION_DISABLED",
-    });
-    expect(requireAdmin).toHaveBeenCalledOnce();
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "create-event" });
+    expect(requireAdmin).toHaveBeenCalledWith(expect.any(Request), expect.anything());
+    expect(createManualEvent).toHaveBeenCalledWith(expect.any(Request), expect.anything());
   });
 
   it.each([
     ["/api/wars/import/preview", previewHistoricalWarImport, "preview"],
+    ["/api/wars/import-event", importHistoricalEvent, "import-event"],
+    ["/api/wars/import-event/preview", previewHistoricalEventImport, "preview-event"],
     ["/api/wars/update-official", updateOfficialWar, "update-official"],
+    ["/api/wars/update-event", updateEvent, "update-event"],
     ["/api/wars/delete", deleteWar, "delete"],
     ["/api/wars/relink-attacks", relinkWarAttacks, "relink"],
     ["/api/wars/end", endActiveWar, "end"],

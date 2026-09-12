@@ -8149,10 +8149,48 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.admin-section-divider {
+  display: grid;
+  gap: 4px;
+  grid-column: 1 / -1;
+  margin: 8px 0 2px;
+  padding: 13px 16px;
+  border: 1px solid var(--border-soft);
+  border-left-width: 5px;
+  border-radius: var(--radius-md);
+  background: var(--panel-muted-bg);
+}
+
+.admin-section-divider span {
+  color: #475569;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.admin-section-divider strong {
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.admin-section-divider-wars {
+  border-left-color: #2563eb;
+}
+
+.admin-section-divider-events {
+  border-left-color: #16a34a;
+}
+
 .admin-event-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
+}
+
+.admin-event-controls-grid {
+  grid-column: 1 / -1;
 }
 
 .admin-event-command {
@@ -11477,6 +11515,14 @@ tbody tr:not(.attack-row):hover td {
   background: rgba(37, 99, 235, 0.28);
   color: var(--accent-strong);
   box-shadow: none;
+}
+
+:root[data-theme="dark"] .admin-section-divider span {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .admin-section-divider strong {
+  color: var(--text-main);
 }
 
 :root[data-theme="dark"] .enemy-monitor-event .enemy-monitor-event-timer-summary {

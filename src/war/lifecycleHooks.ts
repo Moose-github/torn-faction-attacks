@@ -34,6 +34,12 @@ type EnemyWarLifecycleOptions = {
 };
 
 export async function runWarScheduledHooks(env: Env, warId: number): Promise<void> {
+  const warType = await readWarLifecycleType(env, warId);
+  if (warType === "event") {
+    await runWarLifecycleHandlersOnce(env, "war_scheduled", warId, []);
+    return;
+  }
+
   await runWarLifecycleHandlersOnce(env, "war_scheduled", warId, [
     {
       name: "enemy_scouting_once",
@@ -43,6 +49,12 @@ export async function runWarScheduledHooks(env: Env, warId: number): Promise<voi
 }
 
 export async function runWarPreLiveStartedHooks(env: Env, warId: number): Promise<void> {
+  const warType = await readWarLifecycleType(env, warId);
+  if (warType === "event") {
+    await runWarLifecycleHandlersOnce(env, "pre_live_started", warId, []);
+    return;
+  }
+
   await runWarLifecycleHandlersOnce(env, "pre_live_started", warId, [
     {
       name: "discord_travel_trackers_enabled",
@@ -63,11 +75,8 @@ export async function runWarStartedHooks(
   env: Env,
   options: { warId: number; startedAt: number },
 ): Promise<void> {
-  await runWarLifecycleHandlersOnce(env, "war_started", options.warId, [
-    {
-      name: "chain_watch_enabled",
-      run: () => ensureChainWatchEnabledForWar(env, options.warId),
-    },
+  const warType = await readWarLifecycleType(env, options.warId);
+  const handlers: WarLifecycleHandler[] = [
     {
       name: "attack_assignments_backfilled",
       run: () => backfillWarAssignments(env, options.warId, options.startedAt),
@@ -76,7 +85,16 @@ export async function runWarStartedHooks(
       name: "derived_stats_refreshed",
       run: () => refreshWarDerivedStats(env, options.warId),
     },
-  ]);
+  ];
+
+  if (warType !== "event") {
+    handlers.unshift({
+      name: "chain_watch_enabled",
+      run: () => ensureChainWatchEnabledForWar(env, options.warId),
+    });
+  }
+
+  await runWarLifecycleHandlersOnce(env, "war_started", options.warId, handlers);
 }
 
 export async function runWarPracticallyFinishedHooks(
@@ -247,6 +265,21 @@ async function stopLiveEnemyTracking(
   }
 
   await clearLiveEnemyTrackingData(env, warId, enemyFactionId);
+}
+
+async function readWarLifecycleType(env: Env, warId: number): Promise<string | null> {
+  const row = (await env.DB.prepare(
+    `
+    SELECT war_type
+    FROM wars
+    WHERE id = ?
+    LIMIT 1
+    `,
+  )
+    .bind(warId)
+    .first()) as { war_type: string | null } | null;
+
+  return row?.war_type ?? null;
 }
 
 function warLifecycleHandlerLatchName(
