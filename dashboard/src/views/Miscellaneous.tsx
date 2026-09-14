@@ -139,24 +139,25 @@ export function Miscellaneous() {
 
   React.useEffect(() => {
     let cancelled = false;
+    let refreshTimer: number | undefined;
 
     async function load() {
       setIsLoading(true);
-      setError(null);
 
       try {
         const response = await getMiscellaneousData();
         if (!cancelled) {
           setData(response);
+          setError(null);
         }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
-          setData(null);
         }
       } finally {
         if (!cancelled) {
           setIsLoading(false);
+          refreshTimer = window.setTimeout(load, 60_000);
         }
       }
     }
@@ -165,6 +166,7 @@ export function Miscellaneous() {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(refreshTimer);
     };
   }, []);
 
@@ -191,7 +193,7 @@ export function Miscellaneous() {
         {data?.error ? <p className="form-error">{data.error}</p> : null}
         {fetchedAt ? (
           <p className="panel-description">
-            Cached Torn shoplifting obstacles and security status from the one-minute refresh. Last fetched{" "}
+            Security status refreshes automatically every minute. Last fetched{" "}
             {formatLongDateTime(fetchedAt)}.
           </p>
         ) : null}

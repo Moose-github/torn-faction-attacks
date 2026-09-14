@@ -48,7 +48,8 @@ describe("discord alert delivery", () => {
   it("sends through the bot when an alert route is configured", async () => {
     vi.mocked(readConfiguredDiscordNotificationChannel).mockResolvedValue(route);
 
-    await sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push", { users: ["1"] });
+    await expect(sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push", { users: ["1"] }))
+      .resolves.toBe(true);
 
     expect(createDiscordBotMessage).toHaveBeenCalledWith(env, "channel-1", "Enemy push", { users: ["1"] });
   });
@@ -79,7 +80,7 @@ describe("discord alert delivery", () => {
   });
 
   it("skips delivery when there is no alert route", async () => {
-    await sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push");
+    await expect(sendDiscordAlertMessage(env, DISCORD_ALERT_KEYS.enemyPush, "Enemy push")).resolves.toBe(false);
 
     expect(createDiscordBotMessage).not.toHaveBeenCalled();
   });

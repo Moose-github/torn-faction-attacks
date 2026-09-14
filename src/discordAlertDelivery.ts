@@ -34,14 +34,15 @@ export async function sendDiscordAlertMessage(
   alertKey: DiscordAlertKey,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-): Promise<void> {
+): Promise<boolean> {
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (!route) {
     console.warn(`Discord alert ${alertKey} skipped: no enabled bot channel route or default route is configured.`);
-    return;
+    return false;
   }
 
   await createDiscordBotMessage(env, discordNotificationChannelTargetId(route), message, allowedMentions);
+  return true;
 }
 
 export async function sendDiscordAlertMessageWithAttachment(

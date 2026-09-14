@@ -25,8 +25,7 @@ type TornShopliftingObstacle = {
 };
 
 type TornShopliftingResponse = {
-  shoplifting?: Record<string, TornShopliftingObstacle[]>;
-  error?: { error?: string; message?: string; code?: number };
+  shoplifting?: unknown;
 };
 
 type ShopliftingCacheRow = {
@@ -126,6 +125,9 @@ async function readShopliftingCache(env: Env): Promise<ShopliftingCacheRow | nul
 async function fetchTornShoplifting(env: Env): Promise<Record<string, TornShopliftingObstacle[]>> {
   const url = new URL(TORN_SHOPLIFTING_API_URL);
   url.searchParams.set("selections", "shoplifting");
+  // Torn's August 2026 v2 refactor returns subcrime IDs. Explicitly request
+  // the supported shop-name format used by the cache and Discord alert keys.
+  url.searchParams.set("legacy", "shoplifting");
 
   const data = await withTornKeyPool(env, {
     feature: "misc_utilities",
@@ -142,21 +144,30 @@ async function fetchTornShoplifting(env: Env): Promise<Record<string, TornShopli
     }),
   });
 
-  return normalizeShoplifting(data.shoplifting ?? {});
+  return normalizeShoplifting(data?.shoplifting);
 }
 
 function normalizeShoplifting(
-  shoplifting: Record<string, TornShopliftingObstacle[]>,
+  shoplifting: unknown,
 ): Record<string, TornShopliftingObstacle[]> {
+  if (!shoplifting || typeof shoplifting !== "object" || Array.isArray(shoplifting) ||
+      Object.keys(shoplifting).length === 0) {
+    throw new Error("Invalid Torn shoplifting response: expected shop-name security data");
+  }
+
   const normalized: Record<string, TornShopliftingObstacle[]> = {};
 
   for (const [shop, obstacles] of Object.entries(shoplifting)) {
-    normalized[shop] = Array.isArray(obstacles)
-      ? obstacles.map((obstacle) => ({
-          title: String(obstacle.title ?? ""),
-          disabled: Boolean(obstacle.disabled),
-        }))
-      : [];
+    if (!/^[a-z][a-z0-9_]*$/i.test(shop) || !Array.isArray(obstacles) || obstacles.length === 0) {
+      throw new Error("Invalid Torn shoplifting response: expected named shops with security obstacles");
+    }
+    normalized[shop] = obstacles.map((obstacle) => {
+      if (!obstacle || typeof obstacle.title !== "string" || !obstacle.title.trim() ||
+          typeof obstacle.disabled !== "boolean") {
+        throw new Error("Invalid Torn shoplifting response: expected security titles and boolean statuses");
+      }
+      return { title: obstacle.title, disabled: obstacle.disabled };
+    });
   }
 
   return normalized;
@@ -173,9 +184,8 @@ async function sendShopliftingSecurityAlerts(
   const enabledByShopKey = new Map(alertSettings.map((alert) => [alert.shop_key, alert.enabled]));
 
   for (const alert of SHOPLIFTING_SECURITY_ALERTS) {
-    const obstacles = shoplifting[alert.shopKey] ?? [];
+    const obstacles = shoplifting[alert.shopKey];
     const alertKey = shopliftingAlertKey(alert);
-    const allSecuritiesDown = obstacles.length >= 2 && obstacles.every((obstacle) => obstacle.disabled);
 
     if (!enabledByShopKey.get(alert.shopKey)) {
       if (sentAlertStates.has(alertKey)) {
@@ -183,6 +193,12 @@ async function sendShopliftingSecurityAlerts(
       }
       continue;
     }
+
+    // Missing shop data is not evidence that security has returned.
+    if (!obstacles) {
+      continue;
+    }
+    const allSecuritiesDown = obstacles.length >= 2 && obstacles.every((obstacle) => obstacle.disabled);
 
     if (!allSecuritiesDown) {
       if (sentAlertStates.has(alertKey)) {
@@ -196,12 +212,15 @@ async function sendShopliftingSecurityAlerts(
     }
 
     const mentions = await readDiscordAlertMentions(env, alertKey);
-    await sendDiscordAlertMessage(
+    const delivered = await sendDiscordAlertMessage(
       env,
       alertKey,
       formatDiscordAlertMessage(formatShopliftingSecurityAlert(alert.shopName), mentions.messageSuffix),
       mentions.allowedMentions,
     );
+    if (!delivered) {
+      continue;
+    }
     await markShopliftingSecurityAlertSent(env, alertKey, fetchedAt);
     alertsSent += 1;
   }
