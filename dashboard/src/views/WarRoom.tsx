@@ -109,14 +109,18 @@ export function WarRoom({
     warControl: false,
   });
   const trackingCadenceRef = React.useRef<HTMLElement | null>(null);
-  const canLoadScouting = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
+  const isEventRoom = selectedWar?.war_type === "event";
+  const canLoadEnemyWarRoom = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
+  const canLoadActivityHeatmap = Boolean(selectedWarName && selectedWar && (canLoadEnemyWarRoom || isEventRoom));
   const isSelectedGlobalWar = activeWarId !== null && selectedWar?.id === activeWarId;
   const isWarLive = warState === "current" && isSelectedGlobalWar;
   const nowMs = useCurrentTimeMs();
   const isMemberTrackingActive = selectedWar && isSelectedGlobalWar
     ? isWarRoomMemberTrackingActive(selectedWar, Math.floor(nowMs / 1000))
     : false;
-  const isActivityHeatmapsOpen = collapsedPanels.activityHeatmaps === false;
+  const isActivityHeatmapsOpen = isEventRoom
+    ? collapsedPanels.eventActivityHeatmap !== true
+    : collapsedPanels.activityHeatmaps === false;
   const bigHitterActivityMemberIds = React.useMemo(
     () => (enemyBigHitters?.big_hitters ?? []).map((member) => member.member_id),
     [enemyBigHitters],
@@ -179,7 +183,7 @@ export function WarRoom({
     let cancelled = false;
 
     async function loadEnemyScouting() {
-      if (!selectedWarName || !canLoadScouting) {
+      if (!selectedWarName || !canLoadEnemyWarRoom) {
         setEnemyScouting(null);
         return;
       }
@@ -206,13 +210,13 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadScouting, selectedWarName]);
+  }, [canLoadEnemyWarRoom, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadWarControl() {
-      if (!selectedWarName || !canLoadScouting) {
+      if (!selectedWarName || !canLoadEnemyWarRoom) {
         setWarControl(null);
         return;
       }
@@ -240,10 +244,10 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadScouting, selectedWarName]);
+  }, [canLoadEnemyWarRoom, selectedWarName]);
 
   React.useEffect(() => {
-    if (!canRefreshEnemyScouting) {
+    if (!canRefreshEnemyScouting || !canLoadEnemyWarRoom) {
       return;
     }
 
@@ -266,13 +270,13 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canRefreshEnemyScouting, warControl?.settings.updated_at]);
+  }, [canLoadEnemyWarRoom, canRefreshEnemyScouting, warControl?.settings.updated_at]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadEnemyBigHitters() {
-      if (!selectedWarName || !canLoadScouting) {
+      if (!selectedWarName || !canLoadEnemyWarRoom) {
         setEnemyBigHitters(null);
         setSelectedBigHitterMemberId("");
         return;
@@ -300,7 +304,7 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadScouting, selectedWarName]);
+  }, [canLoadEnemyWarRoom, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -364,7 +368,7 @@ export function WarRoom({
     let cancelled = false;
 
     async function loadPushPressure() {
-      if (!selectedWarName || !canLoadScouting) {
+      if (!selectedWarName || !canLoadEnemyWarRoom) {
         setPushPressure(null);
         return;
       }
@@ -391,13 +395,13 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadScouting, selectedWarName]);
+  }, [canLoadEnemyWarRoom, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadScoutingComparison() {
-      if (!selectedWarName || !canLoadScouting) {
+      if (!selectedWarName || !canLoadEnemyWarRoom) {
         setScoutingComparison(null);
         return;
       }
@@ -424,13 +428,13 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadScouting, selectedWarName]);
+  }, [canLoadEnemyWarRoom, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadActivityHeatmap() {
-      if (!selectedWarName || !selectedWar || !canLoadScouting || !isActivityHeatmapsOpen) {
+      if (!selectedWarName || !selectedWar || !canLoadActivityHeatmap || !isActivityHeatmapsOpen) {
         setActivityHeatmap(null);
         return;
       }
@@ -457,7 +461,7 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadScouting, isActivityHeatmapsOpen, selectedWar?.id, selectedWarName]);
+  }, [canLoadActivityHeatmap, isActivityHeatmapsOpen, selectedWar?.id, selectedWarName]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -465,7 +469,7 @@ export function WarRoom({
     async function loadEnemyMemberActivityHeatmap() {
       if (
         !selectedWarName ||
-        !canLoadScouting ||
+        !canLoadEnemyWarRoom ||
         !isActivityHeatmapsOpen ||
         activityHeatmapMode === "faction" ||
         activeEnemyActivityMemberIds.length === 0
@@ -502,23 +506,25 @@ export function WarRoom({
   }, [
     activeEnemyActivityMemberKey,
     activityHeatmapMode,
-    canLoadScouting,
+    canLoadEnemyWarRoom,
     isActivityHeatmapsOpen,
     selectedWarName,
   ]);
 
   React.useEffect(() => {
-    if (!selectedWarName || !selectedWar || !canLoadScouting || !isWarLive) {
+    if (!selectedWarName || !selectedWar || !canLoadActivityHeatmap || !isWarLive) {
       return;
     }
 
     let cancelled = false;
-    const shouldRefreshScoutingComparison = scoutingComparison?.comparison_stats_complete !== true;
+    const shouldRefreshScoutingComparison =
+      canLoadEnemyWarRoom && scoutingComparison?.comparison_stats_complete !== true;
     const timer = window.setInterval(async () => {
       try {
         const [comparisonResponse, heatmapResponse, memberHeatmapResponse] = await Promise.all([
           shouldRefreshScoutingComparison ? getScoutingComparison(selectedWarName) : Promise.resolve(null),
           isActivityHeatmapsOpen ? getWarActivityHeatmap(selectedWarName, selectedWar.id) : Promise.resolve(null),
+          canLoadEnemyWarRoom &&
           isActivityHeatmapsOpen &&
           activityHeatmapMode !== "faction" &&
           activeEnemyActivityMemberIds.length > 0
@@ -550,7 +556,8 @@ export function WarRoom({
       window.clearInterval(timer);
     };
   }, [
-    canLoadScouting,
+    canLoadActivityHeatmap,
+    canLoadEnemyWarRoom,
     activeEnemyActivityMemberKey,
     activityHeatmapMode,
     isActivityHeatmapsOpen,
@@ -561,7 +568,7 @@ export function WarRoom({
   ]);
 
   React.useEffect(() => {
-    if (!selectedWarName || !canLoadScouting || !isMemberTrackingActive) {
+    if (!selectedWarName || !canLoadEnemyWarRoom || !isMemberTrackingActive) {
       return;
     }
 
@@ -633,10 +640,10 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadScouting, isMemberTrackingActive, selectedWarName]);
+  }, [canLoadEnemyWarRoom, isMemberTrackingActive, selectedWarName]);
 
   React.useEffect(() => {
-    if (!selectedWarName || !canLoadScouting || !isMemberTrackingActive) {
+    if (!selectedWarName || !canLoadEnemyWarRoom || !isMemberTrackingActive) {
       return;
     }
 
@@ -664,7 +671,7 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadScouting, isMemberTrackingActive, selectedWarName]);
+  }, [canLoadEnemyWarRoom, isMemberTrackingActive, selectedWarName]);
 
   async function refreshSelectedEnemyScouting() {
     if (!selectedWarName || !selectedWar) {
@@ -806,7 +813,7 @@ export function WarRoom({
     }
   }
 
-  if (!canLoadScouting) {
+  if (!canLoadEnemyWarRoom && !isEventRoom) {
     return (
       <section className="panel">
         <PanelHeader title="War room" />
@@ -815,34 +822,64 @@ export function WarRoom({
     );
   }
 
-  return (
-    <>
-      <section className="hero-panel war-room-hero-panel">
-        <div>
-          <p className="eyebrow">War room</p>
-          <div className="war-title-row">
-            <h2>{selectedWar.name}</h2>
-            <span>{formatWarRoomType(selectedWar)}</span>
-          </div>
-          <p>
-            Official start:{" "}
-            <strong>
-              {formatLongDateTime(selectedWar.official_start_time ?? selectedWar.practical_start_time)}
-            </strong>
-          </p>
-          {selectedWar.official_start_time !== null &&
-          selectedWar.official_start_time !== selectedWar.practical_start_time ? (
-            <p>
-              Practical start: <strong>{formatLongDateTime(selectedWar.practical_start_time)}</strong>
-            </p>
-          ) : null}
-        </div>
-        <WarStartCountdown
+  if (isEventRoom) {
+    return (
+      <>
+        <WarRoomHero
           war={selectedWar}
           isSelectedGlobalWar={isSelectedGlobalWar}
           warState={warState}
         />
-      </section>
+
+        <section className="content-grid">
+          <ChainWatchPanel
+            data={chainWatch}
+            nowMs={nowMs}
+            isLoading={isLoadingChainWatch}
+            trackingMode={trackingMode}
+            trackingState={trackingFreshness.chainWatchState}
+            trackingCadence={trackingFreshness.chainWatchCadence}
+            trackingTone={trackingFreshness.chainWatchTone}
+            trackingDetail={trackingFreshness.chainWatchDetail}
+            canToggle={canRefreshEnemyScouting}
+            isToggling={isTogglingChainWatch}
+            collapsed={collapsedPanels.eventChainWatch ?? false}
+            onCollapseToggle={() => togglePanel("eventChainWatch")}
+            onEnabledToggle={toggleChainWatch}
+            isEvent
+          />
+
+          <CollapsiblePanel
+            title="Buttgrass activity heatmap"
+            aside={isLoadingActivityHeatmap ? "Loading" : eventHeatmapHeaderAside(trackingMode)}
+            collapsed={collapsedPanels.eventActivityHeatmap ?? false}
+            onToggle={() => togglePanel("eventActivityHeatmap")}
+            className="heatmap-panel"
+          >
+            <EventActivityHeatmapPanel activityHeatmap={activityHeatmap} />
+          </CollapsiblePanel>
+
+          <EventUnavailableToolsPanel />
+
+          <EventTrackingStatusPanel
+            ref={trackingCadenceRef}
+            mode={trackingMode}
+            heatmapSampledAt={latestHeatmapSampledAt}
+            chainWatchUpdatedAt={chainWatch?.state?.last_checked_at ?? null}
+            heatmapOpen={isActivityHeatmapsOpen}
+          />
+        </section>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <WarRoomHero
+        war={selectedWar}
+        isSelectedGlobalWar={isSelectedGlobalWar}
+        warState={warState}
+      />
 
       <section className="content-grid">
         {isMemberTrackingActive ? (
@@ -1065,6 +1102,147 @@ export function WarRoom({
   );
 }
 
+function WarRoomHero({
+  war,
+  isSelectedGlobalWar,
+  warState,
+}: {
+  war: WarSummary;
+  isSelectedGlobalWar: boolean;
+  warState: GlobalWarState;
+}) {
+  const isEvent = war.war_type === "event";
+
+  return (
+    <section className="hero-panel war-room-hero-panel">
+      <div>
+        <p className="eyebrow">{isEvent ? "Event room" : "War room"}</p>
+        <div className="war-title-row">
+          <h2>{war.name}</h2>
+          <span>{formatWarRoomType(war)}</span>
+        </div>
+        {isEvent ? (
+          <>
+            <p>
+              Event start: <strong>{formatLongDateTime(war.practical_start_time)}</strong>
+            </p>
+            <p>
+              Event finish:{" "}
+              <strong>{war.practical_finish_time ? formatLongDateTime(war.practical_finish_time) : "Manual finish"}</strong>
+            </p>
+          </>
+        ) : (
+          <>
+            <p>
+              Official start:{" "}
+              <strong>
+                {formatLongDateTime(war.official_start_time ?? war.practical_start_time)}
+              </strong>
+            </p>
+            {war.official_start_time !== null &&
+            war.official_start_time !== war.practical_start_time ? (
+              <p>
+                Practical start: <strong>{formatLongDateTime(war.practical_start_time)}</strong>
+              </p>
+            ) : null}
+          </>
+        )}
+      </div>
+      <WarStartCountdown
+        war={war}
+        isSelectedGlobalWar={isSelectedGlobalWar}
+        warState={warState}
+      />
+    </section>
+  );
+}
+
+function EventActivityHeatmapPanel({
+  activityHeatmap,
+}: {
+  activityHeatmap: FactionActivityHeatmapResponse | null;
+}) {
+  const factionId = activityHeatmap?.home_faction_id ?? null;
+  const rows = activityHeatmap?.rows ?? [];
+
+  return (
+    <>
+      <p className="panel-description">
+        Shows when Buttgrass is usually active, based on Torn last-action times and scaled against faction average.
+      </p>
+      {factionId === null || rows.length === 0 ? (
+        <EmptyState text="No Buttgrass activity heatmap samples yet" />
+      ) : (
+        <div className="heatmap-stack heatmap-stack-single">
+          <FactionActivityHeatmap
+            rows={rows}
+            factionId={factionId}
+            label="Buttgrass"
+            color="blue"
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+function EventUnavailableToolsPanel() {
+  return (
+    <section className="panel war-room-event-unavailable-panel">
+      <PanelHeader title="Enemy scouting unavailable" aside="No enemy faction" />
+      <p className="panel-description">
+        Events do not target a specific enemy faction, so enemy status, travel, hospital monitor, push pressure, stats comparison, big hitters, and hit trend tools are hidden here.
+      </p>
+    </section>
+  );
+}
+
+const EventTrackingStatusPanel = React.forwardRef<HTMLElement, {
+  mode: TrackingMode;
+  heatmapSampledAt: number | null;
+  chainWatchUpdatedAt: number | null;
+  heatmapOpen: boolean;
+}>(function EventTrackingStatusPanel({
+  mode,
+  heatmapSampledAt,
+  chainWatchUpdatedAt,
+  heatmapOpen,
+}, ref) {
+  const chainCadence = mode === "live" ? "15s / alarms" : mode === "pre-live" ? "Starts live" : "Paused";
+  const chainDetail = mode === "live"
+    ? "Updates from the live chain monitor while this event is active."
+    : mode === "pre-live"
+      ? "Starts when the selected event becomes active."
+      : "Paused outside the selected event's active window.";
+  const heatmapCadence = eventHeatmapHeaderAside(mode);
+  const heatmapDetail = heatmapOpen
+    ? "Loads home faction activity samples while this section is open."
+    : "Loads home faction activity samples when opened.";
+
+  return (
+    <section ref={ref} className="panel war-room-tracking-status-panel">
+      <PanelHeader title="Event tracking cadence" />
+      <p className="panel-description">
+        Event Room only shows tracking that does not depend on a linked enemy faction.
+      </p>
+      <div className="tracking-status-grid">
+        <TrackingStatusItem
+          label="Buttgrass activity heatmap"
+          value={heatmapCadence}
+          updatedAt={heatmapSampledAt}
+          detail={heatmapDetail}
+        />
+        <TrackingStatusItem
+          label="Chain Watch"
+          value={chainCadence}
+          updatedAt={chainWatchUpdatedAt}
+          detail={chainDetail}
+        />
+      </div>
+    </section>
+  );
+});
+
 function LiveTrackingInactivePanel({
   collapsed,
   warState,
@@ -1111,6 +1289,7 @@ function ChainWatchPanel({
   collapsed,
   onCollapseToggle,
   onEnabledToggle,
+  isEvent = false,
 }: {
   data: ChainWatchResponse | null;
   nowMs: number;
@@ -1125,6 +1304,7 @@ function ChainWatchPanel({
   collapsed: boolean;
   onCollapseToggle: () => void;
   onEnabledToggle: () => void;
+  isEvent?: boolean;
 }) {
   const state = data?.state ?? null;
   const nowSeconds = Math.floor(nowMs / 1000);
@@ -1152,7 +1332,9 @@ function ChainWatchPanel({
   const status = isLiveTracking ? liveStatus : trackingState;
   const metaTone = isLiveTracking ? tone : trackingTone;
   const cadence = isLiveTracking ? sourceLabel : trackingCadence;
-  const detail = isLiveTracking ? "Tracks our faction chain timeout during current wars." : trackingDetail;
+  const detail = isLiveTracking
+    ? `Tracks our faction chain timeout during this ${isEvent ? "event" : "war"}.`
+    : trackingDetail;
 
   return (
     <CollapsiblePanel
@@ -1354,6 +1536,10 @@ function TrackingStatusItem({
 
 function heatmapHeaderAside(mode: TrackingMode): string {
   return mode === "inactive" ? "View only" : "Every 15m";
+}
+
+function eventHeatmapHeaderAside(mode: TrackingMode): string {
+  return mode === "live" ? "Every 15m" : "View only";
 }
 
 type TrackingFreshness = {
@@ -3175,10 +3361,11 @@ function WarStartCountdown({
   warState: GlobalWarState;
 }) {
   const nowMs = useCurrentTimeMs();
-  const startTime = war.official_start_time ?? war.practical_start_time;
+  const isEvent = war.war_type === "event";
+  const startTime = isEvent ? war.practical_start_time : war.official_start_time ?? war.practical_start_time;
   const isEnded = war.official_end_time !== null || war.status === "ended";
   const isPracticallyFinished =
-    isSelectedGlobalWar && warState === "practically_finished" && war.practical_finish_time !== null;
+    !isEvent && isSelectedGlobalWar && warState === "practically_finished" && war.practical_finish_time !== null;
   const endTime = war.official_end_time ?? war.practical_finish_time;
   const remainingSeconds = Math.max(0, Number(startTime ?? 0) - Math.floor(nowMs / 1000));
 
@@ -3194,7 +3381,7 @@ function WarStartCountdown({
   if (isEnded) {
     return (
       <div className="war-room-countdown war-room-countdown-ended">
-        <span>War ended</span>
+        <span>{isEvent ? "Event ended" : "War ended"}</span>
         <strong>{endTime ? formatLongDateTime(endTime) : "Ended"}</strong>
       </div>
     );
@@ -3202,7 +3389,7 @@ function WarStartCountdown({
 
   return (
     <div className="war-room-countdown">
-      <span>Official start</span>
+      <span>{isEvent ? "Event start" : "Official start"}</span>
       <strong>{startTime ? formatCountdownDuration(remainingSeconds) : "-"}</strong>
     </div>
   );
