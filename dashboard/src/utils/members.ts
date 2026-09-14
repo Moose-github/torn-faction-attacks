@@ -145,6 +145,10 @@ export function displayWarStatus(war: WarSummary): string {
     return "upcoming";
   }
 
+  if (war.war_type === "event") {
+    return war.status === "active" ? "ongoing" : war.status;
+  }
+
   if (war.practical_finish_time !== null && !hasOfficialEnd(war)) {
     return "practically finished";
   }

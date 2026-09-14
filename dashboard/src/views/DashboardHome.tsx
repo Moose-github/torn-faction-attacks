@@ -674,19 +674,21 @@ function CurrentWarCard({
 }
 
 function currentWarTileTitle(war: WarSummary | null, warState: GlobalWarState): string {
+  const isEvent = war?.war_type === "event";
+
   if (warState === "upcoming") {
-    return "Upcoming war";
+    return isEvent ? "Upcoming event" : "Upcoming war";
   }
 
   if (warState === "current") {
-    return "Current war";
+    return isEvent ? "Current event" : "Current war";
   }
 
   if (warState === "practically_finished") {
-    return "Practically finished";
+    return isEvent ? "Event finished" : "Practically finished";
   }
 
-  return war ? "Last war" : "Current war";
+  return war ? (isEvent ? "Last event" : "Last war") : "Current war";
 }
 
 function currentWarTileStatus(war: WarSummary | null, warState: GlobalWarState): string {
@@ -711,12 +713,17 @@ function currentWarTiming(
   war: WarSummary,
   warState: GlobalWarState,
 ): { label: string; timestamp: number | null } {
+  const isEvent = war.war_type === "event";
+
   if (warState === "upcoming") {
-    return { label: "Starting", timestamp: war.official_start_time ?? war.practical_start_time };
+    return {
+      label: isEvent ? "Event start" : "Starting",
+      timestamp: war.official_start_time ?? war.practical_start_time,
+    };
   }
 
   if (warState === "practically_finished") {
-    return { label: "Practical finish", timestamp: war.practical_finish_time };
+    return { label: isEvent ? "Event finish" : "Practical finish", timestamp: war.practical_finish_time };
   }
 
   if (warState === "none" || warEnded(war)) {
@@ -767,6 +774,10 @@ function enemyTrackingTone(warState: GlobalWarState): "good" | "warn" | "danger"
 }
 
 function enemyMonitorStatus(warState: GlobalWarState, activeWar: WarSummary | null): string {
+  if (activeWar?.war_type === "event") {
+    return "No tracked war";
+  }
+
   if (warState === "current" && activeWar?.enemy_faction_id) {
     return "Available now";
   }

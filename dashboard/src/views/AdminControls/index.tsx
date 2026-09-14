@@ -2380,6 +2380,12 @@ function WarForm({
   const canUseTermFields = form.warType === "termed";
   const practicalTimesDisabled = requireFinishTime && form.warType === "real";
   const warTypeOptions = allowedWarTypes ?? ["real", "termed", "event"];
+  const startTimeLabel = form.warType === "event"
+    ? "Event start time"
+    : requireFinishTime
+      ? "Practical start time"
+      : "Start time";
+  const finishTimeLabel = form.warType === "event" ? "Event finish time" : "Practical finish time";
 
   function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
     onChange({ ...form, [key]: value });
@@ -2415,7 +2421,7 @@ function WarForm({
           <input inputMode="numeric" value={form.tornWarId} onChange={(event) => update("tornWarId", event.target.value)} />
         </label>
         <label>
-          <span>{requireFinishTime ? "Practical start time" : "Start time"}</span>
+          <span>{startTimeLabel}</span>
           {form.timeMode === "epoch" ? (
             <input inputMode="numeric" value={form.startEpoch} disabled={practicalTimesDisabled} onChange={(event) => update("startEpoch", event.target.value)} required={!practicalTimesDisabled} />
           ) : (
@@ -2425,7 +2431,7 @@ function WarForm({
         {requireFinishTime ? (
           <>
             <label>
-              <span>Practical finish time</span>
+              <span>{finishTimeLabel}</span>
               {form.timeMode === "epoch" ? (
                 <input inputMode="numeric" value={form.finishEpoch} disabled={practicalTimesDisabled} onChange={(event) => update("finishEpoch", event.target.value)} required={!practicalTimesDisabled} />
               ) : (
@@ -2511,6 +2517,8 @@ function WarFields({
   const canUseTermFields = form.warType === "termed";
   const canEditTornFields = form.warType === "event";
   const warTypeOptions = allowedWarTypes ?? ["real", "termed", "event"];
+  const startTimeLabel = form.warType === "event" ? "Event start time" : "Practical start time";
+  const finishTimeLabel = form.warType === "event" ? "Event finish time" : "Practical finish time";
 
   function update<K extends keyof AdminWarFormState>(key: K, value: AdminWarFormState[K]) {
     onChange({ ...form, [key]: value });
@@ -2562,7 +2570,7 @@ function WarFields({
           </>
         ) : null}
         <label>
-          <span>Practical start time</span>
+          <span>{startTimeLabel}</span>
           {form.timeMode === "epoch" ? (
             <input inputMode="numeric" value={form.startEpoch} onChange={(event) => update("startEpoch", event.target.value)} required />
           ) : (
@@ -2570,7 +2578,7 @@ function WarFields({
           )}
         </label>
         <label>
-          <span>Practical finish time</span>
+          <span>{finishTimeLabel}</span>
           {form.timeMode === "epoch" ? (
             <input inputMode="numeric" value={form.finishEpoch} onChange={(event) => update("finishEpoch", event.target.value)} />
           ) : (
@@ -2611,7 +2619,7 @@ function WarFields({
       </label>
       {breakAfterWarType ? <div className="admin-form-spacer" aria-hidden="true" /> : null}
       <label>
-        <span>Practical start time</span>
+        <span>{startTimeLabel}</span>
         {form.timeMode === "epoch" ? (
           <input inputMode="numeric" value={form.startEpoch} onChange={(event) => update("startEpoch", event.target.value)} required />
         ) : (
@@ -2621,7 +2629,7 @@ function WarFields({
       {showFinishTimes ? (
         <>
           <label>
-            <span>Practical finish time</span>
+            <span>{finishTimeLabel}</span>
             {form.timeMode === "epoch" ? (
               <input inputMode="numeric" value={form.finishEpoch} onChange={(event) => update("finishEpoch", event.target.value)} />
             ) : (

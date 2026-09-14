@@ -233,7 +233,15 @@ export function WarDetailView({
                   </div>
                   <div className="war-time-lines">
                     <WarTimeLine
-                      label={isScheduledWar ? "Buttgrass start time" : "Buttgrass times"}
+                      label={
+                        isEvent
+                          ? isScheduledWar
+                            ? "Event start time"
+                            : "Event times"
+                          : isScheduledWar
+                            ? "Buttgrass start time"
+                            : "Buttgrass times"
+                      }
                       value={
                         isScheduledWar
                           ? formatLongDateTime(selectedWar.practical_start_time)
