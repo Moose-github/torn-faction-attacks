@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_DATA_HEALTH_SETTINGS,
   getAdminDataHealth,
@@ -542,6 +542,121 @@ describe("data health severity", () => {
   });
 });
 
+describe("shoplifting data health", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 0,
+      missing_donator_days: 0,
+      personalstats_target_date: "2025-12-31",
+      latest_personalstats_bucket_date: "2025-12-31",
+      personalstats_lag_days: 0,
+      affected_members: [],
+    });
+  });
+
+  it.each([
+    { age: 599, status: "good" },
+    { age: 600, status: "warn" },
+    { age: 601, status: "warn" },
+  ])("reports $status when the last successful fetch is $age seconds old", async ({ age, status }) => {
+    const fetchedAt = Math.floor(Date.now() / 1000) - age;
+    const response = await getAdminDataHealth(dataHealthEnv({
+      shopliftingCache: { fetched_at: fetchedAt, error: null },
+    }));
+    const body = await response.json() as {
+      overall_status: string;
+      subsystems: Array<{ key: string; status: string; updated_at: number }>;
+      issues: Array<{ key: string; status: string }>;
+    };
+
+    expect(body.overall_status).toBe(status);
+    expect(body.subsystems.find((subsystem) => subsystem.key === "shoplifting")).toMatchObject({
+      status,
+      updated_at: fetchedAt,
+      metrics: [
+        { label: "Last successful fetch", value: String(fetchedAt), timestamp: fetchedAt },
+        { label: "Warning after", value: "10m" },
+      ],
+    });
+    expect(body.issues.some((issue) => issue.key === "shoplifting")).toBe(status === "warn");
+  });
+
+  it("keeps warning when failed refresh attempts update the cache without valid data", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const response = await getAdminDataHealth(dataHealthEnv({
+      shopliftingCache: {
+        fetched_at: now - 900,
+        updated_at: now,
+        error: "Invalid Torn shoplifting response: expected shop-name security data",
+      },
+    }));
+    const body = await response.json() as { issues: Array<{ key: string; detail: string }> };
+
+    expect(body.issues.find((issue) => issue.key === "shoplifting")).toMatchObject({
+      status: "warn",
+      title: "No successful shoplifting fetch for at least 10m",
+      detail: expect.stringContaining("Invalid Torn shoplifting response"),
+      action_view: "miscellaneous",
+      action_label: "Open shoplifting",
+    });
+    expect(body.issues.find((issue) => issue.key === "shoplifting")?.detail)
+      .toContain("Last successful fetch: 2025-12-31 23:45:00 UTC");
+  });
+
+  it.each([
+    { label: "no cache row", cache: null },
+    { label: "no successful fetch", cache: { fetched_at: null, error: "Torn unavailable" } },
+  ])("flags $label", async ({ cache }) => {
+    const response = await getAdminDataHealth(dataHealthEnv({ shopliftingCache: cache }));
+    const body = await response.json() as { subsystems: Array<{ key: string }> };
+
+    expect(body.subsystems.find((subsystem) => subsystem.key === "shoplifting")).toMatchObject({
+      status: "warn",
+      summary: "No successful shoplifting fetch has been recorded",
+      updated_at: null,
+    });
+  });
+
+  it("waits for the ten-minute threshold after a temporary failure", async () => {
+    const response = await getAdminDataHealth(dataHealthEnv({
+      shopliftingCache: { fetched_at: Math.floor(Date.now() / 1000) - 60, error: "Temporary error" },
+    }));
+    const body = await response.json() as { subsystems: Array<{ key: string }>; issues: Array<{ key: string }> };
+
+    expect(body.subsystems.find((subsystem) => subsystem.key === "shoplifting")).toMatchObject({ status: "good" });
+    expect(body.issues.some((issue) => issue.key === "shoplifting")).toBe(false);
+  });
+
+  it("clears the warning after the next successful fetch", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const cache = { fetched_at: now - 900, error: null };
+    const env = dataHealthEnv({ shopliftingCache: cache });
+    const stale = await (await getAdminDataHealth(env)).json() as { overall_status: string };
+    expect(stale.overall_status).toBe("warn");
+
+    cache.fetched_at = now;
+    const fresh = await (await getAdminDataHealth(env)).json() as {
+      overall_status: string;
+      issues: Array<{ key: string }>;
+    };
+    expect(fresh.overall_status).toBe("good");
+    expect(fresh.issues.some((issue) => issue.key === "shoplifting")).toBe(false);
+  });
+
+  it("includes the warning in member Data Health without exposing the upstream error", async () => {
+    const response = await getDataHealthSummary(dataHealthEnv({
+      shopliftingCache: { fetched_at: Math.floor(Date.now() / 1000) - 600, error: "upstream diagnostic" },
+    }));
+    const body = await response.json() as { overall_status: string; subsystems: Array<{ key: string }> };
+
+    expect(body.overall_status).toBe("warn");
+    expect(body.subsystems.find((subsystem) => subsystem.key === "shoplifting")).toMatchObject({ status: "warn" });
+    expect(JSON.stringify(body)).not.toContain("upstream diagnostic");
+  });
+});
+
 function settingsEnv(settings: Record<string, unknown>, save: () => void): Env {
   return {
     DB: {
@@ -566,6 +681,7 @@ function dataHealthEnv({
   settings = DEFAULT_DATA_HEALTH_SETTINGS,
   ingestionRun,
   latestAttackStarted = null,
+  shopliftingCache = { fetched_at: Math.floor(Date.now() / 1000), error: null },
   maintenanceRun = successfulMaintenanceRun(),
   gymLatestDate = "2025-12-31",
   completedGymStats = ["gymenergy", "gymstrength", "gymspeed", "gymdefense", "gymdexterity"],
@@ -590,6 +706,7 @@ function dataHealthEnv({
   settings?: Record<string, unknown>;
   ingestionRun?: Record<string, unknown>;
   latestAttackStarted?: number | null;
+  shopliftingCache?: Record<string, unknown> | null;
   maintenanceRun?: Record<string, unknown>;
   gymLatestDate?: string;
   completedGymStats?: string[];
@@ -614,6 +731,7 @@ function dataHealthEnv({
             settings,
             ingestionRun,
             latestAttackStarted,
+            shopliftingCache,
             gymLatestDate,
             staleGymMembers,
             apiRollupSummary,
@@ -652,6 +770,7 @@ function firstRowForDataHealthQuery(
     settings: Record<string, unknown>;
     ingestionRun?: Record<string, unknown>;
     latestAttackStarted: number | null;
+    shopliftingCache: Record<string, unknown> | null;
     gymLatestDate: string;
     staleGymMembers: number;
     apiRollupSummary: Record<string, unknown>;
@@ -670,6 +789,7 @@ function firstRowForDataHealthQuery(
     return options.ingestionRun ?? successfulIngestionRun(Math.floor(Date.now() / 1000));
   }
   if (sql.includes("FROM attacks")) return { latest_attack_started: options.latestAttackStarted };
+  if (sql.includes("FROM torn_shoplifting_cache")) return options.shopliftingCache;
   if (sql.includes("FROM scheduled_maintenance_runs")) return maintenanceRun;
   if (sql.includes("FROM member_lifestyle_stat_snapshots snapshots") && sql.includes("snapshots.gym_ready = 1")) {
     return { snapshot_date: options.gymLatestDate };

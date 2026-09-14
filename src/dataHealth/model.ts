@@ -256,11 +256,17 @@ export type EnemyScoutingGapRow = {
   updated_at: number | null;
 };
 
+export type ShopliftingHealthRow = {
+  fetched_at: number | null;
+  error: string | null;
+};
+
 export type DataHealthSnapshot = {
   now: number;
   settings: DataHealthSettings;
   ingestion: IngestionRunRow | null;
   latestAttackStarted: number | null;
+  shoplifting: ShopliftingHealthRow;
   maintenance: MaintenanceRunRow | null;
   maintenanceTasks: MaintenanceTaskRow[];
   dailyStats: Awaited<ReturnType<typeof getDailyStatsAttention>>;
@@ -311,6 +317,7 @@ export const KEY_HEALTH_WINDOW_SECONDS = 24 * 60 * 60;
 export const DEFAULT_ADMIN_API_USAGE_WINDOW_SECONDS = 60 * 60;
 export const MAX_ADMIN_API_USAGE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 export const HEALTH_CACHE_TIME_SECONDS = 30;
+export const SHOPLIFTING_WARN_SECONDS = 10 * 60;
 export const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "war_reports"]);
 
 export const STATUS_RANK: Record<DataHealthStatus, number> = {

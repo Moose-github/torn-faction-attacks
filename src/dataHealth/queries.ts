@@ -25,6 +25,7 @@ import {
   type PersonalStatsCoverageGapRow,
   type PersonalStatsCoverageRow,
   type RosterHealthRow,
+  type ShopliftingHealthRow,
   type StockCoverageRow,
   type StockRunRow,
   type WarReportHealthRow,
@@ -597,6 +598,22 @@ export async function readStockCoverage(env: Env, now: number, settings: DataHea
     oldest_snapshot_at: nullableNumber(row?.oldest_snapshot_at),
     newest_snapshot_at: nullableNumber(row?.newest_snapshot_at),
     stale_stocks: Number(row?.stale_stocks ?? 0),
+  };
+}
+
+export async function readShopliftingHealth(env: Env): Promise<ShopliftingHealthRow> {
+  // Failed attempts update updated_at, but only validated data advances fetched_at.
+  const row = await env.DB.prepare(
+    `
+    SELECT fetched_at, error
+    FROM torn_shoplifting_cache
+    WHERE id = 1
+    LIMIT 1
+    `,
+  ).first<ShopliftingHealthRow>();
+  return {
+    fetched_at: row?.fetched_at ?? null,
+    error: row?.error ?? null,
   };
 }
 

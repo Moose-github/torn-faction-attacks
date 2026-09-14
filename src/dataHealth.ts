@@ -13,6 +13,7 @@ import {
   HEALTH_CACHE_TIME_SECONDS,
   KEY_HEALTH_WINDOW_SECONDS,
   MAX_ADMIN_API_USAGE_WINDOW_SECONDS,
+  SHOPLIFTING_WARN_SECONDS,
   STATUS_RANK,
   statusForAgeSeconds,
   statusForCount,
@@ -43,6 +44,7 @@ import {
   readPersonalStatsCoverageGaps,
   readRecentApiErrors,
   readRosterHealth,
+  readShopliftingHealth,
   readStockCoverage,
   readStockLastError,
   readWarReportHealth,
@@ -154,6 +156,7 @@ async function readDataHealthSnapshot(
   const [
     ingestion,
     latestAttack,
+    shoplifting,
     maintenance,
     dailyStats,
     roster,
@@ -174,6 +177,7 @@ async function readDataHealthSnapshot(
   ] = await Promise.all([
     readLatestIngestionRun(env),
     readLatestAttackStarted(env),
+    readShopliftingHealth(env),
     readLatestMaintenance(env),
     getDailyStatsAttention(env),
     readRosterHealth(env),
@@ -206,6 +210,7 @@ async function readDataHealthSnapshot(
     settings,
     ingestion,
     latestAttackStarted: latestAttack,
+    shoplifting,
     maintenance: maintenance.run,
     maintenanceTasks: maintenance.tasks,
     dailyStats,
@@ -264,6 +269,7 @@ function subsystemsFromSnapshot(snapshot: DataHealthSnapshot): DataHealthSubsyst
     gymStatsSubsystem(snapshot),
     apiSubsystem(snapshot),
     stockSubsystem(snapshot),
+    shopliftingSubsystem(snapshot),
     warReportsSubsystem(snapshot),
   ];
 }
@@ -514,6 +520,27 @@ function stockSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   };
 }
 
+function shopliftingSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
+  const fetchedAt = snapshot.shoplifting.fetched_at;
+  const stale = fetchedAt === null || snapshot.now - fetchedAt >= SHOPLIFTING_WARN_SECONDS;
+  const warningAfter = formatDurationLabel(SHOPLIFTING_WARN_SECONDS);
+  return {
+    key: "shoplifting",
+    label: "Shoplifting",
+    status: stale ? "warn" : "good",
+    summary: fetchedAt === null
+      ? "No successful shoplifting fetch has been recorded"
+      : stale
+        ? `No successful shoplifting fetch for at least ${warningAfter}`
+        : "Shoplifting data is up to date",
+    updated_at: fetchedAt,
+    metrics: [
+      { label: "Last successful fetch", value: formatTimestampMetric(fetchedAt), timestamp: fetchedAt },
+      { label: "Warning after", value: warningAfter },
+    ],
+  };
+}
+
 function warReportsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
   const missing = snapshot.warReports.missing_reports;
   return {
@@ -545,6 +572,13 @@ function issuesFromSnapshot(snapshot: DataHealthSnapshot, subsystems: DataHealth
 }
 
 function issueDetailForSubsystem(snapshot: DataHealthSnapshot, subsystem: DataHealthSubsystem): string {
+  if (subsystem.key === "shoplifting") {
+    return [
+      `Last successful fetch: ${formatTimestampLabel(snapshot.shoplifting.fetched_at)}`,
+      `warning after: ${formatDurationLabel(SHOPLIFTING_WARN_SECONDS)}`,
+      ...(snapshot.shoplifting.error ? [`Latest refresh error: ${snapshot.shoplifting.error}`] : []),
+    ].join("; ");
+  }
   if (subsystem.key === "ingestion") {
     if (snapshot.ingestion?.error) return snapshot.ingestion.error;
     const completedAt = snapshot.ingestion?.finished_at ?? snapshot.ingestion?.started_at ?? null;
@@ -583,6 +617,7 @@ function issueDetailForSubsystem(snapshot: DataHealthSnapshot, subsystem: DataHe
 }
 
 function actionForSubsystem(key: string): { view: string; label: string } | null {
+  if (key === "shoplifting") return { view: "miscellaneous", label: "Open shoplifting" };
   if (key === "stock_data") return { view: "stockMarketStatus", label: "Open stock market" };
   if (key === "personal_stats" || key === "gym_stats" || key === "roster") return { view: "lifestyle", label: "Open member stats" };
   if (key === "war_reports") return { view: "admin", label: "Open admin controls" };

@@ -61,7 +61,7 @@ const SETTING_FIELDS: Array<{
 ];
 
 const ADMIN_ONLY_SUBSYSTEM_KEYS = new Set(["maintenance", "war_reports"]);
-const PRECISE_RELATIVE_METRIC_LABELS = new Set(["Last poll", "Latest snapshot"]);
+const PRECISE_RELATIVE_METRIC_LABELS = new Set(["Last poll", "Latest snapshot", "Last successful fetch"]);
 const DATA_HEALTH_REFRESH_MS = 30 * 1000;
 const API_USAGE_WINDOW_OPTIONS = [
   { seconds: 60 * 60, label: "1h", summaryLabel: "1h" },
@@ -1089,6 +1089,7 @@ function subsystemDescription(key: string): string {
   if (key === "roster") return "Checks current faction members data.";
   if (key === "torn_api") return "Checks recent Torn API failures and rate limits that can slow updates.";
   if (key === "stock_data") return "Checks stock profile and price snapshot freshness.";
+  if (key === "shoplifting") return "Warns after 10 minutes without a successful shoplifting data refresh.";
   if (key === "war_reports") return "Checks ended wars that still need official Torn reports reconciled.";
   return "Checks one dashboard data source for freshness and coverage.";
 }
