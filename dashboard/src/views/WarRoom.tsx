@@ -111,16 +111,14 @@ export function WarRoom({
   const trackingCadenceRef = React.useRef<HTMLElement | null>(null);
   const isEventRoom = selectedWar?.war_type === "event";
   const canLoadEnemyWarRoom = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
-  const canLoadActivityHeatmap = Boolean(selectedWarName && selectedWar && (canLoadEnemyWarRoom || isEventRoom));
+  const canLoadActivityHeatmap = Boolean(selectedWarName && selectedWar && canLoadEnemyWarRoom && !isEventRoom);
   const isSelectedGlobalWar = activeWarId !== null && selectedWar?.id === activeWarId;
   const isWarLive = warState === "current" && isSelectedGlobalWar;
   const nowMs = useCurrentTimeMs();
   const isMemberTrackingActive = selectedWar && isSelectedGlobalWar
     ? isWarRoomMemberTrackingActive(selectedWar, Math.floor(nowMs / 1000))
     : false;
-  const isActivityHeatmapsOpen = isEventRoom
-    ? collapsedPanels.eventActivityHeatmap !== true
-    : collapsedPanels.activityHeatmaps === false;
+  const isActivityHeatmapsOpen = !isEventRoom && collapsedPanels.activityHeatmaps === false;
   const bigHitterActivityMemberIds = React.useMemo(
     () => (enemyBigHitters?.big_hitters ?? []).map((member) => member.member_id),
     [enemyBigHitters],
@@ -849,24 +847,10 @@ export function WarRoom({
             isEvent
           />
 
-          <CollapsiblePanel
-            title="Buttgrass activity heatmap"
-            aside={isLoadingActivityHeatmap ? "Loading" : eventHeatmapHeaderAside(trackingMode)}
-            collapsed={collapsedPanels.eventActivityHeatmap ?? false}
-            onToggle={() => togglePanel("eventActivityHeatmap")}
-            className="heatmap-panel"
-          >
-            <EventActivityHeatmapPanel activityHeatmap={activityHeatmap} />
-          </CollapsiblePanel>
-
-          <EventUnavailableToolsPanel />
-
           <EventTrackingStatusPanel
             ref={trackingCadenceRef}
             mode={trackingMode}
-            heatmapSampledAt={latestHeatmapSampledAt}
             chainWatchUpdatedAt={chainWatch?.state?.last_checked_at ?? null}
-            heatmapOpen={isActivityHeatmapsOpen}
           />
         </section>
       </>
@@ -1157,56 +1141,12 @@ function WarRoomHero({
   );
 }
 
-function EventActivityHeatmapPanel({
-  activityHeatmap,
-}: {
-  activityHeatmap: FactionActivityHeatmapResponse | null;
-}) {
-  const factionId = activityHeatmap?.home_faction_id ?? null;
-  const rows = activityHeatmap?.rows ?? [];
-
-  return (
-    <>
-      <p className="panel-description">
-        Shows when Buttgrass is usually active, based on Torn last-action times and scaled against faction average.
-      </p>
-      {factionId === null || rows.length === 0 ? (
-        <EmptyState text="No Buttgrass activity heatmap samples yet" />
-      ) : (
-        <div className="heatmap-stack heatmap-stack-single">
-          <FactionActivityHeatmap
-            rows={rows}
-            factionId={factionId}
-            label="Buttgrass"
-            color="blue"
-          />
-        </div>
-      )}
-    </>
-  );
-}
-
-function EventUnavailableToolsPanel() {
-  return (
-    <section className="panel war-room-event-unavailable-panel">
-      <PanelHeader title="Enemy scouting unavailable" aside="No enemy faction" />
-      <p className="panel-description">
-        Events do not target a specific enemy faction, so enemy status, travel, hospital monitor, push pressure, stats comparison, big hitters, and hit trend tools are hidden here.
-      </p>
-    </section>
-  );
-}
-
 const EventTrackingStatusPanel = React.forwardRef<HTMLElement, {
   mode: TrackingMode;
-  heatmapSampledAt: number | null;
   chainWatchUpdatedAt: number | null;
-  heatmapOpen: boolean;
 }>(function EventTrackingStatusPanel({
   mode,
-  heatmapSampledAt,
   chainWatchUpdatedAt,
-  heatmapOpen,
 }, ref) {
   const chainCadence = mode === "live" ? "15s / alarms" : mode === "pre-live" ? "Starts live" : "Paused";
   const chainDetail = mode === "live"
@@ -1214,10 +1154,6 @@ const EventTrackingStatusPanel = React.forwardRef<HTMLElement, {
     : mode === "pre-live"
       ? "Starts when the selected event becomes active."
       : "Paused outside the selected event's active window.";
-  const heatmapCadence = eventHeatmapHeaderAside(mode);
-  const heatmapDetail = heatmapOpen
-    ? "Loads home faction activity samples while this section is open."
-    : "Loads home faction activity samples when opened.";
 
   return (
     <section ref={ref} className="panel war-room-tracking-status-panel">
@@ -1226,12 +1162,6 @@ const EventTrackingStatusPanel = React.forwardRef<HTMLElement, {
         Event Room only shows tracking that does not depend on a linked enemy faction.
       </p>
       <div className="tracking-status-grid">
-        <TrackingStatusItem
-          label="Buttgrass activity heatmap"
-          value={heatmapCadence}
-          updatedAt={heatmapSampledAt}
-          detail={heatmapDetail}
-        />
         <TrackingStatusItem
           label="Chain Watch"
           value={chainCadence}
@@ -1536,10 +1466,6 @@ function TrackingStatusItem({
 
 function heatmapHeaderAside(mode: TrackingMode): string {
   return mode === "inactive" ? "View only" : "Every 15m";
-}
-
-function eventHeatmapHeaderAside(mode: TrackingMode): string {
-  return mode === "live" ? "Every 15m" : "View only";
 }
 
 type TrackingFreshness = {
