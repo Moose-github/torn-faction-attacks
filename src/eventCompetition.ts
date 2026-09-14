@@ -224,6 +224,9 @@ export function projectTreatReadings(samples: CompetitionSnapshot[], start: numb
 
 export async function readEventCompetition(env: Env, war: WarRow) {
   if (war.war_type !== "event" || !war.event_type || war.event_type === "general") return null;
+  const eliminatedTeams = war.event_type === "elimination"
+    ? await env.DB.prepare("SELECT team_name FROM event_competition_eliminated_teams WHERE war_id = ? ORDER BY team_name")
+      .bind(war.id).all<{ team_name: string }>() : { results: [] };
   const state = await env.DB.prepare("SELECT * FROM event_competition_state WHERE war_id = ?").bind(war.id)
     .first<{ initialized_at: number; final_requested_at: number | null; finish_at: number | null }>();
   const rows = await env.DB.prepare(`SELECT * FROM event_competition_members
@@ -252,6 +255,7 @@ export async function readEventCompetition(env: Env, war: WarRow) {
   });
   return {
     event_type: war.event_type, refresh_hours: war.competition_refresh_hours ?? 6,
+    eliminated_teams: (eliminatedTeams.results ?? []).map(row => row.team_name),
     initialized_at: state?.initialized_at ?? null, final_requested_at: state?.final_requested_at ?? null,
     members, total_treats_gained: projection.members.size ? projection.total : null, history: projection.history,
     next_refresh_at: war.status === "active" && (rows.results ?? []).some(row => row.poll_due_at !== null)
@@ -262,5 +266,35 @@ export async function readEventCompetition(env: Env, war: WarRow) {
 export async function getEventCompetition(url: URL, env: Env): Promise<Response> {
   const war = await readWarFromUrl(url, env);
   if (war instanceof Response) return war;
+  return json({ ok: true, competition: await readEventCompetition(env, war) });
+}
+
+export async function updateEliminationTeamStatus(request: Request, url: URL, env: Env): Promise<Response> {
+  const war = await readWarFromUrl(url, env);
+  if (war instanceof Response) return war;
+  if (war.war_type !== "event" || war.event_type !== "elimination") {
+    return json({ ok: false, error: "Team status is only available for Elimination events", code: "INVALID_EVENT_TYPE" }, 400);
+  }
+  let body: { team_name?: unknown; eliminated?: unknown } | null;
+  try { body = await request.json(); } catch {
+    return json({ ok: false, error: "Invalid JSON body", code: "INVALID_JSON" }, 400);
+  }
+  if (!body || typeof body.team_name !== "string" || !body.team_name.trim() || typeof body.eliminated !== "boolean") {
+    return json({ ok: false, error: "A team name and eliminated boolean are required", code: "INVALID_TEAM_STATUS" }, 400);
+  }
+  const team = await env.DB.prepare(`SELECT team_name FROM event_competition_members
+    WHERE war_id = ? AND team_name = ? AND participation = 'participating' LIMIT 1`)
+    .bind(war.id, body.team_name.trim()).first<{ team_name: string }>();
+  if (!team) {
+    return json({ ok: false, error: "Team is not part of this event's captured roster", code: "UNKNOWN_EVENT_TEAM" }, 400);
+  }
+  if (body.eliminated) {
+    await env.DB.prepare(`INSERT INTO event_competition_eliminated_teams (war_id, team_name, eliminated_at)
+      VALUES (?, ?, ?) ON CONFLICT(war_id, team_name) DO NOTHING`).bind(war.id, team.team_name, nowSeconds()).run();
+  } else {
+    await env.DB.prepare("DELETE FROM event_competition_eliminated_teams WHERE war_id = ? AND team_name = ?")
+      .bind(war.id, team.team_name).run();
+  }
+  await bumpWarCacheVersionById(env, war.id);
   return json({ ok: true, competition: await readEventCompetition(env, war) });
 }

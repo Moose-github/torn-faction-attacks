@@ -1,5 +1,5 @@
 import { warCacheVersionNames } from "../cacheVersions";
-import { getEventCompetition } from "../eventCompetition";
+import { getEventCompetition, updateEliminationTeamStatus } from "../eventCompetition";
 import {
   getChainWatchForWar,
   updateChainWatchForWar,
@@ -95,6 +95,10 @@ export async function routeWarCommands(routeContext: RouteContext): Promise<Rout
 
   if (isWarSubroute(url, request, "/chain-watch", "POST")) {
     return withAdmin(routeContext, () => updateChainWatchForWar(request, url, env));
+  }
+
+  if (isWarSubroute(url, request, "/competition/team-status", "POST")) {
+    return withAdmin(routeContext, () => updateEliminationTeamStatus(request, url, env));
   }
 
   if (isWarSubroute(url, request, "/enemy-big-hitters", "POST")) {

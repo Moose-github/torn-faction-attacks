@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireAdmin } from "../auth";
+import { updateEliminationTeamStatus } from "../eventCompetition";
 import {
   addEnemyBigHitterForWar,
   removeEnemyBigHitterForWar,
@@ -41,6 +42,11 @@ vi.mock("../cacheVersions", () => ({
 vi.mock("../chainWatch", () => ({
   getChainWatchForWar: vi.fn(),
   updateChainWatchForWar: vi.fn(),
+}));
+
+vi.mock("../eventCompetition", () => ({
+  getEventCompetition: vi.fn(),
+  updateEliminationTeamStatus: vi.fn(),
 }));
 
 vi.mock("../enemyPushPressure", () => ({
@@ -124,6 +130,7 @@ describe("war command routes", () => {
     vi.mocked(refreshEnemyScoutingForWar).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-scouting" }));
     vi.mocked(addEnemyBigHitterForWar).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-big-hitters-add" }));
     vi.mocked(removeEnemyBigHitterForWar).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-big-hitters-remove" }));
+    vi.mocked(updateEliminationTeamStatus).mockResolvedValue(jsonResponse({ ok: true, route: "elimination-team-status" }));
   });
 
   it("routes historical war imports through admin auth", async () => {
@@ -224,6 +231,7 @@ describe("war command routes", () => {
   it.each([
     ["/api/wars/current/enemy-big-hitters", addEnemyBigHitterForWar, "enemy-big-hitters-add"],
     ["/api/wars/current/enemy-big-hitters/remove", removeEnemyBigHitterForWar, "enemy-big-hitters-remove"],
+    ["/api/wars/current/competition/team-status", updateEliminationTeamStatus, "elimination-team-status"],
   ])("routes %s through admin auth", async (path, handler, routeName) => {
     const context = routeContext(`https://worker.test${path}`, {
       method: "POST",
@@ -245,5 +253,14 @@ describe("war command routes", () => {
 
     expect(response).toBeNull();
     expect(requireAdmin).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403])("rejects team status changes when admin auth returns %i", async status => {
+    vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, status));
+    const response = await routeWarCommands(routeContext("https://worker.test/api/wars/current/competition/team-status", {
+      method: "POST", body: JSON.stringify({ team_name: "Loose Cannons", eliminated: true }),
+    }));
+    expect(response?.status).toBe(status);
+    expect(updateEliminationTeamStatus).not.toHaveBeenCalled();
   });
 });

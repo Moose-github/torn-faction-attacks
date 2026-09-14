@@ -5,7 +5,9 @@ import type { Env, WarRow } from "../src/types";
 import {
   ensureEventCompetitionStarted, parseCompetitionReading, parseEventCompetitionSettings,
   readEventCompetition, requestEventCompetitionFinish, rescheduleEventCompetition, runEventCompetitionCron,
+  updateEliminationTeamStatus,
 } from "../src/eventCompetition";
+import { bumpWarCacheVersionById } from "../src/cacheVersions";
 import { fetchTrackedTornJson } from "../src/external/torn";
 import { createManualEvent, updateEvent } from "../src/wars";
 
@@ -48,6 +50,10 @@ function elimination(team: string) {
   return { competition: { name: "Elimination", team, team_id: null, score: 645, attacks: 11 } };
 }
 async function view() { return (await readEventCompetition(env, db.prepare("SELECT * FROM wars WHERE id = 1").get() as unknown as WarRow))!; }
+async function setTeamStatus(body: unknown, name = "Test event") {
+  const url = new URL(`https://test/api/wars/${encodeURIComponent(name)}/competition/team-status`);
+  return updateEliminationTeamStatus(new Request(url, { method: "POST", body: JSON.stringify(body) }), url, env);
+}
 async function finish(seconds: number) {
   at(seconds);
   db.prepare("UPDATE wars SET status = 'ended', practical_finish_time = ? WHERE id = 1").run(seconds);
@@ -284,6 +290,72 @@ describe("event competition collection", () => {
       upgrade.exec("CREATE TABLE wars(id INTEGER PRIMARY KEY, war_type TEXT); INSERT INTO wars VALUES (1, 'event');");
       upgrade.exec(readFileSync(new URL("../migrations/0144_add_event_competitions.sql", import.meta.url), "utf8"));
       expect(upgrade.prepare("SELECT event_type, competition_refresh_hours FROM wars").get()).toMatchObject({ event_type: "general", competition_refresh_hours: 6 });
+    } finally { upgrade.close(); }
+  });
+
+  it("stores visual team status per event without changing collected data or calling Torn", async () => {
+    war("elimination"); member(1); member(2); member(3);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce(elimination("Loose Cannons"))
+      .mockResolvedValueOnce(elimination("Unknown")).mockResolvedValueOnce(elimination("Other team"));
+    await runEventCompetitionCron(env);
+    const before = await view();
+    const storedBefore = db.prepare("SELECT * FROM event_competition_members").all();
+    vi.clearAllMocks();
+    expect((await setTeamStatus({ team_name: "Loose Cannons", eliminated: true })).status).toBe(200);
+    expect((await setTeamStatus({ team_name: "Other team", eliminated: true })).status).toBe(200);
+    expect((await setTeamStatus({ team_name: "Loose Cannons", eliminated: true })).status).toBe(200);
+    const after = await view();
+    expect(after.eliminated_teams).toEqual(["Loose Cannons", "Other team"]);
+    expect(after.members).toEqual(before.members);
+    expect(db.prepare("SELECT * FROM event_competition_members").all()).toEqual(storedBefore);
+    expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+    expect(bumpWarCacheVersionById).toHaveBeenCalledWith(env, 1);
+    db.prepare(`INSERT INTO wars(id, name, status, practical_start_time, war_type, event_type)
+      VALUES (2, 'Second event', 'ended', ?, 'event', 'elimination')`).run(START);
+    const second = db.prepare("SELECT * FROM wars WHERE id = 2").get() as unknown as WarRow;
+    expect((await readEventCompetition(env, second))?.eliminated_teams).toEqual([]);
+    await setTeamStatus({ team_name: "Loose Cannons", eliminated: false });
+    await setTeamStatus({ team_name: "Loose Cannons", eliminated: false });
+    expect((await view()).eliminated_teams).toEqual(["Other team"]);
+    db.exec("DELETE FROM wars WHERE id = 1");
+    expect(db.prepare("SELECT COUNT(*) AS n FROM event_competition_eliminated_teams").get()?.n).toBe(0);
+  });
+
+  it.each([
+    null, {}, { team_name: "", eliminated: true }, { team_name: "Loose Cannons", eliminated: "true" },
+    { team_name: "Unknown", eliminated: true }, { team_name: "Not participating", eliminated: true },
+    { team_name: "Other event's team", eliminated: true },
+  ])("rejects invalid or uncaptured teams: %j", async body => {
+    war("elimination"); member();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue(elimination("Loose Cannons"));
+    await runEventCompetitionCron(env);
+    expect((await setTeamStatus(body)).status).toBe(400);
+    expect((await view()).eliminated_teams).toEqual([]);
+  });
+
+  it.each(["halloween", "general"])("rejects manual team status for %s events", async type => {
+    war(type);
+    expect((await setTeamStatus({ team_name: "Loose Cannons", eliminated: true })).status).toBe(400);
+  });
+
+  it("rejects missing events and malformed JSON", async () => {
+    expect((await setTeamStatus({ team_name: "Loose Cannons", eliminated: true })).status).toBe(404);
+    war("elimination");
+    const url = new URL("https://test/api/wars/Test%20event/competition/team-status");
+    const response = await updateEliminationTeamStatus(new Request(url, { method: "POST", body: "{" }), url, env);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "INVALID_JSON" });
+  });
+
+  it("adds the visual team table to an existing schema without modifying events", () => {
+    const upgrade = new DatabaseSync(":memory:");
+    try {
+      upgrade.exec("PRAGMA foreign_keys = ON; CREATE TABLE wars(id INTEGER PRIMARY KEY); INSERT INTO wars VALUES (1);");
+      upgrade.exec(readFileSync(new URL("../migrations/0145_add_eliminated_event_teams.sql", import.meta.url), "utf8"));
+      upgrade.prepare("INSERT INTO event_competition_eliminated_teams VALUES (1, 'Loose Cannons', ?)").run(START);
+      expect(upgrade.prepare("SELECT * FROM wars").all()).toEqual([{ id: 1 }]);
+      upgrade.exec("DELETE FROM wars WHERE id = 1");
+      expect(upgrade.prepare("SELECT * FROM event_competition_eliminated_teams").all()).toEqual([]);
     } finally { upgrade.close(); }
   });
 });

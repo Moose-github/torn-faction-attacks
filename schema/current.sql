@@ -1371,6 +1371,13 @@ CREATE TABLE event_competition_snapshots (
 );
 CREATE INDEX event_competition_history ON event_competition_snapshots(war_id, observed_at);
 
+CREATE TABLE event_competition_eliminated_teams (
+  war_id INTEGER NOT NULL REFERENCES wars(id) ON DELETE CASCADE,
+  team_name TEXT NOT NULL,
+  eliminated_at INTEGER NOT NULL,
+  PRIMARY KEY (war_id, team_name)
+);
+
 CREATE INDEX idx_attacks_attacker_faction_started
   ON attacks(attacker_faction_id, started DESC, id DESC);
 

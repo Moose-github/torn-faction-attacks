@@ -21,3 +21,16 @@
 .event-competition-note { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .event-team-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 22px; padding-top: 12px; }
 .event-team-counts > div { display: flex; gap: 12px; justify-content: space-between; overflow-wrap: anywhere; }
+.event-team-admin { border-top: 1px solid var(--border-solid); margin-top: 20px; padding: 20px 0; min-width: 0; }
+.event-team-admin-form { display: flex; align-items: end; flex-wrap: wrap; gap: 16px 24px; margin-top: 16px; }
+.event-team-admin-form > label:first-child { display: flex; flex-direction: column; gap: 8px; min-width: 0; max-width: 100%; }
+.event-team-admin-form select { width: 280px; max-width: 100%; }
+.event-team-eliminated-toggle { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.event-team-eliminated-toggle input { width: 16px; height: 16px; }
+.event-team-save-status { font-size: 13px; align-self: center; overflow-wrap: anywhere; }
+tbody tr.event-inactive-row { --inactive-text: #62666e; --inactive-bg: #f3f4f6; filter: grayscale(1); }
+:root[data-theme="dark"] tbody tr.event-inactive-row { --inactive-text: #a1a1aa; --inactive-bg: #27272a; }
+/* Keep this visual state consistent across table striping, selection, and themes. */
+tbody tr.event-inactive-row > td { color: var(--inactive-text) !important; background: var(--inactive-bg) !important; }
+tbody tr.event-inactive-row > td * { color: inherit !important; }
+.event-eliminated-label { display: block; font-size: 12px; }

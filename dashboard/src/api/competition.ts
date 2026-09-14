@@ -1,4 +1,4 @@
-import { getJson } from "./client";
+import { getJson, postJson } from "./client";
 
 export type CompetitionMember = {
   member_id: number;
@@ -16,6 +16,7 @@ export type CompetitionMember = {
 
 export type EventCompetition = {
   event_type: "elimination" | "halloween";
+  eliminated_teams: string[];
   refresh_hours: 6 | 12;
   initialized_at: number | null;
   final_requested_at: number | null;
@@ -27,4 +28,10 @@ export type EventCompetition = {
 
 export function getEventCompetition(name: string) {
   return getJson<{ ok: boolean; competition: EventCompetition | null }>(`/api/wars/${encodeURIComponent(name)}/competition`);
+}
+
+export function updateEliminationTeamStatus(name: string, teamName: string, eliminated: boolean) {
+  return postJson<{ ok: boolean; competition: EventCompetition }>(`/api/wars/${encodeURIComponent(name)}/competition/team-status`, {
+    team_name: teamName, eliminated,
+  });
 }

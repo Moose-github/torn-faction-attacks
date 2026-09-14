@@ -14,7 +14,7 @@ import { ActivityChart, AttackChart, MemberPointGraphs } from "../components/Cha
 import { ChainBonusList } from "../components/ChainBonuses";
 import { CollapsiblePanel, EmptyState, InlineMetric, MetricCard, PanelHeader } from "../components/Common";
 import { MemberCombatHeatmap } from "../components/MemberCombatHeatmap";
-import { EventCompetitionPanel, TreatsLeaderboardTile, useEventCompetition } from "../components/EventCompetition";
+import { EliminationTeamAdmin, EventCompetitionPanel, TreatsLeaderboardTile, useEventCompetition } from "../components/EventCompetition";
 import type { EventCompetition } from "../api/competition";
 import { MemberAttackList, MemberTable } from "../components/MemberTables";
 import {
@@ -577,6 +577,9 @@ export function WarDetailView({
                     onSortChange={onMemberAttackSortChange}
                   />
                 </section>
+              ) : null}
+              {isAdmin && isEvent && selectedWar.event_type === "elimination" ? (
+                <EliminationTeamAdmin key={`team-status-${selectedWar.id}`} war={selectedWar} data={competition.data} onUpdate={competition.applyUpdate} />
               ) : null}
     </>
   );

@@ -1,14 +1,23 @@
 import React from "react";
-import { ArrowDown, ArrowUp, Candy, Flag, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowUp, Candy, Flag, RefreshCw, Shield } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { WarSummary } from "../api";
-import { getEventCompetition, type CompetitionMember, type EventCompetition } from "../api/competition";
+import { getEventCompetition, updateEliminationTeamStatus, type CompetitionMember, type EventCompetition } from "../api/competition";
 import { EmptyState, PanelHeader } from "./Common";
 import { formatDate, formatLongDateTime, formatNumber } from "../utils/format";
+import { eliminationRowStatus } from "../utils/eventCompetition";
 import "./eventCompetition.css";
 
 export function useEventCompetition(war: WarSummary) {
   const [result, setResult] = React.useState<{ name: string; data: EventCompetition | null; error: string | null }>({ name: "", data: null, error: null });
+  const revision = React.useRef(0);
+  const activeName = React.useRef(war.name);
+  activeName.current = war.name;
+  const applyUpdate = React.useCallback((data: EventCompetition) => {
+    if (activeName.current !== war.name) return;
+    revision.current += 1;
+    setResult({ name: war.name, data, error: null });
+  }, [war.name]);
   const enabled = war.war_type === "event" && Boolean(war.event_type && war.event_type !== "general");
   React.useEffect(() => {
     if (!enabled) return;
@@ -17,18 +26,57 @@ export function useEventCompetition(war: WarSummary) {
     async function refresh() {
       if (running) return;
       running = true;
+      const startedRevision = revision.current;
       try {
         const response = await getEventCompetition(war.name);
-        if (!cancelled) setResult({ name: war.name, data: response.competition, error: null });
+        if (!cancelled && revision.current === startedRevision) setResult({ name: war.name, data: response.competition, error: null });
       } catch {
-        if (!cancelled) setResult(previous => ({ name: war.name, data: previous.name === war.name ? previous.data : null, error: "Competition data could not be loaded" }));
+        if (!cancelled && revision.current === startedRevision) setResult(previous => ({ name: war.name, data: previous.name === war.name ? previous.data : null, error: "Competition data could not be loaded" }));
       } finally { running = false; }
     }
     void refresh();
     const timer = window.setInterval(() => void refresh(), 60000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [enabled, war.name, war.event_type, war.status, war.practical_start_time, war.practical_finish_time, war.competition_refresh_hours]);
-  return { enabled, data: enabled && result.name === war.name ? result.data : null, error: enabled && result.name === war.name ? result.error : null };
+  return { enabled, data: enabled && result.name === war.name ? result.data : null, error: enabled && result.name === war.name ? result.error : null, applyUpdate };
+}
+
+export function EliminationTeamAdmin({ war, data, onUpdate }: {
+  war: WarSummary; data: EventCompetition | null; onUpdate: (data: EventCompetition) => void;
+}) {
+  const [team, setTeam] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [message, setMessage] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const teams = [...new Set((data?.members ?? []).flatMap(member =>
+    member.participation === "participating" && member.team_name ? [member.team_name] : []))].sort();
+  const selectedTeam = teams.includes(team) ? team : teams[0] ?? "";
+  const eliminated = data?.eliminated_teams?.includes(selectedTeam) ?? false;
+  async function save(value: boolean) {
+    if (saving || !selectedTeam) return;
+    setSaving(true); setError(null); setMessage("");
+    try {
+      const response = await updateEliminationTeamStatus(war.name, selectedTeam, value);
+      onUpdate(response.competition);
+      setMessage(`${selectedTeam} ${value ? "marked eliminated" : "restored"}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Team status could not be saved");
+    } finally { setSaving(false); }
+  }
+  return <section className="event-team-admin" aria-label="Elimination team controls">
+    <PanelHeader icon={<Shield size={17} />} title="Elimination team status" aside="Admin only" />
+    <div className="event-team-admin-form">
+      <label><span>Team status</span><select value={selectedTeam} disabled={saving || !teams.length}
+        onChange={event => { setTeam(event.target.value); setError(null); setMessage(""); }}>
+        {!teams.length ? <option value="">No teams captured</option> : null}
+        {teams.map(name => <option key={name} value={name}>{name}{data?.eliminated_teams?.includes(name) ? " (Eliminated)" : ""}</option>)}
+      </select></label>
+      <label className="event-team-eliminated-toggle"><input type="checkbox" checked={eliminated}
+        disabled={saving || !selectedTeam} onChange={event => void save(event.target.checked)} />Eliminated</label>
+      <span className="event-team-save-status" role="status">{saving ? "Saving..." : message}</span>
+    </div>
+    {error ? <p className="event-competition-warning" role="alert">{error}</p> : null}
+  </section>;
 }
 
 export function TreatsLeaderboardTile({ data }: { data: EventCompetition | null }) {
@@ -63,11 +111,16 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
 }) {
   const halloween = war.event_type === "halloween";
   const [team, setTeam] = React.useState("all");
-  const [sort, setSort] = React.useState<{ key: "name" | "team" | "treats"; descending: boolean }>({ key: halloween ? "treats" : "team", descending: halloween });
+  const [sort, setSort] = React.useState<{ key: "name" | "team" | "treats" | "eliminated"; descending: boolean }>({ key: halloween ? "treats" : "eliminated", descending: halloween });
   const members = data?.members ?? [];
   const teams = [...new Set(members.map(competitionTeam))].sort();
   const visible = members.filter(member => halloween || (team === "all"
     ? member.participation !== "not_participating" : competitionTeam(member) === team)).sort((a, b) => {
+    if (!halloween && sort.key === "eliminated") {
+      const eliminatedOrder = Number(eliminationRowStatus(data, a) === "Eliminated") - Number(eliminationRowStatus(data, b) === "Eliminated");
+      return (sort.descending ? -1 : 1) * eliminatedOrder
+        || competitionTeam(a).localeCompare(competitionTeam(b)) || a.member_name.localeCompare(b.member_name);
+    }
     if (!halloween && sort.key === "team") {
       return (sort.descending ? -1 : 1) * competitionTeam(a).localeCompare(competitionTeam(b)) || a.member_name.localeCompare(b.member_name);
     }
@@ -83,10 +136,10 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
   const lastUpdate = Math.max(0, ...members.map(member => member.updated_at ?? 0));
   const baselines = members.flatMap(member => member.baseline_at === null ? [] : [member.baseline_at]);
   const firstBaseline = baselines.length ? Math.min(...baselines) : null;
-  function changeSort(key: "name" | "team" | "treats") {
+  function changeSort(key: "name" | "team" | "treats" | "eliminated") {
     setSort(current => ({ key, descending: current.key === key ? !current.descending : key === "treats" }));
   }
-  const sortIcon = (key: "name" | "team" | "treats") => sort.key !== key ? null : sort.descending ? <ArrowDown size={13} /> : <ArrowUp size={13} />;
+  const sortIcon = (key: "name" | "team" | "treats" | "eliminated") => sort.key !== key ? null : sort.descending ? <ArrowDown size={13} /> : <ArrowUp size={13} />;
   return <section className="panel event-competition-panel">
     <PanelHeader icon={halloween ? <Candy size={17} /> : <Flag size={17} />}
       title={halloween ? "Halloween treats" : "Elimination participation"}
@@ -125,13 +178,15 @@ export function EventCompetitionPanel({ war, data, error, compact = false }: {
           <thead><tr>
             <th aria-sort={sort.key === "name" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("name")}>Member {sortIcon("name")}</button></th>
             {halloween ? <><th aria-sort={sort.key === "treats" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("treats")}>Treats gained {sortIcon("treats")}</button></th><th>Basket</th><th>Baseline captured</th></> : <th aria-sort={sort.key === "team" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("team")}>Team {sortIcon("team")}</button></th>}
-            {halloween ? <th>Last reading</th> : null}<th>Status</th>
+            {halloween ? <th>Last reading</th> : <th aria-sort={sort.key === "eliminated" ? sort.descending ? "descending" : "ascending" : "none"}><button type="button" onClick={() => changeSort("eliminated")}>Eliminated {sortIcon("eliminated")}</button></th>}<th>Status</th>
           </tr></thead>
-          <tbody>{visible.map(member => <tr key={member.member_id}>
+          <tbody>{visible.map(member => <tr key={member.member_id}
+            className={eliminationRowStatus(data, member) ? "event-inactive-row" : undefined}>
             <td><a className="member-link" href={`https://www.torn.com/profiles.php?XID=${member.member_id}`} target="_blank" rel="noreferrer">{member.member_name}</a></td>
             {halloween ? <><td>{member.treats_gained === null ? "Unavailable" : formatNumber(member.treats_gained)}</td><td>{member.basket_name ?? "Unavailable"}</td><td>{member.baseline_at ? formatLongDateTime(member.baseline_at) : "Awaiting baseline"}</td></> : <td>{competitionTeam(member)}</td>}
-            {halloween ? <td>{member.updated_at ? formatLongDateTime(member.updated_at) : "Awaiting data"}</td> : null}
-            <td title={member.last_error ?? undefined}>{member.status === "complete" ? "Captured" : member.status === "tracking" ? "Tracking" : member.status === "pending" ? "Pending" : member.status === "finishing" ? "Final pending" : member.status === "stale" ? "Stale" : member.status === "incomplete" ? "Incomplete" : "Unavailable"}</td>
+            {halloween ? <td>{member.updated_at ? formatLongDateTime(member.updated_at) : "Awaiting data"}</td>
+              : <td>{eliminationRowStatus(data, member) === "Eliminated" ? "Yes" : member.participation === "participating" ? "No" : "-"}</td>}
+            <td title={member.last_error ?? undefined}>{eliminationRowStatus(data, member) ?? (member.status === "complete" ? "Captured" : member.status === "tracking" ? "Tracking" : member.status === "pending" ? "Pending" : member.status === "finishing" ? "Final pending" : member.status === "stale" ? "Stale" : member.status === "incomplete" ? "Incomplete" : "Unavailable")}</td>
           </tr>)}</tbody>
         </table></div>
         {!visible.length ? <EmptyState text="No members to show" /> : null}

@@ -4,6 +4,7 @@ import type { EventCompetition } from "../api/competition";
 import { EmptyState } from "./Common";
 import { StickyTable } from "./StickyTable";
 import { formatDate, formatNumber } from "../utils/format";
+import { eliminationRowStatus } from "../utils/eventCompetition";
 import {
   classificationLabel,
   displayMember,
@@ -124,6 +125,7 @@ export function MemberTable({
           className={[
             onMemberSelect ? "clickable-member-row" : "",
             member.member_id === selectedMemberId ? "selected-member-row" : "",
+            eliminationRowStatus(competition, competitionMembers.get(member.member_id)) ? "event-inactive-row" : "",
           ]
             .filter(Boolean)
             .join(" ")}
@@ -147,7 +149,7 @@ export function MemberTable({
               displayMember(member)
             )}
           </td>
-          {competition ? <td>{competitionCell(member.member_id)}</td> : null}
+          {competition ? <td>{competitionCell(member.member_id)}{eliminationRowStatus(competition, competitionMembers.get(member.member_id)) === "Eliminated" ? <span className="event-eliminated-label">Eliminated</span> : null}</td> : null}
           <td>
             <AttackBreakdown member={member} />
           </td>
