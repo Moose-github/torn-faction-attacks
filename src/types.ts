@@ -144,6 +144,8 @@ export type WarRow = {
   torn_war_id: number | null;
   auto_end_enabled: number;
   chain_watch_enabled: number;
+  event_type?: "general" | "elimination" | "halloween";
+  competition_refresh_hours?: number;
   faction_respect_limit: number | null;
   member_respect_limit: number | null;
   winner_faction_id: number | null;

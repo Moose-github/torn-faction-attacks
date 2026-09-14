@@ -7,6 +7,7 @@ import {
   bumpWarCacheVersion,
 } from "./cacheVersions";
 import { setChainWatchEnabledForWar } from "./chainWatch";
+import { parseEventCompetitionSettings, rescheduleEventCompetition } from "./eventCompetition";
 import {
   ingestHistoricalWarWindow,
   previewHistoricalWarWindow,
@@ -45,6 +46,8 @@ export { relinkWarAttacks } from "./warRelink";
 type EventStatus = "scheduled" | "active" | "ended";
 
 type EventMutationPayload = {
+  event_type?: unknown;
+  competition_refresh_hours?: unknown;
   name?: unknown;
   status?: unknown;
   practical_start_time?: unknown;
@@ -67,6 +70,11 @@ type TrackerOverlapRow = {
 
 const OPEN_ENDED_TIMESTAMP = 9_223_372_036_854_775_807;
 
+async function saveEventCompetitionSettings(env: Env, warId: number, settings: ReturnType<typeof parseEventCompetitionSettings>): Promise<void> {
+  await env.DB.prepare("UPDATE wars SET event_type = ?, competition_refresh_hours = ? WHERE id = ?")
+    .bind(settings.eventType, settings.hours, warId).run();
+}
+
 export async function createManualEvent(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as EventMutationPayload & { war_type?: unknown };
@@ -83,6 +91,7 @@ export async function createManualEvent(request: Request, env: Env): Promise<Res
     }
 
     const eventInput = parseEventInput(body, { requireName: true, requireFinishTime: false });
+    const competition = parseEventCompetitionSettings(body);
     const chainWatchEnabled = parseEventChainWatchEnabled(body.chain_watch_enabled, false);
     const now = nowSeconds();
     const statusResult = resolveEventStatus(body.status, eventInput.startTime, eventInput.finishTime, now);
@@ -130,6 +139,7 @@ export async function createManualEvent(request: Request, env: Env): Promise<Res
       throw new Error("Failed to create event");
     }
 
+    await saveEventCompetitionSettings(env, inserted.id, competition);
     const importResult = await applyEventStatusSideEffects(env, {
       warId: inserted.id,
       name: inserted.name,
@@ -162,6 +172,7 @@ export async function createManualEvent(request: Request, env: Env): Promise<Res
 export async function importHistoricalEvent(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as EventMutationPayload;
+    const competition = parseEventCompetitionSettings(body);
     const eventInput = parseEventInput(body, { requireName: true, requireFinishTime: true });
     const now = nowSeconds();
 
@@ -210,6 +221,7 @@ export async function importHistoricalEvent(request: Request, env: Env): Promise
       throw new Error("Failed to create event");
     }
 
+    await saveEventCompetitionSettings(env, war.id, competition);
     const importResult = await importEventAttackWindow(env, {
       warId: war.id,
       startTime: eventInput.startTime,
@@ -284,6 +296,11 @@ export async function updateEvent(request: Request, env: Env): Promise<Response>
       );
     }
 
+    const competition = parseEventCompetitionSettings(body, existing);
+    if (competition.eventType !== (existing.event_type ?? "general")) {
+      const captured = await env.DB.prepare("SELECT war_id FROM event_competition_state WHERE war_id = ?").bind(warId).first();
+      if (captured) throw new ValidationError("Event type cannot change after collection starts", "EVENT_TYPE_LOCKED");
+    }
     const hasFinish = hasEventFinishField(body);
     const chainWatchEnabled = parseEventChainWatchEnabled(
       body.chain_watch_enabled,
@@ -344,6 +361,10 @@ export async function updateEvent(request: Request, env: Env): Promise<Response>
       )
       .run();
 
+    await saveEventCompetitionSettings(env, warId, competition);
+    if (competition.hours !== (existing.competition_refresh_hours ?? 6)) {
+      await rescheduleEventCompetition(env, warId, competition.hours);
+    }
     await unassignEventAttacksOutsideWindow(env, warId, eventInput.startTime, eventInput.finishTime);
     const importResult = await applyEventStatusSideEffects(env, {
       warId,
@@ -1552,6 +1573,9 @@ function handleMutationError(err: any): Response {
   }
 
   const message = err?.message || String(err);
+  if (message.startsWith("Event type must") || message.startsWith("Competition refresh must")) {
+    return json({ ok: false, error: message, code: "INVALID_EVENT_COMPETITION" }, 400);
+  }
 
   if (message.includes("Unexpected token")) {
     return json({ ok: false, error: "Invalid JSON body", code: "INVALID_JSON" }, 400);

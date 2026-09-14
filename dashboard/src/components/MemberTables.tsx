@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { MemberAttack, MemberStats } from "../api";
+import type { EventCompetition } from "../api/competition";
 import { EmptyState } from "./Common";
 import { StickyTable } from "./StickyTable";
 import { formatDate, formatNumber } from "../utils/format";
@@ -24,6 +25,7 @@ export function MemberTable({
   showRowNumbers,
   selectedMemberId,
   onMemberSelect,
+  competition,
 }: {
   members: MemberStats[];
   sort: MemberSort;
@@ -35,15 +37,26 @@ export function MemberTable({
   showRowNumbers?: boolean;
   selectedMemberId?: number | null;
   onMemberSelect?: (member: MemberStats) => void;
+  competition?: EventCompetition | null;
 }) {
   if (members.length === 0) {
     return <EmptyState text="No members to show" />;
   }
 
+  const competitionMembers = new Map(competition?.members.map(member => [member.member_id, member]));
+  const competitionCell = (id: number) => {
+    const member = competitionMembers.get(id);
+    if (competition?.event_type === "halloween") {
+      return member?.treats_gained == null ? "Unavailable" : formatNumber(member.treats_gained);
+    }
+    return member?.participation === "not_participating" ? "Not participating" : member?.team_name ?? "Unavailable";
+  };
+
   const renderHeader = () => (
     <tr>
       {showRowNumbers ? <th className="member-row-number-heading" aria-label="Row number">#</th> : null}
       <SortableHeader label="Member" sortKey="member_name" sort={sort} onSortChange={onSortChange} />
+      {competition ? <th>{competition.event_type === "halloween" ? "Treats gained" : "Team"}</th> : null}
       <SortableHeader label="Attacks" sortKey="attacks_vs_enemy_successful" sort={sort} onSortChange={onSortChange} />
       <SortableHeader label="Defends" sortKey="defends_total" sort={sort} onSortChange={onSortChange} />
       {showDefendsWonColumn ? (
@@ -134,6 +147,7 @@ export function MemberTable({
               displayMember(member)
             )}
           </td>
+          {competition ? <td>{competitionCell(member.member_id)}</td> : null}
           <td>
             <AttackBreakdown member={member} />
           </td>

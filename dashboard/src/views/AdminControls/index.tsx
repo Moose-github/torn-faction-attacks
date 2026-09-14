@@ -2323,6 +2323,9 @@ type AdminWarFormState = {
   tornWarId: string;
   autoEndEnabled: boolean;
   chainWatchEnabled: boolean;
+  eventType: "general" | "elimination" | "halloween";
+  competitionRefreshHours: 6 | 12;
+  competitionLocked: boolean;
   factionRespectLimit: string;
   memberRespectLimit: string;
 };
@@ -2618,6 +2621,30 @@ function WarFields({
         </select>
       </label>
       {breakAfterWarType ? <div className="admin-form-spacer" aria-hidden="true" /> : null}
+      {form.warType === "event" ? (
+        <>
+          <label>
+            <span>Event type</span>
+            <select value={form.eventType} disabled={form.competitionLocked}
+              title={form.competitionLocked ? "Collection has started" : undefined}
+              onChange={(event) => update("eventType", event.target.value as AdminWarFormState["eventType"])}>
+              <option value="general">General</option>
+              <option value="elimination">Elimination</option>
+              <option value="halloween">Halloween</option>
+            </select>
+          </label>
+          {form.eventType === "halloween" ? (
+            <label>
+              <span>Treats refresh</span>
+              <select value={form.competitionRefreshHours}
+                onChange={(event) => update("competitionRefreshHours", Number(event.target.value) as 6 | 12)}>
+                <option value={6}>Every 6 hours</option>
+                <option value={12}>Every 12 hours</option>
+              </select>
+            </label>
+          ) : null}
+        </>
+      ) : null}
       <label>
         <span>{startTimeLabel}</span>
         {form.timeMode === "epoch" ? (
@@ -2733,6 +2760,9 @@ function defaultWarForm(): AdminWarFormState {
     tornWarId: "",
     autoEndEnabled: false,
     chainWatchEnabled: true,
+    eventType: "general",
+    competitionRefreshHours: 6,
+    competitionLocked: false,
     factionRespectLimit: "",
     memberRespectLimit: "",
   };
@@ -2792,6 +2822,8 @@ function toEventPayload(
     practical_start_time: secondsFromFormTime(form, "start"),
     practical_finish_time: optionalSecondsFromFormTime(form, "finish"),
     chain_watch_enabled: form.chainWatchEnabled,
+    event_type: form.eventType,
+    competition_refresh_hours: form.competitionRefreshHours,
   };
 
   if (options.id !== undefined) {
@@ -2856,6 +2888,9 @@ function warToForm(war: WarSummary): AdminWarFormState {
     tornWarId: war.torn_war_id === null ? "" : String(war.torn_war_id),
     autoEndEnabled: Boolean(war.auto_end_enabled),
     chainWatchEnabled: Boolean(war.chain_watch_enabled),
+    eventType: war.event_type ?? "general",
+    competitionRefreshHours: war.competition_refresh_hours ?? 6,
+    competitionLocked: Boolean(war.competition_started_at),
     factionRespectLimit: war.faction_respect_limit === null ? "" : String(war.faction_respect_limit),
     memberRespectLimit: war.member_respect_limit === null ? "" : String(war.member_respect_limit),
   };

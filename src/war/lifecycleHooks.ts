@@ -1,4 +1,5 @@
 import { HOME_FACTION_ID } from "../constants";
+import { ensureEventCompetitionStarted } from "../eventCompetition";
 import { bumpWarCacheVersionById } from "../cacheVersions";
 import { ensureChainWatchEnabledForWar } from "../chainWatch";
 import {
@@ -75,6 +76,7 @@ export async function runWarStartedHooks(
   env: Env,
   options: { warId: number; startedAt: number },
 ): Promise<void> {
+  await ensureEventCompetitionStarted(env, options.warId);
   const config = await readWarLifecycleConfig(env, options.warId);
   const handlers: WarLifecycleHandler[] = [
     {

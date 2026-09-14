@@ -1,0 +1,23 @@
+.event-competition-panel { min-width: 0; }
+@media (min-width: 1181px) {
+  .event-leaderboard-grid.event-leaderboard-halloween { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+.event-leaderboard-halloween .dashboard-podium-row { grid-template-columns: 24px minmax(0, 1fr); grid-template-rows: 16px 12px; gap: 0 8px; padding: 7px 8px; }
+.event-leaderboard-halloween .dashboard-rank-chip { grid-row: 1 / 3; }
+.event-leaderboard-halloween .dashboard-podium-row strong { line-height: 16px; }
+.event-leaderboard-halloween .dashboard-podium-row small { grid-column: 2; line-height: 12px; font-size: 12px; }
+.event-competition-summary { display: flex; flex-wrap: wrap; gap: 18px 28px; padding: 14px 0; }
+.event-competition-summary > div { display: flex; flex-direction: column; gap: 5px; min-width: 130px; max-width: 100%; overflow-wrap: anywhere; }
+.event-competition-summary > div > span:first-child { font-size: 12px; color: var(--text-muted); }
+.event-competition-summary strong { font-size: 22px; }
+.event-competition-summary > div > span:last-child { font-size: 13px; }
+.event-team-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 0; }
+.event-team-filter select { max-width: 100%; min-width: 160px; }
+.event-competition-table { width: 100%; }
+.event-competition-table th button { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.event-competition-table th, .event-competition-table td { white-space: nowrap; }
+.event-treat-chart { height: 260px; width: 100%; min-width: 0; margin: 12px 0; }
+.event-competition-warning { font-size: 13px; color: var(--text-main); padding: 10px 0; }
+.event-competition-note { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.event-team-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 22px; padding-top: 12px; }
+.event-team-counts > div { display: flex; gap: 12px; justify-content: space-between; overflow-wrap: anywhere; }

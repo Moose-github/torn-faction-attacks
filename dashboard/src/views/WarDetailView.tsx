@@ -14,6 +14,8 @@ import { ActivityChart, AttackChart, MemberPointGraphs } from "../components/Cha
 import { ChainBonusList } from "../components/ChainBonuses";
 import { CollapsiblePanel, EmptyState, InlineMetric, MetricCard, PanelHeader } from "../components/Common";
 import { MemberCombatHeatmap } from "../components/MemberCombatHeatmap";
+import { EventCompetitionPanel, TreatsLeaderboardTile, useEventCompetition } from "../components/EventCompetition";
+import type { EventCompetition } from "../api/competition";
 import { MemberAttackList, MemberTable } from "../components/MemberTables";
 import {
   discrepancyAside,
@@ -126,6 +128,7 @@ export function WarDetailView({
   warDetail,
 }: WarDetailViewProps) {
   const memberAttackPanelRef = React.useRef<HTMLElement | null>(null);
+  const competition = useEventCompetition(selectedWar);
   const reportDiscrepancyCollapsed = collapsedPanels.reportDiscrepancies ?? true;
   const reportDiscrepancyAside = isLoadingReportDiscrepancies
     ? "Loading"
@@ -292,7 +295,7 @@ export function WarDetailView({
                 </section>
               ) : null}
 
-              {!hasWarData ? (
+              {!hasWarData && !competition.data?.members.length ? (
                 <UpcomingWarEmptyPanel
                   war={selectedWar}
                   onOpenWarRoom={onOpenWarRoom}
@@ -413,8 +416,8 @@ export function WarDetailView({
                 </CollapsiblePanel>
               ) : null}
 
-              {showMemberBreakdown && isEvent ? (
-                <EventLeaderboardPanel members={members} />
+              {isEvent ? (
+                <EventLeaderboardPanel members={members} halloween={selectedWar.event_type === "halloween"} competition={competition.data} />
               ) : null}
 
               {showMemberBreakdown ? (
@@ -435,6 +438,8 @@ export function WarDetailView({
                   />
                 </CollapsiblePanel>
               ) : null}
+
+              {competition.enabled ? <EventCompetitionPanel key={selectedWar.id} war={selectedWar} data={competition.data} error={competition.error} /> : null}
 
               {showFactionActivity ? (
                 <CollapsiblePanel
@@ -538,6 +543,7 @@ export function WarDetailView({
                     showTermedColumns={selectedWar.war_type === "termed"}
                     showDefendsWonColumn={isEvent}
                     showOutsideColumns={!isEvent}
+                    competition={competition.data}
                     showRowNumbers
                     selectedMemberId={selectedMember?.member_id ?? null}
                     onMemberSelect={onMemberSelect}
@@ -610,7 +616,7 @@ const eventLeaderboardMetrics: EventLeaderboardMetric[] = [
   },
 ];
 
-function EventLeaderboardPanel({ members }: { members: MemberStats[] }) {
+function EventLeaderboardPanel({ members, halloween, competition }: { members: MemberStats[]; halloween: boolean; competition: EventCompetition | null }) {
   return (
     <section className="panel event-leaderboard-panel">
       <PanelHeader
@@ -618,7 +624,8 @@ function EventLeaderboardPanel({ members }: { members: MemberStats[] }) {
         title="Event leaderboard"
         aside="Top 3 members"
       />
-      <div className="dashboard-highlight-grid event-leaderboard-grid">
+      <div className={`dashboard-highlight-grid event-leaderboard-grid${halloween ? " event-leaderboard-halloween" : ""}`}>
+        {halloween ? <TreatsLeaderboardTile data={competition} /> : null}
         {eventLeaderboardMetrics.map((metric) => (
           <EventLeaderboardTile key={metric.key} metric={metric} members={members} />
         ))}

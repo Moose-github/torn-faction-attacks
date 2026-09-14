@@ -159,6 +159,9 @@ export type WarSummary = {
   torn_war_id: number | null;
   auto_end_enabled: number;
   chain_watch_enabled: number;
+  event_type?: "general" | "elimination" | "halloween";
+  competition_refresh_hours?: 6 | 12;
+  competition_started_at?: number | null;
   faction_respect_limit: number | null;
   member_respect_limit: number | null;
   winner_faction_id: number | null;
@@ -846,6 +849,8 @@ export type AdminWarPayload = {
   torn_war_id?: number | null;
   auto_end_enabled?: boolean;
   chain_watch_enabled?: boolean;
+  event_type?: "general" | "elimination" | "halloween";
+  competition_refresh_hours?: 6 | 12;
   faction_respect_limit?: number | null;
   member_respect_limit?: number | null;
   fetch_missing?: boolean;

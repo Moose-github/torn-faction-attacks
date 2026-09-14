@@ -1,4 +1,5 @@
 import React from "react";
+import { EventRoomCompetition } from "../components/EventCompetition";
 import { ArrowDown, ArrowUp, Plus, Siren, Trash2 } from "lucide-react";
 import {
   addEnemyBigHitter,
@@ -829,6 +830,7 @@ export function WarRoom({
           warState={warState}
         />
 
+        <EventRoomCompetition key={selectedWar.id} war={selectedWar} />
         <section className="content-grid">
           <ChainWatchPanel
             data={chainWatch}

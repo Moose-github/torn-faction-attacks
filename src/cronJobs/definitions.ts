@@ -1,4 +1,5 @@
 import { runChainWatchCron } from "../chainWatch";
+import { runEventCompetitionCron } from "../eventCompetition";
 import { syncDiscordTravelTracker } from "../discordTravelTracker";
 import { runEnemyScoutingCronTick } from "../enemyScoutingCron";
 import { runIngestion } from "../ingestion";
@@ -29,6 +30,14 @@ import { runMonthlyXanaxCompetitionDiscordReminder } from "../xanaxCompetition";
 import type { CronJobDefinition } from "./model";
 
 export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
+  {
+    label: "Cron event competition collection",
+    cadence: "Start/finish; Halloween every 6h or 12h",
+    category: "maintenance",
+    purpose: "Collect one-time Elimination participation and scheduled Halloween treat snapshots in resumable batches.",
+    shouldRun: () => true,
+    run: (env) => runEventCompetitionCron(env),
+  },
   {
     label: "Cron Torn shoplifting",
     cadence: "1m",

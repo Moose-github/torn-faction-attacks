@@ -1,4 +1,5 @@
 import { SOURCE_NAME } from "../constants";
+import { requestEventCompetitionFinish } from "../eventCompetition";
 import { bumpWarCacheVersionById } from "../cacheVersions";
 import { clearLiveEnemyTrackingData } from "../enemyScouting";
 import { WAR_RETURNING_COLUMNS } from "../sql";
@@ -160,6 +161,7 @@ export async function finishEventTracking(
     await unassignWarAttacksAfterPracticalFinish(env, options.warId, practicalFinishTime);
   }
 
+  await requestEventCompetitionFinish(env, options.warId, practicalFinishTime ?? options.finishAt);
   await finalizeWar(env, options.warId);
   await setNextGlobalWarStateAfterOfficialEnd(env);
   await bumpWarCacheVersionById(env, options.warId);

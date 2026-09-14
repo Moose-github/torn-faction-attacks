@@ -73,6 +73,7 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
       `
       SELECT
         ${WAR_SELECT_COLUMNS_WITH_ALIAS},
+        (SELECT initialized_at FROM event_competition_state WHERE war_id = w.id) AS competition_started_at,
         COALESCE(ws.attacks_vs_enemy_total, 0) AS attacks_vs_enemy_total,
         COALESCE(ws.attacks_from_enemy_total, 0) AS attacks_from_enemy_total,
         COALESCE(ws.defends_won, 0) AS defends_won,

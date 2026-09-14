@@ -1,4 +1,5 @@
 import { warCacheVersionNames } from "../cacheVersions";
+import { getEventCompetition } from "../eventCompetition";
 import {
   getChainWatchForWar,
   updateChainWatchForWar,
@@ -171,6 +172,9 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
   }
 
   const warVersionNames = warCacheVersionNames(warNameFromWarRoute(url));
+  if (isWarSubroute(url, request, "/competition", "GET")) {
+    return cachedMemberGet(routeContext, 55, () => getEventCompetition(url, env), warVersionNames);
+  }
 
   if (isWarSubroute(url, request, "/report-discrepancies", "GET")) {
     return cachedMemberGet(
