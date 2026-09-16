@@ -860,7 +860,10 @@ export function FactionActivityHeatmap({
                 <span
                   key={intervalIndex}
                   className={isHourStart ? "heatmap-cell heatmap-hour-cell" : "heatmap-cell"}
-                  style={{ backgroundColor: heatmapColor(color, intensity, Boolean(row)) }}
+                  style={{
+                    backgroundColor:
+                      row?.averageActive === 0 ? "transparent" : heatmapColor(color, intensity, Boolean(row)),
+                  }}
                   title={
                     row
                       ? `${intervalLabel(intervalIndex)}: ${formatNumber(row.averageActive)} / ${formatNumber(row.averageTotal)} active average (${formatNumber(row.samples)} samples)`
@@ -933,7 +936,12 @@ export function FactionActivityComparisonHeatmap({
                 <span
                   key={intervalIndex}
                   className={isHourStart ? "heatmap-cell heatmap-hour-cell" : "heatmap-cell"}
-                  style={{ backgroundColor: comparisonHeatmapColor(difference, hasSample) }}
+                  style={{
+                    backgroundColor:
+                      home?.averageActive === 0 && enemy?.averageActive === 0
+                        ? "transparent"
+                        : comparisonHeatmapColor(difference, hasSample),
+                  }}
                   title={
                     hasSample
                       ? `${intervalLabel(intervalIndex)}: ${homeLabel} ${formatPercent(homePercent)} active, ${enemyLabel} ${formatPercent(enemyPercent)} active (${formatSignedPercent(difference)})`
