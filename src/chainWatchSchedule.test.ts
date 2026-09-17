@@ -370,7 +370,14 @@ describe("Discord chain watch", () => {
     const sheet = data.sheets[0];
     const open = await handleVerifiedDiscordInteraction(interaction(`cws:open:claim:${sheet.id}`), db.env);
     expect(open.data?.flags).toBe(64);
-    expect(open.data?.components?.[0].components[0]).toMatchObject({ max_values: 11 });
+    expect(open.data?.components?.[0].components[0]).toMatchObject({ max_values: 11, options: expect.arrayContaining([
+      { label: "23:00–24:00", value: String(start + 10 * WATCH_HOUR), default: false },
+    ]) });
+    const nextSheet = await handleWatchInteraction(interaction(`cws:open:claim:${data.sheets[1].id}`), db.env);
+    expect(nextSheet.data?.content).toContain("Choose slots to claim for **02-01-30** (UTC).");
+    expect(nextSheet.data?.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([
+      { label: "00:00–01:00", value: String(start + 11 * WATCH_HOUR), default: false },
+    ]) });
     const pick = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [String(start)]), db.env);
     const confirm = pick.data!.components![1].components[0] as { custom_id: string };
     const stolen = await handleWatchInteraction(interaction(confirm.custom_id, "222"), db.env);
@@ -453,22 +460,27 @@ describe("Discord chain watch", () => {
 
     const open = await dispatch(`cws:open:${action}:${sheet.id}`);
     expect(open.acknowledgement).toEqual({ type: 5, data: { flags: 64 } });
+    const heading = `${action === "claim" ? "Choose slots to claim" : "Choose your slots to leave"} for **01-01-30** (UTC).`;
+    expect(open.message.content).toContain(heading);
     expect(open.message.components).toHaveLength(2);
     expect(open.message.components?.[0].components[0]).toMatchObject({ type: 3 });
     expect(open.message.components?.[1].components[0]).toMatchObject({ type: 2, disabled: true });
 
     const pick = await dispatch(`cws:pick:${action}:${sheet.id}`, [String(start)]);
     expect(pick.acknowledgement).toEqual({ type: 6 });
+    expect(pick.message.content).toContain(heading);
+    expect(pick.message.content).toContain("Selected:\n13:00–14:00");
     expect(pick.message.components).toHaveLength(2);
-    expect(pick.message.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([{ label: expect.any(String), value: String(start), default: true }]) });
+    expect(pick.message.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([{ label: "13:00–14:00", value: String(start), default: true }]) });
     expect(pick.message.components?.[1].components[0]).toMatchObject({ disabled: false });
     expect((await readWatch(db.env)).slots[0].assigned_to).toBe(action === "claim" ? null : 1);
 
     const changed = await dispatch(`cws:pick:${action}:${sheet.id}`, [String(start + WATCH_HOUR)]);
     expect(changed.acknowledgement).toEqual({ type: 6 });
+    expect(changed.message.content).toContain(heading);
     expect(changed.message.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([
-      { label: expect.any(String), value: String(start), default: false },
-      { label: expect.any(String), value: String(start + WATCH_HOUR), default: true },
+      { label: "13:00–14:00", value: String(start), default: false },
+      { label: "14:00–15:00", value: String(start + WATCH_HOUR), default: true },
     ]) });
     const confirm = changed.message.components![1].components[0] as { custom_id: string };
     const saved = await dispatch(confirm.custom_id);
@@ -485,6 +497,7 @@ describe("Discord chain watch", () => {
     const invalid = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [start, start + WATCH_HOUR, start + 2 * WATCH_HOUR].map(String)), db.env);
     expect(invalid.type).toBe(7);
     expect(invalid.data?.content).toContain("one hour off");
+    expect(invalid.data?.content).toContain("Choose slots to claim for **01-01-30** (UTC).");
     expect(invalid.data?.components?.[0].components[0]).toMatchObject({ type: 3 });
     expect(invalid.data?.components?.[1].components[0]).toMatchObject({ disabled: true });
     const valid = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [String(start)]), db.env);

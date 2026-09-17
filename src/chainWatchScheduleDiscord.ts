@@ -77,6 +77,13 @@ function escaped(value: string): string {
   return value.replace(/[\\`*_~|>\[\]()]/g, "\\$&").replace(/@/g, "@\u200b");
 }
 
+function watchSlotLabel(start: number): string {
+  const from = new Date(start * 1000).toISOString().slice(11, 16);
+  const end = start + WATCH_HOUR;
+  const to = end % WATCH_DAY === 0 ? "24:00" : new Date(end * 1000).toISOString().slice(11, 16);
+  return `${from}–${to}`;
+}
+
 export function watchPageUrl(env: Env, watchId: string): string {
   return `${(env.DASHBOARD_BASE_URL ?? "https://buttgrass.pages.dev").replace(/\/$/, "")}/chain-watch?watch=${encodeURIComponent(watchId)}`;
 }
@@ -167,12 +174,13 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
     const available = data.slots.filter((slot) => slot.sheet_id === sheetId && !slot.cancelled && slot.start_at > data.now &&
       (action === "leave" ? slot.assigned_to === actorId : slot.assigned_to === null && !createsLongWatchRun(mine, slot.start_at)));
 
-    if (!available.length) return reply(action === "leave" ? "You have no future assignments on this sheet." : "There are no available slots you can take on this sheet.");
+    const sheetDate = watchDate(sheet.start_at);
+    if (!available.length) return reply(action === "leave" ? `You have no future assignments on **${sheetDate}** (UTC).` : `There are no available slots you can take on **${sheetDate}** (UTC).`);
     const selectionMessage = (starts: number[] = [], selectionId?: string, error?: string) => reply(
-      error ?? `${action === "claim" ? "Choose slots to claim" : "Choose your slots to leave"}. All times are UTC. Press Confirm when ready.${starts.length ? `\n\nSelected:\n${starts.map((start) => watchUtc(start)).join("\n")}` : ""}`,
+      `${action === "claim" ? "Choose slots to claim" : "Choose your slots to leave"} for **${sheetDate}** (UTC).\n${error ?? "Press Confirm when ready."}${starts.length ? `\n\nSelected:\n${starts.map(watchSlotLabel).join("\n")}` : ""}`,
       [{ type: 1, components: [{
         type: 3, custom_id: `cws:pick:${action}:${sheetId}`, placeholder: "Choose hourly slots", min_values: 1, max_values: available.length,
-        options: available.map((slot) => ({ label: `${watchUtc(slot.start_at)} – ${(slot.start_at + WATCH_HOUR) % WATCH_DAY === 0 ? "24:00" : new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)}`, value: String(slot.start_at), default: starts.includes(slot.start_at) })),
+        options: available.map((slot) => ({ label: watchSlotLabel(slot.start_at), value: String(slot.start_at), default: starts.includes(slot.start_at) })),
       }] }, { type: 1, components: [{
         type: 2, style: action === "claim" ? 3 : 4, label: action === "claim" ? "Confirm sign-up" : "Confirm leave",
         custom_id: `cws:confirm:${selectionId ?? "empty"}`, disabled: !selectionId,
