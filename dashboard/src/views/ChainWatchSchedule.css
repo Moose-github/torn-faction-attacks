@@ -10,6 +10,10 @@
 .watch-status { padding: 5px 12px; border-radius: 20px; background: #2f80ed18; color: #3076c8; font-size: 12px; font-weight: 700; }
 .watch-muted, .watch-slot small, .watch-admin-panel small { color: #78879d; font-size: 12px; }
 .watch-slot-list { margin-top: 16px; }
+.watch-day-divider { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 14px 10px 8px; border-bottom: 1px solid #94a3b84d; }
+.watch-day-divider:not(:first-child) { margin-top: 16px; }
+.watch-day-divider h4 { margin: 0; font-size: 13px; color: #78879d; }
+.watch-day-divider a { font-size: 12px; }
 .watch-slot { display: grid; grid-template-columns: minmax(145px, 1fr) minmax(130px, 1fr) auto; gap: 18px; padding: 15px 10px; align-items: center; border-bottom: 1px solid #94a3b829; }
 .watch-slot small { display: block; margin-top: 5px; }
 .watch-slot strong { font-size: 14px; }

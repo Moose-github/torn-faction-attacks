@@ -51,28 +51,64 @@ export async function currentWatch(env: Env): Promise<ChainWatchSchedule | null>
 // Read the current finish inside every SQL statement, so a concurrent setfinish
 // cannot be undone by a cron tick working from an older copy of the schedule.
 function generateWatchStatements(env: Env, id: string, now: number): D1PreparedStatement[] {
-  const source = `SELECT *, COALESCE(finish_at, start_at + ${WATCH_DAY} * MAX(1, 1 + CAST((? - start_at + ${12 * WATCH_HOUR}) / ${WATCH_DAY} AS INTEGER))) AS horizon
-    FROM chain_watch_schedules WHERE id = ? AND is_open = 1`;
+  const source = `SELECT w.*, COALESCE(w.finish_at, MAX(
+      (CAST(w.start_at / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY},
+      (CAST((? + ${12 * WATCH_HOUR}) / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY},
+      COALESCE((SELECT MAX(end_at) FROM chain_watch_sheets WHERE watch_id = w.id), 0)
+    )) AS horizon FROM chain_watch_schedules w WHERE w.id = ? AND w.is_open = 1`;
   return [
     env.DB.prepare(`WITH RECURSIVE w AS (${source}), hours(t) AS (
-      SELECT COALESCE((SELECT MAX(start_at) + ${WATCH_DAY} FROM chain_watch_sheets WHERE watch_id = w.id), w.start_at)
-        FROM w WHERE COALESCE((SELECT MAX(start_at) + ${WATCH_DAY} FROM chain_watch_sheets WHERE watch_id = w.id), w.start_at) < horizon
-      UNION ALL SELECT t + ${WATCH_DAY} FROM hours, w WHERE t + ${WATCH_DAY} < horizon
+      SELECT COALESCE((SELECT MAX(end_at) FROM chain_watch_sheets WHERE watch_id = w.id), w.start_at)
+        FROM w WHERE COALESCE((SELECT MAX(end_at) FROM chain_watch_sheets WHERE watch_id = w.id), w.start_at) < horizon
+      UNION ALL SELECT (CAST(t / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY} FROM hours, w
+        WHERE (CAST(t / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY} < horizon
     ) INSERT OR IGNORE INTO chain_watch_sheets(id, watch_id, start_at, end_at)
-      SELECT w.id || ':' || t, w.id, t, t + ${WATCH_DAY} FROM w, hours`).bind(now, id),
+      SELECT w.id || ':' || t, w.id, t, (CAST(t / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY} FROM w, hours`).bind(now, id),
     env.DB.prepare(`WITH RECURSIVE w AS (${source}), hours(t) AS (
       SELECT COALESCE((SELECT MAX(start_at) + ${WATCH_HOUR} FROM chain_watch_slots WHERE watch_id = w.id), w.start_at)
         FROM w WHERE COALESCE((SELECT MAX(start_at) + ${WATCH_HOUR} FROM chain_watch_slots WHERE watch_id = w.id), w.start_at) < horizon
       UNION ALL SELECT t + ${WATCH_HOUR} FROM hours, w WHERE t + ${WATCH_HOUR} < horizon
     ) INSERT OR IGNORE INTO chain_watch_slots(watch_id, sheet_id, start_at)
-      SELECT w.id, w.id || ':' || (w.start_at + CAST((t - w.start_at) / ${WATCH_DAY} AS INTEGER) * ${WATCH_DAY}), t FROM w, hours`).bind(now, id),
+      SELECT w.id, w.id || ':' || MAX(w.start_at, CAST(t / ${WATCH_DAY} AS INTEGER) * ${WATCH_DAY}), t FROM w, hours`).bind(now, id),
   ];
+}
+
+// Upgrade published rolling sheets in place. Slot times, ownership and pending
+// confirmations stay intact; each existing message follows its original UTC day.
+async function alignWatchSheetsToDays(env: Env, id: string): Promise<void> {
+  const legacy = await env.DB.prepare(`SELECT s.id FROM chain_watch_sheets s
+    JOIN chain_watch_schedules w ON w.id = s.watch_id WHERE w.id = ? AND (
+      s.start_at != MAX(w.start_at, CAST(s.start_at / ${WATCH_DAY} AS INTEGER) * ${WATCH_DAY}) OR
+      s.end_at != (CAST(s.start_at / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY}
+    ) LIMIT 1`).bind(id).first();
+  if (!legacy) return;
+  await env.DB.batch([
+    env.DB.prepare(`WITH days AS (
+      SELECT DISTINCT s.watch_id, MAX(w.start_at, CAST(s.start_at / ${WATCH_DAY} AS INTEGER) * ${WATCH_DAY}) AS day_start
+      FROM chain_watch_slots s JOIN chain_watch_schedules w ON w.id = s.watch_id WHERE w.id = ?
+    ) INSERT OR IGNORE INTO chain_watch_sheets(id, watch_id, start_at, end_at, discord_message_id)
+      SELECT watch_id || ':' || day_start, watch_id, day_start, (CAST(day_start / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY},
+        (SELECT discord_message_id FROM chain_watch_sheets old WHERE old.watch_id = days.watch_id
+          AND CAST(old.start_at / ${WATCH_DAY} AS INTEGER) = CAST(days.day_start / ${WATCH_DAY} AS INTEGER)
+          ORDER BY old.start_at LIMIT 1) FROM days`).bind(id),
+    env.DB.prepare(`UPDATE chain_watch_slots SET sheet_id = watch_id || ':' || MAX(
+      (SELECT start_at FROM chain_watch_schedules WHERE id = watch_id), CAST(start_at / ${WATCH_DAY} AS INTEGER) * ${WATCH_DAY}
+    ) WHERE watch_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM chain_watch_sheets WHERE watch_id = ? AND start_at != MAX(
+      (SELECT start_at FROM chain_watch_schedules WHERE id = watch_id), CAST(start_at / ${WATCH_DAY} AS INTEGER) * ${WATCH_DAY}
+    )`).bind(id),
+    env.DB.prepare(`UPDATE chain_watch_sheets SET end_at = (CAST(start_at / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY},
+      dirty = dirty + 1, last_payload = NULL WHERE watch_id = ?`).bind(id),
+  ]);
 }
 
 export async function reconcileWatch(env: Env, now = nowSeconds()): Promise<void> {
   await env.DB.prepare("UPDATE chain_watch_schedules SET is_open = 0 WHERE is_open = 1 AND finish_at <= ?").bind(now).run();
   const watch = await currentWatch(env);
-  if (watch) await env.DB.batch(generateWatchStatements(env, watch.id, now));
+  if (watch) {
+    await alignWatchSheetsToDays(env, watch.id);
+    await env.DB.batch(generateWatchStatements(env, watch.id, now));
+  }
   await env.DB.prepare("DELETE FROM chain_watch_pending_selections WHERE expires_at <= ?").bind(now).run();
 }
 
@@ -100,6 +136,7 @@ export async function createWatch(env: Env, input: {
 export async function setWatchFinish(env: Env, id: string, value: unknown, now = nowSeconds()): Promise<number> {
   const finish = parseWatchTime(value, nextWatchHour(now), now);
   if (finish <= now) throw new WatchError("Finish must be a whole hour in the future.");
+  await alignWatchSheetsToDays(env, id);
   const result = await env.DB.batch([
     env.DB.prepare("UPDATE chain_watch_schedules SET finish_at = ? WHERE id = ? AND is_open = 1 AND (finish_at IS NULL OR finish_at > ?)").bind(finish, id, now),
     // Cancellations preserve the assignment as history; an extension does not

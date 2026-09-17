@@ -129,7 +129,7 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
           name: option("name"), start: option("start"), finish: option("finish"), guildId,
           channelId: interaction.channel_id, discordUserId: userId,
         });
-        return reply(`Created **${escaped(watch.name)}**.\nStart: ${watchUtc(watch.start_at)}\nFinish: ${watch.finish_at === null ? "Not set; rolling 24-hour sheets" : watchUtc(watch.finish_at)}\nThe roster will appear in this channel.`, [{ type: 1, components: [{ type: 2, style: 5, label: "Open page", url: watchPageUrl(env, watch.id) }] }]);
+        return reply(`Created **${escaped(watch.name)}**.\nStart: ${watchUtc(watch.start_at)}\nFinish: ${watch.finish_at === null ? "Not set; daily UTC sheets" : watchUtc(watch.finish_at)}\nThe roster will appear in this channel.`, [{ type: 1, components: [{ type: 2, style: 5, label: "Open page", url: watchPageUrl(env, watch.id) }] }]);
       }
       if (command?.name === "setfinish") {
         const watch = await currentWatch(env);
@@ -172,7 +172,7 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
       error ?? `${action === "claim" ? "Choose slots to claim" : "Choose your slots to leave"}. All times are UTC. Press Confirm when ready.${starts.length ? `\n\nSelected:\n${starts.map((start) => watchUtc(start)).join("\n")}` : ""}`,
       [{ type: 1, components: [{
         type: 3, custom_id: `cws:pick:${action}:${sheetId}`, placeholder: "Choose hourly slots", min_values: 1, max_values: available.length,
-        options: available.map((slot) => ({ label: `${watchUtc(slot.start_at)} – ${new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)}`, value: String(slot.start_at), default: starts.includes(slot.start_at) })),
+        options: available.map((slot) => ({ label: `${watchUtc(slot.start_at)} – ${(slot.start_at + WATCH_HOUR) % WATCH_DAY === 0 ? "24:00" : new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)}`, value: String(slot.start_at), default: starts.includes(slot.start_at) })),
       }] }, { type: 1, components: [{
         type: 2, style: action === "claim" ? 3 : 4, label: action === "claim" ? "Confirm sign-up" : "Confirm leave",
         custom_id: `cws:confirm:${selectionId ?? "empty"}`, disabled: !selectionId,
@@ -206,18 +206,19 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
   const future = slots.some((slot) => !slot.cancelled && slot.start_at > data.now);
   const rows = slots.map((slot) => {
     const hour = new Date(slot.start_at * 1000).toISOString().slice(11, 16);
-    const date = watchDate(slot.start_at);
     const who = slot.assigned_to ? escaped((slot.member_name ?? `Player ${slot.assigned_to}`).slice(0, 32)) : "Available";
     const status = slot.cancelled ? "Cancelled" : slot.start_at + WATCH_HOUR <= data.now ? "Ended" : slot.start_at <= data.now ? "On watch" : "";
-    return `${date} **${hour}** · ${who}${status ? ` · ${status}` : ""}`;
+    return `**${hour}** · ${who}${status ? ` · ${status}` : ""}`;
   });
   const effectiveEnd = Math.min(sheet.end_at, watch.finish_at ?? sheet.end_at);
+  const startTime = new Date(sheet.start_at * 1000).toISOString().slice(11, 16);
+  const endTime = effectiveEnd === sheet.end_at ? "24:00" : new Date(Math.max(sheet.start_at, effectiveEnd) * 1000).toISOString().slice(11, 16);
   return {
     content: "",
     embeds: [{
-      title: `${escaped(watch.name)} · Chain watch`, color: 0x2f80ed,
-      description: `${watchUtc(sheet.start_at)} → ${watchUtc(Math.max(sheet.start_at, effectiveEnd))}\nEach slot lasts one hour. All times UTC.\n\n${rows.join("\n")}`,
-      footer: { text: `${slots.filter((slot) => !slot.cancelled && slot.assigned_to).length}/${slots.filter((slot) => !slot.cancelled).length} filled · Two consecutive hours maximum · ${watch.finish_at ? `Watch finishes ${watchUtc(watch.finish_at)}` : "Rolling 24-hour sheets"}` },
+      title: `${escaped(watch.name)} · ${watchDate(sheet.start_at)} · Chain watch`, color: 0x2f80ed,
+      description: `${startTime}–${endTime} UTC\nEach slot lasts one hour.\n\n${rows.join("\n")}`,
+      footer: { text: `${slots.filter((slot) => !slot.cancelled && slot.assigned_to).length}/${slots.filter((slot) => !slot.cancelled).length} filled · Two consecutive hours maximum · ${watch.finish_at ? `Watch finishes ${watchUtc(watch.finish_at)}` : "Next day published at 12:00 UTC"}` },
     }],
     allowed_mentions: { parse: [] },
     components: [{ type: 1, components: [

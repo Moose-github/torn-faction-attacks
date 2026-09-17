@@ -73,20 +73,49 @@ describe("chain watch scheduling", () => {
     await expect(setWatchFinish(db.env, watch.id, "2030-01-01 12:00", now)).rejects.toThrow("future");
   });
 
-  it("creates 24 hours at the next hour, then publishes the successor exactly 12h before expiry once", async () => {
+  it("creates a partial day and tomorrow after noon, then publishes each next day exactly at noon once", async () => {
     const watch = await create();
     expect(watch.start_at).toBe(start);
-    expect((await readWatch(db.env)).slots).toHaveLength(24);
-    await reconcileWatch(db.env, start + 12 * WATCH_HOUR - 1);
-    expect((await readWatch(db.env)).sheets).toHaveLength(1);
-    await Promise.all([reconcileWatch(db.env, start + 12 * WATCH_HOUR), reconcileWatch(db.env, start + 12 * WATCH_HOUR)]);
+    const midnight = Date.UTC(2030, 0, 2) / 1000;
+    expect((await readWatch(db.env)).slots).toHaveLength(35);
+    await reconcileWatch(db.env, midnight + 12 * WATCH_HOUR - 1);
+    expect((await readWatch(db.env)).sheets).toHaveLength(2);
+    await Promise.all([reconcileWatch(db.env, midnight + 12 * WATCH_HOUR), reconcileWatch(db.env, midnight + 12 * WATCH_HOUR)]);
     let data = await readWatch(db.env);
-    expect(data.slots).toHaveLength(48);
+    expect(data.slots).toHaveLength(59);
+    expect(data.sheets.map((sheet) => [sheet.start_at, sheet.end_at])).toEqual([
+      [start, midnight], [midnight, midnight + WATCH_DAY], [midnight + WATCH_DAY, midnight + 2 * WATCH_DAY],
+    ]);
     expect(data.sheets[1].start_at).toBe(data.sheets[0].end_at);
-    await reconcileWatch(db.env, start + 36 * WATCH_HOUR);
+    await reconcileWatch(db.env, midnight + 36 * WATCH_HOUR);
     data = await readWatch(db.env);
-    expect(data.slots).toHaveLength(72);
-    expect(new Set(data.slots.map((slot) => slot.start_at)).size).toBe(72);
+    expect(data.slots).toHaveLength(83);
+    expect(new Set(data.slots.map((slot) => slot.start_at)).size).toBe(83);
+  });
+
+  it("publishes only the first day before noon", async () => {
+    const morning = Date.UTC(2030, 0, 1, 5, 20) / 1000;
+    advance(morning);
+    const watch = await createWatch(db.env, options, morning);
+    expect(watch.start_at).toBe(Date.UTC(2030, 0, 1, 6) / 1000);
+    expect((await readWatch(db.env)).slots).toHaveLength(18);
+    await reconcileWatch(db.env, Date.UTC(2030, 0, 1, 11, 59, 59) / 1000);
+    expect((await readWatch(db.env)).sheets).toHaveLength(1);
+    await reconcileWatch(db.env, Date.UTC(2030, 0, 1, 12) / 1000);
+    expect((await readWatch(db.env)).slots).toHaveLength(42);
+  });
+
+  it("starts a future watch with a partial first day, then makes full days from midnight", async () => {
+    const future = Date.UTC(2030, 0, 5, 19) / 1000;
+    await createWatch(db.env, { ...options, start: utc(future) }, now);
+    expect((await readWatch(db.env)).slots).toHaveLength(5);
+    await reconcileWatch(db.env, future - 7 * WATCH_HOUR - 1);
+    expect((await readWatch(db.env)).sheets).toHaveLength(1);
+    await reconcileWatch(db.env, future - 7 * WATCH_HOUR);
+    const data = await readWatch(db.env);
+    expect(data.slots).toHaveLength(29);
+    expect(data.sheets[0].end_at).toBe(future + 5 * WATCH_HOUR);
+    expect(data.sheets[1].start_at).toBe(future + 5 * WATCH_HOUR);
   });
 
   it("does not roll a future watch early and makes fixed finishes nonrecurring", async () => {
@@ -98,6 +127,49 @@ describe("chain watch scheduling", () => {
     await reconcileWatch(db.env, future + 29 * WATCH_HOUR);
     data = await readWatch(db.env);
     expect(data.slots).toHaveLength(30);
+  });
+
+  it.each([1, 2])("converts %s legacy sheets atomically, preserving assignments, history, confirmations and message IDs", async (count) => {
+    const legacyStart = start + 7 * WATCH_DAY + 5 * WATCH_HOUR;
+    const legacyEnd = legacyStart + count * WATCH_DAY;
+    const id = "legacy-watch";
+    await db.env.DB.prepare(`INSERT INTO chain_watch_schedules(id, name, start_at, guild_id, channel_id, created_by_discord_id)
+      VALUES (?, 'Legacy test', ?, 'guild', 'channel', '111')`).bind(id, legacyStart).run();
+    for (let day = 0; day < count; day++) {
+      const from = legacyStart + day * WATCH_DAY;
+      await db.env.DB.prepare(`INSERT INTO chain_watch_sheets(id, watch_id, start_at, end_at, discord_message_id)
+        VALUES (?, ?, ?, ?, ?)`).bind(`${id}:${from}`, id, from, from + WATCH_DAY, `message-${day}`).run();
+      await db.env.DB.batch(Array.from({ length: 24 }, (_, hour) => db.env.DB.prepare(`INSERT INTO chain_watch_slots
+        (watch_id, sheet_id, start_at, assigned_to, assignment_actor, admin_override, cancelled, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, `${id}:${from}`, from + hour * WATCH_HOUR,
+          hour === 2 ? 1 : null, hour === 2 ? 1 : null, hour === 2 ? 1 : 0, hour === 4 ? 1 : 0, now)));
+    }
+    await db.env.DB.prepare(`INSERT INTO chain_watch_pending_selections(id, discord_user_id, guild_id, watch_id, action, starts_json, expires_at)
+      VALUES ('pending', '111', 'guild', ?, 'claim', ?, ?)`).bind(id, JSON.stringify([legacyEnd - WATCH_HOUR]), legacyEnd).run();
+    const snapshot = () => db.env.DB.prepare(`SELECT start_at, assigned_to, assignment_actor, admin_override, cancelled, updated_at
+      FROM chain_watch_slots WHERE watch_id = ? AND start_at < ? ORDER BY start_at`).bind(id, legacyEnd).all();
+    const before = (await snapshot()).results;
+    advance(legacyStart + 2 * WATCH_HOUR);
+    await reconcileWatch(db.env, legacyStart + 2 * WATCH_HOUR);
+    let data = await readWatch(db.env);
+    expect((await snapshot()).results).toEqual(before);
+    expect(data.sheets).toHaveLength(count + 1);
+    expect(data.slots).toHaveLength(6 + count * 24);
+    expect(data.sheets.map((sheet) => sheet.discord_message_id)).toEqual([...Array.from({ length: count }, (_, index) => `message-${index}`), null]);
+    expect(data.sheets[0].id).toBe(`${id}:${legacyStart}`);
+    expect(data.sheets[0].end_at).toBe(legacyStart + 6 * WATCH_HOUR);
+    for (const slot of data.slots) {
+      const sheet = data.sheets.find((candidate) => candidate.id === slot.sheet_id)!;
+      expect(slot.start_at).toBeGreaterThanOrEqual(sheet.start_at);
+      expect(slot.start_at).toBeLessThan(sheet.end_at);
+      expect(Math.floor(slot.start_at / WATCH_DAY)).toBe(Math.floor(sheet.start_at / WATCH_DAY));
+    }
+    expect((await db.env.DB.prepare("PRAGMA foreign_key_check").all()).results).toEqual([]);
+    expect(await db.env.DB.prepare("SELECT id FROM chain_watch_pending_selections WHERE id = 'pending'").first()).toMatchObject({ id: "pending" });
+    const firstConversion = data;
+    await reconcileWatch(db.env, legacyStart + 2 * WATCH_HOUR);
+    data = await readWatch(db.env);
+    expect(data).toEqual(firstConversion);
   });
 
   it("enforces the single-watch restriction for concurrent creates, scheduled watches and pending finishes", async () => {
@@ -120,7 +192,7 @@ describe("chain watch scheduling", () => {
     const data = await readWatch(db.env);
     expect(data.slots[23]).toMatchObject({ assigned_to: 1, cancelled: 0 });
     expect(data.slots[24]).toMatchObject({ assigned_to: 1, cancelled: 1 });
-    expect(data.slots).toHaveLength(48);
+    expect(data.slots).toHaveLength(35);
     await expect(assign(watch.id, [start + WATCH_DAY], 2, true)).rejects.toThrow("cancelled");
   });
 
@@ -140,7 +212,7 @@ describe("chain watch scheduling", () => {
     await setWatchFinish(db.env, watch.id, utc(start + 2 * WATCH_HOUR), now);
     await setWatchFinish(db.env, watch.id, utc(start + 30 * WATCH_HOUR), now);
     const data = await readWatch(db.env);
-    expect(data.slots).toHaveLength(30);
+    expect(data.slots.filter((slot) => !slot.cancelled)).toHaveLength(30);
     expect(data.slots[3]).toMatchObject({ assigned_to: null, cancelled: 0 });
   });
 });
@@ -158,7 +230,7 @@ describe("chain watch assignment integrity", () => {
 
   it("rejects three consecutive slots in any order, including bridging a gap and crossing sheets", async () => {
     const watch = await create(48);
-    const boundary = start + 23 * WATCH_HOUR;
+    const boundary = Date.UTC(2030, 0, 2) / 1000;
     await assign(watch.id, [boundary - WATCH_HOUR, boundary + WATCH_HOUR]);
     await expect(assign(watch.id, [boundary])).rejects.toThrow("one hour off");
     await assign(watch.id, [boundary + 2 * WATCH_HOUR]);
@@ -298,7 +370,7 @@ describe("Discord chain watch", () => {
     const sheet = data.sheets[0];
     const open = await handleVerifiedDiscordInteraction(interaction(`cws:open:claim:${sheet.id}`), db.env);
     expect(open.data?.flags).toBe(64);
-    expect(open.data?.components?.[0].components[0]).toMatchObject({ max_values: 24 });
+    expect(open.data?.components?.[0].components[0]).toMatchObject({ max_values: 11 });
     const pick = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [String(start)]), db.env);
     const confirm = pick.data!.components![1].components[0] as { custom_id: string };
     const stolen = await handleWatchInteraction(interaction(confirm.custom_id, "222"), db.env);
@@ -326,7 +398,7 @@ describe("Discord chain watch", () => {
   });
 
   it("creates a roster once, edits it after changes, and retries failures without losing assignments", async () => {
-    const watch = await create();
+    const watch = await create(11);
     db.env.DISCORD_BOT_TOKEN = "test-token";
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "message" }), { status: 200 }));
     vi.stubGlobal("fetch", fetcher);
@@ -346,7 +418,9 @@ describe("Discord chain watch", () => {
     const payload = watchBoardPayload(db.env, data, data.sheets[0]);
     expect(payload.allowed_mentions.parse).toEqual([]);
     expect(payload.embeds[0].description).toContain("UTC");
-    expect(payload.embeds[0].description).toContain("01-01-30 **13:00**");
+    expect(payload.embeds[0].title).toContain("01-01-30");
+    expect(payload.embeds[0].description).toContain("13:00–24:00 UTC");
+    expect(payload.embeds[0].description).toContain("**13:00**");
     expect(payload.embeds[0].description.length).toBeLessThan(4096);
     for (const button of payload.components[0].components) if ("custom_id" in button) expect(button.custom_id!.length).toBeLessThanOrEqual(100);
   });

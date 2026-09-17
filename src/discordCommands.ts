@@ -71,7 +71,7 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
           options: [
             { type: 3, name: "name", description: "Name of this watch", required: true },
             { type: 3, name: "start", description: "Pick a UTC hour or type 18 / 18:00; date: DD-MM-YY HH:00; default: next whole hour", autocomplete: true },
-            { type: 3, name: "finish", description: "Pick a UTC hour after start or DD-MM-YY HH:00; omit for rolling 24-hour sheets", autocomplete: true },
+            { type: 3, name: "finish", description: "Pick a UTC hour after start or DD-MM-YY HH:00; omit for ongoing daily sheets", autocomplete: true },
           ],
         },
         {
