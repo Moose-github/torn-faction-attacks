@@ -60,6 +60,12 @@ export type HeatmapSampleMetrics = {
   staleHeatmapRowsDeleted: number;
 };
 
+export class HeatmapSamplingError extends Error {
+  constructor(errors: string[], readonly metrics: HeatmapSampleMetrics) {
+    super(`Heatmap sampling failed: ${errors.join("; ")}`);
+  }
+}
+
 type FactionActivitySampleMetrics = {
   sampled: boolean;
   writeStatements: number;
@@ -74,7 +80,7 @@ type ActivitySampleTarget =
 
 export async function sampleFactionActivityHeatmaps(
   env: Env,
-  options: { membersByFaction?: Map<number, TornFactionMember[]> } = {},
+  options: { membersByFaction?: Map<number, TornFactionMember[]>; retrySlotAt?: number } = {},
 ): Promise<HeatmapSampleMetrics> {
   const sampledAt = nowSeconds();
   const metrics: HeatmapSampleMetrics = {
@@ -86,6 +92,13 @@ export async function sampleFactionActivityHeatmaps(
     revivableChangedRows: 0,
     staleHeatmapRowsDeleted: 0,
   };
+  // A delayed retry must not collect a different slot from the one scheduled.
+  if (
+    options.retrySlotAt !== undefined &&
+    Math.floor(sampledAt / ACTIVITY_WINDOW_SECONDS) !== Math.floor(options.retrySlotAt / ACTIVITY_WINDOW_SECONDS)
+  ) {
+    return metrics;
+  }
   const homeCleanup = await cleanupHomeHeatmapIfDue(env, sampledAt);
   metrics.writeStatements += homeCleanup.writeStatements;
   metrics.changedRows += homeCleanup.changedRows;
@@ -93,40 +106,43 @@ export async function sampleFactionActivityHeatmaps(
 
   const latestWar = await readLatestHeatmapWar(env);
   const updateRevivableMembers = isWarRoomMemberTrackingActive(latestWar, sampledAt);
-  addFactionSampleMetrics(
-    metrics,
-    await sampleFactionActivity(
-      env,
-      HOME_FACTION_ID,
-      sampledAt,
-      updateRevivableMembers,
-      options.membersByFaction?.get(HOME_FACTION_ID),
-      { table: "home" },
-    ),
-    "home",
-  );
+  const errors: string[] = [];
+
+  async function sampleSide(factionId: number, target: ActivitySampleTarget): Promise<void> {
+    try {
+      addFactionSampleMetrics(
+        metrics,
+        await sampleFactionActivity(
+          env,
+          factionId,
+          sampledAt,
+          updateRevivableMembers,
+          options.membersByFaction?.get(factionId),
+          target,
+        ),
+        target.table,
+      );
+    } catch (err) {
+      errors.push(`${target.table} faction ${factionId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  await sampleSide(HOME_FACTION_ID, { table: "home" });
 
   if (
     latestWar?.enemy_faction_id &&
     latestWar.official_end_time === null &&
     latestWar.practical_finish_time === null
   ) {
-    addFactionSampleMetrics(
-      metrics,
-      await sampleFactionActivity(
-        env,
-        latestWar.enemy_faction_id,
-        sampledAt,
-        updateRevivableMembers,
-        options.membersByFaction?.get(latestWar.enemy_faction_id),
-        { table: "enemy", warId: latestWar.id },
-      ),
-      "enemy",
-    );
+    await sampleSide(latestWar.enemy_faction_id, { table: "enemy", warId: latestWar.id });
   }
 
   if (metrics.revivableChangedRows > 0) {
     await bumpGlobalWarCacheVersion(env);
+  }
+
+  if (errors.length > 0) {
+    throw new HeatmapSamplingError(errors, metrics);
   }
 
   return metrics;

@@ -1,4 +1,4 @@
-import { sampleFactionActivityHeatmaps } from "./heatmap";
+import { HeatmapSamplingError, sampleFactionActivityHeatmaps } from "./heatmap";
 import { syncHomeFactionMembershipAndSessions } from "./homeFactionMembers";
 import { syncMissingRankedWarReports } from "./ingestion";
 import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
@@ -71,6 +71,21 @@ export async function runScheduledMaintenance(
 
   if (await shouldWriteMaintenanceRunMetric(env, startedAt, loggedResults)) {
     await writeMaintenanceRunMetric(env, runId, startedAt, loggedResults);
+  }
+}
+
+export async function runHeatmapSamplingRetry(env: Env, scheduledTime: number): Promise<void> {
+  const startedAt = nowSeconds();
+  const result = await runMaintenanceTask({
+    name: "heatmap sampling retry",
+    run: () => sampleFactionActivityHeatmaps(env, { retrySlotAt: Math.floor(scheduledTime / 1000) }),
+  });
+
+  if (result.status === "error") {
+    console.error("Heatmap sampling retry failed:", result.error);
+  }
+  if (result.status === "error" || result.writeStatements > 0) {
+    await writeMaintenanceRunMetric(env, crypto.randomUUID(), startedAt, [result]);
   }
 }
 
@@ -185,6 +200,7 @@ async function runMaintenanceTask(task: MaintenanceTask): Promise<MaintenanceTas
       details: result.details,
     };
   } catch (err: any) {
+    const heatmapMetrics = err instanceof HeatmapSamplingError ? err.metrics : undefined;
     return {
       id: crypto.randomUUID(),
       name: task.name,
@@ -192,9 +208,9 @@ async function runMaintenanceTask(task: MaintenanceTask): Promise<MaintenanceTas
       finishedAt: nowSeconds(),
       status: "error",
       error: err?.message || String(err),
-      writeStatements: 0,
-      changedRows: 0,
-      details: undefined,
+      writeStatements: heatmapMetrics?.writeStatements ?? 0,
+      changedRows: heatmapMetrics?.changedRows ?? 0,
+      details: heatmapMetrics,
     };
   }
 }

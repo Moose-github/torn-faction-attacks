@@ -19,6 +19,7 @@ vi.mock("./lifestyleStats", () => ({
 }));
 vi.mock("./maintenance", () => ({
   markOpenWarMemberStatsRebuildComplete: vi.fn(),
+  runHeatmapSamplingRetry: vi.fn(),
   runScheduledMaintenance: vi.fn(),
 }));
 vi.mock("./miscellaneous", () => ({
@@ -42,13 +43,40 @@ import {
 } from "./cronPlan";
 import { runChainWatchCron } from "./chainWatch";
 import { runIngestion } from "./ingestion";
-import { markOpenWarMemberStatsRebuildComplete } from "./maintenance";
+import { markOpenWarMemberStatsRebuildComplete, runHeatmapSamplingRetry, runScheduledMaintenance } from "./maintenance";
 import { syncRetaliationDiscordBoard } from "./retaliations";
 import type { Env } from "./types";
 import { rebuildWarStatsFromRaw } from "./warStats";
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("heatmap sampling retry cron", () => {
+  it("schedules exactly one retry at +1 minute for every quarter-hour slot", () => {
+    for (let hour = 0; hour < 24; hour += 1) {
+      const retryMinutes: number[] = [];
+      for (let minute = 0; minute < 60; minute += 1) {
+        const jobs = buildCronPlan({} as Env, Date.UTC(2026, 8, 16, hour, minute));
+        if (jobs.some((job) => job.label === "Cron heatmap sampling retry")) {
+          retryMinutes.push(minute);
+        }
+      }
+      expect(retryMinutes).toEqual([1, 16, 31, 46]);
+    }
+  });
+
+  it("runs only the heatmap retry with the scheduled time", async () => {
+    const env = {} as Env;
+    const scheduledTime = Date.UTC(2026, 8, 16, 0, 1);
+    const job = buildCronPlan(env, scheduledTime).find((item) => item.label === "Cron heatmap sampling retry");
+
+    expect(job).toBeDefined();
+    await job!.run();
+
+    expect(runHeatmapSamplingRetry).toHaveBeenCalledExactlyOnceWith(env, scheduledTime);
+    expect(runScheduledMaintenance).not.toHaveBeenCalled();
+  });
 });
 
 describe("monthly Xanax competition cron", () => {

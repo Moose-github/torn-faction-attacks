@@ -17,6 +17,7 @@ import {
 } from "../lifestyleStats/dailyPersonal";
 import {
   markOpenWarMemberStatsRebuildComplete,
+  runHeatmapSamplingRetry,
   runScheduledMaintenance,
 } from "../maintenance";
 import { refreshTornShoplifting } from "../miscellaneous";
@@ -80,6 +81,14 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     purpose: "Refresh enemy tracking, pass any fetched enemy members to heatmap sampling, and run independent maintenance tasks.",
     shouldRun: (date) => date.getUTCMinutes() % 15 === 0,
     run: (env, scheduledTime) => runEnemyTrackingAndMaintenance(env, scheduledTime),
+  },
+  {
+    label: "Cron heatmap sampling retry",
+    cadence: "Once at +1m after each 15m slot",
+    category: "maintenance",
+    purpose: "Retry missing home and enemy heatmap samples once, preserving samples already saved.",
+    shouldRun: (date) => date.getUTCMinutes() % 15 === 1,
+    run: (env, scheduledTime) => runHeatmapSamplingRetry(env, scheduledTime),
   },
   {
     label: "Cron enemy scouting tick",
