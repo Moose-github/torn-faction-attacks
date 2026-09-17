@@ -41,8 +41,13 @@ export function nextWatchHour(now: number): number {
   return (Math.floor(now / WATCH_HOUR) + 1) * WATCH_HOUR;
 }
 
+export function watchDate(timestamp: number): string {
+  const iso = new Date(timestamp * 1000).toISOString();
+  return `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(2, 4)}`;
+}
+
 export function watchUtc(timestamp: number): string {
-  return new Date(timestamp * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+  return `${watchDate(timestamp)} ${new Date(timestamp * 1000).toISOString().slice(11, 16)} UTC`;
 }
 
 export function createsLongWatchRun(starts: Iterable<number>, added: number): boolean {

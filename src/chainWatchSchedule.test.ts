@@ -3,7 +3,7 @@ import { WATCH_DAY, WATCH_HOUR, nextWatchHour, watchUtc } from "../shared/chainW
 import { changeWatchSlots, createWatch, parseWatchTime, readWatch, reconcileWatch, setWatchFinish } from "./chainWatchSchedule";
 import { canManageWatchOnDiscord, handleWatchInteraction, syncWatchBoards, watchBoardPayload } from "./chainWatchScheduleDiscord";
 import { discordApplicationCommands } from "./discordCommands";
-import { handleVerifiedDiscordInteraction, type DiscordInteraction } from "./discordInteractions";
+import { handleDiscordInteractions, handleVerifiedDiscordInteraction, type DiscordInteraction, type DiscordInteractionResponse } from "./discordInteractions";
 import { watchDatabase } from "../scripts/watch-test-database.mjs";
 
 const now = Date.UTC(2030, 0, 1, 12, 20) / 1000;
@@ -31,10 +31,46 @@ describe("chain watch scheduling", () => {
   it("requires real UTC calendar dates and whole hours", () => {
     expect(parseWatchTime("2030-01-01 13:00")).toBe(start);
     expect(parseWatchTime("2030-01-01T13:00:00Z")).toBe(start);
-    for (const input of ["2030-02-31 12:00", "2030-01-01 13:30", "2030-01-01 24:00", "2030-01-01T13:00+01:00", "13:00", 123]) {
+    expect(parseWatchTime("01-01-30 13:00")).toBe(start);
+    expect(parseWatchTime("17-09-30 18:00 UTC")).toBe(Date.UTC(2030, 8, 17, 18) / 1000);
+    expect(watchUtc(Date.UTC(2030, 8, 17, 18) / 1000)).toBe("17-09-30 18:00 UTC");
+    for (const input of ["2030-02-31 12:00", "2030-01-01 13:30", "2030-01-01 24:00", "2030-01-01T13:00+01:00", "31-02-30 12:00", "12-31-30 18:00", "17-09-30 18:30", "13:30", "24", "24:00", "18.5", "-1", "18:01", 123]) {
       expect(() => parseWatchTime(input)).toThrow();
     }
     expect(nextWatchHour(start)).toBe(start + WATCH_HOUR);
+  });
+
+  it("resolves short hours strictly after the reference, including day and year boundaries", () => {
+    for (const input of ["13", "13:00", " 13:00 "]) expect(parseWatchTime(input, undefined, now)).toBe(start);
+    expect(parseWatchTime("12", undefined, now)).toBe(start - WATCH_HOUR + WATCH_DAY);
+    expect(parseWatchTime("13:00", undefined, start)).toBe(start + WATCH_DAY);
+    expect(parseWatchTime("0", undefined, now)).toBe(Date.UTC(2030, 0, 2) / 1000);
+    expect(parseWatchTime("00:00", undefined, Date.UTC(2030, 11, 31, 23, 59) / 1000)).toBe(Date.UTC(2031, 0, 1) / 1000);
+  });
+
+  it.each([
+    { from: "23", until: "02:00", expectedStart: "2030-01-01 23:00", expectedFinish: "2030-01-02 02:00", hours: 3 },
+    { from: "18:00", until: "18", expectedStart: "2030-01-01 18:00", expectedFinish: "2030-01-02 18:00", hours: 24 },
+    { from: undefined, until: "13", expectedStart: "2030-01-01 13:00", expectedFinish: "2030-01-02 13:00", hours: 24 },
+    { from: "05-01-30 23:00", until: "02", expectedStart: "2030-01-05 23:00", expectedFinish: "2030-01-06 02:00", hours: 3 },
+  ])("resolves create start $from and finish $until in the right order", async ({ from, until, expectedStart, expectedFinish, hours }) => {
+    const watch = await createWatch(db.env, { ...options, start: from, finish: until }, now);
+    expect(watch.start_at).toBe(parseWatchTime(expectedStart));
+    expect(watch.finish_at).toBe(parseWatchTime(expectedFinish));
+    expect((await readWatch(db.env)).slots).toHaveLength(hours);
+  });
+
+  it("resolves setfinish from now even for a watch scheduled further ahead", async () => {
+    const watch = await createWatch(db.env, { ...options, start: "2030-01-05 23:00" }, now);
+    expect(await setWatchFinish(db.env, watch.id, "02", now)).toBe(parseWatchTime("2030-01-02 02:00"));
+    expect((await readWatch(db.env)).slots.every((slot) => slot.cancelled === 1)).toBe(true);
+  });
+
+  it("rejects outdated explicit dates without rolling them forward", async () => {
+    await expect(createWatch(db.env, { ...options, start: "2030-01-01 12:00" }, now)).rejects.toThrow("future");
+    await expect(createWatch(db.env, { ...options, start: "23", finish: "2030-01-01 02:00" }, now)).rejects.toThrow("after the start");
+    const watch = await create();
+    await expect(setWatchFinish(db.env, watch.id, "2030-01-01 12:00", now)).rejects.toThrow("future");
   });
 
   it("creates 24 hours at the next hour, then publishes the successor exactly 12h before expiry once", async () => {
@@ -162,6 +198,70 @@ function interaction(custom_id: string, user = "111", values?: string[]): Discor
   return { type: 3, guild_id: "guild", channel_id: "channel", member: { user: { id: user }, permissions: "8" }, data: { custom_id, values } };
 }
 
+function autocomplete(command: string, field: string, value = "", chosenStart?: string): DiscordInteraction {
+  return {
+    type: 4, guild_id: "guild", member: { user: { id: "111" }, permissions: "0" },
+    data: { name: "chain-watch", options: [{ type: 1, name: command, options: [
+      ...(chosenStart === undefined ? [] : [{ type: 3, name: "start", value: chosenStart }]),
+      { type: 3, name: field, value, focused: true },
+    ] }] },
+  };
+}
+
+describe("chain watch time autocomplete", () => {
+  it("offers 24 chronological UTC hours with today/tomorrow labels before a name is filled in", async () => {
+    const response = await handleVerifiedDiscordInteraction(autocomplete("create", "start"), db.env);
+    expect(response.type).toBe(8);
+    expect(response.data?.choices).toHaveLength(24);
+    expect(response.data?.choices?.[0]).toEqual({ name: "13:00 UTC — today", value: "01-01-30 13:00" });
+    expect(response.data?.choices?.[23]).toEqual({ name: "12:00 UTC — tomorrow", value: "02-01-30 12:00" });
+    expect(response.data?.choices?.map((choice) => parseWatchTime(choice.value))).toEqual(Array.from({ length: 24 }, (_, index) => start + index * WATCH_HOUR));
+    expect((await readWatch(db.env)).watch).toBeNull();
+  });
+
+  it.each([
+    { query: "20", name: "20:00 UTC — today", value: "01-01-30 20:00" },
+    { query: "8", name: "08:00 UTC — tomorrow", value: "02-01-30 08:00" },
+    { query: "08:00", name: "08:00 UTC — tomorrow", value: "02-01-30 08:00" },
+    { query: "2030-01-06 02:00", name: "02:00 UTC — 06-01-30", value: "06-01-30 02:00" },
+    { query: "06-01-30 02:00", name: "02:00 UTC — 06-01-30", value: "06-01-30 02:00" },
+    { query: "02-01-30 08", name: "08:00 UTC — tomorrow", value: "02-01-30 08:00" },
+  ])("filters $query without confusing hours with the year", async ({ query, name, value }) => {
+    const response = await handleVerifiedDiscordInteraction(autocomplete("create", "start", query), db.env);
+    expect(response.data?.choices).toEqual([{ name, value }]);
+  });
+
+  it("offers finish times after the chosen start and uses the next hour when start is omitted", async () => {
+    const overnight = await handleVerifiedDiscordInteraction(autocomplete("create", "finish", "", "23"), db.env);
+    expect(overnight.data?.choices).toHaveLength(24);
+    expect(overnight.data?.choices?.[0]).toEqual({ name: "00:00 UTC — tomorrow", value: "02-01-30 00:00" });
+    expect(overnight.data?.choices?.[23]).toEqual({ name: "23:00 UTC — tomorrow", value: "02-01-30 23:00" });
+    const sameHour = await handleVerifiedDiscordInteraction(autocomplete("create", "finish", "18", "18"), db.env);
+    expect(sameHour.data?.choices).toEqual([{ name: "18:00 UTC — tomorrow", value: "02-01-30 18:00" }]);
+    const defaultStart = await handleVerifiedDiscordInteraction(autocomplete("create", "finish"), db.env);
+    expect(defaultStart.data?.choices?.[0].value).toBe("01-01-30 14:00");
+    const future = await handleVerifiedDiscordInteraction(autocomplete("create", "finish", "02", "2030-01-05 23:00"), db.env);
+    expect(future.data?.choices).toEqual([{ name: "02:00 UTC — 06-01-30", value: "06-01-30 02:00" }]);
+  });
+
+  it("offers setfinish times after now rather than the watch start", async () => {
+    await createWatch(db.env, { ...options, start: "2030-01-05 23:00" }, now);
+    const response = await handleVerifiedDiscordInteraction(autocomplete("setfinish", "finish", "02"), db.env);
+    expect(response.data?.choices).toEqual([{ name: "02:00 UTC — tomorrow", value: "02-01-30 02:00" }]);
+  });
+
+  it("returns an empty choice list for invalid inputs, invalid starts, unsupported options and other servers", async () => {
+    for (const request of [
+      autocomplete("create", "start", "24"), autocomplete("create", "start", "18:30"),
+      autocomplete("create", "start", "2030-01-01 12:00"), autocomplete("create", "start", "2030-02-31 12:00"),
+      autocomplete("create", "start", "31-02-30 12:00"),
+      autocomplete("create", "finish", "", "2030-"), autocomplete("create", "finish", "", "2030-01-01 12:00"),
+      autocomplete("create", "name"), autocomplete("setfinish", "start"), autocomplete("other", "finish"),
+      { ...autocomplete("create", "start"), guild_id: "another-server" },
+    ]) expect(await handleVerifiedDiscordInteraction(request, db.env)).toEqual({ type: 8, data: { choices: [] } });
+  });
+});
+
 describe("Discord chain watch", () => {
   it("temporarily exposes both commands without relaxing page or signup permissions", async () => {
     const command = discordApplicationCommands().find((item) => item.name === "chain-watch")!;
@@ -169,6 +269,11 @@ describe("Discord chain watch", () => {
     expect(command.dm_permission).toBe(false);
     expect(command.options?.map((item) => item.name)).toEqual(["create", "setfinish"]);
     expect(command.options?.[0].options?.[0]).toMatchObject({ name: "name", required: true });
+    expect(command.options?.[0].options?.slice(1)).toEqual([
+      expect.objectContaining({ name: "start", autocomplete: true }),
+      expect.objectContaining({ name: "finish", autocomplete: true }),
+    ]);
+    expect(command.options?.[1].options?.[0]).toMatchObject({ name: "finish", autocomplete: true });
     expect(canManageWatchOnDiscord("0")).toBe(true);
     expect(canManageWatchOnDiscord("32", false)).toBe(false);
     expect(canManageWatchOnDiscord("8", false)).toBe(true);
@@ -179,6 +284,14 @@ describe("Discord chain watch", () => {
     expect(finish.data?.content).toContain("will finish");
   });
 
+  it("shows full resolved dates when creating a watch with short times", async () => {
+    const response = await handleWatchInteraction({ type: 2, guild_id: "guild", channel_id: "channel", member: { user: { id: "111" } }, data: { name: "chain-watch", options: [{ name: "create", type: 1, options: [
+      { name: "name", type: 3, value: "Overnight" }, { name: "start", type: 3, value: "23" }, { name: "finish", type: 3, value: "02" },
+    ] }] } }, db.env);
+    expect(response.data?.content).toContain("Start: 01-01-30 23:00 UTC");
+    expect(response.data?.content).toContain("Finish: 02-01-30 02:00 UTC");
+  });
+
   it("uses private choices and confirmation, binds confirmations to the player, and rejects stale choices", async () => {
     const watch = await create();
     const data = await readWatch(db.env);
@@ -187,11 +300,13 @@ describe("Discord chain watch", () => {
     expect(open.data?.flags).toBe(64);
     expect(open.data?.components?.[0].components[0]).toMatchObject({ max_values: 24 });
     const pick = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [String(start)]), db.env);
-    const confirm = pick.data!.components![0].components[0] as { custom_id: string };
+    const confirm = pick.data!.components![1].components[0] as { custom_id: string };
     const stolen = await handleWatchInteraction(interaction(confirm.custom_id, "222"), db.env);
     expect(stolen.data?.content).toContain("expired");
     await assign(watch.id, [start], 2);
     const stale = await handleWatchInteraction(interaction(confirm.custom_id), db.env);
+    expect(stale.type).toBe(7);
+    expect(stale.data?.components).toEqual([]);
     expect(stale.data?.content).toContain("another player");
     expect((await readWatch(db.env)).slots[0].assigned_to).toBe(2);
   });
@@ -201,7 +316,7 @@ describe("Discord chain watch", () => {
     advance(start - 60);
     const sheet = (await readWatch(db.env)).sheets[0];
     const pick = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [String(start)]), db.env);
-    const confirm = pick.data!.components![0].components[0] as { custom_id: string };
+    const confirm = pick.data!.components![1].components[0] as { custom_id: string };
     advance(start);
     const response = await handleWatchInteraction(interaction(confirm.custom_id), db.env);
     expect(response.data?.content).toContain("already started");
@@ -231,7 +346,80 @@ describe("Discord chain watch", () => {
     const payload = watchBoardPayload(db.env, data, data.sheets[0]);
     expect(payload.allowed_mentions.parse).toEqual([]);
     expect(payload.embeds[0].description).toContain("UTC");
+    expect(payload.embeds[0].description).toContain("01-01-30 **13:00**");
     expect(payload.embeds[0].description.length).toBeLessThan(4096);
     for (const button of payload.components[0].components) if ("custom_id" in button) expect(button.custom_id!.length).toBeLessThanOrEqual(100);
+  });
+
+  it.each(["claim", "leave"])("keeps the %s dropdown, confirmation and saved result in one private message", async (action) => {
+    const watch = await create();
+    if (action === "leave") await assign(watch.id, [start, start + WATCH_HOUR]);
+    const sheet = (await readWatch(db.env)).sheets[0];
+    const fetcher = vi.fn().mockImplementation(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+    const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as CryptoKeyPair;
+    const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const publicKey = hex(await crypto.subtle.exportKey("raw", keys.publicKey) as ArrayBuffer);
+    const dispatch = async (customId: string, values?: string[]) => {
+      const token = `token-${fetcher.mock.calls.length}`;
+      const body = JSON.stringify({ ...interaction(customId, "111", values), application_id: "application", token });
+      const timestamp = String(now);
+      const signature = hex(await crypto.subtle.sign("Ed25519", keys.privateKey, new TextEncoder().encode(timestamp + body)));
+      const pending: Promise<unknown>[] = [];
+      const response = await handleDiscordInteractions(new Request("https://worker.test/api/discord/interactions", {
+        method: "POST", body, headers: { "X-Signature-Ed25519": signature, "X-Signature-Timestamp": timestamp },
+      }), { ...db.env, DISCORD_PUBLIC_KEY: publicKey }, { waitUntil(promise: Promise<unknown>) { pending.push(promise); } } as ExecutionContext);
+      const acknowledgement = await response!.json();
+      await Promise.all(pending);
+      const call = fetcher.mock.calls.at(-1) as unknown as [string, RequestInit];
+      expect(call[0]).toBe(`https://discord.com/api/v10/webhooks/application/${token}/messages/@original`);
+      expect(call[1].method).toBe("PATCH");
+      return { acknowledgement, message: JSON.parse(call[1].body as string) as NonNullable<DiscordInteractionResponse["data"]> };
+    };
+
+    const open = await dispatch(`cws:open:${action}:${sheet.id}`);
+    expect(open.acknowledgement).toEqual({ type: 5, data: { flags: 64 } });
+    expect(open.message.components).toHaveLength(2);
+    expect(open.message.components?.[0].components[0]).toMatchObject({ type: 3 });
+    expect(open.message.components?.[1].components[0]).toMatchObject({ type: 2, disabled: true });
+
+    const pick = await dispatch(`cws:pick:${action}:${sheet.id}`, [String(start)]);
+    expect(pick.acknowledgement).toEqual({ type: 6 });
+    expect(pick.message.components).toHaveLength(2);
+    expect(pick.message.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([{ label: expect.any(String), value: String(start), default: true }]) });
+    expect(pick.message.components?.[1].components[0]).toMatchObject({ disabled: false });
+    expect((await readWatch(db.env)).slots[0].assigned_to).toBe(action === "claim" ? null : 1);
+
+    const changed = await dispatch(`cws:pick:${action}:${sheet.id}`, [String(start + WATCH_HOUR)]);
+    expect(changed.acknowledgement).toEqual({ type: 6 });
+    expect(changed.message.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([
+      { label: expect.any(String), value: String(start), default: false },
+      { label: expect.any(String), value: String(start + WATCH_HOUR), default: true },
+    ]) });
+    const confirm = changed.message.components![1].components[0] as { custom_id: string };
+    const saved = await dispatch(confirm.custom_id);
+    expect(saved.acknowledgement).toEqual({ type: 6 });
+    expect(saved.message.content).toContain(action === "claim" ? "Signed up for 1 slot" : "Left 1 slot");
+    expect(saved.message.components).toEqual([]);
+    expect((await readWatch(db.env)).slots.slice(0, 2).map((slot) => slot.assigned_to)).toEqual(action === "claim" ? [null, 1] : [1, null]);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps the selector editable and disables confirmation when a selection breaks the two-hour rule", async () => {
+    await create();
+    const sheet = (await readWatch(db.env)).sheets[0];
+    const invalid = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [start, start + WATCH_HOUR, start + 2 * WATCH_HOUR].map(String)), db.env);
+    expect(invalid.type).toBe(7);
+    expect(invalid.data?.content).toContain("one hour off");
+    expect(invalid.data?.components?.[0].components[0]).toMatchObject({ type: 3 });
+    expect(invalid.data?.components?.[1].components[0]).toMatchObject({ disabled: true });
+    const valid = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [String(start)]), db.env);
+    expect(valid.type).toBe(7);
+    expect(valid.data?.components?.[1].components[0]).toMatchObject({ disabled: false });
+    const confirm = valid.data!.components![1].components[0] as { custom_id: string };
+    const saved = await handleWatchInteraction(interaction(confirm.custom_id), db.env);
+    expect(saved.type).toBe(7);
+    expect(saved.data?.components).toEqual([]);
+    expect((await readWatch(db.env)).slots[0].assigned_to).toBe(1);
   });
 });

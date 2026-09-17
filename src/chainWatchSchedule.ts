@@ -7,14 +7,22 @@ export class WatchError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
 }
 
-export function parseWatchTime(value: unknown, fallback?: number): number {
+export function parseWatchTime(value: unknown, fallback?: number, after = nowSeconds()): number {
+  const formatHint = "Choose a UTC hour (e.g. 18 or 18:00), or use DD-MM-YY HH:00.";
   if (value === undefined || value === null || value === "") {
     if (fallback !== undefined) return fallback;
-    throw new WatchError("Enter a UTC date and whole hour: YYYY-MM-DD HH:00.");
+    throw new WatchError(formatHint);
   }
-  if (typeof value !== "string") throw new WatchError("Use YYYY-MM-DD HH:00 in UTC.");
-  const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):00(?::00)?(?:Z| UTC)?$/.exec(value.trim());
-  if (!match) throw new WatchError("Times must be whole hours in UTC: YYYY-MM-DD HH:00.");
+  if (typeof value !== "string") throw new WatchError(formatHint);
+  const hour = /^([01]?\d|2[0-3])(?::00)?$/.exec(value.trim());
+  if (hour) {
+    const candidate = Math.floor(after / WATCH_DAY) * WATCH_DAY + Number(hour[1]) * WATCH_HOUR;
+    return candidate > after ? candidate : candidate + WATCH_DAY;
+  }
+  // Two-digit years mean 2000–2099; retain ISO input for existing clients.
+  const input = value.trim().replace(/^(\d{2})-(\d{2})-(\d{2})(?=[ T])/, "20$3-$2-$1");
+  const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):00(?::00)?(?:Z| UTC)?$/.exec(input);
+  if (!match) throw new WatchError(formatHint);
   const canonical = `${match[1]}T${match[2]}:00:00.000Z`;
   const ms = Date.parse(canonical);
   if (!Number.isFinite(ms) || new Date(ms).toISOString() !== canonical) throw new WatchError("That UTC date or hour is invalid.");
@@ -73,9 +81,9 @@ export async function createWatch(env: Env, input: {
 }, now = nowSeconds()): Promise<ChainWatchSchedule> {
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (!name || name.length > 80 || /[\r\n\x00-\x1f]/.test(name)) throw new WatchError("Give the watch a name of 1–80 characters on one line.");
-  const start = parseWatchTime(input.start, nextWatchHour(now));
+  const start = parseWatchTime(input.start, nextWatchHour(now), now);
   if (start <= now) throw new WatchError("Start must be a whole hour in the future.");
-  const finish = input.finish === undefined || input.finish === null || input.finish === "" ? null : parseWatchTime(input.finish);
+  const finish = input.finish === undefined || input.finish === null || input.finish === "" ? null : parseWatchTime(input.finish, undefined, start);
   if (finish !== null && finish <= start) throw new WatchError("Finish must be after the start.");
   const id = crypto.randomUUID();
   try {
@@ -90,7 +98,7 @@ export async function createWatch(env: Env, input: {
 }
 
 export async function setWatchFinish(env: Env, id: string, value: unknown, now = nowSeconds()): Promise<number> {
-  const finish = parseWatchTime(value, nextWatchHour(now));
+  const finish = parseWatchTime(value, nextWatchHour(now), now);
   if (finish <= now) throw new WatchError("Finish must be a whole hour in the future.");
   const result = await env.DB.batch([
     env.DB.prepare("UPDATE chain_watch_schedules SET finish_at = ? WHERE id = ? AND is_open = 1 AND (finish_at IS NULL OR finish_at > ?)").bind(finish, id, now),

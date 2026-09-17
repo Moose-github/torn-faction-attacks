@@ -1,6 +1,6 @@
 import React from "react";
 import { CalendarClock, Check, ExternalLink, LockKeyhole, RefreshCw } from "lucide-react";
-import { createsLongWatchRun, nextWatchHour, watchUtc, WATCH_HOUR, type ChainWatchScheduleResponse, type ChainWatchSlot } from "../../../shared/chainWatchSchedule";
+import { createsLongWatchRun, nextWatchHour, watchDate, watchUtc, WATCH_HOUR, type ChainWatchScheduleResponse, type ChainWatchSlot } from "../../../shared/chainWatchSchedule";
 import { changeChainWatchSlot, finishChainWatch, getChainWatchSchedule, overrideChainWatchSlot } from "../api/chainWatchSchedule";
 import { PanelHeader } from "../components/Common";
 import "./ChainWatchSchedule.css";
@@ -106,7 +106,7 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
           <small>Leave empty to finish at {watchUtc(nextWatchHour(now))}.</small>
         </form> : null}
         {pendingFinish !== null ? <div className="watch-finish-confirm" role="alert">
-          <p>Finish at <strong>{pendingFinish.replace("T", " ")} UTC</strong>? Slots starting then or later will be cancelled, including assigned slots. Earlier assignments stay in place.</p>
+          <p>Finish at <strong>{watchUtc(Date.parse(`${pendingFinish}Z`) / 1000)}</strong>? Slots starting then or later will be cancelled, including assigned slots. Earlier assignments stay in place.</p>
           <button type="button" className="panel-action-button" disabled={busy} onClick={() => void run(async () => { const next = await finishChainWatch(watch.id, pendingFinish); setPendingFinish(null); return next; }, "Watch finish updated.")}>Confirm finish</button>
           <button type="button" className="panel-action-button" disabled={busy} onClick={() => setPendingFinish(null)}>Cancel</button>
         </div> : null}
@@ -121,7 +121,7 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
             const mine = slot.assigned_to === currentUserId;
             const breaksRule = !slot.assigned_to && createsLongWatchRun(myHours, slot.start_at);
             return <div className={`watch-slot${mine ? " watch-slot-mine" : ""}${slot.cancelled || ended ? " watch-slot-muted" : ""}`} key={slot.start_at}>
-              <div><strong>{new Date(slot.start_at * 1000).toISOString().slice(11, 16)}–{new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)} UTC</strong><small>{new Date(slot.start_at * 1000).toISOString().slice(0, 10)}</small></div>
+              <div><strong>{new Date(slot.start_at * 1000).toISOString().slice(11, 16)}–{new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)} UTC</strong><small>{watchDate(slot.start_at)}</small></div>
               <div><strong>{slot.assigned_to ? slot.member_name ?? `Player ${slot.assigned_to}` : "Available"}{mine ? " · You" : ""}</strong><small>{slot.cancelled ? "Cancelled" : ended ? "Ended" : started ? "On watch · locked" : breaksRule ? "An hour's break is required" : slot.assigned_to ? "Reserved" : "Open for sign-up"}</small></div>
               <div className="watch-slot-actions">
                 {isAdmin && showAdmin ? <WatchAdminAssignment slot={slot} members={data!.members} disabled={busy || Boolean(slot.cancelled)} onSave={(target) => run(() => overrideChainWatchSlot(watch.id, slot.start_at, target), "Assignment updated.")} /> :

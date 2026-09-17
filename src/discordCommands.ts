@@ -45,6 +45,7 @@ type DiscordCommandOption = {
   required?: boolean;
   min_value?: number;
   max_value?: number;
+  autocomplete?: boolean;
   choices?: Array<{
     name: string;
     value: string;
@@ -69,15 +70,15 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
           description: "Create the faction's only watch and post its sign-up sheet here",
           options: [
             { type: 3, name: "name", description: "Name of this watch", required: true },
-            { type: 3, name: "start", description: "UTC YYYY-MM-DD HH:00; defaults to the next whole hour" },
-            { type: 3, name: "finish", description: "UTC YYYY-MM-DD HH:00; omit for rolling 24-hour sheets" },
+            { type: 3, name: "start", description: "Pick a UTC hour or type 18 / 18:00; date: DD-MM-YY HH:00; default: next whole hour", autocomplete: true },
+            { type: 3, name: "finish", description: "Pick a UTC hour after start or DD-MM-YY HH:00; omit for rolling 24-hour sheets", autocomplete: true },
           ],
         },
         {
           type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
           name: "setfinish",
           description: "Set the watch's finish and cancel slots from that time onward",
-          options: [{ type: 3, name: "finish", description: "UTC YYYY-MM-DD HH:00; defaults to the next whole hour" }],
+          options: [{ type: 3, name: "finish", description: "Pick a UTC hour or type 18 / 18:00; date: DD-MM-YY HH:00; default: next whole hour", autocomplete: true }],
         },
       ],
     },

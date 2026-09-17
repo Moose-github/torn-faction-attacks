@@ -7,7 +7,17 @@ the same D1 schedule with the Discord bot; it does not depend on a war or event.
 
 - `/chain-watch create name:<name> [start] [finish]` posts in the invoking channel.
 - `/chain-watch setfinish [finish]` targets the only unfinished watch.
-- Explicit times use `YYYY-MM-DD HH:00` in UTC. ISO UTC whole hours also work.
+- Time options offer the next 24 whole hours in a dropdown, labelled with UTC
+  and today, tomorrow, or the date. Typing filters the suggestions.
+- Time-only inputs such as `18` or `18:00` mean the next occurrence strictly
+  after now for start/setfinish, or strictly after the chosen start for create's
+  finish. Start `23:00`, finish `02:00` spans midnight; matching hours mean 24 hours.
+- Dates display as `DD-MM-YY`, with time in `HH:00 UTC`. Enter a full date as
+  `DD-MM-YY HH:00` for scheduling further ahead; two-digit years mean 2000–2099.
+  Existing `YYYY-MM-DD HH:00` and ISO UTC inputs remain accepted.
+  Selected suggestions store the displayed date/time,
+  and command replies show the full resolved dates. An explicit date that has
+  passed is rejected, rather than moved to the next day.
 - Start defaults to the next whole hour. No finish means recurring 24-hour sheets,
   with each successor published 12 hours before the preceding sheet ends.
 - With a fixed finish, generate the full schedule in sheets of up to 24 slots.
@@ -25,8 +35,11 @@ never relaxed by this flag.
 ## Player and admin actions
 
 Discord rosters show hourly UTC slots and Sign up, Leave slots, and Open page
-buttons. Selections and confirmation are private, bound to the invoking player,
-and expire after ten minutes. Both platforms use the existing Torn/Discord links.
+buttons. Sign up and Leave slots each open one private message containing the
+dropdown and a Confirm button. Confirm enables after a valid selection; changing
+the selection and confirming both update that same message. Selections are bound
+to the invoking player and expire after ten minutes. Both platforms use the
+existing Torn/Discord links.
 
 Players can claim multiple future slots, with a maximum of two consecutive hours
 and at least one hour off. The rule also spans sheet boundaries. Started and past

@@ -72,6 +72,24 @@ describe("Discord interactions", () => {
     expect(await response?.json()).toEqual({ type: 1 });
   });
 
+  it("responds to watch autocomplete immediately without deferring or querying the database", async () => {
+    const signed = await signedDiscordRequest({
+      type: 4, application_id: "application", token: "autocomplete-token", guild_id: "guild",
+      member: { user: { id: "111" }, permissions: "0" },
+      data: { name: "chain-watch", options: [{ type: 1, name: "create", options: [{ type: 3, name: "start", value: "", focused: true }] }] },
+    });
+    const waitUntil = vi.fn();
+    const prepare = vi.fn(() => { throw new Error("Autocomplete must not query D1"); });
+    const response = await handleDiscordInteractions(signed.request, {
+      DISCORD_PUBLIC_KEY: signed.publicKeyHex, DISCORD_GUILD_ID: "guild", DB: { prepare },
+    } as unknown as Env, { waitUntil } as unknown as ExecutionContext);
+    const body = await response?.json() as { type: number; data: { choices: unknown[] } };
+    expect(body.type).toBe(8);
+    expect(body.data.choices).toHaveLength(24);
+    expect(waitUntil).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   it("returns 401 when the interaction signature is invalid", async () => {
     const signed = await signedDiscordRequest({ type: 1 });
     const request = new Request("https://worker.test/api/discord/interactions", {

@@ -1,5 +1,5 @@
 import { isRecord } from "./backend/request";
-import { completeDeferredWatchInteraction, handleWatchInteraction, isWatchInteraction } from "./chainWatchScheduleDiscord";
+import { completeDeferredWatchInteraction, deferredWatchResponse, handleWatchInteraction, isWatchInteraction } from "./chainWatchScheduleDiscord";
 import { DISCORD_COMMAND_NAMES, DISCORD_COMPONENT_IDS } from "./discordCommands";
 import {
   DISCORD_ALERT_CHANNEL_ROUTES,
@@ -42,6 +42,7 @@ import {
 const DISCORD_INTERACTION_PING = 1;
 const DISCORD_INTERACTION_APPLICATION_COMMAND = 2;
 const DISCORD_INTERACTION_MESSAGE_COMPONENT = 3;
+const DISCORD_INTERACTION_AUTOCOMPLETE = 4;
 const DISCORD_RESPONSE_PONG = 1;
 const DISCORD_RESPONSE_CHANNEL_MESSAGE = 4;
 const DISCORD_RESPONSE_UPDATE_MESSAGE = 7;
@@ -87,6 +88,7 @@ type DiscordOption = {
   name: string;
   type: number;
   value?: string | number;
+  focused?: boolean;
   options?: DiscordOption[];
 };
 
@@ -108,6 +110,7 @@ export type DiscordInteractionResponse = {
     embeds?: DiscordEmbed[];
     components?: DiscordComponent[];
     flags?: number;
+    choices?: Array<{ name: string; value: string }>;
     allowed_mentions?: {
       parse: [];
     };
@@ -125,6 +128,7 @@ type DiscordButtonComponent = {
     label: string;
     custom_id?: string;
     url?: string;
+    disabled?: boolean;
 };
 
 type DiscordStringSelectComponent = {
@@ -227,9 +231,10 @@ export async function handleDiscordInteractions(request: Request, env: Env, ctx?
   }
 
   try {
-    if (ctx && interaction.application_id && interaction.token && isWatchInteraction(interaction)) {
+    // Autocomplete must return choices immediately, without a deferred reply.
+    if (ctx && interaction.application_id && interaction.token && interaction.type !== DISCORD_INTERACTION_AUTOCOMPLETE && isWatchInteraction(interaction)) {
       ctx.waitUntil(completeDeferredWatchInteraction(interaction, env));
-      return json({ type: 5, data: { flags: DISCORD_FLAG_EPHEMERAL } });
+      return json(deferredWatchResponse(interaction));
     }
     const response = await handleVerifiedDiscordInteraction(interaction, env);
     return json(response);

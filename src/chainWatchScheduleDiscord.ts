@@ -1,5 +1,5 @@
-import { createsLongWatchRun, watchUtc, WATCH_HOUR, type ChainWatchSheet, type ChainWatchScheduleResponse } from "../shared/chainWatchSchedule";
-import { changeWatchSlots, createWatch, currentWatch, readWatch, reconcileWatch, setWatchFinish, WatchError, watchDiscordMember } from "./chainWatchSchedule";
+import { createsLongWatchRun, nextWatchHour, watchDate, watchUtc, WATCH_DAY, WATCH_HOUR, type ChainWatchSheet, type ChainWatchScheduleResponse } from "../shared/chainWatchSchedule";
+import { changeWatchSlots, createWatch, currentWatch, parseWatchTime, readWatch, reconcileWatch, setWatchFinish, WatchError, watchDiscordMember } from "./chainWatchSchedule";
 import { CHAIN_WATCH_COMMANDS_PUBLIC_FOR_TESTING } from "./discordCommands";
 import type { DiscordInteraction, DiscordInteractionResponse } from "./discordInteractions";
 import { assertExternalResponseOk, ExternalApiError, fetchExternal, readExternalJson } from "./external/http";
@@ -14,12 +14,63 @@ export function canManageWatchOnDiscord(permissions: string | undefined, publicT
 }
 
 export function isWatchInteraction(interaction: DiscordInteraction): boolean {
-  return (interaction.type === 2 && interaction.data?.name === "chain-watch") ||
+  return ((interaction.type === 2 || interaction.type === 4) && interaction.data?.name === "chain-watch") ||
     (interaction.type === 3 && Boolean(interaction.data?.custom_id?.startsWith(WATCH_COMPONENT_PREFIX)));
 }
 
-function privateWatchMessage(content: string, components?: NonNullable<DiscordInteractionResponse["data"]>["components"]): DiscordInteractionResponse {
-  return { type: 4, data: { content, components, flags: 64, allowed_mentions: { parse: [] } } };
+function updatesWatchMessage(interaction: DiscordInteraction): boolean {
+  return interaction.type === 3 && /^(cws:pick:|cws:confirm:)/.test(interaction.data?.custom_id ?? "");
+}
+
+export function deferredWatchResponse(interaction: DiscordInteraction): DiscordInteractionResponse {
+  return updatesWatchMessage(interaction) ? { type: 6 } : { type: 5, data: { flags: 64 } };
+}
+
+function watchTimeChoice(timestamp: number, now: number): { name: string; value: string } {
+  const value = watchUtc(timestamp).replace(" UTC", "");
+  const daysAway = Math.floor(timestamp / WATCH_DAY) - Math.floor(now / WATCH_DAY);
+  const day = daysAway === 0 ? "today" : daysAway === 1 ? "tomorrow" : watchDate(timestamp);
+  const time = new Date(timestamp * 1000).toISOString().slice(11, 16);
+  return { name: `${time} UTC — ${day}`, value };
+}
+
+function watchAutocompleteResponse(interaction: DiscordInteraction, env: Env, now = nowSeconds()): DiscordInteractionResponse {
+  const empty: DiscordInteractionResponse = { type: 8, data: { choices: [] } };
+  if (!env.DISCORD_GUILD_ID || interaction.guild_id !== env.DISCORD_GUILD_ID || !interaction.member?.user?.id ||
+    !canManageWatchOnDiscord(interaction.member.permissions)) return empty;
+  const command = interaction.data?.options?.[0];
+  const focused = command?.options?.find((option) => option.focused);
+  if (!focused || (focused.value !== undefined && typeof focused.value !== "string")) return empty;
+  if (command?.name !== "create" && command?.name !== "setfinish") return empty;
+  if (focused.name !== "finish" && !(command.name === "create" && focused.name === "start")) return empty;
+
+  let after = now;
+  if (command?.name === "create" && focused.name === "finish") {
+    try {
+      after = parseWatchTime(command.options?.find((option) => option.name === "start")?.value, nextWatchHour(now), now);
+      if (after <= now) return empty;
+    } catch { return empty; }
+  }
+
+  const query = String(focused.value ?? "").trim();
+  // A complete date remains usable for a watch scheduled beyond the next day.
+  if (/^(?:\d{2}|\d{4})-/.test(query)) {
+    try {
+      const timestamp = parseWatchTime(query, undefined, after);
+      return { type: 8, data: { choices: timestamp > after ? [watchTimeChoice(timestamp, now)] : [] } };
+    } catch { /* Partial dates can still filter the upcoming choices below. */ }
+  }
+  const dateQuery = /^(?:\d{2}-|\d{4}(?:-|$))/.test(query);
+  const choices = Array.from({ length: 24 }, (_, index) => nextWatchHour(after) + index * WATCH_HOUR)
+    .filter((timestamp) => {
+      if (!query) return true;
+      const iso = new Date(timestamp * 1000).toISOString();
+      if (dateQuery) return watchUtc(timestamp).startsWith(query.replace("T", " ")) || iso.replace("T", " ").startsWith(query.replace("T", " "));
+      const time = iso.slice(11, 16);
+      return time.startsWith(query) || time.replace(/^0/, "").startsWith(query);
+    })
+    .map((timestamp) => watchTimeChoice(timestamp, now));
+  return { type: 8, data: { choices } };
 }
 
 function escaped(value: string): string {
@@ -56,6 +107,12 @@ export async function completeDeferredWatchInteraction(interaction: DiscordInter
 }
 
 export async function handleWatchInteraction(interaction: DiscordInteraction, env: Env): Promise<DiscordInteractionResponse> {
+  if (interaction.type === 4) return watchAutocompleteResponse(interaction, env);
+  const update = updatesWatchMessage(interaction);
+  const reply = (content: string, components: NonNullable<DiscordInteractionResponse["data"]>["components"] = []): DiscordInteractionResponse => ({
+    type: update ? 7 : 4,
+    data: { content, components, ...(!update ? { flags: 64 } : {}), allowed_mentions: { parse: [] } },
+  });
   try {
     const guildId = interaction.guild_id;
     const userId = interaction.member?.user?.id;
@@ -72,13 +129,13 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
           name: option("name"), start: option("start"), finish: option("finish"), guildId,
           channelId: interaction.channel_id, discordUserId: userId,
         });
-        return privateWatchMessage(`Created **${escaped(watch.name)}**, starting ${watchUtc(watch.start_at)}. The roster will appear in this channel.`, [{ type: 1, components: [{ type: 2, style: 5, label: "Open page", url: watchPageUrl(env, watch.id) }] }]);
+        return reply(`Created **${escaped(watch.name)}**.\nStart: ${watchUtc(watch.start_at)}\nFinish: ${watch.finish_at === null ? "Not set; rolling 24-hour sheets" : watchUtc(watch.finish_at)}\nThe roster will appear in this channel.`, [{ type: 1, components: [{ type: 2, style: 5, label: "Open page", url: watchPageUrl(env, watch.id) }] }]);
       }
       if (command?.name === "setfinish") {
         const watch = await currentWatch(env);
         if (!watch || watch.guild_id !== guildId) throw new WatchError("There is no unfinished watch.");
         const finish = await setWatchFinish(env, watch.id, option("finish"));
-        return privateWatchMessage(`**${escaped(watch.name)}** will finish at ${watchUtc(finish)}. Slots starting then or later are cancelled; earlier assignments are preserved.`);
+        return reply(`**${escaped(watch.name)}** will finish at ${watchUtc(finish)}. Slots starting then or later are cancelled; earlier assignments are preserved.`);
       }
       throw new WatchError("Use /chain-watch create or /chain-watch setfinish.");
     }
@@ -96,7 +153,7 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
       const starts: number[] = JSON.parse(selection.starts_json);
       await changeWatchSlots(env, { watchId: selection.watch_id, starts, actorId, targetId: selection.action === "claim" ? actorId : null, admin: false });
       await env.DB.prepare("DELETE FROM chain_watch_pending_selections WHERE id = ?").bind(selection.id).run();
-      return privateWatchMessage(`${selection.action === "claim" ? "Signed up for" : "Left"} ${starts.length} slot${starts.length === 1 ? "" : "s"}. The shared roster is updating.`);
+      return reply(`${selection.action === "claim" ? "Signed up for" : "Left"} ${starts.length} slot${starts.length === 1 ? "" : "s"}. The shared roster is updating.`);
     }
 
     const action = parts[2];
@@ -110,30 +167,36 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
     const available = data.slots.filter((slot) => slot.sheet_id === sheetId && !slot.cancelled && slot.start_at > data.now &&
       (action === "leave" ? slot.assigned_to === actorId : slot.assigned_to === null && !createsLongWatchRun(mine, slot.start_at)));
 
-    if (parts[1] === "open") {
-      if (!available.length) return privateWatchMessage(action === "leave" ? "You have no future assignments on this sheet." : "There are no available slots you can take on this sheet.");
-      return privateWatchMessage(`${action === "claim" ? "Choose slots to claim" : "Choose your slots to leave"}. All times are UTC. You will confirm before saving.`, [{ type: 1, components: [{
+    if (!available.length) return reply(action === "leave" ? "You have no future assignments on this sheet." : "There are no available slots you can take on this sheet.");
+    const selectionMessage = (starts: number[] = [], selectionId?: string, error?: string) => reply(
+      error ?? `${action === "claim" ? "Choose slots to claim" : "Choose your slots to leave"}. All times are UTC. Press Confirm when ready.${starts.length ? `\n\nSelected:\n${starts.map((start) => watchUtc(start)).join("\n")}` : ""}`,
+      [{ type: 1, components: [{
         type: 3, custom_id: `cws:pick:${action}:${sheetId}`, placeholder: "Choose hourly slots", min_values: 1, max_values: available.length,
-        options: available.map((slot) => ({ label: `${watchUtc(slot.start_at)} – ${new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)}`, value: String(slot.start_at) })),
-      }] }]);
-    }
+        options: available.map((slot) => ({ label: `${watchUtc(slot.start_at)} – ${new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)}`, value: String(slot.start_at), default: starts.includes(slot.start_at) })),
+      }] }, { type: 1, components: [{
+        type: 2, style: action === "claim" ? 3 : 4, label: action === "claim" ? "Confirm sign-up" : "Confirm leave",
+        custom_id: `cws:confirm:${selectionId ?? "empty"}`, disabled: !selectionId,
+      }] }],
+    );
+
+    if (parts[1] === "open") return selectionMessage();
 
     const selected = interaction.data?.values ?? [];
-    if (!selected.length || selected.length > 24 || selected.some((value) => !/^\d+$/.test(value))) throw new WatchError("Choose valid slots.");
+    if (!selected.length || selected.length > 24 || selected.some((value) => !/^\d+$/.test(value))) return selectionMessage([], undefined, "Choose valid slots.");
     const starts = [...new Set(selected.map(Number))];
-    if (starts.some((start) => !available.some((slot) => slot.start_at === start))) throw new WatchError("A selected slot is no longer available. Open the selector again.");
+    if (starts.some((start) => !available.some((slot) => slot.start_at === start))) return selectionMessage([], undefined, "A selected slot is no longer available. Choose your slots again.");
     if (action === "claim") {
       const finalHours = new Set([...mine, ...starts]);
-      if (starts.some((start) => createsLongWatchRun(finalHours, start))) throw new WatchError("Your selection needs at least one hour off after two consecutive slots.");
+      if (starts.some((start) => createsLongWatchRun(finalHours, start))) return selectionMessage(starts, undefined, "Your selection needs at least one hour off after two consecutive slots. Adjust your selection to continue.");
     }
     const id = crypto.randomUUID();
     await env.DB.prepare(`INSERT INTO chain_watch_pending_selections(id, discord_user_id, guild_id, watch_id, action, starts_json, expires_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(id, userId, guildId, sheet.watch_id, action, JSON.stringify(starts), nowSeconds() + 10 * 60).run();
-    return privateWatchMessage(`Confirm ${action === "claim" ? "sign-up" : "leaving"}:\n${starts.map((start) => watchUtc(start)).join("\n")}`, [{ type: 1, components: [{ type: 2, style: action === "claim" ? 3 : 4, label: action === "claim" ? "Confirm sign-up" : "Confirm leave", custom_id: `cws:confirm:${id}` }] }]);
+    return selectionMessage(starts, id);
   } catch (error) {
-    if (error instanceof WatchError) return privateWatchMessage(error.message);
+    if (error instanceof WatchError) return reply(error.message);
     console.error("Chain watch interaction failed", error instanceof Error ? error.message : "Unknown error");
-    return privateWatchMessage("Chain watch is temporarily unavailable. Try again shortly.");
+    return reply("Chain watch is temporarily unavailable. Try again shortly.");
   }
 }
 
@@ -143,7 +206,7 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
   const future = slots.some((slot) => !slot.cancelled && slot.start_at > data.now);
   const rows = slots.map((slot) => {
     const hour = new Date(slot.start_at * 1000).toISOString().slice(11, 16);
-    const date = new Date(slot.start_at * 1000).toISOString().slice(5, 10);
+    const date = watchDate(slot.start_at);
     const who = slot.assigned_to ? escaped((slot.member_name ?? `Player ${slot.assigned_to}`).slice(0, 32)) : "Available";
     const status = slot.cancelled ? "Cancelled" : slot.start_at + WATCH_HOUR <= data.now ? "Ended" : slot.start_at <= data.now ? "On watch" : "";
     return `${date} **${hour}** · ${who}${status ? ` · ${status}` : ""}`;
