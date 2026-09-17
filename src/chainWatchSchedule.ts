@@ -57,6 +57,11 @@ function generateWatchStatements(env: Env, id: string, now: number): D1PreparedS
       COALESCE((SELECT MAX(end_at) FROM chain_watch_sheets WHERE watch_id = w.id), 0)
     )) AS horizon FROM chain_watch_schedules w WHERE w.id = ? AND w.is_open = 1`;
   return [
+    // Refresh the previous latest message when another day is generated, even
+    // if a delayed cron means that sheet has left the hourly refresh window.
+    env.DB.prepare(`WITH w AS (${source}) UPDATE chain_watch_sheets SET dirty = dirty + 1
+      WHERE id = (SELECT id FROM chain_watch_sheets WHERE watch_id = ? ORDER BY start_at DESC LIMIT 1)
+        AND end_at < (SELECT horizon FROM w)`).bind(now, id, id),
     env.DB.prepare(`WITH RECURSIVE w AS (${source}), hours(t) AS (
       SELECT COALESCE((SELECT MAX(end_at) FROM chain_watch_sheets WHERE watch_id = w.id), w.start_at)
         FROM w WHERE COALESCE((SELECT MAX(end_at) FROM chain_watch_sheets WHERE watch_id = w.id), w.start_at) < horizon

@@ -212,6 +212,8 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
   const watch = data.watch!;
   const slots = data.slots.filter((slot) => slot.sheet_id === sheet.id);
   const future = slots.some((slot) => !slot.cancelled && slot.start_at > data.now);
+  const newestSheet = data.sheets.every((candidate) => candidate.start_at <= sheet.start_at);
+  const nextDayNotice = watch.is_open && watch.finish_at === null && newestSheet ? "\nNext day published at 12:00 UTC" : "";
   const rows = slots.map((slot) => {
     const hour = new Date(slot.start_at * 1000).toISOString().slice(11, 16);
     const who = slot.assigned_to ? escaped((slot.member_name ?? `Player ${slot.assigned_to}`).slice(0, 32)) : "Available";
@@ -223,7 +225,7 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
     embeds: [{
       title: `${escaped(watch.name)} · ${watchDate(sheet.start_at)} · Chain watch`, color: 0x2f80ed,
       description: rows.join("\n"),
-      footer: { text: `${slots.filter((slot) => !slot.cancelled && slot.assigned_to).length}/${slots.filter((slot) => !slot.cancelled).length} filled · Two consecutive hours maximum · ${watch.finish_at ? `Watch finishes ${watchUtc(watch.finish_at)}` : "Next day published at 12:00 UTC"}` },
+      footer: { text: `${slots.filter((slot) => !slot.cancelled && slot.assigned_to).length}/${slots.filter((slot) => !slot.cancelled).length} filled · Two consecutive hours maximum${watch.finish_at ? ` · Watch finishes ${watchUtc(watch.finish_at)}` : nextDayNotice}` },
     }],
     allowed_mentions: { parse: [] },
     components: [{ type: 1, components: [

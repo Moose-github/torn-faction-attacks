@@ -426,8 +426,38 @@ describe("Discord chain watch", () => {
     expect(payload.allowed_mentions.parse).toEqual([]);
     expect(payload.embeds[0].title).toContain("01-01-30");
     expect(payload.embeds[0].description).toMatch(/^\*\*13:00\*\* · /);
+    expect(payload.embeds[0].footer.text).toContain("Watch finishes 02-01-30 00:00 UTC");
+    expect(payload.embeds[0].footer.text).not.toContain("Next day published");
     expect(payload.embeds[0].description.length).toBeLessThan(4096);
     for (const button of payload.components[0].components) if ("custom_id" in button) expect(button.custom_id!.length).toBeLessThanOrEqual(100);
+  });
+
+  it.each([0, 2])("keeps the publication notice only on the newest message after %s missed days", async (missedDays) => {
+    await create();
+    db.env.DISCORD_BOT_TOKEN = "test-token";
+    let messageNumber = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify({ id: `message-${++messageNumber}` }), { status: 200 })));
+    await syncWatchBoards(db.env, now);
+    const before = await readWatch(db.env);
+    const previousNewest = before.sheets.at(-1)!;
+    const published = async () => (await db.env.DB.prepare(`SELECT id, dirty, last_payload FROM chain_watch_sheets
+      WHERE discord_message_id IS NOT NULL ORDER BY start_at`).all()).results as Array<{ id: string; dirty: number; last_payload: string }>;
+    const hasNotice = (row: { last_payload: string }) => JSON.parse(row.last_payload).embeds[0].footer.text.endsWith("\nNext day published at 12:00 UTC");
+    expect((await published()).filter(hasNotice).map((row) => row.id)).toEqual([previousNewest.id]);
+
+    const nextPublication = previousNewest.start_at + missedDays * WATCH_DAY + 12 * WATCH_HOUR;
+    advance(nextPublication);
+    await reconcileWatch(db.env, nextPublication);
+    await syncWatchBoards(db.env, nextPublication);
+    const after = await readWatch(db.env);
+    const messages = await published();
+    expect(messages).toHaveLength(after.sheets.length);
+    expect(messages.every((row) => row.dirty === 0)).toBe(true);
+    expect(messages.filter(hasNotice).map((row) => row.id)).toEqual([after.sheets.at(-1)!.id]);
+    expect(JSON.parse(messages.find((row) => row.id === previousNewest.id)!.last_payload).embeds[0].footer.text).not.toContain("Next day published");
+    const savedMessages = messages;
+    await reconcileWatch(db.env, nextPublication);
+    expect(await published()).toEqual(savedMessages);
   });
 
   it.each(["claim", "leave"])("keeps the %s dropdown, confirmation and saved result in one private message", async (action) => {
