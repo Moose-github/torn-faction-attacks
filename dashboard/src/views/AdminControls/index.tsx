@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Square } from "lucide-react";
 import {
   AdminWarPayload,
   AuthSession,
@@ -577,6 +577,7 @@ export function AdminControls() {
   const currentOfficialWar = officialWars.find(isCurrentOfficialWar) ?? null;
   const historicalOfficialWars = officialWars.filter(isHistoricalOfficialWar);
   const currentEvent = events.find((war) => war.status === "active") ?? null;
+  const selectedEvent = events.find((war) => war.id === Number(selectedEventId)) ?? null;
   const historicalEvents = events.filter((war) => war.status === "ended");
   const currentReportableMembers = reportExemptionMembers.filter(
     (member) => member.is_current === 1 && member.report_exempt === 0,
@@ -1168,6 +1169,7 @@ export function AdminControls() {
                 <span>Event</span>
                 <select
                   value={selectedEventId}
+                  disabled={isBusy !== null}
                   onChange={(event) => {
                     const selected = events.find((candidate) => candidate.id === Number(event.target.value));
                     setSelectedEventId(event.target.value);
@@ -1229,29 +1231,30 @@ export function AdminControls() {
               </button>
               <button
                 type="button"
-                className="admin-button"
-                disabled={isBusy !== null || currentEvent === null}
-                onClick={() =>
-                  runAdminAction("Stop active event", () =>
-                    endActiveWar().then((response) => {
-                      const now = Math.floor(Date.now() / 1000);
-                      if (currentEvent) {
-                        const stoppedWar = {
-                          ...currentEvent,
+                className="admin-button danger with-icon"
+                disabled={isBusy !== null || selectedEvent?.status !== "active"}
+                onClick={() => {
+                  if (!selectedEvent || selectedEvent.status !== "active" || !window.confirm(
+                    `Finish ${selectedEvent.name} now? This ends tracking immediately. Unsaved edits will not be applied.`,
+                  )) {
+                    return;
+                  }
+                  runAdminAction("Finish event now", () =>
+                    endActiveWar({ war_id: selectedEvent.id }).then((response) => {
+                      applyEventResponse({
+                        war: {
+                          ...selectedEvent,
                           status: "ended",
-                          practical_finish_time: currentEvent.practical_finish_time ?? now,
-                        };
-                        setWars((current) =>
-                          current.map((war) => (war.id === stoppedWar.id ? stoppedWar : war)),
-                        );
-                        setEventEditForm(convertWarFormTimeMode(warToForm(stoppedWar), adminTimeMode));
-                      }
+                          practical_finish_time: response.practical_finish_time,
+                        },
+                      });
                       return response;
                     }),
-                  )
-                }
+                  );
+                }}
               >
-                Stop active event
+                <Square size={16} aria-hidden="true" />
+                {isBusy === "Finish event now" ? "Finishing event" : "Finish event now"}
               </button>
               <button
                 type="submit"

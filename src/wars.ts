@@ -1055,11 +1055,18 @@ export async function deleteWar(request: Request, env: Env): Promise<Response> {
 
 export async function endActiveWar(request: Request, env: Env): Promise<Response> {
   let requestedFinishTime: number | null = null;
+  let requestedWarId: number | null = null;
 
   try {
     const rawBody = await request.text();
     if (rawBody.trim() !== "") {
-      const body = JSON.parse(rawBody) as { practical_finish_time?: unknown };
+      const body = JSON.parse(rawBody) as { war_id?: unknown; practical_finish_time?: unknown };
+      if (body.war_id !== undefined) {
+        requestedWarId = parseOptionalInteger(body.war_id, "war_id");
+        if (requestedWarId === null || requestedWarId <= 0) {
+          return json({ ok: false, error: "Invalid war_id", code: "INVALID_WAR_ID" }, 400);
+        }
+      }
       requestedFinishTime = parseOptionalInteger(
         body.practical_finish_time,
         "practical_finish_time",
@@ -1073,6 +1080,14 @@ export async function endActiveWar(request: Request, env: Env): Promise<Response
   const activeWarId = syncState?.war_state === "current" ? syncState.active_war_id : null;
   if (!activeWarId) {
     return json({ ok: false, error: "No current war" }, 400);
+  }
+
+  if (requestedWarId !== null && requestedWarId !== activeWarId) {
+    return json({
+      ok: false,
+      error: "The selected tracker is no longer active. Refresh before trying again.",
+      code: "ACTIVE_WAR_CHANGED",
+    }, 409);
   }
 
   const activeWar = (await env.DB.prepare(

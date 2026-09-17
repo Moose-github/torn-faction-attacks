@@ -237,10 +237,13 @@ export async function relinkAttacks(payload: {
   return postJson("/api/wars/relink-attacks", { ...payload, dry_run: false });
 }
 
-export async function endActiveWar(options: { practical_finish_time?: number } = {}): Promise<unknown> {
+export async function endActiveWar(options: {
+  war_id?: number;
+  practical_finish_time?: number;
+} = {}): Promise<{ ok: true; war_id: number; practical_finish_time: number }> {
   return postJson(
     "/api/wars/end",
-    options.practical_finish_time === undefined ? undefined : options,
+    Object.keys(options).length === 0 ? undefined : options,
   );
 }
 

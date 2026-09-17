@@ -8401,6 +8401,13 @@ h2 {
   font-weight: 800;
 }
 
+.admin-button.with-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
 .admin-button:hover:not(:disabled) {
   border-color: #2563eb;
   background: #f8fbff;
