@@ -1,0 +1,2 @@
+# Keep D1 trigger bodies compatible with the remote migration parser on Windows.
+*.sql text eol=lf

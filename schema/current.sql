@@ -1905,28 +1905,32 @@ CREATE TABLE chain_watch_pending_selections (
 -- multi-slot selections. A failure rolls back the entire D1 batch.
 CREATE TRIGGER chain_watch_guard_assignment BEFORE UPDATE OF assigned_to ON chain_watch_slots
 BEGIN
-  SELECT CASE WHEN NEW.cancelled = 1 OR EXISTS (
+  SELECT RAISE(ABORT, 'WATCH_SLOT_CANCELLED') WHERE NEW.cancelled = 1 OR EXISTS (
     SELECT 1 FROM chain_watch_schedules w WHERE w.id = NEW.watch_id
       AND w.finish_at IS NOT NULL AND NEW.start_at >= w.finish_at
-  ) THEN RAISE(ABORT, 'WATCH_SLOT_CANCELLED') END;
-  SELECT CASE WHEN NEW.admin_override = 0 AND NEW.start_at <= unixepoch()
-    THEN RAISE(ABORT, 'WATCH_SLOT_STARTED') END;
-  SELECT CASE WHEN NEW.admin_override = 0 AND (
+  );
+  SELECT RAISE(ABORT, 'WATCH_SLOT_STARTED')
+    WHERE NEW.admin_override = 0 AND NEW.start_at <= unixepoch();
+  SELECT RAISE(ABORT, 'WATCH_SLOT_TAKEN') WHERE NEW.admin_override = 0 AND (
     NEW.assignment_actor IS NULL OR
     (OLD.assigned_to IS NOT NULL AND OLD.assigned_to != NEW.assignment_actor) OR
     (NEW.assigned_to IS NOT NULL AND NEW.assigned_to != NEW.assignment_actor)
-  ) THEN RAISE(ABORT, 'WATCH_SLOT_TAKEN') END;
-  SELECT CASE WHEN NEW.assigned_to IS NOT NULL AND NOT EXISTS (
+  );
+  SELECT RAISE(ABORT, 'WATCH_NOT_MEMBER') WHERE NEW.assigned_to IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM home_faction_members WHERE member_id = NEW.assigned_to AND is_current = 1
-  ) THEN RAISE(ABORT, 'WATCH_NOT_MEMBER') END;
-  SELECT CASE WHEN NEW.admin_override = 0 AND NEW.assigned_to IS NOT NULL AND EXISTS (
+  );
+  SELECT RAISE(ABORT, 'WATCH_BREAK_REQUIRED')
+    WHERE NEW.admin_override = 0 AND NEW.assigned_to IS NOT NULL AND EXISTS (
     SELECT 1 FROM chain_watch_slots a JOIN chain_watch_slots b
       ON b.watch_id = a.watch_id AND b.assigned_to = a.assigned_to
-      AND b.start_at = a.start_at + CASE WHEN a.start_at = NEW.start_at - 3600 THEN 7200 ELSE 3600 END
+      AND (
+        (a.start_at = NEW.start_at - 7200 AND b.start_at = NEW.start_at - 3600) OR
+        (a.start_at = NEW.start_at - 3600 AND b.start_at = NEW.start_at + 3600) OR
+        (a.start_at = NEW.start_at + 3600 AND b.start_at = NEW.start_at + 7200)
+      )
     WHERE a.watch_id = NEW.watch_id AND a.assigned_to = NEW.assigned_to
       AND a.cancelled = 0 AND b.cancelled = 0
-      AND a.start_at IN (NEW.start_at - 7200, NEW.start_at - 3600, NEW.start_at + 3600)
-  ) THEN RAISE(ABORT, 'WATCH_BREAK_REQUIRED') END;
+  );
 END;
 
 CREATE TRIGGER chain_watch_assignment_changed AFTER UPDATE OF assigned_to ON chain_watch_slots
