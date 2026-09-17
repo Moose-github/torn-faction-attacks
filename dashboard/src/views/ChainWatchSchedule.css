@@ -1,0 +1,34 @@
+.watch-schedule-page { display: grid; gap: 18px; }
+.watch-schedule-page .panel { padding: 20px; }
+.watch-schedule-page h2, .watch-schedule-page h3 { margin: 0; }
+.watch-schedule-page p { line-height: 1.6; }
+.watch-toolbar, .watch-title-row, .watch-slot-actions form, .watch-admin-panel form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.watch-title-row { justify-content: space-between; }
+.watch-toolbar label, .watch-admin-panel label { display: grid; gap: 6px; font-size: 13px; }
+.watch-schedule-page select, .watch-schedule-page input { padding: 9px 11px; border: 1px solid #94a3b866; border-radius: 8px; background: transparent; color: inherit; font: inherit; max-width: 100%; }
+.watch-schedule-page option { color: #172b46; background: #fff; }
+.watch-status { padding: 5px 12px; border-radius: 20px; background: #2f80ed18; color: #3076c8; font-size: 12px; font-weight: 700; }
+.watch-muted, .watch-slot small, .watch-admin-panel small { color: #78879d; font-size: 12px; }
+.watch-slot-list { margin-top: 16px; }
+.watch-slot { display: grid; grid-template-columns: minmax(145px, 1fr) minmax(130px, 1fr) auto; gap: 18px; padding: 15px 10px; align-items: center; border-bottom: 1px solid #94a3b829; }
+.watch-slot small { display: block; margin-top: 5px; }
+.watch-slot strong { font-size: 14px; }
+.watch-slot-mine { background: #2f80ed0d; border-left: 3px solid #2f80ed; }
+.watch-slot-muted { opacity: .65; }
+.watch-slot-actions { justify-self: end; }
+.watch-slot-actions select { max-width: 180px; }
+.watch-notice { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-radius: 10px; background: #17935a16; color: #26875b; }
+.watch-admin-panel { border: 1px solid #e0a93866; }
+.watch-finish-confirm { padding: 12px; margin-top: 16px; border: 1px solid #e0a93866; border-radius: 8px; }
+.watch-finish-confirm button + button { margin-left: 8px; }
+.watch-discord-link { display: inline-flex; align-items: center; gap: 6px; }
+.watch-schedule-page button:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 700px) {
+  .watch-schedule-page .panel { padding: 14px; }
+  .watch-slot { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .watch-slot-actions { grid-column: 1 / -1; justify-self: stretch; }
+  .watch-slot-actions > button { width: 100%; justify-content: center; }
+  .watch-slot-actions form { justify-content: space-between; }
+  .watch-toolbar select { width: 100%; }
+  .watch-slot-actions select { max-width: 70%; }
+}

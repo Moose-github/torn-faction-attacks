@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { CalendarClock, ChevronDown, ChevronRight } from "lucide-react";
 import { WarSummary, WarType } from "../api";
 import { EmptyState } from "./Common";
 import { formatDate } from "../utils/format";
@@ -115,6 +115,12 @@ export function Sidebar({
           icon={retaliationIcon}
           label="Retaliations"
           onClick={() => onViewChange("retaliations")}
+        />
+        <SidebarLink
+          active={view === "chainWatchSchedule"}
+          icon={<CalendarClock size={18} />}
+          label="Chain watch sign-ups"
+          onClick={() => onViewChange("chainWatchSchedule")}
         />
         <SidebarLink
           active={view === "dataHealth"}

@@ -133,6 +133,9 @@ const WarRoom = React.lazy(() =>
 const Retaliations = React.lazy(() =>
   import("../views/Retaliations").then((module) => ({ default: module.Retaliations })),
 );
+const ChainWatchSchedule = React.lazy(() =>
+  import("../views/ChainWatchSchedule").then((module) => ({ default: module.ChainWatchSchedule })),
+);
 
 export function App() {
   const initialRoute = React.useMemo(() => parseAppRoute(window.location.pathname), []);
@@ -956,6 +959,10 @@ export function App() {
                 onError={setError}
                 onOpenHospitalMonitor={() => changeView("hospitalMonitor")}
               />
+            </LazyPage>
+          ) : view === "chainWatchSchedule" ? (
+            <LazyPage>
+              <ChainWatchSchedule currentUserId={authSession.user.id} isAdmin={isAdmin} />
             </LazyPage>
           ) : view === "retaliations" ? (
             <LazyPage>

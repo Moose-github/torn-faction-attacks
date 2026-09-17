@@ -1,4 +1,5 @@
 import { isRecord } from "./backend/request";
+import { completeDeferredWatchInteraction, handleWatchInteraction, isWatchInteraction } from "./chainWatchScheduleDiscord";
 import { DISCORD_COMMAND_NAMES, DISCORD_COMPONENT_IDS } from "./discordCommands";
 import {
   DISCORD_ALERT_CHANNEL_ROUTES,
@@ -58,7 +59,9 @@ const DISCORD_EMBED_DESCRIPTION_SAFE_LIMIT = 3900;
 const DISCORD_SELECT_OPTION_DESCRIPTION_LIMIT = 100;
 const DASHBOARD_SETTINGS_URL = "https://buttgrass.pages.dev/settings";
 
-type DiscordInteraction = {
+export type DiscordInteraction = {
+  application_id?: string;
+  token?: string;
   type?: number;
   guild_id?: string;
   channel_id?: string;
@@ -66,6 +69,7 @@ type DiscordInteraction = {
   member?: {
     user?: DiscordInteractionUser;
     roles?: string[];
+    permissions?: string;
   };
   data?: {
     name?: string;
@@ -97,7 +101,7 @@ type DiscordEmbed = {
   }>;
 };
 
-type DiscordInteractionResponse = {
+export type DiscordInteractionResponse = {
   type: number;
   data?: {
     content?: string;
@@ -201,7 +205,7 @@ type EnemyStatusSummaryRow = {
 
 type TravelTrackerRow = DiscordTravelRow;
 
-export async function handleDiscordInteractions(request: Request, env: Env): Promise<Response | null> {
+export async function handleDiscordInteractions(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response | null> {
   const url = new URL(request.url);
   if (request.method !== "POST" || url.pathname !== "/api/discord/interactions") {
     return null;
@@ -223,6 +227,10 @@ export async function handleDiscordInteractions(request: Request, env: Env): Pro
   }
 
   try {
+    if (ctx && interaction.application_id && interaction.token && isWatchInteraction(interaction)) {
+      ctx.waitUntil(completeDeferredWatchInteraction(interaction, env));
+      return json({ type: 5, data: { flags: DISCORD_FLAG_EPHEMERAL } });
+    }
     const response = await handleVerifiedDiscordInteraction(interaction, env);
     return json(response);
   } catch (error) {
@@ -271,6 +279,8 @@ export async function handleVerifiedDiscordInteraction(
   if (interaction.type === DISCORD_INTERACTION_PING) {
     return { type: DISCORD_RESPONSE_PONG };
   }
+
+  if (isWatchInteraction(interaction)) return handleWatchInteraction(interaction, env);
 
   if (interaction.type === DISCORD_INTERACTION_MESSAGE_COMPONENT) {
     return routeDiscordComponent(interaction, env);
@@ -529,6 +539,8 @@ function botHelpResponse(): DiscordInteractionResponse {
           "`/lookup player_id` - look up a Torn player",
           "`/alerts list` - available alert subscriptions",
           "`/alerts manage` - manage alert subscriptions with a dropdown",
+          "`/chain-watch create name [start] [finish]` - create the chain watch sign-up sheet",
+          "`/chain-watch setfinish [finish]` - finish the current watch (times in UTC)",
         ].join("\n"),
         color: BOT_COLOR,
       },

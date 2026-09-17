@@ -1,10 +1,15 @@
 import { DISCORD_ALERT_CHANNEL_ROUTES } from "./discordAlerts";
 
+// TEMPORARY: public creation/setfinish for testing. Set false and redeploy the
+// Worker + re-register commands to restore server-administrator access.
+export const CHAIN_WATCH_COMMANDS_PUBLIC_FOR_TESTING = true;
+
 export const DISCORD_COMMAND_NAMES = {
   bot: "bot",
   alerts: "alerts",
   alertChannels: "alert-channels",
   lookup: "lookup",
+  chainWatch: "chain-watch",
 } as const;
 
 export const DISCORD_COMPONENT_IDS = {
@@ -52,6 +57,30 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
     .map((alert) => ({ name: alert.name, value: alert.key }));
 
   return [
+    {
+      name: DISCORD_COMMAND_NAMES.chainWatch,
+      description: "Create or finish the faction chain watch",
+      dm_permission: false,
+      ...(CHAIN_WATCH_COMMANDS_PUBLIC_FOR_TESTING ? {} : { default_member_permissions: "8" }),
+      options: [
+        {
+          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+          name: "create",
+          description: "Create the faction's only watch and post its sign-up sheet here",
+          options: [
+            { type: 3, name: "name", description: "Name of this watch", required: true },
+            { type: 3, name: "start", description: "UTC YYYY-MM-DD HH:00; defaults to the next whole hour" },
+            { type: 3, name: "finish", description: "UTC YYYY-MM-DD HH:00; omit for rolling 24-hour sheets" },
+          ],
+        },
+        {
+          type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
+          name: "setfinish",
+          description: "Set the watch's finish and cancel slots from that time onward",
+          options: [{ type: 3, name: "finish", description: "UTC YYYY-MM-DD HH:00; defaults to the next whole hour" }],
+        },
+      ],
+    },
     {
       name: DISCORD_COMMAND_NAMES.bot,
       description: "Bot help",

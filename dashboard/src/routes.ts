@@ -2,6 +2,7 @@ export type AppView =
   | "dashboard"
   | "war"
   | "warRoom"
+  | "chainWatchSchedule"
   | "retaliations"
   | "hospitalMonitor"
   | "members"
@@ -27,6 +28,7 @@ export type AppRoute = {
 export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   dashboard: "/",
   warRoom: "/war-room",
+  chainWatchSchedule: "/chain-watch",
   retaliations: "/retaliations",
   hospitalMonitor: "/enemy-hospital-monitor",
   members: "/members",

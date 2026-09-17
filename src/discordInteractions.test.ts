@@ -24,7 +24,7 @@ vi.mock("./discord", () => ({
 
 describe("Discord interactions", () => {
   it("registers bot and alert slash commands", () => {
-    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["bot", "alerts", "alert-channels", "lookup"]);
+    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["chain-watch", "bot", "alerts", "alert-channels", "lookup"]);
     expect(discordApplicationCommands().find((command) => command.name === "alerts")?.options?.map((option) => option.name))
       .toEqual(["list", "manage"]);
     expect(discordApplicationCommands().find((command) => command.name === "alert-channels"))

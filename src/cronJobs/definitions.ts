@@ -1,4 +1,5 @@
 import { runChainWatchCron } from "../chainWatch";
+import { runWatchScheduleCron } from "../chainWatchScheduleDiscord";
 import { runEventCompetitionCron } from "../eventCompetition";
 import { syncDiscordTravelTracker } from "../discordTravelTracker";
 import { runEnemyScoutingCronTick } from "../enemyScoutingCron";
@@ -31,6 +32,14 @@ import { runMonthlyXanaxCompetitionDiscordReminder } from "../xanaxCompetition";
 import type { CronJobDefinition } from "./model";
 
 export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
+  {
+    label: "Cron chain watch sign-up sheets",
+    cadence: "1m; publish the next sheet 12h before expiry",
+    category: "discord",
+    purpose: "Roll forward the independent chain watch schedule and reconcile its Discord rosters.",
+    shouldRun: () => true,
+    run: (env, scheduledTime) => runWatchScheduleCron(env, Math.floor(scheduledTime / 1000)),
+  },
   {
     label: "Cron event competition collection",
     cadence: "Start/finish; Halloween every 6h or 12h",

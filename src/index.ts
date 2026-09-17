@@ -2,6 +2,7 @@ import { buildCronPlan } from "./cronPlan";
 export { ChainWatchAlarm } from "./chainWatchAlarm";
 export { RetaliationBoardAlarm } from "./retaliationBoardAlarm";
 import { handleDiscordInteractions } from "./discordInteractions";
+import { routeWatchScheduleApi } from "./http/chainWatchScheduleRoutes";
 import { routeAdminApi } from "./http/adminRoutes";
 import { routeArrestScoutApi } from "./http/arrestScoutRoutes";
 import { RouteContext, RouteResult } from "./http/context";
@@ -24,7 +25,7 @@ export default {
       });
     }
 
-    const discordResponse = await handleDiscordInteractions(request, env);
+    const discordResponse = await handleDiscordInteractions(request, env, ctx);
     if (discordResponse) {
       return discordResponse;
     }
@@ -51,6 +52,7 @@ export default {
 
 async function routeApiRequest(routeContext: RouteContext): Promise<RouteResult> {
   return (
+    (await routeWatchScheduleApi(routeContext)) ??
     (await routePublicApi(routeContext)) ??
     (await routeAdminApi(routeContext)) ??
     (await routeArrestScoutApi(routeContext)) ??
