@@ -424,10 +424,8 @@ describe("Discord chain watch", () => {
     const data = await readWatch(db.env);
     const payload = watchBoardPayload(db.env, data, data.sheets[0]);
     expect(payload.allowed_mentions.parse).toEqual([]);
-    expect(payload.embeds[0].description).toContain("UTC");
     expect(payload.embeds[0].title).toContain("01-01-30");
-    expect(payload.embeds[0].description).toContain("13:00–24:00 UTC");
-    expect(payload.embeds[0].description).toContain("**13:00**");
+    expect(payload.embeds[0].description).toMatch(/^\*\*13:00\*\* · /);
     expect(payload.embeds[0].description.length).toBeLessThan(4096);
     for (const button of payload.components[0].components) if ("custom_id" in button) expect(button.custom_id!.length).toBeLessThanOrEqual(100);
   });

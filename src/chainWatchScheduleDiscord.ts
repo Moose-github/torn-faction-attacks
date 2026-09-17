@@ -218,14 +218,11 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
     const status = slot.cancelled ? "Cancelled" : slot.start_at + WATCH_HOUR <= data.now ? "Ended" : slot.start_at <= data.now ? "On watch" : "";
     return `**${hour}** · ${who}${status ? ` · ${status}` : ""}`;
   });
-  const effectiveEnd = Math.min(sheet.end_at, watch.finish_at ?? sheet.end_at);
-  const startTime = new Date(sheet.start_at * 1000).toISOString().slice(11, 16);
-  const endTime = effectiveEnd === sheet.end_at ? "24:00" : new Date(Math.max(sheet.start_at, effectiveEnd) * 1000).toISOString().slice(11, 16);
   return {
     content: "",
     embeds: [{
       title: `${escaped(watch.name)} · ${watchDate(sheet.start_at)} · Chain watch`, color: 0x2f80ed,
-      description: `${startTime}–${endTime} UTC\nEach slot lasts one hour.\n\n${rows.join("\n")}`,
+      description: rows.join("\n"),
       footer: { text: `${slots.filter((slot) => !slot.cancelled && slot.assigned_to).length}/${slots.filter((slot) => !slot.cancelled).length} filled · Two consecutive hours maximum · ${watch.finish_at ? `Watch finishes ${watchUtc(watch.finish_at)}` : "Next day published at 12:00 UTC"}` },
     }],
     allowed_mentions: { parse: [] },
