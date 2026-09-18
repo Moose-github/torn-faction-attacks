@@ -45,6 +45,9 @@ the selection and confirming both update that same message. Selections are bound
 to the invoking player and expire after ten minutes. Both platforms use the
 existing Torn/Discord links.
 
+All buttons disappear from a Discord sheet when it has no future, non-cancelled
+slots left to edit (23:00 UTC for a full day).
+
 The page shows all published slots in one chronological list, with small date
 dividers and a link to each day's Discord roster. There is no sheet selector.
 

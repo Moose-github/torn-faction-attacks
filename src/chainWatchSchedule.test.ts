@@ -430,6 +430,15 @@ describe("Discord chain watch", () => {
     expect(payload.embeds[0].footer.text).not.toContain("Next day published");
     expect(payload.embeds[0].description.length).toBeLessThan(4096);
     for (const button of payload.components[0].components) if ("custom_id" in button) expect(button.custom_id!.length).toBeLessThanOrEqual(100);
+    fetcher.mockImplementation(async () => new Response("{}", { status: 200 }));
+    const finalSlotStart = data.slots.at(-1)!.start_at;
+    advance(finalSlotStart - 1);
+    await syncWatchBoards(db.env, finalSlotStart - 1);
+    expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).components[0].components).toHaveLength(3);
+    advance(finalSlotStart);
+    await syncWatchBoards(db.env, finalSlotStart);
+    expect(fetcher.mock.calls.at(-1)![1].method).toBe("PATCH");
+    expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).components).toEqual([]);
   });
 
   it.each([0, 2])("keeps the publication notice only on the newest message after %s missed days", async (missedDays) => {

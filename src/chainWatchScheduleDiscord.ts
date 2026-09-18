@@ -228,11 +228,11 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
       footer: { text: `${slots.filter((slot) => !slot.cancelled && slot.assigned_to).length}/${slots.filter((slot) => !slot.cancelled).length} filled · Two consecutive hours maximum${watch.finish_at ? ` · Watch finishes ${watchUtc(watch.finish_at)}` : nextDayNotice}` },
     }],
     allowed_mentions: { parse: [] },
-    components: [{ type: 1, components: [
-      { type: 2, style: 3, label: "Sign up", custom_id: `cws:open:claim:${sheet.id}`, disabled: !future },
-      { type: 2, style: 2, label: "Leave slots", custom_id: `cws:open:leave:${sheet.id}`, disabled: !future },
+    components: future ? [{ type: 1, components: [
+      { type: 2, style: 3, label: "Sign up", custom_id: `cws:open:claim:${sheet.id}` },
+      { type: 2, style: 2, label: "Leave slots", custom_id: `cws:open:leave:${sheet.id}` },
       { type: 2, style: 5, label: "Open page", url: watchPageUrl(env, watch.id) },
-    ] }],
+    ] }] : [],
   };
 }
 
