@@ -77,8 +77,8 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
         {
           type: DISCORD_COMMAND_OPTION_TYPES.subCommand,
           name: "setfinish",
-          description: "Set the watch's finish and cancel slots from that time onward",
-          options: [{ type: 3, name: "finish", description: "Pick a UTC hour or type 18 / 18:00; date: DD-MM-YY HH:00; default: next whole hour", autocomplete: true }],
+          description: "Set the watch's finish or resume ongoing daily sheets",
+          options: [{ type: 3, name: "finish", description: "Choose a UTC hour, DD-MM-YY HH:00, or ongoing to remove the finish", required: true, autocomplete: true }],
         },
       ],
     },

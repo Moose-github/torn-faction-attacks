@@ -6,7 +6,9 @@ the same D1 schedule with the Discord bot; it does not depend on a war or event.
 ## Discord commands
 
 - `/chain-watch create name:<name> [start] [finish]` posts in the invoking channel.
-- `/chain-watch setfinish [finish]` targets the only unfinished watch.
+- `/chain-watch setfinish finish:<time|ongoing>` targets the only unfinished watch.
+  Finish is required: select a time or **No finish — continue daily sheets**.
+  Typing `ongoing` also removes the finish. This works only before the watch ends.
 - Time options offer the next 24 whole hours in a dropdown, labelled with UTC
   and today, tomorrow, or the date. Typing filters the suggestions.
 - Time-only inputs such as `18` or `18:00` mean the next occurrence strictly
@@ -25,9 +27,12 @@ the same D1 schedule with the Discord bot; it does not depend on a war or event.
   A watch starting on a future date initially publishes just its first day.
 - With a fixed finish, generate the full schedule as daily sheets, with the final
   day's slots ending at the finish time.
-- Setfinish defaults to the next whole hour, cancels slots beginning at or after
-  the finish, and preserves earlier assignments. Extending an unfinished watch
-  reopens cancelled slots without restoring their assignments.
+- Setting a finish cancels slots beginning at or after that time and preserves
+  earlier assignments. Extending an unfinished watch reopens cancelled slots
+  without restoring their assignments. Returning it to `ongoing` resumes noon
+  publication: cancelled future days reopen as they become due, while active
+  assignments and past history remain intact. An empty Discord command is rejected.
+  The page's existing explicit confirmation of a next-hour finish is unchanged.
 
 Both commands are **temporarily public for testing**, in the configured faction
 server only. To restore administrator-only commands, set
@@ -97,7 +102,7 @@ No schema migration is needed for this conversion.
 
 ## Release steps
 
-1. Apply D1 migration `0146_create_chain_watch_schedules.sql` to the target database.
+1. Apply D1 migrations through `0147_resume_chain_watch_daily_sheets.sql` to the target database.
 2. Deploy the Worker and dashboard. The existing `DISCORD_GUILD_ID`,
    `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY` configuration is reused.
    Worker deployment applies Durable Object migration `v3` and binds

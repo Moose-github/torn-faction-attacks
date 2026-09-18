@@ -38,6 +38,15 @@ describe("chain watch page authorization", () => {
   it("keeps all admin endpoints protected while Discord commands are public", async () => {
     expect((await request("/api/admin/chain-watch/slots", { watch_id: id, starts: [start], target_id: 2 }))?.status).toBe(403);
     expect((await request("/api/admin/chain-watch/finish", { watch_id: id, finish: watchUtc(start) }))?.status).toBe(403);
+    expect((await request("/api/admin/chain-watch/finish", { watch_id: id, finish: "ongoing" }))?.status).toBe(403);
+    expect((await readWatch(db.env)).watch?.finish_at).toBeNull();
+  });
+  it("allows only a page admin to remove an unfinished watch's finish", async () => {
+    vi.mocked(requireAdmin).mockResolvedValue(null);
+    expect((await request("/api/admin/chain-watch/finish", { watch_id: id, finish: watchUtc(start + 3600) }))?.status).toBe(200);
+    expect((await readWatch(db.env)).watch?.finish_at).toBe(start + 3600);
+    const response = await request("/api/admin/chain-watch/finish", { watch_id: id, finish: "ongoing" });
+    expect(response?.status).toBe(200);
     expect((await readWatch(db.env)).watch?.finish_at).toBeNull();
   });
   it("ignores a member's forged admin flags and target identity", async () => {

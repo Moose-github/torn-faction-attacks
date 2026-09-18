@@ -13,6 +13,7 @@ export function watchDatabase(initialNow) {
     CREATE TABLE discord_member_links(torn_user_id INTEGER PRIMARY KEY, discord_user_id TEXT);
     INSERT INTO discord_member_links VALUES (1, '111'), (2, '222'), (3, '333');`);
   sqlite.exec(readFileSync(new URL("../migrations/0146_create_chain_watch_schedules.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../migrations/0147_resume_chain_watch_daily_sheets.sql", import.meta.url), "utf8"));
   class Statement {
     constructor(sql, values = []) { this.sql = sql; this.values = values; }
     bind(...values) { return new Statement(this.sql, values); }

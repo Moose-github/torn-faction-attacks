@@ -1856,6 +1856,7 @@ CREATE TABLE chain_watch_schedules (
   name TEXT NOT NULL,
   start_at INTEGER NOT NULL CHECK (start_at % 3600 = 0),
   finish_at INTEGER CHECK (finish_at % 3600 = 0),
+  resume_cancelled_after INTEGER,
   guild_id TEXT NOT NULL,
   channel_id TEXT NOT NULL,
   is_open INTEGER NOT NULL DEFAULT 1 CHECK (is_open IN (0, 1)),

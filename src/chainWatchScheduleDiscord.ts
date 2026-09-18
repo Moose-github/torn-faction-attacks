@@ -54,6 +54,9 @@ function watchAutocompleteResponse(interaction: DiscordInteraction, env: Env, no
   }
 
   const query = String(focused.value ?? "").trim();
+  const ongoing = { name: "No finish — continue daily sheets", value: "ongoing" };
+  const ongoingChoices = command.name === "setfinish" && (!query ||
+    ongoing.value.startsWith(query.toLowerCase()) || ongoing.name.toLowerCase().includes(query.toLowerCase())) ? [ongoing] : [];
   // A complete date remains usable for a watch scheduled beyond the next day.
   if (/^(?:\d{2}|\d{4})-/.test(query)) {
     try {
@@ -71,7 +74,7 @@ function watchAutocompleteResponse(interaction: DiscordInteraction, env: Env, no
       return time.startsWith(query) || time.replace(/^0/, "").startsWith(query);
     })
     .map((timestamp) => watchTimeChoice(timestamp, now));
-  return { type: 8, data: { choices } };
+  return { type: 8, data: { choices: [...ongoingChoices, ...choices] } };
 }
 
 function escaped(value: string): string {
@@ -151,9 +154,12 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
         return reply(`Created **${escaped(watch.name)}**.\nStart: ${watchUtc(watch.start_at)}\nFinish: ${watch.finish_at === null ? "Not set; daily UTC sheets" : watchUtc(watch.finish_at)}\nThe roster will appear in this channel.`, [{ type: 1, components: [{ type: 2, style: 5, label: "Open page", url: watchPageUrl(env, watch.id) }] }]);
       }
       if (command?.name === "setfinish") {
+        const requestedFinish = option("finish");
+        if (typeof requestedFinish !== "string" || !requestedFinish.trim()) throw new WatchError("Choose a finish time or ongoing to continue daily sheets.");
         const watch = await currentWatch(env);
         if (!watch || watch.guild_id !== guildId) throw new WatchError("There is no unfinished watch.");
-        const finish = await setWatchFinish(env, watch.id, option("finish"));
+        const finish = await setWatchFinish(env, watch.id, requestedFinish);
+        if (finish === null) return reply(`**${escaped(watch.name)}** now has no finish time. Daily sheets will continue, with the next day published at 12:00 UTC. Active assignments are preserved; reopened slots are available for new sign-ups.`);
         return reply(`**${escaped(watch.name)}** will finish at ${watchUtc(finish)}. Slots starting then or later are cancelled; earlier assignments are preserved.`);
       }
       throw new WatchError("Use /chain-watch create or /chain-watch setfinish.");
@@ -227,7 +233,8 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
   const watch = data.watch!;
   const slots = data.slots.filter((slot) => slot.sheet_id === sheet.id && !slot.cancelled);
   const future = slots.some((slot) => slot.start_at > data.now);
-  const newestSheet = data.sheets.every((candidate) => candidate.start_at <= sheet.start_at);
+  const newestSheet = slots.length > 0 && data.sheets.every((candidate) => candidate.start_at <= sheet.start_at ||
+    !data.slots.some((slot) => slot.sheet_id === candidate.id && !slot.cancelled));
   const footerText = watch.finish_at ? `Watch finishes ${watchUtc(watch.finish_at)}` :
     watch.is_open && newestSheet ? "Next day published at 12:00 UTC" : "";
   const filled = `${slots.filter((slot) => slot.assigned_to).length}/${slots.length} filled`;

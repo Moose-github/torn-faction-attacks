@@ -51,17 +51,30 @@ export async function currentWatch(env: Env): Promise<ChainWatchSchedule | null>
 // Read the current finish inside every SQL statement, so a concurrent setfinish
 // cannot be undone by a cron tick working from an older copy of the schedule.
 function generateWatchStatements(env: Env, id: string, now: number): D1PreparedStatement[] {
-  const source = `SELECT w.*, COALESCE(w.finish_at, MAX(
+  const rollingHorizon = `MAX(
       (CAST(w.start_at / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY},
-      (CAST((? + ${12 * WATCH_HOUR}) / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY},
-      COALESCE((SELECT MAX(end_at) FROM chain_watch_sheets WHERE watch_id = w.id), 0)
+      (CAST((? + ${12 * WATCH_HOUR}) / ${WATCH_DAY} AS INTEGER) + 1) * ${WATCH_DAY}
+    )`;
+  const source = `SELECT w.*, COALESCE(w.finish_at, MAX(${rollingHorizon},
+      COALESCE((SELECT MAX(s.end_at) FROM chain_watch_sheets s WHERE s.watch_id = w.id
+        AND EXISTS (SELECT 1 FROM chain_watch_slots slot WHERE slot.sheet_id = s.id AND slot.cancelled = 0)), 0)
     )) AS horizon FROM chain_watch_schedules w WHERE w.id = ? AND w.is_open = 1`;
   return [
     // Refresh the previous latest message when another day is generated, even
     // if a delayed cron means that sheet has left the hourly refresh window.
     env.DB.prepare(`WITH w AS (${source}) UPDATE chain_watch_sheets SET dirty = dirty + 1
-      WHERE id = (SELECT id FROM chain_watch_sheets WHERE watch_id = ? ORDER BY start_at DESC LIMIT 1)
+      WHERE id = (SELECT s.id FROM chain_watch_sheets s WHERE s.watch_id = ?
+        AND EXISTS (SELECT 1 FROM chain_watch_slots slot WHERE slot.sheet_id = s.id AND slot.cancelled = 0)
+        ORDER BY s.start_at DESC LIMIT 1)
         AND end_at < (SELECT horizon FROM w)`).bind(now, id, id),
+    // Retained cancelled days may already exist beyond the rolling horizon.
+    // Reopen them only when due, clearing cancelled commitments, never history.
+    env.DB.prepare(`WITH w AS (SELECT w.*, ${rollingHorizon} AS horizon FROM chain_watch_schedules w
+      WHERE w.id = ? AND w.is_open = 1 AND w.finish_at IS NULL AND w.resume_cancelled_after IS NOT NULL)
+      UPDATE chain_watch_slots SET cancelled = 0, assigned_to = NULL, admin_override = 1, updated_at = unixepoch()
+      WHERE watch_id = ? AND cancelled = 1 AND start_at > ?
+        AND start_at > (SELECT resume_cancelled_after FROM w) AND start_at < (SELECT horizon FROM w)`)
+      .bind(now, id, id, now),
     env.DB.prepare(`WITH RECURSIVE w AS (${source}), hours(t) AS (
       SELECT COALESCE((SELECT MAX(end_at) FROM chain_watch_sheets WHERE watch_id = w.id), w.start_at)
         FROM w WHERE COALESCE((SELECT MAX(end_at) FROM chain_watch_sheets WHERE watch_id = w.id), w.start_at) < horizon
@@ -138,12 +151,24 @@ export async function createWatch(env: Env, input: {
   return (await currentWatch(env))!;
 }
 
-export async function setWatchFinish(env: Env, id: string, value: unknown, now = nowSeconds()): Promise<number> {
+export async function setWatchFinish(env: Env, id: string, value: unknown, now = nowSeconds()): Promise<number | null> {
+  if (typeof value === "string" && value.trim().toLowerCase() === "ongoing") {
+    await alignWatchSheetsToDays(env, id);
+    const result = await env.DB.batch([
+      env.DB.prepare(`UPDATE chain_watch_schedules SET finish_at = NULL, resume_cancelled_after = COALESCE(resume_cancelled_after, ?)
+        WHERE id = ? AND is_open = 1 AND (finish_at IS NULL OR finish_at > ?)`)
+        .bind(now, id, now),
+      ...generateWatchStatements(env, id, now),
+      env.DB.prepare("UPDATE chain_watch_sheets SET dirty = dirty + 1 WHERE watch_id = ?").bind(id),
+    ]);
+    if (!result[0].meta.changes) throw new WatchError("That watch has already finished. Create a new watch instead.", 409);
+    return null;
+  }
   const finish = parseWatchTime(value, nextWatchHour(now), now);
   if (finish <= now) throw new WatchError("Finish must be a whole hour in the future.");
   await alignWatchSheetsToDays(env, id);
   const result = await env.DB.batch([
-    env.DB.prepare("UPDATE chain_watch_schedules SET finish_at = ? WHERE id = ? AND is_open = 1 AND (finish_at IS NULL OR finish_at > ?)").bind(finish, id, now),
+    env.DB.prepare("UPDATE chain_watch_schedules SET finish_at = ?, resume_cancelled_after = NULL WHERE id = ? AND is_open = 1 AND (finish_at IS NULL OR finish_at > ?)").bind(finish, id, now),
     // Cancellations preserve the assignment as history; an extension does not
     // silently reinstate a cancelled player's commitment.
     env.DB.prepare(`UPDATE chain_watch_slots SET cancelled = 1 WHERE watch_id = ? AND start_at >= ?

@@ -547,7 +547,7 @@ function botHelpResponse(): DiscordInteractionResponse {
           "`/alerts list` - available alert subscriptions",
           "`/alerts manage` - manage alert subscriptions with a dropdown",
           "`/chain-watch create name [start] [finish]` - create the chain watch sign-up sheet",
-          "`/chain-watch setfinish [finish]` - finish the current watch (times in UTC)",
+          "`/chain-watch setfinish finish` - choose a UTC finish time or ongoing for daily sheets",
         ].join("\n"),
         color: BOT_COLOR,
       },

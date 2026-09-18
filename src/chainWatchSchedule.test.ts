@@ -219,6 +219,90 @@ describe("chain watch scheduling", () => {
     expect(data.slots.filter((slot) => !slot.cancelled)).toHaveLength(30);
     expect(data.slots[3]).toMatchObject({ assigned_to: null, cancelled: 0 });
   });
+
+  it("removes a finish, preserves active sign-ups, and resumes daily generation", async () => {
+    const watch = await create(2);
+    await assign(watch.id, [start]);
+    expect(await setWatchFinish(db.env, watch.id, " ongoing ", now)).toBeNull();
+    let data = await readWatch(db.env);
+    expect(data.watch).toMatchObject({ id: watch.id, finish_at: null, is_open: 1 });
+    expect(data.slots).toHaveLength(35);
+    expect(data.slots[0]).toMatchObject({ assigned_to: 1, cancelled: 0 });
+    const nextNoon = data.sheets[1].start_at + 12 * WATCH_HOUR;
+    advance(nextNoon);
+    await reconcileWatch(db.env, nextNoon);
+    data = await readWatch(db.env);
+    expect(data.sheets).toHaveLength(3);
+    expect(data.slots).toHaveLength(59);
+    expect(data.slots[0].assigned_to).toBe(1);
+    await expect(create()).rejects.toThrow("already exists");
+  });
+
+  it("reopens cancelled future days when due and never restores their cancelled sign-ups", async () => {
+    const watch = await create(4 * 24);
+    const tomorrow = Date.UTC(2030, 0, 2) / 1000;
+    const later = tomorrow + WATCH_DAY;
+    await assign(watch.id, [start, tomorrow, later]);
+    await setWatchFinish(db.env, watch.id, utc(start + 2 * WATCH_HOUR), now);
+    const beforeCount = (await readWatch(db.env)).slots.length;
+    await setWatchFinish(db.env, watch.id, "ONGOING", now);
+    let data = await readWatch(db.env);
+    expect(data.slots).toHaveLength(beforeCount);
+    expect(data.slots.find(slot => slot.start_at === start)).toMatchObject({ assigned_to: 1, cancelled: 0 });
+    expect(data.slots.find(slot => slot.start_at === tomorrow)).toMatchObject({ assigned_to: null, cancelled: 0 });
+    expect(data.slots.find(slot => slot.start_at === later)).toMatchObject({ assigned_to: 1, cancelled: 1 });
+    expect(data.slots.filter(slot => !slot.cancelled)).toHaveLength(35);
+    const notices = data.sheets.filter(sheet => watchBoardPayload(db.env, data, sheet).embeds[0].footer?.text === "Next day published at 12:00 UTC");
+    expect(notices.map(sheet => sheet.start_at)).toEqual([tomorrow]);
+    await assign(watch.id, [tomorrow]);
+    await setWatchFinish(db.env, watch.id, "ongoing", now);
+    expect((await readWatch(db.env)).slots.find(slot => slot.start_at === tomorrow)?.assigned_to).toBe(1);
+    const nextNoon = tomorrow + 12 * WATCH_HOUR;
+    advance(nextNoon - 1);
+    await reconcileWatch(db.env, nextNoon - 1);
+    expect((await readWatch(db.env)).slots.find(slot => slot.start_at === later)?.cancelled).toBe(1);
+    advance(nextNoon);
+    await reconcileWatch(db.env, nextNoon);
+    data = await readWatch(db.env);
+    expect(data.slots.find(slot => slot.start_at === later)).toMatchObject({ assigned_to: null, cancelled: 0 });
+    expect(data.slots.filter(slot => !slot.cancelled)).toHaveLength(59);
+    expect(data.slots.find(slot => slot.start_at === later + WATCH_DAY)?.cancelled).toBe(1);
+    const snapshot = data.slots;
+    await reconcileWatch(db.env, nextNoon);
+    expect((await readWatch(db.env)).slots).toEqual(snapshot);
+    await setWatchFinish(db.env, watch.id, utc(later + WATCH_HOUR), nextNoon);
+    await reconcileWatch(db.env, later + 12 * WATCH_HOUR);
+    expect((await readWatch(db.env)).slots.find(slot => slot.start_at === later + WATCH_DAY)?.cancelled).toBe(1);
+  });
+
+  it("keeps cancelled historical slots intact when returning to ongoing", async () => {
+    const watch = await create();
+    await assign(watch.id, [start]);
+    await setWatchFinish(db.env, watch.id, utc(start + 3 * WATCH_HOUR), now);
+    await db.env.DB.prepare("UPDATE chain_watch_slots SET cancelled = 1 WHERE watch_id = ? AND start_at = ?").bind(watch.id, start).run();
+    advance(start + WATCH_HOUR);
+    await setWatchFinish(db.env, watch.id, "ongoing", start + WATCH_HOUR);
+    expect((await readWatch(db.env)).slots[0]).toMatchObject({ cancelled: 1, assigned_to: 1 });
+  });
+
+  it.each([false, true])("does not resume a finished watch even before cron closes it (cron: %s)", async (runCron) => {
+    const watch = await create(2);
+    const end = start + 2 * WATCH_HOUR;
+    advance(end);
+    if (runCron) await reconcileWatch(db.env, end);
+    await expect(setWatchFinish(db.env, watch.id, "ongoing", end)).rejects.toThrow("already finished");
+    expect((await readWatch(db.env)).watch?.finish_at).toBe(end);
+  });
+
+  it("resuming a future watch initially restores only its first day", async () => {
+    const future = start + 7 * WATCH_DAY;
+    const watch = await createWatch(db.env, { ...options, start: utc(future), finish: utc(future + 2 * WATCH_DAY) }, now);
+    await setWatchFinish(db.env, watch.id, utc(future + WATCH_HOUR), now);
+    await setWatchFinish(db.env, watch.id, "ongoing", now);
+    const data = await readWatch(db.env);
+    expect(data.slots.filter(slot => !slot.cancelled)).toHaveLength(11);
+    expect(data.slots[11].cancelled).toBe(1);
+  });
 });
 
 describe("chain watch assignment integrity", () => {
@@ -326,6 +410,19 @@ describe("chain watch time autocomplete", () => {
     expect(response.data?.choices).toEqual([{ name: "02:00 UTC — tomorrow", value: "02-01-30 02:00" }]);
   });
 
+  it("offers ongoing plus 24 UTC hours only for setfinish", async () => {
+    const ongoing = { name: "No finish — continue daily sheets", value: "ongoing" };
+    const choices = (await handleVerifiedDiscordInteraction(autocomplete("setfinish", "finish"), db.env)).data!.choices!;
+    expect(choices).toHaveLength(25);
+    expect(choices[0]).toEqual(ongoing);
+    expect(choices.slice(1).map(choice => parseWatchTime(choice.value))).toEqual(Array.from({ length: 24 }, (_, index) => start + index * WATCH_HOUR));
+    for (const query of ["on", "ONGOING", "no finish", "daily"]) {
+      expect((await handleVerifiedDiscordInteraction(autocomplete("setfinish", "finish", query), db.env)).data?.choices).toEqual([ongoing]);
+    }
+    expect((await handleVerifiedDiscordInteraction(autocomplete("setfinish", "finish", "18"), db.env)).data?.choices).toEqual([{ name: "18:00 UTC — today", value: "01-01-30 18:00" }]);
+    expect((await handleVerifiedDiscordInteraction(autocomplete("create", "finish", "ongoing"), db.env)).data?.choices).toEqual([]);
+  });
+
   it("returns an empty choice list for invalid inputs, invalid starts, unsupported options and other servers", async () => {
     for (const request of [
       autocomplete("create", "start", "24"), autocomplete("create", "start", "18:30"),
@@ -349,15 +446,31 @@ describe("Discord chain watch", () => {
       expect.objectContaining({ name: "start", autocomplete: true }),
       expect.objectContaining({ name: "finish", autocomplete: true }),
     ]);
-    expect(command.options?.[1].options?.[0]).toMatchObject({ name: "finish", autocomplete: true });
+    expect(command.options?.[1].options?.[0]).toMatchObject({ name: "finish", required: true, autocomplete: true });
     expect(canManageWatchOnDiscord("0")).toBe(true);
     expect(canManageWatchOnDiscord("32", false)).toBe(false);
     expect(canManageWatchOnDiscord("8", false)).toBe(true);
     expect(canManageWatchOnDiscord("invalid", false)).toBe(false);
     const response = await handleWatchInteraction({ type: 2, guild_id: "guild", channel_id: "channel", member: { user: { id: "unlinked" }, permissions: "0" }, data: { name: "chain-watch", options: [{ name: "create", type: 1, options: [{ name: "name", type: 3, value: "Public test" }] }] } }, db.env);
     expect(response.data?.content).toContain("Created");
-    const finish = await handleWatchInteraction({ type: 2, guild_id: "guild", member: { user: { id: "unlinked" }, permissions: "0" }, data: { name: "chain-watch", options: [{ name: "setfinish", type: 1 }] } }, db.env);
+    const finish = await handleWatchInteraction({ type: 2, guild_id: "guild", member: { user: { id: "unlinked" }, permissions: "0" }, data: { name: "chain-watch", options: [{ name: "setfinish", type: 1, options: [{ type: 3, name: "finish", value: "14" }] }] } }, db.env);
     expect(finish.data?.content).toContain("will finish");
+  });
+
+  it("rejects omitted Discord finishes and confirms an explicit ongoing choice", async () => {
+    const watch = await create(2);
+    for (const value of [undefined, "", "   "]) {
+      const response = await handleWatchInteraction({ type: 2, guild_id: "guild", member: { user: { id: "111" }, permissions: "0" }, data: {
+        name: "chain-watch", options: [{ name: "setfinish", type: 1, options: value === undefined ? [] : [{ name: "finish", type: 3, value }] }],
+      } }, db.env);
+      expect(response.data?.content).toContain("Choose a finish time or ongoing");
+      expect((await readWatch(db.env)).watch?.finish_at).toBe(start + 2 * WATCH_HOUR);
+    }
+    const ongoing = await handleWatchInteraction({ type: 2, guild_id: "guild", member: { user: { id: "111" }, permissions: "0" }, data: {
+      name: "chain-watch", options: [{ name: "setfinish", type: 1, options: [{ name: "finish", type: 3, value: "ongoing" }] }],
+    } }, db.env);
+    expect(ongoing.data?.content).toContain("now has no finish time");
+    expect((await readWatch(db.env)).watch).toMatchObject({ id: watch.id, finish_at: null });
   });
 
   it("shows full resolved dates when creating a watch with short times", async () => {
@@ -449,7 +562,7 @@ describe("Discord chain watch", () => {
     expect(finalDescription).not.toContain("🟢 **22:00 - 23:00**");
   });
 
-  it("hides cancelled hours and deletes fully cancelled Discord days without changing stored history", async () => {
+  it.each(["ongoing", utc(start + WATCH_DAY)])("hides cancelled Discord days without changing history, then republishes with finish %s", async (finish) => {
     const watch = await create();
     await assign(watch.id, [start + WATCH_HOUR, start + 11 * WATCH_HOUR]);
     db.env.DISCORD_BOT_TOKEN = "test-token";
@@ -484,7 +597,7 @@ describe("Discord chain watch", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
 
     // Extending the still-open watch republishes a removed day automatically.
-    await setWatchFinish(db.env, watch.id, utc(start + WATCH_DAY), now);
+    await setWatchFinish(db.env, watch.id, finish, now);
     fetcher.mockClear();
     await syncWatchBoards(db.env, now);
     expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["PATCH", "POST"]);
