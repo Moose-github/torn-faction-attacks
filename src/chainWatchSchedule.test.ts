@@ -449,6 +449,111 @@ describe("Discord chain watch", () => {
     expect(finalDescription).not.toContain("🟢 **22:00 - 23:00**");
   });
 
+  it("hides cancelled hours and deletes fully cancelled Discord days without changing stored history", async () => {
+    const watch = await create();
+    await assign(watch.id, [start + WATCH_HOUR, start + 11 * WATCH_HOUR]);
+    db.env.DISCORD_BOT_TOKEN = "test-token";
+    let messageNumber = 0;
+    const fetcher = vi.fn(async (_url: string, init: RequestInit) => init.method === "POST"
+      ? Response.json({ id: `message-${++messageNumber}` }) : new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    await syncWatchBoards(db.env, now);
+    await setWatchFinish(db.env, watch.id, utc(start + 3 * WATCH_HOUR), now);
+    const before = await readWatch(db.env);
+    const history = (await db.env.DB.prepare("SELECT * FROM chain_watch_slots ORDER BY start_at").all()).results;
+    fetcher.mockClear();
+
+    await syncWatchBoards(db.env, now);
+    expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["PATCH", "DELETE"]);
+    expect(fetcher.mock.calls[1][0]).toBe("https://discord.com/api/v10/channels/channel/messages/message-2");
+    const payload = JSON.parse(fetcher.mock.calls[0][1].body as string);
+    expect(payload.embeds[0].description).toContain("1/3 filled");
+    expect(payload.embeds[0].description).toContain("**15:00 - 16:00**");
+    expect(payload.embeds[0].description).not.toContain("**16:00 - 17:00**");
+    expect(payload.embeds[0].description).not.toContain("Cancelled");
+    const after = await readWatch(db.env);
+    expect(after.watch).toEqual(before.watch);
+    expect(after.slots).toEqual(before.slots);
+    expect(after.slots).toHaveLength(35);
+    expect(after.slots[11]).toMatchObject({ assigned_to: 1, cancelled: 1 });
+    expect((await db.env.DB.prepare("SELECT * FROM chain_watch_slots ORDER BY start_at").all()).results).toEqual(history);
+    expect(after.sheets).toEqual(before.sheets.map((sheet, index) => index ? { ...sheet, discord_message_id: null } : sheet));
+    expect(await db.env.DB.prepare("SELECT dirty, last_payload FROM chain_watch_sheets WHERE id = ?").bind(after.sheets[1].id).first())
+      .toEqual({ dirty: 0, last_payload: null });
+    await syncWatchBoards(db.env, now);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    // Extending the still-open watch republishes a removed day automatically.
+    await setWatchFinish(db.env, watch.id, utc(start + WATCH_DAY), now);
+    fetcher.mockClear();
+    await syncWatchBoards(db.env, now);
+    expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["PATCH", "POST"]);
+    expect((await readWatch(db.env)).sheets[1].discord_message_id).toBe("message-3");
+  });
+
+  it.each([204, 404, 503])("handles fully cancelled message deletion with HTTP %s and preserves retry state", async (status) => {
+    const watch = await create(2);
+    await assign(watch.id, [start]);
+    db.env.DISCORD_BOT_TOKEN = "test-token";
+    const fetcher = vi.fn(async () => Response.json({ id: "message" }));
+    vi.stubGlobal("fetch", fetcher);
+    await syncWatchBoards(db.env, now);
+    await setWatchFinish(db.env, watch.id, undefined, now);
+    const before = await readWatch(db.env);
+    fetcher.mockClear();
+    fetcher.mockResolvedValueOnce(new Response(status === 204 ? null : "{}", { status }));
+    if (status === 503) {
+      await expect(syncWatchBoards(db.env, now)).rejects.toThrow("503");
+      expect((await readWatch(db.env)).sheets[0].discord_message_id).toBe("message");
+      const retry = await db.env.DB.prepare("SELECT dirty, last_payload, sync_token FROM chain_watch_sheets").first<{ dirty: number; last_payload: string; sync_token: string | null }>();
+      expect(retry!.dirty).toBeGreaterThan(0);
+      expect(retry!.last_payload).toBeTruthy();
+      expect(retry!.sync_token).toBeNull();
+      fetcher.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    }
+    await syncWatchBoards(db.env, now);
+    expect((fetcher.mock.calls as unknown as Array<[string, RequestInit]>).every(call => call[1].method === "DELETE")).toBe(true);
+    const after = await readWatch(db.env);
+    expect(after.slots).toEqual(before.slots);
+    expect(after.sheets).toEqual([{ ...before.sheets[0], discord_message_id: null }]);
+    const calls = fetcher.mock.calls.length;
+    await syncWatchBoards(db.env, now);
+    expect(fetcher).toHaveBeenCalledTimes(calls);
+  });
+
+  it("does not publish an entirely cancelled sheet", async () => {
+    const watch = await create();
+    await setWatchFinish(db.env, watch.id, undefined, now);
+    db.env.DISCORD_BOT_TOKEN = "test-token";
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    await syncWatchBoards(db.env, now);
+    expect(fetcher).not.toHaveBeenCalled();
+    const data = await readWatch(db.env);
+    expect(data.sheets).toHaveLength(2);
+    expect(data.slots).toHaveLength(35);
+    expect(data.slots.every(slot => slot.cancelled === 1)).toBe(true);
+  });
+
+  it("recreates a removed day when finish is extended during its Discord deletion", async () => {
+    const watch = await create(2);
+    db.env.DISCORD_BOT_TOKEN = "test-token";
+    const fetcher = vi.fn(async () => Response.json({ id: "original" }));
+    vi.stubGlobal("fetch", fetcher);
+    await syncWatchBoards(db.env, now);
+    await setWatchFinish(db.env, watch.id, undefined, now);
+    fetcher.mockImplementationOnce(async () => {
+      await setWatchFinish(db.env, watch.id, utc(start + 2 * WATCH_HOUR), now);
+      return new Response(null, { status: 204 });
+    });
+    await syncWatchBoards(db.env, now);
+    expect(await db.env.DB.prepare("SELECT discord_message_id, dirty FROM chain_watch_sheets").first()).toMatchObject({ discord_message_id: null, dirty: expect.any(Number) });
+    fetcher.mockResolvedValueOnce(Response.json({ id: "replacement" }));
+    await syncWatchBoards(db.env, now);
+    expect((await readWatch(db.env)).sheets[0].discord_message_id).toBe("replacement");
+    expect((fetcher.mock.calls as unknown as Array<[string, RequestInit]>).map(call => call[1].method)).toEqual(["POST", "DELETE", "POST"]);
+  });
+
   it.each([0, 2])("keeps the publication notice only on the newest message after %s missed days", async (missedDays) => {
     await create();
     db.env.DISCORD_BOT_TOKEN = "test-token";

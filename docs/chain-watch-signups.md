@@ -61,6 +61,11 @@ are consumed in the same D1 transaction as the assignments to prevent replay.
 All buttons disappear from a Discord sheet when it has no future, non-cancelled
 slots left to edit (23:00 UTC for a full day).
 
+Cancelled slots are hidden from Discord rosters. When every slot on a day is
+cancelled, its Discord message is deleted. The day, slots and assignment history
+remain in the database and on the page. Deletion failures retry on the next sync;
+extending an unfinished watch republishes any day whose slots reopen.
+
 The current slot has a green dot on Discord and a green highlight on the page.
 The indicator moves with the hour and never highlights cancelled slots.
 
@@ -80,7 +85,8 @@ The page refreshes every 15 seconds while visible and on focus. Changes request 
 immediate Discord refresh; a separate minute cron retries missed updates and
 publishes successor sheets. Per-sheet leases prevent concurrent message edits;
 dirty counters retain changes made during an in-flight edit. Discord failures do
-not discard assignments. Deleted rosters are recreated when next refreshed.
+not discard assignments. Deleted rosters with non-cancelled slots are recreated
+when next refreshed.
 
 On reconciliation, an unfinished watch with the old rolling layout is converted
 transactionally to daily sheets. Existing slot times, assignments, cancellation

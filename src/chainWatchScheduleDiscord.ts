@@ -225,15 +225,15 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
 
 export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sheet: ChainWatchSheet) {
   const watch = data.watch!;
-  const slots = data.slots.filter((slot) => slot.sheet_id === sheet.id);
-  const future = slots.some((slot) => !slot.cancelled && slot.start_at > data.now);
+  const slots = data.slots.filter((slot) => slot.sheet_id === sheet.id && !slot.cancelled);
+  const future = slots.some((slot) => slot.start_at > data.now);
   const newestSheet = data.sheets.every((candidate) => candidate.start_at <= sheet.start_at);
   const footerText = watch.finish_at ? `Watch finishes ${watchUtc(watch.finish_at)}` :
     watch.is_open && newestSheet ? "Next day published at 12:00 UTC" : "";
-  const filled = `${slots.filter((slot) => !slot.cancelled && slot.assigned_to).length}/${slots.filter((slot) => !slot.cancelled).length} filled`;
+  const filled = `${slots.filter((slot) => slot.assigned_to).length}/${slots.length} filled`;
   const rows = slots.map((slot) => {
     const who = slot.assigned_to ? escaped((slot.member_name ?? `Player ${slot.assigned_to}`).slice(0, 32)) : "Available";
-    const status = slot.cancelled ? "Cancelled" : slot.start_at + WATCH_HOUR <= data.now ? "Ended" : slot.start_at <= data.now ? "On watch" : "";
+    const status = slot.start_at + WATCH_HOUR <= data.now ? "Ended" : slot.start_at <= data.now ? "On watch" : "";
     return `${status === "On watch" ? "🟢 " : ""}**${watchSlotLabel(slot.start_at)}** · ${who}${status ? ` · ${status}` : ""}`;
   });
   return {
@@ -271,8 +271,16 @@ export async function syncWatchBoards(env: Env, now = nowSeconds()): Promise<voi
     try {
       const sheet = (await env.DB.prepare("SELECT * FROM chain_watch_sheets WHERE id = ?").bind(row.id).first<ChainWatchSheet & { dirty: number; last_payload: string | null }>())!;
       const data = await readWatch(env, sheet.watch_id);
-      if (!sheet.discord_message_id && data.slots.filter((slot) => slot.sheet_id === sheet.id).every((slot) => slot.cancelled)) {
-        await env.DB.prepare("UPDATE chain_watch_sheets SET dirty = MAX(0, dirty - ?), render_hour = ? WHERE id = ? AND sync_token = ?")
+      if (data.slots.filter((slot) => slot.sheet_id === sheet.id).every((slot) => slot.cancelled)) {
+        if (sheet.discord_message_id) {
+          try { await watchDiscordRequest(env, `/channels/${data.watch!.channel_id}/messages/${sheet.discord_message_id}`, "DELETE", undefined); }
+          catch (error) { if (!(error instanceof ExternalApiError && error.status === 404)) throw error; }
+        }
+        // Only the Discord publication metadata changes. Keep cancelled slots,
+        // assignments and sheet records for the page and historical data.
+        // Clear the ID after deletion succeeds so failures retry the same message.
+        await env.DB.prepare(`UPDATE chain_watch_sheets SET discord_message_id = NULL, last_payload = NULL,
+          dirty = MAX(0, dirty - ?), render_hour = ? WHERE id = ? AND sync_token = ?`)
           .bind(sheet.dirty, hour, row.id, token).run();
         continue;
       }
