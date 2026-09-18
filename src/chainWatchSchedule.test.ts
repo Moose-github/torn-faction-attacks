@@ -424,7 +424,7 @@ describe("Discord chain watch", () => {
     const data = await readWatch(db.env);
     const payload = watchBoardPayload(db.env, data, data.sheets[0]);
     expect(payload.allowed_mentions.parse).toEqual([]);
-    expect(payload.embeds[0].description).toMatch(/^## Test watch · 01-01-30\n1\/11 filled\n\n\*\*13:00 - 14:00\*\* · /);
+    expect(payload.embeds[0].description).toMatch(/^### Test watch · 01-01-30\n1\/11 filled\n\n\*\*13:00 - 14:00\*\* · /);
     expect(payload.embeds[0].footer?.text).toBe("Watch finishes 02-01-30 00:00 UTC");
     expect(payload.embeds[0].description.length).toBeLessThan(4096);
     for (const button of payload.components[0].components) if ("custom_id" in button) expect(button.custom_id!.length).toBeLessThanOrEqual(100);
