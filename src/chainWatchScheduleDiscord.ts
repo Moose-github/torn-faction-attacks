@@ -224,8 +224,8 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
   return {
     content: "",
     embeds: [{
-      title: `${escaped(watch.name)} · ${watchDate(sheet.start_at)}`, color: 0x2f80ed,
-      description: `**${filled}**\n\n${rows.join("\n")}`,
+      color: 0x2f80ed,
+      description: `**${escaped(watch.name)} · ${watchDate(sheet.start_at)}**\n${filled}\n\n${rows.join("\n")}`,
       ...(footerText ? { footer: { text: footerText } } : {}),
     }],
     allowed_mentions: { parse: [] },
