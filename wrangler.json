@@ -18,6 +18,10 @@
       {
         "name": "RETALIATION_BOARD_ALARMS",
         "class_name": "RetaliationBoardAlarm"
+      },
+      {
+        "name": "CHAIN_WATCH_SESSIONS",
+        "class_name": "ChainWatchSessions"
       }
     ]
   },
@@ -29,6 +33,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["RetaliationBoardAlarm"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["ChainWatchSessions"]
     }
   ],
   "rules": [

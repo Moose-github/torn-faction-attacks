@@ -5,6 +5,7 @@ import type { DiscordInteraction, DiscordInteractionResponse } from "./discordIn
 import { assertExternalResponseOk, ExternalApiError, fetchExternal, readExternalJson } from "./external/http";
 import type { Env } from "./types";
 import { nowSeconds } from "./utils";
+import type { WatchSelectionContext } from "./chainWatchPrivateSession";
 
 export const WATCH_COMPONENT_PREFIX = "cws:";
 
@@ -88,7 +89,7 @@ export function watchPageUrl(env: Env, watchId: string): string {
   return `${(env.DASHBOARD_BASE_URL ?? "https://buttgrass.pages.dev").replace(/\/$/, "")}/chain-watch?watch=${encodeURIComponent(watchId)}`;
 }
 
-async function discordRequest<T>(env: Env, path: string, method: string, body: unknown, webhook = false): Promise<T> {
+export async function watchDiscordRequest<T>(env: Env, path: string, method: string, body: unknown, webhook = false): Promise<T> {
   if (!webhook && !env.DISCORD_BOT_TOKEN) throw new Error("DISCORD_BOT_TOKEN is not configured");
   const response = await fetchExternal(`https://discord.com/api/v10${path}`, {
     method,
@@ -103,17 +104,28 @@ async function discordRequest<T>(env: Env, path: string, method: string, body: u
 // Acknowledge first: creating a schedule or editing several Discord messages can
 // exceed Discord's three-second interaction deadline.
 export async function completeDeferredWatchInteraction(interaction: DiscordInteraction, env: Env): Promise<void> {
+  if (interaction.type === 3) {
+    // A single durable coordinator per Discord user orders both state changes
+    // and outgoing Discord requests across Worker instances.
+    const userId = interaction.member?.user?.id;
+    if (!userId) return;
+    const stub = env.CHAIN_WATCH_SESSIONS.get(env.CHAIN_WATCH_SESSIONS.idFromName(userId));
+    const response = await stub.fetch("https://watch-session/interaction", { method: "POST", body: JSON.stringify(interaction) });
+    if (!response.ok) throw new Error("Unable to complete chain watch session");
+    await syncWatchBoardsSafely(env);
+    return;
+  }
   const response = await handleWatchInteraction(interaction, env);
   try {
     const { flags: _flags, ...data } = response.data ?? {};
-    await discordRequest(env, `/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, "PATCH", data, true);
+    await watchDiscordRequest(env, `/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, "PATCH", data, true);
   } catch (error) {
     console.error("Unable to complete chain watch reply", error instanceof ExternalApiError ? error.status : "transport error");
   }
   await syncWatchBoardsSafely(env);
 }
 
-export async function handleWatchInteraction(interaction: DiscordInteraction, env: Env): Promise<DiscordInteractionResponse> {
+export async function handleWatchInteraction(interaction: DiscordInteraction, env: Env, session?: WatchSelectionContext): Promise<DiscordInteractionResponse> {
   if (interaction.type === 4) return watchAutocompleteResponse(interaction, env);
   const update = updatesWatchMessage(interaction);
   const reply = (content: string, components: NonNullable<DiscordInteractionResponse["data"]>["components"] = []): DiscordInteractionResponse => ({
@@ -149,22 +161,24 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
 
     const actorId = await watchDiscordMember(env, userId);
     const parts = (interaction.data?.custom_id ?? "").split(":");
+    // Component actions are only valid inside the per-user coordinator. Legacy
+    // private controls cannot bypass its message and selection checks.
+    if (!session || session.userId !== userId || session.guildId !== guildId) throw new WatchError("This message expired. Open Sign up or Leave slots again.");
     if (parts[1] === "confirm") {
+      if (parts[2] !== session.id || !session.selectionId || parts[3] !== session.selectionId) throw new WatchError("Your selection changed. Use the latest confirmation.");
       const selection = await env.DB.prepare(`SELECT * FROM chain_watch_pending_selections
         WHERE id = ? AND discord_user_id = ? AND guild_id = ? AND expires_at > ?`)
-        .bind(parts[2] ?? "", userId, guildId, nowSeconds())
+        .bind(session.selectionId, userId, guildId, nowSeconds())
         .first<{ id: string; watch_id: string; action: "claim" | "leave"; starts_json: string }>();
       if (!selection) throw new WatchError("This selection expired or was already used. Open Sign up or Leave slots again.");
       const data = await readWatch(env, selection.watch_id);
       if (data.watch?.guild_id !== guildId) throw new WatchError("This watch belongs to another server.", 403);
       const starts: number[] = JSON.parse(selection.starts_json);
-      await changeWatchSlots(env, { watchId: selection.watch_id, starts, actorId, targetId: selection.action === "claim" ? actorId : null, admin: false });
-      await env.DB.prepare("DELETE FROM chain_watch_pending_selections WHERE id = ?").bind(selection.id).run();
+      await changeWatchSlots(env, { watchId: selection.watch_id, starts, actorId, targetId: selection.action === "claim" ? actorId : null, admin: false, selectionId: selection.id });
       return reply(`${selection.action === "claim" ? "Signed up for" : "Left"} ${starts.length} slot${starts.length === 1 ? "" : "s"}. The shared roster is updating.`);
     }
 
-    const action = parts[2];
-    const sheetId = parts.slice(3).join(":");
+    const { action, sheetId } = session;
     if (!["open", "pick"].includes(parts[1]) || !["claim", "leave"].includes(action)) throw new WatchError("Open the current sheet to continue.");
     const sheet = await env.DB.prepare("SELECT * FROM chain_watch_sheets WHERE id = ?").bind(sheetId).first<ChainWatchSheet>();
     if (!sheet) throw new WatchError("Sheet not found.");
@@ -179,11 +193,11 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
     const selectionMessage = (starts: number[] = [], selectionId?: string, error?: string) => reply(
       `${action === "claim" ? "Choose slots to claim" : "Choose your slots to leave"} for **${sheetDate}** (UTC).\n${error ?? "Press Confirm when ready."}${starts.length ? `\n\nSelected:\n${starts.map(watchSlotLabel).join("\n")}` : ""}`,
       [{ type: 1, components: [{
-        type: 3, custom_id: `cws:pick:${action}:${sheetId}`, placeholder: "Choose hourly slots", min_values: 1, max_values: available.length,
+        type: 3, custom_id: `cws:pick:${session.id}`, placeholder: "Choose hourly slots", min_values: 1, max_values: available.length,
         options: available.map((slot) => ({ label: watchSlotLabel(slot.start_at), value: String(slot.start_at), default: starts.includes(slot.start_at) })),
       }] }, { type: 1, components: [{
         type: 2, style: action === "claim" ? 3 : 4, label: action === "claim" ? "Confirm sign-up" : "Confirm leave",
-        custom_id: `cws:confirm:${selectionId ?? "empty"}`, disabled: !selectionId,
+        custom_id: `cws:confirm:${session.id}:${selectionId ?? "empty"}`, disabled: !selectionId,
       }] }],
     );
 
@@ -200,6 +214,7 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
     const id = crypto.randomUUID();
     await env.DB.prepare(`INSERT INTO chain_watch_pending_selections(id, discord_user_id, guild_id, watch_id, action, starts_json, expires_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(id, userId, guildId, sheet.watch_id, action, JSON.stringify(starts), nowSeconds() + 10 * 60).run();
+    session.selectionId = id;
     return selectionMessage(starts, id);
   } catch (error) {
     if (error instanceof WatchError) return reply(error.message);
@@ -265,13 +280,13 @@ export async function syncWatchBoards(env: Env, now = nowSeconds()): Promise<voi
       const serialized = JSON.stringify(payload);
       let messageId = sheet.discord_message_id;
       if (messageId && sheet.last_payload !== serialized) {
-        try { await discordRequest(env, `/channels/${data.watch!.channel_id}/messages/${messageId}`, "PATCH", payload); }
+        try { await watchDiscordRequest(env, `/channels/${data.watch!.channel_id}/messages/${messageId}`, "PATCH", payload); }
         catch (error) { if (error instanceof ExternalApiError && error.status === 404) messageId = null; else throw error; }
       }
       if (!messageId) {
         const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sheet.id)));
         const nonce = Array.from(digest.slice(0, 12), (value) => value.toString(16).padStart(2, "0")).join("");
-        const message = await discordRequest<{ id: string }>(env, `/channels/${data.watch!.channel_id}/messages`, "POST", { ...payload, nonce, enforce_nonce: true });
+        const message = await watchDiscordRequest<{ id: string }>(env, `/channels/${data.watch!.channel_id}/messages`, "POST", { ...payload, nonce, enforce_nonce: true });
         if (!message.id) throw new Error("Discord did not return a roster message ID");
         messageId = message.id;
       }

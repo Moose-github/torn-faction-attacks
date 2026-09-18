@@ -5,10 +5,12 @@ import { canManageWatchOnDiscord, handleWatchInteraction, syncWatchBoards, watch
 import { discordApplicationCommands } from "./discordCommands";
 import { handleDiscordInteractions, handleVerifiedDiscordInteraction, type DiscordInteraction, type DiscordInteractionResponse } from "./discordInteractions";
 import { watchDatabase } from "../scripts/watch-test-database.mjs";
+import { selectId, watchSessions } from "../scripts/watch-session-test-helpers";
 
 const now = Date.UTC(2030, 0, 1, 12, 20) / 1000;
 const start = nextWatchHour(now);
 let db: ReturnType<typeof watchDatabase>;
+let sessions: ReturnType<typeof watchSessions>;
 const options = { name: "Test watch", guildId: "guild", channelId: "channel", discordUserId: "111" };
 const utc = (value: number) => watchUtc(value);
 
@@ -16,6 +18,8 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(now * 1000);
   db = watchDatabase(now);
+  sessions = watchSessions(db.env);
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json({ id: "private-111" })));
 });
 afterEach(() => { db.sqlite.close(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -267,7 +271,7 @@ describe("chain watch assignment integrity", () => {
 });
 
 function interaction(custom_id: string, user = "111", values?: string[]): DiscordInteraction {
-  return { type: 3, guild_id: "guild", channel_id: "channel", member: { user: { id: user }, permissions: "8" }, data: { custom_id, values } };
+  return sessions.interaction(custom_id, user, values);
 }
 
 function autocomplete(command: string, field: string, value = "", chosenStart?: string): DiscordInteraction {
@@ -368,22 +372,23 @@ describe("Discord chain watch", () => {
     const watch = await create();
     const data = await readWatch(db.env);
     const sheet = data.sheets[0];
-    const open = await handleVerifiedDiscordInteraction(interaction(`cws:open:claim:${sheet.id}`), db.env);
+    const open = await sessions.handle(interaction(`cws:open:claim:${sheet.id}`));
     expect(open.data?.flags).toBe(64);
     expect(open.data?.components?.[0].components[0]).toMatchObject({ max_values: 11, options: expect.arrayContaining([
       { label: "23:00 - 24:00", value: String(start + 10 * WATCH_HOUR), default: false },
     ]) });
-    const nextSheet = await handleWatchInteraction(interaction(`cws:open:claim:${data.sheets[1].id}`), db.env);
+    const nextSheet = await sessions.handle(interaction(`cws:open:claim:${data.sheets[1].id}`));
     expect(nextSheet.data?.content).toContain("Choose slots to claim for **02-01-30** (UTC).");
     expect(nextSheet.data?.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([
       { label: "00:00 - 01:00", value: String(start + 11 * WATCH_HOUR), default: false },
     ]) });
-    const pick = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [String(start)]), db.env);
+    const reopened = await sessions.handle(interaction(`cws:open:claim:${sheet.id}`));
+    const pick = await sessions.handle(interaction(selectId(reopened), "111", [String(start)]));
     const confirm = pick.data!.components![1].components[0] as { custom_id: string };
-    const stolen = await handleWatchInteraction(interaction(confirm.custom_id, "222"), db.env);
+    const stolen = await sessions.handle(interaction(confirm.custom_id, "222"));
     expect(stolen.data?.content).toContain("expired");
     await assign(watch.id, [start], 2);
-    const stale = await handleWatchInteraction(interaction(confirm.custom_id), db.env);
+    const stale = await sessions.handle(interaction(confirm.custom_id));
     expect(stale.type).toBe(7);
     expect(stale.data?.components).toEqual([]);
     expect(stale.data?.content).toContain("another player");
@@ -394,10 +399,11 @@ describe("Discord chain watch", () => {
     const watch = await create();
     advance(start - 60);
     const sheet = (await readWatch(db.env)).sheets[0];
-    const pick = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [String(start)]), db.env);
+    const open = await sessions.handle(interaction(`cws:open:claim:${sheet.id}`));
+    const pick = await sessions.handle(interaction(selectId(open), "111", [String(start)]));
     const confirm = pick.data!.components![1].components[0] as { custom_id: string };
     advance(start);
-    const response = await handleWatchInteraction(interaction(confirm.custom_id), db.env);
+    const response = await sessions.handle(interaction(confirm.custom_id));
     expect(response.data?.content).toContain("already started");
     const wrongGuild = await handleWatchInteraction({ ...interaction(`cws:open:claim:${sheet.id}`), guild_id: "elsewhere" }, db.env);
     expect(wrongGuild.data?.content).toContain("faction Discord server");
@@ -475,7 +481,7 @@ describe("Discord chain watch", () => {
     const watch = await create();
     if (action === "leave") await assign(watch.id, [start, start + WATCH_HOUR]);
     const sheet = (await readWatch(db.env)).sheets[0];
-    const fetcher = vi.fn().mockImplementation(async () => new Response("{}", { status: 200 }));
+    const fetcher = vi.fn().mockImplementation(async () => Response.json({ id: "private-111" }));
     vi.stubGlobal("fetch", fetcher);
     const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as CryptoKeyPair;
     const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -505,7 +511,8 @@ describe("Discord chain watch", () => {
     expect(open.message.components?.[0].components[0]).toMatchObject({ type: 3 });
     expect(open.message.components?.[1].components[0]).toMatchObject({ type: 2, disabled: true });
 
-    const pick = await dispatch(`cws:pick:${action}:${sheet.id}`, [String(start)]);
+    const pickerId = selectId({ type: 4, data: open.message });
+    const pick = await dispatch(pickerId, [String(start)]);
     expect(pick.acknowledgement).toEqual({ type: 6 });
     expect(pick.message.content).toContain(heading);
     expect(pick.message.content).toContain("Selected:\n13:00 - 14:00");
@@ -514,7 +521,7 @@ describe("Discord chain watch", () => {
     expect(pick.message.components?.[1].components[0]).toMatchObject({ disabled: false });
     expect((await readWatch(db.env)).slots[0].assigned_to).toBe(action === "claim" ? null : 1);
 
-    const changed = await dispatch(`cws:pick:${action}:${sheet.id}`, [String(start + WATCH_HOUR)]);
+    const changed = await dispatch(pickerId, [String(start + WATCH_HOUR)]);
     expect(changed.acknowledgement).toEqual({ type: 6 });
     expect(changed.message.content).toContain(heading);
     expect(changed.message.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([
@@ -533,17 +540,18 @@ describe("Discord chain watch", () => {
   it("keeps the selector editable and disables confirmation when a selection breaks the two-hour rule", async () => {
     await create();
     const sheet = (await readWatch(db.env)).sheets[0];
-    const invalid = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [start, start + WATCH_HOUR, start + 2 * WATCH_HOUR].map(String)), db.env);
+    const open = await sessions.handle(interaction(`cws:open:claim:${sheet.id}`));
+    const invalid = await sessions.handle(interaction(selectId(open), "111", [start, start + WATCH_HOUR, start + 2 * WATCH_HOUR].map(String)));
     expect(invalid.type).toBe(7);
     expect(invalid.data?.content).toContain("one hour off");
     expect(invalid.data?.content).toContain("Choose slots to claim for **01-01-30** (UTC).");
     expect(invalid.data?.components?.[0].components[0]).toMatchObject({ type: 3 });
     expect(invalid.data?.components?.[1].components[0]).toMatchObject({ disabled: true });
-    const valid = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [String(start)]), db.env);
+    const valid = await sessions.handle(interaction(selectId(open), "111", [String(start)]));
     expect(valid.type).toBe(7);
     expect(valid.data?.components?.[1].components[0]).toMatchObject({ disabled: false });
     const confirm = valid.data!.components![1].components[0] as { custom_id: string };
-    const saved = await handleWatchInteraction(interaction(confirm.custom_id), db.env);
+    const saved = await sessions.handle(interaction(confirm.custom_id));
     expect(saved.type).toBe(7);
     expect(saved.data?.components).toEqual([]);
     expect((await readWatch(db.env)).slots[0].assigned_to).toBe(1);

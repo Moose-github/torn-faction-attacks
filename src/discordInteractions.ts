@@ -61,8 +61,10 @@ const DISCORD_SELECT_OPTION_DESCRIPTION_LIMIT = 100;
 const DASHBOARD_SETTINGS_URL = "https://buttgrass.pages.dev/settings";
 
 export type DiscordInteraction = {
+  id?: string;
   application_id?: string;
   token?: string;
+  message?: { id?: string };
   type?: number;
   guild_id?: string;
   channel_id?: string;

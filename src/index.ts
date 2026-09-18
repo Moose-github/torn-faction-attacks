@@ -1,5 +1,6 @@
 import { buildCronPlan } from "./cronPlan";
 export { ChainWatchAlarm } from "./chainWatchAlarm";
+export { ChainWatchSessions } from "./chainWatchSessions";
 export { RetaliationBoardAlarm } from "./retaliationBoardAlarm";
 import { handleDiscordInteractions } from "./discordInteractions";
 import { routeWatchScheduleApi } from "./http/chainWatchScheduleRoutes";

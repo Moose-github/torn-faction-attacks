@@ -177,6 +177,7 @@ export async function readWatch(env: Env, id?: string | null): Promise<ChainWatc
 
 export async function changeWatchSlots(env: Env, input: {
   watchId: string; starts: unknown; actorId: number; targetId: number | null; admin: boolean;
+  selectionId?: string;
 }): Promise<void> {
   if (!Array.isArray(input.starts) || input.starts.length < 1 || input.starts.length > 24 ||
       input.starts.some((s) => !Number.isSafeInteger(s) || s % WATCH_HOUR !== 0)) throw new WatchError("Choose between 1 and 24 valid hourly slots.");
@@ -186,6 +187,20 @@ export async function changeWatchSlots(env: Env, input: {
   if (found?.count !== starts.length) throw new WatchError("A selected slot does not exist. Refresh the sheet.", 404);
   if (input.targetId !== null && (!Number.isSafeInteger(input.targetId) || input.targetId <= 0)) throw new WatchError("Choose a valid faction member.");
   try {
+    if (input.selectionId) {
+      // Consume the confirmation in the same transaction as all assignments.
+      // Retrying after a crash cannot apply the same confirmation twice.
+      const result = await env.DB.batch([
+        env.DB.prepare(`UPDATE chain_watch_slots
+          SET assigned_to = ?, assignment_actor = ?, admin_override = 0, updated_at = unixepoch()
+          WHERE watch_id = ? AND start_at IN (${placeholders}) AND EXISTS (
+            SELECT 1 FROM chain_watch_pending_selections WHERE id = ? AND expires_at > unixepoch()
+          )`).bind(input.targetId, input.actorId, input.watchId, ...starts, input.selectionId),
+        env.DB.prepare("DELETE FROM chain_watch_pending_selections WHERE id = ?").bind(input.selectionId),
+      ]);
+      if (result[0].meta.changes !== starts.length) throw new WatchError("This selection expired or was already used. Open Sign up or Leave slots again.");
+      return;
+    }
     await env.DB.batch(starts.map((start) => env.DB.prepare(`UPDATE chain_watch_slots
       SET assigned_to = ?, assignment_actor = ?, admin_override = ?, updated_at = unixepoch()
       WHERE watch_id = ? AND start_at = ?`).bind(input.targetId, input.actorId, input.admin ? 1 : 0, input.watchId, start)));

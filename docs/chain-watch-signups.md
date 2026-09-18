@@ -42,9 +42,21 @@ Discord rosters have a compact name and date heading, a plain filled count on th
 hourly UTC ranges (e.g. 00:00 - 01:00), and Sign up, Leave slots, and Open page
 buttons. Sign up and Leave slots each open one private message with the sheet's
 date, time-only dropdown choices, and a Confirm button. Confirm enables after a valid selection; changing
-the selection and confirming both update that same message. Selections are bound
-to the invoking player and expire after ten minutes. Both platforms use the
-existing Torn/Discord links.
+the selection and confirming both update that same message. Each Discord user
+has one active claim/leave message across all sheets. Opening another immediately
+invalidates the previous one and attempts to delete it. An expired Discord token
+or delivery failure can prevent deletion, but the old controls remain unusable.
+Inactive private messages expire after ten minutes; an alarm attempts to remove
+them and discards stored webhook credentials. Both platforms use the existing
+Torn/Discord links.
+
+Selections are bound to the user, private message and latest selection token.
+Changing a selection invalidates the previous token, including when the new
+selection is invalid. A per-user `ChainWatchSessions` Durable Object serializes
+state changes and Discord responses and ignores out-of-order interaction IDs.
+Completed messages cannot regain working controls. Interrupted or failed reply
+updates close the session; reopen from the roster to continue. Confirmation tokens
+are consumed in the same D1 transaction as the assignments to prevent replay.
 
 All buttons disappear from a Discord sheet when it has no future, non-cancelled
 slots left to edit (23:00 UTC for a full day).
@@ -82,6 +94,10 @@ No schema migration is needed for this conversion.
 1. Apply D1 migration `0146_create_chain_watch_schedules.sql` to the target database.
 2. Deploy the Worker and dashboard. The existing `DISCORD_GUILD_ID`,
    `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY` configuration is reused.
+   Worker deployment applies Durable Object migration `v3` and binds
+   `CHAIN_WATCH_SESSIONS`; the session safeguards require no additional D1
+   migration. Private pickers opened before this deployment must be reopened
+   from the roster. Public roster buttons and existing assignments are preserved.
 3. Register commands with `npm run discord:commands:guild` (or the existing global
    registration workflow), supplying `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN`
    and, for guild registration, `DISCORD_GUILD_ID` through the environment.
