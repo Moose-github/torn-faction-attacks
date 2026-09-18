@@ -38,7 +38,8 @@ never relaxed by this flag.
 
 ## Player and admin actions
 
-Discord rosters have a date heading, hourly UTC slots and Sign up, Leave slots, and Open page
+Discord rosters have a name and date heading, a filled count directly below it,
+hourly UTC ranges (e.g. 00:00 - 01:00), and Sign up, Leave slots, and Open page
 buttons. Sign up and Leave slots each open one private message with the sheet's
 date, time-only dropdown choices, and a Confirm button. Confirm enables after a valid selection; changing
 the selection and confirming both update that same message. Selections are bound

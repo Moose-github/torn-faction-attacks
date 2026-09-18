@@ -81,7 +81,7 @@ function watchSlotLabel(start: number): string {
   const from = new Date(start * 1000).toISOString().slice(11, 16);
   const end = start + WATCH_HOUR;
   const to = end % WATCH_DAY === 0 ? "24:00" : new Date(end * 1000).toISOString().slice(11, 16);
-  return `${from}–${to}`;
+  return `${from} - ${to}`;
 }
 
 export function watchPageUrl(env: Env, watchId: string): string {
@@ -213,19 +213,20 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
   const slots = data.slots.filter((slot) => slot.sheet_id === sheet.id);
   const future = slots.some((slot) => !slot.cancelled && slot.start_at > data.now);
   const newestSheet = data.sheets.every((candidate) => candidate.start_at <= sheet.start_at);
-  const nextDayNotice = watch.is_open && watch.finish_at === null && newestSheet ? "\nNext day published at 12:00 UTC" : "";
+  const footerText = watch.finish_at ? `Watch finishes ${watchUtc(watch.finish_at)}` :
+    watch.is_open && newestSheet ? "Next day published at 12:00 UTC" : "";
+  const filled = `${slots.filter((slot) => !slot.cancelled && slot.assigned_to).length}/${slots.filter((slot) => !slot.cancelled).length} filled`;
   const rows = slots.map((slot) => {
-    const hour = new Date(slot.start_at * 1000).toISOString().slice(11, 16);
     const who = slot.assigned_to ? escaped((slot.member_name ?? `Player ${slot.assigned_to}`).slice(0, 32)) : "Available";
     const status = slot.cancelled ? "Cancelled" : slot.start_at + WATCH_HOUR <= data.now ? "Ended" : slot.start_at <= data.now ? "On watch" : "";
-    return `**${hour}** · ${who}${status ? ` · ${status}` : ""}`;
+    return `**${watchSlotLabel(slot.start_at)}** · ${who}${status ? ` · ${status}` : ""}`;
   });
   return {
     content: "",
     embeds: [{
-      title: `${escaped(watch.name)} · ${watchDate(sheet.start_at)} · Chain watch`, color: 0x2f80ed,
-      description: rows.join("\n"),
-      footer: { text: `${slots.filter((slot) => !slot.cancelled && slot.assigned_to).length}/${slots.filter((slot) => !slot.cancelled).length} filled · Two consecutive hours maximum${watch.finish_at ? ` · Watch finishes ${watchUtc(watch.finish_at)}` : nextDayNotice}` },
+      title: `${escaped(watch.name)} · ${watchDate(sheet.start_at)}`, color: 0x2f80ed,
+      description: `**${filled}**\n\n${rows.join("\n")}`,
+      ...(footerText ? { footer: { text: footerText } } : {}),
     }],
     allowed_mentions: { parse: [] },
     components: future ? [{ type: 1, components: [

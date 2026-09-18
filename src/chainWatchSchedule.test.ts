@@ -371,12 +371,12 @@ describe("Discord chain watch", () => {
     const open = await handleVerifiedDiscordInteraction(interaction(`cws:open:claim:${sheet.id}`), db.env);
     expect(open.data?.flags).toBe(64);
     expect(open.data?.components?.[0].components[0]).toMatchObject({ max_values: 11, options: expect.arrayContaining([
-      { label: "23:00–24:00", value: String(start + 10 * WATCH_HOUR), default: false },
+      { label: "23:00 - 24:00", value: String(start + 10 * WATCH_HOUR), default: false },
     ]) });
     const nextSheet = await handleWatchInteraction(interaction(`cws:open:claim:${data.sheets[1].id}`), db.env);
     expect(nextSheet.data?.content).toContain("Choose slots to claim for **02-01-30** (UTC).");
     expect(nextSheet.data?.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([
-      { label: "00:00–01:00", value: String(start + 11 * WATCH_HOUR), default: false },
+      { label: "00:00 - 01:00", value: String(start + 11 * WATCH_HOUR), default: false },
     ]) });
     const pick = await handleWatchInteraction(interaction(`cws:pick:claim:${sheet.id}`, "111", [String(start)]), db.env);
     const confirm = pick.data!.components![1].components[0] as { custom_id: string };
@@ -424,10 +424,9 @@ describe("Discord chain watch", () => {
     const data = await readWatch(db.env);
     const payload = watchBoardPayload(db.env, data, data.sheets[0]);
     expect(payload.allowed_mentions.parse).toEqual([]);
-    expect(payload.embeds[0].title).toContain("01-01-30");
-    expect(payload.embeds[0].description).toMatch(/^\*\*13:00\*\* · /);
-    expect(payload.embeds[0].footer.text).toContain("Watch finishes 02-01-30 00:00 UTC");
-    expect(payload.embeds[0].footer.text).not.toContain("Next day published");
+    expect(payload.embeds[0].title).toBe("Test watch · 01-01-30");
+    expect(payload.embeds[0].description).toMatch(/^\*\*1\/11 filled\*\*\n\n\*\*13:00 - 14:00\*\* · /);
+    expect(payload.embeds[0].footer?.text).toBe("Watch finishes 02-01-30 00:00 UTC");
     expect(payload.embeds[0].description.length).toBeLessThan(4096);
     for (const button of payload.components[0].components) if ("custom_id" in button) expect(button.custom_id!.length).toBeLessThanOrEqual(100);
     fetcher.mockImplementation(async () => new Response("{}", { status: 200 }));
@@ -451,7 +450,7 @@ describe("Discord chain watch", () => {
     const previousNewest = before.sheets.at(-1)!;
     const published = async () => (await db.env.DB.prepare(`SELECT id, dirty, last_payload FROM chain_watch_sheets
       WHERE discord_message_id IS NOT NULL ORDER BY start_at`).all()).results as Array<{ id: string; dirty: number; last_payload: string }>;
-    const hasNotice = (row: { last_payload: string }) => JSON.parse(row.last_payload).embeds[0].footer.text.endsWith("\nNext day published at 12:00 UTC");
+    const hasNotice = (row: { last_payload: string }) => JSON.parse(row.last_payload).embeds[0].footer?.text === "Next day published at 12:00 UTC";
     expect((await published()).filter(hasNotice).map((row) => row.id)).toEqual([previousNewest.id]);
 
     const nextPublication = previousNewest.start_at + missedDays * WATCH_DAY + 12 * WATCH_HOUR;
@@ -463,7 +462,7 @@ describe("Discord chain watch", () => {
     expect(messages).toHaveLength(after.sheets.length);
     expect(messages.every((row) => row.dirty === 0)).toBe(true);
     expect(messages.filter(hasNotice).map((row) => row.id)).toEqual([after.sheets.at(-1)!.id]);
-    expect(JSON.parse(messages.find((row) => row.id === previousNewest.id)!.last_payload).embeds[0].footer.text).not.toContain("Next day published");
+    expect(JSON.parse(messages.find((row) => row.id === previousNewest.id)!.last_payload).embeds[0].footer).toBeUndefined();
     const savedMessages = messages;
     await reconcileWatch(db.env, nextPublication);
     expect(await published()).toEqual(savedMessages);
@@ -506,9 +505,9 @@ describe("Discord chain watch", () => {
     const pick = await dispatch(`cws:pick:${action}:${sheet.id}`, [String(start)]);
     expect(pick.acknowledgement).toEqual({ type: 6 });
     expect(pick.message.content).toContain(heading);
-    expect(pick.message.content).toContain("Selected:\n13:00–14:00");
+    expect(pick.message.content).toContain("Selected:\n13:00 - 14:00");
     expect(pick.message.components).toHaveLength(2);
-    expect(pick.message.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([{ label: "13:00–14:00", value: String(start), default: true }]) });
+    expect(pick.message.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([{ label: "13:00 - 14:00", value: String(start), default: true }]) });
     expect(pick.message.components?.[1].components[0]).toMatchObject({ disabled: false });
     expect((await readWatch(db.env)).slots[0].assigned_to).toBe(action === "claim" ? null : 1);
 
@@ -516,8 +515,8 @@ describe("Discord chain watch", () => {
     expect(changed.acknowledgement).toEqual({ type: 6 });
     expect(changed.message.content).toContain(heading);
     expect(changed.message.components?.[0].components[0]).toMatchObject({ options: expect.arrayContaining([
-      { label: "13:00–14:00", value: String(start), default: false },
-      { label: "14:00–15:00", value: String(start + WATCH_HOUR), default: true },
+      { label: "13:00 - 14:00", value: String(start), default: false },
+      { label: "14:00 - 15:00", value: String(start + WATCH_HOUR), default: true },
     ]) });
     const confirm = changed.message.components![1].components[0] as { custom_id: string };
     const saved = await dispatch(confirm.custom_id);
