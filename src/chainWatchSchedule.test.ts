@@ -424,7 +424,7 @@ describe("Discord chain watch", () => {
     const data = await readWatch(db.env);
     const payload = watchBoardPayload(db.env, data, data.sheets[0]);
     expect(payload.allowed_mentions.parse).toEqual([]);
-    expect(payload.embeds[0].description).toMatch(/^\*\*Test watch · 01-01-30\*\*\n1\/11 filled\n\n\*\*13:00 - 14:00\*\* · /);
+    expect(payload.embeds[0].description).toMatch(/^## Test watch · 01-01-30\n1\/11 filled\n\n\*\*13:00 - 14:00\*\* · /);
     expect(payload.embeds[0].footer?.text).toBe("Watch finishes 02-01-30 00:00 UTC");
     expect(payload.embeds[0].description.length).toBeLessThan(4096);
     for (const button of payload.components[0].components) if ("custom_id" in button) expect(button.custom_id!.length).toBeLessThanOrEqual(100);
@@ -433,10 +433,14 @@ describe("Discord chain watch", () => {
     advance(finalSlotStart - 1);
     await syncWatchBoards(db.env, finalSlotStart - 1);
     expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).components[0].components).toHaveLength(3);
+    expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).embeds[0].description).toContain("🟢 **22:00 - 23:00** · Available · On watch");
     advance(finalSlotStart);
     await syncWatchBoards(db.env, finalSlotStart);
     expect(fetcher.mock.calls.at(-1)![1].method).toBe("PATCH");
     expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).components).toEqual([]);
+    const finalDescription = JSON.parse(fetcher.mock.calls.at(-1)![1].body).embeds[0].description;
+    expect(finalDescription).toContain("🟢 **23:00 - 24:00** · Available · On watch");
+    expect(finalDescription).not.toContain("🟢 **22:00 - 23:00**");
   });
 
   it.each([0, 2])("keeps the publication notice only on the newest message after %s missed days", async (missedDays) => {

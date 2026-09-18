@@ -108,6 +108,7 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
           {slots.map((slot, index) => {
             const started = slot.start_at <= now;
             const ended = slot.start_at + WATCH_HOUR <= now;
+            const current = !slot.cancelled && started && !ended;
             const mine = slot.assigned_to === currentUserId;
             const breaksRule = !slot.assigned_to && createsLongWatchRun(myHours, slot.start_at);
             const startsDay = index === 0 || Math.floor(slot.start_at / WATCH_DAY) !== Math.floor(slots[index - 1].start_at / WATCH_DAY);
@@ -117,7 +118,7 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
                 <h4>{watchDate(slot.start_at)} · UTC</h4>
                 {sheet?.discord_message_id ? <a className="watch-discord-link" href={`https://discord.com/channels/${watch.guild_id}/${watch.channel_id}/${sheet.discord_message_id}`} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Open in Discord</a> : null}
               </div> : null}
-              <div className={`watch-slot${mine ? " watch-slot-mine" : ""}${slot.cancelled || ended ? " watch-slot-muted" : ""}`}>
+              <div className={`watch-slot${mine ? " watch-slot-mine" : ""}${current ? " watch-slot-current" : ""}${slot.cancelled || ended ? " watch-slot-muted" : ""}`} aria-current={current ? "time" : undefined}>
               <div><strong>{new Date(slot.start_at * 1000).toISOString().slice(11, 16)}–{(slot.start_at + WATCH_HOUR) % WATCH_DAY === 0 ? "24:00" : new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)} UTC</strong></div>
               <div><strong>{slot.assigned_to ? slot.member_name ?? `Player ${slot.assigned_to}` : "Available"}{mine ? " · You" : ""}</strong><small>{slot.cancelled ? "Cancelled" : ended ? "Ended" : started ? "On watch · locked" : breaksRule ? "An hour's break is required" : slot.assigned_to ? "Reserved" : "Open for sign-up"}</small></div>
               <div className="watch-slot-actions">

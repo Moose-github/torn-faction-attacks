@@ -38,7 +38,7 @@ never relaxed by this flag.
 
 ## Player and admin actions
 
-Discord rosters have a bold name and date heading, a plain filled count on the next line,
+Discord rosters have a large name and date heading, a plain filled count on the next line,
 hourly UTC ranges (e.g. 00:00 - 01:00), and Sign up, Leave slots, and Open page
 buttons. Sign up and Leave slots each open one private message with the sheet's
 date, time-only dropdown choices, and a Confirm button. Confirm enables after a valid selection; changing
@@ -48,6 +48,9 @@ existing Torn/Discord links.
 
 All buttons disappear from a Discord sheet when it has no future, non-cancelled
 slots left to edit (23:00 UTC for a full day).
+
+The current slot has a green dot on Discord and a green highlight on the page.
+The indicator moves with the hour and never highlights cancelled slots.
 
 The page shows all published slots in one chronological list, with small date
 dividers and a link to each day's Discord roster. There is no sheet selector.

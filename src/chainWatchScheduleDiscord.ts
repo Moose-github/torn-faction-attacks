@@ -219,13 +219,13 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
   const rows = slots.map((slot) => {
     const who = slot.assigned_to ? escaped((slot.member_name ?? `Player ${slot.assigned_to}`).slice(0, 32)) : "Available";
     const status = slot.cancelled ? "Cancelled" : slot.start_at + WATCH_HOUR <= data.now ? "Ended" : slot.start_at <= data.now ? "On watch" : "";
-    return `**${watchSlotLabel(slot.start_at)}** · ${who}${status ? ` · ${status}` : ""}`;
+    return `${status === "On watch" ? "🟢 " : ""}**${watchSlotLabel(slot.start_at)}** · ${who}${status ? ` · ${status}` : ""}`;
   });
   return {
     content: "",
     embeds: [{
       color: 0x2f80ed,
-      description: `**${escaped(watch.name)} · ${watchDate(sheet.start_at)}**\n${filled}\n\n${rows.join("\n")}`,
+      description: `## ${escaped(watch.name)} · ${watchDate(sheet.start_at)}\n${filled}\n\n${rows.join("\n")}`,
       ...(footerText ? { footer: { text: footerText } } : {}),
     }],
     allowed_mentions: { parse: [] },
