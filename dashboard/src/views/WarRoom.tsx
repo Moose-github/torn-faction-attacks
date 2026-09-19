@@ -111,6 +111,7 @@ export function WarRoom({
   });
   const trackingCadenceRef = React.useRef<HTMLElement | null>(null);
   const isEventRoom = selectedWar?.war_type === "event";
+  const isTermedWar = selectedWar?.war_type === "termed";
   const canLoadEnemyWarRoom = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
   const canLoadActivityHeatmap = Boolean(selectedWarName && selectedWar && canLoadEnemyWarRoom && !isEventRoom);
   const isSelectedGlobalWar = activeWarId !== null && selectedWar?.id === activeWarId;
@@ -869,71 +870,93 @@ export function WarRoom({
 
       <section className="content-grid">
         {isMemberTrackingActive ? (
+          <EnemyStatusSummaryPanel
+            members={enemyScouting?.members ?? []}
+            statusCheckedAt={statusCheckedAt}
+            isLoading={isLoadingEnemyScouting}
+            trackingState={trackingFreshness.state}
+            trackingCadence={trackingFreshness.enemyCadence}
+            trackingTone={trackingFreshness.tone}
+            trackingDetail={trackingFreshness.enemyDetail}
+            onShowTrackingDetails={scrollToTrackingCadence}
+          />
+        ) : null}
+
+        <ChainWatchPanel
+          data={chainWatch}
+          nowMs={nowMs}
+          isLoading={isLoadingChainWatch}
+          trackingMode={trackingMode}
+          trackingState={trackingFreshness.chainWatchState}
+          trackingCadence={trackingFreshness.chainWatchCadence}
+          trackingTone={trackingFreshness.chainWatchTone}
+          trackingDetail={trackingFreshness.chainWatchDetail}
+          canToggle={canRefreshEnemyScouting}
+          isToggling={isTogglingChainWatch}
+          collapsed={collapsedPanels.chainWatch ?? true}
+          onCollapseToggle={() => togglePanel("chainWatch")}
+          onEnabledToggle={toggleChainWatch}
+        />
+
+        {isMemberTrackingActive ? (
           <>
-            <EnemyStatusSummaryPanel
-              members={enemyScouting?.members ?? []}
-              statusCheckedAt={statusCheckedAt}
-              isLoading={isLoadingEnemyScouting}
-              trackingState={trackingFreshness.state}
-              trackingCadence={trackingFreshness.enemyCadence}
-              trackingTone={trackingFreshness.tone}
-              trackingDetail={trackingFreshness.enemyDetail}
-              onShowTrackingDetails={scrollToTrackingCadence}
-            />
+            {!isTermedWar ? (
+              <>
+                <HospitalMonitorLinkPanel
+                  isWarLive={isWarLive}
+                  onOpenHospitalMonitor={onOpenHospitalMonitor}
+                  trackingState={trackingFreshness.hospitalState}
+                  trackingCadence={trackingFreshness.hospitalCadence}
+                  trackingTone={trackingFreshness.hospitalTone}
+                  trackingDetail={trackingFreshness.hospitalDetail}
+                  onShowTrackingDetails={scrollToTrackingCadence}
+                />
 
-            <HospitalMonitorLinkPanel
-              isWarLive={isWarLive}
-              onOpenHospitalMonitor={onOpenHospitalMonitor}
-              trackingState={trackingFreshness.hospitalState}
-              trackingCadence={trackingFreshness.hospitalCadence}
-              trackingTone={trackingFreshness.hospitalTone}
-              trackingDetail={trackingFreshness.hospitalDetail}
-              onShowTrackingDetails={scrollToTrackingCadence}
-            />
+                <WarControlPanel
+                  data={warControl}
+                  settingsDraft={warControlSettingsDraft}
+                  isAdmin={canRefreshEnemyScouting}
+                  isLoading={isLoadingWarControl}
+                  isSaving={isSavingWarControlSettings}
+                  collapsed={collapsedPanels.warControl ?? false}
+                  onToggle={() => togglePanel("warControl")}
+                  onSettingsChange={setWarControlSettingsDraft}
+                  onSaveSettings={saveWarControlSettings}
+                  updatedAt={warControlUpdatedAt}
+                  trackingState={trackingFreshness.state}
+                  trackingCadence={trackingFreshness.pushCadence}
+                  trackingTone={trackingFreshness.tone}
+                  trackingDetail={trackingFreshness.pushDetail}
+                  onShowTrackingDetails={scrollToTrackingCadence}
+                />
 
-            <WarControlPanel
-              data={warControl}
-              settingsDraft={warControlSettingsDraft}
-              isAdmin={canRefreshEnemyScouting}
-              isLoading={isLoadingWarControl}
-              isSaving={isSavingWarControlSettings}
-              collapsed={collapsedPanels.warControl ?? false}
-              onToggle={() => togglePanel("warControl")}
-              onSettingsChange={setWarControlSettingsDraft}
-              onSaveSettings={saveWarControlSettings}
-              updatedAt={warControlUpdatedAt}
-              trackingState={trackingFreshness.state}
-              trackingCadence={trackingFreshness.pushCadence}
-              trackingTone={trackingFreshness.tone}
-              trackingDetail={trackingFreshness.pushDetail}
-              onShowTrackingDetails={scrollToTrackingCadence}
-            />
+                <EnemyPushPressurePanel
+                  data={pushPressure}
+                  isLoading={isLoadingPushPressure}
+                  collapsed={collapsedPanels.enemyPushPressure ?? true}
+                  onToggle={() => togglePanel("enemyPushPressure")}
+                  trackingState={trackingFreshness.state}
+                  trackingCadence={trackingFreshness.pushCadence}
+                  trackingTone={trackingFreshness.tone}
+                  trackingDetail={trackingFreshness.pushDetail}
+                  onShowTrackingDetails={scrollToTrackingCadence}
+                />
 
-            <EnemyPushPressurePanel
-              data={pushPressure}
-              isLoading={isLoadingPushPressure}
-              collapsed={collapsedPanels.enemyPushPressure ?? true}
-              onToggle={() => togglePanel("enemyPushPressure")}
-              trackingState={trackingFreshness.state}
-              trackingCadence={trackingFreshness.pushCadence}
-              trackingTone={trackingFreshness.tone}
-              trackingDetail={trackingFreshness.pushDetail}
-              onShowTrackingDetails={scrollToTrackingCadence}
-            />
-
-            <RevivableMembersPanel
-              homeMembers={scoutingComparison?.home.members ?? []}
-              enemyMembers={scoutingComparison?.enemy.members ?? []}
-              enemyName={selectedWar.name}
-              collapsed={collapsedPanels.revivableMembers ?? true}
-              onToggle={() => togglePanel("revivableMembers")}
-              updatedAt={latestRevivableUpdatedAt}
-              trackingState={trackingFreshness.revivableState}
-              trackingCadence={trackingFreshness.revivableCadence}
-              trackingTone={trackingFreshness.revivableTone}
-              trackingDetail={trackingFreshness.revivableDetail}
-              onShowTrackingDetails={scrollToTrackingCadence}
-            />
+                <RevivableMembersPanel
+                  homeMembers={scoutingComparison?.home.members ?? []}
+                  enemyMembers={scoutingComparison?.enemy.members ?? []}
+                  enemyName={selectedWar.name}
+                  collapsed={collapsedPanels.revivableMembers ?? true}
+                  onToggle={() => togglePanel("revivableMembers")}
+                  updatedAt={latestRevivableUpdatedAt}
+                  trackingState={trackingFreshness.revivableState}
+                  trackingCadence={trackingFreshness.revivableCadence}
+                  trackingTone={trackingFreshness.revivableTone}
+                  trackingDetail={trackingFreshness.revivableDetail}
+                  onShowTrackingDetails={scrollToTrackingCadence}
+                />
+              </>
+            ) : null}
 
             <EnemyTravelPanel
               members={enemyScouting?.members ?? []}
@@ -1054,22 +1077,6 @@ export function WarRoom({
           isLoading={isLoadingScoutingComparison}
           collapsed={collapsedPanels.enemyHitTrends ?? true}
           onToggle={() => togglePanel("enemyHitTrends")}
-        />
-
-        <ChainWatchPanel
-          data={chainWatch}
-          nowMs={nowMs}
-          isLoading={isLoadingChainWatch}
-          trackingMode={trackingMode}
-          trackingState={trackingFreshness.chainWatchState}
-          trackingCadence={trackingFreshness.chainWatchCadence}
-          trackingTone={trackingFreshness.chainWatchTone}
-          trackingDetail={trackingFreshness.chainWatchDetail}
-          canToggle={canRefreshEnemyScouting}
-          isToggling={isTogglingChainWatch}
-          collapsed={collapsedPanels.chainWatch ?? true}
-          onCollapseToggle={() => togglePanel("chainWatch")}
-          onEnabledToggle={toggleChainWatch}
         />
 
         <TrackingStatusPanel
