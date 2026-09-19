@@ -582,12 +582,13 @@ function AlertRoute({
       <strong title={effectiveRoute.thread_id
         ? `Thread ID: ${effectiveRoute.thread_id}; Channel ID: ${effectiveRoute.channel_id}`
         : `Channel ID: ${effectiveRoute.channel_id}`}>
-        {effectiveRoute.thread_id
-          ? effectiveRoute.thread_name ?? `Thread ${effectiveRoute.thread_id}`
-          : effectiveRoute.channel_name ? `#${effectiveRoute.channel_name}` : `Channel ${effectiveRoute.channel_id}`}
+        {!route
+          ? "Using default fallback"
+          : effectiveRoute.thread_id
+            ? effectiveRoute.thread_name ?? `Thread ${effectiveRoute.thread_id}`
+            : effectiveRoute.channel_name ? `#${effectiveRoute.channel_name}` : `Channel ${effectiveRoute.channel_id}`}
       </strong>
       <small>
-        {!route ? "Using default fallback - " : ""}
         {effectiveRoute.thread_id
           ? effectiveRoute.channel_name ? `In #${effectiveRoute.channel_name}` : `Parent ${effectiveRoute.channel_id}`
           : "Channel"}
