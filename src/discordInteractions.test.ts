@@ -24,7 +24,9 @@ vi.mock("./discord", () => ({
 
 describe("Discord interactions", () => {
   it("registers bot and alert slash commands", () => {
-    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["chain-watch", "bot", "alerts", "alert-channels", "lookup"]);
+    expect(discordApplicationCommands().map((command) => command.name)).toEqual(["war", "chain-watch", "bot", "alerts", "alert-channels", "lookup"]);
+    expect(discordApplicationCommands().find((command) => command.name === "war"))
+      .toMatchObject({ dm_permission: false, options: [{ type: 1, name: "me" }] });
     expect(discordApplicationCommands().find((command) => command.name === "alerts")?.options?.map((option) => option.name))
       .toEqual(["list", "manage"]);
     expect(discordApplicationCommands().find((command) => command.name === "alert-channels"))
@@ -167,6 +169,7 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).toContain("`/alerts list`");
     expect(response.data?.embeds?.[0]?.description).toContain("`/alerts manage`");
     expect(response.data?.embeds?.[0]?.description).toContain("`/lookup player_id`");
+    expect(response.data?.embeds?.[0]?.description).toContain("`/war me`");
     expect(response.data?.embeds?.[0]?.description).not.toContain("`/alerts subscribe`");
     expect(response.data?.embeds?.[0]?.description).not.toContain("`/alerts unsubscribe`");
   });

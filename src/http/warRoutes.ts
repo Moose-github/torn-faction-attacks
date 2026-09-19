@@ -27,6 +27,7 @@ import {
   isTornWarReportFetchRoute,
   isWarDetailRoute,
   isWarMemberAttacksRoute,
+  isWarMemberRespectRecalculateRoute,
   isWarSubroute,
   matchesExactRoute,
   warNameFromWarRoute,
@@ -60,6 +61,7 @@ import {
 } from "./context";
 import { routeExact, type ExactRoute } from "./routeTable";
 import { getWarControlForWar } from "../warControl";
+import { recalculateWarMemberRespect } from "../warMemberRespect";
 
 export async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, url } = routeContext;
@@ -67,6 +69,10 @@ export async function routeWarCommands(routeContext: RouteContext): Promise<Rout
   const exactRouteResult = await routeExact(routeContext, warCommandExactRoutes(request, env));
   if (exactRouteResult) {
     return exactRouteResult;
+  }
+
+  if (isWarMemberRespectRecalculateRoute(url, request)) {
+    return recalculateWarMemberRespect(request, url, env);
   }
 
   if (isTornWarReportFetchRoute(url, request)) {

@@ -1,7 +1,11 @@
 import { Env } from "../types";
 
 export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number): Promise<void> {
-  await env.DB.prepare(
+  await warSummaryFromMemberStatsStatement(env, warId).run();
+}
+
+export function warSummaryFromMemberStatsStatement(env: Env, warId: number): D1PreparedStatement {
+  return env.DB.prepare(
     `
     INSERT INTO war_summary (
       war_id,
@@ -57,6 +61,5 @@ export async function rebuildWarSummaryFromMemberStats(env: Env, warId: number):
       updated_at = excluded.updated_at
     `,
   )
-    .bind(warId)
-    .run();
+    .bind(warId);
 }

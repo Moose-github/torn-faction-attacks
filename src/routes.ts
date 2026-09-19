@@ -49,6 +49,11 @@ export function isWarMemberAttacksRoute(url: URL, request: Request): boolean {
   );
 }
 
+export function isWarMemberRespectRecalculateRoute(url: URL, request: Request): boolean {
+  return request.method === "POST" &&
+    /^\/api\/wars\/[^/]+\/members\/[^/]+\/respect\/recalculate$/.test(url.pathname);
+}
+
 export function stockIdFromHistoryRoute(url: URL, request: Request): number | null {
   if (request.method !== "GET") {
     return null;

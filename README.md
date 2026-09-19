@@ -285,6 +285,32 @@ Get chain bonus hits for a war:
 GET /api/wars/:name/chain-bonuses
 ```
 
+Recalculate one member's adjusted respect from the latest stored attacks:
+
+```http
+POST /api/wars/:name/members/:memberId/respect/recalculate
+Authorization: Bearer <session-token>
+```
+
+No request body is required. URL-encode the war name and use the member's Torn user ID.
+Members can recalculate their own stats; admins can recalculate any member's stats.
+The response contains `{ ok, war, member, recalculated_at }`, where `member` is the
+member's stored war-stat row with refreshed `respect_gained`, `respect_lost`,
+`respect_lost_non_hospitalized`, raw respect totals, chain-bonus fields, and
+`member_respect_limit_percent`. `recalculated_at` is a Unix timestamp in seconds.
+War summary totals are updated and the war's cached responses are invalidated.
+
+This uses the same practical war window and chain-bonus averages as scheduled
+recalculations, including the war-wide fallback when an attacker has no ordinary
+hits. It does not fetch new attacks from Torn or rebuild combat counts or buckets.
+There is a 30-second cooldown per war/member (`429 COOLDOWN_ACTIVE` with
+`retry_after_seconds`). Missing wars or member stat rows return `404`; a concurrent
+war-stat rebuild returns `409 WAR_STATS_REBUILD_LOCKED`.
+
+`refreshWarMemberRespect(env, war, memberId)` is exported from `src/warStats` and
+shares an atomic 30-second cooldown and cache invalidation between HTTP and Discord.
+Callers must authenticate the member before using this service.
+
 Get attacks for a war:
 
 ```http
@@ -304,6 +330,27 @@ GET /api/stats?war_type=real
 GET /api/stats?war_type=termed
 GET /api/stats?war_type=event
 ```
+
+## Discord: `/war me`
+
+In the configured faction Discord server, `/war me` privately shows the caller's
+successful attacks against the enemy, adjusted respect gained, raw respect
+gained, and a **View war details** link. It resolves the caller through the stored
+Discord-to-Torn link and requires current faction membership. The command uses the
+current tracked war; it does not fall back to an old or upcoming war.
+
+Respect is recalculated from stored attacks before replying, using the same
+30-second per-war/member limit as the HTTP API. Discord is acknowledged immediately
+with a private deferred response, then that reply is filled in. Missing links,
+no ongoing war, no recorded member stats, cooldowns, and rebuild conflicts get
+private explanatory messages. The link uses `DASHBOARD_BASE_URL`, defaulting to
+`https://buttgrass.pages.dev`.
+
+The Worker needs `DISCORD_PUBLIC_KEY` and `DISCORD_GUILD_ID` configured. After
+deploying the Worker, register the updated command manifest with
+`npm run discord:commands:guild` (or `npm run discord:commands:global` for the existing
+global registration). The registration script requires `DISCORD_BOT_TOKEN` and
+`DISCORD_APPLICATION_ID`, plus `DISCORD_GUILD_ID` for guild registration.
 
 ## Scheduled Ingestion
 

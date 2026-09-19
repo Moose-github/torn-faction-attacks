@@ -8,7 +8,7 @@ import { OUTGOING_ACTION_WINDOW_SQL } from "../sql";
 import { Env } from "../types";
 import { d1Changes, nowSeconds } from "../utils";
 import { ATTACK_MEMBER_STAT_MERGE_SQL, DEFEND_MEMBER_STAT_MERGE_SQL } from "./sqlFragments";
-import { rebuildWarSummaryFromMemberStats } from "./warSummary";
+import { rebuildWarSummaryFromMemberStats, warSummaryFromMemberStatsStatement } from "./warSummary";
 
 const MEMBER_ACTIVITY_BUCKET_SECONDS = 15 * 60;
 const WAR_STATS_REBUILD_LEASE_SECONDS = 15 * 60;
@@ -408,18 +408,65 @@ export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Pro
 }
 
 async function refreshWarChainBonusAdjustmentsFromRaw(env: Env, warId: number): Promise<number> {
-  const outgoing = await refreshWarOutgoingChainBonusAdjustmentsFromRaw(env, warId);
-  const defending = await refreshWarDefendChainBonusAdjustmentsFromRaw(env, warId);
-  return outgoing + defending;
+  const outgoing = await warOutgoingRespectStatement(env, warId).run();
+  const defending = await warDefendRespectStatement(env, warId).run();
+  return d1Changes(outgoing) + d1Changes(defending);
 }
 
-async function refreshWarOutgoingChainBonusAdjustmentsFromRaw(
+/** Recalculate respect from stored attacks; callers authenticate the member separately. */
+export async function recalculateWarMemberRespectFromRaw(
   env: Env,
   warId: number,
-): Promise<number> {
-  const result = await env.DB.prepare(
+  memberId: number,
+): Promise<Record<string, unknown> | null> {
+  const lease = await claimWarStatsRebuildLease(env, warId);
+  if (!lease) throw new WarStatsRebuildLeaseError(warId);
+
+  try {
+    const memberStatement = env.DB.prepare(
+      "SELECT * FROM war_member_stats WHERE war_id = ? AND member_id = ? LIMIT 1",
+    ).bind(warId, memberId);
+    if (!await memberStatement.first()) return null;
+
+    // Keep the member, summary, and returned snapshot consistent with ingestion.
+    const results = await env.DB.batch<Record<string, unknown>>([
+      env.DB.prepare(`
+        UPDATE war_member_stats
+        SET respect_gained = 0,
+            respect_gained_raw = 0,
+            chain_bonus_hits_vs_enemy = 0,
+            chain_bonus_respect_removed = 0,
+            chain_bonus_hit_values_vs_enemy = '',
+            chain_bonus_hit_details_vs_enemy = '',
+            respect_lost = 0,
+            respect_lost_non_hospitalized = 0,
+            respect_lost_raw = 0,
+            enemy_chain_bonus_hits_received = 0,
+            enemy_chain_bonus_respect_removed = 0,
+            enemy_chain_bonus_hit_values_received = '',
+            enemy_chain_bonus_hit_details_received = ''
+        WHERE war_id = ? AND member_id = ?
+      `).bind(warId, memberId),
+      warOutgoingRespectStatement(env, warId, memberId),
+      warDefendRespectStatement(env, warId, memberId),
+      warSummaryFromMemberStatsStatement(env, warId),
+      memberStatement,
+    ]);
+    return results[4].results[0] ?? null;
+  } finally {
+    await releaseWarStatsRebuildLease(env, lease);
+  }
+}
+
+function warOutgoingRespectStatement(
+  env: Env,
+  warId: number,
+  memberId?: number,
+): D1PreparedStatement {
+  return env.DB.prepare(
     `
     WITH chain_members AS (
+      ${memberId === undefined ? `
       SELECT DISTINCT a.attacker_id AS member_id
       FROM attacks a
       JOIN wars w ON w.id = a.war_id
@@ -430,6 +477,7 @@ async function refreshWarOutgoingChainBonusAdjustmentsFromRaw(
         AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
+      ` : "SELECT ? AS member_id"}
     ),
     member_averages AS (
       SELECT
@@ -537,19 +585,18 @@ async function refreshWarOutgoingChainBonusAdjustmentsFromRaw(
       chain_bonus_hit_details_vs_enemy = excluded.chain_bonus_hit_details_vs_enemy
     `,
   )
-    .bind(warId, warId, warId, warId)
-    .run();
-
-  return d1Changes(result);
+    .bind(memberId ?? warId, warId, warId, warId);
 }
 
-async function refreshWarDefendChainBonusAdjustmentsFromRaw(
+function warDefendRespectStatement(
   env: Env,
   warId: number,
-): Promise<number> {
-  const result = await env.DB.prepare(
+  memberId?: number,
+): D1PreparedStatement {
+  return env.DB.prepare(
     `
     WITH chain_defenders AS (
+      ${memberId === undefined ? `
       SELECT DISTINCT a.defender_id AS member_id
       FROM attacks a
       JOIN wars w ON w.id = a.war_id
@@ -560,6 +607,7 @@ async function refreshWarDefendChainBonusAdjustmentsFromRaw(
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND a.chain IN (${CHAIN_BONUS_HITS_SQL})
         AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
+      ` : "SELECT ? AS member_id"}
     ),
     member_averages AS (
       SELECT
@@ -675,10 +723,7 @@ async function refreshWarDefendChainBonusAdjustmentsFromRaw(
       enemy_chain_bonus_hit_details_received = excluded.enemy_chain_bonus_hit_details_received
     `,
   )
-    .bind(warId, warId, warId, warId)
-    .run();
-
-  return d1Changes(result);
+    .bind(memberId ?? warId, warId, warId, warId);
 }
 
 async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<void> {

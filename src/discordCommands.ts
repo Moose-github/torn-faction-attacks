@@ -10,6 +10,7 @@ export const DISCORD_COMMAND_NAMES = {
   alertChannels: "alert-channels",
   lookup: "lookup",
   chainWatch: "chain-watch",
+  war: "war",
 } as const;
 
 export const DISCORD_COMPONENT_IDS = {
@@ -58,6 +59,14 @@ export function discordApplicationCommands(): DiscordApplicationCommand[] {
     .map((alert) => ({ name: alert.name, value: alert.key }));
 
   return [
+    {
+      name: DISCORD_COMMAND_NAMES.war,
+      description: "View your ongoing war stats",
+      dm_permission: false,
+      options: [
+        { type: DISCORD_COMMAND_OPTION_TYPES.subCommand, name: "me", description: "Show your successful attacks, adjusted respect, raw respect, and war page" },
+      ],
+    },
     {
       name: DISCORD_COMMAND_NAMES.chainWatch,
       description: "Create or finish the faction chain watch",

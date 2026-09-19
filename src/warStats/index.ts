@@ -6,6 +6,7 @@ export {
   rebuildOpenWarMemberStatsFromRaw,
   rebuildWarStatsFromRaw,
   rebuildWarMemberStatsFromRaw,
+  recalculateWarMemberRespectFromRaw,
   refreshOpenWarChainBonusAdjustmentsFromRaw,
   WarStatsRebuildLeaseError,
   type WarStatsRebuildOptions,
@@ -18,3 +19,4 @@ export {
   type RankedWarReportStatsResult,
 } from "./rankedReport";
 export { rebuildWarSummaryFromMemberStats } from "./warSummary";
+export { refreshWarMemberRespect, WAR_MEMBER_RESPECT_COOLDOWN_SECONDS } from "./memberRespect";
