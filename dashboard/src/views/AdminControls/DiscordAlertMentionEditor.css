@@ -1,0 +1,26 @@
+.admin-alert-route-grid.admin-alert-mention-grid { grid-template-columns: minmax(190px, 1fr) minmax(75px, .35fr) minmax(150px, .75fr) minmax(230px, 1fr); }
+.admin-alert-mention-grid .admin-alert-route-copy, .admin-alert-mention-grid .admin-alert-route-target { align-content: start; }
+.admin-alert-mention-grid .admin-alert-route-toggle, .admin-alert-mention-grid .admin-alert-route-status { align-items: flex-start; }
+.admin-panel-shoplifting-alerts > .admin-alert-route-test { margin-bottom: 12px; }
+.admin-alert-mention-grid > :nth-last-child(-n + 4) { border-bottom: 0; }
+.admin-alert-mentions { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 10px 12px; border-bottom: 1px solid rgba(148, 163, 184, .18); }
+.admin-mention-summary { font-size: .78rem; overflow-wrap: anywhere; color: var(--text-muted); }
+.admin-mention-form, .admin-mention-form fieldset { display: grid; min-width: 0; gap: 10px; }
+.admin-mention-form fieldset { margin: 0; padding: 0; border: 0; }
+.admin-mention-form legend { margin-bottom: 8px; font-size: .8rem; font-weight: 700; }
+.admin-mention-form input[type="search"] { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px; }
+.admin-mention-form label { display: flex; align-items: center; gap: 8px; font-size: .8rem; overflow-wrap: anywhere; }
+.admin-mention-form input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; flex-shrink: 0; margin: 0; }
+.admin-mention-roles { display: grid; gap: 9px; max-height: 180px; overflow: auto; }
+.admin-mention-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-mention-error { color: #b42332; font-size: .8rem; }
+:root[data-theme="dark"] .admin-mention-error { color: #fda4af; }
+.admin-mention-help { color: var(--text-muted); font-size: .8rem; line-height: 1.5; }
+@media (max-width: 1100px) {
+  .admin-alert-route-grid.admin-alert-mention-grid { grid-template-columns: minmax(0, 1fr) minmax(75px, auto); }
+  .admin-alert-mention-grid .admin-alert-route-heading { display: none; }
+  .admin-alert-mention-grid .admin-alert-route-target, .admin-alert-mentions { grid-column: 1 / -1; }
+  .admin-alert-mention-grid .admin-alert-route-target { padding-bottom: 8px; border-bottom: 0; }
+  .admin-alert-mention-grid > :nth-last-child(-n + 4) { border-bottom: 1px solid rgba(148, 163, 184, .18); }
+  .admin-alert-mention-grid > .admin-alert-route-target, .admin-alert-mention-grid > :last-child { border-bottom: 0; }
+}

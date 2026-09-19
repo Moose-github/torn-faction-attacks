@@ -213,7 +213,7 @@ CREATE TABLE data_health_settings (
 CREATE TABLE discord_admin_alert_subscriptions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   alert_key TEXT NOT NULL,
-  subscription_type TEXT NOT NULL CHECK (subscription_type IN ('user', 'role')),
+  subscription_type TEXT NOT NULL CHECK (subscription_type IN ('user', 'role', 'everyone', 'here')),
   discord_id TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),

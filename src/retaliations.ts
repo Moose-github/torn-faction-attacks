@@ -2,6 +2,7 @@ import { cleanString, positiveIntegerOrNull, readJsonObject } from "./backend/re
 import { HOME_FACTION_ID, POSITIVE_RESULTS_SQL, RETALIATION_WINDOW_SECONDS, SOURCE_NAME } from "./constants";
 import { type DiscordEmbed } from "./discord";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
+import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import {
@@ -1026,12 +1027,13 @@ async function upsertRetaliationBoardMessage(
   message: RetaliationBoardDiscordPayload,
 ): Promise<{ ok: boolean; messageId: string | null }> {
   try {
+    const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.retaliationBoard);
     const messageId = await upsertDiscordAlertMessage(
       env,
       DISCORD_ALERT_KEYS.retaliationBoard,
       existingMessageId,
-      message.content,
-      { users: [], roles: [] },
+      formatDiscordAlertMessage(message.content, mentions.messageSuffix),
+      mentions.allowedMentions ?? { users: [], roles: [] },
       { embeds: message.embeds },
     );
     return { ok: messageId !== null, messageId };

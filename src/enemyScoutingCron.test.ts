@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sendDiscordAlertMessageWithAttachments } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
+import { readDiscordAlertMentions } from "./discordMentions";
+vi.mock("./discordMentions", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./discordMentions")>(), readDiscordAlertMentions: vi.fn(),
+}));
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import {
   renderEnemyMemberStatsTablePng,
@@ -73,6 +77,7 @@ describe("enemy scouting stats image Discord report", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(readDiscordAlertMentions).mockResolvedValue({ messageSuffix: "", allowedMentions: undefined });
     vi.mocked(readCurrentScoutingWar).mockResolvedValue(war as any);
     vi.mocked(readSetSyncLatches).mockResolvedValue(new Set(readyLatches));
     vi.mocked(isDiscordAlertEnabled).mockResolvedValue(true);
@@ -98,6 +103,7 @@ describe("enemy scouting stats image Discord report", () => {
   });
 
   it("marks the report sent only after Discord returns a message id", async () => {
+    vi.mocked(readDiscordAlertMentions).mockResolvedValue({ messageSuffix: "<@&222222> @here", allowedMentions: { roles: ["222222"], everyone: true } });
     const result = await sendPendingEnemyStatsComparisonImage(env);
 
     expect(result).toEqual({ sent: true, skipped: false });
@@ -105,7 +111,8 @@ describe("enemy scouting stats image Discord report", () => {
       env,
       DISCORD_ALERT_KEYS.enemyScoutingReport,
       expect.objectContaining({
-        content: "War matchup announced: Buttgrass vs Test War. Starts <t:1781000000:R>",
+        content: "War matchup announced: Buttgrass vs Test War. Starts <t:1781000000:R>\n<@&222222> @here",
+        allowedMentions: { roles: ["222222"], everyone: true },
         attachments: expect.arrayContaining([
           expect.objectContaining({ filename: "enemy-stats-comparison-123.png" }),
           expect.objectContaining({ filename: "enemy-member-stats-123.png" }),

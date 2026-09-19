@@ -9,6 +9,7 @@ import {
   SOURCE_NAME,
 } from "../constants";
 import { sendDiscordAlertMessage } from "../discordAlertDelivery";
+import { formatDiscordAlertMessage, readDiscordAlertMentions } from "../discordMentions";
 import { isDiscordAlertEnabled } from "../discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "../discordAlerts";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "../reports";
@@ -993,10 +994,12 @@ async function sendTermedWarAutoEndDiscordMessage(
     if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.termedWarAutoEnd)) {
       return;
     }
+    const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.termedWarAutoEnd);
     await sendDiscordAlertMessage(
       env,
       DISCORD_ALERT_KEYS.termedWarAutoEnd,
-      buildTermedWarAutoEndDiscordMessage(options),
+      formatDiscordAlertMessage(buildTermedWarAutoEndDiscordMessage(options), mentions.messageSuffix),
+      mentions.allowedMentions ?? { users: [], roles: [] },
     );
   } catch (err: any) {
     console.warn("Unable to send termed war auto-end Discord message:", err?.message || err);

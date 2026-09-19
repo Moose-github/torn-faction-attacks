@@ -1,8 +1,6 @@
 import { cleanString, positiveIntegerOrNull, readJsonObject } from "./backend/request";
-import {
-  type DiscordAllowedMentions,
-} from "./discord";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
+import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
 import { readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
 import {
@@ -438,12 +436,13 @@ async function editExistingTravelTrackerMessage(
   messageId: string,
   message: { content: string; color: number },
 ): Promise<string | null> {
+  const mentions = await readDiscordAlertMentions(env, travelTrackerAlertKey(trackerKey));
   return await upsertDiscordAlertMessage(
     env,
     travelTrackerAlertKey(trackerKey),
     messageId,
-    message.content,
-    emptyAllowedMentions(),
+    formatDiscordAlertMessage(message.content, mentions.messageSuffix),
+    mentions.allowedMentions ?? { users: [], roles: [] },
     { embedColor: message.color },
   );
 }
@@ -453,12 +452,13 @@ async function createTravelTrackerMessage(
   trackerKey: TravelTrackerKey,
   message: { content: string; color: number },
 ): Promise<string | null> {
+  const mentions = await readDiscordAlertMentions(env, travelTrackerAlertKey(trackerKey));
   return upsertDiscordAlertMessage(
     env,
     travelTrackerAlertKey(trackerKey),
     null,
-    message.content,
-    emptyAllowedMentions(),
+    formatDiscordAlertMessage(message.content, mentions.messageSuffix),
+    mentions.allowedMentions ?? { users: [], roles: [] },
     { embedColor: message.color },
   );
 }
@@ -467,10 +467,6 @@ function travelTrackerAlertKey(trackerKey: TravelTrackerKey): DiscordAlertKey {
   return trackerKey === HOME_TRACKER_KEY
     ? DISCORD_ALERT_KEYS.homeTravelTracker
     : DISCORD_ALERT_KEYS.targetTravelTracker;
-}
-
-function emptyAllowedMentions(): DiscordAllowedMentions {
-  return { users: [], roles: [] };
 }
 
 function buildTravelTrackerMessage(

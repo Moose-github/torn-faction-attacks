@@ -26,6 +26,8 @@ describe("Discord bot messages", () => {
     vi.mocked(patchDiscordBotJson).mockReset();
     vi.mocked(postDiscordBotFormAndRead).mockReset();
     vi.mocked(postDiscordBotJsonAndRead).mockReset();
+    vi.mocked(postDiscordBotJsonAndRead).mockResolvedValue({ id: "message-1" });
+    vi.mocked(postDiscordBotFormAndRead).mockResolvedValue({ id: "message-1" });
   });
 
   it("creates bot messages in a channel and returns the Discord message id", async () => {
@@ -208,6 +210,27 @@ describe("Discord bot messages", () => {
     expect(form.get("files[0]")).toBeInstanceOf(Blob);
   });
 
+  it.each(["@everyone", "@here", "@everyone @here"])("keeps configured %s pings outside embeds with explicit users and roles", async broadcast => {
+    await createDiscordBotMessage(botEnv, "123456789", `Warning\nLast attack\n<@111111> <@&222222> ${broadcast}`,
+      { users: ["111111"], roles: ["222222"], everyone: true }, { embedColor: 0xff0000 });
+    expect(postDiscordBotJsonAndRead).toHaveBeenCalledWith("bot-token", "/channels/123456789/messages", {
+      content: `<@111111> <@&222222> ${broadcast}`,
+      embeds: [{ title: "Warning", description: "Last attack", color: 0xff0000 }],
+      allowed_mentions: { parse: ["everyone"], users: ["111111"], roles: ["222222"] },
+    });
+  });
+  it("does not parse incidental mentions without explicit settings", async () => {
+    await createDiscordBotMessage(botEnv, "123456789", "Text containing @everyone @here <@111111> <@&222222>");
+    expect(postDiscordBotJsonAndRead).toHaveBeenCalledWith("bot-token", "/channels/123456789/messages",
+      expect.objectContaining({ allowed_mentions: { parse: [], users: [], roles: [] } }));
+  });
+  it("includes configured broadcast pings in attachment payloads", async () => {
+    await sendDiscordBotMessageWithAttachment(botEnv, "123456789", {
+      content: "Report\n@here", filename: "report.png", mimeType: "image/png", data: new Uint8Array([1]), allowedMentions: { everyone: true },
+    });
+    const form = vi.mocked(postDiscordBotFormAndRead).mock.calls[0][2];
+    expect(JSON.parse(form.get("payload_json") as string)).toMatchObject({ content: "Report\n@here", allowed_mentions: { parse: ["everyone"], users: [], roles: [] } });
+  });
   it("requires a bot token before sending bot messages", async () => {
     await expect(createDiscordBotMessage({} as Env, "123456789012345678", "Nope"))
       .rejects.toThrow("DISCORD_BOT_TOKEN is not configured");

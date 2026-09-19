@@ -59,6 +59,7 @@ describe("monthly Xanax competition Discord reminder", () => {
     });
     expect(discordMock.sendDiscordAlertMessageWithAttachment).toHaveBeenCalledWith(fixture.env, DISCORD_ALERT_KEYS.xanaxCompetition, {
       content: "New month, new Xanax competition: the prize is $20,000,000. Take 100 Xanax this month to claim it.",
+      allowedMentions: { users: [], roles: [] },
       filename: "xanax-competition-2026-06.gif",
       mimeType: "image/gif",
       data: new Uint8Array([1, 2, 3]),

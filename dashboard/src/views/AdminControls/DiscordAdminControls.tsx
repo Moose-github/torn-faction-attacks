@@ -28,6 +28,7 @@ import {
 import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime } from "../../utils/format";
 import { DiscordMessageDelete } from "./DiscordMessageDelete";
+import { DiscordAlertMentionEditor, useDiscordMentionSettings } from "./DiscordAlertMentionEditor";
 
 const DEFAULT_DISCORD_ALERT_ROUTE_KEY = "default";
 
@@ -97,6 +98,7 @@ export function DiscordAdminControls({
   applyDiscordAlertSettingsResponse,
   runAdminAction,
 }: DiscordAdminControlsProps) {
+  const mentionControls = useDiscordMentionSettings();
   const discordAlertStatus = isLoadingDiscordAlertSettings
     ? "Loading"
     : shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert || chainWatchMissedCheckInAlert || retaliationBoardAlert
@@ -332,10 +334,14 @@ export function DiscordAdminControls({
     <>
       <section className="panel admin-panel-shoplifting-alerts">
         <PanelHeader title="Discord alerts" aside={discordAlertStatus} />
-        <div className="admin-alert-route-grid">
+        <p className="admin-mention-help">Choose the roles or groups each alert mentions. Personal subscriptions and assigned watchers are included separately. Status boards notify on new posts; edits do not send fresh notifications.</p>
+        {mentionControls.error || mentionControls.data?.roles_error ? <p role="alert" className="admin-mention-error">{mentionControls.error || mentionControls.data?.roles_error}</p> : null}
+        <button type="button" className="admin-alert-route-test" disabled={mentionControls.loading} onClick={() => void mentionControls.load()}>{mentionControls.loading ? "Loading roles…" : "Refresh roles"}</button>
+        <div className="admin-alert-route-grid admin-alert-mention-grid">
           <div className="admin-alert-route-heading">Alert</div>
           <div className="admin-alert-route-heading">Status</div>
           <div className="admin-alert-route-heading">Current route</div>
+          <div className="admin-alert-route-heading">Mentions</div>
           {discordAlertRows.map((alert) => (
             <React.Fragment key={alert.key}>
               <div className="admin-alert-route-copy">
@@ -363,6 +369,8 @@ export function DiscordAdminControls({
                   runAdminAction(`Test ${alert.label}`, () => testAdminDiscordAlertRoute(alert.key))
                 }
               />
+              {alert.key === DEFAULT_DISCORD_ALERT_ROUTE_KEY ? <div className="admin-alert-mentions"><span className="admin-mention-summary">Set mentions per alert below.</span></div> :
+                <DiscordAlertMentionEditor alertKey={alert.key} label={alert.label} controls={mentionControls} />}
             </React.Fragment>
           ))}
         </div>

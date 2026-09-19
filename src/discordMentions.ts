@@ -43,17 +43,22 @@ export async function readDiscordAlertMentions(env: Env, alertKey: string): Prom
   ];
   const users = uniqueDiscordIds(rows, "user");
   const roles = uniqueDiscordIds(rows, "role");
+  const everyone = rows.some(row => row.subscription_type === "everyone");
+  const here = rows.some(row => row.subscription_type === "here");
   const messageSuffix = [
     ...users.map((id) => `<@${id}>`),
     ...roles.map((id) => `<@&${id}>`),
+    ...(everyone ? ["@everyone"] : []),
+    ...(here ? ["@here"] : []),
   ].join(" ");
 
   return {
     messageSuffix,
-    allowedMentions: users.length > 0 || roles.length > 0
+    allowedMentions: users.length > 0 || roles.length > 0 || everyone || here
       ? {
           users,
           roles,
+          ...(everyone || here ? { everyone: true } : {}),
         }
       : undefined,
   };

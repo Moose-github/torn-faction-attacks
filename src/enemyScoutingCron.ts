@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordAlertMessageWithAttachments } from "./discordAlertDelivery";
+import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { syncDiscordTravelTracker } from "./discordTravelTracker";
@@ -936,8 +937,10 @@ async function sendPendingEnemyStatsComparisonImageForContext(
   });
   const startAt = scoutingWar.official_start_time ?? scoutingWar.practical_start_time;
 
+  const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.enemyScoutingReport);
   const messageId = await sendDiscordAlertMessageWithAttachments(env, DISCORD_ALERT_KEYS.enemyScoutingReport, {
-    content: `War matchup announced: Buttgrass vs ${scoutingWar.name}. Starts <t:${startAt}:R>`,
+    content: formatDiscordAlertMessage(`War matchup announced: Buttgrass vs ${scoutingWar.name}. Starts <t:${startAt}:R>`, mentions.messageSuffix),
+    allowedMentions: mentions.allowedMentions ?? { users: [], roles: [] },
     attachments: [
       {
         filename: `enemy-stats-comparison-${scoutingWar.id}.png`,

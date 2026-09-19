@@ -213,7 +213,7 @@ describe("assigned watcher alert mentions", () => {
     vi.mocked(upsertDiscordAlertMessage).mockClear();
     vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, _key, existingId) => existingId ?? "new-alert");
     const configured = { messageSuffix: "<@999999> <@&888888>", allowedMentions: { users: ["999999"], roles: ["888888"] } };
-    vi.mocked(readDiscordAlertMentions).mockResolvedValue(configured);
+    vi.mocked(readDiscordAlertMentions).mockImplementation(async (_env, key) => key === "chain_watch" ? { messageSuffix: "", allowedMentions: undefined } : configured);
     for (const [offset, remaining, key] of [[240, 60, "chain_watch_warning"], [270, 30, "chain_watch_critical"], [300, 0, "chain_watch_drop"]] as const) {
       const call = await fire(start + offset, remaining);
       expect(readDiscordAlertMentions).toHaveBeenLastCalledWith(db.env, key);
@@ -228,6 +228,14 @@ describe("assigned watcher alert mentions", () => {
     expect(refreshed[2]).toBe("message");
     expect(refreshed[4]).toEqual({ users: [], roles: [] });
     expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.filter((call) => call[2] === null)).toHaveLength(3);
+  });
+
+  it("preserves role and broadcast pings when appending the assigned watcher", async () => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    vi.mocked(readDiscordAlertMentions).mockResolvedValue({ messageSuffix: "<@&888888> @here", allowedMentions: { roles: ["888888"], everyone: true } });
+    const call = await fire(start + 240, 60);
+    expect(call[3]).toContain(`<@&888888> @here <@${aliceId}>`);
+    expect(call[4]).toEqual({ roles: ["888888"], everyone: true, users: [aliceId] });
   });
 
   it("mentions an already subscribed watcher only once", async () => {

@@ -1000,10 +1000,11 @@ async function upsertChainWatchDiscordMessage(
     return existingMessageId;
   }
 
-  const message = typeof options === "string" ? options : options.message;
-  const allowedMentions = typeof options === "string" ? { users: [], roles: [] } : options.allowedMentions;
-
   try {
+    // Warning/drop messages already contain their own mentions and assigned watcher.
+    const mentions = typeof options === "string" ? await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.chainWatch) : null;
+    const message = typeof options === "string" ? formatDiscordAlertMessage(options, mentions!.messageSuffix) : options.message;
+    const allowedMentions = typeof options === "string" ? mentions!.allowedMentions ?? { users: [], roles: [] } : options.allowedMentions;
     return await upsertDiscordAlertMessage(
       env,
       DISCORD_ALERT_KEYS.chainWatch,

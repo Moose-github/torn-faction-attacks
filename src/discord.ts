@@ -10,6 +10,8 @@ const MAX_DISCORD_MESSAGE_LENGTH = 1900;
 export type DiscordAllowedMentions = {
   users?: string[];
   roles?: string[];
+  /** Discord's "everyone" parser covers both @everyone and @here. */
+  everyone?: boolean;
 };
 
 export type DiscordEmbed = {
@@ -82,7 +84,7 @@ function discordPayload(
   content: string;
   embeds?: DiscordEmbed[];
   allowed_mentions?: {
-    parse: [];
+    parse: Array<"everyone">;
     users?: string[];
     roles?: string[];
   };
@@ -102,16 +104,12 @@ function discordPayload(
     };
   }
 
-  if (!allowedMentions) {
-    return payload;
-  }
-
   return {
     ...payload,
     allowed_mentions: {
-      parse: [],
-      users: allowedMentions.users ?? [],
-      roles: allowedMentions.roles ?? [],
+      parse: allowedMentions?.everyone ? ["everyone"] : [],
+      users: allowedMentions?.users ?? [],
+      roles: allowedMentions?.roles ?? [],
     },
   };
 }
@@ -147,7 +145,7 @@ function isDiscordMentionLine(line: string): boolean {
   return line
     .trim()
     .split(/\s+/)
-    .every((token) => /^<@&?\d{5,32}>$/.test(token));
+    .every((token) => /^(<@&?\d{5,32}>|@everyone|@here)$/.test(token));
 }
 
 export async function sendDiscordBotMessageWithAttachment(

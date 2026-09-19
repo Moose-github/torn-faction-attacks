@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID } from "./constants";
 import { sendDiscordAlertMessageWithAttachment } from "./discordAlertDelivery";
+import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { readCompleteLifestyleSnapshotDateRange } from "./lifestyleStats/queries";
@@ -255,8 +256,10 @@ export async function runMonthlyXanaxCompetitionDiscordReminder(
     xanaxImageDataUri: await getXanaxImageDataUri(),
   });
 
+  const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.xanaxCompetition);
   await sendDiscordAlertMessageWithAttachment(env, DISCORD_ALERT_KEYS.xanaxCompetition, {
-    content: buildMonthlyXanaxCompetitionDiscordMessage(settings.current_prize),
+    content: formatDiscordAlertMessage(buildMonthlyXanaxCompetitionDiscordMessage(settings.current_prize), mentions.messageSuffix),
+    allowedMentions: mentions.allowedMentions ?? { users: [], roles: [] },
     filename: `xanax-competition-${settings.month_key}.gif`,
     mimeType: "image/gif",
     data: gif,

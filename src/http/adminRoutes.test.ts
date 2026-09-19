@@ -32,6 +32,8 @@ import { listAdminTornApiKeys } from "../tornKeyPool";
 import { listPacks } from "../packs";
 import { routeAdminApi } from "./adminRoutes";
 import { deleteDiscordBotMessageFromRequest, previewDiscordBotMessageFromRequest } from "../discordMessageAdmin";
+import { getAdminDiscordAlertMentions, updateAdminDiscordAlertMentionsFromRequest } from "../discordMentionSettings";
+vi.mock("../discordMentionSettings", () => ({ getAdminDiscordAlertMentions: vi.fn(), updateAdminDiscordAlertMentionsFromRequest: vi.fn() }));
 
 vi.mock("../discordMessageAdmin", () => ({ deleteDiscordBotMessageFromRequest: vi.fn(), previewDiscordBotMessageFromRequest: vi.fn() }));
 
@@ -122,6 +124,21 @@ vi.mock("../xanaxCompetition", () => ({
 }));
 
 describe("admin routes", () => {
+  it.each(["GET", "POST"])("requires admin access for %s alert mention settings", async method => {
+    vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
+    const result = await routeAdminApi(routeContext("https://worker.test/api/admin/discord-alerts/mentions", { method }));
+    expect(result?.status).toBe(403);
+    expect(getAdminDiscordAlertMentions).not.toHaveBeenCalled();
+    expect(updateAdminDiscordAlertMentionsFromRequest).not.toHaveBeenCalled();
+  });
+  it.each(["GET", "POST"])("routes authenticated %s alert mention settings", async method => {
+    const handler = method === "GET" ? getAdminDiscordAlertMentions : updateAdminDiscordAlertMentionsFromRequest;
+    vi.mocked(handler).mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const context = routeContext("https://worker.test/api/admin/discord-alerts/mentions", { method });
+    expect((await routeAdminApi(context))?.status).toBe(200);
+    expect(requireAdmin).toHaveBeenCalledOnce();
+    expect(handler).toHaveBeenCalledOnce();
+  });
   it.each(["preview", "delete"])("requires admin authentication for Discord message %s", async (action) => {
     vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
     const result = await routeAdminApi(routeContext(`https://worker.test/api/admin/discord-messages/${action}`, { method: "POST" }));

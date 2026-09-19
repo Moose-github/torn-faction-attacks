@@ -80,6 +80,7 @@ import {
 import { getAttackWindow } from "../wars";
 import { requireActionCooldown, RouteContext, RouteResult, withAdmin } from "./context";
 import { deleteDiscordBotMessageFromRequest, previewDiscordBotMessageFromRequest } from "../discordMessageAdmin";
+import { getAdminDiscordAlertMentions, updateAdminDiscordAlertMentionsFromRequest } from "../discordMentionSettings";
 
 export async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, ctx, url } = routeContext;
@@ -276,6 +277,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
     matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "POST")
   ) {
     return withAdmin(routeContext, () => updateAdminDiscordAlertSettingsFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-alerts/mentions", "GET")) {
+    return withAdmin(routeContext, () => getAdminDiscordAlertMentions(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-alerts/mentions", "POST")) {
+    return withAdmin(routeContext, () => updateAdminDiscordAlertMentionsFromRequest(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/discord-messages/preview", "POST")) {

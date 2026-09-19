@@ -1,6 +1,15 @@
 import { API_BASE_URL, authHeaders, deleteJson, getJson, postJson } from "./client";
 import { queryString } from "./query";
 import type { DiscordMessageDeleteResult, DiscordMessagePreview } from "../../../shared/discordMessageAdmin";
+import type { AdminDiscordAlertMentionsResponse, DiscordAlertMentionSetting, UpdateDiscordAlertMentionsResponse } from "../../../shared/discordAlertMentions";
+
+export function getAdminDiscordAlertMentions(): Promise<AdminDiscordAlertMentionsResponse> {
+  return getJson("/api/admin/discord-alerts/mentions");
+}
+
+export function updateAdminDiscordAlertMentions(alertKey: string, mentions: DiscordAlertMentionSetting): Promise<UpdateDiscordAlertMentionsResponse> {
+  return postJson("/api/admin/discord-alerts/mentions", { alert_key: alertKey, ...mentions });
+}
 import type { AdminDiscordAlertSettingsResponse, AdminPacksResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
 
 export function previewDiscordBotMessage(messageLink: string): Promise<DiscordMessagePreview> {
