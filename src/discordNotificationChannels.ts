@@ -103,7 +103,7 @@ export async function setDiscordNotificationChannel(
     alertKey: DiscordAlertRouteKey;
     channelId: string;
     threadId?: string | null;
-    updatedByDiscordId: string;
+    updatedByDiscordId: string | null;
   },
 ): Promise<DiscordNotificationChannel> {
   await env.DB.prepare(

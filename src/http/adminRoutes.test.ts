@@ -33,6 +33,8 @@ import { listPacks } from "../packs";
 import { routeAdminApi } from "./adminRoutes";
 import { deleteDiscordBotMessageFromRequest, previewDiscordBotMessageFromRequest } from "../discordMessageAdmin";
 import { getAdminDiscordAlertMentions, updateAdminDiscordAlertMentionsFromRequest } from "../discordMentionSettings";
+import { getAdminDiscordRouteDestinations, updateAdminDiscordRouteFromRequest } from "../discordRouteAdmin";
+vi.mock("../discordRouteAdmin", () => ({ getAdminDiscordRouteDestinations: vi.fn(), updateAdminDiscordRouteFromRequest: vi.fn() }));
 vi.mock("../discordMentionSettings", () => ({ getAdminDiscordAlertMentions: vi.fn(), updateAdminDiscordAlertMentionsFromRequest: vi.fn() }));
 
 vi.mock("../discordMessageAdmin", () => ({ deleteDiscordBotMessageFromRequest: vi.fn(), previewDiscordBotMessageFromRequest: vi.fn() }));
@@ -124,6 +126,20 @@ vi.mock("../xanaxCompetition", () => ({
 }));
 
 describe("admin routes", () => {
+  it.each(["GET", "POST"])("requires admin access for %s Discord route editing", async method => {
+    vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
+    const result = await routeAdminApi(routeContext("https://worker.test/api/admin/discord-alerts/routes", { method }));
+    expect(result?.status).toBe(403);
+    expect(getAdminDiscordRouteDestinations).not.toHaveBeenCalled();
+    expect(updateAdminDiscordRouteFromRequest).not.toHaveBeenCalled();
+  });
+  it.each(["GET", "POST"])("routes authenticated %s Discord route editing", async method => {
+    const handler = method === "GET" ? getAdminDiscordRouteDestinations : updateAdminDiscordRouteFromRequest;
+    vi.mocked(handler).mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const context = routeContext("https://worker.test/api/admin/discord-alerts/routes", { method });
+    expect((await routeAdminApi(context))?.status).toBe(200);
+    expect(requireAdmin).toHaveBeenCalledOnce(); expect(handler).toHaveBeenCalledOnce();
+  });
   it.each(["GET", "POST"])("requires admin access for %s alert mention settings", async method => {
     vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
     const result = await routeAdminApi(routeContext("https://worker.test/api/admin/discord-alerts/mentions", { method }));

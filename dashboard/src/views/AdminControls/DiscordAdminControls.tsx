@@ -32,6 +32,7 @@ import { formatLongDateTime } from "../../utils/format";
 import { DISCORD_DELIVERY_CONTROLS, type DiscordDeliveryAlertKey } from "../../../../shared/discordDeliverySettings";
 import { DiscordMessageDelete } from "./DiscordMessageDelete";
 import { DiscordAlertMentionEditor, useDiscordMentionSettings } from "./DiscordAlertMentionEditor";
+import { DiscordRouteActions } from "./DiscordRouteActions";
 
 const DEFAULT_DISCORD_ALERT_ROUTE_KEY = "default";
 
@@ -352,13 +353,16 @@ export function DiscordAdminControls({
                 />
               )}
               <AlertRoute
+                alertKey={alert.key}
+                label={alert.label}
                 route={discordAlertRoutes[alert.key] ?? null}
                 fallbackRoute={alert.key === DEFAULT_DISCORD_ALERT_ROUTE_KEY
                   ? null
                   : discordAlertRoutes[DEFAULT_DISCORD_ALERT_ROUTE_KEY] ?? null}
                 testBusy={isBusy === `Test ${alert.label}`}
                 testDisabled={isBusy !== null || isLoadingDiscordAlertSettings}
-                testLabel={`Test ${alert.label}`}
+                onSaved={applyDiscordAlertSettingsResponse}
+                runAdminAction={runAdminAction}
                 onTest={() =>
                   runAdminAction(`Test ${alert.label}`, () => testAdminDiscordAlertRoute(alert.key))
                 }
@@ -545,34 +549,35 @@ function AlertRouteStatus({ label }: { label: string }) {
 }
 
 function AlertRoute({
+  alertKey,
+  label,
   route,
   fallbackRoute,
   testBusy,
   testDisabled,
-  testLabel,
+  onSaved,
+  runAdminAction,
   onTest,
 }: {
+  alertKey: string;
+  label: string;
   route: DiscordAlertRouteSummary | null;
   fallbackRoute: DiscordAlertRouteSummary | null;
   testBusy: boolean;
   testDisabled: boolean;
-  testLabel: string;
+  onSaved: (response: AdminDiscordAlertSettingsResponse) => void;
+  runAdminAction: (label: string, action: () => Promise<unknown>) => void;
   onTest: () => void;
 }) {
   const effectiveRoute = route ?? fallbackRoute;
+  const actions = <DiscordRouteActions alertKey={alertKey} label={label} route={route}
+    disabled={testDisabled} testBusy={testBusy} onTest={onTest} onSaved={onSaved} runAdminAction={runAdminAction} />;
   if (!effectiveRoute) {
     return (
       <div className="admin-alert-route-target is-unset">
         <strong>Unset</strong>
         <small>No bot channel route</small>
-        <button
-          type="button"
-          className="admin-alert-route-test"
-          disabled={testDisabled}
-          onClick={onTest}
-        >
-          {testBusy ? "Testing" : "Test"}
-        </button>
+        {actions}
       </div>
     );
   }
@@ -594,15 +599,7 @@ function AlertRoute({
           : "Channel"}
         {effectiveRoute.updated_at ? ` - ${formatLongDateTime(effectiveRoute.updated_at)}` : ""}
       </small>
-      <button
-        type="button"
-        className="admin-alert-route-test"
-        disabled={testDisabled}
-        onClick={onTest}
-        title={testLabel}
-      >
-        {testBusy ? "Testing" : "Test"}
-      </button>
+      {actions}
     </div>
   );
 }

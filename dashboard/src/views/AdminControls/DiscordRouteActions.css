@@ -1,0 +1,41 @@
+.admin-alert-route-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-alert-route-form {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(47, 128, 237, 0.28);
+  border-radius: 8px;
+}
+
+.admin-alert-route-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-strong);
+  font-size: 0.78rem;
+}
+
+.admin-alert-route-form select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-solid);
+  border-radius: 6px;
+  background: var(--panel-bg-solid);
+  color: var(--text-strong);
+  font: inherit;
+}
+
+.admin-alert-route-target .admin-alert-route-form [role="alert"] {
+  color: #b91c1c;
+}
+
+:root[data-theme="dark"] .admin-alert-route-target .admin-alert-route-form [role="alert"] {
+  color: #fca5a5;
+}

@@ -2,6 +2,7 @@ import { API_BASE_URL, authHeaders, deleteJson, getJson, postJson } from "./clie
 import { queryString } from "./query";
 import type { DiscordMessageDeleteResult, DiscordMessagePreview } from "../../../shared/discordMessageAdmin";
 import type { AdminDiscordAlertMentionsResponse, DiscordAlertMentionSetting, UpdateDiscordAlertMentionsResponse } from "../../../shared/discordAlertMentions";
+import type { DiscordRouteDestinationsResponse } from "../../../shared/discordRouteAdmin";
 
 export function getAdminDiscordAlertMentions(): Promise<AdminDiscordAlertMentionsResponse> {
   return getJson("/api/admin/discord-alerts/mentions");
@@ -269,6 +270,14 @@ export async function getAdminDiscordAlertSettings(): Promise<AdminDiscordAlertS
 
 export async function testAdminDiscordAlertRoute(alertKey: string): Promise<unknown> {
   return postJson("/api/admin/discord-alerts/test", { alert_key: alertKey });
+}
+
+export function getAdminDiscordRouteDestinations(): Promise<DiscordRouteDestinationsResponse> {
+  return getJson("/api/admin/discord-alerts/routes", true);
+}
+
+export function updateAdminDiscordRoute(alertKey: string, targetId: string | null): Promise<AdminDiscordAlertSettingsResponse> {
+  return postJson("/api/admin/discord-alerts/routes", { alert_key: alertKey, target_id: targetId });
 }
 
 export async function updateAdminShopliftingDiscordAlert(payload: {
