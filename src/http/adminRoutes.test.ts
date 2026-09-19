@@ -31,6 +31,9 @@ import { refreshMemberAchievementSummaries } from "../memberAchievements";
 import { listAdminTornApiKeys } from "../tornKeyPool";
 import { listPacks } from "../packs";
 import { routeAdminApi } from "./adminRoutes";
+import { deleteDiscordBotMessageFromRequest, previewDiscordBotMessageFromRequest } from "../discordMessageAdmin";
+
+vi.mock("../discordMessageAdmin", () => ({ deleteDiscordBotMessageFromRequest: vi.fn(), previewDiscordBotMessageFromRequest: vi.fn() }));
 
 vi.mock("../auth", () => ({
   grantAdminAccess: vi.fn(),
@@ -119,6 +122,21 @@ vi.mock("../xanaxCompetition", () => ({
 }));
 
 describe("admin routes", () => {
+  it.each(["preview", "delete"])("requires admin authentication for Discord message %s", async (action) => {
+    vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
+    const result = await routeAdminApi(routeContext(`https://worker.test/api/admin/discord-messages/${action}`, { method: "POST" }));
+    expect(result?.status).toBe(403);
+    expect(previewDiscordBotMessageFromRequest).not.toHaveBeenCalled();
+    expect(deleteDiscordBotMessageFromRequest).not.toHaveBeenCalled();
+  });
+  it.each(["preview", "delete"])("routes authenticated Discord message %s requests", async (action) => {
+    const handler = action === "preview" ? previewDiscordBotMessageFromRequest : deleteDiscordBotMessageFromRequest;
+    vi.mocked(handler).mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const context = routeContext(`https://worker.test/api/admin/discord-messages/${action}`, { method: "POST" });
+    expect((await routeAdminApi(context))?.status).toBe(200);
+    expect(requireAdmin).toHaveBeenCalledOnce();
+    expect(handler).toHaveBeenCalledWith(context.request, context.env);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(requireAdmin).mockResolvedValue(null);

@@ -1,6 +1,15 @@
 import { API_BASE_URL, authHeaders, deleteJson, getJson, postJson } from "./client";
 import { queryString } from "./query";
+import type { DiscordMessageDeleteResult, DiscordMessagePreview } from "../../../shared/discordMessageAdmin";
 import type { AdminDiscordAlertSettingsResponse, AdminPacksResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
+
+export function previewDiscordBotMessage(messageLink: string): Promise<DiscordMessagePreview> {
+  return postJson("/api/admin/discord-messages/preview", { message_link: messageLink });
+}
+
+export function deleteDiscordBotMessage(messageLink: string): Promise<DiscordMessageDeleteResult> {
+  return postJson("/api/admin/discord-messages/delete", { message_link: messageLink });
+}
 
 export type DiscordTravelTrackerTarget = {
   faction_id: number;

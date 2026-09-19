@@ -27,6 +27,7 @@ import {
 } from "../../api";
 import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime } from "../../utils/format";
+import { DiscordMessageDelete } from "./DiscordMessageDelete";
 
 const DEFAULT_DISCORD_ALERT_ROUTE_KEY = "default";
 
@@ -320,6 +321,8 @@ export function DiscordAdminControls({
           ))}
         </div>
       </section>
+
+      <DiscordMessageDelete />
 
       <section className="panel admin-panel-discord-travel">
         <PanelHeader title="Travel tracker controls" aside={discordTravelTrackerStatus} />

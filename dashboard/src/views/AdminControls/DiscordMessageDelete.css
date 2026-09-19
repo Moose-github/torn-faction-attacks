@@ -1,0 +1,18 @@
+.discord-message-delete { display: grid; gap: 14px; grid-column: 1 / -1; min-width: 0; }
+.discord-message-delete p { margin: 0; line-height: 1.5; }
+.discord-message-delete .admin-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
+.discord-message-delete .admin-form button { width: auto; }
+.discord-message-delete input { width: 100%; min-width: 0; box-sizing: border-box; }
+.discord-message-delete button { justify-self: start; }
+.discord-message-confirm { display: grid; gap: 14px; padding-top: 16px; border-top: 1px solid var(--border-soft); min-width: 0; }
+.discord-message-meta { display: grid; gap: 5px; overflow-wrap: anywhere; }
+.discord-message-meta span { color: var(--text-muted); font-size: 12px; }
+.discord-message-meta a { color: var(--accent-strong, #2563eb); }
+.discord-message-body { padding: 14px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--panel-muted-bg); display: grid; gap: 12px; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.discord-message-embed { display: grid; gap: 8px; border-left: 3px solid var(--border-soft); padding-left: 12px; }
+.discord-message-delete .admin-button.discord-message-delete-button { display: inline-flex; align-items: center; gap: 8px; background: #b42332; border-color: #b42332; color: #fff; }
+.discord-message-delete .admin-button.discord-message-delete-button:hover:not(:disabled) { background: #911d29; border-color: #911d29; color: #fff; }
+.discord-message-error { color: #b42332; }
+.discord-message-success { color: #14723f; }
+:root[data-theme="dark"] .discord-message-error { color: #fda4af; }
+:root[data-theme="dark"] .discord-message-success { color: #86efac; }

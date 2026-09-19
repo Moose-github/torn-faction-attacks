@@ -79,6 +79,7 @@ import {
 } from "../xanaxCompetition";
 import { getAttackWindow } from "../wars";
 import { requireActionCooldown, RouteContext, RouteResult, withAdmin } from "./context";
+import { deleteDiscordBotMessageFromRequest, previewDiscordBotMessageFromRequest } from "../discordMessageAdmin";
 
 export async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, ctx, url } = routeContext;
@@ -275,6 +276,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
     matchesExactRoute(url, request, "/api/admin/shoplifting-alerts", "POST")
   ) {
     return withAdmin(routeContext, () => updateAdminDiscordAlertSettingsFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-messages/preview", "POST")) {
+    return withAdmin(routeContext, () => previewDiscordBotMessageFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-messages/delete", "POST")) {
+    return withAdmin(routeContext, () => deleteDiscordBotMessageFromRequest(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/discord-alerts/test", "POST")) {
