@@ -46,15 +46,15 @@ type DiscordAlertRouteRow = {
   onChange: (enabled: boolean) => void;
 };
 
-type DiscordDefaultRouteRow = {
-  kind: "default";
-  key: typeof DEFAULT_DISCORD_ALERT_ROUTE_KEY;
+type DiscordStatusRouteRow = {
+  kind: "status";
+  key: string;
   description: string;
   label: string;
   statusLabel: string;
 };
 
-type DiscordAlertDisplayRow = DiscordAlertRouteRow | DiscordDefaultRouteRow;
+type DiscordAlertDisplayRow = DiscordAlertRouteRow | DiscordStatusRouteRow;
 
 type DiscordAdminControlsProps = {
   isBusy: string | null;
@@ -132,7 +132,7 @@ export function DiscordAdminControls({
     Number(discordTravelTargetForm.factionId) > 0;
   const discordAlertRows: DiscordAlertDisplayRow[] = [
     {
-      kind: "default",
+      kind: "status",
       key: DEFAULT_DISCORD_ALERT_ROUTE_KEY,
       description: "Fallback bot channel used when an alert does not have its own route.",
       label: "Default fallback",
@@ -156,6 +156,27 @@ export function DiscordAdminControls({
           },
         }
       : null,
+    {
+      kind: "status",
+      key: "chain_watch_warning",
+      description: "Mentions when a qualifying chain has 60 seconds remaining.",
+      label: "Chain watch warning",
+      statusLabel: "Automatic",
+    },
+    {
+      kind: "status",
+      key: "chain_watch_critical",
+      description: "Mentions when a qualifying chain has 30 seconds remaining.",
+      label: "Chain watch critical",
+      statusLabel: "Automatic",
+    },
+    {
+      kind: "status",
+      key: "chain_watch_drop",
+      description: "Mentions when a qualifying chain has dropped.",
+      label: "Chain watch dropped",
+      statusLabel: "Automatic",
+    },
     chainWatchMissedCheckInAlert
       ? {
           kind: "alert",
@@ -210,6 +231,28 @@ export function DiscordAdminControls({
           },
         }
       : null,
+    {
+      kind: "status",
+      key: "target_travel_tracker",
+      description: "Travel updates for the current war enemy or the manual target faction.",
+      label: "Target travel tracker",
+      statusLabel: isLoadingDiscordTravelTarget
+        ? "Loading"
+        : discordTravelTarget
+          ? discordTravelTarget.target_tracker.enabled ? "On" : "Off"
+          : "Unavailable",
+    },
+    {
+      kind: "status",
+      key: "home_travel_tracker",
+      description: "Travel updates for the home faction.",
+      label: "Home travel tracker",
+      statusLabel: isLoadingDiscordTravelTarget
+        ? "Loading"
+        : discordTravelTarget
+          ? discordTravelTarget.home_tracker.enabled ? "On" : "Off"
+          : "Unavailable",
+    },
     enemyScoutingReportAlert
       ? {
           kind: "alert",
@@ -299,7 +342,7 @@ export function DiscordAdminControls({
                 <strong>{alert.label}</strong>
                 <small>{alert.description}</small>
               </div>
-              {alert.kind === "default" ? (
+              {alert.kind === "status" ? (
                 <AlertRouteStatus label={alert.statusLabel} />
               ) : (
                 <AlertToggle
@@ -310,6 +353,9 @@ export function DiscordAdminControls({
               )}
               <AlertRoute
                 route={discordAlertRoutes[alert.key] ?? null}
+                fallbackRoute={alert.key === DEFAULT_DISCORD_ALERT_ROUTE_KEY
+                  ? null
+                  : discordAlertRoutes[DEFAULT_DISCORD_ALERT_ROUTE_KEY] ?? null}
                 testBusy={isBusy === `Test ${alert.label}`}
                 testDisabled={isBusy !== null || isLoadingDiscordAlertSettings}
                 testLabel={`Test ${alert.label}`}
@@ -498,18 +544,21 @@ function AlertRouteStatus({ label }: { label: string }) {
 
 function AlertRoute({
   route,
+  fallbackRoute,
   testBusy,
   testDisabled,
   testLabel,
   onTest,
 }: {
   route: DiscordAlertRouteSummary | null;
+  fallbackRoute: DiscordAlertRouteSummary | null;
   testBusy: boolean;
   testDisabled: boolean;
   testLabel: string;
   onTest: () => void;
 }) {
-  if (!route) {
+  const effectiveRoute = route ?? fallbackRoute;
+  if (!effectiveRoute) {
     return (
       <div className="admin-alert-route-target is-unset">
         <strong>Unset</strong>
@@ -528,10 +577,11 @@ function AlertRoute({
 
   return (
     <div className="admin-alert-route-target">
-      <strong>{route.thread_id ? `Thread ${route.thread_id}` : `Channel ${route.channel_id}`}</strong>
+      <strong>{effectiveRoute.thread_id ? `Thread ${effectiveRoute.thread_id}` : `Channel ${effectiveRoute.channel_id}`}</strong>
       <small>
-        {route.thread_id ? `Parent ${route.channel_id}` : `Target ${route.target_id}`}
-        {route.updated_at ? ` - ${formatLongDateTime(route.updated_at)}` : ""}
+        {!route ? "Using default fallback - " : ""}
+        {effectiveRoute.thread_id ? `Parent ${effectiveRoute.channel_id}` : `Target ${effectiveRoute.target_id}`}
+        {effectiveRoute.updated_at ? ` - ${formatLongDateTime(effectiveRoute.updated_at)}` : ""}
       </small>
       <button
         type="button"
