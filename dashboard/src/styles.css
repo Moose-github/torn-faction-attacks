@@ -5283,6 +5283,12 @@ h2 {
 
 .heatmap-panel {
   grid-column: 1 / -1;
+  container: activity-heatmaps / inline-size;
+}
+
+.heatmap-panel .panel-toggle-row {
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 
 .revivable-panel {
@@ -5927,7 +5933,7 @@ h2 {
 
 .heatmap-stack {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -5971,16 +5977,23 @@ h2 {
 }
 
 .enemy-player-select-row select {
+  flex: 0 1 280px;
   min-width: min(280px, 100%);
+  max-width: 100%;
 }
 
 .selected-player-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .selected-player-chip {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
 
@@ -5991,39 +6004,58 @@ h2 {
 
 .heatmap-block {
   display: grid;
+  grid-template-rows: 1fr auto;
   align-content: start;
   gap: 12px;
   min-width: 0;
+  width: 100%;
+  max-width: 620px;
+  justify-self: center;
 }
 
 .heatmap-comparison-block {
   grid-column: 1 / -1;
-  justify-self: center;
-  width: 100%;
-  max-width: calc((100% - 16px) / 2);
+}
+
+/* Use the panel's width so the sidebar and browser zoom cannot squeeze the grids. */
+@container activity-heatmaps (min-width: 42rem) {
+  .heatmap-stack:not(.heatmap-stack-single) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .heatmap-comparison-block {
+    max-width: min(620px, calc((100% - 16px) / 2));
+  }
 }
 
 .heatmap-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  overflow-wrap: anywhere;
   color: #334155;
   font-size: 0.88rem;
 }
 
 .heatmap-title-row span {
+  flex-shrink: 0;
+  max-width: 100%;
   color: #64748b;
   font-weight: 700;
 }
 
 .heatmap-day-stack {
   display: grid;
+  min-width: 0;
   gap: 12px;
 }
 
 .heatmap-day {
   display: grid;
+  min-width: 0;
+  container-type: inline-size;
   gap: 8px;
   padding: 12px;
   border: 1px solid rgba(148, 163, 184, 0.2);
@@ -6036,7 +6068,9 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  overflow-wrap: anywhere;
   color: #64748b;
   font-size: 0.72rem;
   font-weight: 800;
@@ -6066,7 +6100,7 @@ h2 {
 
 .heatmap-hour-cell {
   color: rgba(15, 23, 42, 0.2);
-  font-size: clamp(0.56rem, 1.15vw, 0.82rem);
+  font-size: clamp(0.56rem, 2.5cqi, 0.82rem);
   font-weight: 900;
   line-height: 1;
   transition:
@@ -10357,7 +10391,6 @@ tbody tr:not(.attack-row):hover td {
   .dashboard-highlight-grid,
   .xanax-competition-compact,
   .dice-play-layout,
-  .heatmap-stack,
   .revivable-grid,
   .enemy-status-summary-grid,
   .content-grid,
