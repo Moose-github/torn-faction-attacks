@@ -32,6 +32,132 @@ beforeEach(() => {
   });
 });
 
+describe("deleting without message history", () => {
+  const channel = { id: "222222", guild_id: "111111", type: 0, permission_overwrites: [] };
+  const member = { user: { id: "444444" }, roles: ["777777", "888888"] };
+  const guild = { id: "111111", owner_id: "999999", roles: [
+    { id: "111111", permissions: "1024" },
+    { id: "777777", permissions: "36028797018966016" }, // Unrelated high bit + Send Messages.
+    { id: "888888", permissions: "0" },
+  ] };
+  const overwrite = (id: string, allow: string, deny = "0", type = 0) => ({ id, type, allow, deny });
+  function unreadable(overrides: Record<string, unknown> = {}, discordCode = 50013) {
+    const success = vi.mocked(fetchExternal).getMockImplementation()!;
+    const responses: Record<string, unknown> = {
+      "/channels/222222": channel,
+      "/guilds/111111": guild,
+      "/guilds/111111/members/444444": member,
+      ...overrides,
+    };
+    vi.mocked(fetchExternal).mockImplementation((url, init, options) => {
+      const path = String(url).slice(api.length);
+      if (init.method === "GET") {
+        if (path === "/channels/222222/messages/333333") return Promise.resolve(Response.json({ code: discordCode }, { status: 403 }));
+        if (Object.hasOwn(responses, path)) return Promise.resolve(Response.json(responses[path]));
+      }
+      return success(url, init, options);
+    });
+  }
+  it.each([50001, 50013])("allows Discord to enforce ownership when the bot cannot delete others' messages (code %s)", async code => {
+    unreadable({}, code);
+    const response = await deleteDiscordBotMessageFromRequest(request(), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, already_deleted: false });
+    expect(deleteCalls()).toHaveLength(1);
+    expect(fetchExternal).toHaveBeenCalledWith(`${api}/guilds/111111/members/444444`, expect.anything(), expect.anything());
+  });
+  it("keeps preview read-only and reports the missing history permission", async () => {
+    unreadable();
+    expect(await (await previewDiscordBotMessageFromRequest(request(), env)).json()).toMatchObject({ code: "DISCORD_MESSAGE_READ_DENIED" });
+    expect(deleteCalls()).toHaveLength(0);
+    expect(vi.mocked(fetchExternal).mock.calls.some(([url]) => String(url).includes("/guilds/"))).toBe(false);
+  });
+  it("reports Discord's refusal to delete another author's unreadable message", async () => {
+    unreadable(); deletionStatus = 403;
+    const response = await deleteDiscordBotMessageFromRequest(request(), env);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "DISCORD_MESSAGE_DELETE_DENIED", error: expect.stringContaining("must belong to this bot") });
+  });
+  it.each([
+    ["server owner", { "/guilds/111111": { ...guild, owner_id: "444444" } }],
+    ["administrator despite channel denial", { "/guilds/111111": { ...guild, roles: [...guild.roles.slice(0, 2), { id: "888888", permissions: "8" }] },
+      "/channels/222222": { ...channel, permission_overwrites: [overwrite("444444", "0", "8192", 1)] } }],
+    ["guild role", { "/guilds/111111": { ...guild, roles: [...guild.roles.slice(0, 2), { id: "888888", permissions: "8192" }] } }],
+    ["everyone role", { "/guilds/111111": { ...guild, roles: [{ id: "111111", permissions: "8192" }, ...guild.roles.slice(1)] } }],
+    ["everyone overwrite", { "/channels/222222": { ...channel, permission_overwrites: [overwrite("111111", "8192")] } }],
+    ["role allow beats another role deny", { "/channels/222222": { ...channel,
+      permission_overwrites: [overwrite("777777", "8192"), overwrite("888888", "0", "8192")] } }],
+    ["member allow beats role deny", { "/channels/222222": { ...channel,
+      permission_overwrites: [overwrite("777777", "0", "8192"), overwrite("444444", "8192", "0", 1)] } }],
+  ])("blocks unverified deletion with %s permissions", async (_name, overrides) => {
+    unreadable(overrides as Record<string, unknown>);
+    const response = await deleteDiscordBotMessageFromRequest(request(), env);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "DISCORD_OWNERSHIP_UNVERIFIED" });
+    expect(deleteCalls()).toHaveLength(0);
+  });
+  it.each([
+    [overwrite("111111", "0", "8192")],
+    [overwrite("111111", "8192"), overwrite("777777", "0", "8192")],
+    [overwrite("777777", "8192"), overwrite("444444", "0", "8192", 1)],
+  ])("allows deletion when channel overwrites remove Manage Messages: %j", async (...overwrites) => {
+    unreadable({ "/guilds/111111": { ...guild, roles: [{ id: "111111", permissions: "8192" }, ...guild.roles.slice(1)] },
+      "/channels/222222": { ...channel, permission_overwrites: overwrites } });
+    expect((await deleteDiscordBotMessageFromRequest(request(), env)).status).toBe(200);
+    expect(deleteCalls()).toHaveLength(1);
+  });
+  it("ignores overwrites for roles the bot does not have and other members", async () => {
+    unreadable({ "/channels/222222": { ...channel, permission_overwrites: [overwrite("999999", "8192"), overwrite("777777", "8192", "0", 1)] } });
+    expect((await deleteDiscordBotMessageFromRequest(request(), env)).status).toBe(200);
+  });
+  it.each([
+    { "/guilds/111111": null },
+    { "/guilds/111111": { ...guild, id: "999999" } },
+    { "/guilds/111111": { ...guild, owner_id: null } },
+    { "/guilds/111111": { ...guild, roles: guild.roles.slice(1) } },
+    { "/guilds/111111": { ...guild, roles: [...guild.roles.slice(0, 2), { id: "888888", permissions: 0 }] } },
+    { "/guilds/111111/members/444444": { ...member, user: { id: "999999" } } },
+    { "/guilds/111111/members/444444": { ...member, roles: [...member.roles, "123456"] } },
+    { "/channels/222222": { ...channel, permission_overwrites: undefined } },
+    { "/channels/222222": { ...channel, permission_overwrites: [overwrite("777777", "bad")] } },
+    { "/channels/222222": { ...channel, permission_overwrites: [overwrite("777777", "0"), overwrite("777777", "8192")] } },
+    { "/channels/222222": { ...channel, type: 99 } },
+  ])("refuses deletion when permission data is incomplete or inconsistent: %j", async overrides => {
+    unreadable(overrides);
+    expect(await (await deleteDiscordBotMessageFromRequest(request(), env)).json()).toMatchObject({ code: "DISCORD_OWNERSHIP_UNVERIFIED" });
+    expect(deleteCalls()).toHaveLength(0);
+  });
+  it.each([10, 11, 12])("uses parent permissions for thread type %s", async type => {
+    unreadable({ "/channels/222222": { ...channel, type, parent_id: "666666", permission_overwrites: undefined },
+      "/channels/666666": { ...channel, id: "666666" } });
+    expect((await deleteDiscordBotMessageFromRequest(request(), env)).status).toBe(200);
+    expect(fetchExternal).toHaveBeenCalledWith(`${api}/channels/666666`, expect.anything(), expect.anything());
+  });
+  it.each([
+    { ...channel, id: "666666", permission_overwrites: [overwrite("444444", "8192", "0", 1)] },
+    { ...channel, id: "666666", guild_id: "999999" },
+    { ...channel, id: "555555" },
+  ])("does not bypass ownership with unsafe thread parent data: %j", async parent => {
+    unreadable({ "/channels/222222": { ...channel, type: 11, parent_id: "666666" }, "/channels/666666": parent });
+    expect((await deleteDiscordBotMessageFromRequest(request(), env)).status).toBe(403);
+    expect(deleteCalls()).toHaveLength(0);
+  });
+  it.each([401, 403, 429, 500])("does not fall back on HTTP %s permission-check failures", async status => {
+    unreadable();
+    const success = vi.mocked(fetchExternal).getMockImplementation()!;
+    vi.mocked(fetchExternal).mockImplementation((url, init, options) => String(url).endsWith("/guilds/111111")
+      ? Promise.resolve(Response.json({ code: 50013 }, { status })) : success(url, init, options));
+    expect((await deleteDiscordBotMessageFromRequest(request(), env)).status).not.toBe(200);
+    expect(deleteCalls()).toHaveLength(0);
+  });
+  it.each([40333, 0])("does not treat other message lookup errors (%s) as missing history", async code => {
+    unreadable({}, code);
+    expect((await deleteDiscordBotMessageFromRequest(request(), env)).status).toBe(502);
+    expect(deleteCalls()).toHaveLength(0);
+    expect(vi.mocked(fetchExternal).mock.calls.some(([url]) => String(url).includes("/guilds/"))).toBe(false);
+  });
+});
+
 describe("Discord message link parsing", () => {
   it("accepts copied links, including thread links and legacy Discord hosts, preserving string IDs", () => {
     expect(parseDiscordMessageLink(`  ${link}  `)).toMatchObject({ guildId: "111111", channelId: "222222", messageId: "333333", url: link });

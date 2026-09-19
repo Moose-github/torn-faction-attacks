@@ -1,11 +1,12 @@
 import type { DiscordMessageDeleteResult, DiscordMessagePreview } from "../shared/discordMessageAdmin";
 import { readJsonObject } from "./backend/request";
+import { canDeleteOtherDiscordMessages, type DiscordPermissionChannel, type DiscordPermissionGuild, type DiscordPermissionMember } from "./discordMessagePermissions";
 import { fetchExternal } from "./external/http";
 import type { Env } from "./types";
 import { json } from "./utils";
 
 type MessageLink = { guildId: string; channelId: string; messageId: string; url: string };
-type DiscordMessageOperation = "channel_lookup" | "bot_identity" | "message_lookup" | "message_delete";
+type DiscordMessageOperation = "channel_lookup" | "bot_identity" | "message_lookup" | "message_delete" | "guild_permissions" | "bot_membership" | "parent_channel";
 type DiscordFailureDetails = { operation: DiscordMessageOperation; discord_status: number; discord_code: number | null };
 const DISCORD_USER_AGENT = "DiscordBot (https://github.com/Moose-github/torn-faction-attacks, 1.0)";
 type DiscordMessage = {
@@ -50,26 +51,33 @@ async function manageMessage(request: Request, env: Env, remove: boolean): Promi
       throw new MessageAdminError("Choose a message from the faction Discord server.", 403, "WRONG_DISCORD_SERVER");
     }
     // The guild in a pasted link can be changed. Verify the actual channel too.
-    const channel = await discordRequest<{ id: string; guild_id?: string; name?: string }>(env, `/channels/${link.channelId}`, "channel_lookup");
+    const channel = await discordRequest<DiscordPermissionChannel>(env, `/channels/${link.channelId}`, "channel_lookup");
     if (channel.id !== link.channelId || channel.guild_id !== link.guildId) {
       throw new MessageAdminError("This channel is not in the faction Discord server.", 403, "WRONG_DISCORD_SERVER");
     }
     const [bot, message] = await Promise.all([
       discordRequest<{ id: string; bot?: boolean }>(env, "/users/@me", "bot_identity"),
-      discordRequest<DiscordMessage>(env, `/channels/${link.channelId}/messages/${link.messageId}`, "message_lookup"),
+      discordRequest<DiscordMessage>(env, `/channels/${link.channelId}/messages/${link.messageId}`, "message_lookup")
+        .catch(error => {
+          if (remove && error instanceof MessageAdminError && error.code === "DISCORD_MESSAGE_READ_DENIED") return null;
+          throw error;
+        }),
     ]);
-    if (!bot.bot || !bot.id || message.author?.id !== bot.id) {
+    if (!bot.bot || !/^\d{5,32}$/.test(bot.id) || (message && message.author?.id !== bot.id)) {
       throw new MessageAdminError("Only messages sent by this bot can be deleted here.", 403, "MESSAGE_NOT_OWNED");
     }
-    if (message.id !== link.messageId || message.channel_id !== link.channelId) {
+    if (message && (message.id !== link.messageId || message.channel_id !== link.channelId)) {
       throw new MessageAdminError("Discord returned an unexpected message. Please try again.", 502, "INVALID_DISCORD_RESPONSE");
     }
     if (remove) {
-      // Recheck ownership on every delete, independently of the browser preview.
+      // Never trust a prior browser preview. If reading fails, only use DELETE
+      // when the bot's current permissions leave Discord enforcing ownership.
+      if (!message) await requireOwnMessageDeletionOnly(env, link, channel, bot.id);
       const result = await discordRequest<DiscordMessageDeleteResult>(env,
         `/channels/${link.channelId}/messages/${link.messageId}`, "message_delete");
       return json(result);
     }
+    if (!message) throw new Error("Missing preview message");
     return json({
       ok: true, message_link: link.url, message_id: message.id,
       channel_name: channel.name ?? link.channelId,
@@ -86,6 +94,24 @@ async function manageMessage(request: Request, env: Env, remove: boolean): Promi
     }
     return json({ ok: false, error: "Unable to reach Discord. Please try again.", code: "DISCORD_UNAVAILABLE" }, 502);
   }
+}
+
+async function requireOwnMessageDeletionOnly(env: Env, link: MessageLink, channel: DiscordPermissionChannel, botId: string): Promise<void> {
+  const blocked = () => new MessageAdminError(
+    "The bot cannot read this message, and its permissions do not safely restrict deletion to its own messages. Enable Read Message History so ownership can be checked, then try again.",
+    403, "DISCORD_OWNERSHIP_UNVERIFIED");
+  let permissionChannel = channel;
+  if ([10, 11, 12].includes(channel.type ?? -1)) {
+    // Threads inherit channel permissions from their parent, not their category.
+    if (!channel.parent_id || !/^\d{5,32}$/.test(channel.parent_id)) throw blocked();
+    permissionChannel = await discordRequest<DiscordPermissionChannel>(env, `/channels/${channel.parent_id}`, "parent_channel");
+    if (permissionChannel.id !== channel.parent_id || permissionChannel.guild_id !== link.guildId) throw blocked();
+  }
+  const [guild, member] = await Promise.all([
+    discordRequest<DiscordPermissionGuild>(env, `/guilds/${link.guildId}`, "guild_permissions"),
+    discordRequest<DiscordPermissionMember>(env, `/guilds/${link.guildId}/members/${botId}`, "bot_membership"),
+  ]);
+  if (guild?.id !== link.guildId || canDeleteOtherDiscordMessages(guild, member, permissionChannel, botId) !== false) throw blocked();
 }
 
 async function discordRequest<T>(env: Env, path: string, operation: DiscordMessageOperation): Promise<T> {
@@ -115,7 +141,8 @@ async function discordRequest<T>(env: Env, path: string, operation: DiscordMessa
 
 function discordResponseError(operation: DiscordMessageOperation, status: number, discordCode: number | null): MessageAdminError {
   const details = { operation, discord_status: status, discord_code: discordCode };
-  const step = { channel_lookup: "channel lookup", bot_identity: "bot identity check", message_lookup: "message lookup", message_delete: "message deletion" }[operation];
+  const step = { channel_lookup: "channel lookup", bot_identity: "bot identity check", message_lookup: "message lookup", message_delete: "message deletion",
+    guild_permissions: "server permissions check", bot_membership: "bot roles check", parent_channel: "thread parent permissions check" }[operation];
   const reason = `(HTTP ${status}${discordCode === null ? "; no Discord error code" : `; Discord ${discordCode}`})`;
   const failure = (message: string, code: string, responseStatus = status) =>
     new MessageAdminError(`${message} Failed at ${step} ${reason}.`, responseStatus, code, details);
@@ -130,7 +157,9 @@ function discordResponseError(operation: DiscordMessageOperation, status: number
     if (operation === "channel_lookup") return failure(
       "The bot cannot access the linked channel. Check View Channel, channel overrides and private-thread membership.", "DISCORD_CHANNEL_ACCESS_DENIED");
     if (operation === "message_delete") return failure(
-      "Discord denied deletion after the message was verified as this bot's. Check whether its channel or thread access has changed.", "DISCORD_MESSAGE_DELETE_DENIED");
+      "Discord refused to delete this message. It must belong to this bot, and the bot must have access to its channel or thread.", "DISCORD_MESSAGE_DELETE_DENIED");
+    if (operation === "guild_permissions" || operation === "bot_membership" || operation === "parent_channel") return failure(
+      "The bot cannot check its deletion permissions. Enable Read Message History in the linked channel so message ownership can be checked.", "DISCORD_PERMISSION_CHECK_DENIED");
     return failure("Discord denied the bot identity check. Check the deployed bot configuration.", "DISCORD_BOT_IDENTITY_DENIED");
   }
   if (status === 403) return failure(
