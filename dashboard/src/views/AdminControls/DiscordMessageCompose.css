@@ -1,0 +1,16 @@
+.discord-message-compose { display: grid; gap: 14px; grid-column: 1 / -1; min-width: 0; }
+.discord-message-compose p { margin: 0; line-height: 1.5; }
+.discord-message-compose .admin-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.discord-message-compose label { display: grid; gap: 7px; min-width: 0; }
+.discord-message-compose select, .discord-message-compose textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.discord-message-compose textarea { resize: vertical; line-height: 1.5; }
+.discord-message-destination { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
+.discord-message-compose .admin-button { width: auto; justify-self: start; }
+.discord-compose-count { text-align: right; color: var(--text-muted); }
+.discord-message-compose .discord-compose-send { display: inline-flex; align-items: center; gap: 8px; }
+.discord-compose-error { color: #b42332; }
+.discord-compose-success { color: #14723f; }
+.discord-compose-success a { color: inherit; text-decoration: underline; }
+:root[data-theme="dark"] .discord-compose-error { color: #fda4af; }
+:root[data-theme="dark"] .discord-compose-success { color: #86efac; }
+@media (max-width: 600px) { .discord-message-destination { grid-template-columns: minmax(0, 1fr); } }

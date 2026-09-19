@@ -11,3 +11,11 @@ export type DiscordMessagePreview = {
 };
 
 export type DiscordMessageDeleteResult = { ok: true; already_deleted: boolean };
+
+export const DISCORD_CUSTOM_MESSAGE_MAX_LENGTH = 1900;
+export type DiscordMessageSendResult = {
+  ok: true;
+  channel_id: string;
+  message_id: string;
+  message_link: string;
+};

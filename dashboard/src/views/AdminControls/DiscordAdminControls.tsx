@@ -31,6 +31,7 @@ import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime } from "../../utils/format";
 import { DISCORD_DELIVERY_CONTROLS, type DiscordDeliveryAlertKey } from "../../../../shared/discordDeliverySettings";
 import { DiscordMessageDelete } from "./DiscordMessageDelete";
+import { DiscordMessageCompose } from "./DiscordMessageCompose";
 import { DiscordAlertMentionEditor, useDiscordMentionSettings } from "./DiscordAlertMentionEditor";
 import { DiscordRouteActions } from "./DiscordRouteActions";
 
@@ -518,6 +519,7 @@ export function DiscordAdminControls({
           />
         </div>
       </section>
+      <DiscordMessageCompose disabled={isBusy !== null} />
     </>
   );
 }

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireAdmin } from "../auth";
+import { sendAdminDiscordMessageFromRequest } from "../discordMessageSend";
+vi.mock("../discordMessageSend", () => ({ sendAdminDiscordMessageFromRequest: vi.fn() }));
 import {
   getAdminDataHealth,
   updateDataHealthSettingsFromRequest,
@@ -126,6 +128,26 @@ vi.mock("../xanaxCompetition", () => ({
 }));
 
 describe("admin routes", () => {
+  it.each([401, 403])("requires admin access before sending Discord messages (%i)", async status => {
+    vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, status));
+    const result = await routeAdminApi(routeContext("https://worker.test/api/admin/discord-messages/send", { method: "POST" }));
+    expect(result?.status).toBe(status);
+    expect(sendAdminDiscordMessageFromRequest).not.toHaveBeenCalled();
+    expect(upsertSyncTimestamp).not.toHaveBeenCalled();
+  });
+  it("routes custom messages through the admin cooldown", async () => {
+    vi.mocked(sendAdminDiscordMessageFromRequest).mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const context = routeContext("https://worker.test/api/admin/discord-messages/send", { method: "POST" });
+    expect((await routeAdminApi(context))?.status).toBe(200);
+    expect(sendAdminDiscordMessageFromRequest).toHaveBeenCalledWith(context.request, context.env);
+    expect(readSyncTimestamp).toHaveBeenCalledWith(context.env, "discord_custom_message_send");
+  });
+  it("does not send a custom message while the cooldown is active", async () => {
+    vi.mocked(readSyncTimestamp).mockResolvedValueOnce(Math.floor(Date.now() / 1000));
+    const result = await routeAdminApi(routeContext("https://worker.test/api/admin/discord-messages/send", { method: "POST" }));
+    expect(result?.status).toBe(429);
+    expect(sendAdminDiscordMessageFromRequest).not.toHaveBeenCalled();
+  });
   it.each(["GET", "POST"])("requires admin access for %s Discord route editing", async method => {
     vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
     const result = await routeAdminApi(routeContext("https://worker.test/api/admin/discord-alerts/routes", { method }));

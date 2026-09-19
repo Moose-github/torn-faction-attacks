@@ -18,7 +18,7 @@ const isChannel = (value: unknown): value is Channel => !!value && typeof value 
   && validId((value as Channel).id) && typeof (value as Channel).name === "string"
   && typeof (value as Channel).type === "number";
 
-class RouteError extends Error {
+export class RouteError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
 
@@ -83,22 +83,8 @@ export async function updateAdminDiscordRouteFromRequest(request: Request, env: 
     if (body.target_id === null) {
       await unsetDiscordNotificationChannel(env, guildId, alert.key);
     } else {
-      if (!validId(body.target_id)) throw new RouteError("Choose a Discord channel or use the default fallback.", 400);
-      const channel = await readDiscord(env, `/channels/${body.target_id}`);
-      if (!isChannel(channel) || channel.id !== body.target_id || channel.guild_id !== guildId) {
-        throw new RouteError("Choose a channel from the faction Discord server.", 400);
-      }
+      const { channel } = await requireDiscordDestination(env, body.target_id);
       const isThread = threadTypes.has(channel.type);
-      if (!channelTypes.has(channel.type) && !isThread) throw new RouteError("Choose a text channel, announcement channel or active thread.", 400);
-      if (isThread) {
-        if (!validId(channel.parent_id) || channel.thread_metadata?.archived || channel.thread_metadata?.locked) {
-          throw new RouteError("Choose an active, unlocked Discord thread.", 400);
-        }
-        const parent = await readDiscord(env, `/channels/${channel.parent_id}`);
-        if (!isChannel(parent) || parent.id !== channel.parent_id || parent.guild_id !== guildId) {
-          throw new RouteError("The thread's parent must belong to the faction Discord server.", 400);
-        }
-      }
       await setDiscordNotificationChannel(env, {
         guildId, alertKey: alert.key, channelId: isThread ? channel.parent_id! : channel.id,
         threadId: isThread ? channel.id : null, updatedByDiscordId: null,
@@ -106,4 +92,25 @@ export async function updateAdminDiscordRouteFromRequest(request: Request, env: 
     }
     return await getAdminDiscordAlertSettings(env);
   } catch (error) { return routeErrorResponse(error); }
+}
+
+export async function requireDiscordDestination(env: Env, targetId: unknown): Promise<{ guildId: string; channel: Channel }> {
+  if (!validId(targetId)) throw new RouteError("Choose a Discord channel or active thread.", 400);
+  const guildId = configuredGuild(env);
+  const channel = await readDiscord(env, `/channels/${targetId}`);
+  if (!isChannel(channel) || channel.id !== targetId || channel.guild_id !== guildId) {
+    throw new RouteError("Choose a channel from the faction Discord server.", 400);
+  }
+  const isThread = threadTypes.has(channel.type);
+  if (!channelTypes.has(channel.type) && !isThread) throw new RouteError("Choose a text channel, announcement channel or active thread.", 400);
+  if (isThread) {
+    if (!validId(channel.parent_id) || channel.thread_metadata?.archived || channel.thread_metadata?.locked) {
+      throw new RouteError("Choose an active, unlocked Discord thread.", 400);
+    }
+    const parent = await readDiscord(env, `/channels/${channel.parent_id}`);
+    if (!isChannel(parent) || parent.id !== channel.parent_id || parent.guild_id !== guildId) {
+      throw new RouteError("The thread's parent must belong to the faction Discord server.", 400);
+    }
+  }
+  return { guildId, channel };
 }

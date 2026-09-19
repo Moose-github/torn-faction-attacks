@@ -1,4 +1,5 @@
 import { positiveIntegerOrNull, readJsonObject } from "../backend/request";
+import { sendAdminDiscordMessageFromRequest } from "../discordMessageSend";
 import { grantAdminAccess, listAdminUsers, readAuthenticatedUserId } from "../auth";
 import { bumpGlobalWarCacheVersion, bumpWarCacheVersionById } from "../cacheVersions";
 import {
@@ -298,6 +299,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/discord-messages/preview", "POST")) {
     return withAdmin(routeContext, () => previewDiscordBotMessageFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-messages/send", "POST")) {
+    return withAdmin(routeContext, async () => {
+      const cooldownError = await requireActionCooldown(env, "discord_custom_message_send", 10);
+      if (cooldownError) return cooldownError;
+      return sendAdminDiscordMessageFromRequest(request, env);
+    });
   }
 
   if (matchesExactRoute(url, request, "/api/admin/discord-messages/delete", "POST")) {

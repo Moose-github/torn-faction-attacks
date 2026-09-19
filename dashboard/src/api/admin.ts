@@ -1,6 +1,6 @@
 import { API_BASE_URL, authHeaders, deleteJson, getJson, postJson } from "./client";
 import { queryString } from "./query";
-import type { DiscordMessageDeleteResult, DiscordMessagePreview } from "../../../shared/discordMessageAdmin";
+import type { DiscordMessageDeleteResult, DiscordMessagePreview, DiscordMessageSendResult } from "../../../shared/discordMessageAdmin";
 import type { AdminDiscordAlertMentionsResponse, DiscordAlertMentionSetting, UpdateDiscordAlertMentionsResponse } from "../../../shared/discordAlertMentions";
 import type { DiscordRouteDestinationsResponse } from "../../../shared/discordRouteAdmin";
 
@@ -19,6 +19,10 @@ export function previewDiscordBotMessage(messageLink: string): Promise<DiscordMe
 
 export function deleteDiscordBotMessage(messageLink: string): Promise<DiscordMessageDeleteResult> {
   return postJson("/api/admin/discord-messages/delete", { message_link: messageLink });
+}
+
+export function sendAdminDiscordMessage(channelId: string, message: string): Promise<DiscordMessageSendResult> {
+  return postJson("/api/admin/discord-messages/send", { channel_id: channelId, message });
 }
 
 export type DiscordTravelTrackerTarget = {
