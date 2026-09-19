@@ -1,6 +1,7 @@
 import { readJsonObject } from "./backend/request";
 import { DISCORD_DELIVERY_CONTROLS } from "../shared/discordDeliverySettings";
 import { createDiscordBotMessage } from "./discord";
+import { readDiscordChannelNames } from "./discordChannelNames";
 import {
   DISCORD_ALERT_CHANNEL_ROUTES,
   DISCORD_ALERT_KEYS,
@@ -43,7 +44,9 @@ export type DiscordAlertSetting = {
 export type DiscordAlertRouteSummary = {
   alert_key: DiscordAlertRouteKey;
   channel_id: string;
+  channel_name: string | null;
   thread_id: string | null;
+  thread_name: string | null;
   target_id: string;
   updated_by_discord_id: string | null;
   updated_at: number;
@@ -465,23 +468,33 @@ async function readDiscordAlertRouteSummaries(
     const routes = await listDiscordNotificationChannels(env, guildId);
     routes.forEach((route) => routesByAlertKey.set(route.alertKey, route));
   }
+  const names = guildId
+    ? await readDiscordChannelNames(env, guildId, Array.from(routesByAlertKey.values()).flatMap((route) =>
+      route.threadId ? [route.channelId, route.threadId] : [route.channelId]
+    ))
+    : new Map<string, string>();
 
   return Object.fromEntries(
     DISCORD_ALERT_CHANNEL_ROUTES.map((alert) => {
       const route = routesByAlertKey.get(alert.key);
       return [
         alert.key,
-        route ? discordAlertRouteSummary(route) : null,
+        route ? discordAlertRouteSummary(route, names) : null,
       ];
     }),
   ) as Record<DiscordAlertRouteKey, DiscordAlertRouteSummary | null>;
 }
 
-function discordAlertRouteSummary(route: DiscordNotificationChannel): DiscordAlertRouteSummary {
+function discordAlertRouteSummary(
+  route: DiscordNotificationChannel,
+  names: ReadonlyMap<string, string> = new Map(),
+): DiscordAlertRouteSummary {
   return {
     alert_key: route.alertKey,
     channel_id: route.channelId,
+    channel_name: names.get(route.channelId) ?? null,
     thread_id: route.threadId,
+    thread_name: route.threadId ? names.get(route.threadId) ?? null : null,
     target_id: discordNotificationChannelTargetId(route),
     updated_by_discord_id: route.updatedByDiscordId,
     updated_at: route.updatedAt,

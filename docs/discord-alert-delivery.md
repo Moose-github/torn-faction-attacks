@@ -24,6 +24,12 @@ assignment exists. The **Test** button is an explicit delivery test and can send
 test message even when automatic messages are off. Existing messages stay in
 Discord when muted; use the message deletion control to remove a message.
 
+The route table resolves current channel and thread names from Discord when the
+settings load. IDs remain available on hover and are displayed as a fallback if
+Discord cannot resolve a name. Shared routes reuse the same name lookup; threads
+are fetched separately because Discord's [guild channel list](https://docs.discord.com/developers/resources/guild#get-guild-channels)
+does not include threads. No database migration is needed for name display.
+
 The five new Chain Watch/travel delivery preferences default to on and are stored
 in the existing `alert_settings` table when changed. No new migration is needed
 for these delivery settings. Deploy both the Worker and dashboard for the new

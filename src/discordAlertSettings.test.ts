@@ -10,6 +10,7 @@ import {
 } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { DISCORD_DELIVERY_CONTROLS } from "../shared/discordDeliverySettings";
+import { fetchExternal } from "./external/http";
 import {
   clearSyncLatch,
   clearSyncLatchesByPrefix,
@@ -24,6 +25,7 @@ vi.mock("./syncLatches", () => ({
 vi.mock("./discord", () => ({
   createDiscordBotMessage: vi.fn(),
 }));
+vi.mock("./external/http", () => ({ fetchExternal: vi.fn() }));
 
 describe("Discord alert settings", () => {
   let db: TestD1Database;
@@ -151,6 +153,77 @@ describe("Discord alert settings", () => {
         configurable: true,
       },
     ]);
+  });
+
+  function configureNamedRoutes() {
+    env.DISCORD_GUILD_ID = "111111";
+    env.DISCORD_BOT_TOKEN = "fixture-token";
+    const route = {
+      ...db.routes.get("enemy_push")!, guild_id: "111111", channel_id: "222222", thread_id: "333333",
+    };
+    db.routes.set("enemy_push", route);
+    db.routes.set("chain_watch_warning", { ...route, alert_key: "chain_watch_warning" });
+    db.routes.set("default", { ...route, alert_key: "default", thread_id: null });
+  }
+
+  it("resolves default, assigned channel and thread names without repeating shared lookups", async () => {
+    configureNamedRoutes();
+    vi.mocked(fetchExternal).mockImplementation(async (url) => Response.json(
+      String(url).endsWith("/guilds/111111/channels")
+        ? [{ id: "222222", name: "war-alerts" }]
+        : { id: "333333", guild_id: "111111", name: "Upcoming war", thread_metadata: { archived: true } },
+    ));
+
+    const response = await getAdminDiscordAlertSettings(env);
+    expect(await response.json()).toMatchObject({
+      routes: {
+        default: { channel_id: "222222", channel_name: "war-alerts", thread_id: null, thread_name: null },
+        enemy_push: { channel_name: "war-alerts", thread_id: "333333", thread_name: "Upcoming war", target_id: "333333" },
+        chain_watch_warning: { channel_name: "war-alerts", thread_name: "Upcoming war" },
+      },
+    });
+    expect(fetchExternal).toHaveBeenCalledTimes(2);
+    expect(fetchExternal).toHaveBeenCalledWith("https://discord.com/api/v10/channels/333333",
+      { headers: { Authorization: "Bot fixture-token" } }, { timeoutMs: 5000 });
+    expect(createDiscordBotMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 429, 500])("keeps IDs and saves mute settings when channel lookup returns %s", async (status) => {
+    configureNamedRoutes();
+    vi.mocked(fetchExternal).mockResolvedValue(new Response(null, { status }));
+    const response = await updateAdminDiscordAlertSettingsFromRequest(
+      jsonRequest({ alert_key: "chain_watch_warning", enabled: false }), env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      routes: { enemy_push: { channel_id: "222222", channel_name: null, thread_id: "333333", thread_name: null } },
+    });
+    expect(db.settings.get("chain_watch_warning")?.enabled).toBe(0);
+    expect(fetchExternal).toHaveBeenCalledOnce();
+  });
+
+  it("preserves resolved parent names when a thread is inaccessible or belongs to another guild", async () => {
+    configureNamedRoutes();
+    vi.mocked(fetchExternal).mockImplementation(async (url) => Response.json(
+      String(url).endsWith("/guilds/111111/channels")
+        ? [{ id: "222222", name: "war-alerts" }]
+        : { id: "333333", guild_id: "999999", name: "Wrong server" },
+    ));
+    const response = await getAdminDiscordAlertSettings(env);
+    expect(await response.json()).toMatchObject({
+      routes: { enemy_push: { channel_name: "war-alerts", thread_id: "333333", thread_name: null } },
+    });
+  });
+
+  it("keeps the settings available when Discord is unreachable", async () => {
+    configureNamedRoutes();
+    vi.mocked(fetchExternal).mockRejectedValue(new Error("request timed out"));
+    const response = await getAdminDiscordAlertSettings(env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      routes: { default: { channel_id: "222222", channel_name: null } },
+    });
   });
 
   it("updates chain watch alert settings", async () => {

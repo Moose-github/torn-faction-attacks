@@ -953,8 +953,10 @@ export type DiscordAlertRouteSummary = {
   alert_key: string;
 
   channel_id: string;
+  channel_name?: string | null;
 
   thread_id: string | null;
+  thread_name?: string | null;
 
   target_id: string;
 
