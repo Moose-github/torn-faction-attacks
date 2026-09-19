@@ -33,7 +33,7 @@ describe("Discord travel formatting", () => {
     })]);
 
     expect(lines.at(-1)).toBe(
-      "[rubenmatos](https://www.torn.com/profiles.php?XID=1) | United Arab Emirates -> Torn | Unknown | 3h 10m | Unknown | Airstrip",
+      "[rubenmatos](https://www.torn.com/profiles.php?XID=1) | UAE -> Torn | Unknown | 3h 10m | Unknown | Airstrip",
     );
   });
 

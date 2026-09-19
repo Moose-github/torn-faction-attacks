@@ -496,7 +496,7 @@ describe("Discord interactions", () => {
     expect(response.data?.embeds?.[0]?.description).toContain("Torn -> Mexico");
     expect(response.data?.embeds?.[0]?.description).toContain("<t:1799999820:t> | 13m | <t:1800000600:t> (<t:1800000600:R>) | WLT benefit");
     expect(response.data?.embeds?.[0]?.description).toContain("**Currently abroad (1)**");
-    expect(response.data?.embeds?.[0]?.description).toContain("**Member** | **Location** | **Outbound type** | **Minimum return**");
+    expect(response.data?.embeds?.[0]?.description).toContain("**Member** | **Location** | **Outbound type** | **Travel time**");
     expect(response.data?.embeds?.[0]?.description).toContain("[Abroad](https://www.torn.com/profiles.php?XID=4) | Canada | Business Class | 12m");
   });
 

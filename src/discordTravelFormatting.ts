@@ -1,4 +1,12 @@
-import { buildTravelDisplay, parseStoredTravelTripType, parseTravelDescription, travelDurationRangeSeconds } from "./enemyTravel";
+import {
+  buildTravelDisplay,
+  initialTravelTripType,
+  parseAbroadLocation,
+  parseStoredTravelTripType,
+  parseTravelDescription,
+  planeImageTypeForTripType,
+  travelDurationRangeSeconds,
+} from "./enemyTravel";
 
 export type DiscordTravelRow = {
   member_id: number;
@@ -74,12 +82,12 @@ function abroadSection(abroad: DiscordTravelRow[]): string[] {
 
   return [
     `**Currently abroad (${abroad.length})**`,
-    "**Member** | **Location** | **Outbound type** | **Minimum return**",
+    "**Member** | **Location** | **Outbound type** | **Travel time**",
     ...abroad.map((member) => [
       profileLink(member),
       abroadLocation(member),
       abroadTravelType(member),
-      minimumReturnTime(member),
+      abroadTravelTime(member),
     ].join(" | ")),
   ];
 }
@@ -90,10 +98,10 @@ function profileLink(member: DiscordTravelRow): string {
 
 function travelRoute(member: DiscordTravelRow): string {
   if (member.travel_origin && member.travel_destination) {
-    return `${member.travel_origin} -> ${member.travel_destination}`;
+    return abbreviateLocation(`${member.travel_origin} -> ${member.travel_destination}`);
   }
 
-  return member.status_description ?? "Route unknown";
+  return abbreviateLocation(member.status_description ?? "Route unknown");
 }
 
 function departureWindow(member: DiscordTravelRow): string {
@@ -167,7 +175,7 @@ function travelType(member: DiscordTravelRow): string {
 
 function abroadLocation(member: DiscordTravelRow): string {
   if (member.travel_trip_destination) {
-    return member.travel_trip_destination;
+    return abbreviateLocation(member.travel_trip_destination);
   }
 
   const description = member.status_description?.trim();
@@ -179,17 +187,37 @@ function abroadLocation(member: DiscordTravelRow): string {
     /^In (.+)$/i.exec(description) ??
     /^Abroad in (.+)$/i.exec(description) ??
     /^Currently in (.+)$/i.exec(description);
-  return match?.[1]?.trim() || description;
+  return abbreviateLocation(match?.[1]?.trim() || description);
+}
+
+function abbreviateLocation(value: string): string {
+  return value
+    .replace(/\bUnited Arab Emirates\b/gi, "UAE")
+    .replace(/\bSouth Africa\b/gi, "SA");
 }
 
 function abroadTravelType(member: DiscordTravelRow): string {
-  const display = buildTravelDisplay(member);
-  return display.return_travel_type ?? member.travel_trip_type ?? "Unknown";
+  const type = parseStoredTravelTripType(member.travel_trip_type) ?? initialTravelTripType(member.plane_image_type);
+  return type === "Business Class/Standard" ? "Unknown" : type ?? "Unknown";
 }
 
-function minimumReturnTime(member: DiscordTravelRow): string {
-  const seconds = buildTravelDisplay(member).return_travel_time_seconds;
-  return seconds ? durationLabel(seconds) : "Unknown";
+function abroadTravelTime(member: DiscordTravelRow): string {
+  const location = parseAbroadLocation(member.travel_trip_destination ?? member.status_description);
+  if (!location) {
+    return "Unknown";
+  }
+
+  const type = parseStoredTravelTripType(member.travel_trip_type) ?? initialTravelTripType(member.plane_image_type);
+  // Business Class and Standard bound all supported travel types when none is known.
+  const plane = type ? planeImageTypeForTripType(type) : "airliner";
+  const duration = travelDurationRangeSeconds(location, plane, type);
+  if (!duration) {
+    return "Unknown";
+  }
+
+  return duration.shortest === duration.longest
+    ? durationLabel(duration.shortest)
+    : `${durationLabel(duration.shortest)} - ${durationLabel(duration.longest)}`;
 }
 
 function durationLabel(seconds: number): string {
