@@ -928,6 +928,10 @@ export type ChainWatchAlertSetting = {
 
 };
 
+export type ChainWatchMissedCheckInAlertSetting = Omit<ChainWatchAlertSetting, "key"> & {
+  key: "chain_watch_missed_check_in";
+};
+
 export type RetaliationBoardAlertSetting = {
 
   key: "retaliation_board";
@@ -963,6 +967,8 @@ export type AdminDiscordAlertSettingsResponse = {
   ok: boolean;
 
   chain_watch_alert: ChainWatchAlertSetting;
+
+  chain_watch_missed_check_in_alert: ChainWatchMissedCheckInAlertSetting;
 
   retaliation_board_alert: RetaliationBoardAlertSetting;
 

@@ -59,6 +59,10 @@ export type ChainWatchAlertSetting = DiscordAlertSetting & {
   key: typeof DISCORD_ALERT_KEYS.chainWatch;
 };
 
+export type ChainWatchMissedCheckInAlertSetting = DiscordAlertSetting & {
+  key: typeof DISCORD_ALERT_KEYS.chainWatchMissedCheckIn;
+};
+
 export type EnemyPushAlertSetting = DiscordAlertSetting & {
   key: typeof DISCORD_ALERT_KEYS.enemyPush;
 };
@@ -93,6 +97,12 @@ type AlertSettingRow = {
 };
 
 const ALERT_SETTING_CONFIGS = [
+  {
+    key: DISCORD_ALERT_KEYS.chainWatchMissedCheckIn,
+    name: "Chain watch missed check-in",
+    defaultEnabled: true,
+    configurable: true,
+  },
   {
     key: DISCORD_ALERT_KEYS.chainWatch,
     name: "Chain watch alerts",
@@ -148,6 +158,7 @@ export async function getAdminDiscordAlertSettings(env: Env): Promise<Response> 
   return json({
     ok: true,
     chain_watch_alert: await readChainWatchAlertSetting(env),
+    chain_watch_missed_check_in_alert: await readChainWatchMissedCheckInAlertSetting(env),
     retaliation_board_alert: await readRetaliationBoardAlertSetting(env),
     enemy_push_alert: await readEnemyPushAlertSetting(env),
     enemy_scouting_report_alert: await readEnemyScoutingReportAlertSetting(env),
@@ -232,6 +243,11 @@ export async function testAdminDiscordAlertRouteFromRequest(request: Request, en
 
 export async function updateAdminDiscordAlertSettingsFromRequest(request: Request, env: Env): Promise<Response> {
   const body = await readJsonObject(request);
+  if (body.alert_key === DISCORD_ALERT_KEYS.chainWatchMissedCheckIn) {
+    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.chainWatchMissedCheckIn, body.enabled);
+    if (error) return error;
+    return getAdminDiscordAlertSettings(env);
+  }
   if (body.alert_key === DISCORD_ALERT_KEYS.chainWatch) {
     const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.chainWatch, body.enabled);
     if (error) return error;
@@ -283,6 +299,10 @@ export async function updateAdminDiscordAlertSettingsFromRequest(request: Reques
 
 export async function readChainWatchAlertSetting(env: Env): Promise<ChainWatchAlertSetting> {
   return readConfiguredAlertSetting(env, alertConfig(DISCORD_ALERT_KEYS.chainWatch)) as Promise<ChainWatchAlertSetting>;
+}
+
+export async function readChainWatchMissedCheckInAlertSetting(env: Env): Promise<ChainWatchMissedCheckInAlertSetting> {
+  return readConfiguredAlertSetting(env, alertConfig(DISCORD_ALERT_KEYS.chainWatchMissedCheckIn)) as Promise<ChainWatchMissedCheckInAlertSetting>;
 }
 
 export async function readEnemyPushAlertSetting(env: Env): Promise<EnemyPushAlertSetting> {

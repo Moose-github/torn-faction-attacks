@@ -46,6 +46,7 @@ import {
   relinkAttacks,
   runIngestion,
   ChainWatchAlertSetting,
+  ChainWatchMissedCheckInAlertSetting,
   EnemyScoutingReportAlertSetting,
   RetaliationBoardAlertSetting,
   ShopliftingAlertSetting,
@@ -151,6 +152,7 @@ export function AdminControls() {
     React.useState<AdminXanaxCompetitionResponse | null>(null);
   const [isLoadingXanaxCompetition, setIsLoadingXanaxCompetition] = React.useState(false);
   const [chainWatchAlert, setChainWatchAlert] = React.useState<ChainWatchAlertSetting | null>(null);
+  const [chainWatchMissedCheckInAlert, setChainWatchMissedCheckInAlert] = React.useState<ChainWatchMissedCheckInAlertSetting | null>(null);
   const [retaliationBoardAlert, setRetaliationBoardAlert] =
     React.useState<RetaliationBoardAlertSetting | null>(null);
   const [shopliftingAlerts, setShopliftingAlerts] = React.useState<ShopliftingAlertSetting[]>([]);
@@ -514,6 +516,7 @@ export function AdminControls() {
 
   function applyDiscordAlertSettingsResponse(response: AdminDiscordAlertSettingsResponse) {
     setChainWatchAlert(response.chain_watch_alert);
+    setChainWatchMissedCheckInAlert(response.chain_watch_missed_check_in_alert ?? null);
     setRetaliationBoardAlert(response.retaliation_board_alert);
     setShopliftingAlerts(response.alerts);
     setEnemyPushAlert(response.enemy_push_alert);
@@ -530,6 +533,7 @@ export function AdminControls() {
       applyDiscordAlertSettingsResponse(response);
     } catch {
       setChainWatchAlert(null);
+      setChainWatchMissedCheckInAlert(null);
       setRetaliationBoardAlert(null);
       setShopliftingAlerts([]);
       setEnemyPushAlert(null);
@@ -744,6 +748,7 @@ export function AdminControls() {
             discordTravelTarget={discordTravelTarget}
             isLoadingDiscordTravelTarget={isLoadingDiscordTravelTarget}
             chainWatchAlert={chainWatchAlert}
+            chainWatchMissedCheckInAlert={chainWatchMissedCheckInAlert}
             retaliationBoardAlert={retaliationBoardAlert}
             shopliftingAlerts={shopliftingAlerts}
             enemyPushAlert={enemyPushAlert}

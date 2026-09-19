@@ -2,6 +2,7 @@ import React from "react";
 import {
   AdminDiscordAlertSettingsResponse,
   ChainWatchAlertSetting,
+  ChainWatchMissedCheckInAlertSetting,
   clearDiscordTravelTrackerTarget,
   DiscordAlertRouteSummary,
   DiscordTravelTrackerTargetResponse,
@@ -13,6 +14,7 @@ import {
   syncDiscordTravelTracker,
   testAdminDiscordAlertRoute,
   updateAdminChainWatchDiscordAlert,
+  updateAdminChainWatchMissedCheckInDiscordAlert,
   updateAdminEnemyPushDiscordAlert,
   updateAdminEnemyScoutingReportDiscordAlert,
   updateAdminRetaliationBoardDiscordAlert,
@@ -59,6 +61,7 @@ type DiscordAdminControlsProps = {
   discordTravelTarget: DiscordTravelTrackerTargetResponse | null;
   isLoadingDiscordTravelTarget: boolean;
   chainWatchAlert: ChainWatchAlertSetting | null;
+  chainWatchMissedCheckInAlert: ChainWatchMissedCheckInAlertSetting | null;
   retaliationBoardAlert: RetaliationBoardAlertSetting | null;
   shopliftingAlerts: ShopliftingAlertSetting[];
   enemyPushAlert: EnemyPushAlertSetting | null;
@@ -79,6 +82,7 @@ export function DiscordAdminControls({
   discordTravelTarget,
   isLoadingDiscordTravelTarget,
   chainWatchAlert,
+  chainWatchMissedCheckInAlert,
   retaliationBoardAlert,
   shopliftingAlerts,
   enemyPushAlert,
@@ -94,10 +98,11 @@ export function DiscordAdminControls({
 }: DiscordAdminControlsProps) {
   const discordAlertStatus = isLoadingDiscordAlertSettings
     ? "Loading"
-    : shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert || retaliationBoardAlert
+    : shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert || chainWatchMissedCheckInAlert || retaliationBoardAlert
       || enemyScoutingReportAlert || xanaxCompetitionAlert || termedWarAutoEndAlert
       ? `${[
           ...(chainWatchAlert ? [chainWatchAlert.enabled] : []),
+          ...(chainWatchMissedCheckInAlert ? [chainWatchMissedCheckInAlert.enabled] : []),
           ...(retaliationBoardAlert ? [retaliationBoardAlert.enabled] : []),
           ...shopliftingAlerts.map((alert) => alert.enabled),
           ...(enemyPushAlert ? [enemyPushAlert.enabled] : []),
@@ -108,6 +113,7 @@ export function DiscordAdminControls({
           shopliftingAlerts.length +
           (enemyPushAlert ? 1 : 0) +
           (chainWatchAlert ? 1 : 0) +
+          (chainWatchMissedCheckInAlert ? 1 : 0) +
           (retaliationBoardAlert ? 1 : 0) +
           (enemyScoutingReportAlert ? 1 : 0) +
           (xanaxCompetitionAlert ? 1 : 0) +
@@ -142,6 +148,24 @@ export function DiscordAdminControls({
           onChange: (enabled: boolean) => {
             runAdminAction("Update chain watch alert", () =>
               updateAdminChainWatchDiscordAlert({ enabled }).then((response) => {
+                applyDiscordAlertSettingsResponse(response);
+                return response;
+              }),
+            );
+          },
+        }
+      : null,
+    chainWatchMissedCheckInAlert
+      ? {
+          kind: "alert",
+          key: chainWatchMissedCheckInAlert.key,
+          checked: chainWatchMissedCheckInAlert.enabled,
+          configurable: chainWatchMissedCheckInAlert.configurable,
+          description: "Controls alerts for scheduled watchers who have not checked in before their shift.",
+          label: chainWatchMissedCheckInAlert.name,
+          onChange: (enabled: boolean) => {
+            runAdminAction("Update chain watch missed check-in alert", () =>
+              updateAdminChainWatchMissedCheckInDiscordAlert({ enabled }).then((response) => {
                 applyDiscordAlertSettingsResponse(response);
                 return response;
               }),

@@ -285,6 +285,10 @@ export async function updateAdminChainWatchDiscordAlert(payload: {
 
 }
 
+export async function updateAdminChainWatchMissedCheckInDiscordAlert(payload: { enabled: boolean }): Promise<AdminDiscordAlertSettingsResponse> {
+  return updateAdminDiscordAlert("chain_watch_missed_check_in", payload.enabled);
+}
+
 export async function updateAdminRetaliationBoardDiscordAlert(payload: {
 
   enabled: boolean;

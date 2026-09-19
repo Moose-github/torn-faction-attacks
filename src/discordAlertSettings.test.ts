@@ -61,6 +61,12 @@ describe("Discord alert settings", () => {
         enabled: false,
         configurable: true,
       },
+      chain_watch_missed_check_in_alert: {
+        key: "chain_watch_missed_check_in",
+        name: "Chain watch missed check-in",
+        enabled: true,
+        configurable: true,
+      },
       retaliation_board_alert: {
         key: "retaliation_board",
         name: "Retaliation board",
@@ -107,6 +113,7 @@ describe("Discord alert settings", () => {
       ],
       routes: {
         chain_watch: null,
+        chain_watch_missed_check_in: null,
         enemy_push: {
           alert_key: "enemy_push",
           channel_id: "channel-1",
@@ -123,6 +130,7 @@ describe("Discord alert settings", () => {
     db.settings.clear();
 
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.chainWatch)).resolves.toBe(true);
+    await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.chainWatchMissedCheckIn)).resolves.toBe(true);
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.retaliationBoard)).resolves.toBe(true);
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.enemyPush)).resolves.toBe(false);
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.enemyScoutingReport)).resolves.toBe(true);
@@ -153,6 +161,10 @@ describe("Discord alert settings", () => {
 
   it("updates Discord-only report and reminder alert settings", async () => {
     await updateAdminDiscordAlertSettingsFromRequest(
+      jsonRequest({ alert_key: DISCORD_ALERT_KEYS.chainWatchMissedCheckIn, enabled: false }),
+      env,
+    );
+    await updateAdminDiscordAlertSettingsFromRequest(
       jsonRequest({ alert_key: DISCORD_ALERT_KEYS.enemyScoutingReport, enabled: false }),
       env,
     );
@@ -166,6 +178,7 @@ describe("Discord alert settings", () => {
     );
 
     expect(db.settings.get(DISCORD_ALERT_KEYS.enemyScoutingReport)).toMatchObject({ enabled: 0, configurable: 1 });
+    expect(db.settings.get(DISCORD_ALERT_KEYS.chainWatchMissedCheckIn)).toMatchObject({ enabled: 0, configurable: 1 });
     expect(db.settings.get(DISCORD_ALERT_KEYS.xanaxCompetition)).toMatchObject({ enabled: 0, configurable: 1 });
     expect(db.settings.get(DISCORD_ALERT_KEYS.termedWarAutoEnd)).toMatchObject({ enabled: 0, configurable: 1 });
   });

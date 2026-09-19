@@ -25,20 +25,21 @@ describe("Discord member alert subscriptions", () => {
     expect(data.alerts.every((alert) => alert.enabled === false)).toBe(true);
     expect(data.alerts.some((alert) => alert.key === DISCORD_ALERT_KEYS.chainWatch)).toBe(false);
     expect(data.alerts.some((alert) => alert.key === DISCORD_ALERT_KEYS.chainWatchCritical)).toBe(true);
+    expect(data.alerts.find((alert) => alert.key === DISCORD_ALERT_KEYS.chainWatchMissedCheckIn)?.enabled).toBe(false);
   });
 
-  it("updates one explicit member subscription", async () => {
+  it.each([DISCORD_ALERT_KEYS.enemyPush, DISCORD_ALERT_KEYS.chainWatchMissedCheckIn])("updates one explicit %s subscription", async (alertKey) => {
     const env = fakeEnv({ linkedDiscordId: "111111111111111111" });
     const response = await updateDiscordMemberAlertSubscriptionFromRequest(
-      jsonRequest({ alert_key: DISCORD_ALERT_KEYS.enemyPush, enabled: true }),
+      jsonRequest({ alert_key: alertKey, enabled: true }),
       env,
       123,
     );
 
     expect(response.status).toBe(200);
-    expect(env.upserts).toEqual([[123, DISCORD_ALERT_KEYS.enemyPush, 1]]);
+    expect(env.upserts).toEqual([[123, alertKey, 1]]);
     const data = await getJson(response);
-    expect(data.alerts.find((alert) => alert.key === DISCORD_ALERT_KEYS.enemyPush)?.enabled).toBe(true);
+    expect(data.alerts.find((alert) => alert.key === alertKey)?.enabled).toBe(true);
   });
 
   it("does not allow enabling notifications before Discord is linked", async () => {

@@ -3,6 +3,7 @@ export const DISCORD_ALERT_KEYS = {
   chainWatchWarning: "chain_watch_warning",
   chainWatchCritical: "chain_watch_critical",
   chainWatchDrop: "chain_watch_drop",
+  chainWatchMissedCheckIn: "chain_watch_missed_check_in",
   retaliationBoard: "retaliation_board",
   enemyPush: "enemy_push",
   targetTravelTracker: "target_travel_tracker",
@@ -91,6 +92,13 @@ export const DISCORD_ALERTS = [
     key: DISCORD_ALERT_KEYS.shopliftingSecurity("jewelry_store"),
     name: "Jewelry Store shoplifting",
     description: "Warnings when Jewelry Store shoplifting security is down.",
+    subscribable: true,
+  },
+  // Append new subscriptions: existing Discord Submit buttons encode their positions.
+  {
+    key: DISCORD_ALERT_KEYS.chainWatchMissedCheckIn,
+    name: "Chain watch missed check-in",
+    description: "Mentions when a scheduled chain watcher has not checked in before their shift.",
     subscribable: true,
   },
 ] as const;

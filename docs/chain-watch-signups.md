@@ -42,6 +42,12 @@ invalid Discord links add no watcher. The global chain-alert enable setting is
 still respected, and an assignment lookup failure does not prevent the ordinary
 alert from being delivered.
 
+`chain_watch_missed_check_in` is available as a separate "Chain watch missed
+check-in" alert setting, channel route and optional member subscription. Its
+global toggle defaults to enabled; member subscriptions default to off, with no
+role mentions preconfigured. The handover reminder, confirmation button and
+missed check-in scheduling are not implemented yet; this adds the settings only.
+
 Migration `0148_create_faction_chain_watch_state.sql` preserves the current
 legacy monitor's message ID and warning markers. Legacy per-war alarms retire
 after the Worker upgrade; the next ingestion tick schedules the faction alarm.
