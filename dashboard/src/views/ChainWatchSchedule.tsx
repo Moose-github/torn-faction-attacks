@@ -3,6 +3,7 @@ import { CalendarClock, Check, ExternalLink, LockKeyhole, RefreshCw } from "luci
 import { createsLongWatchRun, nextWatchHour, watchDate, watchUtc, WATCH_DAY, WATCH_HOUR, type ChainWatchScheduleResponse, type ChainWatchSlot } from "../../../shared/chainWatchSchedule";
 import { changeChainWatchSlot, finishChainWatch, getChainWatchSchedule, overrideChainWatchSlot } from "../api/chainWatchSchedule";
 import { PanelHeader } from "../components/Common";
+import { ChainWatchLivePanel } from "./ChainWatchLivePanel";
 import "./ChainWatchSchedule.css";
 
 export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: number; isAdmin: boolean }) {
@@ -15,6 +16,7 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
   const [showAdmin, setShowAdmin] = React.useState(false);
   const [finish, setFinish] = React.useState("");
   const [pendingFinish, setPendingFinish] = React.useState<string | null>(null);
+  const [liveRefreshKey, setLiveRefreshKey] = React.useState(0);
   const requestVersion = React.useRef(0);
   const clockOffset = React.useRef(0);
   const busyRef = React.useRef(false);
@@ -54,7 +56,7 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
     setNotice("");
     try { accept(await action()); setNotice(message); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-    finally { busyRef.current = false; setBusy(false); }
+    finally { busyRef.current = false; setBusy(false); setLiveRefreshKey((key) => key + 1); }
   }
 
   const watch = data?.watch;
@@ -69,11 +71,13 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
       <PanelHeader title="Chain watch sign-ups" icon={<CalendarClock size={20} />} aside="UTC" />
       <p>Reserve an hour to keep the chain running. Take at least one hour off after two consecutive slots.</p>
       <div className="watch-toolbar">
-        <button type="button" className="panel-action-button" disabled={busy} onClick={() => void refresh()}><RefreshCw size={14} /> Refresh</button>
+        <button type="button" className="panel-action-button" disabled={busy} onClick={() => { void refresh(); setLiveRefreshKey((key) => key + 1); }}><RefreshCw size={14} /> Refresh</button>
         {isAdmin && watch ? <button type="button" className="panel-action-button" aria-pressed={showAdmin} onClick={() => setShowAdmin(!showAdmin)}><LockKeyhole size={14} /> {showAdmin ? "Hide admin controls" : "Admin controls"}</button> : null}
         {requestedId ? <a href="/chain-watch">Current watch</a> : null}
       </div>
     </section>
+
+    <ChainWatchLivePanel schedule={data} refreshKey={liveRefreshKey} />
 
     {error ? <div className="error-panel" role="alert">{error}</div> : null}
     {notice ? <div className="watch-notice" role="status"><Check size={16} /> {notice}</div> : null}

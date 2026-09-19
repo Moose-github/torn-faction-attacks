@@ -14,6 +14,7 @@ import { withTornKeyPool } from "./tornKeyPool";
 import { Env } from "./types";
 import { finiteNumber, json, nowSeconds } from "./utils";
 import { readChainWatchDemand } from "./chainWatchDemand";
+import type { ChainWatchLiveResponse } from "../shared/chainWatchLive";
 
 export const CHAIN_WATCH_TIMEOUT_SECONDS = 5 * 60;
 export const CHAIN_WATCH_WARNING_60_OFFSET_SECONDS = 4 * 60;
@@ -141,7 +142,7 @@ export async function readChainWatchLive(env: Env, now = nowSeconds()) {
       remaining_seconds: remainingSeconds,
       dropped: remainingSeconds !== null && remainingSeconds <= 0,
     },
-  };
+  } satisfies ChainWatchLiveResponse;
 }
 
 export async function getChainWatchLive(env: Env): Promise<Response> {

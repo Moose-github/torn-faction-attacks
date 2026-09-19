@@ -31,7 +31,29 @@
 .watch-finish-confirm button + button { margin-left: 8px; }
 .watch-discord-link { display: inline-flex; align-items: center; gap: 6px; }
 .watch-schedule-page button:disabled { opacity: .55; cursor: not-allowed; }
+.watch-live-panel { --watch-live-color: #64748b; }
+.watch-live-live { --watch-live-color: #14723f; }
+.watch-live-warning { --watch-live-color: #a35c0d; }
+.watch-live-critical { --watch-live-color: #c72b39; }
+.watch-schedule-page .watch-live-panel .panel-header .watch-live-status { display: inline-flex; align-items: center; gap: 7px; color: var(--watch-live-color); font-size: 12px; font-weight: 750; }
+.watch-live-status > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.watch-live-grid { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1.2fr; gap: 12px; margin-top: 16px; }
+.watch-live-grid .chain-watch-primary strong { font-size: 28px; font-variant-numeric: tabular-nums; }
+.watch-live-panel .watch-live-grid .chain-watch-primary.watch-live-countdown strong { color: var(--watch-live-color); }
+.watch-live-grid .chain-watch-detail strong { white-space: normal; overflow-wrap: anywhere; }
+.watch-live-panel small { color: var(--text-muted, #64748b); font-size: 12px; }
+.watch-live-footer { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.watch-live-footer > div { display: grid; gap: 5px; min-width: 0; }
+.watch-live-footer strong { font-size: 13px; overflow-wrap: anywhere; }
+.watch-live-footer p { margin: 0; }
+.watch-live-panel .watch-live-detail { color: var(--watch-live-color); font-size: 12px; margin: 12px 0 0; }
+:root[data-theme="dark"] .watch-live-panel { --watch-live-color: #a4b2c6; }
+:root[data-theme="dark"] .watch-live-live { --watch-live-color: #86efac; }
+:root[data-theme="dark"] .watch-live-warning { --watch-live-color: #fbbf24; }
+:root[data-theme="dark"] .watch-live-critical { --watch-live-color: #fda4af; }
 @media (max-width: 700px) {
+  .watch-live-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .watch-live-panel .panel-header { align-items: start; flex-wrap: wrap; gap: 10px; }
   .watch-schedule-page .panel { padding: 14px; }
   .watch-slot { grid-template-columns: 1fr 1fr; gap: 10px; }
   .watch-slot-actions { grid-column: 1 / -1; justify-self: stretch; }

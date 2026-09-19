@@ -1,5 +1,10 @@
 import { getJson, postJson } from "./client";
 import type { ChainWatchScheduleResponse } from "../../../shared/chainWatchSchedule";
+import type { ChainWatchLiveResponse } from "../../../shared/chainWatchLive";
+
+export function getChainWatchLive(): Promise<ChainWatchLiveResponse> {
+  return getJson("/api/chain-watch/live");
+}
 
 export function getChainWatchSchedule(id?: string | null): Promise<ChainWatchScheduleResponse> {
   return getJson(`/api/chain-watch${id ? `?watch=${encodeURIComponent(id)}` : ""}`);

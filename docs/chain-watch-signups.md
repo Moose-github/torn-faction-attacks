@@ -21,8 +21,16 @@ schedule or cancel assignments.
 `GET /api/chain-watch/live` returns member-authenticated faction state, server
 time, activation sources and computed countdown/status without fetching Torn.
 The existing War Room endpoints remain compatibility views, and the Discord
-chain-status control reads the faction monitor without requiring a war. Roster
-rendering and targeted watcher mentions are separate follow-up work.
+chain-status control reads the faction monitor without requiring a war.
+
+The page displays a live panel above the sign-up sheet with chain count, a
+server-synchronised countdown, last hit, current/next watcher and monitoring
+freshness. It polls the stored live endpoint every 15 seconds while visible and
+on focus, independently of roster requests. The countdown ticks each second;
+stale data or a failed refresh hides it, and local expiry waits for a monitoring
+update before calling the chain dropped. Historical sheets never supply watcher
+names for a different active watch. Targeted watcher mentions remain separate
+follow-up work.
 
 Migration `0148_create_faction_chain_watch_state.sql` preserves the current
 legacy monitor's message ID and warning markers. Legacy per-war alarms retire
