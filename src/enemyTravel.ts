@@ -151,6 +151,12 @@ export function initialTravelTripType(planeImageType: string | null): StoredTrav
   return durationKey ?? null;
 }
 
+export function planeImageTypeForTripType(tripType: StoredTravelTripType): string {
+  if (tripType === "Airstrip") return "light_aircraft";
+  if (tripType === "WLT benefit") return "private_jet";
+  return "airliner";
+}
+
 export function parseStoredTravelTripType(value: string | null | undefined): StoredTravelTripType | null {
   if (
     value === "Standard" ||
@@ -190,6 +196,48 @@ export function resolveTravelTripType(
   return { type: currentType, inferredAt: currentInferredAt };
 }
 
+export function resolveLandedTravelTripType(
+  flightLocation: string,
+  timing: {
+    startedAfter: number | null;
+    startedBefore: number | null;
+    lastTravelingAt: number | null;
+    arrivedBy: number;
+  },
+  currentType: StoredTravelTripType | null,
+  currentInferredAt: number | null,
+): { type: StoredTravelTripType | null; inferredAt: number | null } {
+  const unchanged = { type: currentType, inferredAt: currentInferredAt };
+  const durations = TRAVEL_DURATIONS_MINUTES[flightLocation];
+  const { startedAfter, startedBefore, arrivedBy } = timing;
+  if (currentType !== "Business Class/Standard" || !durations ||
+      startedAfter === null || startedBefore === null || startedAfter > startedBefore) {
+    return unchanged;
+  }
+
+  const lastTravelingAt = Math.max(startedBefore, timing.lastTravelingAt ?? startedBefore);
+  if (lastTravelingAt >= arrivedBy) {
+    return unchanged;
+  }
+
+  // Landing happened between the last airborne poll and the first abroad poll.
+  // Compare that interval with each possible flight's arrival window. A late
+  // first abroad poll alone does not prove that the flight was Standard.
+  const matchesLanding = (durationMinutes: number): boolean =>
+    startedAfter + durationMinutes * 60 <= arrivedBy &&
+    startedBefore + durationMinutes * 60 + BUSINESS_CLASS_RESOLUTION_GRACE_SECONDS >= lastTravelingAt;
+  const businessClassPossible = matchesLanding(durations["Business Class"]);
+  const standardPossible = matchesLanding(durations.Standard);
+  if (businessClassPossible === standardPossible) {
+    return unchanged;
+  }
+
+  return {
+    type: businessClassPossible ? "Business Class" : "Standard",
+    inferredAt: currentInferredAt ?? arrivedBy,
+  };
+}
+
 export function estimateTravelArrival(
   flightLocation: string,
   planeImageType: string | null,
@@ -197,40 +245,50 @@ export function estimateTravelArrival(
   startedBefore: number,
   tripType: StoredTravelTripType | null = null,
 ): TravelEstimate {
+  const duration = travelDurationRangeSeconds(flightLocation, planeImageType, tripType);
+  if (!duration) {
+    return emptyTravelEstimate();
+  }
+
+  const earliest = startedAfter === null ? null : startedAfter + duration.shortest;
+  const latest = startedBefore + duration.longest;
+  return {
+    estimated_arrival_at: earliest === null ? latest : Math.floor((earliest + latest) / 2),
+    estimated_arrival_earliest: earliest,
+    estimated_arrival_latest: latest,
+  };
+}
+
+export function travelDurationRangeSeconds(
+  flightLocation: string,
+  planeImageType: string | null,
+  tripType: StoredTravelTripType | null = null,
+): { shortest: number; longest: number } | null {
   if (planeImageType === "airliner") {
     const businessClassMinutes = TRAVEL_DURATIONS_MINUTES[flightLocation]?.["Business Class"];
     const standardMinutes = TRAVEL_DURATIONS_MINUTES[flightLocation]?.Standard;
     if (!businessClassMinutes || !standardMinutes) {
-      return emptyTravelEstimate();
+      return null;
     }
 
     if (tripType === "Standard" || tripType === "Business Class") {
       const durationMinutes = tripType === "Standard" ? standardMinutes : businessClassMinutes;
-      return buildEstimate(startedAfter, startedBefore, durationMinutes);
+      return { shortest: durationMinutes * 60, longest: durationMinutes * 60 };
     }
 
-    const estimatedEarliest =
-      startedAfter === null ? null : startedAfter + businessClassMinutes * 60;
-    const estimatedLatest = startedBefore + standardMinutes * 60;
-    const estimatedArrival =
-      estimatedEarliest === null
-        ? estimatedLatest
-        : Math.floor((estimatedEarliest + estimatedLatest) / 2);
-
     return {
-      estimated_arrival_at: estimatedArrival,
-      estimated_arrival_earliest: estimatedEarliest,
-      estimated_arrival_latest: estimatedLatest,
+      shortest: businessClassMinutes * 60,
+      longest: standardMinutes * 60,
     };
   }
 
   const durationKey = planeImageType ? PLANE_IMAGE_TYPE_TO_DURATION_KEY[planeImageType] : undefined;
   const durationMinutes = durationKey ? TRAVEL_DURATIONS_MINUTES[flightLocation]?.[durationKey] : undefined;
   if (!durationMinutes) {
-    return emptyTravelEstimate();
+    return null;
   }
 
-  return buildEstimate(startedAfter, startedBefore, durationMinutes);
+  return { shortest: durationMinutes * 60, longest: durationMinutes * 60 };
 }
 
 export function buildTravelDisplay(row: TravelDisplayRow): TravelDisplay {
@@ -344,26 +402,6 @@ function formatPlaneImageType(value: string | null | undefined): string | null {
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(" ")
   );
-}
-
-function buildEstimate(
-  startedAfter: number | null,
-  startedBefore: number,
-  durationMinutes: number,
-): TravelEstimate {
-  const durationSeconds = durationMinutes * 60;
-  const estimatedLatest = startedBefore + durationSeconds;
-  const estimatedEarliest = startedAfter === null ? null : startedAfter + durationSeconds;
-  const estimatedArrival =
-    estimatedEarliest === null
-      ? estimatedLatest
-      : Math.floor((estimatedEarliest + estimatedLatest) / 2);
-
-  return {
-    estimated_arrival_at: estimatedArrival,
-    estimated_arrival_earliest: estimatedEarliest,
-    estimated_arrival_latest: estimatedLatest,
-  };
 }
 
 function emptyTravelEstimate(): TravelEstimate {

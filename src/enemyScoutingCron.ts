@@ -182,7 +182,7 @@ export async function runEnemyScoutingCronTick(
   metrics.image = await sendPendingEnemyStatsComparisonImageForContext(env, context);
   await syncDiscordTravelTracker(env, {
     scheduledTime: options.scheduledTime,
-    skipHomeRefresh: !metrics.tracking.skipped,
+    skipHomeRefresh: metrics.tracking.homeRefreshed === true,
   }).catch((err: any) => {
     console.warn("Discord travel tracker sync failed:", err?.message || err);
   });

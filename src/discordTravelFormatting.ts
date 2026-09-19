@@ -1,4 +1,4 @@
-import { buildTravelDisplay } from "./enemyTravel";
+import { buildTravelDisplay, parseStoredTravelTripType, parseTravelDescription, travelDurationRangeSeconds } from "./enemyTravel";
 
 export type DiscordTravelRow = {
   member_id: number;
@@ -109,6 +109,18 @@ function departureWindow(member: DiscordTravelRow): string {
 }
 
 function travelDuration(member: DiscordTravelRow): string {
+  const travel = parseTravelDescription(member.status_description);
+  const duration = travel && travelDurationRangeSeconds(
+    travel.flightLocation,
+    member.plane_image_type,
+    parseStoredTravelTripType(member.travel_trip_type),
+  );
+  if (duration) {
+    return duration.shortest === duration.longest
+      ? durationLabel(duration.shortest)
+      : `${durationLabel(duration.shortest)}-${durationLabel(duration.longest)}`;
+  }
+
   const startedAfter = member.travel_started_after ?? null;
   const startedBefore = member.travel_started_before ?? null;
   const earliestArrival = member.estimated_arrival_earliest ?? null;
@@ -132,6 +144,11 @@ function travelDuration(member: DiscordTravelRow): string {
 }
 
 function arrivalWindow(member: DiscordTravelRow): string {
+  // A first sighting supplies only an upper bound, not a known departure.
+  if (!member.travel_started_after || !member.travel_started_before) {
+    return "Unknown";
+  }
+
   const earliest = member.estimated_arrival_earliest ?? null;
   const latest = member.estimated_arrival_latest ?? null;
   if (earliest && latest) {

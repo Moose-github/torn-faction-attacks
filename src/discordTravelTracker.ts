@@ -288,9 +288,18 @@ async function syncTargetTravelTracker(
     return stopTravelTrackerMessage(env, TARGET_TRACKER_KEY, state, destination, checkedAt, "no active travel tracker target");
   }
 
-  const refreshed = target.source === "manual"
-    ? await refreshManualTravelTrackerTarget(env, target)
-    : undefined;
+  let refreshed;
+  if (target.source === "manual") {
+    try {
+      refreshed = await refreshManualTravelTrackerTarget(env, target);
+      if (refreshed.skipped) {
+        return trackerResult(TARGET_TRACKER_KEY, enabled, true, "manual refresh returned no members", null, target.factionId, "manual", state?.message_id ?? null, 0, 0, false, refreshed);
+      }
+    } catch (err: any) {
+      console.warn("Manual travel tracker refresh failed:", err?.message || err);
+      return trackerResult(TARGET_TRACKER_KEY, enabled, true, "manual refresh failed", null, target.factionId, "manual", state?.message_id ?? null, 0, 0, false);
+    }
+  }
   const members = await readTravelTrackerRows(env, TARGET_TRACKER_KEY, target.factionId);
   return updateTravelTrackerMessage(env, TARGET_TRACKER_KEY, state, destination, target, members, checkedAt, options.force ?? false, refreshed);
 }
@@ -325,10 +334,13 @@ async function syncHomeTravelTracker(
   if (!options.skipRefresh) {
     try {
       const members = await refreshHomeFactionMembers(env);
+      if (members.length === 0) {
+        return trackerResult(HOME_TRACKER_KEY, enabled, true, "home refresh returned no members", null, HOME_FACTION_ID, "home", state?.message_id ?? null, 0, 0, false);
+      }
       refreshed = { fetchedMembers: members.length };
     } catch (err: any) {
       console.warn("Home travel tracker refresh failed:", err?.message || err);
-      refreshed = { skipped: true, reason: "home refresh failed" };
+      return trackerResult(HOME_TRACKER_KEY, enabled, true, "home refresh failed", null, HOME_FACTION_ID, "home", state?.message_id ?? null, 0, 0, false);
     }
   }
   const members = await readTravelTrackerRows(env, HOME_TRACKER_KEY, HOME_FACTION_ID);
@@ -357,13 +369,16 @@ async function stopTravelTrackerMessage(
   }
 
   const messageId = await editExistingTravelTrackerMessage(env, trackerKey, state.message_id!, message);
+  if (!messageId) {
+    return trackerResult(trackerKey, enabled, true, "Discord travel message was not delivered", state.war_id, state.faction_id, "inactive", state.message_id, 0, 0, false);
+  }
   await saveTravelTrackerState(env, {
     trackerKey,
     enabled,
     source: "inactive",
     warId: state.war_id,
     factionId: state.faction_id,
-    destinationKey: destination.key,
+    destinationKey: destination.get(travelTrackerAlertKey(trackerKey))!,
     displayName: state.display_name,
     messageId,
     contentHash: hash,
@@ -392,7 +407,8 @@ async function updateTravelTrackerMessage(
   const factionId = target?.factionId ?? null;
   const source = target?.source ?? "inactive";
   const enabled = trackerEnabled(trackerKey, state);
-  const sameTarget = isSameTrackerTarget(state, source, warId, factionId, destination.key);
+  const destinationKey = destination.get(travelTrackerAlertKey(trackerKey))!;
+  const sameTarget = isSameTrackerTarget(state, source, warId, factionId, destinationKey);
   const reusableMessageId = sameTarget ? existingMessageId : null;
 
   // Refreshes have already run. Muting must not change tracking state or record
@@ -402,14 +418,14 @@ async function updateTravelTrackerMessage(
   }
 
   if (!force && reusableMessageId && state?.content_hash === hash) {
-    if (state.display_name !== message.displayName) {
+    if (state.display_name !== message.displayName || state.destination_key !== destinationKey) {
       await saveTravelTrackerState(env, {
         trackerKey,
         enabled,
         source,
         warId,
         factionId,
-        destinationKey: destination.key,
+        destinationKey,
         displayName: message.displayName,
         messageId: reusableMessageId,
         contentHash: hash,
@@ -424,6 +440,9 @@ async function updateTravelTrackerMessage(
   const messageId = reusableMessageId
     ? await editExistingTravelTrackerMessage(env, trackerKey, reusableMessageId, message)
     : await createTravelTrackerMessage(env, trackerKey, message);
+  if (!messageId) {
+    return trackerResult(trackerKey, enabled, true, "Discord travel message was not delivered", warId, factionId, source, existingMessageId, traveling, abroad, false, refreshed);
+  }
 
   await saveTravelTrackerState(env, {
     trackerKey,
@@ -431,7 +450,7 @@ async function updateTravelTrackerMessage(
     source,
     warId,
     factionId,
-    destinationKey: destination.key,
+    destinationKey,
     displayName: message.displayName,
     messageId,
     contentHash: hash,
@@ -551,49 +570,46 @@ function isSameTrackerTarget(
     return false;
   }
 
+  // Older state recorded only which alert routes were enabled. Adopt the
+  // resolved destination without duplicating an existing tracker message.
+  const legacyRoute = state.destination_key?.startsWith("discord-bot-route:") &&
+    state.destination_key.slice("discord-bot-route:".length).split(",").includes(travelTrackerAlertKey(state.tracker_key));
+  const sameDestination = state.destination_key === destinationKey || legacyRoute;
+
   if (state.target_source === null && state.faction_id === null) {
-    return source === "war" && state.war_id === warId && state.destination_key === destinationKey;
+    return source === "war" && state.war_id === warId && Boolean(sameDestination);
   }
 
   return state.target_source === source &&
     state.war_id === warId &&
     state.faction_id === factionId &&
-    state.destination_key === destinationKey;
+    Boolean(sameDestination);
 }
 
-type TravelTrackerDestination = {
-  key: string;
-  routedAlertKeys: Set<DiscordAlertKey>;
-};
+type TravelTrackerDestination = Map<DiscordAlertKey, string>;
 
 async function readTravelTrackerDestination(env: Env): Promise<TravelTrackerDestination | null> {
-  const routedAlertKeys = new Set<DiscordAlertKey>();
+  const destinations: TravelTrackerDestination = new Map();
   await Promise.all([
-    addRoutedTravelTrackerAlertKey(env, routedAlertKeys, DISCORD_ALERT_KEYS.targetTravelTracker),
-    addRoutedTravelTrackerAlertKey(env, routedAlertKeys, DISCORD_ALERT_KEYS.homeTravelTracker),
+    addRoutedTravelTrackerAlertKey(env, destinations, DISCORD_ALERT_KEYS.targetTravelTracker),
+    addRoutedTravelTrackerAlertKey(env, destinations, DISCORD_ALERT_KEYS.homeTravelTracker),
   ]);
-  if (routedAlertKeys.size === 0) {
-    return null;
-  }
-
-  return {
-    routedAlertKeys,
-    key: `discord-bot-route:${Array.from(routedAlertKeys).sort().join(",")}`,
-  };
+  return destinations.size > 0 ? destinations : null;
 }
 
 async function addRoutedTravelTrackerAlertKey(
   env: Env,
-  routedAlertKeys: Set<DiscordAlertKey>,
+  destinations: TravelTrackerDestination,
   alertKey: DiscordAlertKey,
 ): Promise<void> {
-  if (await readConfiguredDiscordNotificationChannel(env, alertKey)) {
-    routedAlertKeys.add(alertKey);
+  const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
+  if (route) {
+    destinations.set(alertKey, `discord-bot-channel:${route.guildId}:${route.channelId}:${route.threadId ?? ""}`);
   }
 }
 
 function travelTrackerDeliveryAvailable(destination: TravelTrackerDestination, trackerKey: TravelTrackerKey): boolean {
-  return destination.routedAlertKeys.has(travelTrackerAlertKey(trackerKey));
+  return destination.has(travelTrackerAlertKey(trackerKey));
 }
 
 async function resolveTravelTrackerTarget(env: Env, checkedAt: number): Promise<TravelTrackerTarget | null> {
@@ -632,7 +648,7 @@ function isActiveDiscordTravelWar(
 async function refreshManualTravelTrackerTarget(
   env: Env,
   target: Extract<TravelTrackerTarget, { source: "manual" }>,
-): Promise<unknown> {
+): Promise<Awaited<ReturnType<typeof refreshTrackedFactionMemberStatuses>>> {
   const refresh = await refreshTrackedFactionMemberStatuses(
     env,
     target.factionId,

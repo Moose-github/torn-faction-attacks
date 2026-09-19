@@ -40,7 +40,7 @@ import {
   clearSyncLatch,
   isSyncLatchSet,
 } from "./syncLatches";
-import { hasSyncState, upsertSyncTimestamp } from "./syncState";
+import { hasSyncState, readSyncTimestamp, upsertSyncTimestamp } from "./syncState";
 import { fetchBspBattlestatJson } from "./external/bsp";
 import { fetchFfscouterStatsJson } from "./external/ffscouter";
 import { fetchTrackedTornJson } from "./external/torn";
@@ -64,6 +64,8 @@ import {
   parseAbroadLocation,
   parseStoredTravelTripType,
   parseTravelDescription,
+  planeImageTypeForTripType,
+  resolveLandedTravelTripType,
   resolveTravelTripType,
   TORN_LOCATION,
 } from "./enemyTravel";
@@ -88,6 +90,8 @@ export type { CurrentScoutingWar, EnemyFactionMemberRow } from "./enemyScouting/
 
 const FFSCOUTER_BATCH_SIZE = 100;
 const SCOUTING_FETCH_TIMEOUT_MS = 15000;
+const TRAVEL_ARRIVAL_GRACE_SECONDS = 5 * 60;
+const HOME_STATUS_CHECKED_AT = "home_faction_status_checked_at";
 const TORN_USER_JOB_API_BASE_URL = "https://api.torn.com/v2/user";
 const LIVE_ENEMY_TRACKING_CLEAR_STATE_PREFIX = "enemy_live_tracking_cleared";
 
@@ -172,6 +176,7 @@ export type EnemyMemberTrackingRefreshMetrics = {
   skipped: boolean;
   factionId?: number | null;
   members?: TornFactionMember[];
+  homeRefreshed?: boolean;
 };
 
 export type TrackedFactionMemberRefreshMetrics = EnemyMemberTrackingRefreshMetrics & {
@@ -457,6 +462,7 @@ export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMe
 
   const fetchedAt = nowSeconds();
   const existingRows = await readHomeScouting(env);
+  const previousPollAt = await readSyncTimestamp(env, HOME_STATUS_CHECKED_AT);
   const existingById = new Map(existingRows.map((row) => [row.member_id, row]));
 
   await env.DB.batch(
@@ -464,7 +470,7 @@ export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMe
       const statusSnapshot = buildMemberStatusSnapshot(
         member,
         existingById.get(member.id) ?? null,
-        null,
+        previousPollAt || null,
         fetchedAt,
       );
       const snapshot = {
@@ -485,6 +491,7 @@ export async function refreshHomeFactionMembers(env: Env): Promise<TornFactionMe
   );
 
   await markDepartedHomeFactionMembers(env, members);
+  await upsertSyncTimestamp(env, HOME_STATUS_CHECKED_AT, fetchedAt);
 
   const rows = (await env.DB.prepare(
     `
@@ -611,6 +618,7 @@ export async function refreshEnemyFactionMemberStatuses(
     skipped: false,
     factionId,
     members: options.includeMembers ? members : undefined,
+    homeRefreshed: homeMembers.length > 0,
   };
 }
 
@@ -899,28 +907,55 @@ function buildMemberStatusSnapshot(
   const statusDescription = cleanText(member.status?.description);
   const lastActionStatus = cleanText(member.last_action?.status);
   const lastActionTimestamp = finiteNumber(member.last_action?.timestamp);
-  const planeImageType = cleanText(member.status?.plane_image_type);
+  const reportedPlaneImageType = cleanText(member.status?.plane_image_type);
   const parsedTravel = parseTravelDescription(statusDescription);
   const isTraveling = statusState === "Traveling" && parsedTravel !== null;
   const abroadLocation = statusState === "Abroad" ? parseAbroadLocation(statusDescription) : null;
-  const travelSignature = isTraveling
-    ? buildTravelSignature(statusDescription, planeImageType, parsedTravel)
-    : null;
-  const statusChanged =
-    previous === null ||
-    previous.status_state !== statusState ||
-    previous.status_description !== statusDescription ||
-    previous.plane_image_type !== planeImageType ||
-    previous.travel_signature !== travelSignature;
-  const isNewTrip =
+  const previousTravel = parseTravelDescription(previous?.status_description ?? null);
+  const isSameTrip =
     isTraveling &&
-    (previous?.status_state !== "Traveling" || previous.travel_signature !== travelSignature);
-
+    previous?.status_state === "Traveling" &&
+    previousTravel?.origin === parsedTravel.origin &&
+    previousTravel.destination === parsedTravel.destination;
+  let planeImageType = (isSameTrip ? previous?.plane_image_type : null) ?? reportedPlaneImageType;
+  // The same route can recur after missed observations. Use the longest
+  // possible flight for this trip so ambiguous airliners can still resolve
+  // to Standard before considering their old departure bounds expired.
+  const latestPossibleArrival = isSameTrip && parsedTravel && previous?.travel_started_before != null
+    ? estimateTravelArrival(
+        parsedTravel.flightLocation,
+        planeImageType,
+        null,
+        previous.travel_started_before,
+        parseStoredTravelTripType(previous.travel_trip_type),
+      ).estimated_arrival_latest
+    : null;
+  const previousTripExpired = latestPossibleArrival !== null &&
+    fetchedAt > latestPossibleArrival + TRAVEL_ARRIVAL_GRACE_SECONDS;
+  const isNewTrip = isTraveling && (!isSameTrip || previousTripExpired);
+  if (previousTripExpired) {
+    planeImageType = reportedPlaneImageType;
+  }
   if (!isTraveling || !parsedTravel) {
+    const statusChanged = previous === null || previous.status_state !== statusState ||
+      previous.status_description !== statusDescription || previous.plane_image_type !== planeImageType ||
+      previous.travel_signature != null;
     const keepTrip =
       statusState === "Abroad" &&
       abroadLocation !== null &&
       previous?.travel_trip_destination === abroadLocation;
+    const trip = keepTrip && previous?.status_state === "Traveling" &&
+      previousTravel?.origin === TORN_LOCATION && previousTravel.destination === abroadLocation
+      ? resolveLandedTravelTripType(abroadLocation, {
+          startedAfter: previous.travel_started_after ?? null,
+          startedBefore: previous.travel_started_before ?? null,
+          lastTravelingAt: previousPollAt ?? previous.status_updated_at ?? null,
+          arrivedBy: fetchedAt,
+        }, parseStoredTravelTripType(previous.travel_trip_type), previous.travel_trip_inferred_at ?? null)
+      : {
+          type: keepTrip ? previous?.travel_trip_type ?? null : null,
+          inferredAt: keepTrip ? previous?.travel_trip_inferred_at ?? null : null,
+        };
 
     return {
       status_state: statusState,
@@ -938,47 +973,50 @@ function buildMemberStatusSnapshot(
       estimated_arrival_earliest: null,
       estimated_arrival_latest: null,
       travel_trip_destination: keepTrip ? (previous?.travel_trip_destination ?? null) : null,
-      travel_trip_type: keepTrip ? (previous?.travel_trip_type ?? null) : null,
-      travel_trip_inferred_at: keepTrip ? (previous?.travel_trip_inferred_at ?? null) : null,
+      travel_trip_type: trip.type,
+      travel_trip_inferred_at: trip.inferredAt,
       status_updated_at: statusChanged ? fetchedAt : (previous?.status_updated_at ?? fetchedAt),
     };
   }
 
   const previousTrip =
-    previous && previous.travel_trip_destination === parsedTravel.flightLocation
+    previous && !previousTripExpired && previous.travel_trip_destination === parsedTravel.flightLocation
       ? {
           type: parseStoredTravelTripType(previous.travel_trip_type),
           inferredAt: previous.travel_trip_inferred_at ?? null,
         }
       : null;
-  const baseTripType =
-    parsedTravel.destination === TORN_LOCATION && previousTrip?.type
-      ? previousTrip.type
-      : initialTravelTripType(planeImageType);
+  // Plane and travel type are fixed for the complete outbound/return trip.
+  const rememberedTrip = previousTrip?.type && (isSameTrip || parsedTravel.destination === TORN_LOCATION)
+    ? previousTrip : null;
+  const baseTripType = rememberedTrip?.type ?? initialTravelTripType(planeImageType);
+  const inferredAt = rememberedTrip?.inferredAt ?? null;
+  if (rememberedTrip?.type) {
+    planeImageType = planeImageTypeForTripType(rememberedTrip.type);
+  }
+  const travelSignature = buildTravelSignature(statusDescription, planeImageType, parsedTravel);
+  const statusChanged = previous === null || previous.status_state !== statusState ||
+    previous.status_description !== statusDescription || previous.plane_image_type !== planeImageType ||
+    previous.travel_signature !== travelSignature;
 
   if (!isNewTrip && previous) {
+    const startedBefore = previous.travel_started_before ?? fetchedAt;
+    const startedAfter = previous.travel_started_before != null ? previous.travel_started_after ?? null : null;
     const tripType = resolveTravelTripType(
       parsedTravel.flightLocation,
       planeImageType,
-      previous.travel_started_before ?? fetchedAt,
+      startedBefore,
       baseTripType,
-      previousTrip?.inferredAt ?? previous.travel_trip_inferred_at ?? null,
+      inferredAt,
       fetchedAt,
     );
-    const estimate =
-      planeImageType === "airliner"
-        ? estimateTravelArrival(
-            parsedTravel.flightLocation,
-            planeImageType,
-            previous.travel_started_after ?? null,
-            previous.travel_started_before ?? fetchedAt,
-            tripType.type,
-          )
-        : {
-            estimated_arrival_at: previous.estimated_arrival_at ?? null,
-            estimated_arrival_earliest: previous.estimated_arrival_earliest ?? null,
-            estimated_arrival_latest: previous.estimated_arrival_latest ?? null,
-          };
+    const estimate = estimateTravelArrival(
+      parsedTravel.flightLocation,
+      planeImageType,
+      startedAfter,
+      startedBefore,
+      tripType.type,
+    );
 
     return {
       status_state: statusState,
@@ -989,9 +1027,9 @@ function buildMemberStatusSnapshot(
       travel_origin: parsedTravel.origin,
       travel_destination: parsedTravel.destination,
       travel_signature: travelSignature,
-      travel_detected_at: previous.travel_detected_at ?? null,
-      travel_started_after: previous.travel_started_after ?? null,
-      travel_started_before: previous.travel_started_before ?? null,
+      travel_detected_at: previous.travel_detected_at ?? startedBefore,
+      travel_started_after: startedAfter,
+      travel_started_before: startedBefore,
       ...estimate,
       travel_trip_destination: parsedTravel.flightLocation,
       travel_trip_type: tripType.type,
@@ -1000,7 +1038,7 @@ function buildMemberStatusSnapshot(
     };
   }
 
-  const startedAfter = previous
+  const startedAfter = previous?.status_state && !previousTripExpired
     ? previousPollAt ?? previous.status_updated_at ?? null
     : null;
   const startedBefore = fetchedAt;
@@ -1009,7 +1047,7 @@ function buildMemberStatusSnapshot(
     planeImageType,
     startedBefore,
     baseTripType,
-    previousTrip?.inferredAt ?? null,
+    inferredAt,
     fetchedAt,
   );
   const estimate = estimateTravelArrival(

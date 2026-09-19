@@ -64,7 +64,7 @@ describe("Discord travel tracker", () => {
       factionId: 456,
       fetchedAt: 1_800_000_000,
     });
-    vi.mocked(refreshHomeFactionMembers).mockResolvedValue([]);
+    vi.mocked(refreshHomeFactionMembers).mockResolvedValue([{ id: 3, name: "Home Traveler", level: 50 }]);
   });
 
   it("creates a persistent bot-routed message the first time it syncs", async () => {
@@ -228,6 +228,19 @@ describe("Discord travel tracker", () => {
     expect(env.states.target?.message_id).toBe("message-1");
   });
 
+  it("adopts legacy route state without creating a duplicate message", async () => {
+    const env = fakeEnv();
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    env.states.target!.destination_key = "discord-bot-route:home_travel_tracker,target_travel_tracker";
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    expect(env.states.target?.destination_key).toBe("discord-bot-channel:guild-1:channel-1:");
+    expect(env.states.target?.message_id).toBe("message-1");
+  });
+
   it.each(["channel", "thread"])("creates a message at the new target %s even when travel is unchanged", async (routeType) => {
     const env = fakeEnv();
     await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
@@ -243,20 +256,52 @@ describe("Discord travel tracker", () => {
     );
   });
 
-  it("does not mark stale home data as updated when the refresh fails", async () => {
+  it.each(["failed", "empty"])("does not mark stale home data as updated after a %s refresh", async (refreshOutcome) => {
     const env = fakeEnv();
     env.states.target = trackerState("target", { enabled: 0 });
     env.states.home = trackerState("home", { enabled: 1 });
     await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
     const deliveredState = { ...env.states.home! };
-    vi.mocked(refreshHomeFactionMembers).mockRejectedValueOnce(new Error("Torn unavailable"));
+    if (refreshOutcome === "failed") {
+      vi.mocked(refreshHomeFactionMembers).mockRejectedValueOnce(new Error("Torn unavailable"));
+    } else {
+      vi.mocked(refreshHomeFactionMembers).mockResolvedValueOnce([]);
+    }
     vi.mocked(upsertDiscordAlertMessage).mockClear();
 
     const result = await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_060_000 });
 
-    expect(result.home).toMatchObject({ skipped: true, changed: false, reason: "home refresh failed" });
+    expect(result.home).toMatchObject({ skipped: true, changed: false });
     expect(env.states.home).toEqual(deliveredState);
     expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(["failed", "empty"])("keeps home tracking working after a %s manual target refresh", async (refreshOutcome) => {
+    const env = fakeEnv();
+    env.states.home = trackerState("home", { enabled: 1 });
+    env.target = { id: 1, faction_id: 456, faction_name: "Manual Faction", enabled: 1, last_refreshed_at: null };
+    vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    const deliveredState = { ...env.states.target! };
+    if (refreshOutcome === "failed") {
+      vi.mocked(refreshTrackedFactionMemberStatuses).mockRejectedValueOnce(new Error("Torn unavailable"));
+    } else {
+      vi.mocked(refreshTrackedFactionMemberStatuses).mockResolvedValueOnce({
+        writeStatements: 0, changedRows: 0, fetchedMembers: 0, updatedMembers: 0,
+        deletedMembers: 0, skipped: true, factionId: 456, fetchedAt: null,
+      });
+    }
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+
+    const result = await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_060_000 });
+
+    expect(result.target).toMatchObject({ skipped: true, changed: false });
+    expect(result.home).toMatchObject({ skipped: false, changed: true });
+    expect(env.states.target).toEqual(deliveredState);
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledOnce();
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
+      env, DISCORD_ALERT_KEYS.homeTravelTracker, expect.any(String), expect.any(String), expect.anything(), expect.anything(),
+    );
   });
 
   it("ignores travel tracker webhooks when no bot route is configured", async () => {
