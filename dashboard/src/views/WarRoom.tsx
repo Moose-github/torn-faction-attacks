@@ -1304,10 +1304,9 @@ function ChainWatchPanel({
               <span>Time left</span>
               <strong>{remainingSeconds === null ? "-" : remainingSeconds <= 0 ? "Dropped" : formatCountdownDuration(remainingSeconds)}</strong>
             </div>
-            <ChainWatchDetail label="Next check" value={state?.scheduled_alarm_at ? formatLongDateTime(state.scheduled_alarm_at) : "-"} />
+            <ChainWatchDetail label="Next check" value={formatTime(state?.scheduled_alarm_at ?? null, true)} />
             <ChainWatchDetail label="Last hit" value={formatChainWatchLastHit(state)} />
             <ChainWatchDetail label="Alert eligible" value={alertEligible ? "Above 100" : "No"} />
-            <ChainWatchDetail label="Last alert" value={formatChainWatchLastAlert(state)} />
           </div>
           {state?.last_error ? <p className="chain-watch-error">{state.last_error}</p> : null}
           {canToggle ? (
@@ -1356,22 +1355,6 @@ function formatChainWatchLastHit(state: ChainWatchResponse["state"] | null): str
   const attacker = state.last_hit_attacker_name ?? "Unknown";
   const defender = state.last_hit_defender_name ?? "Unknown";
   return `${attacker} v ${defender}`;
-}
-
-function formatChainWatchLastAlert(state: ChainWatchResponse["state"] | null): string {
-  if (!state) {
-    return "-";
-  }
-  if (state.drop_sent_at) {
-    return `Dropped ${formatRelativeTime(state.drop_sent_at)}`;
-  }
-  if (state.warning_30_sent_at) {
-    return `30s ${formatRelativeTime(state.warning_30_sent_at)}`;
-  }
-  if (state.warning_60_sent_at) {
-    return `60s ${formatRelativeTime(state.warning_60_sent_at)}`;
-  }
-  return "-";
 }
 
 const TrackingStatusPanel = React.forwardRef<HTMLElement, {

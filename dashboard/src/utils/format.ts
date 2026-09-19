@@ -78,7 +78,7 @@ export function formatWarDateRange(
   return `${formatLongDateTime(start)} - ${formatLongDateTime(finish)}`;
 }
 
-export function formatTime(timestamp: number | null): string {
+export function formatTime(timestamp: number | null, includeSeconds = false): string {
   if (!timestamp) {
     return "-";
   }
@@ -86,6 +86,7 @@ export function formatTime(timestamp: number | null): string {
   return `${new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
+    second: includeSeconds ? "2-digit" : undefined,
     ...timeZoneFormatOptions(),
   }).format(new Date(timestamp * 1000))}${timeZoneSuffix()}`;
 }
