@@ -8,12 +8,17 @@ import { readChainWatchDemand } from "./chainWatchDemand";
 import { getChainWatchForWar, setChainWatchEnabledForWar } from "./chainWatchWar";
 import { fetchTrackedTornJson } from "./external/torn";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
+import { readDiscordAlertMentions } from "./discordMentions";
+import { isDiscordAlertEnabled } from "./discordAlertSettings";
 
 vi.mock("./external/torn", () => ({ fetchTrackedTornJson: vi.fn() }));
 vi.mock("./tornKeyPool", () => ({ withTornKeyPool: (_env: unknown, options: { run: (key: unknown) => Promise<unknown> }) => options.run({ key: "test", keySource: "test" }) }));
 vi.mock("./discordAlertSettings", () => ({ isDiscordAlertEnabled: vi.fn().mockResolvedValue(true) }));
 vi.mock("./discordAlertDelivery", () => ({ upsertDiscordAlertMessage: vi.fn().mockResolvedValue("message") }));
-vi.mock("./discordMentions", () => ({ readDiscordAlertMentions: vi.fn().mockResolvedValue({ messageSuffix: "", allowedMentions: { users: [], roles: [] } }), formatDiscordAlertMessage: (message: string) => message }));
+vi.mock("./discordMentions", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./discordMentions")>(),
+  readDiscordAlertMentions: vi.fn(),
+}));
 
 const start = Date.UTC(2030, 0, 1, 13) / 1000;
 let db: ReturnType<typeof chainWatchDatabase>;
@@ -22,12 +27,15 @@ const getByName = vi.fn(() => alarm);
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.clearAllMocks();
+  vi.mocked(upsertDiscordAlertMessage).mockResolvedValue("message");
+  vi.mocked(isDiscordAlertEnabled).mockResolvedValue(true);
+  vi.mocked(readDiscordAlertMentions).mockResolvedValue({ messageSuffix: "", allowedMentions: undefined });
   db = chainWatchDatabase(start - 60);
   advance(start - 60);
   db.env.CHAIN_WATCH_ALARMS = { getByName } as unknown as DurableObjectNamespace;
   vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 0, timeout: 0 } });
 });
-afterEach(() => { db.sqlite.close(); vi.useRealTimers(); });
+afterEach(() => { db.sqlite.close(); vi.useRealTimers(); vi.restoreAllMocks(); });
 function advance(now: number) { db.setNow(now); vi.setSystemTime(now * 1000); }
 async function watch(finish?: number) {
   return createWatch(db.env, { name: "Independent watch", start: watchUtc(start), finish: finish ? watchUtc(finish) : undefined,
@@ -176,6 +184,118 @@ describe("independent faction chain monitor", () => {
     expect(await (await getChainWatchLive(db.env)).json()).toMatchObject({ faction_id: HOME_FACTION_ID,
       state: { current_chain: 150 }, computed: { active: true, remaining_seconds: 300 }, demand: { war_id: null } });
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+  });
+});
+
+describe("assigned watcher alert mentions", () => {
+  const aliceId = "111111111111111111";
+  const bobId = "222222222222222222";
+  beforeEach(() => {
+    db.sqlite.exec(`UPDATE discord_member_links SET discord_user_id = '${aliceId}' WHERE torn_user_id = 1;
+      UPDATE discord_member_links SET discord_user_id = '${bobId}' WHERE torn_user_id = 2;`);
+  });
+  async function assign(watchId: string, at = start, memberId = 1) {
+    await db.env.DB.prepare("UPDATE chain_watch_slots SET assigned_to = ?, admin_override = 1 WHERE watch_id = ? AND start_at = ?")
+      .bind(memberId, watchId, at).run();
+  }
+  async function fire(at: number, remaining: number) {
+    advance(at);
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: remaining ? 150 : 0, timeout: remaining } });
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    return vi.mocked(upsertDiscordAlertMessage).mock.calls.at(-1)!;
+  }
+
+  it("posts each alert with the watcher and subscribers while retaining the separate live status message", async () => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    const normal = vi.mocked(upsertDiscordAlertMessage).mock.calls.at(-1)!;
+    expect(normal[3]).not.toContain(`<@${aliceId}>`);
+    expect(normal[4]).toEqual({ users: [], roles: [] });
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, _key, existingId) => existingId ?? "new-alert");
+    const configured = { messageSuffix: "<@999999> <@&888888>", allowedMentions: { users: ["999999"], roles: ["888888"] } };
+    vi.mocked(readDiscordAlertMentions).mockResolvedValue(configured);
+    for (const [offset, remaining, key] of [[240, 60, "chain_watch_warning"], [270, 30, "chain_watch_critical"], [300, 0, "chain_watch_drop"]] as const) {
+      const call = await fire(start + offset, remaining);
+      expect(readDiscordAlertMentions).toHaveBeenLastCalledWith(db.env, key);
+      expect(call.slice(0, 3)).toEqual([db.env, "chain_watch", null]);
+      expect(call[3]).toMatch(new RegExp(`<@999999> <@&888888> <@${aliceId}>$`));
+      expect(call[4]).toEqual({ users: ["999999", aliceId], roles: ["888888"] });
+      expect((await readChainWatchState(db.env))?.discord_message_id).toBe("message");
+    }
+    expect(configured.allowedMentions.users).toEqual(["999999"]);
+    await hit(2, start + 310, { chain: 1 }); await tick(start + 310);
+    const refreshed = vi.mocked(upsertDiscordAlertMessage).mock.calls.at(-1)!;
+    expect(refreshed[2]).toBe("message");
+    expect(refreshed[4]).toEqual({ users: [], roles: [] });
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.filter((call) => call[2] === null)).toHaveLength(3);
+  });
+
+  it("mentions an already subscribed watcher only once", async () => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    vi.mocked(readDiscordAlertMentions).mockResolvedValue({ messageSuffix: `<@${aliceId}> <@&888888>`,
+      allowedMentions: { users: [aliceId], roles: ["888888"] } });
+    const call = await fire(start + 240, 60);
+    expect(call[3].split(`<@${aliceId}>`)).toHaveLength(2);
+    expect(call[4]).toEqual({ users: [aliceId], roles: ["888888"] });
+  });
+
+  it("uses the current watcher at an exact handover and honours subsequent admin reassignment", async () => {
+    const schedule = await watch(); await assign(schedule.id); await assign(schedule.id, start + 3600, 2);
+    await hit(1, start + 3330); await tick(start + 3330);
+    expect((await fire(start + 3570, 60))[4]).toEqual({ users: [aliceId], roles: [] });
+    const critical = await fire(start + 3600, 30);
+    expect(critical[4]).toEqual({ users: [bobId], roles: [] });
+    expect(critical[3]).not.toContain(`<@${aliceId}>`);
+    await assign(schedule.id, start + 3600, 1);
+    expect((await fire(start + 3630, 0))[4]).toEqual({ users: [aliceId], roles: [] });
+  });
+
+  it.each(["unassigned", "cancelled", "unlinked", "former member", "invalid Discord ID"])("keeps normal alerts when the slot is %s", async (reason) => {
+    const schedule = await watch();
+    if (reason !== "unassigned") await assign(schedule.id);
+    if (reason === "cancelled") db.sqlite.exec("UPDATE chain_watch_slots SET cancelled = 1");
+    if (reason === "unlinked") db.sqlite.exec("DELETE FROM discord_member_links WHERE torn_user_id = 1");
+    if (reason === "former member") db.sqlite.exec("UPDATE home_faction_members SET is_current = 0 WHERE member_id = 1");
+    if (reason === "invalid Discord ID") db.sqlite.exec("UPDATE discord_member_links SET discord_user_id = '@everyone' WHERE torn_user_id = 1");
+    await hit(1, start); await tick();
+    vi.mocked(readDiscordAlertMentions).mockResolvedValue({ messageSuffix: "<@&888888>", allowedMentions: { roles: ["888888"] } });
+    const call = await fire(start + 240, 60);
+    expect(call[3]).toContain("WARNING");
+    expect(call[3].endsWith("\n<@&888888>")).toBe(true);
+    expect(call[4]).toEqual({ roles: ["888888"] });
+  });
+
+  it.each(["future", "finished"])("does not add a watcher from a %s watch to war alerts", async (status) => {
+    const watchStart = status === "future" ? start + 3600 : start;
+    const schedule = await createWatch(db.env, { name: "Watch", start: watchUtc(watchStart), finish: watchUtc(watchStart + 3600),
+      guildId: "guild", channelId: "channel", discordUserId: "111" }, start - 60);
+    await assign(schedule.id, watchStart); await war();
+    const hitAt = status === "future" ? start : start + 3600;
+    await hit(1, hitAt); await tick(hitAt);
+    const call = await fire(hitAt + 240, 60);
+    expect(call[3]).toContain("WARNING");
+    expect(call[4]).toEqual({ users: [], roles: [] });
+  });
+
+  it("continues the ordinary alert if the assignment lookup fails", async () => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start); await tick();
+    const prepare = db.env.DB.prepare.bind(db.env.DB);
+    vi.spyOn(db.env.DB, "prepare").mockImplementation((sql) => {
+      if (sql.includes("SELECT links.discord_user_id FROM chain_watch_slots")) throw new Error("lookup unavailable");
+      return prepare(sql);
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const call = await fire(start + 240, 60);
+    expect(call[3]).toContain("WARNING");
+    expect(call[4]).toEqual({ users: [], roles: [] });
+    expect(warning).toHaveBeenCalledWith("Chain Watch assignment lookup failed:", "lookup unavailable");
+  });
+
+  it("respects the existing disabled chain-alert setting even when a watcher is assigned", async () => {
+    const schedule = await watch(); await assign(schedule.id); await hit(1, start);
+    vi.mocked(isDiscordAlertEnabled).mockResolvedValue(false);
+    await tick(); await fire(start + 240, 60);
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
   });
 });
 

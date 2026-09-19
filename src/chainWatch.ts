@@ -7,7 +7,7 @@ import {
 import { type DiscordAllowedMentions } from "./discord";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
-import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
 import { withTornKeyPool } from "./tornKeyPool";
@@ -15,6 +15,7 @@ import { Env } from "./types";
 import { finiteNumber, json, nowSeconds } from "./utils";
 import { readChainWatchDemand } from "./chainWatchDemand";
 import type { ChainWatchLiveResponse } from "../shared/chainWatchLive";
+import { WATCH_HOUR } from "../shared/chainWatchSchedule";
 
 export const CHAIN_WATCH_TIMEOUT_SECONDS = 5 * 60;
 export const CHAIN_WATCH_WARNING_60_OFFSET_SECONDS = 4 * 60;
@@ -322,7 +323,7 @@ export function chainWatchStoppedMessage(options: { warName?: string | null } = 
   return warName ? `Chain Watch stopped for ${warName}.` : "Chain Watch stopped.";
 }
 
-export function chainWatchWarningAlertKey(stage: "warning_60" | "warning_30"): string {
+export function chainWatchWarningAlertKey(stage: "warning_60" | "warning_30"): DiscordAlertKey {
   return stage === "warning_60"
     ? DISCORD_ALERT_KEYS.chainWatchWarning
     : DISCORD_ALERT_KEYS.chainWatchCritical;
@@ -512,9 +513,11 @@ async function sendWarningIfDue(
     return;
   }
 
-  const discordMessageId = await upsertChainWatchDiscordMessage(
+  // A new message is required for mention notifications. Keep the live status
+  // message's ID separate so later refreshes do not overwrite this alert.
+  await upsertChainWatchDiscordMessage(
     env,
-    confirmedState.discord_message_id,
+    null,
     await chainWatchWarningDiscordMessage(env, {
       stage,
       currentChain: Number(confirmedState.current_chain),
@@ -530,7 +533,6 @@ async function sendWarningIfDue(
     SET ${warningColumn} = ?,
         alert_chain = ?,
         alert_reset_at = ?,
-        discord_message_id = COALESCE(?, discord_message_id),
         scheduled_alarm_stage = NULL,
         scheduled_alarm_at = NULL,
         last_error = NULL,
@@ -542,7 +544,6 @@ async function sendWarningIfDue(
       sentAt,
       confirmedState.current_chain,
       confirmedState.reset_at,
-      discordMessageId,
       sentAt,
       confirmedState.faction_id,
     )
@@ -623,9 +624,9 @@ async function sendDroppedIfDue(
     return;
   }
 
-  const discordMessageId = await upsertChainWatchDiscordMessage(
+  await upsertChainWatchDiscordMessage(
     env,
-    state.discord_message_id,
+    null,
     await chainWatchDroppedDiscordMessage(env, {
       currentChain: Number(state.current_chain ?? state.alert_chain ?? 0),
       timeoutAt: state.timeout_at,
@@ -638,7 +639,6 @@ async function sendDroppedIfDue(
     UPDATE faction_chain_watch_state
     SET drop_sent_at = ?,
         source = 'dropped',
-        discord_message_id = COALESCE(?, discord_message_id),
         scheduled_alarm_stage = NULL,
         scheduled_alarm_at = NULL,
         last_error = NULL,
@@ -646,7 +646,7 @@ async function sendDroppedIfDue(
     WHERE faction_id = ?
     `,
   )
-    .bind(sentAt, discordMessageId, sentAt, state.faction_id)
+    .bind(sentAt, sentAt, state.faction_id)
     .run();
 }
 
@@ -1075,11 +1075,7 @@ async function chainWatchWarningDiscordMessage(
     lastHit: ChainWatchStateRow | ChainWatchAttackRow | null;
   },
 ): Promise<{ message: string; allowedMentions?: DiscordAllowedMentions }> {
-  const mentions = await readDiscordAlertMentions(env, chainWatchWarningAlertKey(options.stage));
-  return {
-    message: formatDiscordAlertMessage(chainWatchWarningMessage(options), mentions.messageSuffix),
-    allowedMentions: mentions.allowedMentions ?? { users: [], roles: [] },
-  };
+  return chainWatchAlertDiscordMessage(env, chainWatchWarningAlertKey(options.stage), chainWatchWarningMessage(options));
 }
 
 async function chainWatchDroppedDiscordMessage(
@@ -1090,11 +1086,41 @@ async function chainWatchDroppedDiscordMessage(
     lastHit: ChainWatchStateRow | ChainWatchAttackRow | null;
   },
 ): Promise<{ message: string; allowedMentions?: DiscordAllowedMentions }> {
-  const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.chainWatchDrop);
+  return chainWatchAlertDiscordMessage(env, DISCORD_ALERT_KEYS.chainWatchDrop, chainWatchDroppedMessage(options));
+}
+
+async function chainWatchAlertDiscordMessage(env: Env, alertKey: DiscordAlertKey, message: string) {
+  const mentions = await readDiscordAlertMentions(env, alertKey);
+  const watcherId = await readCurrentChainWatcherDiscordId(env);
+  const allowedMentions = mentions.allowedMentions ?? { users: [], roles: [] };
+  const users = allowedMentions.users ?? [];
+  const appendWatcher = watcherId !== null && !users.includes(watcherId);
+  const suffix = appendWatcher ? [mentions.messageSuffix, `<@${watcherId}>`].filter(Boolean).join(" ") : mentions.messageSuffix;
   return {
-    message: formatDiscordAlertMessage(chainWatchDroppedMessage(options), mentions.messageSuffix),
-    allowedMentions: mentions.allowedMentions ?? { users: [], roles: [] },
+    message: formatDiscordAlertMessage(message, suffix),
+    allowedMentions: appendWatcher ? { ...allowedMentions, users: [...users, watcherId] } : allowedMentions,
   };
+}
+
+async function readCurrentChainWatcherDiscordId(env: Env): Promise<string | null> {
+  const now = nowSeconds();
+  try {
+    const watcher = await env.DB.prepare(`
+      SELECT links.discord_user_id FROM chain_watch_slots slot
+      JOIN chain_watch_schedules watch ON watch.id = slot.watch_id
+      JOIN home_faction_members member ON member.member_id = slot.assigned_to AND member.is_current = 1
+      JOIN discord_member_links links ON links.torn_user_id = slot.assigned_to
+      WHERE watch.is_open = 1 AND watch.start_at <= ? AND (watch.finish_at IS NULL OR watch.finish_at > ?)
+        AND slot.start_at = ? AND slot.cancelled = 0
+      LIMIT 1
+    `).bind(now, now, Math.floor(now / WATCH_HOUR) * WATCH_HOUR).first<{ discord_user_id: string }>();
+    const id = watcher?.discord_user_id?.trim();
+    return id && /^\d{5,32}$/.test(id) ? id : null;
+  } catch (err: any) {
+    // An assignment lookup failure must not prevent the normal chain alert.
+    console.warn("Chain Watch assignment lookup failed:", err?.message || err);
+    return null;
+  }
 }
 
 function cleanDiscordLineText(value: string | null | undefined): string | null {

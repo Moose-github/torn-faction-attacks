@@ -29,8 +29,18 @@ freshness. It polls the stored live endpoint every 15 seconds while visible and
 on focus, independently of roster requests. The countdown ticks each second;
 stale data or a failed refresh hides it, and local expiry waits for a monitoring
 update before calling the chain dropped. Historical sheets never supply watcher
-names for a different active watch. Targeted watcher mentions remain separate
-follow-up work.
+names for a different active watch.
+
+The 60-second warning, 30-second critical warning and drop alert each post a new
+Discord message, with the live status message continuing to update separately.
+Each alert keeps its configured user/role mentions and appends the current slot's
+assigned watcher using their linked Discord account, without changing alert
+subscriptions or routing. The assignment is read at alert time, including at
+hourly handovers and after admin reassignment; an already mentioned watcher is
+included only once. Cancelled/unassigned slots, inactive watches and missing or
+invalid Discord links add no watcher. The global chain-alert enable setting is
+still respected, and an assignment lookup failure does not prevent the ordinary
+alert from being delivered.
 
 Migration `0148_create_faction_chain_watch_state.sql` preserves the current
 legacy monitor's message ID and warning markers. Legacy per-war alarms retire
