@@ -525,6 +525,7 @@ async function sendWarningIfDue(
       lastHit: confirmedState,
     }),
     stage === "warning_60" ? CHAIN_WATCH_WARNING_COLOR : CHAIN_WATCH_CRITICAL_COLOR,
+    chainWatchWarningAlertKey(stage),
   );
 
   await env.DB.prepare(
@@ -632,6 +633,8 @@ async function sendDroppedIfDue(
       timeoutAt: state.timeout_at,
       lastHit: state,
     }),
+    undefined,
+    DISCORD_ALERT_KEYS.chainWatchDrop,
   );
 
   await env.DB.prepare(
@@ -995,19 +998,20 @@ async function upsertChainWatchDiscordMessage(
   existingMessageId: string | null,
   options: string | { message: string; allowedMentions?: DiscordAllowedMentions },
   embedColor?: number,
+  alertKey: DiscordAlertKey = DISCORD_ALERT_KEYS.chainWatch,
 ): Promise<string | null> {
-  if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.chainWatch)) {
+  if (!await isDiscordAlertEnabled(env, alertKey)) {
     return existingMessageId;
   }
 
   try {
     // Warning/drop messages already contain their own mentions and assigned watcher.
-    const mentions = typeof options === "string" ? await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.chainWatch) : null;
+    const mentions = typeof options === "string" ? await readDiscordAlertMentions(env, alertKey) : null;
     const message = typeof options === "string" ? formatDiscordAlertMessage(options, mentions!.messageSuffix) : options.message;
     const allowedMentions = typeof options === "string" ? mentions!.allowedMentions ?? { users: [], roles: [] } : options.allowedMentions;
     return await upsertDiscordAlertMessage(
       env,
-      DISCORD_ALERT_KEYS.chainWatch,
+      alertKey,
       existingMessageId,
       message,
       allowedMentions,

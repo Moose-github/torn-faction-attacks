@@ -180,6 +180,85 @@ describe("Discord travel tracker", () => {
     expect(env.state?.display_name).toBe("Manual Faction Travel Tracker");
   });
 
+  it("preserves the delivered state when Discord returns no message id", async () => {
+    const env = fakeEnv();
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    const deliveredState = { ...env.states.target! };
+    env.rows[0].name = "Updated traveler";
+    vi.mocked(upsertDiscordAlertMessage).mockResolvedValueOnce(null);
+
+    const result = await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_060_000 });
+
+    expect(result.target).toMatchObject({ skipped: true, changed: false, message_id: "message-1" });
+    expect(env.states.target).toEqual(deliveredState);
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_120_000 });
+    expect(upsertDiscordAlertMessage).toHaveBeenLastCalledWith(
+      env, DISCORD_ALERT_KEYS.targetTravelTracker, "message-1", expect.stringContaining("Updated traveler"),
+      expect.anything(), expect.anything(),
+    );
+  });
+
+  it("retries a stopped notice when Discord returns no message id", async () => {
+    const env = fakeEnv();
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    const deliveredState = { ...env.states.target! };
+    vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
+    vi.mocked(upsertDiscordAlertMessage).mockResolvedValueOnce(null);
+
+    const result = await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_060_000 });
+
+    expect(result.target).toMatchObject({ skipped: true, changed: false, message_id: "message-1" });
+    expect(env.states.target).toEqual(deliveredState);
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_120_000 });
+    expect(upsertDiscordAlertMessage).toHaveBeenLastCalledWith(
+      env, DISCORD_ALERT_KEYS.targetTravelTracker, "message-1", expect.stringContaining("Tracking stopped"),
+      expect.anything(), expect.anything(),
+    );
+  });
+
+  it("does not create another target message when the home route is removed", async () => {
+    const env = fakeEnv();
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    env.notificationRoutes.delete(`guild-1:${DISCORD_ALERT_KEYS.homeTravelTracker}`);
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    expect(env.states.target?.message_id).toBe("message-1");
+  });
+
+  it.each(["channel", "thread"])("creates a message at the new target %s even when travel is unchanged", async (routeType) => {
+    const env = fakeEnv();
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    const route = env.notificationRoutes.get(`guild-1:${DISCORD_ALERT_KEYS.targetTravelTracker}`)!;
+    if (routeType === "channel") route.channel_id = "channel-2";
+    else route.thread_id = "thread-2";
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(
+      env, DISCORD_ALERT_KEYS.targetTravelTracker, null, expect.any(String), expect.anything(), expect.anything(),
+    );
+  });
+
+  it("does not mark stale home data as updated when the refresh fails", async () => {
+    const env = fakeEnv();
+    env.states.target = trackerState("target", { enabled: 0 });
+    env.states.home = trackerState("home", { enabled: 1 });
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    const deliveredState = { ...env.states.home! };
+    vi.mocked(refreshHomeFactionMembers).mockRejectedValueOnce(new Error("Torn unavailable"));
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+
+    const result = await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_060_000 });
+
+    expect(result.home).toMatchObject({ skipped: true, changed: false, reason: "home refresh failed" });
+    expect(env.states.home).toEqual(deliveredState);
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+  });
+
   it("ignores travel tracker webhooks when no bot route is configured", async () => {
     const env = fakeEnv();
     env.notificationRoutes.clear();
@@ -311,6 +390,68 @@ describe("Discord travel tracker", () => {
       target: { skipped: true, reason: "target travel tracker disabled", changed: false },
       home: { skipped: true, reason: "home travel tracker disabled", changed: false },
     });
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["target", DISCORD_ALERT_KEYS.targetTravelTracker, DISCORD_ALERT_KEYS.homeTravelTracker],
+    ["home", DISCORD_ALERT_KEYS.homeTravelTracker, DISCORD_ALERT_KEYS.targetTravelTracker],
+  ] as const)("muting %s messages leaves both trackers running and the other message enabled", async (trackerKey, mutedKey, otherKey) => {
+    const env = fakeEnv();
+    env.states.target = trackerState("target", { enabled: 1 });
+    env.states.home = trackerState("home", { enabled: 1 });
+    env.alertSettings.set(mutedKey, { enabled: 0, configurable: 1 });
+    const result = await syncDiscordTravelTracker(env, { force: true, scheduledTime: 1_800_000_000_000 });
+    expect(result[trackerKey]).toMatchObject({ enabled: true, skipped: true, reason: "Discord travel messages disabled", traveling: 1, changed: false });
+    expect(refreshHomeFactionMembers).toHaveBeenCalledWith(env);
+    expect(readCurrentScoutingWar).toHaveBeenCalledWith(env);
+    expect(env.states.target?.enabled).toBe(1);
+    expect(env.states.home?.enabled).toBe(1);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.map((call) => call[1])).toEqual([otherKey]);
+  });
+
+  it("refreshes manual travel data while messages are muted", async () => {
+    const env = fakeEnv();
+    vi.mocked(isWarRoomMemberTrackingActive).mockReturnValue(false);
+    env.target = { id: 1, faction_id: 456, faction_name: "Manual faction", enabled: 1, last_refreshed_at: 1_799_999_000 };
+    env.alertSettings.set(DISCORD_ALERT_KEYS.targetTravelTracker, { enabled: 0, configurable: 1 });
+    const result = await syncDiscordTravelTracker(env, { force: true, manualOnly: true, scheduledTime: 1_800_000_000_000 });
+    expect(refreshTrackedFactionMemberStatuses).toHaveBeenCalledWith(env, 456, 1_799_999_000);
+    expect(env.target).toMatchObject({ enabled: 1, last_refreshed_at: 1_800_000_000 });
+    expect(result.target).toMatchObject({ enabled: true, source: "manual", faction_id: 456, reason: "Discord travel messages disabled", refreshed: { fetchedMembers: 2 } });
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+  });
+
+  it("preserves undelivered content and catches the existing message up after unmuting", async () => {
+    const env = fakeEnv();
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    const deliveredState = { ...env.states.target };
+    env.alertSettings.set(DISCORD_ALERT_KEYS.targetTravelTracker, { enabled: 0, configurable: 1 });
+    env.rows[0].name = "Updated traveler";
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    await syncDiscordTravelTracker(env, { force: true, scheduledTime: 1_800_000_000_000 });
+    expect(env.states.target).toEqual(deliveredState);
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+
+    env.alertSettings.set(DISCORD_ALERT_KEYS.targetTravelTracker, { enabled: 1, configurable: 1 });
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledWith(env, DISCORD_ALERT_KEYS.targetTravelTracker, "message-1", expect.stringContaining("Updated traveler"), expect.anything(), expect.anything());
+  });
+
+  it("keeps delivery muted across war lifecycle hooks, including forced stopped notices", async () => {
+    const env = fakeEnv();
+    env.states.home = trackerState("home", { enabled: 1 });
+    await syncDiscordTravelTracker(env, { scheduledTime: 1_800_000_000_000 });
+    env.alertSettings.set(DISCORD_ALERT_KEYS.targetTravelTracker, { enabled: 0, configurable: 1 });
+    env.alertSettings.set(DISCORD_ALERT_KEYS.homeTravelTracker, { enabled: 0, configurable: 1 });
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    await stopDiscordTravelTrackersForWar(env);
+    await enableDiscordTravelTrackersForWar(env);
+    await syncDiscordTravelTracker(env, { force: true, scheduledTime: 1_800_000_000_000 });
+    expect(env.states.target?.enabled).toBe(1);
+    expect(env.states.home?.enabled).toBe(1);
+    expect(env.alertSettings.get(DISCORD_ALERT_KEYS.targetTravelTracker)?.enabled).toBe(0);
+    expect(env.alertSettings.get(DISCORD_ALERT_KEYS.homeTravelTracker)?.enabled).toBe(0);
     expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
   });
 
@@ -729,6 +870,7 @@ type FakeRow = {
 };
 
 type FakeEnv = Env & {
+  alertSettings: Map<string, { enabled: number; configurable: number }>;
   DISCORD_TRAVEL_TRACKER_WEBHOOK_URL?: string;
   state: FakeState | null;
   states: Record<"target" | "home", FakeState | null>;
@@ -748,6 +890,7 @@ type FakeEnv = Env & {
 
 function fakeEnv(): FakeEnv {
   const env = {
+    alertSettings: new Map(),
     DISCORD_GUILD_ID: "guild-1",
     state: null,
     states: {
@@ -831,6 +974,9 @@ function fakeEnv(): FakeEnv {
   function statement(sql: string, values: unknown[]) {
     return {
       first() {
+        if (sql.includes("FROM alert_settings")) {
+          return Promise.resolve(env.alertSettings.get(String(values[0])) ?? null);
+        }
         if (sql.includes("FROM discord_travel_tracker_state")) {
           return Promise.resolve(env.states[values[0] as "target" | "home"] ?? null);
         }

@@ -40,6 +40,15 @@ describe("monthly Xanax competition Discord reminder", () => {
     );
   });
 
+  it("continues competition rollover when Discord delivery is off", async () => {
+    const fixture = createReminderFixture({ lastRolloverMonthKey: "2026-04", rolloverCount: 0, discordEnabled: 0 });
+    const result = await runMonthlyXanaxCompetitionDiscordReminder(fixture.env, Date.UTC(2026, 5, 1, 0, 10, 0));
+    expect(result).toMatchObject({ sent: false, reason: "xanax competition Discord reminder disabled" });
+    expect(fixture.settings).toMatchObject({ enabled: 1, rollover_count: 1, last_rollover_month_key: "2026-05" });
+    expect(discordMock.sendDiscordAlertMessageWithAttachment).not.toHaveBeenCalled();
+    expect(rendererMock.renderXanaxCompetitionReminderGif).not.toHaveBeenCalled();
+  });
+
   it("reconciles rollover before rendering and marks complete after Discord succeeds", async () => {
     const fixture = createReminderFixture({
       lastRolloverMonthKey: "2026-04",
@@ -272,6 +281,7 @@ describe("monthly Xanax competition progress", () => {
 
 type ReminderFixtureOptions = {
   enabled?: number;
+  discordEnabled?: number;
   lastRolloverMonthKey: string | null;
   rolloverCount: number;
 };
@@ -323,7 +333,7 @@ function createReminderFixture(options: ReminderFixtureOptions): {
           if (compactSql.includes("FROM alert_settings")) {
             return {
               alert_key: DISCORD_ALERT_KEYS.xanaxCompetition,
-              enabled: 1,
+              enabled: options.discordEnabled ?? 1,
               configurable: 1,
             };
           }

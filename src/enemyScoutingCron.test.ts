@@ -102,6 +102,17 @@ describe("enemy scouting stats image Discord report", () => {
     expect(clearSyncLatch).not.toHaveBeenCalled();
   });
 
+  it("preserves the completed scouting report while muted and sends it after re-enabling", async () => {
+    vi.mocked(isDiscordAlertEnabled).mockResolvedValue(false);
+    expect(await sendPendingEnemyStatsComparisonImage(env)).toMatchObject({ sent: false, skipped: true, reason: "enemy scouting report Discord alert disabled" });
+    expect(sendDiscordAlertMessageWithAttachments).not.toHaveBeenCalled();
+    expect(setSyncLatch).not.toHaveBeenCalled();
+    expect(clearSyncLatch).not.toHaveBeenCalled();
+    vi.mocked(isDiscordAlertEnabled).mockResolvedValue(true);
+    expect(await sendPendingEnemyStatsComparisonImage(env)).toEqual({ sent: true, skipped: false });
+    expect(sendDiscordAlertMessageWithAttachments).toHaveBeenCalledOnce();
+  });
+
   it("marks the report sent only after Discord returns a message id", async () => {
     vi.mocked(readDiscordAlertMentions).mockResolvedValue({ messageSuffix: "<@&222222> @here", allowedMentions: { roles: ["222222"], everyone: true } });
     const result = await sendPendingEnemyStatsComparisonImage(env);

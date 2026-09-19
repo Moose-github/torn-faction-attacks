@@ -1,4 +1,5 @@
 import { readJsonObject } from "./backend/request";
+import { DISCORD_DELIVERY_CONTROLS } from "../shared/discordDeliverySettings";
 import { createDiscordBotMessage } from "./discord";
 import {
   DISCORD_ALERT_CHANNEL_ROUTES,
@@ -97,6 +98,12 @@ type AlertSettingRow = {
 };
 
 const ALERT_SETTING_CONFIGS = [
+  ...DISCORD_DELIVERY_CONTROLS.map((alert) => ({
+    key: alert.key,
+    name: alert.name,
+    defaultEnabled: true,
+    configurable: true,
+  })),
   {
     key: DISCORD_ALERT_KEYS.chainWatchMissedCheckIn,
     name: "Chain watch missed check-in",
@@ -158,6 +165,9 @@ export async function getAdminDiscordAlertSettings(env: Env): Promise<Response> 
   return json({
     ok: true,
     chain_watch_alert: await readChainWatchAlertSetting(env),
+    delivery_alerts: await Promise.all(DISCORD_DELIVERY_CONTROLS.map((alert) =>
+      readConfiguredAlertSetting(env, alertConfig(alert.key))
+    )),
     chain_watch_missed_check_in_alert: await readChainWatchMissedCheckInAlertSetting(env),
     retaliation_board_alert: await readRetaliationBoardAlertSetting(env),
     enemy_push_alert: await readEnemyPushAlertSetting(env),
@@ -243,6 +253,12 @@ export async function testAdminDiscordAlertRouteFromRequest(request: Request, en
 
 export async function updateAdminDiscordAlertSettingsFromRequest(request: Request, env: Env): Promise<Response> {
   const body = await readJsonObject(request);
+  const deliveryAlert = DISCORD_DELIVERY_CONTROLS.find((alert) => alert.key === body.alert_key);
+  if (deliveryAlert) {
+    const error = await updateAlertSettingFromBody(env, deliveryAlert.key, body.enabled);
+    if (error) return error;
+    return getAdminDiscordAlertSettings(env);
+  }
   if (body.alert_key === DISCORD_ALERT_KEYS.chainWatchMissedCheckIn) {
     const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.chainWatchMissedCheckIn, body.enabled);
     if (error) return error;

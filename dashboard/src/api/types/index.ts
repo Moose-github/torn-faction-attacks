@@ -1,3 +1,6 @@
+import type { DiscordDeliveryAlertSetting } from "../../../../shared/discordDeliverySettings";
+export type { DiscordDeliveryAlertSetting } from "../../../../shared/discordDeliverySettings";
+
 export type WarType = "all" | "real" | "termed" | "event";
 
 export type PackRewardRarity = "standard" | "select" | "elite" | "legendary";
@@ -963,6 +966,7 @@ export type DiscordAlertRouteSummary = {
 
 
 export type AdminDiscordAlertSettingsResponse = {
+  delivery_alerts: DiscordDeliveryAlertSetting[];
 
   ok: boolean;
 

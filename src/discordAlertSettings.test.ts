@@ -9,6 +9,7 @@ import {
   updateEnemyPushAlertSetting,
 } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import { DISCORD_DELIVERY_CONTROLS } from "../shared/discordDeliverySettings";
 import {
   clearSyncLatch,
   clearSyncLatchesByPrefix,
@@ -157,6 +158,32 @@ describe("Discord alert settings", () => {
 
     expect(db.settings.get("chain_watch")).toMatchObject({ enabled: 1, configurable: 1 });
     expect(clearSyncLatchesByPrefix).not.toHaveBeenCalled();
+  });
+
+  it.each(DISCORD_DELIVERY_CONTROLS)("persists the $key message toggle independently", async ({ key }) => {
+    const before = new Map(db.settings);
+    const response = await updateAdminDiscordAlertSettingsFromRequest(jsonRequest({ alert_key: key, enabled: false }), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      delivery_alerts: expect.arrayContaining([{ key, name: expect.any(String), enabled: false, configurable: true }]),
+    });
+    await expect(isDiscordAlertEnabled(env, key)).resolves.toBe(false);
+    for (const [existingKey, setting] of before) expect(db.settings.get(existingKey)).toEqual(setting);
+    for (const other of DISCORD_DELIVERY_CONTROLS.filter((control) => control.key !== key)) {
+      await expect(isDiscordAlertEnabled(env, other.key)).resolves.toBe(true);
+    }
+    expect(createDiscordBotMessage).not.toHaveBeenCalled();
+    expect(clearSyncLatch).not.toHaveBeenCalled();
+    expect(clearSyncLatchesByPrefix).not.toHaveBeenCalled();
+
+    await updateAdminDiscordAlertSettingsFromRequest(jsonRequest({ alert_key: key, enabled: true }), env);
+    await expect(isDiscordAlertEnabled(env, key)).resolves.toBe(true);
+  });
+
+  it.each(DISCORD_DELIVERY_CONTROLS)("rejects a non-boolean $key toggle", async ({ key }) => {
+    const response = await updateAdminDiscordAlertSettingsFromRequest(jsonRequest({ alert_key: key, enabled: "false" }), env);
+    expect(response.status).toBe(400);
+    expect(db.settings.has(key)).toBe(false);
   });
 
   it("updates Discord-only report and reminder alert settings", async () => {

@@ -1,5 +1,6 @@
 import { cleanString, positiveIntegerOrNull, readJsonObject } from "./backend/request";
 import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
+import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
 import { readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
@@ -346,6 +347,10 @@ async function stopTravelTrackerMessage(
   const hash = contentHash(message.content);
   const enabled = trackerEnabled(trackerKey, state);
 
+  if (!await isDiscordAlertEnabled(env, travelTrackerAlertKey(trackerKey))) {
+    return trackerResult(trackerKey, enabled, true, "Discord travel messages disabled", state.war_id, state.faction_id, "inactive", state.message_id, 0, 0, false);
+  }
+
   if (state.content_hash === hash) {
     await markTravelTrackerChecked(env, trackerKey, checkedAt);
     return trackerResult(trackerKey, enabled, true, "travel tracker unchanged", state.war_id, state.faction_id, "inactive", state.message_id, 0, 0, false);
@@ -389,6 +394,12 @@ async function updateTravelTrackerMessage(
   const enabled = trackerEnabled(trackerKey, state);
   const sameTarget = isSameTrackerTarget(state, source, warId, factionId, destination.key);
   const reusableMessageId = sameTarget ? existingMessageId : null;
+
+  // Refreshes have already run. Muting must not change tracking state or record
+  // content as delivered, so re-enabling catches the existing message up.
+  if (!await isDiscordAlertEnabled(env, travelTrackerAlertKey(trackerKey))) {
+    return trackerResult(trackerKey, enabled, true, "Discord travel messages disabled", warId, factionId, source, existingMessageId, traveling, abroad, false, refreshed);
+  }
 
   if (!force && reusableMessageId && state?.content_hash === hash) {
     if (state.display_name !== message.displayName) {

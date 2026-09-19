@@ -217,7 +217,7 @@ describe("assigned watcher alert mentions", () => {
     for (const [offset, remaining, key] of [[240, 60, "chain_watch_warning"], [270, 30, "chain_watch_critical"], [300, 0, "chain_watch_drop"]] as const) {
       const call = await fire(start + offset, remaining);
       expect(readDiscordAlertMentions).toHaveBeenLastCalledWith(db.env, key);
-      expect(call.slice(0, 3)).toEqual([db.env, "chain_watch", null]);
+      expect(call.slice(0, 3)).toEqual([db.env, key, null]);
       expect(call[3]).toMatch(new RegExp(`<@999999> <@&888888> <@${aliceId}>$`));
       expect(call[4]).toEqual({ users: ["999999", aliceId], roles: ["888888"] });
       expect((await readChainWatchState(db.env))?.discord_message_id).toBe("message");
@@ -299,11 +299,46 @@ describe("assigned watcher alert mentions", () => {
     expect(warning).toHaveBeenCalledWith("Chain Watch assignment lookup failed:", "lookup unavailable");
   });
 
-  it("respects the existing disabled chain-alert setting even when a watcher is assigned", async () => {
+  it("suppresses all Discord messages while continuing every alarm stage when message toggles are off", async () => {
     const schedule = await watch(); await assign(schedule.id); await hit(1, start);
     vi.mocked(isDiscordAlertEnabled).mockResolvedValue(false);
-    await tick(); await fire(start + 240, 60);
+    await tick();
+    await fire(start + 240, 60);
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, current_chain: 150, warning_60_sent_at: start + 240, scheduled_alarm_stage: "warning_30" });
+    await fire(start + 270, 30);
+    expect(await readChainWatchState(db.env)).toMatchObject({ warning_30_sent_at: start + 270, scheduled_alarm_stage: "drop" });
+    await fire(start + 300, 0);
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, source: "dropped", drop_sent_at: start + 300 });
+    expect(await readChainWatchDemand(db.env)).toMatchObject({ active: true, watch_id: schedule.id });
+    await hit(2, start + 310, { chain: 151 }); await tick(start + 310);
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, current_chain: 151, drop_sent_at: null, scheduled_alarm_stage: "warning_60" });
     expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(["chain_watch_warning", "chain_watch_critical", "chain_watch_drop"])("muting %s leaves other Discord messages and events active", async (mutedKey) => {
+    await watch(); await hit(1, start);
+    vi.mocked(isDiscordAlertEnabled).mockImplementation(async (_env, key) => key !== mutedKey);
+    await tick();
+    for (const [offset, remaining] of [[240, 60], [270, 30], [300, 0]]) await fire(start + offset, remaining);
+    const deliveredKeys = vi.mocked(upsertDiscordAlertMessage).mock.calls.map((call) => call[1]);
+    expect(deliveredKeys).toContain("chain_watch");
+    expect(deliveredKeys).not.toContain(mutedKey);
+    for (const key of ["chain_watch_warning", "chain_watch_critical", "chain_watch_drop"].filter((key) => key !== mutedKey)) {
+      expect(deliveredKeys).toContain(key);
+    }
+    expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, warning_60_sent_at: start + 240, warning_30_sent_at: start + 270, drop_sent_at: start + 300 });
+  });
+
+  it("delivers stage alerts through their own routes when the persistent status message is off", async () => {
+    await watch(); await hit(1, start);
+    vi.mocked(isDiscordAlertEnabled).mockImplementation(async (_env, key) => key !== "chain_watch");
+    await tick();
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    for (const [offset, remaining] of [[240, 60], [270, 30], [300, 0]]) await fire(start + offset, remaining);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.map((call) => call[1])).toEqual([
+      "chain_watch_warning", "chain_watch_critical", "chain_watch_drop",
+    ]);
+    expect((await readChainWatchState(db.env))?.discord_message_id).toBeNull();
   });
 });
 

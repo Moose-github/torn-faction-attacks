@@ -347,7 +347,7 @@ export async function updateAdminTermedWarAutoEndDiscordAlert(payload: {
 
 }
 
-function updateAdminDiscordAlert(
+export function updateAdminDiscordAlert(
   alertKey: string,
   enabled: boolean,
 ): Promise<AdminDiscordAlertSettingsResponse> {

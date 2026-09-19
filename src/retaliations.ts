@@ -408,18 +408,6 @@ export async function syncRetaliationDiscordBoard(
   checkedAt: number = nowSeconds(),
   options: { allowActiveLightSync?: boolean } = {},
 ): Promise<RetaliationBoardSyncResult> {
-  const inactiveResult = (skippedReason: string): RetaliationBoardSyncResult => ({
-    active: false,
-    nextRefreshAt: checkedAt + RETALIATION_BOARD_FALLBACK_REFRESH_SECONDS,
-    edited: false,
-    skippedReason,
-  });
-
-  if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.retaliationBoard)) {
-    console.debug("Retaliation board sync skipped: alert disabled");
-    return inactiveResult("disabled");
-  }
-
   let rows = await listRetaliationOpportunities(env, checkedAt, {
     includeClaimed: true,
     includeExpired: false,
@@ -438,6 +426,18 @@ export async function syncRetaliationDiscordBoard(
     });
   }
   const refreshPlan = getRetaliationBoardRefreshPlan(rows, checkedAt);
+  if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.retaliationBoard)) {
+    if (refreshPlan.active) {
+      await scheduleRetaliationBoardAlarm(env, refreshPlan.nextRefreshAt);
+    }
+    return {
+      ...refreshPlan,
+      edited: false,
+      skippedReason: "disabled",
+      ...(lightSync ? { lightSync } : {}),
+    };
+  }
+
   const message = renderRetaliationBoardPayload(rows, checkedAt, refreshPlan.nextRefreshAt);
   const hash = stableHash(JSON.stringify(message));
   const state = await readRetaliationBoardState(env);

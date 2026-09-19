@@ -11,6 +11,7 @@ import {
   deleteWar,
   AdminDiscordAlertSettingsResponse,
   DiscordAlertRouteSummary,
+  DiscordDeliveryAlertSetting,
   DiscordTravelTrackerTargetResponse,
   EnemyStatsImagePreviewType,
   endActiveWar,
@@ -152,6 +153,7 @@ export function AdminControls() {
     React.useState<AdminXanaxCompetitionResponse | null>(null);
   const [isLoadingXanaxCompetition, setIsLoadingXanaxCompetition] = React.useState(false);
   const [chainWatchAlert, setChainWatchAlert] = React.useState<ChainWatchAlertSetting | null>(null);
+  const [discordDeliveryAlerts, setDiscordDeliveryAlerts] = React.useState<DiscordDeliveryAlertSetting[]>([]);
   const [chainWatchMissedCheckInAlert, setChainWatchMissedCheckInAlert] = React.useState<ChainWatchMissedCheckInAlertSetting | null>(null);
   const [retaliationBoardAlert, setRetaliationBoardAlert] =
     React.useState<RetaliationBoardAlertSetting | null>(null);
@@ -516,6 +518,7 @@ export function AdminControls() {
 
   function applyDiscordAlertSettingsResponse(response: AdminDiscordAlertSettingsResponse) {
     setChainWatchAlert(response.chain_watch_alert);
+    setDiscordDeliveryAlerts(response.delivery_alerts ?? []);
     setChainWatchMissedCheckInAlert(response.chain_watch_missed_check_in_alert ?? null);
     setRetaliationBoardAlert(response.retaliation_board_alert);
     setShopliftingAlerts(response.alerts);
@@ -533,6 +536,7 @@ export function AdminControls() {
       applyDiscordAlertSettingsResponse(response);
     } catch {
       setChainWatchAlert(null);
+      setDiscordDeliveryAlerts([]);
       setChainWatchMissedCheckInAlert(null);
       setRetaliationBoardAlert(null);
       setShopliftingAlerts([]);
@@ -748,6 +752,7 @@ export function AdminControls() {
             discordTravelTarget={discordTravelTarget}
             isLoadingDiscordTravelTarget={isLoadingDiscordTravelTarget}
             chainWatchAlert={chainWatchAlert}
+            discordDeliveryAlerts={discordDeliveryAlerts}
             chainWatchMissedCheckInAlert={chainWatchMissedCheckInAlert}
             retaliationBoardAlert={retaliationBoardAlert}
             shopliftingAlerts={shopliftingAlerts}

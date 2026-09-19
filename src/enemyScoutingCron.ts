@@ -917,8 +917,6 @@ async function sendPendingEnemyStatsComparisonImageForContext(
     return { sent: false, skipped: true, reason: "stats still filling" };
   }
   if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.enemyScoutingReport)) {
-    await clearSyncLatch(env, pendingLatchName);
-    context.activeLatches.delete(pendingLatchName);
     return { sent: false, skipped: true, reason: "enemy scouting report Discord alert disabled" };
   }
 

@@ -145,14 +145,15 @@ describe("shoplifting refresh", () => {
     expect(clearSyncLatch).not.toHaveBeenCalled();
   });
 
-  it("does not send disabled alerts and clears their previous latch", async () => {
+  it("keeps shoplifting data refreshed when Discord alerts are disabled", async () => {
     vi.mocked(readShopliftingSecurityAlertSettings).mockResolvedValue([
       { shop_key: "big_als", shop_name: "Big Als", enabled: false, configurable: true },
     ]);
     vi.mocked(readSetSyncLatches).mockResolvedValue(new Set([bigAlsAlert]));
     const env = fakeEnv();
 
-    await refreshTornShoplifting(env);
+    await expect(refreshTornShoplifting(env)).resolves.toMatchObject({ ok: true, shops: 2, alerts_sent: 0 });
+    await expect((await getMiscellaneousData(env)).json()).resolves.toMatchObject({ shoplifting, fetched_at: Math.floor(Date.now() / 1000), error: null });
 
     expect(sendDiscordAlertMessage).not.toHaveBeenCalled();
     expect(clearSyncLatch).toHaveBeenCalledWith(env, bigAlsAlert);
