@@ -3,7 +3,7 @@ import { getEventCompetition, updateEliminationTeamStatus } from "../eventCompet
 import {
   getChainWatchForWar,
   updateChainWatchForWar,
-} from "../chainWatch";
+} from "../chainWatchWar";
 import {
   addEnemyBigHitterForWar,
   getEnemyBigHittersForWar,

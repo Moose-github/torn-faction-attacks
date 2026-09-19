@@ -11,7 +11,7 @@ vi.mock("./cacheVersions", () => ({
   bumpWarCacheVersionById: vi.fn(),
 }));
 
-vi.mock("./chainWatch", () => ({
+vi.mock("./chainWatchWar", () => ({
   ensureChainWatchEnabledForWar: vi.fn(),
 }));
 
@@ -34,7 +34,7 @@ import {
   enableDiscordTravelTrackersForWar,
   stopDiscordTravelTrackersForWar,
 } from "./discordTravelTracker";
-import { ensureChainWatchEnabledForWar } from "./chainWatch";
+import { ensureChainWatchEnabledForWar } from "./chainWatchWar";
 import { fetchEnemyScoutingOnceForWar } from "./enemyScouting";
 import { finalizeWar, rebuildWarStatsFromRaw } from "./warStats";
 

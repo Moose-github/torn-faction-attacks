@@ -2,7 +2,6 @@ import {
   HOME_FACTION_ID,
   POSITIVE_ATTACK_RESULTS,
   POSITIVE_RESULTS_SQL,
-  SOURCE_NAME,
   TORN_FACTION_CHAIN_API_URL,
 } from "./constants";
 import { type DiscordAllowedMentions } from "./discord";
@@ -11,12 +10,10 @@ import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
-import { WAR_SELECT_COLUMNS, WAR_SELECT_COLUMNS_WITH_ALIAS } from "./sql";
 import { withTornKeyPool } from "./tornKeyPool";
-import { Env, WarRow } from "./types";
+import { Env } from "./types";
 import { finiteNumber, json, nowSeconds } from "./utils";
-import { readJsonObject } from "./backend/request";
-import { readWarFromUrl } from "./warRequest";
+import { readChainWatchDemand } from "./chainWatchDemand";
 
 export const CHAIN_WATCH_TIMEOUT_SECONDS = 5 * 60;
 export const CHAIN_WATCH_WARNING_60_OFFSET_SECONDS = 4 * 60;
@@ -32,12 +29,12 @@ const CHAIN_WATCH_CRITICAL_COLOR = 0xff0000;
 type ChainWatchSource = "stored" | "live_confirm" | "stale" | "dropped";
 type ChainWatchAlarmStage = "warning_60" | "warning_30" | "drop";
 type ChainWatchAlarmStub = DurableObjectStub & {
-  schedule(warId: number, alarmAtSeconds: number): Promise<void>;
+  scheduleFaction(factionId: number, alarmAtSeconds: number): Promise<void>;
   cancel(): Promise<void>;
 };
 
 export type ChainWatchStateRow = {
-  war_id: number;
+  faction_id: number;
   enabled: number;
   source: ChainWatchSource;
   current_chain: number | null;
@@ -94,141 +91,61 @@ export type NextChainWatchAlarm = {
   alarmAt: number;
 } | null;
 
-export async function ensureChainWatchEnabledForWar(env: Env, warId: number): Promise<void> {
-  await env.DB.prepare(
-    `
-    INSERT INTO chain_watch_state (war_id, enabled, source, created_at, updated_at)
-    VALUES (?, 1, 'stored', unixepoch(), unixepoch())
-    ON CONFLICT(war_id) DO NOTHING
-    `,
-  )
-    .bind(warId)
-    .run();
+export async function ensureChainWatchState(env: Env): Promise<void> {
+  await env.DB.prepare(`
+    INSERT INTO faction_chain_watch_state (faction_id, enabled, source, created_at, updated_at)
+    VALUES (?, 0, 'stored', unixepoch(), unixepoch())
+    ON CONFLICT(faction_id) DO NOTHING
+  `).bind(HOME_FACTION_ID).run();
 }
 
-export async function setChainWatchEnabledForWar(
-  env: Env,
-  warId: number,
-  enabled: boolean,
-  options: {
-    checkedAt?: number;
-    refreshIfActive?: boolean;
-    syncStoppedMessage?: boolean;
-    warName?: string | null;
-  } = {},
-): Promise<ChainWatchStateRow | null> {
-  const checkedAt = options.checkedAt ?? nowSeconds();
-
-  await env.DB.prepare(
-    `
-    UPDATE wars
-    SET chain_watch_enabled = ?
-    WHERE id = ?
-    `,
-  )
-    .bind(enabled ? 1 : 0, warId)
-    .run();
-
-  if (!enabled) {
-    const existing = await readChainWatchState(env, warId);
-    if (!existing) {
-      await cancelChainWatchAlarm(env, warId);
-      return null;
+// A watch and a war can request the same monitor. Neither owns its state or alarm.
+export async function reconcileChainWatchActivity(env: Env, checkedAt = nowSeconds()): Promise<boolean> {
+  const demand = await readChainWatchDemand(env, checkedAt);
+  const existing = await readChainWatchState(env);
+  if (!demand.active) {
+    if (existing?.enabled === 1) {
+      await env.DB.prepare(`UPDATE faction_chain_watch_state SET enabled = 0,
+        scheduled_alarm_stage = NULL, scheduled_alarm_at = NULL, updated_at = ? WHERE faction_id = ?`)
+        .bind(checkedAt, HOME_FACTION_ID).run();
+      await syncChainWatchStoppedDiscordMessage(env, existing, checkedAt);
     }
-
-    await env.DB.prepare(
-      `
-      UPDATE chain_watch_state
-      SET enabled = 0,
-          last_checked_at = ?,
-          updated_at = ?
-      WHERE war_id = ?
-      `,
-    )
-      .bind(checkedAt, checkedAt, warId)
-      .run();
-    const disabledState = await readChainWatchState(env, warId);
-
-    if (options.syncStoppedMessage !== false && disabledState) {
-      const warName = options.warName ?? (await readWarById(env, warId))?.name ?? null;
-      await syncChainWatchStoppedDiscordMessage(env, disabledState, checkedAt, warName);
-    }
-    await cancelChainWatchAlarm(env, warId);
-    return disabledState;
+    await cancelChainWatchAlarm(env, HOME_FACTION_ID);
+    return false;
   }
-
-  await ensureChainWatchEnabledForWar(env, warId);
-  await env.DB.prepare(
-    `
-    UPDATE chain_watch_state
-    SET enabled = 1,
-        last_checked_at = ?,
-        updated_at = ?
-    WHERE war_id = ?
-    `,
-  )
-    .bind(checkedAt, checkedAt, warId)
-    .run();
-
-  const war = await readWarById(env, warId);
-  if (war && options.refreshIfActive && isWarChainWatchActive(war, checkedAt)) {
-    return await refreshChainWatchForWar(env, war, checkedAt);
-  }
-
-  return await readChainWatchState(env, warId);
+  await ensureChainWatchState(env);
+  await env.DB.prepare("UPDATE faction_chain_watch_state SET enabled = 1 WHERE faction_id = ? AND enabled = 0")
+    .bind(HOME_FACTION_ID).run();
+  return true;
 }
 
 export async function runChainWatchCron(env: Env, scheduledTime: number): Promise<void> {
-  const checkedAt = Math.floor(scheduledTime / 1000);
-  const war = await readActiveChainWatchWar(env);
-  if (!war) {
-    return;
-  }
-
-  await ensureChainWatchEnabledForWar(env, war.id);
-  await refreshChainWatchForWar(env, war, checkedAt);
-}
-
-export async function getChainWatchForWar(url: URL, env: Env): Promise<Response> {
-  try {
-    const war = await readWarForChainWatchUrl(url, env);
-    if (war instanceof Response) {
-      return war;
-    }
-
-    if (isWarChainWatchActive(war)) {
-      await ensureChainWatchEnabledForWar(env, war.id);
-    }
-
-    const state = await readChainWatchState(env, war.id);
-    return json(chainWatchResponse(war, state, nowSeconds()));
-  } catch (err: any) {
-    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
+  const checkedAt = Math.max(Math.floor(scheduledTime / 1000), nowSeconds());
+  if (await reconcileChainWatchActivity(env, checkedAt)) {
+    await refreshChainWatch(env, checkedAt);
   }
 }
 
-export async function updateChainWatchForWar(request: Request, url: URL, env: Env): Promise<Response> {
-  try {
-    const war = await readWarForChainWatchUrl(url, env);
-    if (war instanceof Response) {
-      return war;
-    }
+export async function readChainWatchLive(env: Env, now = nowSeconds()) {
+  const [state, demand] = await Promise.all([readChainWatchState(env), readChainWatchDemand(env, now)]);
+  const remainingSeconds = state?.timeout_at ? Math.max(0, state.timeout_at - now) : null;
+  return {
+    ok: true as const,
+    now,
+    faction_id: HOME_FACTION_ID,
+    state,
+    demand,
+    computed: {
+      active: demand.active && state?.enabled === 1,
+      alert_eligible: chainWatchAlertEligible(state?.current_chain ?? null),
+      remaining_seconds: remainingSeconds,
+      dropped: remainingSeconds !== null && remainingSeconds <= 0,
+    },
+  };
+}
 
-    const body = await readJsonObject(request);
-    const enabled = Boolean(body.enabled);
-    const now = nowSeconds();
-
-    const state = await setChainWatchEnabledForWar(env, war.id, enabled, {
-      checkedAt: now,
-      refreshIfActive: true,
-      warName: war.name,
-    });
-    const updatedWar = await readWarById(env, war.id);
-
-    return json(chainWatchResponse(updatedWar ?? war, state, nowSeconds()));
-  } catch (err: any) {
-    return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
-  }
+export async function getChainWatchLive(env: Env): Promise<Response> {
+  return json(await readChainWatchLive(env));
 }
 
 export function isQualifyingChainAttack(row: ChainWatchAttackRow): boolean {
@@ -339,24 +256,14 @@ export async function refreshActiveChainWatchFromStoredAttacks(
   env: Env,
   checkedAt: number = nowSeconds(),
 ): Promise<ChainWatchStateRow | null> {
-  const war = await readActiveChainWatchWar(env);
-  if (!war) {
-    return null;
-  }
-
-  await ensureChainWatchEnabledForWar(env, war.id);
-  const existing = await readChainWatchState(env, war.id);
-  if (existing && existing.enabled !== 1) {
-    await cancelChainWatchAlarm(env, war.id);
-    return existing;
-  }
-
-  const observation = await observeStoredChainWatch(env, war, checkedAt, { includeUnassigned: true });
+  if (!await reconcileChainWatchActivity(env, checkedAt)) return readChainWatchState(env);
+  const existing = await readChainWatchState(env);
+  const observation = await observeStoredChainWatch(env, checkedAt);
   if (!observation) {
     return existing;
   }
 
-  let saved = await saveChainWatchObservation(env, war.id, existing, observation, checkedAt);
+  let saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, checkedAt);
   saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, checkedAt);
   await scheduleChainWatchAlarmForState(env, saved, checkedAt);
   return saved;
@@ -420,22 +327,21 @@ export function chainWatchWarningAlertKey(stage: "warning_60" | "warning_30"): s
     : DISCORD_ALERT_KEYS.chainWatchCritical;
 }
 
-async function refreshChainWatchForWar(
+export async function refreshChainWatch(
   env: Env,
-  war: WarRow,
   checkedAt: number,
   options: { scheduleAlarm?: boolean; confirmDrop?: boolean } = {},
 ): Promise<ChainWatchStateRow | null> {
-  const existing = await readChainWatchState(env, war.id);
+  const existing = await readChainWatchState(env);
   if (existing && existing.enabled !== 1) {
-    await cancelChainWatchAlarm(env, war.id);
+    await cancelChainWatchAlarm(env, HOME_FACTION_ID);
     return existing;
   }
 
-  const observation = await observeChainWatch(env, war, checkedAt, {
+  const observation = await observeChainWatch(env, checkedAt, {
     confirmDrop: options.confirmDrop ?? false,
   });
-  let saved = await saveChainWatchObservation(env, war.id, existing, observation, checkedAt);
+  let saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, checkedAt);
   saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, checkedAt);
 
   if (options.scheduleAlarm !== false) {
@@ -447,11 +353,10 @@ async function refreshChainWatchForWar(
 
 async function observeChainWatch(
   env: Env,
-  war: WarRow,
   checkedAt: number,
   options: { confirmDrop: boolean },
 ): Promise<ChainWatchObservation> {
-  const latestHit = await readLatestQualifyingChainHit(env, war);
+  const latestHit = await readLatestQualifyingChainHit(env, checkedAt);
   const storedObservationValue = storedChainWatchObservation(latestHit, checkedAt);
 
   if (storedObservationValue) {
@@ -503,12 +408,10 @@ async function observeChainWatch(
 
 async function observeStoredChainWatch(
   env: Env,
-  war: WarRow,
   checkedAt: number,
-  options: { includeUnassigned: boolean },
 ): Promise<ChainWatchObservation | null> {
   return storedChainWatchObservation(
-    await readLatestQualifyingChainHit(env, war, options),
+    await readLatestQualifyingChainHit(env, checkedAt),
     checkedAt,
   );
 }
@@ -538,29 +441,23 @@ function storedObservation(hit: ChainWatchAttackRow): ChainWatchObservation {
   };
 }
 
-export async function handleChainWatchAlarm(env: Env, warId: number): Promise<void> {
+export async function handleChainWatchAlarm(env: Env, factionId: number): Promise<void> {
+  if (factionId !== HOME_FACTION_ID) return;
   const now = nowSeconds();
-  const stateBefore = await readChainWatchState(env, warId);
-  const war = await readWarById(env, warId);
-  if (!war || !isWarChainWatchActive(war, now)) {
-    if (stateBefore) {
-      await syncChainWatchStoppedDiscordMessage(env, stateBefore, now, war?.name ?? null);
-    }
-    await cancelChainWatchAlarm(env, warId);
-    return;
-  }
+  if (!await reconcileChainWatchActivity(env, now)) return;
+  const stateBefore = await readChainWatchState(env);
 
   if (!stateBefore || stateBefore.enabled !== 1 || stateBefore.scheduled_alarm_stage === null) {
-    await cancelChainWatchAlarm(env, warId);
+    await cancelChainWatchAlarm(env, factionId);
     return;
   }
 
-  const state = await refreshChainWatchForWar(env, war, now, {
+  const state = await refreshChainWatch(env, now, {
     scheduleAlarm: false,
     confirmDrop: stateBefore.scheduled_alarm_stage === "drop",
   });
   if (!state) {
-    await cancelChainWatchAlarm(env, warId);
+    await cancelChainWatchAlarm(env, factionId);
     return;
   }
 
@@ -581,7 +478,7 @@ export async function handleChainWatchAlarm(env: Env, warId: number): Promise<vo
     await sendDroppedIfDue(env, state, now);
   }
 
-  const updated = await readChainWatchState(env, warId);
+  const updated = await readChainWatchState(env);
   if (updated) {
     await scheduleChainWatchAlarmForState(env, updated, now);
   }
@@ -628,7 +525,7 @@ async function sendWarningIfDue(
 
   await env.DB.prepare(
     `
-    UPDATE chain_watch_state
+    UPDATE faction_chain_watch_state
     SET ${warningColumn} = ?,
         alert_chain = ?,
         alert_reset_at = ?,
@@ -637,7 +534,7 @@ async function sendWarningIfDue(
         scheduled_alarm_at = NULL,
         last_error = NULL,
         updated_at = ?
-    WHERE war_id = ?
+    WHERE faction_id = ?
     `,
   )
     .bind(
@@ -646,7 +543,7 @@ async function sendWarningIfDue(
       confirmedState.reset_at,
       discordMessageId,
       sentAt,
-      confirmedState.war_id,
+      confirmedState.faction_id,
     )
     .run();
 }
@@ -662,7 +559,7 @@ async function confirmChainWatchWarningWithLiveChain(
   }));
 
   if (live.error) {
-    await updateChainWatchLiveCheckStatus(env, state.war_id, checkedAt, "stale", live.error);
+    await updateChainWatchLiveCheckStatus(env, state.faction_id, checkedAt, "stale", live.error);
     return state;
   }
 
@@ -679,7 +576,7 @@ async function confirmChainWatchWarningWithLiveChain(
   }
 
   if (live.chain.timeoutAt === null) {
-    return await updateChainWatchLiveCheckStatus(env, state.war_id, checkedAt, "live_confirm", null);
+    return await updateChainWatchLiveCheckStatus(env, state.faction_id, checkedAt, "live_confirm", null);
   }
 
   const liveResetAt = Math.max(0, live.chain.timeoutAt - CHAIN_WATCH_TIMEOUT_SECONDS);
@@ -705,7 +602,7 @@ async function confirmChainWatchWarningWithLiveChain(
     return timeoutMovedLater ? null : updated;
   }
 
-  return await updateChainWatchLiveCheckStatus(env, state.war_id, checkedAt, "live_confirm", null);
+  return await updateChainWatchLiveCheckStatus(env, state.faction_id, checkedAt, "live_confirm", null);
 }
 
 async function sendDroppedIfDue(
@@ -737,7 +634,7 @@ async function sendDroppedIfDue(
 
   await env.DB.prepare(
     `
-    UPDATE chain_watch_state
+    UPDATE faction_chain_watch_state
     SET drop_sent_at = ?,
         source = 'dropped',
         discord_message_id = COALESCE(?, discord_message_id),
@@ -745,32 +642,32 @@ async function sendDroppedIfDue(
         scheduled_alarm_at = NULL,
         last_error = NULL,
         updated_at = ?
-    WHERE war_id = ?
+    WHERE faction_id = ?
     `,
   )
-    .bind(sentAt, discordMessageId, sentAt, state.war_id)
+    .bind(sentAt, discordMessageId, sentAt, state.faction_id)
     .run();
 }
 
 async function updateChainWatchLiveCheckStatus(
   env: Env,
-  warId: number,
+  factionId: number,
   checkedAt: number,
   source: ChainWatchSource,
   error: string | null,
 ): Promise<ChainWatchStateRow> {
   const row = (await env.DB.prepare(
     `
-    UPDATE chain_watch_state
+    UPDATE faction_chain_watch_state
     SET source = ?,
         last_checked_at = ?,
         last_error = ?,
         updated_at = ?
-    WHERE war_id = ?
+    WHERE faction_id = ?
     RETURNING *
     `,
   )
-    .bind(source, checkedAt, truncateChainWatchError(error), checkedAt, warId)
+    .bind(source, checkedAt, truncateChainWatchError(error), checkedAt, factionId)
     .first()) as ChainWatchStateRow | null;
 
   if (!row) {
@@ -786,7 +683,7 @@ async function saveLiveChainWarningObservation(
   observation: ChainWatchObservation,
   checkedAt: number,
 ): Promise<ChainWatchStateRow> {
-  return await saveChainWatchObservation(env, state.war_id, state, {
+  return await saveChainWatchObservation(env, state.faction_id, state, {
     ...observation,
     lastHit: observation.lastHit ?? chainWatchStateAsAttackRow(state),
   }, checkedAt);
@@ -810,36 +707,36 @@ async function scheduleChainWatchAlarmForState(
   if (!next) {
     await env.DB.prepare(
       `
-      UPDATE chain_watch_state
+      UPDATE faction_chain_watch_state
       SET scheduled_alarm_stage = NULL,
           scheduled_alarm_at = NULL,
           updated_at = ?
-      WHERE war_id = ?
+      WHERE faction_id = ?
       `,
     )
-      .bind(now, state.war_id)
+      .bind(now, state.faction_id)
       .run();
-    await cancelChainWatchAlarm(env, state.war_id);
+    await cancelChainWatchAlarm(env, state.faction_id);
     return;
   }
 
   await env.DB.prepare(
     `
-    UPDATE chain_watch_state
+    UPDATE faction_chain_watch_state
     SET scheduled_alarm_stage = ?,
         scheduled_alarm_at = ?,
         updated_at = ?
-    WHERE war_id = ?
+    WHERE faction_id = ?
     `,
   )
-    .bind(next.stage, next.alarmAt, now, state.war_id)
+    .bind(next.stage, next.alarmAt, now, state.faction_id)
     .run();
-  await chainWatchAlarmStub(env, state.war_id).schedule(state.war_id, next.alarmAt);
+  await chainWatchAlarmStub(env, state.faction_id).scheduleFaction(state.faction_id, next.alarmAt);
 }
 
 async function saveChainWatchObservation(
   env: Env,
-  warId: number,
+  factionId: number,
   existing: ChainWatchStateRow | null,
   observation: ChainWatchObservation,
   checkedAt: number,
@@ -859,8 +756,8 @@ async function saveChainWatchObservation(
 
   const row = (await env.DB.prepare(
     `
-    INSERT INTO chain_watch_state (
-      war_id,
+    INSERT INTO faction_chain_watch_state (
+      faction_id,
       enabled,
       source,
       current_chain,
@@ -883,7 +780,7 @@ async function saveChainWatchObservation(
       updated_at
     )
     VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)
-    ON CONFLICT(war_id) DO UPDATE SET
+    ON CONFLICT(faction_id) DO UPDATE SET
       source = excluded.source,
       current_chain = excluded.current_chain,
       reset_at = excluded.reset_at,
@@ -893,11 +790,11 @@ async function saveChainWatchObservation(
       last_hit_attacker_name = excluded.last_hit_attacker_name,
       last_hit_defender_name = excluded.last_hit_defender_name,
       last_hit_result = excluded.last_hit_result,
-      warning_60_sent_at = CASE WHEN ? THEN NULL ELSE chain_watch_state.warning_60_sent_at END,
-      warning_30_sent_at = CASE WHEN ? THEN NULL ELSE chain_watch_state.warning_30_sent_at END,
-      drop_sent_at = CASE WHEN ? THEN NULL ELSE chain_watch_state.drop_sent_at END,
-      alert_chain = CASE WHEN ? THEN NULL ELSE chain_watch_state.alert_chain END,
-      alert_reset_at = CASE WHEN ? THEN NULL ELSE chain_watch_state.alert_reset_at END,
+      warning_60_sent_at = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.warning_60_sent_at END,
+      warning_30_sent_at = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.warning_30_sent_at END,
+      drop_sent_at = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.drop_sent_at END,
+      alert_chain = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.alert_chain END,
+      alert_reset_at = CASE WHEN ? THEN NULL ELSE faction_chain_watch_state.alert_reset_at END,
       last_checked_at = excluded.last_checked_at,
       last_error = excluded.last_error,
       updated_at = excluded.updated_at
@@ -905,7 +802,7 @@ async function saveChainWatchObservation(
     `,
   )
     .bind(
-      warId,
+      factionId,
       observation.source,
       observation.currentChain,
       observation.resetAt,
@@ -952,58 +849,23 @@ function chainWatchStateAsAttackRow(state: ChainWatchStateRow): ChainWatchAttack
   };
 }
 
-async function readLatestQualifyingChainHit(
+export async function readLatestQualifyingChainHit(
   env: Env,
-  war: WarRow,
-  options: { includeUnassigned?: boolean } = {},
+  checkedAt: number = nowSeconds(),
 ): Promise<ChainWatchAttackRow | null> {
-  return (await env.DB.prepare(
-    `
-    SELECT
-      a.id,
-      a.started,
-      a.ended,
-      a.attacker_faction_id,
-      a.defender_faction_id,
-      a.attacker_name,
-      a.defender_name,
-      a.result,
-      a.chain
+  // The ingestion feed includes attacks both inside and outside war windows.
+  // A chain can span a war or watch boundary, so do not filter on either.
+  return env.DB.prepare(`
+    SELECT a.id, a.started, a.ended, a.attacker_faction_id, a.defender_faction_id,
+      a.attacker_name, a.defender_name, a.result, a.chain
     FROM attacks a
-    WHERE (
-        a.war_id = ?
-        OR (? = 1 AND a.war_id IS NULL)
-      )
-      AND a.attacker_faction_id = ${HOME_FACTION_ID}
-      AND (
-        a.defender_faction_id IS NULL
-        OR a.defender_faction_id != ${HOME_FACTION_ID}
-      )
+    WHERE a.attacker_faction_id = ?
+      AND (a.defender_faction_id IS NULL OR a.defender_faction_id != ?)
       AND a.result IN (${POSITIVE_RESULTS_SQL})
-      AND COALESCE(a.ended, a.started) IS NOT NULL
-      AND a.started >= ?
-      AND (
-        ? IS NULL
-        OR COALESCE(a.ended, a.started) <= ?
-      )
-      AND (
-        ? IS NULL
-        OR COALESCE(a.ended, a.started) <= ?
-      )
+      AND COALESCE(a.ended, a.started) <= ?
     ORDER BY COALESCE(a.ended, a.started) DESC, a.id DESC
     LIMIT 1
-    `,
-  )
-    .bind(
-      war.id,
-      options.includeUnassigned ? 1 : 0,
-      war.practical_start_time,
-      war.practical_finish_time,
-      war.practical_finish_time,
-      war.official_end_time,
-      war.official_end_time,
-    )
-    .first()) as ChainWatchAttackRow | null;
+  `).bind(HOME_FACTION_ID, HOME_FACTION_ID, checkedAt).first<ChainWatchAttackRow>();
 }
 
 async function readTornChain(
@@ -1072,13 +934,13 @@ async function syncChainWatchStatusDiscordMessage(
 
   await env.DB.prepare(
     `
-    UPDATE chain_watch_state
+    UPDATE faction_chain_watch_state
     SET discord_message_id = ?,
         updated_at = ?
-    WHERE war_id = ?
+    WHERE faction_id = ?
     `,
   )
-    .bind(discordMessageId, checkedAt, state.war_id)
+    .bind(discordMessageId, checkedAt, state.faction_id)
     .run();
 
   return {
@@ -1110,7 +972,6 @@ async function syncChainWatchStoppedDiscordMessage(
   env: Env,
   state: ChainWatchStateRow,
   checkedAt: number,
-  warName: string | null,
 ): Promise<ChainWatchStateRow> {
   if (!state.discord_message_id) {
     return state;
@@ -1119,7 +980,7 @@ async function syncChainWatchStoppedDiscordMessage(
   await upsertChainWatchDiscordMessage(
     env,
     state.discord_message_id,
-    chainWatchStoppedMessage({ warName }),
+    chainWatchStoppedMessage(),
   );
 
   return {
@@ -1156,104 +1017,17 @@ async function upsertChainWatchDiscordMessage(
   }
 }
 
-async function readActiveChainWatchWar(env: Env): Promise<WarRow | null> {
-  const now = nowSeconds();
-
-  return (await env.DB.prepare(
-    `
-    SELECT ${WAR_SELECT_COLUMNS_WITH_ALIAS}
-    FROM sync_state state
-    JOIN wars w ON w.id = state.active_war_id
-    WHERE state.name = ?
-      AND state.war_state = 'current'
-      AND w.status = 'active'
-      AND COALESCE(w.chain_watch_enabled, CASE WHEN COALESCE(w.war_type, 'real') = 'event' THEN 0 ELSE 1 END) = 1
-      AND (
-        w.practical_finish_time IS NULL
-        OR w.practical_finish_time > ?
-      )
-      AND w.official_end_time IS NULL
-    LIMIT 1
-    `,
-  )
-    .bind(SOURCE_NAME, now)
-    .first()) as WarRow | null;
+export async function readChainWatchState(env: Env): Promise<ChainWatchStateRow | null> {
+  return env.DB.prepare("SELECT * FROM faction_chain_watch_state WHERE faction_id = ? LIMIT 1")
+    .bind(HOME_FACTION_ID).first<ChainWatchStateRow>();
 }
 
-async function readWarById(env: Env, warId: number): Promise<WarRow | null> {
-  return (await env.DB.prepare(
-    `
-    SELECT ${WAR_SELECT_COLUMNS}
-    FROM wars
-    WHERE id = ?
-    LIMIT 1
-    `,
-  )
-    .bind(warId)
-    .first()) as WarRow | null;
+function chainWatchAlarmStub(env: Env, factionId: number): ChainWatchAlarmStub {
+  return env.CHAIN_WATCH_ALARMS.getByName(`${CHAIN_WATCH_ALARM_NAME_PREFIX}:faction:${factionId}`) as ChainWatchAlarmStub;
 }
 
-async function readWarForChainWatchUrl(url: URL, env: Env): Promise<WarRow | Response> {
-  return readWarFromUrl(url, env);
-}
-
-async function readChainWatchState(env: Env, warId: number): Promise<ChainWatchStateRow | null> {
-  return (await env.DB.prepare(
-    `
-    SELECT *
-    FROM chain_watch_state
-    WHERE war_id = ?
-    LIMIT 1
-    `,
-  )
-    .bind(warId)
-    .first()) as ChainWatchStateRow | null;
-}
-
-function chainWatchResponse(war: WarRow, state: ChainWatchStateRow | null, now: number) {
-  const remainingSeconds = state?.timeout_at ? Math.max(0, state.timeout_at - now) : null;
-
-  return {
-    ok: true,
-    war: {
-      id: war.id,
-      name: war.name,
-      status: war.status,
-      practical_finish_time: war.practical_finish_time,
-      official_end_time: war.official_end_time,
-      chain_watch_enabled: war.chain_watch_enabled,
-    },
-    state,
-    computed: {
-      active: isWarChainWatchActive(war, now) && state?.enabled === 1,
-      alert_eligible: chainWatchAlertEligible(state?.current_chain ?? null),
-      remaining_seconds: remainingSeconds,
-      dropped: remainingSeconds !== null && remainingSeconds <= 0,
-    },
-  };
-}
-
-function isWarChainWatchActive(war: WarRow, now: number = nowSeconds()): boolean {
-  const defaultEnabled = (war.war_type ?? "real") === "event" ? 0 : 1;
-  const chainWatchEnabled = Number(war.chain_watch_enabled ?? defaultEnabled) === 1;
-
-  return (
-    chainWatchEnabled &&
-    war.status === "active" &&
-    war.official_end_time === null &&
-    (
-      war.practical_finish_time === null ||
-      war.practical_finish_time > now
-    )
-  );
-}
-
-function chainWatchAlarmStub(env: Env, warId: number): ChainWatchAlarmStub {
-  return env.CHAIN_WATCH_ALARMS.getByName(`${CHAIN_WATCH_ALARM_NAME_PREFIX}:${warId}`) as ChainWatchAlarmStub;
-}
-
-async function cancelChainWatchAlarm(env: Env, warId: number): Promise<void> {
-  await chainWatchAlarmStub(env, warId).cancel().catch(() => undefined);
+async function cancelChainWatchAlarm(env: Env, factionId: number): Promise<void> {
+  await chainWatchAlarmStub(env, factionId).cancel().catch(() => undefined);
 }
 
 function formatChainWatchAttackPair(

@@ -60,18 +60,23 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     label: "Cron ingestion",
     cadence: "1m",
     category: "attacks",
-    purpose: "Import recent attacks every minute, run the hourly exact rebuild when due, then refresh Chain Watch state and alarms.",
+    purpose: "Import recent attacks every minute, refresh the shared faction Chain Watch, then run the hourly exact rebuild when due.",
     shouldRun: () => true,
     fullWarStatsRebuild: shouldRunHourlyExactWarSummaries,
     run: async (env, scheduledTime) => {
-      await runIngestion(env, "cron", { scheduledTime });
+      try {
+        await runIngestion(env, "cron", { scheduledTime });
+      } finally {
+        // Keep monitoring independent of war-stat rebuilds and feed failures.
+        // It can use stored hits and the existing live-confirmation fallback.
+        await runChainWatchCron(env, scheduledTime);
+      }
       if (shouldRunHourlyExactWarSummaries(new Date(scheduledTime))) {
         const result = await rebuildWarStatsFromRaw(env, { scope: "open-wars", reason: "cron" });
         if (!result.wars_skipped) {
           await markOpenWarMemberStatsRebuildComplete(env, Math.floor(scheduledTime / 1000));
         }
       }
-      await runChainWatchCron(env, scheduledTime);
       await syncRetaliationDiscordBoard(env, Math.floor(scheduledTime / 1000));
     },
   },

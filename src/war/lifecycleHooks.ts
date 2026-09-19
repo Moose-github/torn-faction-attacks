@@ -1,7 +1,7 @@
 import { HOME_FACTION_ID } from "../constants";
 import { ensureEventCompetitionStarted } from "../eventCompetition";
 import { bumpWarCacheVersionById } from "../cacheVersions";
-import { ensureChainWatchEnabledForWar } from "../chainWatch";
+import { ensureChainWatchEnabledForWar } from "../chainWatchWar";
 import {
   enableDiscordTravelTrackersForWar,
   stopDiscordTravelTrackersForWar,

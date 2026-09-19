@@ -91,7 +91,7 @@ describe("monthly Xanax competition cron", () => {
     }
   });
 
-  it("runs top-hour attack ingestion, exact rebuild, latch update, and alert refresh in order", async () => {
+  it("refreshes the chain directly after ingestion, before the exact war rebuild", async () => {
     const calls: string[] = [];
     vi.mocked(runIngestion).mockImplementation(async () => {
       calls.push("ingestion");
@@ -119,9 +119,9 @@ describe("monthly Xanax competition cron", () => {
 
     expect(calls).toEqual([
       "ingestion",
+      "chain-watch",
       "exact-rebuild",
       "latch",
-      "chain-watch",
       "retaliation",
     ]);
     expect(rebuildWarStatsFromRaw).toHaveBeenCalledWith(
@@ -132,6 +132,15 @@ describe("monthly Xanax competition cron", () => {
       expect.anything(),
       Math.floor(scheduledTime / 1000),
     );
+  });
+
+  it("still refreshes chain monitoring when ingestion fails", async () => {
+    vi.mocked(runIngestion).mockRejectedValueOnce(new Error("Feed unavailable"));
+    const scheduledTime = Date.UTC(2026, 5, 1, 6, 1, 0);
+    const job = buildCronPlan({} as Env, scheduledTime).find((item) => item.label === "Cron ingestion");
+    await expect(job!.run()).rejects.toThrow("Feed unavailable");
+    expect(runChainWatchCron).toHaveBeenCalledWith(expect.anything(), scheduledTime);
+    expect(rebuildWarStatsFromRaw).not.toHaveBeenCalled();
   });
 
   it("keeps personal lifestyle imports on the four daily UTC slots", () => {

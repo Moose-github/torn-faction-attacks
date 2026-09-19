@@ -1,4 +1,5 @@
 import { readAuthenticatedUserId } from "../auth";
+import { getChainWatchLive } from "../chainWatch";
 import { readJsonObject } from "../backend/request";
 import { changeWatchSlots, readWatch, setWatchFinish, WatchError } from "../chainWatchSchedule";
 import { syncWatchBoardsSafely } from "../chainWatchScheduleDiscord";
@@ -7,11 +8,13 @@ import { withAdmin, withMember, type RouteContext, type RouteResult } from "./co
 
 export async function routeWatchScheduleApi(context: RouteContext): Promise<RouteResult> {
   const { request, env, url, ctx } = context;
+  const live = url.pathname === "/api/chain-watch/live";
   const admin = url.pathname.startsWith("/api/admin/chain-watch");
   const base = admin ? "/api/admin/chain-watch" : "/api/chain-watch";
-  if (url.pathname !== base && url.pathname !== `${base}/slots` && url.pathname !== `${base}/finish`) return null;
+  if (!live && url.pathname !== base && url.pathname !== `${base}/slots` && url.pathname !== `${base}/finish`) return null;
   return (admin ? withAdmin : withMember)(context, async () => {
     try {
+      if (live) return request.method === "GET" ? await getChainWatchLive(env) : json({ ok: false, error: "Method not allowed" }, 405);
       if (request.method === "GET" && url.pathname === base) return json(await readWatch(env, url.searchParams.get("watch")));
       if (request.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       const actorId = await readAuthenticatedUserId(request, env);

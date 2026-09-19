@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireAdmin, requireMember } from "../auth";
 import { warCacheVersionNames } from "../cacheVersions";
-import { getChainWatchForWar } from "../chainWatch";
+import { getChainWatchForWar } from "../chainWatchWar";
 import { getEnemyBigHittersForWar } from "../enemyBigHitters";
 import {
   getEnemyMemberActivityHeatmap,
@@ -32,7 +32,7 @@ vi.mock("../cacheVersions", () => ({
   warCacheVersionNames: vi.fn((warName: string) => [`cache_version:war:${warName}`]),
 }));
 
-vi.mock("../chainWatch", () => ({
+vi.mock("../chainWatchWar", () => ({
   getChainWatchForWar: vi.fn(),
   updateChainWatchForWar: vi.fn(),
 }));

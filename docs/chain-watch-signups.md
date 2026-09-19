@@ -3,6 +3,32 @@
 The independent watch is available at `/chain-watch` after signing in. It shares
 the same D1 schedule with the Discord bot; it does not depend on a war or event.
 
+## Live faction monitoring
+
+A watch activates the shared faction chain monitor at its start time. Monitoring
+uses the existing faction attack ingestion feed, including attacks without a war
+assignment and chains which began before the watch. No separate attack poller is
+created. The existing Torn chain endpoint remains the fallback when stored hits
+are stale and the confirmation source before warnings.
+
+The monitor has one faction state and one faction alarm. An enabled current war
+can also request monitoring; disabling or ending that war does not stop a running
+watch, and finishing the watch does not stop monitoring needed by the war. A
+future watch does not activate monitoring early. Finishing all active requests
+stops the monitor on its next tick or alarm. A dropped chain does not finish the
+schedule or cancel assignments.
+
+`GET /api/chain-watch/live` returns member-authenticated faction state, server
+time, activation sources and computed countdown/status without fetching Torn.
+The existing War Room endpoints remain compatibility views, and the Discord
+chain-status control reads the faction monitor without requiring a war. Roster
+rendering and targeted watcher mentions are separate follow-up work.
+
+Migration `0148_create_faction_chain_watch_state.sql` preserves the current
+legacy monitor's message ID and warning markers. Legacy per-war alarms retire
+after the Worker upgrade; the next ingestion tick schedules the faction alarm.
+The old state table remains available for historical war reads.
+
 ## Discord commands
 
 - `/chain-watch create name:<name> [start] [finish]` posts in the invoking channel.
@@ -102,7 +128,7 @@ No schema migration is needed for this conversion.
 
 ## Release steps
 
-1. Apply D1 migrations through `0147_resume_chain_watch_daily_sheets.sql` to the target database.
+1. Apply D1 migrations through `0148_create_faction_chain_watch_state.sql` to the target database.
 2. Deploy the Worker and dashboard. The existing `DISCORD_GUILD_ID`,
    `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY` configuration is reused.
    Worker deployment applies Durable Object migration `v3` and binds

@@ -6,7 +6,7 @@ import {
 import {
   bumpWarCacheVersion,
 } from "./cacheVersions";
-import { setChainWatchEnabledForWar } from "./chainWatch";
+import { setChainWatchEnabledForWar } from "./chainWatchWar";
 import { parseEventCompetitionSettings, rescheduleEventCompetition } from "./eventCompetition";
 import {
   ingestHistoricalWarWindow,
@@ -1310,9 +1310,7 @@ async function applyEventStatusSideEffects(
       startedAt: options.startTime,
     });
     if (!options.chainWatchEnabled) {
-      await setChainWatchEnabledForWar(env, options.warId, false, {
-        warName: options.name,
-      });
+      await setChainWatchEnabledForWar(env, options.warId, false);
     }
     const linkedAttackCount = await linkStoredEventAttacks(
       env,

@@ -39,7 +39,7 @@ vi.mock("../cacheVersions", () => ({
   warCacheVersionNames: vi.fn((warName: string) => [`cache_version:war:${warName}`]),
 }));
 
-vi.mock("../chainWatch", () => ({
+vi.mock("../chainWatchWar", () => ({
   getChainWatchForWar: vi.fn(),
   updateChainWatchForWar: vi.fn(),
 }));

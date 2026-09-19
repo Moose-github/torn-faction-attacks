@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { watchDatabase } from "../../scripts/watch-test-database.mjs";
 import { nextWatchHour, watchUtc } from "../../shared/chainWatchSchedule";
 import { createWatch, readWatch } from "../chainWatchSchedule";
+import { getChainWatchLive } from "../chainWatch";
 import { readAuthenticatedUserId, requireAdmin, requireMember } from "../auth";
 import { routeWatchScheduleApi } from "./chainWatchScheduleRoutes";
 import type { RouteContext } from "./context";
 
 vi.mock("../auth", () => ({ requireAdmin: vi.fn(), requireMember: vi.fn(), readAuthenticatedUserId: vi.fn() }));
+vi.mock("../chainWatch", () => ({ getChainWatchLive: vi.fn() }));
 vi.mock("../chainWatchScheduleDiscord", () => ({ syncWatchBoardsSafely: vi.fn().mockResolvedValue(undefined) }));
 
 const now = Date.UTC(2030, 0, 1, 12, 20) / 1000;
@@ -31,6 +33,20 @@ function request(path: string, body?: unknown) {
 }
 
 describe("chain watch page authorization", () => {
+  it("requires membership to read live faction status", async () => {
+    vi.mocked(requireMember).mockResolvedValue(new Response("Unauthorized", { status: 401 }));
+    expect((await request("/api/chain-watch/live"))?.status).toBe(401);
+    expect(getChainWatchLive).not.toHaveBeenCalled();
+  });
+  it("exposes the shared live status without a war or watch identifier", async () => {
+    vi.mocked(getChainWatchLive).mockResolvedValue(Response.json({ ok: true, faction_id: 8803, state: null }));
+    expect(await (await request("/api/chain-watch/live"))?.json()).toMatchObject({ faction_id: 8803 });
+    expect(getChainWatchLive).toHaveBeenCalledExactlyOnceWith(db.env);
+  });
+  it("keeps the live endpoint read-only", async () => {
+    expect((await request("/api/chain-watch/live", { enabled: true }))?.status).toBe(405);
+    expect(getChainWatchLive).not.toHaveBeenCalled();
+  });
   it("requires sign-in to read the roster", async () => {
     vi.mocked(requireMember).mockResolvedValue(new Response("Unauthorized", { status: 401 }));
     expect((await request("/api/chain-watch"))?.status).toBe(401);

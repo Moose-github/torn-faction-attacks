@@ -1,4 +1,5 @@
 import { isRecord } from "./backend/request";
+import { readChainWatchLive } from "./chainWatch";
 import { completeDeferredWatchInteraction, deferredWatchResponse, handleWatchInteraction, isWatchInteraction } from "./chainWatchScheduleDiscord";
 import { DISCORD_COMMAND_NAMES, DISCORD_COMPONENT_IDS } from "./discordCommands";
 import {
@@ -183,7 +184,6 @@ type MemberLeaderboardRow = {
 };
 
 type ChainWatchDiscordRow = {
-  war_id: number;
   enabled: number;
   source: string;
   current_chain: number | null;
@@ -497,22 +497,17 @@ async function travelCurrentResponse(
 }
 
 async function chainStatusResponse(env: Env, responseType: number): Promise<DiscordInteractionResponse> {
-  const war = await readActiveOrLatestWar(env);
-  if (!war) {
-    return ephemeralMessage("No wars have been recorded yet.");
-  }
-
-  const chain = await readChainWatchForWar(env, war.id);
+  const live = await readChainWatchLive(env);
+  const chain = live.state;
   if (!chain) {
     return discordMessageResponse(responseType, {
       embeds: [
         {
-          title: `${war.name} chain watch`,
-          description: "Chain watch has not been initialized for this war.",
+          title: "Faction chain watch",
+          description: "Live monitoring starts when a scheduled watch begins or an enabled war is active.",
           color: WARNING_COLOR,
         },
       ],
-      components: warComponents(env, war),
     });
   }
 
@@ -520,10 +515,10 @@ async function chainStatusResponse(env: Env, responseType: number): Promise<Disc
   return discordMessageResponse(responseType, {
     embeds: [
       {
-        title: `${war.name} chain watch`,
+        title: "Faction chain watch",
         color: remaining !== null && remaining <= 60 ? WARNING_COLOR : BOT_COLOR,
         fields: [
-          { name: "Enabled", value: chain.enabled === 1 ? "Yes" : "No", inline: true },
+          { name: "Monitoring", value: live.computed.active ? "Active" : "Stopped", inline: true },
           { name: "Chain", value: integerField(chain.current_chain), inline: true },
           { name: "Timeout", value: nullableTimestamp(chain.timeout_at), inline: true },
           { name: "Remaining", value: remaining === null ? "Unknown" : `${remaining}s`, inline: true },
@@ -532,7 +527,6 @@ async function chainStatusResponse(env: Env, responseType: number): Promise<Disc
         ],
       },
     ],
-    components: warComponents(env, war),
   });
 }
 
@@ -1172,17 +1166,6 @@ async function readTravelTrackerRows(
   ).bind(factionId, limit).all<TravelTrackerRow>();
 
   return result.results ?? [];
-}
-
-async function readChainWatchForWar(env: Env, warId: number): Promise<ChainWatchDiscordRow | null> {
-  return await env.DB.prepare(
-    `
-    SELECT *
-    FROM chain_watch_state
-    WHERE war_id = ?
-    LIMIT 1
-    `,
-  ).bind(warId).first<ChainWatchDiscordRow>();
 }
 
 function discordMessageResponse(
