@@ -182,13 +182,21 @@ describe("chain watch Discord messages", () => {
     ].join("\n"));
   });
 
-  it("labels the 30 second warning as critical", () => {
+  it.each([
+    ["warning_60", "WARNING", 60],
+    ["warning_30", "CRITICAL", 30],
+  ] as const)("puts the chain count below the %s heading", (stage, label, seconds) => {
     expect(chainWatchWarningMessage({
-      stage: "warning_30",
+      stage,
       currentChain: 125,
       timeoutAt: 1_800_000_000,
       lastHit: attackRow({ attacker_name: "Alice", defender_name: "Bob" }),
-    })).toContain("Chain Watch CRITICAL: chain 125 30 seconds remaining");
+    })).toBe([
+      `Chain Watch ${label}: ${seconds} seconds remaining`,
+      "Chain 125",
+      "Last hit: Alice v Bob",
+      "Timeout: <t:1800000000:R>",
+    ].join("\n"));
   });
 
   it("formats dropped messages with the dropped-at timestamp", () => {
@@ -196,7 +204,12 @@ describe("chain watch Discord messages", () => {
       currentChain: 125,
       timeoutAt: 1_800_000_000,
       lastHit: attackRow({ attacker_name: "Alice", defender_name: "Bob" }),
-    })).toContain("Chain Watch: chain 125 dropped at 15 Jan 2027, 08:00:00.");
+    })).toBe([
+      "Chain Watch DROPPED",
+      "Chain 125",
+      "Last hit: Alice v Bob",
+      "Dropped at: 15 Jan 2027, 08:00:00",
+    ].join("\n"));
   });
 
   it("formats the tracking message before a qualifying chain exists", () => {

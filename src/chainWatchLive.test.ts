@@ -214,12 +214,17 @@ describe("assigned watcher alert mentions", () => {
     vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, _key, existingId) => existingId ?? "new-alert");
     const configured = { messageSuffix: "<@999999> <@&888888>", allowedMentions: { users: ["999999"], roles: ["888888"] } };
     vi.mocked(readDiscordAlertMentions).mockImplementation(async (_env, key) => key === "chain_watch" ? { messageSuffix: "", allowedMentions: undefined } : configured);
-    for (const [offset, remaining, key] of [[240, 60, "chain_watch_warning"], [270, 30, "chain_watch_critical"], [300, 0, "chain_watch_drop"]] as const) {
+    for (const [offset, remaining, key, color] of [
+      [240, 60, "chain_watch_warning", 0xffa500],
+      [270, 30, "chain_watch_critical", 0xff0000],
+      [300, 0, "chain_watch_drop", 0x3498db],
+    ] as const) {
       const call = await fire(start + offset, remaining);
       expect(readDiscordAlertMentions).toHaveBeenLastCalledWith(db.env, key);
       expect(call.slice(0, 3)).toEqual([db.env, key, null]);
       expect(call[3]).toMatch(new RegExp(`<@999999> <@&888888> <@${aliceId}>$`));
       expect(call[4]).toEqual({ users: ["999999", aliceId], roles: ["888888"] });
+      expect(call[5]).toEqual({ cardColor: color });
       expect((await readChainWatchState(db.env))?.discord_message_id).toBe("message");
     }
     expect(configured.allowedMentions.users).toEqual(["999999"]);

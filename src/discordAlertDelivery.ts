@@ -16,6 +16,7 @@ import type { Env } from "./types";
 type DiscordAlertDeliveryOptions = {
   embedColor?: number;
   embeds?: DiscordEmbed[];
+  cardColor?: number;
 };
 
 type DiscordAlertAttachment = {

@@ -27,6 +27,7 @@ const CHAIN_WATCH_ALARM_NAME_PREFIX = "chain-watch";
 const CHAIN_WATCH_LIVE_TIMEOUT_DRIFT_SECONDS = 5;
 const CHAIN_WATCH_WARNING_COLOR = 0xffa500;
 const CHAIN_WATCH_CRITICAL_COLOR = 0xff0000;
+const CHAIN_WATCH_DROP_COLOR = 0x3498db;
 
 type ChainWatchSource = "stored" | "live_confirm" | "stale" | "dropped";
 type ChainWatchAlarmStage = "warning_60" | "warning_30" | "drop";
@@ -247,8 +248,9 @@ export function chainWatchWarningMessage(options: {
   const remaining = critical ? "30 seconds" : "60 seconds";
   return [
     critical
-      ? `Chain Watch CRITICAL: chain ${options.currentChain} ${remaining} remaining`
-      : `Chain Watch WARNING: chain ${options.currentChain} ${remaining} remaining`,
+      ? `Chain Watch CRITICAL: ${remaining} remaining`
+      : `Chain Watch WARNING: ${remaining} remaining`,
+    `Chain ${options.currentChain}`,
     `Last hit: ${formatChainWatchAttackPair(options.lastHit)}`,
     `Timeout: ${formatChainWatchDateTime(options.timeoutAt)}`,
   ].join("\n");
@@ -287,10 +289,10 @@ export function chainWatchDroppedMessage(options: {
   lastHit: ChainWatchStateRow | ChainWatchAttackRow | null;
 }): string {
   return [
-    `Chain Watch: chain ${options.currentChain} dropped at ${
-      options.timeoutAt ? formatChainWatchAbsoluteDateTime(options.timeoutAt) : "an unknown time"
-    }.`,
+    "Chain Watch DROPPED",
+    `Chain ${options.currentChain}`,
     `Last hit: ${formatChainWatchAttackPair(options.lastHit)}`,
+    `Dropped at: ${options.timeoutAt ? formatChainWatchAbsoluteDateTime(options.timeoutAt) : "an unknown time"}`,
   ].join("\n");
 }
 
@@ -633,7 +635,7 @@ async function sendDroppedIfDue(
       timeoutAt: state.timeout_at,
       lastHit: state,
     }),
-    undefined,
+    CHAIN_WATCH_DROP_COLOR,
     DISCORD_ALERT_KEYS.chainWatchDrop,
   );
 
@@ -997,7 +999,7 @@ async function upsertChainWatchDiscordMessage(
   env: Env,
   existingMessageId: string | null,
   options: string | { message: string; allowedMentions?: DiscordAllowedMentions },
-  embedColor?: number,
+  cardColor?: number,
   alertKey: DiscordAlertKey = DISCORD_ALERT_KEYS.chainWatch,
 ): Promise<string | null> {
   if (!await isDiscordAlertEnabled(env, alertKey)) {
@@ -1015,7 +1017,7 @@ async function upsertChainWatchDiscordMessage(
       existingMessageId,
       message,
       allowedMentions,
-      { embedColor },
+      { cardColor },
     );
   } catch (err: any) {
     console.warn("Chain Watch Discord alert failed:", err?.message || err);

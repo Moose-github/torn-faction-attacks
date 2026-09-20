@@ -9,11 +9,13 @@ type MessageLink = { guildId: string; channelId: string; messageId: string; url:
 type DiscordMessageOperation = "channel_lookup" | "bot_identity" | "message_lookup" | "message_delete" | "guild_permissions" | "bot_membership" | "parent_channel";
 type DiscordFailureDetails = { operation: DiscordMessageOperation; discord_status: number; discord_code: number | null };
 const DISCORD_USER_AGENT = "DiscordBot (https://github.com/Moose-github/torn-faction-attacks, 1.0)";
+type DiscordMessageComponent = { type: number; content?: string; components?: DiscordMessageComponent[] };
 type DiscordMessage = {
   id: string; channel_id: string; author: { id: string; username?: string; global_name?: string };
   timestamp?: string; content?: string;
   embeds?: Array<{ title?: string; description?: string; fields?: Array<{ name: string; value: string }>; footer?: { text?: string } }>;
   attachments?: Array<{ filename?: string }>;
+  components?: DiscordMessageComponent[];
 };
 
 class MessageAdminError extends Error {
@@ -82,7 +84,8 @@ async function manageMessage(request: Request, env: Env, remove: boolean): Promi
       ok: true, message_link: link.url, message_id: message.id,
       channel_name: channel.name ?? link.channelId,
       author_name: message.author.global_name ?? message.author.username ?? "Bot",
-      timestamp: message.timestamp ?? null, content: message.content ?? "",
+      timestamp: message.timestamp ?? null,
+      content: [message.content, ...discordComponentText(message.components ?? [])].filter(Boolean).join("\n"),
       embeds: (message.embeds ?? []).map((embed) => ({ title: embed.title ?? "", description: embed.description ?? "",
         fields: embed.fields ?? [], footer: embed.footer?.text ?? "" })),
       attachments: (message.attachments ?? []).map((attachment) => attachment.filename ?? "Attachment"),
@@ -94,6 +97,12 @@ async function manageMessage(request: Request, env: Env, remove: boolean): Promi
     }
     return json({ ok: false, error: "Unable to reach Discord. Please try again.", code: "DISCORD_UNAVAILABLE" }, 502);
   }
+}
+
+function discordComponentText(components: DiscordMessageComponent[]): string[] {
+  return components.flatMap(component => component.type === 10 && typeof component.content === "string"
+    ? [component.content]
+    : discordComponentText(component.components ?? []));
 }
 
 async function requireOwnMessageDeletionOnly(env: Env, link: MessageLink, channel: DiscordPermissionChannel, botId: string): Promise<void> {

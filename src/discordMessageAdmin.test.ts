@@ -184,6 +184,24 @@ describe("admin bot message operations", () => {
       embeds: [{ title: "60 seconds remaining", description: "Last hit: Alice", fields: [{ name: "Chain", value: "150" }], footer: "" }], attachments: ["chain.png"] });
     expect(deleteCalls()).toHaveLength(0);
   });
+  it("previews a coloured card and its following mentions in display order", async () => {
+    const success = vi.mocked(fetchExternal).getMockImplementation()!;
+    vi.mocked(fetchExternal).mockImplementation((url, init, options) => String(url) === `${api}/channels/222222/messages/333333`
+      ? Promise.resolve(Response.json({ id: "333333", channel_id: "222222", author: { id: authorId, username: "Faction bot" },
+        components: [
+          { type: 17, accent_color: 0x3498db, components: [{ type: 10, content: "**Chain Watch DROPPED**\nChain 809\nLast hit: Alice v Bob" }] },
+          { type: 10, content: "<@123456> <@&654321>" },
+        ],
+      })) : success(url, init, options));
+    const result = await previewDiscordBotMessageFromRequest(request(), env);
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({
+      content: "**Chain Watch DROPPED**\nChain 809\nLast hit: Alice v Bob\n<@123456> <@&654321>",
+      embeds: [],
+    });
+    expect(deleteCalls()).toHaveLength(0);
+  });
+
   it("verifies the actual channel and bot author before deleting from the fixed Discord API", async () => {
     const result = await deleteDiscordBotMessageFromRequest(request(), env);
     expect(result.status).toBe(200);

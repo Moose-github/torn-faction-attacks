@@ -33,6 +33,10 @@ names for a different active watch.
 
 The 60-second warning, 30-second critical warning and drop alert each post a new
 Discord message, with the live status message continuing to update separately.
+These three alerts use Discord Components V2 cards with orange, red and blue
+accents respectively. The heading contains the alert stage, with the chain
+count, last hit and timeout/drop time in the body. Mentions follow the card in
+the same message and still notify through the existing allowed-mentions rules.
 Each alert keeps its configured user/role mentions and appends the current slot's
 assigned watcher using their linked Discord account, without changing alert
 subscriptions or routing. The assignment is read at alert time, including at

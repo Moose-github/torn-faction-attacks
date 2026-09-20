@@ -182,6 +182,38 @@ describe("Discord bot messages", () => {
     );
   });
 
+  it.each([
+    ["Chain Watch WARNING: 60 seconds remaining", 0xffa500],
+    ["Chain Watch CRITICAL: 30 seconds remaining", 0xff0000],
+    ["Chain Watch DROPPED", 0x3498db],
+  ] as const)("puts mentions below the %s card in one message", async (title, color) => {
+    const body = "Chain 809\nLast hit: Mistrrsandman v MarkoPoloXD12\nTimeout: <t:1800000000:R>";
+    const mentions = "<@111111> <@&222222> @here";
+    await createDiscordBotMessage(botEnv, "123456789", `${title}\n${body}\n${mentions}`,
+      { users: ["111111"], roles: ["222222"], everyone: true }, { cardColor: color });
+    expect(postDiscordBotJsonAndRead).toHaveBeenCalledTimes(1);
+    expect(postDiscordBotJsonAndRead).toHaveBeenCalledWith("bot-token", "/channels/123456789/messages", {
+      flags: 32768,
+      components: [
+        { type: 17, accent_color: color, components: [{ type: 10, content: `**${title}**\n${body}` }] },
+        { type: 10, content: mentions },
+      ],
+      allowed_mentions: { parse: ["everyone"], users: ["111111"], roles: ["222222"] },
+    });
+  });
+
+  it("sends a card without an empty mentions component or incidental pings", async () => {
+    await createDiscordBotMessage(botEnv, "123456789", "Chain Watch DROPPED\nChain 809\nLast hit: @everyone v Bob",
+      undefined, { cardColor: 0x3498db });
+    expect(postDiscordBotJsonAndRead).toHaveBeenCalledWith("bot-token", "/channels/123456789/messages", {
+      flags: 32768,
+      components: [{ type: 17, accent_color: 0x3498db, components: [
+        { type: 10, content: "**Chain Watch DROPPED**\nChain 809\nLast hit: @everyone v Bob" },
+      ] }],
+      allowed_mentions: { parse: [], users: [], roles: [] },
+    });
+  });
+
   it("sends bot attachment messages with safe allowed mentions", async () => {
     vi.mocked(postDiscordBotFormAndRead).mockResolvedValueOnce({ id: "message-1" });
 

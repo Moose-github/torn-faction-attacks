@@ -33,7 +33,21 @@ export type DiscordEmbed = {
 type DiscordPayloadOptions = {
   embedColor?: number;
   embeds?: DiscordEmbed[];
+  cardColor?: number;
   clearEmbeds?: boolean;
+};
+
+type DiscordTextDisplay = { type: 10; content: string };
+type DiscordCardComponent = DiscordTextDisplay | {
+  type: 17;
+  accent_color: number;
+  components: DiscordTextDisplay[];
+};
+type DiscordMessageContent = {
+  content?: string;
+  embeds?: DiscordEmbed[];
+  flags?: number;
+  components?: DiscordCardComponent[];
 };
 
 export async function createDiscordBotMessage(
@@ -41,7 +55,7 @@ export async function createDiscordBotMessage(
   channelId: string,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds">,
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor">,
 ): Promise<string | null> {
   const botToken = readDiscordBotToken(env);
   const response = await postDiscordBotJsonAndRead<DiscordMessage>(
@@ -59,7 +73,7 @@ export async function editDiscordBotMessage(
   messageId: string,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds">,
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor">,
 ): Promise<void> {
   const botToken = readDiscordBotToken(env);
   await patchDiscordBotJson(
@@ -80,17 +94,17 @@ function discordPayload(
   content: string,
   allowedMentions?: DiscordAllowedMentions,
   options: DiscordPayloadOptions = {},
-): {
-  content: string;
-  embeds?: DiscordEmbed[];
+): DiscordMessageContent & {
   allowed_mentions?: {
     parse: Array<"everyone">;
     users?: string[];
     roles?: string[];
   };
 } {
-  let payload: { content: string; embeds?: DiscordEmbed[] };
-  if (options.embeds !== undefined) {
+  let payload: DiscordMessageContent;
+  if (options.cardColor !== undefined) {
+    payload = discordCardPayload(content, options.cardColor);
+  } else if (options.embeds !== undefined) {
     payload = {
       content,
       embeds: options.embeds,
@@ -139,6 +153,19 @@ function discordEmbedPayload(content: string, color: number): {
       },
     ],
   };
+}
+
+function discordCardPayload(content: string, color: number): DiscordMessageContent {
+  const { content: mentions, embeds: [embed] } = discordEmbedPayload(content, color);
+  const components: DiscordCardComponent[] = [{
+    type: 17,
+    accent_color: color,
+    components: [{ type: 10, content: [`**${embed.title}**`, embed.description].filter(Boolean).join("\n") }],
+  }];
+  if (mentions) components.push({ type: 10, content: mentions });
+  // Components V2 keeps the coloured card and the pingable mentions below it
+  // in one message. These messages cannot include legacy content/embeds fields.
+  return { flags: 1 << 15, components };
 }
 
 function isDiscordMentionLine(line: string): boolean {
