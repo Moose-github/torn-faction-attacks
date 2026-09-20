@@ -33,6 +33,7 @@ export function DiscordSubscriptionToggle({ alertKey, label, controls, disabled 
   const [error, setError] = React.useState("");
   const [notice, setNotice] = React.useState("");
   const setting = controls.data?.alerts[alertKey];
+  const subscriberNames = setting?.subscribers?.map(subscriber => subscriber.name).join("\n");
   async function toggle(subscribable: boolean) {
     setError(""); setNotice("");
     try {
@@ -47,7 +48,9 @@ export function DiscordSubscriptionToggle({ alertKey, label, controls, disabled 
         onChange={event => void toggle(event.target.checked)} />
       <span>Allow subscriptions</span>
     </label>
-    <small>{controls.saving === alertKey ? "Saving…" : setting
+    <small className="admin-subscription-count"
+      title={subscriberNames && controls.saving !== alertKey ? `Subscribed members:\n${subscriberNames}` : undefined}
+    >{controls.saving === alertKey ? "Saving…" : setting
       ? `${setting.subscriber_count} ${setting.subscriber_count === 1 ? "subscriber" : "subscribers"}${setting.subscribable ? "" : " · paused"}`
       : controls.loading ? "Loading subscriptions…" : "Subscriptions unavailable"}</small>
     {error ? <small role="alert" className="admin-mention-error">{error}</small> : null}

@@ -1,6 +1,12 @@
+export type DiscordAlertSubscriber = {
+  torn_user_id: number;
+  name: string;
+};
+
 export type DiscordSubscriptionSetting = {
   subscribable: boolean;
   subscriber_count: number;
+  subscribers: DiscordAlertSubscriber[];
 };
 
 export type AdminDiscordSubscriptionSettingsResponse = {

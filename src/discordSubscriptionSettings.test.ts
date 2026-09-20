@@ -33,7 +33,7 @@ describe("admin-controlled Discord subscription availability", () => {
   it("preserves current defaults without enrolling any members", async () => {
     const data = await settings();
     expect(Object.keys(data.alerts)).toHaveLength(DISCORD_ALERTS.length);
-    for (const alert of DISCORD_ALERTS) expect(data.alerts[alert.key]).toEqual({ subscribable: alert.subscribable, subscriber_count: 0 });
+    for (const alert of DISCORD_ALERTS) expect(data.alerts[alert.key]).toEqual({ subscribable: alert.subscribable, subscriber_count: 0, subscribers: [] });
     expect(await saved()).toEqual([]);
   });
 
@@ -42,8 +42,11 @@ describe("admin-controlled Discord subscription availability", () => {
     db.sqlite.exec(`INSERT INTO discord_admin_alert_subscriptions (alert_key, subscription_type, discord_id) VALUES
       ('enemy_push', 'role', '222222'), ('enemy_push', 'user', '333333'), ('enemy_push', 'everyone', 'everyone')`);
     const before = await saved();
-    expect((await update("enemy_push", false)).status).toBe(200);
-    expect((await settings()).alerts.enemy_push).toEqual({ subscribable: false, subscriber_count: 1 });
+    const response = await update("enemy_push", false);
+    expect(response.status).toBe(200);
+    const expectedSetting = { subscribable: false, subscriber_count: 1, subscribers: [{ torn_user_id: 1, name: "Alice" }] };
+    expect((await response.json<{ setting: unknown }>()).setting).toEqual(expectedSetting);
+    expect((await settings()).alerts.enemy_push).toEqual(expectedSetting);
     expect((await readDiscordMemberAlertSubscriptions(db.env, 1)).alerts.some(alert => alert.key === "enemy_push")).toBe(false);
     expect(JSON.stringify((await command("manage")).data?.components)).not.toContain("enemy_push");
     expect(JSON.stringify((await command("list")).data?.embeds)).not.toContain("Enemy push");
@@ -54,6 +57,35 @@ describe("admin-controlled Discord subscription availability", () => {
     expect((await readDiscordMemberAlertSubscriptions(db.env, 1)).alerts.find(alert => alert.key === "enemy_push")?.enabled).toBe(true);
     expect((await readDiscordAlertMentions(db.env, "enemy_push")).allowedMentions?.users).toContain(discordId);
     expect(await saved()).toEqual(before);
+  });
+
+  it("lists only saved subscribers for each alert, sorted by member name", async () => {
+    db.sqlite.exec(`UPDATE home_faction_members SET name = 'zebra' WHERE member_id = 1;
+      INSERT INTO discord_member_alert_subscriptions (torn_user_id, alert_key, enabled) VALUES
+        (1, 'enemy_push', 1), (2, 'enemy_push', 1), (3, 'enemy_push', 0),
+        (1, 'chain_watch_warning', 0), (3, 'chain_watch_warning', 1);
+      INSERT INTO discord_admin_alert_subscriptions (alert_key, subscription_type, discord_id)
+        VALUES ('enemy_push', 'user', '333333')`);
+    const data = await settings();
+    expect(data.alerts.enemy_push.subscriber_count).toBe(2);
+    expect(data.alerts.enemy_push.subscribers).toEqual([
+      { torn_user_id: 2, name: "Bob" }, { torn_user_id: 1, name: "zebra" },
+    ]);
+    expect(data.alerts.chain_watch_warning.subscribers).toEqual([{ torn_user_id: 3, name: "Former" }]);
+    expect(data.alerts.chain_watch_warning.subscriber_count).toBe(1);
+  });
+
+  it("keeps subscribers in the count when their member name is unavailable", async () => {
+    db.sqlite.exec(`UPDATE home_faction_members SET name = ' ' WHERE member_id = 1;
+      UPDATE home_faction_members SET name = NULL WHERE member_id = 2;
+      INSERT INTO discord_member_alert_subscriptions (torn_user_id, alert_key, enabled) VALUES
+        (1, 'enemy_push', 1), (2, 'enemy_push', 1), (99, 'enemy_push', 1)`);
+    const data = await settings();
+    expect(data.alerts.enemy_push.subscriber_count).toBe(3);
+    expect(data.alerts.enemy_push.subscribers).toEqual([
+      { torn_user_id: 1, name: "Torn user 1" }, { torn_user_id: 2, name: "Torn user 2" },
+      { torn_user_id: 99, name: "Torn user 99" },
+    ]);
   });
 
   it("allows members to select and subscribe to a newly enabled alert through Discord", async () => {

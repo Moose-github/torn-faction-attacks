@@ -1,4 +1,4 @@
-import type { AdminDiscordSubscriptionSettingsResponse, UpdateDiscordSubscriptionSettingResponse } from "../shared/discordSubscriptionSettings";
+import type { AdminDiscordSubscriptionSettingsResponse, DiscordAlertSubscriber, UpdateDiscordSubscriptionSettingResponse } from "../shared/discordSubscriptionSettings";
 import { readJsonObject } from "./backend/request";
 import { DISCORD_ALERTS, discordAlertByKey, type DiscordAlertKey } from "./discordAlerts";
 import type { Env } from "./types";
@@ -22,13 +22,21 @@ export async function readSubscribableDiscordAlerts(env: Env) {
 
 async function adminSettings(env: Env): Promise<AdminDiscordSubscriptionSettingsResponse> {
   const availability = await readDiscordSubscriptionAvailability(env);
-  const counts = await env.DB.prepare(`SELECT alert_key, COUNT(*) AS subscriber_count
-    FROM discord_member_alert_subscriptions WHERE enabled = 1 GROUP BY alert_key`)
-    .bind().all<{ alert_key: string; subscriber_count: number }>();
-  const byKey = new Map((counts.results ?? []).map(row => [row.alert_key, row.subscriber_count]));
+  const subscriptions = await env.DB.prepare(`SELECT subscriptions.alert_key, subscriptions.torn_user_id,
+      COALESCE(NULLIF(TRIM(members.name), ''), 'Torn user ' || subscriptions.torn_user_id) AS name
+    FROM discord_member_alert_subscriptions AS subscriptions
+    LEFT JOIN home_faction_members AS members ON members.member_id = subscriptions.torn_user_id
+    WHERE subscriptions.enabled = 1
+    ORDER BY subscriptions.alert_key, name COLLATE NOCASE, subscriptions.torn_user_id`)
+    .bind().all<DiscordAlertSubscriber & { alert_key: string }>();
+  const byKey = new Map<string, DiscordAlertSubscriber[]>(DISCORD_ALERTS.map(alert => [alert.key, []]));
+  for (const row of subscriptions.results ?? []) {
+    byKey.get(row.alert_key)?.push({ torn_user_id: row.torn_user_id, name: row.name });
+  }
   return { ok: true, alerts: Object.fromEntries(DISCORD_ALERTS.map(alert => [alert.key, {
     subscribable: availability.get(alert.key) === true,
-    subscriber_count: byKey.get(alert.key) ?? 0,
+    subscriber_count: byKey.get(alert.key)!.length,
+    subscribers: byKey.get(alert.key)!,
   }])) };
 }
 

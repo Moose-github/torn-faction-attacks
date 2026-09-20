@@ -2,6 +2,8 @@
 .admin-subscription-toggle label { display: flex; align-items: center; gap: 8px; font-size: .8rem; }
 .admin-subscription-toggle input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; flex-shrink: 0; margin: 0; }
 .admin-subscription-toggle small { color: var(--text-muted); font-size: .76rem; overflow-wrap: anywhere; }
+.admin-subscription-count { width: fit-content; max-width: 100%; }
+.admin-subscription-count[title] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
 .admin-subscription-toggle .admin-mention-error { color: #b42332; }
 :root[data-theme="dark"] .admin-subscription-toggle .admin-mention-error { color: #fda4af; }
 .admin-subscription-load-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

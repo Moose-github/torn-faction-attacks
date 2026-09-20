@@ -1,7 +1,9 @@
 # Member alert subscriptions
 
 In **Admin controls → Discord**, each alert has an **Allow subscriptions** toggle
-and a count of saved subscribers. The default fallback route has no toggle.
+and a count of saved subscribers. Hover over the count to see their Torn
+usernames in alphabetical order. If a name is unavailable, the list shows the
+Torn user ID instead. The default fallback route has no toggle.
 
 Turning it on lists the alert in member **Settings → Discord notifications**,
 `/alerts manage`, and `/alerts list`. Members opt in individually and need a
@@ -22,7 +24,9 @@ refresh the menu for review without overwriting saved choices. If all alerts
 are unavailable, Discord shows an explanation with no dropdown.
 
 `GET /api/admin/discord-alerts/subscriptions` returns availability and subscriber
-counts. `POST` accepts `{ "alert_key": "enemy_push", "subscribable": true }`.
+counts and a `subscribers` list of `{ torn_user_id, name }` for each alert.
+`POST` accepts `{ "alert_key": "enemy_push", "subscribable": true }` and returns
+the updated setting with the same subscriber details.
 Both require dashboard admin access. Member reads, writes, and outgoing mentions
 use the same stored availability. No slash-command re-registration is required.
 
