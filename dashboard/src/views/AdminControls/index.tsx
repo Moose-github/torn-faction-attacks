@@ -948,7 +948,12 @@ export function AdminControls() {
             >
               <WarFields
                 form={currentWarEditForm}
-                onChange={setCurrentWarEditForm}
+                onChange={(next) => setCurrentWarEditForm((current) => ({
+                  ...next,
+                  autoEndEnabled: current.warType === "real" && next.warType === "termed"
+                    ? true
+                    : next.autoEndEnabled,
+                }))}
                 practicalOnly
                 allowedWarTypes={["real", "termed"]}
               />
