@@ -42,6 +42,7 @@ import {
   refreshDailyMemberLifestyleStats,
 } from "../lifestyleStats/dailyPersonal";
 import { getLatestMaintenanceRun } from "../maintenance";
+import { acceptDailyStatsIssueFromRequest } from "../lifestyleStats/dailyAttention";
 import { refreshMemberAchievementSummaries } from "../memberAchievements";
 import { syncMemberDiscordLinksFromRequest } from "../memberDiscordLinks";
 import { listPacks } from "../packs";
@@ -133,6 +134,10 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/data-health/settings", "POST")) {
     return withAdmin(routeContext, () => updateDataHealthSettingsFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/data-health/daily-stats/accept", "POST")) {
+    return withAdmin(routeContext, () => acceptDailyStatsIssueFromRequest(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/war-control-settings", "GET")) {

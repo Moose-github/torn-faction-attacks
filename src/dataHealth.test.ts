@@ -556,6 +556,29 @@ describe("shoplifting data health", () => {
     });
   });
 
+  it("excludes accepted gaps from severity without reporting them as fresh data", async () => {
+    vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      stale_personalstats: 0, missing_donator_days: 0,
+      personalstats_target_date: "2026-06-05", latest_personalstats_bucket_date: "2026-06-05",
+      personalstats_lag_days: 0, affected_members: [],
+    });
+    const response = await getAdminDataHealth(dataHealthEnv({
+      personalCoverage: [
+        { snapshot_date: "2026-06-04", ready_members: 55, accepted_members: 5, total_members: 60 },
+        { snapshot_date: "2026-06-05", ready_members: 60, accepted_members: 0, total_members: 60 },
+      ],
+    }));
+    const body = await response.json() as {
+      subsystems: Array<{ key: string; status: string; summary: string; metrics: Array<{ label: string; value: string }> }>;
+      issues: Array<{ key: string }>;
+    };
+    const personalStats = body.subsystems.find((subsystem) => subsystem.key === "personal_stats");
+    expect(personalStats).toMatchObject({ status: "good", summary: "Known personal stat gaps accepted" });
+    expect(personalStats?.metrics).toContainEqual({ label: "2026-06-04", value: "55/60" });
+    expect(personalStats?.metrics).toContainEqual({ label: "Accepted gaps", value: "5" });
+    expect(body.issues.some((issue) => issue.key === "personal_stats")).toBe(false);
+  });
+
   it.each([
     { age: 599, status: "good" },
     { age: 600, status: "warn" },
@@ -711,7 +734,7 @@ function dataHealthEnv({
   gymLatestDate?: string;
   completedGymStats?: string[];
   staleGymMembers?: number;
-  personalCoverage?: Array<{ snapshot_date: string; ready_members: number; total_members: number }>;
+  personalCoverage?: Array<{ snapshot_date: string; ready_members: number; accepted_members?: number; total_members: number }>;
   personalCoverageGaps?: Array<Record<string, unknown>>;
   apiRollupSummary?: Record<string, unknown>;
   apiFeatureRows?: Array<Record<string, unknown>>;

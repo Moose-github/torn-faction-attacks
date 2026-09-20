@@ -1,4 +1,5 @@
 import { HOME_FACTION_ID } from "../constants";
+import { acceptedDailyStatsIssueSql } from "../lifestyleStats/queries";
 import {
   DAILY_GYM_COMPLETE_STATE_NAME,
   DAILY_REFRESH_AFTER_UTC_HOUR,
@@ -233,6 +234,8 @@ export async function readPersonalStatsCoverage(env: Env, targetDate: string | n
     SELECT
       target_dates.snapshot_date,
       COUNT(snapshots.member_id) AS ready_members,
+      SUM(CASE WHEN snapshots.member_id IS NULL AND ${acceptedDailyStatsIssueSql("recent")}
+        THEN 1 ELSE 0 END) AS accepted_members,
       COUNT(members.member_id) AS total_members
     FROM target_dates
     LEFT JOIN home_faction_members members
@@ -243,6 +246,9 @@ export async function readPersonalStatsCoverage(env: Env, targetDate: string | n
       ON snapshots.member_id = members.member_id
      AND snapshots.snapshot_date = target_dates.snapshot_date
      AND snapshots.personal_ready = 1
+    LEFT JOIN member_personal_stats_recent recent
+      ON recent.member_id = members.member_id
+     AND recent.snapshot_date = target_dates.snapshot_date
     GROUP BY target_dates.snapshot_date
     ORDER BY target_dates.snapshot_date ASC
     `,
@@ -251,6 +257,7 @@ export async function readPersonalStatsCoverage(env: Env, targetDate: string | n
   return (rows.results ?? []).map((row) => ({
     snapshot_date: row.snapshot_date,
     ready_members: Number(row.ready_members ?? 0),
+    accepted_members: Number(row.accepted_members ?? 0),
     total_members: Number(row.total_members ?? 0),
   }));
 }
@@ -298,6 +305,7 @@ export async function readPersonalStatsCoverageGaps(
       ON recent.member_id = members.member_id
      AND recent.snapshot_date = target_dates.snapshot_date
     WHERE snapshots.member_id IS NULL
+      AND NOT ${acceptedDailyStatsIssueSql("recent")}
     ORDER BY target_dates.snapshot_date ASC, members.name ASC
     `,
   ).bind(dates[0], dates[1], HOME_FACTION_ID).all<PersonalStatsCoverageGapRow>();

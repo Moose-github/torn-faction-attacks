@@ -213,6 +213,7 @@ export type GymStatsHealthRow = {
 export type PersonalStatsCoverageRow = {
   snapshot_date: string;
   ready_members: number;
+  accepted_members: number;
   total_members: number;
 };
 

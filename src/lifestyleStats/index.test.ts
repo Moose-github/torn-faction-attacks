@@ -17,6 +17,8 @@ describe("daily lifestyle stats attention", () => {
         {
           member_id: 1001,
           member_name: "Lagging Member",
+          snapshot_date: "2026-06-03",
+          status: "retry_expired",
           error: "RETRY_EXPIRED_PERSONALSTATS",
           updated_at: 1_780_000_000,
         },
@@ -37,6 +39,8 @@ describe("daily lifestyle stats attention", () => {
         {
           member_id: 1001,
           member_name: "Lagging Member",
+          snapshot_date: "2026-06-03",
+          status: "retry_expired",
           error: "RETRY_EXPIRED_PERSONALSTATS",
           updated_at: 1_780_000_000,
         },
@@ -84,6 +88,8 @@ function lifestyleAttentionEnv(options: {
   affectedMembers: Array<{
     member_id: number;
     member_name: string | null;
+    snapshot_date: string;
+    status: string;
     error: string | null;
     updated_at: number | null;
   }>;

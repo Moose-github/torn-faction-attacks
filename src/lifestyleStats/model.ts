@@ -167,6 +167,8 @@ export type DailyStatsAttention = {
   affected_members: Array<{
     member_id: number;
     member_name: string | null;
+    snapshot_date: string;
+    status: PersonalStatsRecentStatus;
     error: string | null;
     updated_at: number | null;
   }>;

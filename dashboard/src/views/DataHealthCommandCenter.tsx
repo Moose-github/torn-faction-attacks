@@ -13,6 +13,7 @@ import {
   Settings2,
 } from "lucide-react";
 import {
+  acceptDailyStatsIssue,
   AdminDataHealthResponse,
   DataHealthKeyPoolSummary,
   DataHealthSettings,
@@ -79,26 +80,30 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
   const [error, setError] = React.useState<string | null>(null);
   const [apiUsageWindowSeconds, setApiUsageWindowSeconds] = React.useState(DEFAULT_API_USAGE_WINDOW_SECONDS);
   const [isApiFeatureTableCollapsed, setIsApiFeatureTableCollapsed] = React.useState(true);
+  const dataRequest = React.useRef(0);
 
   async function loadData(
     windowSeconds = apiUsageWindowSeconds,
     includeApiUsageBreakdown = !isApiFeatureTableCollapsed,
   ) {
+    const requestId = ++dataRequest.current;
     setIsLoading(true);
     setError(null);
     try {
       const response = isAdmin
         ? await getAdminDataHealth(windowSeconds, includeApiUsageBreakdown)
         : await getDataHealthSummary();
+      if (requestId !== dataRequest.current) return;
       setData(response);
       if (isAdminDataHealthResponse(response)) {
         setSettingsForm(formFromSettings(response.settings));
       }
     } catch (err) {
+      if (requestId !== dataRequest.current) return;
       setError(err instanceof Error ? err.message : String(err));
       setData(null);
     } finally {
-      setIsLoading(false);
+      if (requestId === dataRequest.current) setIsLoading(false);
     }
   }
 
@@ -150,6 +155,7 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
       {adminData ? (
         <AdminDataHealthDiagnostics
           data={adminData}
+          onRefresh={loadData}
           apiUsageWindowSeconds={apiUsageWindowSeconds}
           isApiFeatureTableCollapsed={isApiFeatureTableCollapsed}
           isSaving={isSaving}
@@ -345,6 +351,7 @@ function KeyPoolStat({ label, value }: { label: string; value: string }) {
 
 function AdminDataHealthDiagnostics({
   data,
+  onRefresh,
   apiUsageWindowSeconds,
   isApiFeatureTableCollapsed,
   isSaving,
@@ -356,6 +363,7 @@ function AdminDataHealthDiagnostics({
   setSettingsForm,
 }: {
   data: AdminDataHealthResponse;
+  onRefresh: () => Promise<void>;
   apiUsageWindowSeconds: number;
   isApiFeatureTableCollapsed: boolean;
   isSaving: boolean;
@@ -442,7 +450,7 @@ function AdminDataHealthDiagnostics({
       </section>
 
       <section className="data-health-drilldown-grid">
-        <DailyStatsDrilldown data={data} onOpenView={onOpenView} />
+        <DailyStatsDrilldown data={data} onOpenView={onOpenView} onRefresh={onRefresh} />
         <EnemyScoutingDrilldown data={data} onOpenView={onOpenView} />
         <ApiJobFailuresDrilldown data={data} onOpenView={onOpenView} />
       </section>
@@ -675,20 +683,45 @@ function SubsystemTile({ subsystem }: { subsystem: DataHealthSubsystem }) {
 function DailyStatsDrilldown({
   data,
   onOpenView,
+  onRefresh,
 }: {
   data: AdminDataHealthResponse;
   onOpenView: (view: AppView) => void;
+  onRefresh: () => Promise<void>;
 }) {
+  const [acceptingIssue, setAcceptingIssue] = React.useState<string | null>(null);
+  const [acceptError, setAcceptError] = React.useState<string | null>(null);
+  const [acceptNotice, setAcceptNotice] = React.useState<string | null>(null);
   const attention = data.details.daily_stats_attention;
   const affectedMembers = attention.affected_members.slice(0, 12);
   const affectedCount = attention.stale_personalstats + attention.missing_donator_days;
+
+  async function acceptIssue(member: typeof affectedMembers[number]) {
+    setAcceptingIssue(`${member.member_id}-${member.snapshot_date}`);
+    setAcceptError(null);
+    setAcceptNotice(null);
+    try {
+      await acceptDailyStatsIssue({
+        member_id: member.member_id,
+        snapshot_date: member.snapshot_date,
+        status: member.status,
+        error: member.error,
+      });
+      setAcceptNotice(`Accepted ${member.member_name ?? `#${member.member_id}`}'s issue for ${member.snapshot_date}.`);
+      await onRefresh();
+    } catch (err) {
+      setAcceptError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAcceptingIssue(null);
+    }
+  }
 
   return (
     <section className="panel table-panel data-health-drilldown-panel">
       <PanelHeader
         icon={<BarChart3 size={17} />}
         title="Daily member stats"
-        aside={affectedCount > 0 ? `${formatNumber(affectedCount)} issues` : "Complete"}
+        aside={affectedCount > 0 ? `${formatNumber(affectedCount)} issues` : "No outstanding issues"}
         control={
           <button type="button" className="panel-action-button" onClick={() => onOpenView("lifestyle")}>
             Open daily stats
@@ -700,24 +733,40 @@ function DailyStatsDrilldown({
         <MetricLine label="Latest bucket" value={attention.latest_personalstats_bucket_date ?? "-"} />
         <MetricLine label="Lag days" value={nullableNumber(attention.personalstats_lag_days)} />
       </div>
+      {acceptError ? <div className="error-panel" role="alert">{acceptError}</div> : null}
+      {acceptNotice ? <p className="dashboard-suggestion-success" role="status">{acceptNotice}</p> : null}
       {affectedMembers.length === 0 ? (
-        <EmptyState text="No stale daily stat members detected" />
+        <EmptyState text="No outstanding daily stat issues" />
       ) : (
         <div className="table-scroll">
-          <table className="stock-status-table data-health-table">
+          <table className="stock-status-table data-health-table" aria-label="Outstanding daily member stats">
             <thead>
               <tr>
                 <th>Member</th>
+                <th>Date</th>
                 <th>Updated</th>
                 <th>Issue</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {affectedMembers.map((member) => (
-                <tr key={member.member_id}>
+                <tr key={`${member.member_id}-${member.snapshot_date}`}>
                   <td>{member.member_name ?? `#${member.member_id}`}</td>
+                  <td>{member.snapshot_date}</td>
                   <td>{formatDate(member.updated_at)}</td>
-                  <td>{member.error ?? "Stats stale or incomplete"}</td>
+                  <td className="data-health-issue-error">{member.error ?? "Stats stale or incomplete"}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="panel-action-button"
+                      disabled={acceptingIssue !== null}
+                      aria-label={`Accept this issue for ${member.member_name ?? `#${member.member_id}`} on ${member.snapshot_date}`}
+                      onClick={() => acceptIssue(member)}
+                    >
+                      {acceptingIssue === `${member.member_id}-${member.snapshot_date}` ? "Accepting..." : "Accept this issue"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

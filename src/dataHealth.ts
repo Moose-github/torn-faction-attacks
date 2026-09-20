@@ -358,7 +358,10 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
   const affectedCount = attention.stale_personalstats + attention.missing_donator_days;
   const xantakenNeedsRepair = snapshot.xantakenRechecks.needs_repair;
   const oldestCoverage = snapshot.personalStatsCoverage[0] ?? null;
-  const oldestMissingCoverage = oldestCoverage ? Math.max(0, oldestCoverage.total_members - oldestCoverage.ready_members) : 0;
+  const acceptedCount = snapshot.personalStatsCoverage.reduce((sum, coverage) => sum + coverage.accepted_members, 0);
+  const oldestMissingCoverage = oldestCoverage
+    ? Math.max(0, oldestCoverage.total_members - oldestCoverage.ready_members - oldestCoverage.accepted_members)
+    : 0;
   const coverageStatus = !oldestCoverage || oldestCoverage.total_members === 0
     ? "unknown"
     : statusForCount(
@@ -380,11 +383,13 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
     key: "personal_stats",
     label: "Personal stats",
     status,
-    summary: affectedCount > 0 ? `${affectedCount} reportable members need personal stat attention` : "Personal stats are up to date",
+    summary: affectedCount > 0 ? `${affectedCount} reportable members need personal stat attention`
+      : acceptedCount > 0 ? "Known personal stat gaps accepted" : "Personal stats are up to date",
     updated_at: null,
     metrics: [
       ...coverageMetrics,
       outstandingMetric,
+      ...(acceptedCount > 0 ? [{ label: "Accepted gaps", value: String(acceptedCount) }] : []),
       { label: "Xanax rechecks", value: String(snapshot.xantakenRechecks.pending_rechecks) },
       { label: "Xanax fixed 24h", value: String(snapshot.xantakenRechecks.auto_fixed_24h) },
       { label: "Xanax repair", value: String(snapshot.xantakenRechecks.needs_repair) },

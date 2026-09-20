@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireAdmin } from "../auth";
+import { acceptDailyStatsIssueFromRequest } from "../lifestyleStats/dailyAttention";
+vi.mock("../lifestyleStats/dailyAttention", () => ({
+  acceptDailyStatsIssueFromRequest: vi.fn(),
+  getDailyStatsAttention: vi.fn(),
+}));
 import { sendAdminDiscordMessageFromRequest } from "../discordMessageSend";
 import { getAdminDiscordSubscriptionSettings, updateAdminDiscordSubscriptionSettingFromRequest } from "../discordSubscriptionSettings";
 vi.mock("../discordSubscriptionSettings", () => ({ getAdminDiscordSubscriptionSettings: vi.fn(), updateAdminDiscordSubscriptionSettingFromRequest: vi.fn() }));
@@ -268,6 +273,21 @@ describe("admin routes", () => {
     expect(await response?.json()).toEqual({ ok: true, route: "settings" });
     expect(requireAdmin).toHaveBeenCalledOnce();
     expect(updateDataHealthSettingsFromRequest).toHaveBeenCalledOnce();
+  });
+
+  it("allows admins to accept a daily stats issue", async () => {
+    vi.mocked(acceptDailyStatsIssueFromRequest).mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const context = routeContext("https://worker.test/api/admin/data-health/daily-stats/accept", { method: "POST" });
+    expect((await routeAdminApi(context))?.status).toBe(200);
+    expect(requireAdmin).toHaveBeenCalledWith(context.request, context.env);
+    expect(acceptDailyStatsIssueFromRequest).toHaveBeenCalledWith(context.request, context.env);
+  });
+
+  it("rejects accepting daily stats issues without admin access", async () => {
+    vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
+    const context = routeContext("https://worker.test/api/admin/data-health/daily-stats/accept", { method: "POST" });
+    expect((await routeAdminApi(context))?.status).toBe(403);
+    expect(acceptDailyStatsIssueFromRequest).not.toHaveBeenCalled();
   });
 
   it("routes war control settings reads through admin auth", async () => {

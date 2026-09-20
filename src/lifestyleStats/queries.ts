@@ -211,6 +211,8 @@ export async function readDailyStatsAttentionMembers(
     SELECT
       members.member_id,
       COALESCE(stats.member_name, members.name) AS member_name,
+      stats.snapshot_date,
+      stats.status,
       stats.error AS error,
       stats.updated_at AS updated_at
     FROM home_faction_members members
@@ -219,20 +221,8 @@ export async function readDailyStatsAttentionMembers(
     WHERE members.is_current = 1
       AND members.report_exempt = 0
       AND ${currentMembershipDateCondition("members", "stats.snapshot_date")}
-      AND (
-        stats.status = 'retry_expired'
-        OR (
-          stats.snapshot_date NOT IN (${activeDatePlaceholders})
-          AND (
-            stats.error LIKE ?
-            OR (
-              stats.error IS NOT NULL
-              AND stats.error NOT LIKE ?
-              AND stats.error NOT LIKE ?
-            )
-          )
-        )
-      )
+      AND ${dailyStatsAttentionCondition(activeDatePlaceholders)}
+      AND NOT ${acceptedDailyStatsIssueSql("stats")}
     ORDER BY stats.snapshot_date ASC, members.name ASC
     LIMIT 12
     `,
@@ -279,6 +269,7 @@ export async function readDailyStatsAttentionCounts(
     WHERE members.is_current = 1
       AND members.report_exempt = 0
       AND ${currentMembershipDateCondition("members", "stats.snapshot_date")}
+      AND NOT ${acceptedDailyStatsIssueSql("stats")}
     `,
   )
     .bind(
@@ -297,4 +288,61 @@ export async function readDailyStatsAttentionCounts(
     stale_personalstats: counts?.stale_personalstats ?? 0,
     missing_donator_days: counts?.missing_donator_days ?? 0,
   };
+}
+
+// An acceptance belongs to one day's particular failure. A different failure
+// on that day must be reviewed again; retry timestamps alone do not reopen it.
+export function acceptedDailyStatsIssueSql(statsAlias: string): string {
+  return `EXISTS (
+    SELECT 1 FROM daily_stats_issue_acceptances accepted
+    WHERE accepted.member_id = ${statsAlias}.member_id
+      AND accepted.snapshot_date = ${statsAlias}.snapshot_date
+      AND accepted.issue_status = ${statsAlias}.status
+      AND accepted.issue_error IS ${statsAlias}.error
+  )`;
+}
+
+function dailyStatsAttentionCondition(activeDatePlaceholders: string): string {
+  return `(
+    stats.status = 'retry_expired'
+    OR (
+      stats.snapshot_date NOT IN (${activeDatePlaceholders})
+      AND (
+        stats.error LIKE ?
+        OR (stats.error IS NOT NULL AND stats.error NOT LIKE ? AND stats.error NOT LIKE ?)
+      )
+    )
+  )`;
+}
+
+export async function acceptDailyStatsAttentionIssue(
+  env: Env,
+  issue: Pick<DailyStatsAttention["affected_members"][number], "member_id" | "snapshot_date" | "status" | "error">,
+  activeDates: string[],
+  acceptedBy: number | null,
+): Promise<boolean> {
+  const result = await env.DB.prepare(`
+    INSERT INTO daily_stats_issue_acceptances
+      (member_id, snapshot_date, issue_status, issue_error, accepted_by, accepted_at)
+    SELECT stats.member_id, stats.snapshot_date, stats.status, stats.error, ?, unixepoch()
+    FROM member_personal_stats_recent stats
+    JOIN home_faction_members members ON members.member_id = stats.member_id
+    WHERE stats.member_id = ? AND stats.snapshot_date = ?
+      AND stats.status = ? AND stats.error IS ?
+      AND members.faction_id = ? AND members.is_current = 1 AND members.report_exempt = 0
+      AND ${currentMembershipDateCondition("members", "stats.snapshot_date")}
+      AND ${dailyStatsAttentionCondition(activeDates.map(() => "?").join(","))}
+    ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
+      issue_status = excluded.issue_status,
+      issue_error = excluded.issue_error,
+      accepted_by = excluded.accepted_by,
+      accepted_at = excluded.accepted_at
+  `).bind(
+    acceptedBy, issue.member_id, issue.snapshot_date, issue.status, issue.error, HOME_FACTION_ID,
+    ...activeDates,
+    `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
+    `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
+    `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
+  ).run();
+  return Number(result.meta.changes) > 0;
 }

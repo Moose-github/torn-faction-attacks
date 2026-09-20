@@ -1,11 +1,36 @@
 import type { Env } from "../types";
-import { nowSeconds } from "../utils";
+import { readAuthenticatedUserId } from "../auth";
+import { readJsonObject } from "../backend/request";
+import { json, nowSeconds } from "../utils";
 import type { DailyStatsAttention } from "./model";
 import {
+  acceptDailyStatsAttentionIssue,
   readDailyStatsAttentionCounts,
   readDailyStatsAttentionMembers,
   readLatestPersonalStatsBucketDate,
 } from "./queries";
+
+export async function acceptDailyStatsIssueFromRequest(request: Request, env: Env): Promise<Response> {
+  const body = await readJsonObject(request);
+  const { member_id: memberId, snapshot_date: snapshotDate, status, error } = body;
+  if (typeof memberId !== "number" || !Number.isSafeInteger(memberId) || memberId <= 0
+    || typeof snapshotDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(snapshotDate)
+    || !Number.isFinite(Date.parse(`${snapshotDate}T00:00:00Z`))
+    || new Date(`${snapshotDate}T00:00:00Z`).toISOString().slice(0, 10) !== snapshotDate
+    || (status !== "pending" && status !== "completed" && status !== "retry_expired" && status !== "failed")
+    || (error !== null && typeof error !== "string")) {
+    return json({ ok: false, error: "A valid member, snapshot date, status and error are required." }, 400);
+  }
+  const accepted = await acceptDailyStatsAttentionIssue(
+    env, { member_id: memberId, snapshot_date: snapshotDate, status, error },
+    recentCompletedPersonalStatsDates(nowSeconds()),
+    await readAuthenticatedUserId(request, env),
+  );
+  if (!accepted) {
+    return json({ ok: false, error: "This issue has changed or is no longer outstanding. Refresh Data health and try again." }, 409);
+  }
+  return json({ ok: true });
+}
 
 export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttention> {
   const now = nowSeconds();
