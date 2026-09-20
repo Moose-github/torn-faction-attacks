@@ -15,6 +15,8 @@ export const DISCORD_ALERT_KEYS = {
     `shoplifting_security_alert:${shopKey}`,
 } as const;
 
+// Keep this catalog append-only: Discord subscription menus encode stable positions.
+// subscribable is the default; runtime admin overrides live in discord_alert_subscription_settings.
 export const DISCORD_ALERTS = [
   {
     key: DISCORD_ALERT_KEYS.chainWatch,

@@ -7,9 +7,9 @@ import {
   DISCORD_ALERT_CHANNEL_ROUTES,
   DISCORD_ALERT_KEYS,
   DISCORD_ALERTS,
-  discordAlertByKey,
   discordAlertRouteByKey,
 } from "./discordAlerts";
+import { readSubscribableDiscordAlerts } from "./discordSubscriptionSettings";
 import { createDiscordBotMessage } from "./discord";
 import {
   readDiscordMemberAlertSubscriptionsForDiscordUser,
@@ -584,7 +584,7 @@ async function alertsResponse(
 
   if (subcommand?.name === "list") {
     const subscriptions = await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId);
-    return alertsListResponse(subscriptions);
+    return alertsListResponse(subscriptions, env);
   }
 
   const subscriptions = await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId);
@@ -615,8 +615,7 @@ async function updateAlertSubscriptionsFromSelectResponse(
 
   const selectedAlertKeys = new Set(
     (interaction.data?.values ?? []).filter((value) => {
-      const alert = discordAlertByKey(value);
-      return Boolean(alert?.subscribable);
+      return subscriptions.alerts.some(alert => alert.key === value);
     }),
   );
 
@@ -669,7 +668,12 @@ async function submitAlertSubscriptionsResponse(
     interaction.data?.custom_id?.slice(DISCORD_COMPONENT_IDS.alertsManageSubmitPrefix.length) ?? "",
   );
 
-  await Promise.all(subscriptions.alerts.map((alert) =>
+  if (!selectedAlertKeys) {
+    return alertsManageResponse(subscriptions, DISCORD_RESPONSE_UPDATE_MESSAGE,
+      "The available alerts have changed or this menu has expired. Review the refreshed options, then submit again.");
+  }
+
+  const results = await Promise.all(subscriptions.alerts.map((alert) =>
     updateDiscordMemberAlertSubscription(
       env,
       subscriptions.discord_link.torn_user_id,
@@ -677,6 +681,13 @@ async function submitAlertSubscriptionsResponse(
       selectedAlertKeys.has(alert.key),
     )
   ));
+
+  if (results.some(result => result !== "ok")) {
+    const current = await readDiscordMemberAlertSubscriptionsForDiscordUser(env, discordUserId);
+    return current ? alertsManageResponse(current, DISCORD_RESPONSE_UPDATE_MESSAGE,
+      "Some alerts changed availability while saving. Review the refreshed options, then submit again.")
+      : ephemeralMessage("Your Discord link is no longer available. Reopen /alerts manage after linking your account.");
+  }
 
   return discordMessageResponse(DISCORD_RESPONSE_UPDATE_MESSAGE, {
     flags: DISCORD_FLAG_EPHEMERAL,
@@ -857,11 +868,11 @@ function alertChannelsListResponse(routes: DiscordNotificationChannel[]): Discor
   });
 }
 
-function alertsListResponse(
+async function alertsListResponse(
   subscriptions: DiscordMemberAlertSubscriptionsResponse | null,
-): DiscordInteractionResponse {
-  const settings = subscriptions?.alerts ?? DISCORD_ALERTS
-    .filter((alert) => alert.subscribable)
+  env: Env,
+): Promise<DiscordInteractionResponse> {
+  const settings = subscriptions?.alerts ?? (await readSubscribableDiscordAlerts(env))
     .map<DiscordMemberAlertSubscriptionSetting>((alert) => ({
       key: alert.key,
       name: alert.name,
@@ -874,7 +885,7 @@ function alertsListResponse(
     embeds: [
       {
         title: "Available alert subscriptions",
-        description: subscriptions
+        description: settings.length === 0 ? "No subscribable alerts are currently available." : subscriptions
           ? `Use \`/alerts manage\` or [Dashboard settings](${DASHBOARD_SETTINGS_URL}) to change your settings.`
           : `I cannot show your current status until your Discord account is linked to a Torn member. You can also use [Dashboard settings](${DASHBOARD_SETTINGS_URL}).`,
         color: BOT_COLOR,
@@ -899,7 +910,7 @@ function alertsManageResponse(
     embeds: [
       {
         title: "Manage alert subscriptions",
-        description: description ?? (enabledCount === 0
+        description: subscriptions.alerts.length === 0 ? "No subscribable alerts are currently available. Your saved subscriptions are kept while alerts are unavailable." : description ?? (enabledCount === 0
           ? "Select alerts from the dropdown to subscribe yourself."
           : `You are subscribed to ${enabledCount} alert${enabledCount === 1 ? "" : "s"}. Update the dropdown to change them.`),
         color: BOT_COLOR,
@@ -913,6 +924,7 @@ function alertSubscriptionComponents(
   alerts: DiscordMemberAlertSubscriptionSetting[],
   selectedAlertKeys: Set<string>,
 ): DiscordComponent[] {
+  if (alerts.length === 0) return [];
   return [
     {
       type: DISCORD_COMPONENT_ACTION_ROW,
@@ -973,22 +985,26 @@ function encodeAlertSelection(
   alerts: DiscordMemberAlertSubscriptionSetting[],
   selectedAlertKeys: Set<string>,
 ): string {
-  let mask = 0n;
-  alerts.forEach((alert, index) => {
-    if (selectedAlertKeys.has(alert.key)) {
-      mask |= 1n << BigInt(index);
-    }
-  });
-  return mask.toString(16);
+  return `v2:${alertKeyMask(new Set(alerts.map(alert => alert.key))).toString(16)}:${alertKeyMask(selectedAlertKeys).toString(16)}`;
+}
+
+// Stable positions across the full catalog; never derive positions from the
+// dynamically filtered menu. DISCORD_ALERTS must remain append-only.
+function alertKeyMask(keys: Set<string>): bigint {
+  return DISCORD_ALERTS.reduce((mask, alert, index) => keys.has(alert.key) ? mask | (1n << BigInt(index)) : mask, 0n);
 }
 
 function decodeAlertSelection(
   alerts: DiscordMemberAlertSubscriptionSetting[],
   encoded: string,
-): Set<string> {
-  const mask = /^[0-9a-f]+$/i.test(encoded) ? BigInt(`0x${encoded}`) : 0n;
+): Set<string> | null {
+  const parts = /^v2:([0-9a-f]{1,16}):([0-9a-f]{1,16})$/i.exec(encoded);
+  if (!parts) return null; // Refresh legacy menus instead of interpreting their positional masks.
+  const availableMask = BigInt(`0x${parts[1]}`);
+  const mask = BigInt(`0x${parts[2]}`);
+  if (availableMask !== alertKeyMask(new Set(alerts.map(alert => alert.key))) || (mask & ~availableMask) !== 0n) return null;
   return new Set(
-    alerts
+    DISCORD_ALERTS
       .filter((_alert, index) => (mask & (1n << BigInt(index))) !== 0n)
       .map((alert) => alert.key),
   );

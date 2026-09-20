@@ -1,5 +1,6 @@
 import { type DiscordAllowedMentions } from "./discord";
 import { Env } from "./types";
+import { discordAlertByKey } from "./discordAlerts";
 
 type DiscordAlertMentionRow = {
   subscription_type: string;
@@ -32,10 +33,11 @@ export async function readDiscordAlertMentions(env: Env, alertKey: string): Prom
       ON links.torn_user_id = subscriptions.torn_user_id
     WHERE subscriptions.alert_key = ?
       AND subscriptions.enabled = 1
+      AND COALESCE((SELECT subscribable FROM discord_alert_subscription_settings WHERE alert_key = ?), ?) = 1
     ORDER BY links.discord_user_id
     `,
   )
-    .bind(alertKey)
+    .bind(alertKey, alertKey, discordAlertByKey(alertKey)?.subscribable ? 1 : 0)
     .all<DiscordAlertMentionRow>();
   const rows = [
     ...(adminResult.results ?? []),

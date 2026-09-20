@@ -10,6 +10,12 @@ CREATE TABLE admin_users (
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+CREATE TABLE discord_alert_subscription_settings (
+  alert_key TEXT PRIMARY KEY,
+  subscribable INTEGER NOT NULL CHECK (subscribable IN (0, 1)),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE alert_settings (
   alert_key TEXT PRIMARY KEY,
   enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),

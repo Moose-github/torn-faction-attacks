@@ -1,5 +1,6 @@
 import { readJsonObject } from "./backend/request";
-import { DISCORD_ALERTS, discordAlertByKey, type DiscordAlertKey } from "./discordAlerts";
+import { discordAlertByKey, type DiscordAlertKey } from "./discordAlerts";
+import { readDiscordSubscriptionAvailability, readSubscribableDiscordAlerts } from "./discordSubscriptionSettings";
 import { Env } from "./types";
 import { json } from "./utils";
 
@@ -54,7 +55,7 @@ export async function updateDiscordMemberAlertSubscriptionFromRequest(
   const alertKey = typeof body.alert_key === "string" ? body.alert_key : "";
   const result = await updateDiscordMemberAlertSubscription(env, tornUserId, alertKey, body.enabled);
   if (result === "unknown_alert") {
-    return json({ ok: false, error: "Unknown subscribable alert", code: "UNKNOWN_ALERT" }, 400);
+    return json({ ok: false, error: "This alert is not available for subscriptions. Refresh your settings to see the current options.", code: "UNKNOWN_ALERT" }, 400);
   }
   if (typeof body.enabled !== "boolean") {
     return json({ ok: false, error: "enabled must be a boolean", code: "INVALID_ENABLED" }, 400);
@@ -89,7 +90,7 @@ export async function updateDiscordMemberAlertSubscription(
   enabled: unknown,
 ): Promise<"ok" | "unknown_alert" | "invalid_enabled" | "discord_not_linked"> {
   const alert = discordAlertByKey(alertKey);
-  if (!alert || !alert.subscribable) {
+  if (!alert || !(await readDiscordSubscriptionAvailability(env)).get(alert.key)) {
     return "unknown_alert";
   }
   if (typeof enabled !== "boolean") {
@@ -101,19 +102,20 @@ export async function updateDiscordMemberAlertSubscription(
     return "discord_not_linked";
   }
 
-  await env.DB.prepare(
+  const result = await env.DB.prepare(
     `
     INSERT INTO discord_member_alert_subscriptions (torn_user_id, alert_key, enabled, created_at, updated_at)
-    VALUES (?, ?, ?, unixepoch(), unixepoch())
+    SELECT ?, ?, ?, unixepoch(), unixepoch()
+    WHERE COALESCE((SELECT subscribable FROM discord_alert_subscription_settings WHERE alert_key = ?), ?) = 1
     ON CONFLICT(torn_user_id, alert_key) DO UPDATE SET
       enabled = excluded.enabled,
       updated_at = excluded.updated_at
     `,
   )
-    .bind(tornUserId, alert.key, enabled ? 1 : 0)
+    .bind(tornUserId, alert.key, enabled ? 1 : 0, alert.key, alert.subscribable ? 1 : 0)
     .run();
 
-  return "ok";
+  return result.meta.changes === 0 ? "unknown_alert" : "ok";
 }
 
 export async function readDiscordMemberAlertSubscriptions(
@@ -142,8 +144,7 @@ export async function readDiscordMemberAlertSubscriptions(
       discord_user_id: link?.discord_user_id ?? null,
       linked: Boolean(link),
     },
-    alerts: DISCORD_ALERTS
-      .filter((alert) => alert.subscribable)
+    alerts: (await readSubscribableDiscordAlerts(env))
       .map<DiscordMemberAlertSubscriptionSetting>((alert) => ({
         key: alert.key,
         name: alert.name,

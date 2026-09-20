@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireAdmin } from "../auth";
 import { sendAdminDiscordMessageFromRequest } from "../discordMessageSend";
+import { getAdminDiscordSubscriptionSettings, updateAdminDiscordSubscriptionSettingFromRequest } from "../discordSubscriptionSettings";
+vi.mock("../discordSubscriptionSettings", () => ({ getAdminDiscordSubscriptionSettings: vi.fn(), updateAdminDiscordSubscriptionSettingFromRequest: vi.fn() }));
 vi.mock("../discordMessageSend", () => ({ sendAdminDiscordMessageFromRequest: vi.fn() }));
 import {
   getAdminDataHealth,
@@ -128,6 +130,23 @@ vi.mock("../xanaxCompetition", () => ({
 }));
 
 describe("admin routes", () => {
+  it.each(["GET", "POST"])("requires admin access for %s subscription availability", async method => {
+    vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
+    const response = await routeAdminApi(routeContext("https://worker.test/api/admin/discord-alerts/subscriptions", { method }));
+    expect(response?.status).toBe(403);
+    expect(getAdminDiscordSubscriptionSettings).not.toHaveBeenCalled();
+    expect(updateAdminDiscordSubscriptionSettingFromRequest).not.toHaveBeenCalled();
+  });
+  it("routes admin subscription reads and updates", async () => {
+    vi.mocked(getAdminDiscordSubscriptionSettings).mockResolvedValueOnce(jsonResponse({ ok: true }));
+    vi.mocked(updateAdminDiscordSubscriptionSettingFromRequest).mockResolvedValueOnce(jsonResponse({ ok: true }));
+    for (const method of ["GET", "POST"]) {
+      const context = routeContext("https://worker.test/api/admin/discord-alerts/subscriptions", { method });
+      expect((await routeAdminApi(context))?.status).toBe(200);
+      if (method === "GET") expect(getAdminDiscordSubscriptionSettings).toHaveBeenCalledWith(context.env);
+      else expect(updateAdminDiscordSubscriptionSettingFromRequest).toHaveBeenCalledWith(context.request, context.env);
+    }
+  });
   it.each([401, 403])("requires admin access before sending Discord messages (%i)", async status => {
     vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, status));
     const result = await routeAdminApi(routeContext("https://worker.test/api/admin/discord-messages/send", { method: "POST" }));

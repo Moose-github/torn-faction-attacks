@@ -1,0 +1,10 @@
+.admin-alert-audience { display: grid; align-content: start; min-width: 0; padding: 10px 12px; gap: 12px; border-bottom: 1px solid rgba(148, 163, 184, .18); }
+.admin-alert-audience .admin-alert-mentions { padding: 0; border: 0; }
+.admin-subscription-toggle { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid rgba(148, 163, 184, .18); }
+.admin-subscription-toggle label { display: flex; align-items: center; gap: 8px; font-size: .8rem; }
+.admin-subscription-toggle input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; flex-shrink: 0; margin: 0; }
+.admin-subscription-toggle small { color: var(--text-muted); font-size: .76rem; overflow-wrap: anywhere; }
+.admin-subscription-toggle .admin-mention-error { color: #b42332; }
+:root[data-theme="dark"] .admin-subscription-toggle .admin-mention-error { color: #fda4af; }
+.admin-subscription-load-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+@media (max-width: 1100px) { .admin-alert-audience { grid-column: 1 / -1; } }

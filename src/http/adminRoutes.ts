@@ -1,5 +1,6 @@
 import { positiveIntegerOrNull, readJsonObject } from "../backend/request";
 import { sendAdminDiscordMessageFromRequest } from "../discordMessageSend";
+import { getAdminDiscordSubscriptionSettings, updateAdminDiscordSubscriptionSettingFromRequest } from "../discordSubscriptionSettings";
 import { grantAdminAccess, listAdminUsers, readAuthenticatedUserId } from "../auth";
 import { bumpGlobalWarCacheVersion, bumpWarCacheVersionById } from "../cacheVersions";
 import {
@@ -287,6 +288,14 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/discord-alerts/routes", "POST")) {
     return withAdmin(routeContext, () => updateAdminDiscordRouteFromRequest(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-alerts/subscriptions", "GET")) {
+    return withAdmin(routeContext, () => getAdminDiscordSubscriptionSettings(env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/discord-alerts/subscriptions", "POST")) {
+    return withAdmin(routeContext, () => updateAdminDiscordSubscriptionSettingFromRequest(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/discord-alerts/mentions", "GET")) {

@@ -3,6 +3,15 @@ import { queryString } from "./query";
 import type { DiscordMessageDeleteResult, DiscordMessagePreview, DiscordMessageSendResult } from "../../../shared/discordMessageAdmin";
 import type { AdminDiscordAlertMentionsResponse, DiscordAlertMentionSetting, UpdateDiscordAlertMentionsResponse } from "../../../shared/discordAlertMentions";
 import type { DiscordRouteDestinationsResponse } from "../../../shared/discordRouteAdmin";
+import type { AdminDiscordSubscriptionSettingsResponse, UpdateDiscordSubscriptionSettingResponse } from "../../../shared/discordSubscriptionSettings";
+
+export function getAdminDiscordSubscriptionSettings(): Promise<AdminDiscordSubscriptionSettingsResponse> {
+  return getJson("/api/admin/discord-alerts/subscriptions");
+}
+
+export function updateAdminDiscordSubscriptionSetting(alertKey: string, subscribable: boolean): Promise<UpdateDiscordSubscriptionSettingResponse> {
+  return postJson("/api/admin/discord-alerts/subscriptions", { alert_key: alertKey, subscribable });
+}
 
 export function getAdminDiscordAlertMentions(): Promise<AdminDiscordAlertMentionsResponse> {
   return getJson("/api/admin/discord-alerts/mentions");

@@ -127,6 +127,8 @@ export function Settings({
       setData(await updateDiscordMemberAlertSubscription({ alert_key: alertKey, enabled }));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      // An admin may have changed availability while this page was open.
+      try { setData(await getDiscordMemberAlertSubscriptions()); } catch { /* Keep the original save error. */ }
     } finally {
       setSavingKey(null);
     }

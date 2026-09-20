@@ -34,6 +34,7 @@ import { DiscordMessageDelete } from "./DiscordMessageDelete";
 import { DiscordMessageCompose } from "./DiscordMessageCompose";
 import { DiscordAlertMentionEditor, useDiscordMentionSettings } from "./DiscordAlertMentionEditor";
 import { DiscordRouteActions } from "./DiscordRouteActions";
+import { DiscordSubscriptionToggle, useDiscordSubscriptionSettings } from "./DiscordSubscriptionToggle";
 
 const DEFAULT_DISCORD_ALERT_ROUTE_KEY = "default";
 
@@ -106,6 +107,7 @@ export function DiscordAdminControls({
   runAdminAction,
 }: DiscordAdminControlsProps) {
   const mentionControls = useDiscordMentionSettings();
+  const subscriptionControls = useDiscordSubscriptionSettings();
   const discordAlertStatus = isLoadingDiscordAlertSettings
     ? "Loading"
     : discordDeliveryAlerts.length > 0 || shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert || chainWatchMissedCheckInAlert || retaliationBoardAlert
@@ -329,15 +331,24 @@ export function DiscordAdminControls({
     <>
       <section className="panel admin-panel-shoplifting-alerts">
         <PanelHeader title="Discord alerts" aside={discordAlertStatus} />
-        <p>These switches control Discord messages. Chain Watch events and travel tracking continue when messages are off.</p>
-        <p className="admin-mention-help">Choose the roles or groups each alert mentions. Personal subscriptions and assigned watchers are included separately. Status boards notify on new posts; edits do not send fresh notifications.</p>
+        <p>Choose which Discord alerts are sent, where they appear, who they mention, and whether members can subscribe.</p>
+        <p className="admin-mention-help">
+          <strong>Status</strong>: Controls if the alert is sent; does not affect functionality.<br />
+          <strong>Allow subscriptions</strong>: Allows users to subscribe themselves to the alert.<br />
+          <strong>Mentions</strong>: Admin set server/role level notifications.
+        </p>
+        <p className="admin-mention-help">Enable <strong>Allow subscriptions</strong> to show an alert in member Settings and <code>/alerts manage</code>. Turning it off hides the option in both places and pauses personal mentions. Saved subscriptions resume when you enable it again.</p>
+        <p className="admin-mention-help">Role mentions and assigned watcher pings work independently of subscriptions. Tracking continues when messages are off. Status boards notify on new posts; edits stay silent.</p>
+        {subscriptionControls.error ? <p role="alert" className="admin-mention-error admin-subscription-load-error">{subscriptionControls.error}
+          <button type="button" className="admin-alert-route-test" disabled={subscriptionControls.loading || subscriptionControls.saving !== null} onClick={() => void subscriptionControls.load()}>Retry subscriptions</button>
+        </p> : null}
         {mentionControls.error || mentionControls.data?.roles_error ? <p role="alert" className="admin-mention-error">{mentionControls.error || mentionControls.data?.roles_error}</p> : null}
         <button type="button" className="admin-alert-route-test" disabled={mentionControls.loading} onClick={() => void mentionControls.load()}>{mentionControls.loading ? "Loading roles…" : "Refresh roles"}</button>
         <div className="admin-alert-route-grid admin-alert-mention-grid">
           <div className="admin-alert-route-heading">Alert</div>
           <div className="admin-alert-route-heading">Status</div>
           <div className="admin-alert-route-heading">Current route</div>
-          <div className="admin-alert-route-heading">Mentions</div>
+          <div className="admin-alert-route-heading">Mentions &amp; subscriptions</div>
           {discordAlertRows.map((alert) => (
             <React.Fragment key={alert.key}>
               <div className="admin-alert-route-copy">
@@ -369,7 +380,10 @@ export function DiscordAdminControls({
                 }
               />
               {alert.key === DEFAULT_DISCORD_ALERT_ROUTE_KEY ? <div className="admin-alert-mentions"><span className="admin-mention-summary">Set mentions per alert below.</span></div> :
-                <DiscordAlertMentionEditor alertKey={alert.key} label={alert.label} controls={mentionControls} />}
+                <div className="admin-alert-audience">
+                  <DiscordAlertMentionEditor alertKey={alert.key} label={alert.label} controls={mentionControls} />
+                  <DiscordSubscriptionToggle alertKey={alert.key} label={alert.label} controls={subscriptionControls} disabled={isBusy !== null} />
+                </div>}
             </React.Fragment>
           ))}
         </div>
