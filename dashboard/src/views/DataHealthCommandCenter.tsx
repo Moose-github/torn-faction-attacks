@@ -408,8 +408,8 @@ function AdminDataHealthDiagnostics({
           aside={`${formatNumber(data.issues.length)} open`}
         />
         <p className="panel-description data-health-panel-description">
-          Admin-only triage list for the checks that are not good. Use the detail text to decide whether this is
-          a transient delay or something that needs manual repair.
+          Checks that need attention, with one row per affected user for personal stats issues.
+          Use the status and error details to identify delays or problems that need repair.
         </p>
         {data.issues.length === 0 ? (
           <EmptyState text="No data health issues detected" />
@@ -421,11 +421,7 @@ function AdminDataHealthDiagnostics({
                 <div className="data-health-issue-content">
                   <strong>{issue.subsystem}</strong>
                   <p>{issue.title}</p>
-                  {issue.key === "personal_stats" ? (
-                    <PersonalStatsIssueDetail data={data} fallbackDetail={issue.detail} />
-                  ) : (
-                    <small>{issue.detail}</small>
-                  )}
+                  {issue.key !== "personal_stats" ? <small>{issue.detail}</small> : null}
                 </div>
                 {issue.action_view ? (
                   <button
@@ -435,6 +431,9 @@ function AdminDataHealthDiagnostics({
                   >
                     {issue.action_label ?? "Open"}
                   </button>
+                ) : null}
+                {issue.key === "personal_stats" ? (
+                  <PersonalStatsIssueDetail data={data} fallbackDetail={issue.detail} />
                 ) : null}
               </article>
             ))}
@@ -607,21 +606,31 @@ function PersonalStatsIssueDetail({
   return (
     <div className="data-health-issue-detail">
       {issueGaps.length > 0 ? (
-        <div className="data-health-issue-members">
-          {issueGaps.slice(0, 8).map((member) => (
-            <span
-              key={member.member_id}
-              title={[
-                member.recent_error,
-                member.latest_personal_ready_date ? `Latest ready: ${member.latest_personal_ready_date}` : null,
-                member.recent_status ? `Recent status: ${member.recent_status}` : null,
-              ].filter(Boolean).join(" | ") || undefined}
-            >
-              <em>{member.member_name ?? `#${member.member_id}`}</em>
-              <small>#{member.member_id}</small>
-            </span>
-          ))}
-          {issueGaps.length > 8 ? <span>{formatNumber(issueGaps.length - 8)} more</span> : null}
+        <div className="table-scroll">
+          <table className="stock-status-table data-health-table data-health-issue-table" aria-label="Users with personal stats issues">
+            <thead>
+              <tr>
+                <th scope="col">User</th>
+                <th scope="col">Missing date</th>
+                <th scope="col">Latest ready</th>
+                <th scope="col">Recent status</th>
+                <th scope="col">Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {issueGaps.map((member) => (
+                <tr key={member.member_id}>
+                  <td className="data-health-issue-user">
+                    {member.member_name ? <>{member.member_name} <small>#{member.member_id}</small></> : `#${member.member_id}`}
+                  </td>
+                  <td>{member.snapshot_date}</td>
+                  <td>{member.latest_personal_ready_date ?? "Never"}</td>
+                  <td>{member.recent_status ?? "Not recorded"}</td>
+                  <td className="data-health-issue-error">{member.recent_error ?? "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
         <small>{fallbackDetail}</small>

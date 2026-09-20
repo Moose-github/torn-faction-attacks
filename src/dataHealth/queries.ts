@@ -299,7 +299,6 @@ export async function readPersonalStatsCoverageGaps(
      AND recent.snapshot_date = target_dates.snapshot_date
     WHERE snapshots.member_id IS NULL
     ORDER BY target_dates.snapshot_date ASC, members.name ASC
-    LIMIT 25
     `,
   ).bind(dates[0], dates[1], HOME_FACTION_ID).all<PersonalStatsCoverageGapRow>();
 

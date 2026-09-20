@@ -2359,54 +2359,27 @@ h2 {
 }
 
 .data-health-issue-detail {
-  display: grid;
-  gap: 10px;
+  grid-column: 1 / -1;
   min-width: 0;
 }
 
-.data-health-issue-coverage,
-.data-health-issue-members {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
+.data-health-issue-table {
+  min-width: 760px;
 }
 
-.data-health-issue-coverage span,
-.data-health-issue-members span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  max-width: 100%;
-  padding: 4px 8px;
-  border: 1px solid #cbd5e1;
-  border-radius: var(--radius-sm);
-  background: #f8fafc;
-  color: #334155;
-  font-size: 0.78rem;
-  font-weight: 850;
-  line-height: 1.2;
+.data-health-issue-table td:not(.data-health-issue-error) {
+  white-space: nowrap;
 }
 
-.data-health-issue-coverage b,
-.data-health-issue-members b {
-  color: #475569;
-  font-weight: 900;
+.data-health-issue-user small {
+  margin-left: 6px;
 }
 
-.data-health-issue-coverage em,
-.data-health-issue-members em {
-  min-width: 0;
+.data-health-issue-error {
+  min-width: 200px;
+  max-width: 420px;
+  white-space: normal;
   overflow-wrap: anywhere;
-  color: #0f172a;
-  font-style: normal;
-  font-weight: 950;
-}
-
-.data-health-issue-members small {
-  color: #64748b;
-  font-size: 0.72rem;
-  font-weight: 900;
 }
 
 .data-health-drilldown-grid {
@@ -10745,24 +10718,6 @@ tbody tr:not(.attack-row):hover td {
 :root[data-theme="dark"] .data-health-subsystem-tile p,
 :root[data-theme="dark"] .data-health-issue-row p {
   color: #dbeafe;
-}
-
-:root[data-theme="dark"] .data-health-issue-coverage span,
-:root[data-theme="dark"] .data-health-issue-members span {
-  border-color: var(--border-faint);
-  background: var(--panel-muted-bg);
-  color: var(--text-main);
-}
-
-:root[data-theme="dark"] .data-health-issue-coverage b,
-:root[data-theme="dark"] .data-health-issue-members b,
-:root[data-theme="dark"] .data-health-issue-members small {
-  color: var(--text-muted);
-}
-
-:root[data-theme="dark"] .data-health-issue-coverage em,
-:root[data-theme="dark"] .data-health-issue-members em {
-  color: var(--text-strong);
 }
 
 :root[data-theme="dark"] .data-health-subsystem-tile small,
