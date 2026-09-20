@@ -1920,9 +1920,14 @@ CREATE TABLE chain_watch_slots (
   assignment_actor INTEGER,
   admin_override INTEGER NOT NULL DEFAULT 0 CHECK (admin_override IN (0, 1)),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  unfilled_alert_sent_at INTEGER,
+  unfilled_alert_token TEXT,
+  unfilled_alert_until INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(watch_id, start_at)
 );
 CREATE INDEX chain_watch_slots_sheet ON chain_watch_slots(sheet_id, start_at);
+CREATE INDEX chain_watch_slots_unfilled_alert_due ON chain_watch_slots(start_at)
+  WHERE cancelled = 0 AND assigned_to IS NULL AND unfilled_alert_sent_at IS NULL;
 
 CREATE TABLE chain_watch_pending_selections (
   id TEXT PRIMARY KEY,

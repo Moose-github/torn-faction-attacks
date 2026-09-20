@@ -1,6 +1,10 @@
 import { createsLongWatchRun, nextWatchHour, watchDate, watchUtc, WATCH_DAY, WATCH_HOUR, type ChainWatchSheet, type ChainWatchScheduleResponse } from "../shared/chainWatchSchedule";
 import { changeWatchSlots, createWatch, currentWatch, parseWatchTime, readWatch, reconcileWatch, setWatchFinish, WatchError, watchDiscordMember } from "./chainWatchSchedule";
 import { CHAIN_WATCH_COMMANDS_PUBLIC_FOR_TESTING } from "./discordCommands";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import { isDiscordAlertEnabled } from "./discordAlertSettings";
+import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
+import { discordNotificationChannelTargetId, readConfiguredDiscordNotificationChannel, readDiscordNotificationGuildId } from "./discordNotificationChannels";
 import type { DiscordInteraction, DiscordInteractionResponse } from "./discordInteractions";
 import { assertExternalResponseOk, ExternalApiError, fetchExternal, readExternalJson } from "./external/http";
 import type { Env } from "./types";
@@ -8,6 +12,7 @@ import { nowSeconds } from "./utils";
 import type { WatchSelectionContext } from "./chainWatchPrivateSession";
 
 export const WATCH_COMPONENT_PREFIX = "cws:";
+export const WATCH_UNFILLED_SLOT_LEAD_SECONDS = WATCH_HOUR;
 
 export function canManageWatchOnDiscord(permissions: string | undefined, publicTesting: boolean = CHAIN_WATCH_COMMANDS_PUBLIC_FOR_TESTING): boolean {
   if (publicTesting) return true;
@@ -316,7 +321,77 @@ export async function syncWatchBoards(env: Env, now = nowSeconds()): Promise<voi
   if (errors.length) throw errors[0];
 }
 
+export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): Promise<void> {
+  const guildId = readDiscordNotificationGuildId(env);
+  if (!env.DISCORD_BOT_TOKEN || !guildId) return;
+  const checkedAt = Math.max(now, nowSeconds());
+  const rows = await env.DB.prepare(`SELECT s.watch_id, s.start_at, w.name
+    FROM chain_watch_slots s JOIN chain_watch_schedules w ON w.id = s.watch_id
+    WHERE s.cancelled = 0 AND s.assigned_to IS NULL AND s.unfilled_alert_sent_at IS NULL
+      AND s.unfilled_alert_until <= ? AND s.start_at > ? AND s.start_at <= ?
+      AND w.is_open = 1 AND w.guild_id = ? AND s.start_at >= w.start_at
+      AND (w.finish_at IS NULL OR s.start_at < w.finish_at)
+    ORDER BY s.start_at`).bind(checkedAt, checkedAt, checkedAt + WATCH_UNFILLED_SLOT_LEAD_SECONDS, guildId)
+    .all<{ watch_id: string; start_at: number; name: string }>();
+  const alertKey = DISCORD_ALERT_KEYS.chainWatchUnfilledSlot;
+  if (!rows.results.length || !await isDiscordAlertEnabled(env, alertKey)) return;
+  const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
+  if (!route) return;
+  const mentions = await readDiscordAlertMentions(env, alertKey);
+  for (const slot of rows.results) {
+    // The durable marker and lease prevent repeats across ticks and overlapping workers.
+    // A stable Discord nonce also covers retries after an ambiguous POST response.
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256",
+      new TextEncoder().encode(`${alertKey}:${slot.watch_id}:${slot.start_at}`)));
+    const nonce = Array.from(digest.slice(0, 12), (value) => value.toString(16).padStart(2, "0")).join("");
+    const token = crypto.randomUUID();
+    const sendAt = Math.max(checkedAt, nowSeconds());
+    // Recheck assignment, cancellation, finish and time after the async settings reads.
+    const lease = await env.DB.prepare(`UPDATE chain_watch_slots SET unfilled_alert_token = ?, unfilled_alert_until = ?
+      WHERE watch_id = ? AND start_at = ? AND cancelled = 0 AND assigned_to IS NULL
+        AND unfilled_alert_sent_at IS NULL AND unfilled_alert_until <= ?
+        AND start_at > ? AND start_at <= ? AND EXISTS (
+          SELECT 1 FROM chain_watch_schedules w WHERE w.id = chain_watch_slots.watch_id
+            AND w.is_open = 1 AND w.guild_id = ? AND chain_watch_slots.start_at >= w.start_at
+            AND (w.finish_at IS NULL OR chain_watch_slots.start_at < w.finish_at)
+        )`).bind(token, sendAt + 120, slot.watch_id, slot.start_at, sendAt, sendAt,
+          sendAt + WATCH_UNFILLED_SLOT_LEAD_SECONDS, guildId).run();
+    if (!lease.meta.changes) continue;
+    try {
+      const message = await watchDiscordRequest<{ id: string }>(env,
+        `/channels/${discordNotificationChannelTargetId(route)}/messages`, "POST", {
+          content: formatDiscordAlertMessage(
+            `⚠️ **Chain watch unfilled slot**\n**${escaped(slot.name)}** has no watcher assigned.\n` +
+            `Slot: ${watchUtc(slot.start_at)} – ${watchUtc(slot.start_at + WATCH_HOUR)}\n` +
+            `Starts <t:${slot.start_at}:R>.\n[Sign up for this slot](${watchPageUrl(env, slot.watch_id)})`,
+            mentions.messageSuffix,
+          ),
+          allowed_mentions: {
+            parse: mentions.allowedMentions?.everyone ? ["everyone"] : [],
+            users: mentions.allowedMentions?.users ?? [],
+            roles: mentions.allowedMentions?.roles ?? [],
+          },
+          nonce, enforce_nonce: true,
+        });
+      if (!message.id) throw new Error("Discord did not return an unfilled slot alert message ID");
+      await env.DB.prepare(`UPDATE chain_watch_slots SET unfilled_alert_sent_at = ?
+        WHERE watch_id = ? AND start_at = ? AND unfilled_alert_token = ?`)
+        .bind(sendAt, slot.watch_id, slot.start_at, token).run();
+    } finally {
+      await env.DB.prepare(`UPDATE chain_watch_slots SET unfilled_alert_token = NULL, unfilled_alert_until = 0
+        WHERE watch_id = ? AND start_at = ? AND unfilled_alert_token = ?`)
+        .bind(slot.watch_id, slot.start_at, token).run();
+    }
+  }
+}
+
 export async function runWatchScheduleCron(env: Env, now = nowSeconds()): Promise<void> {
-  await reconcileWatch(env, now);
-  await syncWatchBoards(env, now);
+  const checkedAt = Math.max(now, nowSeconds());
+  await reconcileWatch(env, checkedAt);
+  // A roster delivery failure must not prevent the separate slot warning.
+  const results = await Promise.allSettled([
+    syncWatchBoards(env, checkedAt),
+    runWatchUnfilledSlotAlerts(env, checkedAt),
+  ]);
+  for (const result of results) if (result.status === "rejected") throw result.reason;
 }

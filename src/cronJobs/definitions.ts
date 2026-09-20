@@ -36,7 +36,7 @@ export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
     label: "Cron chain watch sign-up sheets",
     cadence: "1m; publish the next sheet 12h before expiry",
     category: "discord",
-    purpose: "Roll forward the independent chain watch schedule and reconcile its Discord rosters.",
+    purpose: "Roll forward the chain watch schedule, reconcile Discord rosters and warn about unfilled slots one hour before start.",
     shouldRun: () => true,
     run: (env, scheduledTime) => runWatchScheduleCron(env, Math.floor(scheduledTime / 1000)),
   },

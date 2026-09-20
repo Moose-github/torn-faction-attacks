@@ -196,6 +196,7 @@ export function DiscordAdminControls({
     deliveryAlertRow("chain_watch_warning"),
     deliveryAlertRow("chain_watch_critical"),
     deliveryAlertRow("chain_watch_drop"),
+    deliveryAlertRow("chain_watch_unfilled_slot"),
     chainWatchMissedCheckInAlert
       ? {
           kind: "alert",

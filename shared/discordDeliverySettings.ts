@@ -16,6 +16,11 @@ export const DISCORD_DELIVERY_CONTROLS = [
     description: "Sends a Discord message when a qualifying chain has dropped.",
   },
   {
+    key: "chain_watch_unfilled_slot",
+    name: "Chain watch unfilled slot",
+    description: "Warns one hour before a slot starts if no watcher is assigned. Sends once per slot.",
+  },
+  {
     key: "target_travel_tracker",
     name: "Target travel tracker",
     description: "Sends target travel updates to Discord. Tracking continues when messages are off.",

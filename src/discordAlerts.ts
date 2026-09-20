@@ -4,6 +4,7 @@ export const DISCORD_ALERT_KEYS = {
   chainWatchCritical: "chain_watch_critical",
   chainWatchDrop: "chain_watch_drop",
   chainWatchMissedCheckIn: "chain_watch_missed_check_in",
+  chainWatchUnfilledSlot: "chain_watch_unfilled_slot",
   retaliationBoard: "retaliation_board",
   enemyPush: "enemy_push",
   targetTravelTracker: "target_travel_tracker",
@@ -101,6 +102,12 @@ export const DISCORD_ALERTS = [
     key: DISCORD_ALERT_KEYS.chainWatchMissedCheckIn,
     name: "Chain watch missed check-in",
     description: "Mentions when a scheduled chain watcher has not checked in before their shift.",
+    subscribable: true,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.chainWatchUnfilledSlot,
+    name: "Chain watch unfilled slot",
+    description: "Warns one hour before a chain watch slot starts if no watcher is assigned.",
     subscribable: true,
   },
 ] as const;

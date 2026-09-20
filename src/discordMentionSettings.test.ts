@@ -29,6 +29,7 @@ describe("admin alert mention settings", () => {
     const result = await (await getAdminDiscordAlertMentions(db.env)).json<AdminDiscordAlertMentionsResponse>();
     expect(result.alerts.chain_watch_warning).toEqual({ role_ids: [], everyone: false, here: false });
     expect(result.alerts.chain_watch_missed_check_in).toBeDefined();
+    expect(result.alerts.chain_watch_unfilled_slot).toEqual({ role_ids: [], everyone: false, here: false });
     expect(result.roles).toEqual([{ id: otherRole, name: "Officers" }, { id: role, name: "Watchers" }]);
     expect(fetchExternal).toHaveBeenCalledWith("https://discord.com/api/v10/guilds/111111/roles", { headers: { Authorization: "Bot fixture-token" } }, { timeoutMs: 10000 });
   });

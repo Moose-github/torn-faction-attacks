@@ -48,6 +48,20 @@ global toggle defaults to enabled; member subscriptions default to off, with no
 role mentions preconfigured. The handover reminder, confirmation button and
 missed check-in scheduling are not implemented yet; this adds the settings only.
 
+`chain_watch_unfilled_slot` is a separate "Chain watch unfilled slot" alert. The
+one-minute schedule job warns when an unassigned slot is one hour from starting,
+including before the watch itself starts. If a slot becomes empty, a watch is
+created, or delivery resumes during that final hour, it warns on the next tick.
+Assigned, cancelled, finished and already-started slots are excluded. The message
+includes UTC slot times, a relative start time and the watch sign-up link.
+
+Delivery defaults to enabled and uses its own configured alert route or the
+server's default route. Member subscriptions default to off; admin mentions and
+subscriptions use the usual settings. A stored per-slot marker prevents repeated
+warnings, including after assignment changes. Failed delivery retries until the
+slot starts; a lease and stable Discord nonce protect overlapping ticks and
+recent retries. Roster publication failures do not block these alerts.
+
 Migration `0148_create_faction_chain_watch_state.sql` preserves the current
 legacy monitor's message ID and warning markers. Legacy per-war alarms retire
 after the Worker upgrade; the next ingestion tick schedules the faction alarm.
@@ -152,7 +166,7 @@ No schema migration is needed for this conversion.
 
 ## Release steps
 
-1. Apply D1 migrations through `0148_create_faction_chain_watch_state.sql` to the target database.
+1. Apply D1 migrations through `0152_add_chain_watch_unfilled_slot_alerts.sql` to the target database.
 2. Deploy the Worker and dashboard. The existing `DISCORD_GUILD_ID`,
    `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY` configuration is reused.
    Worker deployment applies Durable Object migration `v3` and binds

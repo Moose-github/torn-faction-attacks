@@ -26,9 +26,10 @@ describe("Discord member alert subscriptions", () => {
     expect(data.alerts.some((alert) => alert.key === DISCORD_ALERT_KEYS.chainWatch)).toBe(false);
     expect(data.alerts.some((alert) => alert.key === DISCORD_ALERT_KEYS.chainWatchCritical)).toBe(true);
     expect(data.alerts.find((alert) => alert.key === DISCORD_ALERT_KEYS.chainWatchMissedCheckIn)?.enabled).toBe(false);
+    expect(data.alerts.find((alert) => alert.key === DISCORD_ALERT_KEYS.chainWatchUnfilledSlot)?.enabled).toBe(false);
   });
 
-  it.each([DISCORD_ALERT_KEYS.enemyPush, DISCORD_ALERT_KEYS.chainWatchMissedCheckIn])("updates one explicit %s subscription", async (alertKey) => {
+  it.each([DISCORD_ALERT_KEYS.enemyPush, DISCORD_ALERT_KEYS.chainWatchMissedCheckIn, DISCORD_ALERT_KEYS.chainWatchUnfilledSlot])("updates one explicit %s subscription", async (alertKey) => {
     const env = fakeEnv({ linkedDiscordId: "111111111111111111" });
     const response = await updateDiscordMemberAlertSubscriptionFromRequest(
       jsonRequest({ alert_key: alertKey, enabled: true }),
