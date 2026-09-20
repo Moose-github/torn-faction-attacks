@@ -49,8 +49,32 @@ alert from being delivered.
 `chain_watch_missed_check_in` is available as a separate "Chain watch missed
 check-in" alert setting, channel route and optional member subscription. Its
 global toggle defaults to enabled; member subscriptions default to off, with no
-role mentions preconfigured. The handover reminder, confirmation button and
-missed check-in scheduling are not implemented yet; this adds the settings only.
+role mentions preconfigured. The existing one-minute schedule job posts a fresh
+check-in reminder in the **same channel/thread as the sheet**, three minutes
+before the upcoming shift. It explicitly mentions the assigned watcher's linked
+Discord account and includes an **I'm ready** button. Only that currently
+assigned faction member can confirm; an ordinary text reply is not a check-in.
+Consecutive hours assigned to the same person form one shift, even across daily
+sheets. The first shift of a future watch also receives its reminder.
+
+If unconfirmed one minute before the shift, a fresh missed check-in message uses
+**Admin controls → Discord → Chain watch missed check-in**: its enabled setting,
+channel/thread route (falling back to the default route), mentions and optional
+subscriptions. The reminder itself always goes to the sheet channel and does not
+depend on this alert toggle or route. No backup roles are selected automatically.
+Late confirmation updates both messages and removes the reminder button without
+changing the scheduled shift time. Reassignment/cancellation invalidates old
+buttons; completed shifts stop escalating.
+
+These times are checked each minute. Late assignments or recovered delivery are
+picked up on the next tick, with at least two minutes to respond after successful
+delivery. If the reminder cannot be sent or the member has no linked Discord
+account, the backup alert reports a **delivery problem**, rather than accusing
+the watcher of missing a reminder they never received. Failed sends retry;
+durable records, leases and Discord nonces prevent repeated successful alerts.
+Apply `0153_add_chain_watch_check_ins.sql` before deploying the Worker. The
+interaction uses the existing Discord endpoint; no new command registration or
+attack polling is required.
 
 `chain_watch_unfilled_slot` is a separate "Chain watch unfilled slot" alert. The
 one-minute schedule job warns when an unassigned slot is one hour from starting,

@@ -6,12 +6,13 @@ export async function postDiscordBotJsonAndRead<T>(
   botToken: string,
   path: string,
   body: unknown,
+  options: { timeoutMs?: number } = {},
 ): Promise<T> {
   const response = await fetchExternal(discordApiUrl(path), {
     method: "POST",
     headers: discordBotJsonHeaders(botToken),
     body: JSON.stringify(body),
-  });
+  }, options);
   const data = await readExternalJson<T>(response);
 
   await assertExternalResponseOk(response, "Discord bot", data);
@@ -22,12 +23,13 @@ export async function patchDiscordBotJson(
   botToken: string,
   path: string,
   body: unknown,
+  options: { timeoutMs?: number } = {},
 ): Promise<void> {
   const response = await fetchExternal(discordApiUrl(path), {
     method: "PATCH",
     headers: discordBotJsonHeaders(botToken),
     body: JSON.stringify(body),
-  });
+  }, options);
 
   await assertExternalResponseOk(response, "Discord bot");
 }

@@ -10,6 +10,7 @@ import { assertExternalResponseOk, ExternalApiError, fetchExternal, readExternal
 import type { Env } from "./types";
 import { nowSeconds } from "./utils";
 import type { WatchSelectionContext } from "./chainWatchPrivateSession";
+import { confirmWatchCheckIn, isWatchCheckInInteraction, runWatchCheckIns } from "./chainWatchCheckIns";
 
 export const WATCH_COMPONENT_PREFIX = "cws:";
 export const WATCH_UNFILLED_SLOT_LEAD_SECONDS = WATCH_HOUR;
@@ -112,7 +113,7 @@ export async function watchDiscordRequest<T>(env: Env, path: string, method: str
 // Acknowledge first: creating a schedule or editing several Discord messages can
 // exceed Discord's three-second interaction deadline.
 export async function completeDeferredWatchInteraction(interaction: DiscordInteraction, env: Env): Promise<void> {
-  if (interaction.type === 3) {
+  if (interaction.type === 3 && !isWatchCheckInInteraction(interaction)) {
     // A single durable coordinator per Discord user orders both state changes
     // and outgoing Discord requests across Worker instances.
     const userId = interaction.member?.user?.id;
@@ -141,6 +142,7 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
     data: { content, components, ...(!update ? { flags: 64 } : {}), allowed_mentions: { parse: [] } },
   });
   try {
+    if (isWatchCheckInInteraction(interaction)) return await confirmWatchCheckIn(interaction, env);
     const guildId = interaction.guild_id;
     const userId = interaction.member?.user?.id;
     if (!guildId || !userId || !env.DISCORD_GUILD_ID || guildId !== env.DISCORD_GUILD_ID) {
@@ -395,7 +397,8 @@ export async function runWatchScheduleCron(env: Env, now = nowSeconds()): Promis
   await reconcileWatch(env, checkedAt);
   // Publish or refresh the sheet before linking it, while still warning if roster delivery fails.
   try {
-    await syncWatchBoards(env, checkedAt);
+    try { await runWatchCheckIns(env, checkedAt); }
+    finally { await syncWatchBoards(env, checkedAt); }
   } finally {
     await runWatchUnfilledSlotAlerts(env, checkedAt);
   }

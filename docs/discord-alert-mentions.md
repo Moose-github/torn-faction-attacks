@@ -18,8 +18,10 @@ retaliation board, both travel trackers, enemy push and scouting reports, the
 Xanax reminder, termed war auto-end notices, and shoplifting alerts. Persistent
 messages keep their existing edit behaviour: new posts can notify, edits do not
 send fresh notifications. A changed setting appears when the next message is
-sent or updated. The missed check-in alert can be configured in advance; its
-reminder, confirmation and escalation sender are still not implemented.
+sent or updated. Chain watch missed check-ins use their own configured route and
+mentions. Their initial reminder instead goes directly to the sheet's channel
+and pings only the upcoming watcher, with an **I'm ready** button to check in.
+No backup roles are preconfigured.
 
 The bot must have permission to mention the selected roles/groups in the target
 channel. Discord uses `allowed_mentions.parse: ["everyone"]` for both broadcast
