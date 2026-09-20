@@ -348,7 +348,8 @@ export function DiscordAdminControls({
           <div className="admin-alert-route-heading">Alert</div>
           <div className="admin-alert-route-heading">Status</div>
           <div className="admin-alert-route-heading">Current route</div>
-          <div className="admin-alert-route-heading">Mentions &amp; subscriptions</div>
+          <div className="admin-alert-route-heading">Mentions</div>
+          <div className="admin-alert-route-heading">Allow subscriptions</div>
           {discordAlertRows.map((alert) => (
             <React.Fragment key={alert.key}>
               <div className="admin-alert-route-copy">
@@ -380,10 +381,9 @@ export function DiscordAdminControls({
                 }
               />
               {alert.key === DEFAULT_DISCORD_ALERT_ROUTE_KEY ? <div className="admin-alert-mentions"><span className="admin-mention-summary">Set mentions per alert below.</span></div> :
-                <div className="admin-alert-audience">
-                  <DiscordAlertMentionEditor alertKey={alert.key} label={alert.label} controls={mentionControls} />
-                  <DiscordSubscriptionToggle alertKey={alert.key} label={alert.label} controls={subscriptionControls} disabled={isBusy !== null} />
-                </div>}
+                <DiscordAlertMentionEditor alertKey={alert.key} label={alert.label} controls={mentionControls} />}
+              {alert.key === DEFAULT_DISCORD_ALERT_ROUTE_KEY ? <div className="admin-subscription-toggle"><small>Not applicable</small></div> :
+                <DiscordSubscriptionToggle alertKey={alert.key} label={alert.label} controls={subscriptionControls} disabled={isBusy !== null} />}
             </React.Fragment>
           ))}
         </div>
