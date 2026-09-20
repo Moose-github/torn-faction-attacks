@@ -53,7 +53,7 @@ export async function refreshMemberLifestyleStats(
     homeMembersSynced?: boolean;
     activeDates?: string[];
   } = {},
-): Promise<{ considered: number; refreshed: number; failed: number }> {
+): Promise<{ considered: number; refreshed: number; pending: number; failed: number }> {
   const limit = Math.max(1, Math.min(Math.floor(options.limit ?? DAILY_LIFESTYLE_REFRESH_LIMIT), DAILY_LIFESTYLE_REFRESH_LIMIT));
   const activeDates = options.activeDates ?? recentCompletedPersonalStatsDates(nowSeconds());
 
@@ -65,6 +65,7 @@ export async function refreshMemberLifestyleStats(
   const members = await readPersonalStatsRecentCandidates(env, activeDates, limit);
   let refreshed = 0;
   let failed = 0;
+  let pending = 0;
 
   for (const queueRow of members) {
     try {
@@ -75,8 +76,9 @@ export async function refreshMemberLifestyleStats(
         allowBucketLag: true,
       });
       if (dataQualityError) {
-        await markPersonalStatsRecentAttempt(env, queueRow, dataQualityError, "failed");
-        failed += 1;
+        // Missing fields/timestamps leave this date awaiting a complete snapshot.
+        await markPersonalStatsRecentAttempt(env, queueRow, dataQualityError, "pending");
+        pending += 1;
         continue;
       }
 
@@ -117,7 +119,7 @@ export async function refreshMemberLifestyleStats(
           `${PERSONALSTATS_BUCKET_MISMATCH_ERROR_CODE}: requested ${queueRow.snapshot_date}, received ${returnedBucketDate}`,
           queueRow.status === "retry_expired" ? "retry_expired" : "pending",
         );
-        failed += 1;
+        pending += 1;
       } else {
         await markPersonalStatsRecentAttempt(
           env,
@@ -125,7 +127,7 @@ export async function refreshMemberLifestyleStats(
           `${PERSONALSTATS_BUCKET_MISMATCH_ERROR_CODE}: requested ${queueRow.snapshot_date}, received ${returnedBucketDate}`,
           queueRow.status === "retry_expired" ? "retry_expired" : "pending",
         );
-        failed += 1;
+        pending += 1;
       }
     } catch (err: any) {
       await markPersonalStatsRecentAttempt(env, queueRow, err?.message || String(err), "failed");
@@ -136,6 +138,7 @@ export async function refreshMemberLifestyleStats(
   return {
     considered: members.length,
     refreshed,
+    pending,
     failed,
   };
 }
@@ -143,11 +146,11 @@ export async function refreshMemberLifestyleStats(
 export async function refreshDailyMemberLifestyleStats(
   env: Env,
   options: { limit?: number; useLock?: boolean } = {},
-): Promise<{ considered: number; refreshed: number; failed: number; skipped: boolean }> {
+): Promise<{ considered: number; refreshed: number; pending: number; failed: number; skipped: boolean }> {
   const now = nowSeconds();
   const refreshAt = dailyRefreshReadyAt(now);
   if (refreshAt === null) {
-    return { considered: 0, refreshed: 0, failed: 0, skipped: true };
+    return { considered: 0, refreshed: 0, pending: 0, failed: 0, skipped: true };
   }
 
   await syncHomeFactionMemberList(env);
@@ -155,7 +158,7 @@ export async function refreshDailyMemberLifestyleStats(
   await preparePersonalStatsRecentQueue(env, activeDates);
   const targetSnapshotDate = activeDates[activeDates.length - 1];
   const targetCompleteAt = timestampForDailyPoll(targetSnapshotDate);
-  let result = { considered: 0, refreshed: 0, failed: 0 };
+  let result = { considered: 0, refreshed: 0, pending: 0, failed: 0 };
   let shouldRunPersonalBatch = true;
   let personalCompletionAlreadyRecorded = false;
 
@@ -172,7 +175,7 @@ export async function refreshDailyMemberLifestyleStats(
       shouldRunPersonalBatch = false;
       personalCompletionAlreadyRecorded = true;
     } else if (!gate.locked) {
-      return { considered: 0, refreshed: 0, failed: 0, skipped: true };
+      return { considered: 0, refreshed: 0, pending: 0, failed: 0, skipped: true };
     }
   } else if (await isPersonalStatsDateComplete(env, targetSnapshotDate)) {
     shouldRunPersonalBatch = false;
@@ -254,6 +257,7 @@ async function seedPersonalStatsRecentQueue(env: Env, activeDates: string[]): Pr
       WHERE faction_id = ?
         AND is_current = 1
         AND report_exempt = 0
+        AND (current_join_date IS NULL OR ? >= current_join_date)
       ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
         member_name = excluded.member_name,
         level = excluded.level,
@@ -266,7 +270,7 @@ async function seedPersonalStatsRecentQueue(env: Env, activeDates: string[]): Pr
           ELSE member_personal_stats_recent.status
         END
       `,
-    ).bind(snapshotDate, timestampForDailyPoll(snapshotDate), HOME_FACTION_ID),
+    ).bind(snapshotDate, timestampForDailyPoll(snapshotDate), HOME_FACTION_ID, snapshotDate),
   );
 
   await env.DB.batch(statements);
@@ -434,6 +438,7 @@ async function readPersonalStatsRecentCandidates(
        AND members.faction_id = ?
        AND members.is_current = 1
        AND members.report_exempt = 0
+       AND (members.current_join_date IS NULL OR recent.snapshot_date >= members.current_join_date)
       WHERE recent.snapshot_date IN (${activeDates.map(() => "?").join(",")})
         AND recent.personal_captured_at IS NULL
         AND recent.status != 'retry_expired'
@@ -465,6 +470,7 @@ async function readPersonalStatsRecentCandidates(
        AND members.faction_id = ?
        AND members.is_current = 1
        AND members.report_exempt = 0
+       AND (members.current_join_date IS NULL OR recent.snapshot_date >= members.current_join_date)
       WHERE recent.personal_captured_at IS NULL
         AND recent.status = 'retry_expired'
       ORDER BY recent.snapshot_date ASC, recent.attempted_at ASC NULLS FIRST, recent.member_name ASC

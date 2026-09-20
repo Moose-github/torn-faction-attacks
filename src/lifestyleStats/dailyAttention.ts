@@ -2,6 +2,7 @@ import type { Env } from "../types";
 import { readAuthenticatedUserId } from "../auth";
 import { readJsonObject } from "../backend/request";
 import { json, nowSeconds } from "../utils";
+import { calendarDateDiffDays, recentCompletedPersonalStatsDates } from "./dates";
 import type { DailyStatsAttention } from "./model";
 import {
   acceptDailyStatsAttentionIssue,
@@ -23,7 +24,7 @@ export async function acceptDailyStatsIssueFromRequest(request: Request, env: En
   }
   const accepted = await acceptDailyStatsAttentionIssue(
     env, { member_id: memberId, snapshot_date: snapshotDate, status, error },
-    recentCompletedPersonalStatsDates(nowSeconds()),
+    nowSeconds(),
     await readAuthenticatedUserId(request, env),
   );
   if (!accepted) {
@@ -32,42 +33,21 @@ export async function acceptDailyStatsIssueFromRequest(request: Request, env: En
   return json({ ok: true });
 }
 
-export async function getDailyStatsAttention(env: Env): Promise<DailyStatsAttention> {
-  const now = nowSeconds();
+export async function getDailyStatsAttention(env: Env, now = nowSeconds()): Promise<DailyStatsAttention> {
   const activeDates = recentCompletedPersonalStatsDates(now);
   const targetDate = activeDates.at(-1) ?? null;
   const latestBucketDate = await readLatestPersonalStatsBucketDate(env);
   const lagDays = targetDate && latestBucketDate
     ? calendarDateDiffDays(latestBucketDate, targetDate)
     : null;
-  const rows = await readDailyStatsAttentionMembers(env, activeDates);
-  const counts = await readDailyStatsAttentionCounts(env, activeDates);
+  const rows = await readDailyStatsAttentionMembers(env, now);
+  const counts = await readDailyStatsAttentionCounts(env, now);
 
   return {
-    stale_personalstats: counts.stale_personalstats,
-    missing_donator_days: counts.missing_donator_days,
+    ...counts,
     personalstats_target_date: targetDate,
     latest_personalstats_bucket_date: latestBucketDate,
     personalstats_lag_days: lagDays,
     affected_members: rows,
   };
-}
-
-function recentCompletedPersonalStatsDates(timestamp: number): string[] {
-  const date = new Date(timestamp * 1000);
-  const todayStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  return [
-    dateKeyFromMs(todayStart - 2 * 86_400_000),
-    dateKeyFromMs(todayStart - 86_400_000),
-  ];
-}
-
-function calendarDateDiffDays(startDate: string, endDate: string): number {
-  const start = Date.parse(`${startDate}T00:00:00.000Z`);
-  const end = Date.parse(`${endDate}T00:00:00.000Z`);
-  return Math.max(0, Math.round((end - start) / 86_400_000));
-}
-
-function dateKeyFromMs(timestamp: number): string {
-  return new Date(timestamp).toISOString().slice(0, 10);
 }

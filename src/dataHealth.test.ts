@@ -72,6 +72,7 @@ describe("data health severity", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     const now = Math.floor(Date.now() / 1000);
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      affected_member_count: 0, accepted_issues: 0,
       stale_personalstats: 0,
       missing_donator_days: 0,
       personalstats_target_date: "2025-12-31",
@@ -111,6 +112,7 @@ describe("data health severity", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     const now = Math.floor(Date.now() / 1000);
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      affected_member_count: 0, accepted_issues: 0,
       stale_personalstats: 0,
       missing_donator_days: 0,
       personalstats_target_date: "2025-12-31",
@@ -154,6 +156,7 @@ describe("data health severity", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     const now = Math.floor(Date.now() / 1000);
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      affected_member_count: 0, accepted_issues: 0,
       stale_personalstats: 0,
       missing_donator_days: 0,
       personalstats_target_date: "2025-12-31",
@@ -189,6 +192,7 @@ describe("data health severity", () => {
 
   it("hides admin-only subsystems from the member summary", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      affected_member_count: 0, accepted_issues: 0,
       stale_personalstats: 0,
       missing_donator_days: 0,
       personalstats_target_date: "2025-12-31",
@@ -221,6 +225,7 @@ describe("data health severity", () => {
 
   it("defaults admin API usage to one hour and skips breakdown queries until requested", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      affected_member_count: 0, accepted_issues: 0,
       stale_personalstats: 0,
       missing_donator_days: 0,
       personalstats_target_date: "2025-12-31",
@@ -283,6 +288,7 @@ describe("data health severity", () => {
 
   it("hides transient member auth keys from key health", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      affected_member_count: 0, accepted_issues: 0,
       stale_personalstats: 0,
       missing_donator_days: 0,
       personalstats_target_date: "2025-12-31",
@@ -360,7 +366,8 @@ describe("data health severity", () => {
 
   it("splits daily member stats into personal and gym subsystem tiles", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
-      stale_personalstats: 1,
+      affected_member_count: 5, accepted_issues: 0,
+      stale_personalstats: 5,
       missing_donator_days: 0,
       personalstats_target_date: "2025-12-31",
       latest_personalstats_bucket_date: "2025-12-31",
@@ -397,11 +404,11 @@ describe("data health severity", () => {
     expect(body.subsystems.some((subsystem) => subsystem.key === "daily_stats")).toBe(false);
     expect(body.subsystems.find((subsystem) => subsystem.key === "personal_stats")).toMatchObject({
       status: "critical",
-      summary: "1 reportable members need personal stat attention",
+      summary: "5 personal stat issues across 5 members",
       metrics: [
         { label: "2025-12-30", value: "55/60" },
         { label: "2025-12-31", value: "60/60" },
-        expect.objectContaining({ label: "Outstanding", value: "1" }),
+        expect.objectContaining({ label: "Outstanding", value: "5" }),
         { label: "Xanax rechecks", value: "0" },
         { label: "Xanax fixed 24h", value: "0" },
         { label: "Xanax repair", value: "0" },
@@ -443,7 +450,8 @@ describe("data health severity", () => {
 
   it("names members missing from personal stats coverage in admin issues", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
-      stale_personalstats: 0,
+      affected_member_count: 1, accepted_issues: 0,
+      stale_personalstats: 1,
       missing_donator_days: 0,
       personalstats_target_date: "2026-06-08",
       latest_personalstats_bucket_date: "2026-06-08",
@@ -467,16 +475,6 @@ describe("data health severity", () => {
           recent_error: null,
           recent_updated_at: 1_781_000_000,
         },
-        {
-          snapshot_date: "2026-06-08",
-          member_id: 234567,
-          member_name: "Expected Pending Member",
-          latest_personal_ready_date: "2026-06-07",
-          recent_snapshot_date: "2026-06-08",
-          recent_status: "pending",
-          recent_error: null,
-          recent_updated_at: 1_781_000_100,
-        },
       ],
     }));
     const body = await response.json() as {
@@ -491,7 +489,7 @@ describe("data health severity", () => {
     };
 
     expect(body.issues.find((issue) => issue.key === "personal_stats")?.detail)
-      .toBe("2026-06-07: Missing Member #123456");
+      .toBe("Missing Member #123456");
     expect(body.issues.find((issue) => issue.key === "personal_stats")?.detail)
       .not.toContain("Expected Pending Member");
     expect(body.details.personal_stats_coverage_gaps).toEqual([
@@ -500,16 +498,12 @@ describe("data health severity", () => {
         member_id: 123456,
         member_name: "Missing Member",
       }),
-      expect.objectContaining({
-        snapshot_date: "2026-06-08",
-        member_id: 234567,
-        member_name: "Expected Pending Member",
-      }),
     ]);
   });
 
-  it("bases personal stats severity on the oldest recent date only", async () => {
+  it("does not warn about yesterday when there are no actionable gaps", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      affected_member_count: 0, accepted_issues: 0,
       stale_personalstats: 0,
       missing_donator_days: 0,
       personalstats_target_date: "2025-12-31",
@@ -547,6 +541,7 @@ describe("shoplifting data health", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      affected_member_count: 0, accepted_issues: 0,
       stale_personalstats: 0,
       missing_donator_days: 0,
       personalstats_target_date: "2025-12-31",
@@ -558,6 +553,7 @@ describe("shoplifting data health", () => {
 
   it("excludes accepted gaps from severity without reporting them as fresh data", async () => {
     vi.mocked(getDailyStatsAttention).mockResolvedValue({
+      affected_member_count: 0, accepted_issues: 5,
       stale_personalstats: 0, missing_donator_days: 0,
       personalstats_target_date: "2026-06-05", latest_personalstats_bucket_date: "2026-06-05",
       personalstats_lag_days: 0, affected_members: [],
@@ -920,7 +916,7 @@ function rowsForDataHealthQuery(
       last_started: Math.floor(Date.now() / 1000),
     }));
   }
-  if (sql.includes("reportable_members")) return options.personalCoverageGaps;
+  if (sql.includes("FROM attention_stats stats")) return options.personalCoverageGaps;
   if (sql.includes("WITH target_dates")) return options.personalCoverage;
   if (sql.includes("FROM torn_api_usage_rollup_15m") && sql.includes("GROUP BY group_value")) {
     if (sql.includes("group_type = 'key_source'")) {

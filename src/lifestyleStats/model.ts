@@ -159,6 +159,8 @@ export const LIFESTYLE_DAILY_CHART_METRICS = new Set<LifestyleDailyChartMetric>(
 ]);
 
 export type DailyStatsAttention = {
+  affected_member_count: number;
+  accepted_issues: number;
   stale_personalstats: number;
   missing_donator_days: number;
   personalstats_target_date: string | null;

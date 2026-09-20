@@ -1,5 +1,6 @@
 import { HOME_FACTION_ID } from "../constants";
-import { acceptedDailyStatsIssueSql } from "../lifestyleStats/queries";
+import { acceptedDailyStatsIssueSql, PERSONAL_STATS_ATTENTION_CTE, personalStatsAttentionParams } from "../lifestyleStats/attentionPolicy";
+import { recentCompletedPersonalStatsDates } from "../lifestyleStats/dates";
 import {
   DAILY_GYM_COMPLETE_STATE_NAME,
   DAILY_REFRESH_AFTER_UTC_HOUR,
@@ -222,26 +223,22 @@ export async function readRosterHealth(env: Env): Promise<RosterHealthRow> {
   };
 }
 
-export async function readPersonalStatsCoverage(env: Env, targetDate: string | null): Promise<PersonalStatsCoverageRow[]> {
-  const dates = recentPersonalStatsCoverageDates(targetDate);
+export async function readPersonalStatsCoverage(env: Env, now: number): Promise<PersonalStatsCoverageRow[]> {
+  const dates = recentCompletedPersonalStatsDates(now);
   if (dates.length !== 2) return [];
 
   const rows = await env.DB.prepare(
     `
     WITH target_dates(snapshot_date) AS (
       SELECT ? UNION ALL SELECT ?
-    )
-    SELECT
-      target_dates.snapshot_date,
-      COUNT(snapshots.member_id) AS ready_members,
-      SUM(CASE WHEN snapshots.member_id IS NULL AND ${acceptedDailyStatsIssueSql("recent")}
-        THEN 1 ELSE 0 END) AS accepted_members,
-      COUNT(members.member_id) AS total_members
+    ), coverage_stats AS (
+    SELECT target_dates.snapshot_date, members.member_id, snapshots.member_id AS ready_member_id, recent.error
     FROM target_dates
     LEFT JOIN home_faction_members members
       ON members.faction_id = ?
      AND members.is_current = 1
      AND members.report_exempt = 0
+     AND (members.current_join_date IS NULL OR target_dates.snapshot_date >= members.current_join_date)
     LEFT JOIN member_lifestyle_stat_snapshots snapshots
       ON snapshots.member_id = members.member_id
      AND snapshots.snapshot_date = target_dates.snapshot_date
@@ -249,8 +246,14 @@ export async function readPersonalStatsCoverage(env: Env, targetDate: string | n
     LEFT JOIN member_personal_stats_recent recent
       ON recent.member_id = members.member_id
      AND recent.snapshot_date = target_dates.snapshot_date
-    GROUP BY target_dates.snapshot_date
-    ORDER BY target_dates.snapshot_date ASC
+    )
+    SELECT stats.snapshot_date, COUNT(stats.ready_member_id) AS ready_members,
+      SUM(CASE WHEN stats.ready_member_id IS NULL AND ${acceptedDailyStatsIssueSql("stats")}
+        THEN 1 ELSE 0 END) AS accepted_members,
+      COUNT(stats.member_id) AS total_members
+    FROM coverage_stats stats
+    GROUP BY stats.snapshot_date
+    ORDER BY stats.snapshot_date ASC
     `,
   ).bind(dates[0], dates[1], HOME_FACTION_ID).all<PersonalStatsCoverageRow>();
 
@@ -264,62 +267,19 @@ export async function readPersonalStatsCoverage(env: Env, targetDate: string | n
 
 export async function readPersonalStatsCoverageGaps(
   env: Env,
-  targetDate: string | null,
+  now: number,
 ): Promise<PersonalStatsCoverageGapRow[]> {
-  const dates = recentPersonalStatsCoverageDates(targetDate);
-  if (dates.length !== 2) return [];
-
-  const rows = await env.DB.prepare(
-    `
-    WITH target_dates(snapshot_date) AS (
-      SELECT ? UNION ALL SELECT ?
-    ),
-    reportable_members AS (
-      SELECT member_id, name
-      FROM home_faction_members
-      WHERE faction_id = ?
-        AND is_current = 1
-        AND report_exempt = 0
-    )
-    SELECT
-      target_dates.snapshot_date,
-      members.member_id,
-      members.name AS member_name,
-      (
-        SELECT MAX(existing.snapshot_date)
-        FROM member_lifestyle_stat_snapshots existing
-        WHERE existing.member_id = members.member_id
-          AND existing.personal_ready = 1
-      ) AS latest_personal_ready_date,
-      recent.snapshot_date AS recent_snapshot_date,
-      recent.status AS recent_status,
-      recent.error AS recent_error,
-      recent.updated_at AS recent_updated_at
-    FROM target_dates
-    JOIN reportable_members members
-    LEFT JOIN member_lifestyle_stat_snapshots snapshots
-      ON snapshots.member_id = members.member_id
-     AND snapshots.snapshot_date = target_dates.snapshot_date
-     AND snapshots.personal_ready = 1
-    LEFT JOIN member_personal_stats_recent recent
-      ON recent.member_id = members.member_id
-     AND recent.snapshot_date = target_dates.snapshot_date
-    WHERE snapshots.member_id IS NULL
-      AND NOT ${acceptedDailyStatsIssueSql("recent")}
-    ORDER BY target_dates.snapshot_date ASC, members.name ASC
-    `,
-  ).bind(dates[0], dates[1], HOME_FACTION_ID).all<PersonalStatsCoverageGapRow>();
-
-  return (rows.results ?? []).map((row) => ({
-    snapshot_date: row.snapshot_date,
-    member_id: Number(row.member_id),
-    member_name: row.member_name ?? null,
-    latest_personal_ready_date: row.latest_personal_ready_date ?? null,
-    recent_snapshot_date: row.recent_snapshot_date ?? null,
-    recent_status: row.recent_status ?? null,
-    recent_error: row.recent_error ?? null,
-    recent_updated_at: nullableNumber(row.recent_updated_at),
-  }));
+  const rows = await env.DB.prepare(`
+    ${PERSONAL_STATS_ATTENTION_CTE}
+    SELECT stats.snapshot_date, stats.member_id, stats.member_name,
+      (SELECT MAX(existing.snapshot_date) FROM member_lifestyle_stat_snapshots existing
+       WHERE existing.member_id = stats.member_id AND existing.personal_ready = 1) AS latest_personal_ready_date,
+      stats.snapshot_date AS recent_snapshot_date,
+      stats.status AS recent_status, stats.error AS recent_error, stats.updated_at AS recent_updated_at
+    FROM attention_stats stats WHERE stats.accepted = 0
+    ORDER BY stats.snapshot_date ASC, stats.member_name ASC, stats.member_id ASC
+  `).bind(...personalStatsAttentionParams(now)).all<PersonalStatsCoverageGapRow>();
+  return rows.results ?? [];
 }
 
 export async function readGymStatsHealth(env: Env, targetDate: string | null, now: number): Promise<GymStatsHealthRow> {
@@ -815,17 +775,6 @@ function nullableNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function recentPersonalStatsCoverageDates(targetDate: string | null): string[] {
-  if (!targetDate) return [];
-  const previousDate = dateKeyFromOffset(targetDate, -1);
-  return previousDate ? [previousDate, targetDate] : [];
-}
-
-function dateKeyFromOffset(dateKey: string, dayOffset: number): string | null {
-  const parsed = Date.parse(`${dateKey}T00:00:00.000Z`);
-  if (!Number.isFinite(parsed)) return null;
-  return new Date(parsed + dayOffset * 86_400_000).toISOString().slice(0, 10);
-}
 
 function calendarDateDiffDays(startDate: string, endDate: string): number {
   const [startYear, startMonth, startDay] = startDate.split("-").map(Number);

@@ -570,24 +570,24 @@ function AdminDailyStatsAttentionAlert({
         <div>
           <strong>Daily personal stats need attention</strong>
           <p>
-            {formatNumber(total)} current member{total === 1 ? "" : "s"} returned incomplete or errored daily personalstats.
+            {formatNumber(total)} personal stat issue{total === 1 ? "" : "s"} across {formatNumber(attention?.affected_member_count ?? 0)} member{attention?.affected_member_count === 1 ? "" : "s"}.
           </p>
         </div>
       </div>
       <div className="dashboard-admin-alert-metrics">
-        <MetricLine label="Other errors" value={formatNumber(staleCount)} />
+        <MetricLine label="Missing snapshots / other errors" value={formatNumber(staleCount)} />
         <MetricLine label="Missing donator days" value={formatNumber(missingDonatorDays)} />
         <MetricLine label="Latest Torn bucket" value={attention?.latest_personalstats_bucket_date ?? "-"} />
       </div>
       {affectedMembers.length > 0 ? (
         <div className="dashboard-admin-alert-members">
           {affectedMembers.slice(0, 6).map((member) => (
-            <span key={member.member_id} title={member.error ?? undefined}>
+            <span key={`${member.member_id}-${member.snapshot_date}`} title={member.error ?? undefined}>
               {member.member_name ?? member.member_id}
-              <small>{dailyStatsErrorLabel(member.error)}</small>
+              <small>{member.snapshot_date}: {dailyStatsErrorLabel(member.error)}</small>
             </span>
           ))}
-          {total > affectedMembers.length ? <span>+{formatNumber(total - affectedMembers.length)} more</span> : null}
+          {total > Math.min(6, affectedMembers.length) ? <span>+{formatNumber(total - Math.min(6, affectedMembers.length))} more</span> : null}
         </div>
       ) : null}
       <button type="button" className="panel-action-button" onClick={onOpenAdmin}>
@@ -599,10 +599,10 @@ function AdminDailyStatsAttentionAlert({
 
 function dailyStatsErrorLabel(error: string | null): string {
   if (!error) {
-    return "Unknown";
+    return "Missing snapshot";
   }
-  if (error.startsWith("OLD_PERSONALSTATS_BUCKET")) {
-    return "Bucket lag";
+  if (error.startsWith("OLD_PERSONALSTATS_BUCKET") || error.startsWith("PERSONALSTATS_BUCKET_MISMATCH") || error.startsWith("RETRY_EXPIRED_PERSONALSTATS")) {
+    return "Missing snapshot";
   }
   if (error.startsWith("MISSING_PERSONALSTATS_BUCKET")) {
     return "Missing bucket";

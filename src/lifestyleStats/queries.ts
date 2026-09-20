@@ -1,9 +1,6 @@
 import { HOME_FACTION_ID } from "../constants";
 import type { Env } from "../types";
-import {
-  MISSING_DONATOR_DAYS_ERROR_CODE,
-  OLD_PERSONALSTATS_BUCKET_ERROR_CODE,
-} from "./model";
+import { PERSONAL_STATS_ATTENTION_CTE, personalStatsAttentionParams } from "./attentionPolicy";
 import type {
   DailyStatsAttention,
   LifestyleMemberRow,
@@ -57,7 +54,7 @@ function currentMembershipDateCondition(
 
 export type DailyStatsAttentionCounts = Pick<
   DailyStatsAttention,
-  "missing_donator_days" | "stale_personalstats"
+  "missing_donator_days" | "stale_personalstats" | "affected_member_count" | "accepted_issues"
 >;
 
 export async function readCompleteLifestyleSnapshotDateRange(
@@ -203,146 +200,57 @@ export async function readLatestPersonalStatsBucketDate(env: Env): Promise<strin
 
 export async function readDailyStatsAttentionMembers(
   env: Env,
-  activeDates: string[],
+  now: number,
 ): Promise<DailyStatsAttention["affected_members"]> {
-  const activeDatePlaceholders = activeDates.map(() => "?").join(",");
-  const rows = await env.DB.prepare(
-    `
-    SELECT
-      members.member_id,
-      COALESCE(stats.member_name, members.name) AS member_name,
-      stats.snapshot_date,
-      stats.status,
-      stats.error AS error,
-      stats.updated_at AS updated_at
-    FROM home_faction_members members
-    JOIN member_personal_stats_recent stats
-      ON stats.member_id = members.member_id
-    WHERE members.is_current = 1
-      AND members.report_exempt = 0
-      AND ${currentMembershipDateCondition("members", "stats.snapshot_date")}
-      AND ${dailyStatsAttentionCondition(activeDatePlaceholders)}
-      AND NOT ${acceptedDailyStatsIssueSql("stats")}
-    ORDER BY stats.snapshot_date ASC, members.name ASC
+  const rows = await env.DB.prepare(`
+    ${PERSONAL_STATS_ATTENTION_CTE}
+    SELECT member_id, member_name, snapshot_date, status, error, updated_at
+    FROM attention_stats WHERE accepted = 0
+    ORDER BY snapshot_date ASC, member_name ASC, member_id ASC
     LIMIT 12
-    `,
-  )
-    .bind(
-      ...activeDates,
-      `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
-      `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
-      `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
-    )
-    .all<DailyStatsAttention["affected_members"][number]>();
-
+  `).bind(...personalStatsAttentionParams(now)).all<DailyStatsAttention["affected_members"][number]>();
   return rows.results ?? [];
 }
 
-export async function readDailyStatsAttentionCounts(
-  env: Env,
-  activeDates: string[],
-): Promise<DailyStatsAttentionCounts> {
-  const activeDatePlaceholders = activeDates.map(() => "?").join(",");
-  const counts = await env.DB.prepare(
-    `
+export async function readDailyStatsAttentionCounts(env: Env, now: number): Promise<DailyStatsAttentionCounts> {
+  const counts = await env.DB.prepare(`
+    ${PERSONAL_STATS_ATTENTION_CTE}
     SELECT
-      SUM(CASE
-        WHEN stats.status = 'retry_expired'
-          OR (
-            stats.snapshot_date NOT IN (${activeDatePlaceholders})
-            AND stats.error IS NOT NULL
-            AND stats.error NOT LIKE ?
-            AND stats.error NOT LIKE ?
-          )
-        THEN 1
-        ELSE 0
-      END) AS stale_personalstats,
-      SUM(CASE
-        WHEN stats.snapshot_date NOT IN (${activeDatePlaceholders})
-          AND stats.error LIKE ?
-        THEN 1
-        ELSE 0
-      END) AS missing_donator_days
-    FROM home_faction_members members
-    JOIN member_personal_stats_recent stats
-      ON stats.member_id = members.member_id
-    WHERE members.is_current = 1
-      AND members.report_exempt = 0
-      AND ${currentMembershipDateCondition("members", "stats.snapshot_date")}
-      AND NOT ${acceptedDailyStatsIssueSql("stats")}
-    `,
-  )
-    .bind(
-      ...activeDates,
-      `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
-      `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
-      ...activeDates,
-      `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
-    )
-    .first<{
-      stale_personalstats: number | null;
-      missing_donator_days: number | null;
-    }>();
-
+      SUM(CASE WHEN accepted = 0 AND issue_kind <> 'missing_donator_days' THEN 1 ELSE 0 END) AS stale_personalstats,
+      SUM(CASE WHEN accepted = 0 AND issue_kind = 'missing_donator_days' THEN 1 ELSE 0 END) AS missing_donator_days,
+      COUNT(DISTINCT CASE WHEN accepted = 0 THEN member_id END) AS affected_member_count,
+      SUM(accepted) AS accepted_issues
+    FROM attention_stats
+  `).bind(...personalStatsAttentionParams(now)).first<DailyStatsAttentionCounts>();
   return {
     stale_personalstats: counts?.stale_personalstats ?? 0,
     missing_donator_days: counts?.missing_donator_days ?? 0,
+    affected_member_count: counts?.affected_member_count ?? 0,
+    accepted_issues: counts?.accepted_issues ?? 0,
   };
-}
-
-// An acceptance belongs to one day's particular failure. A different failure
-// on that day must be reviewed again; retry timestamps alone do not reopen it.
-export function acceptedDailyStatsIssueSql(statsAlias: string): string {
-  return `EXISTS (
-    SELECT 1 FROM daily_stats_issue_acceptances accepted
-    WHERE accepted.member_id = ${statsAlias}.member_id
-      AND accepted.snapshot_date = ${statsAlias}.snapshot_date
-      AND accepted.issue_status = ${statsAlias}.status
-      AND accepted.issue_error IS ${statsAlias}.error
-  )`;
-}
-
-function dailyStatsAttentionCondition(activeDatePlaceholders: string): string {
-  return `(
-    stats.status = 'retry_expired'
-    OR (
-      stats.snapshot_date NOT IN (${activeDatePlaceholders})
-      AND (
-        stats.error LIKE ?
-        OR (stats.error IS NOT NULL AND stats.error NOT LIKE ? AND stats.error NOT LIKE ?)
-      )
-    )
-  )`;
 }
 
 export async function acceptDailyStatsAttentionIssue(
   env: Env,
   issue: Pick<DailyStatsAttention["affected_members"][number], "member_id" | "snapshot_date" | "status" | "error">,
-  activeDates: string[],
+  now: number,
   acceptedBy: number | null,
 ): Promise<boolean> {
   const result = await env.DB.prepare(`
+    ${PERSONAL_STATS_ATTENTION_CTE}
     INSERT INTO daily_stats_issue_acceptances
       (member_id, snapshot_date, issue_status, issue_error, accepted_by, accepted_at)
-    SELECT stats.member_id, stats.snapshot_date, stats.status, stats.error, ?, unixepoch()
-    FROM member_personal_stats_recent stats
-    JOIN home_faction_members members ON members.member_id = stats.member_id
-    WHERE stats.member_id = ? AND stats.snapshot_date = ?
-      AND stats.status = ? AND stats.error IS ?
-      AND members.faction_id = ? AND members.is_current = 1 AND members.report_exempt = 0
-      AND ${currentMembershipDateCondition("members", "stats.snapshot_date")}
-      AND ${dailyStatsAttentionCondition(activeDates.map(() => "?").join(","))}
+    SELECT member_id, snapshot_date, status, error, ?, unixepoch()
+    FROM attention_stats
+    WHERE member_id = ? AND snapshot_date = ? AND status = ? AND error IS ?
     ON CONFLICT(member_id, snapshot_date) DO UPDATE SET
       issue_status = excluded.issue_status,
       issue_error = excluded.issue_error,
       accepted_by = excluded.accepted_by,
       accepted_at = excluded.accepted_at
   `).bind(
-    acceptedBy, issue.member_id, issue.snapshot_date, issue.status, issue.error, HOME_FACTION_ID,
-    ...activeDates,
-    `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
-    `${OLD_PERSONALSTATS_BUCKET_ERROR_CODE}%`,
-    `${MISSING_DONATOR_DAYS_ERROR_CODE}%`,
+    ...personalStatsAttentionParams(now), acceptedBy,
+    issue.member_id, issue.snapshot_date, issue.status, issue.error,
   ).run();
   return Number(result.meta.changes) > 0;
 }

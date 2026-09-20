@@ -32,6 +32,7 @@ import {
 import { EmptyState, PanelHeader } from "../components/Common";
 import type { AppView } from "../routes";
 import { formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
+import { groupPersonalStatsIssues } from "../utils/personalStatsIssues";
 
 type DataHealthCommandCenterProps = {
   onOpenView: (view: AppView) => void;
@@ -47,8 +48,8 @@ const SETTING_FIELDS: Array<{
   { key: "ingestion_critical_seconds", label: "Ingestion critical age", unit: "sec" },
   { key: "maintenance_warn_seconds", label: "Maintenance warn age", unit: "sec" },
   { key: "maintenance_critical_seconds", label: "Maintenance critical age", unit: "sec" },
-  { key: "daily_stats_lag_warn_days", label: "Daily stats warn lag", unit: "days" },
-  { key: "daily_stats_lag_critical_days", label: "Daily stats critical lag", unit: "days" },
+  { key: "daily_stats_lag_warn_days", label: "Gym stats warn lag", unit: "days" },
+  { key: "daily_stats_lag_critical_days", label: "Gym stats critical lag", unit: "days" },
   { key: "stale_daily_members_warn", label: "Stale member warn count", unit: "members" },
   { key: "stale_daily_members_critical", label: "Stale member critical count", unit: "members" },
   { key: "api_error_rate_warn_percent", label: "API error warn rate", unit: "%" },
@@ -607,22 +608,22 @@ function PersonalStatsIssueDetail({
   data: AdminDataHealthResponse;
   fallbackDetail: string;
 }) {
-  const issueDate = personalStatsIssueDate(data);
-  const gaps = data.details.personal_stats_coverage_gaps;
-  const issueGaps = issueDate ? gaps.filter((member) => member.snapshot_date === issueDate) : [];
+  const issueGaps = groupPersonalStatsIssues(data.details.personal_stats_coverage_gaps);
+  const xanaxRepairs = data.details.xantaken_rechecks.needs_repair;
 
   return (
     <div className="data-health-issue-detail">
+      {xanaxRepairs > 0 ? <p>{formatNumber(xanaxRepairs)} Xanax recheck{xanaxRepairs === 1 ? " needs" : "s need"} repair.</p> : null}
       {issueGaps.length > 0 ? (
         <div className="table-scroll">
           <table className="stock-status-table data-health-table data-health-issue-table" aria-label="Users with personal stats issues">
             <thead>
               <tr>
                 <th scope="col">User</th>
-                <th scope="col">Missing date</th>
+                <th scope="col">Missing dates</th>
                 <th scope="col">Latest ready</th>
-                <th scope="col">Recent status</th>
-                <th scope="col">Error</th>
+                <th scope="col">Oldest issue status</th>
+                <th scope="col">Oldest issue</th>
               </tr>
             </thead>
             <tbody>
@@ -631,30 +632,25 @@ function PersonalStatsIssueDetail({
                   <td className="data-health-issue-user">
                     {member.member_name ? <>{member.member_name} <small>#{member.member_id}</small></> : `#${member.member_id}`}
                   </td>
-                  <td>{member.snapshot_date}</td>
+                  <td>{member.missing_dates.length === 1 ? member.snapshot_date : (
+                    <details>
+                      <summary>{member.missing_dates.length} dates, from {member.snapshot_date}</summary>
+                      {member.missing_dates.join(", ")}
+                    </details>
+                  )}</td>
                   <td>{member.latest_personal_ready_date ?? "Never"}</td>
                   <td>{member.recent_status ?? "Not recorded"}</td>
-                  <td className="data-health-issue-error">{member.recent_error ?? "-"}</td>
+                  <td className="data-health-issue-error">{member.recent_error ?? "Daily snapshot missing"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : (
-        <small>{fallbackDetail}</small>
+        xanaxRepairs === 0 ? <small>{fallbackDetail}</small> : null
       )}
     </div>
   );
-}
-
-function personalStatsIssueDate(data: AdminDataHealthResponse): string | null {
-  const metric = data.subsystems.find((subsystem) => subsystem.key === "personal_stats")?.metrics
-    .find((candidate) => {
-      if (candidate.label === "Outstanding") return false;
-      const [ready, total] = candidate.value.split("/").map(Number);
-      return Number.isFinite(ready) && Number.isFinite(total) && ready < total;
-    });
-  return metric?.label ?? null;
 }
 
 function SubsystemTile({ subsystem }: { subsystem: DataHealthSubsystem }) {
@@ -733,6 +729,8 @@ function DailyStatsDrilldown({
         <MetricLine label="Latest bucket" value={attention.latest_personalstats_bucket_date ?? "-"} />
         <MetricLine label="Lag days" value={nullableNumber(attention.personalstats_lag_days)} />
       </div>
+      <p>Missing snapshots need attention after two UTC calendar days. Collection errors need attention immediately.</p>
+      {affectedCount > affectedMembers.length ? <p>Showing the oldest {affectedMembers.length} of {formatNumber(affectedCount)} issues.</p> : null}
       {acceptError ? <div className="error-panel" role="alert">{acceptError}</div> : null}
       {acceptNotice ? <p className="dashboard-suggestion-success" role="status">{acceptNotice}</p> : null}
       {affectedMembers.length === 0 ? (

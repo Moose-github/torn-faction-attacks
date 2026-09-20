@@ -24,12 +24,14 @@ describe("daily lifestyle stats attention", () => {
         },
       ],
       counts: {
+        affected_member_count: 2, accepted_issues: 0,
         stale_personalstats: 2,
         missing_donator_days: 1,
       },
     }));
 
     expect(attention).toEqual({
+      affected_member_count: 2, accepted_issues: 0,
       stale_personalstats: 2,
       missing_donator_days: 1,
       personalstats_target_date: "2026-06-05",
@@ -71,9 +73,9 @@ describe("daily lifestyle stats attention", () => {
     );
 
     expect(affectedMembersCall?.sql).toContain("members.current_join_date IS NULL");
-    expect(affectedMembersCall?.sql).toContain("stats.snapshot_date >= members.current_join_date");
+    expect(affectedMembersCall?.sql).toContain("dates.snapshot_date >= members.current_join_date");
     expect(countsCall?.sql).toContain("members.current_join_date IS NULL");
-    expect(countsCall?.sql).toContain("stats.snapshot_date >= members.current_join_date");
+    expect(countsCall?.sql).toContain("dates.snapshot_date >= members.current_join_date");
   });
 });
 
@@ -94,6 +96,8 @@ function lifestyleAttentionEnv(options: {
     updated_at: number | null;
   }>;
   counts: {
+    affected_member_count?: number;
+    accepted_issues?: number;
     stale_personalstats: number | null;
     missing_donator_days: number | null;
   } | null;

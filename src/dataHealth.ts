@@ -179,7 +179,7 @@ async function readDataHealthSnapshot(
     readLatestAttackStarted(env),
     readShopliftingHealth(env),
     readLatestMaintenance(env),
-    getDailyStatsAttention(env),
+    getDailyStatsAttention(env, now),
     readRosterHealth(env),
     readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
     options.includeAdminDetail ? readApiUsageHealthRollup(env, now, apiUsageWindowSeconds) : readApiUsageHealth(env, now, API_USAGE_WINDOW_SECONDS),
@@ -197,9 +197,9 @@ async function readDataHealthSnapshot(
     options.includeAdminDetail ? readEnemyScoutingGaps(env) : Promise.resolve([]),
   ]);
   const [personalStatsCoverage, personalStatsCoverageGaps, gymStats] = await Promise.all([
-    readPersonalStatsCoverage(env, dailyStats.personalstats_target_date),
+    readPersonalStatsCoverage(env, now),
     options.includeAdminDetail
-      ? readPersonalStatsCoverageGaps(env, dailyStats.personalstats_target_date)
+      ? readPersonalStatsCoverageGaps(env, now)
       : Promise.resolve([]),
     readGymStatsHealth(env, dailyStats.personalstats_target_date, now),
   ]);
@@ -357,18 +357,11 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
   const attention = snapshot.dailyStats;
   const affectedCount = attention.stale_personalstats + attention.missing_donator_days;
   const xantakenNeedsRepair = snapshot.xantakenRechecks.needs_repair;
-  const oldestCoverage = snapshot.personalStatsCoverage[0] ?? null;
-  const acceptedCount = snapshot.personalStatsCoverage.reduce((sum, coverage) => sum + coverage.accepted_members, 0);
-  const oldestMissingCoverage = oldestCoverage
-    ? Math.max(0, oldestCoverage.total_members - oldestCoverage.ready_members - oldestCoverage.accepted_members)
-    : 0;
-  const coverageStatus = !oldestCoverage || oldestCoverage.total_members === 0
+  const acceptedCount = attention.accepted_issues;
+  const missingMembers = attention.affected_member_count;
+  const coverageStatus = snapshot.roster.reportable_members === 0
     ? "unknown"
-    : statusForCount(
-      oldestMissingCoverage,
-      snapshot.settings.stale_daily_members_warn,
-      snapshot.settings.stale_daily_members_critical,
-    );
+    : statusForCount(missingMembers, snapshot.settings.stale_daily_members_warn, snapshot.settings.stale_daily_members_critical);
   const status = maxStatus(coverageStatus, xantakenNeedsRepair > 0 ? "warn" : "good");
   const coverageMetrics = snapshot.personalStatsCoverage.map((coverage) => ({
     label: coverage.snapshot_date,
@@ -377,14 +370,16 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
   const outstandingMetric = {
     label: "Outstanding",
     value: String(affectedCount),
-    title: "Number of members missing personal stats from before the recent days.",
+    title: "Unaccepted member/date issues. Missing snapshots need attention after two UTC calendar days; collection failures need attention immediately.",
   };
   return {
     key: "personal_stats",
     label: "Personal stats",
     status,
-    summary: affectedCount > 0 ? `${affectedCount} reportable members need personal stat attention`
-      : acceptedCount > 0 ? "Known personal stat gaps accepted" : "Personal stats are up to date",
+    summary: affectedCount > 0
+      ? `${affectedCount} personal stat issue${affectedCount === 1 ? "" : "s"} across ${missingMembers} member${missingMembers === 1 ? "" : "s"}${xantakenNeedsRepair > 0 ? `; ${xantakenRepairSummary(xantakenNeedsRepair)}` : ""}`
+      : xantakenNeedsRepair > 0 ? xantakenRepairSummary(xantakenNeedsRepair)
+      : acceptedCount > 0 ? "Known personal stat gaps accepted" : "No overdue personal stat gaps",
     updated_at: null,
     metrics: [
       ...coverageMetrics,
@@ -395,6 +390,10 @@ function personalStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsyst
       { label: "Xanax repair", value: String(snapshot.xantakenRechecks.needs_repair) },
     ],
   };
+}
+
+function xantakenRepairSummary(count: number): string {
+  return `${count} Xanax recheck${count === 1 ? " needs" : "s need"} repair`;
 }
 
 function gymStatsSubsystem(snapshot: DataHealthSnapshot): DataHealthSubsystem {
@@ -598,18 +597,17 @@ function issueDetailForSubsystem(snapshot: DataHealthSnapshot, subsystem: DataHe
   if (subsystem.key === "maintenance" && snapshot.maintenance?.error) return snapshot.maintenance.error;
   if (subsystem.key === "stock_data" && snapshot.stockRun?.error) return snapshot.stockRun.error;
   if (subsystem.key === "personal_stats") {
-    const coverage = snapshot.personalStatsCoverage[0] ?? null;
-    if (!coverage) return "No recent personal stat coverage is available";
-
-    const missingMembers = snapshot.personalStatsCoverageGaps
-      .filter((gap) => gap.snapshot_date === coverage.snapshot_date)
-      .map(formatPersonalStatsGapMember);
-    if (missingMembers.length === 0) {
-      return `${coverage.snapshot_date}: missing personal stats member identity unavailable`;
+    const details: string[] = [];
+    if (snapshot.dailyStats.affected_member_count > 0) {
+      const members = [...new Set(snapshot.personalStatsCoverageGaps.map(formatPersonalStatsGapMember))];
+      details.push(members.length > 0 ? members.join(", ") : "Personal stat gaps need attention");
     }
-
-    return `${coverage.snapshot_date}: ${missingMembers.join(", ")}`;
+    if (snapshot.xantakenRechecks.needs_repair > 0) {
+      details.push(xantakenRepairSummary(snapshot.xantakenRechecks.needs_repair));
+    }
+    return details.join("; ") || subsystem.summary;
   }
+
   if (subsystem.key === "gym_stats") {
     return [
       `${snapshot.gymStats.missing_gym_stats.length} missing gym stat streams`,
