@@ -325,20 +325,25 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
   const guildId = readDiscordNotificationGuildId(env);
   if (!env.DISCORD_BOT_TOKEN || !guildId) return;
   const checkedAt = Math.max(now, nowSeconds());
-  const rows = await env.DB.prepare(`SELECT s.watch_id, s.start_at, w.name
+  const rows = await env.DB.prepare(`SELECT s.watch_id, s.start_at, w.name, w.channel_id, sheet.discord_message_id
     FROM chain_watch_slots s JOIN chain_watch_schedules w ON w.id = s.watch_id
+    JOIN chain_watch_sheets sheet ON sheet.id = s.sheet_id AND sheet.watch_id = s.watch_id
     WHERE s.cancelled = 0 AND s.assigned_to IS NULL AND s.unfilled_alert_sent_at IS NULL
       AND s.unfilled_alert_until <= ? AND s.start_at > ? AND s.start_at <= ?
       AND w.is_open = 1 AND w.guild_id = ? AND s.start_at >= w.start_at
       AND (w.finish_at IS NULL OR s.start_at < w.finish_at)
     ORDER BY s.start_at`).bind(checkedAt, checkedAt, checkedAt + WATCH_UNFILLED_SLOT_LEAD_SECONDS, guildId)
-    .all<{ watch_id: string; start_at: number; name: string }>();
+    .all<{ watch_id: string; start_at: number; name: string; channel_id: string; discord_message_id: string | null }>();
   const alertKey = DISCORD_ALERT_KEYS.chainWatchUnfilledSlot;
   if (!rows.results.length || !await isDiscordAlertEnabled(env, alertKey)) return;
   const route = await readConfiguredDiscordNotificationChannel(env, alertKey);
   if (!route) return;
   const mentions = await readDiscordAlertMentions(env, alertKey);
   for (const slot of rows.results) {
+    const channelUrl = `https://discord.com/channels/${guildId}/${slot.channel_id}`;
+    const signUpLink = slot.discord_message_id
+      ? `[Open chain watch sheet](${channelUrl}/${slot.discord_message_id})`
+      : `[Open chain watch channel](${channelUrl})`;
     // The durable marker and lease prevent repeats across ticks and overlapping workers.
     // A stable Discord nonce also covers retries after an ambiguous POST response.
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256",
@@ -363,7 +368,7 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
           content: formatDiscordAlertMessage(
             `⚠️ **Chain watch unfilled slot**\n**${escaped(slot.name)}** has no watcher assigned.\n` +
             `Slot: ${watchUtc(slot.start_at)} – ${watchUtc(slot.start_at + WATCH_HOUR)}\n` +
-            `Starts <t:${slot.start_at}:R>.\n[Sign up for this slot](${watchPageUrl(env, slot.watch_id)})`,
+            `Starts <t:${slot.start_at}:R>.\n${signUpLink}`,
             mentions.messageSuffix,
           ),
           allowed_mentions: {
@@ -388,10 +393,10 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
 export async function runWatchScheduleCron(env: Env, now = nowSeconds()): Promise<void> {
   const checkedAt = Math.max(now, nowSeconds());
   await reconcileWatch(env, checkedAt);
-  // A roster delivery failure must not prevent the separate slot warning.
-  const results = await Promise.allSettled([
-    syncWatchBoards(env, checkedAt),
-    runWatchUnfilledSlotAlerts(env, checkedAt),
-  ]);
-  for (const result of results) if (result.status === "rejected") throw result.reason;
+  // Publish or refresh the sheet before linking it, while still warning if roster delivery fails.
+  try {
+    await syncWatchBoards(env, checkedAt);
+  } finally {
+    await runWatchUnfilledSlotAlerts(env, checkedAt);
+  }
 }
