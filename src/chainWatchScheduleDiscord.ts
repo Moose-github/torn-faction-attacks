@@ -3,7 +3,7 @@ import { changeWatchSlots, createWatch, currentWatch, parseWatchTime, readWatch,
 import { CHAIN_WATCH_COMMANDS_PUBLIC_FOR_TESTING } from "./discordCommands";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
-import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
+import { readDiscordAlertMentions } from "./discordMentions";
 import { discordNotificationChannelTargetId, readConfiguredDiscordNotificationChannel, readDiscordNotificationGuildId } from "./discordNotificationChannels";
 import type { DiscordInteraction, DiscordInteractionResponse } from "./discordInteractions";
 import { assertExternalResponseOk, ExternalApiError, fetchExternal, readExternalJson } from "./external/http";
@@ -365,14 +365,18 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
           sendAt + WATCH_UNFILLED_SLOT_LEAD_SECONDS, guildId).run();
     if (!lease.meta.changes) continue;
     try {
+      const from = new Date(slot.start_at * 1000).toISOString().slice(11, 16);
+      const to = new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16);
       const message = await watchDiscordRequest<{ id: string }>(env,
         `/channels/${discordNotificationChannelTargetId(route)}/messages`, "POST", {
-          content: formatDiscordAlertMessage(
-            `⚠️ **Chain watch unfilled slot**\n**${escaped(slot.name)}** has no watcher assigned.\n` +
-            `Slot: ${watchUtc(slot.start_at)} – ${watchUtc(slot.start_at + WATCH_HOUR)}\n` +
-            `Starts <t:${slot.start_at}:R>.\n${signUpLink}`,
-            mentions.messageSuffix,
-          ),
+          content: mentions.messageSuffix,
+          embeds: [{
+            title: "⚠️ Chain watch unfilled slot",
+            description: `**${escaped(slot.name)}** has no watcher assigned.\n` +
+              `Slot: ${from} - ${to} UTC\n` +
+              `Starts <t:${slot.start_at}:R>.\n${signUpLink}`,
+            color: 0xff0000,
+          }],
           allowed_mentions: {
             parse: mentions.allowedMentions?.everyone ? ["everyone"] : [],
             users: mentions.allowedMentions?.users ?? [],

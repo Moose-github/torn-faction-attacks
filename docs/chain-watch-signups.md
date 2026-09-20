@@ -85,8 +85,9 @@ one-minute schedule job warns when an unassigned slot is one hour from starting,
 including before the watch itself starts. If a slot becomes empty, a watch is
 created, or delivery resumes during that final hour, it warns on the next tick.
 Assigned, cancelled, finished and already-started slots are excluded. The message
-includes UTC slot times, a relative start time and a direct link to that slot's
-daily Discord sheet. If the sheet has not been published, the link opens its
+uses a red embed with `Slot: HH:MM - HH:MM UTC`, a relative start time and a direct
+link to that slot's daily Discord sheet. Configured mentions remain in the message
+content so they can notify. If the sheet has not been published, the link opens its
 Discord channel. Each cron tick refreshes the sheets before sending warnings.
 
 Delivery defaults to enabled and uses its own configured alert route or the

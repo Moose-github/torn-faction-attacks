@@ -50,12 +50,15 @@ describe("unfilled chain watch slot alerts", () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(post.mock.calls[0][0]).toBe("https://discord.com/api/v10/channels/alert-channel/messages");
     const payload = JSON.parse(post.mock.calls[0][1].body);
-    expect(payload.content).toContain("has no watcher assigned");
-    expect(payload.content).toContain("01-01-30 13:00 UTC – 01-01-30 14:00 UTC");
-    expect(payload.content).toContain(`<t:${start}:R>`);
-    expect(payload.content).toContain("[Open chain watch sheet](https://discord.com/channels/guild/roster-channel/sheet-message)");
-    expect(payload.content).not.toContain("https://dashboard.test");
-    expect(payload.content).not.toContain("@everyone");
+    expect(payload.embeds).toHaveLength(1);
+    expect(payload.embeds[0]).toMatchObject({ title: "⚠️ Chain watch unfilled slot", color: 0xff0000 });
+    const description = payload.embeds[0].description;
+    expect(description).toContain("has no watcher assigned");
+    expect(description).toContain("Slot: 13:00 - 14:00 UTC");
+    expect(description).toContain(`<t:${start}:R>`);
+    expect(description).toContain("[Open chain watch sheet](https://discord.com/channels/guild/roster-channel/sheet-message)");
+    expect(description).not.toContain("https://dashboard.test");
+    expect(description).not.toContain("@everyone");
     expect(payload.allowed_mentions).toEqual({ parse: [], users: [], roles: [] });
     expect(payload).toMatchObject({ nonce: expect.any(String), enforce_nonce: true });
     expect(state()).toMatchObject({ unfilled_alert_sent_at: due, unfilled_alert_token: null, unfilled_alert_until: 0 });
@@ -69,7 +72,7 @@ describe("unfilled chain watch slot alerts", () => {
   it("links to the roster channel when the sheet has not been published", async () => {
     db.sqlite.exec("UPDATE chain_watch_sheets SET discord_message_id = NULL");
     await tick(due);
-    expect(JSON.parse(post.mock.calls[0][1].body).content)
+    expect(JSON.parse(post.mock.calls[0][1].body).embeds[0].description)
       .toContain("[Open chain watch channel](https://discord.com/channels/guild/roster-channel)");
   });
 
@@ -78,9 +81,9 @@ describe("unfilled chain watch slot alerts", () => {
     await setWatchFinish(db.env, watchId, watchUtc(midnight + WATCH_HOUR));
     db.sqlite.prepare("UPDATE chain_watch_sheets SET discord_message_id = 'next-day-sheet' WHERE watch_id = ? AND start_at = ?").run(watchId, midnight);
     await tick(midnight - WATCH_HOUR);
-    const content = JSON.parse(post.mock.calls[0][1].body).content;
-    expect(content).toContain("https://discord.com/channels/guild/roster-channel/next-day-sheet");
-    expect(content).not.toContain("/sheet-message");
+    const description = JSON.parse(post.mock.calls[0][1].body).embeds[0].description;
+    expect(description).toContain("https://discord.com/channels/guild/roster-channel/next-day-sheet");
+    expect(description).not.toContain("/sheet-message");
   });
 
   it("publishes the sheet before sending its first warning", async () => {
@@ -93,7 +96,7 @@ describe("unfilled chain watch slot alerts", () => {
     expect(post).toHaveBeenCalledTimes(2);
     expect(post.mock.calls[0][0]).toContain("/roster-channel/messages");
     const payload = JSON.parse(post.mock.calls[1][1].body);
-    expect(payload.content).toContain("https://discord.com/channels/guild/roster-channel/new-sheet-message");
+    expect(payload.embeds[0].description).toContain("https://discord.com/channels/guild/roster-channel/new-sheet-message");
   });
 
   it("warns if an assigned slot becomes empty within the final hour", async () => {
