@@ -66,6 +66,10 @@ Late confirmation updates both messages and removes the reminder button without
 changing the scheduled shift time. Reassignment/cancellation invalidates old
 buttons; completed shifts stop escalating.
 
+After confirmation, the reminder becomes one compact block: the watch name and
+**Chain watch check-in** heading, `Watcher: Name - Ready ✅`, and
+`Shift: HH:MM - HH:MM UTC`. The original ping line and check-in button are removed.
+
 These times are checked each minute. Late assignments or recovered delivery are
 picked up on the next tick, with at least two minutes to respond after successful
 delivery. If the reminder cannot be sent or the member has no linked Discord

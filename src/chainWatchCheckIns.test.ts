@@ -72,10 +72,13 @@ describe("chain watch handover check-ins", () => {
     await tick(start - 60);
     expect(posts()).toHaveLength(1);
     const edit = payload(fetchMock.mock.calls.at(-1)!);
-    expect(edit.embeds[0].description).toContain("✅ Ready");
+    expect(edit.embeds).toEqual([{
+      description: "Test @\u200beveryone watch - **Chain watch check-in**\nWatcher: Alice - Ready ✅\nShift: 23:00 - 00:00 UTC",
+      color: 0x16a34a,
+    }]);
     expect(edit.components).toEqual([]);
     expect(edit.allowed_mentions).toEqual({ parse: [], users: [], roles: [] });
-    expect(edit.content).toBeUndefined();
+    expect(edit.content).toBe("");
   });
 
   it.each(["another watcher", "other guild", "other channel", "other message", "former member"])("rejects confirmation from %s", async reason => {
@@ -192,7 +195,7 @@ describe("chain watch handover check-ins", () => {
     });
     await tick(start - 60);
     expect(posts()).toHaveLength(1);
-    expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain("✅ Ready");
+    expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain("Ready ✅");
   });
 
   it("resolves an alert if confirmation arrives while its request is in flight", async () => {
@@ -216,7 +219,7 @@ describe("chain watch handover check-ins", () => {
     await tick(start - 60);
     expect(state()?.dirty).toBe(0);
     expect(posts()).toHaveLength(1);
-    expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain("✅ Ready");
+    expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain("Ready ✅");
   });
 
   it("invalidates old buttons even after A → B → A between ticks", async () => {

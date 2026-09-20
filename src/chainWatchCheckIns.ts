@@ -195,9 +195,21 @@ function shiftText(row: CheckIn): string {
   return `**${escapeText(row.watch_name)}**\nWatcher: ${escapeText(row.member_name)}\nShift: ${watchUtc(row.start_at)} – ${watchUtc(row.end_at)}`;
 }
 function reminderPayload(row: CheckIn) {
+  if (row.confirmed_at !== null && row.cancelled_at === null) {
+    const from = new Date(row.start_at * 1000).toISOString().slice(11, 16);
+    const to = new Date(row.end_at * 1000).toISOString().slice(11, 16);
+    return {
+      content: "",
+      embeds: [{
+        description: `${escapeText(row.watch_name)} - **Chain watch check-in**\nWatcher: ${escapeText(row.member_name)} - Ready ✅\nShift: ${from} - ${to} UTC`,
+        color: 0x16a34a,
+      }],
+      components: [],
+      allowed_mentions: noMentions,
+    };
+  }
   const inactive = row.cancelled_at !== null || row.closed_at !== null || row.end_at <= nowSeconds();
   const status = row.cancelled_at !== null ? "This assignment changed or was cancelled. This check-in is closed."
-    : row.confirmed_at !== null ? `✅ Ready — checked in <t:${row.confirmed_at}:t>.`
     : inactive ? "This shift has ended."
     : `Your shift ${row.start_at > nowSeconds() ? `starts <t:${row.start_at}:R>` : "has started"}. Please confirm you’re ready.`;
   return {
@@ -225,7 +237,8 @@ function escalationPayload(row: CheckIn) {
 }
 
 async function renderCheckIn(env: Env, row: CheckIn): Promise<void> {
-  // Omit content on edits to retain the original mentions without pinging again.
+  // Suppress mentions on edits; confirmed reminders also clear the original ping
+  // so the message contains only the compact confirmation block.
   for (const [channel, message, payload] of [
     [row.channel_id, row.reminder_message_id, reminderPayload(row)],
     [row.escalation_channel_id, row.escalation_message_id, escalationPayload(row)],
