@@ -1,4 +1,4 @@
-import type { ChainWatchSchedule, ChainWatchSheet, ChainWatchSlot, ChainWatchScheduleResponse } from "../shared/chainWatchSchedule";
+import type { ChainWatchSchedule, ChainWatchSheet, ChainWatchSlot, ChainWatchScheduleResponse, ChainWatchHistoryResponse } from "../shared/chainWatchSchedule";
 import { nextWatchHour, WATCH_DAY, WATCH_HOUR } from "../shared/chainWatchSchedule";
 import type { Env } from "./types";
 import { nowSeconds } from "./utils";
@@ -182,6 +182,12 @@ export async function setWatchFinish(env: Env, id: string, value: unknown, now =
   ]);
   if (!result[0].meta.changes) throw new WatchError("That watch has already finished. Refresh the page.", 409);
   return finish;
+}
+
+export async function readWatchHistory(env: Env): Promise<ChainWatchHistoryResponse> {
+  const watches = await env.DB.prepare(`SELECT id, name, start_at, finish_at, guild_id, channel_id, is_open
+    FROM chain_watch_schedules ORDER BY is_open DESC, start_at DESC, created_at DESC, rowid DESC`).all<ChainWatchSchedule>();
+  return { ok: true, now: nowSeconds(), watches: watches.results };
 }
 
 export async function readWatch(env: Env, id?: string | null): Promise<ChainWatchScheduleResponse> {

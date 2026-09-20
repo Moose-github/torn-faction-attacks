@@ -5,6 +5,10 @@
 .watch-toolbar, .watch-title-row, .watch-slot-actions form, .watch-admin-panel form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .watch-title-row { justify-content: space-between; }
 .watch-toolbar label, .watch-admin-panel label { display: grid; gap: 6px; font-size: 13px; }
+.watch-browser-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; margin-top: 14px; }
+.watch-browser-fields label { display: grid; gap: 6px; min-width: 0; font-size: 13px; }
+.watch-browser-fields select { width: 100%; min-width: 0; }
+.watch-browser-error { color: var(--text-muted, #64748b); font-size: 13px; }
 .watch-schedule-page select, .watch-schedule-page input { padding: 9px 11px; border: 1px solid #94a3b866; border-radius: 8px; background: transparent; color: inherit; font: inherit; max-width: 100%; }
 .watch-schedule-page option { color: #172b46; background: #fff; }
 .watch-status { padding: 5px 12px; border-radius: 20px; background: #2f80ed18; color: #3076c8; font-size: 12px; font-weight: 700; }
@@ -52,6 +56,7 @@
 :root[data-theme="dark"] .watch-live-warning { --watch-live-color: #fbbf24; }
 :root[data-theme="dark"] .watch-live-critical { --watch-live-color: #fda4af; }
 @media (max-width: 700px) {
+  .watch-browser-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .watch-live-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .watch-live-panel .panel-header { align-items: start; flex-wrap: wrap; gap: 10px; }
   .watch-schedule-page .panel { padding: 14px; }

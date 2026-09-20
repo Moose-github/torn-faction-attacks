@@ -34,6 +34,12 @@ export type ChainWatchScheduleResponse = {
   members: Array<{ member_id: number; name: string }>;
 };
 
+export type ChainWatchHistoryResponse = {
+  ok: true;
+  now: number;
+  watches: ChainWatchSchedule[];
+};
+
 export const WATCH_HOUR = 3600;
 export const WATCH_DAY = 24 * WATCH_HOUR;
 

@@ -1,5 +1,5 @@
 import { getJson, postJson } from "./client";
-import type { ChainWatchScheduleResponse } from "../../../shared/chainWatchSchedule";
+import type { ChainWatchScheduleResponse, ChainWatchHistoryResponse } from "../../../shared/chainWatchSchedule";
 import type { ChainWatchLiveResponse } from "../../../shared/chainWatchLive";
 
 export function getChainWatchLive(): Promise<ChainWatchLiveResponse> {
@@ -8,6 +8,10 @@ export function getChainWatchLive(): Promise<ChainWatchLiveResponse> {
 
 export function getChainWatchSchedule(id?: string | null): Promise<ChainWatchScheduleResponse> {
   return getJson(`/api/chain-watch${id ? `?watch=${encodeURIComponent(id)}` : ""}`);
+}
+
+export function getChainWatchHistory(): Promise<ChainWatchHistoryResponse> {
+  return getJson("/api/chain-watch/history");
 }
 
 export function changeChainWatchSlot(watchId: string, starts: number[], action: "claim" | "leave"): Promise<ChainWatchScheduleResponse> {

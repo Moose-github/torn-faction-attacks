@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { watchDatabase } from "../../scripts/watch-test-database.mjs";
-import { nextWatchHour, watchUtc } from "../../shared/chainWatchSchedule";
+import { nextWatchHour, watchUtc, WATCH_DAY, WATCH_HOUR } from "../../shared/chainWatchSchedule";
 import { createWatch, readWatch } from "../chainWatchSchedule";
 import { getChainWatchLive } from "../chainWatch";
 import { readAuthenticatedUserId, requireAdmin, requireMember } from "../auth";
@@ -78,5 +78,75 @@ describe("chain watch page authorization", () => {
     const response = await request("/api/admin/chain-watch/slots", { watch_id: id, starts: [start], target_id: 2 });
     expect(response?.status).toBe(200);
     expect((await readWatch(db.env)).slots[0].assigned_to).toBe(2);
+  });
+});
+
+describe("chain watch history", () => {
+  function pastWatch(watchId: string, daysAgo: number) {
+    const pastStart = start - daysAgo * WATCH_DAY;
+    db.sqlite.prepare(`INSERT INTO chain_watch_schedules
+      (id, name, start_at, finish_at, guild_id, channel_id, is_open, created_by_discord_id)
+      VALUES (?, ?, ?, ?, 'guild', 'old-channel', 0, '111')`).run(watchId, `Past ${watchId}`, pastStart, pastStart + WATCH_HOUR);
+    db.sqlite.prepare(`INSERT INTO chain_watch_sheets (id, watch_id, start_at, end_at, discord_message_id)
+      VALUES (?, ?, ?, ?, 'old-message')`).run(`${watchId}:sheet`, watchId, pastStart, pastStart + 2 * WATCH_HOUR);
+    db.sqlite.prepare(`INSERT INTO chain_watch_slots (watch_id, sheet_id, start_at, assigned_to, cancelled)
+      VALUES (?, ?, ?, 3, 0), (?, ?, ?, 2, 1)`)
+      .run(watchId, `${watchId}:sheet`, pastStart, watchId, `${watchId}:sheet`, pastStart + WATCH_HOUR);
+  }
+
+  it("lists the current watch and all finished watches, newest first", async () => {
+    pastWatch("older", 3);
+    pastWatch("recent", 1);
+    const response = await request("/api/chain-watch/history");
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({ ok: true, now, watches: [
+      { id, name: "API test", is_open: 1 },
+      { id: "recent", name: "Past recent", is_open: 0 },
+      { id: "older", name: "Past older", is_open: 0 },
+    ] });
+  });
+
+  it("reads a selected past watch with retained assignments, cancelled slots and Discord links", async () => {
+    pastWatch("older", 3);
+    const response = await request("/api/chain-watch?watch=older");
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({ watch: { id: "older", is_open: 0 },
+      sheets: [{ id: "older:sheet", discord_message_id: "old-message" }],
+      slots: [{ assigned_to: 3, member_name: "Former", cancelled: 0 }, { assigned_to: 2, member_name: "Bob", cancelled: 1 }],
+    });
+    expect((await readWatch(db.env)).watch?.id).toBe(id);
+    expect((await request("/api/chain-watch?watch=missing"))?.status).toBe(404);
+  });
+
+  it("shows history even when there is no current watch", async () => {
+    pastWatch("older", 3);
+    db.sqlite.prepare("UPDATE chain_watch_schedules SET is_open = 0, finish_at = ? WHERE id = ?").run(start + WATCH_HOUR, id);
+    db.setNow(start + WATCH_HOUR);
+    vi.setSystemTime((start + WATCH_HOUR) * 1000);
+    const response = await request("/api/chain-watch/history");
+    expect(await response?.json()).toMatchObject({ watches: [{ id, is_open: 0 }, { id: "older", is_open: 0 }] });
+  });
+
+  it("returns an empty list before any watch has been created", async () => {
+    db.sqlite.exec("DELETE FROM chain_watch_slots; DELETE FROM chain_watch_sheets; DELETE FROM chain_watch_schedules;");
+    expect(await (await request("/api/chain-watch/history"))?.json()).toMatchObject({ ok: true, watches: [] });
+  });
+
+  it("requires membership for the history list and selected past roster", async () => {
+    pastWatch("older", 3);
+    vi.mocked(requireMember).mockResolvedValue(new Response("Unauthorized", { status: 401 }));
+    expect((await request("/api/chain-watch/history"))?.status).toBe(401);
+    expect((await request("/api/chain-watch?watch=older"))?.status).toBe(401);
+    expect((await request("/api/admin/chain-watch/history"))?.status).toBe(403);
+  });
+
+  it("keeps history read-only and cannot claim an old assignment", async () => {
+    pastWatch("older", 3);
+    expect((await request("/api/chain-watch/history", { watch_id: id }))?.status).toBe(405);
+    expect(readAuthenticatedUserId).not.toHaveBeenCalled();
+    expect((await request("/api/chain-watch/slots", {
+      watch_id: "older", starts: [start - 3 * WATCH_DAY], action: "claim",
+    }))?.status).toBe(409);
+    expect((await readWatch(db.env, "older")).slots[0].assigned_to).toBe(3);
   });
 });
