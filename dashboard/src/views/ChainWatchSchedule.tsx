@@ -8,7 +8,7 @@ import { ChainWatchSheetBrowser } from "./ChainWatchSheetBrowser";
 import "./ChainWatchSchedule.css";
 
 export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: number; isAdmin: boolean }) {
-  const [requestedId, setRequestedId] = React.useState(() => new URLSearchParams(window.location.search).get("watch"));
+  const requestedId = React.useMemo(() => new URLSearchParams(window.location.search).get("watch"), []);
   const [data, setData] = React.useState<ChainWatchScheduleResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState("");
@@ -18,7 +18,6 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
   const [finish, setFinish] = React.useState("");
   const [pendingFinish, setPendingFinish] = React.useState<string | null>(null);
   const [liveRefreshKey, setLiveRefreshKey] = React.useState(0);
-  const [sheetId, setSheetId] = React.useState(() => new URLSearchParams(window.location.search).get("sheet") ?? "");
   const requestVersion = React.useRef(0);
   const clockOffset = React.useRef(0);
   const busyRef = React.useRef(false);
@@ -62,30 +61,18 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
   }
 
   const watch = data?.watch;
-  const selectedSheet = data?.sheets.find(sheet => sheet.id === sheetId);
-  const slots = (data?.slots ?? []).filter(slot => !selectedSheet || slot.sheet_id === selectedSheet.id);
+  const slots = data?.slots ?? [];
   const myHours = data?.slots.filter((slot) => !slot.cancelled && slot.assigned_to === currentUserId).map((slot) => slot.start_at) ?? [];
   const activeSlots = slots.filter((slot) => !slot.cancelled);
   const unfinished = Boolean(watch?.is_open && (!watch.finish_at || watch.finish_at > now));
   const isHistory = Boolean(watch && !unfinished);
-
-  function selectSheet(id: string) {
-    setSheetId(id);
-    const url = new URL(window.location.href);
-    if (watch) {
-      url.searchParams.set("watch", watch.id);
-      setRequestedId(watch.id);
-    }
-    if (id) url.searchParams.set("sheet", id);
-    else url.searchParams.delete("sheet");
-    window.history.replaceState(window.history.state, "", url);
-  }
 
   return <div className="watch-schedule-page">
     <section className="panel watch-schedule-heading">
       <PanelHeader title="Chain watch sign-ups" icon={<CalendarClock size={20} />} aside="UTC" />
       <p>Reserve an hour to keep the chain running. Take at least one hour off after two consecutive slots.</p>
       <div className="watch-toolbar">
+        <ChainWatchSheetBrowser watchId={watch?.id ?? requestedId} busy={busy} refreshKey={liveRefreshKey} />
         <button type="button" className="panel-action-button" disabled={busy} onClick={() => { void refresh(); setLiveRefreshKey((key) => key + 1); }}><RefreshCw size={14} /> Refresh</button>
         {isAdmin && watch ? <button type="button" className="panel-action-button" aria-pressed={showAdmin} onClick={() => setShowAdmin(!showAdmin)}><LockKeyhole size={14} /> {showAdmin ? "Hide admin controls" : "Admin controls"}</button> : null}
         {requestedId ? <a href="/chain-watch">Current watch</a> : null}
@@ -93,9 +80,6 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
     </section>
 
     <ChainWatchLivePanel schedule={data} refreshKey={liveRefreshKey} />
-
-    <ChainWatchSheetBrowser watchId={watch?.id ?? requestedId} sheets={data?.sheets ?? []}
-      sheetId={selectedSheet?.id ?? ""} onSheetChange={selectSheet} busy={busy} refreshKey={liveRefreshKey} />
 
     {error ? <div className="error-panel" role="alert">{error}</div> : null}
     {notice ? <div className="watch-notice" role="status"><Check size={16} /> {notice}</div> : null}

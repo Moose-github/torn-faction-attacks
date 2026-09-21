@@ -177,11 +177,11 @@ extending an unfinished watch republishes any day whose slots reopen.
 The current slot has a green dot on Discord and a green highlight on the page.
 The indicator moves with the hour and never highlights cancelled slots.
 
-The page's **Browse sheets** controls list current, upcoming and finished watches,
-including their names and start dates. Select a watch, then choose a UTC sheet
-date or **All sheets**. Assignments and cancelled slots remain visible in past
-sheets, with a link to each day's Discord roster where it still exists. The
-selected watch and sheet date can be bookmarked or shared using the page URL.
+The **Chain** selector in the page's top panel lists current, upcoming and finished
+watches, including their names and start dates. Selecting a chain shows all its
+sheets in chronological order with UTC date dividers. Assignments and cancelled
+slots remain visible in past sheets, with a link to each day's Discord roster
+where it still exists. The selected chain can be bookmarked or shared using the page URL.
 The **Current watch** link returns to the current/latest schedule. The live
 panel continues to show the current faction chain while browsing history.
 
