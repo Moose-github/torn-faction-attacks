@@ -270,7 +270,7 @@ export async function confirmWatchCheckIn(interaction: DiscordInteraction, env: 
   if (!result) return reply("Only the currently assigned watcher can check in using their current reminder. This assignment may have changed or ended.");
   try { await processCheckIn(env, id); }
   catch { console.error("Confirmed chain watch check-in; message update will retry", id); }
-  return reply("You’re checked in. Your scheduled shift time is unchanged.");
+  return { type: 6 };
 }
 
 async function messageNonce(id: string, kind: string): Promise<string> {

@@ -64,7 +64,7 @@ describe("chain watch handover check-ins", () => {
   it("accepts the assigned watcher once and prevents escalation", async () => {
     await tick(due);
     advance(due + 30);
-    expect((await confirm()).data?.content).toContain("You’re checked in");
+    expect(await confirm()).toEqual({ type: 6 });
     expect(state()?.confirmed_at).toBe(due + 30);
     advance(due + 45);
     await confirm();
@@ -90,7 +90,7 @@ describe("chain watch handover check-ins", () => {
     if (reason === "other message") click.message!.id = "other";
     if (reason === "former member") db.sqlite.exec("UPDATE home_faction_members SET is_current = 0 WHERE member_id = 1");
     const response = await handleWatchInteraction(click, db.env);
-    expect(response.data?.content).not.toContain("You’re checked in");
+    expect(response).toMatchObject({ type: 4, data: { flags: 64 } });
     expect(state()?.confirmed_at).toBeNull();
   });
 
@@ -109,7 +109,7 @@ describe("chain watch handover check-ins", () => {
     expect(payload(posts()[1]).embeds[0].description).toContain("/guild/sheet-channel/message-1");
     db.sqlite.exec("UPDATE discord_notification_channels SET thread_id = 'new-route'");
     advance(start + 30);
-    expect((await confirm()).data?.content).toContain("You’re checked in");
+    expect(await confirm()).toEqual({ type: 6 });
     expect(fetchMock.mock.calls.at(-1)![0]).toContain("/backup-thread/messages/");
     expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain("Resolved");
     await tick(start + 60);
@@ -202,7 +202,7 @@ describe("chain watch handover check-ins", () => {
     await tick(due);
     fetchMock.mockImplementation(async (_url: string, options: RequestInit) => {
       if (options.method === "POST") {
-        expect((await confirm()).data?.content).toContain("You’re checked in");
+        expect(await confirm()).toEqual({ type: 6 });
       }
       return Response.json({ id: "backup-message" });
     });
@@ -214,7 +214,7 @@ describe("chain watch handover check-ins", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     await tick(due);
     fetchMock.mockRejectedValueOnce(new Error("Connection lost"));
-    expect((await confirm()).data?.content).toContain("You’re checked in");
+    expect(await confirm()).toEqual({ type: 6 });
     expect(state()?.dirty).toBeGreaterThan(0);
     await tick(start - 60);
     expect(state()?.dirty).toBe(0);
@@ -227,11 +227,11 @@ describe("chain watch handover check-ins", () => {
     const old = interaction();
     await assign(2);
     await assign(1);
-    expect((await handleWatchInteraction(old, db.env)).data?.content).not.toContain("You’re checked in");
+    expect(await handleWatchInteraction(old, db.env)).toMatchObject({ type: 4, data: { flags: 64 } });
     await tick(due + 30);
     expect(posts()).toHaveLength(2);
     expect(interaction().data?.custom_id).not.toBe(old.data?.custom_id);
-    expect((await confirm()).data?.content).toContain("You’re checked in");
+    expect(await confirm()).toEqual({ type: 6 });
   });
 
   it("pings a replacement watcher and closes the previous prompt", async () => {
@@ -263,11 +263,11 @@ describe("chain watch handover check-ins", () => {
     const old = interaction("111111", nextRow);
     await assign(1);
     await assign(2);
-    expect((await handleWatchInteraction(old, db.env)).data?.content).not.toContain("You’re checked in");
+    expect(await handleWatchInteraction(old, db.env)).toMatchObject({ type: 4, data: { flags: 64 } });
     await tick(start + WATCH_HOUR - 120);
     const active = db.sqlite.prepare("SELECT * FROM chain_watch_check_ins WHERE start_at = ? AND cancelled_at IS NULL").get(start + WATCH_HOUR)!;
     expect(active.id).not.toBe(nextRow.id);
-    expect((await handleWatchInteraction(interaction("111111", active), db.env)).data?.content).toContain("You’re checked in");
+    expect(await handleWatchInteraction(interaction("111111", active), db.env)).toEqual({ type: 6 });
   });
 
   it("rejects a check-in immediately when a continuing shift is shortened", async () => {
@@ -276,7 +276,7 @@ describe("chain watch handover check-ins", () => {
     const old = interaction();
     advance(start + WATCH_HOUR);
     await assign(2, [start + WATCH_HOUR]);
-    expect((await handleWatchInteraction(old, db.env)).data?.content).not.toContain("You’re checked in");
+    expect(await handleWatchInteraction(old, db.env)).toMatchObject({ type: 4, data: { flags: 64 } });
     expect(state()?.end_at).toBe(start + WATCH_HOUR);
   });
 
@@ -286,19 +286,50 @@ describe("chain watch handover check-ins", () => {
     if (reason === "cancelled") await setWatchFinish(db.env, watchId, watchUtc(start));
     if (reason === "finished") db.sqlite.exec("UPDATE chain_watch_schedules SET is_open = 0");
     advance(reason === "ended" ? start + WATCH_HOUR : start - 60);
-    expect((await handleWatchInteraction(old, db.env)).data?.content).not.toContain("You’re checked in");
+    expect(await handleWatchInteraction(old, db.env)).toMatchObject({ type: 4, data: { flags: 64 } });
     await runWatchCheckIns(db.env, due);
     expect(posts()).toHaveLength(1);
   });
 
-  it("allows a deferred check-in without the private sign-up session coordinator", async () => {
+  it("silently acknowledges a deferred check-in and updates the public reminder", async () => {
     await tick(due);
     const click = interaction();
-    expect(deferredWatchResponse(click)).toEqual({ type: 5, data: { flags: 64 } });
+    fetchMock.mockClear();
+    expect(deferredWatchResponse(click)).toEqual({ type: 6 });
     await completeDeferredWatchInteraction(click, db.env);
     expect(state()?.confirmed_at).toBe(due);
-    const reply = fetchMock.mock.calls.find(call => String(call[0]).includes("/webhooks/app/token/messages/@original"))!;
-    expect(payload(reply).content).toContain("You’re checked in");
+    expect(fetchMock.mock.calls.filter(call => String(call[0]).includes("/webhooks/"))).toHaveLength(0);
+    const edit = fetchMock.mock.calls.find(call => String(call[0]).endsWith(`/channels/sheet-channel/messages/${click.message!.id}`))!;
+    expect(edit[1].method).toBe("PATCH");
+    expect(payload(edit).embeds[0].description).toContain("Watcher: Alice - Ready ✅");
+    expect(payload(edit).components).toEqual([]);
+  });
+
+  it.each(["wrong watcher", "stale button", "database failure"])("sends a private follow-up for a deferred check-in with %s", async reason => {
+    await tick(due);
+    const click = interaction();
+    if (reason === "wrong watcher") click.member!.user!.id = "222222";
+    if (reason === "stale button") await assign(2);
+    if (reason === "database failure") {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(db.env.DB, "prepare").mockImplementationOnce(() => { throw new Error("Database unavailable"); });
+    }
+    fetchMock.mockClear();
+    expect(deferredWatchResponse(click)).toEqual({ type: 6 });
+    await completeDeferredWatchInteraction(click, db.env);
+    expect(db.sqlite.prepare("SELECT confirmed_at FROM chain_watch_check_ins WHERE id = ?")
+      .get(click.data!.custom_id!.slice(WATCH_CHECK_IN_PREFIX.length))?.confirmed_at).toBeNull();
+    const replies = fetchMock.mock.calls.filter(call => String(call[0]).includes("/webhooks/"));
+    expect(replies).toHaveLength(1);
+    expect(replies[0][0]).toBe("https://discord.com/api/v10/webhooks/app/token");
+    expect(replies[0][1].method).toBe("POST");
+    expect(payload(replies[0])).toMatchObject({
+      content: reason === "database failure" ? "Chain watch is temporarily unavailable. Try again shortly." :
+        "Only the currently assigned watcher can check in using their current reminder. This assignment may have changed or ended.",
+      flags: 64,
+      allowed_mentions: { parse: [] },
+    });
+    expect(fetchMock.mock.calls.some(call => String(call[0]).endsWith(`/channels/sheet-channel/messages/${click.message!.id}`))).toBe(false);
   });
 
   it("runs reminders from the existing schedule cron even if board publication fails", async () => {

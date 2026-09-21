@@ -30,7 +30,7 @@ function updatesWatchMessage(interaction: DiscordInteraction): boolean {
 }
 
 export function deferredWatchResponse(interaction: DiscordInteraction): DiscordInteractionResponse {
-  return updatesWatchMessage(interaction) ? { type: 6 } : { type: 5, data: { flags: 64 } };
+  return isWatchCheckInInteraction(interaction) || updatesWatchMessage(interaction) ? { type: 6 } : { type: 5, data: { flags: 64 } };
 }
 
 function watchTimeChoice(timestamp: number, now: number): { name: string; value: string } {
@@ -126,8 +126,16 @@ export async function completeDeferredWatchInteraction(interaction: DiscordInter
   }
   const response = await handleWatchInteraction(interaction, env);
   try {
-    const { flags: _flags, ...data } = response.data ?? {};
-    await watchDiscordRequest(env, `/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, "PATCH", data, true);
+    if (isWatchCheckInInteraction(interaction)) {
+      // Successful check-ins update the public reminder. Errors need a private
+      // follow-up because @original now refers to that public reminder.
+      if (response.type === 4 && response.data) {
+        await watchDiscordRequest(env, `/webhooks/${interaction.application_id}/${interaction.token}`, "POST", response.data, true);
+      }
+    } else {
+      const { flags: _flags, ...data } = response.data ?? {};
+      await watchDiscordRequest(env, `/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, "PATCH", data, true);
+    }
   } catch (error) {
     console.error("Unable to complete chain watch reply", error instanceof ExternalApiError ? error.status : "transport error");
   }

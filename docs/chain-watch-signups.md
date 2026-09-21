@@ -69,6 +69,8 @@ buttons; completed shifts stop escalating.
 After confirmation, the reminder becomes one compact block: the watch name and
 **Chain watch check-in** heading, `Watcher: Name - Ready ✅`, and
 `Shift: HH:MM - HH:MM UTC`. The original ping line and check-in button are removed.
+This public update confirms success without a separate private message. Rejected
+or failed check-ins still show a private error message.
 
 These times are checked each minute. Late assignments or recovered delivery are
 picked up on the next tick, with at least two minutes to respond after successful
