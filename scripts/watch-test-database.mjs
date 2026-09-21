@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
+export const watchAnnouncementsMigration = readFileSync(new URL("../migrations/0154_add_chain_watch_announcements.sql", import.meta.url), "utf8");
+
 // Real SQLite (including the production triggers), with D1's transactional batch
 // contract. No mocks of assignment or scheduling rules.
 export function watchDatabase(initialNow) {
@@ -17,6 +19,7 @@ export function watchDatabase(initialNow) {
   sqlite.exec(readFileSync(new URL("../migrations/0150_add_discord_subscription_settings.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../migrations/0152_add_chain_watch_unfilled_slot_alerts.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../migrations/0153_add_chain_watch_check_ins.sql", import.meta.url), "utf8"));
+  sqlite.exec(watchAnnouncementsMigration);
   class Statement {
     constructor(sql, values = []) { this.sql = sql; this.values = values; }
     bind(...values) { return new Statement(this.sql, values); }

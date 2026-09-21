@@ -110,6 +110,19 @@ The old state table remains available for historical war reads.
 
 ## Discord commands
 
+New watches post a rules/info embed in the invoking channel or thread before
+their first roster. Its heading is just the watch name, with no page-link button.
+It includes the faction's rules: no more than
+two consecutive shifts, $10m per completed assigned hour after the watch finishes,
+enough energy to hit (including when watching abroad), no bounties, hitting with
+1–2 minutes remaining and leaving a full five-minute timer at handover. The rules
+are in `WATCH_INFO_TEXT` in `src/chainWatchAnnouncements.ts`.
+
+An unsent info message blocks the initial rosters and cron reminders until its
+delivery succeeds. Once it is sent, roster delivery failures do not block the
+normal check-in or unfilled-slot alerts. Existing watches keep their current
+message order when migration `0154` is applied.
+
 - `/chain-watch create name:<name> [start] [finish]` posts in the invoking channel.
 - `/chain-watch setfinish finish:<time|ongoing>` targets the only unfinished watch.
   Finish is required: select a time or **No finish — continue daily sheets**.
@@ -197,6 +210,20 @@ column with an **Add Money** link to Torn's faction controls, containing that
 watcher's player ID and total payment amount. The link opens in a new tab;
 the dashboard does not send or record payments.
 
+When the watch's scheduled finish is reached, the minute job posts a **Watch
+summary** in the sheet's original channel/thread. It lists each watcher's name,
+shift count and payment using the page's calculation, without watcher IDs or
+admin payment links.
+This is a snapshot of assignments at publication time; later admin corrections
+remain visible on the page via the **Open page** button. An ongoing watch has no
+summary until a finish is set and reached; a dropped chain alone does not end it.
+
+Large summaries are split across numbered messages. Payload snapshots, saved
+message IDs, per-watch leases and stable Discord nonces let retries resume after
+the last successful page. Routine refreshes do not repeat completed announcements.
+Migration `0154` queues summaries for existing unfinished watches, while previously
+finished watches are marked complete to avoid posting a historical backlog.
+
 Players can claim multiple future slots, with a maximum of two consecutive hours
 and at least one hour off. The rule also spans sheet boundaries. Started and past
 slots are locked. Website admins can replace assignments and override time/break
@@ -222,7 +249,7 @@ No schema migration is needed for this conversion.
 
 ## Release steps
 
-1. Apply D1 migrations through `0152_add_chain_watch_unfilled_slot_alerts.sql` to the target database.
+1. Apply D1 migrations through `0154_add_chain_watch_announcements.sql` to the target database.
 2. Deploy the Worker and dashboard. The existing `DISCORD_GUILD_ID`,
    `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY` configuration is reused.
    Worker deployment applies Durable Object migration `v3` and binds

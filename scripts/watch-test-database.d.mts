@@ -1,4 +1,6 @@
 import type { Env } from "../src/types";
+
+export const watchAnnouncementsMigration: string;
 export function watchDatabase(initialNow: number): {
   sqlite: {
     exec(sql: string): void;

@@ -11,6 +11,7 @@ import type { Env } from "./types";
 import { nowSeconds } from "./utils";
 import type { WatchSelectionContext } from "./chainWatchPrivateSession";
 import { confirmWatchCheckIn, isWatchCheckInInteraction, runWatchCheckIns } from "./chainWatchCheckIns";
+import { ensureWatchInfo, publishFinishedWatchSummaries } from "./chainWatchAnnouncements";
 
 export const WATCH_COMPONENT_PREFIX = "cws:";
 export const WATCH_UNFILLED_SLOT_LEAD_SECONDS = WATCH_HOUR;
@@ -306,6 +307,7 @@ export async function syncWatchBoards(env: Env, now = nowSeconds()): Promise<voi
           .bind(sheet.dirty, hour, row.id, token).run();
         continue;
       }
+      if (!await ensureWatchInfo(env, data, now, stopAt)) continue;
       const payload = watchBoardPayload(env, data, sheet);
       const serialized = JSON.stringify(payload);
       let messageId = sheet.discord_message_id;
@@ -328,6 +330,8 @@ export async function syncWatchBoards(env: Env, now = nowSeconds()): Promise<voi
       await env.DB.prepare("UPDATE chain_watch_sheets SET sync_token = NULL, sync_until = 0 WHERE id = ? AND sync_token = ?").bind(row.id, token).run();
     }
   }
+  try { await publishFinishedWatchSummaries(env, now, stopAt); }
+  catch (error) { errors.push(error); }
   if (errors.length) throw errors[0];
 }
 
@@ -407,10 +411,17 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
 export async function runWatchScheduleCron(env: Env, now = nowSeconds()): Promise<void> {
   const checkedAt = Math.max(now, nowSeconds());
   await reconcileWatch(env, checkedAt);
+  // A new watch's info must arrive before any roster or reminder in its channel.
+  // Once info succeeds, ordinary roster failures must not suppress alerts.
+  const watch = await currentWatch(env);
+  if (watch) {
+    const data = await readWatch(env, watch.id);
+    if (data.slots.some(slot => !slot.cancelled) && !await ensureWatchInfo(env, data, checkedAt)) return;
+  }
   // Publish or refresh the sheet before linking it, while still warning if roster delivery fails.
   try {
-    try { await runWatchCheckIns(env, checkedAt); }
-    finally { await syncWatchBoards(env, checkedAt); }
+    try { await syncWatchBoards(env, checkedAt); }
+    finally { await runWatchCheckIns(env, checkedAt); }
   } finally {
     await runWatchUnfilledSlotAlerts(env, checkedAt);
   }

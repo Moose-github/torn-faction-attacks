@@ -526,20 +526,20 @@ describe("Discord chain watch", () => {
   it("creates a roster once, edits it after changes, and retries failures without losing assignments", async () => {
     const watch = await create(11);
     db.env.DISCORD_BOT_TOKEN = "test-token";
-    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "message" }), { status: 200 }));
+    const fetcher = vi.fn().mockImplementation(async () => Response.json({ id: "message" }));
     vi.stubGlobal("fetch", fetcher);
     await syncWatchBoards(db.env, now);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[0][1].method).toBe("POST");
     await syncWatchBoards(db.env, now);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     await assign(watch.id, [start]);
     fetcher.mockResolvedValueOnce(new Response("Unavailable", { status: 503 }));
     await expect(syncWatchBoards(db.env, now)).rejects.toThrow();
     expect((await readWatch(db.env)).slots[0].assigned_to).toBe(1);
     fetcher.mockResolvedValueOnce(new Response("{}", { status: 200 }));
     await syncWatchBoards(db.env, now);
-    expect(fetcher.mock.calls[2][1].method).toBe("PATCH");
+    expect(fetcher.mock.calls[3][1].method).toBe("PATCH");
     const data = await readWatch(db.env);
     const payload = watchBoardPayload(db.env, data, data.sheets[0]);
     expect(payload.allowed_mentions.parse).toEqual([]);
@@ -578,7 +578,7 @@ describe("Discord chain watch", () => {
 
     await syncWatchBoards(db.env, now);
     expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["PATCH", "DELETE"]);
-    expect(fetcher.mock.calls[1][0]).toBe("https://discord.com/api/v10/channels/channel/messages/message-2");
+    expect(fetcher.mock.calls[1][0]).toBe("https://discord.com/api/v10/channels/channel/messages/message-3");
     const payload = JSON.parse(fetcher.mock.calls[0][1].body as string);
     expect(payload.embeds[0].description).toContain("1/3 filled");
     expect(payload.embeds[0].description).toContain("**15:00 - 16:00**");
@@ -601,7 +601,7 @@ describe("Discord chain watch", () => {
     fetcher.mockClear();
     await syncWatchBoards(db.env, now);
     expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["PATCH", "POST"]);
-    expect((await readWatch(db.env)).sheets[1].discord_message_id).toBe("message-3");
+    expect((await readWatch(db.env)).sheets[1].discord_message_id).toBe("message-4");
   });
 
   it.each([204, 404, 503])("handles fully cancelled message deletion with HTTP %s and preserves retry state", async (status) => {
@@ -664,7 +664,7 @@ describe("Discord chain watch", () => {
     fetcher.mockResolvedValueOnce(Response.json({ id: "replacement" }));
     await syncWatchBoards(db.env, now);
     expect((await readWatch(db.env)).sheets[0].discord_message_id).toBe("replacement");
-    expect((fetcher.mock.calls as unknown as Array<[string, RequestInit]>).map(call => call[1].method)).toEqual(["POST", "DELETE", "POST"]);
+    expect((fetcher.mock.calls as unknown as Array<[string, RequestInit]>).map(call => call[1].method)).toEqual(["POST", "POST", "DELETE", "POST"]);
   });
 
   it.each([0, 2])("keeps the publication notice only on the newest message after %s missed days", async (missedDays) => {

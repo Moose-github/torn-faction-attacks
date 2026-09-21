@@ -2040,3 +2040,20 @@ BEGIN
     WHERE watch_id = NEW.watch_id AND start_at < NEW.start_at AND end_at > NEW.start_at
       AND assigned_to = OLD.assigned_to AND cancelled_at IS NULL AND closed_at IS NULL;
 END;
+
+CREATE TABLE chain_watch_announcements (
+  watch_id TEXT NOT NULL REFERENCES chain_watch_schedules(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('intro', 'summary')),
+  payloads_json TEXT,
+  message_ids_json TEXT NOT NULL DEFAULT '[]',
+  sent_at INTEGER,
+  sync_token TEXT,
+  sync_until INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(watch_id, kind)
+);
+CREATE INDEX chain_watch_announcements_pending ON chain_watch_announcements(kind, sync_until) WHERE sent_at IS NULL;
+
+CREATE TRIGGER chain_watch_queue_announcements AFTER INSERT ON chain_watch_schedules
+BEGIN
+  INSERT INTO chain_watch_announcements(watch_id, kind) VALUES (NEW.id, 'intro'), (NEW.id, 'summary');
+END;

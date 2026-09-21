@@ -333,6 +333,7 @@ describe("chain watch handover check-ins", () => {
   });
 
   it("runs reminders from the existing schedule cron even if board publication fails", async () => {
+    db.sqlite.exec("UPDATE chain_watch_announcements SET sent_at = unixepoch() WHERE kind = 'intro'");
     fetchMock.mockImplementation(async (_url: string, options: RequestInit) => {
       const body = JSON.parse(options.body as string);
       if (body.embeds?.[0]?.title !== "Chain watch check-in") return Response.json({ message: "Unavailable" }, { status: 503 });

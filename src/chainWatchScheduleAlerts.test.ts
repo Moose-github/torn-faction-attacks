@@ -86,16 +86,17 @@ describe("unfilled chain watch slot alerts", () => {
     expect(description).not.toContain("/sheet-message");
   });
 
-  it("publishes the sheet before sending its first warning", async () => {
+  it("publishes info and the sheet before sending its first warning", async () => {
     db.sqlite.exec("UPDATE chain_watch_sheets SET discord_message_id = NULL");
     post.mockImplementation(async (url: string) => Response.json({
       id: url.includes("roster-channel") ? "new-sheet-message" : "alert-message",
     }));
     advance(due);
     await runWatchScheduleCron(db.env, due);
-    expect(post).toHaveBeenCalledTimes(2);
+    expect(post).toHaveBeenCalledTimes(3);
     expect(post.mock.calls[0][0]).toContain("/roster-channel/messages");
-    const payload = JSON.parse(post.mock.calls[1][1].body);
+    expect(JSON.parse(post.mock.calls[0][1].body).embeds[0].title).toBe("Test @everyone watch");
+    const payload = JSON.parse(post.mock.calls[2][1].body);
     expect(payload.embeds[0].description).toContain("https://discord.com/channels/guild/roster-channel/new-sheet-message");
   });
 
@@ -197,6 +198,7 @@ describe("unfilled chain watch slot alerts", () => {
   });
 
   it("runs the alert from cron even if roster delivery fails", async () => {
+    db.sqlite.exec("UPDATE chain_watch_announcements SET sent_at = unixepoch() WHERE kind = 'intro'");
     post.mockImplementation(async (url: string) => url.includes("roster-channel")
       ? Response.json({ message: "Unavailable" }, { status: 503 })
       : Response.json({ id: "alert-message" }));
