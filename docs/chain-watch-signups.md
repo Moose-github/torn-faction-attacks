@@ -191,6 +191,11 @@ Finished watches include a **Watch summary** above **Hourly slots**, listing eac
 watcher and their number of completed assigned hourly slots across all sheets.
 Cancelled, unfilled and not-yet-ended slots are excluded. Counts use assignments,
 not check-in confirmations, and are sorted highest first, then by watcher name.
+All viewers see **Watcher Name**, **Watcher ID**, **Num Shifts** and **Payment**,
+calculated at the default rate of $10,000,000 per shift. Admins also see a **Pay**
+column with an **Add Money** link to Torn's faction controls, containing that
+watcher's player ID and total payment amount. The link opens in a new tab;
+the dashboard does not send or record payments.
 
 Players can claim multiple future slots, with a maximum of two consecutive hours
 and at least one hour off. The rule also spans sheet boundaries. Started and past

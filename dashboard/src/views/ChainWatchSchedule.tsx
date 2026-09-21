@@ -109,7 +109,7 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
         </div> : null}
       </section> : null}
 
-      {isHistory ? <ChainWatchSummary slots={slots} now={now} /> : null}
+      {isHistory ? <ChainWatchSummary slots={slots} now={now} isAdmin={isAdmin} /> : null}
 
       <section className="panel watch-slots-panel">
         <div className="watch-title-row"><h3>Hourly slots</h3><span>{activeSlots.filter((slot) => slot.assigned_to).length} / {activeSlots.length} filled</span></div>

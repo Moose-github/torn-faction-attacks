@@ -13,10 +13,14 @@
 .watch-schedule-page option { color: #172b46; background: #fff; }
 .watch-status { padding: 5px 12px; border-radius: 20px; background: #2f80ed18; color: #3076c8; font-size: 12px; font-weight: 700; }
 .watch-muted, .watch-slot small, .watch-admin-panel small { color: #78879d; font-size: 12px; }
-.watch-summary-table { min-width: 0; table-layout: fixed; }
+.watch-summary-panel { min-width: 0; }
+.watch-summary-scroll { overflow-x: auto; }
+.watch-summary-table { min-width: 560px; }
+.watch-summary-table-admin { min-width: 660px; }
 .watch-summary-table th { position: static; }
 .watch-summary-table th, .watch-summary-table td { white-space: normal; overflow-wrap: anywhere; }
-.watch-summary-table th:last-child, .watch-summary-table td:last-child { width: 90px; text-align: right; }
+.watch-summary-table .watch-summary-number { text-align: right; white-space: nowrap; }
+.watch-summary-table .watch-summary-pay { white-space: nowrap; }
 .watch-slot-list { margin-top: 16px; }
 .watch-day-divider { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 14px 10px 8px; border-bottom: 1px solid #94a3b84d; }
 .watch-day-divider:not(:first-child) { margin-top: 16px; }
