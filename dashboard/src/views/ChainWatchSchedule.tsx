@@ -5,6 +5,7 @@ import { changeChainWatchSlot, finishChainWatch, getChainWatchSchedule, override
 import { PanelHeader } from "../components/Common";
 import { ChainWatchLivePanel } from "./ChainWatchLivePanel";
 import { ChainWatchSheetBrowser } from "./ChainWatchSheetBrowser";
+import { ChainWatchSummary } from "./ChainWatchSummary";
 import "./ChainWatchSchedule.css";
 
 export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: number; isAdmin: boolean }) {
@@ -107,6 +108,8 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
           <button type="button" className="panel-action-button" disabled={busy} onClick={() => setPendingFinish(null)}>Cancel</button>
         </div> : null}
       </section> : null}
+
+      {isHistory ? <ChainWatchSummary slots={slots} now={now} /> : null}
 
       <section className="panel watch-slots-panel">
         <div className="watch-title-row"><h3>Hourly slots</h3><span>{activeSlots.filter((slot) => slot.assigned_to).length} / {activeSlots.length} filled</span></div>

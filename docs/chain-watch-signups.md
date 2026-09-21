@@ -187,6 +187,11 @@ where it still exists. The selected chain can be bookmarked or shared using the 
 The **Current watch** link returns to the current/latest schedule. The live
 panel continues to show the current faction chain while browsing history.
 
+Finished watches include a **Watch summary** above **Hourly slots**, listing each
+watcher and their number of completed assigned hourly slots across all sheets.
+Cancelled, unfilled and not-yet-ended slots are excluded. Counts use assignments,
+not check-in confirmations, and are sorted highest first, then by watcher name.
+
 Players can claim multiple future slots, with a maximum of two consecutive hours
 and at least one hour off. The rule also spans sheet boundaries. Started and past
 slots are locked. Website admins can replace assignments and override time/break
