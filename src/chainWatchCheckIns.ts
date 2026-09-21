@@ -231,8 +231,12 @@ function escalationPayload(row: CheckIn) {
     : "The scheduled watcher has not checked in. Cover may be needed.";
   const url = row.reminder_message_id ? `https://discord.com/channels/${row.guild_id}/${row.channel_id}/${row.reminder_message_id}`
     : `https://discord.com/channels/${row.guild_id}/${row.channel_id}`;
-  return { embeds: [{ title: row.escalation_kind === "delivery_failed" ? "Chain watch check-in delivery problem" : "Chain watch missed check-in",
-    description: `${shiftText(row)}\n\n${description}\n[Open check-in channel](${url})`, color: resolved ? 0x64748b : 0xffa500 }],
+  const from = new Date(row.start_at * 1000).toISOString().slice(11, 16);
+  const to = new Date(row.end_at * 1000).toISOString().slice(11, 16);
+  const shift = row.escalation_kind === "delivery_failed" ? shiftText(row)
+    : `Watcher: ${escapeText(row.member_name)}\nShift: ${from} - ${to} UTC`;
+  return { embeds: [{ title: row.escalation_kind === "delivery_failed" ? "Chain watch check-in delivery problem" : "⚠️ Chain watch missed check-in",
+    description: `${shift}\n\n${description}\n[Open chain watch sheet](${url})`, color: resolved ? 0x64748b : 0xffa500 }],
     components: [], allowed_mentions: noMentions };
 }
 

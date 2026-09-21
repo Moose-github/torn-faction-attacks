@@ -105,7 +105,7 @@ describe("chain watch handover check-ins", () => {
     expect(posts()[1][0]).toBe("https://discord.com/api/v10/channels/backup-thread/messages");
     expect(payload(posts()[1]).allowed_mentions).toEqual({ parse: [], users: ["222222"], roles: ["654321"] });
     expect(payload(posts()[1]).content).toContain("<@222222> <@&654321>");
-    expect(payload(posts()[1]).embeds[0].title).toBe("Chain watch missed check-in");
+    expect(payload(posts()[1]).embeds[0].title).toBe("⚠️ Chain watch missed check-in");
     expect(payload(posts()[1]).embeds[0].description).toContain("/guild/sheet-channel/message-1");
     db.sqlite.exec("UPDATE discord_notification_channels SET thread_id = 'new-route'");
     advance(start + 30);

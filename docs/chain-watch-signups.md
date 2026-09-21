@@ -65,6 +65,8 @@ depend on this alert toggle or route. No backup roles are selected automatically
 Late confirmation updates both messages and removes the reminder button without
 changing the scheduled shift time. Reassignment/cancellation invalidates old
 buttons; completed shifts stop escalating.
+The missed check-in embed shows the watcher and `Shift: HH:MM - HH:MM UTC`,
+without the watch name or dates.
 
 After confirmation, the reminder becomes one compact block: the watch name and
 **Chain watch check-in** heading, `Watcher: Name - Ready ✅`, and
