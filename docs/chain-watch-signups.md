@@ -67,6 +67,8 @@ changing the scheduled shift time. Reassignment/cancellation invalidates old
 buttons; completed shifts stop escalating.
 The missed check-in embed shows the watcher and `Shift: HH:MM - HH:MM UTC`,
 without the watch name or dates.
+After check-in, its title becomes **Chain watch - Resolved** without the warning
+symbol, and the confirmation time includes seconds in the viewer's local timezone.
 
 After confirmation, the reminder becomes one compact block: the watch name and
 **Chain watch check-in** heading, `Watcher: Name - Ready ✅`, and

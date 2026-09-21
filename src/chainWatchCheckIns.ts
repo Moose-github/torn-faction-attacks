@@ -223,7 +223,7 @@ function reminderPayload(row: CheckIn) {
 function escalationPayload(row: CheckIn) {
   const resolved = row.confirmed_at !== null || row.cancelled_at !== null || row.closed_at !== null;
   const description = row.cancelled_at !== null ? "This assignment changed or was cancelled. The old check-in is closed."
-    : row.confirmed_at !== null ? `✅ Resolved — the watcher checked in <t:${row.confirmed_at}:t>.`
+    : row.confirmed_at !== null ? `✅ Resolved — the watcher checked in <t:${row.confirmed_at}:T>.`
     : row.closed_at !== null ? "The shift has ended."
     : row.escalation_kind === "delivery_failed" ? row.reminder_sent_at
       ? "The reminder has now been delivered; the watcher has not yet checked in. Please verify coverage."
@@ -235,7 +235,9 @@ function escalationPayload(row: CheckIn) {
   const to = new Date(row.end_at * 1000).toISOString().slice(11, 16);
   const shift = row.escalation_kind === "delivery_failed" ? shiftText(row)
     : `Watcher: ${escapeText(row.member_name)}\nShift: ${from} - ${to} UTC`;
-  return { embeds: [{ title: row.escalation_kind === "delivery_failed" ? "Chain watch check-in delivery problem" : "⚠️ Chain watch missed check-in",
+  const title = row.confirmed_at !== null && row.cancelled_at === null ? "Chain watch - Resolved"
+    : row.escalation_kind === "delivery_failed" ? "Chain watch check-in delivery problem" : "⚠️ Chain watch missed check-in";
+  return { embeds: [{ title,
     description: `${shift}\n\n${description}\n[Open chain watch sheet](${url})`, color: resolved ? 0x64748b : 0xffa500 }],
     components: [], allowed_mentions: noMentions };
 }
