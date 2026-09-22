@@ -1,7 +1,7 @@
 import { remainingWatchShift } from "../shared/chainWatchShifts";
 import { readWatchAssignmentBlocks, validAssignment } from "./chainWatchAssignments";
 import { reminderPayload, escalationPayload, escapeText } from "./chainWatchCheckInMessages";
-import { REMINDER_LEAD, ESCALATION_LEAD, TAKEOVER_LEAD, RESPONSE_WINDOW, CLEANUP_DELAY,
+import { REMINDER_LEAD, ESCALATION_LEAD, TAKEOVER_LEAD, CLEANUP_DELAY,
   WATCH_CHECK_IN_PREFIX, WATCH_TAKE_OVER_PREFIX, WATCH_TAKE_OVER_CONFIRM_PREFIX, reminderCleanupAt, type WatchCheckIn as CheckIn } from "./chainWatchCheckInModel";
 import { WATCH_HOUR, watchUtc } from "../shared/chainWatchSchedule";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
@@ -42,7 +42,8 @@ export async function runWatchCheckIns(env: Env, now = nowSeconds()): Promise<vo
   const blocks = await readWatchAssignmentBlocks(env);
   // Keep contiguous hours as one shift, including across midnight's daily sheets.
   for (const block of blocks) {
-    if (block.start_at > checkedAt + REMINDER_LEAD || block.end_at <= checkedAt) continue;
+    // Seed the next hour in advance so the reminder itself has an alarm.
+    if (block.start_at > checkedAt + WATCH_HOUR || block.end_at <= checkedAt) continue;
     await env.DB.prepare(`INSERT INTO chain_watch_check_ins
       (id, watch_id, start_at, end_at, assignment_revision, assigned_to, discord_user_id,
        guild_id, channel_id, watch_name, member_name, created_at)
@@ -95,20 +96,31 @@ async function isCurrent(env: Env, id: string): Promise<boolean> {
     AND cancelled_at IS NULL AND closed_at IS NULL AND end_at > unixepoch() AND ${validAssignment}`).bind(id).first());
 }
 
-function nextTakeoverAlarm(row: CheckIn | null): number | null {
-  if (!row || row.escalation_kind !== "missed" || !row.escalation_sent_at || row.takeover_button_shown ||
+function nextCheckInAlarm(row: CheckIn | null): number | null {
+  if (!row ||
       row.confirmed_at !== null || row.cancelled_at !== null || row.closed_at !== null || row.end_at <= nowSeconds()) return null;
-  return Math.max(row.start_at - TAKEOVER_LEAD, nowSeconds() + 1);
+  const now = nowSeconds();
+  const deadlines: number[] = [];
+  // Failed reminders and disabled/unrouted escalations retry at a bounded pace.
+  // Future deadlines remain anchored to the shift, regardless of send latency.
+  const retryAt = (deadline: number, delay = 30) => deadline > now ? deadline : now + delay;
+  if (row.reminder_sent_at === null) deadlines.push(retryAt(row.start_at - REMINDER_LEAD));
+  if (row.escalation_sent_at === null) deadlines.push(retryAt(row.start_at - ESCALATION_LEAD));
+  if (row.escalation_kind === "missed" && row.escalation_sent_at !== null && !row.takeover_button_shown) {
+    deadlines.push(retryAt(row.start_at - TAKEOVER_LEAD, 1));
+  }
+  const next = Math.min(...deadlines);
+  return next < row.end_at ? next : null;
 }
 
-async function scheduleTakeoverAlarm(env: Env, id: string): Promise<void> {
+async function scheduleCheckInAlarm(env: Env, id: string): Promise<void> {
   const row = await readCheckIn(env, id);
-  if (!row || row.escalation_kind !== "missed") return;
+  if (!row) return;
   const stub = env.CHAIN_WATCH_ALARMS.getByName(`chain-watch-check-in:${id}`) as DurableObjectStub & {
     scheduleCheckIn(checkInId: string, alarmAtSeconds: number): Promise<void>;
     cancel(): Promise<void>;
   };
-  const next = nextTakeoverAlarm(row);
+  const next = nextCheckInAlarm(row);
   if (next !== null) await stub.scheduleCheckIn(id, next);
   else await stub.cancel();
 }
@@ -116,7 +128,7 @@ async function scheduleTakeoverAlarm(env: Env, id: string): Promise<void> {
 export async function handleWatchCheckInAlarm(env: Env, id: string): Promise<number | null> {
   if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_GUILD_ID) return null;
   const row = await readCheckIn(env, id);
-  if (!row || row.guild_id !== env.DISCORD_GUILD_ID || nextTakeoverAlarm(row) === null) return null;
+  if (!row || row.guild_id !== env.DISCORD_GUILD_ID || nextCheckInAlarm(row) === null) return null;
   // An admin may have finished the watch since the last cron tick. Never
   // expose a takeover for an assignment which is no longer active.
   if (!await isCurrent(env, id)) {
@@ -124,7 +136,7 @@ export async function handleWatchCheckInAlarm(env: Env, id: string): Promise<num
       .bind(nowSeconds(), id).run();
   }
   await processCheckIn(env, id, false);
-  return nextTakeoverAlarm(await readCheckIn(env, id));
+  return nextCheckInAlarm(await readCheckIn(env, id));
 }
 
 async function processCheckIn(env: Env, id: string, scheduleAlarm = true): Promise<void> {
@@ -132,15 +144,15 @@ async function processCheckIn(env: Env, id: string, scheduleAlarm = true): Promi
   const lease = await env.DB.prepare(`UPDATE chain_watch_check_ins SET lease_token = ?, lease_until = ?
     WHERE id = ? AND lease_until <= ?`).bind(token, nowSeconds() + 120, id, nowSeconds()).run();
   if (!lease.meta.changes) {
-    if (scheduleAlarm) await scheduleTakeoverAlarm(env, id);
+    if (scheduleAlarm) await scheduleCheckInAlarm(env, id);
     return;
   }
   try {
     let row = (await readCheckIn(env, id))!;
     if (await isCurrent(env, id)) {
-      if (!row.reminder_sent_at && !row.confirmed_at) await sendReminder(env, row);
+      if (!row.reminder_sent_at && !row.confirmed_at && nowSeconds() >= row.start_at - REMINDER_LEAD) await sendReminder(env, row);
       row = (await readCheckIn(env, id))!;
-      const deadline = Math.max(row.start_at - ESCALATION_LEAD, (row.reminder_sent_at ?? 0) + RESPONSE_WINDOW);
+      const deadline = row.start_at - ESCALATION_LEAD;
       if (!row.confirmed_at && !row.escalation_sent_at && nowSeconds() >= deadline) await sendEscalation(env, row);
       await env.DB.prepare(`UPDATE chain_watch_check_ins SET dirty = dirty + 1
         WHERE id = ? AND takeover_button_shown = 0 AND ${availableForTakeover}`).bind(id).run();
@@ -153,7 +165,7 @@ async function processCheckIn(env: Env, id: string, scheduleAlarm = true): Promi
   } finally {
     await env.DB.prepare("UPDATE chain_watch_check_ins SET lease_token = NULL, lease_until = 0 WHERE id = ? AND lease_token = ?")
       .bind(id, token).run();
-    if (scheduleAlarm) await scheduleTakeoverAlarm(env, id);
+    if (scheduleAlarm) await scheduleCheckInAlarm(env, id);
   }
 }
 

@@ -6,7 +6,6 @@ export const WATCH_TAKE_OVER_CONFIRM_PREFIX = "cws:takeover-confirm:";
 export const REMINDER_LEAD = 180;
 export const ESCALATION_LEAD = 60;
 export const TAKEOVER_LEAD = 30;
-export const RESPONSE_WINDOW = 120;
 export const CLEANUP_DELAY = 5 * 60;
 
 export type WatchCheckIn = Omit<WatchAssignmentBlock, "check_in_revision"> & {

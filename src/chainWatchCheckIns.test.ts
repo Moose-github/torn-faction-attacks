@@ -265,7 +265,7 @@ describe("chain watch handover check-ins", () => {
     expect(posts()[1][0]).toContain("/backup-thread/messages");
   });
 
-  it("gives two minutes to respond when delivery is late and reuses its nonce on retry", async () => {
+  it("keeps the one-minute warning deadline when reminder delivery is late and reuses its nonce", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     fetchMock.mockRejectedValueOnce(new Error("Connection lost"));
     await tick(due);
@@ -273,10 +273,66 @@ describe("chain watch handover check-ins", () => {
     await tick(due + 60);
     expect(payload(posts()[0]).nonce).toBe(payload(posts()[1]).nonce);
     await tick(start - 60);
-    expect(posts()).toHaveLength(2);
+    expect(posts()).toHaveLength(3);
+    expect(state()?.escalation_sent_at).toBe(start - 60);
     await tick(start);
     expect(posts()).toHaveLength(3);
     expect(state()?.escalation_kind).toBe("missed");
+  });
+
+  it("arms and runs all three shift deadlines without another cron tick", async () => {
+    const scheduleCheckIn = vi.fn(async () => {});
+    vi.spyOn(db.env.CHAIN_WATCH_ALARMS, "getByName")
+      .mockReturnValue({ scheduleCheckIn, cancel: vi.fn() } as unknown as DurableObjectStub);
+    await tick(start - 3600);
+    const id = state()!.id as string;
+    expect(posts()).toHaveLength(0);
+    expect(scheduleCheckIn).toHaveBeenLastCalledWith(id, due);
+    advance(due);
+    expect(await handleWatchCheckInAlarm(db.env, id)).toBe(start - 60);
+    expect(posts()).toHaveLength(1);
+    advance(start - 60);
+    expect(await handleWatchCheckInAlarm(db.env, id)).toBe(start - 30);
+    expect(posts()).toHaveLength(2);
+    expect(payload(posts()[1]).components).toEqual([]);
+    advance(start - 30);
+    expect(await handleWatchCheckInAlarm(db.env, id)).toBeNull();
+    expect(state()?.takeover_button_shown).toBe(1);
+  });
+
+  it("does not shift the warning or takeover deadlines after a five-second reminder send", async () => {
+    await tick(start - 3600);
+    const id = state()!.id as string;
+    fetchMock.mockImplementationOnce(async () => { advance(due + 5); return Response.json({ id: "slow-reminder" }); });
+    advance(due);
+    expect(await handleWatchCheckInAlarm(db.env, id)).toBe(start - 60);
+    expect(state()?.reminder_sent_at).toBe(due + 5);
+    advance(start - 60);
+    expect(await handleWatchCheckInAlarm(db.env, id)).toBe(start - 30);
+    expect(state()?.escalation_sent_at).toBe(start - 60);
+  });
+
+  it("invalidates a prearmed reminder when its watcher is replaced", async () => {
+    await tick(start - 3600);
+    const id = state()!.id as string;
+    await assign(2);
+    advance(due);
+    expect(await handleWatchCheckInAlarm(db.env, id)).toBeNull();
+    expect(posts()).toHaveLength(0);
+    await tick(due);
+    expect(payload(posts()[0]).content).toBe("<@222222>");
+  });
+
+  it("bounds retries for missing reminders while preserving the delivery-problem deadline", async () => {
+    db.sqlite.exec("DELETE FROM discord_member_links WHERE torn_user_id = 1");
+    await tick(start - 3600);
+    const id = state()!.id as string;
+    advance(due);
+    expect(await handleWatchCheckInAlarm(db.env, id)).toBe(due + 30);
+    advance(start - 60);
+    expect(await handleWatchCheckInAlarm(db.env, id)).toBe(start - 30);
+    expect(state()?.escalation_kind).toBe("delivery_failed");
+    expect(payload(posts()[0]).components).toEqual([]);
   });
 
   it.each(["missing link", "failed send"])("reports a delivery problem, not a no-show, for a %s", async reason => {
