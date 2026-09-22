@@ -31,6 +31,24 @@ async function assign(id: string, starts: number[], actor = 1, admin = false, ta
 }
 function advance(value: number) { db.setNow(value); vi.setSystemTime(value * 1000); }
 
+async function publishFinalHourSheet() {
+  await create(11);
+  db.env.DISCORD_BOT_TOKEN = "test-token";
+  const fetcher = vi.fn(async (_url: string, _init: RequestInit) => Response.json({ id: "message" }));
+  vi.stubGlobal("fetch", fetcher);
+  const end = start + 11 * WATCH_HOUR;
+  const lastRender = end - WATCH_HOUR + 60; // 23:01 UTC
+  advance(lastRender);
+  await syncWatchBoards(db.env, lastRender);
+  const readSheet = () => db.env.DB.prepare("SELECT dirty, render_hour, last_payload FROM chain_watch_sheets")
+    .first<{ dirty: number; render_hour: number; last_payload: string }>();
+  const published = (await readSheet())!;
+  expect(published.dirty).toBe(0);
+  expect(published.last_payload).toContain("Current hour");
+  fetcher.mockClear();
+  return { end, fetcher, readSheet, published };
+}
+
 describe("chain watch scheduling", () => {
   it("requires real UTC calendar dates and whole hours", () => {
     expect(parseWatchTime("2030-01-01 13:00")).toBe(start);
@@ -561,6 +579,42 @@ describe("Discord chain watch", () => {
     expect(finalDescription).toContain("🔴 **23:00 - 24:00** · Current hour · Unfilled · Cover needed");
     expect(finalDescription).not.toContain("**22:00 - 23:00** · Current hour");
     expect(finalDescription).not.toContain("🟢");
+  });
+
+  it.each([WATCH_HOUR + 60, 2 * WATCH_DAY + 60])("refreshes an expired sheet after missing its final refresh window by %s seconds", async (delay) => {
+    const { end, fetcher, readSheet } = await publishFinalHourSheet();
+    const resumedAt = end + delay;
+    advance(resumedAt);
+    await syncWatchBoards(db.env, resumedAt);
+    const finished = (await readSheet())!;
+    expect(finished.render_hour).toBe(Math.floor(resumedAt / WATCH_HOUR));
+    expect(finished.last_payload).not.toContain("Current hour");
+    expect(JSON.parse(finished.last_payload).components).toEqual([]);
+    const edits = fetcher.mock.calls.filter(([, init]) => init.method === "PATCH");
+    expect(edits).toHaveLength(1);
+    expect(JSON.parse(edits[0][1].body as string)).toEqual(JSON.parse(finished.last_payload));
+    // A successful final refresh stops hourly work for this sheet.
+    advance(resumedAt + WATCH_HOUR);
+    await syncWatchBoards(db.env, resumedAt + WATCH_HOUR);
+    expect(await readSheet()).toEqual(finished);
+    expect(fetcher.mock.calls.filter(([, init]) => init.method === "PATCH")).toHaveLength(1);
+  });
+
+  it.each([60, WATCH_HOUR + 60])("keeps the final sheet refresh pending when delivery fails %s seconds after expiry", async (delay) => {
+    const { end, fetcher, readSheet, published } = await publishFinalHourSheet();
+    const attemptedAt = end + delay;
+    advance(attemptedAt);
+    fetcher.mockResolvedValueOnce(new Response("Unavailable", { status: 503 }));
+    await expect(syncWatchBoards(db.env, attemptedAt)).rejects.toThrow("503");
+    expect(fetcher.mock.calls[0][1].method).toBe("PATCH");
+    expect(await readSheet()).toEqual(published);
+    // Retry beyond the first hour after expiry, even though dirty is still zero.
+    const retryAt = attemptedAt + WATCH_HOUR;
+    advance(retryAt);
+    await syncWatchBoards(db.env, retryAt);
+    const finished = (await readSheet())!;
+    expect(finished.render_hour).toBe(Math.floor(retryAt / WATCH_HOUR));
+    expect(finished.last_payload).not.toContain("Current hour");
   });
 
   it.each(["ongoing", utc(start + WATCH_DAY)])("hides cancelled Discord days without changing history, then republishes with finish %s", async (finish) => {

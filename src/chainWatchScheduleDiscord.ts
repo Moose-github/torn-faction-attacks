@@ -286,8 +286,11 @@ export async function syncWatchBoards(env: Env, now = nowSeconds()): Promise<voi
   const stopAt = Date.now() + 15_000;
   const errors: unknown[] = [];
   const hour = Math.floor(now / WATCH_HOUR);
+  // Keep the final render due until it succeeds, however long sync is delayed.
+  // Once rendered at or after expiry, a clean sheet needs no more hourly refreshes.
   const rows = await env.DB.prepare(`SELECT id FROM chain_watch_sheets WHERE dirty > 0
-    OR (start_at <= ? AND end_at >= ? AND render_hour != ?) ORDER BY start_at LIMIT 30`).bind(now, now - WATCH_HOUR, hour).all<{ id: string }>();
+    OR (start_at <= ? AND render_hour < MIN(?, CAST(end_at / ${WATCH_HOUR} AS INTEGER)))
+    ORDER BY start_at LIMIT 30`).bind(now, hour).all<{ id: string }>();
   for (const row of rows.results) {
     if (Date.now() >= stopAt) break;
     const token = crypto.randomUUID();

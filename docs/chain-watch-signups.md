@@ -301,6 +301,9 @@ publishes successor sheets. Per-sheet leases prevent concurrent message edits;
 dirty counters retain changes made during an in-flight edit. Discord failures do
 not discard assignments. Deleted rosters with non-cancelled slots are recreated
 when next refreshed.
+Expired sheets keep their final refresh pending until it succeeds, even if sync
+misses the first hour after expiry. After that refresh removes "Current hour",
+clean expired sheets no longer need hourly updates.
 
 On reconciliation, an unfinished watch with the old rolling layout is converted
 transactionally to daily sheets. Existing slot times, assignments, cancellation
