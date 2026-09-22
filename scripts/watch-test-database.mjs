@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 export const watchAnnouncementsMigration = readFileSync(new URL("../migrations/0154_add_chain_watch_announcements.sql", import.meta.url), "utf8");
+export const watchSummaryRevisionsMigration = readFileSync(new URL("../migrations/0159_refresh_corrected_chain_watch_summaries.sql", import.meta.url), "utf8");
 
 // Real SQLite (including the production triggers), with D1's transactional batch
 // contract. No mocks of assignment or scheduling rules.
@@ -23,6 +24,7 @@ export function watchDatabase(initialNow) {
   sqlite.exec(readFileSync(new URL("../migrations/0155_add_chain_watch_check_in_cleanup.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../migrations/0156_refresh_chain_watch_roster_on_check_in.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../migrations/0157_add_chain_watch_takeovers.sql", import.meta.url), "utf8"));
+  sqlite.exec(watchSummaryRevisionsMigration);
   class Statement {
     constructor(sql, values = []) { this.sql = sql; this.values = values; }
     bind(...values) { return new Statement(this.sql, values); }

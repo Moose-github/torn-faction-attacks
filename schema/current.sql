@@ -2058,6 +2058,10 @@ BEGIN
 END;
 
 CREATE TABLE chain_watch_announcements (
+  revision INTEGER NOT NULL DEFAULT 0,
+  published_revision INTEGER NOT NULL DEFAULT -1,
+  payload_revision INTEGER,
+  next_page INTEGER NOT NULL DEFAULT 0,
   watch_id TEXT NOT NULL REFERENCES chain_watch_schedules(id) ON DELETE CASCADE,
   kind TEXT NOT NULL CHECK (kind IN ('intro', 'summary')),
   payloads_json TEXT,
@@ -2068,6 +2072,24 @@ CREATE TABLE chain_watch_announcements (
   PRIMARY KEY(watch_id, kind)
 );
 CREATE INDEX chain_watch_announcements_pending ON chain_watch_announcements(kind, sync_until) WHERE sent_at IS NULL;
+CREATE INDEX chain_watch_summaries_pending ON chain_watch_announcements(kind, sync_until)
+  WHERE kind = 'summary' AND published_revision < revision;
+
+CREATE TRIGGER chain_watch_summary_assignment_changed AFTER UPDATE OF assigned_to, cancelled ON chain_watch_slots
+WHEN NEW.assigned_to IS NOT OLD.assigned_to OR NEW.cancelled != OLD.cancelled
+BEGIN
+  UPDATE chain_watch_announcements SET revision = revision + 1
+    WHERE watch_id = NEW.watch_id AND kind = 'summary'
+      AND (sent_at IS NULL OR json_array_length(message_ids_json) > 0);
+END;
+
+CREATE TRIGGER chain_watch_summary_schedule_changed AFTER UPDATE OF name, finish_at, is_open ON chain_watch_schedules
+WHEN NEW.name IS NOT OLD.name OR NEW.finish_at IS NOT OLD.finish_at OR NEW.is_open != OLD.is_open
+BEGIN
+  UPDATE chain_watch_announcements SET revision = revision + 1
+    WHERE watch_id = NEW.id AND kind = 'summary'
+      AND (sent_at IS NULL OR json_array_length(message_ids_json) > 0);
+END;
 
 CREATE TRIGGER chain_watch_queue_announcements AFTER INSERT ON chain_watch_schedules
 BEGIN

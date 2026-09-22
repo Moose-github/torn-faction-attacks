@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { watchAlertDatabase } from "../scripts/watch-alert-test-database.mjs";
-import { watchAnnouncementsMigration } from "../scripts/watch-test-database.mjs";
+import { watchAnnouncementsMigration, watchSummaryRevisionsMigration } from "../scripts/watch-test-database.mjs";
 import { WATCH_HOUR, watchUtc, type ChainWatchScheduleResponse } from "../shared/chainWatchSchedule";
 import { createWatch, changeWatchSlots, readWatch, reconcileWatch, setWatchFinish } from "./chainWatchSchedule";
 import { ensureWatchInfo, publishFinishedWatchSummaries, watchSummaryPayloads } from "./chainWatchAnnouncements";
@@ -137,7 +137,7 @@ describe("chain watch Discord announcements", () => {
     advance(start + 4 * WATCH_HOUR);
     const data: ChainWatchScheduleResponse = await readWatch(db.env);
     const page = watchSummaryPayloads(db.env, data)[0];
-    db.sqlite.prepare("UPDATE chain_watch_announcements SET payloads_json = ? WHERE kind = 'summary'").run(JSON.stringify([page, page]));
+    db.sqlite.prepare("UPDATE chain_watch_announcements SET payloads_json = ?, payload_revision = revision WHERE kind = 'summary'").run(JSON.stringify([page, page]));
     fetcher.mockClear();
     fetcher.mockResolvedValueOnce(Response.json({ id: "page-1" })).mockResolvedValueOnce(Response.json({}, { status: 503 }));
     await expect(publishFinishedWatchSummaries(db.env)).rejects.toThrow("503");
@@ -156,8 +156,9 @@ describe("chain watch Discord announcements", () => {
     advance(start + 4 * WATCH_HOUR);
     await reconcileWatch(db.env);
     const current = await createWatch(db.env, { ...options, start: watchUtc(start + 5 * WATCH_HOUR), finish: undefined });
-    db.sqlite.exec("DROP TRIGGER chain_watch_queue_announcements; DROP TABLE chain_watch_announcements;");
+    db.sqlite.exec("DROP TRIGGER chain_watch_summary_assignment_changed; DROP TRIGGER chain_watch_summary_schedule_changed; DROP TRIGGER chain_watch_queue_announcements; DROP TABLE chain_watch_announcements;");
     db.sqlite.exec(watchAnnouncementsMigration);
+    db.sqlite.exec(watchSummaryRevisionsMigration);
     const { results: rows } = await db.env.DB.prepare("SELECT watch_id, kind, sent_at FROM chain_watch_announcements")
       .all<{ watch_id: string; kind: string; sent_at: number | null }>();
     expect(rows.filter(row => row.watch_id === old.id).every(row => row.sent_at !== null)).toBe(true);
@@ -165,5 +166,176 @@ describe("chain watch Discord announcements", () => {
     expect(rows.find(row => row.watch_id === current.id && row.kind === "summary")?.sent_at).toBeNull();
     await publishFinishedWatchSummaries(db.env);
     expect(posts()).toHaveLength(0);
+  });
+});
+
+describe("corrected chain watch summaries", () => {
+  async function finishedWatch(hours = 4) {
+    const watch = await createWatch(db.env, { ...options, finish: watchUtc(start + hours * WATCH_HOUR) });
+    await changeWatchSlots(db.env, { watchId: watch.id, starts: [start], actorId: 1, targetId: 1, admin: true });
+    await ensureWatchInfo(db.env, await readWatch(db.env));
+    advance(start + hours * WATCH_HOUR);
+    return watch;
+  }
+  const summaryIds = (): string[] => JSON.parse(String(state("summary")!.message_ids_json));
+  const corrected = () => expect(state("summary")!.published_revision).toBe(state("summary")!.revision);
+
+  it("edits the posted summary to match dashboard totals after a historical correction", async () => {
+    const watch = await finishedWatch();
+    await publishFinishedWatchSummaries(db.env);
+    const ids = summaryIds();
+    await changeWatchSlots(db.env, { watchId: watch.id, starts: [start], actorId: 1, targetId: 2, admin: true });
+    expect(Number(state("summary")!.revision)).toBeGreaterThan(Number(state("summary")!.published_revision));
+    fetcher.mockClear();
+    // This is the same sync entry point queued immediately by the admin route.
+    await syncWatchBoards(db.env);
+    const edits = fetcher.mock.calls.filter(call => String(call[0]).endsWith(`/messages/${ids[0]}`));
+    expect(edits).toHaveLength(1);
+    expect(edits[0][1].method).toBe("PATCH");
+    expect(body(edits[0])).toEqual(watchSummaryPayloads(db.env, await readWatch(db.env, watch.id))[0]);
+    expect(body(edits[0]).embeds[0].description).toContain("**Bob**");
+    expect(body(edits[0]).embeds[0].description).not.toContain("Alice");
+    expect(body(edits[0]).allowed_mentions.parse).toEqual([]);
+    expect(summaryIds()).toEqual(ids);
+    corrected();
+  });
+
+  it("retries a failed edit without marking the new totals published or duplicating the message", async () => {
+    const watch = await finishedWatch();
+    await publishFinishedWatchSummaries(db.env);
+    const ids = summaryIds();
+    await changeWatchSlots(db.env, { watchId: watch.id, starts: [start], actorId: 1, targetId: 2, admin: true });
+    fetcher.mockClear();
+    fetcher.mockResolvedValueOnce(Response.json({}, { status: 503 }));
+    await expect(publishFinishedWatchSummaries(db.env)).rejects.toThrow("503");
+    expect(Number(state("summary")!.published_revision)).toBeLessThan(Number(state("summary")!.revision));
+    await publishFinishedWatchSummaries(db.env);
+    expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["PATCH", "PATCH"]);
+    expect(summaryIds()).toEqual(ids);
+    corrected();
+  });
+
+  it("retains an initial message ID when assignments change during its POST", async () => {
+    const watch = await finishedWatch();
+    fetcher.mockClear();
+    fetcher.mockImplementationOnce(async () => {
+      await changeWatchSlots(db.env, { watchId: watch.id, starts: [start], actorId: 1, targetId: 2, admin: true });
+      return Response.json({ id: "in-flight-summary" });
+    });
+    await publishFinishedWatchSummaries(db.env);
+    expect(state("summary")!.sent_at).toBeNull();
+    expect(summaryIds()).toEqual(["in-flight-summary"]);
+    await publishFinishedWatchSummaries(db.env);
+    expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["POST", "PATCH"]);
+    expect(body(fetcher.mock.calls[1]).embeds[0].description).toContain("**Bob**");
+    corrected();
+  });
+
+  it("keeps a newer correction pending when it arrives during an older edit", async () => {
+    const watch = await finishedWatch();
+    await publishFinishedWatchSummaries(db.env);
+    await changeWatchSlots(db.env, { watchId: watch.id, starts: [start], actorId: 1, targetId: 2, admin: true });
+    fetcher.mockClear();
+    fetcher.mockImplementationOnce(async () => {
+      await changeWatchSlots(db.env, { watchId: watch.id, starts: [start], actorId: 1, targetId: null, admin: true });
+      return Response.json({});
+    });
+    await publishFinishedWatchSummaries(db.env);
+    expect(Number(state("summary")!.published_revision)).toBeLessThan(Number(state("summary")!.revision));
+    await publishFinishedWatchSummaries(db.env);
+    expect(body(fetcher.mock.calls.at(-1)!).embeds[0].description).toContain("No completed watches were assigned.");
+    corrected();
+  });
+
+  it("rejects a snapshot if assignments change while its totals are being read", async () => {
+    const watch = await finishedWatch();
+    const batch = db.env.DB.batch.bind(db.env.DB);
+    let calls = 0;
+    const reader = vi.spyOn(db.env.DB, "batch").mockImplementation(async statements => {
+      const result = await batch(statements);
+      if (++calls === 2) await changeWatchSlots(db.env, { watchId: watch.id, starts: [start], actorId: 1, targetId: 2, admin: true });
+      return result;
+    });
+    fetcher.mockClear();
+    await publishFinishedWatchSummaries(db.env);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(state("summary")!.published_revision).toBe(-1);
+    reader.mockRestore();
+    await publishFinishedWatchSummaries(db.env);
+    expect(body(posts()[0]).embeds[0].description).toContain("**Bob**");
+    corrected();
+  });
+
+  it("resumes growing and shrinking summaries after partial publication failures", async () => {
+    const watch = await finishedWatch(40);
+    await publishFinishedWatchSummaries(db.env);
+    const firstId = summaryIds()[0];
+    for (let i = 0; i < 40; i++) {
+      db.sqlite.prepare("INSERT INTO home_faction_members VALUES (?, ?, 1)").run(100 + i, `Member ${i} ${"x".repeat(50)}`);
+      db.sqlite.prepare("UPDATE chain_watch_slots SET assigned_to = ?, admin_override = 1 WHERE watch_id = ? AND start_at = ?")
+        .run(100 + i, watch.id, start + i * WATCH_HOUR);
+    }
+    expect(watchSummaryPayloads(db.env, await readWatch(db.env, watch.id))).toHaveLength(2);
+    fetcher.mockClear();
+    fetcher.mockResolvedValueOnce(Response.json({})).mockResolvedValueOnce(Response.json({}, { status: 503 }));
+    await expect(publishFinishedWatchSummaries(db.env)).rejects.toThrow("503");
+    expect(state("summary")!.next_page).toBe(1);
+    expect(summaryIds()).toEqual([firstId]);
+    const failedNonce = body(posts()[0]).nonce;
+    await publishFinishedWatchSummaries(db.env);
+    expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["PATCH", "POST", "POST"]);
+    expect(body(posts()[1]).nonce).toBe(failedNonce);
+    expect(summaryIds()).toHaveLength(2);
+    corrected();
+    const removedId = summaryIds()[1];
+    db.sqlite.prepare("UPDATE chain_watch_slots SET assigned_to = 1, admin_override = 1 WHERE watch_id = ?").run(watch.id);
+    fetcher.mockClear();
+    fetcher.mockResolvedValueOnce(Response.json({})).mockResolvedValueOnce(Response.json({}, { status: 503 }));
+    await expect(publishFinishedWatchSummaries(db.env)).rejects.toThrow("503");
+    expect(summaryIds()).toHaveLength(2);
+    await publishFinishedWatchSummaries(db.env);
+    expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["PATCH", "DELETE", "DELETE"]);
+    expect(String(fetcher.mock.calls.at(-1)![0])).toContain(removedId);
+    expect(summaryIds()).toEqual([firstId]);
+    corrected();
+  });
+
+  it("recreates a missing summary page when correcting it", async () => {
+    const watch = await finishedWatch();
+    await publishFinishedWatchSummaries(db.env);
+    await changeWatchSlots(db.env, { watchId: watch.id, starts: [start], actorId: 1, targetId: 2, admin: true });
+    fetcher.mockClear();
+    fetcher.mockResolvedValueOnce(Response.json({}, { status: 404 })).mockResolvedValueOnce(Response.json({ id: "replacement-page" }));
+    await publishFinishedWatchSummaries(db.env);
+    expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["PATCH", "POST"]);
+    expect(summaryIds()).toEqual(["replacement-page"]);
+    corrected();
+  });
+
+  it("avoids Discord edits when a correction is reversed before publication", async () => {
+    const watch = await finishedWatch();
+    await publishFinishedWatchSummaries(db.env);
+    for (const targetId of [2, 1]) await changeWatchSlots(db.env, { watchId: watch.id, starts: [start], actorId: 1, targetId, admin: true });
+    fetcher.mockClear();
+    await publishFinishedWatchSummaries(db.env);
+    expect(fetcher).not.toHaveBeenCalled();
+    corrected();
+  });
+
+  it.each(["complete", "partial"])("reconciles %s summaries when migrating, including older corrections", async delivery => {
+    const watch = await finishedWatch();
+    const original = JSON.stringify(watchSummaryPayloads(db.env, await readWatch(db.env, watch.id)));
+    db.sqlite.exec("DROP TRIGGER chain_watch_summary_assignment_changed; DROP TRIGGER chain_watch_summary_schedule_changed; DROP TRIGGER chain_watch_queue_announcements; DROP TABLE chain_watch_announcements;");
+    db.sqlite.exec(watchAnnouncementsMigration);
+    db.sqlite.prepare("UPDATE chain_watch_announcements SET sent_at = ?, payloads_json = ?, message_ids_json = ? WHERE kind = 'summary'")
+      .run(delivery === "complete" ? start : null, original, JSON.stringify(["old-summary"]));
+    await changeWatchSlots(db.env, { watchId: watch.id, starts: [start], actorId: 1, targetId: 2, admin: true });
+    db.sqlite.exec(watchSummaryRevisionsMigration);
+    fetcher.mockClear();
+    await publishFinishedWatchSummaries(db.env);
+    expect(fetcher.mock.calls.map(call => call[1].method)).toEqual(["PATCH"]);
+    expect(body(fetcher.mock.calls[0]).embeds[0].description).toContain("**Bob**");
+    expect(summaryIds()).toEqual(["old-summary"]);
+    corrected();
   });
 });
