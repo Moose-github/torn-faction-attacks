@@ -54,7 +54,7 @@ export function watchSlotStatus(slot: ChainWatchSlot, now: number): {
   const current = slot.start_at <= now;
   if (!slot.assigned_to) return current
     ? { label: "Cover needed", tone: "critical", current, icon: "🔴" }
-    : { label: "Open for sign-up", tone: "quiet", current, icon: "" };
+    : { label: "Open", tone: "quiet", current, icon: "" };
   if (slot.check_in_confirmed_at != null) return current
     ? { label: "On watch", tone: "ready", current, icon: "🟢" }
     : { label: "Ready ✅", tone: "ready", current, icon: "" };

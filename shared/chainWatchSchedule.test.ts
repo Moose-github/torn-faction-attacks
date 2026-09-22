@@ -20,7 +20,7 @@ describe("shared watch coverage status", () => {
 
   it("never signals coverage for an unfilled slot, even if stale confirmation data is present", () => {
     const unfilled = { ...slot, assigned_to: null, check_in_confirmed_at: start - 120 };
-    expect(watchSlotStatus(unfilled, start - 1)).toMatchObject({ label: "Open for sign-up", tone: "quiet", current: false });
+    expect(watchSlotStatus(unfilled, start - 1)).toMatchObject({ label: "Open", tone: "quiet", current: false });
     expect(watchSlotStatus(unfilled, start)).toMatchObject({ label: "Cover needed", tone: "critical", icon: "🔴", current: true });
     expect(watchSlotStatus(unfilled, start + WATCH_HOUR)).toMatchObject({ label: "Ended", current: false });
   });
