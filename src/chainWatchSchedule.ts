@@ -238,10 +238,11 @@ export async function changeWatchSlots(env: Env, input: {
           SET assigned_to = ?, assignment_actor = ?, admin_override = 0, updated_at = unixepoch()
           WHERE watch_id = ? AND start_at IN (${placeholders}) AND EXISTS (
             SELECT 1 FROM chain_watch_pending_selections WHERE id = ? AND expires_at > unixepoch()
-          )`).bind(input.targetId, input.actorId, input.watchId, ...starts, input.selectionId),
+          ) RETURNING start_at`).bind(input.targetId, input.actorId, input.watchId, ...starts, input.selectionId),
         env.DB.prepare("DELETE FROM chain_watch_pending_selections WHERE id = ?").bind(input.selectionId),
       ]);
-      if (result[0].meta.changes !== starts.length) throw new WatchError("This selection expired or was already used. Open Sign up or Leave slots again.");
+      // D1's meta.changes also counts trigger writes; only count selected slots.
+      if (result[0].results.length !== starts.length) throw new WatchError("This selection expired or was already used. Open Sign up or Leave slots again.");
       return;
     }
     await env.DB.batch(starts.map((start) => env.DB.prepare(`UPDATE chain_watch_slots

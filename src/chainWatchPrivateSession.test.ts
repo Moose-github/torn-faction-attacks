@@ -86,6 +86,45 @@ it.each(["claim", "leave"])("only confirms the latest %s selection and never reo
   expect(await assignments()).toEqual(action === "claim" ? [null, 1] : [1, null]);
 });
 
+it.each([
+  { action: "claim", count: 1 }, { action: "claim", count: 2 },
+  { action: "leave", count: 1 }, { action: "leave", count: 2 },
+])("reports success for $action of $count slots with trigger writes and rejects replay", async ({ action, count }) => {
+  const starts = [start, start + 3600].slice(0, count);
+  if (action === "leave") await assign(starts);
+  const picker = await open(action);
+  const selected = await pick(picker, starts);
+  const selectionId = confirmId(selected).split(":")[3];
+  const batch = vi.spyOn(db.env.DB, "batch");
+  const saved = await confirm(picker, selected);
+  expect(saved.data?.content).toContain(`${action === "claim" ? "Signed up for" : "Left"} ${count} slot`);
+  expect(saved.data?.components).toEqual([]);
+  expect((await assignments()).slice(0, count)).toEqual(starts.map(() => action === "claim" ? 1 : null));
+  expect(await pending()).toEqual([]);
+  const results = await Promise.all(batch.mock.results.map(result => result.value));
+  expect(results.some(result => result[0].meta.changes > count)).toBe(true);
+
+  // A consumed selection cannot overwrite a later change to these slots.
+  const laterOwner = action === "claim" ? null : 1;
+  await assign(starts, laterOwner);
+  await expect(changeWatchSlots(db.env, { watchId, starts, actorId: 1, targetId: action === "claim" ? 1 : null, admin: false, selectionId }))
+    .rejects.toThrow("already used");
+  expect((await assignments()).slice(0, count)).toEqual(starts.map(() => laterOwner));
+});
+
+it.each(["claim", "leave"])("rejects an expired %s selection without changing assignments", async action => {
+  const starts = [start, start + 3600];
+  if (action === "leave") await assign(starts);
+  const picker = await open(action);
+  const selected = await pick(picker, starts);
+  const selectionId = confirmId(selected).split(":")[3];
+  db.setNow(now + 600); vi.setSystemTime((now + 600) * 1000);
+  await expect(changeWatchSlots(db.env, { watchId, starts, actorId: 1, targetId: action === "claim" ? 1 : null, admin: false, selectionId }))
+    .rejects.toThrow("expired");
+  expect(await assignments()).toEqual(starts.map(() => action === "claim" ? null : 1));
+  expect(await pending()).toEqual([]);
+});
+
 it("replaces the user's previous message across sheets and between claim and leave", async () => {
   const tomorrow = start + 11 * 3600;
   await assign([tomorrow]);

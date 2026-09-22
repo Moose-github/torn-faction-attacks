@@ -25,12 +25,15 @@ export function watchDatabase(initialNow) {
   sqlite.exec(readFileSync(new URL("../migrations/0156_refresh_chain_watch_roster_on_check_in.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../migrations/0157_add_chain_watch_takeovers.sql", import.meta.url), "utf8"));
   sqlite.exec(watchSummaryRevisionsMigration);
+  const totalChanges = () => Number(sqlite.prepare("SELECT total_changes() AS n").get().n);
   class Statement {
     constructor(sql, values = []) { this.sql = sql; this.values = values; }
     bind(...values) { return new Statement(this.sql, values); }
     execute() {
+      // D1 includes trigger writes in each statement's change count.
+      const before = totalChanges();
       const results = sqlite.prepare(this.sql).all(...this.values);
-      const changes = Number(sqlite.prepare("SELECT changes() AS n").get().n);
+      const changes = totalChanges() - before;
       return { results, success: true, meta: { changes } };
     }
     async run() { return this.execute(); }
