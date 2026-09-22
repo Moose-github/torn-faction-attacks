@@ -88,6 +88,36 @@ without the watch name or dates.
 After check-in, its title becomes **Chain watch - Resolved** without the warning
 symbol, and the confirmation time includes seconds in the viewer's local timezone.
 
+At one minute before the shift, the missed alert shows **Takeover available in:
+30s** without a button. At 30 seconds before the shift, a persistent alarm edits
+that same message to remove the waiting text and add **Take over**, without another
+ping. The alarm uses a separate check-in-named object in the existing alarm
+namespace; it does not change the faction chain monitor's timer. The server also
+rejects takeovers before this deadline. A check-in during the wait resolves the
+alert and prevents the button from appearing. Cron retries missed edits, and a
+warning delivered after the deadline includes the button immediately. The wait
+text is updated when the button becomes available, rather than every second.
+A linked current faction member can open a private confirmation showing the remaining shift, then
+choose **Confirm takeover** to take those hours and check in immediately. The
+confirmation expires after five minutes, at shift end, or when its scope changes.
+Takeovers include the current unfinished hour and subsequent contiguous hours;
+completed hours keep their original assignments. The two-hour/break rule still
+applies, including adjacent hours across daily sheets. Delivery-problem alerts
+do not offer takeover, and the assigned watcher uses their original **I'm ready**
+button to check in.
+
+The first successful check-in or takeover wins. Confirmation rechecks membership,
+assignment revision, the remaining hours and the original check-in atomically;
+stale buttons and competing confirmations cannot overwrite it. A takeover updates
+the shared roster, so future chain alerts mention the replacement. Both the old
+reminder and missed alert show `Watcher: ~~Original~~ → Replacement`, remove their
+buttons, and the missed alert becomes **Chain watch - Resolved** with the takeover
+time (including seconds). Original-watcher check-in uses the same resolved title
+without striking through their name. Discord edit failures retry through cron.
+Completed takeover records preserve the original check-in, replacement and time;
+expired unconfirmed attempts are removed. Apply
+`0157_add_chain_watch_takeovers.sql` before deploying these controls.
+
 After confirmation, the reminder becomes one compact block: the watch name and
 **Chain watch check-in** heading, `Watcher: Name - Ready ✅`, and
 `Shift: HH:MM - HH:MM UTC`. The original ping line and check-in button are removed.

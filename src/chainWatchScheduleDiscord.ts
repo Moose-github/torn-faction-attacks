@@ -10,8 +10,8 @@ import { assertExternalResponseOk, ExternalApiError, fetchExternal, readExternal
 import type { Env } from "./types";
 import { nowSeconds } from "./utils";
 import type { WatchSelectionContext } from "./chainWatchPrivateSession";
-import { confirmWatchCheckIn, isWatchCheckInInteraction, runWatchCheckIns } from "./chainWatchCheckIns";
 import { ensureWatchInfo, publishFinishedWatchSummaries } from "./chainWatchAnnouncements";
+import { confirmWatchCheckIn, handleWatchTakeover, isWatchCheckInInteraction, isWatchTakeoverConfirmation, isWatchTakeoverInteraction, runWatchCheckIns } from "./chainWatchCheckIns";
 
 export const WATCH_COMPONENT_PREFIX = "cws:";
 export const WATCH_UNFILLED_SLOT_LEAD_SECONDS = WATCH_HOUR;
@@ -27,7 +27,7 @@ export function isWatchInteraction(interaction: DiscordInteraction): boolean {
 }
 
 function updatesWatchMessage(interaction: DiscordInteraction): boolean {
-  return interaction.type === 3 && /^(cws:pick:|cws:confirm:)/.test(interaction.data?.custom_id ?? "");
+  return isWatchTakeoverConfirmation(interaction) || (interaction.type === 3 && /^(cws:pick:|cws:confirm:)/.test(interaction.data?.custom_id ?? ""));
 }
 
 export function deferredWatchResponse(interaction: DiscordInteraction): DiscordInteractionResponse {
@@ -114,7 +114,7 @@ export async function watchDiscordRequest<T>(env: Env, path: string, method: str
 // Acknowledge first: creating a schedule or editing several Discord messages can
 // exceed Discord's three-second interaction deadline.
 export async function completeDeferredWatchInteraction(interaction: DiscordInteraction, env: Env): Promise<void> {
-  if (interaction.type === 3 && !isWatchCheckInInteraction(interaction)) {
+  if (interaction.type === 3 && !isWatchCheckInInteraction(interaction) && !isWatchTakeoverInteraction(interaction)) {
     // A single durable coordinator per Discord user orders both state changes
     // and outgoing Discord requests across Worker instances.
     const userId = interaction.member?.user?.id;
@@ -152,6 +152,7 @@ export async function handleWatchInteraction(interaction: DiscordInteraction, en
   });
   try {
     if (isWatchCheckInInteraction(interaction)) return await confirmWatchCheckIn(interaction, env);
+    if (isWatchTakeoverInteraction(interaction)) return await handleWatchTakeover(interaction, env);
     const guildId = interaction.guild_id;
     const userId = interaction.member?.user?.id;
     if (!guildId || !userId || !env.DISCORD_GUILD_ID || guildId !== env.DISCORD_GUILD_ID) {
