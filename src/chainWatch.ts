@@ -27,6 +27,9 @@ const CHAIN_WATCH_LIVE_TIMEOUT_DRIFT_SECONDS = 5;
 const CHAIN_WATCH_WARNING_COLOR = 0xffa500;
 const CHAIN_WATCH_CRITICAL_COLOR = 0xff0000;
 const CHAIN_WATCH_DROP_COLOR = 0x3498db;
+const CHAIN_WATCH_OBSERVATION_ATTEMPTS = 3;
+
+class ChainWatchObservationConflict extends Error {}
 
 type ChainWatchSource = "stored" | "live_confirm" | "stale" | "dropped";
 type ChainWatchAlarmStage = "warning_60" | "warning_30" | "drop";
@@ -260,16 +263,14 @@ export async function refreshActiveChainWatchFromStoredAttacks(
   checkedAt: number = nowSeconds(),
 ): Promise<ChainWatchStateRow | null> {
   if (!await reconcileChainWatchActivity(env, checkedAt)) return readChainWatchState(env);
-  const existing = await readChainWatchState(env);
-  const observation = await observeStoredChainWatch(env, checkedAt);
-  if (!observation) {
-    return existing;
-  }
-
-  let saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, checkedAt);
-  saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, checkedAt);
-  await scheduleChainWatchAlarmForState(env, saved, checkedAt);
-  return saved;
+  return retryChainWatchObservation(env, checkedAt, async (existing, observedAt) => {
+    const observation = await observeStoredChainWatch(env, observedAt);
+    if (!observation) return existing;
+    let saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, observedAt);
+    saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, observedAt);
+    await scheduleChainWatchAlarmForState(env, saved, observedAt);
+    return saved;
+  });
 }
 
 export function chainWatchNormalMessage(options: {
@@ -335,23 +336,38 @@ export async function refreshChainWatch(
   checkedAt: number,
   options: { scheduleAlarm?: boolean; confirmDrop?: boolean } = {},
 ): Promise<ChainWatchStateRow | null> {
-  const existing = await readChainWatchState(env);
-  if (existing && existing.enabled !== 1) {
-    await cancelChainWatchAlarm(env, HOME_FACTION_ID);
-    return existing;
-  }
-
-  const observation = await observeChainWatch(env, checkedAt, {
-    confirmDrop: options.confirmDrop ?? false,
+  return retryChainWatchObservation(env, checkedAt, async (existing, observedAt) => {
+    const observation = await observeChainWatch(env, observedAt, {
+      confirmDrop: options.confirmDrop ?? false,
+    });
+    let saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, observedAt);
+    saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, observedAt);
+    if (options.scheduleAlarm !== false) await scheduleChainWatchAlarmForState(env, saved, observedAt);
+    return saved;
   });
-  let saved = await saveChainWatchObservation(env, HOME_FACTION_ID, existing, observation, checkedAt);
-  saved = await syncChainWatchStatusDiscordMessage(env, existing, saved, checkedAt);
+}
 
-  if (options.scheduleAlarm !== false) {
-    await scheduleChainWatchAlarmForState(env, saved, checkedAt);
+async function retryChainWatchObservation(
+  env: Env,
+  checkedAt: number,
+  observeAndSave: (state: ChainWatchStateRow | null, observedAt: number) => Promise<ChainWatchStateRow | null>,
+): Promise<ChainWatchStateRow | null> {
+  for (let attempt = 0; attempt < CHAIN_WATCH_OBSERVATION_ATTEMPTS; attempt++) {
+    const state = await readChainWatchState(env);
+    if (state && state.enabled !== 1) {
+      await cancelChainWatchAlarm(env, HOME_FACTION_ID);
+      return state;
+    }
+    // A conflict can be won by an older observation. Read the source again;
+    // replaying a captured live response could undo a newer timer or restart.
+    const observedAt = attempt === 0 ? checkedAt : Math.max(checkedAt, nowSeconds());
+    try {
+      return await observeAndSave(state, observedAt);
+    } catch (error) {
+      if (!(error instanceof ChainWatchObservationConflict)) throw error;
+    }
   }
-
-  return saved;
+  throw new ChainWatchObservationConflict(`Chain watch state changed during all ${CHAIN_WATCH_OBSERVATION_ATTEMPTS} observation attempts. Retry the refresh.`);
 }
 
 async function observeChainWatch(
@@ -494,27 +510,10 @@ async function sendWarningIfDue(
   sentAt: number,
 ): Promise<void> {
   const warningColumn = stage === "warning_60" ? "warning_60_sent_at" : "warning_30_sent_at";
-  if (
-    state.timeout_at === null ||
-    state.timeout_at <= sentAt ||
-    !chainWatchAlertEligible(state.current_chain) ||
-    state[warningColumn] !== null ||
-    state.timeout_at - (stage === "warning_60" ? 60 : 30) > sentAt
-  ) {
-    return;
-  }
+  if (!chainWatchWarningDue(state, stage, sentAt)) return;
 
-  const confirmedState = await confirmChainWatchWarningWithLiveChain(env, state, sentAt);
-  if (
-    confirmedState === null ||
-    confirmedState.timeout_at === null ||
-    confirmedState.timeout_at <= sentAt ||
-    !chainWatchAlertEligible(confirmedState.current_chain) ||
-    confirmedState[warningColumn] !== null ||
-    confirmedState.timeout_at - (stage === "warning_60" ? 60 : 30) > sentAt
-  ) {
-    return;
-  }
+  const confirmedState = await confirmChainWatchWarningWithLiveChain(env, stage, sentAt);
+  if (!chainWatchWarningDue(confirmedState, stage, sentAt)) return;
 
   // A new message is required for mention notifications. Keep the live status
   // message's ID separate so later refreshes do not overwrite this alert.
@@ -557,7 +556,27 @@ async function sendWarningIfDue(
     .run();
 }
 
+function chainWatchWarningDue(
+  state: ChainWatchStateRow | null, stage: "warning_60" | "warning_30", now: number,
+): state is ChainWatchStateRow & { timeout_at: number } {
+  return state !== null && state.enabled === 1 && state.timeout_at !== null && state.timeout_at > now &&
+    chainWatchAlertEligible(state.current_chain) &&
+    state[stage === "warning_60" ? "warning_60_sent_at" : "warning_30_sent_at"] === null &&
+    state.timeout_at - (stage === "warning_60" ? 60 : 30) <= now;
+}
+
 async function confirmChainWatchWarningWithLiveChain(
+  env: Env,
+  stage: "warning_60" | "warning_30",
+  checkedAt: number,
+): Promise<ChainWatchStateRow | null> {
+  return retryChainWatchObservation(env, checkedAt, async (state, observedAt) => {
+    if (!chainWatchWarningDue(state, stage, observedAt)) return null;
+    return observeChainWatchWarning(env, state, observedAt);
+  });
+}
+
+async function observeChainWatchWarning(
   env: Env,
   state: ChainWatchStateRow,
   checkedAt: number,
@@ -693,7 +712,7 @@ async function updateChainWatchLiveCheckStatus(
     .first()) as ChainWatchStateRow | null;
 
   if (!row) {
-    return (await readChainWatchState(env))!;
+    throw new ChainWatchObservationConflict("Chain watch state changed during live confirmation.");
   }
 
   return row;
@@ -830,8 +849,7 @@ async function saveChainWatchObservation(
     .first()) as ChainWatchStateRow | null;
 
   if (!row) {
-    // A newer observation or activation won while this observation was in flight.
-    return (await readChainWatchState(env))!;
+    throw new ChainWatchObservationConflict("Chain watch state changed while saving an observation.");
   }
 
   return row;

@@ -3,7 +3,7 @@ import { chainWatchDatabase } from "../scripts/chain-watch-test-database.mjs";
 import { createWatch, setWatchFinish } from "./chainWatchSchedule";
 import { watchUtc } from "../shared/chainWatchSchedule";
 import { HOME_FACTION_ID } from "./constants";
-import { getChainWatchLive, handleChainWatchAlarm, readChainWatchState, readLatestQualifyingChainHit, refreshActiveChainWatchFromStoredAttacks, runChainWatchCron } from "./chainWatch";
+import { getChainWatchLive, handleChainWatchAlarm, readChainWatchState, readLatestQualifyingChainHit, refreshActiveChainWatchFromStoredAttacks, refreshChainWatch, runChainWatchCron } from "./chainWatch";
 import { readChainWatchDemand } from "./chainWatchDemand";
 import { getChainWatchForWar, setChainWatchEnabledForWar } from "./chainWatchWar";
 import { fetchTrackedTornJson } from "./external/torn";
@@ -33,7 +33,7 @@ beforeEach(() => {
   db = chainWatchDatabase(start - 60);
   advance(start - 60);
   db.env.CHAIN_WATCH_ALARMS = { getByName } as unknown as DurableObjectNamespace;
-  vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 0, timeout: 0 } });
+  vi.mocked(fetchTrackedTornJson).mockReset().mockResolvedValue({ chain: { current: 0, timeout: 0 } });
 });
 afterEach(() => { db.sqlite.close(); vi.useRealTimers(); vi.restoreAllMocks(); });
 function advance(now: number) { db.setNow(now); vi.setSystemTime(now * 1000); }
@@ -54,6 +54,31 @@ async function hit(id: number, at: number, options: { warId?: number; chain?: nu
       options.target ?? 999, options.result ?? "Hospitalized", options.chain ?? 150, options.warId ?? null).run();
 }
 async function tick(now = start) { advance(now); await runChainWatchCron(db.env, now * 1000); }
+
+function gate() {
+  let resolve!: () => void;
+  const promise = new Promise<void>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+function beforeObservationSave(beforeSave: (values: unknown[]) => Promise<void>) {
+  const prepare = db.env.DB.prepare.bind(db.env.DB);
+  return vi.spyOn(db.env.DB, "prepare").mockImplementation(sql => {
+    const statement = prepare(sql);
+    if (!sql.includes("ON CONFLICT(faction_id) DO UPDATE SET")) return statement;
+    const bind = statement.bind.bind(statement);
+    vi.spyOn(statement, "bind").mockImplementation((...values) => {
+      const bound = bind(...values);
+      const first = bound.first.bind(bound);
+      vi.spyOn(bound, "first").mockImplementation(async () => {
+        await beforeSave(values);
+        return first();
+      });
+      return bound;
+    });
+    return statement;
+  });
+}
 
 describe("independent faction chain monitor", () => {
   it("starts exactly at the watch start with no war, using the existing attack feed", async () => {
@@ -220,6 +245,104 @@ describe("independent faction chain monitor", () => {
 });
 
 describe("versioned chain timers", () => {
+  it.each([
+    { source: "stored", firstCommit: "older" }, { source: "stored", firstCommit: "newer" },
+    { source: "cron", firstCommit: "older" }, { source: "cron", firstCommit: "newer" },
+  ])("keeps the newest hit when $source refreshes overlap and $firstCommit commits first", async ({ source, firstCommit }) => {
+    await watch(); await hit(1, start); await tick();
+    const olderReached = gate(), newerReached = gate(), releaseOlder = gate(), releaseNewer = gate();
+    const saveTimes: unknown[] = [];
+    beforeObservationSave(async values => {
+      saveTimes.push(values[10]);
+      if (saveTimes.length === 1) { olderReached.resolve(); await releaseOlder.promise; }
+      else if (saveTimes.length === 2) { newerReached.resolve(); await releaseNewer.promise; }
+    });
+    const refresh = source === "stored" ? refreshActiveChainWatchFromStoredAttacks : refreshChainWatch;
+    await hit(2, start + 10, { chain: 151 }); advance(start + 11);
+    const older = refresh(db.env, start + 11);
+    await olderReached.promise;
+    await hit(3, start + 20, { chain: 152 }); advance(start + 21);
+    const newer = refresh(db.env, start + 21);
+    await newerReached.promise;
+    try {
+      if (firstCommit === "older") {
+        releaseOlder.resolve(); await older;
+        releaseNewer.resolve(); await newer;
+      } else {
+        releaseNewer.resolve(); await newer;
+        releaseOlder.resolve(); await older;
+      }
+    } finally { releaseOlder.resolve(); releaseNewer.resolve(); }
+    expect(saveTimes).toEqual([start + 11, start + 21, start + 21]);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 152, last_hit_id: 3, last_checked_at: start + 21,
+      timeout_at: start + 320, scheduled_alarm_stage: "warning_60", scheduled_alarm_at: start + 260,
+    });
+    expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+  });
+
+  it("fetches a fresh live observation after a conflicting save", async () => {
+    await watch(); await hit(1, start); await tick();
+    vi.mocked(fetchTrackedTornJson).mockImplementationOnce(async () => {
+      advance(start + 301);
+      await refreshChainWatch(db.env, start + 301);
+      return { chain: { current: 149, timeout: 10 } };
+    }).mockResolvedValueOnce({ chain: { current: 151, timeout: 250 } })
+      .mockResolvedValueOnce({ chain: { current: 152, timeout: 280 } });
+    await tick(start + 300);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(3);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 152, last_checked_at: start + 301, timeout_at: start + 581, scheduled_alarm_at: start + 521,
+    });
+  });
+
+  it.each([false, true])("discards an in-flight observation when the monitor stops (restart: %s)", async restart => {
+    await war(); await hit(1, start); await tick();
+    vi.mocked(fetchTrackedTornJson).mockImplementationOnce(async () => {
+      await setChainWatchEnabledForWar(db.env, 1, false);
+      if (restart) await setChainWatchEnabledForWar(db.env, 1, true);
+      return { chain: { current: 149, timeout: 10 } };
+    }).mockResolvedValueOnce({ chain: { current: 152, timeout: 280 } });
+    await tick(start + 300);
+    expect(fetchTrackedTornJson).toHaveBeenCalledTimes(restart ? 2 : 1);
+    expect(await readChainWatchState(db.env)).toMatchObject(restart ? {
+      enabled: 1, current_chain: 152, timeout_at: start + 580, scheduled_alarm_at: start + 520,
+    } : { enabled: 0, current_chain: 150, scheduled_alarm_at: null });
+  });
+
+  it.each(["stored", "cron", "warning"])("stops after three conflicting %s save attempts", async source => {
+    await watch(); await hit(1, start); await tick();
+    const before = await readChainWatchState(db.env);
+    let attempts = 0;
+    if (source === "warning") {
+      // The refresh preceding live confirmation succeeds; each live save conflicts.
+      vi.mocked(fetchTrackedTornJson).mockImplementation(async () => {
+        attempts++;
+        await db.env.DB.prepare("UPDATE faction_chain_watch_state SET timer_version = timer_version + 1 WHERE faction_id = ?")
+          .bind(HOME_FACTION_ID).run();
+        return { chain: { current: 151, timeout: 30 } };
+      });
+      advance(start + 240);
+    } else {
+      beforeObservationSave(async () => {
+        attempts++;
+        await db.env.DB.prepare("UPDATE faction_chain_watch_state SET timer_version = timer_version + 1 WHERE faction_id = ?")
+          .bind(HOME_FACTION_ID).run();
+      });
+      await hit(2, start + 10, { chain: 151 }); advance(start + 11);
+    }
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    const refresh = source === "stored" ? refreshActiveChainWatchFromStoredAttacks(db.env, start + 11)
+      : source === "cron" ? refreshChainWatch(db.env, start + 11) : handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    await expect(refresh).rejects.toThrow("all 3 observation attempts. Retry the refresh");
+    expect(attempts).toBe(3);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: before!.current_chain, timeout_at: before!.timeout_at,
+      scheduled_alarm_at: before!.scheduled_alarm_at, warning_60_sent_at: null,
+    });
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+  });
+
   it.each([
     [240, 60, "chain_watch_warning"], [270, 30, "chain_watch_critical"], [300, 0, "chain_watch_drop"],
   ] as const)("preserves the new timer when an attack arrives during %s-second alert delivery", async (offset, remaining, key) => {
