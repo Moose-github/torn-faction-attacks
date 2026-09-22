@@ -1,5 +1,6 @@
 import type { ChainWatchSchedule, ChainWatchSheet, ChainWatchSlot, ChainWatchScheduleResponse, ChainWatchHistoryResponse } from "../shared/chainWatchSchedule";
 import { nextWatchHour, WATCH_DAY, WATCH_HOUR } from "../shared/chainWatchSchedule";
+import { watchShiftConfirmations } from "../shared/chainWatchShifts";
 import type { Env } from "./types";
 import { nowSeconds } from "./utils";
 
@@ -209,19 +210,10 @@ export async function readWatch(env: Env, id?: string | null): Promise<ChainWatc
   ]);
   type SlotCheckIn = ChainWatchSlot & { check_in_closed_at: number | null; check_in_end_at: number | null };
   const rows = slots.results as SlotCheckIn[];
-  let shift: SlotCheckIn | undefined;
-  const publicSlots = rows.map((slot, index): ChainWatchSlot => {
-    const previous = rows[index - 1];
-    if (!previous || previous.cancelled || slot.cancelled || previous.assigned_to !== slot.assigned_to ||
-        previous.start_at + WATCH_HOUR !== slot.start_at) shift = slot;
-    // Match the reminder's consecutive shift, even across daily sheets. Only
-    // its first slot's current revision can supply confirmation. A closed
-    // check-in cannot cover hours appended after that shift already ended.
-    const confirmed = !slot.cancelled && slot.assigned_to !== null && shift &&
-      (shift.check_in_closed_at === null || slot.start_at < (shift.check_in_end_at ?? 0))
-      ? shift.check_in_confirmed_at : null;
+  const confirmations = watchShiftConfirmations(rows);
+  const publicSlots = rows.map((slot): ChainWatchSlot => {
     const { check_in_closed_at: _closed, check_in_end_at: _end, ...fields } = slot;
-    return { ...fields, check_in_confirmed_at: confirmed };
+    return { ...fields, check_in_confirmed_at: confirmations.get(slot) ?? null };
   });
   return { ok: true, now, watch, sheets: sheets.results as ChainWatchSheet[], slots: publicSlots, members: members.results as ChainWatchScheduleResponse["members"] };
 }

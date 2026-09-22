@@ -1,62 +1,20 @@
+import { remainingWatchShift } from "../shared/chainWatchShifts";
+import { readWatchAssignmentBlocks, validAssignment } from "./chainWatchAssignments";
+import { reminderPayload, escalationPayload, escapeText } from "./chainWatchCheckInMessages";
+import { REMINDER_LEAD, ESCALATION_LEAD, TAKEOVER_LEAD, RESPONSE_WINDOW, CLEANUP_DELAY,
+  WATCH_CHECK_IN_PREFIX, WATCH_TAKE_OVER_PREFIX, WATCH_TAKE_OVER_CONFIRM_PREFIX, reminderCleanupAt, type WatchCheckIn as CheckIn } from "./chainWatchCheckInModel";
 import { WATCH_HOUR, watchUtc } from "../shared/chainWatchSchedule";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { readDiscordAlertMentions } from "./discordMentions";
 import { discordNotificationChannelTargetId, readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
 import type { DiscordInteraction, DiscordInteractionResponse } from "./discordInteractions";
-import { deleteDiscordBotMessage, patchDiscordBotJson, postDiscordBotJsonAndRead } from "./external/discord";
-import { ExternalApiError } from "./external/http";
+import { deleteWatchDiscordMessage, editWatchDiscordMessage, sendWatchDiscordMessage } from "./chainWatchDiscordDelivery";
 import type { Env } from "./types";
 import { nowSeconds } from "./utils";
 import { WatchError, watchDiscordMember, watchFailure } from "./chainWatchSchedule";
 
-export const WATCH_CHECK_IN_PREFIX = "cws:checkin:";
-export const WATCH_TAKE_OVER_PREFIX = "cws:takeover:";
-export const WATCH_TAKE_OVER_CONFIRM_PREFIX = "cws:takeover-confirm:";
-const REMINDER_LEAD = 180;
-const ESCALATION_LEAD = 60;
-const TAKEOVER_LEAD = 30;
-const RESPONSE_WINDOW = 120;
-const CLEANUP_DELAY = 5 * 60;
-const noMentions = { parse: [], users: [], roles: [] };
-
-type Block = {
-  watch_id: string; start_at: number; end_at: number; check_in_revision: number; assigned_to: number;
-  discord_user_id: string | null; guild_id: string; channel_id: string; watch_name: string; member_name: string;
-};
-type CheckIn = Omit<Block, "check_in_revision"> & {
-  id: string; assignment_revision: number; reminder_message_id: string | null; reminder_sent_at: number | null;
-  confirmed_at: number | null; escalation_message_id: string | null; escalation_channel_id: string | null;
-  escalation_sent_at: number | null; escalation_kind: string | null; reminder_error: string | null;
-  cancelled_at: number | null; closed_at: number | null; dirty: number;
-  reminder_deleted_at: number | null; escalation_deleted_at: number | null;
-  taken_over_by: number | null; taken_over_name: string | null; taken_over_at: number | null;
-  taken_over_start_at: number | null; taken_over_end_at: number | null;
-  takeover_button_shown: number;
-};
-
-// Used both by the sender and the confirmation UPDATE. The revision invalidates
-// old buttons even when a slot changes A -> B -> A between scheduler ticks.
-const validAssignment = `EXISTS (
-  SELECT 1 FROM chain_watch_slots s JOIN chain_watch_schedules w ON w.id = s.watch_id
-  WHERE s.watch_id = chain_watch_check_ins.watch_id AND s.start_at = chain_watch_check_ins.start_at
-    AND s.check_in_revision = chain_watch_check_ins.assignment_revision
-    AND s.assigned_to = chain_watch_check_ins.assigned_to AND s.cancelled = 0
-    AND w.is_open = 1 AND w.guild_id = chain_watch_check_ins.guild_id
-    AND s.start_at >= w.start_at AND (w.finish_at IS NULL OR w.finish_at > unixepoch())
-    AND (w.finish_at IS NULL OR s.start_at < w.finish_at)
-    AND NOT EXISTS (SELECT 1 FROM chain_watch_slots previous WHERE previous.watch_id = s.watch_id
-      AND previous.start_at = s.start_at - ${WATCH_HOUR} AND previous.cancelled = 0
-      AND previous.assigned_to = s.assigned_to)
-    AND (unixepoch() < s.start_at OR (
-      EXISTS (SELECT 1 FROM chain_watch_slots current WHERE current.watch_id = s.watch_id
-        AND current.start_at = unixepoch() - unixepoch() % ${WATCH_HOUR}
-        AND current.assigned_to = s.assigned_to AND current.cancelled = 0)
-      AND NOT EXISTS (SELECT 1 FROM chain_watch_slots gap WHERE gap.watch_id = s.watch_id
-        AND gap.start_at > s.start_at AND gap.start_at <= unixepoch()
-        AND (gap.assigned_to IS NOT s.assigned_to OR gap.cancelled = 1))
-    ))
-)`;
+export { WATCH_CHECK_IN_PREFIX, WATCH_TAKE_OVER_PREFIX, WATCH_TAKE_OVER_CONFIRM_PREFIX } from "./chainWatchCheckInModel";
 
 const availableForTakeover = `confirmed_at IS NULL AND cancelled_at IS NULL AND closed_at IS NULL
   AND end_at > unixepoch() AND escalation_kind = 'missed' AND escalation_sent_at IS NOT NULL
@@ -81,7 +39,7 @@ export async function runWatchCheckIns(env: Env, now = nowSeconds()): Promise<vo
   if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_GUILD_ID) return;
   const checkedAt = Math.max(now, nowSeconds());
   await env.DB.prepare("DELETE FROM chain_watch_takeovers WHERE confirmed_at IS NULL AND expires_at <= ?").bind(checkedAt).run();
-  const blocks = await readBlocks(env);
+  const blocks = await readWatchAssignmentBlocks(env);
   // Keep contiguous hours as one shift, including across midnight's daily sheets.
   for (const block of blocks) {
     if (block.start_at > checkedAt + REMINDER_LEAD || block.end_at <= checkedAt) continue;
@@ -123,29 +81,6 @@ export async function runWatchCheckIns(env: Env, now = nowSeconds()): Promise<vo
     catch (error) { errors.push(error); }
   }
   if (errors.length) throw errors[0];
-}
-
-async function readBlocks(env: Env): Promise<Block[]> {
-  const rows = await env.DB.prepare(`SELECT s.watch_id, s.start_at, s.check_in_revision, s.assigned_to,
-      w.guild_id, w.channel_id, w.name AS watch_name, COALESCE(m.name, 'Player ' || s.assigned_to) AS member_name,
-      CASE WHEN m.is_current = 1 THEN links.discord_user_id ELSE NULL END AS discord_user_id
-    FROM chain_watch_slots s JOIN chain_watch_schedules w ON w.id = s.watch_id
-    LEFT JOIN home_faction_members m ON m.member_id = s.assigned_to
-    LEFT JOIN discord_member_links links ON links.torn_user_id = s.assigned_to
-    WHERE w.is_open = 1 AND w.guild_id = ? AND s.cancelled = 0 AND s.assigned_to IS NOT NULL
-      AND s.start_at >= w.start_at AND (w.finish_at IS NULL OR s.start_at < w.finish_at)
-    ORDER BY s.watch_id, s.start_at`).bind(env.DISCORD_GUILD_ID).all<Block>();
-  const blocks: Block[] = [];
-  for (const row of rows.results) {
-    const previous = blocks.at(-1);
-    if (previous && previous.watch_id === row.watch_id && previous.assigned_to === row.assigned_to && previous.end_at === row.start_at) {
-      previous.end_at += WATCH_HOUR;
-    } else {
-      const id = row.discord_user_id?.trim();
-      blocks.push({ ...row, end_at: row.start_at + WATCH_HOUR, discord_user_id: id && /^\d{5,32}$/.test(id) ? id : null });
-    }
-  }
-  return blocks;
 }
 
 async function readCheckIn(env: Env, id: string): Promise<CheckIn | null> {
@@ -236,18 +171,16 @@ async function sendReminder(env: Env, row: CheckIn): Promise<void> {
     return;
   }
   if (!await isCurrent(env, row.id)) return;
-  try {
-    const message = await postDiscordBotJsonAndRead<{ id: string }>(env.DISCORD_BOT_TOKEN!, `/channels/${row.channel_id}/messages`, {
-      ...reminderPayload(row), content: `<@${row.discord_user_id}>`,
-      allowed_mentions: { parse: [], users: [row.discord_user_id], roles: [] },
-      nonce: await messageNonce(row.id, "reminder"), enforce_nonce: true,
-    }, { timeoutMs: 10_000 });
-    if (!message.id) throw new Error("Discord did not return a check-in reminder message ID");
+  const delivery = await sendWatchDiscordMessage(env, row.channel_id, {
+    ...reminderPayload(row, nowSeconds()), content: `<@${row.discord_user_id}>`,
+    allowed_mentions: { parse: [], users: [row.discord_user_id], roles: [] },
+  }, `${row.id}:reminder`);
+  if (delivery.status === "success") {
     await env.DB.prepare(`UPDATE chain_watch_check_ins SET reminder_message_id = ?, reminder_sent_at = ?,
-      reminder_error = NULL, dirty = dirty + 1 WHERE id = ?`).bind(message.id, nowSeconds(), row.id).run();
-  } catch (error) {
+      reminder_error = NULL, dirty = dirty + 1 WHERE id = ?`).bind(delivery.value, nowSeconds(), row.id).run();
+  } else {
     await env.DB.prepare("UPDATE chain_watch_check_ins SET reminder_error = ? WHERE id = ?")
-      .bind((error instanceof Error ? error.message : String(error)).slice(0, 240), row.id).run();
+      .bind(delivery.error.message.slice(0, 240), row.id).run();
     console.error("Chain watch check-in reminder will retry", row.id);
   }
 }
@@ -262,27 +195,15 @@ async function sendEscalation(env: Env, row: CheckIn): Promise<void> {
   if (!current || current.confirmed_at || current.escalation_sent_at || !await isCurrent(env, row.id)) return;
   const kind = current.reminder_sent_at ? "missed" : "delivery_failed";
   const channelId = discordNotificationChannelTargetId(route);
-  const message = await postDiscordBotJsonAndRead<{ id: string }>(env.DISCORD_BOT_TOKEN!, `/channels/${channelId}/messages`, {
-    ...escalationPayload({ ...current, escalation_kind: kind }), content: mentions.messageSuffix,
+  const delivery = await sendWatchDiscordMessage(env, channelId, {
+    ...escalationPayload({ ...current, escalation_kind: kind }, nowSeconds()), content: mentions.messageSuffix,
     allowed_mentions: { parse: mentions.allowedMentions?.everyone ? ["everyone"] : [],
       users: mentions.allowedMentions?.users ?? [], roles: mentions.allowedMentions?.roles ?? [] },
-    nonce: await messageNonce(row.id, "escalation"), enforce_nonce: true,
-  }, { timeoutMs: 10_000 });
-  if (!message.id) throw new Error("Discord did not return a missed check-in message ID");
+  }, `${row.id}:escalation`);
+  if (delivery.status === "failed") throw delivery.error;
   await env.DB.prepare(`UPDATE chain_watch_check_ins SET escalation_message_id = ?, escalation_channel_id = ?,
     escalation_sent_at = ?, escalation_kind = ?, dirty = dirty + 1 WHERE id = ?`)
-    .bind(message.id, channelId, nowSeconds(), kind, row.id).run();
-}
-
-function shiftText(row: CheckIn): string {
-  return `**${escapeText(row.watch_name)}**\nWatcher: ${escapeText(row.member_name)}\nShift: ${watchUtc(row.start_at)} – ${watchUtc(row.end_at)}`;
-}
-function reminderCleanupAt(row: CheckIn): number | null {
-  return row.cancelled_at !== null ? row.cancelled_at + CLEANUP_DELAY
-    : row.confirmed_at !== null ? row.end_at + CLEANUP_DELAY : null;
-}
-function cleanupLine(at: number | null): string {
-  return at === null ? "" : `\nMessage cleanup: <t:${at}:R>`;
+    .bind(delivery.value, channelId, nowSeconds(), kind, row.id).run();
 }
 
 async function cleanupCheckIn(env: Env, row: CheckIn): Promise<void> {
@@ -296,8 +217,8 @@ async function cleanupCheckIn(env: Env, row: CheckIn): Promise<void> {
   ] as const;
   for (const message of messages) {
     if (!message.channel || !message.id || message.deleted !== null || message.at === null || message.at > nowSeconds()) continue;
-    try { await deleteDiscordBotMessage(env.DISCORD_BOT_TOKEN!, message.channel, message.id, { timeoutMs: 10_000 }); }
-    catch (error) { if (!(error instanceof ExternalApiError && error.status === 404)) throw error; }
+    const delivery = await deleteWatchDiscordMessage(env, message.channel, message.id);
+    if (delivery.status === "failed") throw delivery.error;
     // Keep IDs and confirmation history for audit; a durable marker prevents
     // repeated deletes and future edits of a message already removed.
     await env.DB.prepare(`UPDATE chain_watch_check_ins SET ${message.column} = ?, dirty = dirty + 1 WHERE id = ?`)
@@ -305,77 +226,17 @@ async function cleanupCheckIn(env: Env, row: CheckIn): Promise<void> {
   }
 }
 
-function watcherText(row: CheckIn): string {
-  return row.taken_over_at !== null
-    ? `~~${escapeText(row.member_name)}~~ → ${escapeText(row.taken_over_name!)}`
-    : escapeText(row.member_name);
-}
-function shiftHours(row: CheckIn): string {
-  const from = new Date((row.taken_over_start_at ?? row.start_at) * 1000).toISOString().slice(11, 16);
-  const to = new Date((row.taken_over_end_at ?? row.end_at) * 1000).toISOString().slice(11, 16);
-  return `${from} - ${to} UTC`;
-}
-function reminderPayload(row: CheckIn) {
-  if (row.taken_over_at !== null || (row.confirmed_at !== null && row.cancelled_at === null)) {
-    return {
-      content: "",
-      embeds: [{
-        description: `${escapeText(row.watch_name)} - **Chain watch check-in**\nWatcher: ${watcherText(row)} - Ready ✅\nShift: ${shiftHours(row)}${cleanupLine(reminderCleanupAt(row))}`,
-        color: 0x16a34a,
-      }],
-      components: [],
-      allowed_mentions: noMentions,
-    };
-  }
-  const inactive = row.cancelled_at !== null || row.closed_at !== null || row.end_at <= nowSeconds();
-  const status = row.cancelled_at !== null ? "This assignment changed or was cancelled. This check-in is closed."
-    : inactive ? "This shift has ended."
-    : `Your shift ${row.start_at > nowSeconds() ? `starts <t:${row.start_at}:R>` : "has started"}. Please confirm you’re ready.`;
-  return {
-    embeds: [{ title: "Chain watch check-in", description: `${shiftText(row)}\n\n${status}${cleanupLine(reminderCleanupAt(row))}`, color: row.confirmed_at ? 0x16a34a : 0x2f80ed }],
-    components: !inactive && row.confirmed_at === null ? [{ type: 1, components: [{
-      type: 2, style: 3, label: "I’m ready", custom_id: `${WATCH_CHECK_IN_PREFIX}${row.id}`,
-    }] }] : [],
-    allowed_mentions: noMentions,
-  };
-}
-function escalationPayload(row: CheckIn) {
-  const resolved = row.taken_over_at !== null || row.confirmed_at !== null || row.cancelled_at !== null || row.closed_at !== null;
-  const description = row.taken_over_at !== null ? `✅ Resolved — shift taken over and checked in <t:${row.taken_over_at}:T>.`
-    : row.cancelled_at !== null ? "This assignment changed or was cancelled. The old check-in is closed."
-    : row.confirmed_at !== null ? `✅ Resolved — the watcher checked in <t:${row.confirmed_at}:T>.`
-    : row.closed_at !== null ? "The shift has ended."
-    : row.escalation_kind === "delivery_failed" ? row.reminder_sent_at
-      ? "The reminder has now been delivered; the watcher has not yet checked in. Please verify coverage."
-      : "The check-in reminder could not be delivered. Please verify coverage."
-    : "The scheduled watcher has not checked in. Cover may be needed.";
-  const url = row.reminder_message_id && row.reminder_deleted_at === null ? `https://discord.com/channels/${row.guild_id}/${row.channel_id}/${row.reminder_message_id}`
-    : `https://discord.com/channels/${row.guild_id}/${row.channel_id}`;
-  const shift = row.escalation_kind === "delivery_failed" ? shiftText(row)
-    : `Watcher: ${watcherText(row)}\nShift: ${shiftHours(row)}`;
-  const title = row.taken_over_at !== null || (row.confirmed_at !== null && row.cancelled_at === null) ? "Chain watch - Resolved"
-    : row.escalation_kind === "delivery_failed" ? "Chain watch check-in delivery problem" : "⚠️ Chain watch missed check-in";
-  const canTakeOver = !resolved && row.escalation_kind === "missed" && row.end_at > nowSeconds();
-  const secondsUntilTakeover = Math.max(0, row.start_at - TAKEOVER_LEAD - nowSeconds());
-  const waiting = canTakeOver && secondsUntilTakeover > 0 ? `\nTakeover available in: ${secondsUntilTakeover}s` : "";
-  return { embeds: [{ title,
-    description: `${shift}\n\n${description}${waiting}\n[Open chain watch sheet](${url})${cleanupLine(row.cancelled_at === null ? null : row.cancelled_at + CLEANUP_DELAY)}`, color: resolved ? 0x64748b : 0xffa500 }],
-    components: canTakeOver && secondsUntilTakeover === 0 ? [{ type: 1, components: [{
-      type: 2, style: 1, label: "Take over", custom_id: `${WATCH_TAKE_OVER_PREFIX}${row.id}`,
-    }] }] : [], allowed_mentions: noMentions };
-}
-
 async function renderCheckIn(env: Env, row: CheckIn): Promise<void> {
   // Suppress mentions on edits; confirmed reminders also clear the original ping
   // so the message contains only the compact confirmation block.
-  const alertPayload = escalationPayload(row);
+  const alertPayload = escalationPayload(row, nowSeconds());
   for (const [channel, message, deleted, payload] of [
-    [row.channel_id, row.reminder_message_id, row.reminder_deleted_at, reminderPayload(row)],
+    [row.channel_id, row.reminder_message_id, row.reminder_deleted_at, reminderPayload(row, nowSeconds())],
     [row.escalation_channel_id, row.escalation_message_id, row.escalation_deleted_at, alertPayload],
   ] as const) {
     if (!channel || !message || deleted !== null) continue;
-    try { await patchDiscordBotJson(env.DISCORD_BOT_TOKEN!, `/channels/${channel}/messages/${message}`, payload, { timeoutMs: 10_000 }); }
-    catch (error) { if (!(error instanceof ExternalApiError && error.status === 404)) throw error; }
+    const delivery = await editWatchDiscordMessage(env, channel, message, payload);
+    if (delivery.status === "failed") throw delivery.error;
   }
   // A concurrent confirmation increments dirty and must remain queued for rendering.
   const buttonShown = alertPayload.components.length > 0 ? 1 : row.takeover_button_shown;
@@ -429,7 +290,7 @@ export async function handleWatchTakeover(interaction: DiscordInteraction, env: 
       .bind(memberId).first<{ name: string }>();
     if (!member) throw new WatchError("Only current faction members can take over shifts.");
     const now = nowSeconds();
-    const from = Math.max(row.start_at, now - now % WATCH_HOUR);
+    const { start_at: from } = remainingWatchShift(row, now);
     const token = crypto.randomUUID();
     await env.DB.prepare(`INSERT INTO chain_watch_takeovers
       (id, check_in_id, member_id, member_name, discord_user_id, guild_id, channel_id, start_at, end_at, expires_at)
@@ -467,12 +328,4 @@ export async function handleWatchTakeover(interaction: DiscordInteraction, env: 
   try { await runWatchCheckIns(env); }
   catch { console.error("Chain watch takeover saved; message updates will retry", result.check_in_id); }
   return reply("You’ve taken over the shift and are checked in. The chain watch sheet and alerts will show you as the watcher.");
-}
-
-async function messageNonce(id: string, kind: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${id}:${kind}`)));
-  return Array.from(digest.slice(0, 12), byte => byte.toString(16).padStart(2, "0")).join("");
-}
-function escapeText(value: string): string {
-  return value.replace(/[\\`*_~|>\[\]()]/g, "\\$&").replace(/@/g, "@\u200b");
 }

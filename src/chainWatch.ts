@@ -5,8 +5,7 @@ import {
   TORN_FACTION_CHAIN_API_URL,
 } from "./constants";
 import { type DiscordAllowedMentions } from "./discord";
-import { upsertDiscordAlertMessage } from "./discordAlertDelivery";
-import { isDiscordAlertEnabled } from "./discordAlertSettings";
+import { deliverChainWatchAlert, type WatchDeliveryResult } from "./chainWatchDiscordDelivery";
 import { DISCORD_ALERT_KEYS, type DiscordAlertKey } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import { fetchTrackedTornJson } from "./external/torn";
@@ -517,7 +516,7 @@ async function sendWarningIfDue(
 
   // A new message is required for mention notifications. Keep the live status
   // message's ID separate so later refreshes do not overwrite this alert.
-  await upsertChainWatchDiscordMessage(
+  const delivery = await deliverChainWatchAlert(
     env,
     null,
     await chainWatchWarningDiscordMessage(env, {
@@ -529,6 +528,7 @@ async function sendWarningIfDue(
     stage === "warning_60" ? CHAIN_WATCH_WARNING_COLOR : CHAIN_WATCH_CRITICAL_COLOR,
     chainWatchWarningAlertKey(stage),
   );
+  await requireChainWatchAlertDelivery(env, confirmedState, delivery, sentAt);
 
   await env.DB.prepare(
     `
@@ -627,7 +627,7 @@ async function sendDroppedIfDue(
     return;
   }
 
-  await upsertChainWatchDiscordMessage(
+  const delivery = await deliverChainWatchAlert(
     env,
     null,
     await chainWatchDroppedDiscordMessage(env, {
@@ -638,6 +638,7 @@ async function sendDroppedIfDue(
     CHAIN_WATCH_DROP_COLOR,
     DISCORD_ALERT_KEYS.chainWatchDrop,
   );
+  await requireChainWatchAlertDelivery(env, state, delivery, sentAt);
 
   await env.DB.prepare(
     `
@@ -653,6 +654,17 @@ async function sendDroppedIfDue(
   )
     .bind(sentAt, sentAt, state.faction_id)
     .run();
+}
+
+async function requireChainWatchAlertDelivery(
+  env: Env, state: ChainWatchStateRow, delivery: WatchDeliveryResult<string>, checkedAt: number,
+): Promise<void> {
+  // Disabled/unrouted alerts intentionally advance the stage. A failed request
+  // leaves it pending and propagates to the alarm's retry mechanism.
+  if (delivery.status !== "failed") return;
+  await env.DB.prepare("UPDATE faction_chain_watch_state SET last_error = ?, updated_at = ? WHERE faction_id = ?")
+    .bind(truncateChainWatchError(delivery.error.message), checkedAt, state.faction_id).run();
+  throw delivery.error;
 }
 
 async function updateChainWatchLiveCheckStatus(
@@ -928,15 +940,17 @@ async function syncChainWatchStatusDiscordMessage(
     return state;
   }
 
-  const discordMessageId = await upsertChainWatchDiscordMessage(
+  const delivery = await deliverChainWatchAlert(
     env,
     state.discord_message_id,
     chainWatchStatusMessage(state, checkedAt),
   );
 
-  if (!discordMessageId || discordMessageId === state.discord_message_id) {
+  if (delivery.status === "failed") console.warn("Chain Watch Discord status update failed:", delivery.error.message);
+  if (delivery.status !== "success" || delivery.value === state.discord_message_id) {
     return state;
   }
+  const discordMessageId = delivery.value;
 
   await env.DB.prepare(
     `
@@ -983,46 +997,17 @@ async function syncChainWatchStoppedDiscordMessage(
     return state;
   }
 
-  await upsertChainWatchDiscordMessage(
+  const delivery = await deliverChainWatchAlert(
     env,
     state.discord_message_id,
     chainWatchStoppedMessage(),
   );
+  if (delivery.status === "failed") console.warn("Chain Watch Discord stopped update failed:", delivery.error.message);
 
   return {
     ...state,
     updated_at: checkedAt,
   };
-}
-
-async function upsertChainWatchDiscordMessage(
-  env: Env,
-  existingMessageId: string | null,
-  options: string | { message: string; allowedMentions?: DiscordAllowedMentions },
-  cardColor?: number,
-  alertKey: DiscordAlertKey = DISCORD_ALERT_KEYS.chainWatch,
-): Promise<string | null> {
-  if (!await isDiscordAlertEnabled(env, alertKey)) {
-    return existingMessageId;
-  }
-
-  try {
-    // Warning/drop messages already contain their own mentions and assigned watcher.
-    const mentions = typeof options === "string" ? await readDiscordAlertMentions(env, alertKey) : null;
-    const message = typeof options === "string" ? formatDiscordAlertMessage(options, mentions!.messageSuffix) : options.message;
-    const allowedMentions = typeof options === "string" ? mentions!.allowedMentions ?? { users: [], roles: [] } : options.allowedMentions;
-    return await upsertDiscordAlertMessage(
-      env,
-      alertKey,
-      existingMessageId,
-      message,
-      allowedMentions,
-      { cardColor },
-    );
-  } catch (err: any) {
-    console.warn("Chain Watch Discord alert failed:", err?.message || err);
-    return existingMessageId;
-  }
 }
 
 export async function readChainWatchState(env: Env): Promise<ChainWatchStateRow | null> {

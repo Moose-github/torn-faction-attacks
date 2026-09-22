@@ -1,7 +1,8 @@
 import type { ChainWatchScheduleResponse } from "../shared/chainWatchSchedule";
 import { DEFAULT_WATCH_PAYMENT_PER_SHIFT, summarizeWatchers } from "../shared/chainWatchSummary";
 import { readWatch } from "./chainWatchSchedule";
-import { watchDiscordRequest, watchPageUrl } from "./chainWatchScheduleDiscord";
+import { watchPageUrl } from "./chainWatchScheduleDiscord";
+import { sendWatchDiscordMessage } from "./chainWatchDiscordDelivery";
 import type { Env } from "./types";
 import { nowSeconds } from "./utils";
 
@@ -75,13 +76,9 @@ async function deliverAnnouncement(env: Env, data: ChainWatchScheduleResponse, k
     const ids: string[] = JSON.parse(row.message_ids_json);
     while (ids.length < payloads.length) {
       if (Date.now() >= stopAt) return false;
-      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`watch:${watch.id}:${kind}:${ids.length}`)));
-      const nonce = Array.from(digest.slice(0, 12), value => value.toString(16).padStart(2, "0")).join("");
-      const message = await watchDiscordRequest<{ id: string }>(env, `/channels/${watch.channel_id}/messages`, "POST", {
-        ...payloads[ids.length], nonce, enforce_nonce: true,
-      });
-      if (!message.id) throw new Error(`Discord did not return a chain watch ${kind} message ID`);
-      ids.push(message.id);
+      const delivery = await sendWatchDiscordMessage(env, watch.channel_id, payloads[ids.length], `watch:${watch.id}:${kind}:${ids.length}`);
+      if (delivery.status === "failed") throw delivery.error;
+      ids.push(delivery.value);
       await env.DB.prepare(`UPDATE chain_watch_announcements SET message_ids_json = ?, sent_at = ?
         WHERE watch_id = ? AND kind = ? AND sync_token = ?`)
         .bind(JSON.stringify(ids), ids.length === payloads.length ? now : null, watch.id, kind, token).run();

@@ -179,6 +179,36 @@ describe("independent faction chain monitor", () => {
     expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.every((call) => !call[3].includes("WARNING"))).toBe(true);
   });
 
+  it.each([
+    [240, 60, "chain_watch_warning", "warning_60_sent_at", "warning_60"],
+    [270, 30, "chain_watch_critical", "warning_30_sent_at", "warning_30"],
+    [300, 0, "chain_watch_drop", "drop_sent_at", "drop"],
+  ] as const)("keeps a failed %s-second stage pending until Discord delivery succeeds", async (offset, remaining, key, column, stage) => {
+    await watch(); await hit(1, start); await tick();
+    for (const [earlierOffset, earlierRemaining] of [[240, 60], [270, 30]]) {
+      if (earlierOffset >= offset) continue;
+      vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout: earlierRemaining } });
+      advance(start + earlierOffset);
+      await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    }
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: remaining ? 150 : 0, timeout: remaining } });
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, alertKey) => {
+      if (alertKey === key) throw new Error("Discord HTTP 503");
+      return "message";
+    });
+    advance(start + offset);
+    await expect(handleChainWatchAlarm(db.env, HOME_FACTION_ID)).rejects.toThrow("Discord HTTP 503");
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      [column]: null, scheduled_alarm_stage: stage, last_error: "Discord HTTP 503",
+    });
+
+    vi.mocked(upsertDiscordAlertMessage).mockResolvedValue("recovered-message");
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: remaining ? 150 : 0, timeout: Math.max(0, remaining - 1) } });
+    advance(start + offset + 1);
+    await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(await readChainWatchState(db.env)).toMatchObject({ [column]: start + offset + 1, last_error: null });
+  });
+
   it("exposes read-only faction status without a war or extra Torn request", async () => {
     await watch(); await hit(1, start); await tick();
     expect(await (await getChainWatchLive(db.env)).json()).toMatchObject({ faction_id: HOME_FACTION_ID,

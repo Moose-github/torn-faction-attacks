@@ -11,6 +11,7 @@ import type { Env } from "./types";
 import { nowSeconds } from "./utils";
 import type { WatchSelectionContext } from "./chainWatchPrivateSession";
 import { ensureWatchInfo, publishFinishedWatchSummaries } from "./chainWatchAnnouncements";
+import { deleteWatchDiscordMessage, editWatchDiscordMessage, sendWatchDiscordMessage } from "./chainWatchDiscordDelivery";
 import { confirmWatchCheckIn, handleWatchTakeover, isWatchCheckInInteraction, isWatchTakeoverConfirmation, isWatchTakeoverInteraction, runWatchCheckIns } from "./chainWatchCheckIns";
 
 export const WATCH_COMPONENT_PREFIX = "cws:";
@@ -297,8 +298,8 @@ export async function syncWatchBoards(env: Env, now = nowSeconds()): Promise<voi
       const data = await readWatch(env, sheet.watch_id);
       if (data.slots.filter((slot) => slot.sheet_id === sheet.id).every((slot) => slot.cancelled)) {
         if (sheet.discord_message_id) {
-          try { await watchDiscordRequest(env, `/channels/${data.watch!.channel_id}/messages/${sheet.discord_message_id}`, "DELETE", undefined); }
-          catch (error) { if (!(error instanceof ExternalApiError && error.status === 404)) throw error; }
+          const delivery = await deleteWatchDiscordMessage(env, data.watch!.channel_id, sheet.discord_message_id);
+          if (delivery.status === "failed") throw delivery.error;
         }
         // Only the Discord publication metadata changes. Keep cancelled slots,
         // assignments and sheet records for the page and historical data.
@@ -313,15 +314,14 @@ export async function syncWatchBoards(env: Env, now = nowSeconds()): Promise<voi
       const serialized = JSON.stringify(payload);
       let messageId = sheet.discord_message_id;
       if (messageId && sheet.last_payload !== serialized) {
-        try { await watchDiscordRequest(env, `/channels/${data.watch!.channel_id}/messages/${messageId}`, "PATCH", payload); }
-        catch (error) { if (error instanceof ExternalApiError && error.status === 404) messageId = null; else throw error; }
+        const delivery = await editWatchDiscordMessage(env, data.watch!.channel_id, messageId, payload);
+        if (delivery.status === "failed") throw delivery.error;
+        if (delivery.status === "skipped") messageId = null;
       }
       if (!messageId) {
-        const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sheet.id)));
-        const nonce = Array.from(digest.slice(0, 12), (value) => value.toString(16).padStart(2, "0")).join("");
-        const message = await watchDiscordRequest<{ id: string }>(env, `/channels/${data.watch!.channel_id}/messages`, "POST", { ...payload, nonce, enforce_nonce: true });
-        if (!message.id) throw new Error("Discord did not return a roster message ID");
-        messageId = message.id;
+        const delivery = await sendWatchDiscordMessage(env, data.watch!.channel_id, payload, sheet.id);
+        if (delivery.status === "failed") throw delivery.error;
+        messageId = delivery.value;
       }
       await env.DB.prepare(`UPDATE chain_watch_sheets SET discord_message_id = ?, last_payload = ?, render_hour = ?, dirty = MAX(0, dirty - ?)
         WHERE id = ? AND sync_token = ?`).bind(messageId, serialized, hour, sheet.dirty, row.id, token).run();
@@ -361,9 +361,6 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
       : `[Open chain watch channel](${channelUrl})`;
     // The durable marker and lease prevent repeats across ticks and overlapping workers.
     // A stable Discord nonce also covers retries after an ambiguous POST response.
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256",
-      new TextEncoder().encode(`${alertKey}:${slot.watch_id}:${slot.start_at}`)));
-    const nonce = Array.from(digest.slice(0, 12), (value) => value.toString(16).padStart(2, "0")).join("");
     const token = crypto.randomUUID();
     const sendAt = Math.max(checkedAt, nowSeconds());
     // Recheck assignment, cancellation, finish and time after the async settings reads.
@@ -380,8 +377,7 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
     try {
       const from = new Date(slot.start_at * 1000).toISOString().slice(11, 16);
       const to = new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16);
-      const message = await watchDiscordRequest<{ id: string }>(env,
-        `/channels/${discordNotificationChannelTargetId(route)}/messages`, "POST", {
+      const delivery = await sendWatchDiscordMessage(env, discordNotificationChannelTargetId(route), {
           content: mentions.messageSuffix,
           embeds: [{
             title: "⚠️ Chain watch unfilled slot",
@@ -395,9 +391,8 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
             users: mentions.allowedMentions?.users ?? [],
             roles: mentions.allowedMentions?.roles ?? [],
           },
-          nonce, enforce_nonce: true,
-        });
-      if (!message.id) throw new Error("Discord did not return an unfilled slot alert message ID");
+        }, `${alertKey}:${slot.watch_id}:${slot.start_at}`);
+      if (delivery.status === "failed") throw delivery.error;
       await env.DB.prepare(`UPDATE chain_watch_slots SET unfilled_alert_sent_at = ?
         WHERE watch_id = ? AND start_at = ? AND unfilled_alert_token = ?`)
         .bind(sendAt, slot.watch_id, slot.start_at, token).run();
