@@ -22,7 +22,7 @@ vi.mock("./discordMentions", async (importOriginal) => ({
 
 const start = Date.UTC(2030, 0, 1, 13) / 1000;
 let db: ReturnType<typeof chainWatchDatabase>;
-const alarm = { scheduleFaction: vi.fn().mockResolvedValue(undefined), cancel: vi.fn().mockResolvedValue(undefined) };
+const alarm = { syncFaction: vi.fn().mockResolvedValue(undefined) };
 const getByName = vi.fn(() => alarm);
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -66,7 +66,8 @@ describe("independent faction chain monitor", () => {
     expect(await readChainWatchState(db.env)).toMatchObject({ faction_id: HOME_FACTION_ID, enabled: 1,
       source: "stored", current_chain: 150, last_hit_id: 1, timeout_at: start + 280 });
     expect(getByName).toHaveBeenCalledWith(`chain-watch:faction:${HOME_FACTION_ID}`);
-    expect(alarm.scheduleFaction).toHaveBeenLastCalledWith(HOME_FACTION_ID, start + 220);
+    expect(alarm.syncFaction).toHaveBeenLastCalledWith(HOME_FACTION_ID);
+    expect((await readChainWatchState(db.env))?.scheduled_alarm_at).toBe(start + 220);
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
   });
 
@@ -108,7 +109,7 @@ describe("independent faction chain monitor", () => {
     expect(await readChainWatchDemand(db.env)).toMatchObject({ active: true, war_id: null });
     expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 1, discord_message_id: before?.discord_message_id,
       scheduled_alarm_at: before?.scheduled_alarm_at });
-    expect(alarm.cancel).not.toHaveBeenCalled();
+    expect((await readChainWatchState(db.env))?.scheduled_alarm_at).not.toBeNull();
     const response = await getChainWatchForWar(new URL("https://worker.test/api/wars/War%201/chain-watch"), db.env);
     expect(await response.json()).toMatchObject({ state: { war_id: 1, enabled: 0, current_chain: 150 }, computed: { active: false } });
   });
@@ -129,7 +130,7 @@ describe("independent faction chain monitor", () => {
     await watch(start + 3600); await hit(1, start - 10); await tick();
     await tick(start + 3600);
     expect(await readChainWatchState(db.env)).toMatchObject({ enabled: 0, scheduled_alarm_at: null, scheduled_alarm_stage: null });
-    expect(alarm.cancel).toHaveBeenCalled();
+    expect(alarm.syncFaction).toHaveBeenLastCalledWith(HOME_FACTION_ID);
     expect(upsertDiscordAlertMessage).toHaveBeenLastCalledWith(db.env, "chain_watch", "message", "Chain Watch stopped.", expect.anything(), expect.anything());
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
   });
@@ -146,7 +147,8 @@ describe("independent faction chain monitor", () => {
     await hit(2, start + 20, { chain: 151 }); advance(start + 21);
     await refreshActiveChainWatchFromStoredAttacks(db.env, start + 21);
     expect(await readChainWatchState(db.env)).toMatchObject({ last_hit_id: 2, current_chain: 151, timeout_at: start + 320 });
-    expect(alarm.scheduleFaction).toHaveBeenLastCalledWith(HOME_FACTION_ID, start + 260);
+    expect(alarm.syncFaction).toHaveBeenLastCalledWith(HOME_FACTION_ID);
+    expect((await readChainWatchState(db.env))?.scheduled_alarm_at).toBe(start + 260);
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
   });
 
@@ -214,6 +216,71 @@ describe("independent faction chain monitor", () => {
     expect(await (await getChainWatchLive(db.env)).json()).toMatchObject({ faction_id: HOME_FACTION_ID,
       state: { current_chain: 150 }, computed: { active: true, remaining_seconds: 300 }, demand: { war_id: null } });
     expect(fetchTrackedTornJson).not.toHaveBeenCalled();
+  });
+});
+
+describe("versioned chain timers", () => {
+  it.each([
+    [240, 60, "chain_watch_warning"], [270, 30, "chain_watch_critical"], [300, 0, "chain_watch_drop"],
+  ] as const)("preserves the new timer when an attack arrives during %s-second alert delivery", async (offset, remaining, key) => {
+    await watch(); await hit(1, start); await tick();
+    const originalVersion = (await readChainWatchState(db.env))!.timer_version;
+    for (const [at, timeout] of [[240, 60], [270, 30]]) {
+      if (at >= offset) continue;
+      vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 150, timeout } });
+      advance(start + at); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    }
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: remaining ? 150 : 0, timeout: remaining } });
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, alertKey) => {
+      if (alertKey === key) {
+        await hit(2, start + offset, { chain: 151 });
+        await refreshActiveChainWatchFromStoredAttacks(db.env, start + offset);
+      }
+      return "message";
+    });
+    advance(start + offset); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 151, reset_at: start + offset, timeout_at: start + offset + 300,
+      warning_60_sent_at: null, warning_30_sent_at: null, drop_sent_at: null,
+      scheduled_alarm_stage: "warning_60", scheduled_alarm_at: start + offset + 240,
+    });
+    expect((await readChainWatchState(db.env))!.timer_version).toBeGreaterThan(originalVersion);
+    vi.mocked(upsertDiscordAlertMessage).mockResolvedValue("next-warning");
+    vi.mocked(fetchTrackedTornJson).mockResolvedValue({ chain: { current: 151, timeout: 60 } });
+    advance(start + offset + 240); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect((await readChainWatchState(db.env))!.warning_60_sent_at).toBe(start + offset + 240);
+  });
+
+  it.each(["stale live result", "failed live result"])("discards a %s after ingestion resets the timer", async result => {
+    await watch(); await hit(1, start); await tick();
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    vi.mocked(fetchTrackedTornJson).mockImplementationOnce(async () => {
+      await hit(2, start + 240, { chain: 151 });
+      await refreshActiveChainWatchFromStoredAttacks(db.env, start + 240);
+      if (result === "failed live result") throw new Error("Old request failed");
+      return { chain: { current: 149, timeout: 30 } };
+    });
+    advance(start + 240); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      source: "stored", current_chain: 151, timeout_at: start + 540, last_error: null,
+      warning_60_sent_at: null, scheduled_alarm_at: start + 480,
+    });
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.some(call => call[1] === "chain_watch_warning")).toBe(false);
+  });
+
+  it("rejects an older cron observation and scheduling decision after a newer hit", async () => {
+    await watch(); await hit(1, start); await tick();
+    vi.mocked(fetchTrackedTornJson).mockImplementationOnce(async () => {
+      await hit(2, start + 301, { chain: 151 });
+      advance(start + 302);
+      await refreshActiveChainWatchFromStoredAttacks(db.env, start + 302);
+      return { chain: { current: 0, timeout: 0 } };
+    });
+    await tick(start + 300);
+    expect(await readChainWatchState(db.env)).toMatchObject({
+      current_chain: 151, last_hit_id: 2, last_checked_at: start + 302,
+      timeout_at: start + 601, scheduled_alarm_stage: "warning_60", scheduled_alarm_at: start + 541,
+    });
   });
 });
 

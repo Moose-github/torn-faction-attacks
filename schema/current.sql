@@ -150,6 +150,7 @@ CREATE INDEX idx_chain_watch_state_enabled
   ON chain_watch_state (enabled, timeout_at);
 
 CREATE TABLE faction_chain_watch_state (
+  timer_version INTEGER NOT NULL DEFAULT 0,
   faction_id INTEGER PRIMARY KEY,
   enabled INTEGER NOT NULL DEFAULT 0,
   source TEXT NOT NULL DEFAULT 'stored',

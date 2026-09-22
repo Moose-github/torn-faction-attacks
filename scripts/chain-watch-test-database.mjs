@@ -9,7 +9,10 @@ export function chainWatchDatabase(now, migrate = true) {
     if (!statement) throw new Error(`Missing schema for ${table}`);
     db.sqlite.exec(statement);
   }
-  const applyMigration = () => db.sqlite.exec(readFileSync(new URL("../migrations/0148_create_faction_chain_watch_state.sql", import.meta.url), "utf8"));
+  const applyMigration = () => {
+    db.sqlite.exec(readFileSync(new URL("../migrations/0148_create_faction_chain_watch_state.sql", import.meta.url), "utf8"));
+    db.sqlite.exec(readFileSync(new URL("../migrations/0158_version_chain_watch_timers.sql", import.meta.url), "utf8"));
+  };
   if (migrate) applyMigration();
   return { ...db, applyMigration };
 }
