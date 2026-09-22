@@ -258,8 +258,8 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
   const filled = `${slots.filter((slot) => slot.assigned_to).length}/${slots.length} filled`;
   const rows = slots.map((slot) => {
     const status = watchSlotStatus(slot, data.now);
-    const who = slot.assigned_to ? escaped((slot.member_name ?? `Player ${slot.assigned_to}`).slice(0, 32)) : status.current ? "Unfilled" : "Available";
-    return `${status.icon ? `${status.icon} ` : ""}**${watchSlotLabel(slot.start_at)}**${status.current ? " · Current hour" : ""} · ${who} · ${status.label}`;
+    const who = slot.assigned_to ? escaped((slot.member_name ?? `Player ${slot.assigned_to}`).slice(0, 32)) : status.current ? "Unfilled" : null;
+    return `${status.icon ? `${status.icon} ` : ""}**${watchSlotLabel(slot.start_at)}**${status.current ? " · Current hour" : ""}${who ? ` · ${who}` : ""} · ${status.label}`;
   });
   return {
     content: "",

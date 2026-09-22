@@ -130,8 +130,9 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
               </div> : null}
               <div className={`watch-slot${mine ? " watch-slot-mine" : ""}${current ? " watch-slot-current" : ""}${slot.cancelled || ended ? " watch-slot-muted" : ""}`} aria-current={current ? "time" : undefined}>
               <div><strong>{new Date(slot.start_at * 1000).toISOString().slice(11, 16)}–{(slot.start_at + WATCH_HOUR) % WATCH_DAY === 0 ? "24:00" : new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)} UTC</strong>{current ? <small className="watch-current-label">Current hour</small> : null}</div>
-              <div><strong>{slot.assigned_to ? slot.member_name ?? `Player ${slot.assigned_to}` : current ? "Unfilled" : "Available"}{mine ? " · You" : ""}</strong>
+              <div>{slot.assigned_to || current ? <><strong>{slot.assigned_to ? slot.member_name ?? `Player ${slot.assigned_to}` : "Unfilled"}{mine ? " · You" : ""}</strong>
                 <small className={`watch-coverage watch-coverage-${status.tone}`}>{status.icon ? <span aria-hidden="true">{status.icon} </span> : null}{status.label}</small>
+                </> : <strong className={`watch-coverage watch-coverage-${status.tone}`}>{status.label}</strong>}
                 {!slot.cancelled && !started && breaksRule ? <small>An hour's break is required</small> : null}
               </div>
               <div className="watch-slot-actions">
