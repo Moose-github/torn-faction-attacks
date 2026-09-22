@@ -9,6 +9,7 @@ import { nowSeconds } from "./utils";
 export const WATCH_INFO_TEXT = [
   "• Maximum 2 shifts in a row.",
   `• Each hour pays $${DEFAULT_WATCH_PAYMENT_PER_SHIFT.toLocaleString("en-US")} after the watch finishes.`,
+  "• You'll be pinged 3 minutes before your shift starts to confirm you're ready. If you haven't checked in, an alert is sent 1 minute before the start, and another player can take over from 30 seconds before the start.",
   "• You must have energy available to make hits during your shifts.",
   "• You can watch while abroad, as long as you fly out with plenty of energy to make hits.",
   "• You cannot watch if you have bounties on you.",
