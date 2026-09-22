@@ -34,6 +34,19 @@ export async function patchDiscordBotJson(
   await assertExternalResponseOk(response, "Discord bot");
 }
 
+export async function deleteDiscordBotMessage(
+  botToken: string,
+  channelId: string,
+  messageId: string,
+  options: { timeoutMs?: number } = {},
+): Promise<void> {
+  const response = await fetchExternal(discordApiUrl(`/channels/${channelId}/messages/${messageId}`), {
+    method: "DELETE",
+    headers: discordBotJsonHeaders(botToken),
+  }, options);
+  await assertExternalResponseOk(response, "Discord bot");
+}
+
 export async function postDiscordBotFormAndRead<T>(
   botToken: string,
   path: string,

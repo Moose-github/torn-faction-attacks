@@ -1,4 +1,4 @@
-import { createsLongWatchRun, nextWatchHour, watchDate, watchUtc, WATCH_DAY, WATCH_HOUR, type ChainWatchSheet, type ChainWatchScheduleResponse } from "../shared/chainWatchSchedule";
+import { createsLongWatchRun, nextWatchHour, watchDate, watchUtc, watchSlotStatus, WATCH_DAY, WATCH_HOUR, type ChainWatchSheet, type ChainWatchScheduleResponse } from "../shared/chainWatchSchedule";
 import { changeWatchSlots, createWatch, currentWatch, parseWatchTime, readWatch, reconcileWatch, setWatchFinish, WatchError, watchDiscordMember } from "./chainWatchSchedule";
 import { CHAIN_WATCH_COMMANDS_PUBLIC_FOR_TESTING } from "./discordCommands";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
@@ -255,9 +255,9 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
     watch.is_open && newestSheet ? "Next day published at 12:00 UTC" : "";
   const filled = `${slots.filter((slot) => slot.assigned_to).length}/${slots.length} filled`;
   const rows = slots.map((slot) => {
-    const who = slot.assigned_to ? escaped((slot.member_name ?? `Player ${slot.assigned_to}`).slice(0, 32)) : "Available";
-    const status = slot.start_at + WATCH_HOUR <= data.now ? "Ended" : slot.start_at <= data.now ? "On watch" : "";
-    return `${status === "On watch" ? "🟢 " : ""}**${watchSlotLabel(slot.start_at)}** · ${who}${status ? ` · ${status}` : ""}`;
+    const status = watchSlotStatus(slot, data.now);
+    const who = slot.assigned_to ? escaped((slot.member_name ?? `Player ${slot.assigned_to}`).slice(0, 32)) : status.current ? "Unfilled" : "Available";
+    return `${status.icon ? `${status.icon} ` : ""}**${watchSlotLabel(slot.start_at)}**${status.current ? " · Current hour" : ""} · ${who} · ${status.label}`;
   });
   return {
     content: "",

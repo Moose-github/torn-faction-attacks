@@ -4,7 +4,7 @@ import { isDiscordAlertEnabled } from "./discordAlertSettings";
 import { readDiscordAlertMentions } from "./discordMentions";
 import { discordNotificationChannelTargetId, readConfiguredDiscordNotificationChannel } from "./discordNotificationChannels";
 import type { DiscordInteraction, DiscordInteractionResponse } from "./discordInteractions";
-import { patchDiscordBotJson, postDiscordBotJsonAndRead } from "./external/discord";
+import { deleteDiscordBotMessage, patchDiscordBotJson, postDiscordBotJsonAndRead } from "./external/discord";
 import { ExternalApiError } from "./external/http";
 import type { Env } from "./types";
 import { nowSeconds } from "./utils";
@@ -13,6 +13,7 @@ export const WATCH_CHECK_IN_PREFIX = "cws:checkin:";
 const REMINDER_LEAD = 180;
 const ESCALATION_LEAD = 60;
 const RESPONSE_WINDOW = 120;
+const CLEANUP_DELAY = 5 * 60;
 const noMentions = { parse: [], users: [], roles: [] };
 
 type Block = {
@@ -24,6 +25,7 @@ type CheckIn = Omit<Block, "check_in_revision"> & {
   confirmed_at: number | null; escalation_message_id: string | null; escalation_channel_id: string | null;
   escalation_sent_at: number | null; escalation_kind: string | null; reminder_error: string | null;
   cancelled_at: number | null; closed_at: number | null; dirty: number;
+  reminder_deleted_at: number | null; escalation_deleted_at: number | null;
 };
 
 // Used both by the sender and the confirmation UPDATE. The revision invalidates
@@ -82,6 +84,21 @@ export async function runWatchCheckIns(env: Env, now = nowSeconds()): Promise<vo
     try { await processCheckIn(env, row.id); }
     catch (error) { errors.push(error); }
   }
+  // Closed, clean rows leave the ordinary render queue but still need deletion.
+  // Read them separately so old cleanup cannot crowd out active reminders.
+  const cleanup = await env.DB.prepare(`SELECT id FROM chain_watch_check_ins WHERE guild_id = ? AND (
+    (reminder_message_id IS NOT NULL AND reminder_deleted_at IS NULL AND
+      (cancelled_at <= ? OR (cancelled_at IS NULL AND confirmed_at IS NOT NULL AND end_at <= ?))) OR
+    (escalation_message_id IS NOT NULL AND escalation_deleted_at IS NULL AND cancelled_at <= ?))
+    ORDER BY COALESCE(cancelled_at, end_at), id LIMIT 30`)
+    .bind(env.DISCORD_GUILD_ID, checkedAt - CLEANUP_DELAY, checkedAt - CLEANUP_DELAY, checkedAt - CLEANUP_DELAY)
+    .all<{ id: string }>();
+  const attempted = new Set(rows.results.map(row => row.id));
+  for (const row of cleanup.results) {
+    if (attempted.has(row.id)) continue;
+    try { await processCheckIn(env, row.id); }
+    catch (error) { errors.push(error); }
+  }
   if (errors.length) throw errors[0];
 }
 
@@ -131,6 +148,8 @@ async function processCheckIn(env: Env, id: string): Promise<void> {
       if (!row.confirmed_at && !row.escalation_sent_at && nowSeconds() >= deadline) await sendEscalation(env, row);
     }
     // Reread after sends: a check-in or reassignment may have arrived during HTTP.
+    row = (await readCheckIn(env, id))!;
+    await cleanupCheckIn(env, row);
     row = (await readCheckIn(env, id))!;
     if (row.dirty > 0) await renderCheckIn(env, row);
   } finally {
@@ -194,6 +213,34 @@ async function sendEscalation(env: Env, row: CheckIn): Promise<void> {
 function shiftText(row: CheckIn): string {
   return `**${escapeText(row.watch_name)}**\nWatcher: ${escapeText(row.member_name)}\nShift: ${watchUtc(row.start_at)} – ${watchUtc(row.end_at)}`;
 }
+function reminderCleanupAt(row: CheckIn): number | null {
+  return row.cancelled_at !== null ? row.cancelled_at + CLEANUP_DELAY
+    : row.confirmed_at !== null ? row.end_at + CLEANUP_DELAY : null;
+}
+function cleanupLine(at: number | null): string {
+  return at === null ? "" : `\nMessage cleanup: <t:${at}:R>`;
+}
+
+async function cleanupCheckIn(env: Env, row: CheckIn): Promise<void> {
+  // Remove obsolete alerts first, so a failed alert deletion keeps its reminder
+  // available. Confirmed-but-valid assignments only delete the reminder.
+  const messages = [
+    { channel: row.escalation_channel_id, id: row.escalation_message_id, deleted: row.escalation_deleted_at,
+      at: row.cancelled_at === null ? null : row.cancelled_at + CLEANUP_DELAY, column: "escalation_deleted_at" },
+    { channel: row.channel_id, id: row.reminder_message_id, deleted: row.reminder_deleted_at,
+      at: reminderCleanupAt(row), column: "reminder_deleted_at" },
+  ] as const;
+  for (const message of messages) {
+    if (!message.channel || !message.id || message.deleted !== null || message.at === null || message.at > nowSeconds()) continue;
+    try { await deleteDiscordBotMessage(env.DISCORD_BOT_TOKEN!, message.channel, message.id, { timeoutMs: 10_000 }); }
+    catch (error) { if (!(error instanceof ExternalApiError && error.status === 404)) throw error; }
+    // Keep IDs and confirmation history for audit; a durable marker prevents
+    // repeated deletes and future edits of a message already removed.
+    await env.DB.prepare(`UPDATE chain_watch_check_ins SET ${message.column} = ?, dirty = dirty + 1 WHERE id = ?`)
+      .bind(nowSeconds(), row.id).run();
+  }
+}
+
 function reminderPayload(row: CheckIn) {
   if (row.confirmed_at !== null && row.cancelled_at === null) {
     const from = new Date(row.start_at * 1000).toISOString().slice(11, 16);
@@ -201,7 +248,7 @@ function reminderPayload(row: CheckIn) {
     return {
       content: "",
       embeds: [{
-        description: `${escapeText(row.watch_name)} - **Chain watch check-in**\nWatcher: ${escapeText(row.member_name)} - Ready ✅\nShift: ${from} - ${to} UTC`,
+        description: `${escapeText(row.watch_name)} - **Chain watch check-in**\nWatcher: ${escapeText(row.member_name)} - Ready ✅\nShift: ${from} - ${to} UTC${cleanupLine(reminderCleanupAt(row))}`,
         color: 0x16a34a,
       }],
       components: [],
@@ -213,7 +260,7 @@ function reminderPayload(row: CheckIn) {
     : inactive ? "This shift has ended."
     : `Your shift ${row.start_at > nowSeconds() ? `starts <t:${row.start_at}:R>` : "has started"}. Please confirm you’re ready.`;
   return {
-    embeds: [{ title: "Chain watch check-in", description: `${shiftText(row)}\n\n${status}`, color: row.confirmed_at ? 0x16a34a : 0x2f80ed }],
+    embeds: [{ title: "Chain watch check-in", description: `${shiftText(row)}\n\n${status}${cleanupLine(reminderCleanupAt(row))}`, color: row.confirmed_at ? 0x16a34a : 0x2f80ed }],
     components: !inactive && row.confirmed_at === null ? [{ type: 1, components: [{
       type: 2, style: 3, label: "I’m ready", custom_id: `${WATCH_CHECK_IN_PREFIX}${row.id}`,
     }] }] : [],
@@ -229,7 +276,7 @@ function escalationPayload(row: CheckIn) {
       ? "The reminder has now been delivered; the watcher has not yet checked in. Please verify coverage."
       : "The check-in reminder could not be delivered. Please verify coverage."
     : "The scheduled watcher has not checked in. Cover may be needed.";
-  const url = row.reminder_message_id ? `https://discord.com/channels/${row.guild_id}/${row.channel_id}/${row.reminder_message_id}`
+  const url = row.reminder_message_id && row.reminder_deleted_at === null ? `https://discord.com/channels/${row.guild_id}/${row.channel_id}/${row.reminder_message_id}`
     : `https://discord.com/channels/${row.guild_id}/${row.channel_id}`;
   const from = new Date(row.start_at * 1000).toISOString().slice(11, 16);
   const to = new Date(row.end_at * 1000).toISOString().slice(11, 16);
@@ -238,18 +285,18 @@ function escalationPayload(row: CheckIn) {
   const title = row.confirmed_at !== null && row.cancelled_at === null ? "Chain watch - Resolved"
     : row.escalation_kind === "delivery_failed" ? "Chain watch check-in delivery problem" : "⚠️ Chain watch missed check-in";
   return { embeds: [{ title,
-    description: `${shift}\n\n${description}\n[Open chain watch sheet](${url})`, color: resolved ? 0x64748b : 0xffa500 }],
+    description: `${shift}\n\n${description}\n[Open chain watch sheet](${url})${cleanupLine(row.cancelled_at === null ? null : row.cancelled_at + CLEANUP_DELAY)}`, color: resolved ? 0x64748b : 0xffa500 }],
     components: [], allowed_mentions: noMentions };
 }
 
 async function renderCheckIn(env: Env, row: CheckIn): Promise<void> {
   // Suppress mentions on edits; confirmed reminders also clear the original ping
   // so the message contains only the compact confirmation block.
-  for (const [channel, message, payload] of [
-    [row.channel_id, row.reminder_message_id, reminderPayload(row)],
-    [row.escalation_channel_id, row.escalation_message_id, escalationPayload(row)],
+  for (const [channel, message, deleted, payload] of [
+    [row.channel_id, row.reminder_message_id, row.reminder_deleted_at, reminderPayload(row)],
+    [row.escalation_channel_id, row.escalation_message_id, row.escalation_deleted_at, escalationPayload(row)],
   ] as const) {
-    if (!channel || !message) continue;
+    if (!channel || !message || deleted !== null) continue;
     try { await patchDiscordBotJson(env.DISCORD_BOT_TOKEN!, `/channels/${channel}/messages/${message}`, payload, { timeoutMs: 10_000 }); }
     catch (error) { if (!(error instanceof ExternalApiError && error.status === 404)) throw error; }
   }

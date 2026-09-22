@@ -1,6 +1,6 @@
 import React from "react";
 import { CalendarClock, Check, ExternalLink, LockKeyhole, RefreshCw } from "lucide-react";
-import { createsLongWatchRun, nextWatchHour, watchDate, watchUtc, WATCH_DAY, WATCH_HOUR, type ChainWatchScheduleResponse, type ChainWatchSlot } from "../../../shared/chainWatchSchedule";
+import { createsLongWatchRun, nextWatchHour, watchDate, watchUtc, watchSlotStatus, WATCH_DAY, WATCH_HOUR, type ChainWatchScheduleResponse, type ChainWatchSlot } from "../../../shared/chainWatchSchedule";
 import { changeChainWatchSlot, finishChainWatch, getChainWatchSchedule, overrideChainWatchSlot } from "../api/chainWatchSchedule";
 import { PanelHeader } from "../components/Common";
 import { ChainWatchLivePanel } from "./ChainWatchLivePanel";
@@ -117,7 +117,8 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
           {slots.map((slot, index) => {
             const started = slot.start_at <= now;
             const ended = slot.start_at + WATCH_HOUR <= now;
-            const current = !slot.cancelled && started && !ended;
+            const status = watchSlotStatus(slot, now);
+            const current = status.current;
             const mine = slot.assigned_to === currentUserId;
             const breaksRule = !slot.assigned_to && createsLongWatchRun(myHours, slot.start_at);
             const startsDay = index === 0 || Math.floor(slot.start_at / WATCH_DAY) !== Math.floor(slots[index - 1].start_at / WATCH_DAY);
@@ -128,8 +129,11 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
                 {sheet?.discord_message_id ? <a className="watch-discord-link" href={`https://discord.com/channels/${watch.guild_id}/${watch.channel_id}/${sheet.discord_message_id}`} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Open in Discord</a> : null}
               </div> : null}
               <div className={`watch-slot${mine ? " watch-slot-mine" : ""}${current ? " watch-slot-current" : ""}${slot.cancelled || ended ? " watch-slot-muted" : ""}`} aria-current={current ? "time" : undefined}>
-              <div><strong>{new Date(slot.start_at * 1000).toISOString().slice(11, 16)}–{(slot.start_at + WATCH_HOUR) % WATCH_DAY === 0 ? "24:00" : new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)} UTC</strong></div>
-              <div><strong>{slot.assigned_to ? slot.member_name ?? `Player ${slot.assigned_to}` : "Available"}{mine ? " · You" : ""}</strong><small>{slot.cancelled ? "Cancelled" : ended ? "Ended" : started ? "On watch · locked" : breaksRule ? "An hour's break is required" : slot.assigned_to ? "Reserved" : "Open for sign-up"}</small></div>
+              <div><strong>{new Date(slot.start_at * 1000).toISOString().slice(11, 16)}–{(slot.start_at + WATCH_HOUR) % WATCH_DAY === 0 ? "24:00" : new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16)} UTC</strong>{current ? <small className="watch-current-label">Current hour</small> : null}</div>
+              <div><strong>{slot.assigned_to ? slot.member_name ?? `Player ${slot.assigned_to}` : current ? "Unfilled" : "Available"}{mine ? " · You" : ""}</strong>
+                <small className={`watch-coverage watch-coverage-${status.tone}`}>{status.icon ? <span aria-hidden="true">{status.icon} </span> : null}{status.label}</small>
+                {!slot.cancelled && !started && breaksRule ? <small>An hour's break is required</small> : null}
+              </div>
               <div className="watch-slot-actions">
                 {isAdmin && showAdmin ? <WatchAdminAssignment slot={slot} members={data!.members} disabled={busy || Boolean(slot.cancelled)} onSave={(target) => run(() => overrideChainWatchSlot(watch.id, slot.start_at, target), "Assignment updated.")} /> :
                   <button type="button" className="panel-action-button" disabled={busy || Boolean(slot.cancelled) || started || (!mine && Boolean(slot.assigned_to)) || Boolean(breaksRule)} onClick={() => void run(() => changeChainWatchSlot(watch.id, [slot.start_at], mine ? "leave" : "claim"), mine ? "You left the slot." : "Your slot is reserved.")}>{slot.cancelled ? "Cancelled" : started ? "Locked" : mine ? "Leave slot" : slot.assigned_to ? "Taken" : "Sign up"}</button>}

@@ -552,14 +552,15 @@ describe("Discord chain watch", () => {
     advance(finalSlotStart - 1);
     await syncWatchBoards(db.env, finalSlotStart - 1);
     expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).components[0].components).toHaveLength(3);
-    expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).embeds[0].description).toContain("🟢 **22:00 - 23:00** · Available · On watch");
+    expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).embeds[0].description).toContain("🔴 **22:00 - 23:00** · Current hour · Unfilled · Cover needed");
     advance(finalSlotStart);
     await syncWatchBoards(db.env, finalSlotStart);
     expect(fetcher.mock.calls.at(-1)![1].method).toBe("PATCH");
     expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).components).toEqual([]);
     const finalDescription = JSON.parse(fetcher.mock.calls.at(-1)![1].body).embeds[0].description;
-    expect(finalDescription).toContain("🟢 **23:00 - 24:00** · Available · On watch");
-    expect(finalDescription).not.toContain("🟢 **22:00 - 23:00**");
+    expect(finalDescription).toContain("🔴 **23:00 - 24:00** · Current hour · Unfilled · Cover needed");
+    expect(finalDescription).not.toContain("**22:00 - 23:00** · Current hour");
+    expect(finalDescription).not.toContain("🟢");
   });
 
   it.each(["ongoing", utc(start + WATCH_DAY)])("hides cancelled Discord days without changing history, then republishes with finish %s", async (finish) => {

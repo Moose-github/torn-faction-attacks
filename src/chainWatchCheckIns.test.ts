@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { watchAlertDatabase } from "../scripts/watch-alert-test-database.mjs";
-import { WATCH_HOUR, watchUtc } from "../shared/chainWatchSchedule";
-import { changeWatchSlots, createWatch, setWatchFinish } from "./chainWatchSchedule";
-import { completeDeferredWatchInteraction, deferredWatchResponse, handleWatchInteraction, runWatchScheduleCron } from "./chainWatchScheduleDiscord";
+import { WATCH_HOUR, watchUtc, watchSlotStatus } from "../shared/chainWatchSchedule";
+import { changeWatchSlots, createWatch, readWatch, setWatchFinish } from "./chainWatchSchedule";
+import { completeDeferredWatchInteraction, deferredWatchResponse, handleWatchInteraction, runWatchScheduleCron, syncWatchBoards, watchBoardPayload } from "./chainWatchScheduleDiscord";
 import { runWatchCheckIns, WATCH_CHECK_IN_PREFIX } from "./chainWatchCheckIns";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import type { DiscordInteraction } from "./discordInteractions";
@@ -43,6 +43,115 @@ beforeEach(async () => {
 });
 afterEach(() => { db.sqlite.close(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+describe("check-in coverage on shared rosters", () => {
+  const confirmations = async () => (await readWatch(db.env, watchId)).slots.map(slot => slot.check_in_confirmed_at);
+
+  it("refreshes both daily rosters immediately after an overnight check-in, then follows hour boundaries", async () => {
+    await assign(1, [start + WATCH_HOUR]);
+    await tick(due);
+    await syncWatchBoards(db.env);
+    const data = await readWatch(db.env, watchId);
+    expect(await confirmations()).toEqual([null, null]);
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM chain_watch_sheets WHERE dirty != 0").get()?.n).toBe(0);
+    fetchMock.mockClear();
+    await completeDeferredWatchInteraction(interaction(), db.env);
+    expect(await confirmations()).toEqual([due, due]);
+    const boardEdits = fetchMock.mock.calls.filter(call => data.sheets.some(sheet => String(call[0]).endsWith(`/messages/${sheet.discord_message_id}`)));
+    expect(boardEdits).toHaveLength(2);
+    for (const edit of boardEdits) {
+      expect(edit[1].method).toBe("PATCH");
+      expect(payload(edit).embeds[0].description).toContain("Alice · Ready ✅");
+      expect(payload(edit).embeds[0].description).not.toContain("On watch");
+      expect(payload(edit).allowed_mentions).toEqual({ parse: [] });
+    }
+    for (const currentStart of [start, start + WATCH_HOUR]) {
+      advance(currentStart);
+      const currentData = await readWatch(db.env, watchId);
+      const descriptions = currentData.sheets.map(sheet => watchBoardPayload(db.env, currentData, sheet).embeds[0].description);
+      expect(descriptions.join("\n").match(/🟢/g)).toHaveLength(1);
+      expect(descriptions[currentStart === start ? 0 : 1]).toContain("Current hour · Alice · On watch");
+    }
+  });
+
+  it("shows an unconfirmed assignment in amber, then removes readiness immediately after A to B to A reassignment", async () => {
+    await assign(1, [start + WATCH_HOUR]);
+    await tick(due);
+    advance(start);
+    let data = await readWatch(db.env, watchId);
+    expect(watchBoardPayload(db.env, data, data.sheets[0]).embeds[0].description)
+      .toContain("🟠 **23:00 - 24:00** · Current hour · Alice · Not checked in");
+    await confirm();
+    await syncWatchBoards(db.env);
+    await assign(2);
+    expect(await confirmations()).toEqual([null, null]);
+    // Invalidation queues the second day's board even though its own slot did
+    // not change, and it is outside the current hour's automatic refresh window.
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM chain_watch_sheets WHERE dirty > 0").get()?.n).toBe(2);
+    await assign(1);
+    expect(await confirmations()).toEqual([null, null]);
+    data = await readWatch(db.env, watchId);
+    expect(watchBoardPayload(db.env, data, data.sheets[0]).embeds[0].description).not.toContain("🟢");
+  });
+
+  it("keeps the unchanged first hour ready when the following hour is reassigned", async () => {
+    await assign(1, [start + WATCH_HOUR]);
+    await tick(due);
+    await confirm();
+    await assign(2, [start + WATCH_HOUR]);
+    expect(await confirmations()).toEqual([due, null]);
+    await assign(null, [start]);
+    expect(await confirmations()).toEqual([null, null]);
+  });
+
+  it("does not revive a future confirmation when shifts merge and split before cron", async () => {
+    await assign(2);
+    await assign(1, [start + WATCH_HOUR]);
+    await tick(start + WATCH_HOUR - 180);
+    const upcoming = db.sqlite.prepare("SELECT * FROM chain_watch_check_ins WHERE start_at = ? AND cancelled_at IS NULL").get(start + WATCH_HOUR)!;
+    expect(await handleWatchInteraction(interaction("111111", upcoming), db.env)).toEqual({ type: 6 });
+    expect(await confirmations()).toEqual([null, start + WATCH_HOUR - 180]);
+    await assign(1);
+    await assign(2);
+    expect(await confirmations()).toEqual([null, null]);
+  });
+
+  it("shares readiness with a newly appended consecutive hour before cron reconciles the reminder", async () => {
+    await tick(due);
+    await confirm();
+    await assign(1, [start + WATCH_HOUR]);
+    expect(await confirmations()).toEqual([due, due]);
+  });
+
+  it("retains confirmation after reminder cleanup without extending a closed check-in to a new hour", async () => {
+    await tick(due);
+    await confirm();
+    await tick(start + WATCH_HOUR + 300);
+    expect(state()?.reminder_deleted_at).not.toBeNull();
+    await assign(1, [start + WATCH_HOUR]);
+    expect(await confirmations()).toEqual([due, null]);
+    const data = await readWatch(db.env, watchId);
+    expect(watchSlotStatus(data.slots[0], data.now).label).toBe("Ended");
+    expect(watchSlotStatus(data.slots[1], data.now).label).toBe("Not checked in");
+  });
+
+  it("retries a failed roster edit without losing the check-in", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await tick(due);
+    await syncWatchBoards(db.env);
+    const data = await readWatch(db.env, watchId);
+    const boardId = data.sheets[0].discord_message_id;
+    fetchMock.mockImplementation(async (url: string) => String(url).endsWith(`/messages/${boardId}`)
+      ? Response.json({ message: "Unavailable" }, { status: 503 }) : Response.json({ id: "message" }));
+    await completeDeferredWatchInteraction(interaction(), db.env);
+    expect(await confirmations()).toEqual([due, null]);
+    expect(Number(db.sqlite.prepare("SELECT dirty FROM chain_watch_sheets WHERE id = ?").get(data.sheets[0].id)?.dirty)).toBeGreaterThan(0);
+    fetchMock.mockReset().mockResolvedValue(Response.json({ id: "message" }));
+    await syncWatchBoards(db.env);
+    expect(payload(fetchMock.mock.calls[0]).embeds[0].description).toContain("Alice · Ready ✅");
+    expect(db.sqlite.prepare("SELECT dirty FROM chain_watch_sheets WHERE id = ?").get(data.sheets[0].id)?.dirty).toBe(0);
+  });
+});
+
 describe("chain watch handover check-ins", () => {
   it("posts three minutes before a future watch starts in the sheet channel, pinging only the incoming watcher", async () => {
     await tick(due - 1);
@@ -73,7 +182,7 @@ describe("chain watch handover check-ins", () => {
     expect(posts()).toHaveLength(1);
     const edit = payload(fetchMock.mock.calls.at(-1)!);
     expect(edit.embeds).toEqual([{
-      description: "Test @\u200beveryone watch - **Chain watch check-in**\nWatcher: Alice - Ready ✅\nShift: 23:00 - 00:00 UTC",
+      description: `Test @\u200beveryone watch - **Chain watch check-in**\nWatcher: Alice - Ready ✅\nShift: 23:00 - 00:00 UTC\nMessage cleanup: <t:${start + WATCH_HOUR + 300}:R>`,
       color: 0x16a34a,
     }]);
     expect(edit.components).toEqual([]);
@@ -342,5 +451,157 @@ describe("chain watch handover check-ins", () => {
     advance(due);
     await expect(runWatchScheduleCron(db.env, due)).rejects.toThrow();
     expect(state()?.reminder_sent_at).toBe(due);
+  });
+
+  it("deletes a Ready reminder five minutes after shift end and retains its history", async () => {
+    await tick(due);
+    expect(payload(posts()[0]).embeds[0].description).not.toContain("Message cleanup:");
+    await confirm();
+    const original = state()!;
+    const cleanupAt = start + WATCH_HOUR + 300;
+    await tick(cleanupAt - 1);
+    expect(fetchMock.mock.calls.some(call => call[1].method === "DELETE")).toBe(false);
+    fetchMock.mockClear();
+    await tick(cleanupAt);
+    const deletes = fetchMock.mock.calls.filter(call => call[1].method === "DELETE");
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0][0]).toBe(`https://discord.com/api/v10/channels/sheet-channel/messages/${original.reminder_message_id}`);
+    expect(state()).toMatchObject({ reminder_deleted_at: cleanupAt, confirmed_at: due, reminder_message_id: original.reminder_message_id });
+    expect(fetchMock.mock.calls.some(call => call[1].method === "PATCH")).toBe(false);
+    await tick(cleanupAt + 60);
+    expect(fetchMock.mock.calls.filter(call => call[1].method === "DELETE")).toHaveLength(1);
+  });
+
+  it("updates the Ready countdown when a contiguous shift is extended", async () => {
+    await tick(due);
+    await confirm();
+    await assign(1, [start + WATCH_HOUR]);
+    await tick(due + 30);
+    expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain(`Message cleanup: <t:${start + 2 * WATCH_HOUR + 300}:R>`);
+    await tick(start + WATCH_HOUR + 300);
+    expect(fetchMock.mock.calls.some(call => call[1].method === "DELETE")).toBe(false);
+  });
+
+  it("moves the Ready countdown earlier when its second hour is reassigned", async () => {
+    await assign(1, [start + WATCH_HOUR]);
+    await tick(due);
+    await confirm();
+    await assign(2, [start + WATCH_HOUR]);
+    await tick(due + 30);
+    expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain(`Message cleanup: <t:${start + WATCH_HOUR + 300}:R>`);
+  });
+
+  it("shows a cancellation countdown on both old messages and deletes them together", async () => {
+    await tick(due);
+    await tick(start - 60);
+    const original = state()!;
+    advance(start - 30);
+    await assign(2);
+    await tick(start - 30);
+    const cleanupAt = start - 30 + 300;
+    for (const id of [original.reminder_message_id, original.escalation_message_id]) {
+      const edit = fetchMock.mock.calls.filter(call => call[1].method === "PATCH" && String(call[0]).endsWith(`/messages/${id}`)).at(-1)!;
+      expect(payload(edit).embeds[0].description).toContain(`Message cleanup: <t:${cleanupAt}:R>`);
+    }
+    await tick(cleanupAt - 1);
+    expect(fetchMock.mock.calls.some(call => call[1].method === "DELETE")).toBe(false);
+    await tick(cleanupAt);
+    expect(fetchMock.mock.calls.filter(call => call[1].method === "DELETE").map(call => call[0])).toEqual([
+      `https://discord.com/api/v10/channels/backup-thread/messages/${original.escalation_message_id}`,
+      `https://discord.com/api/v10/channels/sheet-channel/messages/${original.reminder_message_id}`,
+    ]);
+    expect(db.sqlite.prepare("SELECT reminder_deleted_at, escalation_deleted_at FROM chain_watch_check_ins WHERE id = ?").get(String(original.id)))
+      .toEqual({ reminder_deleted_at: cleanupAt, escalation_deleted_at: cleanupAt });
+    expect(state()?.assigned_to).toBe(2);
+    expect(state()?.reminder_deleted_at).toBeNull();
+  });
+
+  it("uses the cancellation time for an already-confirmed reassignment", async () => {
+    await tick(due);
+    await confirm();
+    const original = state()!;
+    advance(due + 30);
+    await assign(2);
+    await tick(due + 30);
+    const edit = fetchMock.mock.calls.filter(call => call[1].method === "PATCH" && String(call[0]).endsWith(`/messages/${original.reminder_message_id}`)).at(-1)!;
+    expect(payload(edit).embeds[0].description).toContain(`Message cleanup: <t:${due + 330}:R>`);
+    await tick(due + 330);
+    expect(db.sqlite.prepare("SELECT reminder_deleted_at FROM chain_watch_check_ins WHERE id = ?").get(String(original.id))?.reminder_deleted_at).toBe(due + 330);
+  });
+
+  it("retains a resolved missed-check-in alert when deleting its Ready reminder", async () => {
+    await tick(due);
+    await tick(start - 60);
+    await confirm();
+    const original = state()!;
+    const cleanupAt = start + WATCH_HOUR + 300;
+    await tick(cleanupAt);
+    expect(fetchMock.mock.calls.filter(call => call[1].method === "DELETE").map(call => call[0])).toEqual([
+      `https://discord.com/api/v10/channels/sheet-channel/messages/${original.reminder_message_id}`,
+    ]);
+    expect(state()?.escalation_deleted_at).toBeNull();
+    const edit = fetchMock.mock.calls.filter(call => call[1].method === "PATCH" && String(call[0]).endsWith(`/messages/${original.escalation_message_id}`)).at(-1)!;
+    expect(payload(edit).embeds[0].description).not.toContain("Message cleanup:");
+    expect(payload(edit).embeds[0].description).toContain("https://discord.com/channels/guild/sheet-channel)");
+    expect(payload(edit).embeds[0].description).not.toContain(`/${original.reminder_message_id}`);
+  });
+
+  it("retains reminders and alerts when the watcher never confirmed", async () => {
+    await tick(due);
+    await tick(start - 60);
+    await tick(start + 25 * WATCH_HOUR);
+    expect(fetchMock.mock.calls.some(call => call[1].method === "DELETE")).toBe(false);
+    expect(fetchMock.mock.calls.filter(call => call[1].method === "PATCH").every(call => !payload(call).embeds[0].description.includes("Message cleanup:"))).toBe(true);
+    expect(state()).toMatchObject({ reminder_deleted_at: null, escalation_deleted_at: null });
+  });
+
+  it.each([204, 404, 503])("handles reminder cleanup HTTP %s, retrying only failures", async status => {
+    await tick(due);
+    await confirm();
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => init.method === "DELETE"
+      ? new Response(status === 204 ? null : "{}", { status }) : Response.json({ id: "message" }));
+    const cleanupAt = start + WATCH_HOUR + 300;
+    if (status === 503) {
+      await expect(tick(cleanupAt)).rejects.toThrow("503");
+      expect(state()?.reminder_deleted_at).toBeNull();
+      fetchMock.mockImplementation(async (_url: string, init: RequestInit) => init.method === "DELETE" ? new Response(null, { status: 204 }) : Response.json({ id: "message" }));
+      await tick(cleanupAt + 60);
+      expect(state()?.reminder_deleted_at).toBe(cleanupAt + 60);
+    } else {
+      await tick(cleanupAt);
+      expect(state()?.reminder_deleted_at).toBe(cleanupAt);
+    }
+    const deletes = fetchMock.mock.calls.filter(call => call[1].method === "DELETE").length;
+    await tick(cleanupAt + 120);
+    expect(fetchMock.mock.calls.filter(call => call[1].method === "DELETE")).toHaveLength(deletes);
+  });
+
+  it("resumes partial cancellation cleanup without deleting its alert twice", async () => {
+    await tick(due);
+    await tick(start - 60);
+    const original = state()!;
+    await assign(null);
+    fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+      if (init.method === "DELETE" && url.includes("sheet-channel")) return Response.json({}, { status: 503 });
+      return Response.json({ id: "message" });
+    });
+    const cleanupAt = start - 60 + 300;
+    await expect(tick(cleanupAt)).rejects.toThrow("503");
+    const row = () => db.sqlite.prepare("SELECT reminder_deleted_at, escalation_deleted_at FROM chain_watch_check_ins WHERE id = ?").get(String(original.id));
+    expect(row()).toEqual({ reminder_deleted_at: null, escalation_deleted_at: cleanupAt });
+    fetchMock.mockClear().mockImplementation(async () => Response.json({ id: "message" }));
+    await tick(cleanupAt + 60);
+    expect(fetchMock.mock.calls.filter(call => call[1].method === "DELETE").map(call => call[0])).toEqual([
+      `https://discord.com/api/v10/channels/sheet-channel/messages/${original.reminder_message_id}`,
+    ]);
+    expect(row()?.reminder_deleted_at).toBe(cleanupAt + 60);
+  });
+
+  it("does not delete twice when cleanup ticks overlap", async () => {
+    await tick(due);
+    await confirm();
+    advance(start + WATCH_HOUR + 300);
+    await Promise.all([runWatchCheckIns(db.env), runWatchCheckIns(db.env)]);
+    expect(fetchMock.mock.calls.filter(call => call[1].method === "DELETE")).toHaveLength(1);
   });
 });

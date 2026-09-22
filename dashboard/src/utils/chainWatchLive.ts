@@ -37,7 +37,7 @@ export function chainWatchLiveDisplay(data: ChainWatchLiveResponse | null, now: 
       countdown = "Checking…";
     } else {
       status = data.computed.alert_eligible && remaining !== null && remaining <= 30 ? "Critical"
-        : data.computed.alert_eligible && remaining !== null && remaining <= 60 ? "Warning" : "Watching";
+        : data.computed.alert_eligible && remaining !== null && remaining <= 60 ? "Warning" : "Monitoring";
       tone = status === "Critical" ? "critical" : status === "Warning" ? "warning" : "live";
       detail = data.computed.alert_eligible ? "Warnings at 60 and 30 seconds remaining."
         : "Warnings begin when the chain is above 100.";
@@ -45,5 +45,5 @@ export function chainWatchLiveDisplay(data: ChainWatchLiveResponse | null, now: 
     }
   }
   return { status, tone, detail, countdown, checkedAge,
-    current: status === "Watching" || status === "Warning" || status === "Critical" };
+    current: status === "Monitoring" || status === "Warning" || status === "Critical" };
 }

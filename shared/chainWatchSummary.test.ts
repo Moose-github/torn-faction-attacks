@@ -6,7 +6,7 @@ describe("shared chain watch summary", () => {
   it("combines days by player ID and pays only ended, non-cancelled assignments", () => {
     const now = 10 * WATCH_DAY;
     const slot = (id: number | null, start: number, cancelled = 0, name: string | null = "Watcher"): ChainWatchSlot => ({
-      watch_id: "watch", sheet_id: String(Math.floor(start / WATCH_DAY)), start_at: start, assigned_to: id, member_name: name, cancelled,
+      watch_id: "watch", sheet_id: String(Math.floor(start / WATCH_DAY)), start_at: start, assigned_to: id, member_name: name, cancelled, check_in_confirmed_at: null,
     });
     expect(summarizeWatchers([
       slot(1, now - WATCH_HOUR), slot(1, now - WATCH_DAY), slot(2, now - 2 * WATCH_HOUR),

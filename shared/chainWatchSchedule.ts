@@ -23,6 +23,7 @@ export type ChainWatchSlot = {
   assigned_to: number | null;
   member_name: string | null;
   cancelled: number;
+  check_in_confirmed_at: number | null;
 };
 
 export type ChainWatchScheduleResponse = {
@@ -42,6 +43,25 @@ export type ChainWatchHistoryResponse = {
 
 export const WATCH_HOUR = 3600;
 export const WATCH_DAY = 24 * WATCH_HOUR;
+
+// Keep time position separate from coverage: the current hour can be unfilled
+// or unconfirmed. A check-in is readiness for the whole consecutive shift.
+export function watchSlotStatus(slot: ChainWatchSlot, now: number): {
+  label: string; tone: "quiet" | "ready" | "warning" | "critical"; current: boolean; icon: string;
+} {
+  if (slot.cancelled) return { label: "Cancelled", tone: "quiet", current: false, icon: "" };
+  if (slot.start_at + WATCH_HOUR <= now) return { label: "Ended", tone: "quiet", current: false, icon: "" };
+  const current = slot.start_at <= now;
+  if (!slot.assigned_to) return current
+    ? { label: "Cover needed", tone: "critical", current, icon: "🔴" }
+    : { label: "Open for sign-up", tone: "quiet", current, icon: "" };
+  if (slot.check_in_confirmed_at != null) return current
+    ? { label: "On watch", tone: "ready", current, icon: "🟢" }
+    : { label: "Ready ✅", tone: "ready", current, icon: "" };
+  return current
+    ? { label: "Not checked in", tone: "warning", current, icon: "🟠" }
+    : { label: "Scheduled", tone: "quiet", current, icon: "" };
+}
 
 export function nextWatchHour(now: number): number {
   return (Math.floor(now / WATCH_HOUR) + 1) * WATCH_HOUR;

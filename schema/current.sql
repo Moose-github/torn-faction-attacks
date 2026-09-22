@@ -2004,10 +2004,12 @@ CREATE TABLE chain_watch_check_ins (
   member_name TEXT NOT NULL,
   reminder_message_id TEXT,
   reminder_sent_at INTEGER,
+  reminder_deleted_at INTEGER,
   confirmed_at INTEGER,
   escalation_message_id TEXT,
   escalation_channel_id TEXT,
   escalation_sent_at INTEGER,
+  escalation_deleted_at INTEGER,
   escalation_kind TEXT,
   reminder_error TEXT,
   cancelled_at INTEGER,
@@ -2020,6 +2022,18 @@ CREATE TABLE chain_watch_check_ins (
   FOREIGN KEY(watch_id, start_at) REFERENCES chain_watch_slots(watch_id, start_at)
 );
 CREATE INDEX chain_watch_check_ins_pending ON chain_watch_check_ins(closed_at, cancelled_at, dirty);
+CREATE INDEX chain_watch_check_ins_reminder_cleanup ON chain_watch_check_ins(guild_id, cancelled_at, end_at)
+  WHERE reminder_message_id IS NOT NULL AND reminder_deleted_at IS NULL;
+CREATE INDEX chain_watch_check_ins_escalation_cleanup ON chain_watch_check_ins(guild_id, cancelled_at)
+  WHERE escalation_message_id IS NOT NULL AND escalation_deleted_at IS NULL AND cancelled_at IS NOT NULL;
+
+CREATE TRIGGER chain_watch_check_in_roster_changed
+AFTER UPDATE OF confirmed_at, cancelled_at ON chain_watch_check_ins
+WHEN OLD.confirmed_at IS NOT NEW.confirmed_at OR OLD.cancelled_at IS NOT NEW.cancelled_at
+BEGIN
+  UPDATE chain_watch_sheets SET dirty = dirty + 1
+    WHERE watch_id = NEW.watch_id AND start_at < MAX(OLD.end_at, NEW.end_at) AND end_at > NEW.start_at;
+END;
 
 CREATE TRIGGER chain_watch_invalidate_check_in AFTER UPDATE OF assigned_to, cancelled ON chain_watch_slots
 WHEN OLD.assigned_to IS NOT NEW.assigned_to OR OLD.cancelled != NEW.cancelled

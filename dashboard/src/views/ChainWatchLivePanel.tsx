@@ -1,7 +1,7 @@
 import React from "react";
 import { Radio } from "lucide-react";
 import type { ChainWatchLiveResponse } from "../../../shared/chainWatchLive";
-import { WATCH_HOUR, type ChainWatchScheduleResponse, type ChainWatchSlot } from "../../../shared/chainWatchSchedule";
+import { WATCH_HOUR, watchSlotStatus, type ChainWatchScheduleResponse, type ChainWatchSlot } from "../../../shared/chainWatchSchedule";
 import { getChainWatchLive } from "../api/chainWatchSchedule";
 import { PanelHeader } from "../components/Common";
 import { chainWatchLiveDisplay } from "../utils/chainWatchLive";
@@ -55,6 +55,8 @@ export function ChainWatchLivePanel({ schedule, refreshKey }: {
   const relevantSlots = sameWatch || upcomingWatch ? (schedule?.slots ?? []).filter((slot) => !slot.cancelled) : [];
   const current = relevantSlots.find((slot) => slot.start_at <= now && slot.start_at + WATCH_HOUR > now);
   const next = relevantSlots.find((slot) => slot.start_at > now);
+  const currentStatus = current ? watchSlotStatus(current, now) : null;
+  const nextStatus = next ? watchSlotStatus(next, now) : null;
   const differentWatch = Boolean(data?.demand.watch_id && watch && !sameWatch);
   const source = state?.source === "live_confirm" ? "Torn check" : state?.source === "stored" ? "Attack feed" : "Monitor";
   const checked = display.checkedAge === null ? "Not checked yet" : display.checkedAge < 60
@@ -73,11 +75,13 @@ export function ChainWatchLivePanel({ schedule, refreshKey }: {
         <span>Time left</span><strong>{display.countdown}</strong>
       </div>
       <div className="chain-watch-detail">
-        <span>On watch</span><strong>{differentWatch ? "See current watch" : watcherName(current, "No shift active")}</strong>
+        <span>Current shift</span><strong>{differentWatch ? "See current watch" : watcherName(current, "No shift active")}</strong>
+        {currentStatus ? <small className={`watch-coverage watch-coverage-${currentStatus.tone}`}><span aria-hidden="true">{currentStatus.icon} </span>{currentStatus.label}</small> : null}
         <small>{current ? slotTime(current) : "—"}</small>
       </div>
       <div className="chain-watch-detail">
         <span>Next watcher</span><strong>{differentWatch ? "See current watch" : watcherName(next, "No upcoming slot")}</strong>
+        {nextStatus ? <small className={`watch-coverage watch-coverage-${nextStatus.tone}`}>{nextStatus.label}</small> : null}
         <small>{next ? slotTime(next) : "—"}</small>
       </div>
     </div>
@@ -95,7 +99,7 @@ export function ChainWatchLivePanel({ schedule, refreshKey }: {
 }
 
 function watcherName(slot: ChainWatchSlot | undefined, empty: string): string {
-  return !slot ? empty : slot.assigned_to ? slot.member_name ?? `Player ${slot.assigned_to}` : "Unassigned";
+  return !slot ? empty : slot.assigned_to ? slot.member_name ?? `Player ${slot.assigned_to}` : "Unfilled";
 }
 function utcTime(at: number): string {
   return `${new Date(at * 1000).toISOString().slice(11, 19)} UTC`;

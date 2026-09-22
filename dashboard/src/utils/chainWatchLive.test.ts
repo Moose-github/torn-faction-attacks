@@ -15,7 +15,7 @@ function live(): ChainWatchLiveResponse {
 describe("live chain panel status", () => {
   it("counts down from server time and escalates at 60 and 30 seconds", () => {
     const data = live();
-    expect(chainWatchLiveDisplay(data, now, false)).toMatchObject({ status: "Watching", countdown: "2:30" });
+    expect(chainWatchLiveDisplay(data, now, false)).toMatchObject({ status: "Monitoring", countdown: "2:30", current: true });
     expect(chainWatchLiveDisplay(data, now + 90, false)).toMatchObject({ status: "Warning", countdown: "1:00" });
     expect(chainWatchLiveDisplay(data, now + 120, false)).toMatchObject({ status: "Critical", countdown: "0:30" });
   });
@@ -44,6 +44,6 @@ describe("live chain panel status", () => {
   });
   it("does not signal warning thresholds for chains at or below 100", () => {
     const data = live(); data.state!.current_chain = 100; data.state!.timeout_at = now + 20; data.computed.alert_eligible = false;
-    expect(chainWatchLiveDisplay(data, now, false)).toMatchObject({ status: "Watching", countdown: "0:20" });
+    expect(chainWatchLiveDisplay(data, now, false)).toMatchObject({ status: "Monitoring", countdown: "0:20", current: true });
   });
 });

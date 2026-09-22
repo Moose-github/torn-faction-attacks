@@ -31,6 +31,24 @@ stale data or a failed refresh hides it, and local expiry waits for a monitoring
 update before calling the chain dropped. Historical sheets never supply watcher
 names for a different active watch.
 
+The Discord roster, hourly slots and Live panel share the same coverage labels.
+Upcoming assignments show **Scheduled**, or **Ready ✅** after check-in. During
+the hour, a confirmed watcher shows **🟢 On watch**, an unconfirmed assignment
+shows **🟠 Not checked in**, and an unfilled slot shows **🔴 Cover needed**.
+The current hour is labelled separately from coverage; the dashboard uses a blue
+highlight. Cancelled and ended slots never show active coverage. The Live panel
+labels the human assignment **Current shift** and the healthy automated monitor
+**Monitoring**.
+
+Readiness comes from the stored confirmation for the current assignment revision
+and applies across consecutive hours, including midnight. Reassignment, splits
+and merges invalidate obsolete confirmations using the existing reminder rules.
+Deleting a reminder does not erase its check-in record. Check-in confirms declared
+readiness, not continuing activity; payments still count completed assigned hours.
+Confirmation immediately queues and refreshes every Discord sheet touched by the
+shift. Failed edits remain queued for the minute cron; the dashboard reads the
+new status on its next normal refresh (every 15 seconds while visible or on focus).
+
 The 60-second warning, 30-second critical warning and drop alert each post a new
 Discord message, with the live status message continuing to update separately.
 These three alerts use Discord Components V2 cards with orange, red and blue
@@ -75,6 +93,20 @@ After confirmation, the reminder becomes one compact block: the watch name and
 `Shift: HH:MM - HH:MM UTC`. The original ping line and check-in button are removed.
 This public update confirms success without a separate private message. Rejected
 or failed check-ins still show a private error message.
+
+Confirmed **Ready** reminders are deleted five minutes after their shift ends.
+Cancelled or reassigned check-ins delete the old reminder and any associated
+alert five minutes after cancellation. Both eligible message formats end with
+`Message cleanup: <relative time>`; Discord updates the countdown automatically.
+Changes to a continuing shift's end time update the confirmed reminder's deadline.
+
+Cleanup runs in the existing minute job, so deletion occurs on the first tick
+after the displayed time. It retains database records and message IDs, records
+successful deletions, retries failures and treats already-removed messages as
+complete. Existing eligible messages are also picked up after migration `0155`.
+Unconfirmed ended reminders and ordinary missed/resolved alerts are retained;
+when a retained alert's reminder is removed, its link falls back to the sheet
+channel. Cancellation cleanup removes the alert before its linked reminder.
 
 These times are checked each minute. Late assignments or recovered delivery are
 picked up on the next tick, with at least two minutes to respond after successful
@@ -249,7 +281,7 @@ No schema migration is needed for this conversion.
 
 ## Release steps
 
-1. Apply D1 migrations through `0154_add_chain_watch_announcements.sql` to the target database.
+1. Apply D1 migrations through `0156_refresh_chain_watch_roster_on_check_in.sql` to the target database.
 2. Deploy the Worker and dashboard. The existing `DISCORD_GUILD_ID`,
    `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY` configuration is reused.
    Worker deployment applies Durable Object migration `v3` and binds

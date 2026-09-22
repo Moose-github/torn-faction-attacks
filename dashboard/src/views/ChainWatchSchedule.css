@@ -30,10 +30,16 @@
 .watch-slot small { display: block; margin-top: 5px; }
 .watch-slot strong { font-size: 14px; }
 .watch-slot-mine { background: #2f80ed0d; border-left: 3px solid #2f80ed; }
-.watch-slot-current { background: #16a34a14; border-left: 3px solid #16a34a; }
-.watch-slot-current strong, .watch-slot-current small { color: #14723f; }
-:root[data-theme="dark"] .watch-slot-current { background: #22c55e18; border-left-color: #4ade80; }
-:root[data-theme="dark"] .watch-slot-current strong, :root[data-theme="dark"] .watch-slot-current small { color: #86efac; }
+.watch-slot-current { background: #2f80ed14; border-left: 3px solid #2f80ed; }
+.watch-slot .watch-current-label { color: #3076c8; font-weight: 700; }
+.watch-schedule-page .watch-coverage { font-weight: 600; }
+.watch-schedule-page .watch-coverage-ready { color: #14723f; }
+.watch-schedule-page .watch-coverage-warning { color: #a35c0d; }
+.watch-schedule-page .watch-coverage-critical { color: #c72b39; }
+:root[data-theme="dark"] .watch-slot .watch-current-label { color: #93c5fd; }
+:root[data-theme="dark"] .watch-schedule-page .watch-coverage-ready { color: #86efac; }
+:root[data-theme="dark"] .watch-schedule-page .watch-coverage-warning { color: #fbbf24; }
+:root[data-theme="dark"] .watch-schedule-page .watch-coverage-critical { color: #fda4af; }
 .watch-slot-muted { opacity: .65; }
 .watch-slot-actions { justify-self: end; }
 .watch-slot-actions select { max-width: 180px; }
