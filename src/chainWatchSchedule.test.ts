@@ -44,7 +44,7 @@ async function publishFinalHourSheet() {
     .first<{ dirty: number; render_hour: number; last_payload: string }>();
   const published = (await readSheet())!;
   expect(published.dirty).toBe(0);
-  expect(published.last_payload).toContain("Current hour");
+  expect(published.last_payload).toContain("🔴 **23:00 - 24:00** · Unfilled · Cover needed");
   fetcher.mockClear();
   return { end, fetcher, readSheet, published };
 }
@@ -570,14 +570,14 @@ describe("Discord chain watch", () => {
     advance(finalSlotStart - 1);
     await syncWatchBoards(db.env, finalSlotStart - 1);
     expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).components[0].components).toHaveLength(3);
-    expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).embeds[0].description).toContain("🔴 **22:00 - 23:00** · Current hour · Unfilled · Cover needed");
+    expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).embeds[0].description).toContain("🔴 **22:00 - 23:00** · Unfilled · Cover needed");
     advance(finalSlotStart);
     await syncWatchBoards(db.env, finalSlotStart);
     expect(fetcher.mock.calls.at(-1)![1].method).toBe("PATCH");
     expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).components).toEqual([]);
     const finalDescription = JSON.parse(fetcher.mock.calls.at(-1)![1].body).embeds[0].description;
-    expect(finalDescription).toContain("🔴 **23:00 - 24:00** · Current hour · Unfilled · Cover needed");
-    expect(finalDescription).not.toContain("**22:00 - 23:00** · Current hour");
+    expect(finalDescription).toContain("🔴 **23:00 - 24:00** · Unfilled · Cover needed");
+    expect(finalDescription).toContain("**22:00 - 23:00** · Ended");
     expect(finalDescription).not.toContain("🟢");
   });
 
@@ -588,7 +588,8 @@ describe("Discord chain watch", () => {
     await syncWatchBoards(db.env, resumedAt);
     const finished = (await readSheet())!;
     expect(finished.render_hour).toBe(Math.floor(resumedAt / WATCH_HOUR));
-    expect(finished.last_payload).not.toContain("Current hour");
+    expect(finished.last_payload).not.toContain("🔴");
+    expect(finished.last_payload).toContain("**23:00 - 24:00** · Ended");
     expect(JSON.parse(finished.last_payload).components).toEqual([]);
     const edits = fetcher.mock.calls.filter(([, init]) => init.method === "PATCH");
     expect(edits).toHaveLength(1);
@@ -614,7 +615,8 @@ describe("Discord chain watch", () => {
     await syncWatchBoards(db.env, retryAt);
     const finished = (await readSheet())!;
     expect(finished.render_hour).toBe(Math.floor(retryAt / WATCH_HOUR));
-    expect(finished.last_payload).not.toContain("Current hour");
+    expect(finished.last_payload).not.toContain("🔴");
+    expect(finished.last_payload).toContain("**23:00 - 24:00** · Ended");
   });
 
   it.each(["ongoing", utc(start + WATCH_DAY)])("hides cancelled Discord days without changing history, then republishes with finish %s", async (finish) => {
