@@ -1924,12 +1924,17 @@ CREATE TABLE chain_watch_slots (
   unfilled_alert_sent_at INTEGER,
   unfilled_alert_token TEXT,
   unfilled_alert_until INTEGER NOT NULL DEFAULT 0,
+  unfilled_alert_message_id TEXT,
+  unfilled_alert_channel_id TEXT,
+  unfilled_alert_deleted_at INTEGER,
   check_in_revision INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(watch_id, start_at)
 );
 CREATE INDEX chain_watch_slots_sheet ON chain_watch_slots(sheet_id, start_at);
 CREATE INDEX chain_watch_slots_unfilled_alert_due ON chain_watch_slots(start_at)
   WHERE cancelled = 0 AND assigned_to IS NULL AND unfilled_alert_sent_at IS NULL;
+CREATE INDEX chain_watch_slots_unfilled_alert_cleanup ON chain_watch_slots(start_at)
+  WHERE unfilled_alert_message_id IS NOT NULL AND unfilled_alert_deleted_at IS NULL;
 
 CREATE TABLE chain_watch_pending_selections (
   id TEXT PRIMARY KEY,

@@ -27,6 +27,7 @@ export function watchDatabase(initialNow) {
   sqlite.exec(readFileSync(new URL("../migrations/0157_add_chain_watch_takeovers.sql", import.meta.url), "utf8"));
   sqlite.exec(watchSummaryRevisionsMigration);
   sqlite.exec(watchCheckInMessagesMigration);
+  sqlite.exec(readFileSync(new URL("../migrations/0161_track_unfilled_slot_alert_cleanup.sql", import.meta.url), "utf8"));
   const totalChanges = () => Number(sqlite.prepare("SELECT total_changes() AS n").get().n);
   class Statement {
     constructor(sql, values = []) { this.sql = sql; this.values = values; }

@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { watchAlertDatabase } from "../scripts/watch-alert-test-database.mjs";
 import { WATCH_HOUR, watchUtc } from "../shared/chainWatchSchedule";
 import { changeWatchSlots, createWatch, setWatchFinish } from "./chainWatchSchedule";
-import { runWatchScheduleCron, runWatchUnfilledSlotAlerts } from "./chainWatchScheduleDiscord";
+import { completeDeferredWatchInteraction, runWatchScheduleCron, runWatchUnfilledSlotAlerts, syncWatchBoardsSafely } from "./chainWatchScheduleDiscord";
+import { cleanupWatchUnfilledSlotAlerts } from "./chainWatchUnfilledAlertCleanup";
+import { confirmId, selectId, watchSessions } from "../scripts/watch-session-test-helpers";
 import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 
 const start = Date.UTC(2030, 0, 1, 13) / 1000;
@@ -11,6 +13,7 @@ const alertKey = DISCORD_ALERT_KEYS.chainWatchUnfilledSlot;
 let db: ReturnType<typeof watchAlertDatabase>;
 let watchId: string;
 const post = vi.fn();
+const deletes = () => post.mock.calls.filter(call => call[1].method === "DELETE");
 
 function advance(now: number) { db.setNow(now); vi.setSystemTime(now * 1000); }
 async function tick(now: number) { advance(now); await runWatchUnfilledSlotAlerts(db.env, now); }
@@ -18,7 +21,9 @@ async function assign(targetId: number | null) {
   await changeWatchSlots(db.env, { watchId, starts: [start], actorId: 1, targetId, admin: true });
 }
 function state() {
-  return db.sqlite.prepare("SELECT unfilled_alert_sent_at, unfilled_alert_token, unfilled_alert_until FROM chain_watch_slots WHERE watch_id = ? AND start_at = ?").get(watchId, start);
+  return db.sqlite.prepare(`SELECT unfilled_alert_sent_at, unfilled_alert_token, unfilled_alert_until,
+    unfilled_alert_message_id, unfilled_alert_channel_id, unfilled_alert_deleted_at
+    FROM chain_watch_slots WHERE watch_id = ? AND start_at = ?`).get(watchId, start);
 }
 function setRoute(key: string = alertKey, guild = "guild", channel = "alert-channel", thread: string | null = null) {
   db.sqlite.prepare(`INSERT INTO discord_notification_channels (guild_id, alert_key, channel_id, thread_id)
@@ -40,7 +45,7 @@ beforeEach(async () => {
   db.sqlite.prepare("UPDATE chain_watch_sheets SET discord_message_id = 'sheet-message' WHERE watch_id = ?").run(watchId);
   setRoute();
 });
-afterEach(() => { db.sqlite.close(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { db.sqlite.close(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("unfilled chain watch slot alerts", () => {
   it("warns at one hour, before monitoring starts, with the slot and sign-up link", async () => {
@@ -61,7 +66,8 @@ describe("unfilled chain watch slot alerts", () => {
     expect(description).not.toContain("@everyone");
     expect(payload.allowed_mentions).toEqual({ parse: [], users: [], roles: [] });
     expect(payload).toMatchObject({ nonce: expect.any(String), enforce_nonce: true });
-    expect(state()).toMatchObject({ unfilled_alert_sent_at: due, unfilled_alert_token: null, unfilled_alert_until: 0 });
+    expect(state()).toMatchObject({ unfilled_alert_sent_at: due, unfilled_alert_token: null, unfilled_alert_until: 0,
+      unfilled_alert_message_id: "alert-message", unfilled_alert_channel_id: "alert-channel", unfilled_alert_deleted_at: null });
     await tick(due + 60);
     await assign(1);
     await assign(null);
@@ -211,5 +217,145 @@ describe("unfilled chain watch slot alerts", () => {
     advance(start);
     await runWatchScheduleCron(db.env, due);
     expect(post.mock.calls.every((call) => !String(call[0]).includes("alert-channel"))).toBe(true);
+  });
+});
+
+describe("unfilled slot alert cleanup", () => {
+  it("keeps an empty slot's alert through its start, then deletes at its end and never again", async () => {
+    await tick(due);
+    await tick(start);
+    await tick(start + WATCH_HOUR - 1);
+    expect(deletes()).toHaveLength(0);
+    await tick(start + WATCH_HOUR);
+    expect(deletes().map(call => call[0])).toEqual(["https://discord.com/api/v10/channels/alert-channel/messages/alert-message"]);
+    expect(state()).toMatchObject({ unfilled_alert_deleted_at: start + WATCH_HOUR, unfilled_alert_sent_at: due });
+    await tick(start + WATCH_HOUR + 60);
+    expect(deletes()).toHaveLength(1);
+    expect(post.mock.calls.filter(call => call[1].method === "POST")).toHaveLength(1);
+  });
+
+  it("deletes immediately after a Discord sign-up without waiting for cron", async () => {
+    await tick(due);
+    const sessions = watchSessions(db.env);
+    post.mockImplementation(async (url: string) => Response.json({ id: url.includes("/webhooks/") ? "private-111" : "message" }));
+    const sheet = db.sqlite.prepare("SELECT sheet_id FROM chain_watch_slots WHERE watch_id = ? AND start_at = ?").get(watchId, start)!;
+    const click = (customId: string, values?: string[]) => ({
+      ...sessions.interaction(customId, "111", values), channel_id: "roster-channel",
+    });
+    const opened = await sessions.handle({ ...click(`cws:open:claim:${sheet.sheet_id}`), message: { id: "sheet-message" } });
+    const picked = await sessions.handle(click(selectId(opened), [String(start)]));
+    await completeDeferredWatchInteraction(click(confirmId(picked)), db.env);
+    expect(db.sqlite.prepare("SELECT assigned_to FROM chain_watch_slots WHERE watch_id = ? AND start_at = ?").get(watchId, start)?.assigned_to).toBe(1);
+    expect(state()?.unfilled_alert_deleted_at).toBe(due);
+    expect(deletes().map(call => call[0])).toContain("https://discord.com/api/v10/channels/alert-channel/messages/alert-message");
+  });
+
+  it("keeps a saved assignment and refreshes the roster when immediate deletion fails, then retries on cron", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await tick(due);
+    await assign(1);
+    post.mockImplementation(async (_url: string, init: RequestInit) => init.method === "DELETE"
+      ? Response.json({}, { status: 503 }) : Response.json({ id: "message" }));
+    await syncWatchBoardsSafely(db.env);
+    expect(state()).toMatchObject({ unfilled_alert_deleted_at: null, unfilled_alert_token: null, unfilled_alert_until: 0 });
+    expect(db.sqlite.prepare("SELECT assigned_to FROM chain_watch_slots WHERE watch_id = ? AND start_at = ?").get(watchId, start)?.assigned_to).toBe(1);
+    expect(post.mock.calls.some(call => call[1].method === "PATCH" && String(call[0]).endsWith("/messages/sheet-message"))).toBe(true);
+    post.mockImplementation(async () => new Response(null, { status: 204 }));
+    await tick(due + 60);
+    expect(state()?.unfilled_alert_deleted_at).toBe(due + 60);
+  });
+
+  it("deletes an alert sent while someone was filling its slot", async () => {
+    post.mockImplementation(async (_url: string, init: RequestInit) => {
+      if (init.method === "POST") {
+        await assign(1);
+        await cleanupWatchUnfilledSlotAlerts(db.env);
+        expect(deletes()).toHaveLength(0);
+      }
+      return Response.json({ id: "alert-message" });
+    });
+    await tick(due);
+    expect(state()?.unfilled_alert_deleted_at).toBe(due);
+    expect(deletes()).toHaveLength(1);
+  });
+
+  it.each(["disabled", "unrouted", "changed route", "closed watch"])("cleans up using the saved thread even with a %s", async reason => {
+    db.sqlite.exec("UPDATE discord_notification_channels SET thread_id = 'original-thread'");
+    await tick(due);
+    if (reason === "disabled") db.sqlite.prepare("INSERT INTO alert_settings (alert_key, enabled, configurable) VALUES (?, 0, 1)").run(alertKey);
+    if (reason === "unrouted") db.sqlite.exec("DELETE FROM discord_notification_channels");
+    if (reason === "changed route") db.sqlite.exec("UPDATE discord_notification_channels SET thread_id = 'different-thread'");
+    if (reason === "closed watch") db.sqlite.exec("UPDATE chain_watch_schedules SET is_open = 0");
+    await tick(start + WATCH_HOUR);
+    expect(deletes().map(call => call[0])).toEqual(["https://discord.com/api/v10/channels/original-thread/messages/alert-message"]);
+    expect(state()?.unfilled_alert_deleted_at).toBe(start + WATCH_HOUR);
+  });
+
+  it.each([204, 404, 503])("handles deletion HTTP %s and retries only failures", async status => {
+    await tick(due);
+    await assign(1);
+    post.mockImplementation(async () => new Response(status === 204 ? null : "{}", { status }));
+    if (status === 503) {
+      await expect(tick(due + 1)).rejects.toThrow("503");
+      expect(state()).toMatchObject({ unfilled_alert_deleted_at: null, unfilled_alert_until: 0 });
+      post.mockImplementation(async () => new Response(null, { status: 204 }));
+      await tick(due + 2);
+      expect(state()?.unfilled_alert_deleted_at).toBe(due + 2);
+    } else {
+      await tick(due + 1);
+      expect(state()?.unfilled_alert_deleted_at).toBe(due + 1);
+    }
+    const attempts = deletes().length;
+    await tick(due + 3);
+    expect(deletes()).toHaveLength(attempts);
+  });
+
+  it("deletes once when immediate cleanup and cron overlap", async () => {
+    await tick(due);
+    await assign(1);
+    await Promise.all([cleanupWatchUnfilledSlotAlerts(db.env), runWatchUnfilledSlotAlerts(db.env)]);
+    expect(deletes()).toHaveLength(1);
+    expect(state()?.unfilled_alert_deleted_at).toBe(due);
+  });
+
+  it("recovers an expired cleanup lease without losing the message ID", async () => {
+    await tick(due);
+    await assign(1);
+    db.sqlite.prepare("UPDATE chain_watch_slots SET unfilled_alert_token = 'interrupted', unfilled_alert_until = ?").run(due + 120);
+    await tick(due + 119);
+    expect(deletes()).toHaveLength(0);
+    await tick(due + 120);
+    expect(deletes()).toHaveLength(1);
+    expect(state()).toMatchObject({ unfilled_alert_message_id: "alert-message", unfilled_alert_deleted_at: due + 120 });
+  });
+
+  it("does not repost or delete again if a filled slot is later reopened", async () => {
+    await tick(due);
+    await assign(1);
+    await cleanupWatchUnfilledSlotAlerts(db.env);
+    await assign(null);
+    await tick(due + 60);
+    expect(post.mock.calls.filter(call => call[1].method === "POST")).toHaveLength(1);
+    expect(deletes()).toHaveLength(1);
+  });
+
+  it("leaves legacy alerts without saved IDs alone instead of reposting them", async () => {
+    db.sqlite.prepare("UPDATE chain_watch_slots SET unfilled_alert_sent_at = ?").run(due);
+    await tick(due);
+    await assign(1);
+    await tick(due + 1);
+    await tick(start + WATCH_HOUR);
+    expect(post).not.toHaveBeenCalled();
+    expect(state()).toMatchObject({ unfilled_alert_sent_at: due, unfilled_alert_message_id: null, unfilled_alert_deleted_at: null });
+  });
+
+  it("cleans up even when cron cannot publish the watch introduction", async () => {
+    await tick(due);
+    await assign(1);
+    post.mockImplementation(async (url: string) => url.includes("roster-channel")
+      ? Response.json({}, { status: 503 }) : new Response(null, { status: 204 }));
+    await expect(runWatchScheduleCron(db.env)).rejects.toThrow("503");
+    expect(state()?.unfilled_alert_deleted_at).toBe(due);
+    expect(deletes()).toHaveLength(1);
   });
 });

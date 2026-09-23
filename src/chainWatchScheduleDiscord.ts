@@ -13,6 +13,7 @@ import type { WatchSelectionContext } from "./chainWatchPrivateSession";
 import { ensureWatchInfo, publishFinishedWatchSummaries } from "./chainWatchAnnouncements";
 import { deleteWatchDiscordMessage, editWatchDiscordMessage, sendWatchDiscordMessage } from "./chainWatchDiscordDelivery";
 import { confirmWatchCheckIn, handleWatchTakeover, isWatchCheckInInteraction, isWatchTakeoverConfirmation, isWatchTakeoverInteraction, runWatchCheckIns } from "./chainWatchCheckIns";
+import { cleanupWatchUnfilledSlotAlerts } from "./chainWatchUnfilledAlertCleanup";
 
 export const WATCH_COMPONENT_PREFIX = "cws:";
 export const WATCH_UNFILLED_SLOT_LEAD_SECONDS = WATCH_HOUR;
@@ -278,6 +279,9 @@ export function watchBoardPayload(env: Env, data: ChainWatchScheduleResponse, sh
 }
 
 export async function syncWatchBoardsSafely(env: Env): Promise<void> {
+  // Both Discord and website assignment changes call this immediately after
+  // saving. Cleanup failures must not undo the assignment or block the roster.
+  try { await cleanupWatchUnfilledSlotAlerts(env); } catch (error) { console.error("Chain watch unfilled alert cleanup will retry", error instanceof Error ? error.message : "Unknown error"); }
   try { await syncWatchBoards(env); } catch (error) { console.error("Chain watch roster sync will retry", error instanceof Error ? error.message : "Unknown error"); }
 }
 
@@ -340,6 +344,13 @@ export async function syncWatchBoards(env: Env, now = nowSeconds()): Promise<voi
 }
 
 export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): Promise<void> {
+  try { await sendWatchUnfilledSlotAlerts(env, now); }
+  // Recheck after HTTP: a slot may have been filled while its alert was sent.
+  // Also clean up when new alerts are disabled, unrouted, or fail to send.
+  finally { await cleanupWatchUnfilledSlotAlerts(env, now); }
+}
+
+async function sendWatchUnfilledSlotAlerts(env: Env, now: number): Promise<void> {
   const guildId = readDiscordNotificationGuildId(env);
   if (!env.DISCORD_BOT_TOKEN || !guildId) return;
   const checkedAt = Math.max(now, nowSeconds());
@@ -380,7 +391,8 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
     try {
       const from = new Date(slot.start_at * 1000).toISOString().slice(11, 16);
       const to = new Date((slot.start_at + WATCH_HOUR) * 1000).toISOString().slice(11, 16);
-      const delivery = await sendWatchDiscordMessage(env, discordNotificationChannelTargetId(route), {
+      const channelId = discordNotificationChannelTargetId(route);
+      const delivery = await sendWatchDiscordMessage(env, channelId, {
           content: mentions.messageSuffix,
           embeds: [{
             title: "⚠️ Chain watch unfilled slot",
@@ -396,9 +408,10 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
           },
         }, `${alertKey}:${slot.watch_id}:${slot.start_at}`);
       if (delivery.status === "failed") throw delivery.error;
-      await env.DB.prepare(`UPDATE chain_watch_slots SET unfilled_alert_sent_at = ?
+      await env.DB.prepare(`UPDATE chain_watch_slots SET unfilled_alert_sent_at = ?,
+          unfilled_alert_message_id = ?, unfilled_alert_channel_id = ?
         WHERE watch_id = ? AND start_at = ? AND unfilled_alert_token = ?`)
-        .bind(sendAt, slot.watch_id, slot.start_at, token).run();
+        .bind(sendAt, delivery.value, channelId, slot.watch_id, slot.start_at, token).run();
     } finally {
       await env.DB.prepare(`UPDATE chain_watch_slots SET unfilled_alert_token = NULL, unfilled_alert_until = 0
         WHERE watch_id = ? AND start_at = ? AND unfilled_alert_token = ?`)
@@ -408,6 +421,11 @@ export async function runWatchUnfilledSlotAlerts(env: Env, now = nowSeconds()): 
 }
 
 export async function runWatchScheduleCron(env: Env, now = nowSeconds()): Promise<void> {
+  try { await processWatchScheduleCron(env, now); }
+  finally { await cleanupWatchUnfilledSlotAlerts(env, now); }
+}
+
+async function processWatchScheduleCron(env: Env, now: number): Promise<void> {
   const checkedAt = Math.max(now, nowSeconds());
   await reconcileWatch(env, checkedAt);
   // A new watch's info must arrive before any roster or reminder in its channel.
@@ -422,6 +440,6 @@ export async function runWatchScheduleCron(env: Env, now = nowSeconds()): Promis
     try { await syncWatchBoards(env, checkedAt); }
     finally { await runWatchCheckIns(env, checkedAt); }
   } finally {
-    await runWatchUnfilledSlotAlerts(env, checkedAt);
+    await sendWatchUnfilledSlotAlerts(env, checkedAt);
   }
 }

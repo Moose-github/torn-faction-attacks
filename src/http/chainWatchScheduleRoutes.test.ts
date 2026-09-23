@@ -3,6 +3,7 @@ import { watchDatabase } from "../../scripts/watch-test-database.mjs";
 import { nextWatchHour, watchUtc, WATCH_DAY, WATCH_HOUR } from "../../shared/chainWatchSchedule";
 import { createWatch, readWatch } from "../chainWatchSchedule";
 import { getChainWatchLive } from "../chainWatch";
+import { syncWatchBoardsSafely } from "../chainWatchScheduleDiscord";
 import { readAuthenticatedUserId, requireAdmin, requireMember } from "../auth";
 import { routeWatchScheduleApi } from "./chainWatchScheduleRoutes";
 import type { RouteContext } from "./context";
@@ -24,12 +25,16 @@ beforeEach(async () => {
   db = watchDatabase(now);
   id = (await createWatch(db.env, { name: "API test", guildId: "guild", channelId: "channel", discordUserId: "111" }, now)).id;
 });
-afterEach(() => { db.sqlite.close(); vi.useRealTimers(); vi.clearAllMocks(); });
+afterEach(() => { db.sqlite.close(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
-function request(path: string, body?: unknown) {
+async function request(path: string, body?: unknown) {
   const req = new Request(`https://worker.test${path}`, body === undefined ? undefined : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const context = { request: req, url: new URL(req.url), env: db.env, ctx: { waitUntil: vi.fn() } } as unknown as RouteContext;
-  return routeWatchScheduleApi(context);
+  const background: Promise<unknown>[] = [];
+  const context = { request: req, url: new URL(req.url), env: db.env,
+    ctx: { waitUntil: (task: Promise<unknown>) => background.push(task) } } as unknown as RouteContext;
+  const response = await routeWatchScheduleApi(context);
+  await Promise.all(background);
+  return response;
 }
 
 describe("chain watch page authorization", () => {
@@ -78,6 +83,24 @@ describe("chain watch page authorization", () => {
     const response = await request("/api/admin/chain-watch/slots", { watch_id: id, starts: [start], target_id: 2 });
     expect(response?.status).toBe(200);
     expect((await readWatch(db.env)).slots[0].assigned_to).toBe(2);
+  });
+
+  it.each(["member", "admin"])("cleans up an unfilled-slot alert immediately after a %s fills it on the website", async actor => {
+    const discord = await vi.importActual<typeof import("../chainWatchScheduleDiscord")>("../chainWatchScheduleDiscord");
+    vi.mocked(syncWatchBoardsSafely).mockImplementationOnce(discord.syncWatchBoardsSafely);
+    if (actor === "admin") vi.mocked(requireAdmin).mockResolvedValue(null);
+    db.env.DISCORD_BOT_TOKEN = "fixture-token";
+    db.sqlite.prepare(`UPDATE chain_watch_slots SET unfilled_alert_sent_at = ?,
+      unfilled_alert_message_id = 'unfilled-message', unfilled_alert_channel_id = 'alert-thread'
+      WHERE watch_id = ? AND start_at = ?`).run(now, id, start);
+    const fetcher = vi.fn(async () => Response.json({ id: "published" }));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await request(actor === "admin" ? "/api/admin/chain-watch/slots" : "/api/chain-watch/slots",
+      { watch_id: id, starts: [start], action: "claim", target_id: 2 });
+    expect(response?.status).toBe(200);
+    expect(fetcher).toHaveBeenCalledWith("https://discord.com/api/v10/channels/alert-thread/messages/unfilled-message",
+      expect.objectContaining({ method: "DELETE" }));
+    expect(db.sqlite.prepare("SELECT unfilled_alert_deleted_at FROM chain_watch_slots WHERE watch_id = ? AND start_at = ?").get(id, start)?.unfilled_alert_deleted_at).toBe(now);
   });
 });
 
