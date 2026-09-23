@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { watchCheckInMessagesMigration } from "../scripts/watch-test-database.mjs";
 import { watchAlertDatabase } from "../scripts/watch-alert-test-database.mjs";
 import { WATCH_HOUR, watchUtc, watchSlotStatus } from "../shared/chainWatchSchedule";
 import { changeWatchSlots, createWatch, readWatch, setWatchFinish } from "./chainWatchSchedule";
@@ -14,7 +15,10 @@ let db: ReturnType<typeof watchAlertDatabase>;
 let watchId: string;
 const fetchMock = vi.fn();
 const posts = () => fetchMock.mock.calls.filter(call => call[1].method === "POST");
+const deletes = () => fetchMock.mock.calls.filter(call => call[1].method === "DELETE");
 const payload = (call: unknown[]) => JSON.parse((call[1] as RequestInit).body as string);
+const cardEdit = (row = state()!) => payload(fetchMock.mock.calls.findLast(call =>
+  call[1].method === "PATCH" && String(call[0]).endsWith(`/messages/${row.reminder_message_id}`))!);
 function advance(now: number) { db.setNow(now); vi.setSystemTime(now * 1000); }
 async function tick(now: number) { advance(now); await runWatchCheckIns(db.env, now); }
 function state() { return db.sqlite.prepare("SELECT * FROM chain_watch_check_ins WHERE cancelled_at IS NULL ORDER BY created_at DESC LIMIT 1").get(); }
@@ -28,8 +32,7 @@ function interaction(user = "111111", row = state()!): DiscordInteraction {
 }
 async function confirm(user?: string) { return handleWatchInteraction(interaction(user), db.env); }
 function takeoverClick(user = "222222", row = state()!): DiscordInteraction {
-  return { ...interaction(user, row), channel_id: String(row.escalation_channel_id),
-    message: { id: String(row.escalation_message_id) }, data: { custom_id: `${WATCH_TAKE_OVER_PREFIX}${row.id}` } };
+  return { ...interaction(user, row), data: { custom_id: `${WATCH_TAKE_OVER_PREFIX}${row.id}` } };
 }
 async function prepareTakeover(user = "222222", row = state()!) {
   const click = takeoverClick(user, row);
@@ -82,7 +85,7 @@ describe("check-in coverage on shared rosters", () => {
       const currentData = await readWatch(db.env, watchId);
       const descriptions = currentData.sheets.map(sheet => watchBoardPayload(db.env, currentData, sheet).embeds[0].description);
       expect(descriptions.join("\n").match(/🟢/g)).toHaveLength(1);
-      expect(descriptions[currentStart === start ? 0 : 1]).toContain("Current hour · Alice · On watch");
+      expect(descriptions[currentStart === start ? 0 : 1]).toContain("Alice · On watch");
     }
   });
 
@@ -92,7 +95,7 @@ describe("check-in coverage on shared rosters", () => {
     advance(start);
     let data = await readWatch(db.env, watchId);
     expect(watchBoardPayload(db.env, data, data.sheets[0]).embeds[0].description)
-      .toContain("🟠 **23:00 - 24:00** · Current hour · Alice · Not checked in");
+      .toContain("🟠 **23:00 - 24:00** · Alice · Not checked in");
     await confirm();
     await syncWatchBoards(db.env);
     await assign(2);
@@ -216,7 +219,7 @@ describe("chain watch handover check-ins", () => {
     expect(state()?.confirmed_at).toBeNull();
   });
 
-  it("routes the one-minute escalation through its admin route and mentions, then resolves a late check-in", async () => {
+  it("routes a short one-minute notification with mentions, evolves the card, then deletes the notification on check-in", async () => {
     db.sqlite.prepare("INSERT INTO discord_admin_alert_subscriptions (alert_key, subscription_type, discord_id) VALUES (?, 'role', '654321')").run(alertKey);
     db.sqlite.prepare("INSERT INTO discord_member_alert_subscriptions (torn_user_id, alert_key, enabled) VALUES (2, ?, 1)").run(alertKey);
     await tick(due);
@@ -227,18 +230,22 @@ describe("chain watch handover check-ins", () => {
     expect(posts()[1][0]).toBe("https://discord.com/api/v10/channels/backup-thread/messages");
     expect(payload(posts()[1]).allowed_mentions).toEqual({ parse: [], users: ["222222"], roles: ["654321"] });
     expect(payload(posts()[1]).content).toContain("<@222222> <@&654321>");
-    expect(payload(posts()[1]).embeds[0].title).toBe("⚠️ Chain watch missed check-in");
+    expect(payload(posts()[1]).embeds).toEqual([]);
     expect(payload(posts()[1]).components).toEqual([]);
-    expect(payload(posts()[1]).embeds[0].description).toContain("Takeover available in: 30s");
-    expect(payload(posts()[1]).embeds[0].description).toContain("/guild/sheet-channel/message-1");
+    expect(payload(posts()[1]).content).toContain("**Alice** hasn’t checked in");
+    expect(payload(posts()[1]).content).toContain("[Open check-in](<https://discord.com/channels/guild/sheet-channel/message-1>)");
+    expect(cardEdit().embeds[0]).toMatchObject({ title: "⚠️ Chain watch missed check-in", color: 0xffa500 });
+    expect(cardEdit().embeds[0].description).toContain(`Takeover available <t:${start - 30}:R>`);
+    expect(cardEdit().components[0].components.map((button: { label: string }) => button.label)).toEqual(["I’m ready"]);
+    const original = state()!;
     db.sqlite.exec("UPDATE discord_notification_channels SET thread_id = 'new-route'");
     advance(start + 30);
     expect(await confirm()).toEqual({ type: 6 });
-    expect(fetchMock.mock.calls.at(-1)![0]).toContain("/backup-thread/messages/");
-    expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain("Resolved");
-    expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].title).toBe("Chain watch - Resolved");
-    expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain(`<t:${start + 30}:T>`);
-    expect(payload(fetchMock.mock.calls.at(-1)!).components).toEqual([]);
+    expect(deletes().map(call => call[0])).toEqual([`https://discord.com/api/v10/channels/backup-thread/messages/${original.escalation_message_id}`]);
+    expect(state()?.escalation_deleted_at).toBe(start + 30);
+    expect(cardEdit().embeds[0]).toMatchObject({ color: 0x16a34a });
+    expect(cardEdit().embeds[0].description).toContain("Ready ✅");
+    expect(cardEdit().components).toEqual([]);
     await tick(start + 60);
     expect(posts()).toHaveLength(2);
   });
@@ -256,6 +263,12 @@ describe("chain watch handover check-ins", () => {
     await tick(start - 60);
     expect(posts()).toHaveLength(1);
     expect(state()?.escalation_sent_at).toBeNull();
+    expect(cardEdit().embeds[0]).toMatchObject({ title: "⚠️ Chain watch missed check-in", color: 0xffa500 });
+    advance(start - 30);
+    await handleWatchCheckInAlarm(db.env, state()!.id as string);
+    expect(cardEdit().components[0].components.map((button: { label: string }) => button.label)).toEqual(["I’m ready", "Take over"]);
+    expect((await handleWatchInteraction(await prepareTakeover(), db.env)).data?.content).toContain("You’ve taken over");
+    expect(posts()).toHaveLength(1);
   });
 
   it("uses the default admin route when this alert has no override", async () => {
@@ -347,7 +360,9 @@ describe("chain watch handover check-ins", () => {
     expect(state()?.reminder_sent_at).toBeNull();
     expect(state()?.escalation_kind).toBe("delivery_failed");
     const alert = posts().find(call => String(call[0]).includes("backup-thread"))!;
-    expect(payload(alert).embeds[0].title).toBe("Chain watch check-in delivery problem");
+    expect(payload(alert).content).toContain("Chain watch check-in delivery problem");
+    expect(payload(alert).content).toContain("[Open watch channel](<https://discord.com/channels/guild/sheet-channel>)");
+    expect(payload(alert).embeds).toEqual([]);
     expect(payload(alert).components).toEqual([]);
   });
 
@@ -362,6 +377,7 @@ describe("chain watch handover check-ins", () => {
     fetchMock.mockRejectedValueOnce(new Error("Connection lost"));
     await expect(tick(start - 60)).rejects.toThrow("Connection lost");
     expect(state()?.escalation_sent_at).toBeNull();
+    expect(cardEdit().embeds[0]).toMatchObject({ title: "⚠️ Chain watch missed check-in", color: 0xffa500 });
     await tick(start);
     expect(posts()).toHaveLength(3);
     expect(payload(posts()[1]).nonce).toBe(payload(posts()[2]).nonce);
@@ -382,7 +398,7 @@ describe("chain watch handover check-ins", () => {
     expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain("Ready ✅");
   });
 
-  it("resolves an alert if confirmation arrives while its request is in flight", async () => {
+  it("deletes a notification if confirmation arrives while its request is in flight", async () => {
     await tick(due);
     fetchMock.mockImplementation(async (_url: string, options: RequestInit) => {
       if (options.method === "POST") {
@@ -391,7 +407,9 @@ describe("chain watch handover check-ins", () => {
       return Response.json({ id: "backup-message" });
     });
     await tick(start - 60);
-    expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain("Resolved");
+    expect(cardEdit().embeds[0].description).toContain("Ready ✅");
+    expect(deletes().map(call => call[0])).toEqual(["https://discord.com/api/v10/channels/backup-thread/messages/backup-message"]);
+    expect(state()?.escalation_deleted_at).toBe(start - 60);
   });
 
   it("keeps confirmation even if its public message edit fails, and retries the edit", async () => {
@@ -566,7 +584,7 @@ describe("chain watch handover check-ins", () => {
     expect(payload(fetchMock.mock.calls.at(-1)!).embeds[0].description).toContain(`Message cleanup: <t:${start + WATCH_HOUR + 300}:R>`);
   });
 
-  it("shows a cancellation countdown on both old messages and deletes them together", async () => {
+  it("deletes the notification on reassignment and keeps the old card for its cancellation countdown", async () => {
     await tick(due);
     await tick(start - 60);
     const original = state()!;
@@ -574,19 +592,20 @@ describe("chain watch handover check-ins", () => {
     await assign(2);
     await tick(start - 30);
     const cleanupAt = start - 30 + 300;
-    for (const id of [original.reminder_message_id, original.escalation_message_id]) {
-      const edit = fetchMock.mock.calls.filter(call => call[1].method === "PATCH" && String(call[0]).endsWith(`/messages/${id}`)).at(-1)!;
-      expect(payload(edit).embeds[0].description).toContain(`Message cleanup: <t:${cleanupAt}:R>`);
-    }
+    expect(cardEdit(original).embeds[0].description).toContain(`Message cleanup: <t:${cleanupAt}:R>`);
+    expect(cardEdit(original).components).toEqual([]);
+    expect(deletes().map(call => call[0])).toEqual([
+      `https://discord.com/api/v10/channels/backup-thread/messages/${original.escalation_message_id}`,
+    ]);
     await tick(cleanupAt - 1);
-    expect(fetchMock.mock.calls.some(call => call[1].method === "DELETE")).toBe(false);
+    expect(deletes().some(call => String(call[0]).endsWith(`/messages/${original.reminder_message_id}`))).toBe(false);
     await tick(cleanupAt);
     expect(fetchMock.mock.calls.filter(call => call[1].method === "DELETE").map(call => call[0])).toEqual([
       `https://discord.com/api/v10/channels/backup-thread/messages/${original.escalation_message_id}`,
       `https://discord.com/api/v10/channels/sheet-channel/messages/${original.reminder_message_id}`,
     ]);
     expect(db.sqlite.prepare("SELECT reminder_deleted_at, escalation_deleted_at FROM chain_watch_check_ins WHERE id = ?").get(String(original.id)))
-      .toEqual({ reminder_deleted_at: cleanupAt, escalation_deleted_at: cleanupAt });
+      .toEqual({ reminder_deleted_at: cleanupAt, escalation_deleted_at: start - 30 });
     expect(state()?.assigned_to).toBe(2);
     expect(state()?.reminder_deleted_at).toBeNull();
   });
@@ -604,30 +623,37 @@ describe("chain watch handover check-ins", () => {
     expect(db.sqlite.prepare("SELECT reminder_deleted_at FROM chain_watch_check_ins WHERE id = ?").get(String(original.id))?.reminder_deleted_at).toBe(due + 330);
   });
 
-  it("retains a resolved missed-check-in alert when deleting its Ready reminder", async () => {
+  it("deletes a notification only once and keeps the Ready card until its normal cleanup", async () => {
     await tick(due);
     await tick(start - 60);
     await confirm();
     const original = state()!;
+    expect(state()?.escalation_deleted_at).toBe(start - 60);
+    expect(state()?.reminder_deleted_at).toBeNull();
     const cleanupAt = start + WATCH_HOUR + 300;
     await tick(cleanupAt);
     expect(fetchMock.mock.calls.filter(call => call[1].method === "DELETE").map(call => call[0])).toEqual([
+      `https://discord.com/api/v10/channels/backup-thread/messages/${original.escalation_message_id}`,
       `https://discord.com/api/v10/channels/sheet-channel/messages/${original.reminder_message_id}`,
     ]);
-    expect(state()?.escalation_deleted_at).toBeNull();
-    const edit = fetchMock.mock.calls.filter(call => call[1].method === "PATCH" && String(call[0]).endsWith(`/messages/${original.escalation_message_id}`)).at(-1)!;
-    expect(payload(edit).embeds[0].description).not.toContain("Message cleanup:");
-    expect(payload(edit).embeds[0].description).toContain("https://discord.com/channels/guild/sheet-channel)");
-    expect(payload(edit).embeds[0].description).not.toContain(`/${original.reminder_message_id}`);
+    expect(state()?.escalation_deleted_at).toBe(start - 60);
+    const deletion = fetchMock.mock.calls.findIndex(call => call[1].method === "DELETE");
+    expect(fetchMock.mock.calls.slice(deletion + 1).some(call =>
+      call[1].method === "PATCH" && String(call[0]).endsWith(`/messages/${original.escalation_message_id}`))).toBe(false);
   });
 
-  it("retains reminders and alerts when the watcher never confirmed", async () => {
+  it("deletes the notification at shift end even when the watcher never confirmed", async () => {
     await tick(due);
     await tick(start - 60);
-    await tick(start + 25 * WATCH_HOUR);
-    expect(fetchMock.mock.calls.some(call => call[1].method === "DELETE")).toBe(false);
-    expect(fetchMock.mock.calls.filter(call => call[1].method === "PATCH").every(call => !payload(call).embeds[0].description.includes("Message cleanup:"))).toBe(true);
-    expect(state()).toMatchObject({ reminder_deleted_at: null, escalation_deleted_at: null });
+    const original = state()!;
+    await tick(start + WATCH_HOUR - 1);
+    expect(deletes()).toHaveLength(0);
+    await tick(start + WATCH_HOUR);
+    expect(deletes().map(call => call[0])).toEqual([`https://discord.com/api/v10/channels/backup-thread/messages/${original.escalation_message_id}`]);
+    expect(cardEdit().embeds[0]).toMatchObject({ color: 0x64748b });
+    expect(cardEdit().embeds[0].description).toContain("This shift has ended.");
+    expect(cardEdit().components).toEqual([]);
+    expect(state()).toMatchObject({ reminder_deleted_at: null, escalation_deleted_at: start + WATCH_HOUR });
   });
 
   it.each([204, 404, 503])("handles reminder cleanup HTTP %s, retrying only failures", async status => {
@@ -679,6 +705,47 @@ describe("chain watch handover check-ins", () => {
     await Promise.all([runWatchCheckIns(db.env), runWatchCheckIns(db.env)]);
     expect(fetchMock.mock.calls.filter(call => call[1].method === "DELETE")).toHaveLength(1);
   });
+
+  it.each([204, 404, 503])("handles notification cleanup HTTP %s without losing readiness or re-pinging", async status => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await tick(due);
+    await tick(start - 60);
+    const original = state()!;
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => init.method === "DELETE"
+      ? new Response(status === 204 ? null : "{}", { status }) : Response.json({ id: "message" }));
+    advance(start - 45);
+    expect(await confirm()).toEqual({ type: 6 });
+    expect(cardEdit().embeds[0].description).toContain("Ready ✅");
+    expect(cardEdit().components).toEqual([]);
+    expect(state()?.confirmed_at).toBe(start - 45);
+    if (status === 503) {
+      expect(state()?.escalation_deleted_at).toBeNull();
+      // Exercise the separate cleanup queue after the row leaves active work.
+      db.sqlite.exec("UPDATE chain_watch_check_ins SET closed_at = end_at, dirty = 0");
+      fetchMock.mockImplementation(async () => Response.json({ id: "message" }));
+      await tick(start + WATCH_HOUR);
+      expect(state()?.escalation_deleted_at).toBe(start + WATCH_HOUR);
+    } else {
+      expect(state()?.escalation_deleted_at).toBe(start - 45);
+    }
+    const attempts = deletes().length;
+    await tick(start + WATCH_HOUR + 60);
+    expect(deletes()).toHaveLength(attempts);
+    expect(posts()).toHaveLength(2);
+    const afterDelete = fetchMock.mock.calls.findIndex(call => call[1].method === "DELETE");
+    expect(fetchMock.mock.calls.slice(afterDelete + 1).some(call => call[1].method === "PATCH" &&
+      String(call[0]).endsWith(`/messages/${original.escalation_message_id}`))).toBe(false);
+  });
+
+  it("cleans up a delivery-problem notification when its shift ends without a reminder", async () => {
+    db.sqlite.exec("DELETE FROM discord_member_links WHERE torn_user_id = 1");
+    await tick(start - 60);
+    const original = state()!;
+    expect(original.reminder_message_id).toBeNull();
+    await tick(start + WATCH_HOUR);
+    expect(deletes().map(call => call[0])).toEqual([`https://discord.com/api/v10/channels/backup-thread/messages/${original.escalation_message_id}`]);
+    expect(state()?.escalation_deleted_at).toBe(start + WATCH_HOUR);
+  });
 });
 
 describe("chain watch takeover availability", () => {
@@ -692,7 +759,7 @@ describe("chain watch takeover availability", () => {
     const original = await warning();
     expect(namespace).toHaveBeenCalledWith(`chain-watch-check-in:${original.id}`);
     expect(scheduleCheckIn).toHaveBeenLastCalledWith(original.id, start - 30);
-    expect(payload(posts()[1]).embeds[0].description).toContain("Takeover available in: 30s");
+    expect(cardEdit().embeds[0].description).toContain(`Takeover available <t:${start - 30}:R>`);
     expect(payload(posts()[1]).components).toEqual([]);
     expect((await handleWatchInteraction(takeoverClick(), db.env)).data?.components).toEqual([]);
     advance(start - 31);
@@ -700,10 +767,13 @@ describe("chain watch takeover availability", () => {
     expect((await handleWatchInteraction(takeoverClick(), db.env)).data?.components).toEqual([]);
     advance(start - 30);
     expect(await handleWatchCheckInAlarm(db.env, original.id as string)).toBeNull();
-    const edit = fetchMock.mock.calls.findLast(call => String(call[0]).endsWith(`/messages/${original.escalation_message_id}`))!;
+    const edit = fetchMock.mock.calls.findLast(call => String(call[0]).endsWith(`/messages/${original.reminder_message_id}`))!;
     expect(edit[1].method).toBe("PATCH");
-    expect(payload(edit).embeds[0].description).not.toContain("Takeover available in:");
-    expect(payload(edit).components[0].components[0]).toMatchObject({ label: "Take over", custom_id: `${WATCH_TAKE_OVER_PREFIX}${original.id}` });
+    expect(payload(edit).embeds[0].description).toContain("Cover is now available.");
+    expect(payload(edit).components[0].components).toEqual([
+      { type: 2, style: 3, label: "I’m ready", custom_id: `${WATCH_CHECK_IN_PREFIX}${original.id}` },
+      { type: 2, style: 1, label: "Take over", custom_id: `${WATCH_TAKE_OVER_PREFIX}${original.id}` },
+    ]);
     expect(payload(edit).allowed_mentions).toEqual({ parse: [], users: [], roles: [] });
     expect(posts()).toHaveLength(2);
     expect(state()?.takeover_button_shown).toBe(1);
@@ -717,7 +787,7 @@ describe("chain watch takeover availability", () => {
     const original = await warning();
     db.sqlite.prepare(`INSERT INTO chain_watch_takeovers
       (id, check_in_id, member_id, member_name, discord_user_id, guild_id, channel_id, start_at, end_at, expires_at)
-      VALUES ('early', ?, 2, 'Bob', '222222', 'guild', 'backup-thread', ?, ?, ?)`)
+      VALUES ('early', ?, 2, 'Bob', '222222', 'guild', 'sheet-channel', ?, ?, ?)`)
       .run(original.id as string, start, start + WATCH_HOUR, start + 60);
     const response = await handleWatchInteraction({ ...takeoverClick(), data: { custom_id: "cws:takeover-confirm:early" } }, db.env);
     expect(response.data?.content).toContain("no longer available");
@@ -730,8 +800,8 @@ describe("chain watch takeover availability", () => {
     advance(start - 45);
     await confirm();
     const resolved = payload(fetchMock.mock.calls.at(-1)!);
-    expect(resolved.embeds[0].title).toBe("Chain watch - Resolved");
-    expect(resolved.embeds[0].description).not.toContain("Takeover available in:");
+    expect(resolved.embeds[0].color).toBe(0x16a34a);
+    expect(resolved.embeds[0].description).toContain("Ready ✅");
     expect(resolved.components).toEqual([]);
     const requests = fetchMock.mock.calls.length;
     advance(start - 30);
@@ -784,14 +854,15 @@ describe("chain watch takeover availability", () => {
     expect(original.takeover_button_shown).toBe(0);
     await handleWatchCheckInAlarm(db.env, original.id as string);
     expect(state()?.takeover_button_shown).toBe(1);
-    expect(payload(fetchMock.mock.calls.at(-1)!).components[0].components[0].label).toBe("Take over");
+    expect(cardEdit().components[0].components.map((button: { label: string }) => button.label)).toEqual(["I’m ready", "Take over"]);
   });
 
   it("includes takeover immediately when the warning itself is delivered after the deadline", async () => {
     await tick(due);
     await tick(start - 20);
-    expect(payload(posts()[1]).components[0].components[0].label).toBe("Take over");
-    expect(payload(posts()[1]).embeds[0].description).not.toContain("Takeover available in:");
+    expect(cardEdit().components[0].components.map((button: { label: string }) => button.label)).toEqual(["I’m ready", "Take over"]);
+    expect(cardEdit().embeds[0].description).toContain("Cover is now available.");
+    expect(payload(posts()[1]).components).toEqual([]);
     expect(state()?.takeover_button_shown).toBe(1);
   });
 
@@ -799,7 +870,72 @@ describe("chain watch takeover availability", () => {
     await warning();
     await tick(start);
     expect(state()?.takeover_button_shown).toBe(1);
-    expect(payload(fetchMock.mock.calls.at(-1)!).components[0].components[0].label).toBe("Take over");
+    expect(cardEdit().components[0].components.map((button: { label: string }) => button.label)).toEqual(["I’m ready", "Take over"]);
+    expect(posts()).toHaveLength(2);
+  });
+
+  it("allows the original watcher to check in after takeover opens, using the same card", async () => {
+    const original = await warning();
+    await tick(start - 30);
+    expect(cardEdit().components[0].components).toHaveLength(2);
+    expect(await confirm()).toEqual({ type: 6 });
+    expect(cardEdit().embeds[0].color).toBe(0x16a34a);
+    expect(cardEdit().components).toEqual([]);
+    expect(state()?.reminder_message_id).toBe(original.reminder_message_id);
+    expect(state()?.escalation_deleted_at).toBe(start - 30);
+    expect((await handleWatchInteraction(takeoverClick(), db.env)).data?.components).toEqual([]);
+  });
+
+  it("rejects takeover clicks on the short notification instead of the check-in card", async () => {
+    const original = await warning();
+    advance(start - 30);
+    const click = { ...takeoverClick(), channel_id: String(original.escalation_channel_id),
+      message: { id: String(original.escalation_message_id) } };
+    expect((await handleWatchInteraction(click, db.env)).data?.content).toContain("no longer available");
+    expect(completedTakeovers()).toHaveLength(0);
+  });
+
+  it("updates the notification link when a delayed reminder is finally delivered", async () => {
+    db.sqlite.exec("DELETE FROM discord_member_links WHERE torn_user_id = 1");
+    await tick(start - 60);
+    expect(payload(posts()[0]).content).toContain("could not be delivered");
+    db.sqlite.exec("INSERT INTO discord_member_links VALUES (1, '111111')");
+    await tick(start - 30);
+    const row = state()!;
+    expect(cardEdit().components[0].components).toHaveLength(2);
+    const notification = payload(fetchMock.mock.calls.findLast(call => call[1].method === "PATCH" &&
+      String(call[0]).endsWith(`/messages/${row.escalation_message_id}`))!);
+    expect(notification.content).toContain(`/guild/sheet-channel/${row.reminder_message_id}`);
+    expect(notification.allowed_mentions).toEqual({ parse: [], users: [], roles: [] });
+    expect(posts()).toHaveLength(2);
+  });
+
+  it("stops button retries for a deleted card and updates the notification's fallback link", async () => {
+    const original = await warning();
+    fetchMock.mockImplementation(async (url: string) => url.endsWith(`/messages/${original.reminder_message_id}`)
+      ? Response.json({}, { status: 404 }) : Response.json({ id: "message" }));
+    advance(start - 30);
+    expect(await handleWatchCheckInAlarm(db.env, original.id as string)).toBeNull();
+    expect(state()?.reminder_deleted_at).toBe(start - 30);
+    expect(state()?.takeover_button_shown).toBe(0);
+    expect(payload(fetchMock.mock.calls.at(-1)!).content).toContain("[Open watch channel](<https://discord.com/channels/guild/sheet-channel>)");
+    expect((await confirm()).type).toBe(4);
+    expect((await handleWatchInteraction(takeoverClick(), db.env)).data?.content).toContain("no longer available");
+  });
+
+  it("converts existing full alerts and moves their takeover buttons onto the original cards", async () => {
+    const original = await warning();
+    db.sqlite.exec("UPDATE chain_watch_check_ins SET dirty = 0, takeover_button_shown = 1");
+    db.sqlite.exec(watchCheckInMessagesMigration);
+    expect(state()?.dirty).toBeGreaterThan(0);
+    await tick(start - 30);
+    expect(state()?.reminder_message_id).toBe(original.reminder_message_id);
+    expect(cardEdit().components[0].components.map((button: { label: string }) => button.label)).toEqual(["I’m ready", "Take over"]);
+    const notification = payload(fetchMock.mock.calls.findLast(call => call[1].method === "PATCH" &&
+      String(call[0]).endsWith(`/messages/${original.escalation_message_id}`))!);
+    expect(notification.embeds).toEqual([]);
+    expect(notification.components).toEqual([]);
+    expect(notification.content).toContain("[Open check-in]");
     expect(posts()).toHaveLength(2);
   });
 });
@@ -807,7 +943,7 @@ describe("chain watch takeover availability", () => {
 describe("chain watch takeovers", () => {
   async function missed() { await tick(due); await tick(start - 60); advance(start - 30); return state()!; }
 
-  it("transfers and checks in the replacement, resolves both messages, and does not send another reminder", async () => {
+  it("checks in the replacement on the same card, deletes the notification, and does not send another reminder", async () => {
     const original = await missed();
     const confirmation = await prepareTakeover();
     expect(slots()[0].assigned_to).toBe(1);
@@ -820,15 +956,13 @@ describe("chain watch takeovers", () => {
     expect(state()).toMatchObject({ assigned_to: 2, confirmed_at: start - 30 });
     const edits = fetchMock.mock.calls.filter(call => call[1].method === "PATCH");
     const reminder = payload(edits.findLast(call => String(call[0]).endsWith(`/messages/${original.reminder_message_id}`))!);
-    const escalation = payload(edits.findLast(call => String(call[0]).endsWith(`/messages/${original.escalation_message_id}`))!);
     expect(reminder.embeds[0].description).toContain("Watcher: ~~Alice~~ → Bob - Ready ✅");
     expect(reminder.components).toEqual([]);
     expect(reminder.content).toBe("");
-    expect(escalation.embeds[0]).toMatchObject({ title: "Chain watch - Resolved", color: 0x64748b });
-    expect(escalation.embeds[0].description).toContain("Watcher: ~~Alice~~ → Bob\nShift: 23:00 - 00:00 UTC");
-    expect(escalation.embeds[0].description).toContain(`<t:${start - 30}:T>`);
-    expect(escalation.components).toEqual([]);
-    expect(escalation.allowed_mentions).toEqual({ parse: [], users: [], roles: [] });
+    expect(reminder.embeds[0]).toMatchObject({ color: 0x16a34a });
+    expect(reminder.embeds[0].description).toContain("Shift: 23:00 - 00:00 UTC");
+    expect(reminder.allowed_mentions).toEqual({ parse: [], users: [], roles: [] });
+    expect(deletes().map(call => call[0])).toEqual([`https://discord.com/api/v10/channels/backup-thread/messages/${original.escalation_message_id}`]);
     expect((await handleWatchInteraction(interaction("111111", original), db.env)).type).toBe(4);
     await tick(start + 60);
     expect(posts()).toHaveLength(2);
@@ -853,8 +987,7 @@ describe("chain watch takeovers", () => {
     expect(slots().map(row => row.assigned_to)).toEqual([1, 2]);
     expect(completedTakeovers()[0]).toMatchObject({ start_at: start + WATCH_HOUR, end_at: start + 2 * WATCH_HOUR });
     expect(state()).toMatchObject({ start_at: start + WATCH_HOUR, end_at: start + 2 * WATCH_HOUR, assigned_to: 2, confirmed_at: start + WATCH_HOUR + 10 });
-    const alert = fetchMock.mock.calls.findLast(call => String(call[0]).endsWith(`/messages/${original.escalation_message_id}`))!;
-    expect(payload(alert).embeds[0].description).toContain("Shift: 00:00 - 01:00 UTC");
+    expect(cardEdit(original).embeds[0].description).toContain("Shift: 00:00 - 01:00 UTC");
     await tick(start + WATCH_HOUR + 60);
     expect(posts()).toHaveLength(2);
   });
@@ -955,8 +1088,8 @@ describe("chain watch takeovers", () => {
     const original = await missed();
     await handleWatchInteraction(await prepareTakeover(), db.env);
     const cleanupAt = start - 30 + 300;
-    const latest = fetchMock.mock.calls.findLast(call => String(call[0]).endsWith(`/messages/${original.escalation_message_id}`))!;
-    expect(payload(latest).embeds[0].description).toContain(`Message cleanup: <t:${cleanupAt}:R>`);
+    expect(cardEdit(original).embeds[0].description).toContain(`Message cleanup: <t:${cleanupAt}:R>`);
+    expect(deletes()).toHaveLength(1);
     await tick(cleanupAt);
     const removed = fetchMock.mock.calls.filter(call => call[1].method === "DELETE");
     expect(removed.map(call => call[0])).toEqual([
@@ -1002,17 +1135,20 @@ describe("chain watch takeovers", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const original = await missed();
     const confirmation = await prepareTakeover();
-    fetchMock.mockRejectedValueOnce(new Error("Connection lost"));
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      if (init.method === "PATCH") throw new Error("Connection lost");
+      return Response.json({ id: "message" });
+    });
     expect((await handleWatchInteraction(confirmation, db.env)).data?.content).toContain("You’ve taken over");
     expect(slots()[0].assigned_to).toBe(2);
     expect(db.sqlite.prepare("SELECT dirty FROM chain_watch_check_ins WHERE id = ?").get(original.id as string)?.dirty).toBeGreaterThan(0);
+    fetchMock.mockImplementation(async () => Response.json({ id: "message" }));
     await tick(start + 60);
-    const alert = fetchMock.mock.calls.findLast(call => String(call[0]).endsWith(`/messages/${original.escalation_message_id}`))!;
-    expect(payload(alert).embeds[0].description).toContain("~~Alice~~ → Bob");
+    expect(cardEdit(original).embeds[0].description).toContain("~~Alice~~ → Bob");
     expect(posts()).toHaveLength(2);
   });
 
-  it("defers the private confirmation separately from the public missed alert and refreshes the roster", async () => {
+  it("defers takeover confirmation separately from the public check-in card and refreshes the roster", async () => {
     const original = await missed();
     const click = takeoverClick("222222", original);
     expect(deferredWatchResponse(click)).toEqual({ type: 5, data: { flags: 64 } });

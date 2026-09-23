@@ -17,7 +17,7 @@ import { WatchError, watchDiscordMember, watchFailure } from "./chainWatchSchedu
 export { WATCH_CHECK_IN_PREFIX, WATCH_TAKE_OVER_PREFIX, WATCH_TAKE_OVER_CONFIRM_PREFIX } from "./chainWatchCheckInModel";
 
 const availableForTakeover = `confirmed_at IS NULL AND cancelled_at IS NULL AND closed_at IS NULL
-  AND end_at > unixepoch() AND escalation_kind = 'missed' AND escalation_sent_at IS NOT NULL
+  AND end_at > unixepoch() AND reminder_deleted_at IS NULL
   AND start_at - ${TAKEOVER_LEAD} <= unixepoch()
   AND reminder_sent_at IS NOT NULL AND ${validAssignment}
   AND NOT EXISTS (SELECT 1 FROM chain_watch_takeovers taken
@@ -71,9 +71,10 @@ export async function runWatchCheckIns(env: Env, now = nowSeconds()): Promise<vo
   const cleanup = await env.DB.prepare(`SELECT id FROM chain_watch_check_ins WHERE guild_id = ? AND (
     (reminder_message_id IS NOT NULL AND reminder_deleted_at IS NULL AND
       (cancelled_at <= ? OR (cancelled_at IS NULL AND confirmed_at IS NOT NULL AND end_at <= ?))) OR
-    (escalation_message_id IS NOT NULL AND escalation_deleted_at IS NULL AND cancelled_at <= ?))
+    (escalation_message_id IS NOT NULL AND escalation_deleted_at IS NULL AND
+      (confirmed_at IS NOT NULL OR cancelled_at IS NOT NULL OR closed_at IS NOT NULL OR end_at <= ?)))
     ORDER BY COALESCE(cancelled_at, end_at), id LIMIT 30`)
-    .bind(env.DISCORD_GUILD_ID, checkedAt - CLEANUP_DELAY, checkedAt - CLEANUP_DELAY, checkedAt - CLEANUP_DELAY)
+    .bind(env.DISCORD_GUILD_ID, checkedAt - CLEANUP_DELAY, checkedAt - CLEANUP_DELAY, checkedAt)
     .all<{ id: string }>();
   const attempted = new Set(rows.results.map(row => row.id));
   for (const row of cleanup.results) {
@@ -106,7 +107,7 @@ function nextCheckInAlarm(row: CheckIn | null): number | null {
   const retryAt = (deadline: number, delay = 30) => deadline > now ? deadline : now + delay;
   if (row.reminder_sent_at === null) deadlines.push(retryAt(row.start_at - REMINDER_LEAD));
   if (row.escalation_sent_at === null) deadlines.push(retryAt(row.start_at - ESCALATION_LEAD));
-  if (row.escalation_kind === "missed" && row.escalation_sent_at !== null && !row.takeover_button_shown) {
+  if (row.reminder_sent_at !== null && row.reminder_deleted_at === null && !row.takeover_button_shown) {
     deadlines.push(retryAt(row.start_at - TAKEOVER_LEAD, 1));
   }
   const next = Math.min(...deadlines);
@@ -148,20 +149,29 @@ async function processCheckIn(env: Env, id: string, scheduleAlarm = true): Promi
     return;
   }
   try {
+    const errors: unknown[] = [];
     let row = (await readCheckIn(env, id))!;
     if (await isCurrent(env, id)) {
       if (!row.reminder_sent_at && !row.confirmed_at && nowSeconds() >= row.start_at - REMINDER_LEAD) await sendReminder(env, row);
       row = (await readCheckIn(env, id))!;
       const deadline = row.start_at - ESCALATION_LEAD;
-      if (!row.confirmed_at && !row.escalation_sent_at && nowSeconds() >= deadline) await sendEscalation(env, row);
+      if (!row.confirmed_at && !row.escalation_sent_at && nowSeconds() >= deadline) {
+        try { await sendEscalation(env, row); }
+        catch (error) { errors.push(error); }
+      }
+      // The card evolves even if notification delivery is disabled or fails.
       await env.DB.prepare(`UPDATE chain_watch_check_ins SET dirty = dirty + 1
-        WHERE id = ? AND takeover_button_shown = 0 AND ${availableForTakeover}`).bind(id).run();
+        WHERE id = ? AND takeover_button_shown = 0 AND confirmed_at IS NULL
+          AND reminder_sent_at IS NOT NULL AND reminder_deleted_at IS NULL AND start_at - ? <= unixepoch()`)
+        .bind(id, ESCALATION_LEAD).run();
     }
     // Reread after sends: a check-in or reassignment may have arrived during HTTP.
     row = (await readCheckIn(env, id))!;
-    await cleanupCheckIn(env, row);
+    try { await cleanupCheckIn(env, row); }
+    catch (error) { errors.push(error); }
     row = (await readCheckIn(env, id))!;
     if (row.dirty > 0) await renderCheckIn(env, row);
+    if (errors.length) throw errors[0];
   } finally {
     await env.DB.prepare("UPDATE chain_watch_check_ins SET lease_token = NULL, lease_until = 0 WHERE id = ? AND lease_token = ?")
       .bind(id, token).run();
@@ -208,7 +218,7 @@ async function sendEscalation(env: Env, row: CheckIn): Promise<void> {
   const kind = current.reminder_sent_at ? "missed" : "delivery_failed";
   const channelId = discordNotificationChannelTargetId(route);
   const delivery = await sendWatchDiscordMessage(env, channelId, {
-    ...escalationPayload({ ...current, escalation_kind: kind }, nowSeconds()), content: mentions.messageSuffix,
+    ...escalationPayload(current, mentions.messageSuffix),
     allowed_mentions: { parse: mentions.allowedMentions?.everyone ? ["everyone"] : [],
       users: mentions.allowedMentions?.users ?? [], roles: mentions.allowedMentions?.roles ?? [] },
   }, `${row.id}:escalation`);
@@ -219,11 +229,11 @@ async function sendEscalation(env: Env, row: CheckIn): Promise<void> {
 }
 
 async function cleanupCheckIn(env: Env, row: CheckIn): Promise<void> {
-  // Remove obsolete alerts first, so a failed alert deletion keeps its reminder
-  // available. Confirmed-but-valid assignments only delete the reminder.
+  // The short notification is useful only while coverage is unresolved.
+  // Keep the card's existing cleanup delay and the durable deletion markers.
   const messages = [
     { channel: row.escalation_channel_id, id: row.escalation_message_id, deleted: row.escalation_deleted_at,
-      at: row.cancelled_at === null ? null : row.cancelled_at + CLEANUP_DELAY, column: "escalation_deleted_at" },
+      at: row.confirmed_at ?? row.cancelled_at ?? row.closed_at ?? row.end_at, column: "escalation_deleted_at" },
     { channel: row.channel_id, id: row.reminder_message_id, deleted: row.reminder_deleted_at,
       at: reminderCleanupAt(row), column: "reminder_deleted_at" },
   ] as const;
@@ -241,17 +251,30 @@ async function cleanupCheckIn(env: Env, row: CheckIn): Promise<void> {
 async function renderCheckIn(env: Env, row: CheckIn): Promise<void> {
   // Suppress mentions on edits; confirmed reminders also clear the original ping
   // so the message contains only the compact confirmation block.
-  const alertPayload = escalationPayload(row, nowSeconds());
-  for (const [channel, message, deleted, payload] of [
-    [row.channel_id, row.reminder_message_id, row.reminder_deleted_at, reminderPayload(row, nowSeconds())],
-    [row.escalation_channel_id, row.escalation_message_id, row.escalation_deleted_at, alertPayload],
-  ] as const) {
-    if (!channel || !message || deleted !== null) continue;
-    const delivery = await editWatchDiscordMessage(env, channel, message, payload);
+  const card = reminderPayload(row, nowSeconds());
+  let buttonShown = row.takeover_button_shown;
+  if (row.reminder_message_id && row.reminder_deleted_at === null) {
+    const delivery = await editWatchDiscordMessage(env, row.channel_id, row.reminder_message_id, card);
+    if (delivery.status === "failed") throw delivery.error;
+    if (delivery.status === "skipped") {
+      // A deleted card cannot host buttons. Stop the one-second button retry
+      // and point the notification at the watch channel instead.
+      row.reminder_deleted_at = nowSeconds();
+      await env.DB.prepare("UPDATE chain_watch_check_ins SET reminder_deleted_at = ? WHERE id = ?")
+        .bind(row.reminder_deleted_at, row.id).run();
+    }
+    if (delivery.status === "success" && card.components.some(group => group.components.some(button => button.custom_id.startsWith(WATCH_TAKE_OVER_PREFIX)))) {
+      buttonShown = 1;
+    }
+  }
+  if (row.escalation_channel_id && row.escalation_message_id && row.escalation_deleted_at === null &&
+      row.confirmed_at === null && row.cancelled_at === null && row.closed_at === null && row.end_at > nowSeconds()) {
+    const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.chainWatchMissedCheckIn);
+    const delivery = await editWatchDiscordMessage(env, row.escalation_channel_id, row.escalation_message_id,
+      escalationPayload(row, mentions.messageSuffix));
     if (delivery.status === "failed") throw delivery.error;
   }
   // A concurrent confirmation increments dirty and must remain queued for rendering.
-  const buttonShown = alertPayload.components.length > 0 ? 1 : row.takeover_button_shown;
   await env.DB.prepare("UPDATE chain_watch_check_ins SET dirty = MAX(0, dirty - ?), takeover_button_shown = ? WHERE id = ?")
     .bind(row.dirty, buttonShown, row.id).run();
 }
@@ -267,6 +290,7 @@ export async function confirmWatchCheckIn(interaction: DiscordInteraction, env: 
   const result = await env.DB.prepare(`UPDATE chain_watch_check_ins
     SET confirmed_at = COALESCE(confirmed_at, ?), dirty = dirty + CASE WHEN confirmed_at IS NULL THEN 1 ELSE 0 END
     WHERE id = ? AND guild_id = ? AND channel_id = ? AND reminder_message_id = ?
+      AND reminder_deleted_at IS NULL
       AND reminder_sent_at IS NOT NULL AND reminder_sent_at <= ? AND end_at > ?
       AND cancelled_at IS NULL AND closed_at IS NULL AND ${validAssignment}
       AND EXISTS (SELECT 1 FROM discord_member_links links JOIN home_faction_members m ON m.member_id = links.torn_user_id
@@ -293,7 +317,7 @@ export async function handleWatchTakeover(interaction: DiscordInteraction, env: 
   if (!confirming) {
     const id = interaction.data!.custom_id!.slice(WATCH_TAKE_OVER_PREFIX.length);
     const available = await env.DB.prepare(`SELECT id FROM chain_watch_check_ins WHERE id = ?
-      AND guild_id = ? AND escalation_channel_id = ? AND escalation_message_id = ? AND ${availableForTakeover}`)
+      AND guild_id = ? AND channel_id = ? AND reminder_message_id = ? AND ${availableForTakeover}`)
       .bind(id, interaction.guild_id, interaction.channel_id, interaction.message?.id ?? "").first();
     if (!available) return reply(unavailable);
     const row = (await readCheckIn(env, id))!;
@@ -326,7 +350,7 @@ export async function handleWatchTakeover(interaction: DiscordInteraction, env: 
           WHERE links.torn_user_id = chain_watch_takeovers.member_id AND links.discord_user_id = chain_watch_takeovers.discord_user_id AND m.is_current = 1)
         AND EXISTS (SELECT 1 FROM chain_watch_check_ins
           WHERE id = chain_watch_takeovers.check_in_id AND assigned_to != chain_watch_takeovers.member_id
-            AND guild_id = chain_watch_takeovers.guild_id AND escalation_channel_id = chain_watch_takeovers.channel_id
+            AND guild_id = chain_watch_takeovers.guild_id AND channel_id = chain_watch_takeovers.channel_id
             AND chain_watch_takeovers.start_at = MAX(start_at, unixepoch() - unixepoch() % ${WATCH_HOUR})
             AND chain_watch_takeovers.end_at = end_at AND ${availableForTakeover})
         AND (SELECT COUNT(*) FROM chain_watch_slots s JOIN chain_watch_check_ins c ON c.watch_id = s.watch_id

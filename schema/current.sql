@@ -2026,8 +2026,8 @@ CREATE TABLE chain_watch_check_ins (
 CREATE INDEX chain_watch_check_ins_pending ON chain_watch_check_ins(closed_at, cancelled_at, dirty);
 CREATE INDEX chain_watch_check_ins_reminder_cleanup ON chain_watch_check_ins(guild_id, cancelled_at, end_at)
   WHERE reminder_message_id IS NOT NULL AND reminder_deleted_at IS NULL;
-CREATE INDEX chain_watch_check_ins_escalation_cleanup ON chain_watch_check_ins(guild_id, cancelled_at)
-  WHERE escalation_message_id IS NOT NULL AND escalation_deleted_at IS NULL AND cancelled_at IS NOT NULL;
+CREATE INDEX chain_watch_check_ins_escalation_cleanup ON chain_watch_check_ins(guild_id, end_at)
+  WHERE escalation_message_id IS NOT NULL AND escalation_deleted_at IS NULL;
 
 CREATE TRIGGER chain_watch_check_in_roster_changed
 AFTER UPDATE OF confirmed_at, cancelled_at ON chain_watch_check_ins
