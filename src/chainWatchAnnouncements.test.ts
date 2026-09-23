@@ -35,7 +35,7 @@ describe("chain watch Discord announcements", () => {
     const info = body(posts()[0]);
     expect(info.embeds[0].title).toBe("Test watch");
     expect(info.components).toEqual([]);
-    for (const text of ["Maximum 2 shifts", "$10,000,000", "energy", "abroad", "bounties", "1–2 minutes", "full 5 minutes"]) expect(info.embeds[0].description).toContain(text);
+    for (const text of ["Maximum **2 shifts", "$10,000,000 per shift watched", "energy", "abroad", "bounties", "1–2 minutes", "full 5 minutes"]) expect(info.embeds[0].description).toContain(text);
     expect(posts().every(call => call[0] === "https://discord.com/api/v10/channels/sheet-thread/messages")).toBe(true);
     expect(info.allowed_mentions).toEqual({ parse: [], users: [], roles: [] });
     expect(body(posts()[1]).embeds[0].description).toContain("filled");

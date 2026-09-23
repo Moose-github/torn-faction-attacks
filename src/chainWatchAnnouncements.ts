@@ -7,15 +7,24 @@ import type { Env } from "./types";
 import { nowSeconds } from "./utils";
 
 export const WATCH_INFO_TEXT = [
-  "• Maximum 2 shifts in a row.",
-  `• Each hour pays $${DEFAULT_WATCH_PAYMENT_PER_SHIFT.toLocaleString("en-US")} after the watch finishes.`,
-  "• You'll be pinged 3 minutes before your shift starts to confirm you're ready. If you haven't checked in, an alert is sent 1 minute before the start, and another player can take over from 30 seconds before the start.",
-  "• You must have energy available to make hits during your shifts.",
-  "• You can watch while abroad, as long as you fly out with plenty of energy to make hits.",
-  "• You cannot watch if you have bounties on you.",
-  "• Make a hit when the timer has 1–2 minutes remaining.",
-  "• Finish your shift with a full 5 minutes left on the timer.",
-].join("\n\n");
+  "**Shifts**",
+  "• Maximum **2 shifts in a row**, before a break of at least 1 hour.",
+  `• **$${DEFAULT_WATCH_PAYMENT_PER_SHIFT.toLocaleString("en-US")} per shift watched**, paid after the watch finishes.`,
+  "",
+  "**Check-in**",
+  "• **3 minutes before** your shift, you’ll be pinged to confirm you’re ready.",
+  "• **1 minute before** your shift, an alert will be sent if you haven’t checked in.",
+  "• **30 seconds before** your shift, another player can take over if you’re still unconfirmed.",
+  "",
+  "**Watch requirements**",
+  "• Have enough energy to make hits throughout your shift.",
+  "• Watching abroad is allowed—fly out with plenty of energy.",
+  "• You cannot watch while you have bounties.",
+  "",
+  "**During your shift**",
+  "• Make a hit with **1–2 minutes remaining** on the timer.",
+  "• Finish with a **full 5 minutes** on the timer.",
+].join("\n");
 
 function escapeText(value: string): string {
   return value.replace(/[\\`*_~|>\[\]()]/g, "\\$&").replace(/@/g, "@\u200b");
