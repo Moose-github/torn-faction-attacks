@@ -19,7 +19,6 @@ export type WatchCheckIn = Omit<WatchAssignmentBlock, "check_in_revision"> & {
   takeover_button_shown: number;
 };
 
-export function reminderCleanupAt(row: WatchCheckIn): number | null {
-  return row.cancelled_at !== null ? row.cancelled_at + CLEANUP_DELAY
-    : row.confirmed_at !== null ? row.end_at + CLEANUP_DELAY : null;
+export function reminderCleanupAt(row: WatchCheckIn): number {
+  return (row.cancelled_at ?? row.end_at) + CLEANUP_DELAY;
 }

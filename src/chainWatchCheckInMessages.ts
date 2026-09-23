@@ -33,10 +33,11 @@ export function reminderPayload(row: CheckIn, now: number) {
     };
   }
   const inactive = row.cancelled_at !== null || row.closed_at !== null || row.end_at <= now;
-  const missed = !inactive && now >= row.start_at - ESCALATION_LEAD;
-  const canTakeOver = missed && row.reminder_sent_at !== null && now >= row.start_at - TAKEOVER_LEAD;
+  // Ending a shift removes its actions, but preserves the missed check-in outcome.
+  const missed = row.cancelled_at === null && row.confirmed_at === null && now >= row.start_at - ESCALATION_LEAD;
+  const canTakeOver = !inactive && missed && row.reminder_sent_at !== null && now >= row.start_at - TAKEOVER_LEAD;
   const status = row.cancelled_at !== null ? "This assignment changed or was cancelled. This check-in is closed."
-    : inactive ? "This shift has ended."
+    : inactive ? "This shift ended without a check-in."
     : missed ? `The scheduled watcher has not checked in. Cover may be needed.\n${canTakeOver
       ? "Cover is now available. The assigned watcher can still confirm until someone takes over."
       : `Takeover available <t:${row.start_at - TAKEOVER_LEAD}:R>.`}`
@@ -45,8 +46,8 @@ export function reminderPayload(row: CheckIn, now: number) {
   if (canTakeOver) buttons.push({ type: 2, style: 1, label: "Take over", custom_id: `${WATCH_TAKE_OVER_PREFIX}${row.id}` });
   return {
     embeds: [{ title: missed ? "⚠️ Chain watch missed check-in" : "Chain watch check-in",
-      description: `${shiftText(row)}\n\n${status}${cleanupLine(reminderCleanupAt(row))}`,
-      color: inactive ? 0x64748b : missed ? 0xffa500 : 0x2f80ed }],
+      description: `${shiftText(row)}\n\n${status}${inactive ? cleanupLine(reminderCleanupAt(row)) : ""}`,
+      color: missed ? 0xffa500 : inactive ? 0x64748b : 0x2f80ed }],
     components: !inactive && row.confirmed_at === null ? [{ type: 1, components: buttons }] : [],
     allowed_mentions: noMentions,
   };

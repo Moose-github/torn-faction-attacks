@@ -642,7 +642,7 @@ describe("chain watch handover check-ins", () => {
       call[1].method === "PATCH" && String(call[0]).endsWith(`/messages/${original.escalation_message_id}`))).toBe(false);
   });
 
-  it("deletes the notification at shift end even when the watcher never confirmed", async () => {
+  it("preserves missed check-in status after shift end and deletes the card five minutes later", async () => {
     await tick(due);
     await tick(start - 60);
     const original = state()!;
@@ -650,15 +650,48 @@ describe("chain watch handover check-ins", () => {
     expect(deletes()).toHaveLength(0);
     await tick(start + WATCH_HOUR);
     expect(deletes().map(call => call[0])).toEqual([`https://discord.com/api/v10/channels/backup-thread/messages/${original.escalation_message_id}`]);
-    expect(cardEdit().embeds[0]).toMatchObject({ color: 0x64748b });
-    expect(cardEdit().embeds[0].description).toContain("This shift has ended.");
+    const cleanupAt = start + WATCH_HOUR + 300;
+    expect(cardEdit().embeds[0]).toMatchObject({ title: "⚠️ Chain watch missed check-in", color: 0xffa500 });
+    expect(cardEdit().embeds[0].description).toContain("This shift ended without a check-in.");
+    expect(cardEdit().embeds[0].description).toContain(`Message cleanup: <t:${cleanupAt}:R>`);
+    expect(cardEdit().embeds[0].description).not.toContain("Cover is now available");
     expect(cardEdit().components).toEqual([]);
     expect(state()).toMatchObject({ reminder_deleted_at: null, escalation_deleted_at: start + WATCH_HOUR });
+    await tick(cleanupAt - 1);
+    expect(deletes()).toHaveLength(1);
+    expect(state()?.reminder_deleted_at).toBeNull();
+    await tick(cleanupAt);
+    expect(deletes().map(call => call[0])).toEqual([
+      `https://discord.com/api/v10/channels/backup-thread/messages/${original.escalation_message_id}`,
+      `https://discord.com/api/v10/channels/sheet-channel/messages/${original.reminder_message_id}`,
+    ]);
+    expect(state()).toMatchObject({ reminder_deleted_at: cleanupAt, confirmed_at: null, reminder_message_id: original.reminder_message_id });
+    const requests = fetchMock.mock.calls.length;
+    await tick(cleanupAt + 60);
+    expect(fetchMock.mock.calls).toHaveLength(requests);
+    expect(posts()).toHaveLength(2);
   });
 
-  it.each([204, 404, 503])("handles reminder cleanup HTTP %s, retrying only failures", async status => {
+  it("cleans up older ended unconfirmed cards even after they left the render queue", async () => {
     await tick(due);
-    await confirm();
+    const original = state()!;
+    // Reproduce an old grey 'This shift has ended' card whose final edit succeeded.
+    db.sqlite.exec(`UPDATE chain_watch_check_ins SET closed_at = end_at, dirty = 0
+      WHERE reminder_message_id IS NOT NULL`);
+    fetchMock.mockClear();
+    await tick(start + 25 * WATCH_HOUR);
+    expect(deletes().map(call => call[0])).toEqual([
+      `https://discord.com/api/v10/channels/sheet-channel/messages/${original.reminder_message_id}`,
+    ]);
+    expect(state()).toMatchObject({ confirmed_at: null, reminder_deleted_at: start + 25 * WATCH_HOUR });
+    expect(fetchMock.mock.calls).toHaveLength(1);
+  });
+
+  it.each([204, 404, 503].flatMap(status => [
+    { status, confirmed: true }, { status, confirmed: false },
+  ]))("handles reminder cleanup HTTP $status with confirmed=$confirmed, retrying only failures", async ({ status, confirmed }) => {
+    await tick(due);
+    if (confirmed) await confirm();
     fetchMock.mockImplementation(async (_url: string, init: RequestInit) => init.method === "DELETE"
       ? new Response(status === 204 ? null : "{}", { status }) : Response.json({ id: "message" }));
     const cleanupAt = start + WATCH_HOUR + 300;

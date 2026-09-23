@@ -70,7 +70,7 @@ export async function runWatchCheckIns(env: Env, now = nowSeconds()): Promise<vo
   // Read them separately so old cleanup cannot crowd out active reminders.
   const cleanup = await env.DB.prepare(`SELECT id FROM chain_watch_check_ins WHERE guild_id = ? AND (
     (reminder_message_id IS NOT NULL AND reminder_deleted_at IS NULL AND
-      (cancelled_at <= ? OR (cancelled_at IS NULL AND confirmed_at IS NOT NULL AND end_at <= ?))) OR
+      (cancelled_at <= ? OR (cancelled_at IS NULL AND end_at <= ?))) OR
     (escalation_message_id IS NOT NULL AND escalation_deleted_at IS NULL AND
       (confirmed_at IS NOT NULL OR cancelled_at IS NOT NULL OR closed_at IS NOT NULL OR end_at <= ?)))
     ORDER BY COALESCE(cancelled_at, end_at), id LIMIT 30`)
