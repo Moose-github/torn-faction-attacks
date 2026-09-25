@@ -115,6 +115,9 @@ const ArrestScout = React.lazy(() =>
 const BookStrategy = React.lazy(() =>
   import("../views/BookStrategy").then((module) => ({ default: module.BookStrategy })),
 );
+const StatEnhancerRange = React.lazy(() =>
+  import("../views/StatEnhancerRange").then((module) => ({ default: module.StatEnhancerRange })),
+);
 const Packs = React.lazy(() =>
   import("../views/Packs").then((module) => ({ default: module.Packs })),
 );
@@ -910,6 +913,10 @@ export function App() {
           ) : view === "bookStrategy" ? (
             <LazyPage>
               <BookStrategy />
+            </LazyPage>
+          ) : view === "statEnhancerRange" ? (
+            <LazyPage>
+              <StatEnhancerRange />
             </LazyPage>
           ) : view === "warPayouts" ? (
             <LazyPage>

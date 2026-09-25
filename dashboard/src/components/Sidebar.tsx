@@ -1,5 +1,5 @@
 import React from "react";
-import { CalendarClock, ChevronDown, ChevronRight } from "lucide-react";
+import { CalendarClock, ChevronDown, ChevronRight, TrendingUp } from "lucide-react";
 import { WarSummary, WarType } from "../api";
 import { EmptyState } from "./Common";
 import { formatDate } from "../utils/format";
@@ -69,7 +69,7 @@ export function Sidebar({
   });
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
-  const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "stockInvestments";
+  const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "statEnhancerRange" || view === "stockInvestments";
   const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "packs" || view === "admin";
   const recordedWarsOpen = !(collapsedGroups.recordedWars ?? false);
 
@@ -214,6 +214,12 @@ export function Sidebar({
           icon={bookStrategyIcon}
           label="Book Strategy"
           onClick={() => onViewChange("bookStrategy")}
+        />
+        <SidebarLink
+          active={view === "statEnhancerRange"}
+          icon={<TrendingUp size={18} />}
+          label="Stat Enhancer Range"
+          onClick={() => onViewChange("statEnhancerRange")}
         />
         <SidebarLink
           active={view === "stockInvestments"}
