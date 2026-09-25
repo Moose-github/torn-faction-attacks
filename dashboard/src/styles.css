@@ -7670,9 +7670,13 @@ h2 {
   font-size: 1rem;
 }
 
-.payout-table td:last-child,
-.payout-table th:last-child {
+.payout-table td:nth-last-child(2),
+.payout-table th:nth-last-child(2) {
   text-align: right;
+}
+
+.payout-table .payout-pay {
+  white-space: nowrap;
 }
 
 .lifestyle-period-card,

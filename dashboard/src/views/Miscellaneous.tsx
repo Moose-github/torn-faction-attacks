@@ -780,6 +780,7 @@ export function WarPayoutCalculator({
                 <th>Flat</th>
                 <th>Variable</th>
                 <th>Final</th>
+                <th>Pay</th>
               </tr>
             </thead>
             <tbody>
@@ -797,6 +798,15 @@ export function WarPayoutCalculator({
                   <td>
                     <strong>{formatMoney(row.finalPayment)}</strong>
                   </td>
+                  <td className="payout-pay">
+                    <a
+                      href={payoutPayUrl(row)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Add Money
+                    </a>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -805,6 +815,10 @@ export function WarPayoutCalculator({
       )}
     </>
   );
+}
+
+function payoutPayUrl(row: PayoutRow): string {
+  return `https://www.torn.com/factions.php?step=your#/tab=controls&addMoneyTo=${row.member.member_id}&money=${Math.round(row.finalPayment)}`;
 }
 
 function exportPayoutRowsCsv(rows: PayoutRow[], warName: string, mode: PayoutMode) {
@@ -820,6 +834,7 @@ function exportPayoutRowsCsv(rows: PayoutRow[], warName: string, mode: PayoutMod
       { label: "flat_payout", value: (row) => csvMoney(row.flatPayment) },
       { label: "variable_payout", value: (row) => csvMoney(row.variablePayment) },
       { label: "final_payout", value: (row) => csvMoney(row.finalPayment) },
+      { label: "pay", value: (row) => payoutPayUrl(row) },
     ],
     rows,
   );
