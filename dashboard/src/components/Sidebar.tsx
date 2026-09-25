@@ -1,12 +1,14 @@
 import React from "react";
 import { CalendarClock, ChevronDown, ChevronRight, TrendingUp } from "lucide-react";
 import { WarSummary, WarType } from "../api";
+import { getChainWatchLive } from "../api/chainWatchSchedule";
 import { EmptyState } from "./Common";
 import { formatDate } from "../utils/format";
 import { displayWarStatus } from "../utils/members";
 import type { AppView } from "../routes";
 
 type SidebarGroupId = "members" | "recordedWars" | "miscellaneous" | "admin";
+const CHAIN_WATCH_STATUS_REFRESH_MS = 15_000;
 
 export function Sidebar({
   warType,
@@ -61,6 +63,8 @@ export function Sidebar({
   onWarSelect: (name: string) => void;
   onRecordedWarsOpenChange?: (open: boolean) => void;
 }) {
+  const [hasActiveChainWatch, setHasActiveChainWatch] = React.useState<boolean | null>(null);
+  const chainWatchInMiscellaneous = hasActiveChainWatch === false;
   const [collapsedGroups, setCollapsedGroups] = React.useState<Record<SidebarGroupId, boolean>>({
     members: true,
     recordedWars: true,
@@ -69,9 +73,37 @@ export function Sidebar({
   });
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
-  const miscellaneousActive = view === "miscellaneous" || view === "diceGame" || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "statEnhancerRange" || view === "stockInvestments";
+  const miscellaneousActive = view === "miscellaneous" || (view === "chainWatchSchedule" && chainWatchInMiscellaneous) || view === "diceGame" || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "statEnhancerRange" || view === "stockInvestments";
   const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "packs" || view === "admin";
   const recordedWarsOpen = !(collapsedGroups.recordedWars ?? false);
+
+  React.useEffect(() => {
+    let disposed = false;
+    let version = 0;
+    async function refresh() {
+      const request = ++version;
+      try {
+        const response = await getChainWatchLive();
+        if (!disposed && request === version) {
+          // Watch demand remains active even if the chain drops or monitoring is stale.
+          setHasActiveChainWatch(response.demand.active);
+        }
+      } catch {
+        // Keep the last known position if the status cannot be refreshed.
+      }
+    }
+    const wake = () => { if (!document.hidden) void refresh(); };
+    void refresh();
+    const timer = window.setInterval(wake, CHAIN_WATCH_STATUS_REFRESH_MS);
+    window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [view]);
 
   React.useEffect(() => {
     setCollapsedGroups((current) => {
@@ -116,12 +148,14 @@ export function Sidebar({
           label="Retaliations"
           onClick={() => onViewChange("retaliations")}
         />
-        <SidebarLink
-          active={view === "chainWatchSchedule"}
-          icon={<CalendarClock size={18} />}
-          label="Chain watch sign-ups"
-          onClick={() => onViewChange("chainWatchSchedule")}
-        />
+        {!chainWatchInMiscellaneous ? (
+          <SidebarLink
+            active={view === "chainWatchSchedule"}
+            icon={<CalendarClock size={18} />}
+            label="Chain watch sign-ups"
+            onClick={() => onViewChange("chainWatchSchedule")}
+          />
+        ) : null}
         <SidebarLink
           active={view === "dataHealth"}
           icon={dataHealthIcon}
@@ -191,6 +225,14 @@ export function Sidebar({
           label="Miscellaneous"
           onClick={() => onViewChange("miscellaneous")}
         />
+        {chainWatchInMiscellaneous ? (
+          <SidebarLink
+            active={view === "chainWatchSchedule"}
+            icon={<CalendarClock size={18} />}
+            label="Chain watch sign-ups"
+            onClick={() => onViewChange("chainWatchSchedule")}
+          />
+        ) : null}
         <SidebarLink
           active={view === "diceGame"}
           icon={diceGameIcon}
