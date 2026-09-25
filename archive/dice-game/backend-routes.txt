@@ -1,0 +1,11 @@
+  if (matchesExactRoute(url, request, "/api/dice-game", "GET")) {
+    return withMember(routeContext, () => getDiceGameState(request, env, url));
+  }
+
+  if (matchesExactRoute(url, request, "/api/dice-game/roll", "POST")) {
+    return withMember(routeContext, () => rollDiceGame(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/dice-game/send-xanax", "POST")) {
+    return withMember(routeContext, () => sendXanaxToDiceGame(request, env));
+  }

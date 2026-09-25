@@ -29,9 +29,7 @@ export function Sidebar({
   bookStrategyIcon,
   warPayoutsIcon,
   stockMarketIcon,
-  packsIcon,
   dataHealthIcon,
-  diceGameIcon,
   adminIcon,
   isAdmin,
   onWarSelect,
@@ -55,9 +53,7 @@ export function Sidebar({
   bookStrategyIcon: React.ReactNode;
   warPayoutsIcon: React.ReactNode;
   stockMarketIcon: React.ReactNode;
-  packsIcon: React.ReactNode;
   dataHealthIcon: React.ReactNode;
-  diceGameIcon: React.ReactNode;
   adminIcon: React.ReactNode;
   isAdmin: boolean;
   onWarSelect: (name: string) => void;
@@ -73,8 +69,8 @@ export function Sidebar({
   });
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
-  const miscellaneousActive = view === "miscellaneous" || (view === "chainWatchSchedule" && chainWatchInMiscellaneous) || view === "diceGame" || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "statEnhancerRange" || view === "stockInvestments";
-  const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "packs" || view === "admin";
+  const miscellaneousActive = view === "miscellaneous" || (view === "chainWatchSchedule" && chainWatchInMiscellaneous) || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "statEnhancerRange" || view === "stockInvestments";
+  const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "admin";
   const recordedWarsOpen = !(collapsedGroups.recordedWars ?? false);
 
   React.useEffect(() => {
@@ -234,12 +230,6 @@ export function Sidebar({
           />
         ) : null}
         <SidebarLink
-          active={view === "diceGame"}
-          icon={diceGameIcon}
-          label="Dice Game"
-          onClick={() => onViewChange("diceGame")}
-        />
-        <SidebarLink
           active={view === "tradeScout"}
           icon={tradeScoutIcon}
           label="Trade scout"
@@ -289,12 +279,6 @@ export function Sidebar({
             icon={stockMarketIcon}
             label="Stock market"
             onClick={() => onViewChange("stockMarketStatus")}
-          />
-          <SidebarLink
-            active={view === "packs"}
-            icon={packsIcon}
-            label="Packs"
-            onClick={() => onViewChange("packs")}
           />
           <SidebarLink
             active={view === "admin"}

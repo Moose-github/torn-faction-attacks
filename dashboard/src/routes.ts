@@ -12,11 +12,9 @@ export type AppView =
   | "arrestScout"
   | "bookStrategy"
   | "statEnhancerRange"
-  | "packs"
   | "warPayouts"
   | "stockMarketStatus"
   | "stockInvestments"
-  | "diceGame"
   | "dataHealth"
   | "settings"
   | "admin";
@@ -39,11 +37,9 @@ export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   arrestScout: "/arrest-scout",
   bookStrategy: "/book-strategy",
   statEnhancerRange: "/stat-enhancer-range",
-  packs: "/admin/packs",
   warPayouts: "/war-payouts",
   stockMarketStatus: "/admin/stock-market",
   stockInvestments: "/stock-roi",
-  diceGame: "/dice-game",
   dataHealth: "/data-health",
   settings: "/settings",
   admin: "/admin",
@@ -96,6 +92,11 @@ export function parseAppRoute(pathname: string): AppRoute {
   };
 }
 
+export function retiredPageRedirect(pathname: string): string | null {
+  const path = pathname.replace(/\/+$/, "").toLowerCase();
+  return path === "/dice-game" || path === "/admin/packs" ? PAGE_PATHS.dashboard : null;
+}
+
 export function pathForView(view: AppView, warName?: string | null): string {
   if (view === "war") {
     return warName ? `/wars/${encodeURIComponent(warName)}` : "/wars";
@@ -105,7 +106,7 @@ export function pathForView(view: AppView, warName?: string | null): string {
 }
 
 export function isAdminOnlyView(view: AppView): boolean {
-  return view === "admin" || view === "packs" || view === "warPayouts" || view === "stockMarketStatus";
+  return view === "admin" || view === "warPayouts" || view === "stockMarketStatus";
 }
 
 function safeDecodePathPart(value: string): string | null {

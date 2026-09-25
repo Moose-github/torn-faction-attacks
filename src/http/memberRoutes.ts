@@ -1,7 +1,6 @@
 import { readAuthenticatedUserId } from "../auth";
 import { MEMBER_LIFESTYLE_CACHE_VERSION_NAME } from "../cacheVersions";
 import { getDataHealthSummary } from "../dataHealth";
-import { getDiceGameState, rollDiceGame, sendXanaxToDiceGame } from "../diceGame";
 import {
   getDiscordMemberAlertSubscriptions,
   updateDiscordMemberAlertSubscriptionFromRequest,
@@ -227,18 +226,6 @@ export async function routeMemberUtilityApi(routeContext: RouteContext): Promise
 
   if (matchesExactRoute(url, request, "/api/monitor-ticket", "POST")) {
     return withMember(routeContext, () => createMonitorTicket(request, env));
-  }
-
-  if (matchesExactRoute(url, request, "/api/dice-game", "GET")) {
-    return withMember(routeContext, () => getDiceGameState(request, env, url));
-  }
-
-  if (matchesExactRoute(url, request, "/api/dice-game/roll", "POST")) {
-    return withMember(routeContext, () => rollDiceGame(request, env));
-  }
-
-  if (matchesExactRoute(url, request, "/api/dice-game/send-xanax", "POST")) {
-    return withMember(routeContext, () => sendXanaxToDiceGame(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/stats", "GET")) {

@@ -20,7 +20,7 @@ export function getAdminDiscordAlertMentions(): Promise<AdminDiscordAlertMention
 export function updateAdminDiscordAlertMentions(alertKey: string, mentions: DiscordAlertMentionSetting): Promise<UpdateDiscordAlertMentionsResponse> {
   return postJson("/api/admin/discord-alerts/mentions", { alert_key: alertKey, ...mentions });
 }
-import type { AdminDiscordAlertSettingsResponse, AdminPacksResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
+import type { AdminDiscordAlertSettingsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
 
 export function previewDiscordBotMessage(messageLink: string): Promise<DiscordMessagePreview> {
   return postJson("/api/admin/discord-messages/preview", { message_link: messageLink });
@@ -116,10 +116,6 @@ export async function refreshMemberAchievements(): Promise<unknown> {
 
 export async function getTornApiUsage(windowSeconds = 24 * 60 * 60): Promise<TornApiUsageResponse> {
   return getJson<TornApiUsageResponse>(`/api/admin/torn-api-usage${queryString({ window_seconds: windowSeconds })}`, true);
-}
-
-export async function getAdminPacks(): Promise<AdminPacksResponse> {
-  return getJson<AdminPacksResponse>("/api/admin/packs", true);
 }
 
 export async function updateHomeFactionReportExemption(payload: {

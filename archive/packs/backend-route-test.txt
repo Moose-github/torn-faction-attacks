@@ -1,0 +1,9 @@
+  it("routes admin packs through admin auth", async () => {
+    const context = routeContext("https://worker.test/api/admin/packs");
+    const response = await routeAdminApi(context);
+
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toEqual({ ok: true, route: "packs" });
+    expect(requireAdmin).toHaveBeenCalledOnce();
+    expect(listPacks).toHaveBeenCalledWith(context.env);
+  });

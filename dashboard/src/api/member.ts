@@ -1,6 +1,6 @@
 import { getJson, postJson } from "./client";
 import { queryString } from "./query";
-import type { DiceGameResponse, DiceGameRollResponse, DiceGameSendXanaxResponse, DiscordMemberAlertSubscriptionsResponse, HomeFactionMemberSummary, HomeFactionReportExemptionsResponse, MemberAchievementsResponse, MemberSuggestionResponse, MiscellaneousResponse, MonitorTicketResponse, RecentFactionAttacksResponse, XanaxCompetitionResponse } from "./types";
+import type { DiscordMemberAlertSubscriptionsResponse, HomeFactionMemberSummary, HomeFactionReportExemptionsResponse, MemberAchievementsResponse, MemberSuggestionResponse, MiscellaneousResponse, MonitorTicketResponse, RecentFactionAttacksResponse, XanaxCompetitionResponse } from "./types";
 
 export async function getHomeFactionMemberSummary(): Promise<HomeFactionMemberSummary> {
   return getJson<HomeFactionMemberSummary>("/api/home-faction-members/summary");
@@ -53,27 +53,5 @@ export async function getMiscellaneousData(): Promise<MiscellaneousResponse> {
 export async function createMonitorTicket(warId: number): Promise<MonitorTicketResponse> {
   return postJson<MonitorTicketResponse>("/api/monitor-ticket", {
     war_id: warId,
-  });
-}
-
-export async function getDiceGame(): Promise<DiceGameResponse> {
-  return getJson<DiceGameResponse>("/api/dice-game");
-}
-
-export async function rollDiceGame(
-  betAmount: number,
-  betNumber: number,
-  hauntedOriginalNumber?: number,
-): Promise<DiceGameRollResponse> {
-  return postJson<DiceGameRollResponse>("/api/dice-game/roll", {
-    bet_amount: betAmount,
-    bet_number: betNumber,
-    haunted_original_number: hauntedOriginalNumber,
-  });
-}
-
-export async function sendXanaxToDiceGame(amount: number): Promise<DiceGameSendXanaxResponse> {
-  return postJson<DiceGameSendXanaxResponse>("/api/dice-game/send-xanax", {
-    amount,
   });
 }

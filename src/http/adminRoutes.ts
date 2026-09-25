@@ -45,7 +45,6 @@ import { getLatestMaintenanceRun } from "../maintenance";
 import { acceptDailyStatsIssueFromRequest } from "../lifestyleStats/dailyAttention";
 import { refreshMemberAchievementSummaries } from "../memberAchievements";
 import { syncMemberDiscordLinksFromRequest } from "../memberDiscordLinks";
-import { listPacks } from "../packs";
 import { cachedGetJson } from "../responseCache";
 import {
   matchesExactRoute,
@@ -122,10 +121,6 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/torn-key-pool/keys", "GET")) {
     return withAdmin(routeContext, () => listAdminTornApiKeys(env));
-  }
-
-  if (matchesExactRoute(url, request, "/api/admin/packs", "GET")) {
-    return withAdmin(routeContext, () => listPacks(env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/data-health", "GET")) {

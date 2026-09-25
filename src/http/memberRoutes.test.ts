@@ -48,11 +48,6 @@ vi.mock("../retaliations", () => ({
   getRetaliationCheck: vi.fn(),
 }));
 
-vi.mock("../diceGame", () => ({
-  getDiceGameState: vi.fn(),
-  rollDiceGame: vi.fn(),
-  sendXanaxToDiceGame: vi.fn(),
-}));
 vi.mock("../factionAttacks", () => ({
   getRecentFactionAttacks: vi.fn(),
 }));
@@ -105,6 +100,16 @@ vi.mock("../xanaxCompetition", () => ({
 }));
 
 describe("member utility routes", () => {
+  it.each([
+    ["/api/dice-game", "GET"],
+    ["/api/dice-game/roll", "POST"],
+    ["/api/dice-game/send-xanax", "POST"],
+  ])("does not register retired endpoint %s", async (path, method) => {
+    const response = await routeMemberUtilityApi(routeContext(`https://worker.test${path}`, { method }));
+    expect(response).toBeNull();
+    expect(requireMember).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(requireMember).mockResolvedValue(null);

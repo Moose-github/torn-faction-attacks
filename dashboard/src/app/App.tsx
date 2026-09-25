@@ -4,11 +4,9 @@ import {
   BookOpen,
   CircleDollarSign,
   Crosshair,
-  Dices,
   Gauge,
   House,
   LogIn,
-  PackageOpen,
   Pill,
   Radar,
   ShoppingCart,
@@ -58,6 +56,7 @@ import {
   isAdminOnlyView,
   parseAppRoute,
   pathForView,
+  retiredPageRedirect,
 } from "../routes";
 import {
   initialThemeMode,
@@ -81,9 +80,6 @@ const AUTH_SESSION_REFRESH_MS = 30 * 60_000;
 
 const AdminControls = React.lazy(() =>
   import("../views/AdminControls").then((module) => ({ default: module.AdminControls })),
-);
-const DiceGame = React.lazy(() =>
-  import("../views/DiceGame").then((module) => ({ default: module.DiceGame })),
 );
 const DataHealthPage = React.lazy(() =>
   import("../views/DataHealthCommandCenter").then((module) => ({ default: module.DataHealthPage })),
@@ -117,9 +113,6 @@ const BookStrategy = React.lazy(() =>
 );
 const StatEnhancerRange = React.lazy(() =>
   import("../views/StatEnhancerRange").then((module) => ({ default: module.StatEnhancerRange })),
-);
-const Packs = React.lazy(() =>
-  import("../views/Packs").then((module) => ({ default: module.Packs })),
 );
 const WarPayouts = React.lazy(() =>
   import("../views/WarPayouts").then((module) => ({ default: module.WarPayouts })),
@@ -239,6 +232,10 @@ export function App() {
 
   React.useEffect(() => {
     function applyBrowserRoute() {
+      const redirect = retiredPageRedirect(window.location.pathname);
+      if (redirect !== null) {
+        window.history.replaceState(null, "", redirect);
+      }
       const route = parseAppRoute(window.location.pathname);
       setView(route.view);
       setRoutedWarName(route.warName);
@@ -247,6 +244,7 @@ export function App() {
       }
     }
 
+    applyBrowserRoute();
     window.addEventListener("popstate", applyBrowserRoute);
     return () => {
       window.removeEventListener("popstate", applyBrowserRoute);
@@ -864,9 +862,7 @@ export function App() {
           bookStrategyIcon={<BookOpen size={18} />}
           warPayoutsIcon={<CircleDollarSign size={18} />}
           stockMarketIcon={<TrendingUp size={18} />}
-          packsIcon={<PackageOpen size={18} />}
           dataHealthIcon={<Gauge size={18} />}
-          diceGameIcon={<Dices size={18} />}
           adminIcon={<Wrench size={18} />}
           isAdmin={isAdmin}
           onWarSelect={selectWar}
@@ -889,10 +885,6 @@ export function App() {
           ) : view === "admin" ? (
             <LazyPage>
               <AdminControls />
-            </LazyPage>
-          ) : view === "diceGame" ? (
-            <LazyPage>
-              <DiceGame />
             </LazyPage>
           ) : view === "lifestyle" ? (
             <LazyPage>
@@ -921,10 +913,6 @@ export function App() {
           ) : view === "warPayouts" ? (
             <LazyPage>
               <WarPayouts isLoadingWars={isLoadingWars} wars={wars} />
-            </LazyPage>
-          ) : view === "packs" ? (
-            <LazyPage>
-              <Packs />
             </LazyPage>
           ) : view === "stockMarketStatus" ? (
             <LazyPage>
