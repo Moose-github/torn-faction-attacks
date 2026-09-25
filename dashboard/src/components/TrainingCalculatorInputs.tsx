@@ -78,6 +78,7 @@ export function NumberField({
   suffix,
   title,
   disabled = false,
+  commitOnBlur = false,
 }: {
   label: string;
   value: string;
@@ -85,7 +86,11 @@ export function NumberField({
   suffix?: string;
   title?: string;
   disabled?: boolean;
+  commitOnBlur?: boolean;
 }) {
+  const [draft, setDraft] = React.useState(value);
+  React.useEffect(() => setDraft(value), [value]);
+
   return (
     <label className="book-strategy-field">
       <span className="book-strategy-field-label">
@@ -107,9 +112,19 @@ export function NumberField({
         <input
           type="text"
           inputMode="text"
-          value={value}
+          value={commitOnBlur ? draft : value}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => {
+            if (commitOnBlur) setDraft(event.target.value);
+            else onChange(event.target.value);
+          }}
+          onBlur={() => { if (commitOnBlur && draft !== value) onChange(draft); }}
+          onKeyDown={(event) => {
+            if (commitOnBlur && event.key === "Enter" && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+          }}
         />
         {suffix ? <small>{suffix}</small> : null}
       </div>

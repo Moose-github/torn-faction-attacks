@@ -92,12 +92,12 @@ export function StatEnhancerRange() {
             </div>
           } />
           <div className="book-strategy-input-grid se-range-inputs">
-            <NumberField label="Current stat" value={form.currentStat} onChange={(value) => updateField("currentStat", value)} />
-            <NumberField label="Cash earned per energy" value={form.cashPerEnergy} onChange={(value) => updateField("cashPerEnergy", value)} />
+            <NumberField label="Current stat" value={form.currentStat} onChange={(value) => updateField("currentStat", value)} commitOnBlur />
+            <NumberField label="Cash earned per energy" value={form.cashPerEnergy} onChange={(value) => updateField("cashPerEnergy", value)} commitOnBlur />
             <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} title="Capped range: 1–10 gym dots" />
             <NumberField label="Happiness" value={form.happiness} onChange={(value) => updateField("happiness", value)} />
           </div>
-          <p className="se-range-note">Accepts values like 500m and 100k. Use cash available for enhancers after activity costs.</p>
+          <p className="se-range-note">Accepts values like 500m and 100k. Press Enter or leave the stat or cash field to apply. Use cash available for enhancers after activity costs.</p>
           {popout === "perks" ? <PerkInputs settings={form} onSettingChange={updatePerk} /> : null}
           {popout === "prices" ? (
             <div className="book-strategy-popout" role="dialog" aria-label="Prices">
