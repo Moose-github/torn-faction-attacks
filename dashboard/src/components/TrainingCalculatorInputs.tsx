@@ -5,13 +5,16 @@ export type TrainingPerkSettings = Pick<SharedTrainingSettings, "privateIslandPe
 export function PerkInputs({
   settings,
   onSettingChange,
+  children,
 }: {
   settings: TrainingPerkSettings;
   onSettingChange: (field: keyof TrainingPerkSettings, value: string) => void;
+  children?: React.ReactNode;
 }) {
   return (
     <div className="book-strategy-popout" role="dialog" aria-label="Perks">
       <div className="book-strategy-popout-grid">
+        {children}
         <NumberField
           label="Property"
           suffix="%"

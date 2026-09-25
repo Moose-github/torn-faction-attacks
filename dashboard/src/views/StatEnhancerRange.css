@@ -1,4 +1,7 @@
-.se-range-inputs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.se-range-inputs { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; }
+.se-range-unit-field { display: grid; gap: 6px; min-width: 0; color: var(--text-muted); font-size: 0.78rem; font-weight: 800; }
+.se-range-unit-field .segmented-control { display: flex; margin: 0; }
+.se-range-unit-field button { flex: 1; min-height: 38px; white-space: nowrap; }
 .se-range-note { margin: 0; color: var(--text-muted); font-size: 0.78rem; line-height: 1.6; }
 .se-range-chart-panel { display: grid; gap: 16px; min-width: 0; }
 .se-range-legend { display: flex; flex-wrap: wrap; gap: 12px 24px; font-size: 0.76rem; color: var(--text-muted); }
@@ -38,6 +41,7 @@
 .se-range-empty { color: var(--text-muted); }
 @media (max-width: 1000px) {
   .se-range-inputs, .se-range-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .se-range-unit-field { grid-column: 1 / -1; }
 }
 @media (max-width: 480px) {
   .se-range-inputs { grid-template-columns: minmax(0, 1fr); }

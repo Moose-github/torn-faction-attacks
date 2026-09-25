@@ -43,12 +43,16 @@ export function StatEnhancerRange() {
   const [popout, setPopout] = React.useState<"perks" | "prices" | null>(null);
   const [methodologyOpen, setMethodologyOpen] = React.useState(false);
   const [chartVersion, setChartVersion] = React.useState(0);
+  const [energyUnit, setEnergyUnit] = React.useState<1 | 25>(1);
+  const unitLabel = `${energyUnit} energy`;
   const values = Object.fromEntries(Object.entries(form).map(([key, value]) => [key, parseNumber(value, NaN)])) as
     StatEnhancerSettings & { currentStat: number; cashPerEnergy: number };
   const errors = (Object.keys(FIELDS) as Array<keyof Form>).flatMap((key) => {
     const { label, min, max } = FIELDS[key];
+    const displayLabel = key === "cashPerEnergy" ? `Profit per ${unitLabel}` : label;
+    const scale = key === "cashPerEnergy" ? energyUnit : 1;
     return !Number.isFinite(values[key]) || values[key] < min || values[key] > max
-      ? [`${label}: enter a number from ${formatCompact(min)} to ${formatCompact(max)}.`] : [];
+      ? [`${displayLabel}: enter a number from ${formatCompact(min * scale)} to ${formatCompact(max * scale)}.`] : [];
   });
   const valid = errors.length === 0;
   const result = valid ? compareEnhancerEfficiency(values.currentStat, values.cashPerEnergy, values) : null;
@@ -66,6 +70,14 @@ export function StatEnhancerRange() {
     updateField(field, value);
   }
 
+  // Keep calculations and chart coordinates in dollars per energy; only the displayed unit changes.
+  const displayedProfit = energyUnit === 1 || !Number.isFinite(values.cashPerEnergy)
+    ? form.cashPerEnergy : inputNumber(values.cashPerEnergy * energyUnit);
+  function updateProfit(value: string) {
+    const parsed = parseNumber(value, NaN);
+    updateField("cashPerEnergy", Number.isFinite(parsed) ? inputNumber(parsed / energyUnit) : value);
+  }
+
   return (
     <>
       <section className="hero-panel compact-hero-panel book-strategy-hero">
@@ -74,7 +86,7 @@ export function StatEnhancerRange() {
           <h2>Stat Enhancer Range</h2>
           <p>Find where earning cash for stat enhancers gives more stats per energy than gym training.</p>
         </div>
-        <button type="button" className="panel-action-button" onClick={() => { setForm(DEFAULT_FORM); setPopout(null); setChartVersion((current) => current + 1); }}>
+        <button type="button" className="panel-action-button" onClick={() => { setForm(DEFAULT_FORM); setEnergyUnit(1); setPopout(null); setChartVersion((current) => current + 1); }}>
           <RotateCcw size={15} /> Reset
         </button>
       </section>
@@ -93,12 +105,24 @@ export function StatEnhancerRange() {
           } />
           <div className="book-strategy-input-grid se-range-inputs">
             <NumberField label="Current stat" value={form.currentStat} onChange={(value) => updateField("currentStat", value)} commitOnBlur />
-            <NumberField label="Cash earned per energy" value={form.cashPerEnergy} onChange={(value) => updateField("cashPerEnergy", value)} commitOnBlur />
-            <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} title="Capped range: 1–10 gym dots" />
-            <NumberField label="Happiness" value={form.happiness} onChange={(value) => updateField("happiness", value)} />
+            <NumberField label={`Profit per ${unitLabel}`} value={displayedProfit} onChange={updateProfit} commitOnBlur />
+            <div className="se-range-unit-field">
+              <span>Profit unit</span>
+              <div className="segmented-control" role="group" aria-label="Profit energy unit">
+                {([1, 25] as const).map((unit) => (
+                  <button key={unit} type="button" className={energyUnit === unit ? "active" : ""}
+                    aria-pressed={energyUnit === unit} onClick={() => setEnergyUnit(unit)}>Per {unit} energy</button>
+                ))}
+              </div>
+            </div>
           </div>
-          <p className="se-range-note">Accepts values like 500m and 100k. Press Enter or leave the stat or cash field to apply. Use cash available for enhancers after activity costs.</p>
-          {popout === "perks" ? <PerkInputs settings={form} onSettingChange={updatePerk} /> : null}
+          <p className="se-range-note">Accepts values like 500m and 100k. Press Enter or leave the stat or profit field to apply. Use profit after activity costs. Switching units converts your existing value.</p>
+          {popout === "perks" ? (
+            <PerkInputs settings={form} onSettingChange={updatePerk}>
+              <NumberField label="Gym dots" value={form.gymMultiplier} onChange={(value) => updateField("gymMultiplier", value)} title="Capped range: 1–10 gym dots" commitOnBlur />
+              <NumberField label="Happiness" value={form.happiness} onChange={(value) => updateField("happiness", value)} commitOnBlur />
+            </PerkInputs>
+          ) : null}
           {popout === "prices" ? (
             <div className="book-strategy-popout" role="dialog" aria-label="Prices">
               <NumberField label="Enhancer price" value={form.statEnhancerPrice} onChange={(value) => updateField("statEnhancerPrice", value)} />
@@ -117,21 +141,21 @@ export function StatEnhancerRange() {
                 <span><i className="se-legend-boundary" /> Break-even curve</span>
                 <span><i className="se-legend-marker" /> Your position</span>
               </div>
-              <StatEnhancerRangeChart key={chartVersion} stat={values.currentStat} cashPerEnergy={values.cashPerEnergy} settings={values} onSelect={updatePoint} />
+              <StatEnhancerRangeChart key={chartVersion} stat={values.currentStat} cashPerEnergy={values.cashPerEnergy} energyUnit={energyUnit} settings={values} onSelect={updatePoint} />
               <p className="se-range-note">Click or drag in the graph to move your marker. Use arrow keys when the graph is focused. The stat axis uses a logarithmic scale.</p>
             </section>
 
             <section className="panel se-range-summary" aria-label="Efficiency comparison">
               <div className={`se-range-outcome is-${result.winner}`} role="status">
                 <strong>{result.winner === "equal" ? "At break-even" : result.winner === "enhancer" ? "You are in SE range" : "Gym training is more efficient"}</strong>
-                <span>{efficiencyDescription(result)}</span>
+                <span>{efficiencyDescription(result, energyUnit)}</span>
               </div>
               <div className="se-range-metrics">
-                <ResultMetric label="Gym stats per energy" value={formatCompact(result.gym)} />
-                <ResultMetric label="Enhancer stats per energy" value={formatCompact(result.enhancer)} />
+                <ResultMetric label={`Gym stats per ${unitLabel}`} value={formatCompact(result.gym * energyUnit)} />
+                <ResultMetric label={`Enhancer stats per ${unitLabel}`} value={formatCompact(result.enhancer * energyUnit)} />
                 <ResultMetric label="Break-even stat" value={breakEvenStat === null ? (values.cashPerEnergy === 0 ? "No crossover" : `Above ${formatCompact(MAX_RANGE_STAT)}`) : formatCompact(breakEvenStat)}
-                  detail={`At ${formatMoney(values.cashPerEnergy)} per energy`} />
-                <ResultMetric label="Cash per energy to break even" value={formatMoney(result.requiredCashPerEnergy)}
+                  detail={`At ${formatMoney(values.cashPerEnergy * energyUnit)} per ${unitLabel}`} />
+                <ResultMetric label={`Profit per ${unitLabel} to break even`} value={formatMoney(result.requiredCashPerEnergy * energyUnit)}
                   detail={`At your current ${formatCompact(values.currentStat)} stat`} />
               </div>
             </section>
@@ -141,7 +165,7 @@ export function StatEnhancerRange() {
         <CollapsiblePanel title="How this is calculated" collapsed={!methodologyOpen} onToggle={() => setMethodologyOpen((current) => !current)}>
           <div className="book-strategy-methodology">
             <p>Gym gains use the same estimated training formula and multiplicative perks as Book Strategy, with your selected gym dots and constant happiness. No book bonus is applied.</p>
-            <p>Enhancer stats per energy = current stat × 1% × cash earned per energy ÷ enhancer price.</p>
+            <p>Enhancer stats per {unitLabel} = current stat × 1% × profit per {unitLabel} ÷ enhancer price. Switching units preserves the same efficiency and break-even stat.</p>
             <p>The curve marks equal efficiency. Above it, cash earned with the same energy buys more stat gain through enhancers. Below it, gym training gives more.</p>
             <p>This compares efficiency at the entered stat, treating enhancer purchases proportionally. It does not project saving, whole-item purchases, cooldowns, or future growth. Prices and earnings are your inputs.</p>
           </div>
@@ -151,11 +175,15 @@ export function StatEnhancerRange() {
   );
 }
 
-export function efficiencyDescription(result: ReturnType<typeof compareEnhancerEfficiency>): string {
-  if (result.winner === "equal") return "Both methods give the same stats per energy.";
+export function efficiencyDescription(result: ReturnType<typeof compareEnhancerEfficiency>, energyUnit: 1 | 25): string {
+  if (result.winner === "equal") return `Both methods give the same stats per ${energyUnit} energy.`;
   if (result.advantagePercent === null) return "Zero earnings provide no enhancer gains.";
   const percent = result.advantagePercent < 0.1 ? "Less than 0.1%" : `${formatCompact(result.advantagePercent)}%`;
-  return `${percent} more stats per energy with ${result.winner === "enhancer" ? "enhancers" : "gym training"}.`;
+  return `${percent} more stats per ${energyUnit} energy with ${result.winner === "enhancer" ? "enhancers" : "gym training"}.`;
+}
+
+function inputNumber(value: number): string {
+  return value.toLocaleString("en-US", { useGrouping: false, maximumSignificantDigits: 21 });
 }
 
 function ResultMetric({ label, value, detail }: { label: string; value: string; detail?: string }) {

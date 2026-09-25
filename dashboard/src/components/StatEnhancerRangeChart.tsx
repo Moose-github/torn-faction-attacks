@@ -12,9 +12,10 @@ const LEFT = 70;
 const RIGHT = 20;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-export function StatEnhancerRangeChart({ stat, cashPerEnergy, settings, onSelect }: {
+export function StatEnhancerRangeChart({ stat, cashPerEnergy, energyUnit, settings, onSelect }: {
   stat: number;
   cashPerEnergy: number;
+  energyUnit: 1 | 25;
   settings: StatEnhancerSettings;
   onSelect: (stat: number, cashPerEnergy: number) => void;
 }) {
@@ -24,6 +25,7 @@ export function StatEnhancerRangeChart({ stat, cashPerEnergy, settings, onSelect
   const [hover, setHover] = React.useState<{ stat: number; cash: number; x: number; y: number } | null>(null);
   const dragPointer = React.useRef<number | null>(null);
   const clipId = React.useId().replace(/:/g, "");
+  const unitLabel = `${energyUnit} energy`;
   React.useEffect(() => {
     const element = container.current;
     if (!element) return;
@@ -115,7 +117,7 @@ export function StatEnhancerRangeChart({ stat, cashPerEnergy, settings, onSelect
           } else onSelect(stat, clamp(cashPerEnergy + direction * maxCash * step, 0, maxCash));
           setHover(null);
         }}>
-        <desc id={`${clipId}-help`}>Current stat increases from left to right on a logarithmic scale. Cash earned per energy increases upwards. The green region above the curve is SE range. Click or drag to select. Left and right arrows change stat; up and down arrows change cash. Hold Shift for larger steps.</desc>
+        <desc id={`${clipId}-help`}>Current stat increases from left to right on a logarithmic scale. Profit per {unitLabel} increases upwards. The green region above the curve is SE range. Click or drag to select. Left and right arrows change stat; up and down arrows change profit. Hold Shift for larger steps.</desc>
         <defs><clipPath id={clipId}><rect x={LEFT} y={TOP} width={plotWidth} height={plotHeight} /></clipPath></defs>
         <rect className="se-chart-gym" x={LEFT} y={TOP} width={plotWidth} height={plotHeight} />
         <path className="se-chart-enhancer" d={area} />
@@ -123,13 +125,13 @@ export function StatEnhancerRangeChart({ stat, cashPerEnergy, settings, onSelect
           const cash = maxCash * index / 5;
           const y = yFor(cash);
           return <g key={index}><line className="se-chart-grid" x1={LEFT} x2={width - RIGHT} y1={y} y2={y} />
-            <text className="se-chart-tick" x={LEFT - 10} y={y + 4} textAnchor="end">{axisMoney(cash)}</text></g>;
+            <text className="se-chart-tick" x={LEFT - 10} y={y + 4} textAnchor="end">{axisMoney(cash * energyUnit)}</text></g>;
         })}
         {ticks.map((tick) => <g key={tick}>
           <line className="se-chart-grid" x1={xFor(tick)} x2={xFor(tick)} y1={TOP} y2={BOTTOM} />
           <text className="se-chart-tick" x={xFor(tick)} y={BOTTOM + 22} textAnchor="middle">{formatCompact(tick)}</text>
         </g>)}
-        <text className="se-chart-axis-title" x={LEFT} y={15}>Cash earned per energy</text>
+        <text className="se-chart-axis-title" x={LEFT} y={15}>Profit per {unitLabel}</text>
         <text className="se-chart-axis-title" x={LEFT + plotWidth / 2} y={HEIGHT - 6} textAnchor="middle">Current stat</text>
         <g clipPath={`url(#${clipId})`}>
           <path className="se-chart-boundary" d={boundary} />
@@ -147,9 +149,9 @@ export function StatEnhancerRangeChart({ stat, cashPerEnergy, settings, onSelect
         }}>
           <strong>{hoverResult.winner === "equal" ? "Break-even" : hoverResult.winner === "enhancer" ? "In SE range" : "Gym training wins"}</strong>
           <span>Stat: {formatCompact(hover.stat)}</span>
-          <span>Cash / energy: {formatMoney(hover.cash)}</span>
-          <span>Break-even: {formatMoney(hoverResult.requiredCashPerEnergy)} / energy</span>
-          <span>{hoverResult.advantagePercent === null ? "No enhancer gain at $0 / energy" : `${formatCompact(hoverResult.advantagePercent)}% ${hoverResult.winner === "equal" ? "difference" : "more stats per energy"}`}</span>
+          <span>Profit / {unitLabel}: {formatMoney(hover.cash * energyUnit)}</span>
+          <span>Break-even: {formatMoney(hoverResult.requiredCashPerEnergy * energyUnit)} / {unitLabel}</span>
+          <span>{hoverResult.advantagePercent === null ? `No enhancer gain at $0 / ${unitLabel}` : `${formatCompact(hoverResult.advantagePercent)}% ${hoverResult.winner === "equal" ? "difference" : `more stats per ${unitLabel}`}`}</span>
         </div>
       ) : null}
     </div>
