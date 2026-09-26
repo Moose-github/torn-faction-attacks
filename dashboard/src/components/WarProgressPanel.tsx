@@ -149,20 +149,47 @@ function FinishResult({ label, finish, lead, now, original, planned = false }: {
   return <div className={planned ? "planned-result" : ""}><small><i />{label}</small><strong>{title}</strong><span>{detail}</span></div>;
 }
 
+type ProgressTooltip = {
+  title: string;
+  rows: Array<{ label: string; value: string; color?: string }>;
+  x: number;
+  y: number;
+  pointIndex?: number;
+  marker?: { x: number; y: number; planned?: boolean; color: string };
+};
+
 function WarProgressChart({ points, start, original, now, endedAt, currentLead, plannedLead, currentFinish, plannedFinish, homeName, enemyName }: {
   points: WarScorePoint[]; start: number; original: number | null; now: number; endedAt: number | null;
   currentLead: number | null; plannedLead: number | null; currentFinish: number | null; plannedFinish: number | null;
   homeName: string; enemyName: string;
 }) {
   const container = React.useRef<HTMLDivElement>(null);
+  const tooltipElement = React.useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = React.useState<ProgressTooltip | null>(null);
+  const [tooltipSize, setTooltipSize] = React.useState({ width: 280, height: 170 });
   const [width, setWidth] = React.useState(600);
   const id = React.useId().replace(/:/g, "");
   React.useEffect(() => {
     const element = container.current;
     if (!element) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(240, entry.contentRect.width)));
+    const observer = new ResizeObserver(([entry]) => {
+      setWidth(Math.max(240, entry.contentRect.width));
+      setTooltip(null);
+    });
     observer.observe(element);
     return () => observer.disconnect();
+  }, []);
+  React.useLayoutEffect(() => {
+    if (!tooltipElement.current) return;
+    const { width, height } = tooltipElement.current.getBoundingClientRect();
+    setTooltipSize((previous) => previous.width === width && previous.height === height ? previous : { width, height });
+  }, [tooltip]);
+  React.useEffect(() => {
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && !container.current?.contains(event.target)) setTooltip(null);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
   }, []);
   const height = width < 430 ? 290 : 330, left = 62, right = 14, top = 30, bottom = height - 46;
   const endAt = endedAt ?? Math.max(now, currentFinish ?? now, plannedFinish ?? now);
@@ -199,9 +226,83 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     { score: currentLead, finish: currentFinish, planned: false },
     { score: plannedLead, finish: plannedFinish, planned: true },
   ];
-  const leadLabel = (lead: number | null) => lead === null ? "Lead unavailable" : lead === 0 ? "Scores tied" : `${lead > 0 ? homeName : enemyName} leads by ${number(Math.abs(lead))} respect`;
-  return <div ref={container} className="war-progress-chart">
-    <svg viewBox={`0 0 ${width} ${height}`} height={height} role="img" aria-label={`War net score over time. ${homeName} above zero, ${enemyName} below zero.${endedAt ? " Final recorded history." : " Dotted lines hold current and planned scores unchanged."}`}>
+  const leadValue = (lead: number | null) => lead === null ? "Unavailable" : lead === 0 ? "Tied" : `${number(Math.abs(lead))} · ${lead > 0 ? homeName : enemyName}`;
+  function showPoint(index: number, pointer?: { x: number; y: number }) {
+    const point = points[index];
+    if (!point) return;
+    const marker = { x: x(point.observed_at), y: y(point.home_score - point.enemy_score), color: "var(--war-progress-home)" };
+    setTooltip({ title: date(point.observed_at), pointIndex: index, x: pointer?.x ?? marker.x, y: pointer?.y ?? marker.y, marker, rows: [
+      { label: homeName, value: number(point.home_score), color: "var(--war-progress-home)" },
+      { label: enemyName, value: number(point.enemy_score), color: "var(--war-progress-enemy)" },
+    ] });
+  }
+  function showScenario(scenario: typeof scenarios[number], pointer?: { x: number; y: number }) {
+    const { score, finish, planned } = scenario;
+    const marker = score !== null && finish !== null ? {
+      x: x(finish), y: y(score), planned, color: planned ? "var(--war-progress-plan)" : "var(--text-main)",
+    } : undefined;
+    setTooltip({ title: planned ? "Planned scores" : "Current scores", x: pointer?.x ?? marker?.x ?? x(now), y: pointer?.y ?? marker?.y ?? top, marker, rows: [
+      { label: "Net lead", value: leadValue(score) },
+      { label: "Finish", value: finish === null ? (score === 0 ? "No winning side" : "Unavailable") : finish <= now ? (planned ? "Target already low enough" : "Target already reached") : date(finish) },
+    ] });
+  }
+  function hoverChart(event: React.PointerEvent<SVGSVGElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const pointer = { x: (event.clientX - bounds.left) * width / bounds.width, y: (event.clientY - bounds.top) * height / bounds.height };
+    if (pointer.x < left || pointer.x > width - right || pointer.y < top || pointer.y > bottom) { setTooltip(null); return; }
+    if (event.target instanceof Element) {
+      const pointIndex = event.target.getAttribute("data-point-index");
+      if (pointIndex !== null) { showPoint(Number(pointIndex), pointer); return; }
+    }
+    const at = start + (pointer.x - left - 6) / (width - left - right - 12) * (end - start);
+    const gap = gaps.find(([from, to]) => at > from && at < to);
+    // Keep the actual endpoint selectable where it meets the forecast, including
+    // a small allowance for rounding pointer coordinates at either end of the line.
+    const endpoint = [0, points.length - 1].find((index) => {
+      const point = points[index];
+      return point && Math.hypot(pointer.x - x(point.observed_at), pointer.y - y(point.home_score - point.enemy_score)) <= 6;
+    });
+    if (endpoint !== undefined) { showPoint(endpoint, pointer); return; }
+    if (!gap && points.length && at >= points[0].observed_at && at <= points[points.length - 1].observed_at) {
+      // A horizontal step holds the preceding recorded scores, never the next
+      // observation's scores. The tooltip timestamp identifies that recording.
+      const next = points.findIndex((point) => point.observed_at > at);
+      showPoint(next === -1 ? points.length - 1 : next - 1, pointer);
+      return;
+    }
+    const scenario = original === null ? undefined : scenarios.filter(({ score, finish }) => score !== null &&
+      pointer.x >= x(now) - 10 && pointer.x <= x(finish === null ? end : Math.max(finish, Math.min(end, now + 3600))) + 12 &&
+      Math.abs(pointer.y - y(score)) <= 16).sort((a, b) => Math.abs(pointer.y - y(a.score!)) - Math.abs(pointer.y - y(b.score!)))[0];
+    if (scenario) { showScenario(scenario, pointer); return; }
+    if (gap) {
+      setTooltip({ title: "No recorded score history", ...pointer, rows: [{ label: "From", value: date(gap[0]) }, { label: "To", value: date(gap[1]) }] });
+      return;
+    }
+    setTooltip(null);
+  }
+  function legendPointer(event: React.PointerEvent<HTMLElement>) {
+    const bounds = container.current!.getBoundingClientRect();
+    return { x: event.clientX - bounds.left, y: height - 12 };
+  }
+  function clearPointerTooltip(event: React.PointerEvent) {
+    if (event.pointerType !== "touch") setTooltip(null);
+  }
+  const tooltipLeft = tooltip ? Math.max(4, Math.min(width - tooltipSize.width - 4, tooltip.x + 12 + tooltipSize.width <= width - 4 ? tooltip.x + 12 : tooltip.x - tooltipSize.width - 12)) : 0;
+  const tooltipTop = tooltip ? Math.max(4, Math.min(height - tooltipSize.height - 4, tooltip.y + 12 + tooltipSize.height <= height - 4 ? tooltip.y + 12 : tooltip.y - tooltipSize.height - 12)) : 0;
+  return <div ref={container} className="war-progress-chart" onPointerLeave={clearPointerTooltip}
+    onKeyDown={(event) => { if (event.key === "Escape") setTooltip(null); }}>
+    <svg viewBox={`0 0 ${width} ${height}`} height={height} role="img" tabIndex={0}
+      aria-label={`War net score over time. ${homeName} above zero, ${enemyName} below zero.${endedAt ? " Final recorded history." : " Dotted lines hold current and planned scores unchanged."} Use left and right arrow keys to inspect score history.`}
+      aria-describedby={tooltip ? `${id}-tooltip` : undefined}
+      onPointerMove={hoverChart} onPointerDown={(event) => { if (event.pointerType === "mouse") event.preventDefault(); hoverChart(event); }} onPointerCancel={() => setTooltip(null)}
+      onFocus={() => { if (!tooltip) showPoint(points.length - 1); }} onBlur={() => setTooltip(null)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") { setTooltip(null); return; }
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !points.length) return;
+        event.preventDefault();
+        const index = tooltip?.pointIndex ?? points.length - 1;
+        showPoint(event.key === "Home" ? 0 : event.key === "End" ? points.length - 1 : Math.max(0, Math.min(points.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1))));
+      }}>
       <defs>
         <linearGradient id={`${id}-home`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--war-progress-home)" stopOpacity=".26" /><stop offset="100%" stopColor="var(--panel-muted-bg)" /></linearGradient>
         <linearGradient id={`${id}-enemy`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--panel-muted-bg)" /><stop offset="100%" stopColor="var(--war-progress-enemy)" stopOpacity=".28" /></linearGradient>
@@ -214,26 +315,37 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
       {ticks.map((hour) => <g key={hour}><line x1={x(start + hour * 3600)} x2={x(start + hour * 3600)} y1={top} y2={bottom} className="progress-grid" /><text x={x(start + hour * 3600)} y={bottom + 19} textAnchor={hour === 0 ? "start" : "middle"}>{hour}</text></g>)}
       <text x={(left + width - right) / 2} y={height - 5} textAnchor="middle">Hours since start</text>
       <g clipPath={`url(#${id}-clip)`}>
-        {gaps.map(([from, to], index) => <rect key={index} x={x(from)} y={top} width={Math.max(0, x(to) - x(from))} height={bottom - top} fill={`url(#${id}-gap)`}><title>No score history recorded for this period</title></rect>)}
+        {gaps.map(([from, to], index) => <rect key={index} x={x(from)} y={top} width={Math.max(0, x(to) - x(from))} height={bottom - top} fill={`url(#${id}-gap)`} />)}
         {boundaries.map((d, index) => <path key={index} d={d} className={index ? "enemy-boundary" : "home-boundary"} />)}
         {width > 520 ? <><text x={x(start + Math.min(20, endHours / 4) * 3600)} y={y(limit * .67)} textAnchor="middle" className="progress-team">{homeName}</text><text x={x(start + Math.min(20, endHours / 4) * 3600)} y={y(-limit * .65)} textAnchor="middle" className="progress-team">{enemyName}</text></> : null}
         {segments.map((d, index) => <path key={index} d={d} className="progress-score" />)}
-        {points.map((point) => <circle key={point.observed_at} cx={x(point.observed_at)} cy={y(point.home_score - point.enemy_score)} r={2} className="progress-point"><title>{date(point.observed_at)} · {number(point.home_score)} vs {number(point.enemy_score)}</title></circle>)}
+        {points.map((point, index) => <circle key={point.observed_at} data-point-index={index} cx={x(point.observed_at)} cy={y(point.home_score - point.enemy_score)} r={2} className="progress-point" />)}
         {!endedAt ? <line x1={x(now)} x2={x(now)} y1={top} y2={bottom} className="progress-now" /> : null}
         {scenarios.map(({ score, finish, planned }) => score === null || original === null ? null : <g key={String(planned)} className={planned ? "progress-planned" : "progress-current"}>
           <line x1={x(now)} x2={x(finish === null ? end : Math.max(finish, Math.min(end, now + 3600)))} y1={y(score)} y2={y(score)} className="progress-held" />
           {finish !== null ? <><line x1={x(finish)} x2={x(finish)} y1={y(score)} y2={bottom} className="progress-finish-guide" />
-            {planned ? <rect x={x(finish) - 4} y={y(score) - 4} width="8" height="8" className="progress-marker"><title>{leadLabel(score)} · {date(finish)}</title></rect> : <circle cx={x(finish)} cy={y(score)} r="5" className="progress-marker"><title>{leadLabel(score)} · {date(finish)}</title></circle>}
+            {planned ? <rect x={x(finish) - 4} y={y(score) - 4} width="8" height="8" className="progress-marker" /> : <circle cx={x(finish)} cy={y(score)} r="5" className="progress-marker" />}
           </> : null}
         </g>)}
+        {tooltip?.marker ? <g className="progress-hover" style={{ color: tooltip.marker.color }}>
+          <line x1={tooltip.marker.x} x2={tooltip.marker.x} y1={top} y2={bottom} />
+          {tooltip.marker.planned ? <rect x={tooltip.marker.x - 5} y={tooltip.marker.y - 5} width={10} height={10} /> : <circle cx={tooltip.marker.x} cy={tooltip.marker.y} r={5} />}
+        </g> : null}
       </g>
       <rect x={left} y={top} width={width - left - right} height={bottom - top} fill="none" stroke="var(--border-solid)" />
       {!endedAt ? <text x={x(now)} y={16} textAnchor="middle">Now</text> : null}
     </svg>
     <div className="war-progress-legend">
-      <span title={leadLabel(currentLead)}><i />Actual</span>
-      {!endedAt ? <><span title={leadLabel(currentLead)}><i className="current" />Current</span><span title={leadLabel(plannedLead)}><i className="planned" />Planned</span></> : null}
-      {gaps.length ? <details className="war-progress-history-note"><summary aria-label="Score history information" title="Score history information"><Info size={14} aria-hidden="true" /></summary><small>Hatched areas have no recorded score history.</small></details> : null}
+      <button type="button" aria-describedby={tooltip ? `${id}-tooltip` : undefined} onPointerMove={(event) => showPoint(points.length - 1, legendPointer(event))}
+        onPointerLeave={clearPointerTooltip} onClick={() => showPoint(points.length - 1)} onFocus={() => showPoint(points.length - 1)} onBlur={() => setTooltip(null)}><i />Actual</button>
+      {scenarios.map((scenario) => <button key={String(scenario.planned)} type="button" aria-describedby={tooltip ? `${id}-tooltip` : undefined}
+        onPointerMove={(event) => showScenario(scenario, legendPointer(event))} onPointerLeave={clearPointerTooltip}
+        onClick={() => showScenario(scenario)} onFocus={() => showScenario(scenario)} onBlur={() => setTooltip(null)}><i className={scenario.planned ? "planned" : "current"} />{scenario.planned ? "Planned" : "Current"}</button>)}
+      {gaps.length ? <details className="war-progress-history-note"><summary aria-label="Score history information" title="Score history information" onClick={() => setTooltip(null)}><Info size={14} aria-hidden="true" /></summary><small>Hatched areas have no recorded score history.</small></details> : null}
     </div>
+    {tooltip ? <div ref={tooltipElement} id={`${id}-tooltip`} role="tooltip" className="chart-tooltip-card war-progress-tooltip" style={{ left: tooltipLeft, top: tooltipTop }}>
+      <strong>{tooltip.title}</strong>
+      {tooltip.rows.map((row) => <div className="war-progress-tooltip-row" key={row.label}><span>{row.color ? <i style={{ background: row.color }} /> : null}{row.label}</span><span>{row.value}</span></div>)}
+    </div> : null}
   </div>;
 }

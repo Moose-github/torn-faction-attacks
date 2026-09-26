@@ -31,7 +31,7 @@
 .war-progress-enemy .war-progress-target { align-items: flex-end; }
 .war-progress-target input { flex: none; width: 88px; min-width: 0; min-height: 33px; height: 33px; padding: 5px 9px; font-size: 16px; font-variant-numeric: tabular-nums; }
 .war-progress-target input[aria-invalid="true"] { border-color: var(--war-progress-enemy); }
-.war-progress-chart { min-width: 0; }
+.war-progress-chart { min-width: 0; position: relative; }
 .war-progress-chart > svg { display: block; width: 100%; }
 .war-progress-chart text { fill: var(--text-muted); font-size: 12px; font-family: inherit; }
 .war-progress-chart .progress-team { fill: var(--text-main); font-size: 16px; font-weight: 500; opacity: .65; }
@@ -46,7 +46,11 @@
 .war-progress-chart .progress-held { stroke: currentColor; stroke-width: 2; stroke-dasharray: 2 4; }
 .war-progress-chart .progress-finish-guide { stroke: currentColor; stroke-width: 1; stroke-dasharray: 2 4; }
 .war-progress-chart .progress-marker { fill: var(--panel-bg-solid); stroke: currentColor; stroke-width: 2; }
+.war-progress-chart .progress-hover { pointer-events: none; }
+.war-progress-chart .progress-hover line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.war-progress-chart .progress-hover circle, .war-progress-chart .progress-hover rect { fill: var(--panel-bg-solid); stroke: currentColor; stroke-width: 2; }
 .war-progress-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 22px; padding: 0 0 9px; color: var(--text-muted); font-size: 12px; }
+.war-progress-legend button { display: inline-flex; align-items: center; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: help; }
 .war-progress-legend i { display: inline-block; width: 20px; vertical-align: middle; border-top: 2px solid var(--war-progress-home); margin-right: 6px; }
 .war-progress-legend i.current { border-color: var(--text-main); border-top-style: dotted; }
 .war-progress-legend i.planned { border-color: var(--war-progress-plan); border-top-style: dotted; }
@@ -61,6 +65,12 @@
 .war-progress-history-note summary { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; cursor: pointer; list-style: none; }
 .war-progress-history-note summary::-webkit-details-marker { display: none; }
 .war-progress-history-note > small { position: absolute; z-index: 1; right: 0; bottom: 100%; width: 240px; padding: 8px 10px; border: 1px solid var(--border-solid); border-radius: 6px; background: var(--panel-bg-solid); }
+.war-progress-tooltip { position: absolute; z-index: 5; width: min(280px, calc(100% - 8px)); padding: 10px; font-size: 14px; line-height: 1.45; pointer-events: none; }
+.war-progress-tooltip strong { overflow-wrap: anywhere; }
+.war-progress-tooltip-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 10px; padding-top: 3px; }
+.war-progress-tooltip-row span { min-width: 0; overflow-wrap: anywhere; }
+.war-progress-tooltip-row span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.war-progress-tooltip-row i { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; }
 @media (max-width: 520px) {
   .panel.war-progress-panel { padding: 12px; }
   .war-progress-scores, .war-progress-finish { gap: 16px; }
@@ -74,5 +84,6 @@
 }
 @media (pointer: coarse) {
   .war-progress-target input { height: 44px; }
+  .war-progress-legend button { min-height: 44px; }
   .war-progress-history-note summary { width: 44px; height: 44px; }
 }
