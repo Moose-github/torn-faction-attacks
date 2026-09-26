@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { Boxes, Check, Copy, Download, RefreshCw, Swords, Users, ArrowUpRight } from "lucide-react";
 import { getArmory, refreshArmoryDetails, syncArmory, type ArmoryCopy, type ArmoryResponse } from "../api/armory";
 import { MetricCard } from "../components/Common";
@@ -119,6 +120,8 @@ export function FactionArmory() {
       </div>
       <div className="armory-toolbar armory-results"><span>{tab === "weapons" ? `${filtered.length} matching weapons` : `${borrowers.size} matching borrowers`} · Full inventory totals above</span>
         <div className="armory-actions"><button type="button" onClick={() => setFilters(EMPTY_ARMORY_FILTERS)}>Clear filters</button>
+          <button type="button" className="armory-special-toggle" aria-pressed={filters.kind === "special"}
+            onClick={() => field("kind", filters.kind === "special" ? "" : "special")}>Only special weapons</button>
           {tab === "weapons" ? <><label className="armory-checkbox"><input type="checkbox" checked={individual} onChange={event => { setIndividual(event.target.checked); setSort("name"); }} /> Show individual copies</label>
             <label>Sort <select value={sort} onChange={event => setSort(event.target.value as ArmorySort)}><option value="name">Weapon name</option><option value="quantity">Quantity ↓</option><option value="available">Available ↓</option><option value="loaned">Loaned ↓</option>
               {individual ? <><option value="damage">Damage ↓</option><option value="accuracy">Accuracy ↓</option><option value="quality">Quality ↓</option></> : null}</select></label></> : null}
@@ -184,7 +187,50 @@ function CopyRow({ item, child = false }: { item: ArmoryCopy; child?: boolean })
   const kind = weaponClass(item);
   return <tr className={child ? "armory-copy-child" : undefined}><td><div className="armory-weapon"><WeaponImage item={item} /><div><strong>{item.name}</strong><small>{item.type}</small><CopyUid uid={item.uid} /></div></div></td>
     <td><span className="armory-badge">{kind === "pending" ? "Details pending" : item.details?.rarity ?? (kind === "standard" ? "Standard" : "Special")}</span>
-      {item.details?.bonuses.map((bonus, index) => <details className="armory-bonus" key={`${bonus.id}-${index}`}><summary>{bonus.title} · {bonus.value}</summary><p>{bonus.description}</p></details>)}</td>
+      {item.details?.bonuses.map((bonus, index) => <BonusTooltip key={`${bonus.id}-${index}`} label={`${bonus.title} · ${bonus.value}`} description={bonus.description} />)}</td>
     <td>{item.details?.stats.damage.toFixed(2) ?? "—"}</td><td>{item.details?.stats.accuracy.toFixed(2) ?? "—"}</td><td>{item.details ? `${item.details.stats.quality.toFixed(2)}%` : "—"}</td><td>1</td>
     <td>{item.loaned ? <><span className="armory-badge">Loaned</span><a href={`https://www.torn.com/profiles.php?XID=${item.loaned.id}`} target="_blank" rel="noreferrer">{item.loaned.name} ↗</a></> : <span className="armory-available">Available</span>}</td></tr>;
+}
+
+function BonusTooltip({ label, description }: { label: string; description: string }) {
+  const id = React.useId();
+  const trigger = React.useRef<HTMLButtonElement>(null);
+  const tooltip = React.useRef<HTMLDivElement>(null);
+  const closeTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [open, setOpen] = React.useState(false);
+  const [position, setPosition] = React.useState({ left: 0, top: 0 });
+  const show = () => { clearTimeout(closeTimer.current); setOpen(true); };
+  const hide = () => { clearTimeout(closeTimer.current); setOpen(false); };
+  const leave = () => {
+    if (document.activeElement !== trigger.current) closeTimer.current = setTimeout(() => setOpen(false), 150);
+  };
+  React.useEffect(() => () => clearTimeout(closeTimer.current), []);
+  React.useLayoutEffect(() => {
+    if (!open || !trigger.current || !tooltip.current) return;
+    const anchor = trigger.current.getBoundingClientRect();
+    const box = tooltip.current.getBoundingClientRect();
+    setPosition({ left: Math.max(12, Math.min(anchor.left, window.innerWidth - box.width - 12)),
+      top: Math.max(12, anchor.bottom + box.height + 20 <= window.innerHeight ? anchor.bottom + 8 : anchor.top - box.height - 8) });
+    const close = () => setOpen(false);
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !trigger.current?.contains(event.target) && !tooltip.current?.contains(event.target)) close();
+    };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    window.addEventListener("resize", close);
+    document.addEventListener("scroll", close, true);
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("resize", close);
+      document.removeEventListener("scroll", close, true);
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+  return <div className="armory-bonus">
+    <button type="button" ref={trigger} className="armory-bonus-trigger" aria-describedby={open ? id : undefined}
+      onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={hide} onClick={show}>{label}</button>
+    {open ? createPortal(<div ref={tooltip} id={id} role="tooltip" className="armory-bonus-tooltip" style={position}
+      onMouseEnter={show} onMouseLeave={leave}>{description}</div>, document.body) : null}
+  </div>;
 }

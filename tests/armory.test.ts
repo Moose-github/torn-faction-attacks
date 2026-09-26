@@ -52,7 +52,7 @@ afterEach(() => { db.sqlite.close(); vi.useRealTimers(); });
 const advance = () => vi.setSystemTime((clock + 3601) * 1000);
 
 describe("armory validation", () => {
-  it("reconciles the supplied inventory fixture without losing borrowers or copies", () => {
+  it("reconciles the supplied first-page fixture without losing borrowers or copies", () => {
     const fixture = JSON.parse(readFileSync(new URL("./fixtures/armory-inventory.json", import.meta.url), "utf8"));
     const { items } = parseArmoryInventory(fixture);
     expect(items).toHaveLength(231);
@@ -75,6 +75,109 @@ describe("armory validation", () => {
     expect(parsed.has("3")).toBe(false);
     expect(parsed.get("1")?.rarity).toBeNull();
     expect(parseArmoryDetails({ itemdetails: [detail(1), detail(1, true)] }).size).toBe(0);
+  });
+});
+
+const nextPage = (offset: number) => `https://api.torn.com/v2/faction/inventory?&limit=100&cat=weapons&offset=${offset}`;
+const paged = (uids: number[], total: number, next: string | null, timestamp = clock) => ({ ...stock(uids, timestamp),
+  _metadata: { total, links: { prev: null, next } } });
+
+describe("complete inventory pagination", () => {
+  it("fetches all 162 inventory rows, counting rows separately from their weapon amounts", async () => {
+    const first = JSON.parse(readFileSync(new URL("./fixtures/armory-inventory.json", import.meta.url), "utf8"));
+    first._metadata.total = 162;
+    const second = { inventory_timestamp: first.inventory_timestamp,
+      inventory: Array.from({ length: 62 }, (_, index) => stock([90000000000 + index]).inventory[0]),
+      _metadata: { total: 162, links: { prev: null, next: null } } };
+    fetcher.mockResolvedValueOnce(Response.json(first)).mockResolvedValueOnce(Response.json(second));
+    await syncArmory(env);
+    const result = await readArmory(env);
+    expect(result.items).toHaveLength(293);
+    expect(result.items.some(item => item.uid === "90000000061")).toBe(true);
+    expect(String(fetcher.mock.calls[1][1])).toContain("offset=100");
+    const saved = JSON.parse(String(db.sqlite.prepare("SELECT source_json FROM faction_armory_state").get()!.source_json));
+    expect(saved.inventory).toHaveLength(162);
+    expect(saved._metadata.links.next).toBeNull();
+    const inventoryCalls = () => fetcher.mock.calls.filter(call => String(call[1]).includes("/faction/inventory"));
+    expect(inventoryCalls()).toHaveLength(2);
+    await syncArmory(env);
+    expect(inventoryCalls()).toHaveLength(2);
+  });
+  it("continues beyond the second page and enriches later-page UIDs", async () => {
+    fetcher.mockImplementation(async (_env, input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/inventory")) {
+        const offset = Number(url.searchParams.get("offset"));
+        return Response.json(paged([offset + 1], 3, offset < 2 ? nextPage(offset + 1) : null));
+      }
+      return Response.json({ itemdetails: [detail(3, true), detail(2), detail(1)] });
+    });
+    await syncArmory(env);
+    const result = await readArmory(env);
+    expect(result.items).toHaveLength(3);
+    expect(result.pending).toBe(0);
+    expect(result.items.find(item => item.uid === "3")?.details?.bonuses[0].title).toBe("Achilles");
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+  it.each([
+    ["failed last page", () => new Response("{}", { status: 503 })],
+    ["missing rows", () => Response.json(paged([], 3, null))],
+    ["duplicate UID", () => Response.json(paged([1], 2, null))],
+    ["changed timestamp", () => Response.json(paged([2], 2, null, clock + 1))],
+    ["changed total", () => Response.json(paged([2], 3, null))],
+    ["missing metadata", () => Response.json(stock([2]))],
+  ])("retains the previous snapshot after %s", async (_label, response) => {
+    await syncArmory(env); advance();
+    fetcher.mockResolvedValueOnce(Response.json(paged([1], 2, nextPage(1)))).mockResolvedValueOnce(response());
+    await syncArmory(env);
+    const result = await readArmory(env);
+    expect(result.items.map(item => item.uid).sort()).toEqual(["10727704270", "7443497174"]);
+    expect(result.checked_at).toBe(clock);
+    expect(result.error).not.toBeNull();
+  });
+  it.each([nextPage(0), nextPage(2), "https://example.test/v2/faction/inventory?cat=weapons&limit=100&offset=1",
+    "https://api.torn.com/v2/faction/inventory?cat=armor&limit=100&offset=1"])("rejects unsafe or non-progressing links: %s", async link => {
+    fetcher.mockResolvedValueOnce(Response.json(paged([1], 2, link)));
+    await syncArmory(env);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect((await readArmory(env)).inventory_timestamp).toBeNull();
+  });
+  it("repairs a previously cached first page immediately but respects failure backoff", async () => {
+    await syncArmory(env);
+    db.sqlite.prepare("UPDATE faction_armory_state SET source_json = ?").run(JSON.stringify(paged([7443497174, 10727704270], 2, nextPage(1))));
+    expect((await readArmory(env)).next_inventory_at).toBe(0);
+    fetcher.mockResolvedValueOnce(Response.json(paged([7443497174, 10727704270], 2, nextPage(1))))
+      .mockResolvedValueOnce(new Response("{}", { status: 503 }));
+    await syncArmory(env);
+    const failed = await readArmory(env);
+    expect(failed.next_inventory_at).toBe(clock + 60);
+    await syncArmory(env); expect(fetcher).toHaveBeenCalledTimes(4);
+    vi.setSystemTime((clock + 61) * 1000);
+    fetcher.mockResolvedValueOnce(Response.json(paged([7443497174, 10727704270], 2, nextPage(1))))
+      .mockResolvedValueOnce(Response.json(paged([8077945671], 2, null)))
+      .mockResolvedValueOnce(Response.json({ itemdetails: detail(8077945671) }));
+    await syncArmory(env);
+    const repaired = await readArmory(env);
+    expect(repaired.items).toHaveLength(3);
+    expect(repaired.pending).toBe(0);
+    expect(repaired.error).toBeNull();
+    expect(repaired.next_inventory_at).toBe(clock + 61 + 3600);
+  });
+  it("renews the lease while fetching a long inventory", async () => {
+    fetcher.mockImplementation(async (_env, input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/inventory")) {
+        const offset = Number(url.searchParams.get("offset"));
+        const lease = db.sqlite.prepare("SELECT lease_until FROM faction_armory_state").get()!;
+        expect(Number(lease.lease_until)).toBe(Math.floor(Date.now() / 1000) + 120);
+        vi.setSystemTime(Date.now() + 10_000);
+        return Response.json(paged([offset + 1], 14, offset < 13 ? nextPage(offset + 1) : null));
+      }
+      return Response.json({ itemdetails: Array.from({ length: 14 }, (_, index) => detail(index + 1)) });
+    });
+    await syncArmory(env);
+    expect((await readArmory(env)).pending).toBe(0);
+    expect((await readArmory(env)).items).toHaveLength(14);
   });
 });
 

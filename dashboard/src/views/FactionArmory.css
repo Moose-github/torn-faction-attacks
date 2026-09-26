@@ -13,7 +13,7 @@
 .armory-content { padding: 20px; min-width: 0; }
 .armory-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .armory-tabs { display: flex; gap: 8px; }
-.armory-tabs button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-strong); background: var(--panel-active-bg); }
+.armory-tabs button[aria-pressed="true"], .armory-special-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-strong); background: var(--panel-active-bg); }
 .armory-detail-progress { margin: 16px 0; font-size: 13px; opacity: .8; }
 .armory-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
 .armory-filters label { display: grid; gap: 6px; font-size: 12px; flex: 1 1 120px; }
@@ -39,8 +39,8 @@
 .armory-badge { display: inline-block; font-size: 11px; padding: 3px 7px; border: 1px solid rgb(128 128 128 / 28%); border-radius: 5px; text-transform: capitalize; }
 .armory-table td:last-child a { display: block; margin-top: 6px; }
 .armory-bonus { margin-top: 8px; max-width: 230px; }
-.armory-bonus summary { cursor: pointer; font-weight: 600; }
-.armory-bonus p { margin: 8px 0; font-size: 12px; line-height: 1.6; opacity: .8; }
+.armory-page .armory-bonus-trigger { min-height: 28px; padding: 3px 0; border: 0; border-radius: 0; border-bottom: 1px dotted var(--text-muted); background: transparent; font-weight: 600; cursor: help; }
+.armory-bonus-tooltip { position: fixed; z-index: 1000; width: max-content; max-width: min(280px, calc(100vw - 24px)); padding: 12px 14px; border: 1px solid var(--border-solid); border-radius: var(--radius-md); background: var(--panel-bg-solid); color: var(--text-main); box-shadow: var(--shadow-panel); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .armory-available { color: var(--success, #449f7b); }
 .armory-copy-child { background: rgb(128 128 128 / 5%); }
 .armory-copy-child .armory-weapon { padding-left: 16px; }

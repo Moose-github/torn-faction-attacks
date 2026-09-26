@@ -92,6 +92,7 @@ type State = {
   inventory_timestamp: number | null; checked_at: number | null; next_inventory_at: number;
   inventory_failures: number; inventory_error: string | null; details_blocked_until: number;
   details_error: string | null; lease_until: number; details_refresh_at: number;
+  source_json: string | null;
 };
 const OWNED = "EXISTS (SELECT 1 FROM faction_armory_state WHERE faction_id = ? AND lease_token = ?)";
 const DETAIL_JOIN = "LEFT JOIN armory_weapon_details d ON d.uid = i.uid AND d.model_id = i.model_id AND d.payload_version = 1";
@@ -99,6 +100,20 @@ const NEEDS_DETAILS = "(d.uid IS NULL OR COALESCE(f.refetch, 0) = 1)";
 
 async function state(env: Env): Promise<State | null> {
   return env.DB.prepare("SELECT * FROM faction_armory_state WHERE faction_id = ?").bind(HOME_FACTION_ID).first<State>();
+}
+
+function partialInventory(current: State | undefined): boolean {
+  if (!current?.source_json) return false;
+  try {
+    const saved = JSON.parse(current.source_json);
+    return !!saved._metadata?.links?.next || (typeof saved._metadata?.total === "number" && saved._metadata.total !== saved.inventory?.length);
+  } catch { return true; }
+}
+
+function inventoryDueAt(current: State | undefined): number {
+  // Repair snapshots saved by the original single-page implementation without bypassing error backoff.
+  return partialInventory(current) && current?.inventory_failures === 0
+    ? Math.max(0, current.details_blocked_until) : current?.next_inventory_at ?? 0;
 }
 
 export async function readArmory(env: Env): Promise<ArmoryResponse> {
@@ -123,12 +138,12 @@ export async function readArmory(env: Env): Promise<ArmoryResponse> {
     return { uid: row.uid, id: row.model_id, name: row.name, type: row.slot_type,
       loaned: row.borrower_id === null ? null : { id: row.borrower_id, name: row.borrower_name ?? String(row.borrower_id) }, details };
   });
-  const nextInventory = current?.next_inventory_at ?? 0;
+  const nextInventory = inventoryDueAt(current);
   const nextSync = Math.max(current?.lease_until ?? 0, Math.min(nextInventory, Math.max(nextDetails, current?.details_blocked_until ?? 0)));
   return { ok: true, items, inventory_timestamp: current?.inventory_timestamp ?? null,
     checked_at: current?.checked_at ?? null, next_inventory_at: nextInventory, next_sync_at: nextSync,
     syncing: (current?.lease_until ?? 0) > now(), pending, refreshing,
-    error: current?.inventory_error ?? current?.details_error ?? null };
+    error: current?.inventory_error ?? current?.details_error ?? (partialInventory(current) ? "The saved inventory is incomplete; a full inventory refresh is queued." : null) };
 }
 
 export async function getArmory(env: Env): Promise<Response> {
@@ -181,6 +196,58 @@ async function release(env: Env, token: string): Promise<void> {
     .bind(HOME_FACTION_ID, token).run();
 }
 
+async function renewLease(env: Env, token: string): Promise<boolean> {
+  const result = await env.DB.prepare("UPDATE faction_armory_state SET lease_until = ? WHERE faction_id = ? AND lease_token = ?")
+    .bind(now() + 120, HOME_FACTION_ID, token).run();
+  return !!result.meta.changes;
+}
+
+async function fetchCompleteInventory(env: Env, token: string): Promise<unknown> {
+  let path: string | null = "faction/inventory?cat=weapons&limit=100&offset=0";
+  let timestamp: number | null = null, total: number | null = null;
+  const inventory: unknown[] = [];
+  while (path !== null) {
+    if (!await renewLease(env, token)) throw new Error("Inventory sync lease was replaced");
+    const page = object(await fetchArmoryData(env, path, "armory_inventory"));
+    const parsed = parseArmoryInventory(page);
+    if (timestamp !== null && timestamp !== parsed.timestamp) throw new Error("Inventory snapshot changed between pages");
+    timestamp = parsed.timestamp;
+    const rows = page.inventory as unknown[];
+    inventory.push(...rows);
+    if (page._metadata === undefined) {
+      if (total !== null) throw new Error("Missing inventory pagination metadata");
+      path = null;
+      continue;
+    }
+    const metadata = object(page._metadata), links = object(metadata.links);
+    const pageTotal = integer(metadata.total);
+    if (total !== null && total !== pageTotal) throw new Error("Inventory total changed between pages");
+    total = pageTotal;
+    if (inventory.length > total) throw new Error("Inventory exceeds pagination total");
+    if (links.next === null) {
+      if (inventory.length !== total) throw new Error("Incomplete inventory pagination");
+      path = null;
+      continue;
+    }
+    if (!rows.length || inventory.length >= total) throw new Error("Inventory pagination made no progress");
+    const next = new URL(text(links.next), "https://api.torn.com");
+    // Never forward the server key to arbitrary URLs or follow a loop/skipped page.
+    if (next.origin !== "https://api.torn.com" || next.pathname !== "/v2/faction/inventory" || next.username || next.password || next.hash || next.searchParams.get("cat") !== "weapons") {
+      throw new Error("Invalid inventory next-page URL");
+    }
+    const offset = Number(next.searchParams.get("offset")), limit = Number(next.searchParams.get("limit"));
+    if (!Number.isSafeInteger(offset) || offset !== inventory.length || !Number.isSafeInteger(limit) || limit <= 0) {
+      throw new Error("Invalid inventory pagination offset or limit");
+    }
+    path = `faction/inventory?cat=weapons&limit=${limit}&offset=${offset}`;
+  }
+  // Validate the aggregate as well, catching duplicate UIDs across pages before any replacement.
+  const complete = { inventory_timestamp: timestamp, inventory,
+    _metadata: { total: total ?? inventory.length, links: { prev: null, next: null } } };
+  parseArmoryInventory(complete);
+  return complete;
+}
+
 async function saveInventory(env: Env, token: string, payload: unknown, previous: State): Promise<void> {
   const inventory = parseArmoryInventory(payload);
   if (previous.inventory_timestamp !== null && inventory.timestamp < previous.inventory_timestamp) throw new Error("Older snapshot");
@@ -206,9 +273,9 @@ export async function syncArmory(env: Env): Promise<Response> {
   if (!token) return getArmory(env);
   try {
     const current = (await state(env))!;
-    if (current.next_inventory_at <= now()) {
+    if (inventoryDueAt(current) <= now()) {
       try {
-        await saveInventory(env, token, await fetchArmoryData(env, "faction/inventory?cat=weapons", "armory_inventory"), current);
+        await saveInventory(env, token, await fetchCompleteInventory(env, token), current);
       } catch (error) {
         const fail = failure(error, current.inventory_failures);
         await env.DB.prepare(`UPDATE faction_armory_state SET inventory_error = ?, inventory_failures = inventory_failures + 1,
@@ -218,8 +285,9 @@ export async function syncArmory(env: Env): Promise<Response> {
       }
     }
     if (((await state(env))?.details_blocked_until ?? 0) > now()) return await finishArmory(env, token);
-    // Serial batches stay under the lease and upstream timeout budget (5 x 15s maximum).
+    // Renew between bounded network requests, including after a multi-page inventory fetch.
     for (let batch = 0; batch < 4; batch++) {
+      if (!await renewLease(env, token)) break;
       const requested = await env.DB.prepare(`SELECT i.uid, i.model_id, COALESCE(f.attempts, 0) AS attempts
         FROM faction_armory_inventory i ${DETAIL_JOIN} LEFT JOIN armory_detail_fetch_state f ON f.uid = i.uid
         WHERE i.faction_id = ? AND ${NEEDS_DETAILS} AND COALESCE(f.retry_at, 0) <= ? AND ${OWNED}
