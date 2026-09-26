@@ -164,7 +164,7 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const height = 220, left = 62, right = 14, top = 26, bottom = height - 42;
+  const height = width < 430 ? 290 : 330, left = 62, right = 14, top = 30, bottom = height - 46;
   const endAt = endedAt ?? Math.max(now, currentFinish ?? now, plannedFinish ?? now);
   const duration = Math.max(3600, endAt - start);
   const endHours = endedAt ? duration / 3600 : Math.max((now - start) / 3600, Math.min(RANKED_WAR_MAX_HOURS, duration / 3600 + 8));
