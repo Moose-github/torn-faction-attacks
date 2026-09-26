@@ -1,7 +1,8 @@
 import React from "react";
+import { Info } from "lucide-react";
 import { getWarProgress, type WarSummary } from "../api";
 import { CollapsiblePanel, EmptyState } from "./Common";
-import { formatCountdownDuration, useCurrentTimeMs } from "../utils/time";
+import { useCurrentTimeMs } from "../utils/time";
 import { formatRelativeTime } from "../utils/format";
 import {
   previewFinalScore, rankedFinishAt, rankedTargetAt, RANKED_WAR_MAX_HOURS,
@@ -13,6 +14,11 @@ const number = (value: number) => value.toLocaleString("en-GB", { maximumFractio
 const date = (value: number) => new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC", weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false,
 }).format(value * 1000) + " TCT";
+const countdown = (seconds: number) => {
+  const minutes = Math.max(0, Math.floor(seconds / 60));
+  const days = Math.floor(minutes / 1440);
+  return `${days > 0 ? `${days}d ` : ""}${Math.floor(minutes % 1440 / 60)}h ${minutes % 60}m`;
+};
 
 export function WarProgressPanel({ war }: { war: WarSummary }) {
   const [data, setData] = React.useState<WarProgressResponse | null>(null);
@@ -69,7 +75,6 @@ export function WarProgressPanel({ war }: { war: WarSummary }) {
   const plannedFinish = start === null || plannedLead === null ? null : rankedFinishAt(original, start, plannedLead, now);
   const scheduled = start !== null && now < start;
   const stale = !endedAt && latest !== null && now - latest.observed_at > 5 * 60;
-  const winner = (lead: number) => lead > 0 ? homeName : enemyName;
   const belowCurrent = (homeInput.trim() !== "" && homeScore != null && Number(homeInput) < homeScore) ||
     (enemyInput.trim() !== "" && enemyScore != null && Number(enemyInput) < enemyScore);
   const canDraw = start !== null && (latest !== null || Boolean(data?.history.length));
@@ -91,53 +96,55 @@ export function WarProgressPanel({ war }: { war: WarSummary }) {
       {error ? <p className="war-progress-notice" role="status">Unable to refresh war progress. {latest ? "Showing the last recorded scores." : error}</p> : null}
       {data ? <>
         <div className="war-progress-scores">
-          <div className="war-progress-home"><span>{homeName}</span><strong>{homeScore == null ? "—" : number(homeScore)}</strong><small>{endedAt ? "Final respect" : "Current respect"}</small></div>
-          <div className="war-progress-enemy"><span>{enemyName}</span><strong>{enemyScore == null ? "—" : number(enemyScore)}</strong><small>{endedAt ? "Final respect" : "Current respect"}</small></div>
+          <div className="war-progress-home">
+            <span className="war-progress-faction-name">{homeName}</span>
+            <div className="war-progress-metrics">
+              <div className="war-progress-current-score"><strong>{homeScore == null ? "—" : number(homeScore)}</strong><small>{endedAt ? "Final respect" : "Current respect"}</small></div>
+              {!endedAt ? <label className="war-progress-target"><input type="number" min="0" step="any" value={homeInput}
+                aria-label={`${homeName} target respect`} placeholder={homeScore == null ? "Not set" : number(homeScore)}
+                aria-invalid={homeScore != null && plannedHome === null} onChange={(event) => setHomeDraft(event.target.value)} /><span>Target</span></label> : null}
+            </div>
+          </div>
+          <div className="war-progress-enemy">
+            <span className="war-progress-faction-name">{enemyName}</span>
+            <div className="war-progress-metrics">
+              {!endedAt ? <label className="war-progress-target"><input type="number" min="0" step="any" value={enemyInput}
+                aria-label={`${enemyName} target respect`} placeholder={enemyScore == null ? "Not set" : number(enemyScore)}
+                aria-invalid={enemyScore != null && plannedEnemy === null} onChange={(event) => setEnemyDraft(event.target.value)} /><span>Target</span></label> : null}
+              <div className="war-progress-current-score"><strong>{enemyScore == null ? "—" : number(enemyScore)}</strong><small>{endedAt ? "Final respect" : "Current respect"}</small></div>
+            </div>
+          </div>
         </div>
-        {!endedAt ? <div className="war-progress-targets">
-          <label>{homeName} target respect<input type="number" min="0" step="any" value={homeInput}
-            placeholder={homeScore == null ? "Not set" : number(homeScore)} aria-invalid={homeScore != null && plannedHome === null}
-            onChange={(event) => setHomeDraft(event.target.value)} /></label>
-          <label>{enemyName} target respect<input type="number" min="0" step="any" value={enemyInput}
-            placeholder={enemyScore == null ? "Not set" : number(enemyScore)} aria-invalid={enemyScore != null && plannedEnemy === null}
-            onChange={(event) => setEnemyDraft(event.target.value)} /></label>
-        </div> : null}
         {!endedAt && homeScore != null && enemyScore != null && !valid ? <p className="war-progress-notice" role="alert">Enter non-negative target respect.</p> : null}
         {!endedAt && valid && belowCurrent ? <p className="war-progress-notice">Targets below current respect use the current score.</p> : null}
         {stale ? <p className="war-progress-notice">Scores have not updated for over five minutes. Finish times assume these last recorded scores.</p> : null}
         {scheduled ? <p className="war-progress-notice">War starts {date(start!)}.</p> : null}
-        {!scheduled && !endedAt ? <div className="war-progress-leads">
-          <span>Current lead: {currentLead === null ? "—" : currentLead === 0 ? "Tied" : `${number(Math.abs(currentLead))} · ${winner(currentLead)}`}</span>
-          <span>Planned lead: {plannedLead === null ? "—" : plannedLead === 0 ? "Tied" : `${number(Math.abs(plannedLead))} · ${winner(plannedLead)}`}</span>
-        </div> : null}
-        {canDraw && !scheduled ? <>
+        {canDraw && !scheduled ?
           <WarProgressChart points={points} start={start!} original={original} now={now} endedAt={endedAt}
             currentLead={currentLead} plannedLead={plannedLead} currentFinish={currentFinish} plannedFinish={plannedFinish}
-            homeName={homeName} enemyName={enemyName} />
-          <div className="war-progress-legend"><span><i />War score so far</span>{!endedAt ? <><span><i className="current" />Current score held</span><span><i className="planned" />Planned score held</span></> : null}</div>
-        </> : null}
+            homeName={homeName} enemyName={enemyName} /> : null}
         {!latest && !endedAt ? <EmptyState text="Waiting for the next Torn score update. History begins when score collection starts." /> : null}
         {latest && original === null && !endedAt ? <p className="war-progress-notice">The original winning target is unavailable, so finish times cannot be calculated yet.</p> : null}
         {endedAt ? <div className="war-progress-finish"><div><small>War ended</small><strong>{date(endedAt)}</strong><span>{record.winner_faction_id ? `${record.winner_faction_id === record.enemy_faction_id ? enemyName : homeName} won` : "Final result recorded"}</span></div></div> :
           latest && !scheduled ? <div className="war-progress-finish">
-            <FinishResult label="If current scores stay unchanged" finish={currentFinish} lead={currentLead} now={now} original={original} winner={winner} />
-            <FinishResult label="If planned scores are reached and held" finish={plannedFinish} lead={plannedLead} now={now} original={original} winner={winner} planned />
+            <FinishResult label="Current scores" finish={currentFinish} lead={currentLead} now={now} original={original} />
+            <FinishResult label="Planned scores" finish={plannedFinish} lead={plannedLead} now={now} original={original} planned />
           </div> : null}
       </> : null}
     </CollapsiblePanel>
   );
 }
 
-function FinishResult({ label, finish, lead, now, original, winner, planned = false }: {
+function FinishResult({ label, finish, lead, now, original, planned = false }: {
   label: string; finish: number | null; lead: number | null; now: number; original: number | null;
-  winner: (lead: number) => string; planned?: boolean;
+  planned?: boolean;
 }) {
   let title = "Unavailable", detail = "Waiting for score and target data";
   if (lead === null) { title = "—"; detail = "Enter valid targets when scores are available"; }
   else if (lead === 0) { title = "Tied scores"; detail = "No winning side projected"; }
   else if (original !== null && finish !== null) {
     title = finish <= now ? (planned ? "Target already low enough" : "Target already reached") : date(finish);
-    detail = finish <= now ? (planned ? "Ends when those scores are reached" : "Awaiting Torn’s result") : `In ${formatCountdownDuration(finish - now)} · ${winner(lead)} wins`;
+    detail = finish <= now ? (planned ? "Ends when those scores are reached" : "Awaiting Torn’s result") : `In ${countdown(finish - now)}`;
   }
   return <div className={planned ? "planned-result" : ""}><small><i />{label}</small><strong>{title}</strong><span>{detail}</span></div>;
 }
@@ -157,7 +164,7 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const height = width < 430 ? 290 : 330, left = 62, right = 14, top = 30, bottom = height - 46;
+  const height = 220, left = 62, right = 14, top = 26, bottom = height - 42;
   const endAt = endedAt ?? Math.max(now, currentFinish ?? now, plannedFinish ?? now);
   const duration = Math.max(3600, endAt - start);
   const endHours = endedAt ? duration / 3600 : Math.max((now - start) / 3600, Math.min(RANKED_WAR_MAX_HOURS, duration / 3600 + 8));
@@ -192,8 +199,9 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     { score: currentLead, finish: currentFinish, planned: false },
     { score: plannedLead, finish: plannedFinish, planned: true },
   ];
+  const leadLabel = (lead: number | null) => lead === null ? "Lead unavailable" : lead === 0 ? "Scores tied" : `${lead > 0 ? homeName : enemyName} leads by ${number(Math.abs(lead))} respect`;
   return <div ref={container} className="war-progress-chart">
-    <svg viewBox={`0 0 ${width} ${height}`} height={height} role="img" aria-label={`War net score over time. ${homeName} above zero, ${enemyName} below zero.${endedAt ? " Final recorded history." : " Dashed lines hold current and planned scores unchanged."}`}>
+    <svg viewBox={`0 0 ${width} ${height}`} height={height} role="img" aria-label={`War net score over time. ${homeName} above zero, ${enemyName} below zero.${endedAt ? " Final recorded history." : " Dotted lines hold current and planned scores unchanged."}`}>
       <defs>
         <linearGradient id={`${id}-home`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--war-progress-home)" stopOpacity=".26" /><stop offset="100%" stopColor="var(--panel-muted-bg)" /></linearGradient>
         <linearGradient id={`${id}-enemy`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--panel-muted-bg)" /><stop offset="100%" stopColor="var(--war-progress-enemy)" stopOpacity=".28" /></linearGradient>
@@ -204,7 +212,7 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
       <rect x={left} y={y(0)} width={width - left - right} height={bottom - y(0)} fill={`url(#${id}-enemy)`} />
       {[limit, limit / 2, 0, -limit / 2, -limit].map((value) => <g key={value}><line x1={left} x2={width - right} y1={y(value)} y2={y(value)} className="progress-grid" /><text x={left - 8} y={y(value) + 4} textAnchor="end">{compact(value)}</text></g>)}
       {ticks.map((hour) => <g key={hour}><line x1={x(start + hour * 3600)} x2={x(start + hour * 3600)} y1={top} y2={bottom} className="progress-grid" /><text x={x(start + hour * 3600)} y={bottom + 19} textAnchor={hour === 0 ? "start" : "middle"}>{hour}</text></g>)}
-      <text x={left} y={16}>Score</text><text x={(left + width - right) / 2} y={height - 5} textAnchor="middle">Hours since war start</text>
+      <text x={(left + width - right) / 2} y={height - 5} textAnchor="middle">Hours since start</text>
       <g clipPath={`url(#${id}-clip)`}>
         {gaps.map(([from, to], index) => <rect key={index} x={x(from)} y={top} width={Math.max(0, x(to) - x(from))} height={bottom - top} fill={`url(#${id}-gap)`}><title>No score history recorded for this period</title></rect>)}
         {boundaries.map((d, index) => <path key={index} d={d} className={index ? "enemy-boundary" : "home-boundary"} />)}
@@ -215,14 +223,17 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
         {scenarios.map(({ score, finish, planned }) => score === null || original === null ? null : <g key={String(planned)} className={planned ? "progress-planned" : "progress-current"}>
           <line x1={x(now)} x2={x(finish === null ? end : Math.max(finish, Math.min(end, now + 3600)))} y1={y(score)} y2={y(score)} className="progress-held" />
           {finish !== null ? <><line x1={x(finish)} x2={x(finish)} y1={y(score)} y2={bottom} className="progress-finish-guide" />
-            {planned ? <rect x={x(finish) - 4} y={y(score) - 4} width="8" height="8" className="progress-marker" /> : <circle cx={x(finish)} cy={y(score)} r="5" className="progress-marker" />}
-            {width > 600 && Math.abs((plannedLead ?? 0) - (currentLead ?? 0)) > limit * .12 ? <text x={x(finish) - 8} y={y(score) + (planned ? -10 : 22)} textAnchor="end">{planned ? "Planned finish" : "Current finish"}</text> : null}
+            {planned ? <rect x={x(finish) - 4} y={y(score) - 4} width="8" height="8" className="progress-marker"><title>{leadLabel(score)} · {date(finish)}</title></rect> : <circle cx={x(finish)} cy={y(score)} r="5" className="progress-marker"><title>{leadLabel(score)} · {date(finish)}</title></circle>}
           </> : null}
         </g>)}
       </g>
       <rect x={left} y={top} width={width - left - right} height={bottom - top} fill="none" stroke="var(--border-solid)" />
       {!endedAt ? <text x={x(now)} y={16} textAnchor="middle">Now</text> : null}
     </svg>
-    {gaps.length ? <small className="war-progress-history-note">Hatched areas have no recorded score history.</small> : null}
+    <div className="war-progress-legend">
+      <span title={leadLabel(currentLead)}><i />Actual</span>
+      {!endedAt ? <><span title={leadLabel(currentLead)}><i className="current" />Current</span><span title={leadLabel(plannedLead)}><i className="planned" />Planned</span></> : null}
+      {gaps.length ? <details className="war-progress-history-note"><summary aria-label="Score history information" title="Score history information"><Info size={14} aria-hidden="true" /></summary><small>Hatched areas have no recorded score history.</small></details> : null}
+    </div>
   </div>;
 }
