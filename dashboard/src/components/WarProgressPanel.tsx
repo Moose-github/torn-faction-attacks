@@ -122,6 +122,8 @@ export function WarProgressPanel({ war }: { war: WarSummary }) {
         {canDraw && !scheduled ?
           <WarProgressChart points={points} start={start!} original={original} now={now} endedAt={endedAt}
             currentLead={currentLead} plannedLead={plannedLead} currentFinish={currentFinish} plannedFinish={plannedFinish}
+            homeScore={homeScore ?? null} plannedHome={plannedHome} plannedEnemy={plannedEnemy}
+            onHomeTargetChange={(value) => setHomeDraft(String(Math.max(homeScore ?? 0, value)))}
             homeName={homeName} enemyName={enemyName} /> : null}
         {!latest && !endedAt ? <EmptyState text="Waiting for the next Torn score update. History begins when score collection starts." /> : null}
         {latest && original === null && !endedAt ? <p className="war-progress-notice">The original winning target is unavailable, so finish times cannot be calculated yet.</p> : null}
@@ -158,12 +160,18 @@ type ProgressTooltip = {
   marker?: { x: number; y: number; planned?: boolean; color: string };
 };
 
-function WarProgressChart({ points, start, original, now, endedAt, currentLead, plannedLead, currentFinish, plannedFinish, homeName, enemyName }: {
+function WarProgressChart({ points, start, original, now, endedAt, currentLead, plannedLead, currentFinish, plannedFinish, homeName, enemyName, homeScore, plannedHome, plannedEnemy, onHomeTargetChange }: {
   points: WarScorePoint[]; start: number; original: number | null; now: number; endedAt: number | null;
   currentLead: number | null; plannedLead: number | null; currentFinish: number | null; plannedFinish: number | null;
   homeName: string; enemyName: string;
+  homeScore: number | null; plannedHome: number | null; plannedEnemy: number | null;
+  onHomeTargetChange: (value: number) => void;
 }) {
   const container = React.useRef<HTMLDivElement>(null);
+  const svgElement = React.useRef<SVGSVGElement>(null);
+  const drag = React.useRef<{ pointerId: number; startY: number; homeTarget: number; respectPerPixel: number; maximum: number; moved: boolean } | null>(null);
+  // Keep the line under the pointer while its changing score recalculates the finish.
+  const [dragScale, setDragScale] = React.useState<{ limit: number; endHours: number } | null>(null);
   const tooltipElement = React.useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = React.useState<ProgressTooltip | null>(null);
   const [tooltipSize, setTooltipSize] = React.useState({ width: 280, height: 170 });
@@ -194,11 +202,16 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
   const height = width < 430 ? 290 : 330, left = 62, right = 14, top = 30, bottom = height - 46;
   const endAt = endedAt ?? Math.max(now, currentFinish ?? now, plannedFinish ?? now);
   const duration = Math.max(3600, endAt - start);
-  const endHours = endedAt ? duration / 3600 : Math.max((now - start) / 3600, Math.min(RANKED_WAR_MAX_HOURS, duration / 3600 + 8));
+  const endHours = dragScale?.endHours ?? (endedAt ? duration / 3600 : Math.max((now - start) / 3600, Math.min(RANKED_WAR_MAX_HOURS, duration / 3600 + 8)));
   const end = start + endHours * 3600;
   const values = points.flatMap((point) => [point.home_score - point.enemy_score, point.target]);
-  const limit = Math.max(1, original ?? 0, ...values.map(Math.abs), Math.abs(currentLead ?? 0), endedAt ? 0 : Math.abs(plannedLead ?? 0));
+  const limit = dragScale?.limit ?? Math.max(1, original ?? 0, ...values.map(Math.abs), Math.abs(currentLead ?? 0), endedAt ? 0 : Math.abs(plannedLead ?? 0));
   const max = limit * 1.12;
+  const canDrag = !endedAt && original !== null && homeScore !== null && plannedHome !== null && plannedEnemy !== null;
+  const maximumHome = Math.min(Number.MAX_SAFE_INTEGER, Math.max(homeScore ?? 0, plannedHome ?? 0, Math.floor((plannedEnemy ?? 0) + max)));
+  React.useEffect(() => {
+    if (!canDrag && drag.current) stopDrag();
+  }, [canDrag]);
   const x = (at: number) => left + 6 + (at - start) / (end - start) * (width - left - right - 12);
   const y = (score: number) => top + (max - score) / (2 * max) * (bottom - top);
   const boundaries = original !== null ? [1, -1].map((sign) => {
@@ -247,6 +260,7 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     ] });
   }
   function hoverChart(event: React.PointerEvent<SVGSVGElement>) {
+    if (drag.current) { moveDrag(event); return; }
     const bounds = event.currentTarget.getBoundingClientRect();
     const pointer = { x: (event.clientX - bounds.left) * width / bounds.width, y: (event.clientY - bounds.top) * height / bounds.height };
     if (pointer.x < left || pointer.x > width - right || pointer.y < top || pointer.y > bottom) { setTooltip(null); return; }
@@ -279,25 +293,69 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     }
     setTooltip(null);
   }
+  function startDrag(event: React.PointerEvent<SVGSVGElement>) {
+    if (!event.isPrimary || event.button !== 0 || drag.current) return;
+    if (event.pointerType === "mouse") event.preventDefault();
+    hoverChart(event);
+    if (!canDrag || !(event.target instanceof Element) || !event.target.closest("[data-plan-drag]")) return;
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    drag.current = { pointerId: event.pointerId, startY: event.clientY, homeTarget: plannedHome!,
+      respectPerPixel: 2 * max / (bottom - top) * height / bounds.height, maximum: maximumHome, moved: false };
+    setDragScale({ limit, endHours });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function moveDrag(event: React.PointerEvent<SVGSVGElement>) {
+    const active = drag.current;
+    if (!active || active.pointerId !== event.pointerId || !canDrag) return;
+    const delta = active.startY - event.clientY;
+    // Clicking a marker, or grabbing the wider touch area, must not move the line.
+    if (!active.moved && Math.abs(delta) < 3) return;
+    active.moved = true;
+    setTooltip(null);
+    onHomeTargetChange(Math.max(homeScore!, Math.min(active.maximum, Math.round(active.homeTarget + delta * active.respectPerPixel))));
+  }
+  function stopDrag() {
+    const active = drag.current;
+    if (!active) return;
+    drag.current = null;
+    setDragScale(null);
+    if (svgElement.current?.hasPointerCapture(active.pointerId)) svgElement.current.releasePointerCapture(active.pointerId);
+  }
+  function endDrag(event: React.PointerEvent<SVGSVGElement>) {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    moveDrag(event);
+    stopDrag();
+  }
+  function adjustPlan(event: React.KeyboardEvent<SVGGElement>) {
+    if (!canDrag || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const step = event.shiftKey ? 1000 : 100;
+    const target = Math.max(homeScore!, Math.min(maximumHome, event.key === "Home" ? homeScore! : event.key === "End" ? maximumHome : plannedHome! + (event.key === "ArrowUp" ? step : -step)));
+    onHomeTargetChange(target);
+    showScenario({ score: target - plannedEnemy!, finish: rankedFinishAt(original, start, target - plannedEnemy!, now), planned: true });
+  }
   function legendPointer(event: React.PointerEvent<HTMLElement>) {
     const bounds = container.current!.getBoundingClientRect();
     return { x: event.clientX - bounds.left, y: height - 12 };
   }
   function clearPointerTooltip(event: React.PointerEvent) {
-    if (event.pointerType !== "touch") setTooltip(null);
+    if (!drag.current && event.pointerType !== "touch") setTooltip(null);
   }
   const tooltipLeft = tooltip ? Math.max(4, Math.min(width - tooltipSize.width - 4, tooltip.x + 12 + tooltipSize.width <= width - 4 ? tooltip.x + 12 : tooltip.x - tooltipSize.width - 12)) : 0;
   const tooltipTop = tooltip ? Math.max(4, Math.min(height - tooltipSize.height - 4, tooltip.y + 12 + tooltipSize.height <= height - 4 ? tooltip.y + 12 : tooltip.y - tooltipSize.height - 12)) : 0;
   return <div ref={container} className="war-progress-chart" onPointerLeave={clearPointerTooltip}
     onKeyDown={(event) => { if (event.key === "Escape") setTooltip(null); }}>
-    <svg viewBox={`0 0 ${width} ${height}`} height={height} role="img" tabIndex={0}
+    <svg ref={svgElement} viewBox={`0 0 ${width} ${height}`} height={height} role="group" tabIndex={0} className={dragScale ? "progress-dragging" : undefined}
       aria-label={`War net score over time. ${homeName} above zero, ${enemyName} below zero.${endedAt ? " Final recorded history." : " Dotted lines hold current and planned scores unchanged."} Use left and right arrow keys to inspect score history.`}
       aria-describedby={tooltip ? `${id}-tooltip` : undefined}
-      onPointerMove={hoverChart} onPointerDown={(event) => { if (event.pointerType === "mouse") event.preventDefault(); hoverChart(event); }} onPointerCancel={() => setTooltip(null)}
+      onPointerMove={hoverChart} onPointerDown={startDrag} onPointerUp={endDrag}
+      onPointerCancel={(event) => { if (!drag.current || drag.current.pointerId === event.pointerId) { stopDrag(); setTooltip(null); } }} onLostPointerCapture={stopDrag}
       onPointerLeave={clearPointerTooltip}
       onFocus={(event) => { if (event.target === event.currentTarget && !tooltip) showPoint(points.length - 1); }} onBlur={() => setTooltip(null)}
       onKeyDown={(event) => {
-        if (event.key === "Escape") { setTooltip(null); return; }
+        if (event.key === "Escape") { stopDrag(); setTooltip(null); return; }
         if (event.target !== event.currentTarget) return;
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !points.length) return;
         event.preventDefault();
@@ -322,13 +380,23 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
         {segments.map((d, index) => <path key={index} d={d} className="progress-score" />)}
         {points.map((point, index) => <circle key={point.observed_at} data-point-index={index} cx={x(point.observed_at)} cy={y(point.home_score - point.enemy_score)} r={2} className="progress-point" />)}
         {!endedAt ? <line x1={x(now)} x2={x(now)} y1={top} y2={bottom} className="progress-now" /> : null}
-        {scenarios.map(({ score, finish, planned }) => score === null || original === null ? null : <g key={String(planned)} className={planned ? "progress-planned" : "progress-current"}>
-          <line x1={x(now)} x2={x(finish === null ? end : Math.max(finish, Math.min(end, now + 3600)))} y1={y(score)} y2={y(score)} className="progress-held" />
+        {canDrag ? <line x1={x(now)} x2={x(plannedFinish === null ? end : Math.max(plannedFinish, Math.min(end, now + 3600)))} y1={y(plannedLead!)} y2={y(plannedLead!)} className="progress-plan-hit" data-plan-drag="true" /> : null}
+        {scenarios.map(({ score, finish, planned }) => score === null || original === null ? null : <g key={String(planned)} className={planned ? "progress-planned" : "progress-current"}
+          tabIndex={planned && canDrag ? 0 : undefined} role={planned && canDrag ? "slider" : undefined}
+          aria-label={planned && canDrag ? `${homeName} planned target respect` : undefined}
+          aria-orientation={planned && canDrag ? "vertical" : undefined}
+          aria-valuemin={planned && canDrag ? homeScore! : undefined} aria-valuemax={planned && canDrag ? maximumHome : undefined}
+          aria-valuenow={planned && canDrag ? plannedHome! : undefined}
+          aria-description={planned && canDrag ? "Drag up or down to adjust the home target. Arrow keys change it by 100; hold Shift for 1,000." : undefined}
+          onKeyDown={planned ? adjustPlan : undefined}
+          onFocus={(event) => { if (planned && event.target === event.currentTarget) showScenario({ score, finish, planned }); }}
+          onBlur={() => setTooltip(null)}>
+          <line x1={x(now)} x2={x(finish === null ? end : Math.max(finish, Math.min(end, now + 3600)))} y1={y(score)} y2={y(score)} className="progress-held" data-plan-drag={planned && canDrag ? "true" : undefined} />
           {finish !== null ? <><line x1={x(finish)} x2={x(finish)} y1={y(score)} y2={bottom} className="progress-finish-guide" />
-            <g tabIndex={0} role="img" aria-label={`${planned ? "Planned" : "Current"} scores finish marker`}
+            <g tabIndex={planned && canDrag ? undefined : 0} role={planned && canDrag ? undefined : "img"} aria-label={`${planned ? "Planned" : "Current"} scores finish marker`}
               aria-describedby={tooltip ? `${id}-tooltip` : undefined}
               onFocus={() => showScenario({ score, finish, planned })} onBlur={() => setTooltip(null)}>
-              {planned ? <rect x={x(finish) - 4} y={y(score) - 4} width="8" height="8" className="progress-marker" data-scenario="planned" /> : <circle cx={x(finish)} cy={y(score)} r="5" className="progress-marker" data-scenario="current" />}
+              {planned ? <rect x={x(finish) - 4} y={y(score) - 4} width="8" height="8" className="progress-marker" data-scenario="planned" data-plan-drag={canDrag ? "true" : undefined} /> : <circle cx={x(finish)} cy={y(score)} r="5" className="progress-marker" data-scenario="current" />}
             </g>
           </> : null}
         </g>)}
