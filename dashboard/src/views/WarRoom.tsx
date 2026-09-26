@@ -870,7 +870,6 @@ export function WarRoom({
       />
 
       <section className="content-grid">
-        <WarProgressPanel key={selectedWar.id} war={selectedWar} />
         {isMemberTrackingActive ? (
           <EnemyStatusSummaryPanel
             members={enemyScouting?.members ?? []}
@@ -883,6 +882,8 @@ export function WarRoom({
             onShowTrackingDetails={scrollToTrackingCadence}
           />
         ) : null}
+
+        <WarProgressPanel key={selectedWar.id} war={selectedWar} />
 
         <ChainWatchPanel
           data={chainWatch}
