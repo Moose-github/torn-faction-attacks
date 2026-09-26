@@ -14,6 +14,7 @@ export type AppView =
   | "statEnhancerRange"
   | "warPayouts"
   | "stockMarketStatus"
+  | "factionArmory"
   | "stockInvestments"
   | "dataHealth"
   | "settings"
@@ -39,6 +40,7 @@ export const PAGE_PATHS: Record<Exclude<AppView, "war">, string> = {
   statEnhancerRange: "/stat-enhancer-range",
   warPayouts: "/war-payouts",
   stockMarketStatus: "/admin/stock-market",
+  factionArmory: "/admin/armory",
   stockInvestments: "/stock-roi",
   dataHealth: "/data-health",
   settings: "/settings",
@@ -106,7 +108,7 @@ export function pathForView(view: AppView, warName?: string | null): string {
 }
 
 export function isAdminOnlyView(view: AppView): boolean {
-  return view === "admin" || view === "warPayouts" || view === "stockMarketStatus";
+  return view === "admin" || view === "warPayouts" || view === "stockMarketStatus" || view === "factionArmory";
 }
 
 function safeDecodePathPart(value: string): string | null {

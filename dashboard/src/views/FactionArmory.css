@@ -1,0 +1,60 @@
+.armory-page { display: grid; gap: 18px; min-width: 0; }
+.armory-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; padding: 24px; }
+.armory-heading h1 { margin: 8px 0; font-size: 26px; }
+.armory-heading p { margin: 0; opacity: .75; max-width: 650px; }
+.armory-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.armory-page button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 7px 12px; border: 1px solid var(--border-solid); border-radius: var(--radius-sm); background: var(--panel-bg-solid); color: var(--text-main); font-size: 12px; font-weight: 600; cursor: pointer; }
+.armory-page button:hover:not(:disabled) { background: var(--panel-hover-bg); border-color: var(--accent); }
+.armory-page a { color: var(--accent-strong); }
+.armory-page button:disabled { opacity: .55; cursor: default; }
+.armory-page button:focus-visible, .armory-page summary:focus-visible, .armory-page a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.armory-freshness { display: flex; flex-wrap: wrap; gap: 8px 24px; flex-basis: 100%; font-size: 12px; opacity: .7; }
+.armory-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.armory-content { padding: 20px; min-width: 0; }
+.armory-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.armory-tabs { display: flex; gap: 8px; }
+.armory-tabs button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-strong); background: var(--panel-active-bg); }
+.armory-detail-progress { margin: 16px 0; font-size: 13px; opacity: .8; }
+.armory-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.armory-filters label { display: grid; gap: 6px; font-size: 12px; flex: 1 1 120px; }
+.armory-filters .armory-search { flex: 2 1 240px; }
+.armory-filters input, .armory-filters select { width: 100%; min-width: 0; }
+.armory-results { margin: 18px 0; font-size: 12px; }
+.armory-checkbox { display: flex; align-items: center; gap: 6px; }
+.armory-checkbox input { width: auto; }
+.armory-table-scroll { width: 100%; overflow-x: auto; }
+.armory-table { width: 100%; min-width: 960px; border-collapse: collapse; font-size: 13px; }
+.armory-table th { text-align: left; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; opacity: .65; padding: 12px; }
+.armory-table td { border-top: 1px solid rgb(128 128 128 / 20%); padding: 14px 12px; vertical-align: middle; font-variant-numeric: tabular-nums; }
+.armory-table td:nth-child(n+3):nth-child(-n+6) { white-space: nowrap; }
+.armory-table small { display: block; margin-top: 5px; opacity: .65; }
+.armory-weapon { display: flex; align-items: center; gap: 14px; }
+.armory-art { flex: 0 0 96px; width: 96px; height: 64px; display: grid; place-items: center; }
+.armory-art img { width: 96px; height: 64px; object-fit: contain; }
+.armory-rarity-yellow img { filter: drop-shadow(0 0 7px rgb(245 212 61 / 65%)); }
+.armory-rarity-orange img { filter: drop-shadow(0 0 7px rgb(255 145 0 / 65%)); }
+.armory-rarity-red img { filter: drop-shadow(0 0 7px rgb(240 65 65 / 65%)); }
+.armory-page .armory-uid { min-height: 24px; padding: 4px 0; background: transparent; border: 0; font-size: 11px; opacity: .7; word-break: break-all; }
+.armory-page .armory-expand { background: transparent; border: 0; padding: 4px 0; text-align: left; font-weight: 650; }
+.armory-badge { display: inline-block; font-size: 11px; padding: 3px 7px; border: 1px solid rgb(128 128 128 / 28%); border-radius: 5px; text-transform: capitalize; }
+.armory-table td:last-child a { display: block; margin-top: 6px; }
+.armory-bonus { margin-top: 8px; max-width: 230px; }
+.armory-bonus summary { cursor: pointer; font-weight: 600; }
+.armory-bonus p { margin: 8px 0; font-size: 12px; line-height: 1.6; opacity: .8; }
+.armory-available { color: var(--success, #449f7b); }
+.armory-copy-child { background: rgb(128 128 128 / 5%); }
+.armory-copy-child .armory-weapon { padding-left: 16px; }
+.armory-message { padding: 12px 16px; font-size: 13px; }
+.armory-warning { border-left: 3px solid #d2a34e; }
+.armory-empty { text-align: center; padding: 50px 20px; opacity: .7; }
+.armory-borrower { border-top: 1px solid rgb(128 128 128 / 25%); padding: 16px 0; }
+.armory-borrower > summary { cursor: pointer; padding: 8px 0; }
+.armory-borrower > summary span { display: inline-block; font-size: 12px; margin-left: 24px; opacity: .75; }
+.armory-borrower > p { font-size: 12px; }
+@media (max-width: 700px) {
+  .armory-heading, .armory-content { padding: 16px; }
+  .armory-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .armory-heading h1 { font-size: 23px; }
+  .armory-freshness { display: grid; }
+  .armory-borrower > summary span { margin-left: 10px; }
+}

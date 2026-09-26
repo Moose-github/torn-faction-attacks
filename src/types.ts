@@ -3,7 +3,7 @@ export interface Env {
   CHAIN_WATCH_ALARMS: DurableObjectNamespace;
   CHAIN_WATCH_SESSIONS: DurableObjectNamespace;
   RETALIATION_BOARD_ALARMS: DurableObjectNamespace;
-  TORN_API_KEY: string;
+  TORN_API_KEY: string | SecretsStoreSecret;
   TORN_KEY_STORAGE_SECRET?: string | SecretsStoreSecret;
   BSP_TORN_API_KEY?: string;
   FFSCOUTER_API_KEY?: string;

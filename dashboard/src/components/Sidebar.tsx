@@ -1,5 +1,5 @@
 import React from "react";
-import { CalendarClock, ChevronDown, ChevronRight, TrendingUp } from "lucide-react";
+import { CalendarClock, ChevronDown, ChevronRight, TrendingUp, Swords } from "lucide-react";
 import { WarSummary, WarType } from "../api";
 import { getChainWatchLive } from "../api/chainWatchSchedule";
 import { EmptyState } from "./Common";
@@ -70,7 +70,7 @@ export function Sidebar({
   const membersActive = view === "members" || view === "lifestyle";
   const recordedWarsActive = view === "war";
   const miscellaneousActive = view === "miscellaneous" || (view === "chainWatchSchedule" && chainWatchInMiscellaneous) || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "statEnhancerRange" || view === "stockInvestments";
-  const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "admin";
+  const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "factionArmory" || view === "admin";
   const recordedWarsOpen = !(collapsedGroups.recordedWars ?? false);
 
   React.useEffect(() => {
@@ -279,6 +279,12 @@ export function Sidebar({
             icon={stockMarketIcon}
             label="Stock market"
             onClick={() => onViewChange("stockMarketStatus")}
+          />
+          <SidebarLink
+            active={view === "factionArmory"}
+            icon={<Swords size={18} />}
+            label="Faction armory"
+            onClick={() => onViewChange("factionArmory")}
           />
           <SidebarLink
             active={view === "admin"}

@@ -1,4 +1,5 @@
 import { positiveIntegerOrNull, readJsonObject } from "../backend/request";
+import { routeArmoryApi } from "./armoryRoutes";
 import { sendAdminDiscordMessageFromRequest } from "../discordMessageSend";
 import { getAdminDiscordSubscriptionSettings, updateAdminDiscordSubscriptionSettingFromRequest } from "../discordSubscriptionSettings";
 import { grantAdminAccess, listAdminUsers, readAuthenticatedUserId } from "../auth";
@@ -87,6 +88,9 @@ import { getAdminDiscordRouteDestinations, updateAdminDiscordRouteFromRequest } 
 
 export async function routeAdminApi(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, ctx, url } = routeContext;
+
+  const armoryResponse = await routeArmoryApi(routeContext);
+  if (armoryResponse) return armoryResponse;
 
   if (matchesExactRoute(url, request, "/api/run", "POST")) {
     return withAdmin(routeContext, async () => {

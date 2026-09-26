@@ -99,6 +99,9 @@ const SettingsPage = React.lazy(() =>
 const StockMarketStatus = React.lazy(() =>
   import("../views/StockMarketStatus").then((module) => ({ default: module.StockMarketStatus })),
 );
+const FactionArmory = React.lazy(() =>
+  import("../views/FactionArmory").then((module) => ({ default: module.FactionArmory })),
+);
 const StockInvestments = React.lazy(() =>
   import("../views/StockInvestments").then((module) => ({ default: module.StockInvestments })),
 );
@@ -917,6 +920,10 @@ export function App() {
           ) : view === "stockMarketStatus" ? (
             <LazyPage>
               <StockMarketStatus />
+            </LazyPage>
+          ) : view === "factionArmory" ? (
+            <LazyPage>
+              {isAdmin ? <FactionArmory /> : null}
             </LazyPage>
           ) : view === "stockInvestments" ? (
             <LazyPage>

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PAGE_PATHS, parseAppRoute, retiredPageRedirect } from "./routes";
+import { isAdminOnlyView, PAGE_PATHS, parseAppRoute, retiredPageRedirect } from "./routes";
+
+it("protects the armory route as an admin page", () => {
+  expect(parseAppRoute("/admin/armory")).toEqual({ view: "factionArmory", warName: null });
+  expect(isAdminOnlyView("factionArmory")).toBe(true);
+});
 
 describe("retired page routes", () => {
   it.each(["/dice-game", "/dice-game/", "/DICE-GAME", "/admin/packs", "/admin/packs/"])(

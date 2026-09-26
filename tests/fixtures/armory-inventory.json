@@ -1,0 +1,1263 @@
+{
+  "inventory_timestamp": 1790462402,
+  "inventory": [
+    {
+      "id": 108,
+      "name": "9mm Uzi",
+      "type": "Primary",
+      "amount": 3,
+      "uids": [
+        5804061411,
+        5742834189,
+        5350805864
+      ],
+      "loaned": null
+    },
+    {
+      "id": 26,
+      "name": "AK-47",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        15757130220
+      ],
+      "loaned": {
+        "id": 2794893,
+        "name": "Rafti"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 24,
+      "uids": [
+        16118303609,
+        10302895368,
+        7974118944,
+        7891718470,
+        7885295813,
+        7513217206,
+        7513217205,
+        7513217189,
+        7501264610,
+        7468233497,
+        7459125477,
+        7458718073,
+        7458717841,
+        7451892723,
+        7443497178,
+        7443497176,
+        7443497174,
+        7443497172,
+        7443497164,
+        7297514122,
+        7279364000,
+        5989091155,
+        5535288500,
+        3628427493
+      ],
+      "loaned": null
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        10727704270
+      ],
+      "loaned": {
+        "id": 2332935,
+        "name": "Daz69"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        8077945671
+      ],
+      "loaned": {
+        "id": 2529514,
+        "name": "Boptyn"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        19191554035
+      ],
+      "loaned": {
+        "id": 2625483,
+        "name": "Sunjuggler"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        7851427974
+      ],
+      "loaned": {
+        "id": 2802229,
+        "name": "Toximaxi"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        5994717111
+      ],
+      "loaned": {
+        "id": 2807909,
+        "name": "Tacenda"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        7284503714
+      ],
+      "loaned": {
+        "id": 2866489,
+        "name": "Chuntttttt"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        14835639037
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        7882482287
+      ],
+      "loaned": {
+        "id": 3159491,
+        "name": "kouuu"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        10522308875
+      ],
+      "loaned": {
+        "id": 3217294,
+        "name": "Mistrrsandman"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        7902018339
+      ],
+      "loaned": {
+        "id": 3777975,
+        "name": "CrimsonSteel"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        8077945733
+      ],
+      "loaned": {
+        "id": 3805474,
+        "name": "Verottaja"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        10790649872
+      ],
+      "loaned": {
+        "id": 4002200,
+        "name": "Minitamark"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        10538456413
+      ],
+      "loaned": {
+        "id": 4081746,
+        "name": "JjDja"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        17649788760
+      ],
+      "loaned": {
+        "id": 4100405,
+        "name": "Evangili"
+      }
+    },
+    {
+      "id": 399,
+      "name": "ArmaLite M-15A4",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        10747970049
+      ],
+      "loaned": {
+        "id": 4167258,
+        "name": "Barbaspalla"
+      }
+    },
+    {
+      "id": 8,
+      "name": "Axe",
+      "type": "Melee",
+      "amount": 3,
+      "uids": [
+        19147312530,
+        7743098056,
+        5351963373
+      ],
+      "loaned": null
+    },
+    {
+      "id": 2,
+      "name": "Baseball Bat",
+      "type": "Melee",
+      "amount": 3,
+      "uids": [
+        10828253946,
+        7547491164,
+        6028693892
+      ],
+      "loaned": null
+    },
+    {
+      "id": 23,
+      "name": "Benelli M1 Tactical",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        7308174031
+      ],
+      "loaned": null
+    },
+    {
+      "id": 28,
+      "name": "Benelli M4 Super",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        6025119201
+      ],
+      "loaned": null
+    },
+    {
+      "id": 15,
+      "name": "Beretta M9",
+      "type": "Secondary",
+      "amount": 15,
+      "uids": [
+        17251848751,
+        15917571025,
+        13659219957,
+        11610255669,
+        11536625309,
+        11430484037,
+        11387687651,
+        11324449949,
+        10625310586,
+        10536062618,
+        10528328690,
+        10443786504,
+        10347219997,
+        10252306373,
+        6455739896
+      ],
+      "loaned": null
+    },
+    {
+      "id": 831,
+      "name": "Beretta Pico",
+      "type": "Secondary",
+      "amount": 1,
+      "uids": [
+        9731781559
+      ],
+      "loaned": null
+    },
+    {
+      "id": 539,
+      "name": "Blood Spattered Sickle",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        2202909284
+      ],
+      "loaned": null
+    },
+    {
+      "id": 244,
+      "name": "Blowgun",
+      "type": "Secondary",
+      "amount": 1,
+      "uids": [
+        4397261004
+      ],
+      "loaned": null
+    },
+    {
+      "id": 490,
+      "name": "Blunderbuss",
+      "type": "Secondary",
+      "amount": 3,
+      "uids": [
+        8827240419,
+        8304776946,
+        6889050865
+      ],
+      "loaned": null
+    },
+    {
+      "id": 245,
+      "name": "Bo Staff",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        10474795354
+      ],
+      "loaned": null
+    },
+    {
+      "id": 1255,
+      "name": "Bone Saw",
+      "type": "Melee",
+      "amount": 2,
+      "uids": [
+        10554901414,
+        10444504677
+      ],
+      "loaned": null
+    },
+    {
+      "id": 1255,
+      "name": "Bone Saw",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        10486386359
+      ],
+      "loaned": {
+        "id": 3217294,
+        "name": "Mistrrsandman"
+      }
+    },
+    {
+      "id": 233,
+      "name": "BT MP9",
+      "type": "Secondary",
+      "amount": 5,
+      "uids": [
+        7016209652,
+        6760004654,
+        6076583664,
+        5304360112,
+        3859958650
+      ],
+      "loaned": null
+    },
+    {
+      "id": 241,
+      "name": "Bushmaster Carbon 15",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        4704672560
+      ],
+      "loaned": null
+    },
+    {
+      "id": 173,
+      "name": "Butterfly Knife",
+      "type": "Melee",
+      "amount": 2,
+      "uids": [
+        10521838239,
+        7375627802
+      ],
+      "loaned": null
+    },
+    {
+      "id": 1257,
+      "name": "Cattle Prod",
+      "type": "Melee",
+      "amount": 5,
+      "uids": [
+        13890807211,
+        11314584672,
+        11221127341,
+        11138405854,
+        10578415866
+      ],
+      "loaned": null
+    },
+    {
+      "id": 1257,
+      "name": "Cattle Prod",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        10644750654
+      ],
+      "loaned": {
+        "id": 2807909,
+        "name": "Tacenda"
+      }
+    },
+    {
+      "id": 1257,
+      "name": "Cattle Prod",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        11049643913
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 10,
+      "name": "Chainsaw",
+      "type": "Melee",
+      "amount": 3,
+      "uids": [
+        11191248627,
+        7640876656,
+        7588789669
+      ],
+      "loaned": null
+    },
+    {
+      "id": 1153,
+      "name": "China Lake",
+      "type": "Secondary",
+      "amount": 6,
+      "uids": [
+        20485120645,
+        20250072354,
+        17352912830,
+        16761153442,
+        15667759849,
+        15423655780
+      ],
+      "loaned": null
+    },
+    {
+      "id": 1159,
+      "name": "Cleaver",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        9012197009
+      ],
+      "loaned": {
+        "id": 2646654,
+        "name": "BonerSoup"
+      }
+    },
+    {
+      "id": 177,
+      "name": "Cobra Derringer",
+      "type": "Secondary",
+      "amount": 1,
+      "uids": [
+        10464963063
+      ],
+      "loaned": {
+        "id": 1874922,
+        "name": "JussiJernkuuk"
+      }
+    },
+    {
+      "id": 438,
+      "name": "Cricket Bat",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        10146947981
+      ],
+      "loaned": null
+    },
+    {
+      "id": 218,
+      "name": "Crossbow",
+      "type": "Secondary",
+      "amount": 1,
+      "uids": [
+        7134357176
+      ],
+      "loaned": null
+    },
+    {
+      "id": 3,
+      "name": "Crowbar",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        10122932801
+      ],
+      "loaned": null
+    },
+    {
+      "id": 20,
+      "name": "Desert Eagle",
+      "type": "Secondary",
+      "amount": 1,
+      "uids": [
+        7027244066
+      ],
+      "loaned": null
+    },
+    {
+      "id": 600,
+      "name": "Devil's Pitchfork",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        3930325030
+      ],
+      "loaned": null
+    },
+    {
+      "id": 614,
+      "name": "Diamond Bladed Knife",
+      "type": "Melee",
+      "amount": 11,
+      "uids": [
+        10633455491,
+        7606119024,
+        7600163914,
+        7556690345,
+        7544840601,
+        6991909426,
+        6972693169,
+        6913832114,
+        6864784411,
+        6475328051,
+        6328664308
+      ],
+      "loaned": null
+    },
+    {
+      "id": 614,
+      "name": "Diamond Bladed Knife",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        6282094843
+      ],
+      "loaned": {
+        "id": 2802229,
+        "name": "Toximaxi"
+      }
+    },
+    {
+      "id": 614,
+      "name": "Diamond Bladed Knife",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        6463818284
+      ],
+      "loaned": {
+        "id": 2807909,
+        "name": "Tacenda"
+      }
+    },
+    {
+      "id": 614,
+      "name": "Diamond Bladed Knife",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        6981791856
+      ],
+      "loaned": {
+        "id": 2866489,
+        "name": "Chuntttttt"
+      }
+    },
+    {
+      "id": 614,
+      "name": "Diamond Bladed Knife",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        8177452263
+      ],
+      "loaned": {
+        "id": 3159491,
+        "name": "kouuu"
+      }
+    },
+    {
+      "id": 614,
+      "name": "Diamond Bladed Knife",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        6329630108
+      ],
+      "loaned": {
+        "id": 3777975,
+        "name": "CrimsonSteel"
+      }
+    },
+    {
+      "id": 614,
+      "name": "Diamond Bladed Knife",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        10642458255
+      ],
+      "loaned": {
+        "id": 4002200,
+        "name": "Minitamark"
+      }
+    },
+    {
+      "id": 614,
+      "name": "Diamond Bladed Knife",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        6475328061
+      ],
+      "loaned": {
+        "id": 4167258,
+        "name": "Barbaspalla"
+      }
+    },
+    {
+      "id": 605,
+      "name": "Diamond Icicle",
+      "type": "Melee",
+      "amount": 2,
+      "uids": [
+        6716495988,
+        4515562548
+      ],
+      "loaned": null
+    },
+    {
+      "id": 21,
+      "name": "Dual 92G Berettas",
+      "type": "Secondary",
+      "amount": 2,
+      "uids": [
+        6587289931,
+        3778734069
+      ],
+      "loaned": null
+    },
+    {
+      "id": 219,
+      "name": "Enfield SA-80",
+      "type": "Primary",
+      "amount": 5,
+      "uids": [
+        16736016662,
+        16517590974,
+        16205818183,
+        7071422338,
+        4459545640
+      ],
+      "loaned": null
+    },
+    {
+      "id": 219,
+      "name": "Enfield SA-80",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        5049666858
+      ],
+      "loaned": {
+        "id": 2866489,
+        "name": "Chuntttttt"
+      }
+    },
+    {
+      "id": 359,
+      "name": "Fine Chisel",
+      "type": "Melee",
+      "amount": 3,
+      "uids": [
+        4384560757,
+        4128045825,
+        2115857727
+      ],
+      "loaned": null
+    },
+    {
+      "id": 18,
+      "name": "Fiveseven",
+      "type": "Secondary",
+      "amount": 11,
+      "uids": [
+        14067453069,
+        11279674847,
+        11129006080,
+        11022116647,
+        10535201122,
+        10514438659,
+        10486920095,
+        10373471606,
+        10312791407,
+        10242224201,
+        4912825431
+      ],
+      "loaned": null
+    },
+    {
+      "id": 397,
+      "name": "Flail",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        8616785373
+      ],
+      "loaned": null
+    },
+    {
+      "id": 255,
+      "name": "Flamethrower",
+      "type": "Secondary",
+      "amount": 1,
+      "uids": [
+        6254769043
+      ],
+      "loaned": null
+    },
+    {
+      "id": 255,
+      "name": "Flamethrower",
+      "type": "Secondary",
+      "amount": 1,
+      "uids": [
+        6337951817
+      ],
+      "loaned": {
+        "id": 3217294,
+        "name": "Mistrrsandman"
+      }
+    },
+    {
+      "id": 230,
+      "name": "Flare Gun",
+      "type": "Secondary",
+      "amount": 2,
+      "uids": [
+        10802597915,
+        10668616167
+      ],
+      "loaned": null
+    },
+    {
+      "id": 12,
+      "name": "Glock 17",
+      "type": "Secondary",
+      "amount": 7,
+      "uids": [
+        10545385185,
+        10354395962,
+        10203530535,
+        9779426316,
+        8301412599,
+        7108195442,
+        7090200346
+      ],
+      "loaned": null
+    },
+    {
+      "id": 382,
+      "name": "Gold Plated AK-47",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        4046447575
+      ],
+      "loaned": null
+    },
+    {
+      "id": 599,
+      "name": "Golden Broomstick",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        4384669595
+      ],
+      "loaned": null
+    },
+    {
+      "id": 1231,
+      "name": "Golf Club",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        14060080044
+      ],
+      "loaned": null
+    },
+    {
+      "id": 400,
+      "name": "Guandao",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        12250502806
+      ],
+      "loaned": null
+    },
+    {
+      "id": 1,
+      "name": "Hammer",
+      "type": "Melee",
+      "amount": 4,
+      "uids": [
+        10831515208,
+        10474797125,
+        7372943350,
+        5916884111
+      ],
+      "loaned": null
+    },
+    {
+      "id": 613,
+      "name": "Harpoon",
+      "type": "Secondary",
+      "amount": 2,
+      "uids": [
+        4082535602,
+        3205715924
+      ],
+      "loaned": null
+    },
+    {
+      "id": 231,
+      "name": "Heckler & Koch SL8",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        10776590446
+      ],
+      "loaned": null
+    },
+    {
+      "id": 252,
+      "name": "Ithaca 37",
+      "type": "Primary",
+      "amount": 2,
+      "uids": [
+        7325476641,
+        7210520079
+      ],
+      "loaned": null
+    },
+    {
+      "id": 360,
+      "name": "Ivory Walking Cane",
+      "type": "Melee",
+      "amount": 2,
+      "uids": [
+        2585404708,
+        1837208867
+      ],
+      "loaned": null
+    },
+    {
+      "id": 223,
+      "name": "Jackhammer",
+      "type": "Primary",
+      "amount": 6,
+      "uids": [
+        16727288110,
+        15751012296,
+        7112541086,
+        7112541077,
+        6825244910,
+        6739174653
+      ],
+      "loaned": null
+    },
+    {
+      "id": 6,
+      "name": "Kitchen Knife",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        4166617859
+      ],
+      "loaned": null
+    },
+    {
+      "id": 4,
+      "name": "Knuckle Dusters",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        7354805386
+      ],
+      "loaned": null
+    },
+    {
+      "id": 4,
+      "name": "Knuckle Dusters",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        9573750399
+      ],
+      "loaned": {
+        "id": 4002200,
+        "name": "Minitamark"
+      }
+    },
+    {
+      "id": 237,
+      "name": "Kodachi",
+      "type": "Melee",
+      "amount": 3,
+      "uids": [
+        7117814212,
+        5457913352,
+        5457913346
+      ],
+      "loaned": null
+    },
+    {
+      "id": 401,
+      "name": "Lead Pipe",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        6004821650
+      ],
+      "loaned": null
+    },
+    {
+      "id": 253,
+      "name": "Lorcin 380",
+      "type": "Secondary",
+      "amount": 1,
+      "uids": [
+        7196226439
+      ],
+      "loaned": null
+    },
+    {
+      "id": 489,
+      "name": "Luger",
+      "type": "Secondary",
+      "amount": 2,
+      "uids": [
+        6596455269,
+        3391404440
+      ],
+      "loaned": null
+    },
+    {
+      "id": 29,
+      "name": "M16 A2 Rifle",
+      "type": "Primary",
+      "amount": 2,
+      "uids": [
+        9064187135,
+        8797467354
+      ],
+      "loaned": null
+    },
+    {
+      "id": 31,
+      "name": "M249 SAW",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        3423949806
+      ],
+      "loaned": null
+    },
+    {
+      "id": 31,
+      "name": "M249 SAW",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        6102597648
+      ],
+      "loaned": {
+        "id": 2866489,
+        "name": "Chuntttttt"
+      }
+    },
+    {
+      "id": 27,
+      "name": "M4A1 Colt Carbine",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        9770224774
+      ],
+      "loaned": {
+        "id": 2646654,
+        "name": "BonerSoup"
+      }
+    },
+    {
+      "id": 391,
+      "name": "Macana",
+      "type": "Melee",
+      "amount": 5,
+      "uids": [
+        8051715183,
+        6202430199,
+        6140234499,
+        6061464407,
+        2998164764
+      ],
+      "loaned": null
+    },
+    {
+      "id": 391,
+      "name": "Macana",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        15576610905
+      ],
+      "loaned": {
+        "id": 3770465,
+        "name": "Jabb_Uranus"
+      }
+    },
+    {
+      "id": 391,
+      "name": "Macana",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        9017847526
+      ],
+      "loaned": {
+        "id": 3805474,
+        "name": "Verottaja"
+      }
+    },
+    {
+      "id": 839,
+      "name": "Madball",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        8616983176
+      ],
+      "loaned": null
+    },
+    {
+      "id": 225,
+      "name": "Mag 7",
+      "type": "Primary",
+      "amount": 2,
+      "uids": [
+        7185999420,
+        5730802071
+      ],
+      "loaned": null
+    },
+    {
+      "id": 19,
+      "name": "Magnum",
+      "type": "Secondary",
+      "amount": 6,
+      "uids": [
+        11095827031,
+        10774871848,
+        10528328467,
+        10514438327,
+        10486920227,
+        10315909953
+      ],
+      "loaned": null
+    },
+    {
+      "id": 1158,
+      "name": "Meat Hook",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        10536227134
+      ],
+      "loaned": null
+    },
+    {
+      "id": 395,
+      "name": "Metal Nunchaku",
+      "type": "Melee",
+      "amount": 7,
+      "uids": [
+        17000838439,
+        8932028693,
+        8922549549,
+        7428691894,
+        7395340935,
+        7114757973,
+        3827728875
+      ],
+      "loaned": null
+    },
+    {
+      "id": 395,
+      "name": "Metal Nunchaku",
+      "type": "Melee",
+      "amount": 1,
+      "uids": [
+        12420065426
+      ],
+      "loaned": {
+        "id": 4100405,
+        "name": "Evangili"
+      }
+    },
+    {
+      "id": 1154,
+      "name": "Milkor MGL",
+      "type": "Secondary",
+      "amount": 4,
+      "uids": [
+        21090427900,
+        17959058029,
+        17908283641,
+        16761986946
+      ],
+      "loaned": null
+    },
+    {
+      "id": 1154,
+      "name": "Milkor MGL",
+      "type": "Secondary",
+      "amount": 1,
+      "uids": [
+        16726098142
+      ],
+      "loaned": {
+        "id": 2621711,
+        "name": "Jadedc"
+      }
+    },
+    {
+      "id": 1154,
+      "name": "Milkor MGL",
+      "type": "Secondary",
+      "amount": 1,
+      "uids": [
+        16778883194
+      ],
+      "loaned": {
+        "id": 2866489,
+        "name": "Chuntttttt"
+      }
+    },
+    {
+      "id": 63,
+      "name": "Minigun",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        7305035213
+      ],
+      "loaned": null
+    },
+    {
+      "id": 63,
+      "name": "Minigun",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        6698851803
+      ],
+      "loaned": {
+        "id": 2529514,
+        "name": "Boptyn"
+      }
+    },
+    {
+      "id": 63,
+      "name": "Minigun",
+      "type": "Primary",
+      "amount": 1,
+      "uids": [
+        3835676925
+      ],
+      "loaned": {
+        "id": 2646654,
+        "name": "BonerSoup"
+      }
+    }
+  ],
+  "_metadata": {
+    "links": {
+      "prev": null,
+      "next": "https://api.torn.com/v2/faction/inventory?&limit=100&cat=weapons&offset=100"
+    },
+    "total": 161
+  }
+}
