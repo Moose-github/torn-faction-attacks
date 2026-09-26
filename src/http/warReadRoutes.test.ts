@@ -14,6 +14,7 @@ import {
 } from "../responseCache";
 import { jsonResponse, routeContext } from "../testUtils/http";
 import { getWarControlForWar } from "../warControl";
+import { getWarProgress } from "../warProgress";
 import {
   exportWarAttacksCsv,
   getWar,
@@ -66,6 +67,8 @@ vi.mock("../warControl", () => ({
   getWarControlForWar: vi.fn(),
 }));
 
+vi.mock("../warProgress", () => ({ getWarProgress: vi.fn() }));
+
 vi.mock("../responseCache", () => ({
   cachedGetJson: vi.fn((_request, _ctx, _ttl, load) => load()),
   cachedVersionedGetJson: vi.fn((_env, _request, _ctx, _ttl, _versions, load) => load()),
@@ -112,6 +115,24 @@ describe("war read routes", () => {
     vi.mocked(getEnemyMemberActivityHeatmap).mockResolvedValue(jsonResponse({ ok: true, route: "enemy-member-activity-heatmap" }));
     vi.mocked(getWarActivityHeatmap).mockResolvedValue(jsonResponse({ ok: true, route: "activity-heatmap" }));
     vi.mocked(listWars).mockResolvedValue(jsonResponse({ ok: true, route: "list" }));
+  });
+
+  it("serves progress to members with a short cache even after practical tracking ends", async () => {
+    vi.mocked(getWarProgress).mockResolvedValue(jsonResponse({ ok: true, route: "progress" }));
+    const context = routeContext("https://worker.test/api/wars/Buttgrass%20Classic/progress");
+    const response = await routeWarReads(context);
+    expect(await response?.json()).toEqual({ ok: true, route: "progress" });
+    expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
+    expect(cachedVersionedGetJson).toHaveBeenCalledWith(context.env, context.request, context.ctx, 55,
+      ["cache_version:war:Buttgrass Classic"], expect.any(Function));
+    expect(getWarProgress).toHaveBeenCalledWith(context.url, context.env);
+  });
+
+  it("does not read progress when member access is denied", async () => {
+    vi.mocked(requireMember).mockResolvedValue(jsonResponse({ ok: false }, 403));
+    const response = await routeWarReads(routeContext("https://worker.test/api/wars/Test/progress"));
+    expect(response?.status).toBe(403);
+    expect(getWarProgress).not.toHaveBeenCalled();
   });
 
   it("routes the war list through member auth and the simple cache", async () => {

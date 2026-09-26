@@ -61,6 +61,7 @@ import {
 } from "./context";
 import { routeExact, type ExactRoute } from "./routeTable";
 import { getWarControlForWar } from "../warControl";
+import { getWarProgress } from "../warProgress";
 import { recalculateWarMemberRespect } from "../warMemberRespect";
 
 export async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult> {
@@ -182,6 +183,9 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
   }
 
   const warVersionNames = warCacheVersionNames(warNameFromWarRoute(url));
+  if (isWarSubroute(url, request, "/progress", "GET")) {
+    return cachedMemberGet(routeContext, 55, () => getWarProgress(url, env), warVersionNames);
+  }
   if (isWarSubroute(url, request, "/competition", "GET")) {
     return cachedMemberGet(routeContext, 55, () => getEventCompetition(url, env), warVersionNames);
   }

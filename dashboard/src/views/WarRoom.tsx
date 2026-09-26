@@ -1,5 +1,6 @@
 import React from "react";
 import { EventRoomCompetition } from "../components/EventCompetition";
+import { WarProgressPanel } from "../components/WarProgressPanel";
 import { ArrowDown, ArrowUp, Plus, Siren, Trash2 } from "lucide-react";
 import {
   addEnemyBigHitter,
@@ -869,6 +870,7 @@ export function WarRoom({
       />
 
       <section className="content-grid">
+        <WarProgressPanel key={selectedWar.id} war={selectedWar} />
         {isMemberTrackingActive ? (
           <EnemyStatusSummaryPanel
             members={enemyScouting?.members ?? []}

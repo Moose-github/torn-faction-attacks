@@ -1,0 +1,59 @@
+.war-progress-panel {
+  --war-progress-home: #66891f;
+  --war-progress-enemy: #af5d39;
+  --war-progress-plan: #977213;
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+:root[data-theme="dark"] .war-progress-panel {
+  --war-progress-home: #a4c94c;
+  --war-progress-enemy: #de926d;
+  --war-progress-plan: #e7c96c;
+}
+.war-progress-scores, .war-progress-targets, .war-progress-finish {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+}
+.war-progress-scores { padding: 5px 0 16px; }
+.war-progress-scores > div { display: grid; gap: 3px; overflow-wrap: anywhere; }
+.war-progress-scores strong { color: var(--text-strong); font-size: 25px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.war-progress-home { color: var(--war-progress-home); }
+.war-progress-enemy { color: var(--war-progress-enemy); text-align: right; }
+.war-progress-panel small { color: var(--text-muted); font-size: 12px; }
+.war-progress-targets label { display: grid; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.war-progress-targets input { width: 100%; min-width: 0; height: 38px; font-size: 16px; font-variant-numeric: tabular-nums; }
+.war-progress-targets input[aria-invalid="true"] { border-color: var(--war-progress-enemy); }
+.war-progress-leads { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0 4px; color: var(--text-muted); font-size: 12px; }
+.war-progress-chart { min-width: 0; }
+.war-progress-chart svg { display: block; width: 100%; }
+.war-progress-chart text { fill: var(--text-muted); font-size: 12px; font-family: inherit; }
+.war-progress-chart .progress-team { fill: var(--text-main); font-size: 17px; font-weight: 500; opacity: .8; }
+.war-progress-chart .progress-grid { stroke: var(--chart-grid); stroke-width: .6; }
+.war-progress-chart .home-boundary, .war-progress-chart .enemy-boundary { fill: none; stroke-width: 1.5; stroke: var(--war-progress-home); }
+.war-progress-chart .enemy-boundary { stroke: var(--war-progress-enemy); }
+.war-progress-chart .progress-score { fill: none; stroke: var(--war-progress-home); stroke-width: 2; }
+.war-progress-chart .progress-point { fill: var(--war-progress-home); }
+.war-progress-chart .progress-now { stroke: var(--text-main); stroke-dasharray: 3 4; }
+.war-progress-chart .progress-current { color: var(--text-main); }
+.war-progress-chart .progress-planned { color: var(--war-progress-plan); }
+.war-progress-chart .progress-held { stroke: currentColor; stroke-width: 2; stroke-dasharray: 6 5; }
+.war-progress-chart .progress-planned .progress-held { stroke-dasharray: 2 4; }
+.war-progress-chart .progress-finish-guide { stroke: currentColor; stroke-width: 1; stroke-dasharray: 2 4; }
+.war-progress-chart .progress-marker { fill: var(--panel-bg-solid); stroke: currentColor; stroke-width: 2; }
+.war-progress-legend { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 8px 0 16px; color: var(--text-muted); font-size: 12px; }
+.war-progress-legend i { display: inline-block; width: 20px; vertical-align: middle; border-top: 2px solid var(--war-progress-home); margin-right: 6px; }
+.war-progress-legend i.current { border-color: var(--text-main); border-top-style: dashed; }
+.war-progress-legend i.planned { border-color: var(--war-progress-plan); border-top-style: dotted; }
+.war-progress-finish { padding-top: 16px; border-top: 1px solid var(--border-soft); }
+.war-progress-finish > div { display: grid; align-content: start; gap: 5px; }
+.war-progress-finish strong { font-weight: 500; font-size: 18px; color: var(--text-strong); }
+.war-progress-finish span { font-size: 12px; color: var(--text-muted); }
+.war-progress-finish i { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--text-main); }
+.war-progress-finish .planned-result i { border-radius: 0; background: var(--war-progress-plan); }
+.war-progress-panel .war-progress-notice { color: var(--text-muted); font-size: 12px; margin: 10px 0; }
+.war-progress-history-note { display: block; margin-top: 6px; }
+@media (max-width: 600px) {
+  .war-progress-finish { grid-template-columns: 1fr; gap: 16px; }
+  .war-progress-targets { gap: 12px; }
+}

@@ -1,5 +1,10 @@
 import { API_BASE_URL, authHeaders, filenameFromContentDisposition, getJson, postJson } from "./client";
 import { queryString } from "./query";
+import type { WarProgressResponse } from "../../../shared/warProgress";
+
+export function getWarProgress(warName: string): Promise<WarProgressResponse> {
+  return getJson<WarProgressResponse>(`/api/wars/${encodeURIComponent(warName)}/progress`);
+}
 import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyBigHittersResponse, EnemyMemberActivityHeatmapResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, GlobalWarStateResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarControlResponse, WarDetailResponse, WarMemberCombatHeatmapResponse, WarsResponse, WarType } from "./types";
 
 export async function getStats(

@@ -31,6 +31,7 @@ import {
   TornRankedWarResponse,
 } from "../types";
 import { fetchTrackedTornJson } from "../external/torn";
+import { recordRankedWarProgress } from "../warProgress";
 import { withTornKeyPool } from "../tornKeyPool";
 import { boolToInt, d1Changes, json, normalizeAttacks, nowSeconds } from "../utils";
 import {
@@ -172,6 +173,9 @@ export async function runIngestion(
     }
     if (!activeWar && latestRankedWar) {
       await syncUnfinishedRankedWar(env, latestRankedWar);
+    }
+    if (latestRankedWar) {
+      await recordRankedWarProgress(env, latestRankedWar);
     }
     const ingestionWar = activeWar
       ? {
