@@ -1346,6 +1346,7 @@ CREATE TABLE wars (
   event_type TEXT NOT NULL DEFAULT 'general' CHECK (event_type IN ('general', 'elimination', 'halloween')),
   competition_refresh_hours INTEGER NOT NULL DEFAULT 6 CHECK (competition_refresh_hours IN (6, 12)),
   faction_respect_limit REAL,
+  enemy_target_respect REAL,
   member_respect_limit REAL,
   winner_faction_id INTEGER,
   torn_report_fetched_at INTEGER,

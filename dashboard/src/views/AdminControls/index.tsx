@@ -2345,6 +2345,7 @@ type AdminWarFormState = {
   competitionRefreshHours: 6 | 12;
   competitionLocked: boolean;
   factionRespectLimit: string;
+  enemyTargetRespect: string;
   memberRespectLimit: string;
 };
 
@@ -2588,6 +2589,17 @@ function WarFields({
                 onChange={(event) => update("memberRespectLimit", event.target.value)}
               />
             </label>
+            <label>
+              <span>Enemy target respect (optional)</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                placeholder="Not set"
+                value={form.enemyTargetRespect}
+                onChange={(event) => update("enemyTargetRespect", event.target.value)}
+              />
+            </label>
           </>
         ) : null}
         <label>
@@ -2782,6 +2794,7 @@ function defaultWarForm(): AdminWarFormState {
     competitionRefreshHours: 6,
     competitionLocked: false,
     factionRespectLimit: "",
+    enemyTargetRespect: "",
     memberRespectLimit: "",
   };
 }
@@ -2910,6 +2923,7 @@ function warToForm(war: WarSummary): AdminWarFormState {
     competitionRefreshHours: war.competition_refresh_hours ?? 6,
     competitionLocked: Boolean(war.competition_started_at),
     factionRespectLimit: war.faction_respect_limit === null ? "" : String(war.faction_respect_limit),
+    enemyTargetRespect: war.enemy_target_respect == null ? "" : String(war.enemy_target_respect),
     memberRespectLimit: war.member_respect_limit === null ? "" : String(war.member_respect_limit),
   };
 }
@@ -2972,6 +2986,9 @@ function toPracticalWarEditPayload(id: number, form: AdminWarFormState): AdminWa
 
   if (form.warType === "termed") {
     payload.auto_end_enabled = form.autoEndEnabled;
+    payload.enemy_target_respect = form.enemyTargetRespect.trim() === ""
+      ? null
+      : Number(form.enemyTargetRespect);
     setOptionalNumber(payload, "faction_respect_limit", form.factionRespectLimit);
     setOptionalNumber(payload, "member_respect_limit", form.memberRespectLimit);
   }

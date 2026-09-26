@@ -14,6 +14,7 @@ const WAR_COLUMN_NAMES = [
   "event_type",
   "competition_refresh_hours",
   "faction_respect_limit",
+  "enemy_target_respect",
   "member_respect_limit",
   "winner_faction_id",
   "torn_report_fetched_at",

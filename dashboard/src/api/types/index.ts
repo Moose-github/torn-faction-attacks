@@ -138,7 +138,8 @@ export type WarSummary = {
   event_type?: "general" | "elimination" | "halloween";
   competition_refresh_hours?: 6 | 12;
   competition_started_at?: number | null;
-  faction_respect_limit: number | null;
+  faction_respect_limit: number | null;
+  enemy_target_respect: number | null;
   member_respect_limit: number | null;
   winner_faction_id: number | null;
   torn_report_fetched_at: number | null;
@@ -828,6 +829,7 @@ export type AdminWarPayload = {
   event_type?: "general" | "elimination" | "halloween";
   competition_refresh_hours?: 6 | 12;
   faction_respect_limit?: number | null;
+  enemy_target_respect?: number | null;
   member_respect_limit?: number | null;
   fetch_missing?: boolean;
 };

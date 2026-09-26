@@ -844,6 +844,7 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       war_type?: unknown;
       auto_end_enabled?: unknown;
       faction_respect_limit?: unknown;
+      enemy_target_respect?: unknown;
       member_respect_limit?: unknown;
     };
 
@@ -854,7 +855,7 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
 
     const existing = (await env.DB.prepare(
       `
-      SELECT id, practical_start_time, enemy_faction_id, war_type
+      SELECT id, practical_start_time, enemy_faction_id, war_type, enemy_target_respect
       FROM wars
       WHERE id = ?
       LIMIT 1
@@ -866,6 +867,7 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       practical_start_time: number;
       enemy_faction_id: number | null;
       war_type: (typeof WAR_TYPES)[number] | null;
+      enemy_target_respect: number | null;
     } | null;
 
     if (!existing) {
@@ -901,11 +903,18 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       "member_respect_limit",
     );
     const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
+    const enemyTargetRespect = parseOptionalNonNegativeNumber(
+      body.enemy_target_respect === undefined && warType === "termed"
+        ? existing.enemy_target_respect
+        : body.enemy_target_respect,
+      "enemy_target_respect",
+    );
     const validationError = validateTermedWarFields(
       warType,
       autoEndEnabled,
       factionRespectLimit,
       memberRespectLimit,
+      enemyTargetRespect,
     );
     if (validationError) {
       return validationError;
@@ -934,6 +943,7 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       warType,
       autoEndEnabled,
       factionRespectLimit,
+      enemyTargetRespect,
       memberRespectLimit,
     });
 
@@ -1719,9 +1729,10 @@ function validateTermedWarFields(
   autoEndEnabled: number,
   factionRespectLimit: number | null,
   memberRespectLimit: number | null,
+  enemyTargetRespect: number | null = null,
 ): Response | null {
   if (warType !== "termed") {
-    if (autoEndEnabled === 1 || factionRespectLimit !== null || memberRespectLimit !== null) {
+    if (autoEndEnabled === 1 || factionRespectLimit !== null || memberRespectLimit !== null || enemyTargetRespect !== null) {
       return json(
         {
           ok: false,

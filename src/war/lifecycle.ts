@@ -177,6 +177,7 @@ export async function setWarPracticalWindow(
     warType?: string;
     autoEndEnabled?: number;
     factionRespectLimit?: number | null;
+    enemyTargetRespect?: number | null;
     memberRespectLimit?: number | null;
   },
 ): Promise<WarRow | null> {
@@ -186,6 +187,7 @@ export async function setWarPracticalWindow(
         war_type = ?,
         auto_end_enabled = CASE WHEN ? = 'termed' THEN ? ELSE 0 END,
         faction_respect_limit = CASE WHEN ? = 'termed' THEN ? ELSE NULL END,
+        enemy_target_respect = CASE WHEN ? = 'termed' THEN ? ELSE NULL END,
         member_respect_limit = CASE WHEN ? = 'termed' THEN ? ELSE NULL END`;
   const bindValues: Array<number | string | null> = [
     options.practicalStartTime,
@@ -199,6 +201,8 @@ export async function setWarPracticalWindow(
       options.autoEndEnabled ?? 0,
       options.warType,
       options.factionRespectLimit ?? null,
+      options.warType,
+      options.enemyTargetRespect ?? null,
       options.warType,
       options.memberRespectLimit ?? null,
     );
