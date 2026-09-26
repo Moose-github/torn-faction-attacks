@@ -251,6 +251,9 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     const pointer = { x: (event.clientX - bounds.left) * width / bounds.width, y: (event.clientY - bounds.top) * height / bounds.height };
     if (pointer.x < left || pointer.x > width - right || pointer.y < top || pointer.y > bottom) { setTooltip(null); return; }
     if (event.target instanceof Element) {
+      const scenarioType = event.target.getAttribute("data-scenario");
+      const scenario = scenarios.find(({ planned }) => scenarioType === (planned ? "planned" : "current"));
+      if (scenario) { showScenario(scenario, pointer); return; }
       const pointIndex = event.target.getAttribute("data-point-index");
       if (pointIndex !== null) { showPoint(Number(pointIndex), pointer); return; }
     }
@@ -270,10 +273,6 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
       showPoint(next === -1 ? points.length - 1 : next - 1, pointer);
       return;
     }
-    const scenario = original === null ? undefined : scenarios.filter(({ score, finish }) => score !== null &&
-      pointer.x >= x(now) - 10 && pointer.x <= x(finish === null ? end : Math.max(finish, Math.min(end, now + 3600))) + 12 &&
-      Math.abs(pointer.y - y(score)) <= 16).sort((a, b) => Math.abs(pointer.y - y(a.score!)) - Math.abs(pointer.y - y(b.score!)))[0];
-    if (scenario) { showScenario(scenario, pointer); return; }
     if (gap) {
       setTooltip({ title: "No recorded score history", ...pointer, rows: [{ label: "From", value: date(gap[0]) }, { label: "To", value: date(gap[1]) }] });
       return;
@@ -295,9 +294,11 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
       aria-label={`War net score over time. ${homeName} above zero, ${enemyName} below zero.${endedAt ? " Final recorded history." : " Dotted lines hold current and planned scores unchanged."} Use left and right arrow keys to inspect score history.`}
       aria-describedby={tooltip ? `${id}-tooltip` : undefined}
       onPointerMove={hoverChart} onPointerDown={(event) => { if (event.pointerType === "mouse") event.preventDefault(); hoverChart(event); }} onPointerCancel={() => setTooltip(null)}
-      onFocus={() => { if (!tooltip) showPoint(points.length - 1); }} onBlur={() => setTooltip(null)}
+      onPointerLeave={clearPointerTooltip}
+      onFocus={(event) => { if (event.target === event.currentTarget && !tooltip) showPoint(points.length - 1); }} onBlur={() => setTooltip(null)}
       onKeyDown={(event) => {
         if (event.key === "Escape") { setTooltip(null); return; }
+        if (event.target !== event.currentTarget) return;
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || !points.length) return;
         event.preventDefault();
         const index = tooltip?.pointIndex ?? points.length - 1;
@@ -324,7 +325,11 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
         {scenarios.map(({ score, finish, planned }) => score === null || original === null ? null : <g key={String(planned)} className={planned ? "progress-planned" : "progress-current"}>
           <line x1={x(now)} x2={x(finish === null ? end : Math.max(finish, Math.min(end, now + 3600)))} y1={y(score)} y2={y(score)} className="progress-held" />
           {finish !== null ? <><line x1={x(finish)} x2={x(finish)} y1={y(score)} y2={bottom} className="progress-finish-guide" />
-            {planned ? <rect x={x(finish) - 4} y={y(score) - 4} width="8" height="8" className="progress-marker" /> : <circle cx={x(finish)} cy={y(score)} r="5" className="progress-marker" />}
+            <g tabIndex={0} role="img" aria-label={`${planned ? "Planned" : "Current"} scores finish marker`}
+              aria-describedby={tooltip ? `${id}-tooltip` : undefined}
+              onFocus={() => showScenario({ score, finish, planned })} onBlur={() => setTooltip(null)}>
+              {planned ? <rect x={x(finish) - 4} y={y(score) - 4} width="8" height="8" className="progress-marker" data-scenario="planned" /> : <circle cx={x(finish)} cy={y(score)} r="5" className="progress-marker" data-scenario="current" />}
+            </g>
           </> : null}
         </g>)}
         {tooltip?.marker ? <g className="progress-hover" style={{ color: tooltip.marker.color }}>
@@ -338,9 +343,7 @@ function WarProgressChart({ points, start, original, now, endedAt, currentLead, 
     <div className="war-progress-legend">
       <button type="button" aria-describedby={tooltip ? `${id}-tooltip` : undefined} onPointerMove={(event) => showPoint(points.length - 1, legendPointer(event))}
         onPointerLeave={clearPointerTooltip} onClick={() => showPoint(points.length - 1)} onFocus={() => showPoint(points.length - 1)} onBlur={() => setTooltip(null)}><i />Actual</button>
-      {scenarios.map((scenario) => <button key={String(scenario.planned)} type="button" aria-describedby={tooltip ? `${id}-tooltip` : undefined}
-        onPointerMove={(event) => showScenario(scenario, legendPointer(event))} onPointerLeave={clearPointerTooltip}
-        onClick={() => showScenario(scenario)} onFocus={() => showScenario(scenario)} onBlur={() => setTooltip(null)}><i className={scenario.planned ? "planned" : "current"} />{scenario.planned ? "Planned" : "Current"}</button>)}
+      {scenarios.map((scenario) => <span key={String(scenario.planned)}><i className={scenario.planned ? "planned" : "current"} />{scenario.planned ? "Planned" : "Current"}</span>)}
       {gaps.length ? <details className="war-progress-history-note"><summary aria-label="Score history information" title="Score history information" onClick={() => setTooltip(null)}><Info size={14} aria-hidden="true" /></summary><small>Hatched areas have no recorded score history.</small></details> : null}
     </div>
     {tooltip ? <div ref={tooltipElement} id={`${id}-tooltip`} role="tooltip" className="chart-tooltip-card war-progress-tooltip" style={{ left: tooltipLeft, top: tooltipTop }}>
