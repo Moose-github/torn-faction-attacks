@@ -13,17 +13,19 @@ type Action = "check" | "inventory" | "details";
 
 export function FactionArmory() {
   const [category, setCategory] = React.useState<ArmoryCategory | "items">("weapons");
-  return <div className="armory-page">
-    <div className="armory-tabs armory-category-tabs" role="group" aria-label="Armory category">
-      {(["weapons", "armor", "items"] as const).map(value => <button key={value} type="button" aria-pressed={category === value}
-        onClick={() => setCategory(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}
-    </div>
-    {category === "items" ? <ArmoryItems />
-      : <EquipmentInventory key={category} category={category} />}
+  const categoryTabs = <div className="armory-tabs armory-category-tabs" role="group" aria-label="Armory category">
+    {(["weapons", "armor", "items"] as const).map(value => {
+      const Icon = value === "weapons" ? Swords : value === "armor" ? Shield : Boxes;
+      return <button key={value} type="button" aria-pressed={category === value} onClick={() => setCategory(value)}>
+        <Icon size={18} aria-hidden="true" />{value[0].toUpperCase() + value.slice(1)}
+      </button>;
+    })}
   </div>;
+  return category === "items" ? <ArmoryItems categoryTabs={categoryTabs} />
+    : <EquipmentInventory key={category} category={category} categoryTabs={categoryTabs} />;
 }
 
-function EquipmentInventory({ category }: { category: ArmoryCategory }) {
+function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCategory; categoryTabs: React.ReactNode }) {
   const isArmor = category === "armor";
   const itemLabel = isArmor ? "Armor" : "Weapon";
   const plural = isArmor ? "armor pieces" : "weapons";
@@ -115,8 +117,9 @@ function EquipmentInventory({ category }: { category: ArmoryCategory }) {
         <button type="button" disabled={busy || !items.length || !!data?.refreshing} onClick={() => run.current("details")}>Refresh {itemLabel.toLowerCase()} details</button>
       </div>
       <div className="armory-freshness"><span>Snapshot: {tct(data?.inventory_timestamp ?? null)}{age !== null ? ` · ${Math.floor(age / 60)} min old` : ""}</span>
-        <span>Last checked: {tct(data?.checked_at ?? null)}</span><span>Inventory updates at most hourly.</span></div>
+        <span>Fetched: {tct(data?.checked_at ?? null)}</span><span>Torn updates Inventory data hourly</span></div>
     </section>
+    {categoryTabs}
     {error || data?.error ? <div className="panel armory-message armory-warning" role="alert">{error ?? data?.error} {data?.inventory_timestamp ? "Showing the last saved inventory." : ""}</div> : null}
     {notice ? <div className="armory-message" role="status">{notice}</div> : null}
     <div className="armory-metrics">

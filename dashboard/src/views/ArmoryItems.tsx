@@ -5,7 +5,7 @@ import type { ArmoryMedicalResponse, ArmoryStack, ArmoryStockSetting } from "../
 
 const tct = (value: number | null) => value ? `${new Date(value * 1000).toISOString().replace("T", " ").slice(0, 19)} TCT` : "Not loaded yet";
 
-export function ArmoryItems() {
+export function ArmoryItems({ categoryTabs }: { categoryTabs: React.ReactNode }) {
   const [data, setData] = React.useState<ArmoryMedicalResponse | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -71,8 +71,9 @@ export function ArmoryItems() {
       <div className="armory-actions"><button type="button" disabled={busy} onClick={() => refresh.current()}>
         <RefreshCw size={15} /> {busy ? "Checking…" : "Refresh inventory"}</button></div>
       <div className="armory-freshness"><span>Snapshot: {tct(data?.inventory_timestamp ?? null)}</span>
-        <span>Last checked: {tct(data?.checked_at ?? null)}</span><span>Items refresh hourly, including while this page is closed.</span></div>
+        <span>Fetched: {tct(data?.checked_at ?? null)}</span><span>Torn updates Inventory data hourly</span></div>
     </section>
+    {categoryTabs}
     {error || data?.error ? <div className="panel armory-message armory-warning" role="alert">{error ?? data?.error} {data?.inventory_timestamp ? "Showing the last saved inventory." : ""}</div> : null}
     {notice ? <div className="armory-message" role="status">{notice}</div> : null}
     <section className="panel armory-content" aria-label="Medical inventory">

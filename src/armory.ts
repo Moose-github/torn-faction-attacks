@@ -136,10 +136,20 @@ function partialInventory(current: State | undefined): boolean {
   } catch { return true; }
 }
 
+function nextInventoryAt(timestamp: number, checkedAt: number): number {
+  // A successful fetch can return an already-aged Torn snapshot. Do not restart
+  // its hour; only wait a minute if Torn still returns an expired snapshot.
+  const expiresAt = Math.min(timestamp, checkedAt) + HOUR;
+  return expiresAt > checkedAt ? expiresAt : checkedAt + 60;
+}
+
 function inventoryDueAt(current: State | undefined): number {
   // Repair snapshots saved by the original single-page implementation without bypassing error backoff.
-  return partialInventory(current) && current?.inventory_failures === 0
-    ? Math.max(0, current.details_blocked_until) : current?.next_inventory_at ?? 0;
+  if (partialInventory(current) && current?.inventory_failures === 0) return Math.max(0, current.details_blocked_until);
+  if (!current || current.inventory_failures || !current.inventory_timestamp || !current.checked_at) return current?.next_inventory_at ?? 0;
+  // Also shorten timers saved before snapshot-based scheduling was introduced.
+  return Math.max(current.details_blocked_until,
+    Math.min(current.next_inventory_at, nextInventoryAt(current.inventory_timestamp, current.checked_at)));
 }
 
 export async function readArmory(env: Env, category: ArmoryCategory = "weapons"): Promise<ArmoryResponse> {
@@ -300,16 +310,20 @@ async function fetchCompleteInventory(env: Env, token: string, category: ArmoryI
 async function saveInventory(env: Env, token: string, payload: unknown, previous: State, category: ArmoryInventoryCategory): Promise<void> {
   const inventory = category === "medical" ? parseMedicalInventory(payload) : parseArmoryInventory(payload);
   if (previous.inventory_timestamp !== null && inventory.timestamp < previous.inventory_timestamp) throw new Error("Older snapshot");
+  const checkedAt = now(), nextInventory = nextInventoryAt(inventory.timestamp, checkedAt);
   if (category === "medical") {
     // Persist only the latest quantity/borrower snapshot; no UIDs, detail calls or loan timestamps.
     let priorItems: ArmoryStack[] = [];
     try { if (previous.source_json) priorItems = parseMedicalInventory(JSON.parse(previous.source_json)).items; }
     catch { /* A damaged old cache must not prevent a valid replacement. */ }
     const settings = medicalStockSettings(previous.stock_settings_json, [...priorItems, ...inventory.items as ArmoryStack[]]);
+    const unchangedSnapshot = previous.inventory_timestamp === inventory.timestamp
+      && JSON.stringify(priorItems) === JSON.stringify(inventory.items);
     await env.DB.prepare(`UPDATE faction_armory_state SET inventory_timestamp = ?, checked_at = ?, next_inventory_at = ?,
-      inventory_failures = 0, inventory_error = NULL, stock_alert_next_at = 0, stock_settings_json = ?, source_json = ?
+      inventory_failures = 0, inventory_error = NULL, stock_alert_next_at = ?, stock_settings_json = ?, source_json = ?
       WHERE faction_id = ? AND category = ? AND lease_token = ?`)
-      .bind(inventory.timestamp, now(), now() + HOUR, JSON.stringify(settings), JSON.stringify(payload), HOME_FACTION_ID, category, token).run();
+      .bind(inventory.timestamp, checkedAt, nextInventory, unchangedSnapshot ? previous.stock_alert_next_at : 0,
+        JSON.stringify(settings), JSON.stringify(payload), HOME_FACTION_ID, category, token).run();
     return;
   }
   const copyJson = JSON.stringify(inventory.items);
@@ -343,7 +357,7 @@ async function saveInventory(env: Env, token: string, payload: unknown, previous
       .bind(HOME_FACTION_ID, category, HOME_FACTION_ID, category, token, copyJson),
     env.DB.prepare(`UPDATE faction_armory_state SET inventory_timestamp = ?, checked_at = ?, next_inventory_at = ?,
       inventory_failures = 0, inventory_error = NULL, source_json = ? WHERE faction_id = ? AND category = ? AND lease_token = ?`)
-      .bind(inventory.timestamp, now(), now() + HOUR, JSON.stringify(payload), HOME_FACTION_ID, category, token),
+      .bind(inventory.timestamp, checkedAt, nextInventory, JSON.stringify(payload), HOME_FACTION_ID, category, token),
   ]);
 }
 
@@ -439,7 +453,7 @@ export async function refreshArmoryDetails(env: Env, category: ArmoryCategory = 
   return getArmory(env, category);
 }
 
-// Cron checks the persisted due time every minute; Torn is fetched at most hourly on success.
+// Cron checks every minute; inventory becomes due one hour after Torn's snapshot.
 // Both page refreshes and cron use the same category lease, cache and error backoff.
 export async function runMedicalArmoryCron(env: Env): Promise<void> {
   const current = await state(env, "medical");

@@ -13,6 +13,9 @@
 .armory-content { padding: 20px; min-width: 0; }
 .armory-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .armory-tabs { display: flex; gap: 8px; }
+.armory-category-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+.armory-category-tabs button { min-width: 0; min-height: 44px; }
+.armory-category-tabs svg { flex-shrink: 0; }
 .armory-tabs button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-strong); background: var(--panel-active-bg); }
 .armory-detail-progress { margin: 16px 0; font-size: 13px; opacity: .8; }
 .armory-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }

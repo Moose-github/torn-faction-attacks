@@ -321,6 +321,70 @@ describe("medical background refresh and stock alerts", () => {
   });
 });
 
+describe("snapshot-based inventory refresh", () => {
+  it.each(["weapons", "armor", "medical"] as const)("allows %s refresh exactly an hour after its snapshot", async category => {
+    fetcher.mockResolvedValueOnce(Response.json({ inventory_timestamp: clock - 1800, inventory: [] }));
+    await syncArmory(env, category);
+    const read = () => category === "medical" ? readMedicalArmory(env) : readArmory(env, category);
+    expect(await read()).toMatchObject({ checked_at: clock, next_inventory_at: clock + 1800 });
+    vi.setSystemTime((clock + 1799) * 1000);
+    await syncArmory(env, category);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    vi.setSystemTime((clock + 1800) * 1000);
+    fetcher.mockResolvedValueOnce(Response.json({ inventory_timestamp: clock + 1800, inventory: [] }));
+    await syncArmory(env, category);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(await read()).toMatchObject({ checked_at: clock + 1800, next_inventory_at: clock + 5400 });
+  });
+
+  it("retries unchanged expired snapshots once per minute without spinning or postponing forever", async () => {
+    fetcher.mockImplementation(async () => Response.json({ inventory_timestamp: clock - 3600, inventory: [] }));
+    await runMedicalArmoryCron(env);
+    expect((await readMedicalArmory(env)).next_inventory_at).toBe(clock + 60);
+    vi.setSystemTime((clock + 59) * 1000);
+    await runMedicalArmoryCron(env);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    vi.setSystemTime((clock + 60) * 1000);
+    await runMedicalArmoryCron(env);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect((await readMedicalArmory(env)).next_inventory_at).toBe(clock + 120);
+  });
+
+  it("shortens an existing saved timer but preserves failure backoff and shared-key cooldowns", async () => {
+    fetcher.mockResolvedValueOnce(Response.json({ inventory_timestamp: clock - 1800, inventory: [] }));
+    await syncArmory(env);
+    db.sqlite.prepare("UPDATE faction_armory_state SET next_inventory_at = ?").run(clock + 3600);
+    expect((await readArmory(env)).next_inventory_at).toBe(clock + 1800);
+    db.sqlite.exec("UPDATE faction_armory_state SET inventory_failures = 1");
+    expect((await readArmory(env)).next_inventory_at).toBe(clock + 3600);
+    db.sqlite.prepare("UPDATE faction_armory_state SET inventory_failures = 0, details_blocked_until = ?").run(clock + 7200);
+    expect((await readArmory(env)).next_inventory_at).toBe(clock + 7200);
+  });
+
+  it("does not let a future snapshot delay refreshing beyond one hour from checking", async () => {
+    fetcher.mockResolvedValueOnce(Response.json({ inventory_timestamp: clock + 86400, inventory: [] }));
+    await syncArmory(env, "medical");
+    expect((await readMedicalArmory(env)).next_inventory_at).toBe(clock + 3600);
+  });
+
+  it("keeps Discord retries at five minutes when expired inventory is fetched every minute", async () => {
+    const payload = { inventory_timestamp: clock - 3600, inventory: [
+      { id: 67, name: "First Aid Kit", type: "Medical", amount: 0, uids: [], loaned: null },
+    ] };
+    fetcher.mockImplementation(async () => Response.json(payload));
+    vi.mocked(sendMedicalStockAlert).mockResolvedValue(false);
+    for (let minute = 0; minute < 5; minute++) {
+      vi.setSystemTime((clock + minute * 60) * 1000);
+      await runMedicalArmoryCron(env);
+    }
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
+    vi.setSystemTime((clock + 300) * 1000);
+    await runMedicalArmoryCron(env);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("medical stacks", () => {
   const sample = () => JSON.parse(readFileSync(new URL("./fixtures/armory-medical-inventory.json", import.meta.url), "utf8"));
   it("preserves quantities and separate available/borrowed stock without UIDs or loan dates", async () => {
@@ -536,7 +600,7 @@ describe("complete inventory pagination", () => {
     expect(repaired.items).toHaveLength(3);
     expect(repaired.pending).toBe(0);
     expect(repaired.error).toBeNull();
-    expect(repaired.next_inventory_at).toBe(clock + 61 + 3600);
+    expect(repaired.next_inventory_at).toBe(clock + 3600);
   });
   it("renews the lease while fetching a long inventory", async () => {
     fetcher.mockImplementation(async (_env, input) => {
