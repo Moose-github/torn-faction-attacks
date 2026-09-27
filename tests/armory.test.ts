@@ -20,7 +20,7 @@ const stock = (uids = [7443497174, 10727704270], timestamp = clock) => ({ invent
 class TestDB {
   sqlite = new DatabaseSync(":memory:");
   constructor() {
-    for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql"]) {
+    for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql", "0166_add_armory_categories.sql"]) {
       this.sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
     }
   }
@@ -54,6 +54,110 @@ beforeEach(() => {
 });
 afterEach(() => { db.sqlite.close(); vi.useRealTimers(); });
 const advance = () => vi.setSystemTime((clock + 3601) * 1000);
+
+const armorDetail = (uid = 18059712452) => ({ id: 668, name: "Assault Boots", uid, type: "Armor", sub_type: null,
+  stats: { damage: null, accuracy: null, armor: 47.15, quality: 23.08 },
+  bonuses: [{ id: 17, title: "Impenetrable", description: "22% decreased incoming bullet damage", value: 22 }], rarity: "yellow" });
+const armorStock = (loaned: { id: number; name: string } | null = { id: 4002200, name: "Minitamark" }) => ({ inventory_timestamp: clock,
+  inventory: [{ id: 668, name: "Assault Boots", type: "Defensive", amount: 1, uids: [18059712452], loaned }] });
+
+describe("armor inventory and category isolation", () => {
+  it("parses armor stats, null subtype and bonuses from the supplied detail format", () => {
+    const parsed = parseArmoryDetails({ itemdetails: armorDetail() });
+    expect(parsed.get("18059712452")).toEqual({ ...armorDetail(), uid: "18059712452" });
+    expect(parseArmoryDetails({ itemdetails: { ...armorDetail(), stats: { ...armorDetail().stats, armor: null } } }).size).toBe(0);
+  });
+  it("follows all armor pages without switching categories and reuses enriched UIDs", async () => {
+    const first = JSON.parse(readFileSync(new URL("./fixtures/armory-armor-inventory.json", import.meta.url), "utf8"));
+    const second = { inventory_timestamp: first.inventory_timestamp,
+      inventory: Array.from({ length: 19 }, (_, index) => ({ ...armorStock().inventory[0], uids: [91000000000 + index] })),
+      _metadata: { total: 119, links: { prev: null, next: "https://api.torn.com/v2/faction/inventory?cat=armor&offset=200&limit=100" } } };
+    const modelByUid = new Map([...first.inventory, ...second.inventory].flatMap(row => row.uids.map((uid: number) => [String(uid), row.id])));
+    fetcher.mockImplementation(async (_env, input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/inventory")) {
+        expect(url.searchParams.get("cat")).toBe("armor");
+        return Response.json(url.searchParams.get("offset") === "0" ? first : second);
+      }
+      const uids = url.pathname.split("/").at(-2)!.split(",");
+      return Response.json({ itemdetails: uids.map(uid => ({ ...armorDetail(Number(uid)), id: modelByUid.get(uid) })) });
+    });
+    await syncArmory(env, "armor");
+    for (let attempt = 0; attempt < 4 && (await readArmory(env, "armor")).pending; attempt++) await syncArmory(env, "armor");
+    const result = await readArmory(env, "armor");
+    expect(result.items).toHaveLength(parseArmoryInventory(first).items.length + 19);
+    expect(result.items.find(item => item.uid === "18059712452")).toMatchObject({ details: { stats: { armor: 47.15, damage: null } }, loan_first_seen_at: clock });
+    expect(result.error).toBeNull();
+    expect(result.pending).toBe(0);
+    expect(fetcher.mock.calls.filter(call => String(call[1]).includes("/inventory"))).toHaveLength(2);
+    const calls = fetcher.mock.calls.length;
+    await syncArmory(env, "armor");
+    expect(fetcher.mock.calls).toHaveLength(calls);
+    expect((await readArmory(env)).items).toEqual([]);
+  });
+  it("isolates snapshots, leases, detail refreshes and current loans between categories", async () => {
+    await syncArmory(env);
+    const weapons = await readArmory(env);
+    fetcher.mockResolvedValueOnce(Response.json(armorStock())).mockResolvedValueOnce(Response.json({ itemdetails: armorDetail() }));
+    await syncArmory(env, "armor");
+    expect(await readArmory(env)).toEqual(weapons);
+    const armor = await readArmory(env, "armor");
+    expect(armor.items).toHaveLength(1);
+    expect(armor.items[0].loan_first_seen_at).toBe(clock);
+    await refreshArmoryDetails(env, "armor");
+    expect((await readArmory(env, "armor")).refreshing).toBe(1);
+    expect((await readArmory(env)).refreshing).toBe(0);
+    advance();
+    // An active weapons lease must not prevent an armor refresh.
+    db.sqlite.exec(`UPDATE faction_armory_state SET lease_until = ${clock + 10000} WHERE category = 'weapons'`);
+    fetcher.mockResolvedValueOnce(Response.json(armorStock())).mockResolvedValueOnce(Response.json({ itemdetails: armorDetail() }));
+    await syncArmory(env, "armor");
+    expect((await readArmory(env, "armor")).items[0].loan_first_seen_at).toBe(clock);
+    vi.setSystemTime((clock + 7202) * 1000);
+    fetcher.mockResolvedValueOnce(Response.json({ ...armorStock(), inventory: [] }));
+    await syncArmory(env, "armor");
+    expect((await readArmory(env, "armor")).items).toEqual([]);
+    expect((await readArmory(env)).items).toEqual(weapons.items);
+  });
+  it("retains saved armor on failure and rejects links to a different category", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(armorStock())).mockResolvedValueOnce(Response.json({ itemdetails: armorDetail() }));
+    await syncArmory(env, "armor");
+    advance();
+    fetcher.mockResolvedValueOnce(Response.json({ ...armorStock(null), _metadata: { total: 2, links: { next: nextPage(1), prev: null } } }));
+    await syncArmory(env, "armor");
+    const result = await readArmory(env, "armor");
+    expect(result.error).not.toBeNull();
+    expect(result.items[0]).toMatchObject({ loaned: { id: 4002200 }, loan_first_seen_at: clock });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  it("rejects weapon details returned for armor and overlapping inventory UIDs", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(armorStock())).mockResolvedValueOnce(Response.json({ itemdetails: { ...detail(18059712452), id: 668 } }));
+    await syncArmory(env, "armor");
+    expect((await readArmory(env, "armor")).pending).toBe(1);
+    const armor = (await readArmory(env, "armor")).items;
+    fetcher.mockResolvedValueOnce(Response.json(armorStock()));
+    await syncArmory(env);
+    expect((await readArmory(env)).items).toEqual([]);
+    expect((await readArmory(env)).error).not.toBeNull();
+    expect((await readArmory(env, "armor")).items).toEqual(armor);
+  });
+  it("migrates existing weapon state and loan observations without resetting them", () => {
+    const legacy = new DatabaseSync(":memory:");
+    try {
+      for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql"]) {
+        legacy.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
+      }
+      legacy.exec(`INSERT INTO faction_armory_state (faction_id, inventory_timestamp, checked_at, source_json) VALUES (8803, 123, 456, '{}');
+        INSERT INTO faction_armory_inventory (faction_id, uid, model_id, name, slot_type, borrower_id, borrower_name, loan_first_seen_at)
+        VALUES (8803, '123', 399, 'ArmaLite', 'Primary', 42, 'Borrower', 100);`);
+      legacy.exec(readFileSync(new URL("../migrations/0166_add_armory_categories.sql", import.meta.url), "utf8"));
+      expect(legacy.prepare("SELECT * FROM faction_armory_state").get()).toMatchObject({ category: "weapons", inventory_timestamp: 123, checked_at: 456, source_json: "{}" });
+      expect(legacy.prepare("SELECT * FROM faction_armory_inventory").get()).toMatchObject({ category: "weapons", borrower_id: 42, loan_first_seen_at: 100 });
+      legacy.exec("INSERT INTO faction_armory_state (faction_id, category) VALUES (8803, 'armor')");
+      expect(legacy.prepare("SELECT COUNT(*) AS count FROM faction_armory_state").get()).toEqual({ count: 2 });
+    } finally { legacy.close(); }
+  });
+});
 
 describe("armory validation", () => {
   it("reconciles the supplied first-page fixture without losing borrowers or copies", () => {
@@ -257,13 +361,13 @@ describe("current loan observations", () => {
 });
 
 describe("armory admin endpoints", () => {
-  it.each(["/api/admin/armory", "/api/admin/armory/sync", "/api/admin/armory/details/refresh"])("rejects missing and member sessions for %s", async path => {
+  it.each(["/api/admin/armory", "/api/admin/armory/sync", "/api/admin/armory/details/refresh"].flatMap(path => [path, `${path}?cat=armor`]))("rejects missing and member sessions for %s", async path => {
     db.sqlite.exec(`CREATE TABLE auth_sessions (token TEXT, torn_user_id INTEGER, access_level TEXT, expires_at INTEGER);
       CREATE TABLE home_faction_members (member_id INTEGER, name TEXT);`);
     const token = crypto.randomUUID();
     db.sqlite.prepare("INSERT INTO auth_sessions VALUES (?, 1, 'member', ?)").run(token, clock + 7200);
     for (const member of [false, true]) {
-      const request = new Request(`https://example.test${path}`, { method: path.endsWith("/armory") ? "GET" : "POST",
+      const request = new Request(`https://example.test${path}`, { method: path.split("?")[0].endsWith("/armory") ? "GET" : "POST",
         headers: member ? { Authorization: `Bearer ${token}` } : {} });
       const response = await routeArmoryApi({ request, url: new URL(request.url), env, ctx: {} as ExecutionContext });
       expect(response?.status).toBe(member ? 403 : 401);

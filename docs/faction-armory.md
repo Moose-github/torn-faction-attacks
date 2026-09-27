@@ -1,14 +1,18 @@
 # Faction armory
 
-V1 is available to admins at `/admin/armory`, under **Admin → Faction armory**. It covers weapons only and uses the existing home-faction setting and server Torn key.
+The armory is available to admins at `/admin/armory`, under **Admin → Faction armory**. It has Weapons, Armor and Items tabs and uses the existing home-faction setting and server Torn key. Items is a placeholder with no API calls yet.
 
 ## Deployment
 
-Apply migration `0164_create_faction_armory.sql` before deploying the Worker. It adds four armory tables; it does not modify existing faction data. Deploy the Worker and dashboard together. Use Wrangler's migration list to check whether the target database still needs this migration.
+Apply migrations through `0166_add_armory_categories.sql` before deploying the Worker. Migration 0166 preserves the existing weapons snapshot, refresh state and current loan observations, and adds separate state for weapons and armor. Deploy the Worker and dashboard together. Use Wrangler's migration list to check for pending migrations.
 
 The existing `TORN_API_KEY` binding must have Limited access and the home faction's API permissions. Both plain secret strings and Cloudflare Secrets Store bindings are supported. Credentials stay in the Worker. The sample key from the planning conversation is not part of the implementation.
 
 ## Inventory and detail refresh
+
+The selected tab requests `/api/admin/armory?cat=weapons` or `?cat=armor`, with the same category on sync and detail-refresh requests. Omitting the category retains the weapons default; unsupported categories are rejected. Torn inventory requests use the corresponding `cat` value, and pagination cannot cross categories. Category inventories, leases, refresh schedules and detail-refresh controls are isolated. UID details remain cached in the existing `armory_weapon_details` table, which now holds both validated Weapon and Armor details. Switching tabs stops the previous tab's polling and discards late responses.
+
+Armor details accept null damage, accuracy and subtype, and require numeric armor and quality values. Armor displays shield/quality stats, supports protection sorting, and otherwise uses the same rarity classification, filtering, borrower view, bonus tooltips, images and loan tracking as weapons. CSV exports include an Armor column and leave inapplicable stats empty.
 
 Current loans have a persistent `loan_first_seen_at` per weapon UID and borrower ID. It starts at the first successful fetch that observes the loan, including for existing loans after migration 0165. The timestamp survives refreshes, detail enrichment and borrower renames. An observed return clears it, a new holder replaces it, and a weapon leaving the inventory removes it. Failed or rejected inventory snapshots leave it unchanged. No historical loan records are stored.
 

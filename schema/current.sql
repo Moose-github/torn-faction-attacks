@@ -2199,7 +2199,8 @@ CREATE TABLE war_score_history (
   PRIMARY KEY (war_id, bucket_start)
 );
 CREATE TABLE faction_armory_state (
-  faction_id INTEGER PRIMARY KEY,
+  faction_id INTEGER NOT NULL,
+  category TEXT NOT NULL DEFAULT 'weapons' CHECK (category IN ('weapons', 'armor')),
   inventory_timestamp INTEGER,
   checked_at INTEGER,
   next_inventory_at INTEGER NOT NULL DEFAULT 0,
@@ -2210,7 +2211,8 @@ CREATE TABLE faction_armory_state (
   details_refresh_at INTEGER NOT NULL DEFAULT 0,
   lease_token TEXT,
   lease_until INTEGER NOT NULL DEFAULT 0,
-  source_json TEXT
+  source_json TEXT,
+  PRIMARY KEY (faction_id, category)
 );
 CREATE TABLE faction_armory_inventory (
   faction_id INTEGER NOT NULL,
@@ -2221,6 +2223,7 @@ CREATE TABLE faction_armory_inventory (
   borrower_id INTEGER,
   borrower_name TEXT,
   loan_first_seen_at INTEGER,
+  category TEXT NOT NULL DEFAULT 'weapons' CHECK (category IN ('weapons', 'armor')),
   PRIMARY KEY (faction_id, uid)
 );
 CREATE TABLE armory_weapon_details (
@@ -2237,3 +2240,5 @@ CREATE TABLE armory_detail_fetch_state (
   error TEXT,
   refetch INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE INDEX idx_faction_armory_inventory_category ON faction_armory_inventory(faction_id, category);

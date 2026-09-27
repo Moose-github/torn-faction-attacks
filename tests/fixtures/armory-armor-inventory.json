@@ -1,0 +1,1419 @@
+{
+  "inventory_timestamp": 1790466165,
+  "inventory": [
+    {
+      "id": 666,
+      "name": "Assault Body",
+      "type": "Defensive",
+      "amount": 2,
+      "uids": [
+        18014265359,
+        11255428181
+      ],
+      "loaned": null
+    },
+    {
+      "id": 666,
+      "name": "Assault Body",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10982389939
+      ],
+      "loaned": {
+        "id": 4002200,
+        "name": "Minitamark"
+      }
+    },
+    {
+      "id": 668,
+      "name": "Assault Boots",
+      "type": "Defensive",
+      "amount": 2,
+      "uids": [
+        18087002674,
+        14272647738
+      ],
+      "loaned": null
+    },
+    {
+      "id": 668,
+      "name": "Assault Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        18059712452
+      ],
+      "loaned": {
+        "id": 4002200,
+        "name": "Minitamark"
+      }
+    },
+    {
+      "id": 669,
+      "name": "Assault Gloves",
+      "type": "Defensive",
+      "amount": 2,
+      "uids": [
+        15558682087,
+        8304775544
+      ],
+      "loaned": null
+    },
+    {
+      "id": 669,
+      "name": "Assault Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        18032090254
+      ],
+      "loaned": {
+        "id": 4002200,
+        "name": "Minitamark"
+      }
+    },
+    {
+      "id": 665,
+      "name": "Assault Helmet",
+      "type": "Defensive",
+      "amount": 2,
+      "uids": [
+        18024410482,
+        14274433320
+      ],
+      "loaned": null
+    },
+    {
+      "id": 665,
+      "name": "Assault Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        18086974980
+      ],
+      "loaned": {
+        "id": 4002200,
+        "name": "Minitamark"
+      }
+    },
+    {
+      "id": 667,
+      "name": "Assault Pants",
+      "type": "Defensive",
+      "amount": 2,
+      "uids": [
+        14275032903,
+        12922384126
+      ],
+      "loaned": null
+    },
+    {
+      "id": 667,
+      "name": "Assault Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        18048579686
+      ],
+      "loaned": {
+        "id": 4002200,
+        "name": "Minitamark"
+      }
+    },
+    {
+      "id": 653,
+      "name": "Combat Boots",
+      "type": "Defensive",
+      "amount": 29,
+      "uids": [
+        8127854411,
+        7926335077,
+        7636251501,
+        7473110562,
+        7469812096,
+        7448506745,
+        7445959202,
+        7445959200,
+        7436785275,
+        7436785253,
+        7427835187,
+        7414561736,
+        7407030593,
+        7399513224,
+        7320565567,
+        7134667366,
+        7134667354,
+        7134667352,
+        7122491501,
+        7036950609,
+        6067250359,
+        5504959328,
+        5249942020,
+        4865293121,
+        4829658084,
+        4677003185,
+        3266903791,
+        2974031011,
+        2912409825
+      ],
+      "loaned": null
+    },
+    {
+      "id": 653,
+      "name": "Combat Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        4797676721
+      ],
+      "loaned": {
+        "id": 2807909,
+        "name": "Tacenda"
+      }
+    },
+    {
+      "id": 653,
+      "name": "Combat Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7441875038
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 653,
+      "name": "Combat Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7012672438
+      ],
+      "loaned": {
+        "id": 3159491,
+        "name": "kouuu"
+      }
+    },
+    {
+      "id": 653,
+      "name": "Combat Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7549405274
+      ],
+      "loaned": {
+        "id": 3238283,
+        "name": "M00SE"
+      }
+    },
+    {
+      "id": 653,
+      "name": "Combat Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        5177453312
+      ],
+      "loaned": {
+        "id": 3777975,
+        "name": "CrimsonSteel"
+      }
+    },
+    {
+      "id": 653,
+      "name": "Combat Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7910537655
+      ],
+      "loaned": {
+        "id": 3805474,
+        "name": "Verottaja"
+      }
+    },
+    {
+      "id": 653,
+      "name": "Combat Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7433724917
+      ],
+      "loaned": {
+        "id": 4081746,
+        "name": "JjDja"
+      }
+    },
+    {
+      "id": 653,
+      "name": "Combat Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        4466135799
+      ],
+      "loaned": {
+        "id": 4167258,
+        "name": "Barbaspalla"
+      }
+    },
+    {
+      "id": 654,
+      "name": "Combat Gloves",
+      "type": "Defensive",
+      "amount": 25,
+      "uids": [
+        8184448796,
+        7930123436,
+        7825644637,
+        7805432712,
+        7623321168,
+        7452057696,
+        7433702316,
+        7421283685,
+        7418372601,
+        7387281096,
+        7296839398,
+        7155016284,
+        7067038670,
+        7030891480,
+        6739764130,
+        6497370715,
+        6250962788,
+        6182364394,
+        6035077603,
+        6030700987,
+        5909674810,
+        5723657642,
+        5685406031,
+        5396125660,
+        4275002432
+      ],
+      "loaned": null
+    },
+    {
+      "id": 654,
+      "name": "Combat Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        5650414835
+      ],
+      "loaned": {
+        "id": 2802229,
+        "name": "Toximaxi"
+      }
+    },
+    {
+      "id": 654,
+      "name": "Combat Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        5198219650
+      ],
+      "loaned": {
+        "id": 2807909,
+        "name": "Tacenda"
+      }
+    },
+    {
+      "id": 654,
+      "name": "Combat Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7387281103
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 654,
+      "name": "Combat Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        8083582610
+      ],
+      "loaned": {
+        "id": 3159491,
+        "name": "kouuu"
+      }
+    },
+    {
+      "id": 654,
+      "name": "Combat Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        8091196643
+      ],
+      "loaned": {
+        "id": 3238283,
+        "name": "M00SE"
+      }
+    },
+    {
+      "id": 654,
+      "name": "Combat Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7452057723
+      ],
+      "loaned": {
+        "id": 3777975,
+        "name": "CrimsonSteel"
+      }
+    },
+    {
+      "id": 654,
+      "name": "Combat Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7038805711
+      ],
+      "loaned": {
+        "id": 3805474,
+        "name": "Verottaja"
+      }
+    },
+    {
+      "id": 654,
+      "name": "Combat Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7707204749
+      ],
+      "loaned": {
+        "id": 4081746,
+        "name": "JjDja"
+      }
+    },
+    {
+      "id": 654,
+      "name": "Combat Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7927291184
+      ],
+      "loaned": {
+        "id": 4167258,
+        "name": "Barbaspalla"
+      }
+    },
+    {
+      "id": 651,
+      "name": "Combat Helmet",
+      "type": "Defensive",
+      "amount": 25,
+      "uids": [
+        7387196849,
+        7381444615,
+        7379144414,
+        7361220760,
+        7354520477,
+        7173446676,
+        7052892894,
+        6988285216,
+        6986418655,
+        6983087904,
+        6979921554,
+        6979921548,
+        6979921547,
+        6979921541,
+        6977149522,
+        6967789552,
+        6950698859,
+        6832165563,
+        6822485373,
+        6771738962,
+        6722027702,
+        5250892788,
+        5024717257,
+        4090778201,
+        3342744205
+      ],
+      "loaned": null
+    },
+    {
+      "id": 651,
+      "name": "Combat Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        8022382489
+      ],
+      "loaned": {
+        "id": 2802229,
+        "name": "Toximaxi"
+      }
+    },
+    {
+      "id": 651,
+      "name": "Combat Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7490816060
+      ],
+      "loaned": {
+        "id": 2807909,
+        "name": "Tacenda"
+      }
+    },
+    {
+      "id": 651,
+      "name": "Combat Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7355037893
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 651,
+      "name": "Combat Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7731009415
+      ],
+      "loaned": {
+        "id": 3159491,
+        "name": "kouuu"
+      }
+    },
+    {
+      "id": 651,
+      "name": "Combat Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        4804746120
+      ],
+      "loaned": {
+        "id": 3238283,
+        "name": "M00SE"
+      }
+    },
+    {
+      "id": 651,
+      "name": "Combat Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7296881307
+      ],
+      "loaned": {
+        "id": 3777975,
+        "name": "CrimsonSteel"
+      }
+    },
+    {
+      "id": 651,
+      "name": "Combat Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7312939973
+      ],
+      "loaned": {
+        "id": 3805474,
+        "name": "Verottaja"
+      }
+    },
+    {
+      "id": 651,
+      "name": "Combat Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        8102282989
+      ],
+      "loaned": {
+        "id": 4081746,
+        "name": "JjDja"
+      }
+    },
+    {
+      "id": 651,
+      "name": "Combat Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        3070398981
+      ],
+      "loaned": {
+        "id": 4167258,
+        "name": "Barbaspalla"
+      }
+    },
+    {
+      "id": 652,
+      "name": "Combat Pants",
+      "type": "Defensive",
+      "amount": 30,
+      "uids": [
+        8017184293,
+        7898231117,
+        7894101683,
+        7503361698,
+        7503361694,
+        7499411956,
+        7493590768,
+        7402127426,
+        7399457141,
+        7387196987,
+        7266476955,
+        7093871087,
+        7034593690,
+        6973748312,
+        6973748305,
+        6968135351,
+        6968135343,
+        6967788534,
+        6967788523,
+        6966185343,
+        6944044747,
+        6942697754,
+        6937690472,
+        6866990486,
+        6487671396,
+        6000441756,
+        5592736235,
+        5464645071,
+        4826727452,
+        3538788307
+      ],
+      "loaned": null
+    },
+    {
+      "id": 652,
+      "name": "Combat Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        2952325867
+      ],
+      "loaned": {
+        "id": 2802229,
+        "name": "Toximaxi"
+      }
+    },
+    {
+      "id": 652,
+      "name": "Combat Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        8020900893
+      ],
+      "loaned": {
+        "id": 2807909,
+        "name": "Tacenda"
+      }
+    },
+    {
+      "id": 652,
+      "name": "Combat Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7387196988
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 652,
+      "name": "Combat Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        8006860664
+      ],
+      "loaned": {
+        "id": 3159491,
+        "name": "kouuu"
+      }
+    },
+    {
+      "id": 652,
+      "name": "Combat Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7034593689
+      ],
+      "loaned": {
+        "id": 3238283,
+        "name": "M00SE"
+      }
+    },
+    {
+      "id": 652,
+      "name": "Combat Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        5540266653
+      ],
+      "loaned": {
+        "id": 3777975,
+        "name": "CrimsonSteel"
+      }
+    },
+    {
+      "id": 652,
+      "name": "Combat Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        8125175705
+      ],
+      "loaned": {
+        "id": 3805474,
+        "name": "Verottaja"
+      }
+    },
+    {
+      "id": 652,
+      "name": "Combat Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        8017184292
+      ],
+      "loaned": {
+        "id": 4081746,
+        "name": "JjDja"
+      }
+    },
+    {
+      "id": 652,
+      "name": "Combat Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7778870843
+      ],
+      "loaned": {
+        "id": 4167258,
+        "name": "Barbaspalla"
+      }
+    },
+    {
+      "id": 332,
+      "name": "Combat Vest",
+      "type": "Defensive",
+      "amount": 19,
+      "uids": [
+        6465103747,
+        6465103742,
+        6465103741,
+        6465103738,
+        6465103737,
+        6465103736,
+        6465103732,
+        6465103730,
+        6465103729,
+        6465103728,
+        6465103727,
+        6465103724,
+        6465103721,
+        6465103715,
+        6465103714,
+        6465103712,
+        6465103711,
+        6465103710,
+        3918702904
+      ],
+      "loaned": null
+    },
+    {
+      "id": 332,
+      "name": "Combat Vest",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        6465103748
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 332,
+      "name": "Combat Vest",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        12311583526
+      ],
+      "loaned": {
+        "id": 3238283,
+        "name": "M00SE"
+      }
+    },
+    {
+      "id": 332,
+      "name": "Combat Vest",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        6465103735
+      ],
+      "loaned": {
+        "id": 4081746,
+        "name": "JjDja"
+      }
+    },
+    {
+      "id": 332,
+      "name": "Combat Vest",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        6465103717
+      ],
+      "loaned": {
+        "id": 4167258,
+        "name": "Barbaspalla"
+      }
+    },
+    {
+      "id": 643,
+      "name": "Construction Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        11451395653
+      ],
+      "loaned": null
+    },
+    {
+      "id": 663,
+      "name": "Dune Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10130239059
+      ],
+      "loaned": null
+    },
+    {
+      "id": 663,
+      "name": "Dune Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9459978705
+      ],
+      "loaned": {
+        "id": 2332935,
+        "name": "Daz69"
+      }
+    },
+    {
+      "id": 663,
+      "name": "Dune Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9920118940
+      ],
+      "loaned": {
+        "id": 2529514,
+        "name": "Boptyn"
+      }
+    },
+    {
+      "id": 663,
+      "name": "Dune Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10581904203
+      ],
+      "loaned": {
+        "id": 3008654,
+        "name": "LarryHoover"
+      }
+    },
+    {
+      "id": 663,
+      "name": "Dune Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        14034553522
+      ],
+      "loaned": {
+        "id": 3217294,
+        "name": "Mistrrsandman"
+      }
+    },
+    {
+      "id": 664,
+      "name": "Dune Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10026995443
+      ],
+      "loaned": {
+        "id": 2332935,
+        "name": "Daz69"
+      }
+    },
+    {
+      "id": 664,
+      "name": "Dune Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9944693907
+      ],
+      "loaned": {
+        "id": 2529514,
+        "name": "Boptyn"
+      }
+    },
+    {
+      "id": 664,
+      "name": "Dune Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10502894182
+      ],
+      "loaned": {
+        "id": 3008654,
+        "name": "LarryHoover"
+      }
+    },
+    {
+      "id": 664,
+      "name": "Dune Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10166142034
+      ],
+      "loaned": {
+        "id": 3217294,
+        "name": "Mistrrsandman"
+      }
+    },
+    {
+      "id": 660,
+      "name": "Dune Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10521155820
+      ],
+      "loaned": null
+    },
+    {
+      "id": 660,
+      "name": "Dune Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        14034554261
+      ],
+      "loaned": {
+        "id": 2332935,
+        "name": "Daz69"
+      }
+    },
+    {
+      "id": 660,
+      "name": "Dune Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9633108758
+      ],
+      "loaned": {
+        "id": 2529514,
+        "name": "Boptyn"
+      }
+    },
+    {
+      "id": 660,
+      "name": "Dune Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10069278289
+      ],
+      "loaned": {
+        "id": 3008654,
+        "name": "LarryHoover"
+      }
+    },
+    {
+      "id": 660,
+      "name": "Dune Helmet",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10028532640
+      ],
+      "loaned": {
+        "id": 3217294,
+        "name": "Mistrrsandman"
+      }
+    },
+    {
+      "id": 662,
+      "name": "Dune Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10565267484
+      ],
+      "loaned": {
+        "id": 2332935,
+        "name": "Daz69"
+      }
+    },
+    {
+      "id": 662,
+      "name": "Dune Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9343059084
+      ],
+      "loaned": {
+        "id": 2529514,
+        "name": "Boptyn"
+      }
+    },
+    {
+      "id": 662,
+      "name": "Dune Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10169408642
+      ],
+      "loaned": {
+        "id": 3008654,
+        "name": "LarryHoover"
+      }
+    },
+    {
+      "id": 662,
+      "name": "Dune Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10007899504
+      ],
+      "loaned": {
+        "id": 3217294,
+        "name": "Mistrrsandman"
+      }
+    },
+    {
+      "id": 661,
+      "name": "Dune Vest",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9410866593
+      ],
+      "loaned": {
+        "id": 2332935,
+        "name": "Daz69"
+      }
+    },
+    {
+      "id": 661,
+      "name": "Dune Vest",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9932227120
+      ],
+      "loaned": {
+        "id": 2529514,
+        "name": "Boptyn"
+      }
+    },
+    {
+      "id": 661,
+      "name": "Dune Vest",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9415172066
+      ],
+      "loaned": {
+        "id": 3008654,
+        "name": "LarryHoover"
+      }
+    },
+    {
+      "id": 661,
+      "name": "Dune Vest",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9457170968
+      ],
+      "loaned": {
+        "id": 3217294,
+        "name": "Mistrrsandman"
+      }
+    },
+    {
+      "id": 334,
+      "name": "Flexible Body Armor",
+      "type": "Defensive",
+      "amount": 28,
+      "uids": [
+        21090427898,
+        20576424687,
+        20013234222,
+        19798343486,
+        19340585429,
+        19040774577,
+        17352912829,
+        17071593812,
+        16933845518,
+        16896464205,
+        16727288109,
+        16714287576,
+        16665761390,
+        15751012295,
+        15667759848,
+        15622387733,
+        15423655779,
+        15347903935,
+        8125786888,
+        7878473930,
+        7837113003,
+        7612884822,
+        7449366901,
+        7445422044,
+        7445422043,
+        7443389153,
+        7443389152,
+        7443389144
+      ],
+      "loaned": null
+    },
+    {
+      "id": 334,
+      "name": "Flexible Body Armor",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        3174107759
+      ],
+      "loaned": {
+        "id": 2802229,
+        "name": "Toximaxi"
+      }
+    },
+    {
+      "id": 334,
+      "name": "Flexible Body Armor",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7878473914
+      ],
+      "loaned": {
+        "id": 2807909,
+        "name": "Tacenda"
+      }
+    },
+    {
+      "id": 334,
+      "name": "Flexible Body Armor",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        15574141760
+      ],
+      "loaned": {
+        "id": 3159491,
+        "name": "kouuu"
+      }
+    },
+    {
+      "id": 334,
+      "name": "Flexible Body Armor",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        8032250926
+      ],
+      "loaned": {
+        "id": 3238283,
+        "name": "M00SE"
+      }
+    },
+    {
+      "id": 334,
+      "name": "Flexible Body Armor",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        16099029847
+      ],
+      "loaned": {
+        "id": 3777975,
+        "name": "CrimsonSteel"
+      }
+    },
+    {
+      "id": 334,
+      "name": "Flexible Body Armor",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        7898049704
+      ],
+      "loaned": {
+        "id": 3805474,
+        "name": "Verottaja"
+      }
+    },
+    {
+      "id": 334,
+      "name": "Flexible Body Armor",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        2099199248
+      ],
+      "loaned": {
+        "id": 4167258,
+        "name": "Barbaspalla"
+      }
+    },
+    {
+      "id": 49,
+      "name": "Full Body Armor",
+      "type": "Defensive",
+      "amount": 3,
+      "uids": [
+        6322251683,
+        6318760443,
+        5959519725
+      ],
+      "loaned": null
+    },
+    {
+      "id": 333,
+      "name": "Liquid Body Armor",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        20250072353
+      ],
+      "loaned": null
+    },
+    {
+      "id": 676,
+      "name": "Marauder Body",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        13012148191
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 678,
+      "name": "Marauder Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        13261690719
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 675,
+      "name": "Marauder Face Mask",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9681915270
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 679,
+      "name": "Marauder Gloves",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        13132184915
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 677,
+      "name": "Marauder Pants",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        13120689344
+      ],
+      "loaned": {
+        "id": 3044786,
+        "name": "Pingus"
+      }
+    },
+    {
+      "id": 538,
+      "name": "Medieval Helmet",
+      "type": "Defensive",
+      "amount": 8,
+      "uids": [
+        19471019753,
+        19471019752,
+        19471019751,
+        19471019750,
+        18740683458,
+        18740683457,
+        18740683456,
+        18740683455
+      ],
+      "loaned": null
+    },
+    {
+      "id": 656,
+      "name": "Riot Body",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9681708315
+      ],
+      "loaned": null
+    },
+    {
+      "id": 656,
+      "name": "Riot Body",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        10367037751
+      ],
+      "loaned": {
+        "id": 2194591,
+        "name": "x_mayhem_x"
+      }
+    },
+    {
+      "id": 656,
+      "name": "Riot Body",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        12640740395
+      ],
+      "loaned": {
+        "id": 2552752,
+        "name": "Kirell"
+      }
+    },
+    {
+      "id": 656,
+      "name": "Riot Body",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9122487708
+      ],
+      "loaned": {
+        "id": 4100405,
+        "name": "Evangili"
+      }
+    },
+    {
+      "id": 656,
+      "name": "Riot Body",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        13154496466
+      ],
+      "loaned": {
+        "id": 4167258,
+        "name": "Barbaspalla"
+      }
+    },
+    {
+      "id": 658,
+      "name": "Riot Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        9605401703
+      ],
+      "loaned": null
+    },
+    {
+      "id": 658,
+      "name": "Riot Boots",
+      "type": "Defensive",
+      "amount": 1,
+      "uids": [
+        13832951675
+      ],
+      "loaned": {
+        "id": 2194591,
+        "name": "x_mayhem_x"
+      }
+    }
+  ],
+  "_metadata": {
+    "links": {
+      "prev": null,
+      "next": "https://api.torn.com/v2/faction/inventory?&limit=100&cat=armor&offset=100"
+    },
+    "total": 119
+  }
+}

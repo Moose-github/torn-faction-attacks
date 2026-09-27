@@ -2,9 +2,21 @@ import { describe, expect, it } from "vitest";
 import type { ArmoryCopy } from "../../../shared/armory";
 import { armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass } from "./armory";
 const copy = (uid: string, special = false): ArmoryCopy => ({ uid, id: 399, name: "ArmaLite M-15A4", type: "Primary", loaned: null, loan_first_seen_at: null,
-  details: { uid, id: 399, name: "ArmaLite M-15A4", type: "Weapon", sub_type: "Rifle", stats: { damage: 70, accuracy: 60, quality: 20 },
+  details: { uid, id: 399, name: "ArmaLite M-15A4", type: "Weapon", sub_type: "Rifle", stats: { damage: 70, accuracy: 60, armor: null, quality: 20 },
     bonuses: special ? [{ id: 50, title: "Achilles", value: 52, description: "52% increased Foot damage" }] : [], rarity: special ? "yellow" : null } });
 describe("armory display", () => {
+  it("sorts and exports armor protection without treating null weapon stats as zero", () => {
+    const armor = (uid: string, protection: number): ArmoryCopy => {
+      const item = copy(uid, true);
+      return { ...item, type: "Defensive", details: { ...item.details!, type: "Armor", sub_type: null,
+        stats: { damage: null, accuracy: null, armor: protection, quality: 23.08 } } };
+    };
+    const items = [armor("1", 47.15), armor("2", 55.2), { ...armor("3", 40), details: null }];
+    expect(groupArmory(items, true, "armor", "desc").map(group => group.items[0].uid)).toEqual(["2", "1", "3"]);
+    expect(groupArmory(items, true, "armor", "asc").map(group => group.items[0].uid)).toEqual(["1", "2", "3"]);
+    expect(armoryCsv(items)).toContain('"Damage","Accuracy","Armor"');
+    expect(armoryCsv(items)).toContain('"","","47.15","23.08"');
+  });
   it.each([[175, "Taser"], [255, "Flamethrower"], [1257, "Cattle Prod"]] as const)("treats built-in effects on %s (%s) as standard while preserving rarity copies", (id, name) => {
     const item = copy("1", true);
     item.id = id; item.name = name;
@@ -23,7 +35,7 @@ describe("armory display", () => {
   it("classifies the supplied Shock Taser as standard without discarding its effect", () => {
     const item: ArmoryCopy = { ...copy("10523087267"), id: 175, name: "Taser", type: "Secondary",
       details: { id: 175, name: "Taser", uid: "10523087267", type: "Weapon", sub_type: "Mechanical",
-        stats: { damage: 2.16, accuracy: 56.46, quality: 36.24 },
+        stats: { damage: 2.16, accuracy: 56.46, armor: null, quality: 36.24 },
         bonuses: [{ id: 120, title: "Shock", description: "100% chance to Shock opponent causing them to miss the next turn", value: 100 }],
         rarity: null } };
     expect(weaponClass(item)).toBe("standard");

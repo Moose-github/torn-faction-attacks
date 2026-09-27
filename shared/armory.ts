@@ -1,7 +1,8 @@
+export type ArmoryCategory = "weapons" | "armor";
 export type ArmoryBonus = { id: number; title: string; description: string; value: number };
 export type ArmoryDetails = {
   uid: string; id: number; name: string; type: string; sub_type: string | null;
-  stats: { damage: number; accuracy: number; quality: number };
+  stats: { damage: number | null; accuracy: number | null; armor: number | null; quality: number };
   bonuses: ArmoryBonus[]; rarity: string | null;
 };
 export type ArmoryCopy = {

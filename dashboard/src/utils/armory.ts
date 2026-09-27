@@ -14,7 +14,7 @@ export function filterArmory(items: ArmoryCopy[], filters: ArmoryFilters): Armor
     (!filters.bonus || item.details?.bonuses.some(bonus => bonus.title === filters.bonus)));
 }
 export type ArmoryGroup = { key: string; items: ArmoryCopy[]; grouped: boolean };
-export type ArmorySort = "name" | "available" | "loaned" | "observed" | "damage" | "accuracy" | "quality";
+export type ArmorySort = "name" | "available" | "loaned" | "observed" | "damage" | "accuracy" | "armor" | "quality";
 export type ArmorySortDirection = "asc" | "desc";
 const observedLoan = (item: ArmoryCopy): number | null => item.loaned ? item.loan_first_seen_at : null;
 export function groupArmory(items: ArmoryCopy[], individual: boolean, sort: ArmorySort, direction: ArmorySortDirection = "asc"): ArmoryGroup[] {
@@ -65,10 +65,10 @@ export function armoryCsv(items: ArmoryCopy[]): string {
     if (/^[\s]*[=+@-]|^[\t\r\n]/.test(string)) string = `'${string}`;
     return `"${string.replace(/"/g, '""')}"`;
   };
-  return [["UID", "Model ID", "Weapon", "Slot", "Status", "Borrower ID", "Borrower", "Classification", "Rarity", "Damage", "Accuracy", "Quality %", "Bonuses", "Loan first observed (UTC)", "Time since first observed"],
+  return [["UID", "Model ID", "Item", "Slot", "Status", "Borrower ID", "Borrower", "Classification", "Rarity", "Damage", "Accuracy", "Armor", "Quality %", "Bonuses", "Loan first observed (UTC)", "Time since first observed"],
     ...items.map(item => [item.uid, item.id, item.name, item.type, item.loaned ? "Loaned" : "Available", item.loaned?.id,
       item.loaned?.name, weaponClass(item), item.details?.rarity, item.details?.stats.damage, item.details?.stats.accuracy,
-      item.details?.stats.quality, item.details?.bonuses.map(bonus => `${bonus.title} (${bonus.value}): ${bonus.description}`).join("; "),
+      item.details?.stats.armor, item.details?.stats.quality, item.details?.bonuses.map(bonus => `${bonus.title} (${bonus.value}): ${bonus.description}`).join("; "),
       item.loaned && item.loan_first_seen_at ? new Date(item.loan_first_seen_at * 1000).toISOString() : "",
       item.loaned && item.loan_first_seen_at ? loanElapsed(item.loan_first_seen_at) : ""])]
     .map(row => row.map(cell).join(",")).join("\r\n");
