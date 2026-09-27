@@ -1,5 +1,21 @@
-import { weaponClass, type ArmoryCopy } from "../../../shared/armory";
+import { weaponClass, type ArmoryCategory, type ArmoryCopy } from "../../../shared/armory";
 export { weaponClass };
+export function tornArmoryPositions(items: ArmoryCopy[]): Map<string, number> {
+  // Use the complete category snapshot, never the filtered/grouped display order.
+  const sorted = [...items].sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" })
+    || (b.details?.stats.quality ?? -Infinity) - (a.details?.stats.quality ?? -Infinity)
+    || a.uid.localeCompare(b.uid, "en", { numeric: true }));
+  const firstByName = new Map<string, number>();
+  return new Map(sorted.map((item, index) => {
+    const name = item.name.toLowerCase();
+    if (!firstByName.has(name)) firstByName.set(name, index);
+    // With no quality yet, start at the name's first copy rather than guessing its rank.
+    return [item.uid, item.details ? index : firstByName.get(name)!];
+  }));
+}
+export function tornArmoryUrl(category: ArmoryCategory, start: number): string {
+  return `https://www.torn.com/factions.php?step=your&type=1#/tab=armoury&start=${start}&sub=${category === "armor" ? "armour" : "weapons"}`;
+}
 export type ArmoryFilters = { search: string; slot: string; status: string; kind: string; rarity: string; bonus: string };
 export const EMPTY_ARMORY_FILTERS: ArmoryFilters = { search: "", slot: "", status: "", kind: "", rarity: "", bonus: "" };
 export const DEFAULT_ARMORY_FILTERS: ArmoryFilters = { ...EMPTY_ARMORY_FILTERS, kind: "special" };

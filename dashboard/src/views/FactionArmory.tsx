@@ -1,9 +1,9 @@
 import React from "react";
 import { createPortal } from "react-dom";
-import { Boxes, Check, Copy, Download, RefreshCw, Swords, Users, ArrowUpRight, Bomb, Target, BadgePercent, Shield } from "lucide-react";
+import { Boxes, Check, Copy, Download, RefreshCw, Swords, Users, ArrowUpRight, Bomb, Target, BadgePercent, Shield, Link as LinkIcon } from "lucide-react";
 import { getArmory, syncArmory, type ArmoryCategory, type ArmoryCopy, type ArmoryResponse } from "../api/armory";
 import { MetricCard } from "../components/Common";
-import { armoryCounts, armoryCsv, DEFAULT_ARMORY_FILTERS, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass,
+import { armoryCounts, armoryCsv, DEFAULT_ARMORY_FILTERS, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass, tornArmoryPositions, tornArmoryUrl,
   type ArmoryFilters, type ArmoryGroup, type ArmorySort, type ArmorySortDirection } from "../utils/armory";
 import "./FactionArmory.css";
 import { ArmoryItems } from "./ArmoryItems";
@@ -92,6 +92,7 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
   }, [category]);
 
   const items = data?.items ?? [];
+  const tornPositions = React.useMemo(() => tornArmoryPositions(data?.items ?? []), [data?.items]);
   const counts = armoryCounts(items);
   const filtered = filterArmory(items, filters);
   const groups = groupArmory(filtered, individual, sort, sortDirection);
@@ -161,14 +162,14 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
       {!data ? <div className="armory-empty">{error ? "Inventory could not be loaded. Use Refresh inventory to retry." : "Loading saved inventory…"}</div>
         : !data.inventory_timestamp ? <div className="armory-empty">{busy ? "Fetching the first inventory snapshot…" : "No inventory snapshot yet. Use Refresh inventory to get started."}</div>
         : !items.length ? <div className="armory-empty">There are no {plural} in this faction inventory.</div>
-        : tab === "weapons" ? groups.length ? <EquipmentTable category={category} groups={groups} /> : <div className="armory-empty">No {plural} match these filters.</div>
+        : tab === "weapons" ? groups.length ? <EquipmentTable category={category} groups={groups} tornPositions={tornPositions} /> : <div className="armory-empty">No {plural} match these filters.</div>
         : borrowers.size ? <div className="armory-borrowers">{[...borrowers].sort((a, b) => {
           const names = a[1].name.localeCompare(b[1].name);
           const delta = borrowerSort === "count" ? a[1].items.length - b[1].items.length : names;
           return delta * (borrowerSortDirection === "asc" ? 1 : -1) || names || a[0] - b[0];
         }).map(([id, borrower]) => <details className="armory-borrower" key={id}>
           <summary><strong>{borrower.name}</strong><span>{borrower.items.length} loaned</span>{slots.map(slot => <span key={slot}>{slot}: {borrower.items.filter(item => item.type === slot).length}</span>)}</summary>
-          <EquipmentTable category={category} groups={groupArmory(borrower.items, true, "name")} />
+          <EquipmentTable category={category} groups={groupArmory(borrower.items, true, "name")} tornPositions={tornPositions} />
         </details>)}</div> : <div className="armory-empty">No borrowers match these filters.</div>}
     </section>
   </div>;
@@ -195,9 +196,16 @@ function CopyUid({ uid }: { uid: string }) {
     <Copy size={11} /> {uid}<span role="status">{message ? ` · ${message}` : ""}</span></button>;
 }
 
-function EquipmentTable({ groups, category }: { groups: ArmoryGroup[]; category: ArmoryCategory }) {
+function EquipmentName({ name, category, start }: { name: string; category: ArmoryCategory; start: number }) {
+  return <a className="armory-item-link" href={tornArmoryUrl(category, start)} target="_blank" rel="noreferrer"
+    title="View in Torn armory — position estimated from the saved inventory; ties and inventory changes may shift it.">
+    {name}<LinkIcon size={13} aria-hidden="true" />
+  </a>;
+}
+
+function EquipmentTable({ groups, category, tornPositions }: { groups: ArmoryGroup[]; category: ArmoryCategory; tornPositions: Map<string, number> }) {
   return <div className="armory-table-scroll"><table className="armory-table"><thead><tr><th>{category === "armor" ? "Armor" : "Weapon"}</th><th>Bonuses</th><th>Stats</th><th>Qty</th><th>Availability</th><th>Loan first observed</th></tr></thead>
-    <tbody>{groups.map(group => <EquipmentRows key={group.key} group={group} category={category} />)}</tbody></table></div>;
+    <tbody>{groups.map(group => <EquipmentRows key={group.key} group={group} category={category} tornPositions={tornPositions} />)}</tbody></table></div>;
 }
 
 function EquipmentStats({ damage, accuracy, armor, quality, category }: { damage: string; accuracy: string; armor: string; quality: string; category: ArmoryCategory }) {
@@ -213,10 +221,10 @@ function StatTooltip({ name, value, icon }: { name: string; value: string; icon:
   return <ArmoryTooltip variant="stat" label={<>{icon}{value}</>} description={name} accessibleLabel={`${name}: ${value}`} />;
 }
 
-function EquipmentRows({ group, category }: { group: ArmoryGroup; category: ArmoryCategory }) {
+function EquipmentRows({ group, category, tornPositions }: { group: ArmoryGroup; category: ArmoryCategory; tornPositions: Map<string, number> }) {
   const [open, setOpen] = React.useState(false);
   const item = group.items[0];
-  if (!group.grouped) return <CopyRow category={category} item={item} />;
+  if (!group.grouped) return <CopyRow category={category} item={item} start={tornPositions.get(item.uid) ?? 0} />;
   const available = group.items.filter(copy => !copy.loaned).length;
   const range = (stat: "damage" | "accuracy" | "armor" | "quality") => {
     const values = group.items.flatMap(copy => copy.details?.stats[stat] != null ? [copy.details.stats[stat]!] : []);
@@ -224,15 +232,15 @@ function EquipmentRows({ group, category }: { group: ArmoryGroup; category: Armo
     const min = Math.min(...values), max = Math.max(...values);
     return `${min.toFixed(2)}${min !== max ? `–${max.toFixed(2)}` : ""}${stat === "quality" ? "%" : ""}`;
   };
-  return <><tr className="armory-group-row"><td><div className="armory-weapon"><EquipmentImage item={item} /><div><button className="armory-expand" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "▾" : "▸"} {item.name}</button><small>{item.type} · Standard copies</small></div></div></td>
+  return <><tr className="armory-group-row"><td><div className="armory-weapon"><EquipmentImage item={item} /><div><div className="armory-group-name"><button className="armory-expand" type="button" aria-label={`${open ? "Collapse" : "Expand"} ${item.name} copies`} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "▾" : "▸"}</button><EquipmentName name={item.name} category={category} start={Math.min(...group.items.map(copy => tornPositions.get(copy.uid) ?? 0))} /></div><small>{item.type} · Standard copies</small></div></div></td>
     <td><span className="armory-badge">Standard</span></td><td><EquipmentStats category={category} armor={range("armor")} damage={range("damage")} accuracy={range("accuracy")} quality={range("quality")} /></td><td>{group.items.length}</td>
     <td><span className="armory-available">{available} available</span><small>{group.items.length - available} loaned</small></td><td>{available < group.items.length ? "Expand copies" : "—"}</td></tr>
-    {open ? group.items.map(copy => <CopyRow category={category} key={copy.uid} item={copy} child />) : null}</>;
+    {open ? group.items.map(copy => <CopyRow category={category} key={copy.uid} item={copy} start={tornPositions.get(copy.uid) ?? 0} child />) : null}</>;
 }
 
-function CopyRow({ item, category, child = false }: { item: ArmoryCopy; category: ArmoryCategory; child?: boolean }) {
+function CopyRow({ item, category, start, child = false }: { item: ArmoryCopy; category: ArmoryCategory; start: number; child?: boolean }) {
   const kind = weaponClass(item);
-  return <tr className={child ? "armory-copy-child" : undefined}><td><div className="armory-weapon"><EquipmentImage item={item} /><div><strong>{item.name}</strong><small>{item.type}</small><CopyUid uid={item.uid} /></div></div></td>
+  return <tr className={child ? "armory-copy-child" : undefined}><td><div className="armory-weapon"><EquipmentImage item={item} /><div><strong><EquipmentName name={item.name} category={category} start={start} /></strong><small>{item.type}</small><CopyUid uid={item.uid} /></div></div></td>
     <td data-rarity={item.details?.rarity ?? undefined}>
       {kind === "special" ? <span className="armory-stat-label">{item.details?.rarity} rarity</span>
         : <span className="armory-badge">{kind === "pending" ? "Details pending" : "Standard"}</span>}

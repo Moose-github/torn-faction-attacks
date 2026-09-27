@@ -52,6 +52,8 @@ Filters apply to copies before grouping; summary cards remain full-inventory tot
 
 Torn artwork is requested directly by model ID. Local CSS adds the UID's rarity glow; a textual rarity label accompanies it. Broken artwork falls back to a weapon icon. Images require no additional item-detail calls.
 
+Weapon and armor names retain their styling and link to Torn's armory, with a link icon beside the name. Positions use every copy in the category snapshot, ordered by name ascending and quality descending, independently of dashboard filters and sorting. Links use the zero-based position directly as `start`, without rounding to 50, and `sub=weapons` or `sub=armour`. Group names link to the first matching copy; their separate arrow expands the copies. Missing detail quality falls back to the first copy with that name. Equal-quality ties use UID order for stable estimates; Torn's tie order and later inventory changes may shift the destination. The tooltip identifies these as estimated positions.
+
 ## Verification
 
 - `tests/armory.test.ts`: real SQLite runs the migration and production queries; tests cover sample totals, singleton/array responses, out-of-order UIDs, cache reuse, changed borrowers, new/returning copies, malformed snapshots, partial responses, bounded batches, concurrent and expired leases, manual refresh, credential bindings, backoff and admin API access.

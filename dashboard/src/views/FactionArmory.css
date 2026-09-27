@@ -59,6 +59,9 @@
 .armory-page .armory-expand { background: transparent; border: 0; padding: 4px 0; text-align: left; font-weight: 650; }
 .armory-badge { display: inline-block; font-size: 11px; padding: 3px 7px; border: 1px solid rgb(128 128 128 / 28%); border-radius: 5px; text-transform: capitalize; }
 .armory-table td a { display: block; }
+.armory-page .armory-item-link, .armory-page .armory-item-link:hover { display: inline; color: inherit; font: inherit; text-decoration: none; }
+.armory-item-link svg { margin-left: 5px; vertical-align: middle; color: var(--text-muted); }
+.armory-group-name { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 650; }
 .armory-borrower-availability small { white-space: nowrap; }
 .armory-loan-time { white-space: nowrap; }
 .armory-loan-note { font-size: 12px; color: var(--text-muted); line-height: 1.5; }

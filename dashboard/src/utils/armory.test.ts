@@ -1,10 +1,32 @@
 import { describe, expect, it } from "vitest";
 import type { ArmoryCopy } from "../../../shared/armory";
-import { activityElapsed, armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass } from "./armory";
+import { activityElapsed, armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass, tornArmoryPositions, tornArmoryUrl } from "./armory";
 const copy = (uid: string, special = false): ArmoryCopy => ({ uid, id: 399, name: "ArmaLite M-15A4", type: "Primary", loaned: null, loan_first_seen_at: null,
   details: { uid, id: 399, name: "ArmaLite M-15A4", type: "Weapon", sub_type: "Rifle", stats: { damage: 70, accuracy: 60, armor: null, quality: 20 },
     bonuses: special ? [{ id: 50, title: "Achilles", value: 52, description: "52% increased Foot damage" }] : [], rarity: special ? "yellow" : null } });
 describe("armory display", () => {
+  it("calculates Torn offsets from every copy by name and descending quality, independent of rarity", () => {
+    const item = (uid: string, name: string, quality: number, special = false) => {
+      const value = copy(uid, special); value.name = name; value.details!.stats.quality = quality; return value;
+    };
+    const items = [item("10", "ArmaLite M-15A4", 50, true), item("2", "ArmaLite M-15A4", 50),
+      item("3", "AK-47", 10), item("4", "9mm Uzi", 1), item("5", "ArmaLite M-15A4", 100),
+      { ...item("6", "ArmaLite M-15A4", 0), details: null }, item("7", "Zebra", 200)];
+    const positions = tornArmoryPositions(items);
+    expect([...positions]).toEqual([["4", 0], ["3", 1], ["5", 2], ["2", 3], ["10", 4], ["6", 2], ["7", 6]]);
+    expect(items.map(item => item.uid)).toEqual(["10", "2", "3", "4", "5", "6", "7"]);
+    const filtered = filterArmory(items, { ...EMPTY_ARMORY_FILTERS, kind: "special" });
+    expect(filtered.map(item => positions.get(item.uid))).toEqual([4]);
+  });
+  it("links directly to zero-based offsets without rounding to pages, with Torn's armor spelling", () => {
+    const items = Array.from({ length: 124 }, (_, index) => {
+      const item = copy(String(index + 1)); item.details!.stats.quality = 200 - index; return item;
+    });
+    const positions = tornArmoryPositions(items);
+    expect(positions.get("123")).toBe(122);
+    expect(tornArmoryUrl("weapons", positions.get("123")!)).toBe("https://www.torn.com/factions.php?step=your&type=1#/tab=armoury&start=122&sub=weapons");
+    expect(tornArmoryUrl("armor", 123)).toBe("https://www.torn.com/factions.php?step=your&type=1#/tab=armoury&start=123&sub=armour");
+  });
   it("formats cached member activity age without inventing unknown times", () => {
     for (const timestamp of [undefined, null, 0, -1, NaN]) expect(activityElapsed(timestamp, 1000)).toBeNull();
     expect(activityElapsed(1000, 999)).toBe("less than a minute");
