@@ -1,5 +1,5 @@
-import { clearEnemyLiveTrackingRows } from "./enemyLiveTrackingCleanup";
-import { clearSyncLatch, setSyncLatch } from "./syncLatches";
+import { ENEMY_PUSH_ALERT_STATE_PREFIX } from "./discordAlertSettings";
+import { clearSyncLatch, clearSyncLatchesByPrefix, setSyncLatch } from "./syncLatches";
 import { Env } from "./types";
 import { d1Changes, nowSeconds } from "./utils";
 
@@ -21,7 +21,6 @@ type EnemyTargetMatchedOptions = {
   warId?: number;
   clearCachedEnemyRoster?: boolean;
   clearHomeComparisonStats?: boolean;
-  clearReplaceableHeatmaps?: boolean;
 };
 
 const BSP_FILL_COMPLETE_STATE_PREFIX = "enemy_target_bsp_fill_complete";
@@ -93,7 +92,9 @@ export async function handleEnemyTargetMatched(
     metrics.changedRows += hitStatsChanges;
     metrics.enemyHitStatRowsDeleted += hitStatsChanges;
 
-    await clearEnemyLiveTrackingForTargetReplacement(env, nextFactionId, metrics, options.warId);
+    // All retained enemy history shares the roster-replacement trigger.
+    const historyMetrics = await clearEnemyHistoryForTargetReplacement(env);
+    addEnemyTargetLifecycleMetrics(metrics, historyMetrics);
   }
 
   if (options.clearHomeComparisonStats) {
@@ -115,11 +116,6 @@ export async function handleEnemyTargetMatched(
     metrics.writeStatements += 1;
     metrics.changedRows += changes;
     metrics.homeComparisonStatsRowsCleared += changes;
-  }
-
-  if (options.clearReplaceableHeatmaps) {
-    const heatmapMetrics = await clearEnemyActivitySamplesForTargetReplacement(env);
-    addEnemyTargetLifecycleMetrics(metrics, heatmapMetrics);
   }
 
   if (options.warId !== undefined) {
@@ -235,29 +231,7 @@ async function clearEnemyTargetFillCompletionLatches(
   return results.reduce((total, result) => total + d1Changes(result), 0);
 }
 
-async function clearEnemyLiveTrackingForTargetReplacement(
-  env: Env,
-  nextFactionId: number,
-  metrics: EnemyTargetLifecycleMetrics,
-  warId?: number,
-): Promise<void> {
-  if (warId === undefined) {
-    return;
-  }
-
-  const liveClear = await clearEnemyLiveTrackingRows(env, warId, nextFactionId, {
-    clearMemberStatuses: false,
-  });
-  metrics.writeStatements += liveClear.writeStatements;
-  metrics.changedRows += liveClear.changedRows;
-  metrics.enemyBigHitterRowsDeleted += liveClear.bigHitterRowsDeleted;
-  metrics.enemyControlRowsDeleted += liveClear.controlSnapshotRowsDeleted;
-  metrics.enemyPushRowsDeleted += liveClear.pushSnapshotRowsDeleted;
-  metrics.enemyPushAlertLatchesCleared += liveClear.pushAlertLatchesCleared;
-  metrics.enemyActivitySampleRowsDeleted += liveClear.enemyActivitySampleRowsDeleted;
-}
-
-async function clearEnemyActivitySamplesForTargetReplacement(
+async function clearEnemyHistoryForTargetReplacement(
   env: Env,
 ): Promise<EnemyTargetLifecycleMetrics> {
   const metrics = emptyEnemyTargetLifecycleMetrics();
@@ -278,6 +252,20 @@ async function clearEnemyActivitySamplesForTargetReplacement(
   metrics.writeStatements += 2;
   metrics.changedRows += changes;
   metrics.enemyActivitySampleRowsDeleted += changes;
+
+  // Like the roster and heatmaps, these tables hold the previous scouting target.
+  // Filtering by the incoming war ID would leave the previous war's rows behind.
+  const pushResult = await env.DB.prepare(`DELETE FROM enemy_push_activity_snapshots`).run();
+  const controlResult = await env.DB.prepare(`DELETE FROM war_control_snapshots`).run();
+  const bigHitterResult = await env.DB.prepare(`DELETE FROM enemy_big_hitters`).run();
+  const pushAlertResult = await clearSyncLatchesByPrefix(env, `${ENEMY_PUSH_ALERT_STATE_PREFIX}:`);
+  metrics.enemyPushRowsDeleted = d1Changes(pushResult);
+  metrics.enemyControlRowsDeleted = d1Changes(controlResult);
+  metrics.enemyBigHitterRowsDeleted = d1Changes(bigHitterResult);
+  metrics.enemyPushAlertLatchesCleared = d1Changes(pushAlertResult);
+  metrics.writeStatements += 4;
+  metrics.changedRows += metrics.enemyPushRowsDeleted + metrics.enemyControlRowsDeleted +
+    metrics.enemyBigHitterRowsDeleted + metrics.enemyPushAlertLatchesCleared;
 
   return metrics;
 }

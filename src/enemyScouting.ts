@@ -428,7 +428,6 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
     warId,
     clearCachedEnemyRoster: true,
     clearHomeComparisonStats: true,
-    clearReplaceableHeatmaps: true,
   });
   await env.DB.batch(
     members.flatMap((member) => {

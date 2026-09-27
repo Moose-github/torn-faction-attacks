@@ -33,34 +33,7 @@ export async function clearEnemyLiveTrackingRows(
         .run()
     : null;
 
-  const pushSnapshotResult = await env.DB.prepare(
-    `
-    DELETE FROM enemy_push_activity_snapshots
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .run();
-
-  // Keep heatmap history with the scouting roster until enemy target replacement.
-
-  const controlSnapshotResult = await env.DB.prepare(
-    `
-    DELETE FROM war_control_snapshots
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .run();
-
-  const bigHitterResult = await env.DB.prepare(
-    `
-    DELETE FROM enemy_big_hitters
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .run();
+  // Keep scouting history and big-hitter selections until roster replacement.
 
   const pushAlertResult = await clearSyncLatchesByPrefix(
     env,
@@ -80,17 +53,16 @@ export async function clearEnemyLiveTrackingRows(
     : null;
 
   const memberStatusRowsCleared = d1Changes(memberResult);
-  const pushSnapshotRowsDeleted = d1Changes(pushSnapshotResult);
+  const pushSnapshotRowsDeleted = 0;
   const enemyActivitySampleRowsDeleted = 0;
-  const controlSnapshotRowsDeleted = d1Changes(controlSnapshotResult);
-  const bigHitterRowsDeleted = d1Changes(bigHitterResult);
+  const controlSnapshotRowsDeleted = 0;
+  const bigHitterRowsDeleted = 0;
   const pushAlertLatchesCleared = d1Changes(pushAlertResult);
   const warCheckedRowsReset = d1Changes(warCheckedResult);
 
   return {
     writeStatements:
       (clearMemberStatuses ? 1 : 0) +
-      3 +
       1 +
       (options.resetWarCheckedAt ? 1 : 0),
     changedRows:

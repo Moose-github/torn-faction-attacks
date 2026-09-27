@@ -3,7 +3,7 @@ import { handleEnemyTargetMatched } from "./enemyTargetLifecycle";
 import type { Env } from "./types";
 
 describe("enemy target lifecycle", () => {
-  it("clears all enemy activity sample rows during replaceable heatmap cleanup", async () => {
+  it("clears all enemy activity sample rows when the scouting roster is replaced", async () => {
     const db = fakeDb([
       {
         match: "DELETE FROM enemy_faction_activity_samples",
@@ -16,18 +16,19 @@ describe("enemy target lifecycle", () => {
     ]);
 
     const metrics = await handleEnemyTargetMatched(envWithDb(db), 123, {
-      clearReplaceableHeatmaps: true,
+      clearCachedEnemyRoster: true,
     });
 
-    expect(metrics.writeStatements).toBe(2);
+    expect(metrics.writeStatements).toBe(10);
     expect(metrics.changedRows).toBe(8);
     expect(metrics.enemyActivitySampleRowsDeleted).toBe(8);
 
-    expect(db.calls.map((call) => call.sql)).toEqual([
+    const sampleCalls = db.calls.filter((call) => call.sql.includes("activity_samples"));
+    expect(sampleCalls.map((call) => call.sql)).toEqual([
       "DELETE FROM enemy_faction_activity_samples",
       "DELETE FROM enemy_member_activity_samples",
     ]);
-    expect(db.calls.every((call) => call.params.length === 0)).toBe(true);
+    expect(sampleCalls.every((call) => call.params.length === 0)).toBe(true);
     expect(db.calls.some((call) => call.sql.includes("FROM wars"))).toBe(false);
     expect(db.calls.some((call) => call.sql.includes("WHERE faction_id"))).toBe(false);
   });
@@ -56,7 +57,7 @@ describe("enemy target lifecycle", () => {
       clearCachedEnemyRoster: true,
     });
 
-    expect(metrics.writeStatements).toBe(4);
+    expect(metrics.writeStatements).toBe(10);
     expect(metrics.changedRows).toBe(17);
     expect(metrics.enemyRosterRowsDeleted).toBe(10);
     expect(metrics.enemyHitStatRowsDeleted).toBe(4);
