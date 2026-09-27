@@ -2,6 +2,7 @@ import React from "react";
 import { Boxes, RefreshCw } from "lucide-react";
 import { getMedicalArmory, syncMedicalArmory, saveMedicalStockSetting } from "../api/armory";
 import type { ArmoryMedicalResponse, ArmoryStack, ArmoryStockSetting } from "../../../shared/armory";
+import { ArmoryBorrower } from "./ArmoryBorrower";
 
 const tct = (value: number | null) => value ? `${new Date(value * 1000).toISOString().replace("T", " ").slice(0, 19)} TCT` : "Not loaded yet";
 
@@ -119,7 +120,7 @@ function MedicalRow({ item, setting, onSaved }: { item: ArmoryStack; setting: Ar
     {imageFailed ? <Boxes size={28} aria-label="Item image unavailable" /> : <img src={`https://www.torn.com/images/items/${item.id}/large.png`}
       width="96" height="64" alt={item.name} loading="lazy" onError={() => setImageFailed(true)} />}</div><strong>{item.name}</strong></div></td>
     <td>{item.amount.toLocaleString("en-GB")}</td>
-    <td>{item.loaned ? <a href={`https://www.torn.com/profiles.php?XID=${item.loaned.id}`} target="_blank" rel="noreferrer">{item.loaned.name}</a>
+    <td>{item.loaned ? <ArmoryBorrower borrower={item.loaned} />
       : <span className="armory-available">Available</span>}</td>
     <td>{item.loaned ? "—" : <><div className="armory-stock-entry">
       <input type="text" inputMode="numeric" aria-label={`Low-stock threshold for ${item.name}`} value={threshold} disabled={saving || !enabled}

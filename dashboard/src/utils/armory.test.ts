@@ -1,10 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { ArmoryCopy } from "../../../shared/armory";
-import { armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass } from "./armory";
+import { activityElapsed, armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass } from "./armory";
 const copy = (uid: string, special = false): ArmoryCopy => ({ uid, id: 399, name: "ArmaLite M-15A4", type: "Primary", loaned: null, loan_first_seen_at: null,
   details: { uid, id: 399, name: "ArmaLite M-15A4", type: "Weapon", sub_type: "Rifle", stats: { damage: 70, accuracy: 60, armor: null, quality: 20 },
     bonuses: special ? [{ id: 50, title: "Achilles", value: 52, description: "52% increased Foot damage" }] : [], rarity: special ? "yellow" : null } });
 describe("armory display", () => {
+  it("formats cached member activity age without inventing unknown times", () => {
+    for (const timestamp of [undefined, null, 0, -1, NaN]) expect(activityElapsed(timestamp, 1000)).toBeNull();
+    expect(activityElapsed(1000, 999)).toBe("less than a minute");
+    expect(activityElapsed(1000, 1060)).toBe("1 minute");
+    expect(activityElapsed(1000, 1120)).toBe("2 minutes");
+    expect(activityElapsed(1000, 4600)).toBe("1 hour");
+    expect(activityElapsed(1000, 15400)).toBe("4 hours");
+    expect(activityElapsed(1000, 87400)).toBe("1 day");
+    expect(activityElapsed(1000, 173800)).toBe("2 days");
+  });
   it("sorts and exports armor protection without treating null weapon stats as zero", () => {
     const armor = (uid: string, protection: number): ArmoryCopy => {
       const item = copy(uid, true);

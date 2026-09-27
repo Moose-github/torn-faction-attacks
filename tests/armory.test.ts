@@ -22,6 +22,10 @@ const stock = (uids = [7443497174, 10727704270], timestamp = clock) => ({ invent
 class TestDB {
   sqlite = new DatabaseSync(":memory:");
   constructor() {
+    const schema = readFileSync(new URL("../schema/current.sql", import.meta.url), "utf8");
+    for (const table of ["home_member_live_status", "sync_state"]) {
+      this.sqlite.exec(schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))![0]);
+    }
     for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql", "0166_add_armory_categories.sql", "0167_add_armory_medical.sql", "0168_add_armory_stock_alerts.sql"]) {
       this.sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
     }
@@ -63,6 +67,36 @@ const armorDetail = (uid = 18059712452) => ({ id: 668, name: "Assault Boots", ui
   bonuses: [{ id: 17, title: "Impenetrable", description: "22% decreased incoming bullet damage", value: 22 }], rarity: "yellow" });
 const armorStock = (loaned: { id: number; name: string } | null = { id: 4002200, name: "Minitamark" }) => ({ inventory_timestamp: clock,
   inventory: [{ id: 668, name: "Assault Boots", type: "Defensive", amount: 1, uids: [18059712452], loaned }] });
+
+describe("borrower activity", () => {
+  it.each(["weapons", "armor", "medical"] as const)("reads current member activity independently of the %s snapshot", async category => {
+    const loaned = { id: 4002200, name: "Minitamark" };
+    const source = category === "armor" ? armorStock(loaned) : category === "medical"
+      ? { inventory_timestamp: clock, inventory: [{ id: 67, name: "First Aid Kit", type: "Medical", amount: 5, uids: [], loaned }] }
+      : { ...stock(), inventory: stock().inventory.map(item => ({ ...item, loaned })) };
+    fetcher.mockImplementation(async (_env, input) => Response.json(String(input).includes("inventory") ? source
+      : { itemdetails: category === "armor" ? armorDetail() : [detail(10727704270, true), detail(7443497174)] }));
+    await syncArmory(env, category);
+    const read = () => category === "medical" ? readMedicalArmory(env) : readArmory(env, category);
+    expect((await read()).items.find(item => item.loaned)?.loaned).toEqual({ ...loaned, activity: null });
+    db.sqlite.prepare(`INSERT INTO home_member_live_status
+      (member_id, faction_id, last_action_status, last_action_timestamp, updated_at, status_updated_at)
+      VALUES (?, ?, 'Offline', ?, ?, ?)`).run(loaned.id, HOME_FACTION_ID, clock - 14400, clock, clock - 500);
+    db.sqlite.prepare("INSERT INTO sync_state (name, last_started) VALUES ('home_faction_status_checked_at', ?)").run(clock - 300);
+    const cached = await read();
+    expect(cached.items.find(item => item.loaned)?.loaned?.activity).toEqual({ last_action_status: "Offline", last_action_timestamp: clock - 14400, fetched_at: clock - 300 });
+    fetcher.mockClear();
+    db.sqlite.exec("UPDATE home_member_live_status SET last_action_status = 'Online'");
+    const updated = await read();
+    expect(updated.items.find(item => item.loaned)?.loaned?.activity?.last_action_status).toBe("Online");
+    expect(updated.checked_at).toBe(cached.checked_at);
+    expect(fetcher).not.toHaveBeenCalled();
+    db.sqlite.exec("DELETE FROM sync_state");
+    expect((await read()).items.find(item => item.loaned)?.loaned?.activity?.fetched_at).toBeNull();
+    db.sqlite.exec("UPDATE home_member_live_status SET faction_id = 123");
+    expect((await read()).items.find(item => item.loaned)?.loaned).toEqual({ ...loaned, activity: null });
+  });
+});
 
 describe("armor inventory and category isolation", () => {
   it("parses armor stats, null subtype and bonuses from the supplied detail format", () => {
@@ -395,7 +429,7 @@ describe("medical stacks", () => {
     expect(result.items.reduce((sum, item) => sum + item.amount, 0)).toBe(48527);
     expect(result.items.filter(item => item.id === 1012)).toEqual([
       { id: 1012, name: "Blood Bag : Irradiated", type: "Medical", amount: 35, loaned: null },
-      { id: 1012, name: "Blood Bag : Irradiated", type: "Medical", amount: 1, loaned: { id: 2625483, name: "Sunjuggler" } },
+      { id: 1012, name: "Blood Bag : Irradiated", type: "Medical", amount: 1, loaned: { id: 2625483, name: "Sunjuggler", activity: null } },
     ]);
     expect(result).toMatchObject({ pending: 0, refreshing: 0, error: null, syncing: false });
     expect(fetcher).toHaveBeenCalledTimes(1);

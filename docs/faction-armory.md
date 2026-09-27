@@ -42,6 +42,8 @@ The **Item stock low** route in Discord Admin controls uses the existing channel
 
 ## Display
 
+Loaned rows across all three categories show the borrower's cached last-action status and elapsed time beneath their name, followed by the activity data age. Each armory read joins the existing home-member activity cache; the age comes from `home_faction_status_checked_at` in `sync_state`, independently of the inventory fetch. Opening the armory does not trigger an additional member fetch. Missing activity or fetch times display as unknown. No new storage or migration is required.
+
 Verified weapon details determine classification by rarity: null rarity means standard, even when bonuses are present; non-null rarity means special and the copy remains individual. This covers built-in effects on weapons such as Tasers, Flamethrowers and Cattle Prods without model-specific overrides. Effects remain visible on individual copy rows and in exports. Only confirmed standard copies share a model group. Pending details are separate; no class is inferred from inventory blocks. Group summaries show stat ranges. Weapon class defaults to Special; clearing filters shows all classes. Sorting supports ascending and descending order, including observed loan time, with unknown values last. Individual-copy mode also supports damage, accuracy and quality sorting.
 
 Filters apply to copies before grouping; summary cards remain full-inventory totals. The Borrowers tab uses the same data and includes only borrowers represented in inventory. CSV exports the filtered view as individual copies, with all bonuses and spreadsheet formula protection.

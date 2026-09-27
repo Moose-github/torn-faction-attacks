@@ -59,6 +59,15 @@ export function loanElapsed(firstSeen: number, currentTime = Date.now() / 1000):
   if (hours < 24) return `${hours}h ${minutes % 60}m`;
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
+export function activityElapsed(timestamp: number | null | undefined, currentTime = Date.now() / 1000): string | null {
+  if (timestamp == null || !Number.isFinite(timestamp) || timestamp <= 0) return null;
+  const seconds = Math.max(0, currentTime - timestamp);
+  for (const [unit, duration] of [["day", 86400], ["hour", 3600], ["minute", 60]] as const) {
+    const amount = Math.floor(seconds / duration);
+    if (amount > 0) return `${amount} ${unit}${amount === 1 ? "" : "s"}`;
+  }
+  return "less than a minute";
+}
 export function armoryCsv(items: ArmoryCopy[]): string {
   const cell = (value: unknown) => {
     let string = String(value ?? "");

@@ -1,8 +1,12 @@
 export type ArmoryCategory = "weapons" | "armor";
 export type ArmoryInventoryCategory = ArmoryCategory | "medical";
+export type ArmoryBorrowerActivity = {
+  last_action_status: string | null; last_action_timestamp: number | null; fetched_at: number | null;
+};
+export type ArmoryBorrower = { id: number; name: string; activity?: ArmoryBorrowerActivity | null };
 export type ArmoryStack = {
   id: number; name: string; type: string; amount: number;
-  loaned: { id: number; name: string } | null;
+  loaned: ArmoryBorrower | null;
 };
 export type ArmoryBonus = { id: number; title: string; description: string; value: number };
 export type ArmoryDetails = {
@@ -12,7 +16,7 @@ export type ArmoryDetails = {
 };
 export type ArmoryCopy = {
   uid: string; id: number; name: string; type: string;
-  loaned: { id: number; name: string } | null;
+  loaned: ArmoryBorrower | null;
   loan_first_seen_at: number | null;
   details: ArmoryDetails | null;
 };

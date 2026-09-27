@@ -57,6 +57,7 @@
 .armory-page .armory-expand { background: transparent; border: 0; padding: 4px 0; text-align: left; font-weight: 650; }
 .armory-badge { display: inline-block; font-size: 11px; padding: 3px 7px; border: 1px solid rgb(128 128 128 / 28%); border-radius: 5px; text-transform: capitalize; }
 .armory-table td a { display: block; }
+.armory-borrower-availability small { white-space: nowrap; }
 .armory-loan-time { white-space: nowrap; }
 .armory-loan-note { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
 .armory-bonus { max-width: 230px; }

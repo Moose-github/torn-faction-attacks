@@ -7,6 +7,7 @@ import { armoryCounts, armoryCsv, DEFAULT_ARMORY_FILTERS, EMPTY_ARMORY_FILTERS, 
   type ArmoryFilters, type ArmoryGroup, type ArmorySort, type ArmorySortDirection } from "../utils/armory";
 import "./FactionArmory.css";
 import { ArmoryItems } from "./ArmoryItems";
+import { ArmoryBorrower } from "./ArmoryBorrower";
 
 const tct = (value: number | null) => value ? `${new Date(value * 1000).toISOString().replace("T", " ").slice(0, 19)} TCT` : "Not loaded yet";
 type Action = "check" | "inventory" | "details";
@@ -229,7 +230,7 @@ function CopyRow({ item, category, child = false }: { item: ArmoryCopy; category
         : <span className="armory-badge">{kind === "pending" ? "Details pending" : "Standard"}</span>}
       {item.details?.bonuses.map((bonus, index) => <ArmoryTooltip key={`${bonus.id}-${index}`} label={`${bonus.title} · ${bonus.value}`} description={bonus.description} />)}</td>
     <td><EquipmentStats category={category} armor={item.details?.stats.armor?.toFixed(2) ?? "—"} damage={item.details?.stats.damage?.toFixed(2) ?? "—"} accuracy={item.details?.stats.accuracy?.toFixed(2) ?? "—"} quality={item.details ? `${item.details.stats.quality.toFixed(2)}%` : "—"} /></td><td>1</td>
-    <td>{item.loaned ? <a href={`https://www.torn.com/profiles.php?XID=${item.loaned.id}`} target="_blank" rel="noreferrer">{item.loaned.name}</a> : <span className="armory-available">Available</span>}</td>
+    <td>{item.loaned ? <ArmoryBorrower borrower={item.loaned} /> : <span className="armory-available">Available</span>}</td>
     <td className="armory-loan-time">{!item.loaned ? "—" : item.loan_first_seen_at
       ? <><time dateTime={new Date(item.loan_first_seen_at * 1000).toISOString()}>{tct(item.loan_first_seen_at)}</time><small>{loanElapsed(item.loan_first_seen_at)} since first observed</small></>
       : <span title="Tracking starts on the next successful inventory refresh.">Awaiting observation</span>}</td></tr>;
