@@ -12,6 +12,7 @@ export const DISCORD_ALERT_KEYS = {
   enemyScoutingReport: "enemy_scouting_report",
   xanaxCompetition: "xanax_competition",
   termedWarAutoEnd: "termed_war_auto_end",
+  itemStockLow: "item_stock_low",
   shopliftingSecurity: <ShopKey extends string>(shopKey: ShopKey): `shoplifting_security_alert:${ShopKey}` =>
     `shoplifting_security_alert:${shopKey}`,
 } as const;
@@ -109,6 +110,12 @@ export const DISCORD_ALERTS = [
     name: "Chain watch unfilled slot",
     description: "Warns one hour before a chain watch slot starts if no watcher is assigned.",
     subscribable: true,
+  },
+  {
+    key: DISCORD_ALERT_KEYS.itemStockLow,
+    name: "Item stock low",
+    description: "Available medical stock is at or below its configured threshold.",
+    subscribable: false,
   },
 ] as const;
 

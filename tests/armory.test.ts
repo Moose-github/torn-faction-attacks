@@ -2,12 +2,14 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_FACTION_ID } from "../src/constants";
-import { parseArmoryDetails, parseArmoryInventory, parseMedicalInventory, readMedicalArmory, readArmory, refreshArmoryDetails, syncArmory } from "../src/armory";
+import { parseArmoryDetails, parseArmoryInventory, parseMedicalInventory, readMedicalArmory, readArmory, refreshArmoryDetails, syncArmory, runMedicalArmoryCron, updateMedicalStockSetting } from "../src/armory";
+import { sendMedicalStockAlert } from "../src/armoryStock";
 import { fetchTrackedTornResponse } from "../src/external/torn";
 import type { Env } from "../src/types";
 import { routeArmoryApi } from "../src/http/armoryRoutes";
 
 vi.mock("../src/external/torn", () => ({ fetchTrackedTornResponse: vi.fn() }));
+vi.mock("../src/armoryStock", async importOriginal => ({ ...await importOriginal<typeof import("../src/armoryStock")>(), sendMedicalStockAlert: vi.fn() }));
 const fetcher = vi.mocked(fetchTrackedTornResponse);
 const clock = 1_790_467_200;
 const detail = (uid: number, special = false) => ({ id: 399, uid, name: "ArmaLite M-15A4", type: "Weapon", sub_type: "Rifle",
@@ -20,7 +22,7 @@ const stock = (uids = [7443497174, 10727704270], timestamp = clock) => ({ invent
 class TestDB {
   sqlite = new DatabaseSync(":memory:");
   constructor() {
-    for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql", "0166_add_armory_categories.sql", "0167_add_armory_medical.sql"]) {
+    for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql", "0166_add_armory_categories.sql", "0167_add_armory_medical.sql", "0168_add_armory_stock_alerts.sql"]) {
       this.sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
     }
   }
@@ -46,6 +48,7 @@ class TestDB {
 let db: TestDB, env: Env;
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(clock * 1000); fetcher.mockReset();
+  vi.mocked(sendMedicalStockAlert).mockReset().mockResolvedValue(true);
   db = new TestDB(); env = { DB: db as unknown as D1Database, TORN_API_KEY: "test-placeholder" } as Env;
   fetcher.mockImplementation(async (_env, input) => {
     const url = String(input);
@@ -164,6 +167,160 @@ describe("armor inventory and category isolation", () => {
   });
 });
 
+describe("medical background refresh and stock alerts", () => {
+  const medical = (amount = 10, loaned = 5) => ({ inventory_timestamp: Math.floor(Date.now() / 1000), inventory: [
+    { id: 67, name: "First Aid Kit", type: "Medical", amount, uids: [], loaned: null },
+    { id: 67, name: "First Aid Kit", type: "Medical", amount: loaned, uids: [], loaned: { id: 42, name: "Borrower" } },
+  ] });
+  const configure = (threshold: unknown, enabled: unknown = true, id = 67) => updateMedicalStockSetting(new Request("https://example.test", {
+    method: "POST", body: JSON.stringify({ id, threshold, enabled }),
+  }), env);
+  const tick = async (amount: number) => {
+    vi.setSystemTime(Date.now() + 3600_000);
+    fetcher.mockResolvedValueOnce(Response.json(medical(amount)));
+    await runMedicalArmoryCron(env);
+  };
+
+  it("refreshes medical stock with no page open, only hourly, without touching equipment", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(medical()));
+    await runMedicalArmoryCron(env);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(String(fetcher.mock.calls[0][1])).toContain("cat=medical");
+    expect((await readMedicalArmory(env)).stock_settings[67]).toEqual({ name: "First Aid Kit", threshold: 0, enabled: true });
+    expect(await readArmory(env)).toMatchObject({ items: [], inventory_timestamp: null });
+    expect(await readArmory(env, "armor")).toMatchObject({ items: [], inventory_timestamp: null });
+    vi.setSystemTime((clock + 3599) * 1000);
+    await runMedicalArmoryCron(env);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    vi.setSystemTime((clock + 3600) * 1000);
+    fetcher.mockResolvedValueOnce(Response.json(medical()));
+    await runMedicalArmoryCron(env);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(sendMedicalStockAlert).not.toHaveBeenCalled();
+  });
+
+  it("alerts at equality using only available quantity, suppresses repeats, and rearms above threshold", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(medical()));
+    await runMedicalArmoryCron(env);
+    expect((await configure(10)).status).toBe(200);
+    await runMedicalArmoryCron(env);
+    expect(sendMedicalStockAlert).toHaveBeenCalledExactlyOnceWith(env, "First Aid Kit", 10, 10);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await tick(9);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
+    await tick(11);
+    await tick(8);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(2);
+  });
+
+  it("defaults to a zero threshold and remembers missing/all-loaned items as zero available", async () => {
+    fetcher.mockResolvedValueOnce(Response.json({ ...medical(), inventory: [medical().inventory[1]] }));
+    await runMedicalArmoryCron(env);
+    expect(sendMedicalStockAlert).toHaveBeenCalledExactlyOnceWith(env, "First Aid Kit", 0, 0);
+    expect((await readMedicalArmory(env)).items.map(item => item.amount)).toEqual([0, 5]);
+    await tick(1);
+    vi.setSystemTime(Date.now() + 3600_000);
+    fetcher.mockResolvedValueOnce(Response.json({ ...medical(), inventory: [] }));
+    await runMedicalArmoryCron(env);
+    expect((await readMedicalArmory(env)).items).toEqual([{ id: 67, name: "First Aid Kit", type: "Medical", amount: 0, loaned: null }]);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(2);
+  });
+
+  it("persists disabled thresholds and checks changed/enabled rules on the next cron tick", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(medical()));
+    await runMedicalArmoryCron(env);
+    await configure(20, false);
+    await tick(0);
+    expect(sendMedicalStockAlert).not.toHaveBeenCalled();
+    expect((await readMedicalArmory(env)).stock_settings[67]).toMatchObject({ threshold: 20, enabled: false });
+    await configure(20, true);
+    await runMedicalArmoryCron(env);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
+    await configure(20, true); // Saving an identical rule does not reset its alert.
+    await runMedicalArmoryCron(env);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries undelivered alerts after five minutes without fetching Torn again", async () => {
+    vi.mocked(sendMedicalStockAlert).mockResolvedValueOnce(false).mockRejectedValueOnce(new Error("Discord unavailable"));
+    fetcher.mockResolvedValueOnce(Response.json(medical(0)));
+    await runMedicalArmoryCron(env);
+    vi.setSystemTime((clock + 299) * 1000);
+    await runMedicalArmoryCron(env);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
+    vi.setSystemTime((clock + 300) * 1000);
+    await runMedicalArmoryCron(env);
+    expect((await readMedicalArmory(env)).error).toBeNull();
+    vi.setSystemTime((clock + 600) * 1000);
+    await runMedicalArmoryCron(env);
+    vi.setSystemTime((clock + 900) * 1000);
+    await runMedicalArmoryCron(env);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not evaluate a failed or incomplete refresh and respects inventory backoff", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(medical()));
+    await runMedicalArmoryCron(env);
+    await configure(10);
+    advance();
+    fetcher.mockResolvedValueOnce(Response.json({ ...medical(0), _metadata: { total: 3, links: { next: null, prev: null } } }));
+    await runMedicalArmoryCron(env);
+    await runMedicalArmoryCron(env);
+    expect(sendMedicalStockAlert).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect((await readMedicalArmory(env)).items[0].amount).toBe(10);
+  });
+
+  it("serializes page and cron refreshes and rejects concurrent setting changes", async () => {
+    fetcher.mockImplementationOnce(async () => {
+      await runMedicalArmoryCron(env);
+      await syncArmory(env, "medical");
+      expect((await configure(10)).status).toBe(409);
+      return Response.json(medical(0));
+    });
+    await runMedicalArmoryCron(env);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(sendMedicalStockAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects invalid settings and unknown models", async () => {
+    for (const value of [-1, 1.5, "10", null, Number.MAX_SAFE_INTEGER + 1]) {
+      expect((await configure(value)).status).toBe(400);
+    }
+    expect((await configure(0, "true")).status).toBe(400);
+    expect((await configure(0, true, 0)).status).toBe(400);
+    expect((await configure(0)).status).toBe(404);
+  });
+
+  it("keeps existing snapshots intact on migration and remembers stock that disappears on the first refresh", async () => {
+    const legacy = new DatabaseSync(":memory:");
+    try {
+      for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql", "0166_add_armory_categories.sql", "0167_add_armory_medical.sql"]) {
+        legacy.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
+      }
+      legacy.prepare("INSERT INTO faction_armory_state (faction_id, category, source_json) VALUES (?, 'medical', ?)").run(HOME_FACTION_ID, JSON.stringify(medical()));
+      legacy.exec(readFileSync(new URL("../migrations/0168_add_armory_stock_alerts.sql", import.meta.url), "utf8"));
+      expect(legacy.prepare("SELECT source_json, stock_settings_json, stock_alert_next_at FROM faction_armory_state").get())
+        .toEqual({ source_json: JSON.stringify(medical()), stock_settings_json: "{}", stock_alert_next_at: 0 });
+    } finally { legacy.close(); }
+    db.sqlite.prepare("INSERT INTO faction_armory_state (faction_id, category, source_json) VALUES (?, 'medical', ?)").run(HOME_FACTION_ID, JSON.stringify(medical()));
+    fetcher.mockResolvedValueOnce(Response.json({ ...medical(), inventory: [] }));
+    await runMedicalArmoryCron(env);
+    expect(sendMedicalStockAlert).toHaveBeenCalledExactlyOnceWith(env, "First Aid Kit", 0, 0);
+  });
+
+  it("preserves successful deliveries when another item fails and retries only the failed item", async () => {
+    vi.mocked(sendMedicalStockAlert).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    fetcher.mockResolvedValueOnce(Response.json({ ...medical(), inventory: [medical(0).inventory[0],
+      { ...medical(0).inventory[0], id: 68, name: "Small First Aid Kit" }] }));
+    await runMedicalArmoryCron(env);
+    vi.setSystemTime((clock + 300) * 1000);
+    await runMedicalArmoryCron(env);
+    expect(vi.mocked(sendMedicalStockAlert).mock.calls.map(call => call[1])).toEqual(["First Aid Kit", "Small First Aid Kit", "Small First Aid Kit"]);
+  });
+});
+
 describe("medical stacks", () => {
   const sample = () => JSON.parse(readFileSync(new URL("./fixtures/armory-medical-inventory.json", import.meta.url), "utf8"));
   it("preserves quantities and separate available/borrowed stock without UIDs or loan dates", async () => {
@@ -207,7 +364,8 @@ describe("medical stacks", () => {
     fetcher.mockResolvedValueOnce(Response.json({ ...sample(), inventory: [{ ...sample().inventory[6], amount: 36 }],
       _metadata: { total: 1, links: { next: null, prev: null } } }));
     await syncArmory(env, "medical");
-    expect((await readMedicalArmory(env)).items).toEqual([{ id: 1012, name: "Blood Bag : Irradiated", type: "Medical", amount: 36, loaned: null }]);
+    expect((await readMedicalArmory(env)).items.filter(item => item.amount > 0)).toEqual([{ id: 1012, name: "Blood Bag : Irradiated", type: "Medical", amount: 36, loaned: null }]);
+    expect((await readMedicalArmory(env)).items.filter(item => item.amount === 0)).toHaveLength(14);
     expect(await readArmory(env)).toEqual(weapons);
     expect(await readArmory(env, "armor")).toEqual(armor);
     expect(fetcher.mock.calls.filter(call => String(call[1]).includes("itemdetails"))).toHaveLength(2);
@@ -453,7 +611,7 @@ describe("current loan observations", () => {
 });
 
 describe("armory admin endpoints", () => {
-  it.each(["/api/admin/armory", "/api/admin/armory/sync", "/api/admin/armory/details/refresh"].flatMap(path => [path, `${path}?cat=armor`, `${path}?cat=medical`]))("rejects missing and member sessions for %s", async path => {
+  it.each(["/api/admin/armory", "/api/admin/armory/sync", "/api/admin/armory/details/refresh", "/api/admin/armory/medical/stock"].flatMap(path => [path, `${path}?cat=armor`, `${path}?cat=medical`]))("rejects missing and member sessions for %s", async path => {
     db.sqlite.exec(`CREATE TABLE auth_sessions (token TEXT, torn_user_id INTEGER, access_level TEXT, expires_at INTEGER);
       CREATE TABLE home_faction_members (member_id INTEGER, name TEXT);`);
     const token = crypto.randomUUID();

@@ -24,7 +24,17 @@
 .armory-checkbox input { width: auto; }
 .armory-table-scroll { width: 100%; overflow-x: auto; }
 .armory-table { width: 100%; min-width: 800px; border-collapse: collapse; font-size: 13px; }
-.armory-items-table { min-width: 520px; }
+.armory-items-table { min-width: 850px; }
+.armory-stock-entry { display: flex; align-items: center; gap: 8px; }
+.armory-stock-entry input { width: 100px; min-width: 80px; }
+.armory-stock-entry input:disabled { opacity: .5; }
+.armory-stock-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.armory-stock-toggle input { appearance: none; box-sizing: border-box; width: 32px; min-width: 32px; height: 20px; min-height: 20px; padding: 2px; margin: 0; border-radius: 12px; border: 1px solid var(--border-solid); background: var(--panel-bg-solid); cursor: pointer; }
+.armory-stock-toggle input::before { content: ""; display: block; width: 14px; height: 14px; border-radius: 50%; background: var(--text-muted); transition: transform .15s; }
+.armory-stock-toggle input:checked { background: var(--accent); }
+.armory-stock-toggle input:checked::before { transform: translateX(12px); background: #fff; }
+.armory-stock-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.armory-table .armory-stock-error { color: #ef9999; opacity: 1; white-space: normal; max-width: 240px; }
 .armory-items-table th:nth-child(2), .armory-items-table td:nth-child(2) { text-align: right; }
 .armory-table th { text-align: left; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; opacity: .65; padding: 12px; }
 .armory-table td { border-top: 1px solid rgb(128 128 128 / 20%); padding: 14px 12px; vertical-align: middle; font-variant-numeric: tabular-nums; }

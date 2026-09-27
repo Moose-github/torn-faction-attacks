@@ -22,7 +22,10 @@ export type ArmoryResponse = {
   next_inventory_at: number; next_sync_at: number; syncing: boolean;
   pending: number; refreshing: number; error: string | null;
 };
-export type ArmoryMedicalResponse = Omit<ArmoryResponse, "items"> & { items: ArmoryStack[] };
+export type ArmoryStockSetting = { name: string; threshold: number; enabled: boolean };
+export type ArmoryMedicalResponse = Omit<ArmoryResponse, "items"> & {
+  items: ArmoryStack[]; stock_settings: Record<string, ArmoryStockSetting>;
+};
 export function weaponClass(item: ArmoryCopy): "standard" | "special" | "pending" {
   if (!item.details) return "pending";
   // Ordinary weapons can have built-in bonuses; rarity determines their class.

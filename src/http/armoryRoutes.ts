@@ -1,10 +1,13 @@
-import { getArmory, refreshArmoryDetails, syncArmory } from "../armory";
+import { getArmory, refreshArmoryDetails, syncArmory, updateMedicalStockSetting } from "../armory";
 import { matchesExactRoute } from "../routes";
 import { withAdmin, type RouteContext, type RouteResult } from "./context";
 import { json } from "../utils";
 
 export async function routeArmoryApi(context: RouteContext): Promise<RouteResult> {
   const { request, env, url } = context;
+  if (matchesExactRoute(url, request, "/api/admin/armory/medical/stock", "POST")) {
+    return withAdmin(context, () => updateMedicalStockSetting(request, env));
+  }
   const action = matchesExactRoute(url, request, "/api/admin/armory", "GET") ? getArmory
     : matchesExactRoute(url, request, "/api/admin/armory/sync", "POST") ? syncArmory
     : matchesExactRoute(url, request, "/api/admin/armory/details/refresh", "POST") ? refreshArmoryDetails : null;

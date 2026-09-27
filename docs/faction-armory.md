@@ -4,7 +4,7 @@ The armory is available to admins at `/admin/armory`, under **Admin → Faction 
 
 ## Deployment
 
-Apply migrations through `0167_add_armory_medical.sql` before deploying the Worker. Migration 0166 adds category support; 0167 permits medical inventory in the existing state table while preserving weapons and armor state. No additional permanent table is created. Deploy the Worker and dashboard together. Use Wrangler's migration list to check for pending migrations.
+Apply migrations through `0168_add_armory_stock_alerts.sql` before deploying the Worker. Migration 0166 adds category support; 0167 permits medical inventory; 0168 adds current stock settings and an alert retry time to the existing state table while preserving all category snapshots. No additional permanent table is created. Deploy the Worker and dashboard together. Use Wrangler's migration list to check for pending migrations.
 
 The existing `TORN_API_KEY` binding must have Limited access and the home faction's API permissions. Both plain secret strings and Cloudflare Secrets Store bindings are supported. Credentials stay in the Worker. The sample key from the planning conversation is not part of the implementation.
 
@@ -20,7 +20,7 @@ Current loans have a persistent `loan_first_seen_at` per weapon UID and borrower
 
 Both weapon and borrower tables show **Loan first observed**, with a TCT date and elapsed time; CSV exports include the same fields. Grouped standard weapons expose dates on their individual copy rows. This is an observation time, not a checkout date: tracking happens through the existing page-driven inventory refreshes, and a return/re-loan to the same member between snapshots cannot be detected. The elapsed time describes time since observation; the inventory snapshot timestamp indicates when the holder was last confirmed.
 
-The first page visit follows inventory `_metadata.links.next` until `_metadata.total` rows have been collected, then fills a shared D1 cache in batches of up to 25 UIDs. Torn can supply next links after the last page, including on empty pages, so reaching the total ends pagination. Totals count inventory rows, not individual weapon UIDs. All pages must agree on snapshot timestamp and total, and the combined rows are validated before replacing saved inventory. A failed or incomplete page leaves the previous inventory intact. Each sync processes at most four sequential detail batches; the visible page continues until complete. Progress survives leaving the page or restarting the Worker. No armory cron was added.
+The first page visit follows inventory `_metadata.links.next` until `_metadata.total` rows have been collected, then fills a shared D1 cache in batches of up to 25 UIDs. Torn can supply next links after the last page, including on empty pages, so reaching the total ends pagination. Totals count inventory rows, not individual weapon UIDs. All pages must agree on snapshot timestamp and total, and the combined rows are validated before replacing saved inventory. A failed or incomplete page leaves the previous inventory intact. Each sync processes at most four sequential detail batches; the visible page continues until complete. Progress survives leaving the page or restarting the Worker. Weapons and armor remain page-driven; only Items has a background refresh.
 
 Inventory is fetched at most once per hour in normal use. The timestamp on the page is Torn's snapshot timestamp, while “Last checked” is the application's latest successful inventory fetch. The refresh button respects the hourly cache. Page reads every 30 seconds fetch saved D1 state, not Torn, unless sync is due.
 
@@ -29,6 +29,16 @@ Partial snapshots saved by the original single-page implementation are detected 
 Successful details persist by UID without routine expiry. Borrower changes use inventory alone. Departing copies disappear from the current view but retain cached details. Returning copies reuse those details. Manual detail refresh has a one-hour cooldown and keeps old valid details visible while replacements load. Failed or missing records have exponential retry backoff. Rate-limit and permission failures pause work on the key.
 
 A database lease deduplicates requests across admins. Inventory replacement is transactional, invalid/older snapshots preserve previous data, and expired lease holders cannot overwrite a newer owner's results. Detail responses are joined by UID regardless of response order. Both singleton-object and array responses are supported.
+
+## Medical stock alerts
+
+The existing minute cron checks the medical category's persisted due time. It fetches a complete medical inventory once an hour even if nobody opens the page. It shares the page's lease, hourly cache, pagination validation and failure backoff, so simultaneous page/cron requests do not fetch twice. Failed refreshes retry with the existing backoff; they never trigger alerts from incomplete or stale stock. Weapons and armor have no background refresh.
+
+Available rows have **Low-stock threshold** and **Stock alerts** controls. Thresholds default to **0**, alerts default to **On**, and loans have neither control. Use the row's Save button (or Enter in the amount field) to save both controls. The admin-only `POST /api/admin/armory/medical/stock` accepts `{ id, threshold, enabled }`; threshold must be a nonnegative safe integer. Turning an alert off preserves its threshold.
+
+The **Item stock low** route in Discord Admin controls uses the existing channel/thread routing, default fallback, delivery toggle and mentions. An enabled item alerts when **available quantity <= threshold**, excluding all borrowers' quantities. Delivery is recorded only after Discord confirms a message. An item alerts once per low-stock episode and rearms when a successful refresh sees quantity strictly above threshold. Changing or re-enabling a rule queues a fresh evaluation on the next minute tick using a successfully checked, still-fresh snapshot. Saving an unchanged rule does not repeat its alert. Failed delivery, missing routes and disabled global delivery remain eligible for retries every five minutes.
+
+`stock_settings_json` in the existing medical state row stores each known model's name, threshold, enabled flag and current alert latch; `stock_alert_next_at` controls retry checks. Known models omitted by Torn remain visible at zero available stock, including when all copies are loaned, so running out can still alert. Models not seen in any saved inventory are not inferred. No quantity or loan history is stored. A crash between Discord delivery and saving confirmation can cause a duplicate on retry; this is not an exactly-once delivery guarantee.
 
 ## Display
 

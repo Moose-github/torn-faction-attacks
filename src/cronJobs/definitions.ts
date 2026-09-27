@@ -1,4 +1,5 @@
 import { runChainWatchCron } from "../chainWatch";
+import { runMedicalArmoryCron } from "../armory";
 import { runWatchScheduleCron } from "../chainWatchScheduleDiscord";
 import { runEventCompetitionCron } from "../eventCompetition";
 import { syncDiscordTravelTracker } from "../discordTravelTracker";
@@ -32,6 +33,14 @@ import { runMonthlyXanaxCompetitionDiscordReminder } from "../xanaxCompetition";
 import type { CronJobDefinition } from "./model";
 
 export const CRON_JOB_DEFINITIONS: CronJobDefinition[] = [
+  {
+    label: "Cron medical armory stock",
+    cadence: "Hourly inventory; 1m due check and 5m alert retries",
+    category: "maintenance",
+    purpose: "Refresh medical items even with the page closed and alert when available stock reaches its threshold.",
+    shouldRun: () => true,
+    run: (env) => runMedicalArmoryCron(env),
+  },
   {
     label: "Cron chain watch sign-up sheets",
     cadence: "1m; publish the next sheet 12h before expiry",

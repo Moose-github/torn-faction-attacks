@@ -1,6 +1,11 @@
 // These settings control Discord delivery independently of tracking and events.
 export const DISCORD_DELIVERY_CONTROLS = [
   {
+    key: "item_stock_low",
+    name: "Item stock low",
+    description: "Alerts once when available medical stock is at or below its threshold, until restocked.",
+  },
+  {
     key: "chain_watch_warning",
     name: "Chain watch warning",
     description: "Sends a Discord warning when a qualifying chain has 60 seconds remaining.",

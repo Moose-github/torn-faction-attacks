@@ -6,3 +6,5 @@ export const syncArmory = (category: ArmoryCategory) => postJson<ArmoryResponse>
 export const refreshArmoryDetails = (category: ArmoryCategory) => postJson<ArmoryResponse>(`/api/admin/armory/details/refresh?cat=${category}`);
 export const getMedicalArmory = () => getJson<ArmoryMedicalResponse>("/api/admin/armory?cat=medical");
 export const syncMedicalArmory = () => postJson<ArmoryMedicalResponse>("/api/admin/armory/sync?cat=medical");
+export const saveMedicalStockSetting = (id: number, threshold: number, enabled: boolean) =>
+  postJson<ArmoryMedicalResponse>("/api/admin/armory/medical/stock", { id, threshold, enabled });

@@ -253,6 +253,7 @@ export function DiscordAdminControls({
       : null,
     deliveryAlertRow("target_travel_tracker"),
     deliveryAlertRow("home_travel_tracker"),
+    deliveryAlertRow("item_stock_low"),
     enemyScoutingReportAlert
       ? {
           kind: "alert",

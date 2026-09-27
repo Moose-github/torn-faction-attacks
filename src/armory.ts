@@ -4,6 +4,7 @@ import { fetchTrackedTornResponse } from "./external/torn";
 import { readExternalJson } from "./external/http";
 import type { Env } from "./types";
 import { json } from "./utils";
+import { medicalStockRows, medicalStockSettings, sendMedicalStockAlert } from "./armoryStock";
 
 const HOUR = 3600;
 const now = () => Math.floor(Date.now() / 1000);
@@ -116,6 +117,7 @@ type State = {
   inventory_failures: number; inventory_error: string | null; details_blocked_until: number;
   details_error: string | null; lease_until: number; details_refresh_at: number;
   source_json: string | null;
+  stock_settings_json: string; stock_alert_next_at: number;
 };
 const OWNED = "EXISTS (SELECT 1 FROM faction_armory_state WHERE faction_id = ? AND category = ? AND lease_token = ?)";
 const DETAIL_JOIN = `LEFT JOIN armory_weapon_details d ON d.uid = i.uid AND d.model_id = i.model_id AND d.payload_version = 1
@@ -176,8 +178,11 @@ export async function readMedicalArmory(env: Env): Promise<ArmoryMedicalResponse
   let items: ArmoryStack[] = [], error = current?.inventory_error ?? null;
   try { if (current?.source_json) items = parseMedicalInventory(JSON.parse(current.source_json)).items; }
   catch { error = "The saved medical inventory could not be read. Please refresh inventory."; }
+  const settings = medicalStockSettings(current?.stock_settings_json, items);
+  if (current?.inventory_timestamp) items = medicalStockRows(items, settings);
   const nextInventory = inventoryDueAt(current ?? undefined);
-  return { ok: true, items, inventory_timestamp: current?.inventory_timestamp ?? null, checked_at: current?.checked_at ?? null,
+  return { ok: true, items, stock_settings: Object.fromEntries(Object.entries(settings).map(([id, { alerted: _alerted, ...setting }]) => [id, setting])),
+    inventory_timestamp: current?.inventory_timestamp ?? null, checked_at: current?.checked_at ?? null,
     next_inventory_at: nextInventory, next_sync_at: Math.max(current?.lease_until ?? 0, nextInventory),
     syncing: (current?.lease_until ?? 0) > now(), pending: 0, refreshing: 0,
     error: error ?? (partialInventory(current ?? undefined) ? "The saved medical inventory is incomplete; a full refresh is queued." : null) };
@@ -297,9 +302,14 @@ async function saveInventory(env: Env, token: string, payload: unknown, previous
   if (previous.inventory_timestamp !== null && inventory.timestamp < previous.inventory_timestamp) throw new Error("Older snapshot");
   if (category === "medical") {
     // Persist only the latest quantity/borrower snapshot; no UIDs, detail calls or loan timestamps.
+    let priorItems: ArmoryStack[] = [];
+    try { if (previous.source_json) priorItems = parseMedicalInventory(JSON.parse(previous.source_json)).items; }
+    catch { /* A damaged old cache must not prevent a valid replacement. */ }
+    const settings = medicalStockSettings(previous.stock_settings_json, [...priorItems, ...inventory.items as ArmoryStack[]]);
     await env.DB.prepare(`UPDATE faction_armory_state SET inventory_timestamp = ?, checked_at = ?, next_inventory_at = ?,
-      inventory_failures = 0, inventory_error = NULL, source_json = ? WHERE faction_id = ? AND category = ? AND lease_token = ?`)
-      .bind(inventory.timestamp, now(), now() + HOUR, JSON.stringify(payload), HOME_FACTION_ID, category, token).run();
+      inventory_failures = 0, inventory_error = NULL, stock_alert_next_at = 0, stock_settings_json = ?, source_json = ?
+      WHERE faction_id = ? AND category = ? AND lease_token = ?`)
+      .bind(inventory.timestamp, now(), now() + HOUR, JSON.stringify(settings), JSON.stringify(payload), HOME_FACTION_ID, category, token).run();
     return;
   }
   const copyJson = JSON.stringify(inventory.items);
@@ -353,7 +363,10 @@ export async function syncArmory(env: Env, category: ArmoryInventoryCategory = "
         if (fail.halt) return await finishArmory(env, token, category);
       }
     }
-    if (category === "medical") return await finishArmory(env, token, category);
+    if (category === "medical") {
+      await checkMedicalStockAlerts(env, token);
+      return await finishArmory(env, token, category);
+    }
     if (((await state(env, category))?.details_blocked_until ?? 0) > now()) return await finishArmory(env, token, category);
     // Renew between bounded network requests, including after a multi-page inventory fetch.
     for (let batch = 0; batch < 4; batch++) {
@@ -424,4 +437,75 @@ export async function refreshArmoryDetails(env: Env, category: ArmoryCategory = 
     }
   } finally { await release(env, token, category); }
   return getArmory(env, category);
+}
+
+// Cron checks the persisted due time every minute; Torn is fetched at most hourly on success.
+// Both page refreshes and cron use the same category lease, cache and error backoff.
+export async function runMedicalArmoryCron(env: Env): Promise<void> {
+  const current = await state(env, "medical");
+  if ((current?.lease_until ?? 0) > now()) return;
+  const inventoryDue = inventoryDueAt(current ?? undefined) <= now();
+  const alertsDue = current?.source_json && !current.inventory_error && current.stock_alert_next_at <= now();
+  if (inventoryDue || alertsDue) await syncArmory(env, "medical");
+}
+
+async function checkMedicalStockAlerts(env: Env, token: string): Promise<void> {
+  const current = (await state(env, "medical"))!;
+  // Do not infer low stock or recovery from failed, incomplete or stale inventory.
+  if (!current.source_json || current.inventory_error || partialInventory(current)
+    || !current.checked_at || current.checked_at + HOUR < now() || current.stock_alert_next_at > now()) return;
+  const items = parseMedicalInventory(JSON.parse(current.source_json)).items;
+  const settings = medicalStockSettings(current.stock_settings_json, items);
+  const quantities = new Map(items.filter(item => !item.loaned).map(item => [item.id, item.amount]));
+  let retry = false;
+  const persist = () => env.DB.prepare(`UPDATE faction_armory_state SET stock_settings_json = ?, stock_alert_next_at = ?
+    WHERE faction_id = ? AND category = 'medical' AND lease_token = ?`)
+    .bind(JSON.stringify(settings), now() + (retry ? 300 : HOUR), HOME_FACTION_ID, token).run();
+  // Persist newly seen models before sending, retaining them if a later snapshot omits them.
+  await persist();
+  for (const [id, setting] of Object.entries(settings)) {
+    const amount = quantities.get(Number(id)) ?? 0;
+    if (!setting.enabled || amount > setting.threshold) {
+      setting.alerted = false;
+      continue;
+    }
+    if (setting.alerted) continue;
+    if (!await renewLease(env, token, "medical")) return;
+    try {
+      setting.alerted = await sendMedicalStockAlert(env, setting.name, amount, setting.threshold);
+    } catch (error) {
+      console.error(`Medical stock alert failed for item ${id}:`, error instanceof Error ? error.message : error);
+    }
+    if (!setting.alerted) retry = true;
+    // Save delivery immediately so another failed alert does not repeat successful messages.
+    await persist();
+  }
+  await persist();
+}
+
+export async function updateMedicalStockSetting(request: Request, env: Env): Promise<Response> {
+  let body: Record<string, unknown>;
+  try { body = object(await request.json()); }
+  catch { return json({ ok: false, error: "Enter a valid item and stock threshold." }, 400); }
+  if (typeof body.id !== "number" || !Number.isSafeInteger(body.id) || body.id <= 0
+    || typeof body.threshold !== "number" || !Number.isSafeInteger(body.threshold) || body.threshold < 0
+    || typeof body.enabled !== "boolean") {
+    return json({ ok: false, error: "Threshold must be a whole number of 0 or more, with an enabled toggle." }, 400);
+  }
+  const token = await acquire(env, "medical");
+  if (!token) return json({ ok: false, error: "Inventory is being refreshed. Please save again in a moment." }, 409);
+  try {
+    const current = (await state(env, "medical"))!;
+    const items = current.source_json ? parseMedicalInventory(JSON.parse(current.source_json)).items : [];
+    const settings = medicalStockSettings(current.stock_settings_json, items), setting = settings[body.id];
+    if (!setting) return json({ ok: false, error: "Unknown medical item." }, 404);
+    if (setting.threshold !== body.threshold || setting.enabled !== body.enabled) {
+      // A changed rule starts a fresh evaluation, including when enabled while already low.
+      setting.threshold = body.threshold; setting.enabled = body.enabled; setting.alerted = false;
+    }
+    await env.DB.prepare(`UPDATE faction_armory_state SET stock_settings_json = ?, stock_alert_next_at = 0
+      WHERE faction_id = ? AND category = 'medical' AND lease_token = ?`)
+      .bind(JSON.stringify(settings), HOME_FACTION_ID, token).run();
+  } finally { await release(env, token, "medical"); }
+  return getArmory(env, "medical");
 }
