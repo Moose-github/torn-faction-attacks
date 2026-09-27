@@ -1,10 +1,22 @@
 import { describe, expect, it } from "vitest";
 import type { ArmoryCopy } from "../../../shared/armory";
-import { armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, weaponClass } from "./armory";
-const copy = (uid: string, special = false): ArmoryCopy => ({ uid, id: 399, name: "ArmaLite M-15A4", type: "Primary", loaned: null,
+import { armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass } from "./armory";
+const copy = (uid: string, special = false): ArmoryCopy => ({ uid, id: 399, name: "ArmaLite M-15A4", type: "Primary", loaned: null, loan_first_seen_at: null,
   details: { uid, id: 399, name: "ArmaLite M-15A4", type: "Weapon", sub_type: "Rifle", stats: { damage: 70, accuracy: 60, quality: 20 },
     bonuses: special ? [{ id: 50, title: "Achilles", value: 52, description: "52% increased Foot damage" }] : [], rarity: special ? "yellow" : null } });
 describe("armory display", () => {
+  it("formats observed loan age at minute, hour and day boundaries", () => {
+    expect(loanElapsed(1000, 999)).toBe("Less than a minute");
+    expect(loanElapsed(1000, 1060)).toBe("1m");
+    expect(loanElapsed(1000, 4660)).toBe("1h 1m");
+    expect(loanElapsed(1000, 1000 + 2 * 86400 + 3 * 3600)).toBe("2d 3h");
+  });
+  it("exports the current loan observation without inventing dates for untracked or available copies", () => {
+    const item = { ...copy("1", true), loaned: { id: 1, name: "Borrower" }, loan_first_seen_at: 1790467200 };
+    expect(armoryCsv([item])).toContain(new Date(1790467200 * 1000).toISOString());
+    expect(armoryCsv([{ ...item, loaned: null }])).not.toContain(new Date(1790467200 * 1000).toISOString());
+    expect(armoryCsv([{ ...item, loan_first_seen_at: null }])).not.toContain("1970-");
+  });
   it("groups only verified standard copies while keeping each special and pending UID distinct", () => {
     const pending = { ...copy("5"), details: null };
     const groups = groupArmory([copy("1"), copy("2"), copy("3", true), copy("4", true), pending], false, "name");

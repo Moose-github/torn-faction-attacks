@@ -10,6 +10,10 @@ The existing `TORN_API_KEY` binding must have Limited access and the home factio
 
 ## Inventory and detail refresh
 
+Current loans have a persistent `loan_first_seen_at` per weapon UID and borrower ID. It starts at the first successful fetch that observes the loan, including for existing loans after migration 0165. The timestamp survives refreshes, detail enrichment and borrower renames. An observed return clears it, a new holder replaces it, and a weapon leaving the inventory removes it. Failed or rejected inventory snapshots leave it unchanged. No historical loan records are stored.
+
+Both weapon and borrower tables show **Loan first observed**, with a TCT date and elapsed time; CSV exports include the same fields. Grouped standard weapons expose dates on their individual copy rows. This is an observation time, not a checkout date: tracking happens through the existing page-driven inventory refreshes, and a return/re-loan to the same member between snapshots cannot be detected. The elapsed time describes time since observation; the inventory snapshot timestamp indicates when the holder was last confirmed.
+
 The first page visit follows inventory `_metadata.links.next` until `_metadata.total` rows have been collected, then fills a shared D1 cache in batches of up to 25 UIDs. Torn can supply next links after the last page, including on empty pages, so reaching the total ends pagination. Totals count inventory rows, not individual weapon UIDs. All pages must agree on snapshot timestamp and total, and the combined rows are validated before replacing saved inventory. A failed or incomplete page leaves the previous inventory intact. Each sync processes at most four sequential detail batches; the visible page continues until complete. Progress survives leaving the page or restarting the Worker. No armory cron was added.
 
 Inventory is fetched at most once per hour in normal use. The timestamp on the page is Torn's snapshot timestamp, while “Last checked” is the application's latest successful inventory fetch. The refresh button respects the hourly cache. Page reads every 30 seconds fetch saved D1 state, not Torn, unless sync is due.

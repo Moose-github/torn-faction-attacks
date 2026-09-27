@@ -7,6 +7,7 @@ export type ArmoryDetails = {
 export type ArmoryCopy = {
   uid: string; id: number; name: string; type: string;
   loaned: { id: number; name: string } | null;
+  loan_first_seen_at: number | null;
   details: ArmoryDetails | null;
 };
 export type ArmoryResponse = {

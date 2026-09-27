@@ -48,7 +48,7 @@ export function parseArmoryInventory(payload: unknown): { timestamp: number; ite
       const uid = armoryUid(rawUid);
       if (seen.has(uid)) throw new Error("Duplicate inventory UID");
       seen.add(uid);
-      items.push({ uid, id, name, type, loaned, details: null });
+      items.push({ uid, id, name, type, loaned, loan_first_seen_at: null, details: null });
     }
   }
   return { timestamp, items };
@@ -127,7 +127,7 @@ export async function readArmory(env: Env): Promise<ArmoryResponse> {
   ]);
   const current = metadata.results[0] as State | undefined;
   const records = rows.results as unknown as Array<{ uid: string; model_id: number; name: string; slot_type: string;
-    borrower_id: number | null; borrower_name: string | null; details_json: string | null; refetch: number; retry_at: number }>;
+    borrower_id: number | null; borrower_name: string | null; loan_first_seen_at: number | null; details_json: string | null; refetch: number; retry_at: number }>;
   let pending = 0, refreshing = 0, nextDetails = Infinity;
   const items = records.map(row => {
     let details: ArmoryDetails | null = null;
@@ -136,6 +136,7 @@ export async function readArmory(env: Env): Promise<ArmoryResponse> {
     if (row.refetch) refreshing++;
     if (!details || row.refetch) nextDetails = Math.min(nextDetails, row.retry_at);
     return { uid: row.uid, id: row.model_id, name: row.name, type: row.slot_type,
+      loan_first_seen_at: row.borrower_id === null ? null : row.loan_first_seen_at,
       loaned: row.borrower_id === null ? null : { id: row.borrower_id, name: row.borrower_name ?? String(row.borrower_id) }, details };
   });
   const nextInventory = inventoryDueAt(current);
@@ -263,11 +264,24 @@ async function saveInventory(env: Env, token: string, payload: unknown, previous
     .bind(copyJson).first();
   if (conflict) throw new Error("An inventory UID changed model ID");
   await env.DB.batch([
-    env.DB.prepare(`DELETE FROM faction_armory_inventory WHERE faction_id = ? AND ${OWNED}`).bind(HOME_FACTION_ID, HOME_FACTION_ID, token),
-    env.DB.prepare(`INSERT INTO faction_armory_inventory (faction_id, uid, model_id, name, slot_type, borrower_id, borrower_name)
+    env.DB.prepare(`INSERT INTO faction_armory_inventory (faction_id, uid, model_id, name, slot_type, borrower_id, borrower_name, loan_first_seen_at)
       SELECT ?, json_extract(value, '$.uid'), json_extract(value, '$.id'), json_extract(value, '$.name'),
-      json_extract(value, '$.type'), json_extract(value, '$.loaned.id'), json_extract(value, '$.loaned.name')
-      FROM json_each(?) WHERE ${OWNED}`).bind(HOME_FACTION_ID, copyJson, HOME_FACTION_ID, token),
+      json_extract(value, '$.type'), json_extract(value, '$.loaned.id'), json_extract(value, '$.loaned.name'),
+      CASE WHEN json_extract(value, '$.loaned.id') IS NOT NULL THEN ? ELSE NULL END
+      FROM json_each(?) WHERE ${OWNED}
+      ON CONFLICT(faction_id, uid) DO UPDATE SET
+        loan_first_seen_at = CASE
+          WHEN excluded.borrower_id IS NULL THEN NULL
+          WHEN faction_armory_inventory.borrower_id = excluded.borrower_id
+            AND faction_armory_inventory.model_id = excluded.model_id
+            THEN COALESCE(faction_armory_inventory.loan_first_seen_at, excluded.loan_first_seen_at)
+          ELSE excluded.loan_first_seen_at END,
+        model_id = excluded.model_id, name = excluded.name, slot_type = excluded.slot_type,
+        borrower_id = excluded.borrower_id, borrower_name = excluded.borrower_name`)
+      .bind(HOME_FACTION_ID, now(), copyJson, HOME_FACTION_ID, token),
+    env.DB.prepare(`DELETE FROM faction_armory_inventory WHERE faction_id = ? AND ${OWNED}
+      AND uid NOT IN (SELECT json_extract(value, '$.uid') FROM json_each(?))`)
+      .bind(HOME_FACTION_ID, HOME_FACTION_ID, token, copyJson),
     env.DB.prepare(`UPDATE faction_armory_state SET inventory_timestamp = ?, checked_at = ?, next_inventory_at = ?,
       inventory_failures = 0, inventory_error = NULL, source_json = ? WHERE faction_id = ? AND lease_token = ?`)
       .bind(inventory.timestamp, now(), now() + HOUR, JSON.stringify(payload), HOME_FACTION_ID, token),

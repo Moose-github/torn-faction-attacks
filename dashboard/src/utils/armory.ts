@@ -39,15 +39,25 @@ export function armoryCounts(items: ArmoryCopy[]) {
     borrowers: new Set(loaned.map(item => item.loaned!.id)).size,
     bonuses: items.filter(item => item.details?.bonuses.length).length };
 }
+export function loanElapsed(firstSeen: number, currentTime = Date.now() / 1000): string {
+  const minutes = Math.max(0, Math.floor((currentTime - firstSeen) / 60));
+  if (minutes < 1) return "Less than a minute";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
 export function armoryCsv(items: ArmoryCopy[]): string {
   const cell = (value: unknown) => {
     let string = String(value ?? "");
     if (/^[\s]*[=+@-]|^[\t\r\n]/.test(string)) string = `'${string}`;
     return `"${string.replace(/"/g, '""')}"`;
   };
-  return [["UID", "Model ID", "Weapon", "Slot", "Status", "Borrower ID", "Borrower", "Classification", "Rarity", "Damage", "Accuracy", "Quality %", "Bonuses"],
+  return [["UID", "Model ID", "Weapon", "Slot", "Status", "Borrower ID", "Borrower", "Classification", "Rarity", "Damage", "Accuracy", "Quality %", "Bonuses", "Loan first observed (UTC)", "Time since first observed"],
     ...items.map(item => [item.uid, item.id, item.name, item.type, item.loaned ? "Loaned" : "Available", item.loaned?.id,
       item.loaned?.name, weaponClass(item), item.details?.rarity, item.details?.stats.damage, item.details?.stats.accuracy,
-      item.details?.stats.quality, item.details?.bonuses.map(bonus => `${bonus.title} (${bonus.value}): ${bonus.description}`).join("; ")])]
+      item.details?.stats.quality, item.details?.bonuses.map(bonus => `${bonus.title} (${bonus.value}): ${bonus.description}`).join("; "),
+      item.loaned && item.loan_first_seen_at ? new Date(item.loan_first_seen_at * 1000).toISOString() : "",
+      item.loaned && item.loan_first_seen_at ? loanElapsed(item.loan_first_seen_at) : ""])]
     .map(row => row.map(cell).join(",")).join("\r\n");
 }

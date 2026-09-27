@@ -41,7 +41,9 @@
 .armory-page .armory-uid { min-height: 24px; padding: 4px 0; background: transparent; border: 0; font-size: 11px; opacity: .7; word-break: break-all; }
 .armory-page .armory-expand { background: transparent; border: 0; padding: 4px 0; text-align: left; font-weight: 650; }
 .armory-badge { display: inline-block; font-size: 11px; padding: 3px 7px; border: 1px solid rgb(128 128 128 / 28%); border-radius: 5px; text-transform: capitalize; }
-.armory-table td:last-child a { display: block; margin-top: 6px; }
+.armory-table td a { display: block; margin-top: 6px; }
+.armory-loan-time { white-space: nowrap; }
+.armory-loan-note { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
 .armory-bonus { margin-top: 8px; max-width: 230px; }
 .armory-page .armory-bonus-trigger { min-height: 28px; padding: 3px 0; border: 0; border-radius: 0; background: transparent; font-weight: 600; cursor: help; }
 .armory-bonus-tooltip { position: fixed; z-index: 1000; width: max-content; max-width: min(280px, calc(100vw - 24px)); padding: 12px 14px; border: 1px solid var(--border-solid); border-radius: var(--radius-md); background: var(--panel-bg-solid); color: var(--text-main); box-shadow: var(--shadow-panel); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }

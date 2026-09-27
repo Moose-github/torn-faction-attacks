@@ -19,7 +19,11 @@ const stock = (uids = [7443497174, 10727704270], timestamp = clock) => ({ invent
 // Real SQLite executes the production SQL, including transactions and conditional leases.
 class TestDB {
   sqlite = new DatabaseSync(":memory:");
-  constructor() { this.sqlite.exec(readFileSync(new URL("../migrations/0164_create_faction_armory.sql", import.meta.url), "utf8")); }
+  constructor() {
+    for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql"]) {
+      this.sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
+    }
+  }
   prepare(sql: string) {
     const statement = this.sqlite.prepare(sql);
     let bindings: Array<string | number | null> = [];
@@ -195,6 +199,60 @@ describe("complete inventory pagination", () => {
     await syncArmory(env);
     expect((await readArmory(env)).pending).toBe(0);
     expect((await readArmory(env)).items).toHaveLength(14);
+  });
+});
+
+describe("current loan observations", () => {
+  const loan = (id = 2332935, name = "Daz69") => ({ ...stock(),
+    inventory: stock().inventory.map(row => ({ ...row, loaned: { id, name } })) });
+  async function observe(payload: unknown, seconds: number) {
+    vi.setSystemTime((clock + seconds) * 1000);
+    db.sqlite.exec("UPDATE faction_armory_state SET next_inventory_at = 0");
+    fetcher.mockResolvedValueOnce(Response.json(payload));
+    await syncArmory(env);
+    return (await readArmory(env)).items;
+  }
+  it("starts when fetched, persists across refreshes and renames, and resets for a different holder", async () => {
+    const first = await observe(loan(), 30);
+    expect(first.every(item => item.loan_first_seen_at === clock + 30)).toBe(true);
+    expect((await observe(loan(2332935, "Renamed"), 3631))[0]).toMatchObject({
+      loaned: { id: 2332935, name: "Renamed" }, loan_first_seen_at: clock + 30 });
+    expect((await observe(loan(2, "Other"), 7232))[0].loan_first_seen_at).toBe(clock + 7232);
+  });
+  it("clears returned loans and restarts for the same borrower after return or removal", async () => {
+    await observe(loan(), 0);
+    expect((await observe(stock(), 3601)).every(item => item.loan_first_seen_at === null)).toBe(true);
+    expect((await observe(loan(), 7202))[0].loan_first_seen_at).toBe(clock + 7202);
+    expect(await observe(stock([]), 10803)).toEqual([]);
+    expect((await observe(loan(), 14404))[0].loan_first_seen_at).toBe(clock + 14404);
+  });
+  it("retains holder and time through malformed, older and failed inventory responses", async () => {
+    await observe(loan(), 0);
+    for (const payload of [stock([1, 1]), stock([], clock - 1), { error: { code: 17 } }]) {
+      const items = await observe(payload, 3601);
+      expect(items).toHaveLength(2);
+      expect(items.every(item => item.loaned?.id === 2332935 && item.loan_first_seen_at === clock)).toBe(true);
+    }
+  });
+  it("initializes legacy loans only on a successful inventory observation", async () => {
+    await observe(loan(), 0);
+    db.sqlite.exec("UPDATE faction_armory_inventory SET loan_first_seen_at = NULL");
+    expect((await readArmory(env)).items[0].loan_first_seen_at).toBeNull();
+    expect((await observe({ error: { code: 17 } }, 3601))[0].loan_first_seen_at).toBeNull();
+    expect((await observe(loan(), 7202))[0].loan_first_seen_at).toBe(clock + 7202);
+  });
+  it("tracks different copies independently before their details are known", async () => {
+    fetcher.mockImplementation(async () => Response.json({ itemdetails: [] }));
+    const payload = { ...stock(), inventory: [
+      { ...stock([7443497174]).inventory[0], loaned: { id: 1, name: "First" } },
+      stock([10727704270]).inventory[0],
+    ] };
+    const first = await observe(payload, 0);
+    expect(first.find(item => item.uid === "7443497174")).toMatchObject({ details: null, loan_first_seen_at: clock });
+    expect(first.find(item => item.uid === "10727704270")?.loan_first_seen_at).toBeNull();
+    const next = await observe(loan(1, "First"), 3601);
+    expect(next.find(item => item.uid === "7443497174")?.loan_first_seen_at).toBe(clock);
+    expect(next.find(item => item.uid === "10727704270")?.loan_first_seen_at).toBe(clock + 3601);
   });
 });
 

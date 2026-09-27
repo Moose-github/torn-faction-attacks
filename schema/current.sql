@@ -2220,6 +2220,7 @@ CREATE TABLE faction_armory_inventory (
   slot_type TEXT NOT NULL,
   borrower_id INTEGER,
   borrower_name TEXT,
+  loan_first_seen_at INTEGER,
   PRIMARY KEY (faction_id, uid)
 );
 CREATE TABLE armory_weapon_details (

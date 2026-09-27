@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Boxes, Check, Copy, Download, RefreshCw, Swords, Users, ArrowUpRight, Bomb, Target, BadgePercent } from "lucide-react";
 import { getArmory, refreshArmoryDetails, syncArmory, type ArmoryCopy, type ArmoryResponse } from "../api/armory";
 import { MetricCard } from "../components/Common";
-import { armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, weaponClass,
+import { armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass,
   type ArmoryFilters, type ArmoryGroup, type ArmorySort } from "../utils/armory";
 import "./FactionArmory.css";
 
@@ -114,6 +114,7 @@ export function FactionArmory() {
       </div><button type="button" disabled={!filtered.length} onClick={exportCsv}><Download size={15} /> Export CSV</button></div>
       <div className="armory-detail-progress" role="status">{data ? `${items.length - data.pending} of ${items.length} weapon details loaded · ${counts.bonuses} bonus weapons${data.pending ? " (partial)" : ""}` : "Loading inventory…"}
         {data?.refreshing ? ` · ${data.refreshing} detail refreshes remaining` : ""}{data?.syncing ? " · Sync in progress" : ""}</div>
+      <p className="armory-loan-note">Loan times show when we first observed the current borrower, not the checkout date. Tracking updates during inventory refreshes while this page is open; returns between checks may be missed.</p>
       <div className="armory-filters">
         <label className="armory-search">Search<input type="search" placeholder="Weapon, member or UID" value={filters.search} onChange={event => field("search", event.target.value)} /></label>
         <Filter label="Slot" value={filters.slot} onChange={value => field("slot", value)} options={["Primary", "Secondary", "Melee"]} />
@@ -166,7 +167,7 @@ function CopyUid({ uid }: { uid: string }) {
 }
 
 function WeaponTable({ groups }: { groups: ArmoryGroup[] }) {
-  return <div className="armory-table-scroll"><table className="armory-table"><thead><tr><th>Weapon</th><th>Rarity & bonuses</th><th>Stats</th><th>Qty</th><th>Availability</th></tr></thead>
+  return <div className="armory-table-scroll"><table className="armory-table"><thead><tr><th>Weapon</th><th>Rarity & bonuses</th><th>Stats</th><th>Qty</th><th>Availability</th><th>Loan first observed</th></tr></thead>
     <tbody>{groups.map(group => <WeaponRows key={group.key} group={group} />)}</tbody></table></div>;
 }
 
@@ -191,7 +192,7 @@ function WeaponRows({ group }: { group: ArmoryGroup }) {
   };
   return <><tr className="armory-group-row"><td><div className="armory-weapon"><WeaponImage item={item} /><div><button className="armory-expand" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "▾" : "▸"} {item.name}</button><small>{item.type} · Standard copies</small></div></div></td>
     <td><span className="armory-badge">Standard</span></td><td><WeaponStats damage={range("damage")} accuracy={range("accuracy")} quality={range("quality")} /></td><td>{group.items.length}</td>
-    <td><span className="armory-available">{available} available</span><small>{group.items.length - available} loaned</small></td></tr>
+    <td><span className="armory-available">{available} available</span><small>{group.items.length - available} loaned</small></td><td>{available < group.items.length ? "Expand copies" : "—"}</td></tr>
     {open ? [...group.items].sort((a, b) => a.uid.localeCompare(b.uid, undefined, { numeric: true })).map(copy => <CopyRow key={copy.uid} item={copy} child />) : null}</>;
 }
 
@@ -201,7 +202,10 @@ function CopyRow({ item, child = false }: { item: ArmoryCopy; child?: boolean })
     <td><span className="armory-badge">{kind === "pending" ? "Details pending" : item.details?.rarity ?? (kind === "standard" ? "Standard" : "Special")}</span>
       {item.details?.bonuses.map((bonus, index) => <BonusTooltip key={`${bonus.id}-${index}`} label={`${bonus.title} · ${bonus.value}`} description={bonus.description} />)}</td>
     <td><WeaponStats damage={item.details?.stats.damage.toFixed(2) ?? "—"} accuracy={item.details?.stats.accuracy.toFixed(2) ?? "—"} quality={item.details ? `${item.details.stats.quality.toFixed(2)}%` : "—"} /></td><td>1</td>
-    <td>{item.loaned ? <><span className="armory-badge">Loaned</span><a href={`https://www.torn.com/profiles.php?XID=${item.loaned.id}`} target="_blank" rel="noreferrer">{item.loaned.name} ↗</a></> : <span className="armory-available">Available</span>}</td></tr>;
+    <td>{item.loaned ? <><span className="armory-badge">Loaned</span><a href={`https://www.torn.com/profiles.php?XID=${item.loaned.id}`} target="_blank" rel="noreferrer">{item.loaned.name} ↗</a></> : <span className="armory-available">Available</span>}</td>
+    <td className="armory-loan-time">{!item.loaned ? "—" : item.loan_first_seen_at
+      ? <><time dateTime={new Date(item.loan_first_seen_at * 1000).toISOString()}>{tct(item.loan_first_seen_at)}</time><small>{loanElapsed(item.loan_first_seen_at)} since first observed</small></>
+      : <span title="Tracking starts on the next successful inventory refresh.">Awaiting observation</span>}</td></tr>;
 }
 
 function BonusTooltip({ label, description }: { label: string; description: string }) {
