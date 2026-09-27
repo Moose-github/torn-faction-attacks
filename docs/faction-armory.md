@@ -10,7 +10,7 @@ The existing `TORN_API_KEY` binding must have Limited access and the home factio
 
 ## Inventory and detail refresh
 
-The first page visit follows inventory `_metadata.links.next` until every page is fetched, then fills a shared D1 cache in batches of up to 25 UIDs. Pagination totals count inventory rows, not individual weapon UIDs. All pages must agree on snapshot timestamp and total, and the combined rows are validated before replacing saved inventory. A failed or incomplete page leaves the previous inventory intact. Each sync processes at most four sequential detail batches; the visible page continues until complete. Progress survives leaving the page or restarting the Worker. No armory cron was added.
+The first page visit follows inventory `_metadata.links.next` until `_metadata.total` rows have been collected, then fills a shared D1 cache in batches of up to 25 UIDs. Torn can supply next links after the last page, including on empty pages, so reaching the total ends pagination. Totals count inventory rows, not individual weapon UIDs. All pages must agree on snapshot timestamp and total, and the combined rows are validated before replacing saved inventory. A failed or incomplete page leaves the previous inventory intact. Each sync processes at most four sequential detail batches; the visible page continues until complete. Progress survives leaving the page or restarting the Worker. No armory cron was added.
 
 Inventory is fetched at most once per hour in normal use. The timestamp on the page is Torn's snapshot timestamp, while “Last checked” is the application's latest successful inventory fetch. The refresh button respects the hourly cache. Page reads every 30 seconds fetch saved D1 state, not Torn, unless sync is due.
 

@@ -23,23 +23,27 @@
 .armory-checkbox { display: flex; align-items: center; gap: 6px; }
 .armory-checkbox input { width: auto; }
 .armory-table-scroll { width: 100%; overflow-x: auto; }
-.armory-table { width: 100%; min-width: 960px; border-collapse: collapse; font-size: 13px; }
+.armory-table { width: 100%; min-width: 800px; border-collapse: collapse; font-size: 13px; }
 .armory-table th { text-align: left; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; opacity: .65; padding: 12px; }
 .armory-table td { border-top: 1px solid rgb(128 128 128 / 20%); padding: 14px 12px; vertical-align: middle; font-variant-numeric: tabular-nums; }
-.armory-table td:nth-child(n+3):nth-child(-n+6) { white-space: nowrap; }
+.armory-table td:nth-child(4) { white-space: nowrap; }
+.armory-stats { display: grid; gap: 6px; }
+.armory-stats > span { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+.armory-stats svg { flex-shrink: 0; color: var(--text-muted); }
+.armory-stat-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .armory-table small { display: block; margin-top: 5px; opacity: .65; }
 .armory-weapon { display: flex; align-items: center; gap: 14px; }
 .armory-art { flex: 0 0 96px; width: 96px; height: 64px; display: grid; place-items: center; }
 .armory-art img { width: 96px; height: 64px; object-fit: contain; }
-.armory-rarity-yellow img { filter: drop-shadow(0 0 7px rgb(245 212 61 / 65%)); }
-.armory-rarity-orange img { filter: drop-shadow(0 0 7px rgb(255 145 0 / 65%)); }
-.armory-rarity-red img { filter: drop-shadow(0 0 7px rgb(240 65 65 / 65%)); }
+.armory-rarity-yellow img { filter: drop-shadow(0 0 4px rgb(245 212 61)) drop-shadow(0 0 12px rgb(245 212 61 / 85%)); }
+.armory-rarity-orange img { filter: drop-shadow(0 0 4px rgb(255 145 0)) drop-shadow(0 0 12px rgb(255 145 0 / 85%)); }
+.armory-rarity-red img { filter: drop-shadow(0 0 4px rgb(240 65 65)) drop-shadow(0 0 12px rgb(240 65 65 / 85%)); }
 .armory-page .armory-uid { min-height: 24px; padding: 4px 0; background: transparent; border: 0; font-size: 11px; opacity: .7; word-break: break-all; }
 .armory-page .armory-expand { background: transparent; border: 0; padding: 4px 0; text-align: left; font-weight: 650; }
 .armory-badge { display: inline-block; font-size: 11px; padding: 3px 7px; border: 1px solid rgb(128 128 128 / 28%); border-radius: 5px; text-transform: capitalize; }
 .armory-table td:last-child a { display: block; margin-top: 6px; }
 .armory-bonus { margin-top: 8px; max-width: 230px; }
-.armory-page .armory-bonus-trigger { min-height: 28px; padding: 3px 0; border: 0; border-radius: 0; border-bottom: 1px dotted var(--text-muted); background: transparent; font-weight: 600; cursor: help; }
+.armory-page .armory-bonus-trigger { min-height: 28px; padding: 3px 0; border: 0; border-radius: 0; background: transparent; font-weight: 600; cursor: help; }
 .armory-bonus-tooltip { position: fixed; z-index: 1000; width: max-content; max-width: min(280px, calc(100vw - 24px)); padding: 12px 14px; border: 1px solid var(--border-solid); border-radius: var(--radius-md); background: var(--panel-bg-solid); color: var(--text-main); box-shadow: var(--shadow-panel); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .armory-available { color: var(--success, #449f7b); }
 .armory-copy-child { background: rgb(128 128 128 / 5%); }

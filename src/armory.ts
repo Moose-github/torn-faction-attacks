@@ -224,12 +224,18 @@ async function fetchCompleteInventory(env: Env, token: string): Promise<unknown>
     if (total !== null && total !== pageTotal) throw new Error("Inventory total changed between pages");
     total = pageTotal;
     if (inventory.length > total) throw new Error("Inventory exceeds pagination total");
+    // Torn can emit a next link even for its final (or empty) page. The reported
+    // row total is the completion condition; following those links can continue forever.
+    if (inventory.length === total) {
+      path = null;
+      continue;
+    }
     if (links.next === null) {
       if (inventory.length !== total) throw new Error("Incomplete inventory pagination");
       path = null;
       continue;
     }
-    if (!rows.length || inventory.length >= total) throw new Error("Inventory pagination made no progress");
+    if (!rows.length) throw new Error("Inventory pagination made no progress");
     const next = new URL(text(links.next), "https://api.torn.com");
     // Never forward the server key to arbitrary URLs or follow a loop/skipped page.
     if (next.origin !== "https://api.torn.com" || next.pathname !== "/v2/faction/inventory" || next.username || next.password || next.hash || next.searchParams.get("cat") !== "weapons") {

@@ -83,12 +83,12 @@ const paged = (uids: number[], total: number, next: string | null, timestamp = c
   _metadata: { total, links: { prev: null, next } } });
 
 describe("complete inventory pagination", () => {
-  it("fetches all 162 inventory rows, counting rows separately from their weapon amounts", async () => {
+  it("fetches all 162 rows and stops at the total even when Torn returns an extra next link", async () => {
     const first = JSON.parse(readFileSync(new URL("./fixtures/armory-inventory.json", import.meta.url), "utf8"));
     first._metadata.total = 162;
     const second = { inventory_timestamp: first.inventory_timestamp,
       inventory: Array.from({ length: 62 }, (_, index) => stock([90000000000 + index]).inventory[0]),
-      _metadata: { total: 162, links: { prev: null, next: null } } };
+      _metadata: { total: 162, links: { prev: null, next: nextPage(200) } } };
     fetcher.mockResolvedValueOnce(Response.json(first)).mockResolvedValueOnce(Response.json(second));
     await syncArmory(env);
     const result = await readArmory(env);
@@ -102,6 +102,23 @@ describe("complete inventory pagination", () => {
     expect(inventoryCalls()).toHaveLength(2);
     await syncArmory(env);
     expect(inventoryCalls()).toHaveLength(2);
+  });
+  it("accepts an empty inventory even if Torn supplies a next link", async () => {
+    fetcher.mockResolvedValueOnce(Response.json({ inventory_timestamp: clock, inventory: [],
+      _metadata: { total: 0, links: { prev: null, next: nextPage(100) } } }));
+    await syncArmory(env);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const result = await readArmory(env);
+    expect(result.items).toEqual([]);
+    expect(result.error).toBeNull();
+  });
+  it("rejects an empty page before reaching the reported total", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(paged([1], 2, nextPage(1))))
+      .mockResolvedValueOnce(Response.json({ inventory_timestamp: clock, inventory: [],
+        _metadata: { total: 2, links: { prev: null, next: nextPage(101) } } }));
+    await syncArmory(env);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect((await readArmory(env)).inventory_timestamp).toBeNull();
   });
   it("continues beyond the second page and enriches later-page UIDs", async () => {
     fetcher.mockImplementation(async (_env, input) => {

@@ -1,6 +1,6 @@
 import React from "react";
 import { createPortal } from "react-dom";
-import { Boxes, Check, Copy, Download, RefreshCw, Swords, Users, ArrowUpRight } from "lucide-react";
+import { Boxes, Check, Copy, Download, RefreshCw, Swords, Users, ArrowUpRight, Bomb, Target, BadgePercent } from "lucide-react";
 import { getArmory, refreshArmoryDetails, syncArmory, type ArmoryCopy, type ArmoryResponse } from "../api/armory";
 import { MetricCard } from "../components/Common";
 import { armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, weaponClass,
@@ -36,13 +36,17 @@ export function FactionArmory() {
         setData(result);
         if (action === "details") setNotice(result.refreshing ? "Weapon detail refresh scheduled." : "Detail refresh is already complete or on its one-hour cooldown.");
         if (action === "inventory" && result.next_inventory_at * 1000 > Date.now()) {
-          setNotice(`Inventory is cached. Next check: ${tct(result.next_inventory_at)}.`);
+          setNotice(result.error
+            ? `The last refresh failed. Next retry: ${tct(result.next_inventory_at)}.`
+            : `Inventory is cached. Next check: ${tct(result.next_inventory_at)}.`);
         }
         if (result.next_sync_at * 1000 <= Date.now() && !document.hidden) {
           result = await syncArmory();
           if (disposed) return;
           setData(result);
+          if (!result.error) setNotice("");
         }
+        if (action === "check" && !result.error) setNotice("");
         setError(null);
         delay = Math.max(1000, Math.min(30_000, result.next_sync_at * 1000 - Date.now()));
       } catch (cause) {
@@ -162,8 +166,16 @@ function CopyUid({ uid }: { uid: string }) {
 }
 
 function WeaponTable({ groups }: { groups: ArmoryGroup[] }) {
-  return <div className="armory-table-scroll"><table className="armory-table"><thead><tr><th>Weapon</th><th>Rarity & bonuses</th><th>Damage</th><th>Accuracy</th><th>Quality</th><th>Qty</th><th>Availability / borrower</th></tr></thead>
+  return <div className="armory-table-scroll"><table className="armory-table"><thead><tr><th>Weapon</th><th>Rarity & bonuses</th><th>Stats</th><th>Qty</th><th>Availability</th></tr></thead>
     <tbody>{groups.map(group => <WeaponRows key={group.key} group={group} />)}</tbody></table></div>;
+}
+
+function WeaponStats({ damage, accuracy, quality }: { damage: string; accuracy: string; quality: string }) {
+  return <div className="armory-stats">
+    <span title="Damage"><Bomb size={14} aria-hidden="true" /><span className="armory-stat-label">Damage: </span>{damage}</span>
+    <span title="Accuracy"><Target size={14} aria-hidden="true" /><span className="armory-stat-label">Accuracy: </span>{accuracy}</span>
+    <span title="Quality"><BadgePercent size={14} aria-hidden="true" /><span className="armory-stat-label">Quality: </span>{quality}</span>
+  </div>;
 }
 
 function WeaponRows({ group }: { group: ArmoryGroup }) {
@@ -178,7 +190,7 @@ function WeaponRows({ group }: { group: ArmoryGroup }) {
     return `${min.toFixed(2)}${min !== max ? `–${max.toFixed(2)}` : ""}${stat === "quality" ? "%" : ""}`;
   };
   return <><tr className="armory-group-row"><td><div className="armory-weapon"><WeaponImage item={item} /><div><button className="armory-expand" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "▾" : "▸"} {item.name}</button><small>{item.type} · Standard copies</small></div></div></td>
-    <td><span className="armory-badge">Standard</span></td><td>{range("damage")}</td><td>{range("accuracy")}</td><td>{range("quality")}</td><td>{group.items.length}</td>
+    <td><span className="armory-badge">Standard</span></td><td><WeaponStats damage={range("damage")} accuracy={range("accuracy")} quality={range("quality")} /></td><td>{group.items.length}</td>
     <td><span className="armory-available">{available} available</span><small>{group.items.length - available} loaned</small></td></tr>
     {open ? [...group.items].sort((a, b) => a.uid.localeCompare(b.uid, undefined, { numeric: true })).map(copy => <CopyRow key={copy.uid} item={copy} child />) : null}</>;
 }
@@ -188,7 +200,7 @@ function CopyRow({ item, child = false }: { item: ArmoryCopy; child?: boolean })
   return <tr className={child ? "armory-copy-child" : undefined}><td><div className="armory-weapon"><WeaponImage item={item} /><div><strong>{item.name}</strong><small>{item.type}</small><CopyUid uid={item.uid} /></div></div></td>
     <td><span className="armory-badge">{kind === "pending" ? "Details pending" : item.details?.rarity ?? (kind === "standard" ? "Standard" : "Special")}</span>
       {item.details?.bonuses.map((bonus, index) => <BonusTooltip key={`${bonus.id}-${index}`} label={`${bonus.title} · ${bonus.value}`} description={bonus.description} />)}</td>
-    <td>{item.details?.stats.damage.toFixed(2) ?? "—"}</td><td>{item.details?.stats.accuracy.toFixed(2) ?? "—"}</td><td>{item.details ? `${item.details.stats.quality.toFixed(2)}%` : "—"}</td><td>1</td>
+    <td><WeaponStats damage={item.details?.stats.damage.toFixed(2) ?? "—"} accuracy={item.details?.stats.accuracy.toFixed(2) ?? "—"} quality={item.details ? `${item.details.stats.quality.toFixed(2)}%` : "—"} /></td><td>1</td>
     <td>{item.loaned ? <><span className="armory-badge">Loaned</span><a href={`https://www.torn.com/profiles.php?XID=${item.loaned.id}`} target="_blank" rel="noreferrer">{item.loaned.name} ↗</a></> : <span className="armory-available">Available</span>}</td></tr>;
 }
 
