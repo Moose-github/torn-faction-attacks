@@ -42,23 +42,7 @@ export async function clearEnemyLiveTrackingRows(
     .bind(warId)
     .run();
 
-  const memberSampleResult = await env.DB.prepare(
-    `
-    DELETE FROM enemy_member_activity_samples
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .run();
-
-  const factionSampleResult = await env.DB.prepare(
-    `
-    DELETE FROM enemy_faction_activity_samples
-    WHERE war_id = ?
-    `,
-  )
-    .bind(warId)
-    .run();
+  // Keep heatmap history with the scouting roster until enemy target replacement.
 
   const controlSnapshotResult = await env.DB.prepare(
     `
@@ -97,8 +81,7 @@ export async function clearEnemyLiveTrackingRows(
 
   const memberStatusRowsCleared = d1Changes(memberResult);
   const pushSnapshotRowsDeleted = d1Changes(pushSnapshotResult);
-  const enemyActivitySampleRowsDeleted =
-    d1Changes(memberSampleResult) + d1Changes(factionSampleResult);
+  const enemyActivitySampleRowsDeleted = 0;
   const controlSnapshotRowsDeleted = d1Changes(controlSnapshotResult);
   const bigHitterRowsDeleted = d1Changes(bigHitterResult);
   const pushAlertLatchesCleared = d1Changes(pushAlertResult);
@@ -107,7 +90,7 @@ export async function clearEnemyLiveTrackingRows(
   return {
     writeStatements:
       (clearMemberStatuses ? 1 : 0) +
-      5 +
+      3 +
       1 +
       (options.resetWarCheckedAt ? 1 : 0),
     changedRows:
