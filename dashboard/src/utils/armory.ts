@@ -14,8 +14,10 @@ export function filterArmory(items: ArmoryCopy[], filters: ArmoryFilters): Armor
     (!filters.bonus || item.details?.bonuses.some(bonus => bonus.title === filters.bonus)));
 }
 export type ArmoryGroup = { key: string; items: ArmoryCopy[]; grouped: boolean };
-export type ArmorySort = "name" | "available" | "loaned" | "observed" | "damage" | "accuracy" | "armor" | "quality";
+export type ArmorySort = "name" | "available" | "rarity" | "observed" | "damage" | "accuracy" | "armor" | "quality";
 export type ArmorySortDirection = "asc" | "desc";
+const rarityRank = (item: ArmoryCopy): number | null => !item.details ? null : item.details.rarity === null ? 0
+  : ({ yellow: 1, orange: 2, red: 3 } as Record<string, number>)[item.details.rarity] ?? null;
 const observedLoan = (item: ArmoryCopy): number | null => item.loaned ? item.loan_first_seen_at : null;
 export function groupArmory(items: ArmoryCopy[], individual: boolean, sort: ArmorySort, direction: ArmorySortDirection = "asc"): ArmoryGroup[] {
   const multiplier = direction === "asc" ? 1 : -1;
@@ -35,7 +37,7 @@ export function groupArmory(items: ArmoryCopy[], individual: boolean, sort: Armo
       a.uid.localeCompare(b.uid, undefined, { numeric: true }));
   }
   const value = (group: ArmoryGroup): number | null => sort === "available" ? group.items.filter(item => !item.loaned).length
-    : sort === "loaned" ? group.items.filter(item => item.loaned).length
+    : sort === "rarity" ? rarityRank(group.items[0])
     : sort === "observed" ? observedLoan(group.items[0])
     : sort === "name" ? 0 : group.items[0].details?.stats[sort] ?? null;
   return [...groups.values()].sort((a, b) => {

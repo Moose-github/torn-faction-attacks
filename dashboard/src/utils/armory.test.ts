@@ -99,12 +99,24 @@ describe("armory display", () => {
     expect(csv).toContain("'=HYPERLINK"); expect(csv).toContain("Achilles (52)"); expect(csv).toContain("Weaken (22)");
     expect(csv.split("\r\n")).toHaveLength(2);
   });
-  it("applies direction to weapon names and loan counts", () => {
+  it.each([true, false])("sorts rarity by tier with unknowns last (individual: %s)", individual => {
+    const tier = (uid: string, rarity: string | null) => {
+      const item = copy(uid);
+      item.details!.rarity = rarity;
+      return item;
+    };
+    const items = [tier("1", "orange"), tier("2", null), tier("3", "red"), tier("4", "yellow"),
+      { ...copy("5"), details: null }, tier("6", "future rarity"), tier("7", null)];
+    const ids = (direction: "asc" | "desc") => groupArmory(items, individual, "rarity", direction).flatMap(group => group.items.map(item => item.uid));
+    expect(ids("asc")).toEqual(["2", "7", "4", "1", "3", "5", "6"]);
+    expect(ids("desc")).toEqual(["3", "1", "4", "2", "7", "5", "6"]);
+  });
+  it("applies direction to weapon names and available counts", () => {
     const items = [{ ...copy("1", true), name: "Zulu" }, { ...copy("2", true), name: "Alpha", loaned: { id: 1, name: "Borrower" } }];
-    const ids = (sort: "name" | "loaned", direction: "asc" | "desc") => groupArmory(items, true, sort, direction).map(group => group.items[0].uid);
+    const ids = (sort: "name" | "available", direction: "asc" | "desc") => groupArmory(items, true, sort, direction).map(group => group.items[0].uid);
     expect(ids("name", "asc")).toEqual(["2", "1"]);
     expect(ids("name", "desc")).toEqual(["1", "2"]);
-    expect(ids("loaned", "asc")).toEqual(["1", "2"]);
-    expect(ids("loaned", "desc")).toEqual(["2", "1"]);
+    expect(ids("available", "asc")).toEqual(["2", "1"]);
+    expect(ids("available", "desc")).toEqual(["1", "2"]);
   });
 });

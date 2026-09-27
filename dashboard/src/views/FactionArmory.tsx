@@ -40,6 +40,8 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
   const [individual, setIndividual] = React.useState(false);
   const [sort, setSort] = React.useState<ArmorySort>("name");
   const [sortDirection, setSortDirection] = React.useState<ArmorySortDirection>("asc");
+  const [borrowerSort, setBorrowerSort] = React.useState<"name" | "count">("name");
+  const [borrowerSortDirection, setBorrowerSortDirection] = React.useState<ArmorySortDirection>("asc");
   const run = React.useRef<(action: Action) => void>(() => {});
 
   React.useEffect(() => {
@@ -139,7 +141,7 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
       <p className="armory-loan-note">Loan times show when we first observed the current borrower, not the checkout date. Tracking updates during inventory refreshes while this page is open; returns between checks may be missed.</p>
       <div className="armory-filters">
         <label className="armory-search">Search<input type="search" placeholder={`${itemLabel}, member or UID`} value={filters.search} onChange={event => field("search", event.target.value)} /></label>
-        <Filter label="Slot" value={filters.slot} onChange={value => field("slot", value)} options={slots} />
+        {!isArmor ? <Filter label="Slot" value={filters.slot} onChange={value => field("slot", value)} options={slots} /> : null}
         <Filter label="Availability" value={filters.status} onChange={value => field("status", value)} options={["available", "loaned"]} />
         <Filter label={`${itemLabel} class`} value={filters.kind} onChange={value => field("kind", value)} options={["standard", "special", "pending"]} />
         <Filter label="Rarity" value={filters.rarity} onChange={value => field("rarity", value)} options={[...new Set(items.flatMap(item => item.details?.rarity ? [item.details.rarity] : []))].sort()} />
@@ -148,17 +150,23 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
       <div className="armory-toolbar armory-results"><span>{tab === "weapons" ? `${filtered.length} matching ${plural}` : `${borrowers.size} matching borrowers`} · Full inventory totals above</span>
         <div className="armory-actions"><button type="button" onClick={() => setFilters(EMPTY_ARMORY_FILTERS)}>Clear filters</button>
           {tab === "weapons" ? <><label className="armory-checkbox"><input type="checkbox" checked={individual} onChange={event => { setIndividual(event.target.checked); setSort("name"); }} /> Show individual copies</label>
-            <label>Sort <select value={sort} onChange={event => setSort(event.target.value as ArmorySort)}><option value="name">{itemLabel} name</option><option value="available">Available</option><option value="loaned">Loaned</option>
+            <label>Sort <select value={sort} onChange={event => setSort(event.target.value as ArmorySort)}><option value="name">{itemLabel} name</option><option value="available">Available</option><option value="rarity">Rarity</option>
               <option value="observed">Observed loan time</option>
               {individual ? <>{isArmor ? <option value="armor">Armor</option> : <><option value="damage">Damage</option><option value="accuracy">Accuracy</option></>}<option value="quality">Quality</option></> : null}</select></label>
-            <label>Order <select value={sortDirection} onChange={event => setSortDirection(event.target.value as ArmorySortDirection)}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label></> : null}
+            <label>Order <select value={sortDirection} onChange={event => setSortDirection(event.target.value as ArmorySortDirection)}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label></>
+            : <><label>Sort <select value={borrowerSort} onChange={event => setBorrowerSort(event.target.value as "name" | "count")}><option value="name">Borrower name</option><option value="count">Items borrowed</option></select></label>
+              <label>Order <select value={borrowerSortDirection} onChange={event => setBorrowerSortDirection(event.target.value as ArmorySortDirection)}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label></>}
         </div>
       </div>
       {!data ? <div className="armory-empty">{error ? "Inventory could not be loaded. Use Refresh inventory to retry." : "Loading saved inventory…"}</div>
         : !data.inventory_timestamp ? <div className="armory-empty">{busy ? "Fetching the first inventory snapshot…" : "No inventory snapshot yet. Use Refresh inventory to get started."}</div>
         : !items.length ? <div className="armory-empty">There are no {plural} in this faction inventory.</div>
         : tab === "weapons" ? groups.length ? <EquipmentTable category={category} groups={groups} /> : <div className="armory-empty">No {plural} match these filters.</div>
-        : borrowers.size ? <div className="armory-borrowers">{[...borrowers].sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([id, borrower]) => <details className="armory-borrower" key={id}>
+        : borrowers.size ? <div className="armory-borrowers">{[...borrowers].sort((a, b) => {
+          const names = a[1].name.localeCompare(b[1].name);
+          const delta = borrowerSort === "count" ? a[1].items.length - b[1].items.length : names;
+          return delta * (borrowerSortDirection === "asc" ? 1 : -1) || names || a[0] - b[0];
+        }).map(([id, borrower]) => <details className="armory-borrower" key={id}>
           <summary><strong>{borrower.name}</strong><span>{borrower.items.length} loaned</span>{slots.map(slot => <span key={slot}>{slot}: {borrower.items.filter(item => item.type === slot).length}</span>)}</summary>
           <EquipmentTable category={category} groups={groupArmory(borrower.items, true, "name")} />
         </details>)}</div> : <div className="armory-empty">No borrowers match these filters.</div>}
