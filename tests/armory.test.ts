@@ -7,8 +7,11 @@ import { sendMedicalStockAlert } from "../src/armoryStock";
 import { fetchTrackedTornResponse } from "../src/external/torn";
 import type { Env } from "../src/types";
 import { routeArmoryApi } from "../src/http/armoryRoutes";
+import { refreshArmoryActivity } from "../src/armoryActivity";
+import { refreshHomeFactionMembers } from "../src/enemyScouting";
 
 vi.mock("../src/external/torn", () => ({ fetchTrackedTornResponse: vi.fn() }));
+vi.mock("../src/enemyScouting", () => ({ refreshHomeFactionMembers: vi.fn() }));
 vi.mock("../src/armoryStock", async importOriginal => ({ ...await importOriginal<typeof import("../src/armoryStock")>(), sendMedicalStockAlert: vi.fn() }));
 const fetcher = vi.mocked(fetchTrackedTornResponse);
 const clock = 1_790_467_200;
@@ -54,6 +57,10 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(clock * 1000); fetcher.mockReset();
   vi.mocked(sendMedicalStockAlert).mockReset().mockResolvedValue(true);
   db = new TestDB(); env = { DB: db as unknown as D1Database, TORN_API_KEY: "test-placeholder" } as Env;
+  vi.mocked(refreshHomeFactionMembers).mockReset().mockImplementation(async () => {
+    db.sqlite.prepare("INSERT INTO sync_state (name, last_started) VALUES ('home_faction_status_checked_at', ?) ON CONFLICT(name) DO UPDATE SET last_started = excluded.last_started").run(Math.floor(Date.now() / 1000));
+    return [{ id: 1, name: "Borrower", level: 50 }];
+  });
   fetcher.mockImplementation(async (_env, input) => {
     const url = String(input);
     return Response.json(url.includes("inventory") ? stock() : { itemdetails: [detail(10727704270, true), detail(7443497174)] });
@@ -67,6 +74,43 @@ const armorDetail = (uid = 18059712452) => ({ id: 668, name: "Assault Boots", ui
   bonuses: [{ id: 17, title: "Impenetrable", description: "22% decreased incoming bullet damage", value: 22 }], rarity: "yellow" });
 const armorStock = (loaned: { id: number; name: string } | null = { id: 4002200, name: "Minitamark" }) => ({ inventory_timestamp: clock,
   inventory: [{ id: 668, name: "Assault Boots", type: "Defensive", amount: 1, uids: [18059712452], loaned }] });
+
+describe("manual faction activity refresh", () => {
+  it.each([299, 300, 301])("enforces the five-minute boundary at %s seconds", async age => {
+    db.sqlite.prepare("INSERT INTO sync_state (name, last_started) VALUES ('home_faction_status_checked_at', ?)").run(clock - age);
+    const result = await (await refreshArmoryActivity(env)).json();
+    expect(result).toMatchObject({ ok: true, status: age < 300 ? "cached" : "refreshed", activity_fetched_at: age < 300 ? clock - age : clock });
+    expect(refreshHomeFactionMembers).toHaveBeenCalledTimes(age < 300 ? 0 : 1);
+    expect((await readArmory(env, "armor")).activity_fetched_at).toBe(age < 300 ? clock - age : clock);
+    expect((await readMedicalArmory(env)).activity_fetched_at).toBe(age < 300 ? clock - age : clock);
+  });
+  it("allows an initial fetch and deduplicates concurrent manual requests", async () => {
+    let release!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const normal = vi.mocked(refreshHomeFactionMembers).getMockImplementation()!;
+    vi.mocked(refreshHomeFactionMembers).mockImplementation(async env => { await waiting; return normal(env); });
+    const first = refreshArmoryActivity(env);
+    const second = refreshArmoryActivity(env);
+    expect(await (await second).json()).toMatchObject({ status: "busy", activity_fetched_at: null });
+    release();
+    expect(await (await first).json()).toMatchObject({ status: "refreshed", activity_fetched_at: clock });
+    expect(refreshHomeFactionMembers).toHaveBeenCalledTimes(1);
+    expect(await (await refreshArmoryActivity(env)).json()).toMatchObject({ status: "cached" });
+  });
+  it("retains the fetch age on failure and releases the lease for retry", async () => {
+    db.sqlite.prepare("INSERT INTO sync_state (name, last_started) VALUES ('home_faction_status_checked_at', ?)").run(clock - 600);
+    vi.mocked(refreshHomeFactionMembers).mockRejectedValueOnce(new Error("Torn unavailable"));
+    expect((await refreshArmoryActivity(env)).status).toBe(503);
+    expect((await readArmory(env)).activity_fetched_at).toBe(clock - 600);
+    expect(await (await refreshArmoryActivity(env)).json()).toMatchObject({ status: "refreshed" });
+  });
+  it("does not report empty responses as refreshed and recovers expired leases", async () => {
+    db.sqlite.prepare("INSERT INTO sync_state (name, last_started) VALUES ('armory_activity_refresh_lease', ?)").run(clock - 120);
+    vi.mocked(refreshHomeFactionMembers).mockResolvedValueOnce([]);
+    expect((await refreshArmoryActivity(env)).status).toBe(503);
+    expect((await readArmory(env)).activity_fetched_at).toBeNull();
+  });
+});
 
 describe("borrower activity", () => {
   it.each(["weapons", "armor", "medical"] as const)("reads current member activity independently of the %s snapshot", async category => {
@@ -709,7 +753,7 @@ describe("current loan observations", () => {
 });
 
 describe("armory admin endpoints", () => {
-  it.each(["/api/admin/armory", "/api/admin/armory/sync", "/api/admin/armory/details/refresh", "/api/admin/armory/medical/stock"].flatMap(path => [path, `${path}?cat=armor`, `${path}?cat=medical`]))("rejects missing and member sessions for %s", async path => {
+  it.each(["/api/admin/armory", "/api/admin/armory/sync", "/api/admin/armory/details/refresh", "/api/admin/armory/medical/stock", "/api/admin/armory/activity/refresh"].flatMap(path => [path, `${path}?cat=armor`, `${path}?cat=medical`]))("rejects missing and member sessions for %s", async path => {
     db.sqlite.exec(`CREATE TABLE auth_sessions (token TEXT, torn_user_id INTEGER, access_level TEXT, expires_at INTEGER);
       CREATE TABLE home_faction_members (member_id INTEGER, name TEXT);`);
     const token = crypto.randomUUID();
@@ -721,6 +765,7 @@ describe("armory admin endpoints", () => {
       expect(response?.status).toBe(member ? 403 : 401);
     }
     expect(fetcher).not.toHaveBeenCalled();
+    expect(refreshHomeFactionMembers).not.toHaveBeenCalled();
   });
 });
 

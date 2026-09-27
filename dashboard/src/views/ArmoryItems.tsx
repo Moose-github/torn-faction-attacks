@@ -3,6 +3,7 @@ import { Boxes, RefreshCw } from "lucide-react";
 import { getMedicalArmory, syncMedicalArmory, saveMedicalStockSetting } from "../api/armory";
 import type { ArmoryMedicalResponse, ArmoryStack, ArmoryStockSetting } from "../../../shared/armory";
 import { ArmoryBorrower } from "./ArmoryBorrower";
+import { ArmoryActivityRefresh } from "./ArmoryActivityRefresh";
 
 const tct = (value: number | null) => value ? `${new Date(value * 1000).toISOString().replace("T", " ").slice(0, 19)} TCT` : "Not loaded yet";
 
@@ -70,7 +71,8 @@ export function ArmoryItems({ categoryTabs }: { categoryTabs: React.ReactNode })
       <div><div className="panel-kicker"><Boxes size={16} /> Admin · Items</div><h1>Faction armory</h1>
         <p>Medical supplies, quantities, and current loans.</p></div>
       <div className="armory-actions"><button type="button" disabled={busy} onClick={() => refresh.current()}>
-        <RefreshCw size={15} /> {busy ? "Checking…" : "Refresh inventory"}</button></div>
+        <RefreshCw size={15} /> {busy ? "Checking…" : "Refresh inventory"}</button>
+        <ArmoryActivityRefresh fetchedAt={data?.activity_fetched_at ?? null} disabled={!data || busy} onRefresh={() => refresh.current()} /></div>
       <div className="armory-freshness"><span>Snapshot: {tct(data?.inventory_timestamp ?? null)}</span>
         <span>Fetched: {tct(data?.checked_at ?? null)}</span><span>Torn updates Inventory data hourly</span></div>
     </section>

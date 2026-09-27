@@ -2,9 +2,13 @@ import { getArmory, refreshArmoryDetails, syncArmory, updateMedicalStockSetting 
 import { matchesExactRoute } from "../routes";
 import { withAdmin, type RouteContext, type RouteResult } from "./context";
 import { json } from "../utils";
+import { refreshArmoryActivity } from "../armoryActivity";
 
 export async function routeArmoryApi(context: RouteContext): Promise<RouteResult> {
   const { request, env, url } = context;
+  if (matchesExactRoute(url, request, "/api/admin/armory/activity/refresh", "POST")) {
+    return withAdmin(context, () => refreshArmoryActivity(env));
+  }
   if (matchesExactRoute(url, request, "/api/admin/armory/medical/stock", "POST")) {
     return withAdmin(context, () => updateMedicalStockSetting(request, env));
   }

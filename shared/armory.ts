@@ -22,6 +22,7 @@ export type ArmoryCopy = {
 };
 export type ArmoryResponse = {
   ok: true; items: ArmoryCopy[];
+  activity_fetched_at: number | null;
   inventory_timestamp: number | null; checked_at: number | null;
   next_inventory_at: number; next_sync_at: number; syncing: boolean;
   pending: number; refreshing: number; error: string | null;

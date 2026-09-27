@@ -5,6 +5,7 @@ import { readExternalJson } from "./external/http";
 import type { Env } from "./types";
 import { json } from "./utils";
 import { medicalStockRows, medicalStockSettings, sendMedicalStockAlert } from "./armoryStock";
+import { armoryActivityStatusQuery } from "./armoryActivity";
 
 const HOUR = 3600;
 const now = () => Math.floor(Date.now() / 1000);
@@ -168,13 +169,14 @@ function withBorrowerActivity<T extends { loaned: ArmoryBorrower | null }>(items
 
 export async function readArmory(env: Env, category: ArmoryCategory = "weapons"): Promise<ArmoryResponse> {
   // A transaction keeps metadata and inventory from different refreshes from being mixed.
-  const [metadata, rows, activity] = await env.DB.batch([
+  const [metadata, rows, activity, activityStatus] = await env.DB.batch([
     env.DB.prepare("SELECT * FROM faction_armory_state WHERE faction_id = ? AND category = ?").bind(HOME_FACTION_ID, category),
     env.DB.prepare(`SELECT i.*, d.details_json, COALESCE(f.refetch, 0) AS refetch,
     COALESCE(f.retry_at, 0) AS retry_at FROM faction_armory_inventory i ${DETAIL_JOIN}
     LEFT JOIN armory_detail_fetch_state f ON f.uid = i.uid WHERE i.faction_id = ? AND i.category = ? ORDER BY i.name, i.uid`)
     .bind(HOME_FACTION_ID, category),
     borrowerActivityQuery(env),
+    armoryActivityStatusQuery(env),
   ]);
   const current = metadata.results[0] as State | undefined;
   const records = rows.results as unknown as Array<{ uid: string; model_id: number; name: string; slot_type: string;
@@ -193,15 +195,17 @@ export async function readArmory(env: Env, category: ArmoryCategory = "weapons")
   const nextInventory = inventoryDueAt(current);
   const nextSync = Math.max(current?.lease_until ?? 0, Math.min(nextInventory, Math.max(nextDetails, current?.details_blocked_until ?? 0)));
   return { ok: true, items: withBorrowerActivity(items, activity.results as BorrowerActivityRow[]), inventory_timestamp: current?.inventory_timestamp ?? null,
+    activity_fetched_at: (activityStatus.results[0] as { activity_fetched_at: number | null }).activity_fetched_at,
     checked_at: current?.checked_at ?? null, next_inventory_at: nextInventory, next_sync_at: nextSync,
     syncing: (current?.lease_until ?? 0) > now(), pending, refreshing,
     error: current?.inventory_error ?? current?.details_error ?? (partialInventory(current) ? "The saved inventory is incomplete; a full inventory refresh is queued." : null) };
 }
 
 export async function readMedicalArmory(env: Env): Promise<ArmoryMedicalResponse> {
-  const [metadata, activity] = await env.DB.batch([
+  const [metadata, activity, activityStatus] = await env.DB.batch([
     env.DB.prepare("SELECT * FROM faction_armory_state WHERE faction_id = ? AND category = 'medical'").bind(HOME_FACTION_ID),
     borrowerActivityQuery(env),
+    armoryActivityStatusQuery(env),
   ]);
   const current = metadata.results[0] as State | undefined;
   let items: ArmoryStack[] = [], error = current?.inventory_error ?? null;
@@ -211,6 +215,7 @@ export async function readMedicalArmory(env: Env): Promise<ArmoryMedicalResponse
   if (current?.inventory_timestamp) items = medicalStockRows(items, settings);
   const nextInventory = inventoryDueAt(current ?? undefined);
   return { ok: true, items: withBorrowerActivity(items, activity.results as BorrowerActivityRow[]), stock_settings: Object.fromEntries(Object.entries(settings).map(([id, { alerted: _alerted, ...setting }]) => [id, setting])),
+    activity_fetched_at: (activityStatus.results[0] as { activity_fetched_at: number | null }).activity_fetched_at,
     inventory_timestamp: current?.inventory_timestamp ?? null, checked_at: current?.checked_at ?? null,
     next_inventory_at: nextInventory, next_sync_at: Math.max(current?.lease_until ?? 0, nextInventory),
     syncing: (current?.lease_until ?? 0) > now(), pending: 0, refreshing: 0,

@@ -1,16 +1,17 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import { Boxes, Check, Copy, Download, RefreshCw, Swords, Users, ArrowUpRight, Bomb, Target, BadgePercent, Shield } from "lucide-react";
-import { getArmory, refreshArmoryDetails, syncArmory, type ArmoryCategory, type ArmoryCopy, type ArmoryResponse } from "../api/armory";
+import { getArmory, syncArmory, type ArmoryCategory, type ArmoryCopy, type ArmoryResponse } from "../api/armory";
 import { MetricCard } from "../components/Common";
 import { armoryCounts, armoryCsv, DEFAULT_ARMORY_FILTERS, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass,
   type ArmoryFilters, type ArmoryGroup, type ArmorySort, type ArmorySortDirection } from "../utils/armory";
 import "./FactionArmory.css";
 import { ArmoryItems } from "./ArmoryItems";
 import { ArmoryBorrower } from "./ArmoryBorrower";
+import { ArmoryActivityRefresh } from "./ArmoryActivityRefresh";
 
 const tct = (value: number | null) => value ? `${new Date(value * 1000).toISOString().replace("T", " ").slice(0, 19)} TCT` : "Not loaded yet";
-type Action = "check" | "inventory" | "details";
+type Action = "check" | "inventory";
 
 export function FactionArmory() {
   const [category, setCategory] = React.useState<ArmoryCategory | "items">("weapons");
@@ -54,10 +55,9 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
       setBusy(true);
       let delay = 30_000;
       try {
-        let result = action === "details" ? await refreshArmoryDetails(category) : await getArmory(category);
+        let result = await getArmory(category);
         if (disposed) return;
         setData(result);
-        if (action === "details") setNotice(result.refreshing ? "Item detail refresh scheduled." : "Detail refresh is already complete or on its one-hour cooldown.");
         if (action === "inventory" && result.next_inventory_at * 1000 > Date.now()) {
           setNotice(result.error
             ? `The last refresh failed. Next retry: ${tct(result.next_inventory_at)}.`
@@ -117,7 +117,7 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
         <p>See what is available, compare individual {plural}, and review member loans.</p></div>
       <div className="armory-actions">
         <button type="button" disabled={busy} onClick={() => run.current("inventory")}><RefreshCw size={15} /> {busy ? "Checking…" : "Refresh inventory"}</button>
-        <button type="button" disabled={busy || !items.length || !!data?.refreshing} onClick={() => run.current("details")}>Refresh {itemLabel.toLowerCase()} details</button>
+        <ArmoryActivityRefresh fetchedAt={data?.activity_fetched_at ?? null} disabled={!data || busy} onRefresh={() => run.current("check")} />
       </div>
       <div className="armory-freshness"><span>Snapshot: {tct(data?.inventory_timestamp ?? null)}{age !== null ? ` · ${Math.floor(age / 60)} min old` : ""}</span>
         <span>Fetched: {tct(data?.checked_at ?? null)}</span><span>Torn updates Inventory data hourly</span></div>
@@ -240,7 +240,7 @@ function CopyRow({ item, category, child = false }: { item: ArmoryCopy; category
     <td><EquipmentStats category={category} armor={item.details?.stats.armor?.toFixed(2) ?? "—"} damage={item.details?.stats.damage?.toFixed(2) ?? "—"} accuracy={item.details?.stats.accuracy?.toFixed(2) ?? "—"} quality={item.details ? `${item.details.stats.quality.toFixed(2)}%` : "—"} /></td><td>1</td>
     <td>{item.loaned ? <ArmoryBorrower borrower={item.loaned} /> : <span className="armory-available">Available</span>}</td>
     <td className="armory-loan-time">{!item.loaned ? "—" : item.loan_first_seen_at
-      ? <><time dateTime={new Date(item.loan_first_seen_at * 1000).toISOString()}>{tct(item.loan_first_seen_at)}</time><small>{loanElapsed(item.loan_first_seen_at)} since first observed</small></>
+      ? <>{loanElapsed(item.loan_first_seen_at)} since first observed<small><time dateTime={new Date(item.loan_first_seen_at * 1000).toISOString()}>{tct(item.loan_first_seen_at)}</time></small></>
       : <span title="Tracking starts on the next successful inventory refresh.">Awaiting observation</span>}</td></tr>;
 }
 
