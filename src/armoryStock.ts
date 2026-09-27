@@ -30,7 +30,7 @@ export async function sendMedicalStockAlert(env: Env, name: string, amount: numb
   const mentions = await readDiscordAlertMentions(env, key);
   const safeName = name.replace(/[\\`*_~|<>@]/g, "").slice(0, 180);
   return !!await upsertDiscordAlertMessage(env, key, null, formatDiscordAlertMessage(
-    `**Item stock low**\n${safeName}: **${amount.toLocaleString("en-GB")} available** (threshold: ${threshold.toLocaleString("en-GB")}).\nAvailable stock is at or below the threshold. Loaned items are excluded.`,
+    `**Item stock low**\n${safeName}: **${amount.toLocaleString("en-GB")} available** (threshold: ${threshold.toLocaleString("en-GB")}).`,
     mentions.messageSuffix,
-  ), mentions.allowedMentions ?? { users: [], roles: [] });
+  ), mentions.allowedMentions ?? { users: [], roles: [] }, { embedColor: 0xffa500 });
 }

@@ -16,14 +16,14 @@ beforeEach(() => {
   vi.mocked(readDiscordAlertMentions).mockReset().mockResolvedValue({ messageSuffix: "", allowedMentions: undefined });
 });
 
-it("uses the new route with quantities, threshold and configured mentions", async () => {
+it("sends an orange embed with quantities, threshold and configured mentions", async () => {
   expect(discordAlertRouteByKey("item_stock_low")?.name).toBe("Item stock low");
   vi.mocked(readDiscordAlertMentions).mockResolvedValue({ messageSuffix: "<@&123456>", allowedMentions: { roles: ["123456"], users: [] } });
   expect(await sendMedicalStockAlert(env, "First Aid Kit", 1000, 1000)).toBe(true);
   expect(isDiscordAlertEnabled).toHaveBeenCalledWith(env, "item_stock_low");
   expect(upsertDiscordAlertMessage).toHaveBeenCalledExactlyOnceWith(env, "item_stock_low", null,
-    "**Item stock low**\nFirst Aid Kit: **1,000 available** (threshold: 1,000).\nAvailable stock is at or below the threshold. Loaned items are excluded.\n<@&123456>",
-    { roles: ["123456"], users: [] });
+    "**Item stock low**\nFirst Aid Kit: **1,000 available** (threshold: 1,000).\n<@&123456>",
+    { roles: ["123456"], users: [] }, { embedColor: 0xffa500 });
 });
 
 it("keeps delivery pending when the global alert is off or no route/delivery confirmation exists", async () => {
