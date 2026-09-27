@@ -8,7 +8,7 @@ import {
   RETALIATION_WINDOW_SECONDS,
   SOURCE_NAME,
 } from "../constants";
-import { sendDiscordAlertMessage } from "../discordAlertDelivery";
+import { upsertDiscordAlertMessage } from "../discordAlertDelivery";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "../discordMentions";
 import { isDiscordAlertEnabled } from "../discordAlertSettings";
 import { DISCORD_ALERT_KEYS } from "../discordAlerts";
@@ -999,11 +999,13 @@ async function sendTermedWarAutoEndDiscordMessage(
       return;
     }
     const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.termedWarAutoEnd);
-    await sendDiscordAlertMessage(
+    await upsertDiscordAlertMessage(
       env,
       DISCORD_ALERT_KEYS.termedWarAutoEnd,
+      null,
       formatDiscordAlertMessage(buildTermedWarAutoEndDiscordMessage(options), mentions.messageSuffix),
       mentions.allowedMentions ?? { users: [], roles: [] },
+      { embedColor: 0x2f80ed },
     );
   } catch (err: any) {
     console.warn("Unable to send termed war auto-end Discord message:", err?.message || err);
