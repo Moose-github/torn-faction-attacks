@@ -43,7 +43,7 @@
 .armory-table td { border-top: 1px solid rgb(128 128 128 / 20%); padding: 14px 12px; vertical-align: middle; font-variant-numeric: tabular-nums; }
 .armory-table td:nth-child(4) { white-space: nowrap; }
 .armory-stats { display: grid; gap: 6px; }
-.armory-stats > span { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+.armory-page .armory-stat-trigger, .armory-page .armory-stat-trigger:hover:not(:disabled) { min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: inherit; font-weight: inherit; line-height: inherit; white-space: nowrap; cursor: help; }
 .armory-stats svg { flex-shrink: 0; color: var(--text-muted); }
 .armory-stat-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .armory-table small { display: block; margin-top: 5px; opacity: .65; }
@@ -56,11 +56,18 @@
 .armory-page .armory-uid { min-height: 24px; padding: 4px 0; background: transparent; border: 0; font-size: 11px; opacity: .7; word-break: break-all; }
 .armory-page .armory-expand { background: transparent; border: 0; padding: 4px 0; text-align: left; font-weight: 650; }
 .armory-badge { display: inline-block; font-size: 11px; padding: 3px 7px; border: 1px solid rgb(128 128 128 / 28%); border-radius: 5px; text-transform: capitalize; }
-.armory-table td a { display: block; margin-top: 6px; }
+.armory-table td a { display: block; }
 .armory-loan-time { white-space: nowrap; }
 .armory-loan-note { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
-.armory-bonus { margin-top: 8px; max-width: 230px; }
+.armory-bonus { max-width: 230px; }
+.armory-bonus + .armory-bonus, .armory-badge + .armory-bonus { margin-top: 8px; }
 .armory-page .armory-bonus-trigger { min-height: 28px; padding: 3px 0; border: 0; border-radius: 0; background: transparent; font-weight: 600; cursor: help; }
+.armory-page [data-rarity="yellow"] .armory-bonus-trigger { color: #886300; }
+.armory-page [data-rarity="orange"] .armory-bonus-trigger { color: #b45309; }
+.armory-page [data-rarity="red"] .armory-bonus-trigger { color: #c62828; }
+:root[data-theme="dark"] .armory-page [data-rarity="yellow"] .armory-bonus-trigger { color: #f5d43d; }
+:root[data-theme="dark"] .armory-page [data-rarity="orange"] .armory-bonus-trigger { color: #ff9100; }
+:root[data-theme="dark"] .armory-page [data-rarity="red"] .armory-bonus-trigger { color: #ff7070; }
 .armory-bonus-tooltip { position: fixed; z-index: 1000; width: max-content; max-width: min(280px, calc(100vw - 24px)); padding: 12px 14px; border: 1px solid var(--border-solid); border-radius: var(--radius-md); background: var(--panel-bg-solid); color: var(--text-main); box-shadow: var(--shadow-panel); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .armory-available { color: var(--success, #449f7b); }
 .armory-copy-child { background: rgb(128 128 128 / 5%); }

@@ -187,16 +187,21 @@ function CopyUid({ uid }: { uid: string }) {
 }
 
 function EquipmentTable({ groups, category }: { groups: ArmoryGroup[]; category: ArmoryCategory }) {
-  return <div className="armory-table-scroll"><table className="armory-table"><thead><tr><th>{category === "armor" ? "Armor" : "Weapon"}</th><th>Rarity & bonuses</th><th>Stats</th><th>Qty</th><th>Availability</th><th>Loan first observed</th></tr></thead>
+  return <div className="armory-table-scroll"><table className="armory-table"><thead><tr><th>{category === "armor" ? "Armor" : "Weapon"}</th><th>Bonuses</th><th>Stats</th><th>Qty</th><th>Availability</th><th>Loan first observed</th></tr></thead>
     <tbody>{groups.map(group => <EquipmentRows key={group.key} group={group} category={category} />)}</tbody></table></div>;
 }
 
 function EquipmentStats({ damage, accuracy, armor, quality, category }: { damage: string; accuracy: string; armor: string; quality: string; category: ArmoryCategory }) {
   return <div className="armory-stats">
-    {category === "armor" ? <span title="Armor"><Shield size={14} aria-hidden="true" /><span className="armory-stat-label">Armor: </span>{armor}</span> : <><span title="Damage"><Bomb size={14} aria-hidden="true" /><span className="armory-stat-label">Damage: </span>{damage}</span>
-    <span title="Accuracy"><Target size={14} aria-hidden="true" /><span className="armory-stat-label">Accuracy: </span>{accuracy}</span></>}
-    <span title="Quality"><BadgePercent size={14} aria-hidden="true" /><span className="armory-stat-label">Quality: </span>{quality}</span>
+    {category === "armor" ? <StatTooltip name="Armor" value={armor} icon={<Shield size={14} aria-hidden="true" />} />
+      : <><StatTooltip name="Damage" value={damage} icon={<Bomb size={14} aria-hidden="true" />} />
+        <StatTooltip name="Accuracy" value={accuracy} icon={<Target size={14} aria-hidden="true" />} /></>}
+    <StatTooltip name="Quality" value={quality} icon={<BadgePercent size={14} aria-hidden="true" />} />
   </div>;
+}
+
+function StatTooltip({ name, value, icon }: { name: string; value: string; icon: React.ReactNode }) {
+  return <ArmoryTooltip variant="stat" label={<>{icon}{value}</>} description={name} accessibleLabel={`${name}: ${value}`} />;
 }
 
 function EquipmentRows({ group, category }: { group: ArmoryGroup; category: ArmoryCategory }) {
@@ -219,16 +224,20 @@ function EquipmentRows({ group, category }: { group: ArmoryGroup; category: Armo
 function CopyRow({ item, category, child = false }: { item: ArmoryCopy; category: ArmoryCategory; child?: boolean }) {
   const kind = weaponClass(item);
   return <tr className={child ? "armory-copy-child" : undefined}><td><div className="armory-weapon"><EquipmentImage item={item} /><div><strong>{item.name}</strong><small>{item.type}</small><CopyUid uid={item.uid} /></div></div></td>
-    <td><span className="armory-badge">{kind === "pending" ? "Details pending" : item.details?.rarity ?? (kind === "standard" ? "Standard" : "Special")}</span>
-      {item.details?.bonuses.map((bonus, index) => <BonusTooltip key={`${bonus.id}-${index}`} label={`${bonus.title} · ${bonus.value}`} description={bonus.description} />)}</td>
+    <td data-rarity={item.details?.rarity ?? undefined}>
+      {kind === "special" ? <span className="armory-stat-label">{item.details?.rarity} rarity</span>
+        : <span className="armory-badge">{kind === "pending" ? "Details pending" : "Standard"}</span>}
+      {item.details?.bonuses.map((bonus, index) => <ArmoryTooltip key={`${bonus.id}-${index}`} label={`${bonus.title} · ${bonus.value}`} description={bonus.description} />)}</td>
     <td><EquipmentStats category={category} armor={item.details?.stats.armor?.toFixed(2) ?? "—"} damage={item.details?.stats.damage?.toFixed(2) ?? "—"} accuracy={item.details?.stats.accuracy?.toFixed(2) ?? "—"} quality={item.details ? `${item.details.stats.quality.toFixed(2)}%` : "—"} /></td><td>1</td>
-    <td>{item.loaned ? <><span className="armory-badge">Loaned</span><a href={`https://www.torn.com/profiles.php?XID=${item.loaned.id}`} target="_blank" rel="noreferrer">{item.loaned.name} ↗</a></> : <span className="armory-available">Available</span>}</td>
+    <td>{item.loaned ? <a href={`https://www.torn.com/profiles.php?XID=${item.loaned.id}`} target="_blank" rel="noreferrer">{item.loaned.name}</a> : <span className="armory-available">Available</span>}</td>
     <td className="armory-loan-time">{!item.loaned ? "—" : item.loan_first_seen_at
       ? <><time dateTime={new Date(item.loan_first_seen_at * 1000).toISOString()}>{tct(item.loan_first_seen_at)}</time><small>{loanElapsed(item.loan_first_seen_at)} since first observed</small></>
       : <span title="Tracking starts on the next successful inventory refresh.">Awaiting observation</span>}</td></tr>;
 }
 
-function BonusTooltip({ label, description }: { label: string; description: string }) {
+function ArmoryTooltip({ label, description, variant = "bonus", accessibleLabel }: {
+  label: React.ReactNode; description: string; variant?: "bonus" | "stat"; accessibleLabel?: string;
+}) {
   const id = React.useId();
   const trigger = React.useRef<HTMLButtonElement>(null);
   const tooltip = React.useRef<HTMLDivElement>(null);
@@ -263,8 +272,8 @@ function BonusTooltip({ label, description }: { label: string; description: stri
       document.removeEventListener("keydown", escape);
     };
   }, [open]);
-  return <div className="armory-bonus">
-    <button type="button" ref={trigger} className="armory-bonus-trigger" aria-describedby={open ? id : undefined}
+  return <div className={`armory-${variant}`}>
+    <button type="button" ref={trigger} className={`armory-${variant}-trigger`} aria-label={accessibleLabel} aria-describedby={open ? id : undefined}
       onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={hide} onClick={show}>{label}</button>
     {open ? createPortal(<div ref={tooltip} id={id} role="tooltip" className="armory-bonus-tooltip" style={position}
       onMouseEnter={show} onMouseLeave={leave}>{description}</div>, document.body) : null}
