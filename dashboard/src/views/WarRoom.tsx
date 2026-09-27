@@ -1055,6 +1055,8 @@ export function WarRoom({
 
         <EnemyScoutingPanel
           scouting={enemyScouting}
+          collapsed={collapsedPanels.enemyScouting ?? false}
+          onToggle={() => togglePanel("enemyScouting")}
           isLoading={isLoadingEnemyScouting}
           isRefreshing={isRefreshingEnemyScouting}
           canRefresh={canRefreshEnemyScouting}
@@ -1064,6 +1066,8 @@ export function WarRoom({
 
         <EnemyBigHittersPanel
           roster={enemyBigHitters}
+          collapsed={collapsedPanels.enemyBigHitters ?? false}
+          onToggle={() => togglePanel("enemyBigHitters")}
           scoutingMembers={enemyScouting?.members ?? []}
           isLoading={isLoadingEnemyBigHitters}
           isUpdating={isUpdatingEnemyBigHitters}
@@ -1938,6 +1942,8 @@ function HospitalMonitorLinkPanel({
 
 function EnemyBigHittersPanel({
   roster,
+  collapsed,
+  onToggle,
   scoutingMembers,
   isLoading,
   isUpdating,
@@ -1948,6 +1954,8 @@ function EnemyBigHittersPanel({
   onRemove,
 }: {
   roster: EnemyBigHittersResponse | null;
+  collapsed: boolean;
+  onToggle: () => void;
   scoutingMembers: EnemyFactionMember[];
   isLoading: boolean;
   isUpdating: boolean;
@@ -1965,40 +1973,42 @@ function EnemyBigHittersPanel({
   const selectedCandidate = candidates.find((member) => String(member.member_id) === selectedMemberId);
 
   return (
-    <section className="panel enemy-big-hitters-panel">
-      <PanelHeader
-        title="Enemy big hitters"
-        aside={isLoading ? "Loading" : `${formatNumber(bigHitters.length)} members`}
-        control={
-          canEdit ? (
-            <div className="enemy-big-hitter-controls">
-              <select
-                value={selectedMemberId}
-                onChange={(event) => onSelectedMemberIdChange(event.target.value)}
-                disabled={isUpdating || candidates.length === 0}
-                aria-label="Enemy big hitter member"
-              >
-                <option value="">Add member</option>
-                {candidates.map((member) => (
-                  <option key={member.member_id} value={member.member_id}>
-                    {member.name} ({formatBattleStats(bestBattleStats(member))})
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="icon-text-button"
-                onClick={onAdd}
-                disabled={isUpdating || !selectedCandidate}
-                title="Add selected enemy member"
-              >
-                <Plus size={15} />
-                Add
-              </button>
-            </div>
-          ) : undefined
-        }
-      />
+    <CollapsiblePanel
+      className="enemy-big-hitters-panel"
+      collapsed={collapsed}
+      onToggle={onToggle}
+      title="Enemy big hitters"
+      aside={isLoading ? "Loading" : `${formatNumber(bigHitters.length)} members`}
+      control={
+        canEdit ? (
+          <div className="enemy-big-hitter-controls">
+            <select
+              value={selectedMemberId}
+              onChange={(event) => onSelectedMemberIdChange(event.target.value)}
+              disabled={isUpdating || candidates.length === 0}
+              aria-label="Enemy big hitter member"
+            >
+              <option value="">Add member</option>
+              {candidates.map((member) => (
+                <option key={member.member_id} value={member.member_id}>
+                  {member.name} ({formatBattleStats(bestBattleStats(member))})
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="icon-text-button"
+              onClick={onAdd}
+              disabled={isUpdating || !selectedCandidate}
+              title="Add selected enemy member"
+            >
+              <Plus size={15} />
+              Add
+            </button>
+          </div>
+        ) : undefined
+      }
+    >
       <p className="panel-description">
         One-time roster initially seeded at {formatBattleStats(roster?.threshold ?? 5_000_000_000)} or higher, then maintained manually.
       </p>
@@ -2053,7 +2063,7 @@ function EnemyBigHittersPanel({
           ))}
         </StickyTable>
       )}
-    </section>
+    </CollapsiblePanel>
   );
 }
 

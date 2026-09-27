@@ -2,7 +2,7 @@ import React from "react";
 import { ArrowDown, ArrowUp, RefreshCw, Sword } from "lucide-react";
 import { EnemyFactionMember, EnemyScoutingResponse } from "../api";
 import { formatNetworth, formatNumber, formatRelativeTime } from "../utils/format";
-import { EmptyState, PanelHeader } from "./Common";
+import { CollapsiblePanel, EmptyState } from "./Common";
 import { StickyTable } from "./StickyTable";
 
 type EnemyScoutingSortKey =
@@ -23,6 +23,8 @@ type EnemyScoutingSort = {
 
 export function EnemyScoutingPanel({
   scouting,
+  collapsed,
+  onToggle,
   isLoading,
   isRefreshing,
   canRefresh,
@@ -30,6 +32,8 @@ export function EnemyScoutingPanel({
   onRefresh,
 }: {
   scouting: EnemyScoutingResponse | null;
+  collapsed: boolean;
+  onToggle: () => void;
   isLoading: boolean;
   isRefreshing: boolean;
   canRefresh: boolean;
@@ -66,27 +70,29 @@ export function EnemyScoutingPanel({
   );
 
   return (
-    <section className="panel table-panel enemy-scouting-panel">
-      <PanelHeader
-        title="Enemy faction scouting"
-        aside={isLoading ? "Loading" : `${formatNumber(members.length)} members`}
-        control={
-          <button
-            type="button"
-            className="icon-text-button"
-            onClick={onRefresh}
-            disabled={!canRefresh || isRefreshing}
-            title={
-              canRefresh
-                ? "Load or update enemy scouting data"
-                : "Admin sign in required to refresh scouting data"
-            }
-          >
-            <RefreshCw size={15} />
-            {canRefresh ? (isRefreshing ? "Refreshing" : "Refresh") : "Admin only"}
-          </button>
-        }
-      />
+    <CollapsiblePanel
+      className="table-panel enemy-scouting-panel"
+      collapsed={collapsed}
+      onToggle={onToggle}
+      title="Enemy faction scouting"
+      aside={isLoading ? "Loading" : `${formatNumber(members.length)} members`}
+      control={
+        <button
+          type="button"
+          className="icon-text-button"
+          onClick={onRefresh}
+          disabled={!canRefresh || isRefreshing}
+          title={
+            canRefresh
+              ? "Load or update enemy scouting data"
+              : "Admin sign in required to refresh scouting data"
+          }
+        >
+          <RefreshCw size={15} />
+          {canRefresh ? (isRefreshing ? "Refreshing" : "Refresh") : "Admin only"}
+        </button>
+      }
+    >
       <p className="panel-description">
         Shows the latest stored enemy roster from Torn, with FF stats, BSP stats, and networth where available.
       </p>
@@ -163,7 +169,7 @@ export function EnemyScoutingPanel({
           ))}
         </StickyTable>
       )}
-    </section>
+    </CollapsiblePanel>
   );
 }
 
