@@ -13,7 +13,7 @@
 .armory-content { padding: 20px; min-width: 0; }
 .armory-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .armory-tabs { display: flex; gap: 8px; }
-.armory-tabs button[aria-pressed="true"], .armory-special-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-strong); background: var(--panel-active-bg); }
+.armory-tabs button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-strong); background: var(--panel-active-bg); }
 .armory-detail-progress { margin: 16px 0; font-size: 13px; opacity: .8; }
 .armory-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
 .armory-filters label { display: grid; gap: 6px; font-size: 12px; flex: 1 1 120px; }

@@ -2,6 +2,7 @@ import { weaponClass, type ArmoryCopy } from "../../../shared/armory";
 export { weaponClass };
 export type ArmoryFilters = { search: string; slot: string; status: string; kind: string; rarity: string; bonus: string };
 export const EMPTY_ARMORY_FILTERS: ArmoryFilters = { search: "", slot: "", status: "", kind: "", rarity: "", bonus: "" };
+export const DEFAULT_ARMORY_FILTERS: ArmoryFilters = { ...EMPTY_ARMORY_FILTERS, kind: "special" };
 export function filterArmory(items: ArmoryCopy[], filters: ArmoryFilters): ArmoryCopy[] {
   const search = filters.search.trim().toLowerCase();
   return items.filter(item =>
@@ -13,8 +14,14 @@ export function filterArmory(items: ArmoryCopy[], filters: ArmoryFilters): Armor
     (!filters.bonus || item.details?.bonuses.some(bonus => bonus.title === filters.bonus)));
 }
 export type ArmoryGroup = { key: string; items: ArmoryCopy[]; grouped: boolean };
-export type ArmorySort = "name" | "quantity" | "available" | "loaned" | "damage" | "accuracy" | "quality";
-export function groupArmory(items: ArmoryCopy[], individual: boolean, sort: ArmorySort): ArmoryGroup[] {
+export type ArmorySort = "name" | "available" | "loaned" | "observed" | "damage" | "accuracy" | "quality";
+export type ArmorySortDirection = "asc" | "desc";
+const observedLoan = (item: ArmoryCopy): number | null => item.loaned ? item.loan_first_seen_at : null;
+export function groupArmory(items: ArmoryCopy[], individual: boolean, sort: ArmorySort, direction: ArmorySortDirection = "asc"): ArmoryGroup[] {
+  const multiplier = direction === "asc" ? 1 : -1;
+  // Missing observations and stats always follow known values in either direction.
+  const compareValues = (a: number | null, b: number | null): number =>
+    a == null ? (b == null ? 0 : 1) : b == null ? -1 : (a - b) * multiplier;
   const groups = new Map<string, ArmoryGroup>();
   for (const item of items) {
     const grouped = !individual && weaponClass(item) === "standard";
@@ -23,13 +30,18 @@ export function groupArmory(items: ArmoryCopy[], individual: boolean, sort: Armo
     group.items.push(item);
     groups.set(key, group);
   }
-  const value = (group: ArmoryGroup): number => sort === "quantity" ? group.items.length
-    : sort === "available" ? group.items.filter(item => !item.loaned).length
+  for (const group of groups.values()) {
+    group.items.sort((a, b) => (sort === "observed" ? compareValues(observedLoan(a), observedLoan(b)) : 0) ||
+      a.uid.localeCompare(b.uid, undefined, { numeric: true }));
+  }
+  const value = (group: ArmoryGroup): number | null => sort === "available" ? group.items.filter(item => !item.loaned).length
     : sort === "loaned" ? group.items.filter(item => item.loaned).length
-    : sort === "name" ? 0 : group.items[0].details?.stats[sort] ?? -Infinity;
+    : sort === "observed" ? observedLoan(group.items[0])
+    : sort === "name" ? 0 : group.items[0].details?.stats[sort] ?? null;
   return [...groups.values()].sort((a, b) => {
-    const delta = value(b) - value(a);
-    return (Number.isNaN(delta) ? 0 : delta) || a.items[0].name.localeCompare(b.items[0].name) ||
+    const names = a.items[0].name.localeCompare(b.items[0].name);
+    const delta = sort === "name" ? names * multiplier : compareValues(value(a), value(b));
+    return delta || names ||
       Number(a.grouped) - Number(b.grouped) || a.items[0].uid.localeCompare(b.items[0].uid, undefined, { numeric: true });
   });
 }

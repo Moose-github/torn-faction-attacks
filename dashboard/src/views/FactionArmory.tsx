@@ -3,8 +3,8 @@ import { createPortal } from "react-dom";
 import { Boxes, Check, Copy, Download, RefreshCw, Swords, Users, ArrowUpRight, Bomb, Target, BadgePercent } from "lucide-react";
 import { getArmory, refreshArmoryDetails, syncArmory, type ArmoryCopy, type ArmoryResponse } from "../api/armory";
 import { MetricCard } from "../components/Common";
-import { armoryCounts, armoryCsv, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass,
-  type ArmoryFilters, type ArmoryGroup, type ArmorySort } from "../utils/armory";
+import { armoryCounts, armoryCsv, DEFAULT_ARMORY_FILTERS, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass,
+  type ArmoryFilters, type ArmoryGroup, type ArmorySort, type ArmorySortDirection } from "../utils/armory";
 import "./FactionArmory.css";
 
 const tct = (value: number | null) => value ? `${new Date(value * 1000).toISOString().replace("T", " ").slice(0, 19)} TCT` : "Not loaded yet";
@@ -16,9 +16,10 @@ export function FactionArmory() {
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState("");
   const [tab, setTab] = React.useState<"weapons" | "borrowers">("weapons");
-  const [filters, setFilters] = React.useState<ArmoryFilters>(EMPTY_ARMORY_FILTERS);
+  const [filters, setFilters] = React.useState<ArmoryFilters>(DEFAULT_ARMORY_FILTERS);
   const [individual, setIndividual] = React.useState(false);
   const [sort, setSort] = React.useState<ArmorySort>("name");
+  const [sortDirection, setSortDirection] = React.useState<ArmorySortDirection>("asc");
   const run = React.useRef<(action: Action) => void>(() => {});
 
   React.useEffect(() => {
@@ -71,7 +72,7 @@ export function FactionArmory() {
   const items = data?.items ?? [];
   const counts = armoryCounts(items);
   const filtered = filterArmory(items, filters);
-  const groups = groupArmory(filtered, individual, sort);
+  const groups = groupArmory(filtered, individual, sort, sortDirection);
   const borrowers = new Map<number, { name: string; items: ArmoryCopy[] }>();
   for (const item of filtered) {
     if (!item.loaned) continue;
@@ -125,11 +126,11 @@ export function FactionArmory() {
       </div>
       <div className="armory-toolbar armory-results"><span>{tab === "weapons" ? `${filtered.length} matching weapons` : `${borrowers.size} matching borrowers`} · Full inventory totals above</span>
         <div className="armory-actions"><button type="button" onClick={() => setFilters(EMPTY_ARMORY_FILTERS)}>Clear filters</button>
-          <button type="button" className="armory-special-toggle" aria-pressed={filters.kind === "special"}
-            onClick={() => field("kind", filters.kind === "special" ? "" : "special")}>Only special weapons</button>
           {tab === "weapons" ? <><label className="armory-checkbox"><input type="checkbox" checked={individual} onChange={event => { setIndividual(event.target.checked); setSort("name"); }} /> Show individual copies</label>
-            <label>Sort <select value={sort} onChange={event => setSort(event.target.value as ArmorySort)}><option value="name">Weapon name</option><option value="quantity">Quantity ↓</option><option value="available">Available ↓</option><option value="loaned">Loaned ↓</option>
-              {individual ? <><option value="damage">Damage ↓</option><option value="accuracy">Accuracy ↓</option><option value="quality">Quality ↓</option></> : null}</select></label></> : null}
+            <label>Sort <select value={sort} onChange={event => setSort(event.target.value as ArmorySort)}><option value="name">Weapon name</option><option value="available">Available</option><option value="loaned">Loaned</option>
+              <option value="observed">Observed loan time</option>
+              {individual ? <><option value="damage">Damage</option><option value="accuracy">Accuracy</option><option value="quality">Quality</option></> : null}</select></label>
+            <label>Order <select value={sortDirection} onChange={event => setSortDirection(event.target.value as ArmorySortDirection)}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label></> : null}
         </div>
       </div>
       {!data ? <div className="armory-empty">{error ? "Inventory could not be loaded. Use Refresh inventory to retry." : "Loading saved inventory…"}</div>
@@ -193,7 +194,7 @@ function WeaponRows({ group }: { group: ArmoryGroup }) {
   return <><tr className="armory-group-row"><td><div className="armory-weapon"><WeaponImage item={item} /><div><button className="armory-expand" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "▾" : "▸"} {item.name}</button><small>{item.type} · Standard copies</small></div></div></td>
     <td><span className="armory-badge">Standard</span></td><td><WeaponStats damage={range("damage")} accuracy={range("accuracy")} quality={range("quality")} /></td><td>{group.items.length}</td>
     <td><span className="armory-available">{available} available</span><small>{group.items.length - available} loaned</small></td><td>{available < group.items.length ? "Expand copies" : "—"}</td></tr>
-    {open ? [...group.items].sort((a, b) => a.uid.localeCompare(b.uid, undefined, { numeric: true })).map(copy => <CopyRow key={copy.uid} item={copy} child />) : null}</>;
+    {open ? group.items.map(copy => <CopyRow key={copy.uid} item={copy} child />) : null}</>;
 }
 
 function CopyRow({ item, child = false }: { item: ArmoryCopy; child?: boolean }) {

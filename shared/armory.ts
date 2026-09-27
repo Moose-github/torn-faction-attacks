@@ -18,5 +18,6 @@ export type ArmoryResponse = {
 };
 export function weaponClass(item: ArmoryCopy): "standard" | "special" | "pending" {
   if (!item.details) return "pending";
-  return item.details.bonuses.length || item.details.rarity !== null ? "special" : "standard";
+  // Ordinary weapons can have built-in bonuses; rarity determines their class.
+  return item.details.rarity === null ? "standard" : "special";
 }
