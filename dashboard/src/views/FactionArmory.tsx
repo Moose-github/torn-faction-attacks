@@ -179,15 +179,17 @@ function Filter({ label, value, onChange, options }: { label: string; value: str
   return <label>{label}<select value={value} onChange={event => onChange(event.target.value)}><option value="">All</option>{options.map(option => <option key={option} value={option}>{option === "pending" ? "Details pending" : option[0].toUpperCase() + option.slice(1)}</option>)}</select></label>;
 }
 
-function EquipmentImage({ item }: { item: ArmoryCopy }) {
+function EquipmentImage({ item, category, start }: { item: ArmoryCopy; category: ArmoryCategory; start: number }) {
   const [failed, setFailed] = React.useState(false);
   const rarity = item.details?.rarity;
   const tone = ["yellow", "orange", "red"].includes(rarity ?? "") ? rarity : "none";
-  return <div className={`armory-art armory-rarity-${tone}`}>
+  return <a className={`armory-art armory-rarity-${tone}`} href={tornArmoryUrl(category, start)} target="_blank" rel="noreferrer"
+    aria-label={`View ${item.name} in Torn armory`}
+    title="View in Torn armory — position estimated from the saved inventory; ties and inventory changes may shift it.">
     {failed ? <Swords aria-label="Item image unavailable" size={28} /> : <img src={`https://www.torn.com/images/items/${item.id}/large.png`}
       srcSet={`https://www.torn.com/images/items/${item.id}/large.png 1x, https://www.torn.com/images/items/${item.id}/large@2x.png 2x`}
       width="96" height="64" alt={`${item.name}${rarity ? ` — ${rarity} rarity` : ""}`} loading="lazy" onError={() => setFailed(true)} />}
-  </div>;
+  </a>;
 }
 
 function CopyUid({ uid }: { uid: string }) {
@@ -225,6 +227,7 @@ function EquipmentRows({ group, category, tornPositions }: { group: ArmoryGroup;
   const [open, setOpen] = React.useState(false);
   const item = group.items[0];
   if (!group.grouped) return <CopyRow category={category} item={item} start={tornPositions.get(item.uid) ?? 0} />;
+  const start = Math.min(...group.items.map(copy => tornPositions.get(copy.uid) ?? 0));
   const available = group.items.filter(copy => !copy.loaned).length;
   const range = (stat: "damage" | "accuracy" | "armor" | "quality") => {
     const values = group.items.flatMap(copy => copy.details?.stats[stat] != null ? [copy.details.stats[stat]!] : []);
@@ -232,7 +235,7 @@ function EquipmentRows({ group, category, tornPositions }: { group: ArmoryGroup;
     const min = Math.min(...values), max = Math.max(...values);
     return `${min.toFixed(2)}${min !== max ? `–${max.toFixed(2)}` : ""}${stat === "quality" ? "%" : ""}`;
   };
-  return <><tr className="armory-group-row"><td><div className="armory-weapon"><EquipmentImage item={item} /><div><div className="armory-group-name"><button className="armory-expand" type="button" aria-label={`${open ? "Collapse" : "Expand"} ${item.name} copies`} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "▾" : "▸"}</button><EquipmentName name={item.name} category={category} start={Math.min(...group.items.map(copy => tornPositions.get(copy.uid) ?? 0))} /></div><small>{item.type} · Standard copies</small></div></div></td>
+  return <><tr className="armory-group-row"><td><div className="armory-weapon"><EquipmentImage item={item} category={category} start={start} /><div><div className="armory-group-name"><button className="armory-expand" type="button" aria-label={`${open ? "Collapse" : "Expand"} ${item.name} copies`} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "▾" : "▸"}</button><EquipmentName name={item.name} category={category} start={start} /></div><small>{item.type} · Standard copies</small></div></div></td>
     <td><span className="armory-badge">Standard</span></td><td><EquipmentStats category={category} armor={range("armor")} damage={range("damage")} accuracy={range("accuracy")} quality={range("quality")} /></td><td>{group.items.length}</td>
     <td><span className="armory-available">{available} available</span><small>{group.items.length - available} loaned</small></td><td>{available < group.items.length ? "Expand copies" : "—"}</td></tr>
     {open ? group.items.map(copy => <CopyRow category={category} key={copy.uid} item={copy} start={tornPositions.get(copy.uid) ?? 0} child />) : null}</>;
@@ -240,7 +243,7 @@ function EquipmentRows({ group, category, tornPositions }: { group: ArmoryGroup;
 
 function CopyRow({ item, category, start, child = false }: { item: ArmoryCopy; category: ArmoryCategory; start: number; child?: boolean }) {
   const kind = weaponClass(item);
-  return <tr className={child ? "armory-copy-child" : undefined}><td><div className="armory-weapon"><EquipmentImage item={item} /><div><strong><EquipmentName name={item.name} category={category} start={start} /></strong><small>{item.type}</small><CopyUid uid={item.uid} /></div></div></td>
+  return <tr className={child ? "armory-copy-child" : undefined}><td><div className="armory-weapon"><EquipmentImage item={item} category={category} start={start} /><div><strong><EquipmentName name={item.name} category={category} start={start} /></strong><small>{item.type}</small><CopyUid uid={item.uid} /></div></div></td>
     <td data-rarity={item.details?.rarity ?? undefined}>
       {kind === "special" ? <span className="armory-stat-label">{item.details?.rarity} rarity</span>
         : <span className="armory-badge">{kind === "pending" ? "Details pending" : "Standard"}</span>}
