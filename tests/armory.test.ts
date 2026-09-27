@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_FACTION_ID } from "../src/constants";
-import { parseArmoryDetails, parseArmoryInventory, readArmory, refreshArmoryDetails, syncArmory } from "../src/armory";
+import { parseArmoryDetails, parseArmoryInventory, parseMedicalInventory, readMedicalArmory, readArmory, refreshArmoryDetails, syncArmory } from "../src/armory";
 import { fetchTrackedTornResponse } from "../src/external/torn";
 import type { Env } from "../src/types";
 import { routeArmoryApi } from "../src/http/armoryRoutes";
@@ -20,7 +20,7 @@ const stock = (uids = [7443497174, 10727704270], timestamp = clock) => ({ invent
 class TestDB {
   sqlite = new DatabaseSync(":memory:");
   constructor() {
-    for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql", "0166_add_armory_categories.sql"]) {
+    for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql", "0166_add_armory_categories.sql", "0167_add_armory_medical.sql"]) {
       this.sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
     }
   }
@@ -155,7 +155,99 @@ describe("armor inventory and category isolation", () => {
       expect(legacy.prepare("SELECT * FROM faction_armory_inventory").get()).toMatchObject({ category: "weapons", borrower_id: 42, loan_first_seen_at: 100 });
       legacy.exec("INSERT INTO faction_armory_state (faction_id, category) VALUES (8803, 'armor')");
       expect(legacy.prepare("SELECT COUNT(*) AS count FROM faction_armory_state").get()).toEqual({ count: 2 });
+      const existingState = legacy.prepare("SELECT * FROM faction_armory_state ORDER BY category").all();
+      legacy.exec(readFileSync(new URL("../migrations/0167_add_armory_medical.sql", import.meta.url), "utf8"));
+      expect(legacy.prepare("SELECT * FROM faction_armory_state ORDER BY category").all()).toEqual(existingState);
+      expect(legacy.prepare("SELECT * FROM faction_armory_inventory").get()).toMatchObject({ category: "weapons", borrower_id: 42, loan_first_seen_at: 100 });
+      legacy.exec("INSERT INTO faction_armory_state (faction_id, category) VALUES (8803, 'medical')");
     } finally { legacy.close(); }
+  });
+});
+
+describe("medical stacks", () => {
+  const sample = () => JSON.parse(readFileSync(new URL("./fixtures/armory-medical-inventory.json", import.meta.url), "utf8"));
+  it("preserves quantities and separate available/borrowed stock without UIDs or loan dates", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(sample()));
+    await syncArmory(env, "medical");
+    const result = await readMedicalArmory(env);
+    expect(result.items).toHaveLength(16);
+    expect(result.items.reduce((sum, item) => sum + item.amount, 0)).toBe(48527);
+    expect(result.items.filter(item => item.id === 1012)).toEqual([
+      { id: 1012, name: "Blood Bag : Irradiated", type: "Medical", amount: 35, loaned: null },
+      { id: 1012, name: "Blood Bag : Irradiated", type: "Medical", amount: 1, loaned: { id: 2625483, name: "Sunjuggler" } },
+    ]);
+    expect(result).toMatchObject({ pending: 0, refreshing: 0, error: null, syncing: false });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(String(fetcher.mock.calls[0][1])).toContain("cat=medical");
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM faction_armory_inventory").get()).toEqual({ count: 0 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM armory_weapon_details").get()).toEqual({ count: 0 });
+    await syncArmory(env, "medical");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("follows all pages and combines only stacks with the same model and borrower", async () => {
+    const row = sample().inventory[6];
+    const loan = sample().inventory[7];
+    fetcher.mockResolvedValueOnce(Response.json({ inventory_timestamp: clock, inventory: [row],
+      _metadata: { total: 3, links: { next: "https://api.torn.com/v2/faction/inventory?cat=medical&limit=1&offset=1", prev: null } } }))
+      .mockResolvedValueOnce(Response.json({ inventory_timestamp: clock, inventory: [{ ...row, amount: 5 }, loan],
+        _metadata: { total: 3, links: { next: "https://api.torn.com/v2/faction/inventory?cat=medical&limit=2&offset=3", prev: null } } }));
+    await syncArmory(env, "medical");
+    expect((await readMedicalArmory(env)).items.map(item => item.amount)).toEqual([40, 1]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("replaces quantities and current loans without touching equipment snapshots", async () => {
+    await syncArmory(env);
+    const weapons = await readArmory(env);
+    fetcher.mockResolvedValueOnce(Response.json(armorStock())).mockResolvedValueOnce(Response.json({ itemdetails: armorDetail() }));
+    await syncArmory(env, "armor");
+    const armor = await readArmory(env, "armor");
+    fetcher.mockResolvedValueOnce(Response.json(sample()));
+    await syncArmory(env, "medical");
+    advance();
+    fetcher.mockResolvedValueOnce(Response.json({ ...sample(), inventory: [{ ...sample().inventory[6], amount: 36 }],
+      _metadata: { total: 1, links: { next: null, prev: null } } }));
+    await syncArmory(env, "medical");
+    expect((await readMedicalArmory(env)).items).toEqual([{ id: 1012, name: "Blood Bag : Irradiated", type: "Medical", amount: 36, loaned: null }]);
+    expect(await readArmory(env)).toEqual(weapons);
+    expect(await readArmory(env, "armor")).toEqual(armor);
+    expect(fetcher.mock.calls.filter(call => String(call[1]).includes("itemdetails"))).toHaveLength(2);
+  });
+  it("retains medical stock after malformed, older, incomplete and failed refreshes", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(sample()));
+    await syncArmory(env, "medical");
+    const original = (await readMedicalArmory(env)).items;
+    for (const payload of [
+      { ...sample(), inventory: [{ ...sample().inventory[0], amount: -1 }] },
+      { ...sample(), inventory_timestamp: clock - 1 },
+      { ...sample(), _metadata: { total: 17, links: { next: null, prev: null } } },
+      { error: { code: 17 } },
+    ]) {
+      db.sqlite.exec("UPDATE faction_armory_state SET next_inventory_at = 0 WHERE category = 'medical'");
+      fetcher.mockResolvedValueOnce(Response.json(payload));
+      await syncArmory(env, "medical");
+      const result = await readMedicalArmory(env);
+      expect(result.items).toEqual(original);
+      expect(result.error).not.toBeNull();
+    }
+  });
+  it("handles an empty stock snapshot and respects API rate limit backoff", async () => {
+    fetcher.mockResolvedValueOnce(new Response("{}", { status: 429, headers: { "Retry-After": "900" } }));
+    await syncArmory(env, "medical");
+    await syncArmory(env, "medical");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect((await readMedicalArmory(env)).next_sync_at).toBe(clock + 900);
+    vi.setSystemTime((clock + 901) * 1000);
+    fetcher.mockResolvedValueOnce(Response.json({ ...sample(), inventory: [], _metadata: { total: 0, links: { next: null, prev: null } } }));
+    await syncArmory(env, "medical");
+    expect(await readMedicalArmory(env)).toMatchObject({ items: [], error: null, pending: 0 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("validates stack counts and borrowers independently of equipment UIDs", () => {
+    for (const amount of [-1, 1.5, "12", Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => parseMedicalInventory({ ...sample(), inventory: [{ ...sample().inventory[0], amount }] })).toThrow();
+    }
+    expect(() => parseMedicalInventory({ ...sample(), inventory: [{ ...sample().inventory[0], loaned: { id: 0, name: "Invalid" } }] })).toThrow();
+    expect(() => parseArmoryInventory(sample())).toThrow();
   });
 });
 
@@ -361,7 +453,7 @@ describe("current loan observations", () => {
 });
 
 describe("armory admin endpoints", () => {
-  it.each(["/api/admin/armory", "/api/admin/armory/sync", "/api/admin/armory/details/refresh"].flatMap(path => [path, `${path}?cat=armor`]))("rejects missing and member sessions for %s", async path => {
+  it.each(["/api/admin/armory", "/api/admin/armory/sync", "/api/admin/armory/details/refresh"].flatMap(path => [path, `${path}?cat=armor`, `${path}?cat=medical`]))("rejects missing and member sessions for %s", async path => {
     db.sqlite.exec(`CREATE TABLE auth_sessions (token TEXT, torn_user_id INTEGER, access_level TEXT, expires_at INTEGER);
       CREATE TABLE home_faction_members (member_id INTEGER, name TEXT);`);
     const token = crypto.randomUUID();

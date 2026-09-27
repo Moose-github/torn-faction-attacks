@@ -24,6 +24,8 @@
 .armory-checkbox input { width: auto; }
 .armory-table-scroll { width: 100%; overflow-x: auto; }
 .armory-table { width: 100%; min-width: 800px; border-collapse: collapse; font-size: 13px; }
+.armory-items-table { min-width: 520px; }
+.armory-items-table th:nth-child(2), .armory-items-table td:nth-child(2) { text-align: right; }
 .armory-table th { text-align: left; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; opacity: .65; padding: 12px; }
 .armory-table td { border-top: 1px solid rgb(128 128 128 / 20%); padding: 14px 12px; vertical-align: middle; font-variant-numeric: tabular-nums; }
 .armory-table td:nth-child(4) { white-space: nowrap; }
@@ -56,7 +58,6 @@
 .armory-borrower { border-top: 1px solid rgb(128 128 128 / 25%); padding: 16px 0; }
 .armory-borrower > summary { cursor: pointer; padding: 8px 0; }
 .armory-borrower > summary span { display: inline-block; font-size: 12px; margin-left: 24px; opacity: .75; }
-.armory-borrower > p { font-size: 12px; }
 @media (max-width: 700px) {
   .armory-heading, .armory-content { padding: 16px; }
   .armory-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }

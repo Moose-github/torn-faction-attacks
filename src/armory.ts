@@ -1,4 +1,4 @@
-import type { ArmoryCategory, ArmoryCopy, ArmoryDetails, ArmoryResponse } from "../shared/armory";
+import type { ArmoryCategory, ArmoryInventoryCategory, ArmoryCopy, ArmoryDetails, ArmoryResponse, ArmoryMedicalResponse, ArmoryStack } from "../shared/armory";
 import { HOME_FACTION_ID } from "./constants";
 import { fetchTrackedTornResponse } from "./external/torn";
 import { readExternalJson } from "./external/http";
@@ -54,6 +54,27 @@ export function parseArmoryInventory(payload: unknown): { timestamp: number; ite
   return { timestamp, items };
 }
 
+export function parseMedicalInventory(payload: unknown): { timestamp: number; items: ArmoryStack[] } {
+  const data = object(payload), timestamp = integer(data.inventory_timestamp);
+  if (!timestamp || !Array.isArray(data.inventory)) throw new Error("Invalid medical inventory snapshot");
+  const stacks = new Map<string, ArmoryStack>();
+  for (const raw of data.inventory) {
+    const row = object(raw), id = integer(row.id), name = text(row.name), type = text(row.type), amount = integer(row.amount);
+    if (!id || type !== "Medical" || !Array.isArray(row.uids) || row.uids.length) throw new Error("Invalid medical item");
+    const borrower = row.loaned === null ? null : object(row.loaned);
+    const loaned = borrower ? { id: integer(borrower.id), name: text(borrower.name) } : null;
+    if (loaned && !loaned.id) throw new Error("Invalid borrower");
+    // Stack identity includes the current borrower, so available and loaned stock stay separate.
+    const key = `${id}:${loaned?.id ?? "available"}`;
+    const existing = stacks.get(key);
+    if (existing) {
+      if (existing.name !== name || existing.type !== type) throw new Error("Conflicting medical item");
+      existing.amount = integer(existing.amount + amount);
+    } else stacks.set(key, { id, name, type, amount, loaned });
+  }
+  return { timestamp, items: [...stacks.values()].sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id || (a.loaned?.id ?? 0) - (b.loaned?.id ?? 0)) };
+}
+
 export function parseArmoryDetail(raw: unknown): ArmoryDetails {
   const item = object(raw), stats = object(item.stats);
   if (!Array.isArray(item.bonuses) || !(item.rarity === null || typeof item.rarity === "string")) throw new Error("Incomplete item classification");
@@ -101,7 +122,7 @@ const DETAIL_JOIN = `LEFT JOIN armory_weapon_details d ON d.uid = i.uid AND d.mo
   AND json_extract(d.details_json, '$.type') = CASE WHEN i.category = 'armor' THEN 'Armor' ELSE 'Weapon' END`;
 const NEEDS_DETAILS = "(d.uid IS NULL OR COALESCE(f.refetch, 0) = 1)";
 
-async function state(env: Env, category: ArmoryCategory = "weapons"): Promise<State | null> {
+async function state(env: Env, category: ArmoryInventoryCategory = "weapons"): Promise<State | null> {
   return env.DB.prepare("SELECT * FROM faction_armory_state WHERE faction_id = ? AND category = ?").bind(HOME_FACTION_ID, category).first<State>();
 }
 
@@ -150,8 +171,20 @@ export async function readArmory(env: Env, category: ArmoryCategory = "weapons")
     error: current?.inventory_error ?? current?.details_error ?? (partialInventory(current) ? "The saved inventory is incomplete; a full inventory refresh is queued." : null) };
 }
 
-export async function getArmory(env: Env, category: ArmoryCategory = "weapons"): Promise<Response> {
-  const response = json(await readArmory(env, category));
+export async function readMedicalArmory(env: Env): Promise<ArmoryMedicalResponse> {
+  const current = await state(env, "medical");
+  let items: ArmoryStack[] = [], error = current?.inventory_error ?? null;
+  try { if (current?.source_json) items = parseMedicalInventory(JSON.parse(current.source_json)).items; }
+  catch { error = "The saved medical inventory could not be read. Please refresh inventory."; }
+  const nextInventory = inventoryDueAt(current ?? undefined);
+  return { ok: true, items, inventory_timestamp: current?.inventory_timestamp ?? null, checked_at: current?.checked_at ?? null,
+    next_inventory_at: nextInventory, next_sync_at: Math.max(current?.lease_until ?? 0, nextInventory),
+    syncing: (current?.lease_until ?? 0) > now(), pending: 0, refreshing: 0,
+    error: error ?? (partialInventory(current ?? undefined) ? "The saved medical inventory is incomplete; a full refresh is queued." : null) };
+}
+
+export async function getArmory(env: Env, category: ArmoryInventoryCategory = "weapons"): Promise<Response> {
+  const response = json(category === "medical" ? await readMedicalArmory(env) : await readArmory(env, category));
   response.headers.set("Cache-Control", "no-store");
   return response;
 }
@@ -187,7 +220,7 @@ function failure(error: unknown, attempts: number): { message: string; delay: nu
     halt: error instanceof ArmoryUpstreamError && error.halt };
 }
 
-async function acquire(env: Env, category: ArmoryCategory = "weapons"): Promise<string | null> {
+async function acquire(env: Env, category: ArmoryInventoryCategory = "weapons"): Promise<string | null> {
   await env.DB.prepare("INSERT OR IGNORE INTO faction_armory_state (faction_id, category) VALUES (?, ?)").bind(HOME_FACTION_ID, category).run();
   const token = crypto.randomUUID();
   const result = await env.DB.prepare("UPDATE faction_armory_state SET lease_token = ?, lease_until = ? WHERE faction_id = ? AND category = ? AND lease_until <= ?")
@@ -195,25 +228,25 @@ async function acquire(env: Env, category: ArmoryCategory = "weapons"): Promise<
   return result.meta.changes ? token : null;
 }
 
-async function release(env: Env, token: string, category: ArmoryCategory): Promise<void> {
+async function release(env: Env, token: string, category: ArmoryInventoryCategory): Promise<void> {
   await env.DB.prepare("UPDATE faction_armory_state SET lease_token = NULL, lease_until = 0 WHERE faction_id = ? AND category = ? AND lease_token = ?")
     .bind(HOME_FACTION_ID, category, token).run();
 }
 
-async function renewLease(env: Env, token: string, category: ArmoryCategory): Promise<boolean> {
+async function renewLease(env: Env, token: string, category: ArmoryInventoryCategory): Promise<boolean> {
   const result = await env.DB.prepare("UPDATE faction_armory_state SET lease_until = ? WHERE faction_id = ? AND category = ? AND lease_token = ?")
     .bind(now() + 120, HOME_FACTION_ID, category, token).run();
   return !!result.meta.changes;
 }
 
-async function fetchCompleteInventory(env: Env, token: string, category: ArmoryCategory): Promise<unknown> {
+async function fetchCompleteInventory(env: Env, token: string, category: ArmoryInventoryCategory): Promise<unknown> {
   let path: string | null = `faction/inventory?cat=${category}&limit=100&offset=0`;
   let timestamp: number | null = null, total: number | null = null;
   const inventory: unknown[] = [];
   while (path !== null) {
     if (!await renewLease(env, token, category)) throw new Error("Inventory sync lease was replaced");
     const page = object(await fetchArmoryData(env, path, "armory_inventory"));
-    const parsed = parseArmoryInventory(page);
+    const parsed = category === "medical" ? parseMedicalInventory(page) : parseArmoryInventory(page);
     if (timestamp !== null && timestamp !== parsed.timestamp) throw new Error("Inventory snapshot changed between pages");
     timestamp = parsed.timestamp;
     const rows = page.inventory as unknown[];
@@ -254,13 +287,21 @@ async function fetchCompleteInventory(env: Env, token: string, category: ArmoryC
   // Validate the aggregate as well, catching duplicate UIDs across pages before any replacement.
   const complete = { inventory_timestamp: timestamp, inventory,
     _metadata: { total: total ?? inventory.length, links: { prev: null, next: null } } };
-  parseArmoryInventory(complete);
+  if (category === "medical") parseMedicalInventory(complete);
+  else parseArmoryInventory(complete);
   return complete;
 }
 
-async function saveInventory(env: Env, token: string, payload: unknown, previous: State, category: ArmoryCategory): Promise<void> {
-  const inventory = parseArmoryInventory(payload);
+async function saveInventory(env: Env, token: string, payload: unknown, previous: State, category: ArmoryInventoryCategory): Promise<void> {
+  const inventory = category === "medical" ? parseMedicalInventory(payload) : parseArmoryInventory(payload);
   if (previous.inventory_timestamp !== null && inventory.timestamp < previous.inventory_timestamp) throw new Error("Older snapshot");
+  if (category === "medical") {
+    // Persist only the latest quantity/borrower snapshot; no UIDs, detail calls or loan timestamps.
+    await env.DB.prepare(`UPDATE faction_armory_state SET inventory_timestamp = ?, checked_at = ?, next_inventory_at = ?,
+      inventory_failures = 0, inventory_error = NULL, source_json = ? WHERE faction_id = ? AND category = ? AND lease_token = ?`)
+      .bind(inventory.timestamp, now(), now() + HOUR, JSON.stringify(payload), HOME_FACTION_ID, category, token).run();
+    return;
+  }
   const copyJson = JSON.stringify(inventory.items);
   const conflict = await env.DB.prepare(`SELECT d.uid FROM armory_weapon_details d JOIN json_each(?) j
     ON d.uid = json_extract(j.value, '$.uid') WHERE d.model_id != json_extract(j.value, '$.id') LIMIT 1`)
@@ -296,7 +337,7 @@ async function saveInventory(env: Env, token: string, payload: unknown, previous
   ]);
 }
 
-export async function syncArmory(env: Env, category: ArmoryCategory = "weapons"): Promise<Response> {
+export async function syncArmory(env: Env, category: ArmoryInventoryCategory = "weapons"): Promise<Response> {
   const token = await acquire(env, category);
   if (!token) return getArmory(env, category);
   try {
@@ -312,6 +353,7 @@ export async function syncArmory(env: Env, category: ArmoryCategory = "weapons")
         if (fail.halt) return await finishArmory(env, token, category);
       }
     }
+    if (category === "medical") return await finishArmory(env, token, category);
     if (((await state(env, category))?.details_blocked_until ?? 0) > now()) return await finishArmory(env, token, category);
     // Renew between bounded network requests, including after a multi-page inventory fetch.
     for (let batch = 0; batch < 4; batch++) {
@@ -358,7 +400,7 @@ export async function syncArmory(env: Env, category: ArmoryCategory = "weapons")
 }
 
 // Release before returning a snapshot so clients never wait out their own completed lease.
-async function finishArmory(env: Env, token: string, category: ArmoryCategory): Promise<Response> {
+async function finishArmory(env: Env, token: string, category: ArmoryInventoryCategory): Promise<Response> {
   await release(env, token, category);
   return getArmory(env, category);
 }

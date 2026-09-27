@@ -2200,7 +2200,7 @@ CREATE TABLE war_score_history (
 );
 CREATE TABLE faction_armory_state (
   faction_id INTEGER NOT NULL,
-  category TEXT NOT NULL DEFAULT 'weapons' CHECK (category IN ('weapons', 'armor')),
+  category TEXT NOT NULL DEFAULT 'weapons' CHECK (category IN ('weapons', 'armor', 'medical')),
   inventory_timestamp INTEGER,
   checked_at INTEGER,
   next_inventory_at INTEGER NOT NULL DEFAULT 0,

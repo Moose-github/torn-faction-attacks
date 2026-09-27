@@ -6,6 +6,7 @@ import { MetricCard } from "../components/Common";
 import { armoryCounts, armoryCsv, DEFAULT_ARMORY_FILTERS, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass,
   type ArmoryFilters, type ArmoryGroup, type ArmorySort, type ArmorySortDirection } from "../utils/armory";
 import "./FactionArmory.css";
+import { ArmoryItems } from "./ArmoryItems";
 
 const tct = (value: number | null) => value ? `${new Date(value * 1000).toISOString().replace("T", " ").slice(0, 19)} TCT` : "Not loaded yet";
 type Action = "check" | "inventory" | "details";
@@ -17,8 +18,7 @@ export function FactionArmory() {
       {(["weapons", "armor", "items"] as const).map(value => <button key={value} type="button" aria-pressed={category === value}
         onClick={() => setCategory(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}
     </div>
-    {category === "items" ? <section className="panel armory-heading"><div><div className="panel-kicker"><Boxes size={16} /> Admin · Items</div>
-      <h1>Faction armory</h1><p>Items inventory is coming later.</p></div></section>
+    {category === "items" ? <ArmoryItems />
       : <EquipmentInventory key={category} category={category} />}
   </div>;
 }
@@ -156,7 +156,6 @@ function EquipmentInventory({ category }: { category: ArmoryCategory }) {
         : tab === "weapons" ? groups.length ? <EquipmentTable category={category} groups={groups} /> : <div className="armory-empty">No {plural} match these filters.</div>
         : borrowers.size ? <div className="armory-borrowers">{[...borrowers].sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([id, borrower]) => <details className="armory-borrower" key={id}>
           <summary><strong>{borrower.name}</strong><span>{borrower.items.length} loaned</span>{slots.map(slot => <span key={slot}>{slot}: {borrower.items.filter(item => item.type === slot).length}</span>)}</summary>
-          <p><a href={`https://www.torn.com/profiles.php?XID=${id}`} target="_blank" rel="noreferrer">View {borrower.name} [{id}] on Torn ↗</a></p>
           <EquipmentTable category={category} groups={groupArmory(borrower.items, true, "name")} />
         </details>)}</div> : <div className="armory-empty">No borrowers match these filters.</div>}
     </section>

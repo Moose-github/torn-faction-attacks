@@ -1,0 +1,143 @@
+{
+  "inventory_timestamp": 1790470548,
+  "inventory": [
+    {
+      "id": 732,
+      "name": "Blood Bag : A+",
+      "type": "Medical",
+      "amount": 7134,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 733,
+      "name": "Blood Bag : A-",
+      "type": "Medical",
+      "amount": 548,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 736,
+      "name": "Blood Bag : AB+",
+      "type": "Medical",
+      "amount": 1099,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 737,
+      "name": "Blood Bag : AB-",
+      "type": "Medical",
+      "amount": 81,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 734,
+      "name": "Blood Bag : B+",
+      "type": "Medical",
+      "amount": 1132,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 735,
+      "name": "Blood Bag : B-",
+      "type": "Medical",
+      "amount": 1314,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 1012,
+      "name": "Blood Bag : Irradiated",
+      "type": "Medical",
+      "amount": 35,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 1012,
+      "name": "Blood Bag : Irradiated",
+      "type": "Medical",
+      "amount": 1,
+      "uids": [],
+      "loaned": {
+        "id": 2625483,
+        "name": "Sunjuggler"
+      }
+    },
+    {
+      "id": 738,
+      "name": "Blood Bag : O+",
+      "type": "Medical",
+      "amount": 26308,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 739,
+      "name": "Blood Bag : O-",
+      "type": "Medical",
+      "amount": 1850,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 731,
+      "name": "Empty Blood Bag",
+      "type": "Medical",
+      "amount": 8,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 67,
+      "name": "First Aid Kit",
+      "type": "Medical",
+      "amount": 4232,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 1363,
+      "name": "Ipecac Syrup",
+      "type": "Medical",
+      "amount": 1660,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 66,
+      "name": "Morphine",
+      "type": "Medical",
+      "amount": 1369,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 361,
+      "name": "Neumune Tablet",
+      "type": "Medical",
+      "amount": 33,
+      "uids": [],
+      "loaned": null
+    },
+    {
+      "id": 68,
+      "name": "Small First Aid Kit",
+      "type": "Medical",
+      "amount": 1723,
+      "uids": [],
+      "loaned": null
+    }
+  ],
+  "_metadata": {
+    "links": {
+      "prev": null,
+      "next": null
+    },
+    "total": 16
+  }
+}
