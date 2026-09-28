@@ -195,6 +195,7 @@ dist
 .wrangler/
 .env*
 !.env.example
+!dashboard/.env.production
 .dev.vars*
 !.dev.vars.example
 dashboard/dist/
