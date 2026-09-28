@@ -6,6 +6,8 @@ import type { Env } from "./types";
 import { json } from "./utils";
 import { medicalStockRows, medicalStockSettings, sendMedicalStockAlert } from "./armoryStock";
 import { armoryActivityStatusQuery } from "./armoryActivity";
+import { armoryOwnerOptionsQuery } from "./armoryOwnership";
+import type { ArmoryOwner } from "../shared/armory";
 
 const HOUR = 3600;
 const now = () => Math.floor(Date.now() / 1000);
@@ -119,6 +121,7 @@ type State = {
   details_error: string | null; lease_until: number; details_refresh_at: number;
   source_json: string | null;
   stock_settings_json: string; stock_alert_next_at: number;
+  owners_json: string;
 };
 const OWNED = "EXISTS (SELECT 1 FROM faction_armory_state WHERE faction_id = ? AND category = ? AND lease_token = ?)";
 const DETAIL_JOIN = `LEFT JOIN armory_weapon_details d ON d.uid = i.uid AND d.model_id = i.model_id AND d.payload_version = 1
@@ -169,7 +172,7 @@ function withBorrowerActivity<T extends { loaned: ArmoryBorrower | null }>(items
 
 export async function readArmory(env: Env, category: ArmoryCategory = "weapons"): Promise<ArmoryResponse> {
   // A transaction keeps metadata and inventory from different refreshes from being mixed.
-  const [metadata, rows, activity, activityStatus] = await env.DB.batch([
+  const [metadata, rows, activity, activityStatus, ownerOptions] = await env.DB.batch([
     env.DB.prepare("SELECT * FROM faction_armory_state WHERE faction_id = ? AND category = ?").bind(HOME_FACTION_ID, category),
     env.DB.prepare(`SELECT i.*, d.details_json, COALESCE(f.refetch, 0) AS refetch,
     COALESCE(f.retry_at, 0) AS retry_at FROM faction_armory_inventory i ${DETAIL_JOIN}
@@ -177,8 +180,12 @@ export async function readArmory(env: Env, category: ArmoryCategory = "weapons")
     .bind(HOME_FACTION_ID, category),
     borrowerActivityQuery(env),
     armoryActivityStatusQuery(env),
+    armoryOwnerOptionsQuery(env),
   ]);
   const current = metadata.results[0] as State | undefined;
+  const owners = JSON.parse(current?.owners_json ?? "{}") as Record<string, ArmoryOwner>;
+  const ownerChoices = ownerOptions.results as ArmoryOwner[];
+  const currentOwners = new Map(ownerChoices.map(owner => [owner.id, owner]));
   const records = rows.results as unknown as Array<{ uid: string; model_id: number; name: string; slot_type: string;
     borrower_id: number | null; borrower_name: string | null; loan_first_seen_at: number | null; details_json: string | null; refetch: number; retry_at: number }>;
   let pending = 0, refreshing = 0, nextDetails = Infinity;
@@ -189,12 +196,14 @@ export async function readArmory(env: Env, category: ArmoryCategory = "weapons")
     if (row.refetch) refreshing++;
     if (!details || row.refetch) nextDetails = Math.min(nextDetails, row.retry_at);
     return { uid: row.uid, id: row.model_id, name: row.name, type: row.slot_type,
+      owner: owners[row.uid] ? currentOwners.get(owners[row.uid].id) ?? owners[row.uid] : null,
       loan_first_seen_at: row.borrower_id === null ? null : row.loan_first_seen_at,
       loaned: row.borrower_id === null ? null : { id: row.borrower_id, name: row.borrower_name ?? String(row.borrower_id) }, details };
   });
   const nextInventory = inventoryDueAt(current);
   const nextSync = Math.max(current?.lease_until ?? 0, Math.min(nextInventory, Math.max(nextDetails, current?.details_blocked_until ?? 0)));
   return { ok: true, items: withBorrowerActivity(items, activity.results as BorrowerActivityRow[]), inventory_timestamp: current?.inventory_timestamp ?? null,
+    owner_options: ownerChoices,
     activity_fetched_at: (activityStatus.results[0] as { activity_fetched_at: number | null }).activity_fetched_at,
     checked_at: current?.checked_at ?? null, next_inventory_at: nextInventory, next_sync_at: nextSync,
     syncing: (current?.lease_until ?? 0) > now(), pending, refreshing,
@@ -215,6 +224,7 @@ export async function readMedicalArmory(env: Env): Promise<ArmoryMedicalResponse
   if (current?.inventory_timestamp) items = medicalStockRows(items, settings);
   const nextInventory = inventoryDueAt(current ?? undefined);
   return { ok: true, items: withBorrowerActivity(items, activity.results as BorrowerActivityRow[]), stock_settings: Object.fromEntries(Object.entries(settings).map(([id, { alerted: _alerted, ...setting }]) => [id, setting])),
+    owner_options: [],
     activity_fetched_at: (activityStatus.results[0] as { activity_fetched_at: number | null }).activity_fetched_at,
     inventory_timestamp: current?.inventory_timestamp ?? null, checked_at: current?.checked_at ?? null,
     next_inventory_at: nextInventory, next_sync_at: Math.max(current?.lease_until ?? 0, nextInventory),

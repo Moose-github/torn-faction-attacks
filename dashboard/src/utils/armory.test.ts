@@ -5,6 +5,13 @@ const copy = (uid: string, special = false): ArmoryCopy => ({ uid, id: 399, name
   details: { uid, id: 399, name: "ArmaLite M-15A4", type: "Weapon", sub_type: "Rifle", stats: { damage: 70, accuracy: 60, armor: null, quality: 20 },
     bonuses: special ? [{ id: 50, title: "Achilles", value: 52, description: "52% increased Foot damage" }] : [], rarity: special ? "yellow" : null } });
 describe("armory display", () => {
+  it("exports ownership separately from the borrower, with faction ownership as the default", () => {
+    const item = { ...copy("1"), loaned: { id: 1, name: "Borrower" }, owner: { id: 42, name: "Owner" } };
+    expect(armoryCsv([item])).toContain('"Owner ID","Owner"');
+    expect(armoryCsv([item])).toContain('"42","Owner"');
+    expect(armoryCsv([item])).toContain('"1","Borrower"');
+    expect(armoryCsv([copy("2")])).toContain('"","Faction"');
+  });
   it("calculates Torn offsets from every copy by name and descending quality, independent of rarity", () => {
     const item = (uid: string, name: string, quality: number, special = false) => {
       const value = copy(uid, special); value.name = name; value.details!.stats.quality = quality; return value;

@@ -9,6 +9,7 @@ import type { Env } from "../src/types";
 import { routeArmoryApi } from "../src/http/armoryRoutes";
 import { refreshArmoryActivity } from "../src/armoryActivity";
 import { refreshHomeFactionMembers } from "../src/enemyScouting";
+import { updateArmoryOwner } from "../src/armoryOwnership";
 
 vi.mock("../src/external/torn", () => ({ fetchTrackedTornResponse: vi.fn() }));
 vi.mock("../src/enemyScouting", () => ({ refreshHomeFactionMembers: vi.fn() }));
@@ -26,10 +27,10 @@ class TestDB {
   sqlite = new DatabaseSync(":memory:");
   constructor() {
     const schema = readFileSync(new URL("../schema/current.sql", import.meta.url), "utf8");
-    for (const table of ["home_member_live_status", "sync_state"]) {
+    for (const table of ["home_member_live_status", "sync_state", "home_faction_members"]) {
       this.sqlite.exec(schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))![0]);
     }
-    for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql", "0166_add_armory_categories.sql", "0167_add_armory_medical.sql", "0168_add_armory_stock_alerts.sql"]) {
+    for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql", "0166_add_armory_categories.sql", "0167_add_armory_medical.sql", "0168_add_armory_stock_alerts.sql", "0169_add_armory_owners.sql"]) {
       this.sqlite.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
     }
   }
@@ -74,6 +75,71 @@ const armorDetail = (uid = 18059712452) => ({ id: 668, name: "Assault Boots", ui
   bonuses: [{ id: 17, title: "Impenetrable", description: "22% decreased incoming bullet damage", value: 22 }], rarity: "yellow" });
 const armorStock = (loaned: { id: number; name: string } | null = { id: 4002200, name: "Minitamark" }) => ({ inventory_timestamp: clock,
   inventory: [{ id: 668, name: "Assault Boots", type: "Defensive", amount: 1, uids: [18059712452], loaned }] });
+
+describe("armory ownership", () => {
+  const assign = (uid: string, owner_id: number | null, category = "weapons") => updateArmoryOwner(
+    new Request("https://example.test/api/admin/armory/owner", { method: "POST", body: JSON.stringify({ uid, owner_id, category }) }), env);
+  beforeEach(() => {
+    db.sqlite.prepare("INSERT INTO home_faction_members (member_id, faction_id, name) VALUES (42, ?, 'Owner'), (43, ?, 'Other owner')").run(HOME_FACTION_ID, HOME_FACTION_ID);
+  });
+  it("defaults to faction ownership, stores owners by UID and clears only the selected copy", async () => {
+    await syncArmory(env);
+    expect((await readArmory(env)).items.every(item => item.owner === null)).toBe(true);
+    expect((await readArmory(env)).owner_options).toEqual([{ id: 43, name: "Other owner" }, { id: 42, name: "Owner" }]);
+    const results = await Promise.all([assign("7443497174", 42), assign("10727704270", 43)]);
+    expect(results.map(result => result.status)).toEqual([200, 200]);
+    expect((await readArmory(env)).items.find(item => item.uid === "7443497174")?.owner).toEqual({ id: 42, name: "Owner" });
+    await assign("7443497174", null);
+    const items = (await readArmory(env)).items;
+    expect(items.find(item => item.uid === "7443497174")?.owner).toBeNull();
+    expect(items.find(item => item.uid === "10727704270")?.owner?.id).toBe(43);
+  });
+  it("preserves owners across changed loans, removal and return without resetting loan observation", async () => {
+    await syncArmory(env);
+    await assign("7443497174", 42);
+    advance();
+    const loan = { ...stock([7443497174], clock + 3601), inventory: [{ ...stock([7443497174]).inventory[0], loaned: { id: 99, name: "Borrower" } }] };
+    fetcher.mockResolvedValueOnce(Response.json(loan));
+    await syncArmory(env);
+    expect((await readArmory(env)).items[0]).toMatchObject({ owner: { id: 42 }, loaned: { id: 99 }, loan_first_seen_at: clock + 3601 });
+    await assign("7443497174", 43);
+    expect((await readArmory(env)).items[0].loan_first_seen_at).toBe(clock + 3601);
+    vi.setSystemTime((clock + 7202) * 1000);
+    fetcher.mockResolvedValueOnce(Response.json(stock([], clock + 7202)));
+    await syncArmory(env);
+    expect((await readArmory(env)).items).toEqual([]);
+    expect((await assign("7443497174", 42)).status).toBe(404);
+    vi.setSystemTime((clock + 10803) * 1000);
+    fetcher.mockResolvedValueOnce(Response.json(stock([7443497174], clock + 10803)));
+    await syncArmory(env);
+    expect((await readArmory(env)).items[0]).toMatchObject({ owner: { id: 43 }, loaned: null, loan_first_seen_at: null });
+  });
+  it("supports armor and preserves a departed owner's identity while rejecting new assignments to them", async () => {
+    fetcher.mockResolvedValueOnce(Response.json(armorStock())).mockResolvedValueOnce(Response.json({ itemdetails: armorDetail() }));
+    await syncArmory(env, "armor");
+    expect((await assign("18059712452", 42, "armor")).status).toBe(200);
+    db.sqlite.exec("UPDATE home_faction_members SET name = 'Renamed' WHERE member_id = 42");
+    expect((await readArmory(env, "armor")).items[0].owner?.name).toBe("Renamed");
+    db.sqlite.exec("UPDATE home_faction_members SET is_current = 0 WHERE member_id = 42");
+    expect((await readArmory(env, "armor")).items[0].owner?.id).toBe(42);
+    expect((await assign("18059712452", 42, "armor")).status).toBe(400);
+    expect((await assign("18059712452", null, "armor")).status).toBe(200);
+  });
+  it("rejects invalid owners/categories/UIDs and scopes writes to the home faction", async () => {
+    await syncArmory(env);
+    expect((await assign("7443497174", 999)).status).toBe(400);
+    db.sqlite.exec("UPDATE home_faction_members SET faction_id = 1 WHERE member_id = 42");
+    expect((await assign("7443497174", 42)).status).toBe(400);
+    expect((await assign("7443497174", 43, "armor")).status).toBe(404);
+    expect((await assign("7443497174", 43, "medical")).status).toBe(400);
+    expect((await assign("bad.uid", 43)).status).toBe(400);
+    expect((await assign("999", 43)).status).toBe(404);
+    for (const body of ["null", "[]", "{}", "broken"]) {
+      expect((await updateArmoryOwner(new Request("https://example.test", { method: "POST", body }), env)).status).toBe(400);
+    }
+    expect((await readArmory(env)).items.every(item => item.owner === null)).toBe(true);
+  });
+});
 
 describe("manual faction activity refresh", () => {
   it.each([299, 300, 301])("enforces the five-minute boundary at %s seconds", async age => {
@@ -753,9 +819,8 @@ describe("current loan observations", () => {
 });
 
 describe("armory admin endpoints", () => {
-  it.each(["/api/admin/armory", "/api/admin/armory/sync", "/api/admin/armory/details/refresh", "/api/admin/armory/medical/stock", "/api/admin/armory/activity/refresh"].flatMap(path => [path, `${path}?cat=armor`, `${path}?cat=medical`]))("rejects missing and member sessions for %s", async path => {
-    db.sqlite.exec(`CREATE TABLE auth_sessions (token TEXT, torn_user_id INTEGER, access_level TEXT, expires_at INTEGER);
-      CREATE TABLE home_faction_members (member_id INTEGER, name TEXT);`);
+  it.each(["/api/admin/armory", "/api/admin/armory/sync", "/api/admin/armory/details/refresh", "/api/admin/armory/medical/stock", "/api/admin/armory/activity/refresh", "/api/admin/armory/owner"].flatMap(path => [path, `${path}?cat=armor`, `${path}?cat=medical`]))("rejects missing and member sessions for %s", async path => {
+    db.sqlite.exec(`CREATE TABLE auth_sessions (token TEXT, torn_user_id INTEGER, access_level TEXT, expires_at INTEGER);`);
     const token = crypto.randomUUID();
     db.sqlite.prepare("INSERT INTO auth_sessions VALUES (?, 1, 'member', ?)").run(token, clock + 7200);
     for (const member of [false, true]) {

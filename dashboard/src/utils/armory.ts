@@ -92,11 +92,11 @@ export function armoryCsv(items: ArmoryCopy[]): string {
     if (/^[\s]*[=+@-]|^[\t\r\n]/.test(string)) string = `'${string}`;
     return `"${string.replace(/"/g, '""')}"`;
   };
-  return [["UID", "Model ID", "Item", "Slot", "Status", "Borrower ID", "Borrower", "Classification", "Rarity", "Damage", "Accuracy", "Armor", "Quality %", "Bonuses", "Loan first observed (UTC)", "Time since first observed"],
+  return [["UID", "Model ID", "Item", "Slot", "Status", "Borrower ID", "Borrower", "Classification", "Rarity", "Damage", "Accuracy", "Armor", "Quality %", "Bonuses", "Loan first observed (UTC)", "Time since first observed", "Owner ID", "Owner"],
     ...items.map(item => [item.uid, item.id, item.name, item.type, item.loaned ? "Loaned" : "Available", item.loaned?.id,
       item.loaned?.name, weaponClass(item), item.details?.rarity, item.details?.stats.damage, item.details?.stats.accuracy,
       item.details?.stats.armor, item.details?.stats.quality, item.details?.bonuses.map(bonus => `${bonus.title} (${bonus.value}): ${bonus.description}`).join("; "),
       item.loaned && item.loan_first_seen_at ? new Date(item.loan_first_seen_at * 1000).toISOString() : "",
-      item.loaned && item.loan_first_seen_at ? loanElapsed(item.loan_first_seen_at) : ""])]
+      item.loaned && item.loan_first_seen_at ? loanElapsed(item.loan_first_seen_at) : "", item.owner?.id, item.owner?.name ?? "Faction"])]
     .map(row => row.map(cell).join(",")).join("\r\n");
 }

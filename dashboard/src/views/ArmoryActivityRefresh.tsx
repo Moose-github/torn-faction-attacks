@@ -9,13 +9,14 @@ export function ArmoryActivityRefresh({ fetchedAt, disabled, onRefresh }: {
   const [latest, setLatest] = React.useState<number | null>(null);
   const [now, setNow] = React.useState(Date.now());
   const [message, setMessage] = React.useState("");
+  const checkedOnLoad = React.useRef(false);
   React.useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
   const remaining = Math.max(0, Math.ceil(((Math.max(fetchedAt ?? 0, latest ?? 0) + 300) * 1000 - now) / 1000));
-  async function refresh() {
-    if (busy || disabled || remaining > 0) return;
+  const refresh = React.useCallback(async () => {
+    if (busy || disabled || (Math.max(fetchedAt ?? 0, latest ?? 0) + 300) * 1000 > Date.now()) return;
     setBusy(true); setMessage("");
     try {
       const result = await refreshArmoryActivity();
@@ -26,7 +27,14 @@ export function ArmoryActivityRefresh({ fetchedAt, disabled, onRefresh }: {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to refresh faction activity. Please retry.");
     } finally { setBusy(false); }
-  }
+  }, [busy, disabled, fetchedAt, latest, onRefresh]);
+  React.useEffect(() => {
+    // Check once after the initial armory load, not whenever the data ages or a poll completes.
+    // Mark before starting so failures and Strict Mode effect replays cannot loop requests.
+    if (disabled || checkedOnLoad.current) return;
+    checkedOnLoad.current = true;
+    if (fetchedAt === null || fetchedAt + 300 <= Date.now() / 1000) void refresh();
+  }, [disabled, fetchedAt, refresh]);
   return <div className="armory-activity-refresh">
     <button type="button" disabled={disabled || busy || remaining > 0} onClick={() => void refresh()}
       title={remaining > 0 ? `Available in ${Math.floor(remaining / 60)}m ${remaining % 60}s, when faction activity is five minutes old.` : "Refresh faction online status and last actions"}>

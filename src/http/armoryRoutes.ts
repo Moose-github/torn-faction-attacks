@@ -3,9 +3,13 @@ import { matchesExactRoute } from "../routes";
 import { withAdmin, type RouteContext, type RouteResult } from "./context";
 import { json } from "../utils";
 import { refreshArmoryActivity } from "../armoryActivity";
+import { updateArmoryOwner } from "../armoryOwnership";
 
 export async function routeArmoryApi(context: RouteContext): Promise<RouteResult> {
   const { request, env, url } = context;
+  if (matchesExactRoute(url, request, "/api/admin/armory/owner", "POST")) {
+    return withAdmin(context, () => updateArmoryOwner(request, env));
+  }
   if (matchesExactRoute(url, request, "/api/admin/armory/activity/refresh", "POST")) {
     return withAdmin(context, () => refreshArmoryActivity(env));
   }

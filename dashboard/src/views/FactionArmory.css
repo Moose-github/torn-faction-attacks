@@ -65,6 +65,11 @@
 .armory-group-name { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 650; }
 .armory-borrower-availability small { white-space: nowrap; }
 .armory-loan-time { white-space: nowrap; }
+.armory-owner-faction { color: var(--text-muted); }
+.armory-page .armory-owner-action, .armory-page .armory-owner-action:hover:not(:disabled) { min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; }
+.armory-page .armory-owner-action:hover:not(:disabled) { text-decoration: underline; }
+.armory-owner select { width: 175px; max-width: 100%; margin-top: 5px; }
+.armory-owner small[role="alert"] { color: #dc2626; opacity: 1; max-width: 220px; }
 .armory-loan-note { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
 .armory-bonus { max-width: 230px; }
 .armory-bonus + .armory-bonus, .armory-badge + .armory-bonus { margin-top: 8px; }

@@ -2214,6 +2214,7 @@ CREATE TABLE faction_armory_state (
   source_json TEXT,
   stock_settings_json TEXT NOT NULL DEFAULT '{}',
   stock_alert_next_at INTEGER NOT NULL DEFAULT 0,
+  owners_json TEXT NOT NULL DEFAULT '{}',
   PRIMARY KEY (faction_id, category)
 );
 CREATE TABLE faction_armory_inventory (

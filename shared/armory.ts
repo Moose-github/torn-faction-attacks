@@ -4,6 +4,7 @@ export type ArmoryBorrowerActivity = {
   last_action_status: string | null; last_action_timestamp: number | null; fetched_at: number | null;
 };
 export type ArmoryBorrower = { id: number; name: string; activity?: ArmoryBorrowerActivity | null };
+export type ArmoryOwner = { id: number; name: string };
 export type ArmoryStack = {
   id: number; name: string; type: string; amount: number;
   loaned: ArmoryBorrower | null;
@@ -16,6 +17,7 @@ export type ArmoryDetails = {
 };
 export type ArmoryCopy = {
   uid: string; id: number; name: string; type: string;
+  owner?: ArmoryOwner | null;
   loaned: ArmoryBorrower | null;
   loan_first_seen_at: number | null;
   details: ArmoryDetails | null;
@@ -23,6 +25,7 @@ export type ArmoryCopy = {
 export type ArmoryResponse = {
   ok: true; items: ArmoryCopy[];
   activity_fetched_at: number | null;
+  owner_options: ArmoryOwner[];
   inventory_timestamp: number | null; checked_at: number | null;
   next_inventory_at: number; next_sync_at: number; syncing: boolean;
   pending: number; refreshing: number; error: string | null;
