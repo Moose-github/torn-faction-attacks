@@ -6711,10 +6711,6 @@ h2 {
   grid-column: 1 / -1;
 }
 
-.admin-panel-historical-wars {
-  grid-column: 1 / -1;
-}
-
 .admin-settings-section,
 .admin-settings-content {
   display: grid;
@@ -6777,7 +6773,8 @@ h2 {
   line-height: 1.2;
 }
 
-.admin-section-divider-wars {
+.admin-section-divider-wars,
+.admin-section-divider-historical-wars {
   border-left-color: #2563eb;
 }
 

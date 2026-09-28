@@ -857,8 +857,7 @@ export function AdminControls() {
           </section>
         ) : null}
 
-        <section className="panel admin-panel-historical-wars">
-          <PanelHeader title="Historical wars" aside="Edit / import" />
+        <AdminSettingsSection section="historical-wars" title="Historical wars" description="Edit / import">
           <div className="admin-event-grid">
             <section className="panel admin-event-command">
               <PanelHeader title="Edit historical war" />
@@ -942,7 +941,7 @@ export function AdminControls() {
               onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
             />
           </div>
-        </section>
+        </AdminSettingsSection>
 
         </AdminSettingsSection>
 
@@ -2317,7 +2316,7 @@ export function AdminControls() {
 }
 
 function AdminSettingsSection({ section, title, description, children }: {
-  section: "wars" | "events" | "competitions";
+  section: "wars" | "historical-wars" | "events" | "competitions";
   title: string;
   description: string;
   children: React.ReactNode;
