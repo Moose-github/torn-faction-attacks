@@ -407,6 +407,71 @@ describe("versioned chain timers", () => {
   });
 });
 
+describe("per-chain persistent status messages", () => {
+  it("waits for eligibility, reuses the message within a chain, and sends a new one after a drop", async () => {
+    await watch(); await tick();
+    await hit(1, start + 10, { chain: 100 }); await tick(start + 10);
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, _key, existingId) => existingId ?? "first-chain");
+    await hit(2, start + 20, { chain: 101 }); await tick(start + 20);
+    await hit(3, start + 30, { chain: 102 }); await tick(start + 30);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.map(call => call[2])).toEqual([null, "first-chain"]);
+
+    // A cron can observe the drop even if no warning alarm was delivered.
+    await tick(start + 330);
+    expect((await readChainWatchState(db.env))?.discord_message_id).toBeNull();
+    await tick(start + 340);
+    await hit(4, start + 350, { chain: 1 }); await tick(start + 350);
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledTimes(2);
+
+    vi.mocked(upsertDiscordAlertMessage).mockImplementation(async (_env, _key, existingId) => existingId ?? "second-chain");
+    await hit(5, start + 360, { chain: 101 }); await tick(start + 360);
+    await hit(6, start + 370, { chain: 102 }); await tick(start + 370);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.map(call => call[2])).toEqual([null, "first-chain", null, "second-chain"]);
+    expect((await readChainWatchState(db.env))?.discord_message_id).toBe("second-chain");
+  });
+
+  it("forgets the message when live warning confirmation finds a dropped chain", async () => {
+    await watch(); await hit(1, start); await tick();
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    advance(start + 240); await handleChainWatchAlarm(db.env, HOME_FACTION_ID);
+    expect(await readChainWatchState(db.env)).toMatchObject({ source: "dropped", discord_message_id: null });
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+  });
+
+  it("starts a new message when a lower eligible count reveals a missed drop", async () => {
+    await watch(); await hit(1, start, { chain: 500 }); await tick();
+    vi.mocked(upsertDiscordAlertMessage).mockClear().mockResolvedValue("replacement-chain");
+    await hit(2, start + 310, { chain: 101 }); advance(start + 310);
+    await refreshActiveChainWatchFromStoredAttacks(db.env, start + 310);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.map(call => call[2])).toEqual([null]);
+    expect((await readChainWatchState(db.env))?.discord_message_id).toBe("replacement-chain");
+  });
+
+  it("keeps the same message when a failed live check is followed by a continuing chain", async () => {
+    await watch(); await hit(1, start); await tick();
+    vi.mocked(upsertDiscordAlertMessage).mockClear();
+    vi.mocked(fetchTrackedTornJson).mockRejectedValueOnce(new Error("Torn unavailable"));
+    await tick(start + 300);
+    expect((await readChainWatchState(db.env))?.discord_message_id).toBe("message");
+    expect(upsertDiscordAlertMessage).not.toHaveBeenCalled();
+    vi.mocked(fetchTrackedTornJson).mockResolvedValueOnce({ chain: { current: 151, timeout: 250 } });
+    await tick(start + 310);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.map(call => call[2])).toEqual(["message"]);
+  });
+
+  it("does not restore an ID when status delivery completes after a drop", async () => {
+    await watch(); await hit(1, start);
+    vi.mocked(upsertDiscordAlertMessage).mockImplementationOnce(async () => {
+      await tick(start + 300);
+      return "late-message";
+    });
+    await tick();
+    expect((await readChainWatchState(db.env))?.discord_message_id).toBeNull();
+  });
+});
+
 describe("assigned watcher alert mentions", () => {
   const aliceId = "111111111111111111";
   const bobId = "222222222222222222";
@@ -445,14 +510,17 @@ describe("assigned watcher alert mentions", () => {
       expect(call[3]).toMatch(new RegExp(`<@999999> <@&888888> <@${aliceId}>$`));
       expect(call[4]).toEqual({ users: ["999999", aliceId], roles: ["888888"] });
       expect(call[5]).toEqual({ cardColor: color });
-      expect((await readChainWatchState(db.env))?.discord_message_id).toBe("message");
+      expect((await readChainWatchState(db.env))?.discord_message_id).toBe(remaining ? "message" : null);
     }
     expect(configured.allowedMentions.users).toEqual(["999999"]);
+    const deliveredCount = vi.mocked(upsertDiscordAlertMessage).mock.calls.length;
     await hit(2, start + 310, { chain: 1 }); await tick(start + 310);
+    expect(upsertDiscordAlertMessage).toHaveBeenCalledTimes(deliveredCount);
+    await hit(3, start + 320, { chain: 101 }); await tick(start + 320);
     const refreshed = vi.mocked(upsertDiscordAlertMessage).mock.calls.at(-1)!;
-    expect(refreshed[2]).toBe("message");
+    expect(refreshed[2]).toBeNull();
     expect(refreshed[4]).toEqual({ users: [], roles: [] });
-    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.filter((call) => call[2] === null)).toHaveLength(3);
+    expect(vi.mocked(upsertDiscordAlertMessage).mock.calls.filter((call) => call[2] === null)).toHaveLength(4);
   });
 
   it("preserves role and broadcast pings when appending the assigned watcher", async () => {
