@@ -220,13 +220,16 @@ export async function previewImportEvent(payload: AdminWarPayload): Promise<unkn
 }
 
 export async function deleteWar(payload: {
+  war_id?: number;
   torn_war_id?: number;
   name?: string;
 }): Promise<unknown> {
   return postJson("/api/wars/delete", payload);
 }
 
-export async function previewRelinkAttacks(payload: {
+export async function previewRelinkAttacks(payload: {
+  war_id?: number;
+  scope?: "selected" | "all";
   torn_war_id?: number;
   name?: string;
   fetch_missing?: boolean;
@@ -234,7 +237,9 @@ export async function previewRelinkAttacks(payload: {
   return postJson("/api/wars/relink-attacks", { ...payload, dry_run: true });
 }
 
-export async function relinkAttacks(payload: {
+export async function relinkAttacks(payload: {
+  war_id?: number;
+  scope?: "selected" | "all";
   torn_war_id?: number;
   name?: string;
   fetch_missing?: boolean;

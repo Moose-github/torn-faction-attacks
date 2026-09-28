@@ -38,16 +38,25 @@ type RelinkWarResult = {
 export async function relinkWarAttacks(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as {
+      war_id?: unknown;
+      scope?: unknown;
       torn_war_id?: unknown;
       name?: unknown;
       dry_run?: unknown;
       fetch_missing?: unknown;
     };
+    const warId = parseOptionalInteger(body.war_id, "war_id");
     const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const dryRun = body.dry_run !== false;
     const fetchMissing = parseOptionalBoolean(body.fetch_missing);
-    const wars = await readRelinkWars(env, tornWarId, name);
+    const targetCount = [warId !== null, tornWarId !== null, !!name].filter(Boolean).length;
+    if ((warId !== null && warId <= 0) || (tornWarId !== null && tornWarId <= 0)
+      || (body.scope !== undefined && body.scope !== "all" && body.scope !== "selected")
+      || (body.scope === "all" ? targetCount !== 0 : targetCount !== 1)) {
+      return json({ ok: false, error: "Select one war/event or explicitly choose all wars/events", code: "INVALID_RELINK_SCOPE" }, 400);
+    }
+    const wars = await readRelinkWars(env, warId, tornWarId, name);
 
     if (wars.length === 0) {
       return json({ ok: false, error: "War not found", code: "WAR_NOT_FOUND" }, 404);
@@ -70,7 +79,7 @@ export async function relinkWarAttacks(request: Request, env: Env): Promise<Resp
     }
 
     if (!dryRun) {
-      if (tornWarId === null && !name) {
+      if (body.scope === "all") {
         await bumpGlobalWarCacheVersion(env);
       }
     }
@@ -79,7 +88,7 @@ export async function relinkWarAttacks(request: Request, env: Env): Promise<Resp
       ok: true,
       dry_run: dryRun,
       fetch_missing: fetchMissing,
-      scope: tornWarId !== null || name ? "single_war" : "all_wars",
+      scope: body.scope === "all" ? "all_wars" : "single_war",
       wars_processed: results.length,
       total_fetched_attack_count: sumRelinkResults(results, "fetched_attack_count"),
       total_existing_linked_attacks: sumRelinkResults(results, "existing_linked_attacks"),
@@ -95,16 +104,17 @@ export async function relinkWarAttacks(request: Request, env: Env): Promise<Resp
 
 async function readRelinkWars(
   env: Env,
+  warId: number | null,
   tornWarId: number | null,
   name: string,
 ): Promise<RelinkWarRow[]> {
   const filterSql =
-    tornWarId !== null
+    warId !== null ? "WHERE id = ?" : tornWarId !== null
       ? "WHERE torn_war_id = ?"
       : name
         ? "WHERE LOWER(name) = LOWER(?)"
         : "";
-  const bindings = tornWarId !== null ? [tornWarId] : name ? [name] : [];
+  const bindings = warId !== null ? [warId] : tornWarId !== null ? [tornWarId] : name ? [name] : [];
   const rows = await env.DB.prepare(
     `
     SELECT

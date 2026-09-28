@@ -19,17 +19,15 @@ import {
   exportWarAttacksCsv,
   fetchTornWarReport,
   getDiscordTravelTrackerTarget,
-  getLatestIngestionRun,
   getAdminXanaxCompetition,
   getAdminDiscordAlertSettings,
-  getAdminTornKeyPool,
   getHomeFactionReportExemptions,
   getMemberLifestyleRepairJobs,
-  getTornApiUsage,
   getWars,
   getStoredAuthSession,
   grantAdminAccess,
-  IngestionRun,
+  revokeAdminAccess,
+  AdminUser,
   importEvent,
   importWar,
   listAdminUsers,
@@ -59,9 +57,7 @@ import {
   updateHomeFactionReportExemption,
   updateOfficialWar,
   updateEvent,
-  TornApiUsageResponse,
   AdminXanaxCompetitionResponse,
-  AdminTornKeyPoolResponse,
   HomeFactionReportExemptionMember,
   MemberLifestyleRepairJob,
   WarSummary,
@@ -71,16 +67,10 @@ import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime, formatNumber } from "../../utils/format";
 import { DiscordAdminControls, DiscordTravelTargetForm } from "./DiscordAdminControls";
 
-const TORN_API_USAGE_WINDOW_OPTIONS = [
-  { seconds: 60 * 60, label: "1h", summaryLabel: "1h" },
-  { seconds: 24 * 60 * 60, label: "1 day", summaryLabel: "1 day" },
-  { seconds: 7 * 24 * 60 * 60, label: "7 days", summaryLabel: "7 days" },
-] as const;
-
 type AdminTabKey = "operations" | "discord" | "wars" | "reporting" | "maintenance";
 
 const ADMIN_TABS: Array<{ key: AdminTabKey; label: string }> = [
-  { key: "operations", label: "Operations" },
+  { key: "operations", label: "Access management" },
   { key: "discord", label: "Discord" },
   { key: "wars", label: "Wars & Events" },
   { key: "reporting", label: "Reporting" },
@@ -111,10 +101,10 @@ export function AdminControls() {
     status: "ended",
   }));
   const [eventImportFetchMissing, setEventImportFetchMissing] = React.useState(false);
-  const [deleteForm, setDeleteForm] = React.useState({ tornWarId: "", name: "" });
+  const [deleteWarId, setDeleteWarId] = React.useState("");
   const [relinkForm, setRelinkForm] = React.useState({
-    tornWarId: "",
-    name: "",
+    scope: "selected" as "selected" | "all",
+    warId: "",
     fetchMissing: false,
   });
   const [wars, setWars] = React.useState<WarSummary[]>([]);
@@ -143,6 +133,9 @@ export function AdminControls() {
   });
   const [reportForm, setReportForm] = React.useState({ tornWarId: "" });
   const [adminGrantForm, setAdminGrantForm] = React.useState({ tornUserId: "" });
+  const [adminUsers, setAdminUsers] = React.useState<AdminUser[]>([]);
+  const [adminUsersError, setAdminUsersError] = React.useState<string | null>(null);
+  const [isLoadingAdmins, setIsLoadingAdmins] = React.useState(false);
   const [discordTravelTargetForm, setDiscordTravelTargetForm] = React.useState<DiscordTravelTargetForm>({
     factionId: "",
     factionName: "",
@@ -199,22 +192,16 @@ export function AdminControls() {
   const [lifestyleRepairJobs, setLifestyleRepairJobs] = React.useState<MemberLifestyleRepairJob[]>([]);
   const [isLoadingLifestyleRepairJobs, setIsLoadingLifestyleRepairJobs] = React.useState(false);
   const [reportExemptionMembers, setReportExemptionMembers] = React.useState<HomeFactionReportExemptionMember[]>([]);
+  const [reportExemptionsError, setReportExemptionsError] = React.useState<string | null>(null);
   const [reportExemptionForm, setReportExemptionForm] = React.useState({
     memberId: "",
     reason: "",
   });
   const [isBusy, setIsBusy] = React.useState<string | null>(null);
-  const [result, setResult] = React.useState<unknown>(null);
+  const [result, setResult] = React.useState<{ label: string; data: unknown; warning?: string } | null>(null);
+  const actionInFlight = React.useRef(false);
   const [error, setError] = React.useState<string | null>(null);
   const [activeAdminTab, setActiveAdminTab] = React.useState<AdminTabKey>("operations");
-  const [ingestionRun, setIngestionRun] = React.useState<IngestionRun | null>(null);
-  const [isLoadingIngestionRun, setIsLoadingIngestionRun] = React.useState(false);
-  const [tornApiUsage, setTornApiUsage] = React.useState<TornApiUsageResponse | null>(null);
-  const [isLoadingTornApiUsage, setIsLoadingTornApiUsage] = React.useState(false);
-  const [isTornApiUsageTableCollapsed, setIsTornApiUsageTableCollapsed] = React.useState(true);
-  const [tornApiUsageWindowSeconds, setTornApiUsageWindowSeconds] = React.useState(24 * 60 * 60);
-  const [tornKeyPool, setTornKeyPool] = React.useState<AdminTornKeyPoolResponse | null>(null);
-  const [isLoadingTornKeyPool, setIsLoadingTornKeyPool] = React.useState(false);
   const adminTimeMode: AdminWarFormState["timeMode"] = useEpochTime ? "epoch" : "datetime";
 
   React.useEffect(() => {
@@ -356,25 +343,71 @@ export function AdminControls() {
     setAttackWindowForm((current) => convertAttackWindowFormTimeMode(current, timeMode));
   }
 
-  async function runAdminAction(label: string, action: () => Promise<unknown>) {
+  async function runAdminAction(label: string, action: () => Promise<unknown>, options: { refresh?: Array<() => Promise<void>> } = {}) {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
     setIsBusy(label);
     setError(null);
+    setResult(null);
 
     try {
-      setResult(await action());
-      await loadLatestIngestionRun();
-      await loadTornApiUsage();
-      await loadTornKeyPool();
-      await loadLifestyleRepairJobs();
-      await loadReportExemptions();
-      await loadDiscordAlertSettings();
-      await loadDiscordTravelTarget();
-      await loadXanaxCompetition();
+      const data = await action();
+      setResult({ label, data });
+      const refreshed = await Promise.allSettled((options.refresh ?? []).map(refresh => refresh()));
+      if (refreshed.some(refresh => refresh.status === "rejected")) {
+        setResult({ label, data, warning: "The action completed, but refreshed data could not be loaded. Reload the page before continuing." });
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(`${label} failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
+      actionInFlight.current = false;
       setIsBusy(null);
     }
+  }
+
+  async function loadAdminUsers() {
+    setIsLoadingAdmins(true); setAdminUsersError(null);
+    try { setAdminUsers((await listAdminUsers()).admins); }
+    catch (err) { setAdminUsersError(err instanceof Error ? err.message : String(err)); }
+    finally { setIsLoadingAdmins(false); }
+  }
+
+  async function refreshWarOptions() {
+    const loaded = (await getWars("all")).wars;
+    setWars(loaded);
+    if (!loaded.some(war => String(war.id) === deleteWarId)) setDeleteWarId("");
+    setRelinkForm(current => loaded.some(war => String(war.id) === current.warId) ? current : { ...current, warId: "" });
+    setRebuildWarId(current => loaded.some(war => String(war.id) === current) ? current : "");
+    setRestartTrackingWarId(current => loaded.some(war => String(war.id) === current) ? current : "");
+    setExportForm(current => loaded.some(war => war.name === current.warName) ? current : exportFormForWar({ ...current, warName: "" }, undefined));
+    const nextOpen = loaded.find(isCurrentOfficialWar);
+    if (nextOpen && nextOpen.id !== currentOfficialWar?.id) setCurrentWarEditForm(convertWarFormTimeMode(warToForm(nextOpen), adminTimeMode));
+    if (!loaded.some(war => war.id === Number(selectedHistoricalWarId))) {
+      const next = loaded.find(isHistoricalOfficialWar);
+      setSelectedHistoricalWarId(next ? String(next.id) : "");
+      if (next) setHistoricalWarEditForm(convertWarFormTimeMode(warToForm(next), adminTimeMode));
+    }
+    if (!loaded.some(war => war.id === Number(selectedEventId))) {
+      const next = loaded.find(isEventWar);
+      setSelectedEventId(next ? String(next.id) : "");
+      setEventEditForm(next ? convertWarFormTimeMode(warToForm(next), adminTimeMode) : defaultEventForm());
+    }
+  }
+
+  function runWarAction(label: string, action: () => Promise<unknown>) {
+    return runAdminAction(label, action, { refresh: [refreshWarOptions] });
+  }
+
+  function runRepairAction(label: string, action: () => Promise<unknown>) {
+    return runAdminAction(label, action, { refresh: [loadLifestyleRepairJobs] });
+  }
+
+  function runExemptionAction(label: string, action: () => Promise<unknown>) {
+    return runAdminAction(label, action, { refresh: [loadReportExemptions] });
+  }
+
+  function runAccessAction(label: string, action: () => Promise<unknown>) {
+    return runAdminAction(label, action, { refresh: [loadAdminUsers] });
   }
 
   function handleAdminTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, tabKey: AdminTabKey) {
@@ -388,6 +421,7 @@ export function AdminControls() {
       ? (currentIndex + 1) % ADMIN_TABS.length
       : (currentIndex - 1 + ADMIN_TABS.length) % ADMIN_TABS.length;
     setActiveAdminTab(ADMIN_TABS[nextIndex].key);
+    document.getElementById(`admin-tab-${ADMIN_TABS[nextIndex].key}`)?.focus();
   }
 
   function confirmRebuildAllStats(): boolean {
@@ -399,8 +433,8 @@ export function AdminControls() {
   }
 
   function confirmDeleteWar(): boolean {
-    const target = deleteForm.name.trim() || (deleteForm.tornWarId.trim() ? `Torn war #${deleteForm.tornWarId.trim()}` : "this war/event");
-    return window.confirm(`Delete ${target}? This cannot be undone from the admin dashboard.`);
+    const target = wars.find(war => String(war.id) === deleteWarId);
+    return !!target && window.confirm(`Delete ${target.name} (record #${target.id})? This cannot be undone from the admin dashboard.`);
   }
 
   function applyEventResponse(response: unknown) {
@@ -424,46 +458,6 @@ export function AdminControls() {
     );
   }
 
-  async function loadLatestIngestionRun() {
-    setIsLoadingIngestionRun(true);
-    try {
-      const response = await getLatestIngestionRun();
-      setIngestionRun(response.run);
-    } catch {
-      setIngestionRun(null);
-    } finally {
-      setIsLoadingIngestionRun(false);
-    }
-  }
-
-  async function loadTornApiUsage(windowSeconds = tornApiUsageWindowSeconds) {
-    setIsLoadingTornApiUsage(true);
-    try {
-      setTornApiUsage(await getTornApiUsage(windowSeconds));
-    } catch {
-      setTornApiUsage(null);
-    } finally {
-      setIsLoadingTornApiUsage(false);
-    }
-  }
-
-  async function loadTornKeyPool() {
-    setIsLoadingTornKeyPool(true);
-    try {
-      setTornKeyPool(await getAdminTornKeyPool());
-    } catch {
-      setTornKeyPool(null);
-    } finally {
-      setIsLoadingTornKeyPool(false);
-    }
-  }
-
-  function handleTornApiUsageWindowChange(event: React.ChangeEvent<HTMLSelectElement>) {
-    const windowSeconds = Number(event.target.value);
-    setTornApiUsageWindowSeconds(windowSeconds);
-    loadTornApiUsage(windowSeconds);
-  }
-
   async function loadLifestyleRepairJobs() {
     setIsLoadingLifestyleRepairJobs(true);
     try {
@@ -477,6 +471,7 @@ export function AdminControls() {
   }
 
   async function loadReportExemptions() {
+    setReportExemptionsError(null);
     try {
       const response = await getHomeFactionReportExemptions();
       setReportExemptionMembers(response.members);
@@ -491,17 +486,17 @@ export function AdminControls() {
           ? current.memberId
           : String(response.members.find((member) => member.is_current === 1 && member.report_exempt === 0)?.member_id ?? ""),
       }));
-    } catch {
-      setReportExemptionMembers([]);
+    } catch (err) {
+      setReportExemptionsError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  async function loadXanaxCompetition() {
+  async function loadXanaxCompetition(updateForm = true) {
     setIsLoadingXanaxCompetition(true);
     try {
       const response = await getAdminXanaxCompetition();
       setXanaxCompetition(response);
-      setXanaxSettingsForm({
+      if (updateForm) setXanaxSettingsForm({
         enabled: response.settings.enabled,
         basePrize: String(response.settings.base_prize),
         rolloverCount: String(response.settings.rollover_count),
@@ -570,9 +565,7 @@ export function AdminControls() {
 
   React.useEffect(() => {
     if (authSession?.access_level === "admin") {
-      loadLatestIngestionRun();
-      loadTornApiUsage();
-      loadTornKeyPool();
+      loadAdminUsers();
       loadLifestyleRepairJobs();
       loadReportExemptions();
       loadDiscordAlertSettings();
@@ -581,6 +574,9 @@ export function AdminControls() {
     }
   }, [authSession?.access_level]);
 
+  React.useEffect(() => { setResult(null); setError(null); }, [activeAdminTab]);
+
+  const canRelink = isBusy === null && (relinkForm.scope === "all" || wars.some(war => String(war.id) === relinkForm.warId));
   const exportableWars = wars.filter(isExportableWar);
   const officialWars = wars.filter(isOfficialWar);
   const events = wars.filter(isEventWar);
@@ -592,22 +588,9 @@ export function AdminControls() {
   const currentReportableMembers = reportExemptionMembers.filter(
     (member) => member.is_current === 1 && member.report_exempt === 0,
   );
-  const tornApiUsageWindowLabel = formatTornApiUsageWindowSummaryLabel(
-    tornApiUsage?.window_seconds ?? tornApiUsageWindowSeconds,
-  );
-  const tornApiUsageStatus = isLoadingTornApiUsage
-    ? "Loading"
-    : tornApiUsage
-      ? `Last ${tornApiUsageWindowLabel}`
-      : "No data";
-  const tornKeyPoolStatus = isLoadingTornKeyPool
-    ? "Loading"
-    : tornKeyPool
-      ? `${tornKeyPool.keys.filter((key) => key.status === "active").length}/${tornKeyPool.keys.length} active`
-      : "Unavailable";
   return (
     <>
-      {error ? <div className="error-panel">{error}</div> : null}
+      {error ? <div className="error-panel" role="alert">{error}</div> : null}
 
       <section className="hero-panel compact-hero-panel admin-header-panel">
         <h2>Admin controls</h2>
@@ -672,6 +655,7 @@ export function AdminControls() {
             id={`admin-tab-${tab.key}`}
             className="admin-tab-button"
             role="tab"
+            disabled={isBusy !== null}
             aria-selected={activeAdminTab === tab.key}
             aria-controls={`admin-panel-${tab.key}`}
             tabIndex={activeAdminTab === tab.key ? 0 : -1}
@@ -682,6 +666,8 @@ export function AdminControls() {
           </button>
         ))}
       </nav>
+      {isBusy ? <p role="status" className="admin-action-notice">{isBusy}…</p> : null}
+      {result ? <AdminActionResult result={result} /> : null}
       <section
         id={`admin-panel-${activeAdminTab}`}
         className="admin-grid admin-tab-workspace"
@@ -703,7 +689,7 @@ export function AdminControls() {
             className="admin-form"
             onSubmit={(event) => {
               event.preventDefault();
-              runAdminAction("Grant admin access", () =>
+              runAccessAction("Grant admin access", () =>
                 grantAdminAccess(Number(adminGrantForm.tornUserId.trim())),
               );
             }}
@@ -729,9 +715,9 @@ export function AdminControls() {
               type="button"
               className="admin-button admin-form-wide"
               disabled={isBusy !== null}
-              onClick={() => runAdminAction("List admin users", listAdminUsers)}
+              onClick={loadAdminUsers}
             >
-              List current admins
+              {isLoadingAdmins ? "Loading admins" : "Refresh admin list"}
             </button>
             <button
               type="button"
@@ -742,6 +728,26 @@ export function AdminControls() {
               Sign out
             </button>
           </form>
+          {adminUsersError ? <p role="alert" className="error-panel">{adminUsersError}</p> : null}
+          <div className="stock-status-table-wrap">
+            <table className="stock-status-table" aria-label="Current administrators">
+              <thead><tr><th>Admin</th><th>Granted</th><th>Action</th></tr></thead>
+              <tbody>{adminUsers.map(admin => <tr key={admin.torn_user_id}>
+                <td>{admin.name ?? "Torn user"} [{admin.torn_user_id}]</td>
+                <td>{formatLongDateTime(admin.created_at)}</td>
+                <td>{admin.torn_user_id === authSession.user.id ? "You" : <button type="button" className="admin-button danger"
+                  disabled={isBusy !== null || isLoadingAdmins || adminUsers.length < 2}
+                  onClick={() => {
+                    if (window.confirm("Revoke admin access for " + (admin.name ?? admin.torn_user_id) + "? Existing sessions will lose admin access. They will remain a member until access is granted again.")) {
+                      runAccessAction("Revoke admin access", () => revokeAdminAccess(admin.torn_user_id));
+                    }
+                  }}>Revoke access</button>}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+          {!isLoadingAdmins && !adminUsersError && adminUsers.length === 0 ? <p>No administrators found.</p> : null}
+          <p className="panel-description">Revoked users keep member access. Only another admin can restore their admin access.</p>
+
         </section>
 
         </>
@@ -767,6 +773,7 @@ export function AdminControls() {
             setDiscordTravelTargetForm={setDiscordTravelTargetForm}
             setError={setError}
             applyDiscordAlertSettingsResponse={applyDiscordAlertSettingsResponse}
+            refreshTravelTarget={loadDiscordTravelTarget}
             runAdminAction={runAdminAction}
           />
         ) : null}
@@ -938,7 +945,7 @@ export function AdminControls() {
               onSecondaryAction={(payload) =>
                 runAdminAction("Preview import window", () => previewImportWar(payload))
               }
-              onSubmit={(payload) => runAdminAction("Import war", () => importWar(payload))}
+              onSubmit={(payload) => runWarAction("Import war", () => importWar(payload))}
             />
           </div>
         </AdminSettingsSection>
@@ -1212,6 +1219,7 @@ export function AdminControls() {
                   base_prize: Number(xanaxSettingsForm.basePrize),
                   rollover_count: Number(xanaxSettingsForm.rolloverCount),
                 }),
+                { refresh: [() => loadXanaxCompetition()] },
               );
             }}
           >
@@ -1270,6 +1278,7 @@ export function AdminControls() {
                     ? Number(xanaxClaimForm.prizePaid)
                     : undefined,
                 }),
+                { refresh: [() => loadXanaxCompetition(false)] },
               );
             }}
           >
@@ -1346,253 +1355,8 @@ export function AdminControls() {
         </>
         ) : null}
 
-        {activeAdminTab === "reporting" || activeAdminTab === "maintenance" ? (
-        <section className="admin-panel-maintenance">
-          <div className="admin-repair-grid">
-            <section className="admin-tool-section admin-tool-section-wide admin-maintenance-diagnostics" hidden={activeAdminTab !== "maintenance"}>
-              <PanelHeader
-                title="Latest data refresh"
-                aside={isLoadingIngestionRun ? "Loading" : ingestionRun?.status ?? "No runs"}
-              />
-              {ingestionRun ? (
-                <div className="admin-metric-list">
-                  <MetricLine label="Started" value={formatIngestionTime(ingestionRun.started_at)} />
-                  <MetricLine label="Finished" value={formatIngestionTime(ingestionRun.finished_at)} />
-                  <MetricLine
-                    label="Total duration"
-                    value={formatDuration(ingestionRun.started_at, ingestionRun.finished_at)}
-                  />
-                  <MetricLine
-                    label="Torn/rankedwar checked"
-                    value={formatDuration(ingestionRun.started_at, ingestionRun.ranked_war_checked_at)}
-                  />
-                  <MetricLine
-                    label="Attacks fetched"
-                    value={formatDuration(ingestionRun.started_at, ingestionRun.attacks_fetch_finished_at)}
-                  />
-                  <MetricLine
-                    label="Stats ready"
-                    value={formatDuration(ingestionRun.started_at, ingestionRun.stats_finished_at)}
-                  />
-                  <MetricLine
-                    label="Fetched"
-                    value={`${ingestionRun.fetched_attacks} attacks across ${ingestionRun.fetched_pages} pages`}
-                  />
-                  {ingestionRun.error ? <MetricLine label="Error" value={ingestionRun.error} /> : null}
-                </div>
-              ) : (
-                <p className="panel-description">No ingestion run has been recorded yet.</p>
-              )}
-              <button
-                type="button"
-                className="admin-button"
-                disabled={isLoadingIngestionRun}
-                onClick={loadLatestIngestionRun}
-              >
-                Refresh baseline
-              </button>
-            </section>
-
-            <section className="admin-tool-section admin-tool-section-wide admin-maintenance-diagnostics" hidden={activeAdminTab !== "maintenance"}>
-              <PanelHeader
-                title="Torn API usage"
-                control={(
-                  <div className="admin-usage-window-control">
-                    <span>{tornApiUsageStatus}</span>
-                    <select
-                      aria-label="Torn API usage window"
-                      value={tornApiUsageWindowSeconds}
-                      disabled={isLoadingTornApiUsage}
-                      onChange={handleTornApiUsageWindowChange}
-                    >
-                      {TORN_API_USAGE_WINDOW_OPTIONS.map((option) => (
-                        <option key={option.seconds} value={option.seconds}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              />
-              {tornApiUsage ? (
-                <>
-                  <div className="admin-metric-list">
-                    <MetricLine
-                      label={`Requests in last ${tornApiUsageWindowLabel}`}
-                      value={`${formatNumber(tornApiUsage.summary.requests)} calls (${tornApiUsage.summary.requests_per_minute ?? 0}/min)`}
-                    />
-                    {tornApiUsage.windows
-                      .filter((window) => window.window_seconds !== tornApiUsage.window_seconds)
-                      .map((window) => (
-                        <MetricLine
-                          key={window.window_seconds}
-                          label={formatUsageWindow(window.window_seconds)}
-                          value={`${formatNumber(window.requests)} calls (${window.requests_per_minute ?? 0}/min)`}
-                        />
-                      ))}
-                    <MetricLine label={`Errors in last ${tornApiUsageWindowLabel}`} value={formatNumber(tornApiUsage.summary.errors)} />
-                    <MetricLine label={`429s in last ${tornApiUsageWindowLabel}`} value={formatNumber(tornApiUsage.summary.rate_limited)} />
-                    <MetricLine
-                      label="Average latency"
-                      value={tornApiUsage.summary.avg_duration_ms === null ? "-" : `${formatNumber(tornApiUsage.summary.avg_duration_ms)}ms`}
-                    />
-                  </div>
-                  {tornApiUsage.by_key.length > 0 ? (
-                    <>
-                      <div className="admin-table-toggle-row">
-                        <strong>Key breakdown</strong>
-                        <span>Last {tornApiUsageWindowLabel}</span>
-                      </div>
-                      <table className="stock-status-table">
-                        <thead>
-                          <tr>
-                            <th>Key</th>
-                            <th>Calls</th>
-                            <th>Errors</th>
-                            <th>429s</th>
-                            <th>Avg</th>
-                            <th>Last call</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {tornApiUsage.by_key.map((key) => (
-                            <tr key={key.key_source}>
-                              <td title={key.key_source}>{formatTornApiKeySource(key.key_source, key.key_label)}</td>
-                              <td>{formatNumber(key.requests)}</td>
-                              <td>{formatNumber(key.errors)}</td>
-                              <td>{formatNumber(key.rate_limited)}</td>
-                              <td>{key.avg_duration_ms === null ? "-" : `${formatNumber(key.avg_duration_ms)}ms`}</td>
-                              <td>{formatIngestionTime(key.last_requested_at)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </>
-                  ) : null}
-                  {tornApiUsage.by_feature.length > 0 ? (
-                    <>
-                      <div className="admin-table-toggle-row">
-                        <button
-                          type="button"
-                          className="collapse-button"
-                          aria-expanded={!isTornApiUsageTableCollapsed}
-                          onClick={() => setIsTornApiUsageTableCollapsed((current) => !current)}
-                        >
-                          <span>
-                            {isTornApiUsageTableCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
-                          </span>
-                          <strong>Feature breakdown</strong>
-                        </button>
-                        <span>{formatNumber(tornApiUsage.by_feature.length)} features</span>
-                      </div>
-                      {isTornApiUsageTableCollapsed ? null : (
-                        <table className="stock-status-table">
-                          <thead>
-                            <tr>
-                              <th>Feature</th>
-                              <th>Calls</th>
-                              <th>Errors</th>
-                              <th>Last call</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {tornApiUsage.by_feature.map((feature) => (
-                              <tr key={feature.feature}>
-                                <td>{feature.feature}</td>
-                                <td>{formatNumber(feature.requests)}</td>
-                                <td>{formatNumber(feature.errors)}</td>
-                                <td>{formatIngestionTime(feature.last_requested_at)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-                    </>
-                  ) : (
-                    <p className="panel-description">No Torn API calls have been recorded for the selected window.</p>
-                  )}
-                </>
-              ) : (
-                <p className="panel-description">Torn API usage starts recording after migration 0069 is applied.</p>
-              )}
-              <button
-                type="button"
-                className="admin-button"
-                disabled={isLoadingTornApiUsage}
-                onClick={() => loadTornApiUsage()}
-              >
-                Refresh usage
-              </button>
-            </section>
-
-            <section className="admin-tool-section admin-tool-section-wide admin-maintenance-diagnostics" hidden={activeAdminTab !== "maintenance"}>
-              <PanelHeader title="Torn key pool" aside={tornKeyPoolStatus} />
-              {tornKeyPool && tornKeyPool.keys.length > 0 ? (
-                <table className="stock-status-table">
-                  <thead>
-                    <tr>
-                      <th>Owner</th>
-                      <th>Status</th>
-                      <th>Access</th>
-                      <th>Faction access</th>
-                      <th>Features</th>
-                      <th>Max/min</th>
-                      <th>Last used</th>
-                      <th>Failures</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tornKeyPool.keys.map((key) => (
-                      <tr key={key.id}>
-                        <td>
-                          <strong>{key.owner_name ?? key.owner_torn_user_id ?? "Unknown"}</strong>
-                          <small>{key.label ?? key.id}</small>
-                        </td>
-                        <td>{key.status}</td>
-                        <td>{formatKeyPoolAccess(key)}</td>
-                        <td>{formatBooleanAccess(key.faction_access)}</td>
-                        <td>{formatKeyPoolFeatures(key.allowed_features)}</td>
-                        <td>{key.max_requests_per_minute ?? "-"}</td>
-                        <td>{formatIngestionTime(key.last_used_at)}</td>
-                        <td>
-                          {formatNumber(key.failure_count)}
-                          {key.last_error ? <small>{key.last_error}</small> : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="panel-description">
-                  {isLoadingTornKeyPool ? "Loading submitted Torn keys." : "No submitted Torn keys are available yet."}
-                </p>
-              )}
-              <button
-                type="button"
-                className="admin-button"
-                disabled={isLoadingTornKeyPool}
-                onClick={loadTornKeyPool}
-              >
-                Refresh key pool
-              </button>
-            </section>
-
-            <section className="admin-tool-section admin-tool-section-wide admin-maintenance-repair" hidden={activeAdminTab !== "maintenance"}>
-              <PanelHeader title="Member highlights" />
-              <p className="panel-description">
-                Recompute dashboard member highlight podiums from the latest complete lifestyle and attack data.
-              </p>
-              <button
-                type="button"
-                className="admin-button primary"
-                disabled={isBusy !== null}
-                onClick={() => runAdminAction("Refresh member highlights", refreshMemberAchievements)}
-              >
-                {isBusy === "Refresh member highlights" ? "Refreshing" : "Refresh member highlights"}
-              </button>
-            </section>
-
-            <section className="admin-tool-section admin-tool-section-wide" hidden={activeAdminTab !== "reporting"}>
+        {activeAdminTab === "reporting" ? <div className="admin-settings-content">
+<section className="admin-tool-section admin-tool-section-wide">
               <PanelHeader title="Export attacks CSV" />
               <form
                 className="admin-form"
@@ -1774,14 +1538,279 @@ export function AdminControls() {
                 </button>
               </form>
             </section>
+<section className="admin-tool-section">
+              <PanelHeader title="Report exemptions" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const memberId = Number(reportExemptionForm.memberId);
+                  runExemptionAction("Add report exemption", () =>
+                    updateHomeFactionReportExemption({
+                      member_id: memberId,
+                      report_exempt: true,
+                      reason: reportExemptionForm.reason.trim() || undefined,
+                    }),
+                  );
+                }}
+              >
+                <label>
+                  <span>Member</span>
+                  <select
+                    value={reportExemptionForm.memberId}
+                    onChange={(event) =>
+                      setReportExemptionForm({ ...reportExemptionForm, memberId: event.target.value })
+                    }
+                    required
+                  >
+                    <option value="">Select member</option>
+                    {currentReportableMembers.map((member) => (
+                      <option key={member.member_id} value={member.member_id}>
+                        {member.name} [{member.member_id}]
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Reason</span>
+                  <input
+                    value={reportExemptionForm.reason}
+                    maxLength={240}
+                    onChange={(event) =>
+                      setReportExemptionForm({ ...reportExemptionForm, reason: event.target.value })
+                    }
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="admin-button primary admin-form-wide"
+                  disabled={isBusy !== null || !reportExemptionForm.memberId}
+                >
+                  {isBusy === "Add report exemption" ? "Saving" : "Exclude from reports"}
+                </button>
+              </form>
 
-            <section className="admin-tool-section admin-tool-section-wide admin-maintenance-repair" hidden={activeAdminTab !== "maintenance"}>
+              {reportExemptionsError ? <p role="alert" className="error-panel">{reportExemptionsError}</p> : null}
+              <button type="button" className="admin-button" disabled={isBusy !== null} onClick={loadReportExemptions}>Refresh exemptions</button>
+              <div className="stock-status-table-wrap">
+                <table className="stock-status-table" aria-label="Excluded members">
+                  <thead><tr><th>Member</th><th>Reason</th><th>Action</th></tr></thead>
+                  <tbody>{reportExemptionMembers.filter(member => member.report_exempt === 1).map(member => <tr key={member.member_id}>
+                    <td>{member.name} [{member.member_id}]</td><td>{member.report_exempt_reason || "No reason supplied"}</td>
+                    <td><button type="button" className="admin-button" disabled={isBusy !== null}
+                      onClick={() => runExemptionAction("Restore member to reports", () => updateHomeFactionReportExemption({ member_id: member.member_id, report_exempt: false }))}>
+                      Restore to reports
+                    </button></td>
+                  </tr>)}</tbody>
+                </table>
+              </div>
+              {!reportExemptionsError && !reportExemptionMembers.some(member => member.report_exempt === 1) ? <p>No members are excluded from reports.</p> : null}
+            </section>
+        </div> : null}
+        {activeAdminTab === "maintenance" ? <div className="admin-settings-content">
+<AdminSettingsSection section="diagnostics" title="Diagnostics" description="Refresh status, API usage and saved keys">
+<p className="panel-description">View refresh timings, API usage, key health and errors in Data health.</p><a className="admin-button" href="/data-health">Open Data health</a>
+</AdminSettingsSection>
+<AdminSettingsSection section="repairs" title="Repairs" description="Ingestion, statistics, historical data and member repairs">
+<div className="admin-repair-grid"><section className="admin-tool-section admin-maintenance-backfill">
+              <PanelHeader title="Attack ingestion and statistics" />
+              <button
+                type="button"
+                className="admin-button primary"
+                disabled={isBusy !== null}
+                onClick={() => runWarAction("Run ingestion", runIngestion)}
+              >
+                {isBusy === "Run ingestion" ? "Working" : "Run ingestion"}
+              </button>
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!confirmRebuildAllStats()) {
+                    return;
+                  }
+                  const warId = Number(rebuildWarId);
+                  runWarAction("Rebuild stats", () =>
+                    rebuildStats(rebuildWarId.trim() === "" ? undefined : warId),
+                  );
+                }}
+              >
+                <label className="admin-form-wide">
+                  Rebuild one war
+                  <select
+                    value={rebuildWarId}
+                    onChange={(event) => setRebuildWarId(event.target.value)}
+                  >
+                    <option value="">All wars</option>
+                    {wars.map((war) => (
+                      <option key={war.id} value={war.id}>
+                        #{war.id} {war.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  className="admin-button primary admin-form-wide"
+                  disabled={isBusy !== null}
+                >
+                  {isBusy === "Rebuild stats" ? "Working" : rebuildWarId ? "Rebuild selected war" : "Rebuild all stats"}
+                </button>
+              </form>
+</section>
+<section className="admin-tool-section admin-maintenance-repair">
+              <PanelHeader title="Reassign attacks to wars/events" />
+              <form className="admin-form" onSubmit={event => {
+                event.preventDefault();
+                if (!canRelink) return;
+                if (relinkForm.scope === "all" && !window.confirm("Reassign attacks and rebuild statistics for ALL wars and events?")) return;
+                runWarAction("Reassign attacks to wars/events", () => relinkAttacks(toRelinkPayload(relinkForm)));
+              }}>
+                <label className="admin-form-wide"><span>Reassignment scope</span>
+                  <select value={relinkForm.scope} disabled={isBusy !== null} onChange={event => setRelinkForm({ ...relinkForm, scope: event.target.value as "selected" | "all" })}>
+                    <option value="selected">Selected war/event</option><option value="all">All wars and events</option>
+                  </select>
+                </label>
+                {relinkForm.scope === "selected" ? <label className="admin-form-wide"><span>War/event to reassign</span>
+                  <select value={relinkForm.warId} required disabled={isBusy !== null} onChange={event => setRelinkForm({ ...relinkForm, warId: event.target.value })}>
+                    <option value="">Select a war/event</option>
+                    {wars.map(war => <option key={war.id} value={war.id}>#{war.id} {war.name}</option>)}
+                  </select>
+                </label> : <p className="panel-description admin-form-wide">This will process every war and event and rebuild their statistics.</p>}
+                <label className="checkbox-row admin-form-wide"><input type="checkbox" checked={relinkForm.fetchMissing}
+                  disabled={isBusy !== null} onChange={event => setRelinkForm({ ...relinkForm, fetchMissing: event.target.checked })} />
+                  <span>Fetch missing attacks first</span>
+                </label>
+                <p className="panel-description admin-form-wide">Preview checks stored attacks without making changes. If fetching is enabled, the final totals may include additional attacks.</p>
+                <button type="button" className="admin-button admin-form-wide" disabled={!canRelink}
+                  onClick={() => runAdminAction("Preview attack reassignment", () => previewRelinkAttacks(toRelinkPayload(relinkForm)))}>Preview reassignment</button>
+                <button type="submit" className="admin-button primary admin-form-wide" disabled={!canRelink}>
+                  {relinkForm.scope === "all" ? "Reassign all wars and events" : "Reassign selected war/event"}
+                </button>
+              </form>
+            </section>
+<section className="admin-tool-section admin-maintenance-backfill">
+              <PanelHeader title="Manual Torn report fetch" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runWarAction("Manual Torn report fetch", () =>
+                    fetchTornWarReport(Number(reportForm.tornWarId)),
+                  );
+                }}
+              >
+                <label>
+                  <span>Torn war ID</span>
+                  <input
+                    inputMode="numeric"
+                    value={reportForm.tornWarId}
+                    onChange={(event) => setReportForm({ tornWarId: event.target.value })}
+                    required
+                  />
+                </label>
+                <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
+                  Fetch Torn report
+                </button>
+              </form>
+            </section>
+<section className="admin-tool-section admin-maintenance-backfill">
+              <PanelHeader title="Inspect Torn attacks by time range" />
+              <form
+                className="admin-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runAdminAction("Inspect Torn attacks", () =>
+                    pullAttackWindow({
+                      practical_start_time: attackWindowSecondsFromForm(
+                        attackWindowForm,
+                        adminTimeMode,
+                        "start",
+                      ),
+                      practical_finish_time: attackWindowSecondsFromForm(
+                        attackWindowForm,
+                        adminTimeMode,
+                        "finish",
+                      ),
+                      limit: attackWindowForm.limit.trim() ? Number(attackWindowForm.limit) : undefined,
+                    }),
+                  );
+                }}
+              >
+                <label>
+                  <span>Start time</span>
+                  {adminTimeMode === "epoch" ? (
+                    <input
+                      inputMode="numeric"
+                      value={attackWindowForm.startEpoch}
+                      onChange={(event) =>
+                        setAttackWindowForm(
+                          updateAttackWindowEpoch(attackWindowForm, "start", event.target.value),
+                        )
+                      }
+                      required
+                    />
+                  ) : (
+                    <input
+                      type="datetime-local"
+                      value={attackWindowForm.startTime}
+                      onChange={(event) =>
+                        setAttackWindowForm(
+                          updateAttackWindowDateTime(attackWindowForm, "start", event.target.value),
+                        )
+                      }
+                      required
+                    />
+                  )}
+                </label>
+                <label>
+                  <span>Finish time</span>
+                  {adminTimeMode === "epoch" ? (
+                    <input
+                      inputMode="numeric"
+                      value={attackWindowForm.finishEpoch}
+                      onChange={(event) =>
+                        setAttackWindowForm(
+                          updateAttackWindowEpoch(attackWindowForm, "finish", event.target.value),
+                        )
+                      }
+                      required
+                    />
+                  ) : (
+                    <input
+                      type="datetime-local"
+                      value={attackWindowForm.finishTime}
+                      onChange={(event) =>
+                        setAttackWindowForm(
+                          updateAttackWindowDateTime(attackWindowForm, "finish", event.target.value),
+                        )
+                      }
+                      required
+                    />
+                  )}
+                </label>
+                <label>
+                  <span>Returned attacks</span>
+                  <input
+                    inputMode="numeric"
+                    value={attackWindowForm.limit}
+                    onChange={(event) =>
+                      setAttackWindowForm({ ...attackWindowForm, limit: event.target.value })
+                    }
+                  />
+                </label>
+                <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
+                  Inspect attacks
+                </button>
+              </form>
+            </section>
+<section className="admin-tool-section admin-tool-section-wide admin-maintenance-repair">
               <PanelHeader title="Member lifestyle repair" />
               <form
                 className="admin-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  runAdminAction("Create lifestyle repair", () =>
+                  runRepairAction("Create lifestyle repair", () =>
                     createMemberLifestyleRepairJob({
                       start_date: lifestyleRepairForm.startDate,
                       end_date: lifestyleRepairForm.endDate,
@@ -1889,7 +1918,7 @@ export function AdminControls() {
                                 className="admin-button danger"
                                 disabled={isBusy !== null}
                                 onClick={() =>
-                                  runAdminAction("Cancel lifestyle repair", () =>
+                                  runRepairAction("Cancel lifestyle repair", () =>
                                     cancelMemberLifestyleRepairJob(job.id),
                                   )
                                 }
@@ -1911,114 +1940,33 @@ export function AdminControls() {
                 </p>
               )}
             </section>
-
-            <section className="admin-tool-section" hidden={activeAdminTab !== "reporting"}>
-              <PanelHeader title="Report exemptions" />
-              <form
-                className="admin-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const memberId = Number(reportExemptionForm.memberId);
-                  runAdminAction("Add report exemption", () =>
-                    updateHomeFactionReportExemption({
-                      member_id: memberId,
-                      report_exempt: true,
-                      reason: reportExemptionForm.reason.trim() || undefined,
-                    }),
-                  );
-                }}
-              >
-                <label>
-                  <span>Member</span>
-                  <select
-                    value={reportExemptionForm.memberId}
-                    onChange={(event) =>
-                      setReportExemptionForm({ ...reportExemptionForm, memberId: event.target.value })
-                    }
-                    required
-                  >
-                    <option value="">Select member</option>
-                    {currentReportableMembers.map((member) => (
-                      <option key={member.member_id} value={member.member_id}>
-                        {member.name} [{member.member_id}]
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>Reason</span>
-                  <input
-                    value={reportExemptionForm.reason}
-                    maxLength={240}
-                    onChange={(event) =>
-                      setReportExemptionForm({ ...reportExemptionForm, reason: event.target.value })
-                    }
-                  />
-                </label>
-                <button
-                  type="submit"
-                  className="admin-button primary admin-form-wide"
-                  disabled={isBusy !== null || !reportExemptionForm.memberId}
-                >
-                  {isBusy === "Add report exemption" ? "Saving" : "Exclude from reports"}
-                </button>
-              </form>
-            </section>
-
-            <section className="admin-tool-section admin-maintenance-backfill" hidden={activeAdminTab !== "maintenance"}>
-              <PanelHeader title="Rebuilds and backfills" />
+<section className="admin-tool-section admin-tool-section-wide admin-maintenance-repair">
+              <PanelHeader title="Member highlights" />
+              <p className="panel-description">
+                Recompute dashboard member highlight podiums from the latest complete lifestyle and attack data.
+              </p>
               <button
                 type="button"
                 className="admin-button primary"
                 disabled={isBusy !== null}
-                onClick={() => runAdminAction("Run ingestion", runIngestion)}
+                onClick={() => runAdminAction("Refresh member highlights", refreshMemberAchievements)}
               >
-                {isBusy === "Run ingestion" ? "Working" : "Run ingestion"}
+                {isBusy === "Refresh member highlights" ? "Refreshing" : "Refresh member highlights"}
               </button>
-              <form
-                className="admin-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!confirmRebuildAllStats()) {
-                    return;
-                  }
-                  const warId = Number(rebuildWarId);
-                  runAdminAction("Rebuild stats", () =>
-                    rebuildStats(rebuildWarId.trim() === "" ? undefined : warId),
-                  );
-                }}
-              >
-                <label className="admin-form-wide">
-                  Rebuild one war
-                  <select
-                    value={rebuildWarId}
-                    onChange={(event) => setRebuildWarId(event.target.value)}
-                  >
-                    <option value="">All wars</option>
-                    {wars.map((war) => (
-                      <option key={war.id} value={war.id}>
-                        #{war.id} {war.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="submit"
-                  className="admin-button primary admin-form-wide"
-                  disabled={isBusy !== null}
-                >
-                  {isBusy === "Rebuild stats" ? "Working" : rebuildWarId ? "Rebuild selected war" : "Rebuild all stats"}
-                </button>
-              </form>
+            </section></div>
+</AdminSettingsSection>
+<AdminSettingsSection section="recovery" title="Discord and tracking recovery" description="Image delivery and enemy tracker recovery">
+<section className="admin-tool-section">
+<PanelHeader title="Discord images and enemy tracking" />
               <button
                 type="button"
                 className="admin-button"
                 disabled={isBusy !== null}
                 onClick={() =>
-                  runAdminAction("Reset stats image latches", resetEnemyStatsImageLatches)
+                  runAdminAction("Queue Discord stats image resend", resetEnemyStatsImageLatches)
                 }
               >
-                {isBusy === "Reset stats image latches" ? "Working" : "Reset Discord stats image"}
+                {isBusy === "Queue Discord stats image resend" ? "Working" : "Queue Discord stats image resend"}
               </button>
               <form
                 className="admin-form"
@@ -2085,229 +2033,25 @@ export function AdminControls() {
                 </button>
               </form>
             </section>
-
-            <section className="admin-tool-section admin-maintenance-danger" hidden={activeAdminTab !== "maintenance"}>
+</AdminSettingsSection>
+<AdminSettingsSection section="delete-records" title="Delete records" description="Remove a selected war or event">
+<section className="admin-tool-section admin-maintenance-danger">
               <PanelHeader title="Delete war/event" />
-              <form
-                className="admin-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!confirmDeleteWar()) {
-                    return;
-                  }
-                  runAdminAction("Delete war", () =>
-                    deleteWar({
-                      torn_war_id: deleteForm.tornWarId.trim()
-                        ? Number(deleteForm.tornWarId)
-                        : undefined,
-                      name: deleteForm.name.trim() || undefined,
-                    }),
-                  );
-                }}
-              >
-                <label>
-                  <span>Torn war ID</span>
-                  <input
-                    inputMode="numeric"
-                    value={deleteForm.tornWarId}
-                    onChange={(event) =>
-                      setDeleteForm({ ...deleteForm, tornWarId: event.target.value })
-                    }
-                  />
+              <form className="admin-form" onSubmit={event => {
+                event.preventDefault();
+                if (confirmDeleteWar()) runWarAction("Delete war/event", () => deleteWar({ war_id: Number(deleteWarId) }));
+              }}>
+                <label className="admin-form-wide"><span>War/event to delete</span>
+                  <select value={deleteWarId} required disabled={isBusy !== null} onChange={event => setDeleteWarId(event.target.value)}>
+                    <option value="">Select a war/event</option>
+                    {wars.map(war => <option key={war.id} value={war.id}>#{war.id} {war.name} / {war.status}</option>)}
+                  </select>
                 </label>
-                <label>
-                  <span>War/event name</span>
-                  <input
-                    value={deleteForm.name}
-                    onChange={(event) => setDeleteForm({ ...deleteForm, name: event.target.value })}
-                  />
-                </label>
-                <button type="submit" className="admin-button danger admin-form-wide" disabled={isBusy !== null}>
-                  Delete war
-                </button>
+                <button type="submit" className="admin-button danger admin-form-wide" disabled={isBusy !== null || !deleteWarId}>Delete selected war/event</button>
               </form>
             </section>
-
-            <section className="admin-tool-section admin-maintenance-repair" hidden={activeAdminTab !== "maintenance"}>
-              <PanelHeader title="Reassign attacks to wars/events" />
-              <form className="admin-form">
-                <label>
-                  <span>Torn war ID</span>
-                  <input
-                    inputMode="numeric"
-                    value={relinkForm.tornWarId}
-                    onChange={(event) =>
-                      setRelinkForm({ ...relinkForm, tornWarId: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  <span>War/event name</span>
-                  <input
-                    value={relinkForm.name}
-                    onChange={(event) => setRelinkForm({ ...relinkForm, name: event.target.value })}
-                  />
-                </label>
-                <label className="checkbox-row admin-form-wide">
-                  <input
-                    type="checkbox"
-                    checked={relinkForm.fetchMissing}
-                    onChange={(event) =>
-                      setRelinkForm({ ...relinkForm, fetchMissing: event.target.checked })
-                    }
-                  />
-                  <span>Fetch missing attacks first</span>
-                </label>
-                <button
-                  type="button"
-                  className="admin-button admin-form-wide"
-                  disabled={isBusy !== null}
-                  onClick={() =>
-                    runAdminAction("Preview attack reassignment", () =>
-                      previewRelinkAttacks(toRelinkPayload(relinkForm)),
-                    )
-                  }
-                >
-                  Preview reassignment
-                </button>
-                <button
-                  type="button"
-                  className="admin-button primary admin-form-wide"
-                  disabled={isBusy !== null}
-                  onClick={() =>
-                    runAdminAction("Reassign attacks to wars/events", () => relinkAttacks(toRelinkPayload(relinkForm)))
-                  }
-                >
-                  Reassign attacks
-                </button>
-              </form>
-            </section>
-
-            <section className="admin-tool-section admin-maintenance-backfill" hidden={activeAdminTab !== "maintenance"}>
-              <PanelHeader title="Manual Torn report fetch" />
-              <form
-                className="admin-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  runAdminAction("Manual Torn report fetch", () =>
-                    fetchTornWarReport(Number(reportForm.tornWarId)),
-                  );
-                }}
-              >
-                <label>
-                  <span>Torn war ID</span>
-                  <input
-                    inputMode="numeric"
-                    value={reportForm.tornWarId}
-                    onChange={(event) => setReportForm({ tornWarId: event.target.value })}
-                    required
-                  />
-                </label>
-                <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
-                  Fetch Torn report
-                </button>
-              </form>
-            </section>
-
-            <section className="admin-tool-section admin-maintenance-backfill" hidden={activeAdminTab !== "maintenance"}>
-              <PanelHeader title="Fetch attacks by time range" />
-              <form
-                className="admin-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  runAdminAction("Fetch attacks by time range", () =>
-                    pullAttackWindow({
-                      practical_start_time: attackWindowSecondsFromForm(
-                        attackWindowForm,
-                        adminTimeMode,
-                        "start",
-                      ),
-                      practical_finish_time: attackWindowSecondsFromForm(
-                        attackWindowForm,
-                        adminTimeMode,
-                        "finish",
-                      ),
-                      limit: attackWindowForm.limit.trim() ? Number(attackWindowForm.limit) : undefined,
-                    }),
-                  );
-                }}
-              >
-                <label>
-                  <span>Start time</span>
-                  {adminTimeMode === "epoch" ? (
-                    <input
-                      inputMode="numeric"
-                      value={attackWindowForm.startEpoch}
-                      onChange={(event) =>
-                        setAttackWindowForm(
-                          updateAttackWindowEpoch(attackWindowForm, "start", event.target.value),
-                        )
-                      }
-                      required
-                    />
-                  ) : (
-                    <input
-                      type="datetime-local"
-                      value={attackWindowForm.startTime}
-                      onChange={(event) =>
-                        setAttackWindowForm(
-                          updateAttackWindowDateTime(attackWindowForm, "start", event.target.value),
-                        )
-                      }
-                      required
-                    />
-                  )}
-                </label>
-                <label>
-                  <span>Finish time</span>
-                  {adminTimeMode === "epoch" ? (
-                    <input
-                      inputMode="numeric"
-                      value={attackWindowForm.finishEpoch}
-                      onChange={(event) =>
-                        setAttackWindowForm(
-                          updateAttackWindowEpoch(attackWindowForm, "finish", event.target.value),
-                        )
-                      }
-                      required
-                    />
-                  ) : (
-                    <input
-                      type="datetime-local"
-                      value={attackWindowForm.finishTime}
-                      onChange={(event) =>
-                        setAttackWindowForm(
-                          updateAttackWindowDateTime(attackWindowForm, "finish", event.target.value),
-                        )
-                      }
-                      required
-                    />
-                  )}
-                </label>
-                <label>
-                  <span>Returned attacks</span>
-                  <input
-                    inputMode="numeric"
-                    value={attackWindowForm.limit}
-                    onChange={(event) =>
-                      setAttackWindowForm({ ...attackWindowForm, limit: event.target.value })
-                    }
-                  />
-                </label>
-                <button type="submit" className="admin-button primary admin-form-wide" disabled={isBusy !== null}>
-                  Fetch attacks
-                </button>
-              </form>
-            </section>
-          </div>
-          {result ? (
-            <AdminActionResult result={result} />
-          ) : null}
-        </section>
-        ) : null}
-        {activeAdminTab !== "maintenance" && result ? (
-          <AdminActionResult result={result} />
-        ) : null}
+</AdminSettingsSection>
+        </div> : null}
       </section>
       </>
       ) : null}
@@ -2316,7 +2060,7 @@ export function AdminControls() {
 }
 
 function AdminSettingsSection({ section, title, description, children }: {
-  section: "wars" | "historical-wars" | "events" | "competitions";
+  section: "wars" | "historical-wars" | "events" | "competitions" | "diagnostics" | "repairs" | "recovery" | "delete-records";
   title: string;
   description: string;
   children: React.ReactNode;
@@ -2350,13 +2094,24 @@ function AdminSettingsSection({ section, title, description, children }: {
   );
 }
 
-function AdminActionResult({ result }: { result: unknown }) {
-  return (
-    <section className="panel admin-result-panel">
-      <PanelHeader title="Latest API response" />
-      <pre>{JSON.stringify(result, null, 2)}</pre>
-    </section>
-  );
+function AdminActionResult({ result }: { result: { label: string; data: unknown; warning?: string } }) {
+  const summary = summarizeAdminAction(result.label, result.data);
+  return <section className="panel admin-result-panel" aria-label="Action result">
+    <p role="status"><strong>{result.label}: completed.</strong> {summary}</p>
+    {result.warning ? <p role="alert">{result.warning}</p> : null}
+    <details><summary>Technical details</summary><pre>{JSON.stringify(result.data, null, 2)}</pre></details>
+  </section>;
+}
+
+function summarizeAdminAction(label: string, data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const value = data as Record<string, unknown>;
+  if (typeof value.wars_processed === "number") return String(value.wars_processed) + " war/event records processed; " + (value.total_matching_attacks ?? 0) + " matching attacks.";
+  if (typeof value.matching_attack_count === "number") return String(value.matching_attack_count) + " attacks found; " + (value.returned_attack_count ?? 0) + " returned.";
+  if (label === "Export attacks CSV") return "Your CSV download is ready.";
+  if (label.startsWith("Preview")) return "The preview is ready. Expand technical details for returned data.";
+  if (label === "Queue Discord stats image resend") return "A Discord stats image resend has been queued for the current scouting war.";
+  return "";
 }
 
 type AdminWarFormState = {
@@ -3003,16 +2758,8 @@ export function toPracticalWarEditPayload(id: number, form: AdminWarFormState): 
   return payload;
 }
 
-function toRelinkPayload(form: { tornWarId: string; name: string; fetchMissing: boolean }): {
-  torn_war_id?: number;
-  name?: string;
-  fetch_missing?: boolean;
-} {
-  return {
-    torn_war_id: form.tornWarId.trim() ? Number(form.tornWarId) : undefined,
-    name: form.name.trim() || undefined,
-    fetch_missing: form.fetchMissing,
-  };
+function toRelinkPayload(form: { scope: "selected" | "all"; warId: string; fetchMissing: boolean }) {
+  return { scope: form.scope, war_id: form.scope === "selected" ? Number(form.warId) : undefined, fetch_missing: form.fetchMissing };
 }
 
 function convertWarFormTimeMode(
@@ -3309,88 +3056,6 @@ function secondsFromDateTimeLocal(value: string): number {
   return Math.floor(new Date(value).getTime() / 1000);
 }
 
-function formatIngestionTime(timestamp: number | null): string {
-  if (!timestamp) {
-    return "Not recorded";
-  }
-
-  return new Date(timestamp * 1000).toLocaleString();
-}
-
-function formatDuration(start: number | null, finish: number | null): string {
-  if (!start || !finish) {
-    return "Not recorded";
-  }
-
-  const durationMs = Math.max(0, (finish - start) * 1000);
-  if (durationMs < 1000) {
-    return "<1s";
-  }
-
-  const seconds = durationMs / 1000;
-  return seconds < 60 ? `${seconds.toFixed(1)}s` : `${(seconds / 60).toFixed(1)}m`;
-}
-
-function formatUsageWindow(seconds: number): string {
-  if (seconds < 60 * 60) {
-    return `${Math.round(seconds / 60)}m`;
-  }
-  if (seconds < 24 * 60 * 60) {
-    return `${Math.round(seconds / (60 * 60))}h`;
-  }
-  return `${Math.round(seconds / (24 * 60 * 60))}d`;
-}
-
-function formatTornApiUsageWindowSummaryLabel(seconds: number): string {
-  return TORN_API_USAGE_WINDOW_OPTIONS.find((option) => option.seconds === seconds)?.summaryLabel
-    ?? formatUsageWindow(seconds);
-}
-
-function formatTornApiKeySource(keySource: string, keyLabel?: string | null): string {
-  const trimmedLabel = keyLabel?.trim();
-  if (trimmedLabel) return trimmedLabel;
-
-  switch (keySource) {
-    case "env:TORN_API_KEY":
-      return "Admin fallback key";
-    case "member_supplied:auth":
-      return "Member auth key";
-    case "member_supplied:trade_scout":
-      return "Trade Scout member key";
-    default:
-      if (keySource.startsWith("key_pool:")) {
-        return `Pool ${keySource.slice("key_pool:".length, "key_pool:".length + 8)}`;
-      }
-      return keySource;
-  }
-}
-
-function formatKeyPoolFeatures(features: string[]): string {
-  return features.length > 0
-    ? features.map((feature) => feature.replace(/_/g, " ")).join(", ")
-    : "-";
-}
-
-function formatKeyPoolAccess(key: {
-  access_level: number | null;
-  access_type: string | null;
-}): string {
-  if (key.access_type && key.access_level !== null) {
-    return `${key.access_type} (${key.access_level})`;
-  }
-  if (key.access_type) {
-    return key.access_type;
-  }
-  if (key.access_level !== null) {
-    return String(key.access_level);
-  }
-  return "Unknown";
-}
-
-function formatBooleanAccess(value: boolean): string {
-  return value ? "Yes" : "No";
-}
-
 function formatPrize(value: number): string {
   if (value >= 1_000_000) {
     return `$${formatNumber(value / 1_000_000)}mil`;
@@ -3413,5 +3078,3 @@ function utcDateFromDaysAgo(daysAgo: number): string {
   const date = new Date(Date.now() - daysAgo * 86_400_000);
   return date.toISOString().slice(0, 10);
 }
-
-

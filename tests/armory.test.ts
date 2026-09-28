@@ -27,7 +27,7 @@ class TestDB {
   sqlite = new DatabaseSync(":memory:");
   constructor() {
     const schema = readFileSync(new URL("../schema/current.sql", import.meta.url), "utf8");
-    for (const table of ["home_member_live_status", "sync_state", "home_faction_members"]) {
+    for (const table of ["home_member_live_status", "sync_state", "home_faction_members", "admin_users"]) {
       this.sqlite.exec(schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))![0]);
     }
     for (const file of ["0164_create_faction_armory.sql", "0165_track_armory_loan_observations.sql", "0166_add_armory_categories.sql", "0167_add_armory_medical.sql", "0168_add_armory_stock_alerts.sql", "0169_add_armory_owners.sql"]) {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { requireAdmin } from "../auth";
+import { requireAdmin, revokeAdminAccess } from "../auth";
 import { acceptDailyStatsIssueFromRequest } from "../lifestyleStats/dailyAttention";
 vi.mock("../lifestyleStats/dailyAttention", () => ({
   acceptDailyStatsIssueFromRequest: vi.fn(),
@@ -49,6 +49,7 @@ vi.mock("../discordMessageAdmin", () => ({ deleteDiscordBotMessageFromRequest: v
 
 vi.mock("../auth", () => ({
   grantAdminAccess: vi.fn(),
+  revokeAdminAccess: vi.fn(),
   listAdminUsers: vi.fn(),
   readAuthenticatedUserId: vi.fn(),
   requireAdmin: vi.fn(),
@@ -133,6 +134,16 @@ vi.mock("../xanaxCompetition", () => ({
 }));
 
 describe("admin routes", () => {
+  it("protects admin revocation and dispatches authorized requests", async () => {
+    const context = routeContext("https://worker.test/api/admin/users/revoke", { method: "POST" });
+    vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
+    expect((await routeAdminApi(context))?.status).toBe(403);
+    expect(revokeAdminAccess).not.toHaveBeenCalled();
+    vi.mocked(requireAdmin).mockResolvedValueOnce(null);
+    vi.mocked(revokeAdminAccess).mockResolvedValueOnce(jsonResponse({ ok: true }));
+    expect((await routeAdminApi(context))?.status).toBe(200);
+    expect(revokeAdminAccess).toHaveBeenCalledWith(context.request, context.env);
+  });
   it("does not register the retired packs endpoint", async () => {
     const response = await routeAdminApi(routeContext("https://worker.test/api/admin/packs"));
     expect(response).toBeNull();

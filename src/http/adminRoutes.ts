@@ -2,7 +2,7 @@ import { positiveIntegerOrNull, readJsonObject } from "../backend/request";
 import { routeArmoryApi } from "./armoryRoutes";
 import { sendAdminDiscordMessageFromRequest } from "../discordMessageSend";
 import { getAdminDiscordSubscriptionSettings, updateAdminDiscordSubscriptionSettingFromRequest } from "../discordSubscriptionSettings";
-import { grantAdminAccess, listAdminUsers, readAuthenticatedUserId } from "../auth";
+import { grantAdminAccess, listAdminUsers, readAuthenticatedUserId, revokeAdminAccess } from "../auth";
 import { bumpGlobalWarCacheVersion, bumpWarCacheVersionById } from "../cacheVersions";
 import {
   getAdminDataHealth,
@@ -238,6 +238,10 @@ export async function routeAdminApi(routeContext: RouteContext): Promise<RouteRe
 
   if (matchesExactRoute(url, request, "/api/admin/users/grant", "POST")) {
     return withAdmin(routeContext, () => grantAdminAccess(request, env));
+  }
+
+  if (matchesExactRoute(url, request, "/api/admin/users/revoke", "POST")) {
+    return withAdmin(routeContext, () => revokeAdminAccess(request, env));
   }
 
   if (matchesExactRoute(url, request, "/api/admin/discord-links/sync", "POST")) {

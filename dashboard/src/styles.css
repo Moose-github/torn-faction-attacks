@@ -6786,6 +6786,47 @@ h2 {
   border-left-color: #9333ea;
 }
 
+.admin-section-divider-diagnostics {
+  border-left-color: #0284c7;
+}
+
+.admin-section-divider-repairs {
+  border-left-color: #16a34a;
+}
+
+.admin-section-divider-recovery {
+  border-left-color: #9333ea;
+}
+
+.admin-section-divider-delete-records {
+  border-left-color: #dc2626;
+}
+
+.admin-settings-content > * {
+  min-width: 0;
+}
+
+.admin-action-notice {
+  padding: 12px 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--panel-muted-bg);
+}
+
+.admin-result-panel summary {
+  cursor: pointer;
+}
+
+.admin-diagnostics-panel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.admin-diagnostics-panel > button {
+  justify-self: start;
+}
+
 .admin-event-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -6811,8 +6852,7 @@ h2 {
   gap: 14px;
 }
 
-.admin-panel-discord-travel,
-.admin-panel-discord-travel-status {
+.admin-panel-discord-travel {
   display: grid;
   align-content: start;
   gap: 14px;
@@ -6870,10 +6910,6 @@ h2 {
   white-space: nowrap;
 }
 
-.admin-result-panel {
-  order: 11;
-}
-
 .admin-action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6905,22 +6941,18 @@ h2 {
 }
 
 .admin-maintenance-diagnostics {
-  order: 1;
   border-left: 4px solid #38bdf8;
 }
 
 .admin-maintenance-backfill {
-  order: 2;
   border-left: 4px solid #22c55e;
 }
 
 .admin-maintenance-repair {
-  order: 3;
   border-left: 4px solid #f59e0b;
 }
 
 .admin-maintenance-danger {
-  order: 4;
   border-left: 4px solid #ef4444;
 }
 

@@ -82,7 +82,8 @@ type DiscordAdminControlsProps = {
   setDiscordTravelTargetForm: React.Dispatch<React.SetStateAction<DiscordTravelTargetForm>>;
   setError: React.Dispatch<React.SetStateAction<string | null>>;
   applyDiscordAlertSettingsResponse: (response: AdminDiscordAlertSettingsResponse) => void;
-  runAdminAction: (label: string, action: () => Promise<unknown>) => void;
+  refreshTravelTarget: () => Promise<void>;
+  runAdminAction: (label: string, action: () => Promise<unknown>, options?: { refresh?: Array<() => Promise<void>> }) => void;
 };
 
 export function DiscordAdminControls({
@@ -104,8 +105,12 @@ export function DiscordAdminControls({
   setDiscordTravelTargetForm,
   setError,
   applyDiscordAlertSettingsResponse,
+  refreshTravelTarget,
   runAdminAction,
 }: DiscordAdminControlsProps) {
+  function runTravelAction(label: string, action: () => Promise<unknown>) {
+    runAdminAction(label, action, { refresh: [refreshTravelTarget] });
+  }
   const mentionControls = useDiscordMentionSettings();
   const subscriptionControls = useDiscordSubscriptionSettings();
   const discordAlertStatus = isLoadingDiscordAlertSettings
@@ -394,7 +399,7 @@ export function DiscordAdminControls({
       <DiscordMessageDelete />
 
       <section className="panel admin-panel-discord-travel">
-        <PanelHeader title="Travel tracker controls" aside={discordTravelTrackerStatus} />
+        <PanelHeader title="Travel tracker" aside={discordTravelTrackerStatus} />
         <form
           className="admin-form"
           onSubmit={(event) => {
@@ -404,7 +409,7 @@ export function DiscordAdminControls({
               setError("Enter a valid faction ID.");
               return;
             }
-            runAdminAction("Set Discord travel target", () =>
+            runTravelAction("Set Discord travel target", () =>
               setDiscordTravelTrackerTarget({
                 faction_id: factionId,
                 faction_name: discordTravelTargetForm.factionName.trim() || undefined,
@@ -418,7 +423,7 @@ export function DiscordAdminControls({
               checked={discordTravelTarget?.target_tracker.enabled ?? true}
               disabled={isBusy !== null || isLoadingDiscordTravelTarget}
               onChange={(event) =>
-                runAdminAction("Update target travel tracker", () =>
+                runTravelAction("Update target travel tracker", () =>
                   updateDiscordTravelTrackerSettings({ target_enabled: event.target.checked }),
                 )}
             />
@@ -433,7 +438,7 @@ export function DiscordAdminControls({
               checked={discordTravelTarget?.home_tracker.enabled ?? false}
               disabled={isBusy !== null || isLoadingDiscordTravelTarget}
               onChange={(event) =>
-                runAdminAction("Update home travel tracker", () =>
+                runTravelAction("Update home travel tracker", () =>
                   updateDiscordTravelTrackerSettings({ home_enabled: event.target.checked }),
                 )}
             />
@@ -482,7 +487,7 @@ export function DiscordAdminControls({
             className="admin-button"
             disabled={isBusy !== null || !discordTravelTarget?.manual_target}
             onClick={() =>
-              runAdminAction("Clear Discord travel target", () =>
+              runTravelAction("Clear Discord travel target", () =>
                 clearDiscordTravelTrackerTarget().then((response) => {
                   setDiscordTravelTargetForm({ factionId: "", factionName: "" });
                   return response;
@@ -495,15 +500,12 @@ export function DiscordAdminControls({
             type="button"
             className="admin-button admin-form-wide"
             disabled={isBusy !== null}
-            onClick={() => runAdminAction("Sync Discord travel tracker", syncDiscordTravelTracker)}
+            onClick={() => runTravelAction("Sync Discord travel tracker", syncDiscordTravelTracker)}
           >
             {isBusy === "Sync Discord travel tracker" ? "Syncing tracker" : "Sync tracker now"}
           </button>
         </form>
-      </section>
-
-      <section className="panel admin-panel-discord-travel-status">
-        <PanelHeader title="Travel tracker status" />
+        <PanelHeader title="Current travel tracker status" />
         <div className="admin-metric-list admin-form-wide">
           <MetricLine
             label="Active source"

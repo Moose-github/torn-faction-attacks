@@ -129,16 +129,22 @@ export async function updateHomeFactionReportExemption(payload: {
   );
 }
 
-export async function listAdminUsers(): Promise<unknown> {
+export type AdminUser = { torn_user_id: number; name: string | null; created_at: number };
+
+export async function listAdminUsers(): Promise<{ ok: true; admins: AdminUser[] }> {
   return getJson("/api/admin/users", true);
 }
 
-export async function grantAdminAccess(tornUserId: number): Promise<unknown> {
+export async function grantAdminAccess(tornUserId: number): Promise<unknown> {
   return postJson("/api/admin/users/grant", { torn_user_id: tornUserId });
 }
 
 export async function getDiscordTravelTrackerTarget(): Promise<DiscordTravelTrackerTargetResponse> {
   return getJson<DiscordTravelTrackerTargetResponse>("/api/admin/discord-travel-tracker/target", true);
+}
+
+export async function revokeAdminAccess(tornUserId: number): Promise<unknown> {
+  return postJson("/api/admin/users/revoke", { torn_user_id: tornUserId });
 }
 
 export async function setDiscordTravelTrackerTarget(payload: {

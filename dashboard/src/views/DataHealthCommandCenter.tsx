@@ -1,3 +1,4 @@
+import { AdminDiagnostics } from "../components/AdminDiagnostics";
 import React from "react";
 import {
   AlertTriangle,
@@ -153,6 +154,8 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
 
       <DataHealthOverview data={data} isLoading={isLoading} onOpenView={onOpenView} onRefresh={loadData} />
 
+      {isAdmin ? <AdminDiagnostics /> : null}
+
       {adminData ? (
         <AdminDataHealthDiagnostics
           data={adminData}
@@ -235,7 +238,7 @@ function DataHealthOverview({
         <PanelHeader
           icon={<Gauge size={17} />}
           title="Subsystems"
-          aside={data ? `Generated ${formatRelativeTime(data.generated_at)}` : "Loading"}
+          aside={data ? `Generated ${formatRelativeTime(data.generated_at)}` : isLoading ? "Loading" : "Unavailable"}
         />
         {subsystems.length === 0 ? (
           <EmptyState text={isLoading ? "Loading data health" : "No subsystem health available"} />
@@ -248,16 +251,18 @@ function DataHealthOverview({
         )}
       </section>
 
-      <KeyPoolPanel keyPool={data?.key_pool ?? null} onOpenView={onOpenView} />
+      <KeyPoolPanel keyPool={data?.key_pool ?? null} isLoading={isLoading} onOpenView={onOpenView} />
     </>
   );
 }
 
 function KeyPoolPanel({
   keyPool,
+  isLoading,
   onOpenView,
 }: {
   keyPool: DataHealthKeyPoolSummary | null;
+  isLoading: boolean;
   onOpenView: (view: AppView) => void;
 }) {
   const windowLabel = formatApiUsageWindowSummaryLabel(keyPool?.window_seconds ?? 24 * 60 * 60);
@@ -274,7 +279,7 @@ function KeyPoolPanel({
         Saved member keys help spread Torn API load across available keys.
       </p>
       {!keyPool ? (
-        <EmptyState text="Loading key pool usage" />
+        <EmptyState text={isLoading ? "Loading key pool usage" : "Key pool usage is unavailable"} />
       ) : (
         <>
           <div className="data-health-key-pool-stats">

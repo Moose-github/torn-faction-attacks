@@ -1005,18 +1005,23 @@ export async function getAttackWindow(request: Request, env: Env): Promise<Respo
 export async function deleteWar(request: Request, env: Env): Promise<Response> {
   try {
     const body = (await request.json()) as {
+      war_id?: unknown;
       torn_war_id?: unknown;
       name?: unknown;
     };
+    const warId = parseOptionalInteger(body.war_id, "war_id");
     const tornWarId = parseOptionalInteger(body.torn_war_id, "torn_war_id");
     const name = typeof body.name === "string" ? body.name.trim() : "";
 
-    if (tornWarId === null && !name) {
+    if ((warId !== null && warId <= 0) || (tornWarId !== null && tornWarId <= 0)) {
+      return json({ ok: false, error: "A valid war ID is required", code: "INVALID_WAR_ID" }, 400);
+    }
+    if ([warId !== null, tornWarId !== null, !!name].filter(Boolean).length !== 1) {
       return json(
         {
           ok: false,
-          error: "Torn war id or name is required",
-          code: "MISSING_WAR",
+          error: "Select exactly one war/event to delete",
+          code: "INVALID_WAR_TARGET",
         },
         400,
       );
@@ -1026,12 +1031,13 @@ export async function deleteWar(request: Request, env: Env): Promise<Response> {
       `
       SELECT id, name, status
       FROM wars
-      WHERE (? IS NOT NULL AND torn_war_id = ?)
+      WHERE (? IS NOT NULL AND id = ?)
+         OR (? IS NOT NULL AND torn_war_id = ?)
          OR (? != '' AND LOWER(name) = LOWER(?))
       LIMIT 1
       `,
     )
-      .bind(tornWarId, tornWarId, name, name)
+      .bind(warId, warId, tornWarId, tornWarId, name, name)
       .first()) as { id: number; name: string; status: string } | null;
 
     if (!war) {

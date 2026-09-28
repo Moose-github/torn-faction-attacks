@@ -1,4 +1,4 @@
-import { positiveIntegerOrNull, readJsonObject } from "./backend/request";
+import { readJsonObject } from "./backend/request";
 import {
   AUTH_SESSION_TTL_SECONDS,
   HOME_FACTION_ID,
@@ -70,13 +70,16 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
       await env.DB.prepare(
         `
         INSERT INTO admin_users (torn_user_id)
-        VALUES (?)
+        SELECT ? WHERE NOT EXISTS (
+          SELECT 1 FROM admin_access_revocations WHERE torn_user_id = ?
+        )
         ON CONFLICT(torn_user_id) DO NOTHING
         `,
       )
-        .bind(user.id)
+        .bind(user.id, user.id)
         .run();
-      admin = { torn_user_id: user.id };
+      admin = await env.DB.prepare("SELECT torn_user_id FROM admin_users WHERE torn_user_id = ?")
+        .bind(user.id).first();
     }
 
     const accessLevel: AccessLevel = admin ? "admin" : "member";
@@ -117,7 +120,7 @@ export async function authenticateWithTornKey(request: Request, env: Env): Promi
 }
 
 export async function getCurrentAuthSession(request: Request, env: Env): Promise<Response> {
-  const session = await readAuthSession(request, env);
+  const session = await readAuthSession(request, env, false);
   if (!session) {
     return json({ ok: false, error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
   }
@@ -139,9 +142,10 @@ export async function getCurrentAuthSession(request: Request, env: Env): Promise
 export async function listAdminUsers(env: Env): Promise<Response> {
   const rows = await env.DB.prepare(
     `
-    SELECT torn_user_id, created_at
+    SELECT admin_users.torn_user_id, admin_users.created_at, home_faction_members.name
     FROM admin_users
-    ORDER BY torn_user_id ASC
+    LEFT JOIN home_faction_members ON home_faction_members.member_id = admin_users.torn_user_id
+    ORDER BY admin_users.torn_user_id ASC
     `,
   ).all();
 
@@ -153,9 +157,9 @@ export async function listAdminUsers(env: Env): Promise<Response> {
 
 export async function grantAdminAccess(request: Request, env: Env): Promise<Response> {
   const body = await readJsonObject(request);
-  const tornUserId = positiveIntegerOrNull(body.torn_user_id);
+  const tornUserId = Number(body.torn_user_id);
 
-  if (tornUserId === null) {
+  if (!Number.isSafeInteger(tornUserId) || tornUserId <= 0) {
     return json(
       {
         ok: false,
@@ -167,6 +171,7 @@ export async function grantAdminAccess(request: Request, env: Env): Promise<Resp
   }
 
   await env.DB.batch([
+    env.DB.prepare("DELETE FROM admin_access_revocations WHERE torn_user_id = ?").bind(tornUserId),
     env.DB.prepare(
       `
       INSERT INTO admin_users (torn_user_id)
@@ -193,8 +198,45 @@ export async function grantAdminAccess(request: Request, env: Env): Promise<Resp
   });
 }
 
+export async function revokeAdminAccess(request: Request, env: Env): Promise<Response> {
+  const actor = await readAuthSession(request, env, false);
+  if (!actor || actor.access_level !== "admin") {
+    return json({ ok: false, error: "Admin access required", code: "ADMIN_REQUIRED" }, 403);
+  }
+  const body = await readJsonObject(request);
+  const tornUserId = Number(body.torn_user_id);
+  if (!Number.isSafeInteger(tornUserId) || tornUserId <= 0) {
+    return json({ ok: false, error: "A valid Torn user ID is required", code: "INVALID_TORN_USER_ID" }, 400);
+  }
+  if (actor.id === tornUserId) {
+    return json({ ok: false, error: "Ask another admin to revoke your access", code: "SELF_REVOCATION" }, 400);
+  }
+  // D1 batches are atomic. Recheck the actor and remaining admins inside the write
+  // so concurrent revocations cannot remove the final administrator.
+  const results = await env.DB.batch([
+    env.DB.prepare(`INSERT INTO admin_access_revocations (torn_user_id, revoked_by)
+      SELECT torn_user_id, ? FROM admin_users
+      WHERE torn_user_id = ? AND (SELECT COUNT(*) FROM admin_users) > 1
+        AND EXISTS (SELECT 1 FROM admin_users WHERE torn_user_id = ?)
+      ON CONFLICT(torn_user_id) DO UPDATE SET revoked_by = excluded.revoked_by, created_at = unixepoch()`)
+      .bind(actor.id, tornUserId, actor.id),
+    env.DB.prepare(`DELETE FROM admin_users WHERE torn_user_id = ?
+      AND EXISTS (SELECT 1 FROM admin_access_revocations WHERE torn_user_id = ?)`)
+      .bind(tornUserId, tornUserId),
+    env.DB.prepare(`UPDATE auth_sessions SET access_level = 'member' WHERE torn_user_id = ?
+      AND NOT EXISTS (SELECT 1 FROM admin_users WHERE torn_user_id = ?)`)
+      .bind(tornUserId, tornUserId),
+  ]);
+  authSessionCache.clear();
+  if (!results[0].meta?.changes) {
+    return json({ ok: false, error: "Admin access changed or this admin cannot be revoked. Refresh the list.", code: "ADMIN_NOT_REVOKED" }, 409);
+  }
+  return json({ ok: true, revoked: { torn_user_id: tornUserId } });
+}
+
 export async function requireAdmin(request: Request, env: Env): Promise<Response | null> {
-  const session = await readAuthSession(request, env);
+  // Admin mutations must observe revocations from other Worker instances immediately.
+  const session = await readAuthSession(request, env, false);
 
   if (!session) {
     return json({ ok: false, error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
@@ -250,7 +292,7 @@ export async function revokeSessionsForFormerFactionMembers(
   return changes;
 }
 
-async function readAuthSession(request: Request, env: Env): Promise<AuthSession | null> {
+async function readAuthSession(request: Request, env: Env, useCache = true): Promise<AuthSession | null> {
   const token = bearerToken(request);
   if (!token) {
     return null;
@@ -258,7 +300,7 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
 
   const now = nowSeconds();
   const cached = authSessionCache.get(token);
-  if (cached) {
+  if (cached && useCache) {
     if (cached.cache_expires_at > now && cached.session.expires_at > now) {
       return cached.session;
     }
@@ -269,7 +311,8 @@ async function readAuthSession(request: Request, env: Env): Promise<AuthSession 
     `
     SELECT
       auth_sessions.torn_user_id,
-      auth_sessions.access_level,
+      CASE WHEN EXISTS (SELECT 1 FROM admin_users WHERE admin_users.torn_user_id = auth_sessions.torn_user_id)
+        THEN 'admin' ELSE 'member' END AS access_level,
       auth_sessions.expires_at,
       home_faction_members.name AS member_name
     FROM auth_sessions

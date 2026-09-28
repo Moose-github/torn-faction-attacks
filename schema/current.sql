@@ -5,6 +5,12 @@
 -- Cloudflare D1 migration history lives in migrations/ and remains the source
 -- of truth for deployed databases.
 
+CREATE TABLE admin_access_revocations (
+  torn_user_id INTEGER PRIMARY KEY,
+  revoked_by INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE admin_users (
   torn_user_id INTEGER PRIMARY KEY,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
