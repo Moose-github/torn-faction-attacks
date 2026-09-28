@@ -22,7 +22,7 @@ export const DEFAULT_ARMORY_FILTERS: ArmoryFilters = { ...EMPTY_ARMORY_FILTERS, 
 export function filterArmory(items: ArmoryCopy[], filters: ArmoryFilters): ArmoryCopy[] {
   const search = filters.search.trim().toLowerCase();
   return items.filter(item =>
-    (!search || `${item.name} ${item.uid} ${item.loaned?.name ?? ""} ${item.loaned?.id ?? ""}`.toLowerCase().includes(search)) &&
+    (!search || `${item.name} ${item.uid} ${item.loaned?.name ?? ""} ${item.loaned?.id ?? ""} ${item.owner?.name ?? "Faction"} ${item.owner?.id ?? ""}`.toLowerCase().includes(search)) &&
     (!filters.slot || item.type === filters.slot) &&
     (!filters.status || (item.loaned ? "loaned" : "available") === filters.status) &&
     (!filters.kind || weaponClass(item) === filters.kind) &&
@@ -30,11 +30,15 @@ export function filterArmory(items: ArmoryCopy[], filters: ArmoryFilters): Armor
     (!filters.bonus || item.details?.bonuses.some(bonus => bonus.title === filters.bonus)));
 }
 export type ArmoryGroup = { key: string; items: ArmoryCopy[]; grouped: boolean };
-export type ArmorySort = "name" | "available" | "rarity" | "observed" | "damage" | "accuracy" | "armor" | "quality";
+export type ArmorySort = "name" | "owner" | "available" | "rarity" | "bonus" | "observed" | "damage" | "accuracy" | "armor" | "quality";
 export type ArmorySortDirection = "asc" | "desc";
 const rarityRank = (item: ArmoryCopy): number | null => !item.details ? null : item.details.rarity === null ? 0
   : ({ yellow: 1, orange: 2, red: 3 } as Record<string, number>)[item.details.rarity] ?? null;
 const observedLoan = (item: ArmoryCopy): number | null => item.loaned ? item.loan_first_seen_at : null;
+const highestBonus = (items: ArmoryCopy[]): number | null => {
+  const values = items.flatMap(item => item.details?.bonuses.map(bonus => bonus.value) ?? []).filter(Number.isFinite);
+  return values.length ? Math.max(...values) : null;
+};
 export function groupArmory(items: ArmoryCopy[], individual: boolean, sort: ArmorySort, direction: ArmorySortDirection = "asc"): ArmoryGroup[] {
   const multiplier = direction === "asc" ? 1 : -1;
   // Missing observations and stats always follow known values in either direction.
@@ -43,7 +47,8 @@ export function groupArmory(items: ArmoryCopy[], individual: boolean, sort: Armo
   const groups = new Map<string, ArmoryGroup>();
   for (const item of items) {
     const grouped = !individual && weaponClass(item) === "standard";
-    const key = grouped ? `model-${item.id}` : `uid-${item.uid}`;
+    // Owner sorting must not hide different owners inside a single standard stack.
+    const key = grouped ? `model-${item.id}${sort === "owner" ? `-owner-${item.owner?.id ?? "faction"}` : ""}` : `uid-${item.uid}`;
     const group = groups.get(key) ?? { key, items: [], grouped };
     group.items.push(item);
     groups.set(key, group);
@@ -54,11 +59,15 @@ export function groupArmory(items: ArmoryCopy[], individual: boolean, sort: Armo
   }
   const value = (group: ArmoryGroup): number | null => sort === "available" ? group.items.filter(item => !item.loaned).length
     : sort === "rarity" ? rarityRank(group.items[0])
+    : sort === "bonus" ? highestBonus(group.items)
     : sort === "observed" ? observedLoan(group.items[0])
-    : sort === "name" ? 0 : group.items[0].details?.stats[sort] ?? null;
+    : sort === "name" || sort === "owner" ? 0 : group.items[0].details?.stats[sort] ?? null;
   return [...groups.values()].sort((a, b) => {
     const names = a.items[0].name.localeCompare(b.items[0].name);
-    const delta = sort === "name" ? names * multiplier : compareValues(value(a), value(b));
+    const delta = sort === "name" ? names * multiplier : sort === "owner"
+      ? ((a.items[0].owner?.name ?? "Faction").localeCompare(b.items[0].owner?.name ?? "Faction")
+        || (a.items[0].owner?.id ?? 0) - (b.items[0].owner?.id ?? 0)) * multiplier
+      : compareValues(value(a), value(b));
     return delta || names ||
       Number(a.grouped) - Number(b.grouped) || a.items[0].uid.localeCompare(b.items[0].uid, undefined, { numeric: true });
   });

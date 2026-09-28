@@ -5,6 +5,33 @@ const copy = (uid: string, special = false): ArmoryCopy => ({ uid, id: 399, name
   details: { uid, id: 399, name: "ArmaLite M-15A4", type: "Weapon", sub_type: "Rifle", stats: { damage: 70, accuracy: 60, armor: null, quality: 20 },
     bonuses: special ? [{ id: 50, title: "Achilles", value: 52, description: "52% increased Foot damage" }] : [], rarity: special ? "yellow" : null } });
 describe("armory display", () => {
+  it("sorts by the highest bonus percentage, preserving zero and putting missing bonuses last in both directions", () => {
+    const bonusCopy = (uid: string, values: number[], special = true) => {
+      const item = copy(uid, special);
+      item.details!.bonuses = values.map((value, id) => ({ id, title: `Bonus ${id}`, description: `${value}% effect`, value }));
+      return item;
+    };
+    const items = [bonusCopy("1", [20, 24]), bonusCopy("2", [22]), bonusCopy("3", [0]), copy("4"),
+      { ...copy("5"), details: null }];
+    expect(groupArmory(items, true, "bonus").map(group => group.items[0].uid)).toEqual(["3", "2", "1", "4", "5"]);
+    expect(groupArmory(items, true, "bonus", "desc").map(group => group.items[0].uid)).toEqual(["1", "2", "3", "4", "5"]);
+    const grouped = [bonusCopy("10", [10], false), bonusCopy("11", [100], false), ...items.slice(0, 3)];
+    expect(groupArmory(grouped, false, "bonus", "desc").map(group => group.items.map(item => item.uid))).toEqual([["10", "11"], ["1"], ["2"], ["3"]]);
+  });
+  it("sorts owners in both directions and separates standard stacks by owner only for owner sorting", () => {
+    const alice = { id: 42, name: "Alice" }, zoe = { id: 43, name: "Zoe" };
+    const items = [{ ...copy("1"), owner: zoe }, copy("2"), { ...copy("3"), owner: alice },
+      { ...copy("4"), owner: alice }, { ...copy("5", true), owner: zoe }];
+    expect(groupArmory(items, false, "owner").map(group => group.items.map(item => item.uid))).toEqual([["3", "4"], ["2"], ["5"], ["1"]]);
+    expect(groupArmory(items, false, "owner", "desc").map(group => group.items.map(item => item.uid))).toEqual([["5"], ["1"], ["2"], ["3", "4"]]);
+    expect(groupArmory(items, true, "owner").map(group => group.items[0].uid)).toEqual(["3", "4", "2", "1", "5"]);
+    expect(groupArmory(items, false, "name").find(group => group.grouped)?.items).toHaveLength(4);
+  });
+  it("finds items by owner name or ID, including faction-owned items", () => {
+    const items = [{ ...copy("1"), owner: { id: 42, name: "Alice" }, loaned: { id: 99, name: "Zoe" } }, copy("2")];
+    for (const search of ["alice", "42", "zoe"]) expect(filterArmory(items, { ...EMPTY_ARMORY_FILTERS, search }).map(item => item.uid)).toEqual(["1"]);
+    expect(filterArmory(items, { ...EMPTY_ARMORY_FILTERS, search: "faction" }).map(item => item.uid)).toEqual(["2"]);
+  });
   it("exports ownership separately from the borrower, with faction ownership as the default", () => {
     const item = { ...copy("1"), loaned: { id: 1, name: "Borrower" }, owner: { id: 42, name: "Owner" } };
     expect(armoryCsv([item])).toContain('"Owner ID","Owner"');
