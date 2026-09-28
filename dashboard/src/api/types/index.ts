@@ -123,6 +123,9 @@ export type RecentFactionAttacksResponse = {
 };
 
 export type WarSummary = {
+  practical_revision?: number;
+  practical_phases?: import("../../../../shared/practicalPhases").PracticalPhase[];
+  practical_duration_seconds?: number;
   id: number;
   name: string;
   status: string;
@@ -133,7 +136,6 @@ export type WarSummary = {
   enemy_faction_id: number | null;
   war_type: Exclude<WarType, "all"> | null;
   torn_war_id: number | null;
-  auto_end_enabled: number;
   chain_watch_enabled: number;
   event_type?: "general" | "elimination" | "halloween";
   competition_refresh_hours?: 6 | 12;
@@ -814,6 +816,7 @@ export type ReportAttackReconciliationItem = {
 };
 
 export type AdminWarPayload = {
+  practical_revision?: number;
   id?: number;
   status?: string;
   name?: string;
@@ -824,7 +827,6 @@ export type AdminWarPayload = {
   enemy_faction_id?: number | null;
   war_type: Exclude<WarType, "all">;
   torn_war_id?: number | null;
-  auto_end_enabled?: boolean;
   chain_watch_enabled?: boolean;
   event_type?: "general" | "elimination" | "halloween";
   competition_refresh_hours?: 6 | 12;

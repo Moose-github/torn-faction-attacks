@@ -9,7 +9,6 @@ import {
 } from "../heatmap";
 import { getWarReportDiscrepancies } from "../reports";
 import {
-  cachedGetJson,
   cachedVersionedGetJson,
 } from "../responseCache";
 import { jsonResponse, routeContext } from "../testUtils/http";
@@ -135,7 +134,7 @@ describe("war read routes", () => {
     expect(getWarProgress).not.toHaveBeenCalled();
   });
 
-  it("routes the war list through member auth and the simple cache", async () => {
+  it("routes the war list through member auth and an invalidatable cache", async () => {
     const context = routeContext("https://worker.test/api/wars?war_type=real");
 
     const response = await routeWarReads(context);
@@ -143,7 +142,7 @@ describe("war read routes", () => {
     expect(response?.status).toBe(200);
     expect(await response?.json()).toEqual({ ok: true, route: "list" });
     expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
-    expect(cachedGetJson).toHaveBeenCalledWith(context.request, context.ctx, 55, expect.any(Function));
+    expect(cachedVersionedGetJson).toHaveBeenCalledWith(context.env, context.request, context.ctx, 55, ["cache_version:war:"], expect.any(Function));
     expect(listWars).toHaveBeenCalledWith(context.url, context.env);
   });
 

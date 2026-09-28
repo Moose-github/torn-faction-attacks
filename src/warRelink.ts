@@ -7,7 +7,7 @@ import { ingestHistoricalWarWindow } from "./ingestion";
 import { DEFENSE_ACTION_WINDOW_SQL } from "./sql";
 import { rebuildWarStatsFromRaw } from "./warStats";
 import { Env, WarRow } from "./types";
-import { json } from "./utils";
+import { json, nowSeconds } from "./utils";
 
 type RelinkWarRow = Pick<
   WarRow,
@@ -192,7 +192,7 @@ async function relinkAttacksForWar(
 
 function relinkFetchWindow(war: RelinkWarRow): { start: number; finish: number } | null {
   const start = war.official_start_time ?? war.practical_start_time;
-  const finish = war.official_end_time ?? war.practical_finish_time;
+  const finish = war.official_end_time ?? (war.war_type === "termed" ? nowSeconds() : war.practical_finish_time);
 
   if (finish === null || finish < start) {
     return null;

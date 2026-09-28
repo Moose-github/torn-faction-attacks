@@ -1,3 +1,4 @@
+import { PracticalPhases } from "../components/PracticalPhases";
 import React from "react";
 import { CalendarClock, CheckCircle2, ChevronDown, ChevronRight, Radar, Swords, Target, TriangleAlert, Trophy } from "lucide-react";
 import {
@@ -237,7 +238,7 @@ export function WarDetailView({
                   <div className="war-time-lines">
                     <WarTimeLine
                       label={
-                        isEvent
+                        selectedWar.war_type === "termed" && !isScheduledWar ? "Practical time" : isEvent
                           ? isScheduledWar
                             ? "Event start time"
                             : "Event times"
@@ -246,7 +247,9 @@ export function WarDetailView({
                             : "Buttgrass times"
                       }
                       value={
-                        isScheduledWar
+                        selectedWar.war_type === "termed" && !isScheduledWar && selectedWar.practical_duration_seconds !== undefined
+                          ? `${Math.floor(selectedWar.practical_duration_seconds / 3600)}h ${Math.floor(selectedWar.practical_duration_seconds % 3600 / 60)}m across practical phases`
+                          : isScheduledWar
                           ? formatLongDateTime(selectedWar.practical_start_time)
                           : formatWarDateRange(selectedWar.practical_start_time, selectedWar.practical_finish_time)
                       }
@@ -274,6 +277,7 @@ export function WarDetailView({
                 ) : null}
               </section>
 
+              <PracticalPhases key={selectedWar.id} war={selectedWar} admin={isAdmin} />
               {hasWarData ? (
                 <section className="status-grid war-status-grid">
                   <MetricCard

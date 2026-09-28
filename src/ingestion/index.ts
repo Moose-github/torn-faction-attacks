@@ -1,3 +1,4 @@
+import { processPracticalPhases, retryEndedPracticalPhases } from "../practicalPhases";
 import {
   API_URL,
   HOME_FACTION_ID,
@@ -8,10 +9,6 @@ import {
   RETALIATION_WINDOW_SECONDS,
   SOURCE_NAME,
 } from "../constants";
-import { upsertDiscordAlertMessage } from "../discordAlertDelivery";
-import { formatDiscordAlertMessage, readDiscordAlertMentions } from "../discordMentions";
-import { isDiscordAlertEnabled } from "../discordAlertSettings";
-import { DISCORD_ALERT_KEYS } from "../discordAlerts";
 import { applyRankedWarReport, fetchTornRankedWarReport } from "../reports";
 import {
   applyIncrementalWarSummaries,
@@ -37,7 +34,6 @@ import { boolToInt, d1Changes, json, normalizeAttacks, nowSeconds } from "../uti
 import {
   applyTornOfficialWarEnd,
   finishEventTracking,
-  recordTermedWarPracticalFinish,
   setUpcomingWarState,
   startWarTracking,
 } from "../warLifecycle";
@@ -134,9 +130,10 @@ export async function runIngestion(
       console.error("Torn ranked wars sync failed:", err?.message || err);
       return null;
     });
+    const scoreObservedAt = nowSeconds();
     await syncUpcomingRankedWar(env, latestRankedWar);
     await activateScheduledWarIfDue(env);
-    metrics.rankedWarCheckedAt = nowSeconds();
+    metrics.rankedWarCheckedAt = scoreObservedAt;
 
     const state = await readSyncState(env, SOURCE_NAME);
 
@@ -147,13 +144,13 @@ export async function runIngestion(
             id,
             name,
             practical_start_time,
+            official_start_time,
             status,
             war_type,
             enemy_faction_id,
             torn_war_id,
             practical_finish_time,
             official_end_time,
-            auto_end_enabled,
             faction_respect_limit,
             official_home_score,
             official_enemy_score
@@ -210,7 +207,10 @@ export async function runIngestion(
         pageNewestStarted = Math.max(pageNewestStarted, attack.started ?? 0);
 
         const warId =
-          ingestionWar && attackFallsWithinLiveWarWindow(attack, ingestionWar)
+          ingestionWar && (ingestionWar.war_type === "termed"
+            ? attack.started != null && attack.started >= (ingestionWar.official_start_time ?? ingestionWar.practical_start_time) &&
+              (ingestionWar.official_end_time === null || (attack.ended ?? attack.started) <= ingestionWar.official_end_time)
+            : attackFallsWithinLiveWarWindow(attack, ingestionWar))
             ? ingestionWar.id
             : null;
 
@@ -269,14 +269,25 @@ export async function runIngestion(
     metrics.attacksFetchFinishedAt = nowSeconds();
     metrics.d1WritesFinishedAt = metrics.attacksFetchFinishedAt;
 
+    // This run's war is reconciled after its incremental updates below. Rebuilding
+    // it here would apply the same newly ingested attacks twice.
+    await retryEndedPracticalPhases(env, ingestionWar?.id ?? null);
+
     if (!ingestionWar) {
       return;
     }
+
 
     if (newOrAssignedWarAttackCount > 0) {
       await applyIncrementalWarSummaries(env, ingestionWar.id, ingestRunId);
       metrics.statWriteOperations += 1;
       metrics.statsFinishedAt = nowSeconds();
+    }
+
+    if (ingestionWar.war_type === "termed") {
+      const matches = latestRankedWar && rankedWarMatchesActiveWar(ingestionWar, latestRankedWar);
+      const score = matches ? latestRankedWar.factions?.find((f) => f.id === HOME_FACTION_ID)?.score ?? null : null;
+      await processPracticalPhases(env, ingestionWar.id, score, metrics.rankedWarCheckedAt!, officialEndTime);
     }
 
     if (ingestionWar && officialEndTime !== null) {
@@ -288,8 +299,7 @@ export async function runIngestion(
       metrics.statsFinishedAt = metrics.reportFinishedAt;
     } else if (ingestionWar) {
       const eventAutoEnded = await autoEndEventIfFinishDue(env, ingestionWar);
-      const autoEnded = eventAutoEnded ||
-        await autoEndTermedWarIfLimitReached(env, ingestionWar, latestRankedWar);
+      const autoEnded = eventAutoEnded;
       if (autoEnded) {
         metrics.reportWriteOperations += 1;
         metrics.statWriteOperations += 1;
@@ -306,6 +316,7 @@ export async function runIngestion(
 }
 
 type ActiveWarForIngestion = {
+  official_start_time?: number | null;
   id: number;
   name: string;
   practical_start_time: number;
@@ -315,7 +326,6 @@ type ActiveWarForIngestion = {
   torn_war_id: number | null;
   practical_finish_time: number | null;
   official_end_time: number | null;
-  auto_end_enabled: number;
   faction_respect_limit: number | null;
   official_home_score: number | null;
   official_enemy_score: number | null;
@@ -819,67 +829,6 @@ async function autoEndEventIfFinishDue(
   return true;
 }
 
-async function autoEndTermedWarIfLimitReached(
-  env: Env,
-  activeWar: ActiveWarForIngestion,
-  latestRankedWar: TornRankedWar | null,
-): Promise<boolean> {
-  if (
-    activeWar.war_type !== "termed" ||
-    activeWar.auto_end_enabled !== 1 ||
-    activeWar.faction_respect_limit === null ||
-    activeWar.practical_finish_time !== null
-  ) {
-    return false;
-  }
-
-  const rankedWar = latestRankedWar ?? (await fetchLatestRankedWar(env));
-  if (!rankedWar) {
-    return false;
-  }
-
-  if (activeWar.torn_war_id !== null && rankedWar.id !== activeWar.torn_war_id) {
-    console.warn(
-      `Skipping termed auto-end check: latest Torn ranked war ${rankedWar.id} does not match current war ${activeWar.torn_war_id}`,
-    );
-    return false;
-  }
-
-  if (latestRankedWar === null) {
-    await updateWarRankedWarScores(env, activeWar.id, activeWar.enemy_faction_id ?? null, rankedWar);
-  }
-
-  const homeFaction = rankedWar.factions?.find(
-    (faction: TornRankedWarFaction) => faction.id === HOME_FACTION_ID,
-  );
-  if (!homeFaction || !Number.isFinite(homeFaction.score)) {
-    console.warn("Skipping termed auto-end check: home faction score missing from Torn response");
-    return false;
-  }
-
-  if (homeFaction.score < activeWar.faction_respect_limit) {
-    return false;
-  }
-
-  const crossingAttack = await readTermedWarLimitCrossingAttack(env, activeWar);
-  const finishAt = attackFinishedTimestamp(crossingAttack ?? {}) ?? nowSeconds();
-
-  await recordTermedWarPracticalFinish(env, {
-    warId: activeWar.id,
-    finishAt,
-    enemyFactionId: activeWar.enemy_faction_id,
-    tornWarId: rankedWar.id,
-    preserveExistingFinish: true,
-  });
-  await sendTermedWarAutoEndDiscordMessage(env, {
-    currentScore: homeFaction.score,
-    targetScore: activeWar.faction_respect_limit,
-    finishAt,
-    crossingAttack,
-  });
-  return true;
-}
-
 export function attackFallsWithinLiveWarWindow(
   attack: AttackTiming,
   war: WarWindowForAttackAssignment,
@@ -942,32 +891,6 @@ export function findTermedWarLimitCrossingAttack(
   return null;
 }
 
-async function readTermedWarLimitCrossingAttack(
-  env: Env,
-  activeWar: ActiveWarForIngestion,
-): Promise<TermedWarCrossingAttackRow | null> {
-  if (activeWar.faction_respect_limit === null || activeWar.enemy_faction_id === null) {
-    return null;
-  }
-
-  const rows = ((await env.DB.prepare(
-    `
-    SELECT id, started, ended, attacker_name, defender_name, respect_gain
-    FROM attacks
-    WHERE war_id = ?
-      AND attacker_faction_id = ?
-      AND defender_faction_id = ?
-      AND respect_gain > 0
-      AND COALESCE(ended, started) IS NOT NULL
-    ORDER BY COALESCE(ended, started) ASC, id ASC
-    `,
-  )
-    .bind(activeWar.id, HOME_FACTION_ID, activeWar.enemy_faction_id)
-    .all()).results ?? []) as TermedWarCrossingAttackRow[];
-
-  return findTermedWarLimitCrossingAttack(rows, activeWar.faction_respect_limit);
-}
-
 function attackFinishedTimestamp(attack: AttackTiming): number | null {
   return attack.ended ?? attack.started ?? null;
 }
@@ -983,33 +906,6 @@ export function buildTermedWarAutoEndDiscordMessage(options: {
     `Last attack: ${formatAttackPair(options.crossingAttack)}`,
     `Finish time: ${formatDiscordDateTime(options.finishAt)}`,
   ].join("\n");
-}
-
-async function sendTermedWarAutoEndDiscordMessage(
-  env: Env,
-  options: {
-    currentScore: number;
-    targetScore: number;
-    finishAt: number;
-    crossingAttack: TermedWarCrossingAttackRow | null;
-  },
-): Promise<void> {
-  try {
-    if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.termedWarAutoEnd)) {
-      return;
-    }
-    const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.termedWarAutoEnd);
-    await upsertDiscordAlertMessage(
-      env,
-      DISCORD_ALERT_KEYS.termedWarAutoEnd,
-      null,
-      formatDiscordAlertMessage(buildTermedWarAutoEndDiscordMessage(options), mentions.messageSuffix),
-      mentions.allowedMentions ?? { users: [], roles: [] },
-      { embedColor: 0x2f80ed },
-    );
-  } catch (err: any) {
-    console.warn("Unable to send termed war auto-end Discord message:", err?.message || err);
-  }
 }
 
 function formatAttackPair(
@@ -1139,7 +1035,6 @@ async function syncUnfinishedRankedWar(env: Env, rankedWar: TornRankedWar): Prom
       torn_war_id,
       practical_finish_time,
       official_end_time,
-      auto_end_enabled,
       faction_respect_limit
     FROM wars
     WHERE torn_war_id = ?
@@ -1181,7 +1076,6 @@ export async function syncMissingRankedWarReports(env: Env): Promise<{
       torn_war_id,
       practical_finish_time,
       official_end_time,
-      auto_end_enabled,
       faction_respect_limit
     FROM wars
     WHERE torn_war_id IS NOT NULL

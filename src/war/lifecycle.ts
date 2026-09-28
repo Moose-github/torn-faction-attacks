@@ -8,6 +8,7 @@ import type { GlobalWarState } from "../syncState";
 import { Env, WarRow } from "../types";
 import { d1Changes, nowSeconds } from "../utils";
 import { finalizeWar } from "../warStats";
+import { closePracticalPhase } from "../practicalPhases";
 import {
   refreshWarDerivedStats,
   runWarOfficiallyEndedHooks,
@@ -84,6 +85,7 @@ export async function recordWarPracticalFinish(
     preserveExistingFinish?: boolean;
   },
 ): Promise<void> {
+  if (await closePracticalPhase(env, options.warId, options.finishAt)) return;
   const finishAssignment = options.preserveExistingFinish
     ? "practical_finish_time = COALESCE(practical_finish_time, ?)"
     : "practical_finish_time = ?";
@@ -175,7 +177,6 @@ export async function setWarPracticalWindow(
     practicalFinishTime: number | null;
     enemyFactionId: number | null;
     warType?: string;
-    autoEndEnabled?: number;
     factionRespectLimit?: number | null;
     enemyTargetRespect?: number | null;
     memberRespectLimit?: number | null;
@@ -185,7 +186,6 @@ export async function setWarPracticalWindow(
     ? ""
     : `,
         war_type = ?,
-        auto_end_enabled = CASE WHEN ? = 'termed' THEN ? ELSE 0 END,
         faction_respect_limit = CASE WHEN ? = 'termed' THEN ? ELSE NULL END,
         enemy_target_respect = CASE WHEN ? = 'termed' THEN ? ELSE NULL END,
         member_respect_limit = CASE WHEN ? = 'termed' THEN ? ELSE NULL END`;
@@ -197,8 +197,6 @@ export async function setWarPracticalWindow(
   if (options.warType !== undefined) {
     bindValues.push(
       options.warType,
-      options.warType,
-      options.autoEndEnabled ?? 0,
       options.warType,
       options.factionRespectLimit ?? null,
       options.warType,
@@ -214,7 +212,8 @@ export async function setWarPracticalWindow(
     `
     UPDATE wars
     SET practical_start_time = ?,
-        practical_finish_time = ?
+        practical_finish_time = ?,
+        practical_revision = practical_revision + 1
         ${warTypeAssignment}
     WHERE id = ?
     RETURNING
@@ -223,6 +222,17 @@ export async function setWarPracticalWindow(
   )
     .bind(...bindValues)
     .first()) as WarRow | null;
+
+  // Existing termed-war edits go through the phase API. This path handles a
+  // conversion from real to termed, including re-conversion of one legacy phase.
+  if (war && options.warType === "termed") {
+    await env.DB.prepare(`UPDATE war_practical_phases SET target = ?, scheduled_start = ?,
+      start_time = CASE WHEN ? = 'scheduled' AND ? IS NULL THEN NULL ELSE ? END,
+      finish_time = ?, status = CASE WHEN ? IS NOT NULL THEN 'completed' WHEN ? = 'scheduled' THEN 'scheduled' ELSE 'active' END
+      WHERE war_id = ? AND id = 'initial-' || ?`)
+      .bind(options.factionRespectLimit ?? null, options.practicalStartTime, war.status, options.practicalFinishTime,
+        options.practicalStartTime, options.practicalFinishTime, options.practicalFinishTime, war.status, war.id, war.id).run();
+  }
 
   if (options.practicalFinishTime !== null && options.practicalFinishTime < nowSeconds()) {
     await stopLiveEnemyTracking(env, options.warId, options.enemyFactionId);
@@ -261,6 +271,8 @@ export async function applyTornOfficialWarEnd(
     `
     UPDATE wars
     SET status = 'ended',
+        practical_revision = practical_revision + CASE WHEN war_type = 'termed' AND official_end_time IS NULL THEN 1 ELSE 0 END,
+        practical_rebuild_pending = CASE WHEN war_type = 'termed' AND official_end_time IS NULL THEN 1 ELSE practical_rebuild_pending END,
         official_end_time = ?,
         practical_finish_time = COALESCE(practical_finish_time, ?),
         torn_war_id = COALESCE(torn_war_id, ?),

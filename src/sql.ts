@@ -9,7 +9,6 @@ const WAR_COLUMN_NAMES = [
   "enemy_faction_id",
   "war_type",
   "torn_war_id",
-  "auto_end_enabled",
   "chain_watch_enabled",
   "event_type",
   "competition_refresh_hours",
@@ -25,6 +24,8 @@ const WAR_COLUMN_NAMES = [
   "enemy_scouting_auto_attempted_at",
   "enemy_scouting_status_checked_at",
   "finalized_at",
+  "practical_revision",
+  "practical_rebuild_pending",
 ];
 
 export const WAR_RETURNING_COLUMNS = WAR_COLUMN_NAMES.join(",\n        ");
@@ -35,7 +36,7 @@ export const WAR_SELECT_COLUMNS_WITH_ALIAS = WAR_COLUMN_NAMES.map(
   (column) => `w.${column}`,
 ).join(",\n        ");
 
-export const OUTGOING_ACTION_WINDOW_SQL = `
+export const LEGACY_OUTGOING_ACTION_WINDOW_SQL = `
   (
     a.started IS NULL
     OR (
@@ -48,7 +49,20 @@ export const OUTGOING_ACTION_WINDOW_SQL = `
   )
 `;
 
-export const DEFENSE_ACTION_WINDOW_SQL = `
+export const OUTGOING_ACTION_WINDOW_SQL = `(
+  (COALESCE(w.war_type, 'real') != 'termed' AND ${LEGACY_OUTGOING_ACTION_WINDOW_SQL})
+  OR (w.war_type = 'termed' AND EXISTS (
+    SELECT 1 FROM war_practical_phases pp WHERE pp.war_id = w.id
+      AND pp.removed_at IS NULL AND pp.status IN ('active', 'completed')
+      AND ((a.started IS NULL AND pp.reason = 'legacy') OR (
+        a.started >= pp.start_time
+        AND (pp.finish_time IS NULL OR COALESCE(a.ended, a.started) <= pp.finish_time)
+        AND (w.official_end_time IS NULL OR COALESCE(a.ended, a.started) <= w.official_end_time)
+      ))
+  ))
+)`;
+
+const LEGACY_DEFENSE_ACTION_WINDOW_SQL = `
   (
     a.started IS NULL
     OR (
@@ -78,3 +92,11 @@ export const DEFENSE_ACTION_WINDOW_SQL = `
     )
   )
 `;
+
+export const DEFENSE_ACTION_WINDOW_SQL = `(
+  (COALESCE(w.war_type, 'real') != 'termed' AND ${LEGACY_DEFENSE_ACTION_WINDOW_SQL})
+  OR (w.war_type = 'termed' AND (a.started IS NULL OR (
+    a.started >= COALESCE(w.official_start_time, w.practical_start_time)
+    AND (w.official_end_time IS NULL OR COALESCE(a.ended, a.started) <= w.official_end_time)
+  )))
+)`;

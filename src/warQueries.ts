@@ -1,3 +1,4 @@
+import { practicalPhaseSummary } from "./practicalPhases";
 import {
   CHAIN_BONUS_HITS_SQL,
   HOME_FACTION_ID,
@@ -101,7 +102,7 @@ export async function listWars(url: URL, env: Env): Promise<Response> {
       ok: true,
       war_state: syncState?.war_state ?? "none",
       active_war_id: syncState?.active_war_id ?? null,
-      wars: rows.results ?? [],
+      wars: await Promise.all((rows.results ?? []).map(async (war) => ({ ...war, ...(war.war_type === "termed" ? await practicalPhaseSummary(env, Number(war.id)) : {}) }))),
     });
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
@@ -121,7 +122,7 @@ export async function getGlobalWarState(env: Env): Promise<Response> {
       ok: true,
       war_state: warState,
       active_war_id: activeWarId,
-      active_war: activeWar,
+      active_war: activeWar && { ...activeWar, ...((activeWar as { war_type?: string }).war_type === "termed" ? await practicalPhaseSummary(env, activeWarId!) : {}) },
     });
   } catch (err: any) {
     return json({ ok: false, error: err?.message || String(err), code: "INTERNAL_ERROR" }, 500);
@@ -164,7 +165,7 @@ export async function getWar(url: URL, env: Env): Promise<Response> {
       .all();
     return json({
       ok: true,
-      war,
+      war: { ...war, ...(war.war_type === "termed" ? await practicalPhaseSummary(env, war.id) : {}) },
       summary,
       members: memberStats.results ?? [],
     });
@@ -883,13 +884,7 @@ const OFFICIAL_OUTGOING_ACTION_WINDOW_SQL = `
   )
 `;
 
-const PRACTICAL_ACTIVITY_WINDOW_SQL = `
-  a.started >= w.practical_start_time
-  AND (
-    w.practical_finish_time IS NULL
-    OR COALESCE(a.ended, a.started) <= w.practical_finish_time
-  )
-`;
+const PRACTICAL_ACTIVITY_WINDOW_SQL = OUTGOING_ACTION_WINDOW_SQL;
 
 const OFFICIAL_ACTIVITY_WINDOW_SQL = `
   a.started >= COALESCE(w.official_start_time, w.practical_start_time)

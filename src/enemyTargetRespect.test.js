@@ -17,6 +17,9 @@ beforeEach(() => {
   sqlite.exec(warsTable.replace("  enemy_target_respect REAL,\n", ""));
   sqlite.exec("INSERT INTO wars (id, name, status, practical_start_time, war_type) VALUES (1, 'test-war', 'active', 100, 'real')");
   sqlite.exec(readFileSync("migrations/0162_add_enemy_target_respect.sql", "utf8"));
+  for (const table of ["war_practical_phases", "war_practical_phase_audit", "sync_state"]) {
+    sqlite.exec(schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0]);
+  }
   env = {
     DB: {
       prepare(sql) {
@@ -25,6 +28,8 @@ beforeEach(() => {
         return {
           bind(...params) { values = params; return this; },
           async first() { return statement.get(...values) ?? null; },
+          async all() { return { results: statement.all(...values) }; },
+          async run() { return { meta: { changes: Number(statement.run(...values).changes) } }; },
         };
       },
     },
@@ -35,7 +40,7 @@ afterEach(() => sqlite.close());
 async function update(fields = {}) {
   return updateOfficialWar(new Request("https://worker.test/api/admin/wars/update", {
     method: "POST",
-    body: JSON.stringify({ id: 1, war_type: "termed", practical_start_time: 100, ...fields }),
+    body: JSON.stringify({ id: 1, war_type: "termed", practical_start_time: 100, practical_revision: saved().practical_revision, faction_respect_limit: fields.war_type === "real" ? undefined : 7000, ...fields }),
   }), env);
 }
 function saved() { return sqlite.prepare("SELECT * FROM wars WHERE id = 1").get(); }
@@ -54,7 +59,7 @@ describe("optional enemy target respect", () => {
   it.each([undefined, null, ""])("allows conversion with no enemy target (%s)", async (value) => {
     const response = await update({ enemy_target_respect: value, auto_end_enabled: true, faction_respect_limit: 9000 });
     expect(response.status).toBe(200);
-    expect(saved()).toMatchObject({ enemy_target_respect: null, auto_end_enabled: 1, faction_respect_limit: 9000 });
+    expect(saved()).toMatchObject({ enemy_target_respect: null, auto_end_enabled: 0, faction_respect_limit: 9000 });
   });
 
   it("accepts zero as an explicit target", async () => {

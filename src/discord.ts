@@ -55,13 +55,14 @@ export async function createDiscordBotMessage(
   channelId: string,
   message: string,
   allowedMentions?: DiscordAllowedMentions,
-  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor">,
+  options?: Pick<DiscordPayloadOptions, "embedColor" | "embeds" | "cardColor"> & { nonce?: string },
 ): Promise<string | null> {
   const botToken = readDiscordBotToken(env);
   const response = await postDiscordBotJsonAndRead<DiscordMessage>(
     botToken,
     discordChannelMessagesPath(channelId),
-    discordPayload(message, allowedMentions, options),
+    { ...discordPayload(message, allowedMentions, options),
+      ...(options?.nonce ? { nonce: options.nonce, enforce_nonce: true } : {}) },
   );
 
   return discordMessageId(response);

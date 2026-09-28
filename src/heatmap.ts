@@ -1,3 +1,5 @@
+import { readPracticalPhases } from "./practicalPhases";
+import { isPracticalAttack } from "../shared/practicalPhases";
 import { HOME_FACTION_ID } from "./constants";
 import { bumpGlobalWarCacheVersion } from "./cacheVersions";
 import { fetchTornFactionMembers } from "./enemyScouting";
@@ -20,6 +22,7 @@ const HOME_HEATMAP_CLEANUP_STATE_NAME = "home_heatmap_cleanup";
 type HeatmapWar = Pick<
   WarRow,
   | "id"
+  | "war_type"
   | "name"
   | "practical_start_time"
   | "practical_finish_time"
@@ -208,7 +211,7 @@ export async function getWarActivityHeatmap(url: URL, env: Env): Promise<Respons
       enemy_faction_id: war.enemy_faction_id,
     },
     home_faction_id: HOME_FACTION_ID,
-    rows: (rows.results ?? []) as HeatmapRow[],
+    rows: await filterPracticalSamples(env, war, (rows.results ?? []) as HeatmapRow[]),
   });
 }
 
@@ -259,7 +262,7 @@ export async function getEnemyMemberActivityHeatmap(url: URL, env: Env): Promise
       official_end_time: war.official_end_time,
       enemy_faction_id: war.enemy_faction_id,
     },
-    rows: (rows.results ?? []) as EnemyMemberActivityHeatmapRow[],
+    rows: await filterPracticalSamples(env, war, (rows.results ?? []) as EnemyMemberActivityHeatmapRow[]),
   });
 }
 
@@ -524,6 +527,7 @@ async function readLatestHeatmapWar(env: Env): Promise<HeatmapWar | null> {
     SELECT
       id,
       name,
+      war_type,
       practical_start_time,
       practical_finish_time,
       official_start_time,
@@ -555,6 +559,7 @@ async function readHeatmapWarFromUrl(url: URL, env: Env): Promise<HeatmapWar | R
       SELECT
         id,
         name,
+        war_type,
         practical_start_time,
         practical_finish_time,
         official_start_time,
@@ -580,6 +585,7 @@ async function readHeatmapWarFromUrl(url: URL, env: Env): Promise<HeatmapWar | R
     SELECT
       id,
       name,
+      war_type,
       practical_start_time,
       practical_finish_time,
       official_start_time,
@@ -648,4 +654,10 @@ function heatmapBucket(timestamp: number): { date: string; intervalIndex: number
     date: `${year}-${month}-${day}`,
     intervalIndex: Math.min(INTERVALS_PER_DAY - 1, Math.floor(minutes / 15)),
   };
+}
+
+async function filterPracticalSamples<T extends { sampled_at: number }>(env: Env, war: HeatmapWar, rows: T[]): Promise<T[]> {
+  if (war.war_type !== "termed") return rows;
+  const phases = await readPracticalPhases(env, war.id);
+  return rows.filter((row) => isPracticalAttack({ started: row.sampled_at, ended: row.sampled_at }, phases, war.official_end_time));
 }

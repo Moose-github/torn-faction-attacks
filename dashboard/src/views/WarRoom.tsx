@@ -1,3 +1,4 @@
+import { PracticalPhases } from "../components/PracticalPhases";
 import React from "react";
 import { EventRoomCompetition } from "../components/EventCompetition";
 import { WarProgressPanel } from "../components/WarProgressPanel";
@@ -883,6 +884,7 @@ export function WarRoom({
           />
         ) : null}
 
+        <PracticalPhases key={`phases-${selectedWar.id}`} war={selectedWar} admin={canRefreshEnemyScouting} />
         <WarProgressPanel key={selectedWar.id} war={selectedWar} />
 
         <ChainWatchPanel

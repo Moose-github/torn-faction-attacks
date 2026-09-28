@@ -143,7 +143,6 @@ export type WarRow = {
   enemy_faction_id: number | null;
   war_type: string | null;
   torn_war_id: number | null;
-  auto_end_enabled: number;
   chain_watch_enabled: number;
   event_type?: "general" | "elimination" | "halloween";
   competition_refresh_hours?: number;

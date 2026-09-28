@@ -1,3 +1,4 @@
+import { OUTGOING_ACTION_WINDOW_SQL } from "./sql";
 import { HOME_FACTION_ID } from "./constants";
 import { Env, WarRow } from "./types";
 import { corsHeaders, json, nowSeconds } from "./utils";
@@ -45,6 +46,11 @@ export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response>
 
     const conditions = ["a.started >= ?", "COALESCE(a.ended, a.started) <= ?"];
     const binds: unknown[] = [windowRange.start, windowRange.finish];
+
+    if (war.war_type === "termed" && startWindowMode === "practical" && finishWindowMode === "practical") {
+      conditions.push(`EXISTS (SELECT 1 FROM wars w WHERE w.id = ? AND ${OUTGOING_ACTION_WINDOW_SQL})`);
+      binds.push(war.id);
+    }
 
     if (linkedStatus === "linked") {
       conditions.push("a.war_id = ?");

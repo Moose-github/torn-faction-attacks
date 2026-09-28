@@ -14,7 +14,62 @@ import { rebuildWarStatsFromRaw } from "../warStats";
 import { DEFENSE_ACTION_WINDOW_SQL } from "../sql";
 import { isSyncLatchSet, setSyncLatch } from "../syncLatches";
 import type { Env } from "../types";
-import { nowSeconds } from "../utils";
+import { d1Changes, nowSeconds } from "../utils";
+import type { PracticalPhase } from "../../shared/practicalPhases";
+import { isDiscordAlertEnabled } from "../discordAlertSettings";
+import { DISCORD_ALERT_KEYS } from "../discordAlerts";
+import { upsertDiscordAlertMessage } from "../discordAlertDelivery";
+import { readDiscordAlertMentions, formatDiscordAlertMessage } from "../discordMentions";
+
+export async function runPracticalPhaseHooks(env: Env, phase: PracticalPhase, officiallyEnded: boolean): Promise<boolean> {
+  const handlers: WarLifecycleHandler[] = [];
+  if (phase.status === "active" && !officiallyEnded) {
+    handlers.push({ name: "travel_started", run: () => enableDiscordTravelTrackersForWar(env) });
+    handlers.push({ name: "scouting", run: () => fetchEnemyScoutingOnceForWar(env, phase.war_id) });
+  } else if (phase.status === "completed") {
+    handlers.push({ name: "travel_stopped", run: async () => {
+      const active = await env.DB.prepare("SELECT id FROM war_practical_phases WHERE war_id = ? AND status = 'active' AND removed_at IS NULL LIMIT 1")
+        .bind(phase.war_id).first();
+      if (!active) await stopDiscordTravelTrackersForWar(env);
+    } });
+    if (phase.reason === "target_reached") handlers.push({ name: "target_notification", run: async () => {
+      if (!await isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.termedWarAutoEnd)) return;
+      const receipt = await env.DB.prepare("SELECT id FROM war_practical_phase_audit WHERE war_id = ? AND action = ? LIMIT 1")
+        .bind(phase.war_id, `notification:${phase.id}`).first();
+      if (receipt) return;
+      const mentions = await readDiscordAlertMentions(env, DISCORD_ALERT_KEYS.termedWarAutoEnd);
+      const war = await env.DB.prepare("SELECT name FROM wars WHERE id = ?").bind(phase.war_id).first<{ name: string }>();
+      const message = `${war?.name ?? "Termed war"}: practical phase closed\nPhase start: ${new Date(phase.start_time! * 1000).toISOString()}\nCumulative target reached: ${phase.target}\nFinish time: ${new Date(phase.finish_time! * 1000).toISOString()}`;
+      const messageId = await upsertDiscordAlertMessage(env, DISCORD_ALERT_KEYS.termedWarAutoEnd, null,
+        formatDiscordAlertMessage(message, mentions.messageSuffix), mentions.allowedMentions ?? { users: [], roles: [] },
+        { nonce: phase.id.replaceAll("-", "").slice(0, 25) });
+      if (!messageId) return false;
+      await env.DB.prepare(`INSERT INTO war_practical_phase_audit (war_id, changed_at, actor_id, action, before_json, after_json)
+        VALUES (?, ?, NULL, ?, '{}', ?)`)
+        .bind(phase.war_id, nowSeconds(), `notification:${phase.id}`, JSON.stringify({ message_id: messageId })).run();
+    } });
+  }
+  // Monitoring queries follow the current practical state. Do not delete any
+  // collected samples when pausing between phases.
+  for (const handler of handlers) {
+    const key = `practical_phase:${phase.id}:${phase.status}:${handler.name}`;
+    if (await isSyncLatchSet(env, key)) continue;
+    const claimedAt = nowSeconds();
+    const claim = await env.DB.prepare(`INSERT INTO sync_state(name, last_started) VALUES (?, ?)
+      ON CONFLICT(name) DO UPDATE SET last_started = excluded.last_started WHERE sync_state.last_started < ?`)
+      .bind(`${key}:lease`, claimedAt, claimedAt - 120).run();
+    if (d1Changes(claim) === 0) return false;
+    try {
+      if (!await isSyncLatchSet(env, key)) {
+        if (await handler.run() === false) return false;
+        await setSyncLatch(env, key, nowSeconds());
+      }
+    } finally {
+      await env.DB.prepare("DELETE FROM sync_state WHERE name = ? AND last_started = ?").bind(`${key}:lease`, claimedAt).run();
+    }
+  }
+  return true;
+}
 
 export type WarLifecyclePhase =
   | "war_scheduled"

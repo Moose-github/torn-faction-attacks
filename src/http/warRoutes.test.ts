@@ -29,6 +29,9 @@ import {
   updateOfficialWar,
 } from "../wars";
 import { routeWarCommands } from "./warRoutes";
+import { mutatePracticalPhases } from "../practicalPhases";
+
+vi.mock("../practicalPhases", () => ({ mutatePracticalPhases: vi.fn(), getPracticalPhases: vi.fn() }));
 
 vi.mock("../auth", () => ({
   requireAdmin: vi.fn(),
@@ -111,6 +114,12 @@ vi.mock("../wars", () => ({
 }));
 
 describe("war command routes", () => {
+  it("requires admin access for practical phase changes", async () => {
+    vi.mocked(requireAdmin).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
+    const response = await routeWarCommands(routeContext("https://worker.test/api/wars/test/practical-phases", { method: "POST" }));
+    expect(response?.status).toBe(403);
+    expect(mutatePracticalPhases).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(requireAdmin).mockResolvedValue(null);

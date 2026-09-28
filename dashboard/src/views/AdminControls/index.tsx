@@ -1,3 +1,4 @@
+import { PracticalPhases } from "../../components/PracticalPhases";
 import React from "react";
 import { ChevronDown, ChevronRight, Square } from "lucide-react";
 import {
@@ -258,9 +259,10 @@ export function AdminControls() {
     }
 
     loadWars();
-
+    window.addEventListener("practical-phases-changed", loadWars);
     return () => {
       cancelled = true;
+      window.removeEventListener("practical-phases-changed", loadWars);
     };
   }, [authSession?.access_level, adminTimeMode]);
 
@@ -923,6 +925,7 @@ export function AdminControls() {
         {currentOfficialWar ? (
           <section className="panel admin-panel-edit-official">
             <PanelHeader title="Edit open war" aside={currentOfficialWar.name} />
+            <PracticalPhases key={currentOfficialWar.id} war={currentOfficialWar} admin />
             <form
               className="admin-form"
               onSubmit={(event) => {
@@ -948,15 +951,11 @@ export function AdminControls() {
             >
               <WarFields
                 form={currentWarEditForm}
-                onChange={(next) => setCurrentWarEditForm((current) => ({
-                  ...next,
-                  autoEndEnabled: current.warType === "real" && next.warType === "termed"
-                    ? true
-                    : next.autoEndEnabled,
-                }))}
+                onChange={setCurrentWarEditForm}
                 practicalOnly
                 allowedWarTypes={["real", "termed"]}
               />
+              {!currentWarEditForm.phasesManaged && <>
               <button
                 type="button"
                 className="admin-button"
@@ -993,6 +992,7 @@ export function AdminControls() {
               >
                 Set practical finish now
               </button>
+              </>}
               <button
                 type="submit"
                 className="admin-button primary admin-form-wide"
@@ -1009,6 +1009,7 @@ export function AdminControls() {
           <div className="admin-event-grid">
             <section className="panel admin-event-command">
               <PanelHeader title="Edit historical war" />
+              {historicalOfficialWars.find((war) => war.id === Number(selectedHistoricalWarId)) && <PracticalPhases key={selectedHistoricalWarId} war={historicalOfficialWars.find((war) => war.id === Number(selectedHistoricalWarId))!} admin />}
               <form
                 className="admin-form"
                 onSubmit={(event) => {
@@ -1081,7 +1082,6 @@ export function AdminControls() {
               requireFinishTime
               hideName
               allowedWarTypes={["real", "termed"]}
-              showAutoEnd={false}
               secondaryActionLabel="Preview import window"
               onSecondaryAction={(payload) =>
                 runAdminAction("Preview import window", () => previewImportWar(payload))
@@ -2325,6 +2325,8 @@ function AdminActionResult({ result }: { result: unknown }) {
 }
 
 type AdminWarFormState = {
+  practicalRevision?: number;
+  phasesManaged?: boolean;
   name: string;
   status: string;
   timeMode: "datetime" | "epoch";
@@ -2339,7 +2341,6 @@ type AdminWarFormState = {
   factionId: string;
   warType: Exclude<WarType, "all">;
   tornWarId: string;
-  autoEndEnabled: boolean;
   chainWatchEnabled: boolean;
   eventType: "general" | "elimination" | "halloween";
   competitionRefreshHours: 6 | 12;
@@ -2381,7 +2382,6 @@ function WarForm({
   isBusy,
   requireFinishTime = false,
   hideName = false,
-  showAutoEnd = true,
   allowedWarTypes,
   secondaryActionLabel,
   onSecondaryAction,
@@ -2394,7 +2394,6 @@ function WarForm({
   isBusy: boolean;
   requireFinishTime?: boolean;
   hideName?: boolean;
-  showAutoEnd?: boolean;
   allowedWarTypes?: Array<Exclude<WarType, "all">>;
   secondaryActionLabel?: string;
   onSecondaryAction?: (payload: AdminWarPayload) => void;
@@ -2461,17 +2460,6 @@ function WarForm({
               )}
             </label>
           </>
-        ) : null}
-        {showAutoEnd ? (
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.autoEndEnabled}
-              disabled={!canUseTermFields}
-              onChange={(event) => update("autoEndEnabled", event.target.checked)}
-            />
-            <span>Auto-end termed war</span>
-          </label>
         ) : null}
         <label>
           <span>Faction respect limit</span>
@@ -2551,7 +2539,7 @@ function WarFields({
       <>
         <label>
           <span>War type</span>
-          <select value={form.warType} onChange={(event) => update("warType", event.target.value as Exclude<WarType, "all">)}>
+          <select disabled={form.phasesManaged} value={form.warType} onChange={(event) => update("warType", event.target.value as Exclude<WarType, "all">)}>
             {warTypeOptions.map((warType) => (
               <option value={warType} key={warType}>
                 {warTypeLabel(warType)}
@@ -2560,24 +2548,12 @@ function WarFields({
           </select>
         </label>
         {canUseTermFields ? (
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.autoEndEnabled}
-              onChange={(event) => update("autoEndEnabled", event.target.checked)}
-            />
-            <span>Auto-end termed war</span>
-          </label>
-        ) : (
-          <div className="admin-form-spacer" aria-hidden="true" />
-        )}
-        {canUseTermFields ? (
           <>
             <label>
               <span>Faction score goal</span>
               <input
                 inputMode="decimal"
-                value={form.factionRespectLimit}
+                disabled={form.phasesManaged} value={form.factionRespectLimit}
                 onChange={(event) => update("factionRespectLimit", event.target.value)}
               />
             </label>
@@ -2602,6 +2578,7 @@ function WarFields({
             </label>
           </>
         ) : null}
+        {!form.phasesManaged && <>
         <label>
           <span>{startTimeLabel}</span>
           {form.timeMode === "epoch" ? (
@@ -2618,6 +2595,7 @@ function WarFields({
             <input type="datetime-local" value={form.finishTime} onChange={(event) => updateDateTime(form, onChange, "finish", event.target.value)} />
           )}
         </label>
+        </>}
       </>
     );
   }
@@ -2733,14 +2711,6 @@ function WarFields({
       ) : null}
       {canUseTermFields ? (
         <>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.autoEndEnabled}
-              onChange={(event) => update("autoEndEnabled", event.target.checked)}
-            />
-            <span>Auto-end termed war</span>
-          </label>
           <label>
             <span>Faction respect limit</span>
             <input
@@ -2788,7 +2758,6 @@ function defaultWarForm(): AdminWarFormState {
     factionId: "",
     warType: "real",
     tornWarId: "",
-    autoEndEnabled: false,
     chainWatchEnabled: true,
     eventType: "general",
     competitionRefreshHours: 6,
@@ -2831,7 +2800,6 @@ function toWarPayload(form: AdminWarFormState, includeFinishTime: boolean): Admi
   setOptionalNumber(payload, "torn_war_id", form.tornWarId);
 
   if (form.warType === "termed") {
-    payload.auto_end_enabled = form.autoEndEnabled;
     setOptionalNumber(payload, "faction_respect_limit", form.factionRespectLimit);
     setOptionalNumber(payload, "member_respect_limit", form.memberRespectLimit);
   }
@@ -2904,6 +2872,8 @@ function warToForm(war: WarSummary): AdminWarFormState {
   const form = defaultWarForm();
   return {
     ...form,
+    practicalRevision: war.practical_revision,
+    phasesManaged: war.war_type === "termed",
     name: war.name,
     status: war.status,
     startTime: dateTimeLocalFromSeconds(war.practical_start_time),
@@ -2917,7 +2887,6 @@ function warToForm(war: WarSummary): AdminWarFormState {
     factionId: war.enemy_faction_id === null ? "" : String(war.enemy_faction_id),
     warType: war.war_type ?? "real",
     tornWarId: war.torn_war_id === null ? "" : String(war.torn_war_id),
-    autoEndEnabled: Boolean(war.auto_end_enabled),
     chainWatchEnabled: Boolean(war.chain_watch_enabled),
     eventType: war.event_type ?? "general",
     competitionRefreshHours: war.competition_refresh_hours ?? 6,
@@ -2979,13 +2948,13 @@ function exportBoundaryTime(
 function toPracticalWarEditPayload(id: number, form: AdminWarFormState): AdminWarPayload {
   const payload: AdminWarPayload = {
     id,
+    practical_revision: form.practicalRevision,
     war_type: form.warType,
     practical_start_time: secondsFromFormTime(form, "start"),
     practical_finish_time: optionalSecondsFromFormTime(form, "finish"),
   };
 
   if (form.warType === "termed") {
-    payload.auto_end_enabled = form.autoEndEnabled;
     payload.enemy_target_respect = form.enemyTargetRespect.trim() === ""
       ? null
       : Number(form.enemyTargetRespect);

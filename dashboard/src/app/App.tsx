@@ -323,9 +323,10 @@ export function App() {
     }
 
     loadWars();
-
+    window.addEventListener("practical-phases-changed", loadWars);
     return () => {
       cancelled = true;
+      window.removeEventListener("practical-phases-changed", loadWars);
     };
   }, [authSession, routedWarName, shouldLoadFullWars, warType]);
 
@@ -352,10 +353,12 @@ export function App() {
     }
 
     loadGlobalWarState();
+    window.addEventListener("practical-phases-changed", loadGlobalWarState);
     const timer = window.setInterval(loadGlobalWarState, GLOBAL_WAR_STATE_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.removeEventListener("practical-phases-changed", loadGlobalWarState);
     };
   }, [authSession, shouldLoadFullWars]);
 
@@ -390,9 +393,10 @@ export function App() {
     }
 
     loadWarDetail();
-
+    window.addEventListener("practical-phases-changed", loadWarDetail);
     return () => {
       cancelled = true;
+      window.removeEventListener("practical-phases-changed", loadWarDetail);
     };
   }, [authSession, selectedWarName, view]);
 

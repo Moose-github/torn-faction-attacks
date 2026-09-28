@@ -201,6 +201,7 @@ describe("war lifecycle global state", () => {
 
   it("manual practical finish keeps the war active and marks the global state practically finished", async () => {
     const db = fakeDb([
+      { match: "SELECT * FROM wars", result: { id: 7, war_type: "real" } },
       {
         match: "SELECT practical_finish_time",
         result: { practical_finish_time: 200 },

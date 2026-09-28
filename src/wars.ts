@@ -1,3 +1,4 @@
+import { readPracticalPhases, updateTermedWarSettings } from "./practicalPhases";
 import {
   HOME_FACTION_ID,
   SOURCE_NAME,
@@ -116,12 +117,11 @@ export async function createManualEvent(request: Request, env: Env): Promise<Res
         enemy_faction_id,
         war_type,
         torn_war_id,
-        auto_end_enabled,
         chain_watch_enabled,
         faction_respect_limit,
         member_respect_limit
       )
-      VALUES (?, ?, ?, ?, NULL, NULL, NULL, 'event', NULL, 0, ?, NULL, NULL)
+      VALUES (?, ?, ?, ?, NULL, NULL, NULL, 'event', NULL, ?, NULL, NULL)
       RETURNING
         ${WAR_RETURNING_COLUMNS}
       `,
@@ -204,12 +204,11 @@ export async function importHistoricalEvent(request: Request, env: Env): Promise
         enemy_faction_id,
         war_type,
         torn_war_id,
-        auto_end_enabled,
         chain_watch_enabled,
         faction_respect_limit,
         member_respect_limit
       )
-      VALUES (?, 'ended', ?, ?, NULL, NULL, NULL, 'event', NULL, 0, 0, NULL, NULL)
+      VALUES (?, 'ended', ?, ?, NULL, NULL, NULL, 'event', NULL, 0, NULL, NULL)
       RETURNING
         ${WAR_RETURNING_COLUMNS}
       `,
@@ -342,7 +341,6 @@ export async function updateEvent(request: Request, env: Env): Promise<Response>
           enemy_faction_id = NULL,
           war_type = 'event',
           torn_war_id = NULL,
-          auto_end_enabled = 0,
           chain_watch_enabled = ?,
           faction_respect_limit = NULL,
           member_respect_limit = NULL,
@@ -402,7 +400,6 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       faction_id?: unknown;
       war_type?: unknown;
       torn_war_id?: unknown;
-      auto_end_enabled?: unknown;
       faction_respect_limit?: unknown;
       member_respect_limit?: unknown;
     };
@@ -449,7 +446,6 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
       warType === "real" && reportFinishTime !== null
         ? reportFinishTime
         : Number(body.practical_finish_time ?? body.finish_time);
-    const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
     const factionRespectLimit = parseOptionalNonNegativeNumber(
       body.faction_respect_limit,
       "faction_respect_limit",
@@ -533,7 +529,6 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
 
     const validationError = validateTermedWarFields(
       warType,
-      autoEndEnabled,
       factionRespectLimit,
       memberRespectLimit,
     );
@@ -623,11 +618,10 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         enemy_faction_id,
         war_type,
         torn_war_id,
-        auto_end_enabled,
         faction_respect_limit,
         member_respect_limit
       )
-      VALUES (?, 'ended', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, 'ended', ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING
         ${WAR_RETURNING_COLUMNS}
       `,
@@ -641,7 +635,6 @@ export async function importHistoricalWar(request: Request, env: Env): Promise<R
         enemyFactionId,
         warType,
         tornWarId,
-        autoEndEnabled,
         factionRespectLimit,
         memberRespectLimit,
       )
@@ -842,7 +835,6 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       practical_start_time?: unknown;
       practical_finish_time?: unknown;
       war_type?: unknown;
-      auto_end_enabled?: unknown;
       faction_respect_limit?: unknown;
       enemy_target_respect?: unknown;
       member_respect_limit?: unknown;
@@ -881,6 +873,12 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       );
     }
 
+    if (existing.war_type === "termed") {
+      if (body.war_type === undefined || body.war_type === "termed") return updateTermedWarSettings(env, warId, body as Record<string, unknown>);
+      const phases = await readPracticalPhases(env, warId);
+      if (phases.length > 1) return json({ ok: false, error: "A war with multiple recorded phases must remain termed", code: "MULTIPLE_PRACTICAL_PHASES" }, 409);
+    }
+
     const warType = parseWarType(body.war_type, existing.war_type ?? "real");
     if (warType === "event") {
       return json(
@@ -902,7 +900,6 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       body.member_respect_limit,
       "member_respect_limit",
     );
-    const autoEndEnabled = parseOptionalBoolean(body.auto_end_enabled) ? 1 : 0;
     const enemyTargetRespect = parseOptionalNonNegativeNumber(
       body.enemy_target_respect === undefined && warType === "termed"
         ? existing.enemy_target_respect
@@ -911,7 +908,6 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
     );
     const validationError = validateTermedWarFields(
       warType,
-      autoEndEnabled,
       factionRespectLimit,
       memberRespectLimit,
       enemyTargetRespect,
@@ -941,7 +937,6 @@ export async function updateOfficialWar(request: Request, env: Env): Promise<Res
       practicalFinishTime,
       enemyFactionId: existing.enemy_faction_id,
       warType,
-      autoEndEnabled,
       factionRespectLimit,
       enemyTargetRespect,
       memberRespectLimit,
@@ -1665,7 +1660,7 @@ async function uniqueWarName(
   return `${baseName.slice(0, 50 - fallbackSuffix.length)}${fallbackSuffix}`;
 }
 
-function parseOptionalBoolean(value: unknown, field = "auto_end_enabled"): boolean {
+function parseOptionalBoolean(value: unknown, field = "boolean"): boolean {
   if (value === undefined || value === null) {
     return false;
   }
@@ -1726,13 +1721,12 @@ function parseOptionalNonNegativeNumber(value: unknown, field: string): number |
 
 function validateTermedWarFields(
   warType: string,
-  autoEndEnabled: number,
   factionRespectLimit: number | null,
   memberRespectLimit: number | null,
   enemyTargetRespect: number | null = null,
 ): Response | null {
   if (warType !== "termed") {
-    if (autoEndEnabled === 1 || factionRespectLimit !== null || memberRespectLimit !== null || enemyTargetRespect !== null) {
+    if (factionRespectLimit !== null || memberRespectLimit !== null || enemyTargetRespect !== null) {
       return json(
         {
           ok: false,
@@ -1746,11 +1740,11 @@ function validateTermedWarFields(
     return null;
   }
 
-  if (autoEndEnabled === 1 && factionRespectLimit === null) {
+  if (factionRespectLimit === null || factionRespectLimit <= 0) {
     return json(
       {
         ok: false,
-        error: "faction_respect_limit is required when auto_end_enabled is true",
+        error: "A positive faction_respect_limit is required for termed wars",
         code: "MISSING_FACTION_RESPECT_LIMIT",
       },
       400,

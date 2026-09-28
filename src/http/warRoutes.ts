@@ -63,9 +63,13 @@ import { routeExact, type ExactRoute } from "./routeTable";
 import { getWarControlForWar } from "../warControl";
 import { getWarProgress } from "../warProgress";
 import { recalculateWarMemberRespect } from "../warMemberRespect";
+import { getPracticalPhases, mutatePracticalPhases } from "../practicalPhases";
 
 export async function routeWarCommands(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, url } = routeContext;
+  if (isWarSubroute(url, request, "/practical-phases", "POST")) {
+    return withAdmin(routeContext, () => mutatePracticalPhases(request, url, env));
+  }
 
   const exactRouteResult = await routeExact(routeContext, warCommandExactRoutes(request, env));
   if (exactRouteResult) {
@@ -177,9 +181,12 @@ function warCommandExactRoutes(request: Request, env: RouteContext["env"]): Exac
 
 export async function routeWarReads(routeContext: RouteContext): Promise<RouteResult> {
   const { request, env, url } = routeContext;
+  if (isWarSubroute(url, request, "/practical-phases", "GET")) {
+    return cachedMemberGet(routeContext, 15, () => getPracticalPhases(url, env), warCacheVersionNames(warNameFromWarRoute(url)));
+  }
 
   if (matchesExactRoute(url, request, "/api/wars", "GET")) {
-    return cachedMemberGet(routeContext, 55, () => listWars(url, env));
+    return cachedMemberGet(routeContext, 55, () => listWars(url, env), warCacheVersionNames(""));
   }
 
   const warVersionNames = warCacheVersionNames(warNameFromWarRoute(url));
