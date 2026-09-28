@@ -21,6 +21,7 @@ import {
   ENEMY_HIT_STAT_PER_KEY_LIMIT,
   emptyEnemyHitStatsRefreshMetrics,
   refreshMissingEnemyHitStats,
+  refreshCurrentEnemyPersonalStats,
   type EnemyHitStatsRefreshMetrics,
 } from "./enemyHitStats";
 import {
@@ -33,16 +34,15 @@ import {
   type TornApiKey,
 } from "./enemyNetworth";
 import { seedEnemyBigHittersForWar } from "./enemyBigHitters";
-import { fetchTornPersonalStats, TornPersonalStatsHttpError } from "./personalStats";
+import { TornPersonalStatsHttpError } from "./personalStats";
 import {
   clearSyncLatch,
   isSyncLatchSet,
   readSetSyncLatches,
   setSyncLatch,
 } from "./syncLatches";
-import { recordTornKeyUse } from "./tornKeyPool";
 import { Env } from "./types";
-import { corsHeaders, d1Changes, finiteNumber, json, nowSeconds } from "./utils";
+import { corsHeaders, d1Changes, json, nowSeconds } from "./utils";
 import { isWarRoomMemberTrackingActive, isWarRoomMemberTrackingLive } from "./warRoomTracking";
 import {
   runWarLiveStartedHooks,
@@ -637,7 +637,7 @@ async function refreshMissingEnemyScoutingNetworthForContext(
 
   const batches = partitionEnemyNetworthCandidates(rows, activeKeys, perKeyLimit);
   const results = await Promise.all(
-    batches.map((batch) => processEnemyNetworthBatch(env, scoutingWar.enemy_faction_id, batch.key, batch.rows)),
+    batches.map((batch) => processEnemyNetworthBatch(env, scoutingWar.id, scoutingWar.enemy_faction_id, batch.key, batch.rows)),
   );
   for (const result of results) {
     metrics.writeStatements += result.writeStatements;
@@ -694,6 +694,7 @@ async function hasRetryableEnemyNetworthRows(env: Env, enemyFactionId: number): 
 
 async function processEnemyNetworthBatch(
   env: Env,
+  warId: number,
   enemyFactionId: number,
   key: TornApiKey,
   rows: EnemyFactionMemberRow[],
@@ -708,32 +709,10 @@ async function processEnemyNetworthBatch(
 
   for (const row of rows) {
     try {
-      const stats = await fetchTornPersonalStats(env, row.member_id, ["networth"], {
-        apiKey: key.key,
-        keySource: key.keySource,
-      });
-      await recordTornKeyUse(env, key, "enemy_scouting");
-      const networth = finiteNumber(stats.networth);
-      const result = await env.DB.prepare(
-        `
-        UPDATE enemy_faction_members
-        SET networth = ?,
-            networth_updated_at = unixepoch(),
-            networth_attempted_at = unixepoch(),
-            networth_error = NULL,
-            networth_key_source = ?,
-            updated_at = unixepoch()
-        WHERE faction_id = ?
-          AND member_id = ?
-          AND networth_updated_at IS NULL
-        `,
-      )
-        .bind(networth, key.keySource, enemyFactionId, row.member_id)
-        .run();
-      const changes = d1Changes(result);
-      metrics.writeStatements += 1;
-      metrics.changedRows += changes;
-      metrics.updated += changes;
+      const result = await refreshCurrentEnemyPersonalStats(env, warId, enemyFactionId, row.member_id, key);
+      metrics.writeStatements += result.writeStatements;
+      metrics.changedRows += result.changedRows;
+      metrics.updated += result.networthUpdated;
     } catch (err: any) {
       if (err instanceof TornPersonalStatsHttpError && err.status === 429) {
         await pauseEnemyNetworthKey(env, key.keySource, nowSeconds());

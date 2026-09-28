@@ -19,6 +19,29 @@ export type TornPersonalStatValue = {
 
 export type TornPersonalStatsResponse = Record<string, TornPersonalStatValue>;
 
+/** Current categories have nested values and no Torn per-stat timestamps. */
+export async function fetchTornCurrentPersonalStats(
+  env: Env,
+  memberId: number,
+  options: { apiKey: string; keySource: string },
+): Promise<Record<string, unknown>> {
+  const keySource = requireKeySourceForApiKey(options.keySource);
+  const url = new URL(`${PERSONAL_STATS_API_BASE_URL}/${memberId}/personalstats`);
+  url.searchParams.set("cat", "all");
+  const response = await fetchWithTransientRetry(env, url.toString(), {
+    headers: { Accept: "application/json", Authorization: `ApiKey ${options.apiKey}` },
+  }, { keySource });
+  if (!response.ok) {
+    throw new TornPersonalStatsHttpError(response.status);
+  }
+  const data = await readExternalJson<any>(response);
+  throwIfUpstreamError(data, "Torn personalstats");
+  if (!data?.personalstats || typeof data.personalstats !== "object" || Array.isArray(data.personalstats)) {
+    throw new Error("Torn current personalstats response is missing categories");
+  }
+  return data.personalstats;
+}
+
 export class TornPersonalStatsHttpError extends Error {
   constructor(public readonly status: number) {
     super(`Torn personalstats API error: ${status}`);

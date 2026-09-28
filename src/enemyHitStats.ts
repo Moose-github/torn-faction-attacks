@@ -9,6 +9,7 @@ import {
 } from "./enemyNetworth";
 import {
   fetchTornPersonalStatsWithTimestamps,
+  fetchTornCurrentPersonalStats,
   TornPersonalStatsHttpError,
   type TornPersonalStatsResponse,
 } from "./personalStats";
@@ -44,6 +45,65 @@ const HIGH_RETALS_PER_WEEK = 2;
 const MEDIUM_RETALS_PER_WEEK = 1;
 
 type EnemyHitStatKey = typeof ENEMY_HIT_STAT_KEYS[number];
+
+const CURRENT_SCOUTING_STAT_PATHS = {
+  rankedwarhits: ["attacking", "faction", "ranked_war_hits"],
+  attackhits: ["attacking", "hits", "success"],
+  temphits: ["finishing_hits", "temporary"],
+  piercinghits: ["finishing_hits", "piercing"],
+  slashinghits: ["finishing_hits", "slashing"],
+  clubbinghits: ["finishing_hits", "clubbing"],
+  mechanicalhits: ["finishing_hits", "mechanical"],
+  h2hhits: ["finishing_hits", "hand_to_hand"],
+  retals: ["attacking", "faction", "retaliations"],
+  specialammoused: ["attacking", "ammunition", "special"],
+  networth: ["networth", "total"],
+} satisfies Record<EnemyHitStatKey | "networth", string[]>;
+
+export function extractCurrentEnemyScoutingStats(source: Record<string, unknown>): TornPersonalStatsResponse {
+  return Object.fromEntries(Object.entries(CURRENT_SCOUTING_STAT_PATHS).map(([key, path]) => {
+    let value: unknown = source;
+    for (const part of path) {
+      value = value && typeof value === "object" ? (value as Record<string, unknown>)[part] : undefined;
+    }
+    // Missing values must not become zeros or mark an incomplete snapshot as collected.
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new Error(`Torn current personalstats is missing ${path.join(".")}`);
+    }
+    return [key, { value, timestamp: null }];
+  }));
+}
+
+/** Either collector can fill both current datasets with one request. */
+export async function refreshCurrentEnemyPersonalStats(
+  env: Env,
+  warId: number,
+  factionId: number,
+  memberId: number,
+  key: TornApiKey,
+): Promise<{ writeStatements: number; changedRows: number; networthUpdated: number; hitStatsUpdated: number }> {
+  const source = await fetchTornCurrentPersonalStats(env, memberId, { apiKey: key.key, keySource: key.keySource });
+  const collectedAt = nowSeconds();
+  await recordTornKeyUse(env, key, "enemy_scouting");
+  const stats = extractCurrentEnemyScoutingStats(source);
+  const rows = (await env.DB.prepare(`
+    SELECT * FROM enemy_hit_stat_snapshots
+    WHERE war_id = ? AND faction_id = ? AND member_id = ?
+      AND snapshot_kind = 'current' AND completed_at IS NULL
+  `).bind(warId, factionId, memberId).all<EnemyHitStatSnapshotRow>()).results ?? [];
+  const statements = [env.DB.prepare(`
+    UPDATE enemy_faction_members
+    SET networth = ?, networth_updated_at = ?, networth_attempted_at = ?,
+        networth_error = NULL, networth_key_source = ?, updated_at = unixepoch()
+    WHERE faction_id = ? AND member_id = ? AND networth_updated_at IS NULL
+  `).bind(stats.networth.value, collectedAt, collectedAt, key.keySource, factionId, memberId),
+  ...rows.map((row) => prepareEnemyHitStatSnapshot(env, row, stats, key.keySource, collectedAt))];
+  // D1 batches are transactional: retries cannot leave only half of this snapshot saved.
+  const results = await env.DB.batch(statements);
+  const networthUpdated = d1Changes(results[0]);
+  const hitStatsUpdated = results.slice(1).reduce((sum, result) => sum + d1Changes(result), 0);
+  return { writeStatements: statements.length, changedRows: networthUpdated + hitStatsUpdated, networthUpdated, hitStatsUpdated };
+}
 
 type EnemyHitStatMemberSeed = {
   member_id: number;
@@ -517,13 +577,20 @@ async function processEnemyHitStatBatch(
 
   for (const row of rows) {
     try {
+      if (row.snapshot_kind === "current") {
+        const result = await refreshCurrentEnemyPersonalStats(env, row.war_id, row.faction_id, row.member_id, key);
+        metrics.writeStatements += result.writeStatements;
+        metrics.changedRows += result.changedRows;
+        metrics.updated += result.hitStatsUpdated;
+        continue;
+      }
       const stats = await fetchTornPersonalStatsWithTimestamps(env, row.member_id, ENEMY_HIT_STAT_KEYS, {
-        timestamp: row.snapshot_kind === "wednesday" ? row.requested_at : undefined,
+        timestamp: row.requested_at,
         apiKey: key.key,
         keySource: key.keySource,
       });
       await recordTornKeyUse(env, key, "enemy_scouting");
-      const result = await updateEnemyHitStatSnapshot(env, row, stats, key.keySource);
+      const result = await prepareEnemyHitStatSnapshot(env, row, stats, key.keySource).run();
       const changes = d1Changes(result);
       metrics.writeStatements += 1;
       metrics.changedRows += changes;
@@ -564,12 +631,13 @@ async function processEnemyHitStatBatch(
   return metrics;
 }
 
-function updateEnemyHitStatSnapshot(
+function prepareEnemyHitStatSnapshot(
   env: Env,
   row: EnemyHitStatSnapshotRow,
   stats: TornPersonalStatsResponse,
   keySource: string,
-): Promise<D1Result> {
+  collectedAt?: number,
+): D1PreparedStatement {
   return env.DB.prepare(
     `
     UPDATE enemy_hit_stat_snapshots
@@ -593,6 +661,7 @@ function updateEnemyHitStatSnapshot(
         h2hhits_timestamp = ?,
         retals_timestamp = ?,
         specialammoused_timestamp = ?,
+        requested_at = COALESCE(?, requested_at),
         attempted_at = unixepoch(),
         error = NULL,
         key_source = ?,
@@ -626,13 +695,13 @@ function updateEnemyHitStatSnapshot(
       statTimestamp(stats, "h2hhits"),
       statTimestamp(stats, "retals"),
       statTimestamp(stats, "specialammoused"),
+      collectedAt ?? null,
       keySource,
       row.war_id,
       row.faction_id,
       row.member_id,
       row.snapshot_date,
-    )
-    .run();
+    );
 }
 
 async function markEnemyHitStatRateLimited(
@@ -675,7 +744,7 @@ function statValue(stats: TornPersonalStatsResponse, key: EnemyHitStatKey): numb
 }
 
 function statTimestamp(stats: TornPersonalStatsResponse, key: EnemyHitStatKey): number | null {
-  return finiteNumber(stats[key]?.timestamp);
+  return stats[key]?.timestamp == null ? null : finiteNumber(stats[key].timestamp);
 }
 
 function previousWednesdaySnapshotAt(detectedAt: number): number {
