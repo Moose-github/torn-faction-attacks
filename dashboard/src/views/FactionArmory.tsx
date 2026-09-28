@@ -253,7 +253,7 @@ function StatTooltip({ name, value, icon }: { name: string; value: string; icon:
 function EquipmentRows({ group, category, tornPositions }: { group: ArmoryGroup; category: ArmoryCategory; tornPositions: Map<string, number> }) {
   const [open, setOpen] = React.useState(false);
   const item = group.items[0];
-  if (!group.grouped) return <CopyRow category={category} item={item} start={tornPositions.get(item.uid) ?? 0} />;
+  if (!group.grouped || group.items.length === 1) return <CopyRow category={category} item={item} start={tornPositions.get(item.uid) ?? 0} />;
   const start = Math.min(...group.items.map(copy => tornPositions.get(copy.uid) ?? 0));
   const available = group.items.filter(copy => !copy.loaned).length;
   const owners = new Map(group.items.map(copy => [copy.owner?.id ?? null, copy.owner?.name ?? "Faction"]));
