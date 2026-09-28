@@ -773,154 +773,7 @@ export function AdminControls() {
 
         {activeAdminTab === "wars" ? (
         <>
-        <section className="panel admin-panel-xanax-competition">
-          <PanelHeader
-            title="Xanax competition"
-            aside={isLoadingXanaxCompetition ? "Loading" : xanaxCompetition ? formatPrize(xanaxCompetition.settings.current_prize) : "Unavailable"}
-          />
-          <form
-            className="admin-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              runAdminAction("Update Xanax competition", () =>
-                updateAdminXanaxCompetitionSettings({
-                  enabled: xanaxSettingsForm.enabled,
-                  base_prize: Number(xanaxSettingsForm.basePrize),
-                  rollover_count: Number(xanaxSettingsForm.rolloverCount),
-                }),
-              );
-            }}
-          >
-            <label className="checkbox-row admin-form-wide">
-              <input
-                type="checkbox"
-                checked={xanaxSettingsForm.enabled}
-                onChange={(event) => setXanaxSettingsForm((current) => ({ ...current, enabled: event.target.checked }))}
-              />
-              <span>Competition enabled</span>
-            </label>
-            <label>
-              <span>Base prize</span>
-              <input
-                inputMode="numeric"
-                value={xanaxSettingsForm.basePrize}
-                onChange={(event) => setXanaxSettingsForm((current) => ({ ...current, basePrize: event.target.value }))}
-              />
-            </label>
-            <label>
-              <span>Rollovers</span>
-              <input
-                inputMode="numeric"
-                value={xanaxSettingsForm.rolloverCount}
-                onChange={(event) => setXanaxSettingsForm((current) => ({ ...current, rolloverCount: event.target.value }))}
-              />
-            </label>
-            <button
-              type="submit"
-              className="admin-button primary admin-form-wide"
-              disabled={isBusy !== null}
-            >
-              {isBusy === "Update Xanax competition" ? "Saving" : "Save competition settings"}
-            </button>
-            <button
-              type="button"
-              className="admin-button admin-form-wide"
-              disabled={isBusy !== null}
-              onClick={() =>
-                runAdminAction("Preview Xanax competition image", () => previewXanaxCompetitionImage())
-              }
-            >
-              {isBusy === "Preview Xanax competition image" ? "Opening" : "Preview competition image"}
-            </button>
-          </form>
-
-          <form
-            className="admin-form admin-subform"
-            onSubmit={(event) => {
-              event.preventDefault();
-              runAdminAction("Record Xanax claim", () =>
-                recordAdminXanaxCompetitionClaim({
-                  member_id: Number(xanaxClaimForm.memberId),
-                  month_key: xanaxClaimForm.monthKey.trim() || undefined,
-                  prize_paid: xanaxClaimForm.prizePaid.trim()
-                    ? Number(xanaxClaimForm.prizePaid)
-                    : undefined,
-                }),
-              );
-            }}
-          >
-            <label>
-              <span>Claiming member</span>
-              <select
-                value={xanaxClaimForm.memberId}
-                onChange={(event) => setXanaxClaimForm((current) => ({ ...current, memberId: event.target.value }))}
-              >
-                <option value="">Select eligible member</option>
-                {(xanaxCompetition?.leaderboard ?? [])
-                  .filter((row) => row.eligible)
-                  .map((row) => (
-                    <option key={row.member_id} value={row.member_id}>
-                      {row.member_name ?? `#${row.member_id}`} ({formatNumber(row.monthly_xanax)})
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label>
-              <span>Month</span>
-              <input
-                value={xanaxClaimForm.monthKey}
-                placeholder="YYYY-MM"
-                onChange={(event) => setXanaxClaimForm((current) => ({ ...current, monthKey: event.target.value }))}
-              />
-            </label>
-            <label>
-              <span>Prize paid</span>
-              <input
-                inputMode="numeric"
-                value={xanaxClaimForm.prizePaid}
-                onChange={(event) => setXanaxClaimForm((current) => ({ ...current, prizePaid: event.target.value }))}
-              />
-            </label>
-            <button
-              type="submit"
-              className="admin-button primary admin-form-wide"
-              disabled={isBusy !== null || xanaxClaimForm.memberId.trim().length === 0}
-            >
-              {isBusy === "Record Xanax claim" ? "Recording" : "Record claim"}
-            </button>
-          </form>
-
-          <div className="admin-xanax-summary">
-            <MetricLine
-              label="Displayed month"
-              value={xanaxCompetition?.settings.month_key ?? currentMonthKey()}
-            />
-            <MetricLine
-              label="Eligible now"
-              value={formatNumber((xanaxCompetition?.leaderboard ?? []).filter((row) => row.eligible).length)}
-            />
-            <MetricLine
-              label="Latest data"
-              value={xanaxCompetition?.latest_snapshot_date ?? "-"}
-            />
-          </div>
-          {(xanaxCompetition?.claims ?? []).length > 0 ? (
-            <div className="admin-xanax-claims">
-              {xanaxCompetition!.claims.slice(0, 4).map((claim) => (
-                <div key={claim.id}>
-                  <strong>{claim.member_name ?? `#${claim.member_id}`}</strong>
-                  <span>{claim.month_key} | {formatPrize(claim.prize_paid)}</span>
-                  <small>{formatLongDateTime(claim.claimed_at)}</small>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </section>
-
-        <div className="admin-section-divider admin-section-divider-wars">
-          <span>Wars</span>
-          <strong>Official ranked and termed war records</strong>
-        </div>
+        <AdminSettingsSection section="wars" title="Wars" description="Official ranked and termed war records">
 
         {currentOfficialWar ? (
           <section className="panel admin-panel-edit-official">
@@ -1091,76 +944,11 @@ export function AdminControls() {
           </div>
         </section>
 
-        <div className="admin-section-divider admin-section-divider-events">
-          <span>Events</span>
-          <strong>Manual attack and defend tracking windows</strong>
-        </div>
+        </AdminSettingsSection>
+
+        <AdminSettingsSection section="events" title="Events" description="Manual attack and defend tracking windows">
 
         <section className="admin-event-grid admin-event-controls-grid">
-          <section className="panel admin-event-command">
-            <PanelHeader title="Create event" aside="Schedule or start" />
-            <form
-              className="admin-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                runAdminAction("Create event", () =>
-                  createEvent(toEventPayload(createEventForm)).then((response) => {
-                    applyEventResponse(response);
-                    return response;
-                  }),
-                );
-              }}
-            >
-              <WarFields
-                form={createEventForm}
-                onChange={setCreateEventForm}
-                showStatus
-                showFinishTimes
-                showTornFields={false}
-                breakAfterWarType
-                allowedWarTypes={["event"]}
-              />
-              <label className="checkbox-row admin-form-wide">
-                <input
-                  type="checkbox"
-                  checked={createEventForm.chainWatchEnabled}
-                  onChange={(event) =>
-                    setCreateEventForm((current) => ({
-                      ...current,
-                      chainWatchEnabled: event.target.checked,
-                    }))
-                  }
-                />
-                <span>Enable Chain Watch</span>
-              </label>
-              <button
-                type="button"
-                className="admin-button"
-                disabled={isBusy !== null}
-                onClick={() => {
-                  const now = Math.floor(Date.now() / 1000);
-                  setCreateEventForm((current) =>
-                    convertWarFormTimeMode({
-                      ...current,
-                      status: "active",
-                      startTime: dateTimeLocalFromSeconds(now),
-                      startEpoch: String(now),
-                    }, adminTimeMode),
-                  );
-                }}
-              >
-                Start now
-              </button>
-              <button
-                type="submit"
-                className="admin-button primary admin-form-wide"
-                disabled={isBusy !== null}
-              >
-                Create event
-              </button>
-            </form>
-          </section>
-
           <section className="panel admin-event-command">
             <PanelHeader
               title="Edit event"
@@ -1282,6 +1070,70 @@ export function AdminControls() {
           </section>
 
           <section className="panel admin-event-command">
+            <PanelHeader title="Create event" aside="Schedule or start" />
+            <form
+              className="admin-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                runAdminAction("Create event", () =>
+                  createEvent(toEventPayload(createEventForm)).then((response) => {
+                    applyEventResponse(response);
+                    return response;
+                  }),
+                );
+              }}
+            >
+              <WarFields
+                form={createEventForm}
+                onChange={setCreateEventForm}
+                showStatus
+                showFinishTimes
+                showTornFields={false}
+                breakAfterWarType
+                allowedWarTypes={["event"]}
+              />
+              <label className="checkbox-row admin-form-wide">
+                <input
+                  type="checkbox"
+                  checked={createEventForm.chainWatchEnabled}
+                  onChange={(event) =>
+                    setCreateEventForm((current) => ({
+                      ...current,
+                      chainWatchEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Enable Chain Watch</span>
+              </label>
+              <button
+                type="button"
+                className="admin-button"
+                disabled={isBusy !== null}
+                onClick={() => {
+                  const now = Math.floor(Date.now() / 1000);
+                  setCreateEventForm((current) =>
+                    convertWarFormTimeMode({
+                      ...current,
+                      status: "active",
+                      startTime: dateTimeLocalFromSeconds(now),
+                      startEpoch: String(now),
+                    }, adminTimeMode),
+                  );
+                }}
+              >
+                Start now
+              </button>
+              <button
+                type="submit"
+                className="admin-button primary admin-form-wide"
+                disabled={isBusy !== null}
+              >
+                Create event
+              </button>
+            </form>
+          </section>
+
+          <section className="panel admin-event-command">
             <PanelHeader
               title="Import historical event"
               aside={historicalEvents.length > 0 ? `${historicalEvents.length} saved` : "Past window"}
@@ -1342,6 +1194,155 @@ export function AdminControls() {
             </form>
           </section>
         </section>
+
+        </AdminSettingsSection>
+
+        <AdminSettingsSection section="competitions" title="Competitions" description="Competition settings and prize claims">
+        <section className="panel admin-panel-xanax-competition">
+          <PanelHeader
+            title="Xanax competition"
+            aside={isLoadingXanaxCompetition ? "Loading" : xanaxCompetition ? formatPrize(xanaxCompetition.settings.current_prize) : "Unavailable"}
+          />
+          <form
+            className="admin-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Update Xanax competition", () =>
+                updateAdminXanaxCompetitionSettings({
+                  enabled: xanaxSettingsForm.enabled,
+                  base_prize: Number(xanaxSettingsForm.basePrize),
+                  rollover_count: Number(xanaxSettingsForm.rolloverCount),
+                }),
+              );
+            }}
+          >
+            <label className="checkbox-row admin-form-wide">
+              <input
+                type="checkbox"
+                checked={xanaxSettingsForm.enabled}
+                onChange={(event) => setXanaxSettingsForm((current) => ({ ...current, enabled: event.target.checked }))}
+              />
+              <span>Competition enabled</span>
+            </label>
+            <label>
+              <span>Base prize</span>
+              <input
+                inputMode="numeric"
+                value={xanaxSettingsForm.basePrize}
+                onChange={(event) => setXanaxSettingsForm((current) => ({ ...current, basePrize: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>Rollovers</span>
+              <input
+                inputMode="numeric"
+                value={xanaxSettingsForm.rolloverCount}
+                onChange={(event) => setXanaxSettingsForm((current) => ({ ...current, rolloverCount: event.target.value }))}
+              />
+            </label>
+            <button
+              type="submit"
+              className="admin-button primary admin-form-wide"
+              disabled={isBusy !== null}
+            >
+              {isBusy === "Update Xanax competition" ? "Saving" : "Save competition settings"}
+            </button>
+            <button
+              type="button"
+              className="admin-button admin-form-wide"
+              disabled={isBusy !== null}
+              onClick={() =>
+                runAdminAction("Preview Xanax competition image", () => previewXanaxCompetitionImage())
+              }
+            >
+              {isBusy === "Preview Xanax competition image" ? "Opening" : "Preview competition image"}
+            </button>
+          </form>
+
+          <form
+            className="admin-form admin-subform"
+            onSubmit={(event) => {
+              event.preventDefault();
+              runAdminAction("Record Xanax claim", () =>
+                recordAdminXanaxCompetitionClaim({
+                  member_id: Number(xanaxClaimForm.memberId),
+                  month_key: xanaxClaimForm.monthKey.trim() || undefined,
+                  prize_paid: xanaxClaimForm.prizePaid.trim()
+                    ? Number(xanaxClaimForm.prizePaid)
+                    : undefined,
+                }),
+              );
+            }}
+          >
+            <label>
+              <span>Claiming member</span>
+              <select
+                value={xanaxClaimForm.memberId}
+                onChange={(event) => setXanaxClaimForm((current) => ({ ...current, memberId: event.target.value }))}
+              >
+                <option value="">Select eligible member</option>
+                {(xanaxCompetition?.leaderboard ?? [])
+                  .filter((row) => row.eligible)
+                  .map((row) => (
+                    <option key={row.member_id} value={row.member_id}>
+                      {row.member_name ?? `#${row.member_id}`} ({formatNumber(row.monthly_xanax)})
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label>
+              <span>Month</span>
+              <input
+                value={xanaxClaimForm.monthKey}
+                placeholder="YYYY-MM"
+                onChange={(event) => setXanaxClaimForm((current) => ({ ...current, monthKey: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>Prize paid</span>
+              <input
+                inputMode="numeric"
+                value={xanaxClaimForm.prizePaid}
+                onChange={(event) => setXanaxClaimForm((current) => ({ ...current, prizePaid: event.target.value }))}
+              />
+            </label>
+            <button
+              type="submit"
+              className="admin-button primary admin-form-wide"
+              disabled={isBusy !== null || xanaxClaimForm.memberId.trim().length === 0}
+            >
+              {isBusy === "Record Xanax claim" ? "Recording" : "Record claim"}
+            </button>
+          </form>
+
+          <div className="admin-xanax-summary">
+            <MetricLine
+              label="Displayed month"
+              value={xanaxCompetition?.settings.month_key ?? currentMonthKey()}
+            />
+            <MetricLine
+              label="Eligible now"
+              value={formatNumber((xanaxCompetition?.leaderboard ?? []).filter((row) => row.eligible).length)}
+            />
+            <MetricLine
+              label="Latest data"
+              value={xanaxCompetition?.latest_snapshot_date ?? "-"}
+            />
+          </div>
+          {(xanaxCompetition?.claims ?? []).length > 0 ? (
+            <div className="admin-xanax-claims">
+              {xanaxCompetition!.claims.slice(0, 4).map((claim) => (
+                <div key={claim.id}>
+                  <strong>{claim.member_name ?? `#${claim.member_id}`}</strong>
+                  <span>{claim.month_key} | {formatPrize(claim.prize_paid)}</span>
+                  <small>{formatLongDateTime(claim.claimed_at)}</small>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
+        </AdminSettingsSection>
 
         </>
         ) : null}
@@ -2312,6 +2313,41 @@ export function AdminControls() {
       </>
       ) : null}
     </>
+  );
+}
+
+function AdminSettingsSection({ section, title, description, children }: {
+  section: "wars" | "events" | "competitions";
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  const [isCollapsed, setIsCollapsed] = React.useState(true);
+  const headingId = `admin-settings-${section}-heading`;
+  const contentId = `admin-settings-${section}-content`;
+
+  return (
+    <section className="admin-settings-section" aria-labelledby={headingId}>
+      <h2 className="admin-settings-heading">
+        <button
+          type="button"
+          id={headingId}
+          className={`admin-section-divider admin-section-divider-${section}`}
+          aria-expanded={!isCollapsed}
+          aria-controls={contentId}
+          onClick={() => setIsCollapsed((current) => !current)}
+        >
+          {isCollapsed ? <ChevronRight size={20} aria-hidden="true" /> : <ChevronDown size={20} aria-hidden="true" />}
+          <span className="admin-settings-heading-copy">
+            <strong>{title}</strong>
+            <span>{description}</span>
+          </span>
+        </button>
+      </h2>
+      <div id={contentId} className="admin-settings-content" hidden={isCollapsed}>
+        {children}
+      </div>
+    </section>
   );
 }
 

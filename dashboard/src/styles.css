@@ -6712,28 +6712,63 @@ h2 {
 }
 
 .admin-panel-historical-wars {
-  order: 7;
   grid-column: 1 / -1;
 }
 
-.admin-section-divider {
+.admin-settings-section,
+.admin-settings-content {
   display: grid;
-  gap: 4px;
+  gap: 16px;
+  min-width: 0;
+}
+
+.admin-settings-section {
   grid-column: 1 / -1;
-  margin: 8px 0 2px;
+}
+
+.admin-settings-heading {
+  margin: 8px 0 0;
+}
+
+.admin-settings-content[hidden] {
+  display: none;
+}
+
+.admin-section-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
   padding: 13px 16px;
   border: 1px solid var(--border-soft);
   border-left-width: 5px;
   border-radius: var(--radius-md);
   background: var(--panel-muted-bg);
+  color: var(--text-main);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-section-divider:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 3px;
+}
+
+.admin-section-divider > svg {
+  flex-shrink: 0;
+}
+
+.admin-settings-heading-copy {
+  display: grid;
+  gap: 4px;
 }
 
 .admin-section-divider span {
   color: #475569;
   font-size: 0.74rem;
-  font-weight: 900;
+  font-weight: 500;
   letter-spacing: 0;
-  text-transform: uppercase;
 }
 
 .admin-section-divider strong {
@@ -6748,6 +6783,10 @@ h2 {
 
 .admin-section-divider-events {
   border-left-color: #16a34a;
+}
+
+.admin-section-divider-competitions {
+  border-left-color: #9333ea;
 }
 
 .admin-event-grid {
@@ -6766,10 +6805,6 @@ h2 {
 
 .admin-panel-import-war {
   order: 4;
-}
-
-.admin-panel-edit-official {
-  order: 3;
 }
 
 .admin-panel-xanax-competition {
