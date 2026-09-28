@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { updateOfficialWar } from "./wars";
 import { readWarFromUrl } from "./warRequest";
 
-vi.mock("./cacheVersions", () => ({ bumpWarCacheVersionById: vi.fn() }));
+vi.mock("./cacheVersions", () => ({ bumpWarCacheVersionById: vi.fn(), bumpGlobalWarCacheVersion: vi.fn() }));
 vi.mock("./warStats", () => ({ rebuildWarStatsFromRaw: vi.fn() }));
 
 let sqlite;

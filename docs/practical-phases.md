@@ -47,6 +47,17 @@ fails, the response is 503 with `saved: true` and `PHASE_RECONCILIATION_PENDING`
 Reload the phase list and retry reconciliation rather than repeating the edit.
 An immediate reopening with unavailable upstream data remains visible as pending.
 
+War-wide member/enemy target edits advance the same revision as phase changes.
+Their dashboard payload omits phase timestamps and the phase target, so editing
+these settings cannot round or overwrite authoritative phase boundaries.
+
+Statistics rebuilds and incremental ingestion each update totals and attack
+`stats_pending` markers in one database transaction. A rebuild acknowledges the
+attacks in its snapshot; ingestion adds only still-pending attacks. This prevents
+double counting when a correction overlaps ingestion or a batch is retried, while
+retaining the original `ingest_run_id` for diagnostics. Failed termed-war ingestion
+queues reconciliation for the next tick, including when no new attacks arrive.
+
 Phase records are authoritative. The old practical timestamps summarize the first
 start and latest finish (or null while active), and must not be used as one continuous
 counting window. Official attack association includes gaps; practical predicates
@@ -64,6 +75,8 @@ their original eligibility until that legacy phase is explicitly corrected.
 3. Apply `0170_add_practical_phases.sql` before deploying the worker and dashboard.
    It backfills one phase per existing termed war and retains the unused database
    auto-end column for compatibility. Only the new worker should edit phases.
+   For the concurrency fix, apply `0171_track_pending_attack_stats.sql` before
+   deploying its worker build. This additive migration requires no dashboard downtime.
 4. Confirm the active war's phase status, target, practical duration, and global
    tracking state. Check for `practical_rebuild_pending = 1` and phase reasons
    `awaiting_reconciliation` / `target_required` after ingestion ticks.

@@ -1375,6 +1375,7 @@ function buildLiveWarAssignmentStatement(
     UPDATE attacks
     SET war_id = ?,
         ingest_run_id = ?,
+        stats_pending = 1,
         fetched_at = CURRENT_TIMESTAMP
     WHERE id = ?
       AND war_id IS NULL
@@ -1396,6 +1397,7 @@ function buildLiveCompletionUpdateStatement(
         respect_loss = COALESCE(?, respect_loss),
         m_retaliation = COALESCE(?, m_retaliation),
         fetched_at = CURRENT_TIMESTAMP,
+        stats_pending = 1,
         ingest_run_id = ?
     WHERE id = ?
       AND ended IS NULL

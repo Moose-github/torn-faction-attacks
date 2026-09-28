@@ -82,12 +82,15 @@ export async function applyIncrementalWarSummaries(
   warId: number,
   ingestRunId: string,
 ): Promise<void> {
-  const appliedAttacks = await applyIngestedWarMemberStats(env, warId, ingestRunId);
-  if (appliedAttacks === 0) {
-    return;
+  try {
+    await applyIngestedWarMemberStats(env, warId, ingestRunId);
+  } catch (error) {
+    // Raw ingestion may already have advanced its cursor. Queue a rebuild so
+    // termed wars recover on the next tick even if no new attacks arrive.
+    await env.DB.prepare("UPDATE wars SET practical_rebuild_pending = 1 WHERE id = ? AND war_type = 'termed'")
+      .bind(warId).run();
+    throw error;
   }
-
-  await rebuildWarSummaryFromMemberStats(env, warId);
 }
 
 export async function rebuildWarStatsFromRaw(
@@ -314,7 +317,6 @@ async function rebuildKnownWarStatsFromRaw(
 
   try {
     await rebuildWarMemberStatsFromRaw(env, warId);
-    await rebuildWarSummaryFromMemberStats(env, warId);
     return true;
   } finally {
     await releaseWarStatsRebuildLease(env, lease);
@@ -396,15 +398,17 @@ async function countWarMemberCombatBuckets(env: Env, warId?: number): Promise<nu
 }
 
 export async function rebuildWarMemberStatsFromRaw(env: Env, warId: number): Promise<void> {
-  await resetDerivedWarMemberStats(env, warId);
-
-  await env.DB.prepare(`DELETE FROM war_member_combat_buckets WHERE war_id = ?`)
-    .bind(warId)
-    .run();
-
-  await upsertWarMemberAttackStats(env, warId);
-  await upsertWarMemberDefendStats(env, warId);
-  await upsertWarMemberCombatBuckets(env, warId);
+  // D1 batches are transactions: a concurrent ingestion batch either precedes
+  // this snapshot or follows it. Acknowledge exactly the attacks it includes.
+  await env.DB.batch([
+    ...resetDerivedWarMemberStatsStatements(env, warId),
+    env.DB.prepare(`DELETE FROM war_member_combat_buckets WHERE war_id = ?`).bind(warId),
+    warMemberAttackStatsStatement(env, warId),
+    warMemberDefendStatsStatement(env, warId),
+    warMemberCombatBucketsStatement(env, warId),
+    warSummaryFromMemberStatsStatement(env, warId),
+    env.DB.prepare("UPDATE attacks SET stats_pending = 0 WHERE war_id = ? AND stats_pending = 1").bind(warId),
+  ]);
 }
 
 async function refreshWarChainBonusAdjustmentsFromRaw(env: Env, warId: number): Promise<number> {
@@ -726,7 +730,7 @@ function warDefendRespectStatement(
     .bind(memberId ?? warId, warId, warId, warId);
 }
 
-async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<void> {
+function resetDerivedWarMemberStatsStatements(env: Env, warId?: number): D1PreparedStatement[] {
   const whereClause = warId === undefined ? "" : "WHERE war_id = ?";
   const bindValue = warId === undefined ? [] : [warId];
 
@@ -765,12 +769,6 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
       ${whereClause ? "AND" : "WHERE"} added_from_report = 1
     `,
   );
-  if (bindValue.length > 0) {
-    await resetStatement.bind(...bindValue).run();
-  } else {
-    await resetStatement.run();
-  }
-
   const deleteStatement = env.DB.prepare(
     `
     DELETE FROM war_member_stats
@@ -778,18 +776,16 @@ async function resetDerivedWarMemberStats(env: Env, warId?: number): Promise<voi
       ${whereClause ? "AND" : "WHERE"} added_from_report = 0
     `,
   );
-  if (bindValue.length > 0) {
-    await deleteStatement.bind(...bindValue).run();
-  } else {
-    await deleteStatement.run();
-  }
+  return bindValue.length > 0
+    ? [resetStatement.bind(...bindValue), deleteStatement.bind(...bindValue)]
+    : [resetStatement, deleteStatement];
 }
 
-async function upsertWarMemberAttackStats(
+function warMemberAttackStatsStatement(
   env: Env,
   warId: number,
-): Promise<void> {
-  await env.DB.prepare(
+): D1PreparedStatement {
+  return env.DB.prepare(
     `
     WITH member_averages AS (
       SELECT
@@ -962,8 +958,7 @@ async function upsertWarMemberAttackStats(
 ${ATTACK_MEMBER_STAT_MERGE_SQL}
     `,
   )
-    .bind(warId, warId, warId, HOME_FACTION_ID)
-    .run();
+    .bind(warId, warId, warId, HOME_FACTION_ID);
 }
 
 async function applyIngestedWarMemberStats(
@@ -977,6 +972,7 @@ async function applyIngestedWarMemberStats(
     FROM attacks
     WHERE war_id = ?
       AND ingest_run_id = ?
+      AND stats_pending = 1
     `,
   )
     .bind(warId, ingestRunId)
@@ -987,22 +983,23 @@ async function applyIngestedWarMemberStats(
     return 0;
   }
 
-  await upsertIngestedWarMemberAttackStats(env, warId, ingestRunId);
-  await upsertIngestedWarMemberDefendStats(env, warId, ingestRunId);
-  await upsertWarMemberCombatBuckets(env, warId, ingestRunId);
+  // Keep the pending predicates inside this transaction as well: a rebuild may
+  // have consumed the batch after the count above. Repeating a run is a no-op.
+  await env.DB.batch([
+    ingestedWarMemberAttackStatsStatement(env, warId, ingestRunId),
+    ingestedWarMemberDefendStatsStatement(env, warId, ingestRunId),
+    ingestedWarMemberCombatBucketsStatement(env, warId, ingestRunId),
+    warSummaryFromMemberStatsStatement(env, warId),
+    env.DB.prepare("UPDATE attacks SET stats_pending = 0 WHERE war_id = ? AND ingest_run_id = ? AND stats_pending = 1")
+      .bind(warId, ingestRunId),
+  ]);
   return appliedAttacks;
 }
 
-async function upsertWarMemberCombatBuckets(
+function warMemberCombatBucketsStatement(
   env: Env,
   warId: number,
-  ingestRunId?: string,
-): Promise<void> {
-  if (ingestRunId) {
-    await upsertIngestedWarMemberCombatBuckets(env, warId, ingestRunId);
-    return;
-  }
-
+): D1PreparedStatement {
   const bindValues = [
     warId,
     warId,
@@ -1016,7 +1013,7 @@ async function upsertWarMemberCombatBuckets(
     warId,
   ];
 
-  await env.DB.prepare(
+  return env.DB.prepare(
     `
     WITH outgoing_member_averages AS (
       SELECT
@@ -1238,16 +1235,15 @@ async function upsertWarMemberCombatBuckets(
       respect_lost = war_member_combat_buckets.respect_lost + excluded.respect_lost
     `,
   )
-    .bind(...bindValues)
-    .run();
+    .bind(...bindValues);
 }
 
-async function upsertIngestedWarMemberCombatBuckets(
+function ingestedWarMemberCombatBucketsStatement(
   env: Env,
   warId: number,
   ingestRunId: string,
-): Promise<void> {
-  await env.DB.prepare(
+): D1PreparedStatement {
+  return env.DB.prepare(
     `
     WITH outgoing_member_averages AS (
       SELECT
@@ -1330,6 +1326,7 @@ async function upsertIngestedWarMemberCombatBuckets(
       LEFT JOIN outgoing_war_average owa ON 1 = 1
       WHERE a.war_id = ?
         AND a.ingest_run_id = ?
+        AND a.stats_pending = 1
         AND a.started IS NOT NULL
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND a.attacker_id IS NOT NULL
@@ -1383,6 +1380,7 @@ async function upsertIngestedWarMemberCombatBuckets(
       LEFT JOIN defend_war_average dwa ON 1 = 1
       WHERE a.war_id = ?
         AND a.ingest_run_id = ?
+        AND a.stats_pending = 1
         AND a.started IS NOT NULL
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
@@ -1460,16 +1458,15 @@ async function upsertIngestedWarMemberCombatBuckets(
       MEMBER_ACTIVITY_BUCKET_SECONDS,
       warId,
       ingestRunId,
-    )
-    .run();
+    );
 }
 
-async function upsertIngestedWarMemberAttackStats(
+function ingestedWarMemberAttackStatsStatement(
   env: Env,
   warId: number,
   ingestRunId: string,
-): Promise<void> {
-  await env.DB.prepare(
+): D1PreparedStatement {
+  return env.DB.prepare(
     `
     WITH member_averages AS (
       SELECT
@@ -1629,6 +1626,7 @@ async function upsertIngestedWarMemberAttackStats(
     LEFT JOIN war_average wa ON 1 = 1
     WHERE a.war_id = ?
       AND a.ingest_run_id = ?
+      AND a.stats_pending = 1
       AND a.attacker_faction_id = ${HOME_FACTION_ID}
       AND a.attacker_id IS NOT NULL
       AND ${OUTGOING_ACTION_WINDOW_SQL}
@@ -1637,16 +1635,15 @@ async function upsertIngestedWarMemberAttackStats(
 ${ATTACK_MEMBER_STAT_MERGE_SQL}
     `,
   )
-    .bind(warId, warId, warId, ingestRunId)
-    .run();
+    .bind(warId, warId, warId, ingestRunId);
 }
 
-async function upsertIngestedWarMemberDefendStats(
+function ingestedWarMemberDefendStatsStatement(
   env: Env,
   warId: number,
   ingestRunId: string,
-): Promise<void> {
-  await env.DB.prepare(
+): D1PreparedStatement {
+  return env.DB.prepare(
     `
     WITH member_averages AS (
       SELECT
@@ -1762,6 +1759,7 @@ async function upsertIngestedWarMemberDefendStats(
     LEFT JOIN war_average wa ON 1 = 1
     WHERE a.war_id = ?
       AND a.ingest_run_id = ?
+      AND a.stats_pending = 1
       AND a.defender_faction_id = ${HOME_FACTION_ID}
       AND a.defender_id IS NOT NULL
       AND ${RELEVANT_DEFEND_SQL}
@@ -1771,15 +1769,14 @@ async function upsertIngestedWarMemberDefendStats(
 ${DEFEND_MEMBER_STAT_MERGE_SQL}
     `,
   )
-    .bind(warId, warId, ingestRunId)
-    .run();
+    .bind(warId, warId, ingestRunId);
 }
 
-async function upsertWarMemberDefendStats(
+function warMemberDefendStatsStatement(
   env: Env,
   warId: number,
-): Promise<void> {
-  await env.DB.prepare(
+): D1PreparedStatement {
+  return env.DB.prepare(
     `
     WITH member_averages AS (
       SELECT
@@ -1914,6 +1911,5 @@ async function upsertWarMemberDefendStats(
 ${DEFEND_MEMBER_STAT_MERGE_SQL}
     `,
   )
-    .bind(warId, warId, warId, HOME_FACTION_ID)
-    .run();
+    .bind(warId, warId, warId, HOME_FACTION_ID);
 }

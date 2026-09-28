@@ -172,13 +172,15 @@ export async function updateTermedWarSettings(env: Env, warId: number, body: Rec
     return number;
   };
   if (!(Number(war.faction_respect_limit) > 0)) return json({ ok: false, error: "Set the phase target first" }, 400);
-  const updated = await env.DB.prepare(`UPDATE wars SET enemy_target_respect = ?, member_respect_limit = ?
+  const updated = await env.DB.prepare(`UPDATE wars SET enemy_target_respect = ?, member_respect_limit = ?,
+    practical_revision = practical_revision + 1
     WHERE id = ? AND practical_revision = ? RETURNING *`).bind(
       optionalTarget(body.enemy_target_respect, war.enemy_target_respect),
       optionalTarget(body.member_respect_limit, war.member_respect_limit), warId, body.practical_revision).first();
   if (!updated) return json({ ok: false, error: "Reload before saving", code: "STALE_PHASE_REVISION" }, 409);
   delete updated.auto_end_enabled;
   await bumpWarCacheVersionById(env, warId);
+  await bumpGlobalWarCacheVersion(env);
   return json({ ok: true, war: { ...updated, ...await practicalPhaseSummary(env, warId) } });
 }
 

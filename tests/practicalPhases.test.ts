@@ -9,6 +9,9 @@ import { exportWarAttacksCsv } from "../src/warExports";
 import type { Env } from "../src/types";
 import { runPracticalPhaseHooks } from "../src/war/lifecycleHooks";
 import { applyIncrementalWarSummaries, rebuildWarStatsFromRaw } from "../src/warStats";
+import { updateOfficialWar } from "../src/wars";
+import { toPracticalWarEditPayload, warToForm } from "../dashboard/src/views/AdminControls";
+import type { WarSummary } from "../dashboard/src/api";
 
 vi.mock("../src/ingestion", async (original) => ({
   ...await original<typeof import("../src/ingestion")>(),
@@ -28,6 +31,7 @@ const base = 1_790_000_000;
 const schema = readFileSync(new URL("../schema/current.sql", import.meta.url), "utf8");
 function statement(sql: string, args: SQLInputValue[] = []) {
   return {
+    sql,
     bind: (...values: SQLInputValue[]) => statement(sql, values),
     first: async () => db.prepare(sql).get(...args) ?? null,
     all: async () => ({ results: db.prepare(sql).all(...args) }),
@@ -76,6 +80,125 @@ async function schedule(target = 9000) {
 }
 
 describe("practical phase database and lifecycle", () => {
+  it("saves member and enemy targets from the admin form without rounding phase boundaries", async () => {
+    war();
+    const saved = db.prepare("SELECT * FROM wars WHERE id=1").get()!;
+    const form = warToForm(saved as unknown as WarSummary);
+    form.memberRespectLimit = "100";
+    form.enemyTargetRespect = "5000";
+    const payload = toPracticalWarEditPayload(1, form);
+    expect(payload).not.toHaveProperty("practical_start_time");
+    expect(payload).not.toHaveProperty("practical_finish_time");
+    expect(payload).not.toHaveProperty("faction_respect_limit");
+    const response = await updateOfficialWar(new Request("https://test/api/wars/update-official", {
+      method: "POST", body: JSON.stringify(payload),
+    }), env);
+    expect(response.status).toBe(200);
+    expect(db.prepare("SELECT * FROM wars WHERE id=1").get()).toMatchObject({
+      practical_start_time: base, practical_finish_time: base + 12 * 3600,
+      faction_respect_limit: 7000, member_respect_limit: 100, enemy_target_respect: 5000,
+      practical_revision: 1,
+    });
+    expect((await readPracticalPhases(env, 1))[0]).toMatchObject({ start_time: base, finish_time: base + 12 * 3600 });
+  });
+
+  it("retains practical-window input when converting a real war to termed", () => {
+    war();
+    const form = warToForm({ ...db.prepare("SELECT * FROM wars WHERE id=1").get(), war_type: "real" } as unknown as WarSummary);
+    form.warType = "termed";
+    form.factionRespectLimit = "9000";
+    expect(toPracticalWarEditPayload(1, form)).toMatchObject({
+      practical_start_time: expect.any(Number), practical_finish_time: expect.any(Number), faction_respect_limit: 9000,
+    });
+  });
+
+  it("rejects concurrent settings saves and phase edits with the old revision", async () => {
+    war();
+    const update = (target: number) => updateOfficialWar(new Request("https://test/api/wars/update-official", {
+      method: "POST", body: JSON.stringify({ id: 1, practical_revision: 0, member_respect_limit: target }),
+    }), env);
+    const responses = await Promise.all([update(100), update(200)]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(await responses.find((response) => response.status === 409)!.json()).toMatchObject({ code: "STALE_PHASE_REVISION" });
+    expect((await practicalPhaseSummary(env, 1)).practical_revision).toBe(1);
+    expect((await command({ action: "schedule", revision: 0, target: 9000, start_time: base + 26 * 3600 })).status).toBe(409);
+  });
+
+  it.each(["before", "after"])("counts an ingestion batch once when a correction runs %s it", async (order) => {
+    war(); attack(1, base + 9 * 3600, 500);
+    await rebuildWarStatsFromRaw(env, { scope: "single-war", warId: 1 });
+    attack(2, base + 10 * 3600, 500, "in-flight");
+    const correct = async () => expect((await command({ action: "add_history", revision: 0, target: 9000,
+      start_time: base + 14 * 3600, finish_time: base + 16 * 3600 })).status).toBe(200);
+    if (order === "before") await correct();
+    await applyIncrementalWarSummaries(env, 1, "in-flight");
+    if (order === "after") await correct();
+    await applyIncrementalWarSummaries(env, 1, "in-flight");
+    expect(db.prepare("SELECT attacks_vs_enemy_total, respect_gained_raw FROM war_member_stats WHERE war_id=1").get())
+      .toEqual({ attacks_vs_enemy_total: 2, respect_gained_raw: 1000 });
+    expect(db.prepare("SELECT attacks_vs_enemy_total, total_respect_gain_raw FROM war_summary WHERE war_id=1").get())
+      .toEqual({ attacks_vs_enemy_total: 2, total_respect_gain_raw: 1000 });
+    expect(db.prepare("SELECT SUM(attacks_successful) AS n FROM war_member_combat_buckets WHERE war_id=1").get()!.n).toBe(2);
+    expect(db.prepare("SELECT ingest_run_id, stats_pending FROM attacks WHERE id=2").get())
+      .toEqual({ ingest_run_id: "in-flight", stats_pending: 0 });
+  });
+
+  it("does not consume later pages of the same ingestion run during a rebuild", async () => {
+    war(); attack(1, base + 9 * 3600, 500, "paged");
+    await rebuildWarStatsFromRaw(env, { scope: "single-war", warId: 1 });
+    attack(2, base + 10 * 3600, 500, "paged");
+    attack(3, base + 18 * 3600, 500, "paged"); // Gap attack is still acknowledged.
+    await applyIncrementalWarSummaries(env, 1, "paged");
+    await applyIncrementalWarSummaries(env, 1, "paged");
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(2);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM attacks WHERE stats_pending=1").get()!.n).toBe(0);
+  });
+
+  it("rechecks pending attacks inside the transaction if a rebuild wins after the initial count", async () => {
+    war(); attack(1, base + 9 * 3600, 500, "racing");
+    const batch = env.DB.batch.bind(env.DB);
+    let intercepted = false;
+    env.DB.batch = (async (items: Array<ReturnType<typeof statement>>) => {
+      if (!intercepted && items[0].sql.includes("a.ingest_run_id = ?")) {
+        intercepted = true;
+        await rebuildWarStatsFromRaw(env, { scope: "single-war", warId: 1 });
+      }
+      return batch(items as unknown as D1PreparedStatement[]);
+    }) as typeof env.DB.batch;
+    await applyIncrementalWarSummaries(env, 1, "racing");
+    expect(intercepted).toBe(true);
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(1);
+  });
+
+  it.each(["incremental", "rebuild"])("rolls back partial %s statistics and safely retries", async (mode) => {
+    war(); attack(1, base + 9 * 3600, 500, "original");
+    await applyIncrementalWarSummaries(env, 1, "original");
+    attack(2, base + 10 * 3600, 500, "retry");
+    db.exec("CREATE TRIGGER fail_review_stats BEFORE INSERT ON war_summary BEGIN SELECT RAISE(ABORT, 'simulated failure'); END;");
+    const apply = () => mode === "incremental"
+      ? applyIncrementalWarSummaries(env, 1, "retry")
+      : rebuildWarStatsFromRaw(env, { scope: "single-war", warId: 1 });
+    await expect(apply()).rejects.toThrow("simulated failure");
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(1);
+    expect(db.prepare("SELECT stats_pending FROM attacks WHERE id=2").get()!.stats_pending).toBe(1);
+    db.exec("DROP TRIGGER fail_review_stats");
+    await apply();
+    await applyIncrementalWarSummaries(env, 1, "retry");
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(2);
+  });
+
+  it("recovers failed ingestion on the next phase tick without needing another attack", async () => {
+    war(); attack(1, base + 9 * 3600, 500, "failed-run");
+    db.exec("CREATE TRIGGER fail_review_stats BEFORE INSERT ON war_summary BEGIN SELECT RAISE(ABORT, 'simulated failure'); END;");
+    await expect(applyIncrementalWarSummaries(env, 1, "failed-run")).rejects.toThrow("simulated failure");
+    expect((await practicalPhaseSummary(env, 1)).practical_rebuild_pending).toBe(1);
+    db.exec("DROP TRIGGER fail_review_stats");
+    await processPracticalPhases(env, 1, 500, base + 25 * 3600);
+    expect((await practicalPhaseSummary(env, 1)).practical_rebuild_pending).toBe(0);
+    expect(db.prepare("SELECT attacks_vs_enemy_total FROM war_member_stats WHERE war_id=1").get()!.attacks_vs_enemy_total).toBe(1);
+    expect(db.prepare("SELECT stats_pending FROM attacks WHERE id=1").get()!.stats_pending).toBe(0);
+  });
+
   it("reopens immediately using the requested timestamp and can start a pending phase now", async () => {
     war(); attack(1, base + 12 * 3600, 7000);
     db.exec("UPDATE wars SET official_home_score=7000 WHERE id=1");
@@ -251,6 +374,23 @@ describe("phase boundary rules", () => {
   it("does not invent a target for legacy data", () => {
     expect(resolvePhase({ ...phase, status: "active", target: null, finish_time: null }, { score: 9000, observed_at: 500, crossing_at: 400, complete: true }, 500, null).reason).toBe("target_required");
   });
+});
+
+it("adds pending-stat markers without rewriting attack data or ingestion metadata", () => {
+  const legacy = new DatabaseSync(":memory:");
+  try {
+    legacy.exec(schema.match(/CREATE TABLE wars \([\s\S]*?\n\);/)![0]);
+    legacy.exec(schema.match(/CREATE TABLE attacks \([\s\S]*?\n\);/)![0]
+      .replace("  stats_pending INTEGER NOT NULL DEFAULT 1 CHECK (stats_pending IN (0, 1)),\n", ""));
+    legacy.exec("INSERT INTO attacks(id, started, respect_gain, ingest_run_id) VALUES (1, 100, 12.5, 'original-run')");
+    const before = legacy.prepare("SELECT * FROM attacks").get()!;
+    legacy.exec(readFileSync(new URL("../migrations/0171_track_pending_attack_stats.sql", import.meta.url), "utf8"));
+    const { stats_pending, ...after } = legacy.prepare("SELECT * FROM attacks").get()!;
+    expect(after).toEqual(before);
+    expect(stats_pending).toBe(1);
+    legacy.exec("INSERT INTO attacks(id) VALUES (2)");
+    expect(legacy.prepare("SELECT stats_pending FROM attacks WHERE id=2").get()!.stats_pending).toBe(1);
+  } finally { legacy.close(); }
 });
 
 it("migrates existing windows without rewriting their boundaries or targets", () => {

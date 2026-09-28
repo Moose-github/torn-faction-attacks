@@ -2868,7 +2868,7 @@ function warTypeLabel(warType: Exclude<WarType, "all">): string {
   return "Event";
 }
 
-function warToForm(war: WarSummary): AdminWarFormState {
+export function warToForm(war: WarSummary): AdminWarFormState {
   const form = defaultWarForm();
   return {
     ...form,
@@ -2945,20 +2945,23 @@ function exportBoundaryTime(
     : (war.practical_finish_time ?? war.official_end_time ?? war.practical_start_time);
 }
 
-function toPracticalWarEditPayload(id: number, form: AdminWarFormState): AdminWarPayload {
+export function toPracticalWarEditPayload(id: number, form: AdminWarFormState): AdminWarPayload {
   const payload: AdminWarPayload = {
     id,
     practical_revision: form.practicalRevision,
     war_type: form.warType,
-    practical_start_time: secondsFromFormTime(form, "start"),
-    practical_finish_time: optionalSecondsFromFormTime(form, "finish"),
   };
+
+  if (!form.phasesManaged) {
+    payload.practical_start_time = secondsFromFormTime(form, "start");
+    payload.practical_finish_time = optionalSecondsFromFormTime(form, "finish");
+  }
 
   if (form.warType === "termed") {
     payload.enemy_target_respect = form.enemyTargetRespect.trim() === ""
       ? null
       : Number(form.enemyTargetRespect);
-    setOptionalNumber(payload, "faction_respect_limit", form.factionRespectLimit);
+    if (!form.phasesManaged) setOptionalNumber(payload, "faction_respect_limit", form.factionRespectLimit);
     setOptionalNumber(payload, "member_respect_limit", form.memberRespectLimit);
   }
 

@@ -63,6 +63,7 @@ CREATE TABLE attacks (
 
   fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   ingest_run_id TEXT,
+  stats_pending INTEGER NOT NULL DEFAULT 1 CHECK (stats_pending IN (0, 1)),
 
   FOREIGN KEY (war_id) REFERENCES wars(id)
 );
