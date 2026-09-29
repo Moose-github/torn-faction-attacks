@@ -49,5 +49,6 @@ export type CurrentScoutingWar = {
   practical_start_time: number;
   practical_finish_time: number | null;
   official_start_time: number | null;
+  official_end_time?: number | null;
   enemy_scouting_status_checked_at: number | null;
 };

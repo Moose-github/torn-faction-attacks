@@ -1,3 +1,4 @@
+import { resolveWarPhase } from "../../../shared/warPhase";
 import React from "react";
 import {
   Activity,
@@ -734,6 +735,10 @@ function currentWarTiming(
 }
 
 function warEnded(war: WarSummary): boolean {
+  if (war.war_type !== "event") {
+    const { phase } = resolveWarPhase(war, Math.floor(Date.now() / 1000));
+    return phase === "practically_finished" || phase === "officially_ended";
+  }
   return Boolean(war.official_end_time ?? war.practical_finish_time) || war.status === "ended";
 }
 

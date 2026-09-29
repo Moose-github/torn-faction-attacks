@@ -3,7 +3,8 @@ export type { DiscordDeliveryAlertSetting } from "../../../../shared/discordDeli
 
 export type WarType = "all" | "real" | "termed" | "event";
 
-export type GlobalWarState = "none" | "upcoming" | "current" | "practically_finished";
+import type { GlobalWarState } from "../../../../shared/warPhase";
+export type { GlobalWarState } from "../../../../shared/warPhase";
 export type EnemyStatsImagePreviewType = "comparison" | "members";
 
 export type OverallStats = {

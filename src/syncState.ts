@@ -1,6 +1,6 @@
 import { Env } from "./types";
-
-export type GlobalWarState = "none" | "upcoming" | "current" | "practically_finished";
+import { normalizeGlobalWarState, validateGlobalWarStateUpdate, type GlobalWarState } from "../shared/warPhase";
+export type { GlobalWarState } from "../shared/warPhase";
 
 export type SyncStateRow = {
   name: string;
@@ -131,12 +131,8 @@ export async function setSyncGlobalWarState(
   activeWarId: number | null,
   lastStarted?: number,
 ): Promise<void> {
-  const normalizedState = normalizeGlobalWarState(warState);
-  const normalizedWarId = normalizedState === "none" ? null : activeWarId;
-
-  if (normalizedState !== "none" && normalizedWarId === null) {
-    throw new Error(`active_war_id is required for war state ${normalizedState}`);
-  }
+  const normalizedWarId = validateGlobalWarStateUpdate(warState, activeWarId);
+  const normalizedState = warState;
 
   if (lastStarted === undefined) {
     await env.DB.prepare(
@@ -192,13 +188,4 @@ export async function deleteSyncStatesByPrefix(
   )
     .bind(`${prefix}%`)
     .run();
-}
-
-function normalizeGlobalWarState(value: unknown): GlobalWarState {
-  return value === "upcoming" ||
-    value === "current" ||
-    value === "practically_finished" ||
-    value === "none"
-    ? value
-    : "none";
 }

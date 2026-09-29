@@ -2,6 +2,7 @@ import { nowSeconds } from "./utils";
 import { readSyncTimestamp } from "./syncState";
 import { Env } from "./types";
 import { isWarRoomMemberTrackingActive } from "./warRoomTracking";
+import { resolveWarPhase } from "../shared/warPhase";
 
 export type CacheTtl =
   | number
@@ -86,6 +87,14 @@ export function warDataTtlSeconds(
 ): (data: any) => number {
   return (data: any) => {
     const war = data?.war ?? data;
+
+    if (war?.war_type !== "event") {
+      const { phase } = resolveWarPhase(war, nowSeconds());
+      if (phase === "officially_ended") return endedTtlSeconds;
+      if (phase === "practically_finished") return PRACTICAL_FINISH_CACHE_TTL_SECONDS;
+      if (liveTtlSeconds !== undefined && phase === "current") return liveTtlSeconds;
+      return activeTtlSeconds;
+    }
 
     if (war?.official_end_time !== null && war?.official_end_time !== undefined) {
       return endedTtlSeconds;

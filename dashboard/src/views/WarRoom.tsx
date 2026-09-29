@@ -46,6 +46,8 @@ import { StickyTable } from "../components/StickyTable";
 import { formatLongDateTime, formatNumber, formatRelativeTime, formatTime } from "../utils/format";
 import { formatCountdownDuration, useCurrentTimeMs } from "../utils/time";
 import { isWarRoomMemberTrackingActive } from "../utils/warTracking";
+import { resolveWarPhase, WAR_PREPARATION_SECONDS, type WarPhase, type WarTrackingMode } from "../../../shared/warPhase";
+import { warRoomPanelVisibility } from "../../../shared/warRoomPolicy";
 import { ScoutingComparisonMetric } from "../../../shared/scoutingBuckets";
 
 const WAR_ROOM_HEATMAP_REFRESH_MS = 15 * 60_000;
@@ -53,7 +55,7 @@ const WAR_ROOM_PUSH_HISTORY_REFRESH_MS = 5 * 60_000;
 const WAR_ROOM_MEMBER_TRACKING_REFRESH_MS = 30_000;
 const WAR_ROOM_CHAIN_WATCH_REFRESH_MS = 15_000;
 
-type TrackingMode = "live" | "pre-live" | "inactive";
+type TrackingMode = WarTrackingMode;
 type ActivityHeatmapMode = "faction" | "bigHitters" | "selectedPlayers";
 
 export function WarRoom({
@@ -113,15 +115,17 @@ export function WarRoom({
   });
   const trackingCadenceRef = React.useRef<HTMLElement | null>(null);
   const isEventRoom = selectedWar?.war_type === "event";
-  const isTermedWar = selectedWar?.war_type === "termed";
-  const canLoadEnemyWarRoom = Boolean(selectedWarName && selectedWar?.enemy_faction_id !== null);
+  const canLoadEnemyWarRoom = Boolean(selectedWarName && selectedWar?.enemy_faction_id != null);
   const canLoadActivityHeatmap = Boolean(selectedWarName && selectedWar && canLoadEnemyWarRoom && !isEventRoom);
-  const isSelectedGlobalWar = activeWarId !== null && selectedWar?.id === activeWarId;
-  const isWarLive = warState === "current" && isSelectedGlobalWar;
   const nowMs = useCurrentTimeMs();
-  const isMemberTrackingActive = selectedWar && isSelectedGlobalWar
-    ? isWarRoomMemberTrackingActive(selectedWar, Math.floor(nowMs / 1000))
-    : false;
+  const phaseState = resolveWarPhase(selectedWar, Math.floor(nowMs / 1000), { activeWarId, warState });
+  const isSelectedGlobalWar = phaseState.isSelectedGlobalWar;
+  const isWarLive = isEventRoom ? warState === "current" && isSelectedGlobalWar : phaseState.isCurrent;
+  const isMemberTrackingActive = isEventRoom
+    ? Boolean(selectedWar && isSelectedGlobalWar && isWarRoomMemberTrackingActive(selectedWar, Math.floor(nowMs / 1000)))
+    : phaseState.memberTrackingActive;
+  const visible = warRoomPanelVisibility(phaseState, selectedWar);
+  const phaseRequestKey = `${selectedWar?.id}:${isEventRoom ? warState : phaseState.phase}:${selectedWar?.practical_revision ?? 0}`;
   const isActivityHeatmapsOpen = !isEventRoom && collapsedPanels.activityHeatmaps === false;
   const bigHitterActivityMemberIds = React.useMemo(
     () => (enemyBigHitters?.big_hitters ?? []).map((member) => member.member_id),
@@ -130,7 +134,9 @@ export function WarRoom({
   const activeEnemyActivityMemberIds =
     activityHeatmapMode === "bigHitters" ? bigHitterActivityMemberIds : selectedActivityMemberIds;
   const activeEnemyActivityMemberKey = activeEnemyActivityMemberIds.join(",");
-  const trackingMode: TrackingMode = isWarLive ? "live" : isMemberTrackingActive ? "pre-live" : "inactive";
+  const trackingMode: TrackingMode = isEventRoom
+    ? isWarLive ? "live" : isMemberTrackingActive ? "pre-live" : "inactive"
+    : phaseState.trackingMode;
   const trackingFreshness = trackingFreshnessForMode(trackingMode);
   const statusCheckedAt = enemyScouting?.summary.status_checked_at ?? null;
   const latestHeatmapSampledAt = getLatestHeatmapSampledAt(activityHeatmap);
@@ -212,7 +218,7 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadEnemyWarRoom, selectedWarName]);
+  }, [canLoadEnemyWarRoom, selectedWarName, phaseRequestKey]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -246,7 +252,7 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadEnemyWarRoom, selectedWarName]);
+  }, [canLoadEnemyWarRoom, selectedWarName, phaseRequestKey]);
 
   React.useEffect(() => {
     if (!canRefreshEnemyScouting || !canLoadEnemyWarRoom) {
@@ -306,7 +312,7 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadEnemyWarRoom, selectedWarName]);
+  }, [canLoadEnemyWarRoom, selectedWarName, phaseRequestKey]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -339,7 +345,7 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [selectedWar?.id, selectedWarName]);
+  }, [selectedWar?.id, selectedWarName, phaseRequestKey]);
 
   React.useEffect(() => {
     if (!selectedWarName || !selectedWar || !isWarLive) {
@@ -364,7 +370,7 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isWarLive, selectedWar?.id, selectedWarName]);
+  }, [isWarLive, selectedWar?.id, selectedWarName, phaseRequestKey]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -397,7 +403,7 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadEnemyWarRoom, selectedWarName]);
+  }, [canLoadEnemyWarRoom, selectedWarName, phaseRequestKey]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -430,7 +436,7 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadEnemyWarRoom, selectedWarName]);
+  }, [canLoadEnemyWarRoom, selectedWarName, phaseRequestKey]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -463,7 +469,7 @@ export function WarRoom({
     return () => {
       cancelled = true;
     };
-  }, [canLoadActivityHeatmap, isActivityHeatmapsOpen, selectedWar?.id, selectedWarName]);
+  }, [canLoadActivityHeatmap, isActivityHeatmapsOpen, selectedWar?.id, selectedWarName, phaseRequestKey]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -511,6 +517,7 @@ export function WarRoom({
     canLoadEnemyWarRoom,
     isActivityHeatmapsOpen,
     selectedWarName,
+    phaseRequestKey,
   ]);
 
   React.useEffect(() => {
@@ -567,6 +574,7 @@ export function WarRoom({
     scoutingComparison?.comparison_stats_complete,
     selectedWar?.id,
     selectedWarName,
+    phaseRequestKey,
   ]);
 
   React.useEffect(() => {
@@ -642,7 +650,7 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadEnemyWarRoom, isMemberTrackingActive, selectedWarName]);
+  }, [canLoadEnemyWarRoom, isMemberTrackingActive, selectedWarName, phaseRequestKey]);
 
   React.useEffect(() => {
     if (!selectedWarName || !canLoadEnemyWarRoom || !isMemberTrackingActive) {
@@ -673,7 +681,7 @@ export function WarRoom({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [canLoadEnemyWarRoom, isMemberTrackingActive, selectedWarName]);
+  }, [canLoadEnemyWarRoom, isMemberTrackingActive, selectedWarName, phaseRequestKey]);
 
   async function refreshSelectedEnemyScouting() {
     if (!selectedWarName || !selectedWar) {
@@ -864,14 +872,17 @@ export function WarRoom({
 
   return (
     <>
-      <WarRoomHero
-        war={selectedWar}
-        isSelectedGlobalWar={isSelectedGlobalWar}
-        warState={warState}
-      />
+      {visible.header ? (
+        <WarRoomHero
+          war={selectedWar}
+          isSelectedGlobalWar={isSelectedGlobalWar}
+          warState={warState}
+          phase={phaseState.phase}
+        />
+      ) : null}
 
       <section className="content-grid">
-        {isMemberTrackingActive ? (
+        {visible.enemyStatus ? (
           <EnemyStatusSummaryPanel
             members={enemyScouting?.members ?? []}
             statusCheckedAt={statusCheckedAt}
@@ -884,222 +895,241 @@ export function WarRoom({
           />
         ) : null}
 
-        <WarProgressPanel key={selectedWar.id} war={selectedWar} />
-
-        <ChainWatchPanel
-          data={chainWatch}
-          nowMs={nowMs}
-          isLoading={isLoadingChainWatch}
-          trackingMode={trackingMode}
-          trackingState={trackingFreshness.chainWatchState}
-          trackingCadence={trackingFreshness.chainWatchCadence}
-          trackingTone={trackingFreshness.chainWatchTone}
-          trackingDetail={trackingFreshness.chainWatchDetail}
-          canToggle={canRefreshEnemyScouting}
-          isToggling={isTogglingChainWatch}
-          collapsed={collapsedPanels.chainWatch ?? true}
-          onCollapseToggle={() => togglePanel("chainWatch")}
-          onEnabledToggle={toggleChainWatch}
-        />
-
-        {isMemberTrackingActive ? (
-          <>
-            {!isTermedWar ? (
-              <>
-                <HospitalMonitorLinkPanel
-                  isWarLive={isWarLive}
-                  onOpenHospitalMonitor={onOpenHospitalMonitor}
-                  trackingState={trackingFreshness.hospitalState}
-                  trackingCadence={trackingFreshness.hospitalCadence}
-                  trackingTone={trackingFreshness.hospitalTone}
-                  trackingDetail={trackingFreshness.hospitalDetail}
-                  onShowTrackingDetails={scrollToTrackingCadence}
-                />
-
-                <WarControlPanel
-                  data={warControl}
-                  settingsDraft={warControlSettingsDraft}
-                  isAdmin={canRefreshEnemyScouting}
-                  isLoading={isLoadingWarControl}
-                  isSaving={isSavingWarControlSettings}
-                  collapsed={collapsedPanels.warControl ?? false}
-                  onToggle={() => togglePanel("warControl")}
-                  onSettingsChange={setWarControlSettingsDraft}
-                  onSaveSettings={saveWarControlSettings}
-                  updatedAt={warControlUpdatedAt}
-                  trackingState={trackingFreshness.state}
-                  trackingCadence={trackingFreshness.pushCadence}
-                  trackingTone={trackingFreshness.tone}
-                  trackingDetail={trackingFreshness.pushDetail}
-                  onShowTrackingDetails={scrollToTrackingCadence}
-                />
-
-                <EnemyPushPressurePanel
-                  data={pushPressure}
-                  isLoading={isLoadingPushPressure}
-                  collapsed={collapsedPanels.enemyPushPressure ?? true}
-                  onToggle={() => togglePanel("enemyPushPressure")}
-                  trackingState={trackingFreshness.state}
-                  trackingCadence={trackingFreshness.pushCadence}
-                  trackingTone={trackingFreshness.tone}
-                  trackingDetail={trackingFreshness.pushDetail}
-                  onShowTrackingDetails={scrollToTrackingCadence}
-                />
-
-                <RevivableMembersPanel
-                  homeMembers={scoutingComparison?.home.members ?? []}
-                  enemyMembers={scoutingComparison?.enemy.members ?? []}
-                  enemyName={selectedWar.name}
-                  collapsed={collapsedPanels.revivableMembers ?? true}
-                  onToggle={() => togglePanel("revivableMembers")}
-                  updatedAt={latestRevivableUpdatedAt}
-                  trackingState={trackingFreshness.revivableState}
-                  trackingCadence={trackingFreshness.revivableCadence}
-                  trackingTone={trackingFreshness.revivableTone}
-                  trackingDetail={trackingFreshness.revivableDetail}
-                  onShowTrackingDetails={scrollToTrackingCadence}
-                />
-              </>
-            ) : null}
-
-            <EnemyTravelPanel
-              members={enemyScouting?.members ?? []}
-              statusCheckedAt={statusCheckedAt}
-              isLoading={isLoadingEnemyScouting}
-              collapsed={collapsedPanels.enemyTravel ?? false}
-              onToggle={() => togglePanel("enemyTravel")}
-              trackingState={trackingFreshness.state}
-              trackingCadence={trackingFreshness.enemyCadence}
-              trackingTone={trackingFreshness.tone}
-              trackingDetail={trackingFreshness.enemyDetail}
-              onShowTrackingDetails={scrollToTrackingCadence}
-            />
-          </>
+        {visible.warProgress ? (
+          <WarProgressPanel key={selectedWar.id} war={selectedWar} />
         ) : null}
 
-        <CollapsiblePanel
-          title="Stats comparison"
-          aside={isLoadingScoutingComparison ? "Loading" : scoutingComparisonMetricLabel(scoutingComparisonMetric)}
-          collapsed={collapsedPanels.scoutingComparison ?? false}
-          onToggle={() => togglePanel("scoutingComparison")}
-          className="scouting-comparison-panel"
-        >
-          <p className="panel-description">
-            Compares the latest stored member stats for Buttgrass and the enemy faction by member count in each range.
-          </p>
-          <div className="panel-toggle-row" aria-label="Stats comparison metric">
-            <button
-              type="button"
-              className={scoutingComparisonMetric === "ff_battlestats" ? "toggle-chip active" : "toggle-chip"}
-              onClick={() => setScoutingComparisonMetric("ff_battlestats")}
-            >
-              FF stats
-            </button>
-            <button
-              type="button"
-              className={scoutingComparisonMetric === "bsp_battlestats" ? "toggle-chip active" : "toggle-chip"}
-              onClick={() => setScoutingComparisonMetric("bsp_battlestats")}
-            >
-              BSP stats
-            </button>
-            <button
-              type="button"
-              className={scoutingComparisonMetric === "networth" ? "toggle-chip active" : "toggle-chip"}
-              onClick={() => setScoutingComparisonMetric("networth")}
-            >
-              Networth
-            </button>
-          </div>
-          <ScoutingComparisonChart
+        {visible.chainWatch ? (
+          <ChainWatchPanel
+            data={chainWatch}
+            nowMs={nowMs}
+            isLoading={isLoadingChainWatch}
+            trackingMode={trackingMode}
+            trackingState={trackingFreshness.chainWatchState}
+            trackingCadence={trackingFreshness.chainWatchCadence}
+            trackingTone={trackingFreshness.chainWatchTone}
+            trackingDetail={trackingFreshness.chainWatchDetail}
+            canToggle={canRefreshEnemyScouting}
+            isToggling={isTogglingChainWatch}
+            collapsed={collapsedPanels.chainWatch ?? true}
+            onCollapseToggle={() => togglePanel("chainWatch")}
+            onEnabledToggle={toggleChainWatch}
+          />
+        ) : null}
+
+        {visible.hospitalMonitor ? (
+          <HospitalMonitorLinkPanel
+            isWarLive={isWarLive}
+            onOpenHospitalMonitor={onOpenHospitalMonitor}
+            trackingState={trackingFreshness.hospitalState}
+            trackingCadence={trackingFreshness.hospitalCadence}
+            trackingTone={trackingFreshness.hospitalTone}
+            trackingDetail={trackingFreshness.hospitalDetail}
+            onShowTrackingDetails={scrollToTrackingCadence}
+          />
+        ) : null}
+
+        {visible.warControl ? (
+          <WarControlPanel
+            data={warControl}
+            settingsDraft={warControlSettingsDraft}
+            isAdmin={canRefreshEnemyScouting}
+            isLoading={isLoadingWarControl}
+            isSaving={isSavingWarControlSettings}
+            collapsed={collapsedPanels.warControl ?? false}
+            onToggle={() => togglePanel("warControl")}
+            onSettingsChange={setWarControlSettingsDraft}
+            onSaveSettings={saveWarControlSettings}
+            updatedAt={warControlUpdatedAt}
+            trackingState={trackingFreshness.state}
+            trackingCadence={trackingFreshness.pushCadence}
+            trackingTone={trackingFreshness.tone}
+            trackingDetail={trackingFreshness.pushDetail}
+            onShowTrackingDetails={scrollToTrackingCadence}
+          />
+        ) : null}
+
+        {visible.enemyPushPressure ? (
+          <EnemyPushPressurePanel
+            data={pushPressure}
+            isLoading={isLoadingPushPressure}
+            collapsed={collapsedPanels.enemyPushPressure ?? true}
+            onToggle={() => togglePanel("enemyPushPressure")}
+            trackingState={trackingFreshness.state}
+            trackingCadence={trackingFreshness.pushCadence}
+            trackingTone={trackingFreshness.tone}
+            trackingDetail={trackingFreshness.pushDetail}
+            onShowTrackingDetails={scrollToTrackingCadence}
+          />
+        ) : null}
+
+        {visible.revivableMembers ? (
+          <RevivableMembersPanel
             homeMembers={scoutingComparison?.home.members ?? []}
             enemyMembers={scoutingComparison?.enemy.members ?? []}
             enemyName={selectedWar.name}
-            metric={scoutingComparisonMetric}
-            metricLabel={scoutingComparisonMetricLabel(scoutingComparisonMetric).toLowerCase()}
+            collapsed={collapsedPanels.revivableMembers ?? true}
+            onToggle={() => togglePanel("revivableMembers")}
+            updatedAt={latestRevivableUpdatedAt}
+            trackingState={trackingFreshness.revivableState}
+            trackingCadence={trackingFreshness.revivableCadence}
+            trackingTone={trackingFreshness.revivableTone}
+            trackingDetail={trackingFreshness.revivableDetail}
+            onShowTrackingDetails={scrollToTrackingCadence}
           />
-        </CollapsiblePanel>
+        ) : null}
+        {visible.enemyTravel ? (
+          <EnemyTravelPanel
+            members={enemyScouting?.members ?? []}
+            statusCheckedAt={statusCheckedAt}
+            isLoading={isLoadingEnemyScouting}
+            collapsed={collapsedPanels.enemyTravel ?? false}
+            onToggle={() => togglePanel("enemyTravel")}
+            trackingState={trackingFreshness.state}
+            trackingCadence={trackingFreshness.enemyCadence}
+            trackingTone={trackingFreshness.tone}
+            trackingDetail={trackingFreshness.enemyDetail}
+            onShowTrackingDetails={scrollToTrackingCadence}
+          />
+        ) : null}
+        {visible.scoutingComparison ? (
+          <CollapsiblePanel
+            title="Stats comparison"
+            aside={isLoadingScoutingComparison ? "Loading" : scoutingComparisonMetricLabel(scoutingComparisonMetric)}
+            collapsed={collapsedPanels.scoutingComparison ?? false}
+            onToggle={() => togglePanel("scoutingComparison")}
+            className="scouting-comparison-panel"
+          >
+            <p className="panel-description">
+              Compares the latest stored member stats for Buttgrass and the enemy faction by member count in each range.
+            </p>
+            <div className="panel-toggle-row" aria-label="Stats comparison metric">
+              <button
+                type="button"
+                className={scoutingComparisonMetric === "ff_battlestats" ? "toggle-chip active" : "toggle-chip"}
+                onClick={() => setScoutingComparisonMetric("ff_battlestats")}
+              >
+                FF stats
+              </button>
+              <button
+                type="button"
+                className={scoutingComparisonMetric === "bsp_battlestats" ? "toggle-chip active" : "toggle-chip"}
+                onClick={() => setScoutingComparisonMetric("bsp_battlestats")}
+              >
+                BSP stats
+              </button>
+              <button
+                type="button"
+                className={scoutingComparisonMetric === "networth" ? "toggle-chip active" : "toggle-chip"}
+                onClick={() => setScoutingComparisonMetric("networth")}
+              >
+                Networth
+              </button>
+            </div>
+            <ScoutingComparisonChart
+              homeMembers={scoutingComparison?.home.members ?? []}
+              enemyMembers={scoutingComparison?.enemy.members ?? []}
+              enemyName={selectedWar.name}
+              metric={scoutingComparisonMetric}
+              metricLabel={scoutingComparisonMetricLabel(scoutingComparisonMetric).toLowerCase()}
+            />
+          </CollapsiblePanel>
+        ) : null}
 
-        {!isMemberTrackingActive ? (
+        {visible.liveTrackingInactive ? (
           <LiveTrackingInactivePanel
             collapsed={collapsedPanels.liveTrackingInactive ?? true}
-            warState={isSelectedGlobalWar ? warState : "none"}
+            phase={phaseState.phase}
             onToggle={() => togglePanel("liveTrackingInactive")}
           />
         ) : null}
 
-        <CollapsiblePanel
-          title="Activity heatmaps"
-          aside={
-            isLoadingActivityHeatmap || isLoadingEnemyMemberActivityHeatmap
-              ? "Loading"
-              : heatmapHeaderAside(trackingMode)
-          }
-          collapsed={collapsedPanels.activityHeatmaps ?? false}
-          onToggle={() => togglePanel("activityHeatmaps")}
-          className="heatmap-panel"
-        >
-          <EnemyActivityHeatmapPanel
-            activityHeatmap={activityHeatmap}
-            enemyMemberActivityHeatmap={enemyMemberActivityHeatmap}
-            enemyName={selectedWar.name}
-            enemyFactionId={selectedWar.enemy_faction_id}
-            mode={activityHeatmapMode}
-            onModeChange={setActivityHeatmapMode}
-            bigHitterIds={bigHitterActivityMemberIds}
-            selectedMemberIds={selectedActivityMemberIds}
-            scoutingMembers={enemyScouting?.members ?? []}
-            onAddSelectedMember={addSelectedActivityMember}
-            onRemoveSelectedMember={removeSelectedActivityMember}
-            isLoadingMemberHeatmap={isLoadingEnemyMemberActivityHeatmap}
+        {visible.activityHeatmaps ? (
+          <CollapsiblePanel
+            title="Activity heatmaps"
+            aside={
+              isLoadingActivityHeatmap || isLoadingEnemyMemberActivityHeatmap
+                ? "Loading"
+                : heatmapHeaderAside(trackingMode)
+            }
+            collapsed={collapsedPanels.activityHeatmaps ?? false}
+            onToggle={() => togglePanel("activityHeatmaps")}
+            className="heatmap-panel"
+          >
+            <EnemyActivityHeatmapPanel
+              activityHeatmap={activityHeatmap}
+              enemyMemberActivityHeatmap={enemyMemberActivityHeatmap}
+              enemyName={selectedWar.name}
+              enemyFactionId={selectedWar.enemy_faction_id}
+              mode={activityHeatmapMode}
+              onModeChange={setActivityHeatmapMode}
+              bigHitterIds={bigHitterActivityMemberIds}
+              selectedMemberIds={selectedActivityMemberIds}
+              scoutingMembers={enemyScouting?.members ?? []}
+              onAddSelectedMember={addSelectedActivityMember}
+              onRemoveSelectedMember={removeSelectedActivityMember}
+              isLoadingMemberHeatmap={isLoadingEnemyMemberActivityHeatmap}
+            />
+          </CollapsiblePanel>
+        ) : null}
+
+        {visible.practicalPhases ? (
+          <PracticalPhases key={`phases-${selectedWar.id}`} war={selectedWar} admin={canRefreshEnemyScouting} collapsible />
+        ) : null}
+
+        {visible.enemyScouting ? (
+          <EnemyScoutingPanel
+            scouting={enemyScouting}
+            collapsed={collapsedPanels.enemyScouting ?? false}
+            onToggle={() => togglePanel("enemyScouting")}
+            isLoading={isLoadingEnemyScouting}
+            isRefreshing={isRefreshingEnemyScouting}
+            canRefresh={canRefreshEnemyScouting}
+            showStatusColumn={isMemberTrackingActive}
+            onRefresh={refreshSelectedEnemyScouting}
           />
-        </CollapsiblePanel>
+        ) : null}
 
-        <PracticalPhases key={`phases-${selectedWar.id}`} war={selectedWar} admin={canRefreshEnemyScouting} collapsible />
+        {visible.enemyBigHitters ? (
+          <EnemyBigHittersPanel
+            roster={enemyBigHitters}
+            collapsed={collapsedPanels.enemyBigHitters ?? false}
+            onToggle={() => togglePanel("enemyBigHitters")}
+            scoutingMembers={enemyScouting?.members ?? []}
+            isLoading={isLoadingEnemyBigHitters}
+            isUpdating={isUpdatingEnemyBigHitters}
+            canEdit={canRefreshEnemyScouting}
+            selectedMemberId={selectedBigHitterMemberId}
+            onSelectedMemberIdChange={setSelectedBigHitterMemberId}
+            onAdd={addSelectedBigHitter}
+            onRemove={removeSelectedBigHitter}
+          />
+        ) : null}
 
-        <EnemyScoutingPanel
-          scouting={enemyScouting}
-          collapsed={collapsedPanels.enemyScouting ?? false}
-          onToggle={() => togglePanel("enemyScouting")}
-          isLoading={isLoadingEnemyScouting}
-          isRefreshing={isRefreshingEnemyScouting}
-          canRefresh={canRefreshEnemyScouting}
-          showStatusColumn={isMemberTrackingActive}
-          onRefresh={refreshSelectedEnemyScouting}
-        />
+        {visible.enemyHitTrends ? (
+          <EnemyHitTrendWatchPanel
+            trends={scoutingComparison?.hit_stats?.trends ?? []}
+            health={scoutingComparison?.hit_stats?.health ?? null}
+            isLoading={isLoadingScoutingComparison}
+            collapsed={collapsedPanels.enemyHitTrends ?? true}
+            onToggle={() => togglePanel("enemyHitTrends")}
+          />
+        ) : null}
 
-        <EnemyBigHittersPanel
-          roster={enemyBigHitters}
-          collapsed={collapsedPanels.enemyBigHitters ?? false}
-          onToggle={() => togglePanel("enemyBigHitters")}
-          scoutingMembers={enemyScouting?.members ?? []}
-          isLoading={isLoadingEnemyBigHitters}
-          isUpdating={isUpdatingEnemyBigHitters}
-          canEdit={canRefreshEnemyScouting}
-          selectedMemberId={selectedBigHitterMemberId}
-          onSelectedMemberIdChange={setSelectedBigHitterMemberId}
-          onAdd={addSelectedBigHitter}
-          onRemove={removeSelectedBigHitter}
-        />
-
-        <EnemyHitTrendWatchPanel
-          trends={scoutingComparison?.hit_stats?.trends ?? []}
-          health={scoutingComparison?.hit_stats?.health ?? null}
-          isLoading={isLoadingScoutingComparison}
-          collapsed={collapsedPanels.enemyHitTrends ?? true}
-          onToggle={() => togglePanel("enemyHitTrends")}
-        />
-
-        <TrackingStatusPanel
-          ref={trackingCadenceRef}
-          war={selectedWar}
-          mode={trackingMode}
-          enemyStatusCheckedAt={statusCheckedAt}
-          pushPressureUpdatedAt={pushPressureUpdatedAt}
-          heatmapSampledAt={latestHeatmapSampledAt}
-          revivableUpdatedAt={latestRevivableUpdatedAt}
-          chainWatchUpdatedAt={chainWatch?.state?.last_checked_at ?? null}
-          heatmapOpen={isActivityHeatmapsOpen}
-        />
+        {visible.trackingCadence ? (
+          <TrackingStatusPanel
+            ref={trackingCadenceRef}
+            war={selectedWar}
+            mode={trackingMode}
+            phase={phaseState.phase}
+            enemyStatusCheckedAt={statusCheckedAt}
+            pushPressureUpdatedAt={pushPressureUpdatedAt}
+            heatmapSampledAt={latestHeatmapSampledAt}
+            revivableUpdatedAt={latestRevivableUpdatedAt}
+            chainWatchUpdatedAt={chainWatch?.state?.last_checked_at ?? null}
+            heatmapOpen={isActivityHeatmapsOpen}
+          />
+        ) : null}
       </section>
     </>
   );
@@ -1109,10 +1139,12 @@ function WarRoomHero({
   war,
   isSelectedGlobalWar,
   warState,
+  phase,
 }: {
   war: WarSummary;
   isSelectedGlobalWar: boolean;
   warState: GlobalWarState;
+  phase?: WarPhase;
 }) {
   const isEvent = war.war_type === "event";
 
@@ -1155,6 +1187,7 @@ function WarRoomHero({
         war={war}
         isSelectedGlobalWar={isSelectedGlobalWar}
         warState={warState}
+        phase={phase}
       />
     </section>
   );
@@ -1194,11 +1227,11 @@ const EventTrackingStatusPanel = React.forwardRef<HTMLElement, {
 
 function LiveTrackingInactivePanel({
   collapsed,
-  warState,
+  phase,
   onToggle,
 }: {
   collapsed: boolean;
-  warState: GlobalWarState;
+  phase: WarPhase;
   onToggle: () => void;
 }) {
   return (
@@ -1209,16 +1242,16 @@ function LiveTrackingInactivePanel({
       onToggle={onToggle}
       className="live-tracking-inactive-panel"
     >
-      <EmptyState text={pausedTrackingMessage(warState)} />
+      <EmptyState text={pausedTrackingMessage(phase)} />
     </CollapsiblePanel>
   );
 }
 
-function pausedTrackingMessage(warState: GlobalWarState): string {
-  if (warState === "practically_finished") {
+function pausedTrackingMessage(phase: WarPhase): string {
+  if (phase === "practically_finished") {
     return "Push pressure, travel tracking, revivable members, enemy status, and Hospital monitor stopped at practical finish while we wait for Torn's official end.";
   }
-  if (warState === "upcoming") {
+  if (phase === "upcoming" || phase === "preparation") {
     return "Push pressure, travel tracking, revivable members, and enemy status start two hours before official start. Hospital monitor starts when the war becomes current.";
   }
   return "Push pressure, travel tracking, revivable members, enemy status, and Hospital monitor are paused because there is no current tracking window.";
@@ -1370,6 +1403,7 @@ function formatChainWatchLastHit(state: ChainWatchResponse["state"] | null): str
 const TrackingStatusPanel = React.forwardRef<HTMLElement, {
   war: WarSummary;
   mode: TrackingMode;
+  phase: WarPhase;
   enemyStatusCheckedAt: number | null;
   pushPressureUpdatedAt: number | null;
   heatmapSampledAt: number | null;
@@ -1379,6 +1413,7 @@ const TrackingStatusPanel = React.forwardRef<HTMLElement, {
 }>(function TrackingStatusPanel({
   war,
   mode,
+  phase,
   enemyStatusCheckedAt,
   pushPressureUpdatedAt,
   heatmapSampledAt,
@@ -1387,7 +1422,7 @@ const TrackingStatusPanel = React.forwardRef<HTMLElement, {
   heatmapOpen,
 }, ref) {
   const freshness = trackingFreshnessForMode(mode);
-  const windowLabel = formatTrackingWindow(war, mode);
+  const windowLabel = formatTrackingWindow(war, mode, phase);
 
   return (
     <section ref={ref} className="panel war-room-tracking-status-panel">
@@ -1580,20 +1615,25 @@ function trackingFreshnessForMode(mode: TrackingMode): TrackingFreshness {
   };
 }
 
-function formatTrackingWindow(war: WarSummary, mode: TrackingMode): string {
+function formatTrackingWindow(war: WarSummary, mode: TrackingMode, phase: WarPhase): string {
   if (mode === "live") {
     return "Current-war tracking is live. Fast-changing enemy status, travel, and push pressure update about every minute, while heavier history and heatmap views update less often.";
   }
 
   const officialStart = war.official_start_time ?? war.practical_start_time;
-  const trackingStart = officialStart - 2 * 60 * 60;
+  const trackingStart = officialStart - WAR_PREPARATION_SECONDS;
   if (mode === "pre-live") {
     return `Pre-war tracking is active. It began at ${formatLongDateTime(trackingStart)} and will switch to one minute updates when the war starts.`;
   }
 
-  const finishTime = war.practical_finish_time ?? war.official_end_time ?? null;
-  if (finishTime) {
-    return `Tracking is paused because this war is practically finished. It stopped at practical finish: ${formatLongDateTime(finishTime)}.`;
+  if (phase === "officially_ended") {
+    return "Tracking is paused because this war has officially ended.";
+  }
+  if (phase === "practically_finished") {
+    return `Tracking is paused because this war is practically finished.${war.practical_finish_time != null ? ` It stopped at practical finish: ${formatLongDateTime(war.practical_finish_time)}.` : ""}`;
+  }
+  if (phase === "current" || phase === "preparation") {
+    return "Tracking is paused outside the selected global war's tracking window.";
   }
 
   return `Tracking has not started yet. It starts two hours before official start: ${formatLongDateTime(trackingStart)}.`;
@@ -3289,17 +3329,22 @@ function WarStartCountdown({
   war,
   isSelectedGlobalWar,
   warState,
+  phase,
 }: {
   war: WarSummary;
   isSelectedGlobalWar: boolean;
   warState: GlobalWarState;
+  phase?: WarPhase;
 }) {
   const nowMs = useCurrentTimeMs();
   const isEvent = war.war_type === "event";
   const startTime = isEvent ? war.practical_start_time : war.official_start_time ?? war.practical_start_time;
-  const isEnded = war.official_end_time !== null || war.status === "ended";
+  const resolvedPhase = phase ?? resolveWarPhase(war, Math.floor(nowMs / 1000), {
+    activeWarId: isSelectedGlobalWar ? war.id : null, warState,
+  }).phase;
+  const isEnded = isEvent ? war.official_end_time !== null || war.status === "ended" : resolvedPhase === "officially_ended";
   const isPracticallyFinished =
-    !isEvent && isSelectedGlobalWar && warState === "practically_finished" && war.practical_finish_time !== null;
+    !isEvent && resolvedPhase === "practically_finished";
   const endTime = war.official_end_time ?? war.practical_finish_time;
   const remainingSeconds = Math.max(0, Number(startTime ?? 0) - Math.floor(nowMs / 1000));
 

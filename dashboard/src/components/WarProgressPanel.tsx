@@ -53,11 +53,11 @@ export function WarProgressPanel({ war }: { war: WarSummary }) {
     void refresh();
     const timer = window.setInterval(() => void refresh(), 60_000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [war.name]);
+  }, [war.name, war.status, war.official_start_time, war.official_end_time, war.practical_revision]);
 
   const record = data?.war ?? war;
   const latest = data?.latest ?? null;
-  const endedAt = record.official_end_time ?? latest?.ended_at ?? null;
+  const endedAt = war.official_end_time ?? record.official_end_time ?? latest?.ended_at ?? null;
   const start = record.official_start_time ?? latest?.official_start_time ?? null;
   const original = latest?.original_target ?? null;
   const homeScore = endedAt ? record.official_home_score ?? latest?.home_score ?? null : latest?.home_score ?? record.official_home_score;

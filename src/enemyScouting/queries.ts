@@ -15,6 +15,7 @@ export async function readCurrentScoutingWar(env: Env): Promise<CurrentScoutingW
       w.practical_start_time,
       w.practical_finish_time,
       w.official_start_time,
+      w.official_end_time,
       w.enemy_scouting_status_checked_at
     FROM sync_state state
     JOIN wars w ON w.id = state.active_war_id

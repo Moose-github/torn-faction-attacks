@@ -7,6 +7,7 @@ import { rebuildWarStatsFromRaw } from "./warStats";
 import { runPracticalPhaseHooks } from "./war/lifecycleHooks";
 import type { Env } from "./types";
 import { d1Changes, json, nowSeconds } from "./utils";
+import { validateGlobalWarStateUpdate, type GlobalWarState } from "../shared/warPhase";
 
 type PhaseWar = {
   id: number; war_type: string; status: string; practical_revision: number;
@@ -59,9 +60,11 @@ export async function savePhaseTimeline(env: Env, war: PhaseWar, before: Practic
   const active = windows.some((p) => p.status === "active");
   const first = windows[0]?.start_time ?? war.practical_start_time;
   const finish = active ? null : latest?.finish_time ?? first;
+  const globalState: GlobalWarState = active ? "current" : "practically_finished";
+  validateGlobalWarStateUpdate(globalState, war.id);
   statements.push(env.DB.prepare(`UPDATE sync_state SET war_state = ?, updated_at = CURRENT_TIMESTAMP
     WHERE name = ? AND active_war_id = ? AND war_state IN ('current', 'practically_finished') AND ${guard}`)
-    .bind(active ? "current" : "practically_finished", SOURCE_NAME, war.id, ...bindGuard));
+    .bind(globalState, SOURCE_NAME, war.id, ...bindGuard));
   statements.push(env.DB.prepare(`UPDATE wars SET practical_start_time = ?, practical_finish_time = ?,
     faction_respect_limit = COALESCE(?, faction_respect_limit), practical_revision = practical_revision + 1,
     practical_rebuild_pending = 1 WHERE id = ? AND practical_revision = ?`)

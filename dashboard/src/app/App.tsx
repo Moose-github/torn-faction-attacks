@@ -70,6 +70,7 @@ import {
 } from "./timeZone";
 import { useCurrentTimeMs } from "../utils/time";
 import type { AppView } from "../routes";
+import { resolveWarPhase } from "../../../shared/warPhase";
 
 const ACTIVE_WAR_REFRESH_MS = 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
@@ -148,6 +149,8 @@ export function App() {
   );
   const [wars, setWars] = React.useState<WarSummary[]>([]);
   const [warState, setWarState] = React.useState<GlobalWarState>("none");
+  const warsRequestId = React.useRef(0);
+  const detailRequestId = React.useRef(0);
   const [activeWarId, setActiveWarId] = React.useState<number | null>(null);
   const [globalWar, setGlobalWar] = React.useState<WarSummary | null>(null);
   const [selectedWarName, setSelectedWarName] = React.useState<string | null>(null);
@@ -258,6 +261,7 @@ export function App() {
     let cancelled = false;
 
     async function loadWars() {
+      const requestId = ++warsRequestId.current;
       if (!authSession) {
         setWars([]);
         setWarState("none");
@@ -280,7 +284,7 @@ export function App() {
       try {
         const warsResponse = await getWars(warType);
 
-        if (cancelled) return;
+        if (cancelled || requestId !== warsRequestId.current) return;
 
         setWars(warsResponse.wars);
         setWarState(warsResponse.war_state);
@@ -312,11 +316,11 @@ export function App() {
               null;
         });
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && requestId === warsRequestId.current) {
           setError(err instanceof Error ? err.message : String(err));
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && requestId === warsRequestId.current) {
           setIsLoadingWars(false);
         }
       }
@@ -337,16 +341,18 @@ export function App() {
 
     let cancelled = false;
 
+    let latestRequest = 0;
     async function loadGlobalWarState() {
+      const requestId = ++latestRequest;
       try {
         const response = await getGlobalWarState();
-        if (!cancelled) {
+        if (!cancelled && requestId === latestRequest) {
           setWarState(response.war_state);
           setActiveWarId(response.active_war_id);
           setGlobalWar(response.active_war);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && requestId === latestRequest) {
           setError(err instanceof Error ? err.message : String(err));
         }
       }
@@ -366,7 +372,8 @@ export function App() {
     let cancelled = false;
 
     async function loadWarDetail() {
-      if (!authSession || view !== "war" || !selectedWarName) {
+      const requestId = ++detailRequestId.current;
+      if (!authSession || (view !== "war" && view !== "warRoom") || !selectedWarName) {
         setWarDetail(null);
         setIsLoadingDetail(false);
         return;
@@ -378,15 +385,15 @@ export function App() {
 
       try {
         const detail = await getWar(selectedWarName);
-        if (!cancelled) {
+        if (!cancelled && requestId === detailRequestId.current) {
           setWarDetail(detail);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && requestId === detailRequestId.current) {
           setError(err instanceof Error ? err.message : String(err));
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && requestId === detailRequestId.current) {
           setIsLoadingDetail(false);
         }
       }
@@ -409,11 +416,11 @@ export function App() {
   }, [selectedWarName]);
 
   const selectedWar =
-    warDetail?.war ??
+    (warDetail?.war.name === selectedWarName ? warDetail.war : null) ??
     wars.find((war) => war.name === selectedWarName) ??
     (globalWar?.name === selectedWarName ? globalWar : null);
   const globalStateWar = findGlobalWar(wars, selectedWar, globalWar, activeWarId, warState !== "none");
-  const activeWar = warState === "current" ? globalStateWar : null;
+  const activeWar = isGlobalCurrentWar(globalStateWar, activeWarId, warState) ? globalStateWar : null;
   const hasTornReport = Boolean(selectedWar?.torn_report_fetched_at);
   const isAdmin = authSession?.access_level === "admin";
   const isActivityPanelOpen =
@@ -598,24 +605,28 @@ export function App() {
   }, [memberSort.key, selectedWar?.war_type]);
 
   React.useEffect(() => {
-    if (!authSession || view !== "war" || !selectedWarName || !selectedWar) {
+    if (!authSession || (view !== "war" && view !== "warRoom") || !selectedWarName || !selectedWar) {
       return;
     }
 
-    const refreshMs = warPageRefreshInterval(selectedWar, activeWarId, warState);
+    const refreshMs = view === "warRoom"
+      ? GLOBAL_WAR_STATE_REFRESH_MS
+      : warPageRefreshInterval(selectedWar, activeWarId, warState);
     if (refreshMs === null) {
       return;
     }
 
     let cancelled = false;
     const timer = window.setInterval(async () => {
+      const warsId = ++warsRequestId.current;
+      const detailId = ++detailRequestId.current;
       try {
         const [warsResponse, detailResponse] = await Promise.all([
           getWars(warType),
           getWar(selectedWarName),
         ]);
 
-        if (cancelled) {
+        if (cancelled || warsId !== warsRequestId.current || detailId !== detailRequestId.current) {
           return;
         }
 
@@ -623,17 +634,19 @@ export function App() {
         setWarState(warsResponse.war_state);
         setActiveWarId(warsResponse.active_war_id);
         setWarDetail(detailResponse);
+        setIsLoadingWars(false);
+        setIsLoadingDetail(false);
 
         if (detailResponse.war.torn_report_fetched_at && shouldLoadReportDiscrepancies) {
           const discrepancies = await getWarReportDiscrepancies(selectedWarName);
-          if (!cancelled) {
+          if (!cancelled && warsId === warsRequestId.current && detailId === detailRequestId.current) {
             setReportDiscrepancies(discrepancies);
           }
         } else if (!detailResponse.war.torn_report_fetched_at) {
           setReportDiscrepancies(null);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && warsId === warsRequestId.current && detailId === detailRequestId.current) {
           setError(err instanceof Error ? err.message : String(err));
         }
       }
@@ -1105,6 +1118,13 @@ function warPageRefreshInterval(
   activeWarId: number | null,
   warState: GlobalWarState,
 ): number | null {
+  if (war.war_type !== "event") {
+    const state = resolveWarPhase(war, Math.floor(Date.now() / 1000), { activeWarId, warState });
+    if (state.phase === "officially_ended") return null;
+    if (state.isCurrent) return ACTIVE_WAR_REFRESH_MS;
+    if (state.phase === "practically_finished") return PRACTICAL_FINISH_REFRESH_MS;
+    return SLOW_WAR_REFRESH_MS;
+  }
   if (isGlobalCurrentWar(war, activeWarId, warState)) {
     return ACTIVE_WAR_REFRESH_MS;
   }
@@ -1129,6 +1149,11 @@ function warPageRefreshInterval(
 }
 
 function warSecondaryPanelRefreshInterval(war: WarSummary): number {
+  if (war.war_type !== "event") {
+    const { phase } = resolveWarPhase(war, Math.floor(Date.now() / 1000));
+    return phase === "practically_finished" ? PRACTICAL_FINISH_REFRESH_MS
+      : phase === "current" ? ACTIVE_WAR_REFRESH_MS : SLOW_WAR_REFRESH_MS;
+  }
   if (war.practical_finish_time !== null) {
     return PRACTICAL_FINISH_REFRESH_MS;
   }
@@ -1137,6 +1162,10 @@ function warSecondaryPanelRefreshInterval(war: WarSummary): number {
 }
 
 function warMemberCombatHeatmapRefreshInterval(war: WarSummary): number {
+  if (war.war_type !== "event") {
+    return resolveWarPhase(war, Math.floor(Date.now() / 1000)).phase === "practically_finished"
+      ? PRACTICAL_FINISH_REFRESH_MS : SLOW_WAR_REFRESH_MS;
+  }
   return war.practical_finish_time !== null ? PRACTICAL_FINISH_REFRESH_MS : SLOW_WAR_REFRESH_MS;
 }
 
@@ -1145,6 +1174,9 @@ function isGlobalCurrentWar(
   activeWarId: number | null,
   warState: GlobalWarState,
 ): boolean {
+  if (war?.war_type !== "event") {
+    return resolveWarPhase(war, Math.floor(Date.now() / 1000), { activeWarId, warState }).isCurrent;
+  }
   return warState === "current" && activeWarId !== null && war?.id === activeWarId;
 }
 
