@@ -67,6 +67,11 @@ export function MemberCombatHeatmap({
   }, [heatmap?.war.id]);
 
   React.useEffect(() => {
+    setSelection(null);
+    setDragAnchor(null);
+  }, [heatmap?.window]);
+
+  React.useEffect(() => {
     if (!isExpanded) {
       return;
     }

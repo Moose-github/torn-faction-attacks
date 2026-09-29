@@ -996,25 +996,11 @@ async function applyIngestedWarMemberStats(
   return appliedAttacks;
 }
 
-function warMemberCombatBucketsStatement(
-  env: Env,
-  warId: number,
-): D1PreparedStatement {
-  const bindValues = [
-    warId,
-    warId,
-    warId,
-    warId,
-    MEMBER_ACTIVITY_BUCKET_SECONDS,
-    MEMBER_ACTIVITY_BUCKET_SECONDS,
-    warId,
-    MEMBER_ACTIVITY_BUCKET_SECONDS,
-    MEMBER_ACTIVITY_BUCKET_SECONDS,
-    warId,
-  ];
-
-  return env.DB.prepare(
-    `
+export function warMemberCombatBucketsCte(
+  outgoingWindowSql = OUTGOING_ACTION_WINDOW_SQL,
+  defenseWindowSql = PRACTICAL_DEFENSE_ACTION_WINDOW_SQL,
+): string {
+  return `
     WITH outgoing_member_averages AS (
       SELECT
         a.attacker_id AS member_id,
@@ -1024,7 +1010,7 @@ function warMemberCombatBucketsStatement(
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND a.attacker_id IS NOT NULL
-        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND ${outgoingWindowSql}
         AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
@@ -1036,7 +1022,7 @@ function warMemberCombatBucketsStatement(
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
-        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND ${outgoingWindowSql}
         AND (w.enemy_faction_id IS NULL OR a.defender_faction_id = w.enemy_faction_id)
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
@@ -1053,7 +1039,7 @@ function warMemberCombatBucketsStatement(
         AND ${RELEVANT_DEFEND_SQL}
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
-        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
+        AND ${defenseWindowSql}
       GROUP BY a.attacker_id
     ),
     defend_war_average AS (
@@ -1066,7 +1052,7 @@ function warMemberCombatBucketsStatement(
         AND ${RELEVANT_DEFEND_SQL}
         AND a.result IN (${POSITIVE_RESULTS_SQL})
         AND (a.chain IS NULL OR a.chain NOT IN (${CHAIN_BONUS_HITS_SQL}))
-        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
+        AND ${defenseWindowSql}
     ),
     bucket_rows AS (
       SELECT
@@ -1120,7 +1106,7 @@ function warMemberCombatBucketsStatement(
         AND a.started IS NOT NULL
         AND a.attacker_faction_id = ${HOME_FACTION_ID}
         AND a.attacker_id IS NOT NULL
-        AND ${OUTGOING_ACTION_WINDOW_SQL}
+        AND ${outgoingWindowSql}
       GROUP BY a.war_id, a.attacker_id, bucket_start
       HAVING attacks_successful > 0
         OR assists_vs_enemy > 0
@@ -1174,7 +1160,7 @@ function warMemberCombatBucketsStatement(
         AND a.defender_faction_id = ${HOME_FACTION_ID}
         AND a.defender_id IS NOT NULL
         AND ${RELEVANT_DEFEND_SQL}
-        AND ${PRACTICAL_DEFENSE_ACTION_WINDOW_SQL}
+        AND ${defenseWindowSql}
       GROUP BY a.war_id, a.defender_id, bucket_start
       HAVING defends_lost > 0
         OR defends_won > 0
@@ -1197,6 +1183,29 @@ function warMemberCombatBucketsStatement(
       FROM bucket_rows
       GROUP BY war_id, member_id, bucket_start
     )
+  `;
+}
+
+function warMemberCombatBucketsStatement(
+  env: Env,
+  warId: number,
+): D1PreparedStatement {
+  const bindValues = [
+    warId,
+    warId,
+    warId,
+    warId,
+    MEMBER_ACTIVITY_BUCKET_SECONDS,
+    MEMBER_ACTIVITY_BUCKET_SECONDS,
+    warId,
+    MEMBER_ACTIVITY_BUCKET_SECONDS,
+    MEMBER_ACTIVITY_BUCKET_SECONDS,
+    warId,
+  ];
+
+  return env.DB.prepare(
+    `
+    ${warMemberCombatBucketsCte()}
     INSERT INTO war_member_combat_buckets (
       war_id,
       member_id,

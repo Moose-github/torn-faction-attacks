@@ -73,9 +73,10 @@ export async function getEnemyMemberActivityHeatmap(
 
 export async function getWarMemberCombatHeatmap(
   warName: string,
+  window: "practical" | "official" = "practical",
 ): Promise<WarMemberCombatHeatmapResponse> {
   return getJson<WarMemberCombatHeatmapResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/member-combat-heatmap`,
+    `/api/wars/${encodeURIComponent(warName)}/member-combat-heatmap?window=${window}`,
   );
 }
 

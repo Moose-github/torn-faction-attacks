@@ -315,6 +315,7 @@ export type WarMemberCombatBucket = Record<WarMemberCombatMetric, number> & {
 };
 
 export type WarMemberCombatHeatmapResponse = {
+  window: "practical" | "official";
   ok: boolean;
   bucket_minutes: number;
   war: {

@@ -419,6 +419,7 @@ export function App() {
   const isActivityPanelOpen =
     collapsedPanels.factionActivity === false || collapsedPanels.enemyActivity === false;
   const isMemberCombatPanelOpen = collapsedPanels.memberCombatHeatmap === false;
+  const memberCombatWindow = selectedWar?.war_type === "event" ? "practical" : factionActivityWindow;
   const isReportValidationPanelOpen = collapsedPanels.reportValidation === false;
   const isReportDiscrepancyPanelOpen = collapsedPanels.reportDiscrepancies === false;
   const shouldLoadReportDiscrepancies =
@@ -536,7 +537,7 @@ export function App() {
       setError(null);
 
       try {
-        const response = await getWarMemberCombatHeatmap(heatmapWarName);
+        const response = await getWarMemberCombatHeatmap(heatmapWarName, memberCombatWindow);
         if (!cancelled) {
           setMemberCombatHeatmap(response);
         }
@@ -570,6 +571,7 @@ export function App() {
   }, [
     authSession,
     isMemberCombatPanelOpen,
+    memberCombatWindow,
     selectedWar?.official_end_time,
     selectedWar?.practical_finish_time,
     selectedWar?.status,

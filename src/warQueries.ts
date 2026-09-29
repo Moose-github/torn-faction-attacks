@@ -17,6 +17,7 @@ import { readSyncState } from "./syncState";
 import { Env, WarSummaryRow } from "./types";
 import { json, nowSeconds, parseLimit } from "./utils";
 import { readWarFromUrl } from "./warRequest";
+import { warMemberCombatBucketsCte } from "./warStats/memberStats";
 
 const REPORTABLE_HOME_MEMBER_FILTER_SQL = "COALESCE(h.report_exempt, 0) = 0";
 const CURRENT_HOME_MEMBER_FILTER_SQL = "COALESCE(h.is_current, 0) = 1";
@@ -557,6 +558,8 @@ export async function getWarMemberCombatHeatmap(url: URL, env: Env): Promise<Res
   try {
     const bucketMinutes = 15;
     const bucketSeconds = bucketMinutes * 60;
+    const windowMode = parseActivityWindow(url.searchParams.get("window"));
+    if (windowMode instanceof Response) return windowMode;
     const war = await readWarFromUrl<WarActivityRouteWar>(url, env, {
       select: `
         id,
@@ -571,9 +574,10 @@ export async function getWarMemberCombatHeatmap(url: URL, env: Env): Promise<Res
     });
     if (war instanceof Response) return war;
 
-    const startBucket = Math.floor(war.practical_start_time / bucketSeconds) * bucketSeconds;
-    const finishAt = war.practical_finish_time ?? nowSeconds();
-    const finishBucket = finishAt >= war.practical_start_time
+    const bounds = activityWindowBounds(war, windowMode);
+    const startBucket = Math.floor(bounds.start / bucketSeconds) * bucketSeconds;
+    const finishAt = bounds.finish ?? nowSeconds();
+    const finishBucket = finishAt >= bounds.start
       ? Math.floor(finishAt / bucketSeconds) * bucketSeconds
       : startBucket - bucketSeconds;
     const timeBuckets: number[] = [];
@@ -606,6 +610,27 @@ export async function getWarMemberCombatHeatmap(url: URL, env: Env): Promise<Res
 
     const buckets = timeBuckets.length === 0
       ? { results: [] }
+      : windowMode === "official"
+      ? await env.DB.prepare(`
+        ${warMemberCombatBucketsCte(
+          OFFICIAL_OUTGOING_ACTION_WINDOW_SQL,
+          `(${OFFICIAL_ACTIVITY_WINDOW_SQL}) AND ${DEFENSE_ACTION_WINDOW_SQL}`,
+        )}
+        SELECT buckets.*, COALESCE(
+          h.name,
+          (SELECT member_name FROM war_member_stats WHERE war_id = buckets.war_id AND member_id = buckets.member_id),
+          (SELECT attacker_name FROM attacks WHERE war_id = buckets.war_id AND attacker_id = buckets.member_id LIMIT 1),
+          (SELECT defender_name FROM attacks WHERE war_id = buckets.war_id AND defender_id = buckets.member_id LIMIT 1)
+        ) AS member_name
+        FROM grouped_rows buckets
+        ${reportableHomeMemberJoinSql("buckets.member_id")}
+        WHERE buckets.bucket_start BETWEEN ? AND ?
+          AND ${REPORTABLE_HOME_MEMBER_FILTER_SQL}
+        ORDER BY buckets.bucket_start ASC, buckets.member_id ASC
+      `)
+        .bind(war.id, war.id, war.id, war.id, bucketSeconds, bucketSeconds, war.id,
+          bucketSeconds, bucketSeconds, war.id, startBucket, finishBucket)
+        .all()
       : await env.DB.prepare(
         `
         SELECT
@@ -631,9 +656,33 @@ export async function getWarMemberCombatHeatmap(url: URL, env: Env): Promise<Res
         .bind(war.id, startBucket, finishBucket)
         .all();
 
+    // Include members whose only combat happened outside the practical phases.
+    const heatmapMembers = new Map((members.results ?? []).map((member: any) => [member.member_id, member]));
+    if (windowMode === "official") {
+      for (const member of heatmapMembers.values()) {
+        for (const key of ["attacks_vs_enemy_successful", "outside_hits", "defends_total", "defends_won", "defends_other", "respect_gained", "respect_lost"]) {
+          member[key] = 0;
+        }
+      }
+      for (const bucket of buckets.results ?? []) {
+        const member: any = heatmapMembers.get(bucket.member_id) ?? {
+          member_id: bucket.member_id, member_name: bucket.member_name,
+          attacks_vs_enemy_successful: 0, outside_hits: 0, defends_total: 0,
+          defends_won: 0, defends_other: 0, respect_gained: 0, respect_lost: 0,
+        };
+        member.attacks_vs_enemy_successful += Number(bucket.attacks_successful);
+        member.defends_total += Number(bucket.defends_lost) + Number(bucket.defends_won) + Number(bucket.defends_other);
+        for (const key of ["outside_hits", "defends_won", "defends_other", "respect_gained", "respect_lost"]) {
+          member[key] += Number(bucket[key]);
+        }
+        heatmapMembers.set(bucket.member_id, member);
+      }
+    }
+
     return json({
       ok: true,
       bucket_minutes: bucketMinutes,
+      window: windowMode,
       war: {
         id: war.id,
         name: war.name,
@@ -645,7 +694,10 @@ export async function getWarMemberCombatHeatmap(url: URL, env: Env): Promise<Res
         official_end_time: war.official_end_time,
       },
       time_buckets: timeBuckets,
-      members: members.results ?? [],
+      members: windowMode === "practical" ? members.results ?? [] : [...heatmapMembers.values()].sort((a, b) =>
+        b.respect_gained - a.respect_gained ||
+        b.attacks_vs_enemy_successful - a.attacks_vs_enemy_successful ||
+        (a.member_name ?? "").localeCompare(b.member_name ?? "")),
       buckets: buckets.results ?? [],
     });
   } catch (err: any) {

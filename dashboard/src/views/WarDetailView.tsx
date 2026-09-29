@@ -504,6 +504,13 @@ export function WarDetailView({
                   onToggle={() => onTogglePanel("memberCombatHeatmap")}
                   className="member-combat-panel"
                 >
+                  {!isEvent ? (
+                    <ActivityWindowToggle
+                      value={factionActivityWindow}
+                      onChange={onMemberActivityWindowChange}
+                      label="Member combat time range"
+                    />
+                  ) : null}
                   <p className="panel-description">
                     {isEvent
                       ? "Shows member event attacks, defends lost, and respect by 15-minute bucket."
