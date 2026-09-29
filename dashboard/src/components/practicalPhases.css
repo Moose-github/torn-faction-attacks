@@ -1,4 +1,4 @@
-.practical-phases { margin-block: 1rem; padding: 1.25rem; }
+.practical-phases { grid-column: 1 / -1; min-width: 0; margin-block: 1rem; padding: 1.25rem; }
 .practical-phases-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .practical-phases h3, .practical-phases h4 { margin: 0; }
 .practical-phases-table { overflow-x: auto; margin-block: 1rem; }

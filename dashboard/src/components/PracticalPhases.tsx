@@ -3,6 +3,7 @@ import type { WarSummary } from "../api";
 import { getJson, postJson } from "../api/client";
 import { practicalDuration, type PracticalPhase, type PracticalPhaseSummary } from "../../../shared/practicalPhases";
 import { formatNumber } from "../utils/format";
+import { CollapsiblePanel } from "./Common";
 import "./practicalPhases.css";
 
 type Response = PracticalPhaseSummary & { ok: boolean };
@@ -23,7 +24,8 @@ const reasonLabel: Record<string, string> = {
   legacy: "Original practical phase",
 };
 
-export function PracticalPhases({ war, admin = false, onChanged }: { war: WarSummary; admin?: boolean; onChanged?: () => void }) {
+export function PracticalPhases({ war, admin = false, collapsible = false, onChanged }: { war: WarSummary; admin?: boolean; collapsible?: boolean; onChanged?: () => void }) {
+  const [collapsed, setCollapsed] = React.useState(true);
   const [data, setData] = React.useState<Response | null>(null);
   const [draft, setDraft] = React.useState<Draft | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -66,11 +68,8 @@ export function PracticalPhases({ war, admin = false, onChanged }: { war: WarSum
     } finally { setBusy(false); }
   }
   const history = draft?.action.includes("history");
-  return <section className="panel practical-phases" aria-label="Practical phases">
-    <div className="practical-phases-heading">
-      <div><p className="eyebrow">Termed war</p><h3>Practical phases</h3></div>
-      <strong>{duration(practicalDuration(phases, Math.min(now, war.official_end_time ?? now)))} counted</strong>
-    </div>
+  const countedTime = `${duration(practicalDuration(phases, Math.min(now, war.official_end_time ?? now)))} counted`;
+  const content = <>
     <p>Targets are cumulative across the whole war. Only attacks within practical windows count toward practical statistics.</p>
     {error && <p role="alert" className="error-banner">{error}</p>}
     {!data && !error && <p>Loading phases…</p>}
@@ -117,5 +116,21 @@ export function PracticalPhases({ war, admin = false, onChanged }: { war: WarSum
       </>}
       <div className="practical-phase-actions"><button type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</button><button type="button" disabled={busy} onClick={() => setDraft(null)}>Cancel</button></div>
     </form>}
+  </>;
+
+  return collapsible ? <CollapsiblePanel
+    title="Practical phases"
+    aside={countedTime}
+    collapsed={collapsed}
+    onToggle={() => setCollapsed((current) => !current)}
+    className="practical-phases"
+  >
+    {content}
+  </CollapsiblePanel> : <section className="panel practical-phases" aria-label="Practical phases">
+    <div className="practical-phases-heading">
+      <div><p className="eyebrow">Termed war</p><h3>Practical phases</h3></div>
+      <strong>{countedTime}</strong>
+    </div>
+    {content}
   </section>;
 }

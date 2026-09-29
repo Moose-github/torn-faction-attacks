@@ -884,7 +884,6 @@ export function WarRoom({
           />
         ) : null}
 
-        <PracticalPhases key={`phases-${selectedWar.id}`} war={selectedWar} admin={canRefreshEnemyScouting} />
         <WarProgressPanel key={selectedWar.id} war={selectedWar} />
 
         <ChainWatchPanel
@@ -1054,6 +1053,8 @@ export function WarRoom({
             isLoadingMemberHeatmap={isLoadingEnemyMemberActivityHeatmap}
           />
         </CollapsiblePanel>
+
+        <PracticalPhases key={`phases-${selectedWar.id}`} war={selectedWar} admin={canRefreshEnemyScouting} collapsible />
 
         <EnemyScoutingPanel
           scouting={enemyScouting}
