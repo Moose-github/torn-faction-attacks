@@ -7,13 +7,14 @@ export function getWarProgress(warName: string): Promise<WarProgressResponse> {
 }
 import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyBigHittersResponse, EnemyMemberActivityHeatmapResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, GlobalWarStateResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarControlResponse, WarDetailResponse, WarMemberCombatHeatmapResponse, WarsResponse, WarType } from "./types";
 
-export async function getStats(
-  warType: WarType,
-  options: { currentMembersOnly?: boolean } = {},
+export async function getStats(
+  warType: WarType,
+  options: { currentMembersOnly?: boolean; excludeEvents?: boolean } = {},
 ): Promise<StatsResponse> {
   const suffix = queryString({
     war_type: warType === "all" ? undefined : warType,
     current_members: options.currentMembersOnly ? 1 : undefined,
+    exclude_events: options.excludeEvents ? 1 : undefined,
   });
   return getJson<StatsResponse>(`/api/stats${suffix}`);
 }

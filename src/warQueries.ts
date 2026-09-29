@@ -766,6 +766,7 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     return warType;
   }
   const currentMembersOnly = url.searchParams.get("current_members") === "1";
+  const excludeEvents = url.searchParams.get("exclude_events") === "1";
 
   const overall = (await env.DB.prepare(
     `
@@ -783,9 +784,10 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     FROM war_summary ws
     JOIN wars w ON w.id = ws.war_id
     WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
+      AND (? = 0 OR COALESCE(w.war_type, 'real') != 'event')
     `,
   )
-    .bind(warType, warType)
+    .bind(warType, warType, excludeEvents ? 1 : 0)
     .first()) as Record<string, number | null> | null;
 
   const members = await env.DB.prepare(
@@ -838,13 +840,14 @@ export async function getOverallStats(url: URL, env: Env): Promise<Response> {
     JOIN wars w ON w.id = wms.war_id
     ${reportableHomeMemberJoinSql("wms.member_id")}
     WHERE (? IS NULL OR COALESCE(w.war_type, 'real') = ?)
+      AND (? = 0 OR COALESCE(w.war_type, 'real') != 'event')
       AND (? = 0 OR ${CURRENT_HOME_MEMBER_FILTER_SQL})
       AND ${REPORTABLE_HOME_MEMBER_FILTER_SQL}
     GROUP BY wms.member_id
     ORDER BY respect_gained DESC, attacks_vs_enemy_successful DESC, attacks_vs_enemy_total DESC
     `,
   )
-    .bind(warType, warType, currentMembersOnly ? 1 : 0)
+    .bind(warType, warType, excludeEvents ? 1 : 0, currentMembersOnly ? 1 : 0)
     .all();
 
   const memberRows = (members.results ?? []) as Array<Record<string, any>>;
