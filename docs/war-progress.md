@@ -19,8 +19,8 @@ There is no write endpoint for the panel. Events do not use this panel.
 
 Torn's returned target is treated as already decayed, as agreed for this feature.
 The original is derived using the official start and observation time, then
-retained. The first 24 hours use the full target; hourly steps then reduce it by
-1% of the original, reaching zero at hour 124. Values retain their fractional
+retained. The first 1% reduction occurs exactly at hour 24; subsequent hourly
+steps remove 1% of the original, reaching zero at hour 123. Values retain their fractional
 precision. If collection first observes zero, the original cannot be inferred
 and predictions remain unavailable.
 

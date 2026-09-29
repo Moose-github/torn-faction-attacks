@@ -1,5 +1,5 @@
 export const WAR_SCORE_INTERVAL_SECONDS = 15 * 60;
-export const RANKED_WAR_MAX_HOURS = 124;
+export const RANKED_WAR_MAX_HOURS = 123;
 
 export type WarScorePoint = {
   bucket_start: number;
@@ -42,11 +42,11 @@ export type WarProgressResponse = {
   interval_seconds: number;
 };
 
-// The first 24 hours retain the full target; subsequent hourly decrements
-// remove 1% of the original, reaching zero at war hour 124.
+// The first reduction occurs exactly 24 hours after the start. Each hourly
+// decrement removes 1% of the original, reaching zero at war hour 123.
 export function rankedTargetFraction(start: number, at: number): number {
   const hours = Math.floor(Math.max(0, at - start) / 3600);
-  return Math.max(0, 100 - Math.max(0, hours - 24)) / 100;
+  return Math.max(0, 100 - Math.max(0, hours - 23)) / 100;
 }
 
 export function originalRankedTarget(target: number, start: number, observedAt: number): number | null {
@@ -66,7 +66,7 @@ export function rankedFinishAt(original: number | null, start: number, lead: num
   const required = Math.abs(lead);
   const tolerance = original * 1e-12;
   if (required + tolerance >= rankedTargetAt(original, start, at)) return at;
-  const firstHour = Math.max(25, Math.floor((at - start) / 3600) + 1);
+  const firstHour = Math.max(24, Math.floor((at - start) / 3600) + 1);
   for (let hour = firstHour; hour <= RANKED_WAR_MAX_HOURS; hour++) {
     const finish = start + hour * 3600;
     if (required + tolerance >= rankedTargetAt(original, start, finish)) return finish;

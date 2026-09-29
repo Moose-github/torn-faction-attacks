@@ -8,7 +8,7 @@ let sqlite, env;
 const start = 1_800_000;
 const at = (hours) => start + hours * 3600;
 function ranked(fields = {}) {
-  return { id: 88, start, end: 0, target: 7600, winner: null, factions: [
+  return { id: 88, start, end: 0, target: 7500, winner: null, factions: [
     { id: HOME_FACTION_ID, name: "Home", score: 8200 },
     { id: 123, name: "Enemy", score: 3200 },
   ], ...fields };
@@ -57,19 +57,19 @@ describe("ranked war score collection", () => {
   it("continues after practical tracking ends, including unchanged scores and target decay", async () => {
     sqlite.prepare("UPDATE wars SET status = 'ended', practical_finish_time = ?").run(at(47));
     await recordRankedWarProgress(env, ranked(), at(48));
-    await recordRankedWarProgress(env, ranked({ target: 7500 }), at(49));
-    expect(state()).toMatchObject({ original_target: 10000, target: 7500, observed_at: at(49) });
+    await recordRankedWarProgress(env, ranked({ target: 7400 }), at(49));
+    expect(state()).toMatchObject({ original_target: 10000, target: 7400, observed_at: at(49) });
     expect(history()).toHaveLength(2);
     expect(history()[1].bucket_start - history()[0].bucket_start).toBe(3600);
   });
   it("retains the original at zero target and stops recording once officially ended", async () => {
     await recordRankedWarProgress(env, ranked(), at(48));
-    await recordRankedWarProgress(env, ranked({ target: 0, end: at(124) }), at(124) + 60);
-    expect(state()).toMatchObject({ original_target: 10000, ended_at: at(124), target: 0 });
-    expect(history()[1].observed_at).toBe(at(124) + 60);
-    await recordRankedWarProgress(env, ranked({ target: 0, end: at(124) }), at(125));
+    await recordRankedWarProgress(env, ranked({ target: 0, end: at(123) }), at(123) + 60);
+    expect(state()).toMatchObject({ original_target: 10000, ended_at: at(123), target: 0 });
+    expect(history()[1].observed_at).toBe(at(123) + 60);
+    await recordRankedWarProgress(env, ranked({ target: 0, end: at(123) }), at(124));
     expect(history()).toHaveLength(2);
-    expect(state().observed_at).toBe(at(124) + 60);
+    expect(state().observed_at).toBe(at(123) + 60);
   });
   it("captures the original for scheduled wars without inventing pre-war history", async () => {
     await recordRankedWarProgress(env, ranked({ target: 10000 }), start - 60);
@@ -77,7 +77,7 @@ describe("ranked war score collection", () => {
     expect(history()).toHaveLength(0);
   });
   it("cannot infer an original from the first observation at zero", async () => {
-    await recordRankedWarProgress(env, ranked({ target: 0 }), at(124));
+    await recordRankedWarProgress(env, ranked({ target: 0 }), at(123));
     expect(state().original_target).toBeNull();
   });
   it("skips unrelated wars, events, and malformed scores", async () => {
