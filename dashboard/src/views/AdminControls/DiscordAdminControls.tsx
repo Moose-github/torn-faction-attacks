@@ -1,82 +1,37 @@
 import React from "react";
 import {
   AdminDiscordAlertSettingsResponse,
-  ChainWatchAlertSetting,
-  ChainWatchMissedCheckInAlertSetting,
   clearDiscordTravelTrackerTarget,
   DiscordAlertRouteSummary,
-  DiscordDeliveryAlertSetting,
   DiscordTravelTrackerTargetResponse,
-  EnemyScoutingReportAlertSetting,
-  EnemyPushAlertSetting,
-  RetaliationBoardAlertSetting,
   setDiscordTravelTrackerTarget,
-  ShopliftingAlertSetting,
   syncDiscordTravelTracker,
   testAdminDiscordAlertRoute,
-  updateAdminChainWatchDiscordAlert,
   updateAdminDiscordAlert,
-  updateAdminChainWatchMissedCheckInDiscordAlert,
-  updateAdminEnemyPushDiscordAlert,
-  updateAdminEnemyScoutingReportDiscordAlert,
-  updateAdminRetaliationBoardDiscordAlert,
-  updateAdminShopliftingDiscordAlert,
-  updateAdminTermedWarAutoEndDiscordAlert,
-  updateAdminXanaxCompetitionDiscordAlert,
   updateDiscordTravelTrackerSettings,
-  TermedWarAutoEndAlertSetting,
-  XanaxCompetitionAlertSetting,
 } from "../../api";
 import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime } from "../../utils/format";
-import { DISCORD_DELIVERY_CONTROLS, type DiscordDeliveryAlertKey } from "../../../../shared/discordDeliverySettings";
+import { discordAlertByKey, DISCORD_DEFAULT_ALERT_ROUTE_KEY as DEFAULT_DISCORD_ALERT_ROUTE_KEY } from "../../../../shared/discordAlertCatalog";
+import type { DiscordAlertSettingsMap } from "../../../../shared/discordAlertSettings";
+import { discordAlertRows, discordAlertStatus } from "./discordAlertRows";
 import { DiscordMessageDelete } from "./DiscordMessageDelete";
 import { DiscordMessageCompose } from "./DiscordMessageCompose";
 import { DiscordAlertMentionEditor, useDiscordMentionSettings } from "./DiscordAlertMentionEditor";
 import { DiscordRouteActions } from "./DiscordRouteActions";
 import { DiscordSubscriptionToggle, useDiscordSubscriptionSettings } from "./DiscordSubscriptionToggle";
 
-const DEFAULT_DISCORD_ALERT_ROUTE_KEY = "default";
-
 export type DiscordTravelTargetForm = {
   factionId: string;
   factionName: string;
 };
-
-type DiscordAlertRouteRow = {
-  kind: "alert";
-  key: string;
-  checked: boolean;
-  configurable: boolean;
-  description: string;
-  label: string;
-  onChange: (enabled: boolean) => void;
-};
-
-type DiscordStatusRouteRow = {
-  kind: "status";
-  key: string;
-  description: string;
-  label: string;
-  statusLabel: string;
-};
-
-type DiscordAlertDisplayRow = DiscordAlertRouteRow | DiscordStatusRouteRow;
 
 type DiscordAdminControlsProps = {
   isBusy: string | null;
   discordTravelTargetForm: DiscordTravelTargetForm;
   discordTravelTarget: DiscordTravelTrackerTargetResponse | null;
   isLoadingDiscordTravelTarget: boolean;
-  chainWatchAlert: ChainWatchAlertSetting | null;
-  discordDeliveryAlerts: DiscordDeliveryAlertSetting[];
-  chainWatchMissedCheckInAlert: ChainWatchMissedCheckInAlertSetting | null;
-  retaliationBoardAlert: RetaliationBoardAlertSetting | null;
-  shopliftingAlerts: ShopliftingAlertSetting[];
-  enemyPushAlert: EnemyPushAlertSetting | null;
-  enemyScoutingReportAlert: EnemyScoutingReportAlertSetting | null;
-  xanaxCompetitionAlert: XanaxCompetitionAlertSetting | null;
-  termedWarAutoEndAlert: TermedWarAutoEndAlertSetting | null;
+  discordAlertSettings: DiscordAlertSettingsMap;
   discordAlertRoutes: Record<string, DiscordAlertRouteSummary | null>;
   isLoadingDiscordAlertSettings: boolean;
   setDiscordTravelTargetForm: React.Dispatch<React.SetStateAction<DiscordTravelTargetForm>>;
@@ -91,15 +46,7 @@ export function DiscordAdminControls({
   discordTravelTargetForm,
   discordTravelTarget,
   isLoadingDiscordTravelTarget,
-  chainWatchAlert,
-  discordDeliveryAlerts,
-  chainWatchMissedCheckInAlert,
-  retaliationBoardAlert,
-  shopliftingAlerts,
-  enemyPushAlert,
-  enemyScoutingReportAlert,
-  xanaxCompetitionAlert,
-  termedWarAutoEndAlert,
+  discordAlertSettings,
   discordAlertRoutes,
   isLoadingDiscordAlertSettings,
   setDiscordTravelTargetForm,
@@ -113,32 +60,6 @@ export function DiscordAdminControls({
   }
   const mentionControls = useDiscordMentionSettings();
   const subscriptionControls = useDiscordSubscriptionSettings();
-  const discordAlertStatus = isLoadingDiscordAlertSettings
-    ? "Loading"
-    : discordDeliveryAlerts.length > 0 || shopliftingAlerts.length > 0 || enemyPushAlert || chainWatchAlert || chainWatchMissedCheckInAlert || retaliationBoardAlert
-      || enemyScoutingReportAlert || xanaxCompetitionAlert || termedWarAutoEndAlert
-      ? `${[
-          ...discordDeliveryAlerts.map((alert) => alert.enabled),
-          ...(chainWatchAlert ? [chainWatchAlert.enabled] : []),
-          ...(chainWatchMissedCheckInAlert ? [chainWatchMissedCheckInAlert.enabled] : []),
-          ...(retaliationBoardAlert ? [retaliationBoardAlert.enabled] : []),
-          ...shopliftingAlerts.map((alert) => alert.enabled),
-          ...(enemyPushAlert ? [enemyPushAlert.enabled] : []),
-          ...(enemyScoutingReportAlert ? [enemyScoutingReportAlert.enabled] : []),
-          ...(xanaxCompetitionAlert ? [xanaxCompetitionAlert.enabled] : []),
-          ...(termedWarAutoEndAlert ? [termedWarAutoEndAlert.enabled] : []),
-        ].filter(Boolean).length}/${
-          discordDeliveryAlerts.length +
-          shopliftingAlerts.length +
-          (enemyPushAlert ? 1 : 0) +
-          (chainWatchAlert ? 1 : 0) +
-          (chainWatchMissedCheckInAlert ? 1 : 0) +
-          (retaliationBoardAlert ? 1 : 0) +
-          (enemyScoutingReportAlert ? 1 : 0) +
-          (xanaxCompetitionAlert ? 1 : 0) +
-          (termedWarAutoEndAlert ? 1 : 0)
-        } active`
-      : "Unavailable";
   const discordTravelTrackerStatus = isLoadingDiscordTravelTarget
     ? "Loading"
     : discordTravelTarget
@@ -148,196 +69,17 @@ export function DiscordAdminControls({
     isBusy === null &&
     Number.isInteger(Number(discordTravelTargetForm.factionId)) &&
     Number(discordTravelTargetForm.factionId) > 0;
-  function deliveryAlertRow(key: DiscordDeliveryAlertKey): DiscordAlertDisplayRow {
-    const control = DISCORD_DELIVERY_CONTROLS.find((alert) => alert.key === key)!;
-    const setting = discordDeliveryAlerts.find((alert) => alert.key === key);
-    if (!setting) {
-      return {
-        kind: "status", key, label: control.name, description: control.description,
-        statusLabel: isLoadingDiscordAlertSettings ? "Loading" : "Unavailable",
-      };
-    }
-    return {
-      kind: "alert",
-      key,
-      label: control.name,
-      description: control.description,
-      checked: setting.enabled,
-      configurable: setting.configurable,
-      onChange: (enabled) => runAdminAction(`Update ${control.name} messages`, () =>
-        updateAdminDiscordAlert(key, enabled).then((response) => {
-          applyDiscordAlertSettingsResponse(response);
-          return response;
-        })
-      ),
-    };
-  }
-  const discordAlertRows: DiscordAlertDisplayRow[] = [
-    {
-      kind: "status",
-      key: DEFAULT_DISCORD_ALERT_ROUTE_KEY,
-      description: "Fallback bot channel used when an alert does not have its own route.",
-      label: "Default fallback",
-      statusLabel: "Fallback",
-    },
-    chainWatchAlert
-      ? {
-          kind: "alert",
-          key: chainWatchAlert.key,
-          checked: chainWatchAlert.enabled,
-          configurable: chainWatchAlert.configurable,
-          description: "Controls the persistent Chain Watch status message. Warning, critical and dropped messages have their own switches below.",
-          label: chainWatchAlert.name,
-          onChange: (enabled: boolean) => {
-            runAdminAction("Update chain watch alert", () =>
-              updateAdminChainWatchDiscordAlert({ enabled }).then((response) => {
-                applyDiscordAlertSettingsResponse(response);
-                return response;
-              }),
-            );
-          },
-        }
-      : null,
-    deliveryAlertRow("chain_watch_warning"),
-    deliveryAlertRow("chain_watch_critical"),
-    deliveryAlertRow("chain_watch_drop"),
-    deliveryAlertRow("chain_watch_unfilled_slot"),
-    chainWatchMissedCheckInAlert
-      ? {
-          kind: "alert",
-          key: chainWatchMissedCheckInAlert.key,
-          checked: chainWatchMissedCheckInAlert.enabled,
-          configurable: chainWatchMissedCheckInAlert.configurable,
-          description: "Controls alerts for scheduled watchers who have not checked in before their shift.",
-          label: chainWatchMissedCheckInAlert.name,
-          onChange: (enabled: boolean) => {
-            runAdminAction("Update chain watch missed check-in alert", () =>
-              updateAdminChainWatchMissedCheckInDiscordAlert({ enabled }).then((response) => {
-                applyDiscordAlertSettingsResponse(response);
-                return response;
-              }),
-            );
-          },
-        }
-      : null,
-    retaliationBoardAlert
-      ? {
-          kind: "alert",
-          key: retaliationBoardAlert.key,
-          checked: retaliationBoardAlert.enabled,
-          configurable: retaliationBoardAlert.configurable,
-          description: "Controls the persistent retaliation opportunity board updates sent to Discord.",
-          label: retaliationBoardAlert.name,
-          onChange: (enabled: boolean) => {
-            runAdminAction("Update retaliation board alert", () =>
-              updateAdminRetaliationBoardDiscordAlert({ enabled }).then((response) => {
-                applyDiscordAlertSettingsResponse(response);
-                return response;
-              }),
-            );
-          },
-        }
-      : null,
-    enemyPushAlert
-      ? {
-          kind: "alert",
-          key: enemyPushAlert.key,
-          checked: enemyPushAlert.enabled,
-          configurable: enemyPushAlert.configurable,
-          description: "Sends pressure warnings when enemy activity looks likely to become, or is already, a push.",
-          label: enemyPushAlert.name,
-          onChange: (enabled: boolean) => {
-            runAdminAction("Update enemy push alert", () =>
-              updateAdminEnemyPushDiscordAlert({ enabled }).then((response) => {
-                applyDiscordAlertSettingsResponse(response);
-                return response;
-              }),
-            );
-          },
-        }
-      : null,
-    deliveryAlertRow("target_travel_tracker"),
-    deliveryAlertRow("home_travel_tracker"),
-    deliveryAlertRow("item_stock_low"),
-    enemyScoutingReportAlert
-      ? {
-          kind: "alert",
-          key: enemyScoutingReportAlert.key,
-          checked: enemyScoutingReportAlert.enabled,
-          configurable: enemyScoutingReportAlert.configurable,
-          description: "Sends the war matchup scouting report and stats images when enemy scouting is ready.",
-          label: enemyScoutingReportAlert.name,
-          onChange: (enabled: boolean) => {
-            runAdminAction("Update enemy scouting report alert", () =>
-              updateAdminEnemyScoutingReportDiscordAlert({ enabled }).then((response) => {
-                applyDiscordAlertSettingsResponse(response);
-                return response;
-              }),
-            );
-          },
-        }
-      : null,
-    xanaxCompetitionAlert
-      ? {
-          kind: "alert",
-          key: xanaxCompetitionAlert.key,
-          checked: xanaxCompetitionAlert.enabled,
-          configurable: xanaxCompetitionAlert.configurable,
-          description: "Sends the monthly Xanax competition Discord reminder image when the competition is active.",
-          label: xanaxCompetitionAlert.name,
-          onChange: (enabled: boolean) => {
-            runAdminAction("Update Xanax competition Discord alert", () =>
-              updateAdminXanaxCompetitionDiscordAlert({ enabled }).then((response) => {
-                applyDiscordAlertSettingsResponse(response);
-                return response;
-              }),
-            );
-          },
-        }
-      : null,
-    termedWarAutoEndAlert
-      ? {
-          kind: "alert",
-          key: termedWarAutoEndAlert.key,
-          checked: termedWarAutoEndAlert.enabled,
-          configurable: termedWarAutoEndAlert.configurable,
-          description: "Sends a Discord notice when a termed war score limit has been reached.",
-          label: termedWarAutoEndAlert.name,
-          onChange: (enabled: boolean) => {
-            runAdminAction("Update termed war auto-end alert", () =>
-              updateAdminTermedWarAutoEndDiscordAlert({ enabled }).then((response) => {
-                applyDiscordAlertSettingsResponse(response);
-                return response;
-              }),
-            );
-          },
-        }
-      : null,
-    ...shopliftingAlerts.map((alert) => ({
-      kind: "alert" as const,
-      key: `shoplifting_security_alert:${alert.shop_key}`,
-      checked: alert.enabled,
-      configurable: alert.configurable,
-      description: `Sends a Discord warning when both ${alert.shop_name} shoplifting security obstacles are down.`,
-      label: alert.shop_name,
-      onChange: (enabled: boolean) => {
-        runAdminAction("Update shoplifting alert", () =>
-          updateAdminShopliftingDiscordAlert({
-            shop_key: alert.shop_key,
-            enabled,
-          }).then((response) => {
-            applyDiscordAlertSettingsResponse(response);
-            return response;
-          }),
-        );
-      },
-    })),
-  ].filter((row): row is DiscordAlertDisplayRow => Boolean(row));
+  const alertRows = discordAlertRows(discordAlertSettings, isLoadingDiscordAlertSettings, (key, enabled) => {
+    runAdminAction(`Update ${discordAlertByKey(key)!.admin.label} messages`, () => updateAdminDiscordAlert(key, enabled).then(response => {
+      applyDiscordAlertSettingsResponse(response);
+      return response;
+    }));
+  });
 
   return (
     <>
       <section className="panel admin-panel-shoplifting-alerts">
-        <PanelHeader title="Discord alerts" aside={discordAlertStatus} />
+        <PanelHeader title="Discord alerts" aside={discordAlertStatus(discordAlertSettings, isLoadingDiscordAlertSettings)} />
         <p>Choose which Discord alerts are sent, where they appear, who they mention, and whether members can subscribe.</p>
         <p className="admin-mention-help">
           <strong>Status</strong>: Controls if the alert is sent; does not affect functionality.<br />
@@ -357,7 +99,7 @@ export function DiscordAdminControls({
           <div className="admin-alert-route-heading">Current route</div>
           <div className="admin-alert-route-heading">Mentions</div>
           <div className="admin-alert-route-heading">Allow subscriptions</div>
-          {discordAlertRows.map((alert) => (
+          {alertRows.map((alert) => (
             <React.Fragment key={alert.key}>
               <div className="admin-alert-route-copy">
                 <strong>{alert.label}</strong>
@@ -367,6 +109,7 @@ export function DiscordAdminControls({
                 <AlertRouteStatus label={alert.statusLabel} />
               ) : (
                 <AlertToggle
+                  label={alert.label}
                   checked={alert.checked}
                   disabled={!alert.configurable || isBusy !== null || isLoadingDiscordAlertSettings}
                   onChange={alert.onChange}
@@ -542,7 +285,8 @@ export function DiscordAdminControls({
   );
 }
 
-function AlertToggle({ checked, disabled, onChange }: {
+function AlertToggle({ label, checked, disabled, onChange }: {
+  label: string;
   checked: boolean;
   disabled: boolean;
   onChange: (enabled: boolean) => void;
@@ -551,6 +295,7 @@ function AlertToggle({ checked, disabled, onChange }: {
     <label className="checkbox-row admin-alert-route-toggle">
       <input
         type="checkbox"
+        aria-label={`${label} messages`}
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}

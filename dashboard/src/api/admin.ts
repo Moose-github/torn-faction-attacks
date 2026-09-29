@@ -1,3 +1,4 @@
+import type { DiscordAlertKey } from "../../../shared/discordAlertCatalog";
 import { API_BASE_URL, authHeaders, deleteJson, getJson, postJson } from "./client";
 import { queryString } from "./query";
 import type { DiscordMessageDeleteResult, DiscordMessagePreview, DiscordMessageSendResult } from "../../../shared/discordMessageAdmin";
@@ -20,7 +21,7 @@ export function getAdminDiscordAlertMentions(): Promise<AdminDiscordAlertMention
 export function updateAdminDiscordAlertMentions(alertKey: string, mentions: DiscordAlertMentionSetting): Promise<UpdateDiscordAlertMentionsResponse> {
   return postJson("/api/admin/discord-alerts/mentions", { alert_key: alertKey, ...mentions });
 }
-import type { AdminDiscordAlertSettingsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, ShopliftingAlertSetting, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
+import type { AdminDiscordAlertSettingsResponse, AdminSuggestionsResponse, AdminXanaxCompetitionResponse, EnemyStatsImagePreviewType, HomeFactionReportExemptionsResponse, IngestionRunResponse, MaintenanceRunResponse, TornApiUsageResponse, WarControlSettingsResponse, WarControlSettingsUpdate } from "./types";
 
 export function previewDiscordBotMessage(messageLink: string): Promise<DiscordMessagePreview> {
   return postJson("/api/admin/discord-messages/preview", { message_link: messageLink });
@@ -295,84 +296,8 @@ export function updateAdminDiscordRoute(alertKey: string, targetId: string | nul
   return postJson("/api/admin/discord-alerts/routes", { alert_key: alertKey, target_id: targetId });
 }
 
-export async function updateAdminShopliftingDiscordAlert(payload: {
-
-  shop_key: ShopliftingAlertSetting["shop_key"];
-
-  enabled: boolean;
-
-}): Promise<AdminDiscordAlertSettingsResponse> {
-
-  return postJson<AdminDiscordAlertSettingsResponse>("/api/admin/discord-alerts/settings", payload);
-
-}
-
-export async function updateAdminEnemyPushDiscordAlert(payload: {
-
-  enabled: boolean;
-
-}): Promise<AdminDiscordAlertSettingsResponse> {
-
-  return updateAdminDiscordAlert("enemy_push", payload.enabled);
-
-}
-
-export async function updateAdminChainWatchDiscordAlert(payload: {
-
-  enabled: boolean;
-
-}): Promise<AdminDiscordAlertSettingsResponse> {
-
-  return updateAdminDiscordAlert("chain_watch", payload.enabled);
-
-}
-
-export async function updateAdminChainWatchMissedCheckInDiscordAlert(payload: { enabled: boolean }): Promise<AdminDiscordAlertSettingsResponse> {
-  return updateAdminDiscordAlert("chain_watch_missed_check_in", payload.enabled);
-}
-
-export async function updateAdminRetaliationBoardDiscordAlert(payload: {
-
-  enabled: boolean;
-
-}): Promise<AdminDiscordAlertSettingsResponse> {
-
-  return updateAdminDiscordAlert("retaliation_board", payload.enabled);
-
-}
-
-export async function updateAdminEnemyScoutingReportDiscordAlert(payload: {
-
-  enabled: boolean;
-
-}): Promise<AdminDiscordAlertSettingsResponse> {
-
-  return updateAdminDiscordAlert("enemy_scouting_report", payload.enabled);
-
-}
-
-export async function updateAdminXanaxCompetitionDiscordAlert(payload: {
-
-  enabled: boolean;
-
-}): Promise<AdminDiscordAlertSettingsResponse> {
-
-  return updateAdminDiscordAlert("xanax_competition", payload.enabled);
-
-}
-
-export async function updateAdminTermedWarAutoEndDiscordAlert(payload: {
-
-  enabled: boolean;
-
-}): Promise<AdminDiscordAlertSettingsResponse> {
-
-  return updateAdminDiscordAlert("termed_war_auto_end", payload.enabled);
-
-}
-
 export function updateAdminDiscordAlert(
-  alertKey: string,
+  alertKey: DiscordAlertKey,
   enabled: boolean,
 ): Promise<AdminDiscordAlertSettingsResponse> {
 

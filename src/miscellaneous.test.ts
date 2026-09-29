@@ -1,6 +1,7 @@
+import { DISCORD_ALERTS } from "./discordAlerts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendDiscordAlertMessage } from "./discordAlertDelivery";
-import { readShopliftingSecurityAlertSettings } from "./discordAlertSettings";
+import { readDiscordAlertSettings } from "./discordAlertSettings";
 import { fetchTrackedTornJson } from "./external/torn";
 import { getMiscellaneousData, refreshTornShoplifting } from "./miscellaneous";
 import { clearSyncLatch, readSetSyncLatches, setSyncLatch } from "./syncLatches";
@@ -14,7 +15,7 @@ vi.mock("./tornKeyPool", () => ({
 vi.mock("./discordAlertDelivery", () => ({ sendDiscordAlertMessage: vi.fn() }));
 vi.mock("./discordAlertSettings", async (importOriginal) => ({
   ...await importOriginal<typeof import("./discordAlertSettings")>(),
-  readShopliftingSecurityAlertSettings: vi.fn(),
+  readDiscordAlertSettings: vi.fn(),
 }));
 vi.mock("./discordMentions", async (importOriginal) => ({
   ...await importOriginal<typeof import("./discordMentions")>(),
@@ -46,10 +47,7 @@ describe("shoplifting refresh", () => {
     vi.setSystemTime(new Date("2026-09-14T10:00:00Z"));
     vi.mocked(fetchTrackedTornJson).mockResolvedValue({ shoplifting });
     vi.mocked(readSetSyncLatches).mockResolvedValue(new Set());
-    vi.mocked(readShopliftingSecurityAlertSettings).mockResolvedValue([
-      { shop_key: "big_als", shop_name: "Big Als", enabled: true, configurable: true },
-      { shop_key: "jewelry_store", shop_name: "Jewelry Store", enabled: true, configurable: true },
-    ]);
+    vi.mocked(readDiscordAlertSettings).mockResolvedValue(testSettings(true));
     vi.mocked(sendDiscordAlertMessage).mockResolvedValue(true);
   });
 
@@ -146,9 +144,7 @@ describe("shoplifting refresh", () => {
   });
 
   it("keeps shoplifting data refreshed when Discord alerts are disabled", async () => {
-    vi.mocked(readShopliftingSecurityAlertSettings).mockResolvedValue([
-      { shop_key: "big_als", shop_name: "Big Als", enabled: false, configurable: true },
-    ]);
+    vi.mocked(readDiscordAlertSettings).mockResolvedValue(testSettings(false));
     vi.mocked(readSetSyncLatches).mockResolvedValue(new Set([bigAlsAlert]));
     const env = fakeEnv();
 
@@ -197,4 +193,10 @@ function fakeEnv(): Env {
       },
     },
   } as unknown as Env;
+}
+
+function testSettings(enabled: boolean): Awaited<ReturnType<typeof readDiscordAlertSettings>> {
+  return Object.fromEntries(DISCORD_ALERTS.map(alert => [alert.key, {
+    key: alert.key, name: alert.admin.label, enabled, configurable: true,
+  }])) as Awaited<ReturnType<typeof readDiscordAlertSettings>>;
 }

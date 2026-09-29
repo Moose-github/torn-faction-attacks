@@ -1,5 +1,38 @@
 # Discord message delivery controls
 
+## Configuration ownership
+
+`shared/discordAlertCatalog.ts` owns the alert keys, member-facing names and
+descriptions, admin labels/descriptions/order, delivery defaults, and subscription
+defaults. The Worker, dashboard, and command registration script consume this
+catalog. `src/discordAlerts.ts` is a compatibility re-export.
+
+To add an alert, append an entry to `DISCORD_ALERTS` and give it a unique
+`admin.order`. Never reorder or remove existing catalog entries: Discord v2
+subscription buttons encode their positions. Admin order is independent of those
+positions. Implement the feature's trigger and delivery separately; a catalog
+entry supplies configuration but does not create a sender. Use the existing
+delivery helpers so saved routes, mentions, subscriptions, and mute settings apply.
+
+Big Als and Jewelry Store are independent alerts using the same settings path as
+all other alerts. Only the shoplifting detector associates Torn shop data with
+their alert keys. Disabling either alert clears only its own sent latch.
+
+`GET /api/admin/discord-alerts/settings` exposes `settings_by_key` and `routes`.
+`POST` accepts `{ "alert_key": "shoplifting_security_alert:big_als", "enabled": false }`
+for the same endpoint. Settings are read once and database overrides take
+precedence over catalog defaults. Missing dashboard settings show as unavailable,
+not as a default-enabled toggle.
+
+During rollout, the Worker also emits the old named settings, `delivery_alerts`,
+and shop `alerts` fields. The dashboard can read either response, and the Worker
+accepts the old two-shop `shop_key` requests. These translations live in
+`shared/discordAlertSettingsCompatibility.ts`; new alerts and consumers use the
+generic map. Remove this adapter after legacy clients are retired. No migration
+or slash-command re-registration is needed for this refactor.
+
+## Delivery behavior
+
 Every on/off switch in **Admin controls → Discord → Discord alerts** controls
 Discord message delivery. Muting an alert leaves its underlying feature active.
 Use the feature's own controls to stop tracking or end an event.

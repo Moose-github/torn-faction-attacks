@@ -1,9 +1,6 @@
 import { sendDiscordAlertMessage } from "./discordAlertDelivery";
-import {
-  readShopliftingSecurityAlertSettings,
-  SHOPLIFTING_SECURITY_ALERTS,
-  shopliftingAlertKey,
-} from "./discordAlertSettings";
+import { readDiscordAlertSettings } from "./discordAlertSettings";
+import { DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { formatDiscordAlertMessage, readDiscordAlertMentions } from "./discordMentions";
 import {
   clearSyncLatch,
@@ -17,6 +14,11 @@ import { json, nowSeconds } from "./utils";
 
 const TORN_SHOPLIFTING_API_URL = "https://api.torn.com/v2/torn";
 const SHOPLIFTING_CACHE_ID = 1;
+// Only the detector needs to associate Torn shop data with alert identities.
+const SHOPLIFTING_SECURITY_ALERTS = [
+  { shopKey: "big_als", shopName: "Big Als", alertKey: DISCORD_ALERT_KEYS.bigAlsShoplifting },
+  { shopKey: "jewelry_store", shopName: "Jewelry Store", alertKey: DISCORD_ALERT_KEYS.jewelryStoreShoplifting },
+] as const;
 const SHOPLIFTING_CRIME_URL = "https://www.torn.com/page.php?sid=crimes#/shoplifting";
 
 type TornShopliftingObstacle = {
@@ -180,14 +182,13 @@ async function sendShopliftingSecurityAlerts(
 ): Promise<number> {
   let alertsSent = 0;
   const sentAlertStates = await readSentShopliftingSecurityAlerts(env);
-  const alertSettings = await readShopliftingSecurityAlertSettings(env);
-  const enabledByShopKey = new Map(alertSettings.map((alert) => [alert.shop_key, alert.enabled]));
+  const alertSettings = await readDiscordAlertSettings(env);
 
   for (const alert of SHOPLIFTING_SECURITY_ALERTS) {
     const obstacles = shoplifting[alert.shopKey];
-    const alertKey = shopliftingAlertKey(alert);
+    const alertKey = alert.alertKey;
 
-    if (!enabledByShopKey.get(alert.shopKey)) {
+    if (!alertSettings[alertKey].enabled) {
       if (sentAlertStates.has(alertKey)) {
         await clearShopliftingSecurityAlert(env, alertKey);
       }
@@ -230,7 +231,7 @@ async function sendShopliftingSecurityAlerts(
 
 async function readSentShopliftingSecurityAlerts(env: Env): Promise<Set<string>> {
   const alertKeys = SHOPLIFTING_SECURITY_ALERTS.map(
-    (alert) => shopliftingAlertKey(alert),
+    (alert) => alert.alertKey,
   );
   return readSetSyncLatches(env, alertKeys);
 }

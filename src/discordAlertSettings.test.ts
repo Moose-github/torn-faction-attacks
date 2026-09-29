@@ -3,12 +3,12 @@ import { createDiscordBotMessage } from "./discord";
 import {
   getAdminDiscordAlertSettings,
   isDiscordAlertEnabled,
-  readShopliftingSecurityAlertSettings,
+  readDiscordAlertSettings,
   testAdminDiscordAlertRouteFromRequest,
   updateAdminDiscordAlertSettingsFromRequest,
   updateEnemyPushAlertSetting,
 } from "./discordAlertSettings";
-import { DISCORD_ALERT_KEYS } from "./discordAlerts";
+import { DISCORD_ALERTS, DISCORD_ALERT_KEYS } from "./discordAlerts";
 import { DISCORD_DELIVERY_CONTROLS } from "../shared/discordDeliverySettings";
 import { fetchExternal } from "./external/http";
 import {
@@ -139,20 +139,61 @@ describe("Discord alert settings", () => {
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.enemyScoutingReport)).resolves.toBe(true);
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.xanaxCompetition)).resolves.toBe(true);
     await expect(isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.termedWarAutoEnd)).resolves.toBe(true);
-    await expect(readShopliftingSecurityAlertSettings(env)).resolves.toEqual([
-      {
-        shop_key: "big_als",
-        shop_name: "Big Als",
-        enabled: true,
-        configurable: true,
-      },
-      {
-        shop_key: "jewelry_store",
-        shop_name: "Jewelry Store",
-        enabled: false,
-        configurable: true,
-      },
+    await expect(readDiscordAlertSettings(env)).resolves.toMatchObject({
+      "shoplifting_security_alert:big_als": { enabled: true, configurable: true },
+      "shoplifting_security_alert:jewelry_store": { enabled: false, configurable: true },
+    });
+  });
+
+  it("loads delivery settings once and preserves database overrides in both response formats", async () => {
+    const prepare = vi.spyOn(db, "prepare");
+    db.settings.set("item_stock_low", { enabled: 0, configurable: 0 });
+    const body = await (await getAdminDiscordAlertSettings(env)).json<any>();
+    expect(prepare.mock.calls.filter(([sql]) => sql.includes("FROM alert_settings"))).toHaveLength(1);
+    expect(body.settings_by_key).toMatchObject({
+      chain_watch: { enabled: false }, enemy_push: { enabled: true },
+      item_stock_low: { enabled: false, configurable: false },
+    });
+    expect(body.chain_watch_alert).toEqual(body.settings_by_key.chain_watch);
+    for (const setting of body.delivery_alerts) expect(setting).toEqual(body.settings_by_key[setting.key]);
+    expect(body.alerts).toEqual([
+      { shop_key: "big_als", shop_name: "Big Als", enabled: false, configurable: true },
+      { shop_key: "jewelry_store", shop_name: "Jewelry Store", enabled: true, configurable: true },
     ]);
+    expect(Object.keys(body.settings_by_key)).toHaveLength(16);
+  });
+
+  it.each(DISCORD_ALERTS)("updates $key through the common mutation without changing other alerts", async ({ key }) => {
+    const before = new Map(db.settings);
+    const response = await updateAdminDiscordAlertSettingsFromRequest(jsonRequest({ alert_key: key, enabled: false }), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ settings_by_key: { [key]: { key, enabled: false } } });
+    for (const [otherKey, value] of before) {
+      if (otherKey !== key) expect(db.settings.get(otherKey)).toEqual(value);
+    }
+    expect(createDiscordBotMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(["shoplifting_security_alert:big_als", "shoplifting_security_alert:jewelry_store"])(
+    "clears only the %s latch when disabled and none when enabled", async key => {
+      await updateAdminDiscordAlertSettingsFromRequest(jsonRequest({ alert_key: key, enabled: false }), env);
+      expect(clearSyncLatch).toHaveBeenCalledExactlyOnceWith(env, key);
+      vi.mocked(clearSyncLatch).mockClear();
+      await updateAdminDiscordAlertSettingsFromRequest(jsonRequest({ alert_key: key, enabled: true }), env);
+      expect(clearSyncLatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { alert_key: "default", enabled: true },
+    { alert_key: "missing", shop_key: "big_als", enabled: true },
+    { alert_key: "shoplifting_security_alert:big_als", enabled: "false" },
+    { alert_key: "shoplifting_security_alert:jewelry_store" },
+  ])("rejects invalid updates without changing settings: %j", async payload => {
+    const before = new Map(db.settings);
+    expect((await updateAdminDiscordAlertSettingsFromRequest(jsonRequest(payload), env)).status).toBe(400);
+    expect(db.settings).toEqual(before);
+    expect(clearSyncLatch).not.toHaveBeenCalled();
   });
 
   function configureNamedRoutes() {

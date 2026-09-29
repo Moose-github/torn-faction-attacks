@@ -11,7 +11,6 @@ import {
   createMemberLifestyleRepairJob,
   AdminDiscordAlertSettingsResponse,
   DiscordAlertRouteSummary,
-  DiscordDeliveryAlertSetting,
   DiscordTravelTrackerTargetResponse,
   EnemyStatsImagePreviewType,
   endActiveWar,
@@ -44,14 +43,6 @@ import {
   restartLiveEnemyTracking,
   relinkAttacks,
   runIngestion,
-  ChainWatchAlertSetting,
-  ChainWatchMissedCheckInAlertSetting,
-  EnemyScoutingReportAlertSetting,
-  RetaliationBoardAlertSetting,
-  ShopliftingAlertSetting,
-  EnemyPushAlertSetting,
-  TermedWarAutoEndAlertSetting,
-  XanaxCompetitionAlertSetting,
   updateAdminXanaxCompetitionSettings,
   updateHomeFactionReportExemption,
   updateOfficialWar,
@@ -65,6 +56,9 @@ import {
 import { PanelHeader } from "../../components/Common";
 import { formatLongDateTime, formatNumber } from "../../utils/format";
 import { DiscordAdminControls, DiscordTravelTargetForm } from "./DiscordAdminControls";
+
+import type { DiscordAlertSettingsMap } from "../../../../shared/discordAlertSettings";
+import { discordAlertSettingsFromResponse } from "../../../../shared/discordAlertSettingsCompatibility";
 
 type AdminTabKey = "operations" | "discord" | "wars" | "reporting" | "maintenance";
 
@@ -144,19 +138,7 @@ export function AdminControls() {
   const [xanaxCompetition, setXanaxCompetition] =
     React.useState<AdminXanaxCompetitionResponse | null>(null);
   const [isLoadingXanaxCompetition, setIsLoadingXanaxCompetition] = React.useState(false);
-  const [chainWatchAlert, setChainWatchAlert] = React.useState<ChainWatchAlertSetting | null>(null);
-  const [discordDeliveryAlerts, setDiscordDeliveryAlerts] = React.useState<DiscordDeliveryAlertSetting[]>([]);
-  const [chainWatchMissedCheckInAlert, setChainWatchMissedCheckInAlert] = React.useState<ChainWatchMissedCheckInAlertSetting | null>(null);
-  const [retaliationBoardAlert, setRetaliationBoardAlert] =
-    React.useState<RetaliationBoardAlertSetting | null>(null);
-  const [shopliftingAlerts, setShopliftingAlerts] = React.useState<ShopliftingAlertSetting[]>([]);
-  const [enemyPushAlert, setEnemyPushAlert] = React.useState<EnemyPushAlertSetting | null>(null);
-  const [enemyScoutingReportAlert, setEnemyScoutingReportAlert] =
-    React.useState<EnemyScoutingReportAlertSetting | null>(null);
-  const [xanaxCompetitionAlert, setXanaxCompetitionAlert] =
-    React.useState<XanaxCompetitionAlertSetting | null>(null);
-  const [termedWarAutoEndAlert, setTermedWarAutoEndAlert] =
-    React.useState<TermedWarAutoEndAlertSetting | null>(null);
+  const [discordAlertSettings, setDiscordAlertSettings] = React.useState<DiscordAlertSettingsMap>({});
   const [discordAlertRoutes, setDiscordAlertRoutes] =
     React.useState<Record<string, DiscordAlertRouteSummary | null>>({});
   const [isLoadingDiscordAlertSettings, setIsLoadingDiscordAlertSettings] = React.useState(false);
@@ -506,15 +488,7 @@ export function AdminControls() {
   }
 
   function applyDiscordAlertSettingsResponse(response: AdminDiscordAlertSettingsResponse) {
-    setChainWatchAlert(response.chain_watch_alert);
-    setDiscordDeliveryAlerts(response.delivery_alerts ?? []);
-    setChainWatchMissedCheckInAlert(response.chain_watch_missed_check_in_alert ?? null);
-    setRetaliationBoardAlert(response.retaliation_board_alert);
-    setShopliftingAlerts(response.alerts);
-    setEnemyPushAlert(response.enemy_push_alert);
-    setEnemyScoutingReportAlert(response.enemy_scouting_report_alert);
-    setXanaxCompetitionAlert(response.xanax_competition_alert);
-    setTermedWarAutoEndAlert(response.termed_war_auto_end_alert);
+    setDiscordAlertSettings(discordAlertSettingsFromResponse(response));
     setDiscordAlertRoutes(response.routes ?? {});
   }
 
@@ -524,15 +498,7 @@ export function AdminControls() {
       const response = await getAdminDiscordAlertSettings();
       applyDiscordAlertSettingsResponse(response);
     } catch {
-      setChainWatchAlert(null);
-      setDiscordDeliveryAlerts([]);
-      setChainWatchMissedCheckInAlert(null);
-      setRetaliationBoardAlert(null);
-      setShopliftingAlerts([]);
-      setEnemyPushAlert(null);
-      setEnemyScoutingReportAlert(null);
-      setXanaxCompetitionAlert(null);
-      setTermedWarAutoEndAlert(null);
+      setDiscordAlertSettings({});
       setDiscordAlertRoutes({});
     } finally {
       setIsLoadingDiscordAlertSettings(false);
@@ -751,15 +717,7 @@ export function AdminControls() {
             discordTravelTargetForm={discordTravelTargetForm}
             discordTravelTarget={discordTravelTarget}
             isLoadingDiscordTravelTarget={isLoadingDiscordTravelTarget}
-            chainWatchAlert={chainWatchAlert}
-            discordDeliveryAlerts={discordDeliveryAlerts}
-            chainWatchMissedCheckInAlert={chainWatchMissedCheckInAlert}
-            retaliationBoardAlert={retaliationBoardAlert}
-            shopliftingAlerts={shopliftingAlerts}
-            enemyPushAlert={enemyPushAlert}
-            enemyScoutingReportAlert={enemyScoutingReportAlert}
-            xanaxCompetitionAlert={xanaxCompetitionAlert}
-            termedWarAutoEndAlert={termedWarAutoEndAlert}
+            discordAlertSettings={discordAlertSettings}
             discordAlertRoutes={discordAlertRoutes}
             isLoadingDiscordAlertSettings={isLoadingDiscordAlertSettings}
             setDiscordTravelTargetForm={setDiscordTravelTargetForm}

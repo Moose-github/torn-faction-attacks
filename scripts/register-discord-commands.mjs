@@ -51,7 +51,7 @@ function requiredEnv(env, name) {
 }
 
 async function loadDiscordApplicationCommands() {
-  const alertsModuleUrl = await transpileTypeScriptModule(new URL("../src/discordAlerts.ts", import.meta.url));
+  const alertsModuleUrl = await transpileTypeScriptModule(new URL("../shared/discordAlertCatalog.ts", import.meta.url));
   const commandsSourceUrl = new URL("../src/discordCommands.ts", import.meta.url);
   const commandsSource = await readFile(commandsSourceUrl, "utf8");
   const source = commandsSource.replace(

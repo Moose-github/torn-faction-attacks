@@ -1,5 +1,8 @@
 import { readJsonObject } from "./backend/request";
-import { DISCORD_DELIVERY_CONTROLS } from "../shared/discordDeliverySettings";
+import { DISCORD_ALERTS, discordAlertByKey } from "../shared/discordAlertCatalog";
+import { legacyDiscordAlertSettings, legacyShopAlertKey } from "../shared/discordAlertSettingsCompatibility";
+import type { AdminDiscordAlertSettingsResponse, DiscordAlertSetting, DiscordAlertRouteSummary } from "../shared/discordAlertSettings";
+export type { DiscordAlertSetting, DiscordAlertRouteSummary } from "../shared/discordAlertSettings";
 import { createDiscordBotMessage } from "./discord";
 import { readDiscordChannelNames } from "./discordChannelNames";
 import {
@@ -27,72 +30,7 @@ import { json } from "./utils";
 
 export const ENEMY_PUSH_ALERT_STATE_PREFIX = "enemy_push_alert";
 
-export const SHOPLIFTING_SECURITY_ALERTS = [
-  { shopKey: "big_als", shopName: "Big Als", defaultEnabled: true, configurable: true },
-  { shopKey: "jewelry_store", shopName: "Jewelry Store", defaultEnabled: false, configurable: true },
-] as const;
-
-export type ShopliftingSecurityAlertConfig = typeof SHOPLIFTING_SECURITY_ALERTS[number];
-
-export type DiscordAlertSetting = {
-  key: DiscordAlertKey;
-  name: string;
-  enabled: boolean;
-  configurable: boolean;
-};
-
-export type DiscordAlertRouteSummary = {
-  alert_key: DiscordAlertRouteKey;
-  channel_id: string;
-  channel_name: string | null;
-  thread_id: string | null;
-  thread_name: string | null;
-  target_id: string;
-  updated_by_discord_id: string | null;
-  updated_at: number;
-};
-
-export type ShopliftingSecurityAlertSetting = {
-  shop_key: ShopliftingSecurityAlertConfig["shopKey"];
-  shop_name: ShopliftingSecurityAlertConfig["shopName"];
-  enabled: boolean;
-  configurable: boolean;
-};
-
-export type ChainWatchAlertSetting = DiscordAlertSetting & {
-  key: typeof DISCORD_ALERT_KEYS.chainWatch;
-};
-
-export type ChainWatchMissedCheckInAlertSetting = DiscordAlertSetting & {
-  key: typeof DISCORD_ALERT_KEYS.chainWatchMissedCheckIn;
-};
-
-export type EnemyPushAlertSetting = DiscordAlertSetting & {
-  key: typeof DISCORD_ALERT_KEYS.enemyPush;
-};
-
-export type RetaliationBoardAlertSetting = DiscordAlertSetting & {
-  key: typeof DISCORD_ALERT_KEYS.retaliationBoard;
-};
-
-export type EnemyScoutingReportAlertSetting = DiscordAlertSetting & {
-  key: typeof DISCORD_ALERT_KEYS.enemyScoutingReport;
-};
-
-export type XanaxCompetitionAlertSetting = DiscordAlertSetting & {
-  key: typeof DISCORD_ALERT_KEYS.xanaxCompetition;
-};
-
-export type TermedWarAutoEndAlertSetting = DiscordAlertSetting & {
-  key: typeof DISCORD_ALERT_KEYS.termedWarAutoEnd;
-};
-
-type AlertSettingConfig = {
-  key: DiscordAlertKey;
-  name: string;
-  defaultEnabled: boolean;
-  configurable: boolean;
-};
+type AlertSettingConfig = typeof DISCORD_ALERTS[number];
 
 type AlertSettingRow = {
   alert_key: string;
@@ -100,86 +38,19 @@ type AlertSettingRow = {
   configurable: number;
 };
 
-const ALERT_SETTING_CONFIGS = [
-  ...DISCORD_DELIVERY_CONTROLS.map((alert) => ({
-    key: alert.key,
-    name: alert.name,
-    defaultEnabled: true,
-    configurable: true,
-  })),
-  {
-    key: DISCORD_ALERT_KEYS.chainWatchMissedCheckIn,
-    name: "Chain watch missed check-in",
-    defaultEnabled: true,
-    configurable: true,
-  },
-  {
-    key: DISCORD_ALERT_KEYS.chainWatch,
-    name: "Chain watch alerts",
-    defaultEnabled: true,
-    configurable: true,
-  },
-  {
-    key: DISCORD_ALERT_KEYS.enemyPush,
-    name: "Enemy push alerts",
-    defaultEnabled: false,
-    configurable: true,
-  },
-  {
-    key: DISCORD_ALERT_KEYS.retaliationBoard,
-    name: "Retaliation board",
-    defaultEnabled: true,
-    configurable: true,
-  },
-  {
-    key: DISCORD_ALERT_KEYS.enemyScoutingReport,
-    name: "Enemy scouting report",
-    defaultEnabled: true,
-    configurable: true,
-  },
-  {
-    key: DISCORD_ALERT_KEYS.xanaxCompetition,
-    name: "Xanax competition Discord reminder",
-    defaultEnabled: true,
-    configurable: true,
-  },
-  {
-    key: DISCORD_ALERT_KEYS.termedWarAutoEnd,
-    name: "Termed war auto-end notice",
-    defaultEnabled: true,
-    configurable: true,
-  },
-  {
-    key: DISCORD_ALERT_KEYS.shopliftingSecurity("big_als"),
-    name: "Big Als shoplifting",
-    defaultEnabled: true,
-    configurable: true,
-  },
-  {
-    key: DISCORD_ALERT_KEYS.shopliftingSecurity("jewelry_store"),
-    name: "Jewelry Store shoplifting",
-    defaultEnabled: false,
-    configurable: true,
-  },
-] as const satisfies readonly AlertSettingConfig[];
+export async function readDiscordAlertSettings(env: Env): Promise<Record<DiscordAlertKey, DiscordAlertSetting>> {
+  const rows = await readAlertSettingMap(env);
+  return Object.fromEntries(DISCORD_ALERTS.map(alert => [alert.key, resolveAlertSetting(alert, rows.get(alert.key))])) as Record<DiscordAlertKey, DiscordAlertSetting>;
+}
 
 export async function getAdminDiscordAlertSettings(env: Env): Promise<Response> {
-  const routes = await readDiscordAlertRouteSummaries(env);
+  const [settings, routes] = await Promise.all([readDiscordAlertSettings(env), readDiscordAlertRouteSummaries(env)]);
   return json({
     ok: true,
-    chain_watch_alert: await readChainWatchAlertSetting(env),
-    delivery_alerts: await Promise.all(DISCORD_DELIVERY_CONTROLS.map((alert) =>
-      readConfiguredAlertSetting(env, alertConfig(alert.key))
-    )),
-    chain_watch_missed_check_in_alert: await readChainWatchMissedCheckInAlertSetting(env),
-    retaliation_board_alert: await readRetaliationBoardAlertSetting(env),
-    enemy_push_alert: await readEnemyPushAlertSetting(env),
-    enemy_scouting_report_alert: await readEnemyScoutingReportAlertSetting(env),
-    xanax_competition_alert: await readXanaxCompetitionAlertSetting(env),
-    termed_war_auto_end_alert: await readTermedWarAutoEndAlertSetting(env),
-    alerts: await readShopliftingSecurityAlertSettings(env),
+    settings_by_key: settings,
+    ...legacyDiscordAlertSettings(settings),
     routes,
-  });
+  } satisfies AdminDiscordAlertSettingsResponse);
 }
 
 export async function testAdminDiscordAlertRouteFromRequest(request: Request, env: Env): Promise<Response> {
@@ -256,104 +127,14 @@ export async function testAdminDiscordAlertRouteFromRequest(request: Request, en
 
 export async function updateAdminDiscordAlertSettingsFromRequest(request: Request, env: Env): Promise<Response> {
   const body = await readJsonObject(request);
-  const deliveryAlert = DISCORD_DELIVERY_CONTROLS.find((alert) => alert.key === body.alert_key);
-  if (deliveryAlert) {
-    const error = await updateAlertSettingFromBody(env, deliveryAlert.key, body.enabled);
-    if (error) return error;
-    return getAdminDiscordAlertSettings(env);
-  }
-  if (body.alert_key === DISCORD_ALERT_KEYS.chainWatchMissedCheckIn) {
-    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.chainWatchMissedCheckIn, body.enabled);
-    if (error) return error;
-    return getAdminDiscordAlertSettings(env);
-  }
-  if (body.alert_key === DISCORD_ALERT_KEYS.chainWatch) {
-    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.chainWatch, body.enabled);
-    if (error) return error;
-    return getAdminDiscordAlertSettings(env);
-  }
-
-  if (body.alert_key === DISCORD_ALERT_KEYS.enemyPush) {
-    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.enemyPush, body.enabled);
-    if (error) return error;
-    return getAdminDiscordAlertSettings(env);
-  }
-
-  if (body.alert_key === DISCORD_ALERT_KEYS.retaliationBoard) {
-    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.retaliationBoard, body.enabled);
-    if (error) return error;
-    return getAdminDiscordAlertSettings(env);
-  }
-
-  if (body.alert_key === DISCORD_ALERT_KEYS.enemyScoutingReport) {
-    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.enemyScoutingReport, body.enabled);
-    if (error) return error;
-    return getAdminDiscordAlertSettings(env);
-  }
-
-  if (body.alert_key === DISCORD_ALERT_KEYS.xanaxCompetition) {
-    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.xanaxCompetition, body.enabled);
-    if (error) return error;
-    return getAdminDiscordAlertSettings(env);
-  }
-
-  if (body.alert_key === DISCORD_ALERT_KEYS.termedWarAutoEnd) {
-    const error = await updateAlertSettingFromBody(env, DISCORD_ALERT_KEYS.termedWarAutoEnd, body.enabled);
-    if (error) return error;
-    return getAdminDiscordAlertSettings(env);
-  }
-
-  const alertKey = typeof body.alert_key === "string" ? body.alert_key : "";
-  const shopliftingAlert = SHOPLIFTING_SECURITY_ALERTS.find(
-    (alert) => alertKey === shopliftingAlertKey(alert) || body.shop_key === alert.shopKey,
-  );
-  if (!shopliftingAlert || !shopliftingAlert.configurable) {
+  const key = typeof body.alert_key === "string" ? body.alert_key : legacyShopAlertKey(body.shop_key);
+  const alert = key ? discordAlertByKey(key) : null;
+  if (!alert || !alert.configurable) {
     return json({ ok: false, error: "Unknown alert", code: "UNKNOWN_ALERT" }, 400);
   }
-
-  const error = await updateAlertSettingFromBody(env, shopliftingAlertKey(shopliftingAlert), body.enabled);
+  const error = await updateAlertSettingFromBody(env, alert.key, body.enabled);
   if (error) return error;
   return getAdminDiscordAlertSettings(env);
-}
-
-export async function readChainWatchAlertSetting(env: Env): Promise<ChainWatchAlertSetting> {
-  return readConfiguredAlertSetting(env, alertConfig(DISCORD_ALERT_KEYS.chainWatch)) as Promise<ChainWatchAlertSetting>;
-}
-
-export async function readChainWatchMissedCheckInAlertSetting(env: Env): Promise<ChainWatchMissedCheckInAlertSetting> {
-  return readConfiguredAlertSetting(env, alertConfig(DISCORD_ALERT_KEYS.chainWatchMissedCheckIn)) as Promise<ChainWatchMissedCheckInAlertSetting>;
-}
-
-export async function readEnemyPushAlertSetting(env: Env): Promise<EnemyPushAlertSetting> {
-  return readConfiguredAlertSetting(env, alertConfig(DISCORD_ALERT_KEYS.enemyPush)) as Promise<EnemyPushAlertSetting>;
-}
-
-export async function readRetaliationBoardAlertSetting(env: Env): Promise<RetaliationBoardAlertSetting> {
-  return readConfiguredAlertSetting(
-    env,
-    alertConfig(DISCORD_ALERT_KEYS.retaliationBoard),
-  ) as Promise<RetaliationBoardAlertSetting>;
-}
-
-export async function readEnemyScoutingReportAlertSetting(env: Env): Promise<EnemyScoutingReportAlertSetting> {
-  return readConfiguredAlertSetting(
-    env,
-    alertConfig(DISCORD_ALERT_KEYS.enemyScoutingReport),
-  ) as Promise<EnemyScoutingReportAlertSetting>;
-}
-
-export async function readXanaxCompetitionAlertSetting(env: Env): Promise<XanaxCompetitionAlertSetting> {
-  return readConfiguredAlertSetting(
-    env,
-    alertConfig(DISCORD_ALERT_KEYS.xanaxCompetition),
-  ) as Promise<XanaxCompetitionAlertSetting>;
-}
-
-export async function readTermedWarAutoEndAlertSetting(env: Env): Promise<TermedWarAutoEndAlertSetting> {
-  return readConfiguredAlertSetting(
-    env,
-    alertConfig(DISCORD_ALERT_KEYS.termedWarAutoEnd),
-  ) as Promise<TermedWarAutoEndAlertSetting>;
 }
 
 export async function isDiscordAlertEnabled(env: Env, alertKey: DiscordAlertKey): Promise<boolean> {
@@ -364,29 +145,8 @@ export async function isEnemyPushAlertEnabled(env: Env): Promise<boolean> {
   return isDiscordAlertEnabled(env, DISCORD_ALERT_KEYS.enemyPush);
 }
 
-export async function readShopliftingSecurityAlertSettings(
-  env: Env,
-): Promise<ShopliftingSecurityAlertSetting[]> {
-  const settings = await readAlertSettingMap(env);
-  return SHOPLIFTING_SECURITY_ALERTS.map((alert) => {
-    const key = shopliftingAlertKey(alert);
-    const config = alertConfig(key);
-    const row = settings.get(key);
-    return {
-      shop_key: alert.shopKey,
-      shop_name: alert.shopName,
-      enabled: row ? row.enabled === 1 : config.defaultEnabled,
-      configurable: row ? row.configurable === 1 : config.configurable,
-    };
-  });
-}
-
 export async function updateEnemyPushAlertSetting(env: Env, enabled: boolean): Promise<void> {
   await updateAlertSetting(env, DISCORD_ALERT_KEYS.enemyPush, enabled);
-}
-
-export function shopliftingAlertKey(alert: Pick<ShopliftingSecurityAlertConfig, "shopKey">): DiscordAlertKey {
-  return DISCORD_ALERT_KEYS.shopliftingSecurity(alert.shopKey);
 }
 
 async function updateAlertSettingFromBody(
@@ -401,6 +161,13 @@ async function updateAlertSettingFromBody(
   await updateAlertSetting(env, alertKey, enabled);
   return null;
 }
+
+// Operational cleanup stays on the server, outside the shared configuration catalog.
+const ALERT_DISABLE_HANDLERS: Partial<Record<DiscordAlertKey, (env: Env) => Promise<unknown>>> = {
+  [DISCORD_ALERT_KEYS.enemyPush]: env => clearSyncLatchesByPrefix(env, `${ENEMY_PUSH_ALERT_STATE_PREFIX}:`),
+  [DISCORD_ALERT_KEYS.bigAlsShoplifting]: env => clearSyncLatch(env, DISCORD_ALERT_KEYS.bigAlsShoplifting),
+  [DISCORD_ALERT_KEYS.jewelryStoreShoplifting]: env => clearSyncLatch(env, DISCORD_ALERT_KEYS.jewelryStoreShoplifting),
+};
 
 async function updateAlertSetting(env: Env, alertKey: DiscordAlertKey, enabled: boolean): Promise<void> {
   const config = alertConfig(alertKey);
@@ -417,12 +184,7 @@ async function updateAlertSetting(env: Env, alertKey: DiscordAlertKey, enabled: 
     .bind(alertKey, enabled ? 1 : 0, config.configurable ? 1 : 0)
     .run();
 
-  if (!enabled && alertKey === DISCORD_ALERT_KEYS.enemyPush) {
-    await clearSyncLatchesByPrefix(env, `${ENEMY_PUSH_ALERT_STATE_PREFIX}:`);
-  }
-  if (!enabled && alertKey.startsWith("shoplifting_security_alert:")) {
-    await clearSyncLatch(env, alertKey);
-  }
+  if (!enabled) await ALERT_DISABLE_HANDLERS[alertKey]?.(env);
 }
 
 async function readConfiguredAlertSetting(
@@ -440,9 +202,13 @@ async function readConfiguredAlertSetting(
     .bind(config.key)
     .first()) as AlertSettingRow | null;
 
+  return resolveAlertSetting(config, row);
+}
+
+function resolveAlertSetting(config: AlertSettingConfig, row?: AlertSettingRow | null): DiscordAlertSetting {
   return {
     key: config.key,
-    name: config.name,
+    name: config.admin.label,
     enabled: row ? row.enabled === 1 : config.defaultEnabled,
     configurable: row ? row.configurable === 1 : config.configurable,
   };
@@ -502,7 +268,7 @@ function discordAlertRouteSummary(
 }
 
 function alertConfig(alertKey: DiscordAlertKey): AlertSettingConfig {
-  const config = ALERT_SETTING_CONFIGS.find((candidate) => candidate.key === alertKey);
+  const config = discordAlertByKey(alertKey);
   if (!config) {
     throw new Error(`Unknown Discord alert setting: ${alertKey}`);
   }
