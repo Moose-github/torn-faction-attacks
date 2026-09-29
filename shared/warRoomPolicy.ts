@@ -17,8 +17,8 @@ const both = ["real", "termed"] as const;
 export const WAR_ROOM_PANEL_POLICY = {
   header: { title: "War header / countdown", phases: allPhases, warTypes: both },
   enemyStatus: { title: "Enemy status summary", phases: fightingPhases, warTypes: both, tracking: "active" },
+  chainWatch: { title: "Chain Watch", phases: ["preparation", "current", "practically_finished"], warTypes: both },
   warProgress: { title: "War progress", phases: allPhases, warTypes: both },
-  chainWatch: { title: "Chain Watch", phases: beforeOfficialEnd, warTypes: both },
   hospitalMonitor: { title: "Hospital monitor", phases: fightingPhases, warTypes: ["real"], tracking: "active" },
   warControl: { title: "War control (WIP)", phases: fightingPhases, warTypes: ["real"], tracking: "active" },
   enemyPushPressure: { title: "Enemy push pressure (WIP)", phases: fightingPhases, warTypes: ["real"], tracking: "active" },
@@ -27,7 +27,7 @@ export const WAR_ROOM_PANEL_POLICY = {
   scoutingComparison: { title: "Stats comparison", phases: allPhases, warTypes: both },
   liveTrackingInactive: { title: "War-room tracking paused", phases: beforeOfficialEnd, warTypes: both, tracking: "inactive" },
   activityHeatmaps: { title: "Activity heatmaps", phases: allPhases, warTypes: both },
-  practicalPhases: { title: "Practical phases", phases: allPhases, warTypes: ["termed"] },
+  practicalPhases: { title: "Practical phases", phases: ["preparation", "current", "practically_finished", "officially_ended"], warTypes: ["termed"] },
   enemyScouting: { title: "Enemy faction scouting", phases: allPhases, warTypes: both },
   enemyBigHitters: { title: "Enemy big hitters", phases: allPhases, warTypes: both },
   enemyHitTrends: { title: "Members to watch", phases: allPhases, warTypes: both },

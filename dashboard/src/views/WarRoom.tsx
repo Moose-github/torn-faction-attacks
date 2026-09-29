@@ -895,10 +895,6 @@ export function WarRoom({
           />
         ) : null}
 
-        {visible.warProgress ? (
-          <WarProgressPanel key={selectedWar.id} war={selectedWar} />
-        ) : null}
-
         {visible.chainWatch ? (
           <ChainWatchPanel
             data={chainWatch}
@@ -915,6 +911,10 @@ export function WarRoom({
             onCollapseToggle={() => togglePanel("chainWatch")}
             onEnabledToggle={toggleChainWatch}
           />
+        ) : null}
+
+        {visible.warProgress ? (
+          <WarProgressPanel key={selectedWar.id} war={selectedWar} />
         ) : null}
 
         {visible.hospitalMonitor ? (

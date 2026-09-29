@@ -23,8 +23,9 @@ describe("War Room visibility matches the panel table", () => {
         const state = resolveWarPhase(war, sample.now, { activeWarId: 1, warState: sample.state });
         const visibility = warRoomPanelVisibility(state, war);
         const officiallyEnded = sample.name === "officially ended";
-        const expected = [...stable, ...(officiallyEnded ? [] : ["chainWatch"]),
-          ...(war_type === "termed" ? ["practicalPhases"] : []),
+        const upcoming = sample.name === "upcoming";
+        const expected = [...stable, ...(officiallyEnded || upcoming ? [] : ["chainWatch"]),
+          ...(war_type === "termed" && !upcoming ? ["practicalPhases"] : []),
           ...(sample.tracking ? [...tracked, ...(war_type === "real" ? realOnly : [])] : officiallyEnded ? [] : ["liveTrackingInactive"])];
         expect(Object.keys(visibility)).toHaveLength(17);
         expect(Object.entries(visibility).filter(([, visible]) => visible).map(([id]) => id).sort()).toEqual(expected.sort());

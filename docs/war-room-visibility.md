@@ -10,8 +10,8 @@ True means present, including a collapsed panel or empty-state content. Events a
 |---|---|---|---|---|---|
 | War header / countdown | true | true | true | true | true |
 | Enemy status summary | false | true | true | false | false |
+| Chain Watch | false | true | true | true | false |
 | War progress | true | true | true | true | true |
-| Chain Watch | true | true | true | true | false |
 | Hospital monitor | false | true | true | false | false |
 | War control (WIP) | false | true | true | false | false |
 | Enemy push pressure (WIP) | false | true | true | false | false |
@@ -32,8 +32,8 @@ True means present, including a collapsed panel or empty-state content. Events a
 |---|---|---|---|---|---|
 | War header / countdown | true | true | true | true | true |
 | Enemy status summary | false | true | true | false | false |
+| Chain Watch | false | true | true | true | false |
 | War progress | true | true | true | true | true |
-| Chain Watch | true | true | true | true | false |
 | Hospital monitor | false | false | false | false | false |
 | War control (WIP) | false | false | false | false | false |
 | Enemy push pressure (WIP) | false | false | false | false | false |
@@ -42,7 +42,7 @@ True means present, including a collapsed panel or empty-state content. Events a
 | Stats comparison | true | true | true | true | true |
 | War-room tracking paused | true | false | false | true | false |
 | Activity heatmaps | true | true | true | true | true |
-| Practical phases | true | true | true | true | true |
+| Practical phases | false | true | true | true | true |
 | Enemy faction scouting | true | true | true | true | true |
 | Enemy big hitters | true | true | true | true | true |
 | Members to watch | true | true | true | true | true |
