@@ -179,8 +179,12 @@ export function WarDetailView({
   const showMemberCombatHeatmap = hasWarData;
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
   const isScheduledWar = selectedWar.status === "scheduled";
-  const hasReportAdjustmentData = Boolean(reportDiscrepancies);
-  const reportValidationRows = hasTornReport
+  const hasReportAdjustmentData = reportDiscrepancies?.war.id === selectedWar.id;
+  const isReportValidationReady = hasReportAdjustmentData && warDetail?.war.id === selectedWar.id;
+  const reportValidationPending = isLoadingDetail || isLoadingReportDiscrepancies
+    ? "Checking totals"
+    : "Validation unavailable";
+  const reportValidationRows = hasTornReport && isReportValidationReady
     ? buildReportValidationRows({
         factionAttacks: {
           derived: derivedSuccessfulAttacks,
@@ -203,8 +207,8 @@ export function WarDetailView({
       })
     : [];
   const reportMismatchCount = reportValidationRows.filter((row) => !row.matches).length;
-  const reportValidationAside = isLoadingReportDiscrepancies && !hasReportAdjustmentData
-    ? "Loading adjustments"
+  const reportValidationAside = !isReportValidationReady
+    ? reportValidationPending
     : reportMismatchCount === 0
     ? "All totals match"
     : `${reportMismatchCount} mismatched ${reportMismatchCount === 1 ? "measure" : "measures"}`;
@@ -278,7 +282,6 @@ export function WarDetailView({
                 ) : null}
               </section>
 
-              <PracticalPhases key={selectedWar.id} war={selectedWar} admin={isAdmin} />
               {hasWarData ? (
                 <section className="status-grid war-status-grid">
                   <MetricCard
@@ -342,6 +345,8 @@ export function WarDetailView({
                 </section>
               ) : null}
 
+              <PracticalPhases key={selectedWar.id} war={selectedWar} admin={isAdmin} />
+
               {hasWarData && hasTornReport ? (
                 <CollapsiblePanel
                   title="Torn report validation"
@@ -350,6 +355,7 @@ export function WarDetailView({
                   onToggle={() => onTogglePanel("reportValidation")}
                   className="table-panel"
                 >
+                  {!isReportValidationReady ? <EmptyState text={`${reportValidationPending}. War totals and report adjustments must load before validation can be shown.`} /> : <>
                   <div className={reportMismatchCount === 0 ? "report-validation-summary matched" : "report-validation-summary mismatched"}>
                     <div className="report-validation-summary-status">
                       {reportMismatchCount === 0 ? <CheckCircle2 size={18} /> : <TriangleAlert size={18} />}
@@ -398,6 +404,7 @@ export function WarDetailView({
                   <p className="panel-description">
                     Torn drops decimals from both factions' respect totals. After dashboard adjustments, faction respect and enemy score deltas from 0 to less than +1 count as a match.
                   </p>
+                  </>}
                   <section className="nested-discrepancy-panel">
                     <div className="nested-discrepancy-header">
                       <button
@@ -556,7 +563,7 @@ export function WarDetailView({
               {showMemberBreakdown ? (
                 <CollapsiblePanel
                   title="Faction members breakdown"
-                  collapsed={collapsedPanels.memberBreakdown ?? false}
+                  collapsed={collapsedPanels.memberBreakdown ?? true}
                   onToggle={() => onTogglePanel("memberBreakdown")}
                   className="table-panel"
                   control={

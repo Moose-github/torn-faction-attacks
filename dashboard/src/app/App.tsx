@@ -175,7 +175,7 @@ export function App() {
   const [isLoadingMemberCombatHeatmap, setIsLoadingMemberCombatHeatmap] = React.useState(false);
   const [reportDiscrepancies, setReportDiscrepancies] = React.useState<ReportDiscrepanciesResponse | null>(null);
   const [isLoadingReportDiscrepancies, setIsLoadingReportDiscrepancies] = React.useState(false);
-  const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({});
+  const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({ memberBreakdown: true });
   const [selectedMember, setSelectedMember] = React.useState<MemberStats | null>(null);
   const [memberAttacks, setMemberAttacks] = React.useState<MemberAttack[]>([]);
   const [isLoadingMemberAttacks, setIsLoadingMemberAttacks] = React.useState(false);
@@ -427,10 +427,7 @@ export function App() {
     collapsedPanels.factionActivity === false || collapsedPanels.enemyActivity === false;
   const isMemberCombatPanelOpen = collapsedPanels.memberCombatHeatmap === false;
   const memberCombatWindow = selectedWar?.war_type === "event" ? "practical" : factionActivityWindow;
-  const isReportValidationPanelOpen = collapsedPanels.reportValidation === false;
-  const isReportDiscrepancyPanelOpen = collapsedPanels.reportDiscrepancies === false;
-  const shouldLoadReportDiscrepancies =
-    isReportValidationPanelOpen || isReportDiscrepancyPanelOpen;
+  const shouldLoadReportDiscrepancies = hasTornReport;
 
   React.useEffect(() => {
     if (!authSession || view !== "war" || !selectedWarName || !selectedWar) {
