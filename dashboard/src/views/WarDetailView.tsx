@@ -16,6 +16,7 @@ import { ChainBonusList } from "../components/ChainBonuses";
 import { CollapsiblePanel, EmptyState, InlineMetric, MetricCard, PanelHeader } from "../components/Common";
 import { MemberCombatHeatmap } from "../components/MemberCombatHeatmap";
 import { EnemyCombatHeatmap } from "../components/EnemyCombatHeatmap";
+import { WarProgressPanel } from "../components/WarProgressPanel";
 import { EliminationTeamAdmin, EventCompetitionPanel, TreatsLeaderboardTile, useEventCompetition } from "../components/EventCompetition";
 import type { EventCompetition } from "../api/competition";
 import { MemberAttackList, MemberTable } from "../components/MemberTables";
@@ -301,6 +302,10 @@ export function WarDetailView({
                     fitValue
                   />
                 </section>
+              ) : null}
+
+              {!isEvent && !isScheduledWar ? (
+                <WarProgressPanel key={selectedWar.id} war={selectedWar} requireHistory />
               ) : null}
 
               {!hasWarData && !competition.data?.members.length ? (

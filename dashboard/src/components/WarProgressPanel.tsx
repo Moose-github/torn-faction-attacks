@@ -20,7 +20,7 @@ const countdown = (seconds: number) => {
   return `${days > 0 ? `${days}d ` : ""}${Math.floor(minutes % 1440 / 60)}h ${minutes % 60}m`;
 };
 
-export function WarProgressPanel({ war }: { war: WarSummary }) {
+export function WarProgressPanel({ war, requireHistory = false }: { war: WarSummary; requireHistory?: boolean }) {
   const [data, setData] = React.useState<WarProgressResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [collapsed, setCollapsed] = React.useState(false);
@@ -88,6 +88,9 @@ export function WarProgressPanel({ war }: { war: WarSummary }) {
       enemy_score: enemyScore ?? latest.enemy_score, target: latest.target,
     }];
   }, [data, latest, endedAt, homeScore, enemyScore]);
+
+  // Recorded war pages only show the panel once saved score history is available.
+  if (requireHistory && (!canDraw || !data?.history.length)) return null;
 
   return (
     <CollapsiblePanel title="War progress" collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)}

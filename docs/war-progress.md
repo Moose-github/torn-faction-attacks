@@ -15,6 +15,10 @@ No history is reconstructed for periods before collection or missed intervals.
 It returns saved targets, latest official scores and target, and ordered history.
 There is no write endpoint for the panel. Events do not use this panel.
 
+Recorded war pages also show this panel when saved score history is available.
+Wars without collected history omit it. Completed wars show final scores and
+the recorded finish, with no temporary targets or predictions.
+
 ## Target calculations
 
 Torn's returned target is treated as already decayed, as agreed for this feature.
