@@ -304,10 +304,6 @@ export function WarDetailView({
                 </section>
               ) : null}
 
-              {!isEvent && !isScheduledWar ? (
-                <WarProgressPanel key={selectedWar.id} war={selectedWar} requireHistory />
-              ) : null}
-
               {!hasWarData && !competition.data?.members.length ? (
                 <UpcomingWarEmptyPanel
                   war={selectedWar}
@@ -348,6 +344,10 @@ export function WarDetailView({
                     </section>
                   ) : null}
                 </section>
+              ) : null}
+
+              {!isEvent && !isScheduledWar ? (
+                <WarProgressPanel key={selectedWar.id} war={selectedWar} requireHistory showCompletedResult={false} />
               ) : null}
 
               <PracticalPhases key={selectedWar.id} war={selectedWar} admin={isAdmin} />

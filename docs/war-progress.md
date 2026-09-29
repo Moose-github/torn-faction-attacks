@@ -17,7 +17,8 @@ There is no write endpoint for the panel. Events do not use this panel.
 
 Recorded war pages also show this panel when saved score history is available.
 Wars without collected history omit it. Completed wars show final scores and
-the recorded finish, with no temporary targets or predictions.
+the historical graph, with no temporary targets or predictions. The finish date
+and winner footer appears only in the War room.
 
 ## Target calculations
 

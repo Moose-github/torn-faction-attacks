@@ -20,7 +20,9 @@ const countdown = (seconds: number) => {
   return `${days > 0 ? `${days}d ` : ""}${Math.floor(minutes % 1440 / 60)}h ${minutes % 60}m`;
 };
 
-export function WarProgressPanel({ war, requireHistory = false }: { war: WarSummary; requireHistory?: boolean }) {
+export function WarProgressPanel({ war, requireHistory = false, showCompletedResult = true }: {
+  war: WarSummary; requireHistory?: boolean; showCompletedResult?: boolean;
+}) {
   const [data, setData] = React.useState<WarProgressResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [collapsed, setCollapsed] = React.useState(false);
@@ -130,8 +132,8 @@ export function WarProgressPanel({ war, requireHistory = false }: { war: WarSumm
             homeName={homeName} enemyName={enemyName} /> : null}
         {!latest && !endedAt ? <EmptyState text="Waiting for the next Torn score update. History begins when score collection starts." /> : null}
         {latest && original === null && !endedAt ? <p className="war-progress-notice">The original winning target is unavailable, so finish times cannot be calculated yet.</p> : null}
-        {endedAt ? <div className="war-progress-finish"><div><small>War ended</small><strong>{date(endedAt)}</strong><span>{record.winner_faction_id ? `${record.winner_faction_id === record.enemy_faction_id ? enemyName : homeName} won` : "Final result recorded"}</span></div></div> :
-          latest && !scheduled ? <div className="war-progress-finish">
+        {endedAt && showCompletedResult ? <div className="war-progress-finish"><div><small>War ended</small><strong>{date(endedAt)}</strong><span>{record.winner_faction_id ? `${record.winner_faction_id === record.enemy_faction_id ? enemyName : homeName} won` : "Final result recorded"}</span></div></div> : null}
+        {!endedAt && latest && !scheduled ? <div className="war-progress-finish">
             <FinishResult label="Current scores" finish={currentFinish} lead={currentLead} now={now} original={original} />
             <FinishResult label="Planned scores" finish={plannedFinish} lead={plannedLead} now={now} original={original} planned />
           </div> : null}
