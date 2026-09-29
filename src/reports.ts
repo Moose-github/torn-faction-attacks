@@ -195,6 +195,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
           war.enemy_faction_id,
           war.enemy_faction_id,
         ],
+        { includeAllAttacks: true },
       ),
       getDiscrepancyGroup(
         env,
@@ -406,6 +407,7 @@ async function getDiscrepancyGroup(
   warId: number,
   conditionSql: string,
   conditionBinds: unknown[],
+  { includeAllAttacks = false }: { includeAllAttacks?: boolean } = {},
 ): Promise<{
   count: number;
   respect_gain: number;
@@ -442,7 +444,7 @@ async function getDiscrepancyGroup(
       SELECT *
       FROM filtered_attacks
       ORDER BY started ASC
-      LIMIT 20
+      ${includeAllAttacks ? "" : "LIMIT 20"}
     )
     SELECT
       totals.count,

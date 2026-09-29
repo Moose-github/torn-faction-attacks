@@ -112,7 +112,7 @@ export async function getWarReportDiscrepancies(
   warName: string,
 ): Promise<ReportDiscrepanciesResponse> {
   return getJson<ReportDiscrepanciesResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/report-discrepancies`,
+    `/api/wars/${encodeURIComponent(warName)}/report-discrepancies?v=2`,
   );
 }
 

@@ -6486,7 +6486,7 @@ h2 {
   border-top: 0;
 }
 
-.discrepancy-section > .discrepancy-group:nth-child(2) {
+.discrepancy-section-header + .discrepancy-group {
   padding-top: 0;
   border-top: 0;
 }
@@ -6502,6 +6502,12 @@ h2 {
   margin: 0;
   color: #162033;
   font-size: 0.98rem;
+}
+
+.discrepancy-collapse-button {
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
 .discrepancy-group-header p {

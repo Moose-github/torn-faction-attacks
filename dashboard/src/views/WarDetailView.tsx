@@ -19,7 +19,7 @@ import { EliminationTeamAdmin, EventCompetitionPanel, TreatsLeaderboardTile, use
 import type { EventCompetition } from "../api/competition";
 import { MemberAttackList, MemberTable } from "../components/MemberTables";
 import {
-  discrepancyAside,
+  formatAdjustmentTotals,
   reportAdjustmentTotals,
   ReportDiscrepancyPanel,
 } from "../components/ReportDiscrepancies";
@@ -131,10 +131,11 @@ export function WarDetailView({
   const memberAttackPanelRef = React.useRef<HTMLElement | null>(null);
   const competition = useEventCompetition(selectedWar);
   const reportDiscrepancyCollapsed = collapsedPanels.reportDiscrepancies ?? true;
+  const reportAdjustments = reportAdjustmentTotals(reportDiscrepancies);
   const reportDiscrepancyAside = isLoadingReportDiscrepancies
     ? "Loading"
     : reportDiscrepancies
-      ? discrepancyAside(reportDiscrepancies)
+      ? formatAdjustmentTotals(reportAdjustments)
       : "Open to load";
   const members = sortMembers(warDetail?.members ?? [], memberSort);
   const sortedMemberAttacks = sortMemberAttacks(memberAttacks, memberAttackSort);
@@ -178,7 +179,6 @@ export function WarDetailView({
   const showMemberBreakdown = hasWarData && memberActionTotal > 0;
   const isScheduledWar = selectedWar.status === "scheduled";
   const hasReportAdjustmentData = Boolean(reportDiscrepancies);
-  const reportAdjustments = reportAdjustmentTotals(reportDiscrepancies);
   const reportValidationRows = hasTornReport
     ? buildReportValidationRows({
         factionAttacks: {
@@ -411,7 +411,7 @@ export function WarDetailView({
                     {reportDiscrepancyCollapsed ? null : (
                       <div className="nested-discrepancy-content">
                         <p className="panel-description">
-                          Breaks down attack and respect adjustments behind differences from Torn's official ranked war report.
+                          Attack and respect adjustments from Torn's raw report totals to dashboard totals. Any unresolved differences are listed below.
                         </p>
                         <ReportDiscrepancyPanel response={reportDiscrepancies} />
                       </div>

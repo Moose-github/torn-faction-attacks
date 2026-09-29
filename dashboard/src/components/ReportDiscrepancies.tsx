@@ -1,3 +1,5 @@
+import { useId, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   ChainBonusAttack,
   MemberReportComparisonRow,
@@ -73,14 +75,9 @@ export function ReportDiscrepancyPanel({
     <div className="discrepancy-groups">
       {hasAdjustments ? (
         <section className="discrepancy-section">
-          <div className="discrepancy-section-header">
-            <div>
-              <h3>Dashboard adjustments</h3>
-              <p>Known transformations from Torn raw report totals into dashboard totals.</p>
-            </div>
-            <strong>{formatAdjustmentTotals(reportAdjustmentTotals(response))}</strong>
-          </div>
-          {adjustmentGroups.map((definition) => renderDiscrepancyGroup(definition, response))}
+          {adjustmentGroups.map((definition) => (
+            <ReportDiscrepancyGroup key={definition.key} definition={definition} response={response} />
+          ))}
         </section>
       ) : null}
 
@@ -95,17 +92,23 @@ export function ReportDiscrepancyPanel({
           </div>
           <MemberReportComparison response={response} />
           <AttackReconciliationInvestigation reconciliation={response.attack_reconciliation ?? null} />
-          {unresolvedGroups.map((definition) => renderDiscrepancyGroup(definition, response))}
+          {unresolvedGroups.map((definition) => (
+            <ReportDiscrepancyGroup key={definition.key} definition={definition} response={response} />
+          ))}
         </section>
       ) : null}
     </div>
   );
 }
 
-function renderDiscrepancyGroup(
-  definition: ReportDiscrepancyDefinition,
-  response: ReportDiscrepanciesResponse,
-) {
+function ReportDiscrepancyGroup({ definition, response }: {
+  definition: ReportDiscrepancyDefinition;
+  response: ReportDiscrepanciesResponse;
+}) {
+  const [collapsed, setCollapsed] = useState(true);
+  const contentId = useId();
+  const collapsible = definition.key === "after_practical_finish";
+  const showContent = !collapsible || !collapsed;
   const group = response.groups[definition.key];
   const count = group?.count ?? 0;
 
@@ -116,15 +119,28 @@ function renderDiscrepancyGroup(
     >
       <div className="discrepancy-group-header">
         <div>
-          <h3>{definition.title}</h3>
-          {count > 0 ? <p>{definition.detail}</p> : null}
+          <h3>
+            {collapsible ? (
+              <button
+                type="button"
+                className="collapse-button discrepancy-collapse-button"
+                aria-expanded={!collapsed}
+                aria-controls={contentId}
+                onClick={() => setCollapsed((value) => !value)}
+              >
+                <span>{collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</span>
+                {definition.title}
+              </button>
+            ) : definition.title}
+          </h3>
+          {count > 0 && showContent ? <p>{definition.detail}</p> : null}
         </div>
         <strong>{discrepancyGroupSummary(definition.key, count, group?.respect_gain ?? 0)}</strong>
       </div>
       {count > 0 && group && group.attacks.length > 0 && definition.key === "chain_bonus_adjustments" ? (
         <ChainBonusList attacks={group.attacks as ChainBonusAttack[]} />
       ) : count > 0 && group && group.attacks.length > 0 ? (
-        <div className="table-scroll">
+        <div id={contentId} className="table-scroll" hidden={!showContent}>
           <table className="discrepancy-table">
             <thead>
               <tr>
@@ -471,7 +487,7 @@ function discrepancyGroupSummary(key: string, count: number, respectGain: number
   return `${formatNumber(count)} attacks`;
 }
 
-function formatAdjustmentTotals(totals: ReportAdjustmentTotals): string {
+export function formatAdjustmentTotals(totals: ReportAdjustmentTotals): string {
   return `${formatSignedNumber(totals.attackDelta)} attacks / ${formatSignedNumber(totals.respectDelta)} respect`;
 }
 
