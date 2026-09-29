@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_FACTION_ID } from "./constants";
 import { fetchTornFactionMembers } from "./enemyScouting";
-import { getEnemyMemberActivityHeatmap, HeatmapSamplingError, sampleFactionActivityHeatmaps } from "./heatmap";
+import { getEnemyMemberActivityHeatmap, getWarActivityHeatmap, HeatmapSamplingError, sampleFactionActivityHeatmaps } from "./heatmap";
 import type { Env, TornFactionMember } from "./types";
 
 vi.mock("./syncState", () => ({
@@ -179,6 +179,39 @@ describe("enemy member activity heatmap", () => {
       rows: [{ member_id: 1, is_recently_active: 1 }],
     });
     expect(db.enemyMemberSelectArgs).toEqual([123, 456, 1, 2, 3]);
+  });
+
+  it.each([
+    { label: "both factions", endpoint: "activity-heatmap", read: getWarActivityHeatmap, factions: [HOME_FACTION_ID, 456] },
+    { label: "enemy members", endpoint: "enemy-member-activity-heatmap", read: getEnemyMemberActivityHeatmap, factions: [456] },
+  ])("returns all stored $label samples outside and between practical phases after official end", async ({ endpoint, read, factions }) => {
+    const db = new TestD1Database();
+    vi.spyOn(db, "first").mockReturnValue({
+      id: 123, name: "Ended War", war_type: "termed", enemy_faction_id: 456,
+      practical_start_time: 10000, practical_finish_time: 21000,
+      official_start_time: 10000, official_end_time: 22000,
+    });
+    const phases = [
+      { start_time: 10000, finish_time: 11000, status: "completed", removed_at: null },
+      { start_time: 20000, finish_time: 21000, status: "completed", removed_at: null },
+    ];
+    const rows = factions.flatMap((faction_id) => [9000, 10000, 15000, 20000, 23000].map((sampled_at) => ({
+      war_id: 123, faction_id, member_id: 1, member_name: "Member",
+      date: "1970-01-01", interval_index: Math.floor(sampled_at / 900),
+      active_count: 1, total_count: 1, is_recently_active: 1,
+      last_action_status: "online", last_action_timestamp: sampled_at, sampled_at,
+    })));
+    vi.spyOn(db, "all").mockImplementation((sql) => result<unknown>(
+      sql.includes("FROM war_practical_phases") ? phases : rows,
+    ));
+
+    const response = await read(
+      new URL(`https://worker.test/api/wars/Ended%20War/${endpoint}?war_id=123`),
+      { DB: db as unknown as D1Database } as Env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ok: true, rows });
   });
 
   it("preserves the home sample and retries only the missing enemy sample at midnight +1 minute", async () => {

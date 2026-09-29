@@ -400,11 +400,21 @@ export async function fetchEnemyScoutingOnceForWar(env: Env, warId: number): Pro
 }
 
 async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: number): Promise<boolean> {
-  if (!(await canInitializeEnemyTarget(env, factionId))) {
+  if (!(await canInitializeEnemyTarget(env, factionId, warId))) {
     console.warn(
-      `Skipping enemy scouting refresh for faction ${factionId}: cached faction has not officially ended`,
+      `Skipping enemy scouting replacement for war ${warId}: target is historical or cached faction has not officially ended`,
     );
     return false;
+  }
+
+  // A retry (or another war against the same faction) is not a new enemy.
+  // Finish any missing seed work without deleting retained scouting history.
+  const existing = await readEnemyScouting(env, factionId);
+  if (existing.length > 0) {
+    await handleEnemyTargetMatched(env, factionId, { warId });
+    await seedEnemyHitStatSnapshots(env, warId, factionId, existing, nowSeconds());
+    await refreshMissingFfBattlestats(env, existing);
+    return true;
   }
 
   const members = await fetchTornFactionMembers(env, factionId);
@@ -424,27 +434,26 @@ async function replaceEnemyFactionMembers(env: Env, warId: number, factionId: nu
       );
     },
   );
+  const replacementRosterStatements = members.flatMap((member) => {
+    const snapshot = buildEnemyMemberSnapshot(
+      member,
+      factionId,
+      null,
+      null,
+      fetchedAt,
+      companySnapshots.get(member.id) ?? emptyEnemyCompanySnapshot(),
+    );
+    return [
+      upsertEnemyMemberRosterSnapshot(env, snapshot),
+      upsertMemberLiveStatus(env, ENEMY_MEMBER_LIVE_STATUS_TABLE, snapshot),
+    ];
+  });
   await handleEnemyTargetMatched(env, factionId, {
     warId,
     clearCachedEnemyRoster: true,
     clearHomeComparisonStats: true,
+    replacementRosterStatements,
   });
-  await env.DB.batch(
-    members.flatMap((member) => {
-      const snapshot = buildEnemyMemberSnapshot(
-        member,
-        factionId,
-        null,
-        null,
-        fetchedAt,
-        companySnapshots.get(member.id) ?? emptyEnemyCompanySnapshot(),
-      );
-      return [
-        upsertEnemyMemberRosterSnapshot(env, snapshot),
-        upsertMemberLiveStatus(env, ENEMY_MEMBER_LIVE_STATUS_TABLE, snapshot),
-      ];
-    }),
-  );
 
   const rows = await readEnemyScouting(env, factionId);
   await seedEnemyHitStatSnapshots(env, warId, factionId, rows, fetchedAt);

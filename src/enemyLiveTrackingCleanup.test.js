@@ -32,6 +32,15 @@ it.each([false, true])("retains enemy history until scouting replacement (tracki
     `);
     const env = {
       DB: {
+        async batch(statements) {
+          sqlite.exec("BEGIN");
+          try {
+            const results = [];
+            for (const statement of statements) results.push(await statement.run());
+            sqlite.exec("COMMIT");
+            return results;
+          } catch (error) { sqlite.exec("ROLLBACK"); throw error; }
+        },
         prepare(sql) {
           let values = [];
           return {

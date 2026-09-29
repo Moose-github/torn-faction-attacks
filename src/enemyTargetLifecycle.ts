@@ -1,5 +1,5 @@
 import { ENEMY_PUSH_ALERT_STATE_PREFIX } from "./discordAlertSettings";
-import { clearSyncLatch, clearSyncLatchesByPrefix, setSyncLatch } from "./syncLatches";
+import { clearSyncLatch, setSyncLatch } from "./syncLatches";
 import { Env } from "./types";
 import { d1Changes, nowSeconds } from "./utils";
 
@@ -21,6 +21,7 @@ type EnemyTargetMatchedOptions = {
   warId?: number;
   clearCachedEnemyRoster?: boolean;
   clearHomeComparisonStats?: boolean;
+  replacementRosterStatements?: D1PreparedStatement[];
 };
 
 const BSP_FILL_COMPLETE_STATE_PREFIX = "enemy_target_bsp_fill_complete";
@@ -31,7 +32,16 @@ const COMPARISON_STATS_COMPLETE_STATE_PREFIX = "enemy_target_comparison_stats_co
 const STATS_IMAGE_PENDING_STATE_PREFIX = "enemy_target_stats_image_pending";
 const STATS_IMAGE_SENT_STATE_PREFIX = "enemy_target_stats_image_sent";
 
-export async function canInitializeEnemyTarget(env: Env, nextFactionId: number): Promise<boolean> {
+export async function canInitializeEnemyTarget(env: Env, nextFactionId: number, warId: number): Promise<boolean> {
+  // Historical refreshes must never replace the retained scouting target.
+  const target = await env.DB.prepare(`
+    SELECT id FROM wars
+    WHERE id = ? AND enemy_faction_id = ?
+      AND official_end_time IS NULL AND status != 'ended'
+      AND COALESCE(war_type, 'real') != 'event'
+  `).bind(warId, nextFactionId).first();
+  if (!target) return false;
+
   const cachedFactions = ((await env.DB.prepare(
     `
     SELECT DISTINCT faction_id
@@ -72,29 +82,31 @@ export async function handleEnemyTargetMatched(
   const metrics = emptyEnemyTargetLifecycleMetrics();
 
   if (options.clearCachedEnemyRoster) {
-    const result = await env.DB.prepare(`DELETE FROM enemy_faction_members`).run();
-    const changes = d1Changes(result);
-    metrics.writeStatements += 1;
-    metrics.changedRows += changes;
-    metrics.enemyRosterRowsDeleted += changes;
-
-    const liveStatusResult = await env.DB.prepare(`DELETE FROM enemy_member_live_status`).run();
-    metrics.writeStatements += 1;
-    metrics.changedRows += d1Changes(liveStatusResult);
-
-    const trackerTargetClear = await env.DB.prepare(`DELETE FROM discord_travel_tracker_target WHERE id = 1`).run();
-    metrics.writeStatements += 1;
-    metrics.changedRows += d1Changes(trackerTargetClear);
-
-    const hitStatsResult = await env.DB.prepare(`DELETE FROM enemy_hit_stat_snapshots`).run();
-    const hitStatsChanges = d1Changes(hitStatsResult);
-    metrics.writeStatements += 1;
-    metrics.changedRows += hitStatsChanges;
-    metrics.enemyHitStatRowsDeleted += hitStatsChanges;
-
-    // All retained enemy history shares the roster-replacement trigger.
-    const historyMetrics = await clearEnemyHistoryForTargetReplacement(env);
-    addEnemyTargetLifecycleMetrics(metrics, historyMetrics);
+    // D1 batches are transactional: retain the old target if saving its
+    // replacement fails. Every enemy history table shares this one trigger.
+    const statements = [
+      env.DB.prepare(`DELETE FROM enemy_faction_members`),
+      env.DB.prepare(`DELETE FROM enemy_member_live_status`),
+      env.DB.prepare(`DELETE FROM discord_travel_tracker_target WHERE id = 1`),
+      env.DB.prepare(`DELETE FROM enemy_hit_stat_snapshots`),
+      env.DB.prepare(`DELETE FROM enemy_faction_activity_samples`),
+      env.DB.prepare(`DELETE FROM enemy_member_activity_samples`),
+      env.DB.prepare(`DELETE FROM enemy_push_activity_snapshots`),
+      env.DB.prepare(`DELETE FROM war_control_snapshots`),
+      env.DB.prepare(`DELETE FROM enemy_big_hitters`),
+      env.DB.prepare(`DELETE FROM sync_state WHERE name LIKE ?`).bind(`${ENEMY_PUSH_ALERT_STATE_PREFIX}:%`),
+      ...(options.replacementRosterStatements ?? []),
+    ];
+    const results = await env.DB.batch(statements);
+    metrics.writeStatements += statements.length;
+    metrics.changedRows += results.reduce((sum, result) => sum + d1Changes(result), 0);
+    metrics.enemyRosterRowsDeleted = d1Changes(results[0]);
+    metrics.enemyHitStatRowsDeleted = d1Changes(results[3]);
+    metrics.enemyActivitySampleRowsDeleted = d1Changes(results[4]) + d1Changes(results[5]);
+    metrics.enemyPushRowsDeleted = d1Changes(results[6]);
+    metrics.enemyControlRowsDeleted = d1Changes(results[7]);
+    metrics.enemyBigHitterRowsDeleted = d1Changes(results[8]);
+    metrics.enemyPushAlertLatchesCleared = d1Changes(results[9]);
   }
 
   if (options.clearHomeComparisonStats) {
@@ -198,23 +210,6 @@ function emptyEnemyTargetLifecycleMetrics(): EnemyTargetLifecycleMetrics {
   };
 }
 
-function addEnemyTargetLifecycleMetrics(
-  target: EnemyTargetLifecycleMetrics,
-  source: EnemyTargetLifecycleMetrics,
-): void {
-  target.writeStatements += source.writeStatements;
-  target.changedRows += source.changedRows;
-  target.enemyRosterRowsDeleted += source.enemyRosterRowsDeleted;
-  target.enemyBigHitterRowsDeleted += source.enemyBigHitterRowsDeleted;
-  target.enemyControlRowsDeleted += source.enemyControlRowsDeleted;
-  target.enemyPushRowsDeleted += source.enemyPushRowsDeleted;
-  target.enemyPushAlertLatchesCleared += source.enemyPushAlertLatchesCleared;
-  target.enemyHitStatRowsDeleted += source.enemyHitStatRowsDeleted;
-  target.homeComparisonStatsRowsCleared += source.homeComparisonStatsRowsCleared;
-  target.enemyActivitySampleRowsDeleted += source.enemyActivitySampleRowsDeleted;
-  target.fillCompletionLatchesCleared += source.fillCompletionLatchesCleared;
-}
-
 async function clearEnemyTargetFillCompletionLatches(
   env: Env,
   warId: number,
@@ -229,43 +224,4 @@ async function clearEnemyTargetFillCompletionLatches(
   ]);
 
   return results.reduce((total, result) => total + d1Changes(result), 0);
-}
-
-async function clearEnemyHistoryForTargetReplacement(
-  env: Env,
-): Promise<EnemyTargetLifecycleMetrics> {
-  const metrics = emptyEnemyTargetLifecycleMetrics();
-
-  const factionResult = await env.DB.prepare(
-    `
-    DELETE FROM enemy_faction_activity_samples
-    `,
-  ).run();
-
-  const memberResult = await env.DB.prepare(
-    `
-    DELETE FROM enemy_member_activity_samples
-    `,
-  ).run();
-
-  const changes = d1Changes(factionResult) + d1Changes(memberResult);
-  metrics.writeStatements += 2;
-  metrics.changedRows += changes;
-  metrics.enemyActivitySampleRowsDeleted += changes;
-
-  // Like the roster and heatmaps, these tables hold the previous scouting target.
-  // Filtering by the incoming war ID would leave the previous war's rows behind.
-  const pushResult = await env.DB.prepare(`DELETE FROM enemy_push_activity_snapshots`).run();
-  const controlResult = await env.DB.prepare(`DELETE FROM war_control_snapshots`).run();
-  const bigHitterResult = await env.DB.prepare(`DELETE FROM enemy_big_hitters`).run();
-  const pushAlertResult = await clearSyncLatchesByPrefix(env, `${ENEMY_PUSH_ALERT_STATE_PREFIX}:`);
-  metrics.enemyPushRowsDeleted = d1Changes(pushResult);
-  metrics.enemyControlRowsDeleted = d1Changes(controlResult);
-  metrics.enemyBigHitterRowsDeleted = d1Changes(bigHitterResult);
-  metrics.enemyPushAlertLatchesCleared = d1Changes(pushAlertResult);
-  metrics.writeStatements += 4;
-  metrics.changedRows += metrics.enemyPushRowsDeleted + metrics.enemyControlRowsDeleted +
-    metrics.enemyBigHitterRowsDeleted + metrics.enemyPushAlertLatchesCleared;
-
-  return metrics;
 }

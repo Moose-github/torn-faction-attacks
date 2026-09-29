@@ -79,6 +79,9 @@ function fakeDb(runResults: Array<{ match: string; result: unknown }> = []) {
 
   return {
     calls,
+    async batch(statements: D1PreparedStatement[]) {
+      return Promise.all(statements.map((statement) => statement.run()));
+    },
     prepare(sql: string) {
       const call = { sql: compactSql(sql), params: [] as unknown[] };
       calls.push(call);

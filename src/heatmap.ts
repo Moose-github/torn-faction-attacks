@@ -1,5 +1,3 @@
-import { readPracticalPhases } from "./practicalPhases";
-import { isPracticalAttack } from "../shared/practicalPhases";
 import { HOME_FACTION_ID } from "./constants";
 import { bumpGlobalWarCacheVersion } from "./cacheVersions";
 import { fetchTornFactionMembers } from "./enemyScouting";
@@ -211,7 +209,7 @@ export async function getWarActivityHeatmap(url: URL, env: Env): Promise<Respons
       enemy_faction_id: war.enemy_faction_id,
     },
     home_faction_id: HOME_FACTION_ID,
-    rows: await filterPracticalSamples(env, war, (rows.results ?? []) as HeatmapRow[]),
+    rows: (rows.results ?? []) as HeatmapRow[],
   });
 }
 
@@ -262,7 +260,7 @@ export async function getEnemyMemberActivityHeatmap(url: URL, env: Env): Promise
       official_end_time: war.official_end_time,
       enemy_faction_id: war.enemy_faction_id,
     },
-    rows: await filterPracticalSamples(env, war, (rows.results ?? []) as EnemyMemberActivityHeatmapRow[]),
+    rows: (rows.results ?? []) as EnemyMemberActivityHeatmapRow[],
   });
 }
 
@@ -654,10 +652,4 @@ function heatmapBucket(timestamp: number): { date: string; intervalIndex: number
     date: `${year}-${month}-${day}`,
     intervalIndex: Math.min(INTERVALS_PER_DAY - 1, Math.floor(minutes / 15)),
   };
-}
-
-async function filterPracticalSamples<T extends { sampled_at: number }>(env: Env, war: HeatmapWar, rows: T[]): Promise<T[]> {
-  if (war.war_type !== "termed") return rows;
-  const phases = await readPracticalPhases(env, war.id);
-  return rows.filter((row) => isPracticalAttack({ started: row.sampled_at, ended: row.sampled_at }, phases, war.official_end_time));
 }
