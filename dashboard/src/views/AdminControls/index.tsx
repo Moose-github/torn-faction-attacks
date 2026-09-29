@@ -9,7 +9,6 @@ import {
   clearStoredAuthSession,
   createEvent,
   createMemberLifestyleRepairJob,
-  deleteWar,
   AdminDiscordAlertSettingsResponse,
   DiscordAlertRouteSummary,
   DiscordDeliveryAlertSetting,
@@ -101,7 +100,6 @@ export function AdminControls() {
     status: "ended",
   }));
   const [eventImportFetchMissing, setEventImportFetchMissing] = React.useState(false);
-  const [deleteWarId, setDeleteWarId] = React.useState("");
   const [relinkForm, setRelinkForm] = React.useState({
     scope: "selected" as "selected" | "all",
     warId: "",
@@ -375,7 +373,6 @@ export function AdminControls() {
   async function refreshWarOptions() {
     const loaded = (await getWars("all")).wars;
     setWars(loaded);
-    if (!loaded.some(war => String(war.id) === deleteWarId)) setDeleteWarId("");
     setRelinkForm(current => loaded.some(war => String(war.id) === current.warId) ? current : { ...current, warId: "" });
     setRebuildWarId(current => loaded.some(war => String(war.id) === current) ? current : "");
     setRestartTrackingWarId(current => loaded.some(war => String(war.id) === current) ? current : "");
@@ -430,11 +427,6 @@ export function AdminControls() {
     }
 
     return window.confirm("Rebuild stats for all wars? This can take longer than rebuilding a selected war.");
-  }
-
-  function confirmDeleteWar(): boolean {
-    const target = wars.find(war => String(war.id) === deleteWarId);
-    return !!target && window.confirm(`Delete ${target.name} (record #${target.id})? This cannot be undone from the admin dashboard.`);
   }
 
   function applyEventResponse(response: unknown) {
@@ -2034,23 +2026,6 @@ export function AdminControls() {
               </form>
             </section>
 </AdminSettingsSection>
-<AdminSettingsSection section="delete-records" title="Delete records" description="Remove a selected war or event">
-<section className="admin-tool-section admin-maintenance-danger">
-              <PanelHeader title="Delete war/event" />
-              <form className="admin-form" onSubmit={event => {
-                event.preventDefault();
-                if (confirmDeleteWar()) runWarAction("Delete war/event", () => deleteWar({ war_id: Number(deleteWarId) }));
-              }}>
-                <label className="admin-form-wide"><span>War/event to delete</span>
-                  <select value={deleteWarId} required disabled={isBusy !== null} onChange={event => setDeleteWarId(event.target.value)}>
-                    <option value="">Select a war/event</option>
-                    {wars.map(war => <option key={war.id} value={war.id}>#{war.id} {war.name} / {war.status}</option>)}
-                  </select>
-                </label>
-                <button type="submit" className="admin-button danger admin-form-wide" disabled={isBusy !== null || !deleteWarId}>Delete selected war/event</button>
-              </form>
-            </section>
-</AdminSettingsSection>
         </div> : null}
       </section>
       </>
@@ -2060,7 +2035,7 @@ export function AdminControls() {
 }
 
 function AdminSettingsSection({ section, title, description, children }: {
-  section: "wars" | "historical-wars" | "events" | "competitions" | "diagnostics" | "repairs" | "recovery" | "delete-records";
+  section: "wars" | "historical-wars" | "events" | "competitions" | "diagnostics" | "repairs" | "recovery";
   title: string;
   description: string;
   children: React.ReactNode;

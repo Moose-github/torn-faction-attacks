@@ -6804,10 +6804,6 @@ h2 {
   border-left-color: #9333ea;
 }
 
-.admin-section-divider-delete-records {
-  border-left-color: #dc2626;
-}
-
 .admin-settings-content > * {
   min-width: 0;
 }
@@ -6956,10 +6952,6 @@ h2 {
 
 .admin-maintenance-repair {
   border-left: 4px solid #f59e0b;
-}
-
-.admin-maintenance-danger {
-  border-left: 4px solid #ef4444;
 }
 
 .admin-panel-maintenance .admin-result-panel {
