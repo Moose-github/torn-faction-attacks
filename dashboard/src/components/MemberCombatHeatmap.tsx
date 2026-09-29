@@ -19,6 +19,7 @@ const metricOptions: Array<{ key: WarMemberCombatMetric; label: string; color: "
 const combatMetricKeys: WarMemberCombatMetric[] = ["attacks_successful", "outside_hits"];
 const zoomLevels = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 const defaultZoomIndex = 3;
+type CombatBucket = WarMemberCombatBucket & { attacks_total?: number };
 
 type GridSelection = {
   startMemberIndex: number;
@@ -37,9 +38,11 @@ type NormalizedSelection = {
 export function MemberCombatHeatmap({
   heatmap,
   isLoading,
+  enemy = false,
 }: {
   heatmap: WarMemberCombatHeatmapResponse | null;
   isLoading: boolean;
+  enemy?: boolean;
 }) {
   const [selectedMetrics, setSelectedMetrics] = React.useState<WarMemberCombatMetric[]>(["attacks_successful"]);
   const [selection, setSelection] = React.useState<GridSelection | null>(null);
@@ -87,11 +90,11 @@ export function MemberCombatHeatmap({
   }, [isExpanded]);
 
   if (isLoading) {
-    return <EmptyState text="Loading member combat data" />;
+    return <EmptyState text={enemy ? "Loading enemy combat data" : "Loading Buttgrass combat data"} />;
   }
 
   if (!heatmap || heatmap.members.length === 0) {
-    return <EmptyState text="No member combat data yet" />;
+    return <EmptyState text={enemy ? "No enemy combat data in this time window" : "No Buttgrass combat data yet"} />;
   }
 
   if (heatmap.time_buckets.length === 0) {
@@ -99,7 +102,7 @@ export function MemberCombatHeatmap({
   }
 
   const data = heatmap;
-  const bucketMap = new Map(
+  const bucketMap = new Map<string, CombatBucket>(
     data.buckets.map((bucket) => [bucketKey(bucket.member_id, bucket.bucket_start), bucket]),
   );
   const metricLabel = selectedMetricLabel(selectedMetrics);
@@ -214,8 +217,8 @@ export function MemberCombatHeatmap({
   return (
     <div className={isExpanded ? "member-combat-heatmap expanded" : "member-combat-heatmap"}>
       <div className="member-combat-toolbar">
-        <div className="panel-toggle-row" aria-label="Member combat metric">
-          {metricOptions.map((option) => (
+        <div className="panel-toggle-row" aria-label={enemy ? "Enemy combat metric" : "Buttgrass combat metric"}>
+          {metricOptions.filter((option) => !enemy || option.key === "attacks_successful" || option.key === "respect_gained").map((option) => (
             <button
               key={option.key}
               type="button"
@@ -227,7 +230,7 @@ export function MemberCombatHeatmap({
           ))}
         </div>
         <div className="member-combat-toolbar-actions">
-          <SelectionSummary summary={selectionSummary} selectedMetrics={selectedMetrics} />
+          <SelectionSummary summary={selectionSummary} selectedMetrics={selectedMetrics} enemy={enemy} />
           <div className="member-combat-zoom-controls" aria-label="Member combat zoom">
             <button
               type="button"
@@ -269,7 +272,7 @@ export function MemberCombatHeatmap({
           style={gridStyle}
           onMouseLeave={() => setDragAnchor(null)}
         >
-          <div className="member-combat-corner">Member</div>
+          <div className="member-combat-corner">{enemy ? "Attacker" : "Member"}</div>
           {data.time_buckets.map((bucketStart, bucketIndex) => (
             <button
               key={bucketStart}
@@ -324,7 +327,9 @@ export function MemberCombatHeatmap({
                     style={{
                       background: combatCellBackground(bucket, selectedMetrics, value, maxValue, metricColor, metricMaxValues),
                     }}
-                    title={`${displayMember(member)} | ${formatTime(bucketStart)}-${formatTime(bucketStart + data.bucket_minutes * 60)} | ${metricLabel}: ${formatNumber(value)}${selectedMetrics.length > 1 ? ` (${selectedMetrics.map((metricKey) => `${metricOptionLabel(metricKey)} ${formatNumber(Number(bucket?.[metricKey] ?? 0))}`).join(", ")})` : ""}`}
+                    title={enemy
+                      ? `${displayMember(member)} | ${formatLongDateTime(bucketStart)}-${formatTime(bucketStart + data.bucket_minutes * 60)} | All attacks: ${formatNumber(bucket?.attacks_total ?? 0)} | Successful attacks: ${formatNumber(bucket?.attacks_successful ?? 0)} | Raw respect: ${formatNumber(bucket?.respect_gained ?? 0)}`
+                      : `${displayMember(member)} | ${formatTime(bucketStart)}-${formatTime(bucketStart + data.bucket_minutes * 60)} | ${metricLabel}: ${formatNumber(value)}${selectedMetrics.length > 1 ? ` (${selectedMetrics.map((metricKey) => `${metricOptionLabel(metricKey)} ${formatNumber(Number(bucket?.[metricKey] ?? 0))}`).join(", ")})` : ""}`}
                     onMouseDown={() => beginSelection(memberIndex, bucketIndex)}
                     onMouseEnter={() => extendSelection(memberIndex, bucketIndex)}
                   />
@@ -341,12 +346,14 @@ export function MemberCombatHeatmap({
 function SelectionSummary({
   summary,
   selectedMetrics,
+  enemy,
 }: {
   summary: ReturnType<typeof summarizeSelection> | null;
   selectedMetrics: WarMemberCombatMetric[];
+  enemy: boolean;
 }) {
   if (!summary) {
-    return <div className="member-combat-selection">Drag cells, member rows, or time columns to total them.</div>;
+    return <div className="member-combat-selection">Drag cells, rows, or time columns to total them.</div>;
   }
 
   const metricLabel = selectedMetricLabel(selectedMetrics);
@@ -355,12 +362,17 @@ function SelectionSummary({
   return (
     <div className="member-combat-selection">
       <strong>{metricLabel}: {formatNumber(selectedTotal)}</strong>
-      <span>{formatNumber(summary.memberCount)} members</span>
+      <span>{formatNumber(summary.memberCount)} {enemy ? "rows" : "members"}</span>
       <span>{formatNumber(summary.bucketCount)} time slots</span>
       <span>{formatTime(summary.startBucket)}-{formatTime(summary.endBucket + summary.bucketSeconds)}</span>
-      <span>Attacks {formatNumber(summary.totals.attacks_successful)}</span>
-      <span>Defends lost {formatNumber(summary.totals.defends_lost)}</span>
-      <span>Respect +/- {formatNumber(summary.totals.respect_gained)} / {formatNumber(summary.totals.respect_lost)}</span>
+      <span>{enemy ? "Successful attacks" : "Attacks"} {formatNumber(summary.totals.attacks_successful)}</span>
+      {enemy ? <>
+        <span>All attacks {formatNumber(summary.attacksTotal)}</span>
+        <span>Raw respect {formatNumber(summary.totals.respect_gained)}</span>
+      </> : <>
+        <span>Defends lost {formatNumber(summary.totals.defends_lost)}</span>
+        <span>Respect +/- {formatNumber(summary.totals.respect_gained)} / {formatNumber(summary.totals.respect_lost)}</span>
+      </>}
     </div>
   );
 }
@@ -368,7 +380,7 @@ function SelectionSummary({
 function summarizeSelection(
   members: WarMemberCombatMember[],
   timeBuckets: number[],
-  bucketMap: Map<string, WarMemberCombatBucket>,
+  bucketMap: Map<string, CombatBucket>,
   selection: NormalizedSelection,
 ) {
   const totals: Record<WarMemberCombatMetric, number> = {
@@ -379,6 +391,7 @@ function summarizeSelection(
     respect_lost: 0,
   };
 
+  let attacksTotal = 0;
   for (let memberIndex = selection.memberStart; memberIndex <= selection.memberEnd; memberIndex += 1) {
     const member = members[memberIndex];
     if (!member) continue;
@@ -386,6 +399,7 @@ function summarizeSelection(
     for (let bucketIndex = selection.bucketStart; bucketIndex <= selection.bucketEnd; bucketIndex += 1) {
       const bucketStart = timeBuckets[bucketIndex];
       const bucket = bucketMap.get(bucketKey(member.member_id, bucketStart));
+      attacksTotal += bucket?.attacks_total ?? 0;
       for (const option of metricOptions) {
         totals[option.key] += Number(bucket?.[option.key] ?? 0);
       }
@@ -394,6 +408,7 @@ function summarizeSelection(
 
   return {
     totals,
+    attacksTotal,
     memberCount: selection.memberEnd - selection.memberStart + 1,
     bucketCount: selection.bucketEnd - selection.bucketStart + 1,
     startBucket: timeBuckets[selection.bucketStart],

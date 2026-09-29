@@ -15,6 +15,7 @@ import { ActivityChart, AttackChart, MemberPointGraphs } from "../components/Cha
 import { ChainBonusList } from "../components/ChainBonuses";
 import { CollapsiblePanel, EmptyState, InlineMetric, MetricCard, PanelHeader } from "../components/Common";
 import { MemberCombatHeatmap } from "../components/MemberCombatHeatmap";
+import { EnemyCombatHeatmap } from "../components/EnemyCombatHeatmap";
 import { EliminationTeamAdmin, EventCompetitionPanel, TreatsLeaderboardTile, useEventCompetition } from "../components/EventCompetition";
 import type { EventCompetition } from "../api/competition";
 import { MemberAttackList, MemberTable } from "../components/MemberTables";
@@ -501,7 +502,7 @@ export function WarDetailView({
 
               {showMemberCombatHeatmap ? (
                 <CollapsiblePanel
-                  title="Member combat heatmap"
+                  title="Buttgrass combat heatmap"
                   aside={isLoadingMemberCombatHeatmap && collapsedPanels.memberCombatHeatmap === false ? "Loading" : "15 minute buckets"}
                   collapsed={collapsedPanels.memberCombatHeatmap ?? true}
                   onToggle={() => onTogglePanel("memberCombatHeatmap")}
@@ -511,7 +512,7 @@ export function WarDetailView({
                     <ActivityWindowToggle
                       value={factionActivityWindow}
                       onChange={onMemberActivityWindowChange}
-                      label="Member combat time range"
+                      label="Buttgrass combat time range"
                     />
                   ) : null}
                   <p className="panel-description">
@@ -523,6 +524,31 @@ export function WarDetailView({
                   <MemberCombatHeatmap
                     heatmap={memberCombatHeatmap}
                     isLoading={isLoadingMemberCombatHeatmap}
+                  />
+                </CollapsiblePanel>
+              ) : null}
+
+              {hasWarData && !isEvent && selectedWar.enemy_faction_id !== null ? (
+                <CollapsiblePanel
+                  title={`${selectedWar.name} combat heatmap`}
+                  aside="15 minute buckets"
+                  collapsed={collapsedPanels.enemyCombatHeatmap ?? true}
+                  onToggle={() => onTogglePanel("enemyCombatHeatmap")}
+                  className="member-combat-panel"
+                >
+                  <ActivityWindowToggle
+                    value={factionActivityWindow}
+                    onChange={onMemberActivityWindowChange}
+                    label={`${selectedWar.name} combat time range`}
+                  />
+                  <p className="panel-description">
+                    Shows enemy successful attacks and raw respect against Buttgrass, including chain bonuses.
+                    Anonymous ranked-war attacks are grouped as Stealthed. Drag cells, rows, or time columns to total a selection.
+                  </p>
+                  <EnemyCombatHeatmap
+                    key={`${selectedWar.id}-${factionActivityWindow}`}
+                    war={selectedWar}
+                    windowMode={factionActivityWindow}
                   />
                 </CollapsiblePanel>
               ) : null}

@@ -2,6 +2,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_FACTION_ID } from "../src/constants";
+import { getWarEnemyCombatHeatmap } from "../src/enemyCombatHeatmap";
 import { getWarActivity, getWarMemberAttacks, getWarMemberCombatHeatmap } from "../src/warQueries";
 import { applyIncrementalWarSummaries, rebuildWarStatsFromRaw } from "../src/warStats";
 import type { Env } from "../src/types";
@@ -46,6 +47,56 @@ beforeEach(() => {
 afterEach(() => { db.close(); vi.useRealTimers(); });
 
 describe("member combat heatmap time windows", () => {
+  it.each(["real", "termed"])("groups enemy attackers and stealthed ranked hits in the selected %s war window", async (warType) => {
+    db.prepare("UPDATE wars SET war_type = ?").run(warType);
+    if (warType === "termed") {
+      db.prepare(`INSERT INTO war_practical_phases (id, war_id, scheduled_start, start_time, finish_time, status)
+        VALUES ('phase', 1, ?, ?, ?, 'completed')`).run(base + 100, base + 100, base + 300);
+    }
+    attack(1, 150, { defend: true });
+    attack(2, 160, { defend: true, respect: 100, chain: 10 });
+    attack(3, 170, { defend: true });
+    attack(4, 180, { defend: true, respect: 0 });
+    attack(5, 190, { defend: true });
+    attack(6, 200, { defend: true });
+    attack(7, 400, { defend: true });
+    attack(8, 50, { defend: true });
+    attack(9, 1790, { defend: true, end: 1801 });
+    attack(10, 210, { defend: true });
+    attack(11, 220);
+    db.exec(`UPDATE attacks SET attacker_id=NULL, attacker_name=NULL, attacker_faction_id=NULL,
+      is_stealthed=1, is_ranked_war=1 WHERE id IN (2,3,5);
+      UPDATE attacks SET result='Lost' WHERE id=4;
+      UPDATE attacks SET is_ranked_war=0 WHERE id=5;
+      UPDATE attacks SET attacker_faction_id=100, is_ranked_war=1 WHERE id=6;
+      UPDATE attacks SET defender_faction_id=100 WHERE id=10;`);
+    for (const [windowMode, successes] of [["practical", 1], ["official", 3]] as const) {
+      const response = await getWarEnemyCombatHeatmap(new URL(`https://test/api/wars/Test/enemy-combat-heatmap?window=${windowMode}`), env);
+      expect(response.status).toBe(200);
+      const result = await response.json() as any;
+      expect(result.window).toBe(windowMode);
+      expect(result.members).toHaveLength(2);
+      expect(result.members[0]).toMatchObject({ member_id: 20, member_name: "Enemy", attacks_vs_enemy_successful: successes, attacks_total: successes + 1 });
+      expect(result.members[1]).toMatchObject({ member_id: 0, member_name: "Stealthed", attacks_vs_enemy_successful: 2, attacks_total: 2, respect_gained: 105 });
+      expect(result.buckets.reduce((sum: number, row: any) => sum + row.attacks_successful, 0)).toBe(successes + 2);
+      expect(result.buckets.reduce((sum: number, row: any) => sum + row.respect_gained, 0)).toBe(successes * 5 + 105);
+      expect(result.time_buckets).toEqual(windowMode === "practical" ? [base] : [base, base + 900, base + 1800]);
+    }
+  });
+
+  it("validates enemy combat requests and returns empty data for unavailable opponents or windows", async () => {
+    const request = (suffix = "") => getWarEnemyCombatHeatmap(new URL(`https://test/api/wars/Test/enemy-combat-heatmap${suffix}`), env);
+    expect((await request("?window=invalid")).status).toBe(400);
+    expect((await getWarEnemyCombatHeatmap(new URL("https://test/api/wars/Missing/enemy-combat-heatmap"), env)).status).toBe(404);
+    attack(1, 150, { defend: true });
+    db.exec("UPDATE wars SET enemy_faction_id=NULL");
+    expect(await (await request()).json()).toMatchObject({ members: [], buckets: [] });
+    db.exec("UPDATE wars SET enemy_faction_id=99, war_type='event'");
+    expect(await (await request()).json()).toMatchObject({ members: [], buckets: [] });
+    db.prepare("UPDATE wars SET war_type='real', official_end_time=?").run(base - 1);
+    expect(await (await request("?window=official")).json()).toMatchObject({ time_buckets: [], members: [], buckets: [] });
+  });
+
   it.each(["real", "termed"])("counts anonymous ranked-war defenses consistently for %s wars", async (warType) => {
     db.prepare("UPDATE wars SET war_type = ?").run(warType);
     if (warType === "termed") {

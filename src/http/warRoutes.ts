@@ -1,5 +1,6 @@
 import { warCacheVersionNames } from "../cacheVersions";
 import { getEventCompetition, updateEliminationTeamStatus } from "../eventCompetition";
+import { getWarEnemyCombatHeatmap } from "../enemyCombatHeatmap";
 import {
   getChainWatchForWar,
   updateChainWatchForWar,
@@ -268,6 +269,15 @@ export async function routeWarReads(routeContext: RouteContext): Promise<RouteRe
       routeContext,
       warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
       () => getWarMemberCombatHeatmap(url, env),
+      warVersionNames,
+    );
+  }
+
+  if (isWarSubroute(url, request, "/enemy-combat-heatmap", "GET")) {
+    return cachedMemberGet(
+      routeContext,
+      warDataTtlSeconds(5 * 60, OFFICIAL_END_CACHE_TTL_SECONDS),
+      () => getWarEnemyCombatHeatmap(url, env),
       warVersionNames,
     );
   }

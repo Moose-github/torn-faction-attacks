@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getWarEnemyCombatHeatmap } from "../enemyCombatHeatmap";
 import { requireAdmin, requireMember } from "../auth";
 import { warCacheVersionNames } from "../cacheVersions";
 import { getChainWatchForWar } from "../chainWatchWar";
@@ -27,6 +28,8 @@ vi.mock("../auth", () => ({
   requireAdmin: vi.fn(),
   requireMember: vi.fn(),
 }));
+
+vi.mock("../enemyCombatHeatmap", () => ({ getWarEnemyCombatHeatmap: vi.fn() }));
 
 vi.mock("../cacheVersions", () => ({
   warCacheVersionNames: vi.fn((warName: string) => [`cache_version:war:${warName}`]),
@@ -234,6 +237,19 @@ describe("war read routes", () => {
     expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
     expect(warCacheVersionNames).toHaveBeenCalledWith("current");
     expect(getEnemyMemberActivityHeatmap).toHaveBeenCalledWith(context.url, context.env);
+  });
+
+  it("routes the enemy combat heatmap through member authentication and the war cache", async () => {
+    const context = routeContext("https://worker.test/api/wars/current/enemy-combat-heatmap?window=official");
+    vi.mocked(getWarEnemyCombatHeatmap).mockResolvedValueOnce(jsonResponse({ ok: true, buckets: [] }));
+    expect((await routeWarReads(context))?.status).toBe(200);
+    expect(requireMember).toHaveBeenCalledWith(context.request, context.env);
+    expect(warCacheVersionNames).toHaveBeenCalledWith("current");
+    expect(getWarEnemyCombatHeatmap).toHaveBeenCalledWith(context.url, context.env);
+    vi.mocked(getWarEnemyCombatHeatmap).mockClear();
+    vi.mocked(requireMember).mockResolvedValueOnce(jsonResponse({ ok: false }, 403));
+    expect((await routeWarReads(context))?.status).toBe(403);
+    expect(getWarEnemyCombatHeatmap).not.toHaveBeenCalled();
   });
 
   it("routes enemy big hitter reads through the war cache", async () => {
