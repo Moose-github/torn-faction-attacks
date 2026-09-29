@@ -2,8 +2,8 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HOME_FACTION_ID } from "../src/constants";
-import { getWarActivity, getWarMemberCombatHeatmap } from "../src/warQueries";
-import { rebuildWarStatsFromRaw } from "../src/warStats";
+import { getWarActivity, getWarMemberAttacks, getWarMemberCombatHeatmap } from "../src/warQueries";
+import { applyIncrementalWarSummaries, rebuildWarStatsFromRaw } from "../src/warStats";
 import type { Env } from "../src/types";
 
 const base = 1_800_000_000;
@@ -46,6 +46,48 @@ beforeEach(() => {
 afterEach(() => { db.close(); vi.useRealTimers(); });
 
 describe("member combat heatmap time windows", () => {
+  it.each(["real", "termed"])("counts anonymous ranked-war defenses consistently for %s wars", async (warType) => {
+    db.prepare("UPDATE wars SET war_type = ?").run(warType);
+    if (warType === "termed") {
+      db.prepare(`INSERT INTO war_practical_phases (id, war_id, scheduled_start, start_time, finish_time, status)
+        VALUES ('phase', 1, ?, ?, ?, 'completed')`).run(base + 100, base + 100, base + 300);
+    }
+    attack(1, 150, { defend: true }); // Anonymous ranked-war hit: included.
+    attack(2, 160, { defend: true }); // Anonymous ordinary hit: excluded.
+    attack(3, 170, { defend: true }); // Known different faction: excluded, even with ranked flag.
+    attack(4, 400, { defend: true }); // After practical finish: official window only.
+    attack(5, 50, { defend: true }); // Before practical start: official window only.
+    attack(6, 180, { defend: true }); // Not against our faction: excluded.
+    attack(7, 190, { defend: true }); // Known enemy: included.
+    attack(8, 200); // Outgoing totals remain unchanged.
+    db.exec(`UPDATE attacks SET attacker_id = NULL, attacker_name = NULL, attacker_faction_id = NULL,
+      is_stealthed = 1, is_ranked_war = 1 WHERE id IN (1, 2, 4, 5, 6);
+      UPDATE attacks SET is_ranked_war = 0 WHERE id = 2;
+      UPDATE attacks SET attacker_faction_id = 100, is_ranked_war = 1 WHERE id = 3;
+      UPDATE attacks SET defender_faction_id = 100 WHERE id = 6;
+      UPDATE attacks SET ingest_run_id = 'stealth-test';`);
+    const stats = () => db.prepare(`SELECT attacks_vs_enemy_successful, respect_gained,
+      defends_total, respect_lost, respect_lost_raw FROM war_member_stats WHERE member_id = 10`).get();
+    const expected = { attacks_vs_enemy_successful: 1, respect_gained: 5, defends_total: 2, respect_lost: 10, respect_lost_raw: 10 };
+    await applyIncrementalWarSummaries(env, 1, "stealth-test");
+    expect(stats()).toMatchObject(expected);
+    await applyIncrementalWarSummaries(env, 1, "stealth-test");
+    expect(stats()).toMatchObject(expected);
+    await rebuildWarStatsFromRaw(env, { scope: "single-war", warId: 1 });
+    expect(stats()).toMatchObject(expected);
+    expect(db.prepare("SELECT total_respect_lost FROM war_summary WHERE war_id = 1").get()).toMatchObject({ total_respect_lost: 10 });
+    for (const [window, count] of [["practical", 2], ["official", 4]] as const) {
+      const combat = await (await heatmap(window)).json() as any;
+      expect(combat.buckets.reduce((sum: number, b: any) => sum + b.defends_lost, 0)).toBe(count);
+      const activity = await (await getWarActivity(new URL(`https://test/api/wars/Test/activity?window=${window}`), env)).json() as any;
+      expect(activity.buckets.reduce((sum: number, b: any) => sum + b.defend_lost, 0)).toBe(count);
+    }
+    const detail = await (await getWarMemberAttacks(new URL("https://test/api/wars/Test/members/10/attacks"), env)).json() as any;
+    expect(detail.attacks.find((row: any) => row.id === 1)).toMatchObject({ classification: "defend_lost", attacker_id: null });
+    expect(detail.attacks.find((row: any) => row.id === 2)).toMatchObject({ classification: "other" });
+    expect(detail.attacks.find((row: any) => row.id === 3)).toMatchObject({ classification: "other" });
+  });
+
   it("defaults to practical and includes official-only combat, members, and empty time buckets in official mode", async () => {
     attack(1, 150);
     attack(2, 50);

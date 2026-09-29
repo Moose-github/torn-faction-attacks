@@ -74,7 +74,7 @@ export async function exportWarAttacksCsv(url: URL, env: Env): Promise<Response>
               OR (
                 ? != 'event'
                 AND ? IS NOT NULL
-                AND a.attacker_faction_id = ?
+                AND (a.attacker_faction_id = ? OR (a.attacker_faction_id IS NULL AND a.is_ranked_war = 1))
                 AND a.defender_faction_id = ${HOME_FACTION_ID}
               )
             )

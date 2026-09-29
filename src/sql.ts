@@ -1,3 +1,5 @@
+import { HOME_FACTION_ID } from "./constants";
+
 const WAR_COLUMN_NAMES = [
   "id",
   "name",
@@ -100,3 +102,22 @@ export const DEFENSE_ACTION_WINDOW_SQL = `(
     AND (w.official_end_time IS NULL OR COALESCE(a.ended, a.started) <= w.official_end_time)
   )))
 )`;
+
+// Ranked-war attacks can hide the attacker and faction when stealthed.
+export const RELEVANT_DEFEND_SQL = `
+  (
+    (
+      COALESCE(w.war_type, 'real') = 'event'
+      AND a.defender_faction_id = ${HOME_FACTION_ID}
+    )
+    OR (
+      COALESCE(w.war_type, 'real') != 'event'
+      AND w.enemy_faction_id IS NOT NULL
+      AND (
+        a.attacker_faction_id = w.enemy_faction_id
+        OR (a.attacker_faction_id IS NULL AND a.is_ranked_war = 1)
+      )
+      AND a.defender_faction_id = ${HOME_FACTION_ID}
+    )
+  )
+`;

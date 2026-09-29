@@ -4,7 +4,7 @@ import {
   HOME_FACTION_ID,
   POSITIVE_RESULTS_SQL,
 } from "../constants";
-import { OUTGOING_ACTION_WINDOW_SQL } from "../sql";
+import { OUTGOING_ACTION_WINDOW_SQL, RELEVANT_DEFEND_SQL } from "../sql";
 import { Env } from "../types";
 import { d1Changes, nowSeconds } from "../utils";
 import { ATTACK_MEMBER_STAT_MERGE_SQL, DEFEND_MEMBER_STAT_MERGE_SQL } from "./sqlFragments";
@@ -14,20 +14,6 @@ const MEMBER_ACTIVITY_BUCKET_SECONDS = 15 * 60;
 const WAR_STATS_REBUILD_LEASE_SECONDS = 15 * 60;
 const WAR_STATS_REBUILD_LEASE_PREFIX = "war_stats_rebuild";
 const PRACTICAL_DEFENSE_ACTION_WINDOW_SQL = OUTGOING_ACTION_WINDOW_SQL;
-const RELEVANT_DEFEND_SQL = `
-  (
-    (
-      COALESCE(w.war_type, 'real') = 'event'
-      AND a.defender_faction_id = ${HOME_FACTION_ID}
-    )
-    OR (
-      COALESCE(w.war_type, 'real') != 'event'
-      AND w.enemy_faction_id IS NOT NULL
-      AND a.attacker_faction_id = w.enemy_faction_id
-      AND a.defender_faction_id = ${HOME_FACTION_ID}
-    )
-  )
-`;
 
 export type WarStatsRebuildScope = "single-war" | "open-wars" | "all-wars";
 

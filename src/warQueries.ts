@@ -11,6 +11,7 @@ import {
 import {
   DEFENSE_ACTION_WINDOW_SQL,
   OUTGOING_ACTION_WINDOW_SQL,
+  RELEVANT_DEFEND_SQL,
   WAR_SELECT_COLUMNS_WITH_ALIAS,
 } from "./sql";
 import { readSyncState } from "./syncState";
@@ -22,20 +23,7 @@ import { warMemberCombatBucketsCte } from "./warStats/memberStats";
 const REPORTABLE_HOME_MEMBER_FILTER_SQL = "COALESCE(h.report_exempt, 0) = 0";
 const CURRENT_HOME_MEMBER_FILTER_SQL = "COALESCE(h.is_current, 0) = 1";
 const PRACTICAL_DEFENSE_ACTION_WINDOW_SQL = OUTGOING_ACTION_WINDOW_SQL;
-const RELEVANT_DEFEND_SQL = `
-  (
-    (
-      COALESCE(w.war_type, 'real') = 'event'
-      AND a.defender_faction_id = ${HOME_FACTION_ID}
-    )
-    OR (
-      COALESCE(w.war_type, 'real') != 'event'
-      AND w.enemy_faction_id IS NOT NULL
-      AND a.attacker_faction_id = w.enemy_faction_id
-      AND a.defender_faction_id = ${HOME_FACTION_ID}
-    )
-  )
-`;
+
 type ReportableHomeMemberJoinTarget = "wms.member_id" | "buckets.member_id";
 type WarIdentityRow = { id: number; name: string };
 type WarMemberAttacksRouteWar = {
@@ -317,7 +305,8 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
         a.result,
         a.respect_gain,
         a.respect_loss,
-        a.m_retaliation
+        a.m_retaliation,
+        a.is_ranked_war
       FROM attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
@@ -341,7 +330,8 @@ export async function getWarMemberAttacks(url: URL, env: Env): Promise<Response>
         a.result,
         a.respect_gain,
         a.respect_loss,
-        a.m_retaliation
+        a.m_retaliation,
+        a.is_ranked_war
       FROM attacks a
       JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
@@ -954,6 +944,7 @@ function classifyMemberAttack(
     defender_faction_id: number | null;
     result: string | null;
     m_retaliation?: number | null;
+    is_ranked_war?: number | null;
   },
   memberId: number,
   enemyFactionId: number | null,
@@ -988,7 +979,8 @@ function classifyMemberAttack(
       warType === "event" ||
       (
         enemyFactionId !== null &&
-        attack.attacker_faction_id === enemyFactionId
+        (attack.attacker_faction_id === enemyFactionId ||
+          (attack.attacker_faction_id === null && attack.is_ranked_war === 1))
       )
     ) &&
     attack.defender_faction_id === HOME_FACTION_ID

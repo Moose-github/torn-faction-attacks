@@ -395,7 +395,7 @@ export function WarDetailView({
                     </table>
                   </div>
                   <p className="panel-description">
-                    Torn drops decimals from its faction respect total. After dashboard adjustments, a faction respect delta from 0 to less than +1 counts as a match.
+                    Torn drops decimals from both factions' respect totals. After dashboard adjustments, faction respect and enemy score deltas from 0 to less than +1 count as a match.
                   </p>
                   <section className="nested-discrepancy-panel">
                     <div className="nested-discrepancy-header">
@@ -799,7 +799,7 @@ function buildReportValidationRows(values: {
     reportValidationRow("Faction attacks", values.factionAttacks, 0),
     reportValidationRow("Faction respect", values.factionRespect, "truncated"),
     reportValidationRow("Enemy attacks", values.enemyAttacks, 0),
-    reportValidationRow("Enemy score", values.enemyScore, 0.1),
+    reportValidationRow("Enemy score", values.enemyScore, "truncated"),
   ];
 }
 
