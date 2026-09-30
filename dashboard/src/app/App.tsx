@@ -1,3 +1,5 @@
+import { startPolling, type PollContext } from "../utils/polling";
+import { ChainWatchLiveProvider } from "../hooks/ChainWatchLiveProvider";
 import React from "react";
 import {
   BarChart3,
@@ -342,29 +344,28 @@ export function App() {
     let cancelled = false;
 
     let latestRequest = 0;
-    async function loadGlobalWarState() {
+    async function loadGlobalWarState({ signal, isCurrent }: PollContext) {
       const requestId = ++latestRequest;
       try {
-        const response = await getGlobalWarState();
-        if (!cancelled && requestId === latestRequest) {
+        const response = await getGlobalWarState(signal);
+        if (isCurrent() && !cancelled && requestId === latestRequest) {
           setWarState(response.war_state);
           setActiveWarId(response.active_war_id);
           setGlobalWar(response.active_war);
         }
       } catch (err) {
-        if (!cancelled && requestId === latestRequest) {
+        if (isCurrent() && !cancelled && requestId === latestRequest) {
           setError(err instanceof Error ? err.message : String(err));
         }
       }
     }
 
-    loadGlobalWarState();
-    window.addEventListener("practical-phases-changed", loadGlobalWarState);
-    const timer = window.setInterval(loadGlobalWarState, GLOBAL_WAR_STATE_REFRESH_MS);
+    const poll = startPolling(loadGlobalWarState, { intervalMs: GLOBAL_WAR_STATE_REFRESH_MS });
+    window.addEventListener("practical-phases-changed", poll.invalidate);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
-      window.removeEventListener("practical-phases-changed", loadGlobalWarState);
+      poll.stop();
+      window.removeEventListener("practical-phases-changed", poll.invalidate);
     };
   }, [authSession, shouldLoadFullWars]);
 
@@ -438,32 +439,26 @@ export function App() {
     let cancelled = false;
     const chainBonusWarName = selectedWarName;
 
-    async function loadChainBonuses() {
+    async function loadChainBonuses({ signal, isCurrent }: PollContext) {
       try {
-        const response = await getWarChainBonuses(chainBonusWarName);
-        if (!cancelled) {
+        const response = await getWarChainBonuses(chainBonusWarName, signal);
+        if (isCurrent() && !cancelled) {
           setChainBonuses(Array.isArray(response.chain_bonuses) ? response.chain_bonuses : []);
         }
       } catch {
-        if (!cancelled) {
+        if (isCurrent() && !cancelled) {
           setChainBonuses([]);
         }
       }
     }
 
-    loadChainBonuses();
-
-    if (selectedWar.official_end_time !== null || selectedWar.status === "ended") {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const timer = window.setInterval(loadChainBonuses, warSecondaryPanelRefreshInterval(selectedWar));
+    const poll = startPolling(loadChainBonuses, {
+      intervalMs: selectedWar.official_end_time !== null || selectedWar.status === "ended" ? null : warSecondaryPanelRefreshInterval(selectedWar),
+    });
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, [
     authSession,
@@ -481,40 +476,33 @@ export function App() {
     let cancelled = false;
     const activityWarName = selectedWarName;
 
-    async function loadActivity() {
+    async function loadActivity({ signal, isCurrent }: PollContext) {
       setIsLoadingActivity(true);
       setError(null);
 
       try {
-        const response = await getWarActivity(activityWarName, factionActivityWindow);
-        if (!cancelled) {
+        const response = await getWarActivity(activityWarName, factionActivityWindow, signal);
+        if (isCurrent() && !cancelled) {
           setActivityBuckets(Array.isArray(response.buckets) ? response.buckets : []);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (isCurrent() && !cancelled) {
           setError(err instanceof Error ? err.message : String(err));
         }
       } finally {
-        if (!cancelled) {
+        if (isCurrent() && !cancelled) {
           setIsLoadingActivity(false);
         }
       }
     }
 
-    loadActivity();
-
-    if (selectedWar.official_end_time !== null || selectedWar.status === "ended") {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const refreshMs = warSecondaryPanelRefreshInterval(selectedWar);
-    const timer = window.setInterval(loadActivity, refreshMs);
+    const poll = startPolling(loadActivity, {
+      intervalMs: selectedWar.official_end_time !== null || selectedWar.status === "ended" ? null : warSecondaryPanelRefreshInterval(selectedWar),
+    });
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, [
     authSession,
@@ -536,41 +524,34 @@ export function App() {
     let cancelled = false;
     const heatmapWarName = selectedWarName;
 
-    async function loadMemberCombatHeatmap() {
+    async function loadMemberCombatHeatmap({ signal, isCurrent }: PollContext) {
       setIsLoadingMemberCombatHeatmap(true);
       setError(null);
 
       try {
-        const response = await getWarMemberCombatHeatmap(heatmapWarName, memberCombatWindow);
-        if (!cancelled) {
+        const response = await getWarMemberCombatHeatmap(heatmapWarName, memberCombatWindow, signal);
+        if (isCurrent() && !cancelled) {
           setMemberCombatHeatmap(response);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (isCurrent() && !cancelled) {
           setError(err instanceof Error ? err.message : String(err));
           setMemberCombatHeatmap(null);
         }
       } finally {
-        if (!cancelled) {
+        if (isCurrent() && !cancelled) {
           setIsLoadingMemberCombatHeatmap(false);
         }
       }
     }
 
-    loadMemberCombatHeatmap();
-
-    if (selectedWar.official_end_time !== null || selectedWar.status === "ended") {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const refreshMs = warMemberCombatHeatmapRefreshInterval(selectedWar);
-    const timer = window.setInterval(loadMemberCombatHeatmap, refreshMs);
+    const poll = startPolling(loadMemberCombatHeatmap, {
+      intervalMs: selectedWar.official_end_time !== null || selectedWar.status === "ended" ? null : warMemberCombatHeatmapRefreshInterval(selectedWar),
+    });
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, [
     authSession,
@@ -614,16 +595,16 @@ export function App() {
     }
 
     let cancelled = false;
-    const timer = window.setInterval(async () => {
+    const poll = startPolling(async ({ signal, isCurrent }) => {
       const warsId = ++warsRequestId.current;
       const detailId = ++detailRequestId.current;
       try {
         const [warsResponse, detailResponse] = await Promise.all([
-          getWars(warType),
-          getWar(selectedWarName),
+          getWars(warType, signal),
+          getWar(selectedWarName, signal),
         ]);
 
-        if (cancelled || warsId !== warsRequestId.current || detailId !== detailRequestId.current) {
+        if (!isCurrent() || cancelled || warsId !== warsRequestId.current || detailId !== detailRequestId.current) {
           return;
         }
 
@@ -635,23 +616,23 @@ export function App() {
         setIsLoadingDetail(false);
 
         if (detailResponse.war.torn_report_fetched_at && shouldLoadReportDiscrepancies) {
-          const discrepancies = await getWarReportDiscrepancies(selectedWarName);
-          if (!cancelled && warsId === warsRequestId.current && detailId === detailRequestId.current) {
+          const discrepancies = await getWarReportDiscrepancies(selectedWarName, signal);
+          if (isCurrent() && !cancelled && warsId === warsRequestId.current && detailId === detailRequestId.current) {
             setReportDiscrepancies(discrepancies);
           }
         } else if (!detailResponse.war.torn_report_fetched_at) {
           setReportDiscrepancies(null);
         }
       } catch (err) {
-        if (!cancelled && warsId === warsRequestId.current && detailId === detailRequestId.current) {
+        if (isCurrent() && !cancelled && warsId === warsRequestId.current && detailId === detailRequestId.current) {
           setError(err instanceof Error ? err.message : String(err));
         }
       }
-    }, refreshMs);
+    }, { intervalMs: refreshMs, immediate: false });
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, [
     activeWarId,
@@ -707,7 +688,7 @@ export function App() {
   React.useEffect(() => {
     let cancelled = false;
 
-    async function loadMemberAttacks() {
+    async function loadMemberAttacks({ signal, isCurrent }: PollContext) {
       if (!authSession || view !== "war" || !selectedWarName || !selectedMember) {
         setMemberAttacks([]);
         setIsLoadingMemberAttacks(false);
@@ -718,33 +699,27 @@ export function App() {
       setError(null);
 
       try {
-        const response = await getWarMemberAttacks(selectedWarName, selectedMember.member_id);
-        if (!cancelled) {
+        const response = await getWarMemberAttacks(selectedWarName, selectedMember.member_id, signal);
+        if (isCurrent() && !cancelled) {
           setMemberAttacks(response.attacks);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (isCurrent() && !cancelled) {
           setError(err instanceof Error ? err.message : String(err));
         }
       } finally {
-        if (!cancelled) {
+        if (isCurrent() && !cancelled) {
           setIsLoadingMemberAttacks(false);
         }
       }
     }
 
-    loadMemberAttacks();
-    const refreshMs = isGlobalCurrentWar(selectedWar, activeWarId, warState) ? ACTIVE_WAR_REFRESH_MS : null;
-    if (refreshMs === null) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const timer = window.setInterval(loadMemberAttacks, refreshMs);
+    const poll = startPolling(loadMemberAttacks, {
+      intervalMs: isGlobalCurrentWar(selectedWar, activeWarId, warState) ? ACTIVE_WAR_REFRESH_MS : null,
+    });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, [activeWarId, authSession, selectedMember, selectedWar?.id, selectedWarName, view, warState]);
 
@@ -861,7 +836,7 @@ export function App() {
         />
       ) : (
 
-      <div className="dashboard-layout">
+      <ChainWatchLiveProvider key={`${authSession.user.id}:${authSession.access_level}`}><div className="dashboard-layout">
         <Sidebar
           warType={warType}
           onWarTypeChange={setWarType}
@@ -1021,7 +996,7 @@ export function App() {
             </section>
           )}
         </section>
-      </div>
+      </div></ChainWatchLiveProvider>
       )}
     </main>
   );

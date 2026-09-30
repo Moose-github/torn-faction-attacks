@@ -1,3 +1,4 @@
+import { startPolling, type PollContext } from "../utils/polling";
 import React from "react";
 import { ArrowDown, ArrowUp, Candy, Flag, RefreshCw, Shield } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -22,21 +23,17 @@ export function useEventCompetition(war: WarSummary) {
   React.useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    let running = false;
-    async function refresh() {
-      if (running) return;
-      running = true;
+    async function refresh({ signal, isCurrent }: PollContext) {
       const startedRevision = revision.current;
       try {
-        const response = await getEventCompetition(war.name);
-        if (!cancelled && revision.current === startedRevision) setResult({ name: war.name, data: response.competition, error: null });
+        const response = await getEventCompetition(war.name, signal);
+        if (isCurrent() && !cancelled && revision.current === startedRevision) setResult({ name: war.name, data: response.competition, error: null });
       } catch {
-        if (!cancelled && revision.current === startedRevision) setResult(previous => ({ name: war.name, data: previous.name === war.name ? previous.data : null, error: "Competition data could not be loaded" }));
-      } finally { running = false; }
+        if (isCurrent() && !cancelled && revision.current === startedRevision) setResult(previous => ({ name: war.name, data: previous.name === war.name ? previous.data : null, error: "Competition data could not be loaded" }));
+      }
     }
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 60000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    const poll = startPolling(refresh, { intervalMs: 60_000 });
+    return () => { cancelled = true; poll.stop(); };
   }, [enabled, war.name, war.event_type, war.status, war.practical_start_time, war.practical_finish_time, war.competition_refresh_hours]);
   return { enabled, data: enabled && result.name === war.name ? result.data : null, error: enabled && result.name === war.name ? result.error : null, applyUpdate };
 }

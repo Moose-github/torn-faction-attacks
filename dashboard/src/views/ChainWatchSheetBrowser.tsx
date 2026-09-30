@@ -1,34 +1,20 @@
 import React from "react";
-import { watchDate, type ChainWatchHistoryResponse } from "../../../shared/chainWatchSchedule";
+import { usePollingResource } from "../hooks/usePollingResource";
+import { watchDate } from "../../../shared/chainWatchSchedule";
 import { getChainWatchHistory } from "../api/chainWatchSchedule";
 
 export function ChainWatchSheetBrowser({ watchId, busy, refreshKey }: {
   watchId: string | null; busy: boolean; refreshKey: number;
 }) {
-  const [history, setHistory] = React.useState<ChainWatchHistoryResponse | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [retry, setRetry] = React.useState(0);
+  const { data: history, error, refresh, invalidate } = usePollingResource("chain-watch-history", getChainWatchHistory, {
+    intervalMs: 60_000, pauseWhenHidden: true, refreshOnFocus: true,
+  });
 
+  const previousRefreshKey = React.useRef(refreshKey);
   React.useEffect(() => {
-    let disposed = false;
-    let version = 0;
-    async function refresh() {
-      const request = ++version;
-      try {
-        const next = await getChainWatchHistory();
-        if (disposed || request !== version) return;
-        setHistory(next);
-        setError(null);
-      } catch (err) {
-        if (!disposed && request === version) setError(err instanceof Error ? err.message : String(err));
-      }
-    }
-    const wake = () => { if (!document.hidden) void refresh(); };
-    void refresh();
-    const timer = window.setInterval(wake, 60_000);
-    window.addEventListener("focus", wake);
-    return () => { disposed = true; window.clearInterval(timer); window.removeEventListener("focus", wake); };
-  }, [refreshKey, retry]);
+    if (previousRefreshKey.current !== refreshKey) invalidate();
+    previousRefreshKey.current = refreshKey;
+  }, [refreshKey, invalidate]);
 
   const watches = history?.watches ?? [];
   return <div className="watch-chain-selector">
@@ -44,6 +30,6 @@ export function ChainWatchSheetBrowser({ watchId, busy, refreshKey }: {
         })}
       </select>
     </label>
-    {error ? <p className="watch-browser-error" role="alert">Could not load the chain list. {error} <button type="button" className="panel-action-button" onClick={() => setRetry(value => value + 1)}>Retry</button></p> : null}
+    {error ? <p className="watch-browser-error" role="alert">Could not load the chain list. {error instanceof Error ? error.message : String(error)} <button type="button" className="panel-action-button" onClick={refresh}>Retry</button></p> : null}
   </div>;
 }

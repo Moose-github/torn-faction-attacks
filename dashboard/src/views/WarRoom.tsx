@@ -1,3 +1,4 @@
+import { useWarRoomTracking, useWarRoomHeatmaps, useWarChainWatch } from "../hooks/useWarRoomData";
 import { PracticalPhases } from "../components/PracticalPhases";
 import React from "react";
 import { EventRoomCompetition } from "../components/EventCompetition";
@@ -9,17 +10,12 @@ import {
   EnemyBigHittersResponse,
   EnemyHitStatTrend,
   EnemyPushPressureResponse,
-  EnemyScoutingResponse,
   FactionActivityHeatmapResponse,
   ChainWatchResponse,
   EnemyMemberActivityHeatmapResponse,
   getAdminWarControlSettings,
-  getChainWatch,
   getEnemyBigHitters,
-  getEnemyMemberActivityHeatmap,
-  getEnemyPushPressure,
   getStoredAuthSession,
-  getEnemyScouting,
   getScoutingComparison,
   getWarControl,
   getWarActivityHeatmap,
@@ -50,10 +46,6 @@ import { resolveWarPhase, WAR_PREPARATION_SECONDS, type WarPhase, type WarTracki
 import { warRoomPanelVisibility } from "../../../shared/warRoomPolicy";
 import { ScoutingComparisonMetric } from "../../../shared/scoutingBuckets";
 
-const WAR_ROOM_HEATMAP_REFRESH_MS = 15 * 60_000;
-const WAR_ROOM_PUSH_HISTORY_REFRESH_MS = 5 * 60_000;
-const WAR_ROOM_MEMBER_TRACKING_REFRESH_MS = 30_000;
-const WAR_ROOM_CHAIN_WATCH_REFRESH_MS = 15_000;
 
 type TrackingMode = WarTrackingMode;
 type ActivityHeatmapMode = "faction" | "bigHitters" | "selectedPlayers";
@@ -73,7 +65,6 @@ export function WarRoom({
   onError: (message: string | null) => void;
   onOpenHospitalMonitor: () => void;
 }) {
-  const [enemyScouting, setEnemyScouting] = React.useState<EnemyScoutingResponse | null>(null);
   const [enemyBigHitters, setEnemyBigHitters] = React.useState<EnemyBigHittersResponse | null>(null);
   const [isLoadingEnemyBigHitters, setIsLoadingEnemyBigHitters] = React.useState(false);
   const [isUpdatingEnemyBigHitters, setIsUpdatingEnemyBigHitters] = React.useState(false);
@@ -81,29 +72,14 @@ export function WarRoom({
   const [canRefreshEnemyScouting, setCanRefreshEnemyScouting] = React.useState(
     () => getStoredAuthSession()?.access_level === "admin",
   );
-  const [isLoadingEnemyScouting, setIsLoadingEnemyScouting] = React.useState(false);
   const [isRefreshingEnemyScouting, setIsRefreshingEnemyScouting] = React.useState(false);
-  const [scoutingComparison, setScoutingComparison] =
-    React.useState<ScoutingComparisonResponse | null>(null);
   const [scoutingComparisonMetric, setScoutingComparisonMetric] =
     React.useState<ScoutingComparisonMetric>("ff_battlestats");
-  const [isLoadingScoutingComparison, setIsLoadingScoutingComparison] = React.useState(false);
-  const [activityHeatmap, setActivityHeatmap] =
-    React.useState<FactionActivityHeatmapResponse | null>(null);
-  const [isLoadingActivityHeatmap, setIsLoadingActivityHeatmap] = React.useState(false);
   const [activityHeatmapMode, setActivityHeatmapMode] = React.useState<ActivityHeatmapMode>("faction");
-  const [enemyMemberActivityHeatmap, setEnemyMemberActivityHeatmap] =
-    React.useState<EnemyMemberActivityHeatmapResponse | null>(null);
-  const [isLoadingEnemyMemberActivityHeatmap, setIsLoadingEnemyMemberActivityHeatmap] = React.useState(false);
   const [selectedActivityMemberIds, setSelectedActivityMemberIds] = React.useState<number[]>([]);
-  const [pushPressure, setPushPressure] = React.useState<EnemyPushPressureResponse | null>(null);
-  const [isLoadingPushPressure, setIsLoadingPushPressure] = React.useState(false);
-  const [warControl, setWarControl] = React.useState<WarControlResponse | null>(null);
-  const [isLoadingWarControl, setIsLoadingWarControl] = React.useState(false);
   const [warControlSettingsDraft, setWarControlSettingsDraft] = React.useState<WarControlSettings | null>(null);
+  const settingsDirty = React.useRef(false);
   const [isSavingWarControlSettings, setIsSavingWarControlSettings] = React.useState(false);
-  const [chainWatch, setChainWatch] = React.useState<ChainWatchResponse | null>(null);
-  const [isLoadingChainWatch, setIsLoadingChainWatch] = React.useState(false);
   const [isTogglingChainWatch, setIsTogglingChainWatch] = React.useState(false);
   const [collapsedPanels, setCollapsedPanels] = React.useState<Record<string, boolean>>({
     activityHeatmaps: true,
@@ -133,7 +109,17 @@ export function WarRoom({
   );
   const activeEnemyActivityMemberIds =
     activityHeatmapMode === "bigHitters" ? bigHitterActivityMemberIds : selectedActivityMemberIds;
-  const activeEnemyActivityMemberKey = activeEnemyActivityMemberIds.join(",");
+  const {
+    enemyScouting, setEnemyScouting, isLoadingEnemyScouting,
+    scoutingComparison, setScoutingComparison, isLoadingScoutingComparison,
+    pushPressure, isLoadingPushPressure, warControl, setWarControl, isLoadingWarControl,
+  } = useWarRoomTracking(selectedWarName, phaseRequestKey, canLoadEnemyWarRoom, isMemberTrackingActive);
+  const { chainWatch, setChainWatch, isLoadingChainWatch } = useWarChainWatch(selectedWarName, phaseRequestKey, isWarLive);
+  const { activityHeatmap, setActivityHeatmap, isLoadingActivityHeatmap, enemyMemberActivityHeatmap, isLoadingEnemyMemberActivityHeatmap } = useWarRoomHeatmaps({
+    warName: selectedWarName, warId: selectedWar?.id, phaseKey: phaseRequestKey,
+    enabled: canLoadActivityHeatmap && isActivityHeatmapsOpen, live: isWarLive,
+    memberIds: activeEnemyActivityMemberIds, memberMode: activityHeatmapMode !== "faction",
+  });
   const trackingMode: TrackingMode = isEventRoom
     ? isWarLive ? "live" : isMemberTrackingActive ? "pre-live" : "inactive"
     : phaseState.trackingMode;
@@ -150,6 +136,14 @@ export function WarRoom({
     isMemberTrackingActive
       ? scoutingComparison?.war.status_checked_at ?? latestRevivableMemberUpdatedAt
       : latestRevivableMemberUpdatedAt;
+
+  React.useEffect(() => {
+    settingsDirty.current = false;
+    setWarControlSettingsDraft(null);
+  }, [selectedWarName]);
+  React.useEffect(() => {
+    if (!settingsDirty.current && warControl?.settings) setWarControlSettingsDraft(warControl.settings);
+  }, [warControl?.settings]);
 
   function togglePanel(panel: string) {
     setCollapsedPanels((current) => ({
@@ -184,75 +178,9 @@ export function WarRoom({
   React.useEffect(() => {
     setActivityHeatmapMode("faction");
     setSelectedActivityMemberIds([]);
-    setEnemyMemberActivityHeatmap(null);
   }, [selectedWarName]);
 
-  React.useEffect(() => {
-    let cancelled = false;
 
-    async function loadEnemyScouting() {
-      if (!selectedWarName || !canLoadEnemyWarRoom) {
-        setEnemyScouting(null);
-        return;
-      }
-
-      setIsLoadingEnemyScouting(true);
-
-      try {
-        const response = await getEnemyScouting(selectedWarName);
-        if (!cancelled) {
-          setEnemyScouting(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setEnemyScouting(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingEnemyScouting(false);
-        }
-      }
-    }
-
-    loadEnemyScouting();
-    return () => {
-      cancelled = true;
-    };
-  }, [canLoadEnemyWarRoom, selectedWarName, phaseRequestKey]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadWarControl() {
-      if (!selectedWarName || !canLoadEnemyWarRoom) {
-        setWarControl(null);
-        return;
-      }
-
-      setIsLoadingWarControl(true);
-
-      try {
-        const response = await getWarControl(selectedWarName);
-        if (!cancelled) {
-          setWarControl(response);
-          setWarControlSettingsDraft(response.settings);
-        }
-      } catch {
-        if (!cancelled) {
-          setWarControl(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingWarControl(false);
-        }
-      }
-    }
-
-    loadWarControl();
-    return () => {
-      cancelled = true;
-    };
-  }, [canLoadEnemyWarRoom, selectedWarName, phaseRequestKey]);
 
   React.useEffect(() => {
     if (!canRefreshEnemyScouting || !canLoadEnemyWarRoom) {
@@ -265,11 +193,11 @@ export function WarRoom({
       try {
         const response = await getAdminWarControlSettings();
         if (!cancelled) {
-          setWarControlSettingsDraft(response.settings);
+          if (!settingsDirty.current) setWarControlSettingsDraft(response.settings);
         }
       } catch {
         if (!cancelled) {
-          setWarControlSettingsDraft(warControl?.settings ?? null);
+          if (!settingsDirty.current) setWarControlSettingsDraft(warControl?.settings ?? null);
         }
       }
     }
@@ -314,375 +242,6 @@ export function WarRoom({
     };
   }, [canLoadEnemyWarRoom, selectedWarName, phaseRequestKey]);
 
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadChainWatch() {
-      if (!selectedWarName || !selectedWar) {
-        setChainWatch(null);
-        return;
-      }
-
-      setIsLoadingChainWatch(true);
-
-      try {
-        const response = await getChainWatch(selectedWarName);
-        if (!cancelled) {
-          setChainWatch(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setChainWatch(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingChainWatch(false);
-        }
-      }
-    }
-
-    loadChainWatch();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedWar?.id, selectedWarName, phaseRequestKey]);
-
-  React.useEffect(() => {
-    if (!selectedWarName || !selectedWar || !isWarLive) {
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setInterval(async () => {
-      try {
-        const response = await getChainWatch(selectedWarName);
-        if (!cancelled) {
-          setChainWatch(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setChainWatch(null);
-        }
-      }
-    }, WAR_ROOM_CHAIN_WATCH_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [isWarLive, selectedWar?.id, selectedWarName, phaseRequestKey]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadPushPressure() {
-      if (!selectedWarName || !canLoadEnemyWarRoom) {
-        setPushPressure(null);
-        return;
-      }
-
-      setIsLoadingPushPressure(true);
-
-      try {
-        const response = await getEnemyPushPressure(selectedWarName);
-        if (!cancelled) {
-          setPushPressure(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setPushPressure(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingPushPressure(false);
-        }
-      }
-    }
-
-    loadPushPressure();
-    return () => {
-      cancelled = true;
-    };
-  }, [canLoadEnemyWarRoom, selectedWarName, phaseRequestKey]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadScoutingComparison() {
-      if (!selectedWarName || !canLoadEnemyWarRoom) {
-        setScoutingComparison(null);
-        return;
-      }
-
-      setIsLoadingScoutingComparison(true);
-
-      try {
-        const response = await getScoutingComparison(selectedWarName);
-        if (!cancelled) {
-          setScoutingComparison(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setScoutingComparison(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingScoutingComparison(false);
-        }
-      }
-    }
-
-    loadScoutingComparison();
-    return () => {
-      cancelled = true;
-    };
-  }, [canLoadEnemyWarRoom, selectedWarName, phaseRequestKey]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadActivityHeatmap() {
-      if (!selectedWarName || !selectedWar || !canLoadActivityHeatmap || !isActivityHeatmapsOpen) {
-        setActivityHeatmap(null);
-        return;
-      }
-
-      setIsLoadingActivityHeatmap(true);
-
-      try {
-        const response = await getWarActivityHeatmap(selectedWarName, selectedWar.id);
-        if (!cancelled) {
-          setActivityHeatmap(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setActivityHeatmap(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingActivityHeatmap(false);
-        }
-      }
-    }
-
-    loadActivityHeatmap();
-    return () => {
-      cancelled = true;
-    };
-  }, [canLoadActivityHeatmap, isActivityHeatmapsOpen, selectedWar?.id, selectedWarName, phaseRequestKey]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadEnemyMemberActivityHeatmap() {
-      if (
-        !selectedWarName ||
-        !canLoadEnemyWarRoom ||
-        !isActivityHeatmapsOpen ||
-        activityHeatmapMode === "faction" ||
-        activeEnemyActivityMemberIds.length === 0
-      ) {
-        setEnemyMemberActivityHeatmap(null);
-        setIsLoadingEnemyMemberActivityHeatmap(false);
-        return;
-      }
-
-      setIsLoadingEnemyMemberActivityHeatmap(true);
-
-      try {
-        const response = await getEnemyMemberActivityHeatmap(selectedWarName, {
-          memberIds: activeEnemyActivityMemberIds,
-        });
-        if (!cancelled) {
-          setEnemyMemberActivityHeatmap(response);
-        }
-      } catch {
-        if (!cancelled) {
-          setEnemyMemberActivityHeatmap(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingEnemyMemberActivityHeatmap(false);
-        }
-      }
-    }
-
-    loadEnemyMemberActivityHeatmap();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeEnemyActivityMemberKey,
-    activityHeatmapMode,
-    canLoadEnemyWarRoom,
-    isActivityHeatmapsOpen,
-    selectedWarName,
-    phaseRequestKey,
-  ]);
-
-  React.useEffect(() => {
-    if (!selectedWarName || !selectedWar || !canLoadActivityHeatmap || !isWarLive) {
-      return;
-    }
-
-    let cancelled = false;
-    const shouldRefreshScoutingComparison =
-      canLoadEnemyWarRoom && scoutingComparison?.comparison_stats_complete !== true;
-    const timer = window.setInterval(async () => {
-      try {
-        const [comparisonResponse, heatmapResponse, memberHeatmapResponse] = await Promise.all([
-          shouldRefreshScoutingComparison ? getScoutingComparison(selectedWarName) : Promise.resolve(null),
-          isActivityHeatmapsOpen ? getWarActivityHeatmap(selectedWarName, selectedWar.id) : Promise.resolve(null),
-          canLoadEnemyWarRoom &&
-          isActivityHeatmapsOpen &&
-          activityHeatmapMode !== "faction" &&
-          activeEnemyActivityMemberIds.length > 0
-            ? getEnemyMemberActivityHeatmap(selectedWarName, { memberIds: activeEnemyActivityMemberIds })
-            : Promise.resolve(null),
-        ]);
-
-        if (!cancelled) {
-          if (comparisonResponse) {
-            setScoutingComparison(comparisonResponse);
-          }
-          if (heatmapResponse) {
-            setActivityHeatmap(heatmapResponse);
-          }
-          if (memberHeatmapResponse) {
-            setEnemyMemberActivityHeatmap(memberHeatmapResponse);
-          }
-        }
-      } catch {
-        if (!cancelled) {
-          setActivityHeatmap(null);
-          setEnemyMemberActivityHeatmap(null);
-        }
-      }
-    }, WAR_ROOM_HEATMAP_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [
-    canLoadActivityHeatmap,
-    canLoadEnemyWarRoom,
-    activeEnemyActivityMemberKey,
-    activityHeatmapMode,
-    isActivityHeatmapsOpen,
-    isWarLive,
-    scoutingComparison?.comparison_stats_complete,
-    selectedWar?.id,
-    selectedWarName,
-    phaseRequestKey,
-  ]);
-
-  React.useEffect(() => {
-    if (!selectedWarName || !canLoadEnemyWarRoom || !isMemberTrackingActive) {
-      return;
-    }
-
-    let cancelled = false;
-    const warName = selectedWarName;
-
-    async function refreshMemberTrackingData() {
-      const [comparisonResult, scoutingResult, pressureResult, controlResult] = await Promise.allSettled([
-        getScoutingComparison(warName),
-        getEnemyScouting(warName),
-        getEnemyPushPressure(warName, { includeHistory: false }),
-        getWarControl(warName, { includeHistory: false }),
-      ]);
-
-      if (cancelled) {
-        return;
-      }
-
-      if (comparisonResult.status === "fulfilled") {
-        setScoutingComparison(comparisonResult.value);
-      } else {
-        setScoutingComparison(null);
-      }
-
-      if (scoutingResult.status === "fulfilled") {
-        setEnemyScouting(scoutingResult.value);
-      } else {
-        setEnemyScouting(null);
-      }
-
-      if (pressureResult.status === "fulfilled") {
-        setPushPressure((current) => ({
-          ...pressureResult.value,
-          history: current?.history ?? pressureResult.value.history,
-        }));
-      } else {
-        setPushPressure((current) =>
-          current
-            ? {
-                ...current,
-                latest: null,
-              }
-            : null,
-        );
-      }
-
-      if (controlResult.status === "fulfilled") {
-        setWarControl((current) => ({
-          ...controlResult.value,
-          history: current?.history ?? controlResult.value.history,
-        }));
-        setWarControlSettingsDraft(controlResult.value.settings);
-      } else {
-        setWarControl((current) =>
-          current
-            ? {
-                ...current,
-                latest: null,
-              }
-            : null,
-        );
-      }
-    }
-
-    refreshMemberTrackingData();
-    const timer = window.setInterval(refreshMemberTrackingData, WAR_ROOM_MEMBER_TRACKING_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [canLoadEnemyWarRoom, isMemberTrackingActive, selectedWarName, phaseRequestKey]);
-
-  React.useEffect(() => {
-    if (!selectedWarName || !canLoadEnemyWarRoom || !isMemberTrackingActive) {
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setInterval(async () => {
-      try {
-        const [pressureResponse, controlResponse] = await Promise.all([
-          getEnemyPushPressure(selectedWarName),
-          getWarControl(selectedWarName),
-        ]);
-        if (!cancelled) {
-          setPushPressure(pressureResponse);
-          setWarControl(controlResponse);
-          setWarControlSettingsDraft(controlResponse.settings);
-        }
-      } catch {
-        if (!cancelled) {
-          setPushPressure(null);
-          setWarControl(null);
-        }
-      }
-    }, WAR_ROOM_PUSH_HISTORY_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [canLoadEnemyWarRoom, isMemberTrackingActive, selectedWarName, phaseRequestKey]);
-
   async function refreshSelectedEnemyScouting() {
     if (!selectedWarName || !selectedWar) {
       return;
@@ -697,7 +256,7 @@ export function WarRoom({
       setScoutingComparison(await getScoutingComparison(selectedWarName));
       const controlResponse = await getWarControl(selectedWarName);
       setWarControl(controlResponse);
-      setWarControlSettingsDraft(controlResponse.settings);
+      if (!settingsDirty.current) setWarControlSettingsDraft(controlResponse.settings);
       if (isActivityHeatmapsOpen) {
         setActivityHeatmap(await getWarActivityHeatmap(selectedWarName, selectedWar.id));
       }
@@ -733,6 +292,7 @@ export function WarRoom({
         transition_big_hitter_multiplier_one: warControlSettingsDraft.transition_big_hitter_multiplier_one,
         transition_big_hitter_multiplier_multiple: warControlSettingsDraft.transition_big_hitter_multiplier_multiple,
       });
+      settingsDirty.current = false;
       setWarControlSettingsDraft(response.settings);
       setWarControl((current) => current ? { ...current, settings: response.settings } : current);
     } catch (err) {
@@ -938,7 +498,7 @@ export function WarRoom({
             isSaving={isSavingWarControlSettings}
             collapsed={collapsedPanels.warControl ?? false}
             onToggle={() => togglePanel("warControl")}
-            onSettingsChange={setWarControlSettingsDraft}
+            onSettingsChange={(settings) => { settingsDirty.current = true; setWarControlSettingsDraft(settings); }}
             onSaveSettings={saveWarControlSettings}
             updatedAt={warControlUpdatedAt}
             trackingState={trackingFreshness.state}

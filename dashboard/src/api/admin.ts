@@ -101,12 +101,12 @@ export async function rebuildStats(warId?: number): Promise<unknown> {
     : postJson("/api/rebuild", { war_id: warId });
 }
 
-export async function getLatestIngestionRun(): Promise<IngestionRunResponse> {
-  return getJson<IngestionRunResponse>("/api/admin/ingestion-run", true);
+export async function getLatestIngestionRun(signal?: AbortSignal): Promise<IngestionRunResponse> {
+  return getJson<IngestionRunResponse>("/api/admin/ingestion-run", true, signal);
 }
 
-export async function getLatestMaintenanceRun(): Promise<MaintenanceRunResponse> {
-  return getJson<MaintenanceRunResponse>("/api/admin/maintenance-run", true);
+export async function getLatestMaintenanceRun(signal?: AbortSignal): Promise<MaintenanceRunResponse> {
+  return getJson<MaintenanceRunResponse>("/api/admin/maintenance-run", true, signal);
 }
 
 export async function refreshMemberAchievements(): Promise<unknown> {
@@ -267,11 +267,10 @@ export async function restartLiveEnemyTracking(warId: number): Promise<unknown> 
   return postJson("/api/admin/live-enemy-tracking/restart", { war_id: warId });
 }
 
-export async function getAdminSuggestions(limit = 12): Promise<AdminSuggestionsResponse> {
+export async function getAdminSuggestions(limit = 12, signal?: AbortSignal): Promise<AdminSuggestionsResponse> {
   return getJson<AdminSuggestionsResponse>(
     `/api/admin/suggestions${queryString({ limit })}`,
-    true,
-  );
+    true, signal);
 }
 
 export async function getAdminXanaxCompetition(): Promise<AdminXanaxCompetitionResponse> {

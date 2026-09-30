@@ -10,13 +10,13 @@ export type RetaliationListOptions = {
   limit?: number;
 };
 
-export function listAvailableRetaliations(options: RetaliationListOptions = {}): Promise<RetaliationsResponse> {
+export function listAvailableRetaliations(options: RetaliationListOptions = {}, signal?: AbortSignal): Promise<RetaliationsResponse> {
   const params = new URLSearchParams();
   if (options.includeClaimed) params.set("include_claimed", "true");
   if (options.includeExpired) params.set("include_expired", "true");
   if (options.limit) params.set("limit", String(options.limit));
   const query = params.toString();
-  return getJson<RetaliationsResponse>(`/api/retaliations/available${query ? `?${query}` : ""}`);
+  return getJson<RetaliationsResponse>(`/api/retaliations/available${query ? `?${query}` : ""}`, true, signal);
 }
 
 export function claimRetaliation(input: {

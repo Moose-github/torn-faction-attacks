@@ -15,20 +15,21 @@ export async function getHomeFactionReportExemptions(): Promise<HomeFactionRepor
 
 export async function getRecentFactionAttacks(
   options: { limit?: number; windowSeconds?: number } = {},
+  signal?: AbortSignal,
 ): Promise<RecentFactionAttacksResponse> {
   const suffix = queryString({
     limit: options.limit,
     window_seconds: options.windowSeconds,
   });
-  return getJson<RecentFactionAttacksResponse>(`/api/faction-attacks/recent${suffix}`);
+  return getJson<RecentFactionAttacksResponse>(`/api/faction-attacks/recent${suffix}`, true, signal);
 }
 
-export async function getMemberAchievements(): Promise<MemberAchievementsResponse> {
-  return getJson<MemberAchievementsResponse>("/api/member-achievements");
+export async function getMemberAchievements(signal?: AbortSignal): Promise<MemberAchievementsResponse> {
+  return getJson<MemberAchievementsResponse>("/api/member-achievements", true, signal);
 }
 
-export async function getXanaxCompetition(): Promise<XanaxCompetitionResponse> {
-  return getJson<XanaxCompetitionResponse>("/api/xanax-competition");
+export async function getXanaxCompetition(signal?: AbortSignal): Promise<XanaxCompetitionResponse> {
+  return getJson<XanaxCompetitionResponse>("/api/xanax-competition", true, signal);
 }
 
 export async function submitMemberSuggestion(suggestion: string): Promise<MemberSuggestionResponse> {
@@ -46,8 +47,8 @@ export async function updateDiscordMemberAlertSubscription(payload: {
   return postJson<DiscordMemberAlertSubscriptionsResponse>("/api/me/discord-alert-subscriptions", payload);
 }
 
-export async function getMiscellaneousData(): Promise<MiscellaneousResponse> {
-  return getJson<MiscellaneousResponse>("/api/miscellaneous");
+export async function getMiscellaneousData(signal?: AbortSignal): Promise<MiscellaneousResponse> {
+  return getJson<MiscellaneousResponse>("/api/miscellaneous", true, signal);
 }
 
 export async function createMonitorTicket(warId: number): Promise<MonitorTicketResponse> {

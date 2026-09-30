@@ -26,8 +26,8 @@ export type EventCompetition = {
   history: Array<{ observed_at: number; treats_gained: number }>;
 };
 
-export function getEventCompetition(name: string) {
-  return getJson<{ ok: boolean; competition: EventCompetition | null }>(`/api/wars/${encodeURIComponent(name)}/competition`);
+export function getEventCompetition(name: string, signal?: AbortSignal) {
+  return getJson<{ ok: boolean; competition: EventCompetition | null }>(`/api/wars/${encodeURIComponent(name)}/competition`, true, signal);
 }
 
 export function updateEliminationTeamStatus(name: string, teamName: string, eliminated: boolean) {

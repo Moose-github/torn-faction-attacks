@@ -1,7 +1,8 @@
+import { useArmoryPolling } from "../hooks/useArmoryPolling";
 import React from "react";
 import { createPortal } from "react-dom";
 import { Boxes, Check, Copy, Download, RefreshCw, Swords, Users, ArrowUpRight, Bomb, Target, BadgePercent, Shield, Link as LinkIcon } from "lucide-react";
-import { getArmory, syncArmory, type ArmoryCategory, type ArmoryCopy, type ArmoryResponse } from "../api/armory";
+import { getArmory, syncArmory, type ArmoryCategory, type ArmoryCopy } from "../api/armory";
 import { MetricCard } from "../components/Common";
 import { armoryCounts, armoryCsv, DEFAULT_ARMORY_FILTERS, EMPTY_ARMORY_FILTERS, filterArmory, groupArmory, loanElapsed, weaponClass, tornArmoryPositions, tornArmoryUrl,
   type ArmoryFilters, type ArmoryGroup, type ArmorySort, type ArmorySortDirection } from "../utils/armory";
@@ -12,7 +13,6 @@ import { ArmoryActivityRefresh } from "./ArmoryActivityRefresh";
 import { ArmoryOwner, ArmoryOwnerName, ArmoryOwnershipContext, type ArmoryOwnershipControls } from "./ArmoryOwner";
 
 const tct = (value: number | null) => value ? `${new Date(value * 1000).toISOString().replace("T", " ").slice(0, 19)} TCT` : "Not loaded yet";
-type Action = "check" | "inventory";
 
 export function FactionArmory() {
   const [category, setCategory] = React.useState<ArmoryCategory | "items">("weapons");
@@ -33,10 +33,15 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
   const itemLabel = isArmor ? "Armor" : "Weapon";
   const plural = isArmor ? "armor pieces" : "weapons";
   const slots = isArmor ? ["Defensive"] : ["Primary", "Secondary", "Melee"];
-  const [data, setData] = React.useState<ArmoryResponse | null>(null);
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [notice, setNotice] = React.useState("");
+  const { data, busy, error, notice, refresh, updateLocal } = useArmoryPolling(category, {
+    load: signal => getArmory(category, signal),
+    sync: () => syncArmory(category),
+    preserveEdits: (incoming, current) => {
+      const owners = new Map(current.items.map(item => [item.uid, item.owner]));
+      return { ...incoming, items: incoming.items.map(item => owners.has(item.uid) ? { ...item, owner: owners.get(item.uid) } : item) };
+    },
+    errorMessage: "Unable to load the armory. Please retry.",
+  });
   const [tab, setTab] = React.useState<"weapons" | "borrowers" | "owners">("weapons");
   const [filters, setFilters] = React.useState<ArmoryFilters>(DEFAULT_ARMORY_FILTERS);
   const [individual, setIndividual] = React.useState(false);
@@ -46,67 +51,12 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
   const [borrowerSortDirection, setBorrowerSortDirection] = React.useState<ArmorySortDirection>("asc");
   const [ownerSort, setOwnerSort] = React.useState<"name" | "count">("name");
   const [ownerSortDirection, setOwnerSortDirection] = React.useState<ArmorySortDirection>("asc");
-  const run = React.useRef<(action: Action) => void>(() => {});
-  const ownershipRevision = React.useRef(0);
   const ownership: ArmoryOwnershipControls = {
     options: data?.owner_options ?? [],
-    onSaved: (uid, owner) => {
-      ownershipRevision.current++;
-      setData(previous => previous ? { ...previous, items: previous.items.map(item => item.uid === uid ? { ...item, owner } : item) } : previous);
-    },
+    onSaved: (uid, owner) => updateLocal(previous => ({
+      ...previous, items: previous.items.map(item => item.uid === uid ? { ...item, owner } : item),
+    })),
   };
-
-  React.useEffect(() => {
-    let disposed = false, working = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    async function update(action: Action) {
-      if (disposed || working || document.hidden) return;
-      working = true;
-      clearTimeout(timer);
-      setBusy(true);
-      const revision = ownershipRevision.current;
-      const accept = (result: ArmoryResponse) => setData(previous => {
-        if (!previous || revision === ownershipRevision.current) return result;
-        const owners = new Map(previous.items.map(item => [item.uid, item.owner]));
-        return { ...result, items: result.items.map(item => owners.has(item.uid) ? { ...item, owner: owners.get(item.uid) } : item) };
-      });
-      let delay = 30_000;
-      try {
-        let result = await getArmory(category);
-        if (disposed) return;
-        accept(result);
-        if (action === "inventory" && result.next_inventory_at * 1000 > Date.now()) {
-          setNotice(result.error
-            ? `The last refresh failed. Next retry: ${tct(result.next_inventory_at)}.`
-            : `Inventory is cached. Next check: ${tct(result.next_inventory_at)}.`);
-        }
-        if (result.next_sync_at * 1000 <= Date.now() && !document.hidden) {
-          result = await syncArmory(category);
-          if (disposed) return;
-          accept(result);
-          if (!result.error) setNotice("");
-        }
-        if (action === "check" && !result.error) setNotice("");
-        setError(null);
-        delay = Math.max(1000, Math.min(30_000, result.next_sync_at * 1000 - Date.now()));
-      } catch (cause) {
-        if (!disposed) setError(cause instanceof Error ? cause.message : "Unable to load the armory. Please retry.");
-        delay = 60_000;
-      } finally {
-        working = false;
-        if (!disposed) {
-          setBusy(false);
-          timer = setTimeout(() => void update("check"), delay);
-        }
-      }
-    }
-    run.current = action => void update(action);
-    const wake = () => { if (!document.hidden) void update("check"); };
-    window.addEventListener("focus", wake);
-    document.addEventListener("visibilitychange", wake);
-    void update("check");
-    return () => { disposed = true; clearTimeout(timer); window.removeEventListener("focus", wake); document.removeEventListener("visibilitychange", wake); };
-  }, [category]);
 
   const items = data?.items ?? [];
   const tornPositions = React.useMemo(() => tornArmoryPositions(data?.items ?? []), [data?.items]);
@@ -143,8 +93,8 @@ function EquipmentInventory({ category, categoryTabs }: { category: ArmoryCatego
       <div><div className="panel-kicker">{isArmor ? <Shield size={16} /> : <Swords size={16} />} Admin · {isArmor ? "Armor" : "Weapons"}</div><h1>Faction armory</h1>
         <p>See what is available, compare individual {plural}, and review member loans.</p></div>
       <div className="armory-actions">
-        <button type="button" disabled={busy} onClick={() => run.current("inventory")}><RefreshCw size={15} /> {busy ? "Checking…" : "Refresh inventory"}</button>
-        <ArmoryActivityRefresh fetchedAt={data?.activity_fetched_at ?? null} disabled={!data || busy} onRefresh={() => run.current("check")} />
+        <button type="button" disabled={busy} onClick={() => refresh("inventory")}><RefreshCw size={15} /> {busy ? "Checking…" : "Refresh inventory"}</button>
+        <ArmoryActivityRefresh fetchedAt={data?.activity_fetched_at ?? null} disabled={!data || busy} onRefresh={() => refresh("check")} />
       </div>
       <div className="armory-freshness"><span>Snapshot: {tct(data?.inventory_timestamp ?? null)}{age !== null ? ` · ${Math.floor(age / 60)} min old` : ""}</span>
         <span>Fetched: {tct(data?.checked_at ?? null)}</span><span>Torn updates Inventory data hourly</span></div>

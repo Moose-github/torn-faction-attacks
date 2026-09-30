@@ -1,3 +1,4 @@
+import { startPolling, type PollContext } from "../utils/polling";
 import React from "react";
 import {
   getMiscellaneousData,
@@ -139,34 +140,32 @@ export function Miscellaneous() {
 
   React.useEffect(() => {
     let cancelled = false;
-    let refreshTimer: number | undefined;
 
-    async function load() {
+    async function load({ signal, isCurrent }: PollContext) {
       setIsLoading(true);
 
       try {
-        const response = await getMiscellaneousData();
-        if (!cancelled) {
+        const response = await getMiscellaneousData(signal);
+        if (isCurrent() && !cancelled) {
           setData(response);
           setError(null);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (isCurrent() && !cancelled) {
           setError(err instanceof Error ? err.message : String(err));
         }
       } finally {
-        if (!cancelled) {
+        if (isCurrent() && !cancelled) {
           setIsLoading(false);
-          refreshTimer = window.setTimeout(load, 60_000);
         }
       }
     }
 
-    load();
+    const poll = startPolling(load, { intervalMs: 60_000 });
 
     return () => {
       cancelled = true;
-      window.clearTimeout(refreshTimer);
+      poll.stop();
     };
   }, []);
 

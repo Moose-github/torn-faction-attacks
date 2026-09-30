@@ -1,51 +1,30 @@
 import React from "react";
 import { Radio } from "lucide-react";
-import type { ChainWatchLiveResponse } from "../../../shared/chainWatchLive";
 import { WATCH_HOUR, watchSlotStatus, type ChainWatchScheduleResponse, type ChainWatchSlot } from "../../../shared/chainWatchSchedule";
-import { getChainWatchLive } from "../api/chainWatchSchedule";
+import { useChainWatchLive } from "../hooks/ChainWatchLiveProvider";
 import { PanelHeader } from "../components/Common";
 import { chainWatchLiveDisplay } from "../utils/chainWatchLive";
 import { formatNumber } from "../utils/format";
 
-export function ChainWatchLivePanel({ schedule, refreshKey }: {
-  schedule: ChainWatchScheduleResponse | null; refreshKey: number;
+export function ChainWatchLivePanel({ schedule }: {
+  schedule: ChainWatchScheduleResponse | null;
 }) {
-  const [data, setData] = React.useState<ChainWatchLiveResponse | null>(null);
-  const [failed, setFailed] = React.useState(false);
+  const { data, error, updatedAt } = useChainWatchLive();
+  const failed = Boolean(error);
   const [now, setNow] = React.useState(Math.floor(Date.now() / 1000));
-  const offset = React.useRef(0);
-
   React.useEffect(() => {
-    let version = 0;
-    let disposed = false;
-    const tick = () => setNow(Math.floor(Date.now() / 1000) + offset.current);
-    async function refresh() {
-      const request = ++version;
-      try {
-        const next = await getChainWatchLive();
-        if (disposed || request !== version) return;
-        offset.current = next.now - Math.floor(Date.now() / 1000);
-        setData(next);
-        setFailed(false);
-        tick();
-      } catch {
-        if (!disposed && request === version) setFailed(true);
-      }
-    }
-    const wake = () => { if (!document.hidden) { tick(); void refresh(); } };
-    void refresh();
-    const poll = window.setInterval(wake, 15_000);
+    const offset = data && updatedAt ? data.now - Math.floor(updatedAt / 1000) : 0;
+    const tick = () => setNow(Math.floor(Date.now() / 1000) + offset);
+    tick();
     const clock = window.setInterval(() => { if (!document.hidden) tick(); }, 1000);
-    window.addEventListener("focus", wake);
-    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
     return () => {
-      disposed = true;
-      window.clearInterval(poll);
       window.clearInterval(clock);
-      window.removeEventListener("focus", wake);
-      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", tick);
+      document.removeEventListener("visibilitychange", tick);
     };
-  }, [refreshKey]);
+  }, [data, updatedAt]);
 
   const state = data?.state;
   const display = chainWatchLiveDisplay(data, now, failed);

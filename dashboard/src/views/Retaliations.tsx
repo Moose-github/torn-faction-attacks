@@ -1,3 +1,4 @@
+import { usePollingResource } from "../hooks/usePollingResource";
 import React from "react";
 import { RefreshCw, ShieldCheck, Swords } from "lucide-react";
 import {
@@ -13,41 +14,19 @@ import { useCurrentTimeMs } from "../utils/time";
 const REFRESH_MS = 12_000;
 
 export function Retaliations({ currentUserId }: { currentUserId: number }) {
-  const [data, setData] = React.useState<RetaliationsResponse | null>(null);
   const [includeExpired, setIncludeExpired] = React.useState(false);
-  const [isLoading, setIsLoading] = React.useState(true);
   const [claimingId, setClaimingId] = React.useState<number | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  const [actionError, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const nowMs = useCurrentTimeMs();
   const nowSeconds = Math.floor(nowMs / 1000);
 
-  const load = React.useCallback(async (showLoading: boolean) => {
-    if (showLoading) setIsLoading(true);
-    setError(null);
-    try {
-      setData(await listAvailableRetaliations({
-        includeClaimed: true,
-        includeExpired,
-        limit: 100,
-      }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      if (showLoading) setIsLoading(false);
-    }
-  }, [includeExpired]);
-
-  React.useEffect(() => {
-    void load(true);
-  }, [load]);
-
-  React.useEffect(() => {
-    const timer = window.setInterval(() => {
-      void load(false);
-    }, REFRESH_MS);
-    return () => window.clearInterval(timer);
-  }, [load]);
+  const resource = usePollingResource(`retaliations:${currentUserId}:${includeExpired}`, signal => listAvailableRetaliations({
+    includeClaimed: true, includeExpired, limit: 100,
+  }, signal), { intervalMs: REFRESH_MS });
+  const { data, setData } = resource;
+  const isLoading = resource.loading || resource.refreshing;
+  const error = actionError ?? (resource.error ? resource.error instanceof Error ? resource.error.message : String(resource.error) : null);
 
   async function handleClaim(row: RetaliationOpportunity) {
     if (!row.opening_attack_id || !row.available) return;
@@ -66,7 +45,7 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setNotice(claimFailureMessage(message));
-      await load(false);
+      resource.invalidate();
     } finally {
       setClaimingId(null);
     }
@@ -116,7 +95,7 @@ export function Retaliations({ currentUserId }: { currentUserId: number }) {
             />
             <span>Expired history</span>
           </label>
-          <button type="button" className="panel-action-button" onClick={() => void load(true)} disabled={isLoading}>
+          <button type="button" className="panel-action-button" onClick={() => { setError(null); resource.refresh(); }} disabled={isLoading}>
             <RefreshCw size={14} className={isLoading ? "spinning-icon" : ""} />
             Refresh
           </button>

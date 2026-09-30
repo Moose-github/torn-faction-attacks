@@ -1,3 +1,4 @@
+import { usePollingResource } from "../hooks/usePollingResource";
 import { AdminDiagnostics } from "../components/AdminDiagnostics";
 import React from "react";
 import {
@@ -74,40 +75,25 @@ const API_USAGE_WINDOW_OPTIONS = [
 const DEFAULT_API_USAGE_WINDOW_SECONDS = 60 * 60;
 
 export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterProps) {
-  const [data, setData] = React.useState<AdminDataHealthResponse | DataHealthSummaryResponse | null>(null);
   const [settingsForm, setSettingsForm] = React.useState<Record<string, string>>({});
-  const [isLoading, setIsLoading] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
   const [notice, setNotice] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  const [actionError, setError] = React.useState<string | null>(null);
   const [apiUsageWindowSeconds, setApiUsageWindowSeconds] = React.useState(DEFAULT_API_USAGE_WINDOW_SECONDS);
   const [isApiFeatureTableCollapsed, setIsApiFeatureTableCollapsed] = React.useState(true);
-  const dataRequest = React.useRef(0);
-
-  async function loadData(
-    windowSeconds = apiUsageWindowSeconds,
-    includeApiUsageBreakdown = !isApiFeatureTableCollapsed,
-  ) {
-    const requestId = ++dataRequest.current;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = isAdmin
-        ? await getAdminDataHealth(windowSeconds, includeApiUsageBreakdown)
-        : await getDataHealthSummary();
-      if (requestId !== dataRequest.current) return;
-      setData(response);
-      if (isAdminDataHealthResponse(response)) {
-        setSettingsForm(formFromSettings(response.settings));
-      }
-    } catch (err) {
-      if (requestId !== dataRequest.current) return;
-      setError(err instanceof Error ? err.message : String(err));
-      setData(null);
-    } finally {
-      if (requestId === dataRequest.current) setIsLoading(false);
-    }
-  }
+  const settingsDirty = React.useRef(false);
+  const resource = usePollingResource<AdminDataHealthResponse | DataHealthSummaryResponse>(
+    `data-health:${isAdmin}:${apiUsageWindowSeconds}:${isApiFeatureTableCollapsed}`,
+    signal => isAdmin ? getAdminDataHealth(apiUsageWindowSeconds, !isApiFeatureTableCollapsed, signal) : getDataHealthSummary(signal),
+    { intervalMs: DATA_HEALTH_REFRESH_MS },
+  );
+  const { setData } = resource;
+  const data = resource.error ? null : resource.data;
+  const isLoading = resource.loading || resource.refreshing;
+  const error = actionError ?? (resource.error ? resource.error instanceof Error ? resource.error.message : String(resource.error) : null);
+  React.useEffect(() => {
+    if (!settingsDirty.current && isAdminDataHealthResponse(data)) setSettingsForm(formFromSettings(data.settings));
+  }, [data]);
 
   async function saveSettings(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -120,6 +106,7 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
       await updateDataHealthSettings(payload);
       const response = await getAdminDataHealth(apiUsageWindowSeconds, !isApiFeatureTableCollapsed);
       setData(response);
+      settingsDirty.current = false;
       setSettingsForm(formFromSettings(response.settings));
       setNotice("Data health thresholds saved.");
     } catch (err) {
@@ -128,14 +115,6 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
       setIsSaving(false);
     }
   }
-
-  React.useEffect(() => {
-    loadData();
-    const timer = window.setInterval(() => {
-      loadData();
-    }, DATA_HEALTH_REFRESH_MS);
-    return () => window.clearInterval(timer);
-  }, [isAdmin, apiUsageWindowSeconds, isApiFeatureTableCollapsed]);
 
   function handleApiUsageWindowChange(windowSeconds: number) {
     setApiUsageWindowSeconds(windowSeconds);
@@ -152,14 +131,14 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
       {error ? <div className="error-panel">{error}</div> : null}
       {notice ? <div className="dashboard-suggestion-success">{notice}</div> : null}
 
-      <DataHealthOverview data={data} isLoading={isLoading} onOpenView={onOpenView} onRefresh={loadData} />
+      <DataHealthOverview data={data} isLoading={isLoading} onOpenView={onOpenView} onRefresh={async () => { setError(null); resource.refresh(); }} />
 
       {isAdmin ? <AdminDiagnostics /> : null}
 
       {adminData ? (
         <AdminDataHealthDiagnostics
           data={adminData}
-          onRefresh={loadData}
+          onRefresh={async () => { setError(null); resource.invalidate(); }}
           apiUsageWindowSeconds={apiUsageWindowSeconds}
           isApiFeatureTableCollapsed={isApiFeatureTableCollapsed}
           isSaving={isSaving}
@@ -168,7 +147,7 @@ export function DataHealthPage({ onOpenView, isAdmin }: DataHealthCommandCenterP
           onOpenView={onOpenView}
           onSaveSettings={saveSettings}
           settingsForm={settingsForm}
-          setSettingsForm={setSettingsForm}
+          setSettingsForm={(value) => { settingsDirty.current = true; setSettingsForm(value); }}
         />
       ) : null}
     </>

@@ -1,3 +1,4 @@
+import { startPolling, type PollContext } from "../utils/polling";
 import React from "react";
 import { Info } from "lucide-react";
 import { getWarProgress, type WarSummary } from "../api";
@@ -34,27 +35,20 @@ export function WarProgressPanel({ war, requireHistory = false, showCompletedRes
 
   React.useEffect(() => {
     let cancelled = false;
-    let inFlight = false;
-    let completed = false;
-    async function refresh() {
-      if (inFlight || completed) return;
-      inFlight = true;
+    async function refresh({ signal, isCurrent }: PollContext) {
       try {
-        const response = await getWarProgress(war.name);
-        if (!cancelled) {
+        const response = await getWarProgress(war.name, signal);
+        if (isCurrent() && !cancelled) {
           setData(response);
           setError(null);
-          completed = response.war.official_end_time !== null || response.latest?.ended_at != null;
+          if (response.war.official_end_time !== null || response.latest?.ended_at != null) return false as const;
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        inFlight = false;
+        if (isCurrent() && !cancelled) setError(err instanceof Error ? err.message : String(err));
       }
     }
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 60_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    const poll = startPolling(refresh, { intervalMs: 60_000 });
+    return () => { cancelled = true; poll.stop(); };
   }, [war.name, war.status, war.official_start_time, war.official_end_time, war.practical_revision]);
 
   const record = data?.war ?? war;

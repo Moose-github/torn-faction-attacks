@@ -2,16 +2,16 @@ import { getJson, postJson } from "./client";
 import type { ChainWatchScheduleResponse, ChainWatchHistoryResponse } from "../../../shared/chainWatchSchedule";
 import type { ChainWatchLiveResponse } from "../../../shared/chainWatchLive";
 
-export function getChainWatchLive(): Promise<ChainWatchLiveResponse> {
-  return getJson("/api/chain-watch/live");
+export function getChainWatchLive(signal?: AbortSignal): Promise<ChainWatchLiveResponse> {
+  return getJson("/api/chain-watch/live", true, signal);
 }
 
-export function getChainWatchSchedule(id?: string | null): Promise<ChainWatchScheduleResponse> {
-  return getJson(`/api/chain-watch${id ? `?watch=${encodeURIComponent(id)}` : ""}`);
+export function getChainWatchSchedule(id?: string | null, signal?: AbortSignal): Promise<ChainWatchScheduleResponse> {
+  return getJson(`/api/chain-watch${id ? `?watch=${encodeURIComponent(id)}` : ""}`, true, signal);
 }
 
-export function getChainWatchHistory(): Promise<ChainWatchHistoryResponse> {
-  return getJson("/api/chain-watch/history");
+export function getChainWatchHistory(signal?: AbortSignal): Promise<ChainWatchHistoryResponse> {
+  return getJson("/api/chain-watch/history", true, signal);
 }
 
 export function changeChainWatchSlot(watchId: string, starts: number[], action: "claim" | "leave"): Promise<ChainWatchScheduleResponse> {

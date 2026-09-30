@@ -2,8 +2,8 @@ import { deleteJson, getJson, postJson, putJson } from "./client";
 import { queryString } from "./query";
 import type { TradeOpportunitiesResponse, TradeScanResponse, TradeWatchlistPayload, TradeWatchlistResponse, TradeWatchlistsResponse } from "./types";
 
-export async function getTradeWatchlists(): Promise<TradeWatchlistsResponse> {
-  return getJson<TradeWatchlistsResponse>("/api/trade/watchlists");
+export async function getTradeWatchlists(signal?: AbortSignal): Promise<TradeWatchlistsResponse> {
+  return getJson<TradeWatchlistsResponse>("/api/trade/watchlists", true, signal);
 }
 
 export async function createTradeWatchlist(payload: TradeWatchlistPayload): Promise<TradeWatchlistResponse> {

@@ -5,8 +5,7 @@ export type WarEnemyCombatHeatmapResponse = Omit<WarMemberCombatHeatmapResponse,
   buckets: Array<WarMemberCombatBucket & { attacks_total: number }>;
 };
 
-export function getWarEnemyCombatHeatmap(warName: string, window: "practical" | "official") {
+export function getWarEnemyCombatHeatmap(warName: string, window: "practical" | "official", signal?: AbortSignal) {
   return getJson<WarEnemyCombatHeatmapResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/enemy-combat-heatmap?window=${window}`,
-  );
+    `/api/wars/${encodeURIComponent(warName)}/enemy-combat-heatmap?window=${window}`, true, signal);
 }

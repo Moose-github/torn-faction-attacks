@@ -2,8 +2,8 @@ import { API_BASE_URL, authHeaders, filenameFromContentDisposition, getJson, pos
 import { queryString } from "./query";
 import type { WarProgressResponse } from "../../../shared/warProgress";
 
-export function getWarProgress(warName: string): Promise<WarProgressResponse> {
-  return getJson<WarProgressResponse>(`/api/wars/${encodeURIComponent(warName)}/progress`);
+export function getWarProgress(warName: string, signal?: AbortSignal): Promise<WarProgressResponse> {
+  return getJson<WarProgressResponse>(`/api/wars/${encodeURIComponent(warName)}/progress`, true, signal);
 }
 import type { AdminWarPayload, AttackExportOptions, AttackWindowPayload, ChainWatchResponse, EnemyBigHittersResponse, EnemyMemberActivityHeatmapResponse, EnemyPushPressureResponse, EnemyScoutingResponse, FactionActivityHeatmapResponse, GlobalWarStateResponse, MemberAttacksResponse, ReportDiscrepanciesResponse, ScoutingComparisonResponse, StatsResponse, WarActivityResponse, WarChainBonusesResponse, WarControlResponse, WarDetailResponse, WarMemberCombatHeatmapResponse, WarsResponse, WarType } from "./types";
 
@@ -19,49 +19,56 @@ export async function getStats(
   return getJson<StatsResponse>(`/api/stats${suffix}`);
 }
 
-export async function getWars(warType: WarType): Promise<WarsResponse> {
-  return getJson<WarsResponse>(`/api/wars${queryForWarType(warType)}`);
+export async function getWars(warType: WarType, signal?: AbortSignal): Promise<WarsResponse> {
+  return getJson<WarsResponse>(`/api/wars${queryForWarType(warType)}`, true, signal);
 }
 
-export async function getGlobalWarState(): Promise<GlobalWarStateResponse> {
-  return getJson<GlobalWarStateResponse>("/api/global-war-state");
+export async function getGlobalWarState(signal?: AbortSignal): Promise<GlobalWarStateResponse> {
+  return getJson<GlobalWarStateResponse>("/api/global-war-state", true, signal);
 }
 
-export async function getWar(name: string): Promise<WarDetailResponse> {
-  return getJson<WarDetailResponse>(`/api/wars/${encodeURIComponent(name)}`);
+export async function getWar(name: string, signal?: AbortSignal): Promise<WarDetailResponse> {
+  return getJson<WarDetailResponse>(`/api/wars/${encodeURIComponent(name)}`, true, signal);
 }
 
-export async function getWarMemberAttacks(
-  warName: string,
-  memberId: number,
-): Promise<MemberAttacksResponse> {
-  return getJson<MemberAttacksResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/members/${memberId}/attacks`,
-  );
+export async function getWarMemberAttacks(
+  warName: string,
+  memberId: number,
+  signal?: AbortSignal,
+): Promise<MemberAttacksResponse> {
+  return getJson<MemberAttacksResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/members/${memberId}/attacks`,
+    true, signal,
+  );
 }
 
-export async function getWarActivity(
-  warName: string,
-  window: "practical" | "official" = "practical",
-): Promise<WarActivityResponse> {
-  return getJson<WarActivityResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/activity?bucket_minutes=15&window=${window}`,
-  );
+export async function getWarActivity(
+  warName: string,
+  window: "practical" | "official" = "practical",
+  signal?: AbortSignal,
+): Promise<WarActivityResponse> {
+  return getJson<WarActivityResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/activity?bucket_minutes=15&window=${window}`,
+    true, signal,
+  );
 }
 
 export async function getWarActivityHeatmap(
   warName: string,
   warId?: number,
+  signal?: AbortSignal,
 ): Promise<FactionActivityHeatmapResponse> {
   const query = queryString({ war_id: warId });
   return getJson<FactionActivityHeatmapResponse>(
     `/api/wars/${encodeURIComponent(warName)}/activity-heatmap${query}`,
+    true, signal,
   );
 }
 
 export async function getEnemyMemberActivityHeatmap(
   warName: string,
   options: { memberId?: number; memberIds?: number[] } = {},
+  signal?: AbortSignal,
 ): Promise<EnemyMemberActivityHeatmapResponse> {
   const query = queryString({
     member_id: options.memberId,
@@ -69,30 +76,34 @@ export async function getEnemyMemberActivityHeatmap(
   });
   return getJson<EnemyMemberActivityHeatmapResponse>(
     `/api/wars/${encodeURIComponent(warName)}/enemy-member-activity-heatmap${query}`,
+    true, signal,
   );
 }
 
 export async function getWarMemberCombatHeatmap(
   warName: string,
   window: "practical" | "official" = "practical",
+  signal?: AbortSignal,
 ): Promise<WarMemberCombatHeatmapResponse> {
   return getJson<WarMemberCombatHeatmapResponse>(
     `/api/wars/${encodeURIComponent(warName)}/member-combat-heatmap?window=${window}`,
+    true, signal,
   );
 }
 
-export async function getWarChainBonuses(warName: string): Promise<WarChainBonusesResponse> {
-  return getJson<WarChainBonusesResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/chain-bonuses`,
-  );
+export async function getWarChainBonuses(warName: string, signal?: AbortSignal): Promise<WarChainBonusesResponse> {
+  return getJson<WarChainBonusesResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/chain-bonuses`,
+    true, signal,
+  );
 }
 
-export async function getChainWatch(warName: string): Promise<ChainWatchResponse> {
+export async function getChainWatch(warName: string, signal?: AbortSignal): Promise<ChainWatchResponse> {
 
   return getJson<ChainWatchResponse>(
 
     `/api/wars/${encodeURIComponent(warName)}/chain-watch`,
-
+    true, signal,
   );
 
 }
@@ -109,17 +120,20 @@ export async function updateChainWatch(warName: string, enabled: boolean): Promi
 
 }
 
-export async function getWarReportDiscrepancies(
-  warName: string,
-): Promise<ReportDiscrepanciesResponse> {
-  return getJson<ReportDiscrepanciesResponse>(
+export async function getWarReportDiscrepancies(
+  warName: string,
+  signal?: AbortSignal,
+): Promise<ReportDiscrepanciesResponse> {
+  return getJson<ReportDiscrepanciesResponse>(
     `/api/wars/${encodeURIComponent(warName)}/report-discrepancies?v=2`,
-  );
+    true, signal,
+  );
 }
 
-export async function getEnemyScouting(warName: string): Promise<EnemyScoutingResponse> {
+export async function getEnemyScouting(warName: string, signal?: AbortSignal): Promise<EnemyScoutingResponse> {
   return getJson<EnemyScoutingResponse>(
     `/api/wars/${encodeURIComponent(warName)}/enemy-scouting`,
+    true, signal,
   );
 }
 
@@ -150,30 +164,36 @@ export async function removeEnemyBigHitter(
 }
 
 export async function getScoutingComparison(
-  warName: string,
-): Promise<ScoutingComparisonResponse> {
-  return getJson<ScoutingComparisonResponse>(
-    `/api/wars/${encodeURIComponent(warName)}/scouting-comparison`,
-  );
+  warName: string,
+  signal?: AbortSignal,
+): Promise<ScoutingComparisonResponse> {
+  return getJson<ScoutingComparisonResponse>(
+    `/api/wars/${encodeURIComponent(warName)}/scouting-comparison`,
+    true, signal,
+  );
 }
 
 export async function getEnemyPushPressure(
-  warName: string,
-  options: { includeHistory?: boolean } = {},
+  warName: string,
+  options: { includeHistory?: boolean } = {},
+  signal?: AbortSignal,
 ): Promise<EnemyPushPressureResponse> {
   const query = queryString({ include_history: options.includeHistory === false ? 0 : undefined });
   return getJson<EnemyPushPressureResponse>(
     `/api/wars/${encodeURIComponent(warName)}/enemy-push-pressure${query}`,
+    true, signal,
   );
 }
 
 export async function getWarControl(
   warName: string,
   options: { includeHistory?: boolean } = {},
+  signal?: AbortSignal,
 ): Promise<WarControlResponse> {
   const query = queryString({ include_history: options.includeHistory === false ? 0 : undefined });
   return getJson<WarControlResponse>(
     `/api/wars/${encodeURIComponent(warName)}/war-control${query}`,
+    true, signal,
   );
 }
 

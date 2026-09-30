@@ -1,3 +1,5 @@
+import { startPolling, type PollController } from "../utils/polling";
+import { useChainWatchLive } from "../hooks/ChainWatchLiveProvider";
 import React from "react";
 import { CalendarClock, Check, ExternalLink, LockKeyhole, RefreshCw } from "lucide-react";
 import { createsLongWatchRun, nextWatchHour, watchDate, watchUtc, watchSlotStatus, WATCH_DAY, WATCH_HOUR, type ChainWatchScheduleResponse, type ChainWatchSlot } from "../../../shared/chainWatchSchedule";
@@ -9,9 +11,13 @@ import { ChainWatchSummary } from "./ChainWatchSummary";
 import "./ChainWatchSchedule.css";
 
 export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: number; isAdmin: boolean }) {
+  const live = useChainWatchLive();
+  const poller = React.useRef<PollController | null>(null);
   const requestedId = React.useMemo(() => new URLSearchParams(window.location.search).get("watch"), []);
   const [data, setData] = React.useState<ChainWatchScheduleResponse | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  const [actionError, setError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const error = actionError ?? loadError;
   const [notice, setNotice] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [now, setNow] = React.useState(Math.floor(Date.now() / 1000));
@@ -29,24 +35,24 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
     setData(next);
   }
 
-  const refresh = React.useCallback(async () => {
+  const refresh = React.useCallback(async (signal?: AbortSignal) => {
     if (busyRef.current) return;
     const version = ++requestVersion.current;
     try {
-      const next = await getChainWatchSchedule(requestedId);
+      const next = await getChainWatchSchedule(requestedId, signal);
       if (version !== requestVersion.current) return;
       accept(next);
-      setError(null);
-    } catch (err) { if (version === requestVersion.current) setError(err instanceof Error ? err.message : String(err)); }
+      setLoadError(null);
+    } catch (err) { if (version === requestVersion.current) setLoadError(err instanceof Error ? err.message : String(err)); }
   }, [requestedId]);
 
   React.useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 15_000);
+    const poll = startPolling(({ signal }) => refresh(signal), {
+      intervalMs: 15_000, pauseWhenHidden: true, refreshOnFocus: true,
+    });
+    poller.current = poll;
     const clock = window.setInterval(() => setNow(Math.floor(Date.now() / 1000) + clockOffset.current), 1000);
-    const onFocus = () => { void refresh(); };
-    window.addEventListener("focus", onFocus);
-    return () => { ++requestVersion.current; window.clearInterval(timer); window.clearInterval(clock); window.removeEventListener("focus", onFocus); };
+    return () => { ++requestVersion.current; poll.stop(); poller.current = null; window.clearInterval(clock); };
   }, [refresh]);
 
   async function run(action: () => Promise<ChainWatchScheduleResponse>, message: string) {
@@ -58,7 +64,7 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
     setNotice("");
     try { accept(await action()); setNotice(message); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-    finally { busyRef.current = false; setBusy(false); setLiveRefreshKey((key) => key + 1); }
+    finally { busyRef.current = false; setBusy(false); setLiveRefreshKey((key) => key + 1); poller.current?.invalidate(); live.invalidate(); }
   }
 
   const watch = data?.watch;
@@ -74,13 +80,13 @@ export function ChainWatchSchedule({ currentUserId, isAdmin }: { currentUserId: 
       <p>Reserve an hour to keep the chain running. Take at least one hour off after two consecutive slots.</p>
       <div className="watch-toolbar">
         <ChainWatchSheetBrowser watchId={watch?.id ?? requestedId} busy={busy} refreshKey={liveRefreshKey} />
-        <button type="button" className="panel-action-button" disabled={busy} onClick={() => { void refresh(); setLiveRefreshKey((key) => key + 1); }}><RefreshCw size={14} /> Refresh</button>
+        <button type="button" className="panel-action-button" disabled={busy} onClick={() => { poller.current?.refresh(); live.invalidate(); setLiveRefreshKey((key) => key + 1); }}><RefreshCw size={14} /> Refresh</button>
         {isAdmin && watch ? <button type="button" className="panel-action-button" aria-pressed={showAdmin} onClick={() => setShowAdmin(!showAdmin)}><LockKeyhole size={14} /> {showAdmin ? "Hide admin controls" : "Admin controls"}</button> : null}
         {requestedId ? <a href="/chain-watch">Current watch</a> : null}
       </div>
     </section>
 
-    <ChainWatchLivePanel schedule={data} refreshKey={liveRefreshKey} />
+    <ChainWatchLivePanel schedule={data} />
 
     {error ? <div className="error-panel" role="alert">{error}</div> : null}
     {notice ? <div className="watch-notice" role="status"><Check size={16} /> {notice}</div> : null}

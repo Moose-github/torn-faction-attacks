@@ -1,3 +1,4 @@
+import { startPolling, type PollContext } from "../utils/polling";
 import { resolveWarPhase } from "../../../shared/warPhase";
 import React from "react";
 import {
@@ -140,19 +141,18 @@ export function DashboardHome({
   React.useEffect(() => {
     let cancelled = false;
 
-    async function loadMemberAchievements() {
-      const response = await getMemberAchievements().catch(() => null);
-      if (!cancelled) {
+    async function loadMemberAchievements({ signal, isCurrent }: PollContext) {
+      const response = await getMemberAchievements(signal).catch(() => null);
+      if (isCurrent() && !cancelled) {
         setMemberAchievements(response?.achievements ?? []);
         setMemberAchievementsLoaded(true);
       }
     }
 
-    loadMemberAchievements();
-    const timer = window.setInterval(loadMemberAchievements, HIGHLIGHT_REFRESH_MS);
+    const poll = startPolling(loadMemberAchievements, { intervalMs: HIGHLIGHT_REFRESH_MS });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, []);
 
@@ -167,67 +167,64 @@ export function DashboardHome({
   React.useEffect(() => {
     let cancelled = false;
 
-    async function loadXanaxCompetition() {
-      const response = await getXanaxCompetition().catch(() => null);
-      if (!cancelled) {
+    async function loadXanaxCompetition({ signal, isCurrent }: PollContext) {
+      const response = await getXanaxCompetition(signal).catch(() => null);
+      if (isCurrent() && !cancelled) {
         setXanaxCompetition(response);
         setXanaxCompetitionLoaded(true);
       }
     }
 
-    loadXanaxCompetition();
-    const timer = window.setInterval(loadXanaxCompetition, HIGHLIGHT_REFRESH_MS);
+    const poll = startPolling(loadXanaxCompetition, { intervalMs: HIGHLIGHT_REFRESH_MS });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, []);
 
   React.useEffect(() => {
     let cancelled = false;
 
-    async function loadDataHealth() {
-      const response = await getDataHealthSummary().catch(() => null);
-      if (!cancelled) {
+    async function loadDataHealth({ signal, isCurrent }: PollContext) {
+      const response = await getDataHealthSummary(signal).catch(() => null);
+      if (isCurrent() && !cancelled) {
         setDataHealth(response);
         setDataHealthLoaded(true);
       }
     }
 
-    loadDataHealth();
-    const timer = window.setInterval(loadDataHealth, DATA_HEALTH_REFRESH_MS);
+    const poll = startPolling(loadDataHealth, { intervalMs: DATA_HEALTH_REFRESH_MS });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, []);
 
   React.useEffect(() => {
     let cancelled = false;
 
-    async function loadRecentAttacks() {
+    async function loadRecentAttacks({ signal, isCurrent }: PollContext) {
       try {
         const response = await getRecentFactionAttacks({
           limit: RECENT_ATTACK_LIMIT,
-        });
-        if (!cancelled) {
+        }, signal);
+        if (isCurrent() && !cancelled) {
           setRecentAttacks(response.attacks);
           setRecentAttacksError(null);
           setRecentAttacksLoaded(true);
         }
       } catch (error) {
-        if (!cancelled) {
+        if (isCurrent() && !cancelled) {
           setRecentAttacksError(error instanceof Error ? error.message : "Unable to load recent attacks");
           setRecentAttacksLoaded(true);
         }
       }
     }
 
-    loadRecentAttacks();
-    const timer = window.setInterval(loadRecentAttacks, RECENT_ATTACK_REFRESH_MS);
+    const poll = startPolling(loadRecentAttacks, { intervalMs: RECENT_ATTACK_REFRESH_MS });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, []);
 
@@ -245,15 +242,15 @@ export function DashboardHome({
 
     let cancelled = false;
 
-    async function loadAdminHealth() {
+    async function loadAdminHealth({ signal, isCurrent }: PollContext) {
       const [ingestion, maintenance, trade, suggestionsResponse] = await Promise.all([
-        getLatestIngestionRun().catch(() => null),
-        getLatestMaintenanceRun().catch(() => null),
-        getTradeWatchlists().catch(() => null),
-        getAdminSuggestions().catch(() => null),
+        getLatestIngestionRun(signal).catch(() => null),
+        getLatestMaintenanceRun(signal).catch(() => null),
+        getTradeWatchlists(signal).catch(() => null),
+        getAdminSuggestions(undefined, signal).catch(() => null),
       ]);
 
-      if (cancelled) {
+      if (!isCurrent() || cancelled) {
         return;
       }
 
@@ -266,11 +263,10 @@ export function DashboardHome({
       setTotalSuggestions(suggestionsResponse?.total_suggestions ?? 0);
     }
 
-    loadAdminHealth();
-    const timer = window.setInterval(loadAdminHealth, ADMIN_HEALTH_REFRESH_MS);
+    const poll = startPolling(loadAdminHealth, { intervalMs: ADMIN_HEALTH_REFRESH_MS });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      poll.stop();
     };
   }, [isAdmin]);
 

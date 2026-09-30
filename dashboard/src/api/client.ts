@@ -35,8 +35,8 @@ export function clearStoredAuthSession() {
   window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
 }
 
-export async function getJson<T>(path: string, includeAuth = true): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, { headers: authHeaders(includeAuth) });
+export async function getJson<T>(path: string, includeAuth = true, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers: authHeaders(includeAuth), signal });
   const data = await response.json();
   if (!response.ok || data.ok === false) throw new Error(data.error ?? `Request failed: ${response.status}`);
   return data as T;

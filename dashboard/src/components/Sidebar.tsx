@@ -1,14 +1,13 @@
 import React from "react";
 import { CalendarClock, ChevronDown, ChevronRight, TrendingUp, Swords } from "lucide-react";
 import { WarSummary, WarType } from "../api";
-import { getChainWatchLive } from "../api/chainWatchSchedule";
+import { useChainWatchLive } from "../hooks/ChainWatchLiveProvider";
 import { EmptyState } from "./Common";
 import { formatDate } from "../utils/format";
 import { displayWarStatus } from "../utils/members";
 import type { AppView } from "../routes";
 
 type SidebarGroupId = "members" | "recordedWars" | "miscellaneous" | "admin";
-const CHAIN_WATCH_STATUS_REFRESH_MS = 15_000;
 
 export function Sidebar({
   warType,
@@ -59,7 +58,8 @@ export function Sidebar({
   onWarSelect: (name: string) => void;
   onRecordedWarsOpenChange?: (open: boolean) => void;
 }) {
-  const [hasActiveChainWatch, setHasActiveChainWatch] = React.useState<boolean | null>(null);
+  const { data: liveChain } = useChainWatchLive();
+  const hasActiveChainWatch = liveChain?.demand.active ?? null;
   const chainWatchInMiscellaneous = hasActiveChainWatch === false;
   const [collapsedGroups, setCollapsedGroups] = React.useState<Record<SidebarGroupId, boolean>>({
     members: true,
@@ -72,34 +72,6 @@ export function Sidebar({
   const miscellaneousActive = view === "miscellaneous" || (view === "chainWatchSchedule" && chainWatchInMiscellaneous) || view === "tradeScout" || view === "arrestScout" || view === "bookStrategy" || view === "statEnhancerRange" || view === "stockInvestments";
   const adminActive = view === "warPayouts" || view === "stockMarketStatus" || view === "factionArmory" || view === "admin";
   const recordedWarsOpen = !(collapsedGroups.recordedWars ?? false);
-
-  React.useEffect(() => {
-    let disposed = false;
-    let version = 0;
-    async function refresh() {
-      const request = ++version;
-      try {
-        const response = await getChainWatchLive();
-        if (!disposed && request === version) {
-          // Watch demand remains active even if the chain drops or monitoring is stale.
-          setHasActiveChainWatch(response.demand.active);
-        }
-      } catch {
-        // Keep the last known position if the status cannot be refreshed.
-      }
-    }
-    const wake = () => { if (!document.hidden) void refresh(); };
-    void refresh();
-    const timer = window.setInterval(wake, CHAIN_WATCH_STATUS_REFRESH_MS);
-    window.addEventListener("focus", wake);
-    document.addEventListener("visibilitychange", wake);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-      window.removeEventListener("focus", wake);
-      document.removeEventListener("visibilitychange", wake);
-    };
-  }, [view]);
 
   React.useEffect(() => {
     setCollapsedGroups((current) => {

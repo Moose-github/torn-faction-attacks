@@ -1,3 +1,4 @@
+import { usePollingResource } from "../hooks/usePollingResource";
 import React from "react";
 import type { WarSummary } from "../api";
 import { getJson, postJson } from "../api/client";
@@ -26,23 +27,21 @@ const reasonLabel: Record<string, string> = {
 
 export function PracticalPhases({ war, admin = false, collapsible = false, onChanged }: { war: WarSummary; admin?: boolean; collapsible?: boolean; onChanged?: () => void }) {
   const [collapsed, setCollapsed] = React.useState(true);
-  const [data, setData] = React.useState<Response | null>(null);
   const [draft, setDraft] = React.useState<Draft | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  const [actionError, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [now, setNow] = React.useState(Math.floor(Date.now() / 1000));
   const path = `/api/wars/${encodeURIComponent(war.name)}/practical-phases`;
-  const load = React.useCallback(async () => {
-    try { setData(await getJson<Response>(path)); }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-  }, [path]);
+  const resource = usePollingResource(path, signal => getJson<Response>(path, true, signal), {
+    enabled: war.war_type === "termed", intervalMs: 15_000,
+  });
+  const { data, setData } = resource;
+  const error = actionError ?? (resource.error ? resource.error instanceof Error ? resource.error.message : String(resource.error) : null);
+  React.useEffect(() => { setDraft(null); setError(null); }, [path]);
   React.useEffect(() => {
-    if (war.war_type !== "termed") return;
-    setDraft(null);
-    void load();
-    const timer = window.setInterval(() => { setNow(Math.floor(Date.now() / 1000)); void load(); }, 15000);
-    return () => window.clearInterval(timer);
-  }, [load, war.war_type]);
+    const clock = window.setInterval(() => setNow(Math.floor(Date.now() / 1000)), 15_000);
+    return () => window.clearInterval(clock);
+  }, []);
   if (war.war_type !== "termed") return null;
 
   const phases = data?.practical_phases ?? [];
@@ -64,7 +63,7 @@ export function PracticalPhases({ war, admin = false, collapsible = false, onCha
       window.dispatchEvent(new Event("practical-phases-changed"));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-      await load();
+      resource.invalidate();
     } finally { setBusy(false); }
   }
   const history = draft?.action.includes("history");
