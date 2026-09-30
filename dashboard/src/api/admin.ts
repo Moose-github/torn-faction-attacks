@@ -1,5 +1,5 @@
 import type { DiscordAlertKey } from "../../../shared/discordAlertCatalog";
-import { API_BASE_URL, authHeaders, deleteJson, getJson, postJson } from "./client";
+import { getApiResponse, deleteJson, getJson, postJson } from "./client";
 import { queryString } from "./query";
 import type { DiscordMessageDeleteResult, DiscordMessagePreview, DiscordMessageSendResult } from "../../../shared/discordMessageAdmin";
 import type { AdminDiscordAlertMentionsResponse, DiscordAlertMentionSetting, UpdateDiscordAlertMentionsResponse } from "../../../shared/discordAlertMentions";
@@ -193,25 +193,10 @@ export async function previewEnemyStatsImage(type: EnemyStatsImagePreviewType): 
   previewWindow.document.title = "Loading Discord image preview";
   previewWindow.document.body.textContent = "Loading preview...";
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/admin/enemy-stats-image/preview?type=${encodeURIComponent(type)}`,
-    { headers: authHeaders(true) },
-  );
-
-  if (!response.ok) {
-    const text = await response.text();
-    let message = `Request failed: ${response.status}`;
-    try {
-      const data = JSON.parse(text);
-      message = data.error ?? message;
-    } catch {
-      if (text.trim()) {
-        message = text;
-      }
-    }
-    previewWindow.document.body.textContent = message;
-    throw new Error(message);
-  }
+  const response = await getApiResponse(`/api/admin/enemy-stats-image/preview?type=${encodeURIComponent(type)}`).catch((error: unknown) => {
+    previewWindow.document.body.textContent = error instanceof Error ? error.message : String(error);
+    throw error;
+  });
 
   const blob = await response.blob();
   const previewUrl = window.URL.createObjectURL(blob);
@@ -232,25 +217,10 @@ export async function previewXanaxCompetitionImage(): Promise<unknown> {
   previewWindow.document.title = "Loading Xanax competition image";
   previewWindow.document.body.textContent = "Loading preview...";
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/admin/xanax-competition/image`,
-    { headers: authHeaders(true) },
-  );
-
-  if (!response.ok) {
-    const text = await response.text();
-    let message = `Request failed: ${response.status}`;
-    try {
-      const data = JSON.parse(text);
-      message = data.error ?? message;
-    } catch {
-      if (text.trim()) {
-        message = text;
-      }
-    }
-    previewWindow.document.body.textContent = message;
-    throw new Error(message);
-  }
+  const response = await getApiResponse("/api/admin/xanax-competition/image").catch((error: unknown) => {
+    previewWindow.document.body.textContent = error instanceof Error ? error.message : String(error);
+    throw error;
+  });
 
   const blob = await response.blob();
   const previewUrl = window.URL.createObjectURL(blob);

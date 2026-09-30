@@ -1,3 +1,4 @@
+import { useAuth } from "../auth/AuthProvider";
 import { useWarRoomTracking, useWarRoomHeatmaps, useWarChainWatch } from "../hooks/useWarRoomData";
 import { PracticalPhases } from "../components/PracticalPhases";
 import React from "react";
@@ -15,12 +16,10 @@ import {
   EnemyMemberActivityHeatmapResponse,
   getAdminWarControlSettings,
   getEnemyBigHitters,
-  getStoredAuthSession,
   getScoutingComparison,
   getWarControl,
   getWarActivityHeatmap,
   removeEnemyBigHitter,
-  refreshAuthSession,
   refreshEnemyScouting,
   ScoutingComparisonResponse,
   updateAdminWarControlSettings,
@@ -69,9 +68,7 @@ export function WarRoom({
   const [isLoadingEnemyBigHitters, setIsLoadingEnemyBigHitters] = React.useState(false);
   const [isUpdatingEnemyBigHitters, setIsUpdatingEnemyBigHitters] = React.useState(false);
   const [selectedBigHitterMemberId, setSelectedBigHitterMemberId] = React.useState("");
-  const [canRefreshEnemyScouting, setCanRefreshEnemyScouting] = React.useState(
-    () => getStoredAuthSession()?.access_level === "admin",
-  );
+  const { isAdmin: canRefreshEnemyScouting } = useAuth();
   const [isRefreshingEnemyScouting, setIsRefreshingEnemyScouting] = React.useState(false);
   const [scoutingComparisonMetric, setScoutingComparisonMetric] =
     React.useState<ScoutingComparisonMetric>("ff_battlestats");
@@ -158,22 +155,6 @@ export function WarRoom({
       block: "start",
     });
   }
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function refreshAuth() {
-      const session = await refreshAuthSession();
-      if (!cancelled) {
-        setCanRefreshEnemyScouting(session?.access_level === "admin");
-      }
-    }
-
-    refreshAuth();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   React.useEffect(() => {
     setActivityHeatmapMode("faction");

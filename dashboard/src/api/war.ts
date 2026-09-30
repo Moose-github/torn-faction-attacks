@@ -1,4 +1,4 @@
-import { API_BASE_URL, authHeaders, filenameFromContentDisposition, getJson, postJson } from "./client";
+import { getApiResponse, filenameFromContentDisposition, getJson, postJson } from "./client";
 import { queryString } from "./query";
 import type { WarProgressResponse } from "../../../shared/warProgress";
 
@@ -301,25 +301,8 @@ export async function exportWarAttacksCsv(options: AttackExportOptions): Promise
     custom_finish: options.customFinish,
   });
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/wars/${encodeURIComponent(options.warName)}/attacks${query}`,
-    { headers: authHeaders(true) },
-  );
-
-  if (!response.ok) {
-    const text = await response.text();
-    let message = `Request failed: ${response.status}`;
-    try {
-      const data = JSON.parse(text);
-      message = data.error ?? message;
-    } catch {
-      if (text.trim()) {
-        message = text;
-      }
-    }
-    throw new Error(message);
-  }
-
+  const response = await getApiResponse(`/api/wars/${encodeURIComponent(options.warName)}/attacks${query}`);
+
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") ?? "";
   const filename = filenameFromContentDisposition(disposition) ?? `${options.warName}-attacks.csv`;

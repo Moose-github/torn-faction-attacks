@@ -14,7 +14,7 @@ import {
   StockInvestmentRoiRow,
   updateStockBenefitValue,
 } from "../api";
-import { getStoredAuthSession } from "../api/client";
+import { useAuth } from "../auth/AuthProvider";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { formatNumber, formatRelativeTime } from "../utils/format";
 import {
@@ -89,7 +89,8 @@ type OwnedInvestmentSummary = {
 };
 
 export function StockInvestments() {
-  const storageUserId = React.useMemo(() => getStoredAuthSession()?.user.id ?? null, []);
+  const { session } = useAuth();
+  const storageUserId = session?.user.id ?? null;
   const [roiData, setRoiData] = React.useState<StockInvestmentRoiResponse | null>(null);
   const [benefits, setBenefits] = React.useState<StockBenefitValue[]>([]);
   const [disabledBenefitStocks, setDisabledBenefitStocks] = React.useState<StockBenefitDisabledStock[]>([]);

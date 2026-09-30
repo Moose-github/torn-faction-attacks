@@ -1,22 +1,10 @@
-import { clearStoredAuthSession, getJson, getStoredAuthSession, postJson, storeAuthSession } from "./client";
+import { getJson, postJson } from "./client";
 import type { AuthSession } from "./types";
 
-export { clearStoredAuthSession, getStoredAuthSession } from "./client";
-
-export async function authenticateTornKey(key: string): Promise<AuthSession> {
-  const session = await postJson<AuthSession>("/api/auth/torn", { key }, false);
-  storeAuthSession(session);
-  return session;
+export function authenticateTornKey(key: string, signal?: AbortSignal): Promise<AuthSession> {
+  return postJson<AuthSession>("/api/auth/torn", { key }, false, signal);
 }
 
-export async function refreshAuthSession(): Promise<AuthSession | null> {
-  if (!getStoredAuthSession()) return null;
-  try {
-    const session = await getJson<AuthSession>("/api/auth/me", true);
-    storeAuthSession(session);
-    return session;
-  } catch {
-    clearStoredAuthSession();
-    return null;
-  }
+export function refreshAuthSession(signal?: AbortSignal): Promise<AuthSession> {
+  return getJson<AuthSession>("/api/auth/me", true, signal);
 }

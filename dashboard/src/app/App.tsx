@@ -1,3 +1,4 @@
+import { useAuth } from "../auth/AuthProvider";
 import { startPolling, type PollContext } from "../utils/polling";
 import { ChainWatchLiveProvider } from "../hooks/ChainWatchLiveProvider";
 import React from "react";
@@ -20,8 +21,6 @@ import {
   Wrench,
 } from "lucide-react";
 import {
-  authenticateTornKey,
-  clearStoredAuthSession,
   getGlobalWarState,
   getWar,
   getWarActivity,
@@ -30,9 +29,6 @@ import {
   getWarMemberAttacks,
   getWarReportDiscrepancies,
   getWars,
-  AuthSession,
-  getStoredAuthSession,
-  refreshAuthSession,
   MemberAttack,
   ChainBonusAttack,
   MemberStats,
@@ -78,8 +74,6 @@ const ACTIVE_WAR_REFRESH_MS = 60_000;
 const SLOW_WAR_REFRESH_MS = 5 * 60_000;
 const PRACTICAL_FINISH_REFRESH_MS = 15 * 60_000;
 const GLOBAL_WAR_STATE_REFRESH_MS = 60_000;
-const AUTH_SESSION_REFRESH_SKEW_MS = 15 * 60_000;
-const AUTH_SESSION_REFRESH_MS = 30 * 60_000;
 
 const AdminControls = React.lazy(() =>
   import("../views/AdminControls").then((module) => ({ default: module.AdminControls })),
@@ -140,15 +134,18 @@ const ChainWatchSchedule = React.lazy(() =>
 );
 
 export function App() {
+  const { scope } = useAuth();
+  return <AppContents key={scope} />;
+}
+
+function AppContents() {
+  const { session: authSession, signOut: endSession, refreshError } = useAuth();
   const initialRoute = React.useMemo(() => parseAppRoute(window.location.pathname), []);
   const [themeMode, setThemeMode] = React.useState<ThemeMode>(() => initialThemeMode());
   const [timeZoneMode, setTimeZoneMode] = React.useState<TimeZoneMode>(() => initialTimeZoneMode());
   const [warType, setWarType] = React.useState<WarType>("all");
   const [view, setView] = React.useState<AppView>(initialRoute.view);
   const [routedWarName, setRoutedWarName] = React.useState<string | null>(initialRoute.warName);
-  const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
-    getStoredAuthSession(),
-  );
   const [wars, setWars] = React.useState<WarSummary[]>([]);
   const [warState, setWarState] = React.useState<GlobalWarState>("none");
   const warsRequestId = React.useRef(0);
@@ -183,52 +180,6 @@ export function App() {
   const [isLoadingMemberAttacks, setIsLoadingMemberAttacks] = React.useState(false);
   const [isRecordedWarsOpen, setIsRecordedWarsOpen] = React.useState(false);
   const shouldLoadFullWars = Boolean(authSession) && shouldLoadFullWarList(view, isRecordedWarsOpen);
-
-  React.useEffect(() => {
-    if (!authSession) {
-      return;
-    }
-
-    let cancelled = false;
-    let dueRefreshTimer: number | null = null;
-    let expiryTimer: number | null = null;
-    let refreshTimer: number | null = null;
-
-    async function refreshSession() {
-      const refreshedSession = await refreshAuthSession();
-      if (!cancelled) {
-        setAuthSession(refreshedSession ?? getStoredAuthSession());
-      }
-    }
-
-    const expiresInMs = authSession.expires_at * 1000 - Date.now();
-    if (expiresInMs <= 0) {
-      setAuthSession(null);
-      return;
-    }
-
-    const refreshDueInMs = Math.max(0, expiresInMs - AUTH_SESSION_REFRESH_SKEW_MS);
-    dueRefreshTimer = window.setTimeout(refreshSession, refreshDueInMs);
-    refreshTimer = window.setInterval(refreshSession, AUTH_SESSION_REFRESH_MS);
-    expiryTimer = window.setTimeout(() => {
-      if (!cancelled) {
-        setAuthSession(getStoredAuthSession());
-      }
-    }, expiresInMs + 1000);
-
-    return () => {
-      cancelled = true;
-      if (dueRefreshTimer !== null) {
-        window.clearTimeout(dueRefreshTimer);
-      }
-      if (expiryTimer !== null) {
-        window.clearTimeout(expiryTimer);
-      }
-      if (refreshTimer !== null) {
-        window.clearInterval(refreshTimer);
-      }
-    };
-  }, [authSession?.access_level, authSession?.expires_at, authSession?.user.id]);
 
   React.useEffect(() => {
     persistThemeMode(themeMode);
@@ -767,8 +718,7 @@ export function App() {
   }
 
   function signOut() {
-    clearStoredAuthSession();
-    setAuthSession(null);
+    endSession();
     setView("dashboard");
     setRoutedWarName(null);
     goToPath(pathForView("dashboard"), true);
@@ -826,14 +776,10 @@ export function App() {
       </header>
 
       {error ? <div className="error-panel">{error}</div> : null}
+      {authSession && refreshError ? <div className="error-panel" role="status">{refreshError}</div> : null}
 
       {!authSession ? (
-        <MemberSignIn
-          onSignedIn={(session) => {
-            setAuthSession(session);
-            setError(null);
-          }}
-        />
+        <MemberSignIn />
       ) : (
 
       <ChainWatchLiveProvider key={`${authSession.user.id}:${authSession.access_level}`}><div className="dashboard-layout">
@@ -1010,7 +956,8 @@ function LazyPage({ children }: { children: React.ReactNode }) {
   );
 }
 
-function MemberSignIn({ onSignedIn }: { onSignedIn: (session: AuthSession) => void }) {
+function MemberSignIn() {
+  const { signIn } = useAuth();
   const [key, setKey] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = React.useState(false);
@@ -1021,7 +968,7 @@ function MemberSignIn({ onSignedIn }: { onSignedIn: (session: AuthSession) => vo
     setIsSigningIn(true);
 
     try {
-      onSignedIn(await authenticateTornKey(key));
+      await signIn(key);
       setKey("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

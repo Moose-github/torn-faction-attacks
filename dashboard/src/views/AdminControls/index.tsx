@@ -1,12 +1,10 @@
+import { useAuth } from "../../auth/AuthProvider";
 import { PracticalPhases } from "../../components/PracticalPhases";
 import React from "react";
 import { ChevronDown, ChevronRight, Square } from "lucide-react";
 import {
   AdminWarPayload,
-  AuthSession,
-  authenticateTornKey,
   cancelMemberLifestyleRepairJob,
-  clearStoredAuthSession,
   createEvent,
   createMemberLifestyleRepairJob,
   AdminDiscordAlertSettingsResponse,
@@ -22,7 +20,6 @@ import {
   getHomeFactionReportExemptions,
   getMemberLifestyleRepairJobs,
   getWars,
-  getStoredAuthSession,
   grantAdminAccess,
   revokeAdminAccess,
   AdminUser,
@@ -38,7 +35,6 @@ import {
   recordAdminXanaxCompetitionClaim,
   rebuildStats,
   refreshMemberAchievements,
-  refreshAuthSession,
   resetEnemyStatsImageLatches,
   restartLiveEnemyTracking,
   relinkAttacks,
@@ -71,9 +67,7 @@ const ADMIN_TABS: Array<{ key: AdminTabKey; label: string }> = [
 ];
 
 export function AdminControls() {
-  const [authSession, setAuthSession] = React.useState<AuthSession | null>(() =>
-    getStoredAuthSession(),
-  );
+  const { session: authSession, signIn, signOut } = useAuth();
   const [useEpochTime, setUseEpochTime] = React.useState(false);
   const [tornKey, setTornKey] = React.useState("");
   const [isAuthenticating, setIsAuthenticating] = React.useState(false);
@@ -187,25 +181,6 @@ export function AdminControls() {
   React.useEffect(() => {
     let cancelled = false;
 
-    async function refresh() {
-      const session = await refreshAuthSession();
-      if (!cancelled) {
-        setAuthSession(session ?? getStoredAuthSession());
-      }
-    }
-
-    if (authSession) {
-      refresh();
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
     async function loadWars() {
       if (authSession?.access_level !== "admin") {
         return;
@@ -294,8 +269,7 @@ export function AdminControls() {
     setError(null);
 
     try {
-      const session = await authenticateTornKey(tornKey);
-      setAuthSession(session);
+      await signIn(tornKey);
       setTornKey("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -305,8 +279,7 @@ export function AdminControls() {
   }
 
   function logout() {
-    clearStoredAuthSession();
-    setAuthSession(null);
+    signOut();
     setResult(null);
   }
 
