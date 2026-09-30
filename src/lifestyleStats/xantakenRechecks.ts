@@ -422,6 +422,7 @@ async function upsertXantakenRecheck(env: Env, input: QueueRecheckInput): Promis
       last_error = NULL,
       finished_at = NULL,
       updated_at = excluded.updated_at
+    WHERE member_lifestyle_xantaken_rechecks.status != 'needs_repair'
     `,
   )
     .bind(

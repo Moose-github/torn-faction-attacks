@@ -11,6 +11,7 @@ export async function createMemberLifestyleRepairJob(payload: {
   end_date: string;
   calls_per_minute_per_key?: number;
   member_id?: number;
+  xantaken_recheck_date?: string;
 }): Promise<MemberLifestyleRepairJobResponse> {
   return postJson<MemberLifestyleRepairJobResponse>("/api/admin/member-lifestyle/repair-jobs", payload);
 }

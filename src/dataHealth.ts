@@ -1,6 +1,7 @@
 import { readJsonObject } from "./backend/request";
 import { getDailyStatsAttention } from "./lifestyleStats/dailyAttention";
 import { readXantakenRecheckHealth } from "./lifestyleStats/xantakenRechecks";
+import { readXantakenRepairDetails } from "./lifestyleStats/xantakenRepairs";
 import {
   GYM_CONTRIBUTOR_STAT_KEYS,
   GymContributorStatKey,
@@ -110,6 +111,7 @@ export async function getAdminDataHealth(urlOrEnv: URL | Env, maybeEnv?: Env): P
       personal_stats_coverage_gaps: snapshot.personalStatsCoverageGaps,
       gym_stats_health: snapshot.gymStats,
       xantaken_rechecks: snapshot.xantakenRechecks,
+      xantaken_repair_details: snapshot.xantakenRepairDetails,
       roster: snapshot.roster,
       api_usage: snapshot.apiDetailUsage,
       api_usage_window_seconds: snapshot.apiUsageWindowSeconds,
@@ -203,7 +205,10 @@ async function readDataHealthSnapshot(
       : Promise.resolve([]),
     readGymStatsHealth(env, dailyStats.personalstats_target_date, now),
   ]);
-  const xantakenRechecks = await readXantakenRecheckHealth(env, now);
+  const [xantakenRechecks, xantakenRepairDetails] = await Promise.all([
+    readXantakenRecheckHealth(env, now),
+    options.includeAdminDetail ? readXantakenRepairDetails(env) : Promise.resolve([]),
+  ]);
 
   return {
     now,
@@ -218,6 +223,7 @@ async function readDataHealthSnapshot(
     personalStatsCoverageGaps,
     gymStats,
     xantakenRechecks,
+    xantakenRepairDetails,
     roster,
     apiUsage,
     apiDetailUsage,

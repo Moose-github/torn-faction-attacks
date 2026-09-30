@@ -9,6 +9,7 @@ import {
 } from "../personalStats";
 import {
   dateDiffDays,
+  calendarDateDiffDays,
   dateKeyFromMs,
   enumerateDateRange,
   normalizeDateParam,
@@ -38,6 +39,7 @@ import {
 } from "./dailyPersonal";
 import { readHomeMembersById } from "./queries";
 import { evaluateXantakenSnapshotForRechecks } from "./xantakenRechecks";
+import { reconcileXantakenRepairJob } from "./xantakenRepairs";
 
 export async function createMemberLifestyleRepairJob(request: Request, env: Env): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as {
@@ -45,6 +47,7 @@ export async function createMemberLifestyleRepairJob(request: Request, env: Env)
     end_date?: unknown;
     calls_per_minute_per_key?: unknown;
     member_id?: unknown;
+    xantaken_recheck_date?: unknown;
   };
   const startDate = normalizeDateParam(typeof body.start_date === "string" ? body.start_date : null);
   const endDate = normalizeDateParam(typeof body.end_date === "string" ? body.end_date : null);
@@ -64,9 +67,33 @@ export async function createMemberLifestyleRepairJob(request: Request, env: Env)
     );
   }
 
+  const memberId = parseOptionalPositiveInteger(body.member_id);
+  if (body.member_id !== undefined && memberId === null) {
+    return json({ ok: false, error: "A valid member_id is required", code: "INVALID_MEMBER_ID" }, 400);
+  }
+  if (body.xantaken_recheck_date !== undefined) {
+    const recheckDate = normalizeDateParam(typeof body.xantaken_recheck_date === "string" ? body.xantaken_recheck_date : null);
+    if (memberId === null || !recheckDate || startDate !== recheckDate || calendarDateDiffDays(recheckDate, endDate) !== 1) {
+      return json({ ok: false, error: "Xanax repair requires one member and the affected date through the following day", code: "INVALID_XANAX_REPAIR" }, 400);
+    }
+    const issue = await env.DB.prepare(`
+      SELECT created_at FROM member_lifestyle_xantaken_rechecks
+      WHERE member_id = ? AND snapshot_date = ? AND status = 'needs_repair'
+    `).bind(memberId, recheckDate).first<{ created_at: number }>();
+    if (!issue) {
+      return json({ ok: false, error: "This Xanax recheck no longer needs repair. Refresh Data health.", code: "XANAX_RECHECK_NOT_OUTSTANDING" }, 409);
+    }
+    const activeJob = await env.DB.prepare(`
+      SELECT id FROM member_lifestyle_repair_jobs
+      WHERE status IN ('queued', 'running') AND (member_id = ? OR member_id IS NULL)
+        AND effective_start_date <= date(?, '-1 day') AND end_date >= ?
+        AND created_at >= ?
+      ORDER BY created_at ASC LIMIT 1
+    `).bind(memberId, recheckDate, endDate, issue.created_at).first<{ id: string }>();
+    if (activeJob) return getMemberLifestyleRepairJob(env, activeJob.id);
+  }
   await syncHomeFactionMemberList(env);
   const homeMembers = await readHomeMembersById(env);
-  const memberId = parseOptionalPositiveInteger(body.member_id);
   if (memberId !== null && !homeMembers.has(memberId)) {
     return json(
       { ok: false, error: "Member is not a current faction member", code: "MEMBER_NOT_CURRENT" },
@@ -825,6 +852,7 @@ async function finalizeRepairJobIfDone(env: Env, jobId: string): Promise<void> {
 
   const now = nowSeconds();
   const status: RepairJobStatus = counts.failed > 0 ? "failed" : "completed";
+  await reconcileXantakenRepairJob(env, jobId);
   await env.DB.prepare(
     `
     UPDATE member_lifestyle_repair_jobs

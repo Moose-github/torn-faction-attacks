@@ -35,6 +35,7 @@ import { EmptyState, PanelHeader } from "../components/Common";
 import type { AppView } from "../routes";
 import { formatLongDateTime, formatNumber, formatRelativeTime } from "../utils/format";
 import { groupPersonalStatsIssues } from "../utils/personalStatsIssues";
+import { XantakenRepairTable } from "../components/XantakenRepairTable";
 
 type DataHealthCommandCenterProps = {
   onOpenView: (view: AppView) => void;
@@ -426,7 +427,7 @@ function AdminDataHealthDiagnostics({
                   </button>
                 ) : null}
                 {issue.key === "personal_stats" ? (
-                  <PersonalStatsIssueDetail data={data} fallbackDetail={issue.detail} />
+                  <PersonalStatsIssueDetail data={data} fallbackDetail={issue.detail} onRefresh={onRefresh} />
                 ) : null}
               </article>
             ))}
@@ -588,16 +589,20 @@ function AdminDataHealthDiagnostics({
 function PersonalStatsIssueDetail({
   data,
   fallbackDetail,
+  onRefresh,
 }: {
   data: AdminDataHealthResponse;
   fallbackDetail: string;
+  onRefresh: () => Promise<void>;
 }) {
   const issueGaps = groupPersonalStatsIssues(data.details.personal_stats_coverage_gaps);
   const xanaxRepairs = data.details.xantaken_rechecks.needs_repair;
 
   return (
     <div className="data-health-issue-detail">
-      {xanaxRepairs > 0 ? <p>{formatNumber(xanaxRepairs)} Xanax recheck{xanaxRepairs === 1 ? " needs" : "s need"} repair.</p> : null}
+      {xanaxRepairs > 0 ? data.details.xantaken_repair_details?.length ? (
+        <XantakenRepairTable rows={data.details.xantaken_repair_details} onRefresh={onRefresh} />
+      ) : <p>Xanax repair details are unavailable. Refresh Data health to try again.</p> : null}
       {issueGaps.length > 0 ? (
         <div className="table-scroll">
           <table className="stock-status-table data-health-table data-health-issue-table" aria-label="Users with personal stats issues">

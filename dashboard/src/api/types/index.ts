@@ -945,6 +945,29 @@ export type XantakenRecheckHealth = {
   needs_repair: number;
 };
 
+export type XantakenRepairDetail = {
+  member_id: number;
+  member_name: string | null;
+  snapshot_date: string;
+  reason: "zero_delta_recheck" | "impossible_delta";
+  prior_xantaken: number | null;
+  current_xantaken: number | null;
+  next_xantaken: number | null;
+  returned_xantaken: number | null;
+  returned_bucket_date: string | null;
+  attempts: number;
+  max_attempts: number;
+  last_error: string | null;
+  updated_at: number;
+  repair_job_id: string | null;
+  repair_status: string | null;
+  repair_total_items: number | null;
+  repair_completed_items: number | null;
+  repair_failed_items: number | null;
+  repair_skipped_items: number | null;
+  repair_error: string | null;
+};
+
 export type MaintenanceRunResponse = {
   ok: boolean;
   run: MaintenanceRun | null;
@@ -1042,6 +1065,7 @@ export type AdminDataHealthResponse = DataHealthSummaryResponse & {
     personal_stats_coverage_gaps: PersonalStatsCoverageGap[];
     gym_stats_health: GymStatsHealth;
     xantaken_rechecks: XantakenRecheckHealth;
+    xantaken_repair_details: XantakenRepairDetail[];
     roster: {
       current_members: number;
       reportable_members: number;

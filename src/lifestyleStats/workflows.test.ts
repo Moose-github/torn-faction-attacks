@@ -356,6 +356,9 @@ function handleRepairQuery(
   },
 ): unknown {
   const { job, items, syncState } = options;
+  if (call.method === "run" && call.sql.includes("UPDATE member_lifestyle_xantaken_rechecks AS r")) {
+    return d1Result(0);
+  }
   if (isSyncStateRead(call)) {
     return syncState.get(String(call.params[0])) ?? null;
   }

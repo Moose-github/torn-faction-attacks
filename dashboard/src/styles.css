@@ -2376,6 +2376,35 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.xantaken-repairs {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.xantaken-repair-table td {
+  vertical-align: top;
+}
+
+.xantaken-repair-values {
+  margin-top: 8px;
+}
+
+.xantaken-repair-values summary {
+  cursor: pointer;
+}
+
+.xantaken-repair-values dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+}
+
+.xantaken-repair-values dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .data-health-drilldown-grid {
   display: grid;
   gap: 16px;

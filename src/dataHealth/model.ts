@@ -1,5 +1,6 @@
 import type { getDailyStatsAttention } from "../lifestyleStats/dailyAttention";
 import type { GymContributorStatKey, XantakenRecheckHealthRow } from "../lifestyleStats/model";
+import type { XantakenRepairDetail } from "../lifestyleStats/xantakenRepairs";
 
 export type DataHealthStatus = "good" | "warn" | "critical" | "unknown";
 
@@ -275,6 +276,7 @@ export type DataHealthSnapshot = {
   personalStatsCoverageGaps: PersonalStatsCoverageGapRow[];
   gymStats: GymStatsHealthRow;
   xantakenRechecks: XantakenRecheckHealthRow;
+  xantakenRepairDetails: XantakenRepairDetail[];
   roster: RosterHealthRow;
   apiUsage: ApiUsageHealthRow;
   apiDetailUsage: ApiUsageHealthRow;
