@@ -15,9 +15,9 @@ const GROUP_DEFINITIONS = [
   {
     key: "after_practical_finish",
     category: "adjustment",
-    title: "Hits after practical finish",
+    title: "Hits outside practical windows",
     detail:
-      "These Buttgrass hits happened after the practical finish, so they may appear in Torn totals but not member performance.",
+      "These Buttgrass hits happened before, between, or after practical phases. They appear in the official war window but are excluded from member performance.",
   },
   {
     key: "uncounted_enemy_results",

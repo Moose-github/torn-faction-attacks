@@ -167,7 +167,7 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
     const officialEndTime = war.official_end_time;
 
     const [
-      afterPracticalFinish,
+      outsidePracticalWindows,
       uncountedEnemyResults,
       chainBonusAdjustments,
       outsideOfficialWindow,
@@ -183,13 +183,13 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
           OR a.defender_faction_id != ${HOME_FACTION_ID}
         )
         AND a.result IN (${POSITIVE_RESULTS_SQL})
-        AND (? IS NOT NULL AND COALESCE(a.ended, a.started) > ?)
+        AND NOT ${OUTGOING_ACTION_WINDOW_SQL}
+        AND a.started >= ?
         AND (? IS NULL OR COALESCE(a.ended, a.started) <= ?)
         AND (? IS NULL OR a.defender_faction_id = ?)
         `,
         [
-          war.practical_finish_time,
-          war.practical_finish_time,
+          officialStartTime,
           officialEndTime,
           officialEndTime,
           war.enemy_faction_id,
@@ -214,10 +214,9 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
             AND a.result NOT IN (${KNOWN_UNSUCCESSFUL_RESULTS_SQL})
           )
         )
-        AND (? IS NULL OR a.started >= ?)
-        AND (? IS NULL OR COALESCE(a.ended, a.started) <= ?)
+        AND ${OUTGOING_ACTION_WINDOW_SQL}
         `,
-        [war.enemy_faction_id, war.enemy_faction_id, war.practical_start_time, war.practical_start_time, war.practical_finish_time, war.practical_finish_time],
+        [war.enemy_faction_id, war.enemy_faction_id],
       ),
       getChainBonusAdjustmentGroup(env, war.id),
       getDiscrepancyGroup(
@@ -247,7 +246,8 @@ export async function getWarReportDiscrepancies(url: URL, env: Env): Promise<Res
     ]);
 
     const groups = {
-      after_practical_finish: afterPracticalFinish,
+      // Keep the response key compatible; this includes every excluded phase gap.
+      after_practical_finish: outsidePracticalWindows,
       uncounted_enemy_results: uncountedEnemyResults,
       chain_bonus_adjustments: chainBonusAdjustments,
       outside_official_window: outsideOfficialWindow,
@@ -431,6 +431,7 @@ async function getDiscrepancyGroup(
         a.respect_gain,
         a.respect_loss
       FROM attacks a
+      JOIN wars w ON w.id = a.war_id
       WHERE a.war_id = ?
         AND ${conditionSql}
     ),

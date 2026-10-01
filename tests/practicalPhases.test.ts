@@ -6,6 +6,9 @@ import { closePracticalPhase, mutatePracticalPhases, practicalPhaseSummary, proc
 import { HOME_FACTION_ID } from "../src/constants";
 import { OUTGOING_ACTION_WINDOW_SQL } from "../src/sql";
 import { exportWarAttacksCsv } from "../src/warExports";
+import { getWarReportDiscrepancies } from "../src/reports";
+import { reportAdjustmentTotals } from "../dashboard/src/components/ReportDiscrepancies";
+import type { ReportDiscrepanciesResponse } from "../dashboard/src/api";
 import type { Env } from "../src/types";
 import { runPracticalPhaseHooks } from "../src/war/lifecycleHooks";
 import { applyIncrementalWarSummaries, rebuildWarStatsFromRaw } from "../src/warStats";
@@ -80,6 +83,58 @@ async function schedule(target = 9000) {
 }
 
 describe("practical phase database and lifecycle", () => {
+  it.each([false, true])("reconciles all excluded windows with a reopened phase (active: %s)", async (active) => {
+    war();
+    db.exec(`UPDATE wars SET official_start_time=${base - 3600}, official_end_time=${base + 30 * 3600} WHERE id=1`);
+    attack(1, base - 1800, 12); // Before the first practical phase, within the official war.
+    attack(2, base + 12 * 3600, 20); // Inclusive phase finish.
+    attack(3, base + 13 * 3600, 30); // Gap.
+    attack(4, base + 14 * 3600 + 10, 40); // Starts exactly at reopening.
+    attack(5, base + 16 * 3600, 50); // Inclusive second finish.
+    attack(6, base + 17 * 3600, 60); // After the last completed phase.
+    attack(7, base + 14 * 3600 + 5, 7); // Starts in the gap, ends inside phase two.
+    attack(8, base + 13 * 3600 + 10, 0);
+    attack(9, base + 15 * 3600, 0);
+    db.exec("UPDATE attacks SET result='Unknown' WHERE id IN (8,9)");
+    db.exec("UPDATE attacks SET chain=10 WHERE id IN (3,5)"); // Adjust only the bonus inside a phase.
+    expect((await command({ action: "add_history", revision: 0, target: 9000,
+      start_time: base + 14 * 3600, finish_time: base + 16 * 3600 })).status).toBe(200);
+    if (active) {
+      db.exec("UPDATE war_practical_phases SET status='active', finish_time=NULL WHERE reason='history_correction'");
+      db.exec("UPDATE wars SET practical_finish_time=NULL WHERE id=1");
+    }
+    await rebuildWarStatsFromRaw(env, { scope: "single-war", warId: 1 });
+    const response = await getWarReportDiscrepancies(new URL("https://test/api/wars/Test/report-discrepancies"), env);
+    expect(response.status).toBe(200);
+    const report = await response.json() as ReportDiscrepanciesResponse;
+    const excludedIds = active ? [1, 3, 7] : [1, 3, 6, 7];
+    expect(report.groups.after_practical_finish.attacks.map((row) => row.id).sort((a, b) => a - b)).toEqual(excludedIds);
+    expect(report.groups.after_practical_finish.respect_gain).toBe(active ? 49 : 109);
+    expect(report.groups.uncounted_enemy_results.attacks.map((row) => row.id)).toEqual([9]);
+    expect(report.groups.chain_bonus_adjustments.attacks.map((row) => row.id)).toEqual([5]);
+    const adjustment = reportAdjustmentTotals(report);
+    const stats = db.prepare("SELECT SUM(attacks_vs_enemy_successful) AS attacks, SUM(respect_gained) AS respect FROM war_member_stats WHERE war_id=1").get()!;
+    expect(7 + adjustment.attackDelta).toBe(stats.attacks);
+    expect(219 + adjustment.respectDelta).toBe(stats.respect);
+  });
+
+  it.each(["real", "termed"])("bounds single-window report adjustments by official times (%s)", async (type) => {
+    war();
+    db.prepare("UPDATE wars SET war_type=?, official_start_time=?, official_end_time=? WHERE id=1")
+      .run(type, base - 3600, base + 20 * 3600);
+    attack(1, base - 3600, 5); // Starts outside the official war.
+    attack(2, base - 1800, 10); // Before practical start.
+    attack(3, base + 12 * 3600, 20); // At practical finish.
+    attack(4, base + 20 * 3600, 30); // At official finish.
+    attack(5, base + 20 * 3600 + 1, 40); // Ends outside the official war.
+    const response = await getWarReportDiscrepancies(new URL("https://test/api/wars/Test/report-discrepancies"), env);
+    expect(response.status).toBe(200);
+    const report = await response.json() as ReportDiscrepanciesResponse;
+    expect(report.groups.after_practical_finish.count).toBe(2);
+    expect(report.groups.after_practical_finish.respect_gain).toBe(40);
+    expect(report.groups.after_practical_finish.attacks.map((row) => row.id).sort()).toEqual([2, 4]);
+  });
+
   it("saves member and enemy targets from the admin form without rounding phase boundaries", async () => {
     war();
     const saved = db.prepare("SELECT * FROM wars WHERE id=1").get()!;
