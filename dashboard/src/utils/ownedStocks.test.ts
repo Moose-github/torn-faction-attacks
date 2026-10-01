@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   ownedSharesMap,
+  ownedStockBenefitProgress,
   ownsStockIncrement,
+  type OwnedStockPosition,
   parseBankMeritsResponse,
   parseOwnedStocksResponse,
   parseStoredOwnedStockSnapshot,
@@ -79,6 +81,17 @@ describe("owned stock parsing", () => {
     expect(ownsStockIncrement(0, 1)).toBe(false);
   });
 
+  it("preserves zero payout progress in API and saved snapshots without treating missing progress as zero", () => {
+    const snapshot = parseOwnedStocksResponse({ stocks: [
+      { id: 1, shares: 100, bonus: { available: false, increment: 1, progress: 0, frequency: 7 } },
+      { id: 2, shares: 100, bonus: { progress: null } },
+      { id: 3, shares: 100, bonus: {} },
+      { id: 4, shares: 100, bonus: { progress: -1 } },
+    ] }, 1_800_000_000);
+    expect(snapshot.stocks.map((stock) => stock.bonus?.progress)).toEqual([0, null, null, null]);
+    expect(parseStoredOwnedStockSnapshot(snapshot)).toEqual(snapshot);
+  });
+
   it("turns Torn API errors into friendly errors", () => {
     expect(() => parseOwnedStocksResponse({
       error: { code: 2, error: "Incorrect key" },
@@ -101,6 +114,52 @@ describe("owned stock parsing", () => {
       stocks: [{ stock_id: 15, shares: 376_210, bonus: null }],
     });
     expect(parseStoredOwnedStockSnapshot({ stocks: [] })).toBeNull();
+  });
+});
+
+describe("owned stock payout progress", () => {
+  const position: OwnedStockPosition = {
+    stock_id: 1, shares: 300,
+    bonus: { available: false, increment: 1, progress: 3, frequency: 7 },
+  };
+  const input = { position, requiredShares: 100, increment: 1, passive: false };
+
+  it.each([[0, 7], [3, 7], [30, 31]])("reports %s days through a %s-day cycle", (days, frequency) => {
+    expect(ownedStockBenefitProgress({ ...input, position: { ...position, bonus: { ...position.bonus!, progress: days, frequency } } }))
+      .toEqual({ state: "progress", days, frequency });
+  });
+
+  it("uses the API availability flag for a ready payout", () => {
+    expect(ownedStockBenefitProgress({ ...input, position: { ...position, bonus: { ...position.bonus!, available: true } } }))
+      .toEqual({ state: "ready" });
+  });
+
+  it("does not show the current dividend as ready for a newly added block", () => {
+    expect(ownedStockBenefitProgress({ ...input, requiredShares: 300, increment: 2,
+      position: { ...position, bonus: { ...position.bonus!, available: true } },
+    })).toEqual({ state: "next_cycle" });
+  });
+
+  it("does not borrow another block's timing for manually marked ownership", () => {
+    expect(ownedStockBenefitProgress({ ...input, requiredShares: 700, increment: 3 })).toEqual({ state: "unavailable" });
+    expect(ownedStockBenefitProgress({ ...input, position: undefined })).toEqual({ state: "unavailable" });
+  });
+
+  it("keeps missing timing unavailable", () => {
+    for (const bonus of [null, { ...position.bonus!, progress: null }, { ...position.bonus!, frequency: null }, { ...position.bonus!, increment: null }, { ...position.bonus!, progress: 8 }]) {
+      expect(ownedStockBenefitProgress({ ...input, position: { ...position, bonus } })).toEqual({ state: "unavailable" });
+    }
+  });
+
+  it("does not infer a claimable reward from completed progress alone", () => {
+    expect(ownedStockBenefitProgress({ ...input, position: { ...position, bonus: { ...position.bonus!, progress: 7 } } }))
+      .toEqual({ state: "progress", days: 7, frequency: 7 });
+  });
+
+  it("handles passive activation without a dividend increment", () => {
+    expect(ownedStockBenefitProgress({ ...input, passive: true,
+      position: { ...position, bonus: { available: true, increment: null, progress: null, frequency: null } },
+    })).toEqual({ state: "ready" });
   });
 });
 

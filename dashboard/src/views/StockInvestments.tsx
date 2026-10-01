@@ -16,11 +16,13 @@ import {
 } from "../api";
 import { useAuth } from "../auth/AuthProvider";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
-import { formatNumber, formatRelativeTime } from "../utils/format";
+import { formatDate, formatNumber, formatRelativeTime } from "../utils/format";
 import { annualIncomeToWeekly, buildStockStrategyTimeline, stockStrategyIncomeSource, type StockStrategyIncomeSource, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
 import {
   ownedSharesMap,
+  ownedStockBenefitProgress,
   ownsStockIncrement,
+  type OwnedStockPosition,
   OwnedStockSnapshot,
   parseBankMeritsResponse,
   parseOwnedStocksResponse,
@@ -1046,7 +1048,14 @@ export function StockInvestments() {
         ) : rows.length === 0 ? (
           <EmptyState text="No investment opportunities match the current filters" />
         ) : (
-          <StockRoiTable rows={rows} ownedShares={ownedShares} manuallyOwnedRowIds={manualOwnedRowIds} lockedStockIds={lockedStockIds} hasOwnedSnapshot={hasOwnershipState} cityBankActive={cityBankActive} privateIslandActive={activePrivateIslandRentalCount > 0} fhgTciHybridActive={effectiveFhgTciHybridActive} fhgTciHybridBaselineShares={fhgTciHybridBaselineShares} fhgTciHybridReservedShares={fhgTciHybridReservedShares} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} onToggleOwned={toggleManualOwnedRow} />
+          <>
+            <p className="stock-payout-snapshot-note">
+              {ownedSnapshot
+                ? `Payout progress at last refresh: ${formatDate(ownedSnapshot.refreshed_at)}. Use Refresh owned stocks to update after collecting. Progress advances at Torn's daily rollover.`
+                : "Refresh owned stocks to load payout progress for your holdings."}
+            </p>
+            <StockRoiTable rows={rows} ownedShares={ownedShares} ownedSnapshot={ownedSnapshot} manuallyOwnedRowIds={manualOwnedRowIds} lockedStockIds={lockedStockIds} hasOwnedSnapshot={hasOwnershipState} cityBankActive={cityBankActive} privateIslandActive={activePrivateIslandRentalCount > 0} fhgTciHybridActive={effectiveFhgTciHybridActive} fhgTciHybridBaselineShares={fhgTciHybridBaselineShares} fhgTciHybridReservedShares={fhgTciHybridReservedShares} bankMerits={bankMerits} sort={roiSort} onSort={updateRoiSort} onToggleOwned={toggleManualOwnedRow} />
+          </>
         )}
       </section>
 
@@ -1097,6 +1106,7 @@ export function StockInvestments() {
 function StockRoiTable({
   rows,
   ownedShares,
+  ownedSnapshot,
   manuallyOwnedRowIds,
   lockedStockIds,
   hasOwnedSnapshot,
@@ -1112,6 +1122,7 @@ function StockRoiTable({
 }: {
   rows: StockInvestmentRecommendationRow[];
   ownedShares: Map<number, number>;
+  ownedSnapshot: OwnedStockSnapshot | null;
   manuallyOwnedRowIds: ReadonlySet<string>;
   lockedStockIds: ReadonlySet<number>;
   hasOwnedSnapshot: boolean;
@@ -1206,6 +1217,9 @@ function StockRoiTable({
                   <span className="stock-benefit-cell">
                     <strong>{row.benefit_description}</strong>
                     <small>{stockBenefitDetail(row, isStockRow, bankMerits)}</small>
+                    {isStockRow && ownsStockIncrement(owned, row.total_shares_required) ? (
+                      <StockPayoutProgress row={row} position={ownedSnapshot?.stocks.find((stock) => stock.stock_id === row.stock_id)} />
+                    ) : null}
                   </span>
                 </td>
                 <td className="stock-col-return" data-label="Annual">{formatMoney(row.annual_return)}</td>
@@ -1222,6 +1236,46 @@ function StockRoiTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function StockPayoutProgress({ row, position }: {
+  row: StockInvestmentRoiRow;
+  position: OwnedStockPosition | undefined;
+}) {
+  const passive = isBankInterestBonusRow(row);
+  const progress = ownedStockBenefitProgress({
+    position, requiredShares: row.total_shares_required ?? 0, increment: row.increment ?? 1, passive,
+  });
+  const label = passive ? "Activation" : "Payout";
+  if (progress.state === "unavailable") {
+    return <span className="stock-payout-progress"><small>{label} progress unavailable · refresh owned stocks</small></span>;
+  }
+  if (progress.state === "next_cycle") {
+    return <span className="stock-payout-progress"><small>Payout starts next cycle</small></span>;
+  }
+  if (progress.state === "ready") {
+    return <span className="stock-payout-progress ready"><small>{passive ? "Benefit active" : "Ready to collect"}</small></span>;
+  }
+  const remaining = progress.frequency - progress.days;
+  return (
+    <span className="stock-payout-progress">
+      <small>{label}: {progress.days}/{progress.frequency} days</small>
+      <span
+        className="stock-payout-progress-track"
+        role="progressbar"
+        aria-label={`${row.acronym ?? row.name ?? "Stock"} block ${row.increment} ${label.toLowerCase()} progress at last refresh`}
+        aria-valuemin={0}
+        aria-valuemax={progress.frequency}
+        aria-valuenow={progress.days}
+        aria-valuetext={`${progress.days} of ${progress.frequency} days`}
+      >
+        <span style={{ width: `${progress.days / progress.frequency * 100}%` }} />
+      </span>
+      <small>{remaining > 0
+        ? `${remaining} ${remaining === 1 ? "day" : "days"} ${passive ? "until active" : "remaining"}`
+        : "Cycle complete · refresh to confirm"}</small>
+    </span>
   );
 }
 

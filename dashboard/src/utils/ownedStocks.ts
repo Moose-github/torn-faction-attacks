@@ -70,6 +70,36 @@ export function ownsStockIncrement(ownedShares: number, totalSharesRequired: num
   return ownedShares > 0 && ownedShares >= totalSharesRequired;
 }
 
+export type OwnedStockBenefitProgress =
+  | { state: "unavailable" }
+  | { state: "next_cycle" }
+  | { state: "ready" }
+  | { state: "progress"; days: number; frequency: number };
+
+/** Report the imported snapshot, without projecting collections since its refresh. */
+export function ownedStockBenefitProgress(input: {
+  position: OwnedStockPosition | undefined;
+  requiredShares: number;
+  increment: number;
+  passive: boolean;
+}): OwnedStockBenefitProgress {
+  const { position, requiredShares, increment, passive } = input;
+  const bonus = position?.bonus;
+  if (!position || position.shares < requiredShares || !bonus) {
+    return { state: "unavailable" };
+  }
+  if (!passive) {
+    if (bonus.increment === null) return { state: "unavailable" };
+    // Additional owned blocks can be waiting for the current dividend cycle to finish.
+    if (increment > bonus.increment) return { state: "next_cycle" };
+  }
+  if (bonus.available === true) return { state: "ready" };
+  if (bonus.progress === null || bonus.frequency === null || bonus.progress > bonus.frequency) {
+    return { state: "unavailable" };
+  }
+  return { state: "progress", days: bonus.progress, frequency: bonus.frequency };
+}
+
 export function parseBankMeritsResponse(data: unknown): number | null {
   if (!isRecord(data)) {
     throw new Error("Torn merits response was not valid.");
@@ -213,7 +243,7 @@ function parseOwnedStockBonus(value: unknown): OwnedStockPosition["bonus"] {
   return {
     available: typeof value.available === "boolean" ? value.available : null,
     increment: nullablePositiveInteger(value.increment),
-    progress: nullablePositiveInteger(value.progress),
+    progress: value.progress === null || value.progress === undefined ? null : nonNegativeInteger(value.progress),
     frequency: nullablePositiveInteger(value.frequency),
   };
 }

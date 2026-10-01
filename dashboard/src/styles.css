@@ -1507,6 +1507,42 @@ h2 {
   min-width: 130px;
 }
 
+.stock-payout-snapshot-note {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+.stock-payout-progress {
+  display: grid;
+  gap: 4px;
+  margin-top: 5px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.stock-payout-progress-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--border-faint);
+}
+
+.stock-payout-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.stock-payout-progress.ready small {
+  color: #15803d;
+}
+
+:root[data-theme="dark"] .stock-payout-progress.ready small {
+  color: #86efac;
+}
+
 .stock-cost-cell {
   display: grid;
   gap: 3px;
