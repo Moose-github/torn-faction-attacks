@@ -1252,7 +1252,9 @@ function StockRoiTable({
                   <span className="stock-benefit-cell">
                     <strong>{row.benefit_description}</strong>
                     <small>{stockBenefitDetail(row, isStockRow, bankMerits)}</small>
-                    {isStockRow && ownsStockIncrement(owned, row.total_shares_required) ? (
+                    {row.investment_type === "city_bank" ? (
+                      <CityBankPayoutProgress snapshot={ownedSnapshot} />
+                    ) : isStockRow && ownsStockIncrement(owned, row.total_shares_required) ? (
                       <StockPayoutProgress row={row} position={ownedSnapshot?.stocks.find((stock) => stock.stock_id === row.stock_id)} />
                     ) : null}
                   </span>
@@ -1271,6 +1273,26 @@ function StockRoiTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function CityBankPayoutProgress({ snapshot }: { snapshot: OwnedStockSnapshot | null }) {
+  const investment = snapshot?.city_bank;
+  if (!snapshot || investment === undefined) {
+    return <span className="stock-payout-progress"><small>Bank timing unavailable · refresh owned stocks</small></span>;
+  }
+  if (investment === null) {
+    return <span className="stock-payout-progress"><small>No bank investment at last refresh</small></span>;
+  }
+  const daysRemaining = Math.max(0, (investment.until - snapshot.refreshed_at) / 86400);
+  const days = formatNumber(daysRemaining);
+  return (
+    <span className={`stock-payout-progress${daysRemaining === 0 ? " ready" : ""}`} title={`At last refresh: ${formatDate(snapshot.refreshed_at)}`}>
+      <small>{daysRemaining === 0
+        ? "Ready to withdraw"
+        : daysRemaining < 0.1 ? "Less than 0.1 days remaining" : `${days} ${days === "1" ? "day" : "days"} remaining`}</small>
+      <small>{investment.duration}-day term · Matures {formatDate(investment.until)}</small>
+    </span>
   );
 }
 
