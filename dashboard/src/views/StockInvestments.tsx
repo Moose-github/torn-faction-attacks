@@ -17,7 +17,7 @@ import {
 import { useAuth } from "../auth/AuthProvider";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { formatNumber, formatRelativeTime } from "../utils/format";
-import { annualIncomeToWeekly, buildStockStrategyTimeline, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
+import { annualIncomeToWeekly, buildStockStrategyTimeline, stockStrategyIncomeSource, type StockStrategyIncomeSource, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
 import {
   ownedSharesMap,
   ownsStockIncrement,
@@ -93,6 +93,7 @@ type OwnedInvestmentSummary = {
   annualReturn: number;
   dailyIncome: number;
   aprPercent: number | null;
+  incomeSources: StockStrategyIncomeSource[];
 };
 
 export function StockInvestments() {
@@ -121,6 +122,7 @@ export function StockInvestments() {
   });
   const [roiSort, setRoiSort] = React.useState<StockRoiSort>({ key: "roi_percent", direction: "desc" });
   const [strategyPanelTab, setStrategyPanelTab] = React.useState<StockStrategyPanelTab>("strategy");
+  const [showFundingBreakdowns, setShowFundingBreakdowns] = React.useState(false);
   const [isPlannerSetupOpen, setIsPlannerSetupOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "plannerSetup", true));
   const [isBenefitValuesOpen, setIsBenefitValuesOpen] = React.useState(() => readPanelOpenStorage(storageUserId, "benefitValues", true));
   const [ownedApiKey, setOwnedApiKey] = React.useState("");
@@ -522,7 +524,9 @@ export function StockInvestments() {
   const strategyTimeline = React.useMemo(() => buildStockStrategyTimeline(strategyPlan, {
     investmentIncomePerWeek: weeklyInvestmentIncome,
     additionalIncomePerWeek: weeklyAdditionalIncome,
-  }), [strategyPlan, weeklyInvestmentIncome, weeklyAdditionalIncome]);
+    investmentSources: ownedInvestmentSummary.incomeSources,
+    investmentIncomeOverridden: strategyCashInputs.investmentIncomePerWeek.trim() !== "",
+  }), [strategyPlan, weeklyInvestmentIncome, weeklyAdditionalIncome, ownedInvestmentSummary.incomeSources, strategyCashInputs.investmentIncomePerWeek]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
@@ -879,8 +883,23 @@ export function StockInvestments() {
       <section className="panel stock-next-buys-panel">
         <PanelHeader
           title="Investment strategy"
-          aside={rebalanceRecommendations.length + strategyPlan.steps.length > 0 ? `${formatNumber(rebalanceRecommendations.length + strategyPlan.steps.length)} ideas` : "No ideas"}
           icon={<BadgeDollarSign size={18} />}
+          control={(
+            <div className="stock-strategy-header-controls">
+              {strategyPanelTab === "strategy" ? (
+                <label className="stock-funding-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showFundingBreakdowns}
+                    onChange={(event) => setShowFundingBreakdowns(event.target.checked)}
+                    aria-controls="stock-strategy-path-panel"
+                  />
+                  <span>Show funding breakdowns</span>
+                </label>
+              ) : null}
+              <span>{rebalanceRecommendations.length + strategyPlan.steps.length > 0 ? `${formatNumber(rebalanceRecommendations.length + strategyPlan.steps.length)} ideas` : "No ideas"}</span>
+            </div>
+          )}
         />
         <div className="stock-strategy-tabs" role="tablist" aria-label="Investment strategy views">
           <button
@@ -958,6 +977,7 @@ export function StockInvestments() {
                       key={`${index}:${step.kind}:${step.recommendation.row.row_id}`}
                       step={step}
                       timing={timing}
+                      showFundingBreakdown={showFundingBreakdowns}
                       index={index}
                       bankMerits={bankMerits}
                     />
@@ -1667,11 +1687,13 @@ function RebalanceRecommendationRow({
 function StrategyStepRow({
   step,
   timing,
+  showFundingBreakdown,
   index,
   bankMerits,
 }: {
   step: StockStrategyStep;
   timing: Omit<StockStrategyTiming, "step">;
+  showFundingBreakdown: boolean;
   index: number;
   bankMerits: number;
 }) {
@@ -1720,7 +1742,75 @@ function StrategyStepRow({
           <small>ROI</small>
         </span>
       </div>
+      {showFundingBreakdown ? <StrategyFundingBreakdown step={step} timing={timing} index={index} /> : null}
     </div>
+  );
+}
+
+function StrategyFundingBreakdown({ step, timing, index }: {
+  step: StockStrategyStep;
+  timing: Omit<StockStrategyTiming, "step">;
+  index: number;
+}) {
+  const funding = timing.funding;
+  const conversion = step.recommendation.hybrid_conversion;
+  return (
+    <section className="stock-funding-breakdown" aria-label={`Funding for step ${index + 1}`}>
+      <h3>Where the money comes from</h3>
+      {!funding ? (
+        <p>This step needs more cash or weekly income before its funding can be estimated.</p>
+      ) : (
+        <>
+          <p>
+            {timing.wait_weeks === 0
+              ? "No saving time needed for this step."
+              : `Estimated income over ${formatStrategyWeeks(timing.wait_weeks ?? 0)} ${index === 0 ? "from now" : "since the previous purchase"}. Payout timing is averaged.`}
+          </p>
+          <dl>
+            <div>
+              <dt>{index === 0 ? "Cash available now" : "Cash carried from previous step"}</dt>
+              <dd>{formatMoney(funding.starting_cash)}</dd>
+            </div>
+            {funding.sales.map((sale) => (
+              <div key={`${sale.source_kind}:${sale.stock_id}:${sale.source_row_id}`}>
+                <dt>
+                  Sale of {saleLabel(sale)} {sale.source_kind === "synthetic" ? "holding" : "shares"}
+                  <small>{sale.source_kind === "stock" ? `${formatNumber(sale.shares)} shares; ` : ""}after {formatMoney(sale.sale_fee)} selling fee</small>
+                </dt>
+                <dd>{formatMoney(sale.sale_value)}</dd>
+              </div>
+            ))}
+            <div>
+              <dt>Investment income <small>Estimated during this saving period</small></dt>
+              <dd>{formatMoney(funding.investment_income)}</dd>
+            </div>
+            {funding.investment_income_sources.map((source) => (
+              <div className="stock-funding-source" key={source.id}>
+                <dt>{source.label}</dt>
+                <dd>{source.amount < 0 ? `−${formatMoney(-source.amount)}` : formatMoney(source.amount)}</dd>
+              </div>
+            ))}
+            <div>
+              <dt>Additional income <small>Estimated during this saving period</small></dt>
+              <dd>{formatMoney(funding.additional_income)}</dd>
+            </div>
+            <div className="stock-funding-total">
+              <dt>Total available</dt>
+              <dd>{formatMoney(funding.total_available)}</dd>
+            </div>
+            <div>
+              <dt>{conversion ? "Additional purchase cost" : "Purchase cost"}</dt>
+              <dd>{formatMoney(funding.purchase_cost)}</dd>
+            </div>
+            <div className="stock-funding-total">
+              <dt>Cash remaining</dt>
+              <dd>{formatMoney(funding.ending_cash)}</dd>
+            </div>
+          </dl>
+          {conversion ? <p>Reuses {formatMoney(conversion.capital)} of existing {conversion.acronym ?? "stock"} capital; this is not counted as new cash.</p> : null}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -2009,6 +2099,7 @@ function buildOwnedInvestmentSummary(input: {
   let stockBlockCount = 0;
   let invested = 0;
   let annualReturn = 0;
+  const incomeSources: StockStrategyIncomeSource[] = [];
 
   for (const row of input.rows) {
     if (!isStockInvestmentRow(row) && !isFhgTciHybridRow(row)) {
@@ -2027,17 +2118,20 @@ function buildOwnedInvestmentSummary(input: {
     stockBlockCount += 1;
     invested += row.increment_cost;
     annualReturn += row.annual_return;
+    incomeSources.push(stockStrategyIncomeSource(row));
   }
 
   const cityBankRow = input.rows.find((row) => row.investment_type === "city_bank") ?? null;
   if (input.cityBankActive && cityBankRow) {
     invested += cityBankRow.increment_cost;
     annualReturn += cityBankRow.annual_return;
+    incomeSources.push(stockStrategyIncomeSource(cityBankRow));
   }
 
   if (input.privateIslandRow && input.privateIslandCount > 0) {
     invested += input.privateIslandRow.increment_cost * input.privateIslandCount;
     annualReturn += input.privateIslandRow.annual_return * input.privateIslandCount;
+    incomeSources.push(stockStrategyIncomeSource(input.privateIslandRow, input.privateIslandRow.annual_return * input.privateIslandCount));
   }
 
   return {
@@ -2048,6 +2142,7 @@ function buildOwnedInvestmentSummary(input: {
     annualReturn,
     dailyIncome: annualReturn / 365,
     aprPercent: invested > 0 ? (annualReturn / invested) * 100 : null,
+    incomeSources,
   };
 }
 
