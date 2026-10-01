@@ -17,7 +17,8 @@ import {
 import { useAuth } from "../auth/AuthProvider";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { formatDate, formatNumber, formatRelativeTime } from "../utils/format";
-import { buildStockStrategyTimeline, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
+import { parseNumber } from "../utils/numberInput";
+import { buildStockStrategyTimeline, type StockStrategySavingsTarget, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
 import { applyImportedCityBankReturn, bankReturnProtectedStockIds, cityBankValuation } from "../utils/cityBankValuation";
 import { importOwnedStockPortfolio, type OwnedStockImportProgress } from "../utils/ownedStockImport";
 import {
@@ -51,6 +52,7 @@ import {
 } from "../utils/stockRecommendations";
 
 const DEFAULT_MINIMUM_ROI = "5";
+const MONEY_INPUT_HINT = "Enter a full amount or shorthand, e.g. 100m or 2.3b. Supports k, m, b and t.";
 const MANUAL_BENEFIT_VALUES_SECTION_ID = "stock-benefit-manual-values";
 const PRIVATE_ISLAND_ROW_ID = "private_island:rental";
 const DEFAULT_PRIVATE_ISLAND_COUNT = "0";
@@ -858,7 +860,8 @@ export function StockInvestments() {
               <label>
                 <span>Cost each</span>
                 <input
-                  inputMode="numeric"
+                  inputMode="text"
+                  title={MONEY_INPUT_HINT}
                   value={privateIslandInputs.costEach}
                   onChange={(event) => updatePrivateIslandInput("costEach", event.target.value)}
                   placeholder="1,700,000,000"
@@ -867,7 +870,8 @@ export function StockInvestments() {
               <label>
                 <span>Daily rent each</span>
                 <input
-                  inputMode="numeric"
+                  inputMode="text"
+                  title={MONEY_INPUT_HINT}
                   value={privateIslandInputs.dailyRentEach}
                   onChange={(event) => updatePrivateIslandInput("dailyRentEach", event.target.value)}
                   placeholder="900,000"
@@ -896,7 +900,8 @@ export function StockInvestments() {
               <label>
                 <span>Cash available now</span>
                 <input
-                  inputMode="numeric"
+                  inputMode="text"
+                  title={MONEY_INPUT_HINT}
                   value={investmentAmount}
                   onChange={(event) => updateStrategyCashInput("cashAvailable", event.target.value)}
                   placeholder="0"
@@ -913,7 +918,8 @@ export function StockInvestments() {
               <label>
                 <span>Additional income / week</span>
                 <input
-                  inputMode="decimal"
+                  inputMode="text"
+                  title={MONEY_INPUT_HINT}
                   value={strategyCashInputs.additionalIncomePerWeek}
                   onChange={(event) => updateStrategyCashInput("additionalIncomePerWeek", event.target.value)}
                   placeholder="0"
@@ -936,6 +942,7 @@ export function StockInvestments() {
             </button>
           </div>
           <p id="stock-strategy-income-help" className="stock-owned-settings-description">
+            Money inputs accept shorthand: 100m = $100,000,000 and 2.3b = $2,300,000,000.{" "}
             Investment income is a weekly reference calculated from your holdings; purchases use scheduled payouts.
             {" "}Additional income is money left after expenses, excluding investment income, and accrues evenly.
             {" "}Cash available now excludes uncollected stock rewards and bank interest, which the forecast credits when due.
@@ -1047,18 +1054,21 @@ export function StockInvestments() {
               ) : strategyTimeline.length === 0 ? (
                 <EmptyState text="No strategy path matches the current budget" />
               ) : (
-                <div className="stock-milestone-list">
-                  {strategyTimeline.map(({ step, ...timing }, index) => (
-                    <StrategyStepRow
-                      key={`${index}:${step.kind}:${step.recommendation.row.row_id}`}
-                      step={step}
-                      timing={timing}
-                      showFundingBreakdown={showFundingBreakdowns}
-                      index={index}
-                      bankMerits={bankMerits}
-                    />
-                  ))}
-                </div>
+                <>
+                  {strategyForecast.savings_target ? <SavingsTargetSummary target={strategyForecast.savings_target} asOf={strategyForecast.as_of} /> : null}
+                  <div className="stock-milestone-list">
+                    {strategyTimeline.map(({ step, ...timing }, index) => (
+                      <StrategyStepRow
+                        key={`${index}:${step.kind}:${step.recommendation.row.row_id}`}
+                        step={step}
+                        timing={timing}
+                        showFundingBreakdown={showFundingBreakdowns}
+                        index={index}
+                        bankMerits={bankMerits}
+                      />
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -1577,7 +1587,8 @@ function BenefitValueRow({
       <td>
         <input
           className="stock-benefit-value-input"
-          inputMode="numeric"
+          inputMode="text"
+          title={MONEY_INPUT_HINT}
           value={inputValue}
           onChange={(event) => onInputChange(benefit.benefit_key, event.target.value)}
           placeholder={benefit.default_value === null ? "Set value" : "Custom value"}
@@ -1838,6 +1849,29 @@ function RebalanceRecommendationRow({
   );
 }
 
+function SavingsTargetSummary({ target, asOf }: { target: StockStrategySavingsTarget; asOf: number | null }) {
+  const estimatedPurchase = target.purchase_at !== null
+    ? target.purchase_at === asOf ? "Now" : formatStrategyDate(target.purchase_at)
+    : target.status === "unfunded" ? "Needs more income or cash"
+      : target.status === "horizon" ? "Beyond the five-year forecast"
+        : "Not reached in this plan";
+  return (
+    <section className="stock-savings-target" aria-label="Current savings target">
+      <div className="stock-savings-target-header">
+        <h3>Savings target</h3>
+        <span>{formatPercent(target.recommendation.ranking_roi_percent)} ROI</span>
+      </div>
+      <strong className="stock-savings-target-name">{bestOpportunityTitle(target.recommendation.row)}</strong>
+      <dl className="stock-savings-target-metrics">
+        <div><dt>Purchase cost</dt><dd>{formatMoney(target.recommendation.estimated_cost)}</dd></div>
+        <div><dt>Cash gap at forecast start</dt><dd>{formatMoney(target.cash_shortfall)}</dd></div>
+        <div><dt>Estimated purchase</dt><dd>{estimatedPurchase}</dd></div>
+      </dl>
+      <p>The cash gap is after cash and ready rewards, before any stock sales. Timing follows the full plan, including intermediary purchases and income. Targets are reassessed as holdings change.</p>
+    </section>
+  );
+}
+
 function StrategyStepRow({
   step,
   timing,
@@ -1852,20 +1886,23 @@ function StrategyStepRow({
   bankMerits: number;
 }) {
   const recommendation = step.recommendation;
+  const isSavingsTarget = recommendation.row.row_id === timing.savings_target.row.row_id;
   const milestoneLabel = timing.elapsed_weeks === null
     ? `At ${formatInstructionMoney(step.cash_required)} cash`
     : timing.elapsed_weeks === 0 ? "Now" : `Est. in ${formatStrategyWeeks(timing.elapsed_weeks)}`;
   return (
     <div className="stock-milestone-row">
-      <div>
+      <div className={isSavingsTarget ? "stock-savings-target-step-header" : undefined}>
         <strong>
           {formatNumber(index + 1)}. {milestoneLabel}
+          <em className="stock-rebalance-highlight">{isSavingsTarget ? "Savings target" : "Intermediary purchase"}</em>
           <em className="stock-rebalance-highlight">{timing.elapsed_weeks !== null && timing.elapsed_weeks > 0
             ? step.kind === "rebalance" ? "Scheduled rebalance" : "Scheduled purchase"
             : strategyReasonLabel(step)}</em>
         </strong>
         <small>{strategyStepTitle(step)}</small>
       </div>
+      {!isSavingsTarget ? <p className="stock-intermediary-purpose">Income-building purchase towards {bestOpportunityTitle(timing.savings_target.row)}.</p> : null}
       <p>{strategyStepDescription(step, bankMerits)}</p>
       <p>
         {timing.elapsed_weeks === null
@@ -2130,17 +2167,14 @@ function strategyRebalanceFundingDescription(step: StockStrategyStep): string {
   const holdingText = step.sales.length === 1
     ? "1 holding"
     : `${formatNumber(step.sales.length)} holdings`;
-  const feeText = step.rebalance && step.rebalance.sale_fee > 0
-    ? ` after ${formatInstructionMoney(step.rebalance.sale_fee)} sell fee`
-    : "";
-  return `${cashText} ${formatInstructionMoney(saleValue)} net sale value${feeText} from ${holdingText} to fund ${bestOpportunityTitle(step.recommendation.row)}.`;
+  return `${cashText} ${formatInstructionMoney(saleValue)} sale value from ${holdingText} to fund ${bestOpportunityTitle(step.recommendation.row)}.`;
 }
 
 function strategySaleDescription(step: StockStrategyStep): string {
   return step.sales
     .map((sale) => sale.source_kind === "synthetic"
       ? `${sale.acronym ?? "FHG/TCI Hybrid"} (${formatInstructionMoney(sale.sale_value)})`
-      : `${formatNumber(sale.shares)} ${saleLabel(sale)} (${formatInstructionMoney(sale.sale_value)})`)
+      : `${saleLabel(sale)} (${formatInstructionMoney(sale.sale_value)})`)
     .join(", ");
 }
 
@@ -2786,13 +2820,13 @@ function privateIslandRentalCount(inputs: PrivateIslandInputs): number {
 }
 
 function moneyInputValue(value: string): number | null {
-  const parsed = Number(value.replace(/[$,\s]/g, ""));
+  const parsed = value.includes("%") ? Number.NaN : parseNumber(value, Number.NaN);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function nonNegativeMoneyInputValue(value: string): number | null {
   if (value.trim() === "") return null;
-  const parsed = Number(value.replace(/[$,\s]/g, ""));
+  const parsed = value.includes("%") ? Number.NaN : parseNumber(value, Number.NaN);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 

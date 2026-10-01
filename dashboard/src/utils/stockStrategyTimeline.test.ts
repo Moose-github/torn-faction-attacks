@@ -34,6 +34,33 @@ function bank(until = START + 2 * DAY): CityBankInvestment {
 }
 
 describe("scheduled stock strategy", () => {
+  it("identifies the higher-ROI savings target behind an intermediary purchase and dates it from the full plan", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 1000, 100), row(2, 100, 9), row(3, 1200, 96)], [],
+      { additionalIncomePerWeek: 70, lockedStockIds: new Set([2]) }));
+    expect(result.timeline.slice(0, 2).map(entry => entry.step.recommendation.row.stock_id)).toEqual([2, 1]);
+    expect(result.timeline.slice(0, 2).map(entry => entry.savings_target.row.stock_id)).toEqual([1, 1]);
+    expect(result.savings_target).toMatchObject({ recommendation: { row: { stock_id: 1 }, estimated_cost: 1000 }, cash_shortfall: 1000,
+      status: "scheduled", purchase_at: result.timeline[1].purchase_at });
+    expect(result.timeline[1].purchase_at!).toBeGreaterThan(result.timeline[0].purchase_at!);
+    expect(result.timeline[2].savings_target.row.stock_id).toBe(3);
+  });
+
+  it("uses remaining shares for target cost and credits ready rewards without assuming stock sales", () => {
+    const result = buildStockStrategyTimeline(input([row(1, 1000, 100), row(2, 100, 10)],
+      [position(1, 0, 7, false, 250), position(2, 7, 7, true)], { budget: 20, additionalIncomePerWeek: 70 }));
+    expect(result.savings_target).toMatchObject({ recommendation: { row: { stock_id: 1 }, estimated_cost: 750 }, cash_shortfall: 720 });
+  });
+
+  it("does not invent target dates when income is absent or the horizon is exceeded", () => {
+    const args = input([row(1, 1000, 100)]);
+    expect(buildStockStrategyTimeline(args).savings_target).toMatchObject({ status: "unfunded", purchase_at: null, cash_shortfall: 1000 });
+    expect(buildStockStrategyTimeline({ ...args, additionalIncomePerWeek: 0.1 }).savings_target)
+      .toMatchObject({ status: "horizon", purchase_at: null });
+    expect(buildStockStrategyTimeline({ ...args, ownedSnapshot: null }).savings_target).toBeNull();
+    expect(buildStockStrategyTimeline({ ...args, budget: 1000 }).savings_target)
+      .toMatchObject({ status: "scheduled", purchase_at: START, cash_shortfall: 0 });
+  });
+
   it("converts annual income using seven days", () => expect(annualIncomeToWeekly(365)).toBe(7));
 
   it.each([[0, 7, 7], [3, 7, 4], [30, 31, 1]])("uses %s/%s actual progress", (progress, frequency, days) => {

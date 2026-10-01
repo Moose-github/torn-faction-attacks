@@ -616,13 +616,13 @@ export function nextScheduledStockStrategyStep(
   input: StockBuyRecommendationInput,
   previousSteps: StockStrategyStep[],
   limit = DEFAULT_STOCK_STRATEGY_STEP_LIMIT,
-): StockStrategyStep | null {
+): (StockStrategyStep & { savings_target: StockBuyRecommendation }) | null {
   const stepInput = { ...input, affordableOnly: false, budget: null, fhgTciHybridActive: false,
     fhgTciHybridBaselineShares: undefined, fhgTciHybridReservedShares: undefined };
   const snapshot = input.ownedSnapshot ?? { refreshed_at: 0, stocks: [] };
   const recommendations = recommendStockBuys(stepInput, Number.MAX_SAFE_INTEGER);
   const step = nextStrategyStep(stepInput, recommendations, snapshot, input.budget ?? 0, previousSteps, limit, null);
-  return step && strategyStepIsWorthAdding(step, previousSteps) ? step : null;
+  return step && strategyStepIsWorthAdding(step, previousSteps) ? { ...step, savings_target: recommendations[0] } : null;
 }
 
 function nextStrategyStep(

@@ -735,6 +735,77 @@ h2 {
   gap: 8px;
 }
 
+.stock-savings-target {
+  --savings-green: #166534;
+  --savings-bg: #ecfdf5;
+  --savings-border: #86cfa5;
+  margin: 12px 0;
+  border: 1px solid var(--savings-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+:root[data-theme="dark"] .stock-savings-target {
+  --savings-green: #86efac;
+  --savings-bg: #123527;
+  --savings-border: #286847;
+}
+
+.stock-savings-target-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  color: var(--savings-green);
+  background: var(--savings-bg);
+  border-bottom: 1px solid var(--savings-border);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.stock-savings-target-header h3 {
+  margin: 0;
+  color: inherit;
+  font-size: 0.9rem;
+}
+
+:root[data-theme="dark"] .stock-savings-target-header h3 {
+  color: var(--savings-green);
+}
+
+.stock-savings-target-name {
+  display: block;
+  padding: 12px 14px 0;
+  color: var(--text-heading);
+}
+
+.stock-savings-target-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 12px;
+  margin: 12px 14px;
+}
+
+.stock-savings-target-metrics dt,
+.stock-savings-target p {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.stock-savings-target-metrics dd {
+  margin: 4px 0 0;
+  color: var(--text-heading);
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.stock-savings-target p {
+  margin: 12px 14px;
+}
+
 .stock-milestone-row {
   display: grid;
   gap: 6px;
@@ -767,6 +838,16 @@ h2 {
   color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 850;
+}
+
+.stock-milestone-row .stock-savings-target-step-header strong,
+.stock-milestone-row .stock-savings-target-step-header small {
+  color: #166534;
+}
+
+:root[data-theme="dark"] .stock-milestone-row .stock-savings-target-step-header strong,
+:root[data-theme="dark"] .stock-milestone-row .stock-savings-target-step-header small {
+  color: #86efac;
 }
 
 .stock-milestone-row p {

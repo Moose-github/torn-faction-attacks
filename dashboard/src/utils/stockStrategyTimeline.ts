@@ -2,7 +2,7 @@ import { cityBankPrincipal, type OwnedStockSnapshot } from "./ownedStocks";
 import { applyImportedCityBankReturn, bankReturnProtectedStockIds } from "./cityBankValuation";
 import {
   DEFAULT_STOCK_STRATEGY_STEP_LIMIT, isFhgTciHybridRow, nextScheduledStockStrategyStep, recommendStockBuys,
-  type StockBuyRecommendationInput, type StockInvestmentRecommendationRow, type StockStrategySale, type StockStrategyStep,
+  type StockBuyRecommendation, type StockBuyRecommendationInput, type StockInvestmentRecommendationRow, type StockStrategySale, type StockStrategyStep,
 } from "./stockRecommendations";
 
 const DAY = 86_400;
@@ -35,6 +35,7 @@ export type StockStrategyFunding = {
 };
 export type StockStrategyTiming = {
   step: StockStrategyStep;
+  savings_target: StockBuyRecommendation;
   purchase_at: number | null;
   status: "scheduled" | "unfunded" | "horizon";
   wait_weeks: number | null;
@@ -43,12 +44,19 @@ export type StockStrategyTiming = {
   weekly_total_income_after: number | null;
   funding: StockStrategyFunding | null;
 };
+export type StockStrategySavingsTarget = {
+  recommendation: StockBuyRecommendation;
+  cash_shortfall: number;
+  purchase_at: number | null;
+  status: "scheduled" | "unfunded" | "horizon" | "not_scheduled";
+};
 export type StockStrategyForecast = {
   as_of: number | null;
   issues: string[];
   warnings: string[];
   weekly_investment_income: number | null;
   timeline: StockStrategyTiming[];
+  savings_target: StockStrategySavingsTarget | null;
 };
 export type StockStrategyTimelineInput = StockBuyRecommendationInput & {
   /** Unix seconds; supplied by the caller so simulation is deterministic. */
@@ -68,7 +76,7 @@ export function annualIncomeToWeekly(annualIncome: number): number { return annu
 /** Schedule payout events, retain surplus cash and select sales only at execution. */
 export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, limit = DEFAULT_STOCK_STRATEGY_STEP_LIMIT): StockStrategyForecast {
   const snapshot = input.ownedSnapshot;
-  const result: StockStrategyForecast = { as_of: snapshot?.refreshed_at || null, issues: [], warnings: [], weekly_investment_income: null, timeline: [] };
+  const result: StockStrategyForecast = { as_of: snapshot?.refreshed_at || null, issues: [], warnings: [], weekly_investment_income: null, timeline: [], savings_target: null };
   if (!snapshot || snapshot.refreshed_at <= 0 || utcDay(snapshot.refreshed_at) !== utcDay(input.asOf) || snapshot.refreshed_at > input.asOf) {
     result.issues.push("Refresh owned stocks today (UTC) to calculate payout dates. Historical collections are not assumed.");
     return result;
@@ -216,6 +224,11 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
       fhgTciHybridBaselineShares: undefined, fhgTciHybridReservedShares: undefined };
     const proposed = nextScheduledStockStrategyStep(stepInput, completed, limit);
     if (!proposed) break;
+    if (!result.savings_target) result.savings_target = {
+      recommendation: proposed.savings_target,
+      cash_shortfall: Math.max(0, proposed.savings_target.estimated_cost - cash),
+      purchase_at: null, status: "not_scheduled",
+    };
     if (proposed.extra_cash_needed > EPSILON) {
       const continuousPerSecond = weeklyAdditional / WEEK + rentalAnnual / YEAR;
       let cashTarget = cash + proposed.extra_cash_needed;
@@ -230,7 +243,7 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
       const futureStockIncome = [...schedules.values()].some((schedule) => !schedule.passive && schedule.rows.some((row) => row.benefit_value > 0));
       const futureBankIncome = bank && (bank.profit > 0 || (!importedBank && (bankRow?.annual_return ?? 0) > 0));
       if ((!futureStockIncome && !futureBankIncome && continuousPerSecond <= 0) || next > end || !Number.isFinite(next)) {
-        result.timeline.push({ step: proposed, purchase_at: null, status: !futureStockIncome && !futureBankIncome && continuousPerSecond <= 0 ? "unfunded" : "horizon",
+        result.timeline.push({ step: proposed, savings_target: proposed.savings_target, purchase_at: null, status: !futureStockIncome && !futureBankIncome && continuousPerSecond <= 0 ? "unfunded" : "horizon",
           wait_weeks: null, elapsed_weeks: null, weekly_investment_income_after: null, weekly_total_income_after: null, funding: null });
         break;
       }
@@ -259,7 +272,7 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
         profit: estimatedBankProfit(row.increment_cost, row.frequency_days), estimated: true };
     } else if (row.investment_type === "private_island") rentalAnnual += row.annual_return;
     const investmentSources = [...sources.values()];
-    result.timeline.push({ step, purchase_at: now, status: "scheduled", wait_weeks: (now - previousPurchase) / WEEK,
+    result.timeline.push({ step, savings_target: proposed.savings_target, purchase_at: now, status: "scheduled", wait_weeks: (now - previousPurchase) / WEEK,
       elapsed_weeks: (now - start) / WEEK, weekly_investment_income_after: weeklyIncome(),
       weekly_total_income_after: weeklyIncome() + weeklyAdditional,
       funding: { starting_cash: openingCash, sales: step.sales, investment_income: investmentSources.reduce((sum, source) => sum + source.amount, 0),
@@ -273,6 +286,20 @@ export function buildStockStrategyTimeline(input: StockStrategyTimelineInput, li
     additional = 0;
     payouts = [];
     sources = new Map();
+  }
+  if (result.savings_target) {
+    const target = result.savings_target.recommendation;
+    // A purchase of a later increment can also complete the initial target.
+    const reached = result.timeline.find(({ step, status }) => status === "scheduled" && (
+      step.recommendation.row.row_id === target.row.row_id || (
+        target.row.stock_id !== null && step.recommendation.row.stock_id === target.row.stock_id
+        && target.target_shares !== null && (step.recommendation.target_shares ?? 0) >= target.target_shares
+      )
+    ));
+    const last = result.timeline[result.timeline.length - 1];
+    result.savings_target.purchase_at = reached?.purchase_at ?? null;
+    result.savings_target.status = reached ? "scheduled"
+      : last?.status === "unfunded" || last?.status === "horizon" ? last.status : "not_scheduled";
   }
   result.warnings = [...new Set(result.warnings)];
   return result;

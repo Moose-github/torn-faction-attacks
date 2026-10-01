@@ -8,6 +8,8 @@ import {
   type EnhancerUseMode,
   type IgnoranceIsBlissInputs,
 } from "../utils/bookStrategy";
+import { parseNumber } from "../utils/numberInput";
+export { parseNumber } from "../utils/numberInput";
 
 export type BookStrategyMode = "enhancers" | "timing" | "iib" | "conclusions";
 export type EnergyMode = "total" | "breakdown";
@@ -339,27 +341,6 @@ export function buildLogStatTicks(maxStat: number): number[] {
 
 export function buildLogPercentTicks(): number[] {
   return IIB_Y_AXIS_TICKS;
-}
-
-export function parseNumber(value: string, fallback: number): number {
-  const normalized = value.trim().toLowerCase().replace(/[$,%\s,_]/g, "");
-  if (!normalized) {
-    return fallback;
-  }
-
-  const match = normalized.match(/^(-?(?:\d+|\d*\.\d+))(k|m|b|t)?$/);
-  if (!match) {
-    return fallback;
-  }
-
-  const multiplier = {
-    k: 1_000,
-    m: 1_000_000,
-    b: 1_000_000_000,
-    t: 1_000_000_000_000,
-  }[match[2] ?? ""] ?? 1;
-  const parsed = Number(match[1]) * multiplier;
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export function clampNumber(value: number, min: number, max: number): number {
