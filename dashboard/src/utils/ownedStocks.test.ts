@@ -5,6 +5,7 @@ import {
   ownsStockIncrement,
   type OwnedStockPosition,
   parseBankMeritsResponse,
+  parseCityBankResponse,
   parseOwnedStocksResponse,
   parseStoredOwnedStockSnapshot,
 } from "./ownedStocks";
@@ -114,6 +115,49 @@ describe("owned stock parsing", () => {
       stocks: [{ stock_id: 15, shares: 376_210, bonus: null }],
     });
     expect(parseStoredOwnedStockSnapshot({ stocks: [] })).toBeNull();
+  });
+});
+
+describe("City Bank imports", () => {
+  const investment = {
+    amount: 2_000_000_000, profit: 340_000_000, duration: 90,
+    interest_rate: 17, until: 1_800_000_000, invested_at: 1_792_224_000,
+  };
+
+  it("retains only the City Bank investment from the money response", () => {
+    expect(parseCityBankResponse({ money: {
+      wallet: 123_456, vault: 789_012, faction: { money: 99 },
+      city_bank: { ...investment, unrelated: "discard" },
+    } })).toEqual(investment);
+  });
+
+  it("distinguishes no investment from unavailable bank information", () => {
+    expect(parseCityBankResponse({ money: { city_bank: null } })).toBeNull();
+    expect(() => parseCityBankResponse({ money: {} })).toThrow("incomplete");
+    expect(() => parseCityBankResponse({})).toThrow("did not include");
+    expect(() => parseCityBankResponse({ error: { code: 16, error: "Access level too low" } })).toThrow("Access level too low");
+  });
+
+  it.each([
+    { profit: null }, { profit: -1 }, { amount: "2000000000" },
+    { until: undefined }, { duration: 0 }, { interest_rate: Number.NaN },
+  ])("rejects incomplete or invalid bank fields: %j", (invalid) => {
+    expect(() => parseCityBankResponse({ money: { city_bank: { ...investment, ...invalid } } })).toThrow("incomplete");
+  });
+
+  it("allows zero profit and rates", () => {
+    expect(parseCityBankResponse({ money: { city_bank: { ...investment, profit: 0, interest_rate: 0 } } }))
+      .toEqual({ ...investment, profit: 0, interest_rate: 0 });
+  });
+
+  it("restores imported bank data and keeps old stock-only snapshots compatible", () => {
+    const snapshot = { refreshed_at: 1_799_000_000, stocks: [] };
+    expect(parseStoredOwnedStockSnapshot({ ...snapshot, city_bank: investment }))
+      .toEqual({ ...snapshot, city_bank: investment });
+    expect(parseStoredOwnedStockSnapshot({ ...snapshot, city_bank: null }))
+      .toEqual({ ...snapshot, city_bank: null });
+    expect(parseStoredOwnedStockSnapshot(snapshot)).toEqual(snapshot);
+    expect(parseStoredOwnedStockSnapshot({ ...snapshot, city_bank: { until: 123 } })).toEqual(snapshot);
   });
 });
 

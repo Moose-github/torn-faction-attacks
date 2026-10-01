@@ -25,6 +25,7 @@ import {
   type OwnedStockPosition,
   OwnedStockSnapshot,
   parseBankMeritsResponse,
+  parseCityBankResponse,
   parseOwnedStocksResponse,
   parseStoredOwnedStockSnapshot,
 } from "../utils/ownedStocks";
@@ -52,6 +53,7 @@ import {
 
 const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
 const TORN_USER_MERITS_URL = "https://api.torn.com/v2/user/merits";
+const TORN_USER_MONEY_URL = "https://api.torn.com/v2/user/money";
 const DEFAULT_MINIMUM_ROI = "5";
 const CITY_BANK_TERM_DAYS = 90;
 const MANUAL_BENEFIT_VALUES_SECTION_ID = "stock-benefit-manual-values";
@@ -262,23 +264,30 @@ export function StockInvestments() {
     setMessage(null);
     try {
       const refreshedAt = Math.floor(Date.now() / 1000);
-      const [snapshot, bankMeritResult] = await Promise.all([
+      const [stockSnapshot, bankMeritResult, cityBank] = await Promise.all([
         fetchOwnedStockSnapshot(trimmedKey, refreshedAt),
         fetchBankMerits(trimmedKey).catch((err) => {
           console.warn("Torn bank merits fetch failed:", err);
           return null;
         }),
+        fetchTornUserJson(TORN_USER_MONEY_URL, trimmedKey, "Torn bank response was not valid.")
+          .then(parseCityBankResponse)
+          .catch(() => undefined),
       ]);
 
+      const snapshot: OwnedStockSnapshot = { ...stockSnapshot, ...(cityBank !== undefined ? { city_bank: cityBank } : {}) };
       setOwnedSnapshot(snapshot);
       saveOwnedStocksStorage(storageUserId, trimmedKey, snapshot);
       if (bankMeritResult !== null) {
         setBankMerits(bankMeritResult);
         saveCityBankStorage(storageUserId, cityBankActive, bankMeritResult);
       }
-      setMessage(bankMeritResult === null
+      const stocksMessage = bankMeritResult === null
         ? `Owned stocks loaded: ${formatNumber(snapshot.stocks.length)} stocks. Bank merits were not found.`
-        : `Owned stocks loaded: ${formatNumber(snapshot.stocks.length)} stocks; bank merits set to ${formatNumber(bankMeritResult)}.`);
+        : `Owned stocks loaded: ${formatNumber(snapshot.stocks.length)} stocks; bank merits set to ${formatNumber(bankMeritResult)}.`;
+      setMessage(`${stocksMessage} ${cityBank === undefined
+        ? "Bank details could not be loaded. Refresh to try again."
+        : cityBank === null ? "Torn reported no City Bank investment." : "City Bank investment details loaded."}`);
     } catch (err) {
       const message = err instanceof TypeError
         ? "Could not fetch owned stocks directly from Torn. No server proxy is used for Limited keys."
@@ -648,9 +657,10 @@ export function StockInvestments() {
                   onChange={(event) => setOwnedApiKey(event.target.value)}
                   placeholder="Paste Limited key"
                   autoComplete="off"
+                  aria-describedby="stock-owned-api-disclosure"
                 />
                 <small className="stock-owned-key-note">
-                  Stored only in this browser. Never sent to our server; used only for direct Torn owned-stocks and merits requests.
+                  Stored only in this browser.
                 </small>
               </label>
               <button
@@ -658,6 +668,7 @@ export function StockInvestments() {
                 className="panel-action-button secondary"
                 disabled={isRefreshingOwnedStocks}
                 onClick={refreshOwnedStocks}
+                aria-describedby="stock-owned-api-disclosure"
               >
                 <RefreshCw size={14} className={isRefreshingOwnedStocks ? "spinning-icon" : ""} />
                 {isRefreshingOwnedStocks ? "Refreshing" : "Refresh owned stocks"}
@@ -672,6 +683,11 @@ export function StockInvestments() {
                 Clear
               </button>
             </div>
+            <p id="stock-owned-api-disclosure" className="stock-owned-settings-description">
+              Refresh owned stocks calls Torn's stocks, merits and money endpoints directly from your browser.
+              We save your key, holdings, bank merits and City Bank investment details (amount, profit, term, interest rate and dates)
+              only in this browser; none are sent to our server. The money response also includes other balances, which we discard.
+            </p>
           </div>
 
           <div className="stock-owned-settings-section">
@@ -708,6 +724,25 @@ export function StockInvestments() {
                   }}
                 />
               </label>
+            </div>
+            <div className="stock-owned-settings-description" role="group" aria-label="Imported City Bank details">
+              {ownedSnapshot?.city_bank === undefined ? (
+                <p>Bank details not loaded. Use Refresh owned stocks to import them from Torn.</p>
+              ) : ownedSnapshot.city_bank === null ? (
+                <p>No City Bank investment reported by Torn at the last refresh ({formatDate(ownedSnapshot.refreshed_at)}).</p>
+              ) : (
+                <>
+                  <p>
+                    Imported investment: {formatMoney(ownedSnapshot.city_bank.amount)} principal · {formatMoney(ownedSnapshot.city_bank.profit)} profit · {ownedSnapshot.city_bank.duration}-day term.
+                  </p>
+                  <p>
+                    {ownedSnapshot.city_bank.until <= ownedSnapshot.refreshed_at
+                      ? "Ready to withdraw at last refresh."
+                      : `Matures ${formatDate(ownedSnapshot.city_bank.until)} · ${formatNumber((ownedSnapshot.city_bank.until - ownedSnapshot.refreshed_at) / 86400)} days remaining at last refresh.`}
+                    {" "}Updated {formatDate(ownedSnapshot.refreshed_at)}.
+                  </p>
+                </>
+              )}
             </div>
           </div>
 

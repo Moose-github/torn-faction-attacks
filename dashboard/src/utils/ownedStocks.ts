@@ -12,6 +12,17 @@ export type OwnedStockPosition = {
 export type OwnedStockSnapshot = {
   refreshed_at: number;
   stocks: OwnedStockPosition[];
+  // Undefined means not loaded; null means Torn reported no bank investment.
+  city_bank?: CityBankInvestment | null;
+};
+
+export type CityBankInvestment = {
+  amount: number;
+  profit: number;
+  duration: number;
+  interest_rate: number;
+  until: number;
+  invested_at: number;
 };
 
 const BANK_MERIT_MIN = 0;
@@ -48,11 +59,35 @@ export function parseStoredOwnedStockSnapshot(data: unknown): OwnedStockSnapshot
     return null;
   }
 
+  const cityBank = data.city_bank === null ? null : parseCityBankInvestment(data.city_bank) ?? undefined;
   return {
     refreshed_at: refreshedAt,
     stocks: data.stocks
       .map(parseOwnedStockPosition)
       .filter((stock): stock is OwnedStockPosition => Boolean(stock)),
+    ...(cityBank !== undefined ? { city_bank: cityBank } : {}),
+  };
+}
+
+/** Discard every other balance returned by the money endpoint. */
+export function parseCityBankResponse(data: unknown): CityBankInvestment | null {
+  if (!isRecord(data)) throw new Error("Torn bank response was not valid.");
+  throwTornApiError(data);
+  if (!isRecord(data.money)) throw new Error("Torn response did not include bank details.");
+  if (data.money.city_bank === null) return null;
+  const investment = parseCityBankInvestment(data.money.city_bank);
+  if (!investment) throw new Error("Torn bank investment details were incomplete.");
+  return investment;
+}
+
+function parseCityBankInvestment(value: unknown): CityBankInvestment | null {
+  if (!isRecord(value)) return null;
+  const integerFields = ["amount", "profit", "duration", "until", "invested_at"] as const;
+  if (integerFields.some((field) => typeof value[field] !== "number" || !Number.isSafeInteger(value[field]) || value[field] < 0)) return null;
+  if (Number(value.duration) <= 0 || typeof value.interest_rate !== "number" || !Number.isFinite(value.interest_rate) || value.interest_rate < 0) return null;
+  return {
+    amount: Number(value.amount), profit: Number(value.profit), duration: Number(value.duration),
+    interest_rate: value.interest_rate, until: Number(value.until), invested_at: Number(value.invested_at),
   };
 }
 
