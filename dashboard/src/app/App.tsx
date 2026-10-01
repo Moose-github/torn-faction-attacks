@@ -1025,7 +1025,7 @@ function ApiKeyUseNotice() {
         </div>
         <div>
           <dt>Key access level</dt>
-          <dd>Public access is enough for everything.</dd>
+          <dd>Public access is enough to sign in. Stock ROI portfolio imports require a Limited access key, entered separately on that page.</dd>
         </div>
       </dl>
     </section>

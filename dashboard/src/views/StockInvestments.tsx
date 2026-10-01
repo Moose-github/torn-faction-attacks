@@ -19,6 +19,7 @@ import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common"
 import { formatDate, formatNumber, formatRelativeTime } from "../utils/format";
 import { buildStockStrategyTimeline, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
 import { applyImportedCityBankReturn, bankReturnProtectedStockIds, cityBankValuation } from "../utils/cityBankValuation";
+import { importOwnedStockPortfolio, type OwnedStockImportProgress } from "../utils/ownedStockImport";
 import {
   ownedSharesMap,
   ownedSnapshotWithShares,
@@ -26,9 +27,6 @@ import {
   ownsStockIncrement,
   type OwnedStockPosition,
   OwnedStockSnapshot,
-  parseBankMeritsResponse,
-  parseCityBankResponse,
-  parseOwnedStocksResponse,
   parseStoredOwnedStockSnapshot,
 } from "../utils/ownedStocks";
 import {
@@ -52,9 +50,6 @@ import {
   type StockStrategyStep,
 } from "../utils/stockRecommendations";
 
-const TORN_OWNED_STOCKS_URL = "https://api.torn.com/v2/user/stocks";
-const TORN_USER_MERITS_URL = "https://api.torn.com/v2/user/merits";
-const TORN_USER_MONEY_URL = "https://api.torn.com/v2/user/money";
 const DEFAULT_MINIMUM_ROI = "5";
 const MANUAL_BENEFIT_VALUES_SECTION_ID = "stock-benefit-manual-values";
 const PRIVATE_ISLAND_ROW_ID = "private_island:rental";
@@ -137,6 +132,8 @@ export function StockInvestments() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshingBenefitPrices, setIsRefreshingBenefitPrices] = React.useState(false);
   const [isRefreshingOwnedStocks, setIsRefreshingOwnedStocks] = React.useState(false);
+  const [ownedImportProgress, setOwnedImportProgress] = React.useState<OwnedStockImportProgress | null>(null);
+  const ownedImportController = React.useRef<AbortController | null>(null);
   const [savingBenefitKey, setSavingBenefitKey] = React.useState<string | null>(null);
   const [savingDisabledStockId, setSavingDisabledStockId] = React.useState<number | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
@@ -261,48 +258,49 @@ export function StockInvestments() {
       return;
     }
 
+    ownedImportController.current?.abort();
+    const controller = new AbortController();
+    ownedImportController.current = controller;
     setIsRefreshingOwnedStocks(true);
     setError(null);
     setMessage(null);
     try {
-      const refreshedAt = Math.floor(Date.now() / 1000);
-      const [stockSnapshot, bankMeritResult, cityBank] = await Promise.all([
-        fetchOwnedStockSnapshot(trimmedKey, refreshedAt),
-        fetchBankMerits(trimmedKey).catch((err) => {
-          console.warn("Torn bank merits fetch failed:", err);
-          return null;
-        }),
-        fetchTornUserJson(TORN_USER_MONEY_URL, trimmedKey, "Torn bank response was not valid.")
-          .then(parseCityBankResponse)
-          .catch(() => undefined),
-      ]);
-
-      const snapshot: OwnedStockSnapshot = { ...stockSnapshot, ...(cityBank !== undefined ? { city_bank: cityBank } : {}) };
-      setOwnedSnapshot(snapshot);
-      saveOwnedStocksStorage(storageUserId, trimmedKey, snapshot);
-      if (bankMeritResult !== null) {
-        setBankMerits(bankMeritResult);
-        saveCityBankStorage(storageUserId, cityBankActive, bankMeritResult);
-      }
-      const stocksMessage = bankMeritResult === null
-        ? `Owned stocks loaded: ${formatNumber(snapshot.stocks.length)} stocks. Bank merits were not found.`
-        : `Owned stocks loaded: ${formatNumber(snapshot.stocks.length)} stocks; bank merits set to ${formatNumber(bankMeritResult)}.`;
-      setMessage(`${stocksMessage} ${cityBank === undefined
-        ? "Bank details could not be loaded. Refresh to try again."
-        : cityBank === null ? "Torn reported no City Bank investment." : "City Bank investment details loaded."}`);
+      await importOwnedStockPortfolio(trimmedKey, controller.signal, (progress) => {
+        if (controller.signal.aborted || ownedImportController.current !== controller) return;
+        setOwnedImportProgress(progress);
+        if (progress.stocks.status === "loading") return;
+        setIsRefreshingOwnedStocks(false);
+        if (progress.stocks.status === "error") {
+          setError(progress.stocks.error);
+          return;
+        }
+        const snapshot: OwnedStockSnapshot = {
+          ...progress.stocks.value,
+          ...(progress.bank.status === "success" ? { city_bank: progress.bank.value } : {}),
+        };
+        setOwnedSnapshot(snapshot);
+        saveOwnedStocksStorage(storageUserId, trimmedKey, snapshot);
+        if (progress.merits.status === "success") {
+          setBankMerits(progress.merits.value);
+          saveCityBankStorage(storageUserId, manualCityBankActive, progress.merits.value);
+        }
+      });
     } catch (err) {
-      const message = err instanceof TypeError
-        ? "Could not fetch owned stocks directly from Torn. No server proxy is used for Limited keys."
-        : err instanceof Error
-          ? err.message
-          : String(err);
-      setError(message);
+      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsRefreshingOwnedStocks(false);
+      if (ownedImportController.current === controller) {
+        controller.abort();
+        ownedImportController.current = null;
+        setIsRefreshingOwnedStocks(false);
+      }
     }
   }
 
   function clearOwnedStocks() {
+    ownedImportController.current?.abort();
+    ownedImportController.current = null;
+    setIsRefreshingOwnedStocks(false);
+    setOwnedImportProgress(null);
     setOwnedApiKey("");
     setOwnedSnapshot(null);
     setManualOwnedRowIds(new Set());
@@ -314,6 +312,11 @@ export function StockInvestments() {
     setError(null);
     setMessage("Owned stock highlights cleared");
   }
+
+  React.useEffect(() => () => {
+    ownedImportController.current?.abort();
+    ownedImportController.current = null;
+  }, []);
 
   function toggleManualOwnedRow(row: StockInvestmentRecommendationRow, owned: boolean) {
     if (row.investment_type === "city_bank") {
@@ -669,7 +672,7 @@ export function StockInvestments() {
                   aria-describedby="stock-owned-api-disclosure"
                 />
                 <small className="stock-owned-key-note">
-                  Stored only in this browser.
+                  Limited access is required for portfolio imports. Public keys work for sign-in only. Stored only in this browser.
                 </small>
               </label>
               <button
@@ -692,6 +695,19 @@ export function StockInvestments() {
                 Clear
               </button>
             </div>
+            {ownedImportProgress ? (
+              <div className="stock-owned-settings-description" role="status" aria-label="Portfolio import status">
+                <p>{ownedImportProgress.stocks.status === "loading" ? "Loading stock holdings…"
+                  : ownedImportProgress.stocks.status === "success" ? `Owned stocks loaded: ${formatNumber(ownedImportProgress.stocks.value.stocks.length)} stocks.`
+                    : ownedImportProgress.stocks.error}</p>
+                <p>{ownedImportProgress.bank.status === "loading" ? "Loading City Bank details separately…"
+                  : ownedImportProgress.bank.status === "error" ? ownedImportProgress.bank.error
+                    : ownedImportProgress.bank.value === null ? "Torn reported no City Bank investment." : "City Bank investment details loaded."}</p>
+                <p>{ownedImportProgress.merits.status === "loading" ? "Loading bank merits separately…"
+                  : ownedImportProgress.merits.status === "error" ? ownedImportProgress.merits.error
+                    : `Bank merits loaded: ${formatNumber(ownedImportProgress.merits.value)}/10.`}</p>
+              </div>
+            ) : null}
             <p id="stock-owned-api-disclosure" className="stock-owned-settings-description">
               Refresh owned stocks calls Torn's stocks, merits and money endpoints directly from your browser.
               We save your key, holdings, bank merits and City Bank investment details (amount, profit, term, interest rate and dates)
@@ -740,7 +756,7 @@ export function StockInvestments() {
             </div>
             <div className="stock-owned-settings-description" role="group" aria-label="Imported City Bank details">
               {ownedSnapshot?.city_bank === undefined ? (
-                <p>Bank details not loaded. Use Refresh owned stocks to import them from Torn.</p>
+                <p>{ownedImportProgress?.bank.status === "loading" ? "Loading bank details from Torn…" : "Bank details not loaded. Use Refresh owned stocks to import them from Torn."}</p>
               ) : ownedSnapshot.city_bank === null ? (
                 <p>No City Bank investment reported by Torn at the last refresh ({formatDate(ownedSnapshot.refreshed_at)}).</p>
               ) : (
@@ -1024,6 +1040,8 @@ export function StockInvestments() {
               {strategyForecast.warnings.map((warning) => <p key={warning} className="stock-owned-settings-description">{warning}</p>)}
               {invalidStrategyCashInputs ? (
                 <EmptyState text="Enter valid cash and weekly income amounts to estimate the strategy path" />
+              ) : ownedImportProgress?.stocks.status === "success" && ownedImportProgress.bank.status === "loading" ? (
+                <EmptyState text="Your holdings are loaded. Payout planning will be available when City Bank details finish loading." />
               ) : strategyForecast.issues.length > 0 ? (
                 <div role="status">{strategyForecast.issues.map((issue) => <EmptyState key={issue} text={issue} />)}</div>
               ) : strategyTimeline.length === 0 ? (
@@ -2135,38 +2153,6 @@ function saleLabel(sale: StockStrategyStep["sales"][number] | null): string {
 
 function stockSaleFallbackLabel(stockId: number | null): string {
   return stockId === null ? "FHG/TCI Hybrid" : `#${stockId}`;
-}
-
-async function fetchOwnedStockSnapshot(apiKey: string, refreshedAt: number): Promise<OwnedStockSnapshot> {
-  const data = await fetchTornUserJson(TORN_OWNED_STOCKS_URL, apiKey, "Torn owned stocks response was not valid.");
-  return parseOwnedStocksResponse(data, refreshedAt);
-}
-
-async function fetchBankMerits(apiKey: string): Promise<number | null> {
-  const data = await fetchTornUserJson(TORN_USER_MERITS_URL, apiKey, "Torn merits response was not valid.");
-  return parseBankMeritsResponse(data);
-}
-
-async function fetchTornUserJson(url: string, apiKey: string, invalidResponseMessage: string): Promise<unknown> {
-  const response = await fetch(`${url}?key=${encodeURIComponent(apiKey)}`, {
-    headers: { Accept: "application/json" },
-  });
-
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch {
-    throw new Error(invalidResponseMessage);
-  }
-
-  if (!response.ok) {
-    if (data && typeof data === "object" && "error" in data) {
-      return data;
-    }
-    throw new Error("Could not fetch directly from Torn. No server proxy is used for Limited keys.");
-  }
-
-  return data;
 }
 
 function buildPrivateIslandRentalRow(inputs: PrivateIslandInputs): PrivateIslandRentalRow | null {
