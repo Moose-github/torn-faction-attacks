@@ -53,7 +53,7 @@ export function PracticalPhases({ war, admin = false, collapsible = false, onCha
     setDraft({ action, phase_id: phase?.id, revision: data.practical_revision,
       target: phase?.target == null ? "" : String(phase.target),
       start: dateInput(phase?.start_time ?? phase?.scheduled_start ?? (action === "add_history" ? now - 3600 : now + 3600)),
-      finish: dateInput(phase?.finish_time ?? now) });
+      finish: dateInput(phase?.finish_time ?? null) });
   }
   async function mutate(body: Record<string, unknown>) {
     setBusy(true); setError(null);
@@ -111,7 +111,11 @@ export function PracticalPhases({ war, admin = false, collapsible = false, onCha
       {draft.action !== "remove_history" && <>
         <label>Cumulative faction target<input type="number" min="0.01" step="any" required value={draft.target} onChange={(e) => setDraft({ ...draft, target: e.target.value })} /></label>
         {!["reopen", "set_target"].includes(draft.action) && <label>Start (TCT / UTC)<input type="datetime-local" step="1" required value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} /></label>}
-        {history && <label>Finish (TCT / UTC)<input type="datetime-local" step="1" required value={draft.finish} onChange={(e) => setDraft({ ...draft, finish: e.target.value })} /></label>}
+        {history && <div>
+          <label>Finish (TCT / UTC, optional)<input type="datetime-local" step="1" value={draft.finish} onChange={(e) => setDraft({ ...draft, finish: e.target.value })} /></label>
+          <p>Leave blank to finish at the attack that reaches the cumulative target. If the war is still open and the target has not been reached, the phase stays open and closes automatically.</p>
+          {draft.finish && <button type="button" onClick={() => setDraft({ ...draft, finish: "" })}>Use score target</button>}
+        </div>}
       </>}
       <div className="practical-phase-actions"><button type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</button><button type="button" disabled={busy} onClick={() => setDraft(null)}>Cancel</button></div>
     </form>}

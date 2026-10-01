@@ -95,6 +95,48 @@ export async function reconcilePracticalPhaseStats(env: Env, warId: number): Pro
   await bumpGlobalWarCacheVersion(env);
 }
 
+type PhaseScoreRow = { id: number; at: number; respect_gain: number };
+
+async function readPhaseScoreRows(env: Env, war: PhaseWar, through: number): Promise<PhaseScoreRow[]> {
+  return (await env.DB.prepare(`SELECT id, COALESCE(ended, started) AS at, respect_gain FROM attacks
+    WHERE attacker_faction_id = ? AND defender_faction_id = ? AND started >= ?
+      AND COALESCE(ended, started) <= ? AND respect_gain > 0
+    ORDER BY COALESCE(ended, started), id`).bind(HOME_FACTION_ID, war.enemy_faction_id,
+      war.official_start_time ?? war.practical_start_time, through).all<PhaseScoreRow>()).results ?? [];
+}
+
+function phaseScoreMatches(total: number, score: number | null, officiallyEnded: boolean): boolean {
+  if (score === null) return false;
+  // Final ranked-war reports truncate scores to whole respect.
+  return Math.abs(total - score) < 0.1 ||
+    (officiallyEnded && Number.isInteger(score) && total >= score && total - score < 1);
+}
+
+function phaseTargetCrossing(rows: PhaseScoreRow[], target: number | null): number | null {
+  let accumulated = 0;
+  return rows.find((row) => {
+    accumulated += row.respect_gain;
+    return target !== null && accumulated >= target;
+  })?.at ?? null;
+}
+
+async function automaticHistoryPhase(env: Env, war: PhaseWar, phase: PracticalPhase, now: number): Promise<PracticalPhase> {
+  const rows = await readPhaseScoreRows(env, war, Math.min(now, war.official_end_time ?? now));
+  const total = rows.reduce((sum, row) => sum + row.respect_gain, 0);
+  if (!phaseScoreMatches(total, war.official_home_score, war.official_end_time !== null)) {
+    throw new Error("Cannot determine the automatic finish until attack history matches the war score. Refresh war data or enter a finish time.");
+  }
+  const crossing = phaseTargetCrossing(rows, phase.target);
+  if (crossing !== null && crossing < phase.start_time!) {
+    throw new Error("The cumulative target was reached before this phase starts. Choose a higher target or an earlier start.");
+  }
+  if (crossing === null && (war.official_end_time !== null || war.status !== "active")) {
+    throw new Error("The target was not reached before the war ended. Choose a lower target or enter a finish time.");
+  }
+  return { ...phase, finish_time: crossing, status: crossing === null ? "active" : "completed",
+    reason: crossing === null ? null : "target_reached", effects_pending: crossing === null ? 1 : 0 };
+}
+
 export async function processPracticalPhases(env: Env, warId: number, score: number | null, observedAt: number, officialEnd: number | null = null): Promise<void> {
   const war = await readPhaseWar(env, warId);
   if (war.war_type !== "termed") return;
@@ -102,20 +144,13 @@ export async function processPracticalPhases(env: Env, warId: number, score: num
   const end = officialEnd ?? war.official_end_time;
   const needsScores = before.some((p) => p.removed_at === null &&
     (p.status === "active" || p.reason === "awaiting_reconciliation" || (p.status === "scheduled" && p.scheduled_start <= nowSeconds())));
-  const rows = needsScores ? (await env.DB.prepare(`SELECT id, COALESCE(ended, started) AS at, respect_gain FROM attacks
-    WHERE attacker_faction_id = ? AND defender_faction_id = ? AND started >= ?
-      AND COALESCE(ended, started) <= ? AND respect_gain > 0
-    ORDER BY COALESCE(ended, started), id`).bind(HOME_FACTION_ID, war.enemy_faction_id,
-      war.official_start_time ?? war.practical_start_time, Math.min(observedAt, end ?? observedAt))
-    .all<{ id: number; at: number; respect_gain: number }>()).results ?? [] : [];
+  const rows = needsScores ? await readPhaseScoreRows(env, war, Math.min(observedAt, end ?? observedAt)) : [];
   const total = rows.reduce((sum, row) => sum + row.respect_gain, 0);
   const after = before.map((phase) => {
     if (phase.removed_at !== null) return phase;
-    let accumulated = 0;
-    const crossing = rows.find((row) => { accumulated += row.respect_gain; return phase.target !== null && accumulated >= phase.target; });
     return resolvePhase(phase, { score: score ?? -1, observed_at: observedAt,
-      crossing_at: crossing?.at ?? null,
-      complete: score !== null && (score < (phase.target ?? Infinity) || Math.abs(total - score) < 0.1) }, nowSeconds(), end);
+      crossing_at: phaseTargetCrossing(rows, phase.target),
+      complete: score !== null && (score < (phase.target ?? Infinity) || phaseScoreMatches(total, score, end !== null)) }, nowSeconds(), end);
   });
   if (JSON.stringify(after) !== JSON.stringify(before)) await savePhaseTimeline(env, war, before, after, "automatic_transition", null);
   await reconcilePracticalPhaseStats(env, warId);
@@ -238,11 +273,14 @@ export async function mutatePracticalPhases(request: Request, url: URL, env: Env
       if (body.action === "remove_history") selected!.removed_at = now;
       else {
         const start = timestamp(body.start_time);
-        const finish = timestamp(body.finish_time);
-        if (finish > now) throw new Error("History must end in the past");
+        const finish = body.finish_time === undefined || body.finish_time === null || body.finish_time === ""
+          ? null : timestamp(body.finish_time);
+        if (start > now) throw new Error("History must start in the past");
+        if (finish !== null && finish > now) throw new Error("History must end in the past");
         const phase = body.action === "add_history" ? create(start) : selected!;
         Object.assign(phase, { target, scheduled_start: start, start_time: start, finish_time: finish,
           status: "completed", reason: "history_correction", effects_pending: 0 });
+        if (finish === null) Object.assign(phase, await automaticHistoryPhase(env, war, phase, now));
         if (body.action === "add_history") after.push(phase);
       }
     } else throw new Error("Unknown phase action");

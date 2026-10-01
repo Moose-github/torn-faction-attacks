@@ -9,6 +9,16 @@ Persisted state remains `none`, `upcoming`, `current`, or
 still commit the state, compatibility timestamps, revision, and audit together.
 Both write paths use the shared state type and identity validation.
 
+When adding or correcting a past phase, the finish time is optional. Leaving it
+blank reconstructs the first attack that reached the cumulative target, using
+respect earned across the whole official war, including gaps between phases.
+Attack totals must reconcile with the stored war score; final reports allow for
+truncation to whole respect. An unreached target stays active while the war is
+open and closes through normal phase processing. An ended war with an unreached
+target requires a different target or an explicit finish. Calculated windows
+still obey official bounds and overlap checks. Completed history corrections
+do not replay lifecycle notifications.
+
 The derived phases are `none`, `upcoming`, `preparation`, `current`,
 `practically_finished`, and `officially_ended`. Official completion takes
 precedence over stale current state. Confirmed termed phases govern reopening;

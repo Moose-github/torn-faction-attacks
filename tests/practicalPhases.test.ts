@@ -83,6 +83,91 @@ async function schedule(target = 9000) {
 }
 
 describe("practical phase database and lifecycle", () => {
+  it.each([
+    ["add_history", undefined], ["add_history", null], ["edit_history", ""],
+  ])("calculates the historical target crossing for %s with finish %s", async (action, finish) => {
+    war();
+    attack(1, base + 12 * 3600, 7000);
+    attack(2, base + 13 * 3600, 500); // Gap respect contributes to the cumulative target.
+    attack(3, base + 15 * 3600, 500);
+    attack(4, base + 16 * 3600, 1000);
+    attack(5, base + 19 * 3600, 500.75);
+    db.exec(`UPDATE wars SET status='ended', official_end_time=${base + 20 * 3600}, official_home_score=9500 WHERE id=1`);
+    let revision = 0;
+    let phaseId: string | undefined;
+    if (action === "edit_history") {
+      expect((await command({ action: "add_history", revision, target: 9000,
+        start_time: base + 14 * 3600, finish_time: base + 18 * 3600 })).status).toBe(200);
+      phaseId = (await readPracticalPhases(env, 1)).at(-1)!.id;
+      revision++;
+    }
+    const response = await command({ action, phase_id: phaseId, revision, target: 8000,
+      start_time: base + 14 * 3600, finish_time: finish });
+    expect(response.status).toBe(200);
+    expect((await readPracticalPhases(env, 1)).at(-1)).toMatchObject({
+      start_time: base + 14 * 3600, finish_time: base + 15 * 3600,
+      target: 8000, status: "completed", reason: "target_reached", effects_pending: 0,
+    });
+    expect(db.prepare("SELECT practical_finish_time, practical_revision FROM wars WHERE id=1").get())
+      .toEqual({ practical_finish_time: base + 15 * 3600, practical_revision: revision + 1 });
+    expect(db.prepare("SELECT respect_gained_raw FROM war_member_stats WHERE war_id=1").get()!.respect_gained_raw).toBe(7500);
+    expect(runPracticalPhaseHooks).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unfinished target phase open and closes at the future crossing attack", async () => {
+    war(); attack(1, base + 12 * 3600, 7000); attack(2, base + 13 * 3600, 500);
+    db.exec("UPDATE wars SET official_home_score=7500 WHERE id=1");
+    expect((await command({ action: "add_history", revision: 0, target: 8000,
+      start_time: base + 14 * 3600 })).status).toBe(200);
+    expect((await readPracticalPhases(env, 1)).at(-1)).toMatchObject({ status: "active", finish_time: null });
+    expect(db.prepare("SELECT practical_finish_time FROM wars WHERE id=1").get()!.practical_finish_time).toBeNull();
+    expect(db.prepare("SELECT war_state FROM sync_state WHERE name='attacks'").get()!.war_state).toBe("current");
+    attack(3, base + 26 * 3600, 600);
+    vi.setSystemTime((base + 27 * 3600) * 1000);
+    await processPracticalPhases(env, 1, 8100, base + 27 * 3600);
+    expect((await readPracticalPhases(env, 1)).at(-1)).toMatchObject({
+      status: "completed", finish_time: base + 26 * 3600, reason: "target_reached",
+    });
+    expect(db.prepare("SELECT respect_gained_raw FROM war_member_stats WHERE war_id=1").get()!.respect_gained_raw).toBe(7600);
+  });
+
+  it.each([
+    { score: null, target: 8000, error: "attack history matches" },
+    { score: 9000, target: 8000, error: "attack history matches" },
+    { score: 8000, target: 7000, error: "before this phase starts" },
+    { score: 8000, target: 9000, error: "not reached before the war ended" },
+  ])("rejects unresolvable automatic history without saving ($error, score $score)", async ({ score, target, error }) => {
+    war(); attack(1, base + 12 * 3600, 7000); attack(2, base + 16 * 3600, 1000);
+    db.prepare("UPDATE wars SET status='ended', official_end_time=?, official_home_score=? WHERE id=1")
+      .run(base + 20 * 3600, score);
+    const response = await command({ action: "add_history", revision: 0, target, start_time: base + 14 * 3600 });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ saved: false, error: expect.stringContaining(error) });
+    expect((await practicalPhaseSummary(env, 1)).practical_revision).toBe(0);
+    expect(await readPracticalPhases(env, 1)).toHaveLength(1);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM war_practical_phase_audit").get()!.n).toBe(0);
+  });
+
+  it("rejects a calculated finish that overlaps another recorded phase", async () => {
+    war(); attack(1, base + 12 * 3600, 7000); attack(2, base + 16 * 3600, 1000);
+    db.exec("UPDATE wars SET official_home_score=8000 WHERE id=1");
+    expect((await command({ action: "add_history", revision: 0, target: 9000,
+      start_time: base + 14 * 3600, finish_time: base + 18 * 3600 })).status).toBe(200);
+    const response = await command({ action: "edit_history", phase_id: "initial-1", revision: 1,
+      target: 8000, start_time: base, finish_time: null });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ saved: false, error: expect.stringContaining("must not overlap") });
+    expect((await readPracticalPhases(env, 1))[0].finish_time).toBe(base + 12 * 3600);
+  });
+
+  it("reconciles automatic closure against a truncated final report score", async () => {
+    war(null); attack(1, base + 12 * 3600, 7000.75);
+    await processPracticalPhases(env, 1, 7000, base + 25 * 3600, base + 20 * 3600);
+    expect((await readPracticalPhases(env, 1))[0]).toMatchObject({
+      status: "completed", finish_time: base + 12 * 3600, reason: "target_reached",
+    });
+  });
+
   it.each([false, true])("reconciles all excluded windows with a reopened phase (active: %s)", async (active) => {
     war();
     db.exec(`UPDATE wars SET official_start_time=${base - 3600}, official_end_time=${base + 30 * 3600} WHERE id=1`);
