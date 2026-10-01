@@ -17,6 +17,7 @@ import {
 import { useAuth } from "../auth/AuthProvider";
 import { CollapsiblePanel, EmptyState, PanelHeader } from "../components/Common";
 import { formatNumber, formatRelativeTime } from "../utils/format";
+import { annualIncomeToWeekly, buildStockStrategyTimeline, type StockStrategyTiming } from "../utils/stockStrategyTimeline";
 import {
   ownedSharesMap,
   ownsStockIncrement,
@@ -78,6 +79,12 @@ type PrivateIslandInputs = {
   vacantDays: string;
 };
 
+type StrategyCashInputs = {
+  cashAvailable: string;
+  investmentIncomePerWeek: string;
+  additionalIncomePerWeek: string;
+};
+
 type OwnedInvestmentSummary = {
   stockBlockCount: number;
   privateIslandCount: number;
@@ -95,7 +102,8 @@ export function StockInvestments() {
   const [benefits, setBenefits] = React.useState<StockBenefitValue[]>([]);
   const [disabledBenefitStocks, setDisabledBenefitStocks] = React.useState<StockBenefitDisabledStock[]>([]);
   const [benefitInputs, setBenefitInputs] = React.useState<Record<string, string>>({});
-  const [investmentAmount, setInvestmentAmount] = React.useState("");
+  const [strategyCashInputs, setStrategyCashInputs] = React.useState<StrategyCashInputs>(() => readStrategyCashInputs(storageUserId));
+  const investmentAmount = strategyCashInputs.cashAvailable;
   const [affordableOnly, setAffordableOnly] = React.useState(false);
   const [minimumRoi, setMinimumRoi] = React.useState(DEFAULT_MINIMUM_ROI);
   const [hideOwnedBlocks, setHideOwnedBlocks] = React.useState(false);
@@ -333,6 +341,14 @@ export function StockInvestments() {
     });
   }
 
+  function updateStrategyCashInput(key: keyof StrategyCashInputs, value: string) {
+    setStrategyCashInputs((current) => {
+      const next = { ...current, [key]: value };
+      saveStrategyCashInputs(storageUserId, next);
+      return next;
+    });
+  }
+
   function togglePlannerSetup() {
     setIsPlannerSetupOpen((current) => {
       const next = !current;
@@ -434,7 +450,7 @@ export function StockInvestments() {
 
   const ownedStockCount = ownedSnapshot?.stocks.filter((stock) => stock.shares > 0).length ?? 0;
   const ownedCoveredBlockCount = investmentRows.filter((row) => isStockInvestmentRow(row) && ownsStockIncrement(ownedShares.get(row.stock_id) ?? 0, row.total_shares_required ?? 0)).length;
-  const budget = moneyInputValue(investmentAmount);
+  const budget = nonNegativeMoneyInputValue(investmentAmount);
   const minRoi = percentInputValue(minimumRoi);
   const filteredRows = investmentRows.filter((row) => {
     if (isFhgTciHybridRow(row) && !cityBankActive) {
@@ -499,11 +515,19 @@ export function StockInvestments() {
     privateIslandRow: effectivePrivateIslandRow,
     privateIslandCount: activePrivateIslandRentalCount,
   }), [investmentRows, ownedShares, hasOwnershipState, cityBankActive, effectiveFhgTciHybridActive, fhgTciHybridBaselineShares, fhgTciHybridReservedShares, effectivePrivateIslandRow, activePrivateIslandRentalCount]);
+  const calculatedWeeklyInvestmentIncome = annualIncomeToWeekly(ownedInvestmentSummary.annualReturn);
+  const weeklyInvestmentIncome = nonNegativeMoneyInputValue(strategyCashInputs.investmentIncomePerWeek) ?? calculatedWeeklyInvestmentIncome;
+  const weeklyAdditionalIncome = nonNegativeMoneyInputValue(strategyCashInputs.additionalIncomePerWeek) ?? 0;
+  const invalidStrategyCashInputs = Object.values(strategyCashInputs).some((value) => value.trim() !== "" && nonNegativeMoneyInputValue(value) === null);
+  const strategyTimeline = React.useMemo(() => buildStockStrategyTimeline(strategyPlan, {
+    investmentIncomePerWeek: weeklyInvestmentIncome,
+    additionalIncomePerWeek: weeklyAdditionalIncome,
+  }), [strategyPlan, weeklyInvestmentIncome, weeklyAdditionalIncome]);
   const totalPricedRows = investmentRows.length;
   const missingValueCount = roiData?.skipped.unpriced ?? 0;
   const stockPricesRefreshedAt = roiData?.refreshed_at ?? null;
   const benefitValuesRefreshedAt = roiData?.benefit_prices_refreshed_at ?? null;
-  const recommendationFiltersActive = investmentAmount.trim() !== "";
+  const strategyCashInputsChanged = Object.values(strategyCashInputs).some((value) => value.trim() !== "");
   const tableFiltersActive = hideOwnedBlocks || minimumRoi.trim() !== DEFAULT_MINIMUM_ROI || affordableOnly;
   const activeFilterCount = [
     investmentAmount.trim() !== "",
@@ -581,8 +605,12 @@ export function StockInvestments() {
               <small>{ownedSnapshot ? "Stocks loaded" : "Snapshot"}</small>
             </span>
             <span>
-              <strong>{budget === null ? "Any" : formatMoney(budget)}</strong>
-              <small>Budget</small>
+              <strong>{formatMoney(budget ?? 0)}</strong>
+              <small>Cash now</small>
+            </span>
+            <span>
+              <strong>{invalidStrategyCashInputs ? "-" : formatMoney(weeklyInvestmentIncome + weeklyAdditionalIncome)}</strong>
+              <small>Income / week</small>
             </span>
             <span>
               <strong>{cityBankActive ? "Active" : "Inactive"}</strong>
@@ -785,39 +813,68 @@ export function StockInvestments() {
             </div>
           </div>
 
-          <div className="stock-owned-settings-section stock-planner-wide-section">
-            <div className="stock-owned-settings-title">
-              <strong>Strategy budget</strong>
-              <span>{recommendationFiltersActive ? "Used by strategy path" : "No budget limit"}</span>
-            </div>
-            <div className="stock-investment-controls">
-              <div className="stock-investment-control-fields">
-                <label>
-                  <span>Investment amount</span>
-                  <input
-                    inputMode="numeric"
-                    value={investmentAmount}
-                    onChange={(event) => setInvestmentAmount(event.target.value)}
-                    placeholder="Optional budget"
-                  />
-                </label>
-              </div>
-              <button
-                type="button"
-                className="panel-action-button secondary stock-investment-clear-button"
-                disabled={!recommendationFiltersActive}
-                onClick={() => {
-                  setInvestmentAmount("");
-                }}
-              >
-                <RotateCcw size={14} />
-                Clear budget
-              </button>
-            </div>
-          </div>
-
         </div>
       </CollapsiblePanel>
+
+      <section className="panel stock-cash-flow-panel">
+        <PanelHeader title="Strategy cash flow" aside="Income per week" icon={<BadgeDollarSign size={18} />} />
+        <div className="stock-cash-flow-content">
+          <div className="stock-investment-controls">
+            <div className="stock-investment-control-fields stock-strategy-cash-fields">
+              <label>
+                <span>Cash available now</span>
+                <input
+                  inputMode="numeric"
+                  value={investmentAmount}
+                  onChange={(event) => updateStrategyCashInput("cashAvailable", event.target.value)}
+                  placeholder="0"
+                />
+              </label>
+              <label>
+                <span>Investment income / week</span>
+                <input
+                  inputMode="decimal"
+                  value={strategyCashInputs.investmentIncomePerWeek}
+                  onChange={(event) => updateStrategyCashInput("investmentIncomePerWeek", event.target.value)}
+                  placeholder={formatMoney(calculatedWeeklyInvestmentIncome)}
+                  aria-describedby="stock-strategy-income-help"
+                />
+              </label>
+              <label>
+                <span>Additional income / week</span>
+                <input
+                  inputMode="decimal"
+                  value={strategyCashInputs.additionalIncomePerWeek}
+                  onChange={(event) => updateStrategyCashInput("additionalIncomePerWeek", event.target.value)}
+                  placeholder="0"
+                  aria-describedby="stock-strategy-income-help"
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              className="panel-action-button secondary stock-investment-clear-button"
+              disabled={!strategyCashInputsChanged}
+              onClick={() => {
+                const next = { cashAvailable: "", investmentIncomePerWeek: "", additionalIncomePerWeek: "" };
+                setStrategyCashInputs(next);
+                saveStrategyCashInputs(storageUserId, next);
+              }}
+            >
+              <RotateCcw size={14} />
+              Reset cash flow
+            </button>
+          </div>
+          <p id="stock-strategy-income-help" className="stock-owned-settings-description">
+            Leave investment income blank to use {formatMoney(calculatedWeeklyInvestmentIncome)} per week from your owned investments, including active bank and rentals.
+            {" "}Additional income is money left after expenses, excluding investment income.
+          </p>
+          <p className="stock-owned-settings-description">
+            All investment income is reinvested. Estimates average payouts across each week, including bank interest, and assume current prices and returns stay the same.
+          </p>
+          {invalidStrategyCashInputs ? <p role="alert" className="error-panel">Enter zero or a positive amount for each cash flow input.</p> : null}
+        </div>
+      </section>
 
       <section className="panel stock-next-buys-panel">
         <PanelHeader
@@ -890,14 +947,17 @@ export function StockInvestments() {
                 <strong>Strategy path</strong>
                 <span>ROI-first milestones</span>
               </div>
-              {strategyPlan.steps.length === 0 ? (
+              {invalidStrategyCashInputs ? (
+                <EmptyState text="Enter valid cash and weekly income amounts to estimate the strategy path" />
+              ) : strategyPlan.steps.length === 0 ? (
                 <EmptyState text="No strategy path matches the current budget" />
               ) : (
                 <div className="stock-milestone-list">
-                  {strategyPlan.steps.map((step, index) => (
+                  {strategyTimeline.map(({ step, ...timing }, index) => (
                     <StrategyStepRow
                       key={`${index}:${step.kind}:${step.recommendation.row.row_id}`}
                       step={step}
+                      timing={timing}
                       index={index}
                       bankMerits={bankMerits}
                     />
@@ -1606,15 +1666,19 @@ function RebalanceRecommendationRow({
 
 function StrategyStepRow({
   step,
+  timing,
   index,
   bankMerits,
 }: {
   step: StockStrategyStep;
+  timing: Omit<StockStrategyTiming, "step">;
   index: number;
   bankMerits: number;
 }) {
   const recommendation = step.recommendation;
-  const milestoneLabel = step.extra_cash_needed <= 0 ? "Now" : `At ${formatInstructionMoney(step.cash_required)} cash`;
+  const milestoneLabel = timing.elapsed_weeks === null
+    ? `At ${formatInstructionMoney(step.cash_required)} cash`
+    : timing.elapsed_weeks === 0 ? "Now" : `Est. in ${formatStrategyWeeks(timing.elapsed_weeks)}`;
   return (
     <div className="stock-milestone-row">
       <div>
@@ -1625,6 +1689,11 @@ function StrategyStepRow({
         <small>{strategyStepTitle(step)}</small>
       </div>
       <p>{strategyStepDescription(step, bankMerits)}</p>
+      <p>
+        {timing.elapsed_weeks === null
+          ? "Timing unavailable: this path needs more cash or weekly income before it can continue."
+          : `${formatMoney(timing.weekly_total_income_after)} per week available after this step, including reinvested returns and additional income.`}
+      </p>
       <div className="stock-milestone-metrics">
         <span>
           <strong>{formatMoney(recommendation.estimated_cost)}</strong>
@@ -1653,6 +1722,11 @@ function StrategyStepRow({
       </div>
     </div>
   );
+}
+
+function formatStrategyWeeks(weeks: number): string {
+  if (weeks < 0.1) return "less than 0.1 weeks";
+  return `${formatNumber(weeks)} ${Math.round(weeks * 10) === 10 ? "week" : "weeks"}`;
 }
 
 function rebalanceActionDescription(recommendation: StockRebalanceRecommendation, bankMerits: number): string {
@@ -2505,6 +2579,33 @@ function privateIslandRentalCount(inputs: PrivateIslandInputs): number {
 function moneyInputValue(value: string): number | null {
   const parsed = Number(value.replace(/[$,\s]/g, ""));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function nonNegativeMoneyInputValue(value: string): number | null {
+  if (value.trim() === "") return null;
+  const parsed = Number(value.replace(/[$,\s]/g, ""));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function readStrategyCashInputs(userId: number | null): StrategyCashInputs {
+  const defaults = { cashAvailable: "", investmentIncomePerWeek: "", additionalIncomePerWeek: "" };
+  if (!userId) return defaults;
+  try {
+    const saved: unknown = JSON.parse(window.localStorage.getItem(`stockRoiCashFlow:${userId}`) ?? "null");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return defaults;
+    const record = saved as Record<string, unknown>;
+    return {
+      cashAvailable: stringInput(record.cashAvailable, ""),
+      investmentIncomePerWeek: stringInput(record.investmentIncomePerWeek, ""),
+      additionalIncomePerWeek: stringInput(record.additionalIncomePerWeek, ""),
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveStrategyCashInputs(userId: number | null, inputs: StrategyCashInputs): void {
+  if (userId) window.localStorage.setItem(`stockRoiCashFlow:${userId}`, JSON.stringify(inputs));
 }
 
 function boundedWholeNumberInputValue(value: string, min: number, max: number): number | null {

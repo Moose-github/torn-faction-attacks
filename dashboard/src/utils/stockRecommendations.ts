@@ -626,10 +626,11 @@ function nextStrategyStep(
   }
 
   const targetSalePlan = buildStrategySalePlan(input.rows, snapshot, target, currentCash, lockedStockIds(input), hybridHolding);
-  const targetCashRequired = Math.max(0, target.estimated_cost - targetSalePlan.sale_value);
   const targetStep = strategySalePlanIsBeneficial(target, targetSalePlan)
     ? strategyRebalanceStep(target, targetSalePlan, currentCash)
     : strategyEntryStep(target, currentCash);
+  // Only count sale proceeds when the selected step actually includes those sales.
+  const targetCashRequired = targetStep.cash_required;
   const previousBestRoi = strategyBestPreviousRoi(previousSteps);
   const immediateStep = selectImmediateStrategyStep(input, recommendations, snapshot, currentCash, target, targetCashRequired, previousBestRoi, hybridHolding);
   if (immediateStep) {

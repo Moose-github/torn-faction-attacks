@@ -1662,6 +1662,62 @@ describe("stock buy recommendations", () => {
     ]);
   });
 
+  it.each([
+    { scenario: "sales that could fully fund the target", ownedShares: 2_000, intermediateCost: 100, budget: null },
+    { scenario: "sales combined with an existing cash budget", ownedShares: 2_000, intermediateCost: 100, budget: 50 },
+    { scenario: "sales that could only partly fund the target", ownedShares: 500, intermediateCost: 600, budget: null },
+  ])("ignores rejected $scenario when choosing intermediate purchases", ({ ownedShares, intermediateCost, budget }) => {
+    const plan = buildStockStrategyPlan({
+      rows: [
+        stockRow({
+          row_id: "stock:1:1", stock_id: 1, acronym: "KEEP", latest_price: 1,
+          required_shares: ownedShares, total_shares_required: ownedShares,
+          increment_cost: ownedShares, total_cost: ownedShares,
+          annual_return: 1_000, roi_percent: (1_000 / ownedShares) * 100,
+        }),
+        stockRow({
+          row_id: "stock:2:1", stock_id: 2, acronym: "MID", latest_price: 1,
+          required_shares: intermediateCost, total_shares_required: intermediateCost,
+          increment_cost: intermediateCost, total_cost: intermediateCost,
+          annual_return: intermediateCost * 0.35, roi_percent: 35,
+        }),
+        stockRow({
+          row_id: "stock:3:1", stock_id: 3, acronym: "TARGET", latest_price: 1,
+          required_shares: 1_000, total_shares_required: 1_000,
+          increment_cost: 1_000, total_cost: 1_000,
+          annual_return: 400, roi_percent: 40,
+        }),
+      ],
+      ownedSnapshot: {
+        refreshed_at: 1_800_000_000,
+        stocks: [{ stock_id: 1, shares: ownedShares, bonus: null }],
+      },
+      cityBankActive: false,
+      budget,
+      affordableOnly: false,
+      minimumRoi: null,
+    }, 2);
+
+    // Selling KEEP would lose more income than TARGET adds, so both buys
+    // must be funded with cash and MID should remain a useful earlier purchase.
+    expect(plan.steps.map((step) => ({
+      kind: step.kind,
+      row_id: step.recommendation.row.row_id,
+      cash_required: step.cash_required,
+      extra_cash_needed: step.extra_cash_needed,
+      sales: step.sales,
+    }))).toEqual([
+      {
+        kind: "buy", row_id: "stock:2:1", cash_required: intermediateCost,
+        extra_cash_needed: intermediateCost - (budget ?? 0), sales: [],
+      },
+      {
+        kind: "buy", row_id: "stock:3:1", cash_required: 1_000,
+        extra_cash_needed: 1_000, sales: [],
+      },
+    ]);
+  });
+
   it("prioritizes useful mid-tier strategy milestones over low-ROI ladder rungs", () => {
     const plan = buildStockStrategyPlan({
       rows: [
